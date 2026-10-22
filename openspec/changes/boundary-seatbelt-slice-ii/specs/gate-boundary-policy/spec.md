@@ -233,8 +233,8 @@ addendum, ruling 1).
 - **THEN** compilation is refused naming the token as a path the manifest walk does not pin
 
 #### Scenario: An inherited seat resolves against the layer that wrote it
-- **WHEN** `recipes/wager-harness`, which inherits its verify seat from `recipes/fast`, compiles under `harness`
-- **THEN** the verify seat is admitted, the file checked being `recipes/fast/scripts/verify-seat.sh`
+- **WHEN** `recipes/wager-harness`, which inherits its verify seat from `recipes/brokkr-fast`, compiles under `harness`
+- **THEN** the verify seat is admitted, the file checked being `recipes/brokkr-fast/scripts/verify-seat.sh`
 
 #### Scenario: The shipped ship gate under harness is admitted
 - **WHEN** the shipped ship seat, `["{brokkr}","driver","exec","--","bash","./scripts/ship-seat.sh","{prompt_file}","{brokkr}"]` with hands, compiles under `harness`
@@ -253,8 +253,8 @@ addendum, ruling 1).
 - **THEN** the re-walk names no key and the dispatch spawns
 
 #### Scenario: An inherited seat's ancestor is re-derived
-- **WHEN** `recipes/wager-harness`'s inherited verify seat reaches its spawn under `harness` after `recipes/fast/scripts/verify-seat.sh` was edited
-- **THEN** the ancestor's compose digest is re-derived and differs, and the dispatch is refused naming `fast` as the layer
+- **WHEN** `recipes/wager-harness`'s inherited verify seat reaches its spawn under `harness` after `recipes/brokkr-fast/scripts/verify-seat.sh` was edited
+- **THEN** the ancestor's compose digest is re-derived and differs, and the dispatch is refused naming `brokkr-fast` as the layer
 
 #### Scenario: A dialect step under harness is refused until a decision admits it
 - **WHEN** a fixture bundle with an artifact phase, its chief seated on a fixture provider that declares both `hands.harness` members as fragments, compiles under `harness` in a realm that declares a dialect

@@ -36,7 +36,10 @@ journal paths and would still freeze the implementation's sources.
    in `bundle/model_policy_tests.rs`, including both names in one layer.
 
 2. **Spawn checks the script directory against its compiled file map.**
-   Before every unboxed exec spawn, re-walk the directory containing the
+   Before every unboxed exec spawn, and every boxed one under `namespace`
+   before its box is built (amended 2026-10-22 by #832, operator ruling
+   "accept all"; the host-side directory, read before the box maps the
+   argv), re-walk the directory containing the
    script and its descendants. Refuse changed, missing or added files,
    naming the declaring layer and the actual file key. Keep ancestor
    file maps from the exact manifests hashed into their compose digests;
@@ -341,7 +344,9 @@ The proposed clarification keeps rulings 1 and 2 intact:
    dots/spaces before spawning. The failure names the path and the repair;
    it never substitutes another file or silently skips the pin.
    Plain exec sites without hands receive the same argument conversion,
-   retaining their inherited environment and absence of a re-walk. The
+   retaining their inherited environment, and are re-walked at spawn
+   like any unboxed exec dispatch (amended 2026-10-21 by #823, operator
+   ruling "823 a"; the first reading, no re-walk, is superseded). The
    engine token, interpreter tokens and subsequent unjudged arguments
    remain unchanged. Unix paths preserve every byte, including backslashes.
 

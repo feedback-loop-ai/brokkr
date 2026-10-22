@@ -1286,3 +1286,53 @@ fn a_run_is_concluded_only_once_it_completed_or_stopped() {
         "run 'r' is already concluded (completed); conclude appends nothing"
     );
 }
+
+#[test]
+fn panel_carry_extension_fields_do_not_change_the_fold() {
+    use EventType::*;
+    let mut journal: Vec<_> = [
+        (RunStarted, json!({"feature":"synthetic panel"})),
+        (PhaseEntered, json!({"phase":"work"})),
+        (
+            EffectRequested,
+            json!({"phase":"work","seat":"work","effect_id":"e1"}),
+        ),
+        (EffectStarted, json!({"effect_id":"e1","attempt_id":"a1"})),
+        (
+            EffectIndeterminate,
+            json!({"effect_id":"e1","attempt_id":"a1","reason":"b vanished"}),
+        ),
+        (RunParked, json!({"reason":"b vanished"})),
+        (
+            OperatorCommanded,
+            json!({"command":"retry","command_id":"c1","args":{}}),
+        ),
+        (OperatorAccepted, json!({"command_id":"c1"})),
+        (
+            EffectRequested,
+            json!({"phase":"work","seat":"work","effect_id":"e2"}),
+        ),
+        (EffectStarted, json!({"effect_id":"e2","attempt_id":"a2"})),
+        (
+            EffectFailed,
+            json!({"effect_id":"e2","attempt_id":"a2","error":"b failed"}),
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, (kind, payload))| {
+        let mut event = event(kind, payload);
+        event.seq = index as u64 + 1;
+        event
+    })
+    .collect();
+    let original = format!("{:?}", fold(&journal).unwrap());
+    for index in [4, 10] {
+        journal[index].payload["tree"] = json!({"at_start":"clean","at_end":"clean"});
+        journal[index].payload["head"] = json!({"at_start":"a".repeat(40),"at_end":"a".repeat(40)});
+        journal[index].payload["settled_members"] = json!({"a":{"result":"clean"}});
+    }
+    journal[6].payload["args"] = json!({"members":["b"]});
+    journal[9].payload["carried"] = json!([{"member":"a","attempt_id":"a1"}]);
+    assert_eq!(format!("{:?}", fold(&journal).unwrap()), original);
+}

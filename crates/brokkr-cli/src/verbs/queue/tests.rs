@@ -10,7 +10,19 @@ use clap::Parser;
 use serde_json::json;
 
 use super::*;
+use crate::tests::env_guard::EnvGuard;
 use crate::{failure_line, report, Cli, Cmd};
+
+/// A machine of the test's own (#783): the environment held for the
+/// test's whole body, with `XDG_CONFIG_HOME` at a directory the test owns
+/// and that holds no host configuration, so the verb reads neither the
+/// ambient `HOME` nor a value another test is writing.
+fn own_host() -> (EnvGuard, tempfile::TempDir) {
+    let mut env = EnvGuard::lock();
+    let config = tempfile::tempdir().unwrap();
+    env.set("XDG_CONFIG_HOME", config.path());
+    (env, config)
+}
 
 /// The exit a command that succeeded leaves with.
 fn completed() -> ExitCode {
@@ -53,6 +65,7 @@ fn listed(db: &Path) -> Vec<Judged> {
 
 #[test]
 fn the_queue_keeps_order_holds_and_runs_across_invocations() {
+    let _host = own_host();
     let dir = tempfile::tempdir().unwrap();
     let (ws, db) = library(&dir);
     let commands: [&[&str]; 6] = [
@@ -151,6 +164,7 @@ fn the_queue_keeps_order_holds_and_runs_across_invocations() {
 
 #[test]
 fn an_entry_names_the_workspace_it_was_queued_in_absolutely() {
+    let _host = own_host();
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
     let words = ["add", "--bundle", "b", "--feature", "f", "--reason", "r"];
@@ -165,6 +179,7 @@ fn an_entry_names_the_workspace_it_was_queued_in_absolutely() {
 /// judged, after which it is admissible.
 #[test]
 fn an_entry_held_for_a_changed_realm_is_released_by_repin() {
+    let _host = own_host();
     let dir = tempfile::tempdir().unwrap();
     let (ws, db) = library(&dir);
     let map = |boundary: &str| {
@@ -240,6 +255,7 @@ fn an_entry_held_for_a_changed_realm_is_released_by_repin() {
 /// not only through the handler this file calls directly.
 #[test]
 fn the_cli_dispatches_brokkr_queue_to_its_handler() {
+    let _host = own_host();
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
     Store::open(&db).unwrap();
@@ -256,6 +272,7 @@ fn an_empty_queue_says_so() {
 
 #[test]
 fn each_refusal_leaves_with_its_own_words() {
+    let _host = own_host();
     let dir = tempfile::tempdir().unwrap();
     let (ws, db) = library(&dir);
     let add = ["add", "--bundle", "b", "--feature", "f", "--reason", "r"];

@@ -47,8 +47,12 @@ use serde::Serialize;
 pub mod artifacts;
 mod boxed;
 mod broker;
-use boxed::{artifact_root, hands_command, make_root};
+use boxed::{artifact_root, boxed_spawn, make_root};
+// The test modules compare a box's argv through `use super::*`.
+#[cfg(test)]
+use boxed::hands_command;
 mod capability_calls;
+mod carry;
 mod checkpoints;
 mod decide;
 mod dispatch;
@@ -64,10 +68,19 @@ mod marks;
 pub use marks::SiteMarks;
 mod operator;
 mod panel;
+#[cfg(test)]
+mod panel_tests;
+mod worktree;
+use worktree::git_dirty;
+pub use worktree::git_head;
 mod replay;
 pub(crate) mod sequence;
 use operator::operator_stop_reason;
-use panel::{panel_outcome, start_failure_sites};
+#[cfg(test)]
+use panel::panel_outcome;
+use panel::start_failure_sites;
+#[cfg(test)]
+use panel::PanelAt;
 // The test modules build a member's run through `use super::*`.
 #[cfg(test)]
 use panel::MemberRun;
@@ -79,9 +92,10 @@ use brokkr_core::fold::{
     OperatorCommand::{self, Retry, Stop},
     Refusal,
 };
+pub use carry::CarryRefusal;
 pub use operator::{
     apply_fenced_operator_command, conclude, operator_command, operator_supersede, CommandWord,
-    ConcludeRefusal, FencedCommand, FencedCommandOutcome, Supersede,
+    ConcludeRefusal, FencedCommand, FencedCommandOutcome, MemberRetryOutcome, Supersede,
 };
 #[cfg(test)]
 use operator::{
@@ -1806,6 +1820,7 @@ fn site_label(site_name: &str, site: &Site) -> String {
 /// no exec row ever carries a confirmed root.
 #[derive(Debug, Default)]
 struct Selection {
+    carry: Option<carry::CarryPlan>,
     candidates: BTreeMap<Site, Candidate>,
     plans: BTreeMap<Site, SitePlan>,
     /// The brokers provisioning sealed, by site label (U7d2).
@@ -2168,8 +2183,8 @@ fn start_failure_fields(payload: &mut Value, selection: &Selection, sites: Vec<S
 }
 
 /// One composed invocation (decision 0046 ruling 4; design DD18): the
-/// argv, the environment it starts in, and — for an unboxed exec
-/// dispatch — the script directory the engine re-walks before the spawn.
+/// argv, the environment it starts in, and — for an exec dispatch, boxed
+/// or not (#832) — the script directory the engine re-walks before the spawn.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SiteSpawn {
     pub argv: Vec<String>,
@@ -2212,9 +2227,8 @@ pub struct SiteSpawn {
 pub const LAUNCH_RECORD: &str = "launch_record";
 
 impl SiteSpawn {
-    /// An argv in the engine's own environment with no re-walk: what
-    /// every site without hands, and every boxed site, spawns as. Every
-    /// token is the author's: nothing here was composed by the engine.
+    /// The author's argv in the engine's own environment, no re-walk: what a site that
+    /// is no exec dispatch spawns as, boxed (#832) or without hands (#823).
     pub fn inherit(argv: Vec<String>) -> SiteSpawn {
         SiteSpawn::of(vec![Segment::new(Origin::Authored, &argv)])
     }
@@ -2808,10 +2822,11 @@ pub(crate) fn is_exec_dispatch(command: &[String]) -> bool {
     crate::argv::Dispatch::of(command).is_exec()
 }
 
-/// The directory holding the first script token compile expanded from
-/// `./`. Later argv tokens are arguments, even when they name a root.
+/// The directory of the first script compile expanded from `./` in an exec
+/// dispatch's tail, `--` or not (#823); later tokens, even roots, are arguments.
 fn script_directory(command: &[String], roots: &[PathBuf]) -> Option<PathBuf> {
-    command.iter().skip(4).find_map(|part| {
+    let tail = crate::argv::Dispatch::of(command).exec_tail()?;
+    tail.iter().find_map(|part| {
         roots
             .iter()
             .find(|root| Path::new(part).strip_prefix(root).is_ok())
@@ -2823,8 +2838,8 @@ fn script_directory(command: &[String], roots: &[PathBuf]) -> Option<PathBuf> {
 /// canonical script directory is what the spawn re-walks, and the argv
 /// stays exactly as compile spelled it, each segment keeping its origin.
 /// Later arguments are not judged paths, and filename bytes, backslashes
-/// included, stay exact. `segments` are an exec dispatch: their one
-/// caller, compose_segments, checks that first.
+/// included, stay exact. A site with no hands is unboxed, so it re-walks
+/// too, under any word (#823); any argv but an exec dispatch carries none.
 fn exec_segments(segments: Vec<Segment>, roots: &[PathBuf]) -> SiteSpawn {
     let mut spawn = SiteSpawn::of(segments);
     spawn.rewalk = script_directory(&spawn.argv, roots);
@@ -2887,8 +2902,8 @@ fn engine_hands(tokens: &[String]) -> Vec<Segment> {
 /// stands under (decision 0046 ruling 4; design DD18) — a pure function
 /// the argv tests read directly:
 ///
-/// - a site without hands: its command in the engine's environment,
-///   with no re-walk;
+/// - a site without hands: its command in the engine's environment, an
+///   exec dispatch's script directory marked for the re-walk (#823);
 /// - under a boundary Brokkr builds: today's path token for token —
 ///   `hands_command`'s box — in the engine's environment;
 /// - under `harness` and `open`, an exec dispatch: the compiled command
@@ -2948,8 +2963,8 @@ pub fn compose_site(
 /// (operator ruling (B) of 2026-09-27): an inline site with hands is served
 /// like an agent — its recorded `hands.workspace` fragment follows every
 /// other segment as the engine's own `hands` segment, as `agents::compose`
-/// appends an agent's last, and [`hands_command`] expands its tokens. Every
-/// other site is composed from its supplied segments alone.
+/// appends an agent's last, and [`boxed::hands_command`] expands its tokens.
+/// Every other site is composed from its supplied segments alone.
 #[expect(clippy::too_many_arguments, reason = "decision 0065 slice one, #288")]
 pub fn compose_site_at(
     facts: Option<&SiteFacts>,
@@ -3028,14 +3043,14 @@ fn compose_segments(site: &Composing<'_>, segments: Vec<Segment>) -> SiteSpawn {
         class,
         hands,
         candidate,
-        workdir,
+        workdir: _,
         boxed,
         roots,
         result_path,
         unboxed,
     } = *site;
     let Some(spec) = hands else {
-        return SiteSpawn::of(segments);
+        return exec_segments(segments, roots);
     };
     let command = flatten(&segments);
     if boundary != BuiltBoundary::Namespace && is_exec_dispatch(&command) {
@@ -3057,17 +3072,8 @@ fn compose_segments(site: &Composing<'_>, segments: Vec<Segment>) -> SiteSpawn {
         // own tokens. An inline site — an exec dispatch included — has no
         // candidate: its argv is the author's, and a model site's hands are
         // the recorded fragment `compose_site_at` appended last (rebuild
-        // unit 14a4a).
-        BuiltBoundary::Namespace => {
-            match hands_command(command, Some(spec), workdir, boxed, roots) {
-                Ok(mapped) => SiteSpawn::of(behind(mapped, &segments)),
-                Err(reason) => {
-                    let mut spawn = SiteSpawn::of(segments);
-                    spawn.refusal = Some(reason.to_string());
-                    spawn
-                }
-            }
-        }
+        // unit 14a4a). An exec dispatch is re-walked as an unboxed one (#832).
+        BuiltBoundary::Namespace => boxed_spawn(site, spec, command, segments),
         BuiltBoundary::Harness => {
             let brokkr = boxed.0.lossy();
             let fragment = candidate.and_then(|candidate| match class {
@@ -3416,30 +3422,6 @@ fn docs_class(repo: &std::path::Path, head: &str) -> Option<Vec<regex::Regex>> {
 /// instead of the guards switching off when the flag is omitted.
 fn operated_repo(repo: Option<PathBuf>) -> PathBuf {
     repo.unwrap_or_else(|| std::env::current_dir().expect("cwd"))
-}
-
-/// The repository's observed HEAD, or nothing when there is no readable
-/// git tree there. Public because `brokkr realms` reads out the same
-/// fact the ship gate compares against — one reader, not two.
-pub fn git_head(repo: &std::path::Path) -> Option<String> {
-    let out = Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(repo)
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
-}
-
-fn git_dirty(repo: &std::path::Path) -> bool {
-    Command::new("git")
-        .args(["status", "--porcelain"])
-        .current_dir(repo)
-        .output()
-        .map(|out| !out.stdout.is_empty())
-        .unwrap_or(true) // unreadable repo counts as dirty: fail closed
 }
 
 /// Whether the EFFECT's own span carries the gate-head observation

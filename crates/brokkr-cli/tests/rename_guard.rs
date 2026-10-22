@@ -287,7 +287,7 @@ fn front_page_is_brief_proof_first_and_points_to_owners() {
     assert!(install < quickstart && quickstart < map, "{readme}");
 
     for proof in [
-        "brokkr run --recipe fast",
+        "brokkr run --recipe brokkr-fast",
         "brokkr inspect --run latest",
         "The inspection is derived from the journal",
         "review      succeeded",

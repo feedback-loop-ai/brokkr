@@ -14,7 +14,7 @@ use std::path::Path;
 
 use serde_json::{json, Value};
 
-use crate::brokkr_folder::{git, repository};
+use crate::brokkr_folder::{completes, git, repository};
 use crate::init_stacks::brokkr_for;
 
 /// What the fixture's own verify script notes, were it ever run.
@@ -106,41 +106,95 @@ impl Scratch {
         let (code, _, stderr) = self.brokkr(&["recipes", "add", source, "--name", "folder-seat"]);
         assert_eq!(code, Some(0), "{stderr}");
     }
+
+    /// Start `run` in the folder, which stops having ruled `ruled`, each
+    /// `[rule, from, result]`, its verify failing with `init`'s fill-in
+    /// text: everything the run journaled, as text.
+    fn verify_fails_closed(&self, run: &[&str], ruled: &[[&str; 3]]) -> String {
+        let repo = self.repo.path();
+        for identity in [["user.name", "t"], ["user.email", "t@example.invalid"]] {
+            git(repo, &[&["config"][..], &identity[..]].concat());
+        }
+        let (code, _, stderr) = self.brokkr(run);
+        assert_eq!(code, Some(3), "{stderr}");
+        let run = stderr
+            .lines()
+            .find_map(|line| line.strip_prefix("run started: "))
+            .unwrap_or_else(|| panic!("a run started: {stderr}"));
+        let journaled = payloads(&repo.join(".brokkr/state/forge.db"), run);
+        let decided: Vec<[&str; 3]> = journaled
+            .iter()
+            .filter(|payload| payload.get("rule_id").is_some())
+            .map(|payload| ["rule_id", "from", "result"].map(|key| payload[key].as_str().unwrap()))
+            .collect();
+        assert_eq!(decided, ruled, "{journaled:?}");
+        let text = Value::Array(journaled).to_string();
+        assert!(text.contains(FILL_IN), "{text}");
+        text
+    }
 }
 
 #[test]
 fn a_shelf_recipes_folder_seat_runs_the_folders_own_script() {
     let scratch = Scratch::new();
     scratch.add();
-    let (repo, brokkr) = (scratch.repo.path(), |args: &[&str]| scratch.brokkr(args));
-
-    let (code, stdout, stderr) = brokkr(&COMPILE);
+    let (code, stdout, stderr) = scratch.brokkr(&COMPILE);
     assert_eq!(code, Some(0), "{stderr}");
     let compiled: Value = serde_json::from_str(&stdout).unwrap();
     let files = compiled["manifest"]["files"].as_object().unwrap();
     let digest = files["@folder/starter"].as_str().unwrap();
     assert_eq!(digest.len(), 64, "{digest}");
 
-    for identity in [["user.name", "t"], ["user.email", "t@example.invalid"]] {
-        git(repo, &[&["config"][..], &identity[..]].concat());
-    }
     // Either verdict ends the fixture's table at `stop`: the run stopped.
-    let (code, _, stderr) = brokkr(&RUN);
-    assert_eq!(code, Some(3), "{stderr}");
-    let run = stderr
-        .lines()
-        .find_map(|line| line.strip_prefix("run started: "))
-        .unwrap_or_else(|| panic!("a run started: {stderr}"));
-    let journaled = payloads(&repo.join(".brokkr/state/forge.db"), run);
-    let ruled: Vec<(&Value, &Value)> = journaled
-        .iter()
-        .filter(|payload| payload.get("rule_id").is_some())
-        .map(|payload| (&payload["from"], &payload["result"]))
-        .collect();
-    assert_eq!(ruled, [(&json!("verify"), &json!("fail"))], "{journaled:?}");
-    let text = Value::Array(journaled).to_string();
-    assert!(text.contains(FILL_IN), "{text}");
+    let text = scratch.verify_fails_closed(&RUN, &[["FAIL", "verify", "fail"]]);
     assert!(!text.contains(SENTINEL), "{text}");
+}
+
+/// Decision 0091 ruling 2 (#717, slice 3c): Brokkr's own `fast`, added to
+/// a folder made with no stack marker, runs the folder's verify, which
+/// fails closed with `init`'s fill-in text, never fast's own script. Fast's
+/// implement office hires a model, so an overlay on the shelf swaps that
+/// one seat for a fake driver that completes; fast's table is its own, so
+/// each complete reaches verify, each red verify returns to implement, and
+/// the third stops the run.
+#[test]
+fn shelf_fasts_verify_in_a_folder_with_no_stack_fails_closed_with_inits_text() {
+    let scratch = Scratch::new();
+    let (repo, aside) = (scratch.repo.path(), scratch.aside.path());
+    let fast = crate::workspace_root::workspace().join("recipes/fast");
+    let fast = fast.to_str().unwrap();
+    let (code, _, stderr) = scratch.brokkr(&["recipes", "add", fast, "--name", "fast"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let overlay = repo.join(".brokkr/recipes/fast-verify");
+    std::fs::create_dir_all(overlay.join("roles")).unwrap();
+    std::fs::write(overlay.join("roles/role.md"), "# role\n").unwrap();
+    let (script, state) = (aside.join("script.json"), aside.join("state"));
+    std::fs::create_dir_all(&state).unwrap();
+    let answers = json!({"seats": {"implement": completes()}});
+    std::fs::write(&script, answers.to_string()).unwrap();
+    let implement = json!({"role": "roles/role.md", "class": "work",
+                           "results": ["complete", "broken", "blocked", "oversized"],
+                           "driver": {"command": [env!("CARGO_BIN_EXE_brokkr"), "fake-driver",
+                                                  "--script", script, "--state", state]}});
+    let bundle = json!({"name": "fast-verify", "extends": "fast",
+                        "override": {"seats": ["implement"]}, "seats": {"implement": implement}});
+    std::fs::write(overlay.join("bundle.json"), bundle.to_string()).unwrap();
+
+    let mut run = RUN;
+    run[2] = "fast-verify";
+    let returned = [
+        ["IMPL-OK", "implement", "complete"],
+        ["VERIFY-FAIL", "verify", "fail"],
+    ];
+    let exhausted = [
+        ["IMPL-OK", "implement", "complete"],
+        ["VERIFY-FAIL-EXHAUSTED", "verify", "fail"],
+    ];
+    let text = scratch.verify_fails_closed(&run, &[returned, returned, exhausted].concat());
+    assert!(
+        !text.contains("fast's verify is the folder's own"),
+        "{text}"
+    );
 }
 
 /// Remove `key` from the verify seat the bundle `file` declares.

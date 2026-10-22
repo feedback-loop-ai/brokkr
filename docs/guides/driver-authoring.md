@@ -39,7 +39,8 @@ admitted only because its command is the bundle's own pinned `./`
 script, it starts in a fixed environment cleared of everything but a
 stated table, and on Linux the engine attempts a network narrowing
 around it with `unshare` where the kernel permits — attempted, never
-stated as off. At every unboxed spawn the engine re-walks the script's
+stated as off. At every unboxed spawn, as before every boxed one (#832),
+the engine re-walks the script's
 declaring layer against the identity the manifest pins, and a pinned
 byte that moved refuses the gate naming the layer and the key; the
 residual is the interval between the re-walk and the `exec`. The

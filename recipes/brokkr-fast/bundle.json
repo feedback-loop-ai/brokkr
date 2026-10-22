@@ -4,10 +4,13 @@
   "extends": "fast",
   "override": {
     "bundle": ["description"],
-    "seats": ["implement", "review"]
+    "seats": ["implement", "verify", "review"]
   },
   "seats": {
     "implement": {"agent": "brokkr-fast-implementer", "class": "work", "results": ["complete", "broken", "blocked", "oversized"], "limits": {"max_attempts": 2, "timeout_seconds": 5400}},
+    "verify": {"class": "gate", "results": ["pass", "fail"], "limits": {"max_attempts": 2, "timeout_seconds": 3600},
+               "hands": {"kind": "workspace", "network": false, "binds": [{"path": "~/.cargo", "mode": "overlay", "mask": ["credentials.toml", "credentials"]}, {"path": "~/.rustup", "mode": "ro"}]},
+               "driver": {"command": ["{brokkr}", "driver", "exec", "--", "bash", "./scripts/verify-seat.sh", "{prompt_file}"]}},
     "review": {"agent": "brokkr-fast-reviewer", "class": "gate", "results": ["clean", "residual", "security-hold"], "limits": {"max_attempts": 2, "timeout_seconds": 3600}}
   }
 }

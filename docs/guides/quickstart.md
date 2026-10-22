@@ -702,9 +702,9 @@ added agent 'fast-implementer' at /home/you/my-app/.brokkr/agents/fast-implement
 added agent 'fast-reviewer' at /home/you/my-app/.brokkr/agents/fast-reviewer.json
 ```
 
-`fast`'s verifier is still Brokkr's own, so in another repository its
-verify fails until decision 0087's slice 3 gives it a portable one
-([`recipes/fast/README.md`](../../recipes/fast/README.md)). The other
+In a folder, `fast`'s verify and ship are the folder's own, the seats
+`brokkr init` wrote (decision 0091,
+[`recipes/fast/README.md`](../../recipes/fast/README.md)). The other
 seventeen recipes in Brokkr's `recipes/` are **Brokkr-only**, written
 for Brokkr's own runs and realm. Decision
 [0087](../decisions/0087-the-base-offices-are-the-ones-init-writes.md)'s
@@ -739,6 +739,17 @@ recorded as `operator/commanded` plus the engine's disposition —
 `operator/accepted` when it lands, `operator/rejected` when it does not.
 Approval is an entry in the record, not a prose convention, and so is a
 refusal.
+
+For a parked panel, `brokkr operator retry --member <tag>` runs only the
+named members; repeat `--member` for several. A seat panel uses the member
+name; a sequence panel uses `<step>:<member>` (for example,
+`positions:correctness`). Settled verdicts are carried only when the reviewed
+head, clean tree, pinned bundle and judged inputs still match. A refusal
+writes nothing; plain `retry` re-runs the whole phase. With `--member`,
+`--repo`, `--bundle`, `--recipe`, `--recipes-dir` and `--secrets-file` resolve
+as on `resume`; give the same secrets store the run was driven with. The
+journal and participant readouts name carried verdicts and their source
+attempt (proposed decision 0093).
 
 The command is **fenced**: the engine re-reads the run's state after the
 `operator/commanded` lands and before it writes a disposition, because

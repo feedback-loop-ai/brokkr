@@ -210,7 +210,14 @@ A bundle is reviewable text: policy, one seat per phase, pinned by
 content digest. A seat is a single session or a **panel**: members fan
 out inside one effect, join as a barrier in declared order, and a
 closed-vocabulary aggregate produces the one typed result the machine
-sees.
+sees. On a parked panel, `operator retry --member <tag>` re-runs the named
+members and carries settled verdicts from their original attempts only when
+the reviewed head, clean tree, pinned bundle and inputs still match, at both
+command and execution time (proposed decision 0093). A sequence member uses
+`<step>:<member>`; only a first-step panel can carry. The same aggregate and
+policy route the joined result. The journal and view name each carried
+verdict's source attempt; plain retry runs every member. A run driven with
+`--secrets-file` uses the same store on the member retry.
 
 Composition (decision 0017) is a pre-pass over recipe sources that
 resolves the chain into one flat bundle before anything is parsed: no

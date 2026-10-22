@@ -149,10 +149,24 @@ pub(crate) fn compile(leaf: &Path, shelves: &Shelves) -> Result<Bundle, CompileE
 
 /// [`compile`] under the boundary `law`.
 fn compile_under(law: Boundary, leaf: &Path, shelves: &Shelves) -> Result<Bundle, CompileError> {
+    compile_in(None, law, leaf, shelves)
+}
+
+/// [`compile_under`] hiring from the agent library and operator
+/// configuration at `library`, or from none.
+fn compile_in(
+    library: Option<&Path>,
+    law: Boundary,
+    leaf: &Path,
+    shelves: &Shelves,
+) -> Result<Bundle, CompileError> {
+    let none = || PathBuf::from("/nonexistent/agents");
+    let agents = library.map_or_else(none, |root| root.join("agents"));
     let adapters = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../adapters");
-    let roots = (Path::new("/nonexistent/agents"), adapters.as_path());
+    let roots = (agents.as_path(), adapters.as_path());
     let unmapped = crate::capabilities::UNMAPPED;
-    let none = crate::capabilities::CapabilityContext::no_grants(unmapped, leaf);
+    let operator = library.unwrap_or(leaf);
+    let none = crate::capabilities::CapabilityContext::no_grants(unmapped, operator);
     let engine = Executable(Some(PathBuf::from("/nonexistent/brokkr")));
     Bundle::compile_as(&engine, (leaf, shelves), roots, None, None, law, &none)
 }
@@ -281,6 +295,61 @@ fn with_no_folder_the_recipes_own_seat_stands() {
     assert_eq!(bundle.folder, None);
     let files = bundle.manifest["files"].as_object().unwrap();
     assert!(files.keys().all(|key| !key.starts_with('@')), "{files:?}");
+}
+
+/// Decision 0091 ruling 3 (#717, slice 3c): the library's `fast`, compiled
+/// where a folder stands, runs the folder's verify and ship. Each seat's
+/// script and box are those the folder declares, as `init` writes them for
+/// a stack whose suite binds nothing, its limits stay fast's, and the
+/// folder's layer is pinned under `@folder/starter`.
+#[test]
+fn in_a_folder_fasts_verify_and_ship_are_the_folders_own() {
+    let folder = Folder::new();
+    let limits = json!({"max_attempts": 1, "timeout_seconds": 60});
+    let mut ship = verify_seat(limits.clone(), folder_hands());
+    ship["results"] = json!(["ready", "shipped"]);
+    ship["driver"]["command"][5] = json!("./scripts/ship-seat.sh");
+    let command = ship["driver"]["command"].as_array_mut().unwrap();
+    command.push(json!("{brokkr}"));
+    let seats = json!({"verify": verify_seat(limits, folder_hands()), "ship": ship});
+    folder.write_folder(&bundle("starter", seats));
+    std::fs::write(
+        folder.folder().join("scripts/ship-seat.sh"),
+        script("folder"),
+    )
+    .unwrap();
+    let library = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fast = library.join("recipes/fast");
+    let compiled = compile_in(Some(&library), Boundary::Harness, &fast, &folder.shelves());
+    let bundle = compiled.unwrap();
+    let dir = folder.folder().canonicalize().unwrap();
+    let engine = "/nonexistent/brokkr";
+    for (seat, script, timeout) in [
+        ("verify", "verify-seat.sh", 3600),
+        ("ship", "ship-seat.sh", 1800),
+    ] {
+        let path = dir.join("scripts").join(script).display().to_string();
+        let mut expected = vec![
+            engine,
+            "driver",
+            "exec",
+            "--",
+            "bash",
+            &path,
+            "{prompt_file}",
+        ];
+        expected.extend((seat == "ship").then_some(engine));
+        assert_eq!(argv(&bundle, seat), expected);
+        assert_eq!(bundle.manifest["hands"][seat], folder_hands());
+        let limits = &bundle.seats[seat].limits;
+        assert_eq!((limits.max_attempts, limits.timeout_seconds), (2, timeout));
+    }
+    let pinned = bundle.folder.clone().expect("the folder layer is pinned");
+    assert_eq!(
+        bundle.manifest["files"]["@folder/starter"],
+        json!(pinned.digest)
+    );
+    assert_eq!(bundle.roots, [fast.canonicalize().unwrap(), dir]);
 }
 
 /// An edit to the folder's script or to its `bundle.json` moves the

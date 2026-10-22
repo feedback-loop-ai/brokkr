@@ -8,6 +8,10 @@ mod compile;
 pub(super) use compile::CompileArgs;
 mod entry;
 use entry::EntryArgs;
+mod member_retry;
+mod queue;
+pub(crate) use member_retry::MemberRetryArgs;
+pub(crate) use queue::{QueueAddArgs, QueueCmd, QueueEntryArgs, QueueJudgeArgs, QueueListArgs};
 
 use std::path::PathBuf;
 
@@ -149,7 +153,7 @@ pub(super) struct DoctorArgs {
 
 /// What a delivering verb runs and what its seats are given, asked the
 /// same way by `run`, `resume` and `rerun`.
-#[derive(clap::Args)]
+#[derive(clap::Args, Default)]
 #[group(skip)]
 pub(super) struct DeliveryArgs {
     /// The bundle directory to deliver under; without it or `--recipe`,
@@ -283,6 +287,8 @@ pub(super) struct ConcludeArgs {
 #[derive(clap::Args)]
 #[group(skip)]
 pub(super) struct OperatorArgs {
+    #[command(flatten)]
+    pub(super) member: MemberRetryArgs,
     /// Full run id, a unique run-id prefix, or `latest`.
     #[arg(long)]
     pub(super) run: String,
@@ -678,39 +684,6 @@ pub(super) struct BrokerServeArgs {
     pub(super) plan_digest: String,
 }
 
-/// The queue's operator commands (decision 0068 ruling 1). Each one that
-/// changes the queue is journaled with its reason.
-#[derive(clap::Subcommand)]
-pub(super) enum QueueCmd {
-    /// Queue a new run, taking `brokkr run`'s arguments, at the end of
-    /// the queue. Nothing starts: the entry waits for the dispatcher.
-    #[command(group(clap::ArgGroup::new("delivery").args(["bundle", "recipe"])))]
-    Add(QueueAddArgs),
-    /// The queue in order: each waiting entry's place, state, priority,
-    /// waits, launch and admission (admissible, or why it waits or is
-    /// held), then the entries that started a run, with it. `--json`
-    /// emits the view model for scripts.
-    List(QueueListArgs),
-    /// Judge the queue as `list` shows it, and first latch on each waiting
-    /// entry the realm drift found: from then on it is held until the
-    /// operator re-pins, re-queues or drops it, whatever the map comes to.
-    /// Each latch is journaled with the reason.
-    Judge(QueueJudgeArgs),
-    /// Put an entry at another place in the queue.
-    Move(QueueMoveArgs),
-    /// Keep an entry in its place, not to be started until released.
-    Hold(QueueEntryArgs),
-    /// Let a held entry be started again.
-    Release(QueueEntryArgs),
-    /// Re-pin a waiting entry to the realms map that would govern it now:
-    /// how the operator releases an entry `judge` latched a realm-drift
-    /// hold on, accepting the differences it found. Refused when the map
-    /// on disk is not the one the latch found; judge the queue again.
-    Repin(QueueEntryArgs),
-    /// Take an entry out of the queue. One that started a run cannot be.
-    Drop(QueueEntryArgs),
-}
-
 #[derive(clap::Args)]
 #[group(skip)]
 pub(super) struct ProbeHarnessArgs {
@@ -734,64 +707,4 @@ pub(super) struct ProbeHarnessArgs {
     /// The directory holding the adapter files `--adapter` names (default .brokkr/adapters, else adapters).
     #[arg(long)]
     pub(super) adapters_dir: Option<PathBuf>,
-}
-
-#[derive(clap::Args)]
-#[group(skip)]
-pub(super) struct QueueAddArgs {
-    #[command(flatten)]
-    pub(super) launch: LaunchArgs,
-    /// The entry's priority: operator data, weighed at admission.
-    #[arg(long, default_value_t = 0, allow_negative_numbers = true)]
-    pub(super) priority: i64,
-    /// An earlier entry this one waits for, and on what: `3:completed`
-    /// (its run completed) or `3:ended` (its run ended at all).
-    /// Repeatable.
-    #[arg(long, value_name = "ENTRY:CONDITION")]
-    pub(super) after: Vec<brokkr_store::Wait>,
-    /// Why, journaled with the command.
-    #[arg(long)]
-    pub(super) reason: String,
-}
-
-#[derive(clap::Args)]
-#[group(skip)]
-pub(super) struct QueueListArgs {
-    #[command(flatten)]
-    pub(super) journal: JournalArgs,
-    /// Emit the view model verbatim — this is what scripts read.
-    #[arg(long)]
-    pub(super) json: bool,
-}
-
-#[derive(clap::Args)]
-#[group(skip)]
-pub(super) struct QueueJudgeArgs {
-    /// Why, journaled with each latch.
-    #[arg(long)]
-    pub(super) reason: String,
-    #[command(flatten)]
-    pub(super) list: QueueListArgs,
-}
-
-#[derive(clap::Args)]
-#[group(skip)]
-pub(super) struct QueueMoveArgs {
-    #[command(flatten)]
-    pub(super) entry: QueueEntryArgs,
-    /// The place to put it at, from 1.
-    #[arg(long)]
-    pub(super) to: u32,
-}
-
-#[derive(clap::Args)]
-#[group(skip)]
-pub(super) struct QueueEntryArgs {
-    /// The entry's id, as `brokkr queue list` prints it.
-    pub(super) entry: brokkr_store::EntryId,
-    /// Why, journaled with the command.
-    #[arg(long)]
-    pub(super) reason: String,
-    #[command(flatten)]
-    pub(super) journal: JournalArgs,
 }

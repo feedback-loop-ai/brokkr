@@ -13,7 +13,7 @@
 //!   file whose fences mermaid-cli does not all render is refused;
 //! - `lint-non-rust.sh` (#427): the offline lints run cheapest first, each
 //!   tool at its CI pin; CI refuses a tool it cannot run, a verify seat
-//!   names it; and `recipes/fast`'s verify seat, the one a landing
+//!   names it; and `recipes/brokkr-fast`'s verify seat, the one a landing
 //!   inherits, fails on a lint or on clippy with the command named.
 
 use sha2::{Digest, Sha256};
@@ -699,7 +699,7 @@ if [ "${STUB_FAIL-}" = "cargo $1" ]; then echo 'error: could not compile `brokkr
 if [ "$1" = test ]; then echo 'test result: ok. 3 passed; 0 failed'; fi
 "#;
 
-/// fast's verify seat, the one a landing inherits, run in `repo` with
+/// brokkr-fast's verify seat, the one a landing inherits, run in `repo` with
 /// `STUB_FAIL` set to `fail`: the result it wrote, and what ran.
 fn fast_verify(repo: &Repo, fail: &str) -> (String, String) {
     repo.executable("stub-bin/cargo", STUB_CARGO);
@@ -710,7 +710,7 @@ fn fast_verify(repo: &Repo, fail: &str) -> (String, String) {
     );
     let (output, ran) = run_lints(
         repo,
-        "recipes/fast/scripts/verify-seat.sh",
+        "recipes/brokkr-fast/scripts/verify-seat.sh",
         &["prompt.md"],
         fail,
     );

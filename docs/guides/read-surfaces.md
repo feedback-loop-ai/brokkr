@@ -804,7 +804,11 @@ $ brokkr muninn list          # every past invocation, citations included
 
 Everything above reads. `brokkr operator` is where an operator writes,
 and it admits three commands. `retry` re-runs a parked run's phase and
-`stop` ends a run where it stands; both are dispositions the engine acts
+`stop` ends a run where it stands. `retry --member <tag>` on a parked panel
+runs only the named members and names the carried verdicts and their source
+attempts in participant readouts (proposed decision 0093); a sequence member's
+tag is `<step>:<member>`. It refuses a changed subject before writing a
+command. Plain retry and stop are dispositions the engine acts
 on, and both are refused — journaled as a refusal — when the run is not
 in a state to take them.
 

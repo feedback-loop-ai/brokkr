@@ -2,7 +2,7 @@
   "name": "triage",
   "description": "Routing delivery: a chief-grade triage gate rules the class before Fast's crew, adding the current SDD design council when ruled.",
   "cost": "variable",
-  "extends": "fast",
+  "extends": "brokkr-fast",
   "policy": "policy.json",
   "seats": {
     "triage": {

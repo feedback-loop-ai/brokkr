@@ -105,6 +105,11 @@ pub fn operator_refusal(command: &str, reason: &str, run_id: &str) -> String {
     )
 }
 
+/// A member retry refused before a command was journaled.
+pub fn member_retry_refusal(word: &str) -> String {
+    format!("refused operator retry --member ({word}): the run is not in a state a retry can apply to; nothing was journaled")
+}
+
 /// Whether Brokkr would take a command now.
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
 #[serde(tag = "admission", rename_all = "snake_case")]

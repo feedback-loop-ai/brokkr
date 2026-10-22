@@ -1158,12 +1158,13 @@ fn a_composed_bundles_manifest_is_pinned() {
         )
         .unwrap()
     };
+    // Triage reaches `fast` through `brokkr-fast` (decision 0091 ruling 3).
     let triage = compiled("recipes/triage");
-    assert_eq!(triage.chain.len(), 1);
-    assert_eq!(triage.chain[0].reached_as.as_deref(), Some("fast"));
-    assert_eq!(triage.chain[0].name, "fast");
+    assert_eq!(triage.chain.len(), 2);
+    assert_eq!(triage.chain[0].reached_as.as_deref(), Some("brokkr-fast"));
+    assert_eq!(triage.chain[0].name, "brokkr-fast");
     assert_eq!(
-        triage.manifest["files"]["@compose/0000/fast"],
+        triage.manifest["files"]["@compose/0000/brokkr-fast"],
         json!(triage.chain[0].digest)
     );
     assert_eq!(
@@ -1181,7 +1182,7 @@ fn a_composed_bundles_manifest_is_pinned() {
             .iter()
             .map(|a| a.name.as_str())
             .collect::<Vec<_>>(),
-        ["triage", "fast"]
+        ["triage", "brokkr-fast", "fast"]
     );
     assert!(night.manifest["files"]
         .get("@compose/0000/triage")

@@ -979,9 +979,12 @@ fn list_warns_when_a_derived_recipes_base_is_missing() {
 /// for.
 fn refused() -> std::collections::BTreeMap<(&'static str, &'static str), String> {
     let specifying = [
-        ("triage", "triage -> fast"),
-        ("night-shift", "night-shift -> triage -> fast"),
-        ("gpt-flash", "gpt-flash -> triage -> fast"),
+        ("triage", "triage -> brokkr-fast -> fast"),
+        (
+            "night-shift",
+            "night-shift -> triage -> brokkr-fast -> fast",
+        ),
+        ("gpt-flash", "gpt-flash -> triage -> brokkr-fast -> fast"),
     ];
     let undialected = "realm '<unmapped>' declares no dialect, but phase 'specify' needs one";
     let unboxed = "dialect step 'analyze:check' holds its gate boxed (decision 0042 ruling 4), \
@@ -1011,17 +1014,17 @@ fn refused() -> std::collections::BTreeMap<(&'static str, &'static str), String>
     };
     refused.insert(
         ("harness here", "panel-review"),
-        judged("review:correctness", "panel-review -> fast"),
+        judged("review:correctness", "panel-review -> brokkr-fast -> fast"),
     );
     refused.insert(
         ("harness here", "self"),
-        judged("review", "self -> panel-review -> fast"),
+        judged("review", "self -> panel-review -> brokkr-fast -> fast"),
     );
     let worked = "error: bundle: bundle: seat 'implement' link 1 resolves to provider 'claude', \
         which declares no `hands.harness.work` fragment: a capability gap — under the `harness` \
         boundary a work seat with hands writes the tree only under the harness's own writable \
         sandbox as the adapter addresses it (decision 0046 rulings 1 and 4) (composed: release \
-        -> fast)\n";
+        -> brokkr-fast -> fast)\n";
     refused.insert(("harness here", "release"), worked.to_string());
     refused
 }

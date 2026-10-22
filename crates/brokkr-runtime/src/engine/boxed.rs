@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use brokkr_protocol::broker::Refusal;
 use brokkr_protocol::hands::{HandsSpec, Sealed, UNPROTECTED_EVIDENCE};
-use brokkr_protocol::native_controls::Transport;
+use brokkr_protocol::native_controls::{Segment, Transport};
 use thiserror::Error;
 
 use crate::argv::Executable;
@@ -219,4 +219,31 @@ pub(crate) fn hands_command(
     }
     .expand(&command)
     .ok_or(Unnamed::Unexpanded)
+}
+
+/// A site's spawn under `namespace`, moved here from `compose_segments`,
+/// at its line baseline, by #832: `command` put in the box by
+/// [`hands_command`], each of `segments` mapped onto its own tokens, or
+/// left unmapped and refused by the path that is not named. An exec
+/// dispatch is re-walked at spawn as an unboxed one is (decision 0048;
+/// operator ruling "accept all", 2026-10-22): the walk compares the host's
+/// files with the compiled map, so the directory is read from the host
+/// argv, before the box maps it.
+pub(super) fn boxed_spawn(
+    site: &super::Composing<'_>,
+    spec: &HandsSpec,
+    command: Vec<String>,
+    segments: Vec<Segment>,
+) -> super::SiteSpawn {
+    let (workdir, boxed, roots) = (site.workdir, site.boxed, site.roots);
+    let rewalk = super::script_directory(&command, roots);
+    let (parts, refusal) = match hands_command(command, Some(spec), workdir, boxed, roots) {
+        Ok(mapped) => (super::behind(mapped, &segments), None),
+        Err(reason) => (segments, Some(reason.to_string())),
+    };
+    super::SiteSpawn {
+        rewalk,
+        refusal,
+        ..super::SiteSpawn::of(parts)
+    }
 }

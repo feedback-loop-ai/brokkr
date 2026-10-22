@@ -12,12 +12,15 @@ use brokkr_core::envelope::EventType;
 use brokkr_core::fold::RunState;
 use brokkr_core::EventEnvelope;
 use brokkr_protocol::hands::HandsSpec;
+use brokkr_protocol::native_controls::Origin;
 use brokkr_protocol::process::DriverProcess;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
 use super::broker::fold::Begun;
 use super::broker::{admission, observed, settlement, Held, Observed};
+use super::carry::{CarryPlan, CarryRefusal};
+use super::panel::PanelAt;
 use super::{
     argv_for, arms_effect_gate_head, git_head, phase_of, select_candidates, verify_record, Engine,
     EngineError, Selection, SiteSpawn, RESULTS,
@@ -63,7 +66,14 @@ impl Engine {
             input["context"]["journal"] = Value::String(journal.to_string_lossy().into_owned());
         }
 
-        let seat = self.bundle.seats[seat_name].clone();
+        let carry = match self.carry_selection(events, state, effect_id) {
+            Ok(plan) => plan,
+            Err(refusal) => return self.refuse_carry(effect_id, refusal),
+        };
+        let mut seat = self.bundle.seats[seat_name].clone();
+        if let Some(plan) = &carry {
+            plan.narrow(&mut seat.body, state.strategy.as_deref());
+        }
         // `seat_input` above has already refused an unresolved selector
         // against this same folded state.
         let (body, selected_case) = seat
@@ -85,7 +95,7 @@ impl Engine {
                 .body
                 .selected_is_gate(state.strategy.as_deref(), seat.has_gate()),
         };
-        let (selection, started) = self.plan_attempt(events, &at, &mut input)?;
+        let (selection, started) = self.plan_attempt(events, &at, &mut input, carry)?;
         // started is durable BEFORE the driver spawns: a crash in between
         // recovers as indeterminate, never as a silent double-execution.
         if arms_effect_gate_head(&body, &seat, state.strategy.as_deref()) {
@@ -138,12 +148,7 @@ impl Engine {
     /// repo move). Never run something other than what was requested:
     /// the attempt starts on no driver and fails, saying why.
     fn refuse_changed_input(&mut self, effect_id: &str) -> Result<(), EngineError> {
-        let attempt_id = Uuid::new_v4().to_string();
-        self.append(
-            EventType::EffectStarted,
-            json!({"effect_id": effect_id, "attempt_id": attempt_id, "driver": "none"}),
-            Some(attempt_id.clone()),
-        )?;
+        let attempt_id = self.start_refusal(effect_id)?;
         self.append(
             EventType::EffectFailed,
             json!({
@@ -154,6 +159,22 @@ impl Engine {
             }),
             Some(attempt_id),
         )?;
+        Ok(())
+    }
+
+    fn start_refusal(&mut self, effect_id: &str) -> Result<String, EngineError> {
+        let attempt_id = Uuid::new_v4().to_string();
+        self.append(
+            EventType::EffectStarted,
+            json!({"effect_id": effect_id, "attempt_id": attempt_id, "driver": "none"}),
+            Some(attempt_id.clone()),
+        )?;
+        Ok(attempt_id)
+    }
+
+    fn refuse_carry(&mut self, effect_id: &str, refusal: CarryRefusal) -> Result<(), EngineError> {
+        let attempt_id = self.start_refusal(effect_id)?;
+        self.append(EventType::EffectIndeterminate, json!({"effect_id": effect_id, "attempt_id": attempt_id, "reason": refusal.to_string()}), Some(attempt_id))?;
         Ok(())
     }
 
@@ -190,6 +211,7 @@ impl Engine {
         events: &[EventEnvelope],
         at: &Dispatch<'_>,
         input: &mut Value,
+        carry: Option<CarryPlan>,
     ) -> Result<(Selection, Value), EngineError> {
         let driver_label = driver_label(at.body);
         // Which link of each agent's chain runs this attempt, decided
@@ -248,6 +270,13 @@ impl Engine {
             &started,
             started_here,
         );
+        if let Some(plan) = &carry {
+            let carried = plan.carried();
+            if !carried.is_empty() {
+                started["carried"] = json!(carried);
+            }
+        }
+        selection.carry = carry;
         Ok((selection, started))
     }
 
@@ -264,15 +293,12 @@ impl Engine {
         match at.body {
             ExecutableBody::Invocation(Invocation::Panel { members, aggregate }) => self
                 .execute_panel(
-                    at.effect_id,
-                    at.attempt_id,
-                    at.site_name,
+                    &PanelAt::new(at.effect_id, at.attempt_id, at.site_name, at.gate),
                     members,
                     *aggregate,
                     &input,
                     deadline,
                     selection,
-                    at.gate,
                 ),
             ExecutableBody::Sequence { steps } => self.execute_sequence(
                 at.effect_id,
@@ -397,11 +423,8 @@ pub(super) fn spawn_site(
         }
     }
     if let Some(layer) = &spawn.rewalk {
-        if let Some((layer, key)) = layer_drift(bundle, layer) {
-            return Err(format!(
-                "unboxed exec dispatch refused: layer '{layer}' moved since the compile ({key}); \
-                 the bytes an unboxed gate runs must be the bytes its digest names (decision 0046 ruling 4)"
-            ));
+        if let Some(moved) = layer_drift(bundle, layer) {
+            return Err(rewalk_refusal(bundle, spawn, moved));
         }
     }
     if let Some(Door { held, site, begun }) = door {
@@ -410,6 +433,26 @@ pub(super) fn spawn_site(
     DriverProcess::spawn(&spawn.argv, workdir, Some(deadline), &spawn.env)
         .map(|process| (process, input))
         .map_err(|error| error.to_string())
+}
+
+/// Decision 0048's walk refusal, worded for the spawn it refused (#832).
+/// Under a boxed boundary the engine composes no unboxed exec dispatch with
+/// hands, so a spawn there led by a `hands` segment, the box's own prefix
+/// as composition carried it, is boxed; every other one, a hands-less site
+/// in a boxed realm among them, is unboxed and keeps 0048's own text.
+fn rewalk_refusal(bundle: &Bundle, spawn: &SiteSpawn, (layer, key): (String, String)) -> String {
+    let led = spawn.segments.first().map(|segment| segment.origin);
+    match bundle.boundary.is_boxed() && led == Some(Origin::Hands) {
+        true => format!(
+            "boxed exec dispatch refused: layer '{layer}' moved since the compile ({key}); the \
+             bytes a gate runs must be the bytes its digest names (decision 0046 ruling 4, \
+             decision 0048, #832)"
+        ),
+        false => format!(
+            "unboxed exec dispatch refused: layer '{layer}' moved since the compile ({key}); \
+             the bytes an unboxed gate runs must be the bytes its digest names (decision 0046 ruling 4)"
+        ),
+    }
 }
 
 /// The input digest recorded when `effect_id` was requested.

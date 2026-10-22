@@ -19,6 +19,10 @@ use uuid::Uuid;
 use super::{EngineError, OPERATOR_STOP_RULE};
 
 mod conclusion;
+mod disposition;
+mod retry;
+use disposition::{disposed, Commanded, Disposition};
+pub use retry::MemberRetryOutcome;
 mod receipt;
 mod release;
 mod supersede;
@@ -109,6 +113,16 @@ fn decided(
 /// The command id an operator event carries.
 fn command_id_of(event: &EventEnvelope) -> Option<&str> {
     event.payload.get("command_id").and_then(Value::as_str)
+}
+
+pub(super) fn command_for<'a>(
+    events: &'a [EventEnvelope],
+    accepted: &EventEnvelope,
+) -> Option<&'a EventEnvelope> {
+    let id = command_id_of(accepted)?;
+    events.iter().find(|event| {
+        event.event_type == EventType::OperatorCommanded && command_id_of(event) == Some(id)
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -269,19 +283,6 @@ pub fn operator_command(
 /// An unfenced command's disposition with its refusal still typed: the
 /// bridge and the CLI read it as [`FencedCommandOutcome`], and `conclude`
 /// keeps the [`Refusal`] ([`ConcludeRefusal::StopRefused`]).
-enum Disposition {
-    Accepted(FencedCommandOutcome),
-    Refused(Refusal, FencedCommandOutcome),
-}
-
-impl Disposition {
-    fn outcome(self) -> FencedCommandOutcome {
-        match self {
-            Disposition::Accepted(outcome) | Disposition::Refused(_, outcome) => outcome,
-        }
-    }
-}
-
 /// Which refusal a command meets against the state the deciding fold
 /// read, if any. The condition [`acceptance_refusal`] names means two
 /// things depending on WHEN it first held: true already when the
@@ -328,81 +329,17 @@ pub(super) fn operator_command_racing(
     reason: &str,
     between: impl FnMut(&mut Store),
 ) -> Result<FencedCommandOutcome, EngineError> {
-    disposed(store, run_id, command, operator, reason, between).map(Disposition::outcome)
+    let read = folded(store, run_id)?;
+    let request = Commanded {
+        command,
+        operator,
+        reason,
+        args: json!({}),
+    };
+    disposed(store, run_id, request, read, between).map(Disposition::outcome)
 }
 
 /// [`operator_command_racing`]'s disposition, its refusal still typed.
-fn disposed(
-    store: &mut Store,
-    run_id: &str,
-    command: OperatorCommand,
-    operator: &str,
-    reason: &str,
-    mut between: impl FnMut(&mut Store),
-) -> Result<Disposition, EngineError> {
-    let command_id = Uuid::new_v4().to_string();
-    // A journal that does not fold cannot host a legal acceptance at
-    // all, so refuse before writing anything rather than adding to it.
-    let (asked, head) = folded(store, run_id)?;
-    // What the run already refused before the command was even journaled
-    // is not a race, and is not reported as one.
-    let illegal_when_asked = acceptance_refusal(&asked, command).is_some();
-    let commanded = store.append_next(
-        run_id,
-        EventType::OperatorCommanded,
-        json!({"command_id": command_id, "command": command.as_str(), "args": {}, "operator": operator}),
-        Some(head.event_id),
-        None,
-    )?;
-
-    let mut lost = 0;
-    // One line per refusal callsite: the exact-coverage gate reads a
-    // multi-line call's `?` edges as their own regions, and a refusal
-    // whose failure edge cannot be reached deterministically would read
-    // as an uncovered line forever. Sharing the line makes the gate see
-    // what is actually exercised.
-    let refusal_of = |store: &mut Store, why: Refusal| {
-        let (command_id, cause) = (&command_id, &commanded.event_id);
-        let rejection = Rejection {
-            command_id,
-            operator,
-            refusal: why,
-            cause,
-        };
-        refuse(store, run_id, rejection).map(|outcome| Disposition::Refused(why, outcome))
-    };
-    let disposition = loop {
-        let (state, head) = folded(store, run_id)?;
-        between(store);
-        if let Some(refusal) = standing_refusal(&state, command, &command_id, illegal_when_asked) {
-            break refusal_of(store, refusal)?;
-        }
-        let payload = json!({"command_id": command_id, "operator": operator, "reason": reason});
-        let cause = &commanded.event_id;
-        match fenced_append(
-            store,
-            run_id,
-            &head,
-            cause,
-            EventType::OperatorAccepted,
-            payload,
-            None,
-        ) {
-            Ok(_) => break Disposition::Accepted(accepted(store, run_id)?),
-            // A peer appended between the fold and the write. The
-            // acceptance was never written; decide again against what it
-            // wrote, and refuse rather than spin forever.
-            Err(StoreError::HeadMoved { .. }) if lost < FENCE_ATTEMPTS => lost += 1,
-            Err(StoreError::HeadMoved { .. }) => break refusal_of(store, Refusal::LostFence)?,
-            Err(error) => return Err(error.into()),
-        }
-    };
-    // The pair that just landed must read back. Same proof the fenced
-    // path takes before it acknowledges anything to Looper.
-    read_back(store, run_id)?;
-    Ok(disposition)
-}
-
 /// Close a run from its journal alone: no bundle, no recipe, no process.
 ///
 /// `resume` is bundle-in, bundle-out — it compiles the exact pinned
@@ -516,7 +453,14 @@ fn command_stop(
     reason: &str,
 ) -> Result<(), EngineError> {
     let stop = OperatorCommand::Stop;
-    match disposed(store, run_id, stop, operator, reason, |_| {})? {
+    let read = folded(store, run_id)?;
+    let request = Commanded {
+        command: stop,
+        operator,
+        reason,
+        args: json!({}),
+    };
+    match disposed(store, run_id, request, read, |_| {})? {
         Disposition::Accepted(_) => Ok(()),
         Disposition::Refused(refusal, _) => {
             Err(ConcludeRefusal::StopRefused { refusal }.of(run_id))

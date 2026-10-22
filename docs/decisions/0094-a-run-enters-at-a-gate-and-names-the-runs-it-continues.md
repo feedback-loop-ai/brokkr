@@ -584,6 +584,10 @@ this decision and the Rust types are their shape.
    the one-past-main rule sets this branch to 26. The expected #787 version
    26 had not landed at that merge point.
 
+   *Amended, 2026-10-23:* #787 (pull request #815, merged as 42b9ab93)
+   took version 26, so the merged main holds 26 and the one-past-main rule
+   sets this branch to 27, as D25 and D36 expected.
+
 9. **`landing` stays a recipe, and a judgment that could not land is
    relit as a landing that names the run it continues.** `landing` adds a
    seat and two rules in front of `fast`'s, a conditional entry read from

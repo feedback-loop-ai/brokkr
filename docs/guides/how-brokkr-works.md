@@ -6,12 +6,12 @@ the operator's judgment entered as hash-chained, unsigned journal
 events. This guide is the tour.
 
 ```
-brokkr run --recipe fast --repo . --feature "…"     # deliver
-brokkr watch --run <id>                             # watch it live, in the terminal
-brokkr tui                                          # explore the fleet with the keyboard
-brokkr ui                                           # watch it live, in a browser
-brokkr rerun --run <id> --recipe panel-review       # swap the strategy
-brokkr compare <a> <b>                              # journal-backed A/B
+brokkr run --recipe brokkr-fast --repo . --feature "…"     # deliver
+brokkr watch --run <id>                                    # watch it live, in the terminal
+brokkr tui                                                 # explore the fleet with the keyboard
+brokkr ui                                                  # watch it live, in a browser
+brokkr rerun --run <id> --recipe panel-review              # swap the strategy
+brokkr compare <a> <b>                                     # journal-backed A/B
 ```
 
 - **Live telemetry**: Claude and Codex seats stream bounded per-turn/item

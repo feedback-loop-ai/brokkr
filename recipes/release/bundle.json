@@ -2,7 +2,7 @@
   "name": "release",
   "description": "Prepare a configured release: versions, commit-derived notes, documentation and organization-profile patches, followed by verification and review.",
   "cost": "medium",
-  "extends": "fast",
+  "extends": "brokkr-fast",
   "override": {
     "bundle": [
       "description",

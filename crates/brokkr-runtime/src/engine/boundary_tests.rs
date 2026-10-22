@@ -1145,7 +1145,7 @@ fn exec_composition_keeps_the_canonical_pin_separate_from_the_script_argument() 
             None,
         );
         assert_eq!(plain.argv, expected);
-        assert_eq!(plain.rewalk, None);
+        assert_eq!(plain.rewalk, Some(directory.clone()));
         assert_eq!(plain.refusal, None);
         if boundary != BuiltBoundary::Namespace {
             let spawn = compose_site(
@@ -2928,28 +2928,10 @@ fn the_network_probe_is_asked_once_and_remembered() {
 }
 
 // ─────────────────────── gate-boundary-policy: the spawn-time re-walk
+/// A site with no hands re-walks its exec dispatch too (#823).
+mod rewalk_tests;
+use rewalk_tests::pinned_layer;
 
-/// A layer on disk whose pinned identity the bundle carries: the
-/// bundle's own files map for the leaf, computed by the same digest.
-fn pinned_layer(dir: &Path) -> (PathBuf, Bundle) {
-    let layer = dir.join("layer");
-    std::fs::create_dir_all(layer.join("scripts")).unwrap();
-    std::fs::write(layer.join("scripts/gate.sh"), "#!/bin/sh\ntrue\n").unwrap();
-    std::fs::write(layer.join("scripts/lib.sh"), "helper\n").unwrap();
-    std::fs::write(layer.join("bundle.json"), "{}").unwrap();
-    let mut bundle = bundle(dir, single_body(vec!["must-not-run".into()]));
-    bundle.dir = layer.clone();
-    bundle.roots = vec![layer.clone()];
-    let mut files = Map::new();
-    for rel in ["bundle.json", "scripts/gate.sh", "scripts/lib.sh"] {
-        files.insert(
-            rel.to_string(),
-            Value::String(sha256_bytes(&std::fs::read(layer.join(rel)).unwrap())),
-        );
-    }
-    bundle.manifest["files"] = Value::Object(files);
-    (layer, bundle)
-}
 #[test]
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn an_unboxed_exec_dispatch_is_refused_at_spawn_when_its_layer_moved() {
@@ -3131,8 +3113,8 @@ fn an_unboxed_exec_dispatch_is_refused_at_spawn_when_its_layer_moved() {
         .as_str()
         .unwrap()
         .contains("layer 'test' moved"));
-    // A `namespace` gate over the same edited layer composes as today:
-    // the box is its admission, and no re-walk is marked.
+    // A `namespace` gate over the same edited layer composes its box as
+    // before, and marks the host's script directory for the re-walk (#832).
     let boxed = compose_site(
         BuiltBoundary::Namespace,
         SeatClass::Gate,
@@ -3145,7 +3127,7 @@ fn an_unboxed_exec_dispatch_is_refused_at_spawn_when_its_layer_moved() {
         "/r/p.json",
         None,
     );
-    assert_eq!(boxed.rewalk, None);
+    assert_eq!(boxed.rewalk, Some(layer.join("scripts")));
     assert_eq!(boxed.argv[1], "hands");
 }
 
@@ -3481,19 +3463,14 @@ fn a_panels_members_and_a_sequences_steps_carry_their_own_word() {
         },
         "context": {},
     });
-    engine
-        .execute_panel(
-            "effect",
-            "attempt",
-            "work",
-            &members,
-            Aggregate::UnanimousPass,
-            &input,
-            std::time::Duration::from_secs(5),
-            &Selection::new(),
-            true,
-        )
-        .unwrap();
+    crate::engine::panel_tests::unanimous(
+        &mut engine,
+        PanelAt::new("effect", "attempt", "work", true),
+        &members,
+        &input,
+        5,
+    )
+    .unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
     let word_of = |member: &str, step: &str| -> Value {
         events
