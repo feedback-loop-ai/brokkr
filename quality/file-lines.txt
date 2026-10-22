@@ -23,7 +23,8 @@
    798 crates/brokkr-cli/src/cli_args.rs
     18 crates/brokkr-cli/src/cli_args/ui.rs
    519 crates/brokkr-cli/src/compare.rs
-  1562 crates/brokkr-cli/src/doctor.rs
+  1141 crates/brokkr-cli/src/doctor.rs
+   541 crates/brokkr-cli/src/doctor/capabilities.rs
    109 crates/brokkr-cli/src/exit.rs
    139 crates/brokkr-cli/src/fleet.rs
    128 crates/brokkr-cli/src/hands.rs
@@ -198,7 +199,8 @@
    148 crates/brokkr-cli/src/broker/survey/tests.rs
   1631 crates/brokkr-cli/src/cli_reference_tests.rs
    422 crates/brokkr-cli/src/compare/tests.rs
-  1978 crates/brokkr-cli/src/doctor/capability_tests.rs
+  1970 crates/brokkr-cli/src/doctor/capability_tests.rs
+    94 crates/brokkr-cli/src/doctor/capability_tests/binding_tests.rs
   3162 crates/brokkr-cli/src/doctor/tests.rs
     64 crates/brokkr-cli/src/exit/tests.rs
    147 crates/brokkr-cli/src/hands/tests.rs
