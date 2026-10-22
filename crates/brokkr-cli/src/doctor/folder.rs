@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use brokkr_runtime::bundle::Bundle;
 use brokkr_runtime::launch::compile_for;
 use brokkr_runtime::places::{self, Kind, Old, FOLDER};
-use brokkr_runtime::realms::World;
+use brokkr_runtime::realms::{World, WorldError};
 
 use super::{Report, Seats};
 use crate::folder::{DoctorDefaults, FolderError, Found, Opening};
@@ -27,8 +27,11 @@ pub(super) enum Inspected {
     /// `--bundle`, compiled under the map doctor inspected.
     Given(PathBuf, anyhow::Result<Bundle>),
     /// The folder found with no old shape and no `--bundle`, compiled
-    /// once, as `--bundle` compiles it, and the map a run loads (`map`):
-    /// the folder line's outcome is the map's refusal, else that compile's.
+    /// once, as `--bundle` compiles it, and the refusal of the map a run
+    /// loads where the compile got past it (`map`): the folder line's
+    /// outcome is the map's refusal, else that compile's. Where the map
+    /// could not be read at all, the compile is that refusal and `map`
+    /// holds none, so it is named once.
     Folder {
         dir: PathBuf,
         compiled: anyhow::Result<Bundle>,
@@ -109,19 +112,27 @@ impl Inspected {
 
 /// The bundle doctor's report reads (R5 of 2026-10-14): `bundle` as
 /// given, else a folder found with no old shape, either compiled once
-/// under the map doctor inspected (`mapped`), so the folder is read as
+/// under the map doctor inspected (`world`), so the folder is read as
 /// `doctor --bundle .brokkr` reads it. The folder also carries whether
 /// the map a run loads (`realms`, else the folder's) loads: where it
 /// does, it is the map inspected, and the compile is the one a run makes.
+///
+/// A map that could not be inspected is unknown authority (design D8):
+/// nothing is compiled under no map in its place, which would grant and
+/// refuse in a realm nobody declared. The compile is a run's, so its
+/// outcome is the map's refusal, as `brokkr compile` prints it (U9a2).
 pub(super) fn bundle(
     bundle: Option<&Path>,
     defaults: &DoctorDefaults,
     realms: Option<&Path>,
-    mapped: Option<&World>,
+    world: &Result<Option<World>, WorldError>,
 ) -> Inspected {
     let workspace = &defaults.workspace;
     let compile = |dir: &Path| -> anyhow::Result<Bundle> {
-        Ok(compile_for(workspace, dir, mapped, workspace)?)
+        match world {
+            Ok(mapped) => Ok(compile_for(workspace, dir, mapped.as_ref(), workspace)?),
+            Err(_) => compile_folder(workspace, dir, realms),
+        }
     };
     if let Some(dir) = bundle {
         return Inspected::Given(dir.to_path_buf(), compile(dir));
@@ -129,9 +140,12 @@ pub(super) fn bundle(
     match default_folder(&defaults.found) {
         Some(dir) => Inspected::Folder {
             compiled: compile(&dir),
-            map: World::discover(workspace, realms)
-                .map(drop)
-                .map_err(Into::into),
+            map: match world {
+                Ok(_) => World::discover(workspace, realms)
+                    .map(drop)
+                    .map_err(Into::into),
+                Err(_) => Ok(()),
+            },
             dir,
         },
         None => Inspected::Neither,

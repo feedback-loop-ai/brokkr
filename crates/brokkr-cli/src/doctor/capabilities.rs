@@ -239,7 +239,8 @@ fn report_unknown_authority(report: &mut Report, installed: &[&Adapter], inspect
             .into(),
     );
     report_native_assessments(report, installed);
-    // The bundle line names the directory, however it was spelled.
+    // Said once for the bundle, given or found: its directory is the
+    // folder or bundle line's, which carries the map's refusal.
     if inspected.dir().is_some() {
         report.warn(
             "capabilities survey",

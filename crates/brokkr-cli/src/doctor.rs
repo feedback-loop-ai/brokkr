@@ -703,7 +703,7 @@ pub(crate) fn doctor(
             _ => defaults.journal(),
         });
     let mapped = world.as_ref().ok().and_then(Option::as_ref);
-    let inspected = folder::bundle(bundle, defaults, realms, mapped);
+    let inspected = folder::bundle(bundle, defaults, realms, &world);
     let (mut report, availability) = doctor_observed(
         &inspected,
         Paths {
