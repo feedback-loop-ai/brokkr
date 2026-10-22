@@ -92,3 +92,31 @@ fn a_native_binding_is_granted_to_its_own_provider_and_to_no_other() {
         )
     );
 }
+
+/// The provider matching is not enough: a grant bound to another key of
+/// Codex's own holds nothing on its power of the grant's name.
+#[test]
+fn a_native_binding_to_another_key_of_its_own_provider_holds_nothing_on_this_one() {
+    let grants = json!({"web-search": {"dialect": "codex-lookup"}});
+    let dir = workspace_with(Some(json!([realm("rekeyed", Some(grants))])));
+    let mut lookup = native_dialect("codex-lookup", "codex");
+    lookup["adapter_key"] = json!("web-lookup");
+    write(dir.path(), "dialects/tools/codex-lookup.json", &lookup);
+    assert_eq!(
+        lines(dir.path(), &installed(&["codex"])),
+        (
+            true,
+            vec![
+                "ok       capabilities rekeyed 'web-search': dialect 'codex-lookup' \
+                 (provider-native, provider 'codex') · tools [web_search] · all requesting \
+                 offices · restrictions none"
+                    .to_string(),
+                admitted("rekeyed", "codex"),
+                format!(
+                    "warn     capabilities rekeyed native codex 'web-search': NOT granted here: \
+                     {OFF} · {EVIDENCE}"
+                ),
+            ]
+        )
+    );
+}
