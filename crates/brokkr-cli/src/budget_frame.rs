@@ -130,6 +130,28 @@ pub fn fleet_listing_for_budget(
     crate::fleet::list_hearth(&store, journal, true, |lister| lister.every_json(out))
 }
 
+/// `brokkr runs --json` with no other flag over a many-hearth world of
+/// the journals `journals`, each its own realm, at `now`: a hearth at a
+/// time, each a page at a time, written to `out` (decision 0089 ruling 6).
+pub fn fleet_world_listing_for_budget(
+    journals: &[std::path::PathBuf],
+    now: &str,
+    out: &mut impl std::io::Write,
+) -> anyhow::Result<()> {
+    let hearths: Vec<brokkr_runtime::realms::Hearth> = (0..)
+        .zip(journals)
+        .map(|(n, journal)| brokkr_runtime::realms::Hearth {
+            realms: vec![format!("realm-{n}")],
+            journal: journal.clone(),
+        })
+        .collect();
+    let style = crate::render::Style {
+        color: false,
+        width: 80,
+    };
+    crate::fleet::list_world(&hearths, true, (now, &style), out)
+}
+
 /// The console's first fleet page painted at `width`×`height` by its own
 /// `draw` at its RUNS level: open to painted frame, and the frame's text,
 /// row after row, each cell its symbol.

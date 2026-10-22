@@ -90,6 +90,86 @@ pub(crate) fn list_hearth_in<T>(
     })
 }
 
+/// `list`, handed the lister of every run of the hearth whose journal is
+/// at `journal` at `now`, `keys` of the runs behind past a refresh keyed at
+/// a time, in one read; or the store's refusal where the journal will not
+/// open or its pages will not list: a many-hearth listing survives a
+/// hearth it cannot read, as it survives one corrupt run. Opened
+/// READ-ONLY: a reading surface creates no journal (decision 0026 ruling
+/// 5).
+pub(crate) fn list_journal<T>(
+    journal: &Path,
+    (now, keys): (&str, usize),
+    list: impl FnOnce(Result<&Lister<'_>, StoreError>) -> Result<T>,
+) -> Result<T> {
+    let before = Journal::at(journal);
+    let store = match Store::open_read_only(journal) {
+        Ok(store) => store,
+        Err(error) => return list(Err(error)),
+    };
+    store.as_one_read(|| match Pages::every(&store, before, keys) {
+        Ok(pages) => list(Ok(&Lister {
+            pages: &pages,
+            store: &store,
+            now,
+        })),
+        Err(error) => list(Err(error)),
+    })
+}
+
+/// How far a listing's pages read: how many it read whole, the rows they
+/// held, and the store's refusal of the page it stopped at, where it
+/// stopped short of the last.
+pub(crate) struct Reach {
+    pub(crate) pages: usize,
+    pub(crate) rows: usize,
+    pub(crate) stopped: Option<StoreError>,
+}
+
+impl Reach {
+    /// A hearth the store refused before any page: none read.
+    pub(crate) fn refused(error: StoreError) -> Reach {
+        Reach {
+            pages: 0,
+            rows: 0,
+            stopped: Some(error),
+        }
+    }
+
+    /// The refusal, in the store's words, where it stopped short.
+    pub(crate) fn detail(&self) -> Option<String> {
+        self.stopped.as_ref().map(ToString::to_string)
+    }
+
+    /// Every page read, or the store's refusal of the one it stopped at:
+    /// a one-hearth listing is refused whole by any page it cannot read.
+    fn whole(self) -> Result<Reach> {
+        match self.stopped {
+            Some(error) => Err(refused(error)),
+            None => Ok(self),
+        }
+    }
+}
+
+/// What parts the JSON array item after `written` items from those
+/// before it: a line break, after a comma past the first.
+pub(crate) fn item_break(written: usize) -> &'static [u8] {
+    if written == 0 {
+        b"\n"
+    } else {
+        b",\n"
+    }
+}
+
+/// The `]` that ends a JSON array of `count` items, on a line of its own
+/// `indent`ed where it holds any.
+pub(crate) fn close_array(out: &mut impl Write, count: usize, indent: &str) -> Result<()> {
+    if count > 0 {
+        write!(out, "\n{indent}")?;
+    }
+    Ok(out.write_all(b"]")?)
+}
+
 /// The store's refusal of a listing, in its own words: of its pages, or
 /// of a page it reads.
 fn refused(error: StoreError) -> anyhow::Error {
@@ -104,37 +184,55 @@ pub(crate) struct Lister<'a> {
 }
 
 impl Lister<'_> {
-    fn page(&self, after: Option<&Cursor>, limit: usize) -> Result<Page> {
+    fn page(&self, after: Option<&Cursor>, limit: usize) -> Result<Page, StoreError> {
         let ask = Ask {
             now: self.now,
             whole: &|_| true,
             keep: &|_| true,
         };
-        self.pages
-            .page(self.store, ask, after, limit)
-            .map_err(refused)
+        self.pages.page(self.store, ask, after, limit)
     }
 
-    /// Every page from the first, each handed to `each` in turn.
-    fn each_page(&self, mut each: impl FnMut(Vec<RunRow>) -> Result<()>) -> Result<()> {
+    /// Up to `pages` pages from the first, each handed to `each` in turn:
+    /// how far they read, the store's refusal of a page stopping them
+    /// short. A failure of `each` is the error.
+    fn each_page(
+        &self,
+        pages: usize,
+        mut each: impl FnMut(Vec<RunRow>) -> Result<()>,
+    ) -> Result<Reach> {
         let mut after = None;
-        loop {
-            let page = self.page(after.as_ref(), PAGE_ROWS)?;
+        let mut reach = Reach {
+            pages: 0,
+            rows: 0,
+            stopped: None,
+        };
+        while reach.pages < pages {
+            let page = match self.page(after.as_ref(), PAGE_ROWS) {
+                Ok(page) => page,
+                Err(error) => {
+                    reach.stopped = Some(error);
+                    break;
+                }
+            };
+            (reach.pages, reach.rows) = (reach.pages + 1, reach.rows + page.rows.len());
             each(page.rows.into_iter().map(|(_, row)| row).collect())?;
             match page.next {
                 Some(next) => after = Some(next),
-                None => return Ok(()),
+                None => break,
             }
         }
+        Ok(reach)
     }
 
     /// Every run, the sections in order, read a page at a time.
     pub(crate) fn rows(&self) -> Result<Vec<RunRow>> {
         let mut every = Vec::new();
-        self.each_page(|rows| {
+        self.each_page(usize::MAX, |rows| {
             every.extend(rows);
             Ok(())
-        })?;
+        })?
+        .whole()?;
         Ok(every)
     }
 
@@ -149,7 +247,7 @@ impl Lister<'_> {
 
     /// [`Self::paged`]'s rows, and its `next` and runs behind beside them.
     fn view(&self, after: Option<&Cursor>, limit: usize) -> Result<(RunsView, Paged)> {
-        let page = self.page(after, limit)?;
+        let page = self.page(after, limit).map_err(refused)?;
         let view = RunsView::of(page.rows.into_iter().map(|(_, row)| row).collect());
         let paged = Paged {
             next: page.next,
@@ -165,37 +263,64 @@ impl Lister<'_> {
             out,
             "{{\n  \"view_version\": {VIEW_VERSION},\n  \"runs\": ["
         )?;
+        let count = self.json_rows(out, "    ")?.whole()?.rows;
+        close_array(out, count, "  ")?;
+        writeln!(out, ",\n  \"count\": {count}\n}}")?;
+        Ok(())
+    }
+
+    /// Every run's row, pretty, each of its lines `indent`ed, as the items
+    /// of an open JSON array, written a page of rows at a time: how far
+    /// they read.
+    pub(crate) fn json_rows(&self, out: &mut impl Write, indent: &str) -> Result<Reach> {
         let mut count = 0usize;
-        self.each_page(|rows| {
+        self.each_page(usize::MAX, |rows| {
             for row in rows {
-                out.write_all(if count == 0 { b"\n" } else { b",\n" })?;
+                out.write_all(item_break(count))?;
                 let text = serde_json::to_string_pretty(&row)?;
                 let indented: Vec<String> =
-                    text.lines().map(|line| format!("    {line}")).collect();
+                    text.lines().map(|line| format!("{indent}{line}")).collect();
                 out.write_all(indented.join("\n").as_bytes())?;
                 count += 1;
             }
             Ok(())
-        })?;
-        if count > 0 {
-            out.write_all(b"\n  ")?;
-        }
-        writeln!(out, "],\n  \"count\": {count}\n}}")?;
-        Ok(())
+        })
     }
 
     /// Every run as the text table prints it: the columns sized over every
     /// page first, then each page written, so the pages line up as one.
     pub(crate) fn every_text(&self, out: &mut impl Write, style: &Style) -> Result<()> {
+        let (widths, reach) = self.widths()?;
+        self.text_rows(out, &widths, reach.whole()?.pages, style)
+    }
+
+    /// The table's columns sized over every page, and how far the pages
+    /// read.
+    pub(crate) fn widths(&self) -> Result<([usize; 5], Reach)> {
         let mut widths = [0usize; 5];
-        self.each_page(|rows| {
+        let reach = self.each_page(usize::MAX, |rows| {
             render::widen(&mut widths, &rows, self.now);
             Ok(())
         })?;
-        self.each_page(|rows| {
-            out.write_all(render::lines_within(&rows, &widths, self.now, style).as_bytes())?;
+        Ok((widths, reach))
+    }
+
+    /// The first `pages` pages' rows as the table prints them, each sized
+    /// column `widths` wide: the pages [`Self::widths`] read, which this
+    /// one read reads alike.
+    pub(crate) fn text_rows(
+        &self,
+        out: &mut impl Write,
+        widths: &[usize; 5],
+        pages: usize,
+        style: &Style,
+    ) -> Result<()> {
+        self.each_page(pages, |rows| {
+            out.write_all(render::lines_within(&rows, widths, self.now, style).as_bytes())?;
             Ok(())
-        })
+        })?
+        .whole()?;
+        Ok(())
     }
 
     /// The page after `after`, or the first, of `limit` rows: the view

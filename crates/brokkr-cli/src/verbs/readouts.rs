@@ -419,32 +419,12 @@ pub(crate) fn hearth_runs(
     })
 }
 
-/// `brokkr runs` over several hearths: each journal's runs under its realm.
+/// `brokkr runs` over several hearths: each journal's runs under its
+/// realm, a hearth at a time and each a page at a time (decision 0089).
 fn runs_fleet(hearths: &[Hearth], json: bool) -> Result<ExitCode> {
-    let read: Vec<(fleet::KeptFleet, Option<String>)> = hearths
-        .iter()
-        .map(|hearth| fleet::read_kept(&hearth.journal))
-        .collect();
-    let entries: Vec<Vec<brokkr_view::RunEntry>> =
-        read.iter().map(|(kept, _)| kept.entries()).collect();
-    let (labels, journals) = fleet::names(hearths);
-    let grouped: Vec<brokkr_view::HearthEntries> = (0..hearths.len())
-        .map(|index| brokkr_view::HearthEntries {
-            realm: &labels[index],
-            journal: &journals[index],
-            entries: &entries[index],
-            detail: read[index].1.as_deref(),
-        })
-        .collect();
-    let view = brokkr_view::fleet_rows(&grouped);
-    if json {
-        println!("{}", serde_json::to_string_pretty(&view)?);
-    } else {
-        print!(
-            "{}",
-            render::fleet(&view, &now_rfc3339(), &render::Style::detect())
-        );
-    }
+    let style = render::Style::detect();
+    let now = now_rfc3339();
+    fleet::list_world(hearths, json, (&now, &style), &mut std::io::stdout().lock())?;
     Ok(Exit::Completed.into())
 }
 

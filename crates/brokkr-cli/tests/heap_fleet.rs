@@ -372,3 +372,48 @@ fn every_run_costs_the_same_heap_however_many_runs_are_behind() {
     );
     assert!(budget <= 640 * 1024, "the budget {budget} is past 640 KiB");
 }
+
+/// Brokkr's peak heap to list every run of the many-hearth world of
+/// `journals` as `brokkr runs --json` with no other flag lists it.
+fn world_listing_peak(journals: &[PathBuf]) -> u64 {
+    peak_of(|| {
+        let mut out = std::io::sink();
+        brokkr_cli::fleet_world_listing_for_budget(journals, NOW, &mut out).unwrap();
+    })
+}
+
+/// How far a many-hearth listing's peak may sit above the one-hearth
+/// listing's of its largest hearth: 1,167 B were measured (376,449 B
+/// against 375,282 B, 2026-10-22), the hearths' names, where a world that
+/// held its hearths' rows at once would sit a hearth's rows above.
+const WORLD_SPREAD: u64 = 4 * 1024;
+
+/// Ruling 6 across hearths: `brokkr runs` over a many-hearth world reads
+/// a hearth at a time, each a page at a time, so its peak is the
+/// one-hearth listing's of its largest hearth, within [`WORLD_SPREAD`],
+/// and not the sum of its hearths', whatever else the world holds: here
+/// two hearths of 2,000 runs behind, one with none, and one whose journal
+/// is not there.
+#[test]
+fn a_many_hearth_listing_costs_one_hearths_heap() {
+    let _alone = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|held| held.into_inner());
+    let dir = tempfile::tempdir().unwrap();
+    let journals = [
+        behind_journal(dir.path(), "first.db", 2_000),
+        behind_journal(dir.path(), "second.db", 2_000),
+        behind_journal(dir.path(), "none.db", 0),
+        dir.path().join("absent.db"),
+    ];
+    // Read once unmeasured, as the page's test does.
+    world_listing_peak(&journals);
+    let one = listing_peak(&journals[0]);
+    let world = world_listing_peak(&journals);
+    eprintln!("one hearth: {one}; the world: {world}");
+    let above = world.saturating_sub(one);
+    assert!(
+        above <= WORLD_SPREAD,
+        "the world's listing peaked {above} bytes above one hearth's"
+    );
+}

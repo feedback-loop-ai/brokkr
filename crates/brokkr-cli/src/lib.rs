@@ -42,7 +42,8 @@ mod verbs;
 #[doc(hidden)]
 pub use crate::budget_frame::{
     fleet_frame_for_budget, fleet_listing_for_budget, fleet_page_for_budget,
-    fleet_window_for_budget, run_frame_for_budget, FleetScroll, FleetWindow,
+    fleet_window_for_budget, fleet_world_listing_for_budget, run_frame_for_budget, FleetScroll,
+    FleetWindow,
 };
 #[doc(hidden)]
 pub use crate::tui::transcript_surfaces_for_test;

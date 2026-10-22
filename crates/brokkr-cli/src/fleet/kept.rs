@@ -168,19 +168,6 @@ impl KeptFleet {
     }
 }
 
-/// One hearth of a many-hearth world read the kept way, once: its runs,
-/// and the words of the refusal when its journal will not open or list.
-/// Opened READ-ONLY, as [`super::read_journal`] opens it (decision 0026
-/// ruling 5).
-pub(crate) fn read_kept(journal: &Path) -> (KeptFleet, Option<String>) {
-    let mut fleet = KeptFleet::default();
-    let before = Journal::at(journal);
-    let refused = Store::open_read_only(journal)
-        .and_then(|store| fleet.refresh(&store, before))
-        .err();
-    (fleet, refused.map(|error| error.to_string()))
-}
-
 /// The journal file a kept fleet was read from: the file at the
 /// journal's path by device and inode, and its length. A journal moved,
 /// copied or created into place is another inode; one copied over the old
