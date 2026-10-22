@@ -12,7 +12,7 @@ use brokkr_core::dispatch::{
     build_run_manifest_v2, bundle_manifest_from_run, DispatchEnvelopeV2, DispatchError,
 };
 use brokkr_core::envelope::EventType;
-use brokkr_core::fold::{Cursor, ParkReason, Run, RunState};
+use brokkr_core::fold::{Cursor, Run, RunState};
 use brokkr_core::gate_moved_head::{self, MovedHead};
 use brokkr_core::realms::Boundary;
 use brokkr_core::EventEnvelope;
@@ -54,6 +54,7 @@ use boxed::hands_command;
 mod capability_calls;
 mod carry;
 mod checkpoints;
+mod cursor;
 mod decide;
 mod dispatch;
 use dispatch::{spawn_site, Door};
@@ -75,6 +76,7 @@ use worktree::git_dirty;
 pub use worktree::git_head;
 mod replay;
 mod sequence;
+mod start;
 use operator::operator_stop_reason;
 #[cfg(test)]
 use panel::panel_outcome;
@@ -90,7 +92,7 @@ use panel::MemberRun;
 use brokkr_core::fold::{
     fold,
     OperatorCommand::{self, Retry, Stop},
-    Refusal,
+    ParkReason, Refusal,
 };
 pub use carry::CarryRefusal;
 pub use operator::{
@@ -529,94 +531,12 @@ impl Engine {
         repo: Option<PathBuf>,
         world: Option<crate::realms::World>,
     ) -> Result<Engine, EngineError> {
-        let slug: String = feature
-            .to_lowercase()
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-            .collect::<String>()
-            .split('-')
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<_>>()
-            .join("-");
-        let slug = slug.chars().take(32).collect::<String>();
-        let run_id = format!("{slug}-{}", &Uuid::new_v4().to_string()[..8]);
-        // Decision 0046 ruling 1 at the door, before `create_run` and
-        // before any row: the world this run is started with must resolve
-        // the word the bundle was compiled under for the operated
-        // repository — and no world resolves `namespace`, which is what
-        // every run meant before the word existed (design DD3).
-        refuse_unbuilt(&bundle)?;
-        // The operated repository is what `workdir()` will answer: the
-        // named one, else the directory the engine stands in.
-        let operated = operated_repo(repo);
-        let resolved = match &world {
-            Some(world) => world.boundary_for(&operated),
-            None => Boundary::Namespace,
-        };
-        if resolved != bundle.boundary {
-            return Err(EngineError::BoundaryMismatch {
-                compiled: bundle.boundary,
-                world: resolved,
-            });
-        }
-        // Decision 0065 ruling 3, fenced the same way and for the same
-        // reason: the grants the operated realm declares TODAY are what
-        // this run may hold, and a bundle compiled under any other grant
-        // context — a neighbouring realm's, an edited map's, none at all
-        // — is refused before `create_run`, so nothing is journaled and no
-        // seat spawns.
-        let operated_realm = world.as_ref().and_then(|world| world.realm_for(&operated));
-        let world_realm = operated_realm.map_or(crate::capabilities::UNMAPPED, |realm| &realm.name);
-        let world_grants: Map<String, Value> = operated_realm
-            .into_iter()
-            .flat_map(|realm| &realm.grants)
-            .map(|(capability, grant)| (capability.clone(), grant.value()))
-            .collect();
-        // What is compared is the realm and its GRANTS, which is the
-        // authority: a bundle that records none was compiled under none,
-        // and a neighbouring realm granting the very same map is still a
-        // different office-holder's permission, not this one's.
-        let compiled = &bundle.manifest["capabilities"];
-        let compiled_grants = compiled.get("grants").cloned().unwrap_or_else(|| json!({}));
-        let compiled_realm = compiled["realm"]
-            .as_str()
-            .unwrap_or(crate::capabilities::UNMAPPED);
-        if compiled_grants != json!(world_grants) || compiled_realm != world_realm {
-            return Err(EngineError::CapabilityMismatch {
-                compiled_realm: compiled_realm.to_string(),
-                compiled: compiled_grants.to_string(),
-                world_realm: world_realm.to_string(),
-                world: Value::Object(world_grants).to_string(),
-            });
-        }
-        // And the bytes those grants were judged against, read where the
-        // compile read them: beside the map, else under the operated
-        // repository (design D2).
-        let operator_root = match &world {
-            Some(world) => world.source.parent().map(PathBuf::from).unwrap_or_default(),
-            None => operated.clone(),
-        };
-        if let Some((input, problem)) = moved_capability_input(compiled, &operator_root) {
-            return Err(EngineError::CapabilityInputMoved { input, problem });
-        }
-        // And every charter the bundle bound, where its owner stands now
-        // (rebuild unit 19): no run is journaled over one that moved. The
-        // bindings checked are recorded with the run, so its resume, over a
-        // bundle compiled again, is held to them (review return F1).
-        let charters = refuse_moved_charter(&bundle)?;
-        // Pinned for the same operated repository the fence judged, so a
-        // run started from a mapped workspace with no `--repo` still
-        // names its realm — and resumes under the word it was started
-        // with, which `compile_from_manifest` reads off that pin.
-        let manifest = match &world {
-            Some(world) => world.pinned(&bundle.manifest, Some(&operated))?,
-            None => bundle.manifest.clone(),
-        };
-        store.create_run(&run_id, feature, &bundle.name, &manifest)?;
+        let admitted = start::door(&bundle, feature, repo, world.as_ref())?;
+        store.create_run(&admitted.run_id, feature, &bundle.name, &admitted.manifest)?;
         store.append_next(
-            &run_id,
+            &admitted.run_id,
             EventType::RunStarted,
-            bundle.run_started(feature, &manifest, charters),
+            bundle.run_started(feature, &admitted.manifest, admitted.charters),
             None,
             None,
         )?;
@@ -624,9 +544,9 @@ impl Engine {
             store,
             boundary: bundle.boundary,
             bundle,
-            run_id,
+            run_id: admitted.run_id,
             feature: feature.to_string(),
-            repo: operated,
+            repo: admitted.operated,
             reach: Default::default(),
             world,
             current_cause: None,
@@ -923,104 +843,6 @@ impl Engine {
             landed => landed,
         }
         .map(drop)
-    }
-
-    fn advance_running(
-        &mut self,
-        events: &[EventEnvelope],
-        cursor: Cursor,
-        state: RunState,
-    ) -> Result<(), EngineError> {
-        match cursor {
-            Cursor::Start => {
-                let initial = self.bundle.machine.initial.clone();
-                self.enter_phase(&initial, &state)?;
-            }
-            Cursor::EnterPhase { phase } => {
-                self.enter_phase(&phase, &state)?;
-            }
-            Cursor::RequestEffect => self.request_or_finish(&state)?,
-            Cursor::ExecuteEffect {
-                effect_id,
-                seat,
-                failed_attempts,
-            } => {
-                let limits = self
-                    .bundle
-                    .seats
-                    .get(&seat)
-                    .map(|seat| seat.limits)
-                    .unwrap_or_default();
-                if failed_attempts >= limits.max_attempts {
-                    // Bounded retry exhausted (decision 0006): park with the
-                    // last recorded error.
-                    let last_error = events
-                        .iter()
-                        .rev()
-                        .find(|event| {
-                            event.event_type == EventType::EffectFailed
-                                && event.payload.get("effect_id").and_then(Value::as_str)
-                                    == Some(effect_id.as_str())
-                        })
-                        .and_then(|event| event.payload.get("error").and_then(Value::as_str))
-                        .unwrap_or("no error recorded")
-                        .to_string();
-                    self.append(
-                        EventType::RunParked,
-                        json!({
-                            "reason": format!(
-                                "effect {effect_id} failed {failed_attempts} of {} attempt(s); \
-                                 last error: {last_error}",
-                                limits.max_attempts
-                            ),
-                            "evidence": {},
-                        }),
-                        None,
-                    )?;
-                } else {
-                    // `execute` is the one place a gate head is armed, for
-                    // every body shape, and an attempt that leaves it
-                    // through an `Err` — a checkpoint that would not
-                    // journal, say — appends no terminal event and so
-                    // never reaches the compare. The observation dies with
-                    // the span that took it: a stale head here would be
-                    // spent on the NEXT effect's terminal event, which
-                    // could then read a park no gate earned.
-                    let dispatched = self.execute(events, &state, &effect_id, &seat);
-                    if dispatched.is_err() {
-                        self.active_gate_head = None;
-                    }
-                    dispatched?
-                }
-            }
-            // Fresh process, no live driver: recovered only where every
-            // driver is proven settled, never re-paid (U8e2).
-            Cursor::EffectInFlight {
-                effect_id,
-                attempt_id,
-                ..
-            } => self.restarted(&effect_id, &attempt_id)?,
-            Cursor::Decide { result, .. } => self.decide(&state, result)?,
-            Cursor::Park { reason } => {
-                let evidence = match reason {
-                    ParkReason::GateMovedHead => gate_head_evidence(events),
-                    ParkReason::Stated(_) => json!({}),
-                };
-                self.append(
-                    EventType::RunParked,
-                    json!({"reason": reason.as_str(), "evidence": evidence}),
-                    None,
-                )?;
-            }
-            Cursor::Stop => {
-                self.append(
-                    EventType::RunStopped,
-                    json!({"reason": operator_stop_reason(events)}),
-                    None,
-                )?;
-            }
-        }
-        Ok(())
     }
 
     fn append(
