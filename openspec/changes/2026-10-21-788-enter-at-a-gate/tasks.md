@@ -299,7 +299,9 @@ The first implementation's evidence below is kept as its record; it vouches the 
 
 ## 14. The delivery, the operator's (D20)
 
-- [ ] 14.1 This run's land ended with the push of the branch and this run's evidence; no pull request naming this run was sealed or queued; the follow-on commit (group 13) stands on the branch above it. Ticked by the follow-on commit, before the archive, on what the operator's assistant reports. Serves: RC4, RC6.
+- [x] 14.1 This run's land ended with the push of the branch and this run's evidence; no pull request naming this run was sealed or queued; the follow-on commit (group 13) stands on the branch above it. Ticked by the follow-on commit, before the archive, on what the operator's assistant reports. Serves: RC4, RC6.
+
+  Evidence (the operator's assistant reports, 2026-10-23): the run that built the settlement, `settle-788-s-security-hold-epic--8b229d3f`, ended at `SHIP-COMPLETE` on 2026-10-22 at 16:28 (local), and its land script, `.forge/settle-788.sh`, ended with the push: `refs/heads/recovery/788-enter-at-a-gate` at `31dec503` and the run's evidence at `refs/heads/brokkr-runs/settle-788-s-security-hold-epic--8b229d3f` (`4b0aba51`, `git ls-remote origin`). No pull request was opened: `gh pr list --state all --head recovery/788-enter-at-a-gate` and a search for the run's id each list none, so none naming this run was sealed or queued. The follow-on commit of group 13, `3efa29fa` (13.1 to 13.3, by hand, D36), stands on the branch. After the push, main was merged in twice, plain unsigned merge commits: `b27d1026` (four commits of `main`) and `e65490d2` (#787's #815 at view version 26, so this branch's is 27, D25).
 
 After the archive, and outside this file because a slice ends at its archive: the landing, `brokkr run --recipe landing --enter classify --continues <this run>` under the branch's engine, judges the whole branch from its merge-base, ships, and its evidence is pushed beside this run's; only then is the pull request opened, or the open one re-declared, with `Brokkr-Run: <landing>`, sealed, checked and queued.
 
