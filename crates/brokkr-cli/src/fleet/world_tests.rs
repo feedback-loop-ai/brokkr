@@ -1,20 +1,23 @@
 //! `brokkr runs` over a many-hearth world: each hearth's runs under its
 //! realm, in the JSON and the table it has always printed, a hearth whose
-//! journal will not open listed with that refusal beside the others.
+//! journal will not open, or one of whose pages the store will not read,
+//! listed with that refusal beside the others.
 
 use std::path::{Path, PathBuf};
 
 use brokkr_runtime::realms::Hearth;
+use brokkr_store::Store;
 use brokkr_view::{FleetView, RealmRuns, RunRow, VIEW_VERSION};
 
 use super::kept_tests::{unlisted, UNLISTED};
+use super::listing::Lister;
 use super::page::tests::{
     arranged, behind_in_every_section, folded, now, plant, stamp, whole_rows, Shape, DAY, HOUR,
     MINUTE, NOW, STYLE,
 };
 use super::page::TAIL_KEYS;
-use super::read_journal;
 use super::world::{list_world, list_world_in};
+use super::{list_hearth, read_journal, Journal, PAGE_ROWS};
 
 fn hearth(realm: &str, journal: PathBuf) -> Hearth {
     Hearth {
@@ -144,6 +147,92 @@ fn every_hearth_lists_every_run_once_however_many_are_behind() {
         assert_eq!(printed(true), json, "{keys} keys a batch");
         assert_eq!(printed(false), text, "{keys} keys a batch");
     }
+}
+
+/// A journal at `db` of `count` finished runs, `run-000` an hour before
+/// [`NOW`] and each after it an hour earlier.
+fn finished(db: &Path, count: usize) {
+    folded(db, |conn| {
+        for (hours, n) in (1..).zip(0..count) {
+            let at = stamp(now() - hours * HOUR);
+            plant(conn, &format!("run-{n:03}"), Shape::Finished, &at);
+        }
+    });
+}
+
+/// What the store says of a page holding a run whose summary names its
+/// feature in bytes, not text.
+const UNREAD: &str = "sqlite: Invalid column type Blob at index: 0, name: feature";
+
+/// A journal at `db` whose pages list, a page of runs and two older, the
+/// oldest's summary naming its feature in bytes: its first page reads,
+/// and the store refuses its second.
+fn unread_past_a_page(db: &Path) {
+    finished(db, PAGE_ROWS + 2);
+    let oldest = format!("run-{:03}", PAGE_ROWS + 1);
+    let cast = "UPDATE run_summary SET feature = CAST(feature AS BLOB) WHERE run_id = ?1";
+    let conn = rusqlite::Connection::open(db).unwrap();
+    assert_eq!(conn.execute(cast, [&oldest]).unwrap(), 1);
+}
+
+/// A hearth whose pages list but one of whose pages the store will not
+/// read lists the runs of the pages before it, counts those, and states
+/// the store's refusal where its runs stop; the hearth after it lists
+/// every run. In the JSON and the table alike, each as the same world
+/// prints a hearth of just the runs that read.
+#[test]
+fn a_hearth_a_page_of_which_will_not_read_lists_what_read_and_its_refusal_beside_the_others() {
+    let dir = tempfile::tempdir().unwrap();
+    let (unread, read) = (dir.path().join("unread.db"), dir.path().join("read.db"));
+    unread_past_a_page(&unread);
+    finished(&read, PAGE_ROWS);
+    let gamma = dir.path().join("gamma.db");
+    folded(&gamma, |conn| {
+        plant(conn, "held-g", Shape::Held, &stamp(now() - 2 * DAY));
+    });
+    let printed = |first: &Path, json| {
+        let hearths = [
+            hearth("first", first.to_path_buf()),
+            hearth("gamma", gamma.clone()),
+        ];
+        listed(&hearths, json, dir.path())
+    };
+    let json = printed(&unread, true);
+    let view: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let counts = [&view["realms"][0]["count"], &view["realms"][1]["count"]];
+    assert_eq!(
+        (counts, &view["count"]),
+        ([&50.into(), &1.into()], &51.into())
+    );
+    let stated = format!("\n      \"detail\": \"{UNREAD}\"\n");
+    let expected = printed(&read, true)
+        .replace("<dir>/read.db", "<dir>/unread.db")
+        .replacen("\n      \"detail\": null\n", &stated, 1);
+    assert_eq!(json, expected);
+    let head = |db: &str| format!("first · {PAGE_ROWS} runs · <dir>/{db}\n");
+    let stated = format!("{}  journal  {UNREAD}\n", head("unread.db"));
+    let expected = printed(&read, false).replacen(&head("read.db"), &stated, 1);
+    assert_eq!(printed(&unread, false), expected);
+}
+
+/// The one-hearth listing of that journal is refused whole, in the
+/// store's words, as it always was: its JSON, its table and the
+/// console's rows alike.
+#[test]
+fn a_one_hearth_listing_a_page_of_which_will_not_read_is_refused_in_the_stores_words() {
+    let dir = tempfile::tempdir().unwrap();
+    let unread = dir.path().join("unread.db");
+    unread_past_a_page(&unread);
+    let refused = |list: &dyn Fn(&Lister<'_>) -> anyhow::Result<()>| {
+        let store = Store::open_read_only(&unread).unwrap();
+        let journal = (Journal::at(&unread), NOW);
+        let listed = list_hearth(&store, journal, true, |lister| list(lister));
+        listed.unwrap_err().to_string()
+    };
+    let json = refused(&|lister| lister.every_json(&mut std::io::sink()));
+    let text = refused(&|lister| lister.every_text(&mut std::io::sink(), &STYLE));
+    let rows = refused(&|lister| lister.rows().map(drop));
+    assert_eq!([json, text, rows], [UNREAD; 3]);
 }
 
 /// [`world`] as `brokkr runs --json` prints it.

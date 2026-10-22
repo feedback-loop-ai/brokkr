@@ -11,7 +11,7 @@ use anyhow::Result;
 use brokkr_runtime::realms::Hearth;
 use brokkr_view::VIEW_VERSION;
 
-use super::listing::{close_array, item_break, list_journal};
+use super::listing::{close_array, item_break, list_journal, Reach};
 use super::page::TAIL_KEYS;
 use crate::render::{self, Style};
 
@@ -84,12 +84,13 @@ fn realm_json(hearth: &Named<'_>, read: (&str, usize), out: &mut impl Write) -> 
         out,
         "    {{\n      \"realm\": {realm},\n      \"journal\": {journal},\n      \"runs\": ["
     )?;
-    let (listed, detail) = list_journal(&hearth.hearth.journal, read, |lister| match lister {
-        Ok(lister) => Ok((lister.json_rows(out, "        ")?, None)),
-        Err(detail) => Ok((0, Some(detail))),
+    let reach = list_journal(&hearth.hearth.journal, read, |lister| match lister {
+        Ok(lister) => lister.json_rows(out, "        "),
+        Err(refused) => Ok(Reach::refused(refused)),
     })?;
+    let listed = reach.rows;
     close_array(out, listed, "      ")?;
-    let detail = serde_json::to_string(&detail)?;
+    let detail = serde_json::to_string(&reach.detail())?;
     write!(
         out,
         ",\n      \"count\": {listed},\n      \"detail\": {detail}\n    }}"
@@ -99,7 +100,7 @@ fn realm_json(hearth: &Named<'_>, read: (&str, usize), out: &mut impl Write) -> 
 
 /// The table under each realm's heading, a hearth at a time: its columns
 /// sized over every page of its hearth first, as the one-hearth table's
-/// are, then each page written.
+/// are, then the pages that read written.
 fn world_text(
     named: &[Named<'_>],
     read: (&str, usize),
@@ -107,17 +108,18 @@ fn world_text(
     out: &mut impl Write,
 ) -> Result<()> {
     for (index, hearth) in named.iter().enumerate() {
-        let head = |count, detail: Option<&str>| {
-            render::realm_head(index, (hearth.realm, hearth.journal), count, detail, style)
+        let head = |reach: &Reach| {
+            let names = (hearth.realm, hearth.journal);
+            let detail = reach.detail();
+            render::realm_head(index, names, reach.rows, detail.as_deref(), style)
         };
-        list_journal(&hearth.hearth.journal, read, |lister| {
-            let lister = match lister {
-                Ok(lister) => lister,
-                Err(detail) => return Ok(out.write_all(head(0, Some(&detail)).as_bytes())?),
-            };
-            let (widths, count) = lister.widths()?;
-            out.write_all(head(count, None).as_bytes())?;
-            lister.text_rows(out, &widths, style)
+        list_journal(&hearth.hearth.journal, read, |lister| match lister {
+            Ok(lister) => {
+                let (widths, reach) = lister.widths()?;
+                out.write_all(head(&reach).as_bytes())?;
+                lister.text_rows(out, &widths, reach.pages, style)
+            }
+            Err(refused) => Ok(out.write_all(head(&Reach::refused(refused)).as_bytes())?),
         })?;
     }
     Ok(())
