@@ -93,6 +93,15 @@ impl Retention {
     }
 }
 
+/// The record manifest v12 writes for a retention, as `brokkr doctor`
+/// names it on an `mcp` grant's line (U9a2): the fact stays typed until it
+/// is printed, and its words have this one home.
+impl std::fmt::Display for Retention {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.value().fmt(f)
+    }
+}
+
 impl Holding {
     fn value(&self) -> Value {
         json!({

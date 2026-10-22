@@ -39,14 +39,12 @@ mod sandbox;
 mod sequence;
 mod site_form;
 mod site_key;
+mod survey;
 mod tier;
 mod walk;
 
 pub use aggregate::Aggregate;
-use capability_record::{
-    nested_sites, record_agent_capabilities, record_dialect_capabilities,
-    record_inline_capabilities, CapabilitySite, CapabilityWalk,
-};
+use capability_record::{record_capabilities, CapabilityWalk};
 use charters::parse_role;
 use compose::{Ancestor, COMPOSE_PREFIX};
 pub use expand::expand_command;
@@ -68,6 +66,7 @@ use site_form::{classify, SiteRole, StepShape, STEP};
 #[cfg(test)]
 use site_form::{refuse_amendments, refuse_boundary_key, refuse_confine};
 pub(crate) use site_key::SiteKey;
+pub use survey::{survey, Survey};
 pub use tier::{ProvisionalRefusal, RealmLaw};
 use walk::{refuse_unlisted_consumed, walk_digests, walk_keys, Walk};
 
@@ -920,13 +919,7 @@ impl Bundle {
         law: impl Into<RealmLaw>,
         capabilities: &crate::capabilities::CapabilityContext,
     ) -> Result<Bundle, CompileError> {
-        let dir = dir
-            .canonicalize()
-            .map_err(|e| CompileError::Invalid(format!("bundle dir {}: {e}", dir.display())))?;
-        // Composition resolves FIRST, into one flat bundle; everything
-        // below this line compiles a single bundle and never learns that
-        // composition happened (decision 0017).
-        let resolved = compose::resolve_unsealed(&dir, shelves)?;
+        let (dir, resolved) = survey::composed(dir, shelves)?;
         let note = resolved.chain_note();
         let realm = (realm_name, dialect, law.into());
         Bundle::assemble(&dir, resolved, roots, engine, realm, capabilities)
@@ -957,10 +950,6 @@ impl Bundle {
         (realm_name, dialect, law): (Option<&str>, Option<&Dialect>, RealmLaw),
         capabilities: &crate::capabilities::CapabilityContext,
     ) -> Result<Bundle, CompileError> {
-        let RealmLaw {
-            boundary,
-            provisional_offices,
-        } = law;
         // Decision 0065 (design D4 steps 1 and 2): the operated realm's
         // grants are judged BEFORE any seat is looked at — every
         // definition, every selected dialect, every restriction, and the
@@ -972,61 +961,29 @@ impl Bundle {
         let name = resolved.name.clone();
         let description = assemble::config_text(config, "description");
         let cost = assemble::config_text(config, "cost");
-        let phases::Table {
-            machine,
-            uses_dialect,
-            dialect_prompts,
-            declared_minimum,
-            protected_phase,
-        } = phases::table(&resolved, realm_name, dialect)?;
-
-        let authority = authority.with_minimum(declared_minimum);
-        let egress_minimum = authority.minimum();
-
-        let agents = assemble::open_agents(
-            (library_root, adapters_root),
-            &authority.definitions,
-            egress_minimum,
-            provisional_offices,
-            uses_dialect,
-        )?;
-
-        let wrapped_verify = assemble::wrapped_verify(uses_dialect, dialect);
-
+        let table = phases::table(&resolved, realm_name, dialect)?;
+        let authority = authority.with_minimum(table.declared_minimum);
+        let wrapped_verify = assemble::wrapped_verify(table.uses_dialect, dialect);
         let charters = Charters::default();
-        // The one canonical family table (design D10 F1) is the compiler's
-        // until the loop ends: every fact is written into an entrant of its
-        // map; a wrapper moves entrants.
-        let mut compiler = SiteCompiler::new(
-            agents,
-            (boundary, engine),
-            dialect,
-            &charters,
-            &resolved.roots,
-            &resolved.case_origin,
-        );
-        let (seats, verify_agent_hands) =
-            assemble::compile_seats(&mut compiler, &machine, &resolved, wrapped_verify)?;
-        assemble::hold_own_drivers(&compiler, &machine, &resolved, wrapped_verify)?;
-        let SiteCompiler { agents, sites, .. } = compiler;
-        let mut seated = assemble::Seated {
-            authority: &authority,
-            boundary,
-            engine,
-            resolved: &resolved,
-            agents,
-            sites,
-            seats,
-            verify_agent_hands,
-        };
-        seated.settle(&machine, adapters_root)?;
-        seated.wrap(wrapped_verify)?;
+        let roots = (library_root, adapters_root);
+        let at = (&authority, &resolved, engine, &charters);
+        let mut seated = survey::seat(at, roots, (dialect, law), &table)?;
+        let compile = &mut survey::Refusals::Compile;
+        seated.settle(&table.machine, adapters_root, compile)?;
+        seated.wrap(wrapped_verify, compile)?;
         let assemble::Seated {
+            boundary,
             agents,
             sites,
             seats,
             ..
         } = seated;
+        let phases::Table {
+            machine,
+            dialect_prompts,
+            protected_phase,
+            ..
+        } = table;
 
         let capability_record = assemble::capability_record(&authority, &agents, &sites);
         let select_records = assemble::select_records(&seats);
@@ -4043,53 +4000,6 @@ fn record_hands(
     Ok(())
 }
 
-/// Walk one composed seat under the labels `written_sites`, in
-/// [`model_policy`], gives the pin walk, so the facts land where the engine
-/// looks, and resolve every executable site's capabilities. An agent-backed
-/// site's asks are its agent's minus what the site subtracts; an inline
-/// site's map is its own office's asks. A wanted capability a candidate
-/// lost is a notice in that site's agent record, where a skipped model link
-/// already is. `dir` is the directory an inline site's command was expanded
-/// against; a select case a later layer wrote by `override.cases` is walked
-/// in that layer's root, from the walk's `roots` by its `case_origin`, as
-/// `parse_select` parses it.
-fn record_capabilities(
-    walk: &CapabilityWalk<'_>,
-    dir: &Path,
-    what: &str,
-    raw: &Value,
-    sites: &mut BTreeMap<String, SiteFacts>,
-) -> Result<(), CompileError> {
-    let written = raw.get("capabilities");
-    let at = CapabilitySite {
-        authority: walk.authority,
-        adapters: walk.adapters,
-        what,
-        raw,
-    };
-    if let Some(name) = raw.get("agent").and_then(Value::as_str) {
-        return record_agent_capabilities(&at, walk.library, walk.boundary, name, sites);
-    }
-    // A single site, by the same two keys `has_single` reads.
-    if ["driver", "role"].iter().any(|key| raw.get(key).is_some()) {
-        return record_inline_capabilities(&at, (walk.engine, dir), sites);
-    }
-    if written.is_some() {
-        return Err(CompileError::Invalid(format!(
-            "seat '{what}' declares 'capabilities' beside a panel, sequence or select; a request \
-             belongs to the site that executes — the member, step or case body — because that \
-             is the office the realm grants to (decision 0065 ruling 5)"
-        )));
-    }
-    if raw.get("dialect").is_some() {
-        return record_dialect_capabilities(&at, sites);
-    }
-    for (label, raw, dir) in nested_sites(what, raw, (dir, walk.roots, walk.case_origin)) {
-        record_capabilities(walk, dir, &label, raw, sites)?;
-    }
-    Ok(())
-}
-
 /// One executable site's asks at its own canonical class (GP1), read once
 /// for every candidate it resolves against: what the site itself declares,
 /// never its container's class, a neighbour's or its execution label.
@@ -4126,12 +4036,10 @@ fn site_facts<'a>(sites: &'a mut BTreeMap<String, SiteFacts>, label: &str) -> &'
 /// instead of being dragged onto a wrapper coordinate by a prefix sweep.
 /// Every source is drained before any destination is inserted, so a member
 /// named `x` beside one named `checks:x` — whose destination is the other's
-/// source label — cannot overwrite a still-needed source.
-fn relocate_verify_facts(
-    sites: &mut BTreeMap<String, SiteFacts>,
-    moved: &[(String, String, SiteKey)],
-) {
-    let staged: Vec<(String, SiteFacts)> = moved
+/// source label — cannot overwrite a still-needed source. A survey's
+/// per-site facts move by the same table (U9a2).
+fn relocate_verify_facts<T>(sites: &mut BTreeMap<String, T>, moved: &[(String, String, SiteKey)]) {
+    let staged: Vec<(String, T)> = moved
         .iter()
         .filter_map(|(source, destination, _)| {
             sites

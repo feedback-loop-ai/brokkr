@@ -150,7 +150,8 @@ fn lines(dir: &Path, availability: &Availability) -> (bool, Vec<String>) {
         brokkr_runtime::realms::World::inspect(dir, None),
         dir.join("adapters"),
     );
-    capabilities::report_capabilities(&mut report, &world, dir, &adapters, availability);
+    let given = (availability, &folder::Inspected::Neither);
+    capabilities::report_capabilities(&mut report, &world, dir, &adapters, given);
     (report.healthy, report.lines)
 }
 
@@ -861,6 +862,10 @@ fn an_unbuilt_or_invalid_grant_is_one_failing_line_and_the_rest_still_prints() {
              'library-docs' through dialect 'docs-mcp' of kind 'mcp', whose broker support is \
              not implemented until decision 0065 slice two"
                 .to_string(),
+        ]
+        .into_iter()
+        .chain(mcp_tests::docs("broken"))
+        .chain([
             dsh("broken"),
             "MISSING  capabilities conflicting 'web-search': realm 'conflicting': capability \
              'web-search' in dialect 'reads-only' declares classes [reads], conflicting with \
@@ -875,8 +880,10 @@ fn an_unbuilt_or_invalid_grant_is_one_failing_line_and_the_rest_still_prints() {
              'library-docs' through dialect 'docs-mcp' of kind 'mcp', whose broker support is \
              not implemented until decision 0065 slice two"
                 .to_string(),
-            dsh("unbuilt"),
-        ]
+        ])
+        .chain(mcp_tests::docs("unbuilt"))
+        .chain([dsh("unbuilt")])
+        .collect::<Vec<_>>()
     );
 }
 
@@ -991,7 +998,12 @@ fn a_failing_grant_takes_no_neighbour_with_it_and_fabricates_no_denial() {
     let absent = "realm 'mixed': capability 'web-fetch': tool dialect 'absent-fetch' is not at \
                   'dialects/tools/absent-fetch.json' in the operator configuration";
     assert_eq!(
-        lines,
+        lines[1..5],
+        mcp_tests::docs("mixed"),
+        "the grant's own lines follow its refusal"
+    );
+    assert_eq!(
+        [&lines[..1], &lines[5..]].concat(),
         [
             "MISSING  capabilities mixed 'library-docs': realm 'mixed' grants capability \
              'library-docs' through dialect 'docs-mcp' of kind 'mcp', whose broker support is \
@@ -1142,7 +1154,8 @@ fn the_shipped_realm_grants_nothing_and_names_every_native_power_it_denies() {
         brokkr_runtime::realms::World::inspect(&workspace, None),
         workspace.join("adapters"),
     );
-    capabilities::report_capabilities(&mut report, &world, &workspace, &adapters, &availability);
+    let given = (&availability, &folder::Inspected::Neither);
+    capabilities::report_capabilities(&mut report, &world, &workspace, &adapters, given);
     assert!(report.healthy);
     let rendered = report.render();
     assert!(
@@ -1264,6 +1277,16 @@ fn deny(tool: &str) -> Value {
 /// The independent compile half: one seat, `work`, compiled in realm
 /// `private` through the verb's own path. `Ok` is an admitted bundle.
 fn compile(dir: &Path, work: Value) -> Result<(), String> {
+    bundle_with(dir, work);
+    let world = brokkr_runtime::realms::World::inspect(dir, None).unwrap();
+    let private = dir.join("private");
+    brokkr_runtime::launch::compile_for(dir, &dir.join("bundle"), world.as_ref(), &private)
+        .map(drop)
+        .map_err(|error| error.to_string())
+}
+
+/// The bundle every compile half compiles, its `work` seat as given.
+fn bundle_with(dir: &Path, work: Value) {
     write(
         dir,
         "bundle/policy.json",
@@ -1281,11 +1304,6 @@ fn compile(dir: &Path, work: Value) -> Result<(), String> {
             "review": {"results": ["clean"], "role": "roles/role.md",
                        "driver": {"command": ["driver"]}}}}),
     );
-    let world = brokkr_runtime::realms::World::inspect(dir, None).unwrap();
-    let private = dir.join("private");
-    brokkr_runtime::launch::compile_for(dir, &dir.join("bundle"), world.as_ref(), &private)
-        .map(drop)
-        .map_err(|error| error.to_string())
 }
 
 /// The three seats every compile half submits: an inline Claude seat that
@@ -1973,3 +1991,4 @@ fn an_office_or_evidence_with_a_control_character_cannot_split_or_forge_a_line()
 }
 
 mod binding_tests;
+mod mcp_tests;

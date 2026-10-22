@@ -1,14 +1,16 @@
-//! The arms of [`record_capabilities`](super::record_capabilities) (#288,
-//! slice I): decision 0065's capability record of one composed seat, by the
-//! kind of site it is — an agent-backed site, a single inline site, a
-//! dialect step — and the sites a panel, sequence or select nests.
-//! `record_capabilities` reads as their sequence and keeps the walk.
+//! [`record_capabilities`] and its arms (#288, slice I): decision 0065's
+//! capability record of one composed seat, by the kind of site it is — an
+//! agent-backed site, a single inline site, a dialect step — and the sites
+//! a panel, sequence or select nests. `record_capabilities` reads as their
+//! sequence and keeps the walk; each executable site's refusal and SI2
+//! verdicts are met as the pass's [`Refusals`] says (U9a2).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
+use super::survey::Refusals;
 use super::{
     admit_inline_launch, admit_native_sandbox, command_parts, compose, dispatch_driver,
     expand_command, mcp, pins, site_asks, site_facts, step_label, CapabilityAdapters, CompileError,
@@ -63,15 +65,68 @@ pub(super) struct CapabilitySite<'a> {
     pub(super) raw: &'a Value,
 }
 
+/// Walk one composed seat under the labels `written_sites`, in
+/// [`model_policy`](super::model_policy), gives the pin walk, so the facts
+/// land where the engine looks, and resolve every executable site's
+/// capabilities. An agent-backed site's asks are its agent's minus what the
+/// site subtracts; an inline site's map is its own office's asks. A wanted
+/// capability a candidate lost is a notice in that site's agent record,
+/// where a skipped model link already is. `dir` is the directory an inline
+/// site's command was expanded against; a select case a later layer wrote
+/// by `override.cases` is walked in that layer's root, from the walk's
+/// `roots` by its `case_origin`, as `parse_select` parses it. Each
+/// executable site's refusal is met by `refusals` under its own label: a
+/// compile refuses with the first, and a survey walks on to its siblings.
+pub(super) fn record_capabilities(
+    walk: &CapabilityWalk<'_>,
+    dir: &Path,
+    (what, raw): (&str, &Value),
+    sites: &mut BTreeMap<String, SiteFacts>,
+    refusals: &mut Refusals<'_>,
+) -> Result<(), CompileError> {
+    let written = raw.get("capabilities");
+    let at = CapabilitySite {
+        authority: walk.authority,
+        adapters: walk.adapters,
+        what,
+        raw,
+    };
+    if let Some(name) = raw.get("agent").and_then(Value::as_str) {
+        let at = (&at, walk.library, walk.boundary);
+        let recorded = record_agent_capabilities(at, name, sites, refusals);
+        return refusals.meet(what, recorded);
+    }
+    // A single site, by the same two keys `has_single` reads.
+    if ["driver", "role"].iter().any(|key| raw.get(key).is_some()) {
+        let recorded = record_inline_capabilities(&at, (walk.engine, dir), sites, refusals);
+        return refusals.meet(what, recorded);
+    }
+    if written.is_some() {
+        let refused = Err(CompileError::Invalid(format!(
+            "seat '{what}' declares 'capabilities' beside a panel, sequence or select; a request \
+             belongs to the site that executes — the member, step or case body — because that \
+             is the office the realm grants to (decision 0065 ruling 5)"
+        )));
+        refusals.meet(what, refused)?;
+    }
+    if raw.get("dialect").is_some() {
+        let recorded = record_dialect_capabilities(&at, sites, refusals);
+        return refusals.meet(what, recorded);
+    }
+    for (label, raw, dir) in nested_sites(what, raw, (dir, walk.roots, walk.case_origin)) {
+        record_capabilities(walk, dir, (&label, raw), sites, refusals)?;
+    }
+    Ok(())
+}
+
 /// An agent-backed site: its asks are its agent's minus what the site
 /// subtracts, resolved against every candidate of its chain, and a wanted
 /// capability a candidate lost is a notice in the site's agent record.
 pub(super) fn record_agent_capabilities(
-    at: &CapabilitySite<'_>,
-    library: Option<&Library>,
-    boundary: Boundary,
+    (at, library, boundary): (&CapabilitySite<'_>, Option<&Library>, Boundary),
     name: &str,
     sites: &mut BTreeMap<String, SiteFacts>,
+    refusals: &mut Refusals<'_>,
 ) -> Result<(), CompileError> {
     let CapabilitySite {
         authority,
@@ -90,7 +145,8 @@ pub(super) fn record_agent_capabilities(
         (Boundary::Harness, Some(_)) => Some(asks.class),
         _ => None,
     };
-    let site = mcp::candidate_capabilities(authority, adapters, asks, &chain, class)?;
+    let planned = mcp::candidate_capabilities(authority, adapters, asks, &chain, class);
+    let site = refusals.planned(what, planned)?;
     let facts = site_facts(sites, what);
     // The EFFECTIVE class, an inherited office class included, as the
     // local admission recorded it (design D5.6).
@@ -129,6 +185,7 @@ pub(super) fn record_inline_capabilities(
     at: &CapabilitySite<'_>,
     (engine, dir): (&Executable, &Path),
     sites: &mut BTreeMap<String, SiteFacts>,
+    refusals: &mut Refusals<'_>,
 ) -> Result<(), CompileError> {
     let CapabilitySite {
         authority,
@@ -163,7 +220,8 @@ pub(super) fn record_inline_capabilities(
     // U1f: the MCP set this serving intends, never read from its bytes.
     facts.inline_mcp = Some(McpIntent::inline(driver.as_deref(), facts.hands_spec()));
     let serving = mcp::InlineServing::of(facts, driver.as_deref(), &parts);
-    let site = mcp::inline_capabilities(authority, adapters, asks, &serving)?;
+    let planned = mcp::inline_capabilities(authority, adapters, asks, &serving);
+    let site = refusals.planned(what, planned)?;
     // Rebuild unit 5d-fix-b: an inline class the engine lowered is
     // judged with its whole launch, the resolved native plan included.
     admit_inline_launch(what, &parts, facts, &site)?;
@@ -180,6 +238,7 @@ pub(super) fn record_inline_capabilities(
 pub(super) fn record_dialect_capabilities(
     at: &CapabilitySite<'_>,
     sites: &mut BTreeMap<String, SiteFacts>,
+    refusals: &mut Refusals<'_>,
 ) -> Result<(), CompileError> {
     let CapabilitySite {
         authority,
@@ -200,8 +259,8 @@ pub(super) fn record_dialect_capabilities(
             hands: &[],
             intent: facts.inline_mcp,
         };
-        let site = mcp::inline_capabilities(authority, adapters, asks, &serving)?;
-        facts.seal(site, pins::exec());
+        let planned = mcp::inline_capabilities(authority, adapters, asks, &serving);
+        facts.seal(refusals.planned(what, planned)?, pins::exec());
     }
     Ok(())
 }

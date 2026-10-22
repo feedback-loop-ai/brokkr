@@ -442,8 +442,8 @@ fn auth<'a>(adapters: CapabilityAdapters<'a>, provider: &str) -> &'a [String] {
     adapter(adapters, provider).map_or(&[], |adapter| adapter.harness_auth.as_slice())
 }
 
-/// An agent-backed site's sealed capability facts (decision 0065 ruling 5):
-/// its asks resolved once per candidate of its chain. Under the harness
+/// An agent-backed site's plan (decision 0065 ruling 5; [`Planned`]): its
+/// asks resolved once per candidate of its chain. Under the harness
 /// boundary the engine appends each candidate's `hands.harness.*` fragment
 /// for the seat's `class` behind a hands site's argv; it is composed with
 /// here exactly as at the launch, so a limit it carries holds at compile,
@@ -455,7 +455,7 @@ pub(super) fn candidate_capabilities(
     asks: SiteAsks,
     chain: &[Candidate],
     class: Option<SeatClass>,
-) -> Result<SiteCapabilities, CompileError> {
+) -> Planned {
     let resolve: Resolve<'_> = &|asks, serving| resolve(authority, asks, serving);
     candidate_capabilities_with(authority, adapters, asks, (chain, class), resolve)
 }
@@ -482,7 +482,7 @@ pub(super) fn candidate_capabilities_with(
     asks: SiteAsks,
     (chain, class): (&[Candidate], Option<SeatClass>),
     resolve: Resolve<'_>,
-) -> Result<SiteCapabilities, CompileError> {
+) -> Planned {
     // Each serving's argv in its two parts, by who wrote them (decision
     // 0066 ruling 4): a candidate's is the agent's composed argv and then the
     // adapter's hands fragment, which `agents::compose` appended LAST and
@@ -578,7 +578,7 @@ pub(super) fn candidate_capabilities_with(
     resolved(authority, (asks, resolve), &servings, sites)
 }
 
-/// An inline site's sealed capability facts: its asks resolved for the one
+/// An inline site's plan ([`Planned`]): its asks resolved for the one
 /// driver its command dispatches. A command that dispatches no built-in
 /// driver is an opaque custom one: no adapter answers for it, so its native
 /// inventory is unmeasured and it can hold nothing. An inline site's argv is
@@ -589,7 +589,7 @@ pub(super) fn inline_capabilities(
     adapters: CapabilityAdapters<'_>,
     asks: SiteAsks,
     inline: &InlineServing<'_>,
-) -> Result<SiteCapabilities, CompileError> {
+) -> Planned {
     let harness = inline.driver.unwrap_or(OPAQUE_HARNESS);
     let provenance = Provenance {
         hands: typed_hands(inline.intent, inline.hands),
@@ -622,36 +622,57 @@ pub(super) fn inline_capabilities(
     resolved(authority, (asks, resolve), servings, vec![site])
 }
 
+/// A site's plan as [`resolved`] leaves it: its sealed capability facts or
+/// the first refusal, and beside either each serving's SI2 verdict, read
+/// from its own record whatever its resolution came to (U9a2): the cause
+/// the fence's admission refuses it with once lifted, or `None`.
+pub(super) struct Planned {
+    pub(super) capabilities: Result<SiteCapabilities, CompileError>,
+    pub(super) strict: Vec<Option<StrictCause>>,
+}
+
+/// Each serving's SI2 verdict, read from its `sites` entry's record before
+/// any is resolved, and then the plan [`sealed`] resolves.
+fn resolved(
+    authority: &Authority,
+    asked: (SiteAsks, Resolve<'_>),
+    servings: &[Serving<'_>],
+    sites: Vec<McpSite<'_>>,
+) -> Planned {
+    let strict: Vec<Option<StrictCause>> = (servings.iter().zip(&sites))
+        .map(|(serving, site)| McpAxis::refusal(&site.strict, serving.provider))
+        .collect();
+    Planned {
+        capabilities: sealed(authority, asked, servings, (sites, &strict)),
+        strict,
+    }
+}
+
 /// `asks` resolved by `resolve` against each serving in order, each outcome
 /// then given its own MCP contribution by its `sites` entry and judged by
-/// that entry's SI2 record, or the first refusal; the records are kept
-/// beside the outcomes, which way the fence stands.
-fn resolved(
+/// that serving's SI2 verdict in `strict`, or the first refusal; the
+/// records are kept beside the outcomes, which way the fence stands.
+fn sealed(
     authority: &Authority,
     (asks, resolve): (SiteAsks, Resolve<'_>),
     servings: &[Serving<'_>],
-    sites: Vec<McpSite<'_>>,
+    (sites, strict): (Vec<McpSite<'_>>, &[Option<StrictCause>]),
 ) -> Result<SiteCapabilities, CompileError> {
     let who = authority.who(&asks);
     let refused =
         |cause: &dyn std::fmt::Display| CompileError::Capability(format!("{who}: {cause}"));
     let mut outcomes = Vec::with_capacity(servings.len());
-    let mut strict = Vec::with_capacity(sites.len());
-    for (serving, site) in servings.iter().zip(sites) {
+    let mut records = Vec::with_capacity(sites.len());
+    for ((serving, site), verdict) in servings.iter().zip(sites).zip(strict) {
         let mut outcome = resolve(&asks, serving)?;
         (site.contribute(who, &asks.asks, &mut outcome)).map_err(|cause| refused(&cause))?;
         outcomes.push(outcome);
-        let cause = (site.strict.iter())
-            .find_map(|(shape, ambient)| ambient.strict(serving.provider, shape));
-        authority
-            .fence
-            .admit(cause)
-            .map_err(|cause| refused(&cause))?;
-        strict.push(site.strict);
+        (authority.fence.admit(verdict.clone())).map_err(|cause| refused(&cause))?;
+        records.push(site.strict);
     }
     Ok(SiteCapabilities {
         asks,
         outcomes,
-        strict,
+        strict: records,
     })
 }

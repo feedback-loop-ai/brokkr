@@ -722,7 +722,7 @@ pub(crate) fn doctor(
         &world,
         &workspace,
         &defaults.adapters,
-        &availability,
+        (&availability, &inspected),
     );
     folder::report_folder(&mut report, defaults, realms, inspected.folder());
     let adapters = &defaults.adapters;

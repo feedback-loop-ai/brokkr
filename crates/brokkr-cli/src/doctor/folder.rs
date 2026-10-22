@@ -49,6 +49,15 @@ impl Inspected {
         }
     }
 
+    /// The bundle's directory, given or found, whether or not it compiled:
+    /// where its binding minimum is read (U9a2).
+    pub(super) fn dir(&self) -> Option<&Path> {
+        match self {
+            Inspected::Given(dir, _) | Inspected::Folder { dir, .. } => Some(dir),
+            Inspected::Neither => None,
+        }
+    }
+
     /// What the report learns about the seats binding a credential
     /// (decision 0040 ruling 4), `declared` the names the compiled
     /// bundle's seats declare. A folder whose compile refuses is a bundle
