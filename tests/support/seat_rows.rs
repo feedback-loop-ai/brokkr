@@ -2,8 +2,9 @@
 //! decision 0089 ruling 4): what no committed journal holds, a retried
 //! effect, done, in flight, interleaved and priced twice by its retry, a
 //! seat whose turns and session record both
-//! carry tokens, a panel, a request never started, and the records that
-//! name no attempt or no member. brokkr-core pins each one's facts; brokkr-view holds the
+//! carry tokens, a panel, a request never started, the records that
+//! name no attempt or no member, an attempt started again, and a
+//! provenance entry naming no provider. brokkr-core pins each one's facts; brokkr-view holds the
 //! same journals' facts equal to its run view. A test module includes this
 //! file through `#[path]` beside an `envelope_builder` module, the one
 //! place a test spells an envelope (#357).
@@ -378,6 +379,51 @@ pub(crate) fn repriced() -> Vec<EventEnvelope> {
     ])
 }
 
+/// A seat whose failed attempt a second start names again: the start
+/// re-opens it, so it is at work, dated by its first start.
+pub(crate) fn reopened() -> Vec<EventEnvelope> {
+    let started = || {
+        let payload = json!({"effect_id": "o1", "attempt_id": "a"});
+        (EventType::EffectStarted, payload)
+    };
+    journal(vec![
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "o1", "seat": "again"}),
+        ),
+        started(),
+        (
+            EventType::EffectFailed,
+            json!({"effect_id": "o1", "attempt_id": "a"}),
+        ),
+        started(),
+    ])
+}
+
+/// A seat whose retry's provenance names no provider: the provider its
+/// first attempt named does not stand.
+pub(crate) fn unprovided() -> Vec<EventEnvelope> {
+    let started = |attempt: &str, site: Value| {
+        let payload = json!({"effect_id": "v1", "attempt_id": attempt, "provenance": [site]});
+        (EventType::EffectStarted, payload)
+    };
+    journal(vec![
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "v1", "seat": "sourced"}),
+        ),
+        started(
+            "a",
+            json!({"member": null, "agent": "implementer", "provider": "anthropic"}),
+        ),
+        (
+            EventType::EffectFailed,
+            json!({"effect_id": "v1", "attempt_id": "a"}),
+        ),
+        started("b", json!({"member": null, "agent": "implementer"})),
+    ])
+}
+
 /// Every hand-built journal, by name.
 pub(crate) fn journals() -> Vec<(&'static str, Vec<EventEnvelope>)> {
     vec![
@@ -390,5 +436,7 @@ pub(crate) fn journals() -> Vec<(&'static str, Vec<EventEnvelope>)> {
         ("restarted", restarted()),
         ("unstarted", unstarted()),
         ("unnamed", unnamed()),
+        ("reopened", reopened()),
+        ("unprovided", unprovided()),
     ]
 }

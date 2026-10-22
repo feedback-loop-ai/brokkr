@@ -118,13 +118,18 @@ pub struct SeatRow {
     seat: Option<String>,
     /// The run's phase when the attempt started (decision 0089 ruling 7).
     phase: Option<String>,
+    /// Its attempt's first start, kept when a start names it again.
     started: Option<Stamp>,
+    /// The seq of its attempt's last start, which re-opens it.
+    since: Option<u64>,
     /// Its first and last checkpoint.
     first: Option<Stamp>,
     last: Option<Stamp>,
     model: Last<String>,
     effort: Last<String>,
-    provider: Last<String>,
+    /// The provider its attempt's start recorded for it: each provenance
+    /// entry restates it, `None` where the entry names none.
+    provider: Last<Option<String>>,
     /// The boundary its attempt's start recorded for it.
     boundary: Last<String>,
     /// The boundary a record carried beside its model while the attempt
@@ -329,6 +334,7 @@ impl Seats {
             seat: asked.seat.clone(),
             phase: seat.and_then(|seat| seat.phase.clone()),
             started: seat.and_then(|seat| seat.started.clone()),
+            since: seat.and_then(|seat| seat.since),
             first: None,
             last: None,
             model: None,
@@ -348,25 +354,25 @@ impl Seats {
     }
 
     /// An attempt starts: it is the one in flight, and every row of it
-    /// takes its start, the run's phase then, and the provider and the
-    /// boundary the start records for each site.
+    /// takes its first start, this start's seq, the run's phase then, and
+    /// the provider and the boundary the start records for each site. A
+    /// start naming an attempt already started re-opens it, as the view
+    /// re-opens its effect.
     fn started(&mut self, request: usize, attempt: Option<&str>, event: &EventEnvelope) {
         self.requests[request].open = attempt.map(str::to_string);
         self.row(request, attempt, Member::Seat);
+        let seq = event.seq;
         for at in self.at[&(request, attempt.map(str::to_string))].values() {
             let row = &mut self.rows[*at];
-            row.started = Some(Stamp::of(event));
+            row.started.get_or_insert_with(|| Stamp::of(event));
+            row.since = Some(seq);
             row.phase.clone_from(&self.phase);
         }
-        let seq = event.seq;
         let provenance = event.payload.get("provenance").and_then(Value::as_array);
         for entry in provenance.into_iter().flatten() {
             let row = self.row(request, attempt, Member::of(field(entry, "member")));
-            state(
-                &mut row.provider,
-                seq,
-                field(entry, "provider").map(str::to_string),
-            );
+            let provider = field(entry, "provider").map(str::to_string);
+            row.provider = Some((seq, provider));
         }
         for entry in boundary_entries(&event.payload) {
             let row = self.row(request, attempt, Member::of(entry.member.as_deref()));
@@ -423,7 +429,9 @@ pub struct SeatFacts {
     pub model: Option<String>,
     pub effort: Option<String>,
     pub boundary: Option<String>,
-    pub provider: Option<String>,
+    /// The provider its last provenance entry named: `Some(None)` where
+    /// that entry names none, `None` where no entry names the participant.
+    pub provider: Option<Option<String>>,
     pub usage: Option<TokenUsage>,
     pub usage_aggregated: bool,
     /// Every attempt's reported cost, summed in journal order.
@@ -441,8 +449,8 @@ pub struct SeatFacts {
 }
 
 /// What a request's rows say of its effect: its first start, its last
-/// start's seq, whether that start opened an attempt it named, and the
-/// last terminal that concluded an attempt in flight.
+/// start's seq, whether that start opened or re-opened an attempt it
+/// named, and the last terminal that concluded an attempt in flight.
 struct Effect<'a> {
     first: Option<&'a Stamp>,
     since: u64,
@@ -454,20 +462,21 @@ struct Effect<'a> {
 impl<'a> Effect<'a> {
     fn of(rows: &[&'a SeatRow]) -> Effect<'a> {
         // Every start opens its attempt's seat row, the row its terminal
-        // concludes.
-        let starts = || {
-            let seats = rows.iter().filter(|row| row.member == Member::Seat);
-            seats.filter_map(|row| Some((row.started.as_ref()?, row)))
-        };
-        let last = starts().max_by_key(|(start, _)| start.seq);
-        let in_flight =
-            last.is_some_and(|(_, row)| row.attempt_id.is_some() && row.ended.is_none());
+        // concludes; a terminal before its attempt's last start concluded
+        // it before that start re-opened it.
+        let seats = || rows.iter().filter(|row| row.member == Member::Seat);
+        let last = seats()
+            .filter_map(|row| Some((row.since?, row)))
+            .max_by_key(|(since, _)| *since);
+        let in_flight = last.is_some_and(|(since, row)| {
+            row.attempt_id.is_some() && row.ended.is_none_or(|(seq, _)| seq < since)
+        });
         let ended = rows.iter().filter_map(|row| row.ended);
         Effect {
-            first: starts()
-                .min_by_key(|(start, _)| start.seq)
-                .map(|(start, _)| start),
-            since: last.map_or(0, |(start, _)| start.seq),
+            first: seats()
+                .filter_map(|row| row.started.as_ref())
+                .min_by_key(|start| start.seq),
+            since: last.map_or(0, |(since, _)| since),
             outcome: match ended.max_by_key(|(seq, _)| *seq) {
                 Some((_, outcome)) if !in_flight => outcome,
                 _ => Outcome::Working,

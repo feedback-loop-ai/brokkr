@@ -63,7 +63,7 @@ fn a_retried_seat_sums_its_attempts_and_reads_its_last() {
             model: words("opus-2"),
             effort: words("max"),
             boundary: words("harness"),
-            provider: words("openai"),
+            provider: Some(words("openai")),
             usage: Some(tokens(150, 30)),
             cost: Some(0.30000000000000004),
             last_attempt_cost: Some(0.2),
@@ -147,7 +147,7 @@ fn a_seat_s_turns_meter_it_over_its_session_record() {
 #[test]
 fn a_panel_seat_reports_its_members() {
     let member = |name: &str, provider: &str| SeatFacts {
-        provider: words(provider),
+        provider: Some(words(provider)),
         started_at: Some(at(if name == "a" { 4 } else { 5 })),
         ..asked("p1", named(name))
     };
@@ -206,7 +206,7 @@ fn a_seat_retrying_is_at_work() {
         [SeatFacts {
             model: words("opus"),
             effort: words("high"),
-            provider: words("openai"),
+            provider: Some(words("openai")),
             usage: Some(tokens(100, 40)),
             cost: Some(0.1),
             last_attempt_cost: Some(0.1),
@@ -233,6 +233,33 @@ fn a_start_naming_no_attempt_leaves_the_last_terminal_standing() {
             outcome: Outcome::Failed,
             started_at: Some(at(2)),
             ..asked("r1", Member::Seat)
+        }]
+    );
+}
+
+/// A start naming an attempt that failed re-opens it: the seat is at work
+/// again, dated by its first start.
+#[test]
+fn a_start_naming_a_concluded_attempt_re_opens_it() {
+    assert_eq!(
+        facts_of(&journals::reopened()),
+        [SeatFacts {
+            started_at: Some(at(2)),
+            ..asked("o1", Member::Seat)
+        }]
+    );
+}
+
+/// A provenance entry naming no provider restates it as named by none:
+/// the provider an earlier attempt's entry named does not stand.
+#[test]
+fn a_provenance_entry_naming_no_provider_replaces_the_last() {
+    assert_eq!(
+        facts_of(&journals::unprovided()),
+        [SeatFacts {
+            provider: Some(None),
+            started_at: Some(at(2)),
+            ..asked("v1", Member::Seat)
         }]
     );
 }

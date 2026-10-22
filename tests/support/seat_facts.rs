@@ -26,6 +26,13 @@ fn turns_cell(facts: &SeatFacts) -> Option<String> {
     }
 }
 
+/// The provider the view's provenance names from these facts: `?` where
+/// the participant's last provenance entry names none.
+fn provider(facts: &SeatFacts) -> Option<&str> {
+    let provider = facts.provider.as_ref();
+    provider.map(|provider| provider.as_deref().unwrap_or("?"))
+}
+
 fn status(outcome: Outcome) -> &'static str {
     match outcome {
         Outcome::Working => "working",
@@ -62,7 +69,7 @@ fn differs(
         Member::Seat => facts.effect_id.clone(),
         Member::Named(member) => format!("{}:{member}", facts.effect_id),
     };
-    let provider = participant.provenance.as_ref();
+    let provenance = participant.provenance.as_ref();
     let bits = |cost: Option<f64>| cost.map(f64::to_bits);
     let fields = [
         ("key", key == participant.key),
@@ -74,7 +81,7 @@ fn differs(
         ),
         (
             "provider",
-            facts.provider.as_deref() == provider.map(|provenance| provenance.provider.as_str()),
+            provider(facts) == provenance.map(|provenance| provenance.provider.as_str()),
         ),
         ("usage", facts.usage == participant.usage),
         (
