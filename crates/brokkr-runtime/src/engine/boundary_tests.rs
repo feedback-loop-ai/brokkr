@@ -1144,7 +1144,7 @@ fn exec_composition_keeps_the_canonical_pin_separate_from_the_script_argument() 
             None,
         );
         assert_eq!(plain.argv, expected);
-        assert_eq!(plain.rewalk, None);
+        assert_eq!(plain.rewalk, Some(directory.clone()));
         assert_eq!(plain.refusal, None);
         if boundary != BuiltBoundary::Namespace {
             let spawn = compose_site(
@@ -2927,28 +2927,9 @@ fn the_network_probe_is_asked_once_and_remembered() {
 }
 
 // ─────────────────────── gate-boundary-policy: the spawn-time re-walk
-
-/// A layer on disk whose pinned identity the bundle carries: the
-/// bundle's own files map for the leaf, computed by the same digest.
-fn pinned_layer(dir: &Path) -> (PathBuf, Bundle) {
-    let layer = dir.join("layer");
-    std::fs::create_dir_all(layer.join("scripts")).unwrap();
-    std::fs::write(layer.join("scripts/gate.sh"), "#!/bin/sh\ntrue\n").unwrap();
-    std::fs::write(layer.join("scripts/lib.sh"), "helper\n").unwrap();
-    std::fs::write(layer.join("bundle.json"), "{}").unwrap();
-    let mut bundle = bundle(dir, single_body(vec!["must-not-run".into()]));
-    bundle.dir = layer.clone();
-    bundle.roots = vec![layer.clone()];
-    let mut files = Map::new();
-    for rel in ["bundle.json", "scripts/gate.sh", "scripts/lib.sh"] {
-        files.insert(
-            rel.to_string(),
-            Value::String(sha256_bytes(&std::fs::read(layer.join(rel)).unwrap())),
-        );
-    }
-    bundle.manifest["files"] = Value::Object(files);
-    (layer, bundle)
-}
+/// A site with no hands re-walks its exec dispatch too (#823).
+mod rewalk_tests;
+use rewalk_tests::pinned_layer;
 
 #[test]
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]

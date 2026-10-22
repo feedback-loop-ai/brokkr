@@ -2834,11 +2834,11 @@ fn script_directory(command: &[String], roots: &[PathBuf]) -> Option<PathBuf> {
 /// canonical script directory is what the spawn re-walks, and the argv
 /// stays exactly as compile spelled it, each segment keeping its origin.
 /// Later arguments are not judged paths, and filename bytes, backslashes
-/// included, stay exact. `segments` are an exec dispatch: their one
-/// caller, compose_segments, checks that first.
+/// included, stay exact. A site with no hands is unboxed, so it re-walks
+/// too, under any word (#823); any argv but an exec dispatch carries none.
 fn exec_segments(segments: Vec<Segment>, roots: &[PathBuf]) -> SiteSpawn {
     let mut spawn = SiteSpawn::of(segments);
-    spawn.rewalk = script_directory(&spawn.argv, roots);
+    spawn.rewalk = script_directory(&spawn.argv, roots).filter(|_| is_exec_dispatch(&spawn.argv));
     spawn
 }
 
@@ -3046,7 +3046,7 @@ fn compose_segments(site: &Composing<'_>, segments: Vec<Segment>) -> SiteSpawn {
         unboxed,
     } = *site;
     let Some(spec) = hands else {
-        return SiteSpawn::of(segments);
+        return exec_segments(segments, roots);
     };
     let command = flatten(&segments);
     if boundary != BuiltBoundary::Namespace && is_exec_dispatch(&command) {
