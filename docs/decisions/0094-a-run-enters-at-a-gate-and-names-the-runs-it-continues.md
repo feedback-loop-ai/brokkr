@@ -560,6 +560,14 @@ this decision and the Rust types are their shape.
    behind #787's 25, and the console host pins it; every pin of the
    version moves with it.
 
+   *Returned-review amendment, 2026-10-22:* the CLI paints the entry
+   sentence through `render::Safe`, stripping terminal controls and
+   reordering characters at that boundary. The derived sentence, journal,
+   seat context and JSON retain their full text. The synthetic continuation
+   in `an_entered_delivery_continues_two_runs_and_vouches_without_fetching_them`
+   pins both the sanitized CLI line and the unchanged journal feature
+   (decision 0071 rulings 7, 9 and 10).
+
    **Enforcement binding:** `crates/brokkr-view/src/entry.rs`
    (`entry_sentence`, the one text led by each continued run's title,
    and the unreadable entry stated) and `rail.rs`, with

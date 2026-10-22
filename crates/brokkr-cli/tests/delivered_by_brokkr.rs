@@ -1109,6 +1109,8 @@ fn gate_classes(side: &Path, bundle: &Path) {
     std::fs::write(path, config.to_string()).unwrap();
 }
 
+const CONTINUED_FEATURE: &str = "a\u{1b}[2J\u{1b}[H";
+
 #[test]
 fn an_entered_delivery_continues_two_runs_and_vouches_without_fetching_them() {
     let side = tempfile::tempdir().unwrap();
@@ -1161,7 +1163,7 @@ fn an_entered_delivery_continues_two_runs_and_vouches_without_fetching_them() {
         let line = if phase == "verify" {
             assert_eq!(
                 line_starting(&stderr, "entered at"),
-                format!("entered at verify, continuing a ({a}), b ({b})")
+                format!("entered at verify, continuing a[2J[H ({a}), b ({b})")
             );
             vouched = Some(body);
             format!("entered at verify, continuing {a}, {b}")
@@ -1197,7 +1199,10 @@ fn an_entered_delivery_continues_two_runs_and_vouches_without_fetching_them() {
     );
     let (code, log) = Gate::local(&repo).judge(&vouched.unwrap(), &changed, "");
     assert_eq!(code, 1, "{log}");
-    assert!(log.contains("code"), "{log}");
+    assert_eq!(
+        line_starting(&log, "delivered by brokkr: tier"),
+        "delivered by brokkr: tier code · delta since the judgment: [\"src/after.rs\"]"
+    );
 }
 
 fn stopped_predecessors(side: &Path, repo: &Path) -> Vec<String> {
@@ -1212,7 +1217,12 @@ fn stopped_predecessors(side: &Path, repo: &Path) -> Vec<String> {
         let mut script = delivery_script();
         script["seats"]["verify"][0]["result"]["result"] = json!("fail");
         let bundle = delivery_bundle(side, feature, DELIVERY_POLICY, script, false);
-        let (code, stderr) = drive_delivery(side, repo, &bundle, feature, &[]);
+        let title = if feature == "a" {
+            CONTINUED_FEATURE
+        } else {
+            feature
+        };
+        let (code, stderr) = drive_delivery(side, repo, &bundle, title, &[]);
         assert_eq!(code, Some(3), "{stderr}");
         let run = started_run(&stderr);
         assert_eq!(
@@ -1229,7 +1239,7 @@ fn stopped_predecessors(side: &Path, repo: &Path) -> Vec<String> {
 
 fn assert_entered_journal(events: &[EventEnvelope], phase: &str, a: &str, b: &str) {
     let continues = if phase == "verify" {
-        json!([{"run_id":a,"feature":"a"},{"run_id":b,"feature":"b"}])
+        json!([{"run_id":a,"feature":CONTINUED_FEATURE},{"run_id":b,"feature":"b"}])
     } else {
         json!([])
     };

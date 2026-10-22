@@ -42,7 +42,10 @@ pub(crate) fn run(workspace: &Path, args: RunArgs, viewer: &Viewer) -> Result<Ex
     let mut engine = launch::start(request, new, &mut |note| eprintln!("{note}"))?;
     eprintln!("run started: {}", engine.run_id);
     if let Some(entry) = engine.entry() {
-        eprintln!("{}", brokkr_view::entry_sentence(entry));
+        eprintln!(
+            "{}",
+            crate::render::Safe::new(&brokkr_view::entry_sentence(entry)).as_str()
+        );
     }
     run_view::drive(&mut engine, &journal, args.no_view, viewer)
 }
