@@ -864,7 +864,10 @@ verified bytes via the runtime artifact reader. With --json it emits a
 provenance envelope plus the verified canonical response; otherwise prints
 provenance and those bytes. Unknown call selection says
 "capability call is not recorded in this run". SC4/CR5 own absent/missing/
-corrupt causes; no caller-supplied path or fresh server response is accepted.
+corrupt causes; no caller-supplied artifact path or fresh server response is
+accepted. `--repo <path>`, valid only with --capability-call, names the
+operated repository whose run-local directory holds the retained artifacts,
+never an artifact (operator ruling 2026-10-22, recorded under U8g).
 
 ### D9. Unit boundaries, consumers and merge safety
 
@@ -1218,7 +1221,7 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-cli/src/init.rs` (1895) | U1f2 | Generated adapters and agents/README; keep copied strictness metadata bound to shipped declarations by parity proof |
 | `crates/brokkr-cli/src/init/adapters.rs` | U1f2, U1d3 | Consumed extraction from init.rs; registration included in that parent |
 | `crates/brokkr-cli/src/verbs/setup.rs` | U1f2 | Printed scaffold instructions and matching guide transcripts |
-| `crates/brokkr-runtime/src/engine.rs` (4862) | U1g2, U4a2, U4e, U4f, U7c, U8a2a, U8a2b, U8c, U8e, U7d2, U8a, U8a2c, U8e2 | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
+| `crates/brokkr-runtime/src/engine.rs` (4862) | U1g2, U4a2, U4e, U4f, U7c, U8a2a, U8a2b, U8c, U8e, U7d2, U8a, U8a2c, U8e2, U8g | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-runtime/src/capabilities.rs` (2369) | U2, U3a, U4d, U5a, U5a2, U5f, U9b1, U1g1, U7c0, U7d3 | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-runtime/src/capabilities/binding.rs` | U2, U5a, U5a2, U9a, U9b1, U7c0, U7d3 | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-cli/src/doctor.rs` (1567) | U2, U9a, U8a2c | Recheck concurrent main edits and module registration before the row |
@@ -1262,7 +1265,7 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-protocol/src/hands/evidence.rs` | U8a | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-cli/src/hands.rs` | U8a, U8a2c | The hands serve and exec verbs parse the carried artifact root and sealed reach |
 | `crates/brokkr-cli/src/broker/session/stderr.rs` | U6f1b, U6f3 | The closing bound is a fixed value that nothing extends |
-| `crates/brokkr-runtime/src/engine/artifacts.rs` | U8c | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
+| `crates/brokkr-runtime/src/engine/artifacts.rs` | U8c, U8g | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-cli/src/verbs/readouts.rs` | U8g | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-cli/src/doctor/capabilities.rs` | U9a | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-protocol/src/hands/namespace.rs` | U6c3, U6c4, U6c5a, U6c5b, U6c5c, U6c6b, U7c0b | Count registration and same-unit consumers; recheck size and concurrent main edits |
@@ -1401,7 +1404,7 @@ witness/compose pins accompany only rows that change their inputs.
 | U8e2 | U8e | Recover an attempt in flight at engine restart; 42.3 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/dispatch.rs`; `crates/brokkr-runtime/src/engine/panel.rs`; `crates/brokkr-runtime/src/engine/broker/admission.rs`; `crates/brokkr-runtime/src/engine/broker/settlement.rs`; `crates/brokkr-runtime/src/engine/broker/fold.rs` |
 | U8e3 | U8e2 | Release an attempt the operator confirms settled; 42.4 | `crates/brokkr-core/src/fold.rs`; `crates/brokkr-runtime/src/engine/operator.rs`; `crates/brokkr-runtime/src/engine/broker/admission.rs`; `crates/brokkr-runtime/src/engine/broker/settlement.rs`; `crates/brokkr-cli/src/cli_args.rs` |
 | U8f | U8e | Expose retained evidence in the pure view; 43.1–43.2 | `crates/brokkr-view/src/capability_calls.rs`; `crates/brokkr-view/src/lib.rs` |
-| U8g | U8f | Open a cited artifact through inspect; 44.1–44.2 | `crates/brokkr-cli/src/cli_args.rs`; `crates/brokkr-cli/src/verbs/readouts.rs` |
+| U8g | U8f | Open a cited artifact through inspect; 44.1–44.2 | `crates/brokkr-cli/src/cli_args.rs`; `crates/brokkr-cli/src/verbs/readouts.rs`; `crates/brokkr-runtime/src/engine/artifacts.rs`; `crates/brokkr-runtime/src/engine.rs` |
 | U9a | U8g, U2, U3c, U5a2 | Prepare whole-plan MCP doctor reporting; 45.1–45.2 | `crates/brokkr-cli/src/doctor.rs`; `crates/brokkr-cli/src/doctor/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs` |
 | U9c1 | U9a | Admit Codex's isolation options in the final-command grammar; 45.3–45.4 | `crates/brokkr-protocol/src/native_controls/grammar.rs`; `crates/brokkr-protocol/src/native_controls.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs` |
 | U9c2 | U9c1 | Launch Codex under its isolation options; 45.5–45.6 | `crates/brokkr-protocol/src/adapters.rs`; `crates/brokkr-protocol/src/adapters/mcp.rs`; `crates/brokkr-runtime/src/engine/input.rs` |
@@ -2204,6 +2207,10 @@ Add inspect --capability-call <call_id>; read the selected run's derived call, u
 
 Closes tasks 44.1 and 44.2; requirements [CR5](specs/capability-response-retention/spec.md).
 Proof: Complete exact bytes and missing/no-digest/corrupt/path/foreign-run refusal tests; no refetch and no view I/O.
+
+Operator ruling 2026-10-21 on U8g's reader (in chat, "A"): the runtime artifact reader this unit opens already exists, but it is private: engine/artifacts.rs's `read` and its CR5 causes `Unread` (missing, corrupt, not a regular contained file) are `pub(super)`. U8g therefore also changes engine/artifacts.rs, adding one public entry that opens the retained artifact a digest names in a run's run-local directory (`places::run_local`), below its artifact root, through that existing reader, and returns the verified bytes or the `Unread` cause; and engine.rs only by making `mod artifacts;` `pub mod artifacts;`, with no line added. Every other item of artifacts.rs keeps its visibility. There is no second reader, and the CLI verifies nothing itself. The public API rise is approved as measured, up to +12 lines across quality/public-api/*.txt together; a larger rise comes back to the operator.
+
+Operator ruling 2026-10-22 on U8g's run-local location (in chat, "a", "yes to the comments"): the journal records no run's run-local location. The engine places it at `places::run_local` of the repository given as `--repo` when the run starts or resumes, and `brokkr ledger --repo` and `brokkr resume --repo` take that repository from the operator. So `inspect` gains `--repo <path>`, valid only with `--capability-call`. It names the operated repository and is resolved exactly as `brokkr ledger --repo` resolves it (`folder::run_local`); without it, inspect uses the workspace's own repository, as built. The flag names a repository, never an artifact: the digest is still the selected run's journal's, and the runtime reader still verifies the bytes. U8g may also correct, in comments only, the two comments this unit makes stale: `crates/brokkr-cli/src/lib.rs`'s description of inspect's `--json`, and `crates/brokkr-cli/src/folder.rs`'s note that `brokkr ledger --repo` is `run_local`'s one caller. No other line of either file changes.
 
 Owning tests: `crates/brokkr-view/src/tests.rs`, `crates/brokkr-cli/tests/capability_artifacts.rs`.
 

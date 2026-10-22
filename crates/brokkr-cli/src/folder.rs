@@ -529,9 +529,10 @@ fn in_state(state: Option<PathBuf>, name: &str) -> PathBuf {
 /// read refuses, and a repository with neither a folder, a library mark
 /// nor an old layout has no place for it (ruling 2's step 4).
 ///
-/// Its one caller, `brokkr ledger --repo`, reads an old layout's root
-/// only by ruling 4's `--db` escape, as a run's ship seat does before the
-/// move: in the workspace's own repository the verb's check refuses an
+/// Its callers, `brokkr ledger --repo` and `brokkr inspect
+/// --capability-call` (in `--repo` or the workspace), read an old layout's
+/// root only by ruling 4's `--db` escape, as a run's ship seat does before
+/// the move: in the workspace's own repository the verb's check refuses an
 /// old layout without `--db` before this is reached. So the escape is
 /// taken here, and an old layout's `.forge/` is its own place.
 pub(crate) fn run_local(repo: &Path) -> Result<PathBuf, FolderError> {
