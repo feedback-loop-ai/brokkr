@@ -155,7 +155,8 @@ enum Cmd {
     },
     /// Explain a run: header, ruling, seats, decision trail, and the
     /// phase graph as a tree. `--phase` and `--seat` are the scoping
-    /// verbs the console's clicks became; `--json` emits the view model.
+    /// verbs the console's clicks became; `--json` emits the view model,
+    /// or with `--capability-call` the call and its verified response.
     #[command(group(ArgGroup::new("scope").args(["phase", "seat"])))]
     Inspect(InspectArgs),
     /// Read one participant's retained local transcript — Claude, Codex or

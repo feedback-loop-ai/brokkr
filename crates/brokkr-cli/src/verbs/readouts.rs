@@ -2,7 +2,7 @@
 //! `ledger`, `ui`, `tui`, `inspect`, `seats`, `watch`, `replay`, `runs`,
 //! `realms` and `compare` (decision 0014: every readout is read-only).
 
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -10,6 +10,7 @@ use anyhow::Result;
 use brokkr_core::fold::fold;
 use brokkr_runtime::realms::Hearth;
 use brokkr_store::Store;
+use brokkr_view::capability_calls::{CallEvidence, CapabilityCall, NO_RETAINED};
 use serde_json::json;
 
 use crate::cli_args::{CompareArgs, CostsArgs, InspectArgs, LedgerArgs, RealmsArgs};
@@ -121,9 +122,15 @@ pub(crate) fn inspect(
         json,
         phase,
         seat,
+        capability_call,
+        repo,
     }: InspectArgs,
 ) -> Result<ExitCode> {
     let view = run_view_of(workspace, realms, db, &run)?;
+    if let Some(call_id) = capability_call {
+        let repo = repo.as_deref().unwrap_or(workspace);
+        return print_call(repo, &view, &call_id, json);
+    }
     if json {
         return print_served(view);
     }
@@ -139,6 +146,110 @@ pub(crate) fn inspect(
         "{}",
         render::inspect(&view, lens.as_ref(), true, &render::Style::detect())
     );
+    Ok(Exit::Completed.into())
+}
+
+/// Why `inspect --capability-call` opens no call of the selected run's
+/// (CR5), beside the runtime reader's `Unread`. Its `Display` is the
+/// operator's text (decision 0071 ruling 8), by hand as this crate's
+/// errors are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CallRefused {
+    /// No checkpoint of the run records the call.
+    Unrecorded,
+    /// Two checkpoints of the run record it: choosing one would reconcile.
+    RecordedTwice,
+    /// The call cites no digest: the view's [`NO_RETAINED`].
+    NoRetained,
+    /// `--json`, and the verified bytes are not JSON.
+    NotJson,
+}
+
+impl std::fmt::Display for CallRefused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            CallRefused::Unrecorded => "capability call is not recorded in this run",
+            CallRefused::RecordedTwice => "capability call is recorded more than once in this run",
+            CallRefused::NoRetained => NO_RETAINED,
+            CallRefused::NotJson => "retained response artifact is not JSON",
+        })
+    }
+}
+
+impl std::error::Error for CallRefused {}
+
+/// The one call `call_id` names among the checkpoints of the run `view`
+/// derives, beside the evidence the view derived for it.
+fn call_of<'v>(
+    view: &'v brokkr_view::RunView,
+    call_id: &str,
+) -> Result<(&'v CapabilityCall, &'v CallEvidence), CallRefused> {
+    let mut named = (view.participants.iter())
+        .flat_map(|participant| &participant.checkpoints)
+        .map(|row| &row.capability_call)
+        .filter_map(|evidence| Some((evidence.call.as_ref()?, evidence)))
+        .filter(|(call, _)| call.call_id == call_id);
+    let found = named.next().ok_or(CallRefused::Unrecorded)?;
+    named
+        .next()
+        .map_or(Ok(found), |_| Err(CallRefused::RecordedTwice))
+}
+
+/// What `inspect --capability-call` writes of the verified `bytes`:
+/// exactly them where its output is no terminal, as a script or a file
+/// reads them (CR5); on a terminal, their text with every control and
+/// reordering character taken out ([`render::Safe`]) and its line ended,
+/// so a server's response can neither move the cursor nor reorder the
+/// line it is read on.
+fn shown(bytes: &[u8], terminal: bool) -> std::borrow::Cow<'_, [u8]> {
+    match terminal {
+        false => std::borrow::Cow::Borrowed(bytes),
+        true => {
+            let text = String::from_utf8_lossy(bytes);
+            let line = format!("{}\n", render::Safe::new(&text).as_str());
+            std::borrow::Cow::Owned(line.into_bytes())
+        }
+    }
+}
+
+/// `inspect --capability-call`: the one call `call_id` names in the run
+/// `view` derives, with the provenance the view derived for it (decision
+/// 0071 ruling 7), and the response its digest cites, opened and verified
+/// in the run-local directory of the operated repository `repo`, resolved
+/// as `ledger --repo` resolves it (operator ruling 2026-10-22), by the
+/// runtime's one reader. With `json`, the view's call and the response's
+/// own bytes, unparsed, in one envelope. No artifact path is taken from
+/// the operator, nothing is fetched and nothing is written (CR5).
+fn print_call(
+    repo: &Path,
+    view: &brokkr_view::RunView,
+    call_id: &str,
+    json: bool,
+) -> Result<ExitCode> {
+    let (call, evidence) = call_of(view, call_id)?;
+    let sha256 = call.response_sha256.as_deref();
+    let sha256 = sha256.ok_or(CallRefused::NoRetained)?;
+    let run_local = crate::folder::run_local(repo)?;
+    let bytes = brokkr_runtime::engine::artifacts::retained(&run_local, sha256)?;
+    let response = shown(&bytes, std::io::stdout().is_terminal());
+    let mut out = std::io::stdout().lock();
+    if json {
+        let parsed = serde_json::from_slice::<serde::de::IgnoredAny>(&bytes);
+        parsed.map_err(|_| CallRefused::NotJson)?;
+        let call = serde_json::to_string(call)?;
+        write!(out, "{{\"call\":{call},\"response\":")?;
+        out.write_all(&response)?;
+        out.write_all(b"}\n")?;
+    } else {
+        let said = [&call.call_id, &evidence.cell.text, &evidence.response.text];
+        let [id, line, digest] = said.map(|text| render::Safe::new(text));
+        let (id, line, digest) = (id.as_str(), line.as_str(), digest.as_str());
+        write!(
+            out,
+            "capability call {id}\n{line}\nresponse sha256 {digest}\n\n"
+        )?;
+        out.write_all(&response)?;
+    }
     Ok(Exit::Completed.into())
 }
 
@@ -384,3 +495,6 @@ pub(crate) fn compare(
     compare::compare(&run_a, &run_b, &journal.journal(workspace)?)?;
     Ok(Exit::Completed.into())
 }
+
+#[cfg(test)]
+mod tests;

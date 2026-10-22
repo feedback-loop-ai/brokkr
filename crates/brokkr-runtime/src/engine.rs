@@ -44,7 +44,7 @@ use brokkr_protocol::Cleanup;
 use brokkr_protocol::{AttemptReport, CleanupEvidence};
 use serde::Serialize;
 
-mod artifacts;
+pub mod artifacts;
 mod boxed;
 mod broker;
 use boxed::{artifact_root, hands_command, make_root};
