@@ -10,7 +10,6 @@ use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical::sha256_bytes;
 
-use super::compose::COMPOSE_PREFIX;
 use super::{
     at_stage, bounded_reference, listing, node, one_entry, unobservable, walk_key, CompileError,
     Entry, Found, ReadStage, Supplied,
@@ -142,11 +141,11 @@ pub(super) fn walk_keys(
             })
             .collect::<Result<Vec<_>, _>>()?
             .join("/");
-        // The composition namespace is computed, never read from disk:
-        // a real file under it could otherwise forge provenance.
-        if rel.starts_with(COMPOSE_PREFIX) {
+        // The composition and folder namespaces are computed, never read
+        // from disk: a real file under one could otherwise forge provenance.
+        if let Some(prefix) = super::compose::reserved_prefix(&rel) {
             return Err(CompileError::Invalid(format!(
-                "bundle file '{rel}' uses the reserved '{COMPOSE_PREFIX}' namespace; \
+                "bundle file '{rel}' uses the reserved '{prefix}' namespace; \
                  composition provenance is computed by the resolver, never \
                  supplied by a bundle"
             )));

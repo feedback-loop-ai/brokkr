@@ -15,7 +15,8 @@
 //! because the `override` and `remove` markers are resolver-owned
 //! TOP-LEVEL keys BESIDE the values rather than keys inside them:
 //! stripping an in-value marker before merging would itself be
-//! rewriting an opaque value.
+//! rewriting an opaque value. One key is read inside a merged seat: its
+//! `from`, which makes it the folder's own (`compose/folder.rs`).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -25,10 +26,15 @@ use serde_json::{Map, Value};
 use super::CompileError;
 use crate::places::{Origin, Shelves};
 
+mod folder;
 mod forced_crew;
 mod layers;
 mod markers;
 
+#[cfg(test)]
+pub(crate) use folder::tests as folder_tests;
+pub use folder::FolderSeatRefusal;
+pub(crate) use folder::{pinned_layer, reserved_prefix};
 use markers::{Markers, Overriding};
 
 /// The deepest chain the resolver walks, leaf included. A chain that
@@ -99,6 +105,11 @@ pub struct Resolved {
     /// Each ancestor's are compared with its walk when it is sealed; after
     /// that only the leaf's remain, for its own manifest.
     reads: Vec<Consumed>,
+    /// The folder layer a seat was taken from, beside the chain (0091).
+    folder: Option<folder::Folder>,
+    /// Seat name -> the recipe's own declaration of each seat the folder
+    /// supplied, which the compile holds to a compile with no folder.
+    pub(crate) own_seats: BTreeMap<String, folder::OwnSeat>,
 }
 
 impl Resolved {
@@ -139,50 +150,22 @@ impl Resolved {
             self.reads[index].charters.push(charter);
         }
         let mut chain: Vec<Ancestor> = Vec::new();
-        for index in (1..self.roots.len()).rev() {
+        for index in (1..self.layers.len()).rev() {
             let (name, reached_as) = &self.layers[index];
+            let layer = (name.as_str(), reached_as.clone());
             let read = &self.reads[index];
-            // An ancestor's digest covers its own files and its own
-            // ancestors — never the leaf's agent resolution or the adapter
-            // declarations that authorised its gates, both of which belong
-            // to the composed bundle rather than to any layer.
-            // An ancestor boxes nothing at this level, so the boundary it is
-            // handed writes no key and moves no digest; `namespace` is the
-            // word a layer meant before decision 0046 named one.
-            let manifest = super::manifest_for(
-                &self.roots[index],
-                name,
-                &chain,
-                None,
-                None,
-                &BTreeMap::new(),
-                &Map::new(),
-                brokkr_core::realms::Boundary::Namespace,
-                // Nor does an ancestor hold or grant a capability (decision
-                // 0065): authority belongs to the composed bundle compiled in
-                // a realm, so a layer's digest carries none and does not move.
-                None,
-                &read.digests(),
-            )?;
-            let files = manifest["files"]
-                .as_object()
-                .expect("manifest files")
-                .clone();
-            read.check(&files)?;
-            chain.insert(
-                0,
-                Ancestor {
-                    name: name.clone(),
-                    reached_as: reached_as.clone(),
-                    dir: self.roots[index].clone(),
-                    digest: brokkr_core::canonical::sha256_hex(&manifest),
-                    files,
-                },
-            );
+            let ancestor = layers::sealed(&self.roots[index], layer, &chain, read)?;
+            chain.insert(0, ancestor);
         }
         self.reads.truncate(1);
         self.chain = chain;
-        Ok(())
+        self.folder.as_mut().map_or(Ok(()), folder::Folder::seal)
+    }
+
+    /// Write the folder layer's digest into the leaf's `manifest`, where a
+    /// seat was taken from a folder no layer composed, and its pin.
+    pub(crate) fn pin_folder(&self, manifest: &mut Value) -> Option<Ancestor> {
+        self.folder.as_ref().map(|folder| folder.pin(manifest))
     }
 
     /// The digests the leaf's own walk takes from its bound buffers.
@@ -276,6 +259,9 @@ struct Merged {
     rule_from: BTreeMap<String, PathBuf>,
     /// Layer index -> the policy bytes that layer's table was parsed from.
     consumed: BTreeMap<usize, TableRead>,
+    /// Seat name -> the recipe's own declaration of a seat the folder
+    /// supplied (decision 0091 refusal 4).
+    own_seats: BTreeMap<String, folder::OwnSeat>,
 }
 
 fn rule_id(rule: &Value) -> Option<&str> {
@@ -964,6 +950,7 @@ pub(crate) fn resolve_unsealed(leaf: &Path, shelves: &Shelves) -> Result<Resolve
     if !merged.seats_declared {
         return Err(invalid("bundle.json missing 'seats'".into()));
     }
+    let folder = folder::take(&mut merged, &layers, shelves)?;
 
     // Every layer's document and table are kept for its seal, an overridden
     // ancestor's too: its bytes were read and parsed whatever the leaf later
@@ -971,7 +958,7 @@ pub(crate) fn resolve_unsealed(leaf: &Path, shelves: &Shelves) -> Result<Resolve
     // `Resolved::seal`: each covers its own bytes AND its own ancestors'
     // digests, so a change at any depth moves every digest derived from it.
     let mut tables = merged.consumed;
-    let (name, origins) = (
+    let (name, mut origins) = (
         layers[0].name.clone(),
         layers.iter().map(|l| l.origin).collect(),
     );
@@ -986,6 +973,7 @@ pub(crate) fn resolve_unsealed(leaf: &Path, shelves: &Shelves) -> Result<Resolve
         names.push((layer.name, layer.reached_as));
         roots.push(layer.dir);
     }
+    let folder = folder.map(|layer| folder::Folder::of(layer, &mut roots, &mut origins));
     let mut document = merged.document;
     document.insert("seats".into(), Value::Object(merged.seats.clone()));
     Ok(Resolved {
@@ -1000,5 +988,7 @@ pub(crate) fn resolve_unsealed(leaf: &Path, shelves: &Shelves) -> Result<Resolve
         origins,
         layers: names,
         reads,
+        folder,
+        own_seats: merged.own_seats,
     })
 }

@@ -545,6 +545,32 @@ pub use brokkr_runtime::bundle::ENGINE_OWNED_INPUTS
 pub use brokkr_runtime::bundle::REALM_FACTS
 pub use brokkr_runtime::bundle::is_engine_owned
 pub mod brokkr_runtime::bundle::compose
+pub enum brokkr_runtime::bundle::compose::FolderSeatRefusal
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::Differs
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::Differs::folder: alloc::boxed::Box<brokkr_runtime::bundle::compose::folder::Shape>
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::Differs::recipe: alloc::boxed::Box<brokkr_runtime::bundle::compose::folder::Shape>
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::Differs::seat: alloc::string::String
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::NoHands
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::NoHands::file: std::path::PathBuf
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::NoHands::seat: alloc::string::String
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::NoOwnDriver
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::NoOwnDriver::seat: alloc::string::String
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::NotItsOwnScript
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::NotItsOwnScript::seat: alloc::string::String
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::ThroughItsBase
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::ThroughItsBase::base: alloc::string::String
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::ThroughItsBase::file: std::path::PathBuf
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::ThroughItsBase::seat: alloc::string::String
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::Undeclared
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::Undeclared::file: std::path::PathBuf
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::Undeclared::seat: alloc::string::String
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::Unread
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::Unread::key: alloc::string::String
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::Unread::seat: alloc::string::String
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::Unread::side: brokkr_runtime::bundle::compose::folder::Side
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::Word
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::Word::seat: alloc::string::String
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::Word::word: alloc::string::String
 pub struct brokkr_runtime::bundle::compose::Ancestor
 pub brokkr_runtime::bundle::compose::Ancestor::digest: alloc::string::String
 pub brokkr_runtime::bundle::compose::Ancestor::dir: std::path::PathBuf
@@ -581,6 +607,7 @@ pub enum brokkr_runtime::bundle::CompileError
 pub brokkr_runtime::bundle::CompileError::Capability(alloc::string::String)
 pub brokkr_runtime::bundle::CompileError::Charter(brokkr_runtime::agents::charter_data::CharterRefusal)
 pub brokkr_runtime::bundle::CompileError::ComposedPolicy(alloc::boxed::Box<brokkr_core::policy::PolicyError>, alloc::string::String)
+pub brokkr_runtime::bundle::CompileError::Folder(brokkr_runtime::bundle::compose::FolderSeatRefusal)
 pub brokkr_runtime::bundle::CompileError::Invalid(alloc::string::String)
 pub brokkr_runtime::bundle::CompileError::Io(core::io::error::Error)
 pub brokkr_runtime::bundle::CompileError::Json(serde_json::error::Error)
@@ -655,6 +682,7 @@ pub brokkr_runtime::bundle::Bundle::description: alloc::string::String
 pub brokkr_runtime::bundle::Bundle::dialect_prompts: alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>
 pub brokkr_runtime::bundle::Bundle::dir: std::path::PathBuf
 pub brokkr_runtime::bundle::Bundle::executable: brokkr_runtime::argv::Executable
+pub brokkr_runtime::bundle::Bundle::folder: core::option::Option<brokkr_runtime::bundle::compose::Ancestor>
 pub brokkr_runtime::bundle::Bundle::hands: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_protocol::hands::HandsSpec>
 pub brokkr_runtime::bundle::Bundle::inline_resume: alloc::collections::btree::map::BTreeMap<alloc::string::String, serde_json::value::Value>
 pub brokkr_runtime::bundle::Bundle::machine: brokkr_core::policy::Machine
@@ -1515,6 +1543,7 @@ pub enum brokkr_runtime::CompileError
 pub brokkr_runtime::CompileError::Capability(alloc::string::String)
 pub brokkr_runtime::CompileError::Charter(brokkr_runtime::agents::charter_data::CharterRefusal)
 pub brokkr_runtime::CompileError::ComposedPolicy(alloc::boxed::Box<brokkr_core::policy::PolicyError>, alloc::string::String)
+pub brokkr_runtime::CompileError::Folder(brokkr_runtime::bundle::compose::FolderSeatRefusal)
 pub brokkr_runtime::CompileError::Invalid(alloc::string::String)
 pub brokkr_runtime::CompileError::Io(core::io::error::Error)
 pub brokkr_runtime::CompileError::Json(serde_json::error::Error)
@@ -1703,6 +1732,7 @@ pub brokkr_runtime::Bundle::description: alloc::string::String
 pub brokkr_runtime::Bundle::dialect_prompts: alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>
 pub brokkr_runtime::Bundle::dir: std::path::PathBuf
 pub brokkr_runtime::Bundle::executable: brokkr_runtime::argv::Executable
+pub brokkr_runtime::Bundle::folder: core::option::Option<brokkr_runtime::bundle::compose::Ancestor>
 pub brokkr_runtime::Bundle::hands: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_protocol::hands::HandsSpec>
 pub brokkr_runtime::Bundle::inline_resume: alloc::collections::btree::map::BTreeMap<alloc::string::String, serde_json::value::Value>
 pub brokkr_runtime::Bundle::machine: brokkr_core::policy::Machine
