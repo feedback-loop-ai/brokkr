@@ -476,13 +476,15 @@ impl<'a> Effect<'a> {
     fn of(rows: &[&'a SeatRow]) -> Effect<'a> {
         // Every start opens its attempt's seat row, the row its terminal
         // concludes; a terminal before its attempt's last start concluded
-        // it before that start re-opened it.
+        // it before that start re-opened it. A terminal and a start are two
+        // events, so their seqs are never equal: the order is read as an
+        // `Ordering`, with no `<` whose `<=` twin would mean the same.
         let seats = || rows.iter().filter(|row| row.member == Member::Seat);
         let last = seats()
             .filter_map(|row| Some((row.since?, row)))
             .max_by_key(|(since, _)| *since);
         let in_flight = last.is_some_and(|(since, row)| {
-            row.attempt_id.is_some() && row.ended.is_none_or(|(seq, _)| seq < since)
+            row.attempt_id.is_some() && row.ended.is_none_or(|(seq, _)| seq.cmp(&since).is_lt())
         });
         let ended = rows.iter().filter_map(|row| row.ended);
         Effect {
