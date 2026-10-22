@@ -460,13 +460,13 @@ Exact coverage/full CRAP remain pending under 12.2's box exception: this session
 Commit evidence: `git -c commit.gpgsign=false commit -m "cli: sanitize continued-run entry announcements"` created `f18f0ebd` (4 files, 44 insertions, 5 deletions); its following `git status --short` printed nothing. After the evidence was written, `bash quality/ratchet.sh clones` reported `ratchet: duplication holds`, strict OpenSpec validation reported the change valid, and `git diff --check` passed. Group 16 is locally complete under the exact-coverage exception recorded above; the change stays unarchived for the operator's landing.
 
 
-## 17. Returned review at 254bfb76 (locally validated; commit pending; exact coverage pending under 12.2)
+## 17. Returned review at 254bfb76 (locally verified and committed; exact coverage pending under 12.2)
 
 - [x] 17.1 RC6: include the verified entered gate and continued ids on the docs-tier delivering-run line. Extend the two-predecessor delivery test with a docs delta and valid preflight; remove the suffix to prove the assertion fails.
 - [x] 17.2 GE1: refuse `--dispatch` with `--enter` before resolving `--continues` or opening the journal; restore launch's refusal-order documentation. Bind missing dispatch/journal paths through the CLI and remove the early guard to prove failure.
 - [x] 17.3 GE2: give the strategy input name one home in policy inputs, consumed by audit and fold (0071 ruling 5). Run the core suite.
 - [x] 17.4 OC3: correct decision 0094's dated wire-version note to the actual merge-point rule; re-measure file-line evidence; separate CONTRIBUTING's licence paragraph.
-- [ ] 17.5 GE1, GE2, RC6, OC3: run workspace validation, format, clippy, self/verify compilation and quality gates; record pending exact coverage where namespaces are refused; commit without pushing.
+- [x] 17.5 GE1, GE2, RC6, OC3: run workspace validation, format, clippy, self/verify compilation and quality gates; record pending exact coverage where namespaces are refused; commit without pushing.
 
 
 Returned-review evidence — 2026-10-22 (this visit owns the review at 254bfb76).
@@ -496,3 +496,6 @@ Exact coverage/full CRAP remain pending under 12.2's explicit box exception. Thi
 
 
 Whole-branch baseline check: bare `bash quality/ratchet.sh baselines fe0eedee` refused the historical baseline increases (four data-clone fingerprints, the review prompt rows, core/runtime/view public APIs and one core Value signature), with `name the ruling in the pull request as "Ruling: <reference>"` (`.forge/788-residual-branch-baselines.log`). Re-running with `PR_BODY='Ruling: operator 2026-10-20 for epic #790, re-measured #788 baselines (decision 0094 proposed; D36 settlement)'` passes (`-branch-baselines-ruled.log`, `branch-baselines-ruled 0` in `-status`). This uses the task's existing operator ruling, not a new allowance. `git diff --numstat -- quality/public-api quality/prompt-bytes.json quality/jscpd-baseline-data.json` printed nothing in this visit. The operator's later PR must carry that Ruling line. API validation passes while rustdoc emits private-item-link warnings, including the view's three (`.forge/788-residual-final-api.log`); those documentation warnings are a follow-up outside the returned findings and are not repaired here.
+
+
+Commit evidence: `git -c commit.gpgsign=false commit -m "cli, core: settle #788 returned review residuals"` created `18778c64` (13 files, 138 insertions, 32 deletions). The following `git status --short` printed nothing. Immediately before it, the post-record clone gate reported `ratchet: duplication holds`, strict OpenSpec validation reported the change valid, and `git diff --check` printed nothing. Group 17 is locally complete under 12.2's exact-coverage exception; no push, archive or acceptance is performed.
