@@ -27,7 +27,7 @@ pub fn sum_usage(usages: impl Iterator<Item = TokenUsage>) -> Option<TokenUsage>
 /// One checkpoint's metering, read once: the tokens it carries, whether
 /// it is one of its seat's turns, and whether, as a Claude session record
 /// reporting output, it settles the output its seat's turns streamed.
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Meter {
     turn: bool,
     settles: bool,
@@ -109,6 +109,20 @@ impl Meter {
                     .is_some_and(|usage| usage.output_tokens.is_some()),
             usage,
         }
+    }
+
+    /// Whether it is one of its seat's turns and carries tokens: a turn
+    /// [`once`] reads.
+    pub(crate) fn metered(&self) -> bool {
+        self.turn && self.usage.is_some()
+    }
+
+    /// This turn and `next` as one: their tokens summed by
+    /// [`sum_usage`], so the turns a seat's row keeps beside its first
+    /// count as they would one by one.
+    pub(crate) fn and(mut self, next: &Meter) -> Meter {
+        self.usage = sum_usage([self.usage, next.usage.clone()].into_iter().flatten());
+        self
     }
 
     /// The tokens this checkpoint adds to its seat metered `by`;

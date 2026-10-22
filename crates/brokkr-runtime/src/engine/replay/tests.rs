@@ -2,8 +2,40 @@ use super::*;
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{Cursor, Run};
 use brokkr_store::test_support::{every_run_reads_as_its_fold, lags, lane};
-use brokkr_store::StoreError;
+use brokkr_store::{Store, StoreError};
 use serde_json::json;
+
+#[path = "../../../../../tests/support/seat_facts.rs"]
+mod seat_facts;
+
+/// What `seat_facts::disagreements` finds of the account `replay`
+/// carried, held to the run view of the events it read.
+fn carried_disagreements(replay: &Replay) -> Option<(Vec<String>, usize)> {
+    let account = replay.account.as_ref()?;
+    let facts = brokkr_core::seat::row::facts(account.seats());
+    Some(seat_facts::disagreements(
+        account.run_id(),
+        &replay.events,
+        &facts,
+    ))
+}
+
+/// After every engine scenario, the account its replay carried turn by
+/// turn groups its seat rows into the participants the run view shows of
+/// the events it read (#753; decision 0089 ruling 4 at the projection's
+/// level), as the store's drop binding holds a run's summary row to its
+/// fold. A replay that holds no account read nothing to hold. Not while a
+/// test is already failing: its own panic is the one to report.
+impl Drop for Replay {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            return;
+        }
+        if let Some((found, _)) = carried_disagreements(self) {
+            assert_eq!(found, Vec::<String>::new(), "a carried seat row disagrees");
+        }
+    }
+}
 
 /// A run started and entered into `intake`: two events.
 fn started(store: &mut Store, run_id: &str) {
@@ -108,6 +140,59 @@ fn a_turn_hands_the_store_the_account_it_caught_up_to() {
         .unwrap();
     assert_eq!(lane(&store, "r1").as_deref(), Some("running"));
     assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+}
+
+/// A driven seat's turns, one repeating the other's message and each
+/// priced, reach the account the engine carried turn by turn, which
+/// groups its seat rows into the participants its run view shows: what
+/// the drop check above holds every engine scenario to.
+#[test]
+fn a_driven_seat_s_carried_rows_read_as_its_run_view_s_participants() {
+    let script = r#"
+read -r hello
+printf '%s\n' '{"proto":"forge-driver/v1","msg_id":"cap","type":"capabilities","driver":"test","version":"1","supports":[]}'
+read -r start
+effect_id=$(printf '%s' "$start" | sed -n 's/.*"effect_id":"\([^"]*\)".*/\1/p')
+attempt_id=$(printf '%s' "$start" | sed -n 's/.*"attempt_id":"\([^"]*\)".*/\1/p')
+printf '{"proto":"forge-driver/v1","msg_id":"accepted","type":"accepted","effect_id":"%s","attempt_id":"%s","session_ref":null}\n' "$effect_id" "$attempt_id"
+for turn in 1 2; do
+printf '{"proto":"forge-driver/v1","msg_id":"t%s","type":"checkpoint","effect_id":"%s","attempt_id":"%s","data":{"step":"seat-turn","turn":%s,"model":"m","input_tokens":100,"output_tokens":10,"total_cost_usd":0.%s}}\n' "$turn" "$effect_id" "$attempt_id" "$turn" "$turn"
+done
+printf '{"proto":"forge-driver/v1","msg_id":"result","type":"result","effect_id":"%s","attempt_id":"%s","status":"succeeded","result":{"result":"complete"},"error":null}\n' "$effect_id" "$attempt_id"
+read -r done
+"#;
+    let body = super::super::tests::single_body(vec!["sh".into(), "-c".into(), script.into()]);
+    let (_dir, mut engine) = super::super::tests::engine(body);
+    engine
+        .append(EventType::PhaseEntered, json!({"phase": "work"}), None)
+        .unwrap();
+    // Turn by turn, to the first whose carried account holds a priced row.
+    let facts = loop {
+        let turn = engine.drive_once().unwrap();
+        assert!(turn.is_none(), "the run concluded before its seat ran");
+        let account = engine.replay.account.as_ref().unwrap();
+        let facts = brokkr_core::seat::row::facts(account.seats());
+        if facts.iter().any(|facts| facts.cost.is_some()) {
+            break facts;
+        }
+    };
+    let spent: Vec<_> = facts
+        .iter()
+        .map(|facts| (facts.cost, facts.usage.clone()))
+        .collect();
+    assert_eq!(
+        spent,
+        [(
+            Some(0.30000000000000004),
+            Some(brokkr_core::seat::TokenUsage {
+                input_tokens: Some(100),
+                output_tokens: Some(10),
+                total_tokens: Some(110),
+                ..Default::default()
+            })
+        )]
+    );
+    assert_eq!(carried_disagreements(&engine.replay), Some((Vec::new(), 1)));
 }
 
 /// An engine driven to its conclusion leaves its run's summary at the

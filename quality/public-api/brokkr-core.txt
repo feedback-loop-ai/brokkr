@@ -863,6 +863,35 @@ pub fn brokkr_core::seat::meter::Meter::counted(&self, brokkr_core::seat::meter:
 pub fn brokkr_core::seat::meter::Meter::of(&serde_json::value::Value) -> brokkr_core::seat::meter::Meter
 pub fn brokkr_core::seat::meter::once<'a>(impl core::iter::traits::collect::IntoIterator<Item = &'a mut brokkr_core::seat::meter::Meter>)
 pub fn brokkr_core::seat::meter::sum_usage(impl core::iter::traits::iterator::Iterator<Item = brokkr_core::seat::TokenUsage>) -> core::option::Option<brokkr_core::seat::TokenUsage>
+pub mod brokkr_core::seat::row
+pub enum brokkr_core::seat::row::Member
+pub brokkr_core::seat::row::Member::Named(alloc::string::String)
+pub brokkr_core::seat::row::Member::Seat
+pub enum brokkr_core::seat::row::Outcome
+pub brokkr_core::seat::row::Outcome::Failed
+pub brokkr_core::seat::row::Outcome::Indeterminate
+pub brokkr_core::seat::row::Outcome::Succeeded
+pub brokkr_core::seat::row::Outcome::Working
+pub struct brokkr_core::seat::row::SeatFacts
+pub brokkr_core::seat::row::SeatFacts::boundary: core::option::Option<alloc::string::String>
+pub brokkr_core::seat::row::SeatFacts::cost: core::option::Option<f64>
+pub brokkr_core::seat::row::SeatFacts::cost_aggregated: bool
+pub brokkr_core::seat::row::SeatFacts::effect_id: alloc::string::String
+pub brokkr_core::seat::row::SeatFacts::effort: core::option::Option<alloc::string::String>
+pub brokkr_core::seat::row::SeatFacts::items: core::option::Option<u64>
+pub brokkr_core::seat::row::SeatFacts::last_attempt_cost: core::option::Option<f64>
+pub brokkr_core::seat::row::SeatFacts::member: brokkr_core::seat::row::Member
+pub brokkr_core::seat::row::SeatFacts::model: core::option::Option<alloc::string::String>
+pub brokkr_core::seat::row::SeatFacts::outcome: brokkr_core::seat::row::Outcome
+pub brokkr_core::seat::row::SeatFacts::provider: core::option::Option<alloc::string::String>
+pub brokkr_core::seat::row::SeatFacts::started_at: core::option::Option<alloc::string::String>
+pub brokkr_core::seat::row::SeatFacts::transcript: core::option::Option<brokkr_core::seat::Transcript>
+pub brokkr_core::seat::row::SeatFacts::turns: core::option::Option<u64>
+pub brokkr_core::seat::row::SeatFacts::turns_aggregated: bool
+pub brokkr_core::seat::row::SeatFacts::usage: core::option::Option<brokkr_core::seat::TokenUsage>
+pub brokkr_core::seat::row::SeatFacts::usage_aggregated: bool
+pub struct brokkr_core::seat::row::SeatRow
+pub fn brokkr_core::seat::row::facts(&[brokkr_core::seat::row::SeatRow]) -> alloc::vec::Vec<brokkr_core::seat::row::SeatFacts>
 pub struct brokkr_core::seat::BoundaryEntry
 pub brokkr_core::seat::BoundaryEntry::gate: bool
 pub brokkr_core::seat::BoundaryEntry::member: core::option::Option<alloc::string::String>
@@ -895,6 +924,7 @@ pub fn brokkr_core::summary::Account::empty(&str) -> brokkr_core::summary::Accou
 pub fn brokkr_core::summary::Account::head(&self) -> (u64, &str)
 pub fn brokkr_core::summary::Account::onto(self, &[brokkr_core::envelope::EventEnvelope]) -> brokkr_core::summary::Account
 pub fn brokkr_core::summary::Account::run_id(&self) -> &str
+pub fn brokkr_core::summary::Account::seats(&self) -> &[brokkr_core::seat::row::SeatRow]
 pub fn brokkr_core::summary::Account::state(&self) -> core::result::Result<&brokkr_core::fold::RunState, &brokkr_core::fold::FoldError>
 pub fn brokkr_core::summary::Account::whole(&str, &[brokkr_core::envelope::EventEnvelope]) -> brokkr_core::summary::Account
 pub struct brokkr_core::summary::Bounded
