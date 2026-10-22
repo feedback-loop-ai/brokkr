@@ -1,7 +1,6 @@
 # produced by quality/measure.sh with clippy 0.1.98 (88d9e12ae1 2026-08-18)
 # production
  111 crates/brokkr-bridge/src/lib.rs:613 sync_once
- 184 crates/brokkr-cli/src/doctor.rs:886 report_capabilities
  177 crates/brokkr-cli/src/muninn.rs:230 dossier_of
  140 crates/brokkr-core/src/dispatch.rs:241 verify
  106 crates/brokkr-core/src/policy.rs:427 parse_rule
@@ -22,7 +21,7 @@
  120 crates/brokkr-view/src/transcript.rs:2451 project_dsh
  126 crates/brokkr-view/src/transcript.rs:3071 dsh_row
 # test
- 115 crates/brokkr-cli/src/doctor/capability_tests.rs:1331 two_off_controls_that_compose_alone_are_refused_together_under_every_grant_shape
+ 115 crates/brokkr-cli/src/doctor/capability_tests.rs:1323 two_off_controls_that_compose_alone_are_refused_together_under_every_grant_shape
  180 crates/brokkr-cli/src/doctor/tests.rs:2457 the_dsh_seam_precedence_moves_the_version_and_the_composite_together
  110 crates/brokkr-cli/src/tests.rs:407 summaries_costs_inspect_export_and_error_closures_are_exercised
  115 crates/brokkr-cli/src/tests.rs:539 export_redact_writes_a_marked_sanitized_copy_alongside_the_verbatim

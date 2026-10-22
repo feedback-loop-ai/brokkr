@@ -4,7 +4,11 @@
 //! line claims that one was observed.
 
 use super::*;
+use brokkr_core::realms::CapabilityGrant;
+use brokkr_runtime::realms::World;
 use serde_json::{json, Value};
+
+mod binding_tests;
 
 fn write(root: &Path, relative: &str, value: &Value) {
     let path = root.join(relative);
@@ -146,14 +150,8 @@ fn lines(dir: &Path, availability: &Availability) -> (bool, Vec<String>) {
         healthy: true,
         lines: Vec::new(),
     };
-    let world = brokkr_runtime::realms::World::inspect(dir, None);
-    report_capabilities(
-        &mut report,
-        &world,
-        dir,
-        &dir.join("adapters"),
-        availability,
-    );
+    let (world, adapters) = (World::inspect(dir, None), dir.join("adapters"));
+    capabilities::report_capabilities(&mut report, &world, dir, &adapters, availability);
     (report.healthy, report.lines)
 }
 
@@ -901,7 +899,7 @@ fn docs_mcp(root: &Path) {
 /// and bind nothing; the native grant beside them still binds its provider.
 #[test]
 fn a_grant_line_reads_its_binding_by_kind_and_assumes_no_native_provider() {
-    use brokkr_runtime::capabilities::{CapabilityContext, ToolDialect};
+    use brokkr_runtime::capabilities::{Authority, CapabilityContext, Requests, ToolDialect};
     let dir = workspace_with(None);
     let root = dir.path();
     docs_mcp(root);
@@ -932,7 +930,7 @@ fn a_grant_line_reads_its_binding_by_kind_and_assumes_no_native_provider() {
     };
     let mut read = |capability: &str, grant: &CapabilityGrant, alone| {
         let entry = (&capability.to_string(), grant);
-        report_grant(
+        capabilities::report_grant(
             &mut report,
             "capabilities private",
             entry,
@@ -1140,14 +1138,8 @@ fn the_shipped_realm_grants_nothing_and_names_every_native_power_it_denies() {
         healthy: true,
         lines: Vec::new(),
     };
-    let world = brokkr_runtime::realms::World::inspect(&workspace, None);
-    report_capabilities(
-        &mut report,
-        &world,
-        &workspace,
-        &workspace.join("adapters"),
-        &availability,
-    );
+    let (world, adapters) = (World::inspect(&workspace, None), workspace.join("adapters"));
+    capabilities::report_capabilities(&mut report, &world, &workspace, &adapters, &availability);
     assert!(report.healthy);
     let rendered = report.render();
     assert!(
