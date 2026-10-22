@@ -341,7 +341,9 @@ The proposed clarification keeps rulings 1 and 2 intact:
    dots/spaces before spawning. The failure names the path and the repair;
    it never substitutes another file or silently skips the pin.
    Plain exec sites without hands receive the same argument conversion,
-   retaining their inherited environment and absence of a re-walk. The
+   retaining their inherited environment, and are re-walked at spawn
+   like any unboxed exec dispatch (amended 2026-10-21 by #823, operator
+   ruling "823 a"; the first reading, no re-walk, is superseded). The
    engine token, interpreter tokens and subsequent unjudged arguments
    remain unchanged. Unix paths preserve every byte, including backslashes.
 

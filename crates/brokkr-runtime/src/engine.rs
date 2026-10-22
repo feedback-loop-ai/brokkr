@@ -2223,9 +2223,8 @@ pub struct SiteSpawn {
 pub const LAUNCH_RECORD: &str = "launch_record";
 
 impl SiteSpawn {
-    /// An argv in the engine's own environment with no re-walk: what
-    /// every site without hands, and every boxed site, spawns as. Every
-    /// token is the author's: nothing here was composed by the engine.
+    /// The author's argv in the engine's own environment, no re-walk: what every
+    /// boxed site, and a site without hands that is no exec dispatch (#823), spawns as.
     pub fn inherit(argv: Vec<String>) -> SiteSpawn {
         SiteSpawn::of(vec![Segment::new(Origin::Authored, &argv)])
     }
@@ -2819,10 +2818,11 @@ pub(crate) fn is_exec_dispatch(command: &[String]) -> bool {
     crate::argv::Dispatch::of(command).is_exec()
 }
 
-/// The directory holding the first script token compile expanded from
-/// `./`. Later argv tokens are arguments, even when they name a root.
+/// The directory of the first script compile expanded from `./` in an exec
+/// dispatch's tail, `--` or not (#823); later tokens, even roots, are arguments.
 fn script_directory(command: &[String], roots: &[PathBuf]) -> Option<PathBuf> {
-    command.iter().skip(4).find_map(|part| {
+    let tail = crate::argv::Dispatch::of(command).exec_tail()?;
+    tail.iter().find_map(|part| {
         roots
             .iter()
             .find(|root| Path::new(part).strip_prefix(root).is_ok())
@@ -2838,7 +2838,7 @@ fn script_directory(command: &[String], roots: &[PathBuf]) -> Option<PathBuf> {
 /// too, under any word (#823); any argv but an exec dispatch carries none.
 fn exec_segments(segments: Vec<Segment>, roots: &[PathBuf]) -> SiteSpawn {
     let mut spawn = SiteSpawn::of(segments);
-    spawn.rewalk = script_directory(&spawn.argv, roots).filter(|_| is_exec_dispatch(&spawn.argv));
+    spawn.rewalk = script_directory(&spawn.argv, roots);
     spawn
 }
 
@@ -2898,8 +2898,8 @@ fn engine_hands(tokens: &[String]) -> Vec<Segment> {
 /// stands under (decision 0046 ruling 4; design DD18) — a pure function
 /// the argv tests read directly:
 ///
-/// - a site without hands: its command in the engine's environment,
-///   with no re-walk;
+/// - a site without hands: its command in the engine's environment, an
+///   exec dispatch's script directory marked for the re-walk (#823);
 /// - under a boundary Brokkr builds: today's path token for token —
 ///   `hands_command`'s box — in the engine's environment;
 /// - under `harness` and `open`, an exec dispatch: the compiled command

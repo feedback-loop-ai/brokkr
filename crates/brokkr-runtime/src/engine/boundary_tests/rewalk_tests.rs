@@ -125,13 +125,35 @@ fn refused_after_an_edit(engine: &mut Engine, layer: &Path, command: &[String], 
     assert_eq!(failed.payload["error"], json!(failure));
 }
 
+/// Decision 0048's refusal of the leaf layer's edited `scripts/gate.sh`.
+const LEAF_MOVED: &str = "unboxed exec dispatch refused: layer 'test' moved since the compile \
+                          (changed: scripts/gate.sh); the bytes an unboxed gate runs must be \
+                          the bytes its digest names (decision 0046 ruling 4)";
+
 #[test]
 fn a_hands_less_exec_site_in_the_leaf_is_refused_when_its_script_moved() {
     let (_dir, mut engine, layer, command) = hands_less_gate();
-    let refusal = "unboxed exec dispatch refused: layer 'test' moved since the compile \
-                   (changed: scripts/gate.sh); the bytes an unboxed gate runs must be the \
-                   bytes its digest names (decision 0046 ruling 4)";
-    refused_after_an_edit(&mut engine, &layer, &command, refusal);
+    refused_after_an_edit(&mut engine, &layer, &command, LEAF_MOVED);
+}
+
+/// The escape is optional behind the verb (decision 0009), so a site
+/// spelled `<engine> driver exec <script>` is the same exec dispatch: its
+/// script is the tail's first token, not the argv's fifth, and it is
+/// re-walked like the escaped spelling.
+#[test]
+fn a_hands_less_exec_site_without_the_escape_is_refused_when_its_script_moved() {
+    let (dir, mut engine, layer, escaped) = hands_less_gate();
+    let source = dir.path().join("unescaped.sh");
+    std::fs::write(&source, "#!/bin/sh\nshift 2\nexec sh \"$@\"\n").unwrap();
+    let stand_in = installed(dir.path(), "brokkr-unescaped", &source);
+    let script = escaped[5].clone();
+    let command = vec![
+        stand_in.display().to_string(),
+        "driver".into(),
+        "exec".into(),
+        script,
+    ];
+    refused_after_an_edit(&mut engine, &layer, &command, LEAF_MOVED);
 }
 
 #[test]
