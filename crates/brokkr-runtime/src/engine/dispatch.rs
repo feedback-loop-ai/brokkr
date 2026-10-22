@@ -12,6 +12,7 @@ use brokkr_core::envelope::EventType;
 use brokkr_core::fold::RunState;
 use brokkr_core::EventEnvelope;
 use brokkr_protocol::hands::HandsSpec;
+use brokkr_protocol::native_controls::Origin;
 use brokkr_protocol::process::DriverProcess;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -397,11 +398,8 @@ pub(super) fn spawn_site(
         }
     }
     if let Some(layer) = &spawn.rewalk {
-        if let Some((layer, key)) = layer_drift(bundle, layer) {
-            return Err(format!(
-                "unboxed exec dispatch refused: layer '{layer}' moved since the compile ({key}); \
-                 the bytes an unboxed gate runs must be the bytes its digest names (decision 0046 ruling 4)"
-            ));
+        if let Some(moved) = layer_drift(bundle, layer) {
+            return Err(rewalk_refusal(bundle, spawn, moved));
         }
     }
     if let Some(Door { held, site, begun }) = door {
@@ -410,6 +408,26 @@ pub(super) fn spawn_site(
     DriverProcess::spawn(&spawn.argv, workdir, Some(deadline), &spawn.env)
         .map(|process| (process, input))
         .map_err(|error| error.to_string())
+}
+
+/// Decision 0048's walk refusal, worded for the spawn it refused (#832).
+/// Under a boxed boundary the engine composes no unboxed exec dispatch with
+/// hands, so a spawn there led by a `hands` segment, the box's own prefix
+/// as composition carried it, is boxed; every other one, a hands-less site
+/// in a boxed realm among them, is unboxed and keeps 0048's own text.
+fn rewalk_refusal(bundle: &Bundle, spawn: &SiteSpawn, (layer, key): (String, String)) -> String {
+    let led = spawn.segments.first().map(|segment| segment.origin);
+    match bundle.boundary.is_boxed() && led == Some(Origin::Hands) {
+        true => format!(
+            "boxed exec dispatch refused: layer '{layer}' moved since the compile ({key}); the \
+             bytes a gate runs must be the bytes its digest names (decision 0046 ruling 4, \
+             decision 0048, #832)"
+        ),
+        false => format!(
+            "unboxed exec dispatch refused: layer '{layer}' moved since the compile ({key}); \
+             the bytes an unboxed gate runs must be the bytes its digest names (decision 0046 ruling 4)"
+        ),
+    }
 }
 
 /// The input digest recorded when `effect_id` was requested.

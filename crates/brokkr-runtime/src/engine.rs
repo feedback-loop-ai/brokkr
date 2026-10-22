@@ -47,7 +47,10 @@ use serde::Serialize;
 pub mod artifacts;
 mod boxed;
 mod broker;
-use boxed::{artifact_root, hands_command, make_root};
+use boxed::{artifact_root, boxed_spawn, make_root};
+// The test modules compare a box's argv through `use super::*`.
+#[cfg(test)]
+use boxed::hands_command;
 mod capability_calls;
 mod checkpoints;
 mod decide;
@@ -2179,8 +2182,8 @@ fn start_failure_fields(payload: &mut Value, selection: &Selection, sites: Vec<S
 }
 
 /// One composed invocation (decision 0046 ruling 4; design DD18): the
-/// argv, the environment it starts in, and — for an unboxed exec
-/// dispatch — the script directory the engine re-walks before the spawn.
+/// argv, the environment it starts in, and — for an exec dispatch, boxed
+/// or not (#832) — the script directory the engine re-walks before the spawn.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SiteSpawn {
     pub argv: Vec<String>,
@@ -2223,8 +2226,8 @@ pub struct SiteSpawn {
 pub const LAUNCH_RECORD: &str = "launch_record";
 
 impl SiteSpawn {
-    /// The author's argv in the engine's own environment, no re-walk: what every
-    /// boxed site, and a site without hands that is no exec dispatch (#823), spawns as.
+    /// The author's argv in the engine's own environment, no re-walk: what a site that
+    /// is no exec dispatch spawns as, boxed (#832) or without hands (#823).
     pub fn inherit(argv: Vec<String>) -> SiteSpawn {
         SiteSpawn::of(vec![Segment::new(Origin::Authored, &argv)])
     }
@@ -2959,8 +2962,8 @@ pub fn compose_site(
 /// (operator ruling (B) of 2026-09-27): an inline site with hands is served
 /// like an agent — its recorded `hands.workspace` fragment follows every
 /// other segment as the engine's own `hands` segment, as `agents::compose`
-/// appends an agent's last, and [`hands_command`] expands its tokens. Every
-/// other site is composed from its supplied segments alone.
+/// appends an agent's last, and [`boxed::hands_command`] expands its tokens.
+/// Every other site is composed from its supplied segments alone.
 #[expect(clippy::too_many_arguments, reason = "decision 0065 slice one, #288")]
 pub fn compose_site_at(
     facts: Option<&SiteFacts>,
@@ -3039,7 +3042,7 @@ fn compose_segments(site: &Composing<'_>, segments: Vec<Segment>) -> SiteSpawn {
         class,
         hands,
         candidate,
-        workdir,
+        workdir: _,
         boxed,
         roots,
         result_path,
@@ -3068,17 +3071,8 @@ fn compose_segments(site: &Composing<'_>, segments: Vec<Segment>) -> SiteSpawn {
         // own tokens. An inline site — an exec dispatch included — has no
         // candidate: its argv is the author's, and a model site's hands are
         // the recorded fragment `compose_site_at` appended last (rebuild
-        // unit 14a4a).
-        BuiltBoundary::Namespace => {
-            match hands_command(command, Some(spec), workdir, boxed, roots) {
-                Ok(mapped) => SiteSpawn::of(behind(mapped, &segments)),
-                Err(reason) => {
-                    let mut spawn = SiteSpawn::of(segments);
-                    spawn.refusal = Some(reason.to_string());
-                    spawn
-                }
-            }
-        }
+        // unit 14a4a). An exec dispatch is re-walked as an unboxed one (#832).
+        BuiltBoundary::Namespace => boxed_spawn(site, spec, command, segments),
         BuiltBoundary::Harness => {
             let brokkr = boxed.0.lossy();
             let fragment = candidate.and_then(|candidate| match class {

@@ -36,7 +36,10 @@ journal paths and would still freeze the implementation's sources.
    in `bundle/model_policy_tests.rs`, including both names in one layer.
 
 2. **Spawn checks the script directory against its compiled file map.**
-   Before every unboxed exec spawn, re-walk the directory containing the
+   Before every unboxed exec spawn, and every boxed one under `namespace`
+   before its box is built (amended 2026-10-22 by #832, operator ruling
+   "accept all"; the host-side directory, read before the box maps the
+   argv), re-walk the directory containing the
    script and its descendants. Refuse changed, missing or added files,
    naming the declaring layer and the actual file key. Keep ancestor
    file maps from the exact manifests hashed into their compose digests;
