@@ -639,4 +639,4 @@ fn past_bound(run_id: &str, order_at: i64, why: &RowRefusal) -> RunRow {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

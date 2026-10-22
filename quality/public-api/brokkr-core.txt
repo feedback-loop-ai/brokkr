@@ -882,6 +882,43 @@ pub const brokkr_core::residual::SUPERSEDE: &str
 pub fn brokkr_core::residual::closings(&[brokkr_core::envelope::EventEnvelope]) -> alloc::collections::btree::map::BTreeMap<u64, brokkr_core::residual::Mark>
 pub fn brokkr_core::residual::open_severity(impl core::iter::traits::collect::IntoIterator<Item = (core::option::Option<brokkr_core::policy::Severity>, bool)>) -> core::option::Option<brokkr_core::policy::Severity>
 pub fn brokkr_core::residual::residuals(&[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_core::residual::Residual<'_>>
+pub mod brokkr_core::seat
+pub mod brokkr_core::seat::meter
+pub enum brokkr_core::seat::meter::Metering
+pub brokkr_core::seat::meter::Metering::Session
+pub brokkr_core::seat::meter::Metering::Settled
+pub brokkr_core::seat::meter::Metering::Turns
+impl brokkr_core::seat::meter::Metering
+pub fn brokkr_core::seat::meter::Metering::of<'a>(impl core::iter::traits::collect::IntoIterator<Item = &'a brokkr_core::seat::meter::Meter>, core::option::Option<&brokkr_core::seat::meter::Meter>) -> brokkr_core::seat::meter::Metering
+pub struct brokkr_core::seat::meter::Meter
+impl brokkr_core::seat::meter::Meter
+pub fn brokkr_core::seat::meter::Meter::counted(&self, brokkr_core::seat::meter::Metering, bool) -> core::option::Option<brokkr_core::seat::TokenUsage>
+pub fn brokkr_core::seat::meter::Meter::of(&serde_json::value::Value) -> brokkr_core::seat::meter::Meter
+pub fn brokkr_core::seat::meter::once<'a>(impl core::iter::traits::collect::IntoIterator<Item = &'a mut brokkr_core::seat::meter::Meter>)
+pub fn brokkr_core::seat::meter::sum_usage(impl core::iter::traits::iterator::Iterator<Item = brokkr_core::seat::TokenUsage>) -> core::option::Option<brokkr_core::seat::TokenUsage>
+pub struct brokkr_core::seat::BoundaryEntry
+pub brokkr_core::seat::BoundaryEntry::gate: bool
+pub brokkr_core::seat::BoundaryEntry::member: core::option::Option<alloc::string::String>
+pub brokkr_core::seat::BoundaryEntry::word: alloc::string::String
+pub struct brokkr_core::seat::TokenUsage
+pub brokkr_core::seat::TokenUsage::cache_read_tokens: core::option::Option<u64>
+pub brokkr_core::seat::TokenUsage::cache_write_tokens: core::option::Option<u64>
+pub brokkr_core::seat::TokenUsage::input_tokens: core::option::Option<u64>
+pub brokkr_core::seat::TokenUsage::output_tokens: core::option::Option<u64>
+pub brokkr_core::seat::TokenUsage::reasoning_output_tokens: core::option::Option<u64>
+pub brokkr_core::seat::TokenUsage::total_tokens: core::option::Option<u64>
+pub struct brokkr_core::seat::Transcript
+pub brokkr_core::seat::Transcript::home: alloc::string::String
+pub brokkr_core::seat::Transcript::kind: alloc::string::String
+pub brokkr_core::seat::Transcript::locator: alloc::string::String
+pub fn brokkr_core::seat::add_token(&mut core::option::Option<u64>, core::option::Option<u64>)
+pub fn brokkr_core::seat::boundary_entries(&serde_json::value::Value) -> alloc::vec::Vec<brokkr_core::seat::BoundaryEntry>
+pub fn brokkr_core::seat::count_item(&mut core::option::Option<u64>, core::option::Option<&str>)
+pub fn brokkr_core::seat::finish_usage(brokkr_core::seat::TokenUsage) -> core::option::Option<brokkr_core::seat::TokenUsage>
+pub fn brokkr_core::seat::reported_cost(&serde_json::value::Value) -> core::option::Option<f64>
+pub fn brokkr_core::seat::stamp_of(&serde_json::value::Value) -> core::option::Option<alloc::string::String>
+pub fn brokkr_core::seat::token_usage<'a>(impl core::iter::traits::iterator::Iterator<Item = &'a serde_json::value::Value>) -> core::option::Option<brokkr_core::seat::TokenUsage>
+pub fn brokkr_core::seat::transcript_of(&serde_json::value::Value) -> core::option::Option<brokkr_core::seat::Transcript>
 pub mod brokkr_core::stamp
 pub fn brokkr_core::stamp::parse_millis(&str) -> core::option::Option<i64>
 pub mod brokkr_core::summary

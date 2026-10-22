@@ -201,6 +201,8 @@ fn inspect_r1(db: &std::path::Path, json: bool) -> Cmd {
         json,
         phase: None,
         seat: None,
+        capability_call: None,
+        repo: None,
     })
 }
 
@@ -1755,6 +1757,8 @@ fn every_reading_verb_in_an_empty_directory_refuses_and_creates_nothing() {
                 json: false,
                 phase: None,
                 seat: None,
+                capability_call: None,
+                repo: None,
             }),
         ),
         (
@@ -2833,6 +2837,8 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
             json: false,
             phase: Some("work".into()),
             seat: None,
+            capability_call: None,
+            repo: None,
         })))
         .unwrap(),
         ExitCode::SUCCESS
@@ -2844,6 +2850,8 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
         json: false,
         phase: None,
         seat: Some("nobody".into()),
+        capability_call: None,
+        repo: None,
     })))
     .unwrap_err()
     .to_string();
@@ -2953,6 +2961,8 @@ fn an_operator_stop_mid_flight_lists_with_its_real_status() {
             json: true,
             phase: None,
             seat: None,
+            capability_call: None,
+            repo: None,
         })))
         .unwrap(),
         ExitCode::SUCCESS,
@@ -3101,6 +3111,8 @@ fn one_unfoldable_journal_is_quarantined_by_the_fleet_and_fatal_to_its_own_verbs
             json: false,
             phase: None,
             seat: None,
+            capability_call: None,
+            repo: None,
         }),
         Cmd::Replay(ReplayArgs {
             run: "poisoned".into(),

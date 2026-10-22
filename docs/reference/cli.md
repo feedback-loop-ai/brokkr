@@ -45,7 +45,7 @@ Every `brokkr` verb and argument with its default, and every exit code, as the b
 - [`brokkr queue release`](#brokkr-queue-release): Let a held entry be started again
 - [`brokkr queue repin`](#brokkr-queue-repin): Re-pin a waiting entry to the realms map that would govern it now: how the operator releases an entry `judge` latched a realm-drift hold on, accepting the differences it found. Refused when the map on disk is not the one the latch found; judge the queue again
 - [`brokkr queue drop`](#brokkr-queue-drop): Take an entry out of the queue. One that started a run cannot be
-- [`brokkr inspect`](#brokkr-inspect): Explain a run: header, ruling, seats, decision trail, and the phase graph as a tree. `--phase` and `--seat` are the scoping verbs the console's clicks became; `--json` emits the view model
+- [`brokkr inspect`](#brokkr-inspect): Explain a run: header, ruling, seats, decision trail, and the phase graph as a tree. `--phase` and `--seat` are the scoping verbs the console's clicks became; `--json` emits the view model, or with `--capability-call` the call and its verified response
 - [`brokkr transcript`](#brokkr-transcript): Read one participant's retained local transcript — Claude, Codex or DSH — through the same bounded local derivation the TUI uses. The verb never launches, retries or resumes a provider and writes nothing to the journal
 - [`brokkr seats`](#brokkr-seats): The seats of a run: the seats block `inspect` renders — every seat's model with the boundary its hands stood behind beside it (decision 0046 ruling 3) — from the same view. `--json` prints that view verbatim, the bytes `inspect --json` prints
 - [`brokkr watch`](#brokkr-watch): Watch a run live: redraw the graph, seats, last ruling and seat activity whenever the journal head moves; exit when the run reaches a terminal status. Read-only, like every other readout
@@ -647,7 +647,7 @@ Usage: brokkr queue drop [OPTIONS] --reason <REASON> <ENTRY>
 
 ## brokkr inspect
 
-Explain a run: header, ruling, seats, decision trail, and the phase graph as a tree. `--phase` and `--seat` are the scoping verbs the console's clicks became; `--json` emits the view model
+Explain a run: header, ruling, seats, decision trail, and the phase graph as a tree. `--phase` and `--seat` are the scoping verbs the console's clicks became; `--json` emits the view model, or with `--capability-call` the call and its verified response
 
 ```text
 Usage: brokkr inspect [OPTIONS] --run <RUN>
@@ -661,6 +661,8 @@ Usage: brokkr inspect [OPTIONS] --run <RUN>
 | `--json` |  |  | Emit the view model verbatim — this is what scripts read |
 | `--phase <PHASE>` |  |  | Scope the readout to one phase |
 | `--seat <SEAT>` |  |  | Scope the readout to one seat, by label or participant key |
+| `--capability-call <CALL_ID>` |  |  | Open the retained response the call this id names in the run cites, verified against its recorded digest, never a path; with --json, beside the call's provenance |
+| `--repo <REPO>` |  |  | The operated repository whose run-local directory holds the call's retained response, as `ledger --repo` resolves it; without it, the workspace's own |
 
 ## brokkr transcript
 

@@ -90,9 +90,10 @@ pub(in crate::engine) enum Unpublished {
     Undurable,
 }
 
-/// Why a retained artifact is not read (CR5), in the operator's words.
+/// Why a retained artifact is not read (CR5), in the operator's words:
+/// public as the cause [`retained`] returns (U8g).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-pub(super) enum Unread {
+pub enum Unread {
     #[error("retained response artifact is missing")]
     Missing,
     #[error("retained response artifact digest mismatch")]
@@ -475,6 +476,32 @@ pub(super) fn read(digests: &OwnedFd, sha256: &str) -> Result<(File, Vec<u8>), U
     let named =
         (bytes.len() as u64 <= ARTIFACT_BYTES_MAX) && canonical::sha256_bytes(&bytes) == sha256;
     named.then_some((file, bytes)).ok_or(Unread::Corrupt)
+}
+
+/// The retained response the digest `sha256` names in the run-local
+/// directory `run_local` (CR5; U8g's reader, operator ruling 2026-10-21):
+/// its bytes, verified by `read` in the digests below the artifact root,
+/// the root this user's own directory and the digests writable by no one
+/// else, each opened without following a link as its last component; or
+/// why not. A name that is no digest is refused before anything is opened,
+/// and a root or digests never made means the artifact is missing.
+pub fn retained(run_local: &Path, sha256: &str) -> Result<Vec<u8>, Unread> {
+    hex(sha256).then_some(()).ok_or(Unread::Uncontained)?;
+    let root = super::boxed::artifact_root(run_local);
+    let root = opened(openat(CWD, &root, directory(), Mode::empty()), ADMITTED)?;
+    let digests = opened(openat(&root, DIGESTS, directory(), Mode::empty()), SHUT)?;
+    read(&digests, sha256).map(|(_, bytes)| bytes)
+}
+
+/// The directory `opened` where it is this user's own, none of whose
+/// `mode` bits is set; missing where nothing stands at its name.
+fn opened(opened: rustix::io::Result<OwnedFd>, mode: u32) -> Result<OwnedFd, Unread> {
+    match opened {
+        Err(Errno::NOENT) => Err(Unread::Missing),
+        opened => (opened.ok())
+            .and_then(|dir| owned(dir, None, mode))
+            .ok_or(Unread::Uncontained),
+    }
 }
 
 #[cfg(test)]

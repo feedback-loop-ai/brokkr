@@ -180,6 +180,20 @@ fn runs_view() -> brokkr_view::RunsView {
 
 // ------------------------------- many hearths (0026 rulings 3 and 5)
 
+/// `view` painted as `brokkr runs` paints a many-hearth world: each
+/// realm's heading, then its runs as the one-hearth table prints them.
+pub(crate) fn fleet(view: &brokkr_view::FleetView, now: &str, style: &Style) -> String {
+    let realms = view.realms.iter().enumerate();
+    realms
+        .map(|(index, realm)| {
+            let named = (realm.realm.as_str(), realm.journal.as_str());
+            let detail = realm.detail.as_deref();
+            let runs_view = brokkr_view::RunsView::of(realm.runs.clone());
+            realm_head(index, named, realm.count, detail, style) + &runs(&runs_view, now, style)
+        })
+        .collect()
+}
+
 /// A many-hearth world's fleet: one realm with runs, one whose journal
 /// would not open. Each section aligns its own columns.
 fn fleet_view() -> brokkr_view::FleetView {
