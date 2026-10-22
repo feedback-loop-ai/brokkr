@@ -190,6 +190,8 @@ Any other entry SHALL be refused when the recipe and the entry are compiled, bef
 - **THEN** no run is created, and the refusal names `review`, reached by `ANALYZE-CONSISTENT`, as a seat that selects on `strategy` with no `default` while `triage` is not entered, the first fact of six, and not the `check` step of `analyze`, which the change walk reaches first, by `VERIFY-PASS`
 - **AND WHEN** the fixture's `review` selector gains a `default` case and it is run with `--enter verify`
 - **THEN** no run is created, and the refusal names the `check` step of `analyze`, reached by `VERIFY-PASS`, as a dialect step expanding `{change}` whose one source, `intake`, no road from the entry enters
+- **AND WHEN** the fixture's `review` selector carries a `default` case and its `verify` also rules `fail` first by `VERIFY-FAIL-ENGINE` (`strategy_in: [engine]`, next `implement`), ahead of its unconditioned `VERIFY-FAIL`, and it is run with `--enter verify`
+- **THEN** no run is created, and the refusal names `(verify, fail)`, reached by no ruling, as a ruling group that reads `strategy` while `triage` is not entered, the ruling fact ranking before the step fact, and not the `check` step of `analyze`, reached by `VERIFY-PASS` (D56)
 
 #### Scenario: Every shipped table's entries are pinned
 
