@@ -273,9 +273,9 @@ answers. It builds nothing. The operator queued it on 2026-10-22
      runtime judges them, by a closure the claim takes (`claim_with`,
      0071 ruling 2).
    - **The bundle started is the bundle measured.** The claim row
-     records the `manifest_digest` of what the pass compiled; where
-     `host.json` declares no capacity, the dispatcher compiles the entry
-     by `compiled()` before claiming, so every claim names a bundle. The
+     records the `manifest_digest` of what the pass compiled. No pass
+     admits an entry under a host that declares no capacity (0068's
+     2026-10-10 addendum), so every claim names a bundle. The
      start compiles as today, and ruling 4's fence refuses it unless its
      digest is the claim's. The digest, not the per-seat provider set:
      the manifest is what `Seats::of` reads, so its digest covers every
@@ -375,8 +375,9 @@ Each choice is listed with its recommendation first.
   claim's fence for a dispatched start, and have the census name an
   older row as an unstarted run, counted against nothing, while it
   judges every other entry (ruling 4). (b) Count it as a live run
-  against capacity. (c) Skip it silently. Not recommended: that fails open. (d) Name it
-  without closing the window, so a crash keeps making them.
+  against capacity. (c) Skip it silently. Not recommended: that fails
+  open. (d) Name it without closing the window, so a crash keeps
+  making them.
 - **The run's link to its entry.** (a) Run-manifest v14's optional
   `queue_entry`, `{entry, claim}`, written only by the dispatcher
   (ruling 5). (b) A store-side table alone, with no manifest field.
@@ -418,7 +419,8 @@ Each choice is listed with its recommendation first.
   new refusal variants). `brokkr-runtime`: about ten (the dispatcher's
   lock, reconciliation and step entry points, `DispatcherError`, named
   apart from `brokkr_core::dispatch::DispatchError`
-  (`crates/brokkr-core/src/dispatch.rs:148`), two admission reasons). `brokkr-core` and `brokkr-view`: none predicted. Each crate's
+  (`crates/brokkr-core/src/dispatch.rs:148`), two admission reasons).
+  `brokkr-core` and `brokkr-view`: none predicted. Each crate's
   `quality/public-api/` snapshot moves in its slice, by this ruling.
 - **Witness digests, predicted and not measured.** None. The field is
   pinned at start, never compiled into a bundle, so no row of
