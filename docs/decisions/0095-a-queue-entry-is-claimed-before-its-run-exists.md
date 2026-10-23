@@ -80,7 +80,7 @@ The operator queued it on 2026-10-22 ("dispatcher after the queue").
 - **OS locks already in the tree.** The broker's admission lock opens a
   file of this user's own with one link, `O_NOFOLLOW` and `O_CLOEXEC`,
   and takes a non-blocking exclusive `flock` until a deadline
-  (`crates/brokkr-runtime/src/engine/broker/root.rs:218-245`); `recipes
+  (`crates/brokkr-runtime/src/engine/broker/root.rs:218-242`); `recipes
   add` holds one on its library (`crates/brokkr-cli/src/recipes.rs:380-392`).
   Both use `rustix`, on Linux and macOS alike.
 - **The CLI.** `brokkr queue add|list|judge|move|hold|release|repin|drop`
@@ -205,8 +205,8 @@ The operator queued it on 2026-10-22 ("dispatcher after the queue").
      died, its run reads `Running`, as a crashed `brokkr run` does, and
      the operator resumes it.
    - A standing dispatcher that left an entry of its own `launching`, or
-     linked with no `spawn` row, because a step was `Contended` past its
-     patience (ruling 7), reconciles before its next pass by these same
+     linked with no `spawn` row, because a link or spawn was `Contended`
+     past its patience (ruling 7), reconciles before its next pass by these same
      rules, under its own generation, as a restart does before its
      first.
 
@@ -232,13 +232,18 @@ The operator queued it on 2026-10-22 ("dispatcher after the queue").
    unstarted run: named in the pass's output as its own reason
    (`unstarted_run`), counted against no ceiling, since it spawned
    nothing, and the pass judges every other entry. An entry that waits
-   on one is held.
+   on one is held. The pass also holds an entry queued with
+   `--dispatch`, with the reason `dispatch_envelope`: its run would be a
+   run-manifest/v2, the counterpart system's contract, which carries no
+   `queue_entry` (ruling 5).
 
    **Enforcement binding:** store tests assert the run row and its first
    event land together or not at all, and that a start under a reclaimed
    claim or a superseded generation refuses by variant with no run row.
    An admission test plants a run row with no events (by SQL, as the
-   store's fixtures do) and asserts the pass completes and names it.
+   store's fixtures do) and asserts the pass completes and names it,
+   and another asserts an entry queued with `--dispatch` is held with
+   the reason `dispatch_envelope`.
 
 5. **The run carries its claim: run-manifest v14.** v14 is v13 with
    one optional `queue_entry`, `{"entry": <id>, "claim": <seq>}`,
@@ -328,10 +333,14 @@ The operator queued it on 2026-10-22 ("dispatcher after the queue").
      `compiled()` leaves to the start, `queued.rs:334-338`) may recur on
      the same bytes, so it counts. Its `reclaim`'s reason names the
      refusal's variant, and v3's append-only `queue_refusals` records
-     it: one row per counted refusal, keyed by the seq of the command
-     that disposed of it, as latches and pins are, holding the entry
-     and the variant's word, read into a closed enum (0071 rulings 2
-     and 3). The entry's count is its `queue_refusals` rows above the
+     it: one row per counted refusal, written in the same transaction
+     as the `reclaim` or `hold` command that disposes of the refusal and
+     keyed by that command's seq, as latches and pins are, holding the
+     entry and the variant's word, read into a closed enum (0071 rulings
+     2 and 3). The count is therefore a count of those commands' typed
+     refusal rows, the refusals counted on the `reclaim` rows as the
+     operator ruled, not a second counter (0071 ruling 5). The entry's
+     count is its `queue_refusals` rows above the
      seq of its latest `release`, or all of them if it was never
      released, read in the disposal's own transaction, so no counter
      column can drift from the journal (0071 ruling 5). The count
@@ -350,10 +359,38 @@ The operator queued it on 2026-10-22 ("dispatcher after the queue").
      `patiently`, and past its patience the dispatcher leaves the entry
      as it stands, `launching` or linked with no `spawn` row, for the
      next reconciliation (ruling 3), which links or spawns it. It is
-     never reclaimed. A `Contended` `reclaim` or `hold` is left the same
-     way, and reconciliation reclaims that entry without counting, since
-     nothing journaled the refusal; contention does not recur on the
-     same bytes.
+     never reclaimed.
+   - **A `Contended` disposal is retried until it lands.** A refused
+     start's `reclaim` or `hold` and, for a counted refusal, its
+     `queue_refusals` row are one transaction, so contention on any of
+     them writes none of them. The dispatcher is alive and knows the
+     refusal, so it writes that same transaction again, each attempt
+     under `patiently`, and makes no other claim until it lands: the
+     entry stands `launching`, another entry's claim refuses as
+     `InFlight`, and the pass does not advance. Contention at the
+     disposal is the journal's write lock, held by another writer, and
+     has nothing to do with the refusal's bytes, so it is never left to
+     reconciliation while the dispatcher lives; reconciliation's
+     `reclaim` would not count. During the retry, an operator command
+     on the entry refuses as `Launching` (ruling 1), and a second
+     dispatcher refuses at the lock (ruling 2). Only a dispatcher that
+     dies before the disposal lands, or one fenced out by a newer
+     generation (ruling 2), whose retry then refuses with nothing
+     written and which ends as a dead one does, leaves the entry to
+     reconciliation's uncounted `reclaim` (ruling 3). That is the one
+     attempt a crash costs, indistinguishable from a crash between claim
+     and start, and each further attempt past the bound needs a further
+     crash.
+
+   The retry stalls only this dispatcher's queue work, which one entry
+   at a time already orders behind the disposal. It cannot deadlock: an
+   `Immediate` transaction that cannot begin holds no lock, so the
+   writer holding the journal's lock never waits on the dispatcher, and
+   no writer but the dispatcher takes the dispatch lock. A driver's
+   append, an operator's queue command on another entry and a direct
+   `brokkr run` still land under their own `patiently`. A writer that
+   never yields stalls every writer alike, the next claim included, and
+   stopping the dispatcher then is the crash above.
 
    **The bound is a per-journal setting, 3 unless set.** Its home is
    v3's append-only `dispatch_settings`: one row per setting command,
@@ -376,8 +413,9 @@ The operator queued it on 2026-10-22 ("dispatcher after the queue").
 
    The operator ruled the count, the bound and its default. Where the
    bound and the counted refusals are stored, the setting command's
-   shape, the reset at a release, and a standing dispatcher's
-   reconciling before its next pass are this decision's, made under
+   shape, the reset at a release, the retry of a `Contended` disposal,
+   and a standing dispatcher's reconciling before its next pass are
+   this decision's, made under
    that ruling and the operator's that a `Contended` link or spawn is
    retried, left for reconciliation and never reclaimed.
 
@@ -408,7 +446,12 @@ The operator queued it on 2026-10-22 ("dispatcher after the queue").
 
    A runtime test plants `Contended` on link and on spawn, asserts no
    `reclaim` is written, and asserts that reconciliation then links or
-   spawns it. Each binds by a mutation that drops its check (0071
+   spawns it. A runtime test plants `Contended` on the disposal of the
+   third admission refusal under the default bound, and asserts that no
+   further claim, of that entry or another, lands before its `hold` and
+   its `queue_refusals` row are written; it binds by a mutation that
+   drops the retry, under which the entry is reclaimed uncounted and
+   claimed again. Each binds by a mutation that drops its check (0071
    ruling 9).
 
 8. **Where the code goes.** `crates/brokkr-store/src/queue.rs` (757
@@ -424,7 +467,7 @@ The operator queued it on 2026-10-22 ("dispatcher after the queue").
      transaction.
    - `crates/brokkr-runtime/src/dispatch.rs`, with `dispatch/lock.rs`
      and `dispatch/reconcile.rs`. The broker's open-and-check of its
-     lock file (`root.rs:218-245`) moves to one shared home that both
+     lock file (`root.rs:218-242`) moves to one shared home that both
      call, never a copy (0071 ruling 5).
    - `crates/brokkr-runtime/src/admission/capacity.rs` (637): the
      census's unstarted run, and the digest, the `events` high-water and
@@ -459,7 +502,8 @@ Each lands alone, tested, through the merge queue.
   standing loop, which first calls the claim, start, link and spawn
   these slices build, all four for one entry before the next claim
   (ruling 7), disposes of a refused start by its variant, holding at
-  the journal's bound, leaves a `Contended` link or spawn to
+  the journal's bound and retrying a `Contended` disposal until it
+  lands, leaves a `Contended` link or spawn to
   reconciliation, and carries the command that sets the bound.
 
 ## Asked of the operator
@@ -530,7 +574,10 @@ Each choice is listed with its recommendation first.
   retried, but each round up to the bound claims and journals again.
   (c) Reclaim every refused start, paced by slice 4's cooldowns. Not
   recommended: a refusal that recurs never ends. The operator ruled
-  (b), with a per-journal bound of 3 unless set (ruling 7).
+  (b), with a per-journal bound of 3 unless set. The refusals are
+  counted on the `reclaim` and `hold` commands that dispose of them, by
+  the typed `queue_refusals` row each writes in its own transaction,
+  keyed by its seq (ruling 7).
 - **An entry queued with `--dispatch`.** Found in the code, not in the
   issue. (a) The pass holds it with the reason `dispatch_envelope`. Its
   run would be a run-manifest/v2, the counterpart system's contract,
@@ -595,7 +642,9 @@ Each choice is listed with its recommendation first.
   start its admission refuses is reclaimed and counted, and held at the
   journal's bound, 3 unless the operator sets another, so a refusal
   that recurs on the same bytes claims at most that many times before
-  the operator sees it. A release gives a fresh bound.
+  the operator sees it. A release gives a fresh bound. A contended
+  disposal is retried before any other claim, so only a dispatcher's
+  death before it lands costs an attempt, one per crash.
 - No `reclaim` ends a claim whose run exists. A `Contended` link or
   spawn waits for reconciliation, which a standing dispatcher runs
   before its next pass; an entry it leaves `launching` refuses other
