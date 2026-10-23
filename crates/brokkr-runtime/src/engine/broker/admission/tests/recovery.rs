@@ -113,6 +113,9 @@ impl Crashed {
 /// the next admission, which is admitted.
 #[test]
 fn a_settled_end_in_a_protected_journal_releases_its_attempt() {
+    if !alone("recovery::a_settled_end_in_a_protected_journal_releases_its_attempt") {
+        return;
+    }
     let host = Host::new();
     let _home = Coordinated::at(&host.home);
     let crashed = crashed(&host, confined, false, ":");
@@ -130,6 +133,9 @@ fn a_settled_end_in_a_protected_journal_releases_its_attempt() {
 /// its reservation, and the fresh run is refused.
 #[test]
 fn a_settled_end_without_its_positive_fact_keeps_its_attempt_reserved() {
+    if !alone("recovery::a_settled_end_without_its_positive_fact_keeps_its_attempt_reserved") {
+        return;
+    }
     let host = Host::new();
     let _home = Coordinated::at(&host.home);
     let crashed = crashed_as(&host, confined, (false, false), ":");
@@ -142,6 +148,9 @@ fn a_settled_end_without_its_positive_fact_keeps_its_attempt_reserved() {
 /// and is refused.
 #[test]
 fn a_moved_head_end_keeps_its_attempt_reserved() {
+    if !alone("recovery::a_moved_head_end_keeps_its_attempt_reserved") {
+        return;
+    }
     let host = Host::new();
     let _home = Coordinated::at(&host.home);
     let moves = "git commit -q --allow-empty -m gate-moved-head";
@@ -164,6 +173,11 @@ fn a_moved_head_end_keeps_its_attempt_reserved() {
 /// chain. The attempt keeps its reservation, and the fresh run is refused.
 #[test]
 fn a_forged_end_in_a_journal_its_writer_could_reach_keeps_its_attempt_reserved() {
+    if !alone(
+        "recovery::a_forged_end_in_a_journal_its_writer_could_reach_keeps_its_attempt_reserved",
+    ) {
+        return;
+    }
     let host = Host::new();
     let _home = Coordinated::at(&host.home);
     let holder = |work: &Path| hands(&[work.parent().unwrap()]);

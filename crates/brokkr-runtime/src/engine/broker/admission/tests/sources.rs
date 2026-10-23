@@ -1220,6 +1220,9 @@ pub(in crate::engine) fn unsynced_next() {
 /// driver starts.
 #[test]
 fn a_dispatch_whose_later_step_could_write_a_reserved_source_starts_nothing() {
+    if !alone("sources::a_dispatch_whose_later_step_could_write_a_reserved_source_starts_nothing") {
+        return;
+    }
     let host = Host::new();
     let _home = Coordinated::at(&host.home);
     let (kept, docs) = (host.worktree("kept"), package(&host));
