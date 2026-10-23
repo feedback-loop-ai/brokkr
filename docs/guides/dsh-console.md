@@ -286,3 +286,12 @@ worktree shows the button disabled, with "no worktree recorded for this run".
   terminal fleet shows, and the console derives none, so a run nothing
   drives still reads as running. Resume and Close it are offered whenever
   Brokkr admits them.
+
+### Entered runs
+
+The console paints the run view's entry sentence in the graph header:
+the gate entered, then each continued run's title with its id. It reports
+an unreadable entry in the same place. The rail follows the phase order
+recorded at start, including first returns into work the entered run had
+not visited. No console-side history or predecessor verdict is inferred
+(proposed decision 0094).

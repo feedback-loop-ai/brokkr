@@ -191,7 +191,7 @@ fn compile_seat(
     let limits = seat_limits(phase, raw, &agent_seat)?;
     let inputs = seat_inputs(machine, phase, raw, &agent_seat)?;
     Ok(Seat {
-        has_gate: sequence_gate.unwrap_or_else(|| body.is_gate()),
+        gate: sequence_gate.unwrap_or_else(|| body.assess()),
         results,
         limits,
         inputs,
@@ -491,7 +491,7 @@ impl Seated<'_, '_> {
         refusals.relocate(&moved);
         let prior = SequenceStep {
             name: "checks".into(),
-            class: SeatClass::of(self.seats[verify].has_gate),
+            class: SeatClass::of(self.seats[verify].has_gate()),
             results: self.seats[verify].results.clone(),
             body: prior_body,
         };

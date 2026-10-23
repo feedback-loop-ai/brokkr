@@ -257,7 +257,7 @@ fn a_dialect_step_makes_no_seat_a_whole_gate() {
             "design",
         ];
         let phases = phases.into_iter().chain(["tasks", "analyze"]);
-        let gate = |phase| (phase, bundle.seats[phase].has_gate);
+        let gate = |phase| (phase, bundle.seats[phase].has_gate());
         phases.map(gate).collect::<Vec<_>>()
     };
     let expected = [("triage", true), ("review", true), ("implement", false)];

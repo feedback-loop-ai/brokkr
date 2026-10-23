@@ -1,0 +1,667 @@
+# 0094 — A run of any recipe enters at a gate over work already on the branch, and names the runs it continues
+
+Status: proposed
+Date: 2026-10-21
+
+Built: built
+Amends: 0051
+
+## Context
+
+Issue #788, part of epic #790 (cheaper recovery). `stopped` is terminal.
+A run whose work is finished and committed, and which then stopped at a
+hard rule or exhausted a gate's attempts, has one road back: a fresh run
+of the same recipe, which begins at the table's `initial`, repeats intake
+and design, and lets the design seat commit again over a branch that
+already holds the design. Over 2026-10-18 and 19 one adopter's epic
+re-drove six runs, each spending 15 to 25 minutes and a design commit on
+intake and design before it reached verify. The shipped `landing` recipe
+is `fast` entered at a classify gate (decision 0051), but it is Brokkr's
+own (`extends brokkr-fast`), it begins where a branch written by hand
+begins, and it says nothing of the runs whose work it finishes. Every
+other recipe, an adopter's own frontier recipe among them, has no later
+entry.
+
+The pieces already exist. Every driver-bearing site carries a class,
+`gate` or `work` (decision 0021 ruling 1), and `SeatBody::is_gate` reads
+it for a single, a panel, a sequence and a selector. The compiler walks
+the table from `initial` and refuses a path to a non-stop terminal that
+avoids the protected phase (`assert_phase_unavoidable`, decision 0051's
+constitutional lint); the core holds the same walk for decision 0050's
+liveness. The engine enters `machine.initial` at `Cursor::Start`, and the
+fold accepts whatever `phase/entered` follows. A seat the run returns to
+receives `returned_from` (decision 0022), today only on a second visit.
+`run/started` is built once (`Bundle::run_started`), and `layers` (#697)
+is the precedent for an additive, optional, absent-by-default member.
+`brokkr run` and `brokkr queue add` share one `LaunchArgs`. The
+contribution gate reads one `Brokkr-Run` line under a native run-id
+grammar, verifies the journal offline, and cuts the tier by the ship
+anchor's patch map from the merge-base (decisions 0033, 0038). The run
+view derives `recipe` from `run/started`, and the console, the TUI and
+`brokkr ui` only paint it (decision 0071 ruling 7).
+
+What is missing is one word the operator can say at start, `enter`, the
+record of what the entered run continues, and the rule that says which
+phases may be entered without a roster.
+
+Weighed and set aside, each recorded in the change's proposal (D1 to D34)
+and design:
+
+- **A composed landing overlay any recipe derives.** An overlay's
+  `initial` cannot be told from a recipe's own first phase, so the
+  compiler could not refuse an entry at a work phase without a second
+  marker; a recipe is static data and cannot name the runs one re-drive
+  continues; and every adopter would write one overlay per recipe and
+  gate, each restating one word (decision 0071 ruling 5).
+- **The entry compiled into the bundle, or a manifest version.** A
+  contract mint under a proposed decision (decision 0082 ruling 1), a
+  second home for one fact, and every witness of an entered run's bundle
+  moved. The manifest pins the recipe; the journal records the run.
+- **The entry carrying a typed strategy and change for the skipped
+  phases.** Selection and the `strategy_in` conditions read `RunState`,
+  folded from this run's journal alone; a field the fold must read is a
+  v2 event, which the frozen `{"const": 1}` of every manifest schema rules
+  out, and a synthetic triage ruling would be a ruling no seat made.
+- **Reading a continued run's fold, or its verify, into this run.** The
+  chain is unverified (ruling 5), and a check that holds only sometimes
+  reads as a verification it is not.
+- **Promoting verify to a compiled role and refusing an entry from which
+  it is avoidable.** It refuses `review` in every shipped table and
+  `classify` in `landing`, against the issue's own list, and makes a
+  landing's `initial` not an entry.
+- **Fetching and verifying continued runs at the gate, as a preflight is
+  fetched.** A continued run stopped before any anchor existed, and the
+  gate's verifier requires a completed anchored run; the patch map already
+  spans every commit a predecessor's journal could vouch a subset of.
+- **A `queued-launch/v2` carrying the entry.** No queue asks for it
+  (decision 0071 ruling 6).
+- **Recording the table's order on entered runs only.** It leaves the
+  run view two rail orders for good and a landing's graph wrong.
+
+No contract file moves. `run/started` gains two additive, optional,
+absent-by-default fields under the amended rule of decision 0016, as
+`charters` and `layers` did; their numbered extension schema is minted
+when this decision is accepted (decision 0082 ruling 1), and until then
+this decision and the Rust types are their shape.
+
+## Rulings
+
+1. **An entry is a fact of the run, admitted by six facts of the table
+   and its seats, and the engine holds no roster.** `brokkr run --enter
+   <phase>` starts the run at the named phase of the table it runs under
+   instead of the table's `initial`; the table, the compiled bundle, its
+   digest, the run manifest and the witnesses do not move. The entry is
+   admitted when, judged in this order: the phase is one of the table's
+   and not a terminal; its name matches `^[a-z0-9][a-z0-9._-]{0,63}$`, the
+   grammar the contribution gate prints; every driver-bearing site of its
+   seat is a gate by the class it wrote, the seat's compiled whole-gate
+   fact, a dialect step that declares none being work whether or not the
+   realm's dialect supplies it; the protected phase is the entry
+   itself or is unavoidable from it; no work phase is met by a forward
+   walk from the entry, a forward ruling being one whose `next` stands
+   after its `from` in the table's `phases` list; and no seat, step or
+   ruling group the walk meets needs a journal fact that only a phase the
+   walk does not enter can set (ruling 4). Any other entry is refused when
+   the recipe and the entry are compiled, before a run id is minted or an
+   event is written, by a typed error naming the phase, the first fact it
+   failed with its witness, and the entries the table admits, derived by
+   the same six facts in `phases` order. The third fact's witness is the
+   first site whose class is work in the seat's written order, a
+   sequence's steps in written step order, a dialect step by the class it
+   wrote and one the dialect does not supply, which compiles no site,
+   named by its step name and written class as uncompiled; the compile
+   records it where it sets the whole-gate fact, so the two cannot
+   disagree. A recipe whose own `initial` is a
+   gate starts as it always did when no entry is named, and its `initial`
+   is an entry like any other when it passes admission. `--enter` and
+   `--continues` are `brokkr run`'s alone: a Looper-bound run refuses an
+   entry by name, `brokkr queue add` refuses the flags as arguments it
+   does not know, and a queued launch carrying an entry is refused before
+   it is encoded.
+
+   **Enforcement binding:** `crates/brokkr-runtime/src/bundle/entry.rs`
+   (`admit`, `admitted`, `first_phase`, `EntryError` framing an `EntryRefusal`;
+   the second fact by `is_entry_name` in `crates/brokkr-core/src/entry.rs`;
+   the third fact and its witness one
+   value, `Seat.gate`, a closed `GateAssessment`) and its tests in
+   `bundle/tests/entry.rs`, a child declared in `bundle/tests.rs`;
+   `crates/brokkr-runtime/tests/table_lints.rs` pins
+   the admitted set of every shipped table by shape, `verify, review` in
+   the `fast`-shaped tables, `panel-review`, `self`, `preflight` and
+   `verify`, `classify, verify, review` in `landing`, `verify` in
+   `research` and `research-dsh`, none in `triage`, `gpt-flash` and
+   `night-shift`, each refused phase with its first fact and witness;
+   `crates/brokkr-cli/tests/machine_proof/entered_run.rs` (the
+   acceptance: a synthetic recipe listing intake and design ahead of
+   implement, entered at `verify` over a finished branch, reaching
+   `SHIP-COMPLETE` with no work seat); the flags declared in
+   `crates/brokkr-cli/src/cli_args/entry.rs` on `brokkr run` alone, with
+   `crates/brokkr-runtime/tests/queued_launch.rs` and
+   `crates/brokkr-cli/src/cli_reference_tests.rs` pinning where they are
+   taken and refused.
+
+2. **The protected phase stays unavoidable from wherever a run begins,
+   and an entry at the protected phase is the operator's word, written
+   down.** The fourth fact is decision 0051's constitutional lint seeded
+   at the entry instead of `initial`, and both read one core walk,
+   `Machine::reach_avoiding`, so the law has one home. In every shipped
+   table `ship` is refused: `SHIP-COMPLETE` reaches `done` without review,
+   and an entry there would let a run's own journal vouch a head no seat
+   of that journal judged. The recovery for a ship that failed is decision
+   0092's retry when it parked, or an entry at `review` when it stopped.
+   An entry at the protected phase is admitted wherever the six facts
+   admit it, `landing` included; the run's own journal then holds no
+   verify, and it vouches a head no seat of that journal tested. That is a
+   departure from "verified before judged", taken on the operator's word
+   as decision 0051 ruling 3 takes the class's word for prose, with the
+   pull request's own checks, where a realm has them, as the same backstop
+   and never as the recipe's verify; unlike the class, it is journaled, and every surface, `run/started.entry.phase`,
+   `context.entry`, the run view and the gate's check line, names the gate
+   entered. The engine reads nothing of a continued run's verify. The
+   by-hand road is untouched: a landing started without an entry
+   classifies the branch, and one code path still routes to verify.
+
+   **Enforcement binding:** `Machine::reach_avoiding` in
+   `crates/brokkr-core/src/policy/audit.rs`, read by
+   `assert_phase_unavoidable` (in `bundle/phases.rs`, its one caller's
+   module; its refusal text unchanged) and by the admission's fourth
+   fact; the `ship` refusal and the review-entry cases in `bundle/tests/entry.rs`, `machine_proof/entered_run.rs` and
+   `crates/brokkr-cli/tests/delivered_by_brokkr.rs` (a run entered at
+   review vouches, and its line says so); `recipes/landing/README.md`.
+
+3. **A work phase is reached in an entered run only by a return, and a
+   return hands its finding to a seat the run has not visited.** The
+   fifth fact follows forward rulings alone, so a table from which a work
+   phase is reached forward is refused, which is "implement is entered
+   only on a return" made mechanical for every work phase. In an entered
+   run a seat receives `returned_from` on its first visit when the ruling
+   that sent it is a return, a ruling whose `next` stands before its
+   `from` in the `phases` list; a forward ruling into an unvisited phase
+   hands nothing new, a revisit hands what it always did, and triage
+   receives nothing on any visit (decision 0041 ruling 6). The rule reads
+   the ruling's direction and never the entry's position. One predicate
+   of `brokkr-core`, `Direction::of` over the table's order, a closed
+   enum `Forward`, `Return` or `Loop` and none for a phase the order does
+   not name, is read by the admission's fifth fact, the return rule and
+   the run view's roads back, and nothing else decides a direction. No
+   seat input of a run without an entry moves.
+
+   **Enforcement binding:** `Direction` in `crates/brokkr-core/src/policy/direction.rs`,
+   re-exported at `brokkr_core::policy::Direction`, and its tests in
+   `policy/tests.rs`; `seat_context` in `crates/brokkr-runtime/src/engine/input.rs`
+   with the pins in `engine/tests/entry.rs` (the first return after
+   `VERIFY-FAIL` handed, the forward first visit after `IMPL-OK` not, the
+   ordinary run's input digest standing, a landing's first return still
+   without); the forward-work refusals in `bundle/tests/entry.rs`.
+
+   *Amended, 2026-10-22 (the change's D38):* no seat input of a run
+   without an entry moves by the engine change. `landing`'s seats listed
+   after `classify`, the remediating `implement`, `verify`, `review` and
+   `ship`, gain `context.results.classify` by the recipe's compiled order
+   (ruling 9 as amended): the house's rule that a seat reads the results
+   of the phases listed before it, which the order composition gave the
+   recipe denied them. Each such input differs by that member and by
+   nothing else, and a landing in flight when the marker lands is refused
+   at resume by its moved manifest, as any recipe edit refuses a
+   mid-flight run.
+
+4. **A skipped phase's fact is an admission fact, never a carried one.**
+   Three journal facts can be needed by a phase an entered run reaches
+   without entering the phase that sets them, and the table holds no
+   others: `strategy`, which only the strategy phase's ruling sets
+   (decision 0041 ruling 6), needed by a seat that selects on it with no
+   `default`, and by a `(phase, result)` group whose rulings that carry no
+   `strategy_in` condition do not rule every valuation decision 0050
+   ruling 4's sweep puts to them; and the dialect's `{change}`, needed by
+   a dialect step that expands it, whose source is an earlier step of its
+   own sequence when the seat declares `change`, else a result of one of
+   the five change phases listed before it whose seat declares `change`,
+   supplied only when every road from the entry to the step enters such a
+   phase. The fifth fact's walk and the sixth's are one breadth-first
+   walker, which records the ruling that first reached each phase; the
+   fourth fact asks only whether a phase is reached and reads ruling 2's
+   core walk. The two `strategy` facts first ask whether the entry is
+   itself the strategy phase, which sets `strategy` by its own ruling
+   before any other phase is met, so both hold and no walk is taken
+   (an accepted residual equal to a plain start at `triage`: a `triage`
+   ruling outside the strategy vocabulary sets no `strategy`, and
+   `escalate` names no selector case, so a later selector with no
+   `default` fails as it does in a run started at `triage` today; no
+   compile refusal exists for it, and the admission refuses no more and
+   no less), and otherwise are judged over one run of the walker that follows every
+   ruling and never enters the strategy phase; the `{change}` fact first
+   asks whether the entry is itself one of the step's sources, which
+   covers the step with no walk, since the run enters its entry first,
+   and otherwise runs the walker once for the step, following every
+   ruling and never entering the step's sources, so its witness names
+   the ruling that reached the step's phase; the three rank in that
+   order, each naming its own walk's first witness. A need the walk
+   cannot supply is refused at admission, never left to park. The five
+   change phases are one roster, read by the engine's `{change}`
+   expansion and the admission alike. Under rulings 1, 3 and this one the triage-shaped tables admit no entry today, and
+   each refusal names its own first fact: `triage` and `night-shift`
+   refuse `verify` and `review` by this ruling, on a seat that selects
+   with no `default`, `triage` naming `implement` by `VERIFY-FAIL` and
+   `night-shift`, whose `implement` is a plain work seat, naming `review`
+   by `VERIFY-PASS`; `gpt-flash`, whose review positions are written
+   `work` ahead of its chief, refuses `review` by ruling 1 and `verify` by
+   ruling 3, review reached forward. The road to one is the recipe
+   author's, a `default` case on a selecting seat and gate-classed judges
+   where a work site stands in a judging phase, a recipe change named and
+   not ruled here. Nothing of a continued run's fold is read into this
+   run's.
+
+   **Enforcement binding:** `Machine::groups_reading_strategy`,
+   `Machine::groups_reading_visits` and `Rule::reads_visits` in
+   `crates/brokkr-core/src/policy/audit.rs` and their tests, the first in
+   place of `Machine::unruled_without_strategy` (D37, D43, D45);
+   `CHANGE_SOURCES` in `crates/brokkr-runtime/src/phase_name.rs`, read by
+   `nearest_change` (`engine/sequence.rs`) and the admission's sixth fact; the fixtures in
+   `bundle/tests/entry.rs` (a selector with a default admitted, a group only a
+   skipped strategy decides refused, a `{change}` step with no road to its
+   source refused and named with the ruling that reached its phase, a
+   step whose one source is the entry admitted, an entry at the strategy
+   phase admitted where an entry after it is refused, two facts failing
+   with the first named).
+
+   *Amended, 2026-10-22 (the operator's ruling on the first
+   implementation's security hold; the change's D36):* the ruling fact
+   preserves rather than proves totality. A `(phase, result)` group the
+   walk meets without entering the strategy phase is refused when it holds
+   any ruling with a `strategy_in` condition, whatever its other rulings
+   rule: an absent `strategy` satisfies no `strategy_in`, so such a ruling
+   never matches in the entered run where a plain start may match it, and
+   a hard denial a strategy decides would fall through to an unconditioned
+   allow below it. No shipped table's admitted set moves, since `triage`
+   holds the only `strategy_in` rulings and the tables that inherit it
+   admit no entry. A reached phase holding several such groups is
+   witnessed by the first by result in key order, the order the sweep
+   builds and reports a table's groups in (D41). The binding gains the
+   review's synthetic table, a `DENY-ENGINE` above an unconditioned
+   ruling to `ship`, refused at `verify` and `review`, and a phase with
+   two such groups naming the first by result; `Machine::unruled_without_strategy`
+   gives way to the core function that answers the groups reading
+   `strategy`.
+
+   *Amended, 2026-10-22 (the change's D43):* a fourth such fact exists,
+   and the table holds no others: a phase's visit count, `visits_<phase>`,
+   which the fold counts from its `phase/entered` events alone, no seat
+   may claim (decision 0022), and the engine supplies as zero at a ruling
+   for a phase the run never entered. A `(phase, result)` group the walk
+   meets that holds any ruling conditioned on `visits_<phase>_gte` with a
+   threshold above zero is refused when no road from the entry reaches
+   that phase, whatever its other rulings rule: the count never moves, a
+   threshold above zero is never met, and such a ruling never matches in
+   the entered run where a plain start, from which every phase is
+   reachable (decision 0050 ruling 3), may match it, so a hard denial the
+   count decides would fall through to an unconditioned allow below it. A
+   threshold of zero is met by that zero and is not refused. The fact is
+   judged over the walker run with nothing avoided, ranks fourth, after
+   the `{change}` fact, and is witnessed by the group, by result in key
+   order, the phase whose visits it reads, the first in rule order, and
+   the ruling that reached its phase. A count of a phase some road from
+   the entry reaches can still move, later by the visits a plain start
+   makes before it reaches the entry's position: that lag is the accepted
+   residual for every phase, as a landing's implement count lags today,
+   and no fact refuses it. No shipped table's admitted set or refusal
+   witness moves: `fast`'s four `visits_implement_gte` rulings are reached
+   from every admitted entry of every table that inherits them, the other
+   tables read no visits, and the triage-shaped tables refuse by earlier
+   facts. `consecutive_failures` is keyed by the ruling's own phase and
+   `reviewed_heads` is set by the protected phase, on every road by ruling
+   2, so no fifth fact exists. The binding gains
+   `Machine::groups_reading_visits` beside the function answering the
+   groups reading `strategy`, and the fixture of a `STOP-AFTER-INTAKE`
+   (`visits_intake_gte: 1`, hard, stop) above an unconditioned ruling to
+   `ship`, refused at `verify` and at `review` and admitted at `verify`
+   when it reads `implement`'s visits instead.
+
+   *Amended, 2026-10-22 (the change's D45 to D47):* a road reaches a
+   phase, for the visits fact, when no ruling on it is conditioned on
+   `visits_<phase>_gte` above zero. Such a ruling matches only once the
+   phase it counts has been entered, which no walk may assume, where
+   every other condition can hold in the entered run as in a plain start:
+   `consecutive_failures` is the ruling's own phase's; a flag, a severity
+   and every seat input are the seat's own result or observed at the
+   ruling; and a `strategy_in` ruling stands in a group the strategy fact
+   refuses or past the strategy phase on every road to it. So the walker
+   runs twice for this fact, nothing avoided: following every ruling, to
+   meet the groups the entered run could read, a phase met only through a
+   count-guarded ruling included, since that count may move; and
+   following no count-guarded ruling, to reach the phases whose counts
+   the run can move. A road a count some road moves opens, or one the
+   entry's own count opens, counts as none: the simpler rule refuses a
+   table no shipped recipe writes rather than prove a threshold, and the
+   finer rule, following such a ruling once the phase it counts is
+   reached, proves no threshold above one and admits a denial that never
+   fires. Within one ruling the phases it counts are taken in the key
+   order of the condition name, the order the loader holds a ruling's
+   `when` in, the written order being lost at the edge, and
+   `Machine::visit_phases` lists them in; across a group's rulings, in
+   rule order. The shipped count-guarded rulings are `fast`'s four and
+   `triage`'s seven, inherited by `gpt-flash` and `night-shift`, each a
+   stop, a park or a ship no other road fails to reach, none the one
+   road into any phase, and every phase they count is reached from
+   `verify` by a road no count guards; no admitted set or witness moves.
+   The binding gains `Rule::reads_visits`, the one answer the walker's
+   predicate and `groups_reading_visits` read; the fixture of a
+   `REDO-INTAKE` (`verify`, `fail`, `visits_intake_gte: 1`, next
+   `intake`) ahead of `VERIFY-FAIL`, refused at `verify` on the entry's
+   own group, refused on `(review, clean)` when it reads `implement`'s
+   count and admitted at `verify` when a seat flag, `spec_defect`, guards
+   it instead (the change's D48, amending this in place: unconditioned,
+   as first written here, it leaves `VERIFY-FAIL` unreachable and the
+   loader refuses the table, decision 0050 ruling 2); and the fixture of
+   one ruling reading `intake`'s and `design`'s counts, naming `design`.
+
+   *Amended, 2026-10-22 (the change's D48 and D49):* a road a seat's own
+   flag, severity or enumeration guards is a road for the visits fact:
+   the walk that decides reach refuses only a ruling conditioned on a
+   visit count above zero and follows every other as it follows an
+   unguarded one, since the seat's result can hold in the entered run as
+   in a plain start. The witness of a group of a phase met only through
+   a count-guarded ruling is that ruling: for this fact the ruling that
+   reached the group's phase is the one recorded by the run of the
+   walker that follows every ruling, the run that meets the groups
+   judged, and the run that follows no count-guarded ruling decides
+   reach alone and names none. The binding gains the fixture of a
+   `VERIFY-PASS-WORKED` (`verify`, `pass`, `visits_implement_gte: 1`,
+   next `review`) above an unconditioned `VERIFY-PASS-UNWORKED` to
+   `implement`, `review` met from `verify` through the count-guarded
+   ruling alone: refused at `verify` on `(review, clean)` reading
+   `intake`'s count, witnessed by `VERIFY-PASS-WORKED`, which a single
+   run following no count-guarded ruling would admit; refused at
+   `review` on the same group reached by no ruling; and admitted at
+   `verify` when the denial reads `implement`'s count instead, `review`'s
+   groups judged as any other and the road into it refusing nothing of
+   itself.
+
+5. **The chain is the operator's word, and the gate reports it while
+   vouching the patch map.** `--continues <run>`, repeatable and only
+   with `--enter`, names the earlier runs the entered run continues, each
+   resolved once as `--run` is, held as a canonical id with the feature
+   its own start recorded. Each must exist in the journal the run is
+   written to, be concluded, `completed` or `stopped` (a parked run is
+   resumed or concluded first, decision 0092 ruling 4), match the native
+   run-id grammar `^[a-z0-9-]{0,32}-[0-9a-f]{8}$` the gate reads, not be
+   Looper-bound, and be named once. A Looper-bound run is told apart by
+   what its start pinned, the run-manifest/v2 lineage (`schema`
+   `forge-run-manifest/v2`), never by its id, which is the dispatch's
+   `forge_run_id`, any string of 1 to 512 characters, and may match the
+   native grammar; every Looper-bound run is refused as a run to
+   continue. Every refusal comes before an event is written, and nothing
+   else, no realm, repository, recipe or verify, is compared: existence,
+   conclusion, the id's grammar and the lineage its start pinned are the
+   checks. The record's own facts, named twice and the grammar, are judged
+   first by the one check the journal's reader applies (ruling 6), and the
+   journal's, existence, lineage and conclusion, after, each per id in the
+   order named. The
+   contribution gate reads `entry` from the vouching run's verified
+   journal, names the gate entered and each continued run's id on its
+   check line, never a feature text, and refuses an `entry` outside the
+   record's one language (ruling 6): not the record's shape, a phase
+   outside ruling 1's grammar, a continued id outside the native grammar,
+   or one named twice; it accepts no `entry` the reader refuses, and an
+   absent `entry` reads as today. The gate's claim is
+   this and no more: it vouches the shipping run's whole-branch patch map,
+   cut from the merge-base of the default branch (decision 0038 ruling 1),
+   and reports the runs the operator named; it fetches no continued run's
+   evidence and imports no result, verify, review, counter or security
+   clearance from one, so a missing or unpublished predecessor supplies no
+   authority and skips no gate. The two grammars are held to the core's two
+   predicates, `is_entry_name` and `is_native_run_id`, which the compiler
+   and the launch apply, by one test.
+
+   **Enforcement binding:** the `--continues` refusals in
+   `crates/brokkr-runtime/src/launch.rs` with `launch/tests.rs`;
+   `is_entry_name`, `is_native_run_id` and `check_record` in
+   `crates/brokkr-core/src/entry.rs`,
+   the mint held to the grammar by a test in `engine/tests/entry.rs` over a freshly minted id; the Looper-bound refusal in `launch.rs`, with
+   a concluded Looper-bound run whose id is native-shaped refused in
+   `launch/tests.rs`; `scripts/delivered-by-brokkr.sh`;
+   `crates/brokkr-cli/tests/delivered_by_brokkr.rs` (an entered run over
+   a branch two runs built vouches at `vouched` with the chain on its
+   line, every row of the invalid-record matrix
+   `tests/support/entry_records.rs` refuses, the patterns are the
+   compiler's and the core's, and a journal carrying the new fields verifies under the
+   current verifier).
+
+   *Amended, 2026-10-22 (the change's D51):* the launch reads a continued
+   run's pinned manifest through `brokkr_core::dispatch::dispatch_from_run`,
+   the engine's own typed lineage reader, which `Engine::resume` tells a
+   Looper-bound run apart by; a manifest that claims the lineage but does
+   not read is refused naming the run as unreadable, never read as local,
+   and the binding's Looper-bound fixture pins a run manifest the engine's
+   own builder made.
+
+6. **The journal records the entry and the table's order, two additive
+   fields the fold never reads.** `run/started` carries `entry`, an
+   object of `phase` and `continues`, the continued runs in the order
+   named each with `run_id` and `feature`, `continues` present as an empty
+   array when no run was named, and `entry` absent on every run started
+   without one; and `phases`, the compiled table's `phases` list verbatim,
+   on every start. Both are typed once at the edge, `deny_unknown_fields`,
+   with absence told from malformation by the key. A present `entry` reads
+   only as the whole record, its shape, its phase under ruling 1's grammar,
+   each continued id under the native grammar and named once, one check in
+   `brokkr-core` that the reader, the launch and, by two patterns held
+   equal, the gate apply, so the record has one language: a present `entry`
+   that does not so read is refused by the engine where it reads it and
+   is never written by it, the start refusing one before any row exists by
+   the same check; and the run view, which refuses no journal the fold
+   accepts, states it unreadable with the reader's error (ruling 8). The
+   engine enters the entry instead of `initial` at `Cursor::Start`, at the first drive and at a
+   resume in the window after `run/started`, admitting it again by ruling
+   1 over the bundle the manifest gate just proved, and refuses one that
+   does not read or no longer admits rather than fall back to `initial`;
+   it reads `phases` from no journal. The fold reads neither, `RunState`
+   gains nothing, every journal written before folds, verifies and views
+   as it did, and the engine change moves no manifest, table or charter
+   witness; the journal's payload-key witness, the golden over a real
+   run's event sequence, moves by the one key `phases` on `run/started`,
+   on this ruling's authority. Their numbered extension schema is minted
+   when this decision is accepted (decision 0082 ruling 1); until then the Rust types are
+   their shape, and the vocabulary is published in `contracts/README.md`'s
+   extension paragraph under this decision.
+
+   **Enforcement binding:** `Bundle::run_started` in
+   `crates/brokkr-runtime/src/bundle/origins.rs`; `RunEntry`,
+   `check_record` and `RunEntry::of_started` in
+   `crates/brokkr-core/src/entry.rs` with their tests (absent, empty chain,
+   and every row of `tests/support/entry_records.rs` by variant); `first_phase` in `crates/brokkr-runtime/src/bundle/entry.rs`, called at `Cursor::Start`,
+   with the resume-window, no-longer-admits and does-not-read pins in
+   `engine/tests/entry.rs`, and `Engine::start_in_world`'s refusal of a record
+   outside the language before `create_run`, pinned there with no run
+   created; `crates/brokkr-cli/tests/witness_journal.rs`, whose `GOLDEN`
+   `run/started` row gains `phases` with a comment citing this ruling; the
+   ordinary-start pin (no `entry` key, the same
+   manifest digest, `phases` equal to the table's) in
+   `machine_proof/entered_run.rs`; `crates/brokkr-runtime/tests/witnesses.json`
+   standing in every row the engine change touches.
+
+7. **Every seat but triage is told the entry, and the review judges the
+   branch from its merge-base, by a clause this run does not write.**
+   Every seat input of an entered run except triage's carries
+   `context.entry`, the phase and the continued runs by `run_id` and
+   `feature`, derived from `run/started.entry` alone; triage reads no
+   history (decision 0041 ruling 6) and carries none; the continued runs'
+   results are not handed; no seat input of a run without an entry moves.
+   The five library review charters whose scope names the run's beginning
+   and the two recipe copies pinned to the first scope the delivery as
+   everything on the branch since its merge-base with the default branch,
+   the cut the anchor's patch map takes, and say that `context.entry`
+   means the branch holds the work of the runs it names and all of it is
+   the seat's to judge; a library test holds the seven to the clause by
+   path and every charter and recipe role to the rule that none scopes its
+   read to the run's beginning. This run's own review panel is pinned to
+   three of the seven and the dispatch door refuses a charter whose bytes
+   moved (decision 0066 ruling 5), so this run writes none of them: the
+   clause, its tests and the witness rows that follow the bytes land by
+   hand on the branch after this run ships, and a landing compiled over
+   the clause, `--recipe landing --enter classify --continues <this
+   run>`, judges the whole branch, vouches the final head, and is the pull
+   request's `Brokkr-Run`. This run's land ends with the push of the
+   branch and its evidence; no pull request naming this run is sealed or
+   queued; the pull request that merges names the landing, so no default
+   branch ever holds `--enter` without the clause.
+
+   **Enforcement binding:** `seat_context` in `engine/input.rs` with the
+   reviewer, triage and ordinary-input pins in `engine/tests/entry.rs`;
+   `crates/brokkr-runtime/tests/roster.rs` (the two copies byte for byte
+   their source, standing); `crates/brokkr-runtime/tests/library_data.rs`
+   (the clause by path and the rule over both trees, the follow-on
+   commit's); the change's `tasks.md`, whose charter task stays open until
+   that commit and whose last task is the landing and the pull request;
+   the implementer's notes, which open with the instruction that ends the
+   land at the push.
+
+   *Amended, 2026-10-22 (D36):* the clause, its library test,
+   `crates/brokkr-runtime/tests/review_scope.rs` (beside
+   `library_data.rs`, which is at its file ceiling), and the witness,
+   prompt-byte and clone pins that follow its bytes landed by hand on the
+   branch after the first implementation's run stopped and before the run
+   that implements the settlement started, so that run's panel compiled
+   over the clause and judged the whole branch from its merge-base. The
+   starter reviewer charter `brokkr init` writes takes the same scope. The
+   delivery road stands: the pull request names a landing that continues
+   the run that ships. *And (D38):* the clause that no seat input of a run
+   without an entry moves is narrowed to the engine change, as ruling 3's
+   amendment says; `landing`'s inputs after `classify` move by its order.
+
+8. **The run view names the gate entered and the runs continued, derived
+   once, and its rail stands in the order the start recorded.** `RunView`
+   derives `entry` from `run/started`: the gate, the continued runs each
+   led by its title with its id after, and one sentence, `entered at
+   <phase>, continuing <title> (<id>)` per run joined by `, `, or
+   `entered at <phase>, continuing no earlier run`. A continued run's
+   title is `brokkr_view::title` of its feature, the house's one
+   derivation of a run's one-line name: its first line that says
+   anything, clamped at a word to 60 display columns. Every one-line
+   surface leads with it, the line `brokkr run` prints, the console's and
+   `brokkr ui`'s headers and the TUI's header line, so a multi-line
+   feature never spills; the journal, `context.entry` and `brokkr
+   inspect --json` keep the feature whole. The console's run header,
+   `brokkr ui` and the TUI paint it and derive nothing of their own;
+   `brokkr run` keeps `run started: <id>` exactly, the id alone on its
+   line, and prints the sentence on the line after it from the same
+   derivation; nothing is painted or printed for a run without an entry.
+   A present `entry` the view cannot read is stated, `entry unreadable:`
+   with the reader's error, where the sentence would stand, and the rest
+   of the run is painted as the fold gives it: a refusal is reported,
+   never repaired into an ordinary run. The rail stands in the
+   recorded `phases` order, each phase the journal entered once with its
+   visits, a phase the order does not name after them by first entry, and
+   a road back is a ruling the direction predicate of ruling 3 calls a
+   return over that order, so an entered run's and a landing's first
+   return are drawn and the forward step after one is not; a journal
+   whose start recorded no order keeps first-entry order and the same
+   predicate over it, which is how #813 drew it. The view's wire version
+   is one past `main`'s when the change merges `main`, 26 expected
+   behind #787's 25, and the console host pins it; every pin of the
+   version moves with it.
+
+   *Returned-review amendment, 2026-10-22:* the CLI paints the entry
+   sentence through `render::Safe`, stripping terminal controls and
+   reordering characters at that boundary. The derived sentence, journal,
+   seat context and JSON retain their full text. The synthetic continuation
+   in `an_entered_delivery_continues_two_runs_and_vouches_without_fetching_them`
+   pins both the sanitized CLI line and the unchanged journal feature
+   (decision 0071 rulings 7, 9 and 10).
+
+   **Enforcement binding:** `crates/brokkr-view/src/entry.rs`
+   (`entry_sentence`, the one text led by each continued run's title,
+   and the unreadable entry stated) and `rail.rs`, with
+   `crates/brokkr-view/src/tests/returns.rs` (a run entered at verify
+   sent back once, a run entered at review reforged, a landing's first
+   return, a journal with no order reading as before); `VIEW_VERSION` and
+   `extensions/dsh/brokkr-console/lib/host/readouts.js`; the painters'
+   tests, `brokkr ui`'s in `crates/brokkr-cli/src/ui/tests/entry_tests.rs`,
+   the TUI's in `crates/brokkr-cli/src/tui/snapshot_tests.rs` and the
+   console's in `tests/client.test.js`; the start-line pin in
+   `machine_proof/entered_run.rs`.
+
+   *Amended, 2026-10-22:* the merged main at fe0eedee held version 25, so
+   the one-past-main rule sets this branch to 26. The expected #787 version
+   26 had not landed at that merge point.
+
+   *Amended, 2026-10-23:* #787 (pull request #815, merged as 42b9ab93)
+   took version 26, so the merged main holds 26 and the one-past-main rule
+   sets this branch to 27, as D25 and D36 expected.
+
+9. **`landing` stays a recipe, and a judgment that could not land is
+   relit as a landing that names the run it continues.** `landing` adds a
+   seat and two rules in front of `fast`'s, a conditional entry read from
+   the branch's class that a flag cannot express (decision 0051 ruling 1);
+   it is untouched, and an entry composes over it as over any recipe,
+   admitting `classify`, `verify` and `review`. `review-first` is `fast`
+   entered at verify with a forced crew (decision 0060); its difference is
+   the crew, and it is untouched, as are decision 0060's two open items.
+   What the two share with every entry is one law in one place: the
+   protected phase is unavoidable from where a run begins, held by the
+   compiler for every `initial` and for every entry over the same walk.
+   Decision 0051 ruling 4 is amended: a run stopped at the reforging bound
+   or a judging pass over a branch is followed by a landing on the ruled
+   head that names the run it continues, and a stopped run of a recipe
+   that admits its gate is re-driven there with `--enter` instead.
+
+   **Enforcement binding:** `crates/brokkr-runtime/tests/landing_shape.rs`
+   (unchanged, since the recipe is); the landing-without-entry case and
+   the `--enter classify --continues` case in
+   `machine_proof/entered_run.rs`; `recipes/landing/README.md`;
+   `docs/guides/recipe-authoring.md`, which says which phases a table
+   admits and how an author widens the set.
+
+   *Amended, 2026-10-22 (D36):* `landing`'s table writes `classify`
+   first, but composition listed the phases it inherits first and
+   appended its own, so the compiled order put `classify` last and the
+   direction predicate read `CLASSIFY-CODE` and `CLASSIFY-DOCS` as
+   returns. The compiled `landing` lists `classify` first, as its table
+   writes it, its bundle marking `phases` in `override.table` (D37); its
+   `tables` and `bundles` witness rows move with that order,
+   `landing_shape.rs` pins the written order, and the inputs of its seats
+   listed after `classify` gain that phase's result (ruling 3 as amended,
+   D38); nothing else of the recipe moves.
+
+## Consequences
+
+- A re-drive over a finished branch costs the gates alone: a verify's
+  minutes, one judge's read, and the smith only on a finding, against
+  the 15 to 25 minutes and the design commit each of the six re-drives
+  spent. An entry at a work phase is refused when it is typed, with the
+  entries the table admits in the refusal.
+- Every `fast`-shaped table, `panel-review`, `self`, `preflight` and
+  `verify` admit `verify` and `review`; `landing` admits `classify`,
+  `verify` and `review`; `research` and `research-dsh` admit `verify`;
+  the triage-shaped tables admit none, each refusal naming its first
+  fact and witness.
+- Every ordinary run's seat inputs, digests, manifest and digest
+  witnesses stand, but for `landing`'s inputs after `classify`, which
+  gain that phase's result by the recipe's compiled order (ruling 3 as
+  amended); its `run/started` gains the one `phases` list, the one key
+  by which the journal's payload-key golden moves. No contract file,
+  no frozen surface, no fold arm and no store schema moves.
+- The engine's constitutional walk, the groups reading `strategy` and
+  those reading a phase's visits above zero, the direction of a ruling
+  and the language of the entry record each have one home in
+  `brokkr-core`, read by the compiler, the engine, the view and, by
+  patterns held equal, the gate.
+- The public API of `brokkr-core`, `brokkr-runtime` and `brokkr-view`
+  gains the types above; the snapshots under `quality/public-api/` are
+  re-measured on the pinned nightly and cited in the pull request.
+- The charters' clause and its witnesses land by hand after this run,
+  and the pull request that merges names the landing that judged the
+  whole branch over them.
+- Named, not ruled: the return rule extended to every run, so a
+  landing's first return hands its finding; a `default` case on
+  `recipes/triage`'s selecting seats; a `queued-launch/v2`; an entry on a
+  Looper-bound run; the gate lighting a landing itself (decision 0051).
+
+## Implementation measurement — pinned landing documentation
+
+The compiler pins landing's README. The framing requests its entry
+documentation and expressly permits re-blessing a shipped digest that
+moves. Its bundle witness therefore moves with that source document
+(D35 in the proposal); the run-level entry still leaves an equal-source
+bundle's identity unchanged. Table and charter witnesses and prompt-byte
+pins stay unchanged in this implementation slice. The follow-on charter
+update and its witness measurement remain sequenced after this run.

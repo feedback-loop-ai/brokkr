@@ -3,6 +3,7 @@
 //! received, typed, beside the unresolved cleanup. A settled attempt's
 //! event carries nothing more.
 
+use super::sequence::dialect_attempt_outcome;
 use super::tests::{engine, report, single_body};
 use super::*;
 use brokkr_protocol::process::Unsettled;

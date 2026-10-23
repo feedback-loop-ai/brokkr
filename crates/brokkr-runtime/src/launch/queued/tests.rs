@@ -49,6 +49,7 @@ fn recipe() -> BundleSource {
 /// it was queued with, and the payload.
 fn queued_named(dir: &Path) -> (World, String) {
     let run = NewRun {
+        entry: None,
         feature: "queue it".into(),
         map: RunMap::Named(world(dir)),
         dispatch: None,
@@ -151,6 +152,7 @@ fn a_queued_launch_keeps_every_fact_its_request_is_rebuilt_from() {
             ..request(bundle)
         };
         let run = NewRun {
+            entry: None,
             feature: "queue it".into(),
             map,
             dispatch,
@@ -197,6 +199,7 @@ fn a_queued_world_is_the_one_it_was_queued_with_whatever_its_file_holds_later() 
         RunMap::Named(world(dir.path())),
     ] {
         let run = NewRun {
+            entry: None,
             feature: "queue it".into(),
             map,
             dispatch: None,
@@ -265,6 +268,7 @@ fn a_queued_launch_is_admitted_in_its_own_workspace_wherever_it_is_rebuilt() {
         ..request(recipe())
     };
     let run = NewRun {
+        entry: None,
         feature: "queue it".into(),
         map: RunMap::Named(World::load(&workspace.join("map.json")).unwrap()),
         dispatch: None,
@@ -350,6 +354,7 @@ fn a_workspace_an_entry_cannot_be_anchored_to_is_refused_queued_and_rebuilt() {
 fn a_launch_start_would_refuse_unread_is_not_queued() {
     let dir = tempfile::tempdir().unwrap();
     let beside_a_dispatch = NewRun {
+        entry: None,
         feature: "queue it".into(),
         map: RunMap::Named(world(dir.path())),
         dispatch: Some(PathBuf::from("d.json")),
@@ -370,6 +375,7 @@ fn a_launch_start_would_refuse_unread_is_not_queued() {
                     "house": "HOUSE.md"}]});
     std::fs::write(dir.path().join("map.json"), map.to_string()).unwrap();
     let houseless = NewRun {
+        entry: None,
         feature: "queue it".into(),
         map: RunMap::Ambient(World::load(&dir.path().join("map.json")).unwrap()),
         dispatch: None,

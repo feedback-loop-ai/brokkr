@@ -1,27 +1,15 @@
-//! Starting, resuming and rerunning a run: the one admission every entry
-//! point goes through (#350). `brokkr run`, `resume` and `rerun` build a
-//! [`LaunchRequest`] and call [`start`], [`resume`] or [`rerun`]; the
-//! dispatcher decision 0068 rules builds the same request without the
-//! CLI. What comes back is an admitted [`Engine`], not yet driven.
+//! One admission for start, resume and rerun (#350), shared by the CLI and
+//! decision 0068's dispatcher. It returns an admitted, undriven engine.
 //!
-//! Every refusal has one site here, and each fires before the journal row
-//! or the seat it guards exists: a named map beside a Looper dispatch,
-//! a recipe that is not installed ([`BundleSource::resolve`]), a crossing
-//! that moved under the world (`fence_crossings`), a bundle this host
-//! cannot box ([`refuse_unboxable`]) and a dispatch envelope that cannot
-//! be read or verified, or does not bound the bundle. Each entry point
-//! meets them in the order the CLI always met them, so a request that
-//! trips two is refused by the same one it always was — save one: the
-//! envelope is now refused before the journal is opened, so beside a
-//! peer's lock on that journal it is the envelope, not the contention,
-//! that is reported.
+//! Before any new journal row or guarded seat exists, refuse dispatch/map
+//! conflicts, uninstalled recipes, moved world crossings, unboxable bundles
+//! and invalid or mismatched dispatch envelopes. Envelopes are checked before
+//! opening the journal, so their refusal precedes store contention. Continued
+//! runs use the engine's typed manifest reader to refuse Looper lineage,
+//! including malformed claims; entry/dispatch conflicts precede journal reads.
 //!
-//! The crossing fence is the one refusal a caller may meet first on its
-//! own: [`World::load`] refuses a moved crossing as the world is read,
-//! which is where `brokkr run` and `rerun` meet it, before they say
-//! anything about the map. `start` and `rerun` fence again here,
-//! deliberately: a world held since it was read (a queued dispatch,
-//! decision 0068) is fenced as the disk stands at admission.
+//! World::load fences crossings when reading a named map; start and rerun
+//! fence again at admission because a queued world's files may have moved.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -142,6 +130,7 @@ impl RunMap {
 /// What a NEW run adds to its request.
 #[derive(Debug, Default)]
 pub struct NewRun {
+    pub entry: Option<EntryRequest>,
     pub feature: String,
     /// The map the run is started under.
     pub map: RunMap,
@@ -149,9 +138,40 @@ pub struct NewRun {
     pub dispatch: Option<PathBuf>,
 }
 
+/// A requested run entry, with selectors already resolved to canonical ids.
+#[derive(Debug, Clone)]
+pub struct EntryRequest {
+    pub phase: String,
+    pub continues: Vec<String>,
+}
+
 /// Why a launch refused, with the operator's text.
 #[derive(Debug, Error)]
 pub enum LaunchError {
+    #[error("--dispatch and --enter cannot be combined: a Looper-bound run takes no entry")]
+    EntryWithDispatch,
+    #[error(transparent)]
+    Entry(#[from] crate::bundle::entry::EntryError),
+    #[error(transparent)]
+    Record(#[from] brokkr_core::entry::EntryRead),
+    #[error("continued run '{run_id}' is missing")]
+    ContinuedMissing { run_id: String },
+    #[error("continued run '{run_id}' is Looper-bound: its start pinned the run-manifest/v2 lineage, which a chain may not name")]
+    ContinuedLooperBound { run_id: String },
+    #[error("continued run '{run_id}' is unreadable: its pinned manifest claims the run-manifest/v2 lineage and does not read")]
+    ContinuedUnreadable {
+        run_id: String,
+        #[source]
+        source: DispatchError,
+    },
+    #[error("continued run '{run_id}' is not concluded: {}", .status.as_str())]
+    ContinuedNotConcluded {
+        run_id: String,
+        status: brokkr_core::Status,
+    },
+    #[error("entry at '{phase}' cannot be queued: queued-launch/v1 carries no entry")]
+    QueuedEntry { phase: String },
+
     /// A Looper-bound run pins a run-manifest/v2, which carries no world,
     /// so a map the operator NAMED is refused rather than half-honoured.
     #[error(
@@ -265,6 +285,15 @@ impl LaunchError {
     }
 }
 
+impl EntryRequest {
+    // Decision 0094: both entry checks precede opening the journal.
+    fn admit(&self, bundle: &Bundle) -> Result<(), LaunchError> {
+        crate::bundle::entry::admit(bundle, &self.phase)?;
+        brokkr_core::entry::check_record(&self.phase, self.continues.iter().map(String::as_str))?;
+        Ok(())
+    }
+}
+
 /// Start a new run. A dispatch's `note` about an ambient map it does not
 /// pin is said through `notice`, because the runtime writes to no stream
 /// of its own.
@@ -279,15 +308,23 @@ pub fn start(
     refuse_realms_with_dispatch(&run)?;
     let state = state_of(&request.workspace)?;
     let bundle = admit_new(&request, run.map.world())?;
+    if let Some(entry) = &run.entry {
+        entry.admit(&bundle)?;
+    }
     let envelope = match &run.dispatch {
         Some(path) => Some(read_dispatch(path, run.map.world(), &bundle, notice)?),
         None => None,
     };
     let store = Store::open(&request.journal)?;
+    let entry = run
+        .entry
+        .as_ref()
+        .map(|request| continued_entry(&store, request))
+        .transpose()?;
     let (feature, repo) = (&run.feature, request.repo);
     let mut engine = match envelope {
         Some(envelope) => Engine::start_with_dispatch(store, bundle, feature, repo, envelope)?,
-        None => Engine::start_in_world(store, bundle, feature, repo, run.map.into_world())?,
+        None => Engine::start_in_world(store, bundle, feature, repo, run.map.into_world(), entry)?,
     };
     engine.secrets_file = request.secrets;
     engine.state = state;
@@ -360,7 +397,7 @@ pub fn rerun(
     let store = Store::open(&request.journal)?;
     let feature = source_feature(&store, run)?;
     let bundle = admit_new(&request, world.as_ref())?;
-    let mut engine = Engine::start_in_world(store, bundle, &feature, request.repo, world)?;
+    let mut engine = Engine::start_in_world(store, bundle, &feature, request.repo, world, None)?;
     engine.secrets_file = request.secrets;
     engine.state = state;
     Ok(engine)
@@ -369,10 +406,52 @@ pub fn rerun(
 /// A named map beside a Looper dispatch: refused by `start`, and by a
 /// queued launch before it is written, so no entry holds one.
 fn refuse_realms_with_dispatch(run: &NewRun) -> Result<(), LaunchError> {
+    if run.entry.is_some() && run.dispatch.is_some() {
+        return Err(LaunchError::EntryWithDispatch);
+    }
     match matches!(run.map, RunMap::Named(_)) && run.dispatch.is_some() {
         true => Err(LaunchError::RealmsWithDispatch),
         false => Ok(()),
     }
+}
+
+/// Attribution only: no predecessor verdict is imported (decision 0094).
+fn continued_entry(
+    store: &Store,
+    request: &EntryRequest,
+) -> Result<brokkr_core::entry::RunEntry, LaunchError> {
+    use brokkr_core::entry::{ContinuedRun, RunEntry};
+    let mut continues = Vec::new();
+    for id in &request.continues {
+        let manifest = store.manifest(id).map_err(|error| match error {
+            StoreError::RunNotFound(_) => LaunchError::ContinuedMissing { run_id: id.clone() },
+            other => LaunchError::Store(other),
+        })?;
+        let dispatch = brokkr_core::dispatch::dispatch_from_run(&manifest).map_err(|source| {
+            LaunchError::ContinuedUnreadable {
+                run_id: id.clone(),
+                source,
+            }
+        })?;
+        if dispatch.is_some() {
+            return Err(LaunchError::ContinuedLooperBound { run_id: id.clone() });
+        }
+        let state = brokkr_core::fold(&store.load(id)?).map_err(EngineError::from)?;
+        if brokkr_core::fold::concluded(&state).is_none() {
+            return Err(LaunchError::ContinuedNotConcluded {
+                run_id: id.clone(),
+                status: state.run.status(),
+            });
+        }
+        continues.push(ContinuedRun {
+            run_id: id.clone(),
+            feature: source_feature(store, id)?,
+        });
+    }
+    Ok(RunEntry {
+        phase: request.phase.clone(),
+        continues,
+    })
 }
 
 /// What a new run is admitted on: the crossings its world stands on, its

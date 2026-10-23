@@ -6,7 +6,7 @@
   "policy": "policy.json",
   "override": {
     "bundle": ["description", "cost"],
-    "table": ["initial", "description"]
+    "table": ["initial", "description", "phases"]
   },
   "seats": {
     "classify": {

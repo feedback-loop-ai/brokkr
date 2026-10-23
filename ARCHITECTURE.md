@@ -343,3 +343,13 @@ and `namespace`-boxed exec gates. The shipped verifier is Rust-specific; another
 replaces it through recipe composition. External patches and base commits are
 reviewed in the handoff. Publication and cross-repository application are
 verified separately from local run completion.
+
+### Run-level gate entry
+
+Proposed decision 0094 keeps entry out of the bundle manifest. One typed
+admission module checks the compiled table and whole-gate assessments;
+the engine reads the journaled entry at its start cursor and rechecks it
+on resume. Core owns the direction predicate, reachability walk and entry
+reader. Runtime observes continued runs; view derives the header sentence
+and rail order. The CLI, TUI and browser only paint those facts (decision
+0071 rulings 1, 3, 5 and 7).

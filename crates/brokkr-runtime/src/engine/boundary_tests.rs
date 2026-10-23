@@ -160,7 +160,6 @@ fn store_at(dir: &Path) -> Store {
 }
 
 // ───────────────────────────── realm-boundary: the engine's entry fence
-
 #[test]
 fn the_engine_starts_a_run_only_under_the_boundary_its_bundle_was_compiled_under() {
     let dir = tempfile::tempdir().unwrap();
@@ -176,6 +175,7 @@ fn the_engine_starts_a_run_only_under_the_boundary_its_bundle_was_compiled_under
         "f",
         Some(work.clone()),
         Some(world(dir.path(), None)),
+        None,
     );
     let error = refused.err().expect("the fence refuses").to_string();
     assert!(
@@ -223,6 +223,7 @@ fn the_engine_starts_a_run_only_under_the_boundary_its_bundle_was_compiled_under
         "f",
         Some(work.clone()),
         Some(world(dir.path(), Some("harness"))),
+        None,
     )
     .unwrap();
     assert_eq!(started.boundary, Boundary::Harness);
@@ -245,13 +246,13 @@ fn the_engine_starts_a_run_only_under_the_boundary_its_bundle_was_compiled_under
         "f",
         None,
         Some(World::load(&here).unwrap()),
+        None,
     )
     .unwrap();
     assert_eq!(started.boundary, Boundary::Open);
 }
 
 // ─────────────────────── boundary-availability: the engine's own fence
-
 #[test]
 fn a_boundary_this_engine_does_not_build_refuses_at_every_entry_before_any_row() {
     let dir = tempfile::tempdir().unwrap();
@@ -341,6 +342,7 @@ fn a_boundary_this_engine_does_not_build_refuses_at_every_entry_before_any_row()
         "f",
         Some(work),
         Some(world(dir.path(), Some("seatbelt"))),
+        None,
     )
     .unwrap();
 }
@@ -713,7 +715,6 @@ fn the_compiles_expansion_keeps_every_segments_origin() {
         );
     }
 }
-
 #[test]
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn compose_site_follows_the_boundary_and_the_class() {

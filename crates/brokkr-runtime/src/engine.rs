@@ -35,7 +35,7 @@ use crate::bundle::{
     charters_as_started, charters_intact, Bundle, CharterPin, ExecutableBody, HandsState, Seat,
     SeatBody, SeatClass, SiteFacts, StepBody, ENGINE_VERSION,
 };
-use crate::{dialect::DialectPhase, phase_name};
+use crate::phase_name;
 // The test modules reach these through `use super::*`.
 #[cfg(test)]
 use crate::bundle::{Aggregate, Invocation, PanelMember, SequenceStep};
@@ -75,7 +75,7 @@ mod worktree;
 use worktree::git_dirty;
 pub use worktree::git_head;
 mod replay;
-mod sequence;
+pub(crate) mod sequence;
 mod start;
 use operator::operator_stop_reason;
 #[cfg(test)]
@@ -104,41 +104,6 @@ use operator::{
     apply_fenced_racing, conclude_racing, operator_command_racing, operator_supersede_racing,
     riding_attempt, FENCE_ATTEMPTS,
 };
-
-fn nearest_change(context: &Value) -> Option<String> {
-    [
-        DialectPhase::Tasks.as_str(),
-        DialectPhase::Design.as_str(),
-        DialectPhase::Specify.as_str(),
-        phase_name::TRIAGE,
-        phase_name::INTAKE,
-    ]
-    .iter()
-    .find_map(|phase| {
-        context
-            .pointer(&format!("/results/{phase}/inputs/change"))
-            .and_then(Value::as_str)
-            .map(str::to_string)
-    })
-}
-
-fn expand_dialect_argv(argv: &[String], change: &str) -> Vec<String> {
-    argv.iter()
-        .map(|token| token.replace("{change}", change))
-        .collect()
-}
-
-/// A dialect step's outcome, and into `evidence` what its terminal event
-/// carries when its tree is not proven over (#403).
-fn dialect_attempt_outcome(run: DriverRun, evidence: &mut Unproven) -> AttemptOutcome {
-    match run {
-        DriverRun::SpawnFailed(error) => AttemptOutcome::Failed { error },
-        DriverRun::Ran(report) => {
-            *evidence = Unproven::seat(&report);
-            report.settled_outcome()
-        }
-    }
-}
 
 /// What an `effect/indeterminate` carries of an attempt not proven over
 /// (#403), the fields `contracts/effect-cleanup.v1.schema.json` publishes:
@@ -189,6 +154,10 @@ struct Indeterminate<'a> {
 
 #[derive(Debug, Error)]
 pub enum EngineError {
+    #[error(transparent)]
+    Entry(#[from] crate::bundle::entry::EntryError),
+    #[error(transparent)]
+    EntryRecord(#[from] brokkr_core::entry::EntryRead),
     #[error(transparent)]
     Store(#[from] brokkr_store::StoreError),
     #[error("fold: {0}")]
@@ -374,6 +343,7 @@ fn phase_of(state: &RunState, site: &'static str) -> Result<String, EngineError>
 }
 
 pub struct Engine {
+    entry: Option<brokkr_core::entry::RunEntry>,
     pub store: Store,
     pub bundle: Bundle,
     pub run_id: String,
@@ -487,6 +457,11 @@ pub struct DriveEnd {
 }
 
 impl Engine {
+    /// The journaled run-level entry, when the operator named one.
+    pub fn entry(&self) -> Option<&brokkr_core::entry::RunEntry> {
+        self.entry.as_ref()
+    }
+
     fn enter_phase(&mut self, phase: &str, state: &RunState) -> Result<(), EngineError> {
         let seat = self.bundle.seats.get(phase);
         if let Some(seat) = seat {
@@ -515,7 +490,7 @@ impl Engine {
         feature: &str,
         repo: Option<PathBuf>,
     ) -> Result<Engine, EngineError> {
-        Engine::start_in_world(store, bundle, feature, repo, None)
+        Engine::start_in_world(store, bundle, feature, repo, None, None)
     }
 
     /// Start a run inside a world (decision 0023). The map is pinned by
@@ -530,17 +505,24 @@ impl Engine {
         feature: &str,
         repo: Option<PathBuf>,
         world: Option<crate::realms::World>,
+        entry: Option<brokkr_core::entry::RunEntry>,
     ) -> Result<Engine, EngineError> {
-        let admitted = start::door(&bundle, feature, repo, world.as_ref())?;
+        let admitted = start::door(&bundle, feature, repo, world.as_ref(), entry.as_ref())?;
         store.create_run(&admitted.run_id, feature, &bundle.name, &admitted.manifest)?;
         store.append_next(
             &admitted.run_id,
             EventType::RunStarted,
-            bundle.run_started(feature, &admitted.manifest, admitted.charters),
+            bundle.run_started(
+                feature,
+                &admitted.manifest,
+                admitted.charters,
+                entry.as_ref(),
+            ),
             None,
             None,
         )?;
         Ok(Engine {
+            entry,
             store,
             boundary: bundle.boundary,
             bundle,
@@ -581,11 +563,12 @@ impl Engine {
         store.append_next(
             &run_id,
             EventType::RunStarted,
-            bundle.run_started(feature, &manifest, charters),
+            bundle.run_started(feature, &manifest, charters, None),
             None,
             None,
         )?;
         Ok(Engine {
+            entry: None,
             store,
             boundary: bundle.boundary,
             bundle,
@@ -650,7 +633,17 @@ impl Engine {
             .filter(|event| event.event_type == EventType::RunStarted)
             .and_then(|event| event.payload.get("charters"));
         charters_as_started(&bundle, started).map_err(charter_moved)?;
+        let entry = replay
+            .events
+            .first()
+            .map(|event| brokkr_core::entry::RunEntry::of_started(&event.payload))
+            .transpose()?
+            .flatten();
+        if let Some(entry) = &entry {
+            crate::bundle::entry::admit(&bundle, &entry.phase)?;
+        }
         Ok(Engine {
+            entry,
             store,
             boundary: bundle.boundary,
             bundle,
@@ -3267,7 +3260,7 @@ fn operated_repo(repo: Option<PathBuf>) -> PathBuf {
 /// for. One observation per gate step, and nothing outer.
 fn arms_effect_gate_head(body: &ExecutableBody<'_>, seat: &Seat, strategy: Option<&str>) -> bool {
     !matches!(body, ExecutableBody::Sequence { .. })
-        && seat.body.selected_is_gate(strategy, seat.has_gate)
+        && seat.body.selected_is_gate(strategy, seat.has_gate())
 }
 
 /// Recover the raw observations carried by the most recent gate defect. The

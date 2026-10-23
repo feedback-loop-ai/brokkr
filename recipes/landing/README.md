@@ -87,3 +87,13 @@ prose and the operator's read, as it always was. And a landing whose
 review stops the run — a security hold, a residual above medium at the
 bound — has told you the branch is not ready, with the reason in the
 journal. That is the answer, not an obstacle to route around.
+
+## A landing that names what it continues
+
+`--enter classify --continues <run>` explicitly enters landing's existing
+classify road and records the earlier run's title and id. The ordinary
+landing invocation still classifies code into verify and docs into review.
+An operator can instead name `--enter review`, explicitly omitting classify
+and verify; the journal and header say so. Review stays unavoidable and
+a finding can return to implement. The flag cannot replace the conditional
+classify fork, which is why landing remains an overlay (proposed decision 0094).

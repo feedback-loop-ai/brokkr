@@ -10,7 +10,7 @@ use super::charters::parse_role;
 use super::parse::{SeatScope, SiteCompiler};
 use super::site_form::{StepShape, STEP};
 use super::{
-    command_parts, dialect_gate_site, dialect_results, every, parse_command, record_inline_tools,
+    command_parts, dialect_gate_site, dialect_results, parse_command, record_inline_tools,
     refuse_class_without_a_driver, resolve_reference, Aggregate, CompileError, DialectExecution,
     Invocation, SeatClass, SequenceStep, StepBody,
 };
@@ -301,7 +301,10 @@ pub(super) fn step_class(
         }
         StepBody::Invocation(Invocation::Panel { members, .. }) => {
             refuse_class_without_a_driver(what, step_raw)?;
-            SeatClass::of(every(members.iter().map(|m| m.class == SeatClass::Gate)))
+            SeatClass::of(matches!(
+                super::gate::panel_assessment(members),
+                super::GateAssessment::AllGate
+            ))
         }
         StepBody::Dialect { .. } => SeatClass::Gate,
     })

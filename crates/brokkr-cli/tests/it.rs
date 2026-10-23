@@ -83,3 +83,6 @@ mod view_derivations;
 mod witness_journal;
 mod workflow_pins;
 mod writer_lease;
+
+#[path = "../../../tests/support/entry_records.rs"]
+mod entry_records;

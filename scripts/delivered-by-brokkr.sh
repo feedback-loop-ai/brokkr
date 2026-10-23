@@ -151,6 +151,35 @@ patch_map() {
   } | jq -s 'add // {}'
 }
 
+# Decision 0094: attribution only; the shipped anchor remains the vouch.
+# A present entry is read whole, never repaired or treated as absent.
+entry_suffix() {
+  local run="$1"
+  jq -rs '
+    def whole($pattern):
+      type == "string" and (length as $size | [match($pattern)] |
+        length == 1 and .[0].length == $size);
+    def entry_name: whole("^[a-z0-9][a-z0-9._-]{0,63}$");
+    def native_id: whole("^[a-z0-9-]{0,32}-[0-9a-f]{8}$");
+    def continued:
+      type == "object" and keys == ["feature", "run_id"] and
+      (.run_id | native_id) and (.feature | type == "string");
+    def entry:
+      type == "object" and keys == ["continues", "phase"] and
+      (.phase | entry_name) and
+      (.continues | type == "array" and all(.[]; continued) and
+        ([.[].run_id] | length == (unique | length)));
+    [.[] | select(.type == "run/started")][0].payload |
+    if has("entry") then
+      .entry | if entry then
+        " · entered at " + .phase + ", continuing " +
+        (if (.continues | length) == 0 then "no earlier run"
+         else [.continues[].run_id] | join(", ") end)
+      else error("unreadable entry") end
+    else "" end
+  ' "$work/${run}.ndjson" || fail "run ${run}: unreadable entry"
+}
+
 # From the declaration to the tier. Runs in a subshell below, so a refusal
 # on the way — no published evidence, a journal that does not verify, a
 # run that never shipped — is a fact the operator's label may override
@@ -165,6 +194,7 @@ cut_tier() {
   else
     fetch_evidence "$run_id"
     verify_evidence "$run_id"
+    entry_suffix "$run_id" > "$work/${run_id}.entry"
     jq -s -e 'any(.[]; .type == "transition/decided" and
       .payload.from == "ship" and .payload.result == "shipped")' "$work/${run_id}.ndjson" >/dev/null \
       || fail "run ${run_id} never ruled shipped"
@@ -225,7 +255,7 @@ fi
 
 case "$tier" in
   vouched)
-    say "run ${run_id} vouches for ${PR_HEAD}${suffix}"
+    say "run ${run_id} vouches for ${PR_HEAD}${suffix}$(cat "$work/${run_id}.entry")"
     ;;
   docs)
     preflight="$(declaration Brokkr-Preflight)"
@@ -240,7 +270,7 @@ case "$tier" in
     # Two runs, two boundaries: the preflight is read the same way, on
     # its own line, so neither run's word is mistaken for the other's.
     preflight_suffix="$(boundary_suffix "$preflight")"
-    say "run ${run_id} delivered the slice${suffix}"
+    say "run ${run_id} delivered the slice${suffix}$(cat "$work/${run_id}.entry")"
     say "preflight ${preflight} judged ${PR_HEAD}${preflight_suffix}"
     ;;
   code)

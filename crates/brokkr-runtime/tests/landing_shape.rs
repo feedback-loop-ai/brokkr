@@ -60,11 +60,17 @@ fn landing_is_fast_entered_at_classify_and_nothing_else() {
         "a landing classifies before it writes"
     );
     assert_eq!(fast.machine.initial, "implement", "fast still writes first");
-    let mut phases = fast.machine.phases.clone();
-    phases.push("classify".into());
+    let written: Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("recipes/landing/policy.json")).unwrap(),
+    )
+    .unwrap();
     assert_eq!(
-        landing.machine.phases, phases,
-        "the phases are fast's plus classify"
+        serde_json::to_value(&landing.machine.phases).unwrap(),
+        written["phases"]
+    );
+    assert_eq!(
+        brokkr_core::policy::Direction::of(&landing.machine.phases, "classify", "verify"),
+        Some(brokkr_core::policy::Direction::Forward)
     );
     assert_eq!(landing.machine.terminal, fast.machine.terminal);
     assert_eq!(
@@ -97,7 +103,7 @@ fn landing_is_fast_entered_at_classify_and_nothing_else() {
         seats,
         "the seats are fast's plus classify"
     );
-    assert!(landing.seats["classify"].has_gate, "classify is a gate");
+    assert!(landing.seats["classify"].has_gate(), "classify is a gate");
 
     assert_eq!(
         landing

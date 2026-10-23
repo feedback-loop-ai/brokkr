@@ -15,7 +15,7 @@ use crate::decision::{Decision, PhaseResult, ReviewedHeads};
 use crate::envelope::{EventEnvelope, EventType};
 use crate::gate_moved_head;
 use crate::payload;
-use crate::policy::{CONSECUTIVE_FAILURES, REVIEWED_HEADS, STRATEGIES, STRATEGY_PHASE};
+use crate::policy::{CONSECUTIVE_FAILURES, REVIEWED_HEADS, STRATEGIES, STRATEGY, STRATEGY_PHASE};
 
 mod operator;
 use operator::{accept, command};
@@ -76,7 +76,7 @@ impl Status {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Cursor {
-    /// Run started; the engine must enter the policy's initial phase.
+    /// Run started; the engine enters its admitted entry, else the table's initial phase.
     Start,
     /// The engine must append phase/entered for this phase.
     EnterPhase { phase: String },
@@ -718,7 +718,7 @@ pub fn computed_inputs(
         inputs.insert(CONSECUTIVE_FAILURES.to_string(), Value::from(prior + 1));
     }
     if let Some(strategy) = &state.strategy {
-        inputs.insert("strategy".to_string(), Value::from(strategy.clone()));
+        inputs.insert(STRATEGY.to_string(), Value::from(strategy.clone()));
     }
     inputs
 }

@@ -69,7 +69,7 @@ pub(super) fn typed_seats(seats: &Value) -> BTreeMap<String, Seat> {
     seats
         .map(|(phase, raw)| {
             let seat = Seat {
-                has_gate: false,
+                gate: crate::bundle::GateAssessment::ContainsWork(crate::bundle::WorkSite::seat()),
                 results: Vec::new(),
                 limits: Limits::default(),
                 inputs: Vec::new(),
@@ -82,19 +82,13 @@ pub(super) fn typed_seats(seats: &Value) -> BTreeMap<String, Seat> {
 }
 
 #[test]
-fn whole_gate_class_rejects_empty_and_driverless_shapes() {
-    assert!(!SeatBody::Invocation(Invocation::Panel {
-        members: Vec::new(),
-        aggregate: Aggregate::UnanimousPass,
-    })
-    .is_gate());
-    assert!(!SeatBody::Sequence { steps: Vec::new() }.is_gate());
-    // A selector judges when every body it can select does, and only then.
+fn a_selector_with_a_gate_default_is_whole_gate() {
+    // Decision 0094: compile refuses empty panels, sequences and selectors;
+    // their minimums are removal-controlled in bundle::tests, not here.
     let select = |default| SeatBody::Select {
         cases: BTreeMap::new(),
         default,
     };
-    assert!(!select(None).is_gate());
     let gate = SeatBody::Invocation(Invocation::Single {
         role_path: PathBuf::new(),
         command: Vec::new(),

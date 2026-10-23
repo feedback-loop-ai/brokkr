@@ -1237,6 +1237,7 @@ function renderDetail(id, view) {
     line.appendChild(badge('boundary ' + view.boundary.text, ''));
   }
   detail.appendChild(line);
+  if (view.entry) detail.appendChild(el('p', null, view.entry.text));
 
   // A drilled participant clears itself if it vanished on refetch: the
   // view serves a seat scope for every participant key it still has.

@@ -57,7 +57,14 @@ fn crashed_as(
     engine.boundary = Boundary::Namespace;
     set_site_hands(&mut engine.bundle, "work", spec(&work));
     let seat = engine.bundle.seats.get_mut("work").unwrap();
-    (seat.body, seat.has_gate) = (single_body(driver(&copied)), gate);
+    (seat.body, seat.gate) = (
+        single_body(driver(&copied)),
+        if gate {
+            crate::bundle::GateAssessment::AllGate
+        } else {
+            crate::bundle::GateAssessment::ContainsWork(crate::bundle::WorkSite::seat())
+        },
+    );
     let ended = executed(&mut engine);
     let mut stood: Reservation = serde_json::from_slice(&std::fs::read(&saved).unwrap()).unwrap();
     let fact = [Witnessed::Settling, Witnessed::Settled][usize::from(proved)];
