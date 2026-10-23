@@ -6,21 +6,25 @@
 //! on its own `PATH`, follows links to the real file, and records what
 //! the box needs: the install, bound read-only on verify's hands in
 //! `bundle.json`, and the directories `scripts/verify-seat.sh` puts at the
-//! head of `PATH`. Nothing is re-resolved when a run starts.
+//! head of `PATH`, in the order the host's `PATH` lists them. Nothing is
+//! re-resolved when a run starts.
 //!
 //! A binary is found where `PATH` lookup finds it: the first file of its
-//! name, followed through links, that this user may execute. Nothing is
+//! name, followed through links, that this user may execute, an empty
+//! component of `PATH` being the current directory. Nothing is
 //! bound that holds more than the install (#717), and no root is found by
 //! climbing to an ancestor. A tool-managed home is one only where the tool
 //! itself names it ([`Homes`]): `$VOLTA_HOME` or `~/.volta`, `$BUN_INSTALL`
 //! or `~/.bun`, `$PNPM_HOME` or pnpm's default data directory. It is bound
 //! whole where `PATH` found the binary in the home's own runner directory
-//! (its `bin`, or pnpm's home itself), the real file stands inside it, and
-//! every entry it holds is one its [`Layout`] names; a volta shim
-//! (`~/.volta/bin/npm` linking to `~/.volta/bin/volta-shim`, which runs the
-//! images under `~/.volta/tools`) is bound so even standing in its `bin`.
-//! Otherwise a binary whose real file stands in its `PATH` directory is
-//! bound alone, as that one file; one found in a `bin` whose parent holds
+//! (its `bin`, or pnpm's home itself), the real file stands inside the home
+//! but not in that directory, and every entry the home holds is one its
+//! [`Layout`] names; a volta shim (`~/.volta/bin/npm` linking to
+//! `~/.volta/bin/volta-shim`, which runs the images under `~/.volta/tools`)
+//! is bound so even standing in its `bin`. Any other binary whose real file
+//! stands in its `PATH` directory, a bun or pnpm home's runner directory
+//! included, is bound alone, as that one file; one found in a `bin` whose
+//! parent holds
 //! its real file is a node prefix, which cannot be told from a prefix other
 //! software shares, and is bound only by its `bin` and `lib/node_modules`;
 //! and anything else is refused, naming the file it resolves to. A binary
@@ -323,6 +327,12 @@ impl Homes {
 /// of them runs on it, against `path`, with `homes` the operator's `$HOME`
 /// and the tools' own. `None` when no runner is node-family.
 pub(super) fn reach(runners: &[Tool], path: &OsStr, homes: &Homes) -> Option<Reach> {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    reach_in(runners, path, homes, &cwd)
+}
+
+/// [`reach`], a relative `PATH` component read against `cwd`.
+fn reach_in(runners: &[Tool], path: &OsStr, homes: &Homes, cwd: &Path) -> Option<Reach> {
     let named = |name: &&str| runners.iter().any(|tool| tool.name == *name);
     let mut wanted: Vec<&'static str> =
         FAMILY.iter().map(|(name, _)| *name).filter(named).collect();
@@ -334,7 +344,7 @@ pub(super) fn reach(runners: &[Tool], path: &OsStr, homes: &Homes) -> Option<Rea
     }
     let mut found = Found::default();
     for binary in wanted {
-        let Some(install) = install(binary, path) else {
+        let Some(install) = install(binary, path, cwd) else {
             return Some(Reach::Missing(binary));
         };
         if let Err((root, unbound)) = found.add(install, homes) {
@@ -343,30 +353,45 @@ pub(super) fn reach(runners: &[Tool], path: &OsStr, homes: &Homes) -> Option<Rea
     }
     Some(Reach::Found {
         binds: found.spelled(&homes.home),
-        path: found.path,
+        path: found.exported(),
         volta: found.volta,
     })
 }
 
 /// One binary as `PATH` holds it: the directory it was found in, the
-/// entry there of its name, and the file that entry resolves to, the
-/// directory and file canonical.
+/// component of `PATH` that named it, the entry there of its name, and
+/// the file that entry resolves to, the directory and file canonical.
 struct Install {
     dir: PathBuf,
+    at: usize,
     entry: PathBuf,
     real: PathBuf,
 }
 
 /// The first `binary` on `path` that resolves to a file this user may
-/// execute, as `PATH` lookup skips one that is not.
-fn install(binary: &str, path: &OsStr) -> Option<Install> {
-    std::env::split_paths(path).find_map(|dir| {
-        let dir = dir.canonicalize().ok()?;
-        let entry = dir.join(binary);
-        let real = entry.canonicalize().ok()?;
-        let runs = real.is_file() & runnable(&real);
-        runs.then_some(Install { dir, entry, real })
-    })
+/// execute, as `PATH` lookup skips one that is not. An empty component is
+/// the current directory, as POSIX reads it, so `cwd` joins it as it
+/// joins a relative one; a `path` wholly empty, which is what an unset
+/// `PATH` reaches `init` as and the host's lookup does not read as the
+/// current directory, holds none.
+fn install(binary: &str, path: &OsStr, cwd: &Path) -> Option<Install> {
+    if path.is_empty() {
+        return None;
+    }
+    std::env::split_paths(path)
+        .enumerate()
+        .find_map(|(at, dir)| {
+            let dir = cwd.join(dir).canonicalize().ok()?;
+            let entry = dir.join(binary);
+            let real = entry.canonicalize().ok()?;
+            let runs = real.is_file() & runnable(&real);
+            runs.then_some(Install {
+                dir,
+                at,
+                entry,
+                real,
+            })
+        })
 }
 
 /// Whether this process may execute `path`, asked of the kernel with its
@@ -382,11 +407,12 @@ fn runnable(path: &Path) -> bool {
     accessat(CWD, path, Access::EXEC_OK, AtFlags::EACCESS).is_ok()
 }
 
-/// What the found binaries add up to, in the order they were found.
+/// What the found binaries add up to: the binds in the order they were
+/// found, and each `PATH` directory beside the component that named it.
 #[derive(Default)]
 struct Found {
     binds: Vec<PathBuf>,
-    path: Vec<PathBuf>,
+    path: Vec<(usize, PathBuf)>,
     volta: Option<PathBuf>,
 }
 
@@ -401,8 +427,8 @@ impl Found {
         // not checked again: a_path_the_verifier_cannot_carry_is_refused
         // plants the flaw in a root's own name.
         carried(&install.dir)?;
-        if !self.path.contains(&install.dir) {
-            self.path.push(install.dir.clone());
+        if !self.path.iter().any(|(_, dir)| *dir == install.dir) {
+            self.path.push((install.at, install.dir.clone()));
         }
         let owner = owner(&install, homes);
         if let Owner::Rooted(Layout::Volta, root) = &owner {
@@ -418,6 +444,17 @@ impl Found {
             }
         }
         Ok(())
+    }
+
+    /// The directories the verifier puts at the head of `PATH`, in the
+    /// order the host's `PATH` lists them, not the order the binaries were
+    /// looked up in: a `node` found in a directory before npm's is the one
+    /// npm runs on, there as on the host. Each directory stands at the
+    /// first component naming it, as the first binary found there was.
+    fn exported(&self) -> Vec<PathBuf> {
+        let mut path = self.path.clone();
+        path.sort_by_key(|(at, _)| *at);
+        path.into_iter().map(|(_, dir)| dir).collect()
     }
 
     /// The binds, in the order found, less any under another, each

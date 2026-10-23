@@ -7,8 +7,8 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{symlink, PermissionsExt};
 use std::path::{Path, PathBuf};
 
-use super::{reach, Flaw, Found, Homes, Install, Layout, Reach, Unbound};
-use crate::init::{tools_for, Tool};
+use super::{reach, reach_in, Flaw, Found, Homes, Install, Layout, Reach, Unbound};
+use crate::init::{shell_literal, tools_for, Tool};
 
 /// The homes named where no HOME and no variable is.
 fn nowhere() -> Homes {
@@ -256,6 +256,7 @@ fn a_root_too_broad_to_bind_is_refused() {
     let mut found = Found::default();
     let slash = Install {
         dir: PathBuf::from("/bin"),
+        at: 0,
         entry: PathBuf::from("/bin/npm"),
         real: PathBuf::from("/npm-cli/npm"),
     };
@@ -801,13 +802,14 @@ fn a_runner_every_box_reads_adds_no_bind() {
     let mut found = Found::default();
     let system = Install {
         dir: PathBuf::from("/usr/bin"),
+        at: 0,
         entry: PathBuf::from("/usr/bin/npm"),
         real: PathBuf::from("/usr/share/nodejs/npm/bin/npm-cli.js"),
     };
     let homes = Homes::named(Path::new("/home/someone"), "linux", |_| None);
     assert_eq!(found.add(system, &homes), Ok(()));
     assert_eq!(
-        (found.binds, found.path, found.volta),
+        (found.binds.clone(), found.exported(), found.volta),
         (Vec::<PathBuf>::new(), vec![PathBuf::from("/usr/bin")], None)
     );
 }
@@ -1045,6 +1047,7 @@ fn a_path_the_verifier_cannot_carry_is_refused() {
         let (entry, real) = (dir.join("npm"), dir.join("npm"));
         let install = Install {
             dir: dir.clone(),
+            at: 0,
             entry,
             real,
         };
@@ -1065,13 +1068,108 @@ fn an_install_path_holding_a_quote_round_trips_through_the_verifier() {
     machine.file("opt/it's/bin/npm");
     machine.file("opt/it's/bin/node");
     let found = machine.reach("npm", &["opt/it's/bin"]).unwrap();
+    let path = bash(&format!("{}printf '%s' \"$PATH\"", found.script()));
+    let bin = machine.spelled("opt/it's/bin");
+    assert_eq!(path, format!("{bin}:/usr/bin:/bin"));
+}
+
+/// What bash prints running `lines` on a `PATH` of the system directories.
+fn bash(lines: &str) -> String {
     let ran = std::process::Command::new("bash")
         .arg("-c")
-        .arg(format!("{}printf '%s' \"$PATH\"", found.script()))
+        .arg(lines)
         .env("PATH", "/usr/bin:/bin")
         .output()
         .unwrap();
-    let bin = machine.spelled("opt/it's/bin");
-    let path = String::from_utf8(ran.stdout).unwrap();
-    assert_eq!(path, format!("{bin}:/usr/bin:/bin"));
+    String::from_utf8(ran.stdout).unwrap()
+}
+
+/// 717g6's hold: `node` standing in `early/bin`, and a node prefix `late`
+/// whose `bin` holds npm and a node of its own. The verifier's `PATH`
+/// heads with the directories in the order the host's lists them, so
+/// bash finds the npm and node there that the host's `PATH` finds:
+/// early's node before late's npm, which runs on it, or late's both.
+#[test]
+fn the_verifier_heads_path_in_the_order_the_host_lists_it() {
+    let machine = Machine::new();
+    std::fs::create_dir(machine.dir("stub")).unwrap();
+    machine.file("early/bin/node");
+    machine.linked_prefix("late");
+    let (early, late) = (machine.dir("early/bin"), machine.dir("late/bin"));
+    let prefix = vec![
+        machine.spelled("late/bin"),
+        machine.spelled("late/lib/node_modules"),
+    ];
+    let mut beside = prefix.clone();
+    beside.push(machine.spelled("early/bin/node"));
+    let found = |binds, path| Reach::Found {
+        binds,
+        path,
+        volta: None,
+    };
+    let orders: [(&[&str], Reach, &Path); 2] = [
+        (
+            &["stub", "early/bin", "late/bin"],
+            found(beside, vec![early.clone(), late.clone()]),
+            &early,
+        ),
+        (
+            &["stub", "late/bin", "early/bin"],
+            found(prefix, vec![late.clone()]),
+            &late,
+        ),
+    ];
+    for (dirs, exported, node) in orders {
+        let found = machine.reach("npm", dirs).unwrap();
+        assert_eq!(found, exported, "{dirs:?}");
+        let host = std::env::join_paths(dirs.iter().map(|dir| machine.dir(dir))).unwrap();
+        let lookup = "command -v npm node";
+        let host = shell_literal(host.to_str().unwrap());
+        let on_host = bash(&format!("PATH={host}\n{lookup}"));
+        let npm_node = format!(
+            "{}\n{}\n",
+            late.join("npm").display(),
+            node.join("node").display()
+        );
+        assert_eq!(on_host, npm_node, "{dirs:?}");
+        let in_box = bash(&format!("PATH=/absent\n{}{lookup}", found.script()));
+        assert_eq!(in_box, on_host, "{dirs:?}");
+    }
+}
+
+/// 717g6's second finding: an empty `PATH` component, trailing or between
+/// two, is the directory `init` runs in, as the host's lookup reads it, so
+/// npm and node standing there are found there, before a later `good`,
+/// and bound as those two files. A `PATH` wholly empty, an unset one as
+/// `init` reads it, finds none.
+#[test]
+fn an_empty_path_component_is_the_directory_init_runs_in() {
+    let machine = Machine::new();
+    for dir in ["cwd", "good"] {
+        machine.file(&format!("{dir}/npm"));
+        machine.file(&format!("{dir}/node"));
+    }
+    std::fs::create_dir(machine.dir("stub")).unwrap();
+    let (cwd, stub, good) = (
+        machine.dir("cwd"),
+        machine.spelled("stub"),
+        machine.spelled("good"),
+    );
+    let reach = |path: &str| {
+        reach_in(
+            &tools_for("npm"),
+            OsStr::new(path),
+            &machine.homes(&[]),
+            &cwd,
+        )
+    };
+    let found = Reach::Found {
+        binds: vec![machine.spelled("cwd/npm"), machine.spelled("cwd/node")],
+        path: vec![cwd.clone()],
+        volta: None,
+    };
+    for path in [format!("{stub}:"), format!("{stub}::{good}")] {
+        assert_eq!(reach(&path).as_ref(), Some(&found), "{path}");
+    }
+    assert_eq!(reach(""), Some(Reach::Missing("npm")));
 }

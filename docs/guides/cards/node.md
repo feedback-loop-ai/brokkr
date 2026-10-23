@@ -31,12 +31,16 @@ Three things to check before step 3:
   it found is bound `ro` on verify's hands in `bundle.json`: a binary
   standing in its `PATH` directory as that one file, a volta shim as
   `~/.volta`, and an nvm version as its `bin` and `lib/node_modules`. The
-  verifier puts the directory each was found in at the head of `PATH`,
-  and exports `VOLTA_HOME` for a volta shim. A tool's home is bound whole
-  only where the tool itself names it, `$VOLTA_HOME` or `~/.volta`,
-  `$BUN_INSTALL` or `~/.bun`, `$PNPM_HOME` or pnpm's default home, and
-  only where `PATH` found the binary in that home's own `bin` (pnpm's
-  home itself) and it resolves inside the home; `init` never climbs to a
+  verifier puts the directory each was found in at the head of `PATH`, in
+  the order your `PATH` lists them, an empty entry being the directory
+  `init` ran in, and exports `VOLTA_HOME` for a volta shim. A tool's home
+  is bound whole only where the tool itself names it, `$VOLTA_HOME` or
+  `~/.volta`, `$BUN_INSTALL` or `~/.bun`, `$PNPM_HOME` or pnpm's default
+  home, and only where `PATH` found the binary in that home's own `bin`
+  (pnpm's home itself) and it resolves to a file elsewhere in the home: a
+  binary standing in bun's `bin` or in pnpm's home is bound as that one
+  file, as any standing binary is, while a volta shim standing in its
+  `bin` still binds its home. `init` never climbs to a
   directory above the one `PATH` named. Only an install's own directory
   is bound: one that holds anything else, such as a `credentials` file,
   is refused, naming it, and so is a node prefix's `bin` entry whose
