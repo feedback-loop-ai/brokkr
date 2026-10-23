@@ -190,30 +190,37 @@ fn strategy_entry_supplies_the_strategy_before_a_later_selector() {
     );
 }
 
+/// A dialect step body running `argv`.
+fn dialect(argv: &[&str]) -> StepBody {
+    StepBody::Dialect {
+        execution: DialectExecution {
+            argv: argv.iter().map(|arg| (*arg).into()).collect(),
+            state: None,
+        },
+    }
+}
+
+/// A two-step gate sequence, `check` then `judge`, each a dialect step
+/// running its argv; the tests differ only in which argv carries `{change}`.
+fn check_judge(check: &[&str], judge: &[&str]) -> SeatBody {
+    let steps = [("check", check), ("judge", judge)]
+        .into_iter()
+        .map(|(name, argv)| SequenceStep {
+            name: name.into(),
+            class: SeatClass::Gate,
+            results: vec!["clean".into()],
+            body: dialect(argv),
+        })
+        .collect();
+    SeatBody::Sequence { steps }
+}
+
 #[test]
 fn change_dependencies_name_the_step_and_the_ruling_that_reached_it() {
     let (config, policy) = recipe();
     let mut bundle = compiled(&config, &policy);
     let gate = bundle.seats["review"].clone();
-    let body = |argv: Vec<String>| StepBody::Dialect {
-        execution: DialectExecution { argv, state: None },
-    };
-    bundle.seats.get_mut("review").unwrap().body = SeatBody::Sequence {
-        steps: vec![
-            SequenceStep {
-                name: "check".into(),
-                class: SeatClass::Gate,
-                results: vec!["clean".into()],
-                body: body(vec!["check".into(), "{change}".into()]),
-            },
-            SequenceStep {
-                name: "judge".into(),
-                class: SeatClass::Gate,
-                results: vec!["clean".into()],
-                body: body(vec!["judge".into()]),
-            },
-        ],
-    };
+    bundle.seats.get_mut("review").unwrap().body = check_judge(&["check", "{change}"], &["judge"]);
     assert_eq!(
         *admit(&bundle, "verify").unwrap_err().refusal,
         EntryRefusal::NeedsChange {
@@ -254,27 +261,9 @@ fn change_dependencies_name_the_step_and_the_ruling_that_reached_it() {
 fn a_declared_change_input_serves_every_step_after_the_first() {
     let (config, policy) = recipe();
     let mut bundle = compiled(&config, &policy);
-    let body = |argv: Vec<String>| StepBody::Dialect {
-        execution: DialectExecution { argv, state: None },
-    };
     let review = bundle.seats.get_mut("review").unwrap();
     review.inputs = vec!["change".into()];
-    review.body = SeatBody::Sequence {
-        steps: vec![
-            SequenceStep {
-                name: "check".into(),
-                class: SeatClass::Gate,
-                results: vec!["clean".into()],
-                body: body(vec!["check".into()]),
-            },
-            SequenceStep {
-                name: "judge".into(),
-                class: SeatClass::Gate,
-                results: vec!["clean".into()],
-                body: body(vec!["judge".into(), "{change}".into()]),
-            },
-        ],
-    };
+    review.body = check_judge(&["check"], &["judge", "{change}"]);
     assert_eq!(admitted(&bundle), ["verify", "review"]);
     bundle.seats.get_mut("review").unwrap().inputs = vec![];
     let needs = |step: &str| EntryRefusal::NeedsChange {
@@ -291,7 +280,7 @@ fn a_declared_change_input_serves_every_step_after_the_first() {
     let SeatBody::Sequence { steps } = &mut review.body else {
         panic!("sequence");
     };
-    steps[0].body = body(vec!["check".into(), "{change}".into()]);
+    steps[0].body = dialect(&["check", "{change}"]);
     expect_refusal(&bundle, "review", needs("check"));
 }
 
