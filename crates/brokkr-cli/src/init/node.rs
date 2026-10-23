@@ -29,7 +29,7 @@
 //! closed with the sentence `init` printed.
 
 use std::ffi::{OsStr, OsString};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use brokkr_protocol::hands::HOST_TOOLCHAIN_BINDS;
 
@@ -346,8 +346,9 @@ fn rooted(root: &Path, layout: Layout, bin: &Path, home: &Path) -> Result<Vec<Pa
 /// A node prefix's two binds: npm's global package directory,
 /// `lib/node_modules`, which must be a directory of the prefix's own,
 /// and `bin`, which must hold only a `node` file and links into it (npm,
-/// npx, corepack, global packages' bins). The prefix itself is never
-/// bound: its `share` or `include` may hold other software's files.
+/// npx, corepack, global packages' bins) that the box, binding those two
+/// alone, resolves as the host does. The prefix itself is never bound:
+/// its `share` or `include` may hold other software's files.
 fn prefix(root: &Path, bin: &Path) -> Result<Vec<PathBuf>, Unbound> {
     let modules = root.join("lib/node_modules");
     let own = modules
@@ -361,13 +362,56 @@ fn prefix(root: &Path, bin: &Path) -> Result<Vec<PathBuf>, Unbound> {
         let node = (name == "node") & entry.symlink_metadata().is_ok_and(|held| held.is_file());
         let linked = entry
             .canonicalize()
-            .is_ok_and(|real| real.starts_with(&modules));
+            .is_ok_and(|real| real.starts_with(&modules))
+            & resolves_within(&entry, [bin, &modules]);
         if !(node | linked) {
             let spelled = bin.strip_prefix(root).unwrap_or(bin).join(name);
             return Err(Unbound::Foreign(Layout::NodePrefix, spelled.into()));
         }
     }
     Ok(vec![bin.to_path_buf(), modules])
+}
+
+/// The links the kernel follows before it gives up (Linux's
+/// `MAXSYMLINKS`); a chain longer, or a cycle, is not followed.
+const LINKS: usize = 40;
+
+/// Whether `entry`, absolute, resolves as the kernel walks it, a component
+/// and a link at a time, through nothing but `binds` and the directories
+/// above them, the only paths a box binding those alone holds. A chain
+/// whose final file lies under `binds` may pass through a link elsewhere,
+/// another `PATH` directory's, which the box does not hold (#717).
+fn resolves_within(entry: &Path, binds: [&Path; 2]) -> bool {
+    let held = |at: &Path| {
+        binds
+            .iter()
+            .any(|bind| at.starts_with(bind) | bind.starts_with(at))
+    };
+    let steps = |path: &Path| -> Vec<PathBuf> {
+        let parts = path.components().filter(|part| *part != Component::CurDir);
+        parts
+            .rev()
+            .map(|part| PathBuf::from(part.as_os_str()))
+            .collect()
+    };
+    let mut rest = steps(entry);
+    let (mut at, mut links) = (PathBuf::new(), 0);
+    while let Some(step) = rest.pop() {
+        if step.as_os_str() == ".." {
+            at.pop();
+            continue;
+        }
+        at.push(step);
+        if !held(&at) | (links > LINKS) {
+            return false;
+        }
+        if let Ok(text) = at.read_link() {
+            links += 1;
+            at.pop();
+            rest.extend(steps(&text));
+        }
+    }
+    true
 }
 
 /// The install's root, and the layout it must hold to be bound: the

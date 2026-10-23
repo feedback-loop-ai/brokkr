@@ -370,6 +370,50 @@ fn a_prefix_bin_holding_another_entry_is_refused_naming_it() {
     assert_eq!(refused.binds(), Vec::<serde_json::Value>::new());
 }
 
+/// The review's reproduction: `opt/bin/npm` reaches `opt/lib/node_modules`
+/// through a link in another `PATH` directory, which the box, binding
+/// `opt/bin` and `opt/lib/node_modules` alone, does not hold, so it is
+/// refused naming `bin/npm`, absolute or relative, outside HOME or under
+/// it; reached directly, the same prefix is bound.
+#[test]
+fn a_prefix_link_through_another_directory_is_refused_naming_it() {
+    let machine = Machine::new();
+    for prefix in ["opt", "home/opt"] {
+        machine.linked_prefix(prefix);
+        let cli = machine.dir(&format!("{prefix}/lib/node_modules/npm/bin/npm-cli.js"));
+        let second = machine.dir(&format!("{prefix}-second/bin/npm"));
+        machine.link(&format!("{prefix}-second/bin/npm"), cli.to_str().unwrap());
+        let leaf = prefix.rsplit('/').next().unwrap();
+        let relative = format!("../{leaf}/lib/node_modules/npm/bin/npm-cli.js");
+        machine.link(&format!("{prefix}-links/npm"), &relative);
+        let dirs = [format!("{prefix}/bin"), format!("{prefix}-second/bin")];
+        let dirs: Vec<&str> = dirs.iter().map(String::as_str).collect();
+        let spelled = |dir: &str| match dir.strip_prefix("home/") {
+            Some(rest) => format!("~/{rest}"),
+            None => machine.spelled(dir),
+        };
+        assert_eq!(
+            machine.reach("npm", &dirs),
+            Some(Reach::Found {
+                binds: vec![
+                    spelled(&format!("{prefix}/bin")),
+                    spelled(&format!("{prefix}/lib/node_modules")),
+                ],
+                path: dirs.iter().map(|dir| machine.dir(dir)).take(1).collect(),
+                volta: None,
+            })
+        );
+        let npm = machine.dir(&format!("{prefix}/bin/npm"));
+        let bin_npm = Unbound::Foreign(Layout::NodePrefix, OsString::from("bin/npm"));
+        let refused = Reach::Unbindable("npm", machine.dir(prefix), bin_npm);
+        for target in [second, PathBuf::from(format!("../../{leaf}-links/npm"))] {
+            std::fs::remove_file(&npm).unwrap();
+            symlink(&target, &npm).unwrap();
+            assert_eq!(machine.reach("npm", &dirs).as_ref(), Some(&refused));
+        }
+    }
+}
+
 /// A root whose entries cannot be listed, a node prefix whose `bin`
 /// cannot, and one with no `lib/node_modules` are refused, not bound:
 /// `init` cannot tell what they hold.
