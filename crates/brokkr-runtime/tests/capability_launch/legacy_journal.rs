@@ -257,7 +257,8 @@ fn drive(root: &Path, world: World, bundle: Bundle, feature: &str) -> (Engine, R
     own_home::required();
     let store = Store::open(&root.join("forge.db")).unwrap();
     let repo = Some(root.join("work"));
-    let mut engine = Engine::start_in_world(store, bundle, feature, repo, Some(world)).unwrap();
+    let mut engine =
+        Engine::start_in_world(store, bundle, feature, repo, Some(world), None).unwrap();
     let end = engine.drive().unwrap();
     (engine, end.state)
 }

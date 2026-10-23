@@ -539,3 +539,224 @@ fn contention_is_found_through_the_transparent_variants_and_nothing_else_is() {
     assert!(moved.contention().is_none());
     assert!(LaunchError::RealmsWithDispatch.contention().is_none());
 }
+
+#[test]
+fn an_entry_beside_a_dispatch_is_refused_before_compile() {
+    let dir = tempfile::tempdir().unwrap();
+    let request = request(
+        dir.path(),
+        &dir.path().join("absent"),
+        dir.path(),
+        dir.path(),
+    );
+    let run = NewRun {
+        entry: Some(EntryRequest {
+            phase: "verify".into(),
+            continues: vec![],
+        }),
+        dispatch: Some(dir.path().join("absent-dispatch")),
+        ..NewRun::default()
+    };
+    let error = start(request, run, &mut silent).err().unwrap();
+    assert!(matches!(error, LaunchError::EntryWithDispatch));
+    assert_eq!(
+        error.to_string(),
+        "--dispatch and --enter cannot be combined: a Looper-bound run takes no entry"
+    );
+    assert!(!dir.path().join("forge.db").exists());
+}
+
+#[test]
+fn continued_lineage_is_typed_and_refusals_name_the_run() {
+    use brokkr_core::EventType;
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let id = "story-120-0a1b2c3d";
+    seed_continued(
+        &mut store,
+        id,
+        "synthetic",
+        "test",
+        json!({"schema":"forge-run-manifest/v2"}),
+        Some(EventType::RunStopped),
+    );
+    assert!(matches!(continued_entry(&store,&continuation(vec![id])),
+        Err(LaunchError::ContinuedUnreadable { run_id, source: DispatchError::BadManifest }) if run_id == id));
+    let error = continued_entry(&store, &continuation(vec![id])).unwrap_err();
+    assert_eq!(error.to_string(), format!("continued run '{id}' is unreadable: its pinned manifest claims the run-manifest/v2 lineage and does not read"));
+    assert_eq!(store.load(id).unwrap().len(), 2);
+    let local = bundle_at(dir.path(), false);
+    let mut bundle = Bundle::compile_with(
+        &local,
+        &workspace().join("agents"),
+        &workspace().join("adapters"),
+    )
+    .unwrap();
+    // The frozen dispatch lineage carries only the v2 bundle fields.
+    bundle.manifest.as_object_mut().unwrap().retain(|key, _| {
+        [
+            "engine",
+            "event_schema",
+            "database_schema",
+            "driver_protocol",
+            "bundle_name",
+            "files",
+        ]
+        .contains(&key.as_str())
+    });
+    let manifest = brokkr_core::dispatch::build_run_manifest_v2(
+        &bundle.manifest,
+        crate::engine::tests::dispatch(&bundle),
+    )
+    .unwrap();
+    let mut bound = Store::open(&dir.path().join("bound.db")).unwrap();
+    seed_continued(
+        &mut bound,
+        id,
+        "synthetic",
+        "test",
+        manifest,
+        Some(EventType::RunStopped),
+    );
+    let error = continued_entry(&bound, &continuation(vec![id])).unwrap_err();
+    assert!(matches!(&error, LaunchError::ContinuedLooperBound { run_id } if run_id == id));
+    assert_eq!(error.to_string(), format!("continued run '{id}' is Looper-bound: its start pinned the run-manifest/v2 lineage, which a chain may not name"));
+    assert_eq!(bound.load(id).unwrap().len(), 2);
+}
+
+#[test]
+fn a_continued_manifest_the_store_cannot_read_is_a_store_refusal() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let store = Store::open(&db).unwrap();
+    let id = "torn-0a1b2c3d";
+    // A manifest column the store itself never writes: the row is planted
+    // by a second connection so the only unreadable thing is its JSON.
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute(
+            "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
+             VALUES (?1, 'synthetic', 'test', '{not json', '2026-01-01T00:00:00Z')",
+            [id],
+        )
+        .unwrap();
+    let error = continued_entry(&store, &continuation(vec![id])).unwrap_err();
+    assert!(
+        matches!(error, LaunchError::Store(StoreError::Json(_))),
+        "{error:?}"
+    );
+    assert!(error.to_string().starts_with("json: "), "{error}");
+}
+
+fn continuation(ids: Vec<&str>) -> EntryRequest {
+    EntryRequest {
+        phase: "review".into(),
+        continues: ids.into_iter().map(str::to_string).collect(),
+    }
+}
+
+#[test]
+fn continued_runs_are_concluded_native_and_queue_free() {
+    use brokkr_core::{
+        entry::{ContinuedRun, RunEntry},
+        EventType, Status,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let live = "live-12345678";
+    seed_continued(&mut store, live, "live feature", "test", json!({}), None);
+    assert!(matches!(continued_entry(&store,&continuation(vec![live])),
+        Err(LaunchError::ContinuedNotConcluded { run_id,status:Status::Running }) if run_id == live));
+    assert!(
+        matches!(continued_entry(&store,&continuation(vec!["absent-12345678"])),
+        Err(LaunchError::ContinuedMissing { run_id }) if run_id == "absent-12345678")
+    );
+    store
+        .append_next(
+            live,
+            EventType::RunStopped,
+            json!({"reason":"synthetic stop"}),
+            None,
+            None,
+        )
+        .unwrap();
+    let other = "other-abcdef01";
+    seed_continued(
+        &mut store,
+        other,
+        "other feature",
+        "another-recipe",
+        json!({}),
+        Some(EventType::RunStopped),
+    );
+    assert_eq!(
+        continued_entry(&store, &continuation(vec![other, live])).unwrap(),
+        RunEntry {
+            phase: "review".into(),
+            continues: vec![
+                ContinuedRun {
+                    run_id: other.into(),
+                    feature: "other feature".into()
+                },
+                ContinuedRun {
+                    run_id: live.into(),
+                    feature: "live feature".into()
+                },
+            ]
+        }
+    );
+    let parked = "parked-12345678";
+    seed_continued(
+        &mut store,
+        parked,
+        "parked feature",
+        "test",
+        json!({}),
+        Some(EventType::RunParked),
+    );
+    assert!(matches!(
+        continued_entry(&store, &continuation(vec![parked])),
+        Err(LaunchError::ContinuedNotConcluded {
+            status: Status::AwaitingOperator,
+            ..
+        })
+    ));
+    let queued = NewRun {
+        entry: Some(continuation(vec![])),
+        ..NewRun::default()
+    };
+    let request = super::tests::request(dir.path(), dir.path(), dir.path(), dir.path());
+    assert!(matches!(QueuedLaunch::of(&request,&queued),
+        Err(LaunchError::QueuedEntry { phase }) if phase == "review"));
+}
+
+fn seed_continued(
+    store: &mut Store,
+    id: &str,
+    feature: &str,
+    recipe: &str,
+    manifest: Value,
+    ending: Option<brokkr_core::EventType>,
+) {
+    store.create_run(id, feature, recipe, &manifest).unwrap();
+    store
+        .append_next(
+            id,
+            brokkr_core::EventType::RunStarted,
+            json!({"feature":feature}),
+            None,
+            None,
+        )
+        .unwrap();
+    if let Some(event) = ending {
+        store
+            .append_next(
+                id,
+                event,
+                json!({"reason":"synthetic conclusion"}),
+                None,
+                None,
+            )
+            .unwrap();
+    }
+}

@@ -25,6 +25,10 @@
 
 #![forbid(unsafe_code)]
 
+mod entry;
+mod rail;
+pub use entry::{entry_sentence, ContinuedView, EntryView};
+
 mod analytics;
 mod attempts;
 pub mod capability_calls;
@@ -141,7 +145,8 @@ use serde_json::Value;
 /// `next`, and a section lists its runs by last activity.
 /// Bumped to 26 by #787: a participant gained its `carried_from`, and the
 /// status word `carried` (decision 0093).
-pub const VIEW_VERSION: u32 = 26;
+/// Bumped to 27 by decision 0094: the run view records its entry and continuation.
+pub const VIEW_VERSION: u32 = 27;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -545,6 +550,7 @@ pub struct JournalRow {
 
 #[derive(Serialize)]
 pub struct RunView {
+    pub entry: Option<EntryView>,
     pub view_version: u32,
     /// `None` when the journal does not fold — never a guessed state.
     pub summary: Option<Summary>,
@@ -2171,104 +2177,6 @@ fn inner_columns(scan: &Scan, buckets: &Buckets, phase: &str) -> Vec<Column> {
     columns
 }
 
-fn phase_rail(
-    events: &[EventEnvelope],
-    scan: &Scan,
-    buckets: &Buckets,
-    state: Option<&RunState>,
-) -> Vec<Phase> {
-    let mut visits: Vec<(String, u64)> = Vec::new();
-    // The roads back, as `(landing, departure)` pairs deduped in the
-    // order the journal recorded them. A transition is BACKWARD when the
-    // phase it names as `next` stands strictly before its `from` on the
-    // rail, whose order is first entry. A forward step into a phase
-    // already entered (the second pass after a reforge) and a phase
-    // ruled onto itself (a retry, ship's ready then shipped) are not
-    // roads back: `visits` counts those arrivals, and the seats show them.
-    let mut returns: Vec<(String, Road)> = Vec::new();
-    for event in events {
-        match event.event_type {
-            EventType::PhaseEntered => {
-                let Some(name) = field(&event.payload, "phase") else {
-                    continue;
-                };
-                match visits.iter_mut().find(|(known, _)| known == name) {
-                    Some((_, count)) => *count += 1,
-                    None => visits.push((name.to_string(), 1)),
-                }
-            }
-            EventType::TransitionDecided => {
-                // A ruling that parks carries no `next` at all, and a
-                // ruling this crate cannot read is never repaired into
-                // one (README law 2).
-                let (Some(from), Some(next)) =
-                    (field(&event.payload, "from"), field(&event.payload, "next"))
-                else {
-                    continue;
-                };
-                let place = |name: &str| visits.iter().position(|(known, _)| known == name);
-                let backward =
-                    matches!((place(next), place(from)), (Some(to), Some(at)) if to < at);
-                if !backward {
-                    continue;
-                }
-                let at = match returns
-                    .iter()
-                    .position(|(to, road)| to == next && road.from == from)
-                {
-                    Some(at) => at,
-                    None => {
-                        let road = Road {
-                            from: from.to_string(),
-                            taken: 0,
-                            rules: Vec::new(),
-                        };
-                        returns.push((next.to_string(), road));
-                        returns.len() - 1
-                    }
-                };
-                let road = &mut returns[at].1;
-                road.taken += 1;
-                if let Some(rule) = field(&event.payload, "rule_id") {
-                    road.rules.retain(|known| known != rule);
-                    road.rules.push(rule.to_string());
-                }
-            }
-            _ => continue,
-        }
-    }
-    let current = match state.and_then(|state| state.phase.as_deref()) {
-        Some(phase) if visits.iter().any(|(name, _)| name == phase) => Some(phase.to_string()),
-        _ => visits.last().map(|(name, _)| name.clone()),
-    };
-    visits
-        .iter()
-        .map(|(name, count)| {
-            let columns = inner_columns(scan, buckets, name);
-            let plain = match columns.first() {
-                Some(column) => columns.len() == 1 && column.nodes.len() == 1,
-                None => true,
-            };
-            Phase {
-                name: name.clone(),
-                strategy: if name == "triage" {
-                    state.and_then(|state| state.strategy.clone())
-                } else {
-                    None
-                },
-                visits: *count,
-                current: current.as_deref() == Some(name.as_str()),
-                plain,
-                columns,
-                returns: returns
-                    .extract_if(.., |(to, _)| to == name)
-                    .map(|(_, road)| road)
-                    .collect(),
-            }
-        })
-        .collect()
-}
-
 // ----------------------------------------------------- trail and journal
 
 fn what_of(scan: &Scan, event: &EventEnvelope, marks: &BTreeMap<u64, Superseded>) -> What {
@@ -2578,7 +2486,7 @@ pub fn run_view(events: &[EventEnvelope], state: Option<&RunState>) -> RunView {
         ),
         participants: participants(events, &scan),
         live: live_lines(events),
-        phases: phase_rail(events, &scan, &buckets, state),
+        phases: rail::phase_rail(events, &scan, &buckets, state),
         notices: run_notices(events),
         boundary: run_boundary(events),
         journal: journal_rows(events, &scan, &buckets, &marks),
@@ -2593,6 +2501,7 @@ pub fn run_view(events: &[EventEnvelope], state: Option<&RunState>) -> RunView {
         clarify,
         worktree: worktree(events),
         recipe: recipe(events),
+        entry: entry::of_events(events),
     }
 }
 

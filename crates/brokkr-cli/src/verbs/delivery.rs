@@ -24,10 +24,32 @@ use crate::{drive_to_end, finish, open_journal, recipes, selector, supersede, Ac
 /// `brokkr run`: start a new run and drive it until it parks or finishes,
 /// beside its run view on a terminal (#508).
 pub(crate) fn run(workspace: &Path, args: RunArgs, viewer: &Viewer) -> Result<ExitCode> {
-    let (request, new) = new_run(workspace, args.launch)?;
+    if args.launch.dispatch.is_some() && args.entry.enter.is_some() {
+        return Err(launch::LaunchError::EntryWithDispatch.into());
+    }
+    let (request, mut new) = new_run(workspace, args.launch)?;
+    if let Some(phase) = args.entry.enter {
+        let continues = if args.entry.continues.is_empty() {
+            Vec::new()
+        } else {
+            let store = open_journal(&request.journal, Access::Read)?;
+            args.entry
+                .continues
+                .iter()
+                .map(|selector| selector::resolve_run(&store, selector))
+                .collect::<Result<Vec<_>>>()?
+        };
+        new.entry = Some(launch::EntryRequest { phase, continues });
+    }
     let journal = request.journal.clone();
     let mut engine = launch::start(request, new, &mut |note| eprintln!("{note}"))?;
     eprintln!("run started: {}", engine.run_id);
+    if let Some(entry) = engine.entry() {
+        eprintln!(
+            "{}",
+            crate::render::Safe::new(&brokkr_view::entry_sentence(entry)).as_str()
+        );
+    }
     run_view::drive(&mut engine, &journal, args.no_view, viewer)
 }
 
@@ -46,6 +68,7 @@ pub(super) fn new_run(workspace: &Path, args: LaunchArgs) -> Result<(LaunchReque
     let layout = Layout::discover(workspace)?;
     let request = request(&layout, args.delivery, (journal, escape), args.repo)?;
     let new = NewRun {
+        entry: None,
         feature: args.feature,
         map: run_map(world, named),
         dispatch: args.dispatch.map(|path| layout.typed(path)),

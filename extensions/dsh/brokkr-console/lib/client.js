@@ -1023,6 +1023,7 @@ window.__ModuleLoader__.load({
         pane(`graph · ${label}`, 'Graph', 'bk-graph-pane',
           h('div', { className: 'bk-row bk-graph-head' }, chip(word, tone), h('span', { className: 'bk-note' }, `${hearth.realm} · started ${ago(row.created_at)} ago`),
             view.summary === null ? null : h(Controls, { key: `c${row.run_id}`, hearth, row, view, see })),
+          view.entry ? h('div', null, view.entry.text) : null,
           h(Rail, { view, picked, pick })),
         h('div', { className: 'bk-split' }, why, h(Reader, { hearth, row, view, focus, clear: () => pick(null) })),
         h(Seats, { view, focus, picked, pick }),

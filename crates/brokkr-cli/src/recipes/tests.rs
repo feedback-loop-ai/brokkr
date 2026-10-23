@@ -44,7 +44,9 @@ fn bundle_with_sequence() -> Bundle {
     seats.insert(
         "review".into(),
         Seat {
-            has_gate: false,
+            gate: brokkr_runtime::bundle::GateAssessment::ContainsWork(
+                brokkr_runtime::bundle::WorkSite::seat(),
+            ),
             results: vec!["clean".into()],
             limits: Limits::default(),
             inputs: Vec::new(),

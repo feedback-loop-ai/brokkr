@@ -1526,3 +1526,22 @@ fn a_rules_conditions_read_in_brokkrs_words() {
     let bare = Machine::from_table(&table(rule())).unwrap();
     assert_eq!(bare.rules[0].when_words(), Vec::<String>::new());
 }
+
+#[test]
+fn table_direction_is_ordered_and_requires_both_names() {
+    let order = ["intake", "design", "implement", "verify", "review", "ship"].map(str::to_string);
+    assert_eq!(
+        Direction::of(&order, "verify", "review"),
+        Some(Direction::Forward)
+    );
+    assert_eq!(
+        Direction::of(&order, "verify", "implement"),
+        Some(Direction::Return)
+    );
+    assert_eq!(
+        Direction::of(&order, "review", "review"),
+        Some(Direction::Loop)
+    );
+    assert_eq!(Direction::of(&order, "missing", "review"), None);
+    assert_eq!(Direction::of(&order, "review", "missing"), None);
+}

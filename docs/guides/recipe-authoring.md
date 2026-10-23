@@ -571,7 +571,10 @@ The rules:
   `shippable_from` union rather than collide, so a derived recipe
   re-declaring an inherited phase says nothing new instead of erroring.
   A table scalar is not an array and does not union: changing `initial`
-  or `description` requires naming it in `override.table`.
+  or `description` requires naming it in `override.table`. A derived recipe
+  placing its own phase ahead of inherited phases marks `phases` in
+  `override.table` to replace the list; union retains base order and appends
+  the derived recipe's new phases.
 - **Chains are bounded at eight layers**, and a repeated directory is a
   cycle reported with the whole loop in order.
 - **Origin stays attached to inherited and partial values.** Relative
@@ -1042,3 +1045,28 @@ that result, and never promises a combination the composer would refuse
   provenance.
 - [decision 0017](../decisions/0017-composable-recipes.md) — composition.
 - [decision 0022](../decisions/0022-reforging.md) — the reforging ladder.
+
+### Admission of a run-level gate entry
+
+Proposed decision 0094 lets an operator request `--enter <phase>` on any
+recipe, without an overlay or a manifest change. The compiler checks six
+facts in order: the phase exists and is nonterminal; its name fits the
+bounded identifier grammar; every written driver site is gate-class; the
+protected review phase is unavoidable from it (or is the entry itself);
+forward rulings reach no work seat; and reachable seats, ruling groups and
+dialect steps do not require an absent strategy or change source. A refusal
+names the first witness and the entries admitted in table order. A reached
+ruling group holding any `strategy_in` ruling is refused, whatever its other
+rulings rule. So is a group reading above zero the visits of a phase no road
+from the entry reaches without a positive count guarding it.
+
+A selector can supply a `default` body when entry skips triage. Judges in
+a panel must each declare gate class; putting a gate chief after work-class
+review positions does not make the whole seat a gate. Dialect steps count
+by their written class even if the dialect supplies no executable step.
+An entry at triage supplies the strategy source, and entry at a declared
+change source covers later dialect steps. Implement is reached only by
+a return. Entry at the protected phase is the operator's explicit word
+to omit earlier gates; entry after it, such as ship, is refused if a path
+can then ship without review. Landing's classify fork and review-first's
+forced crew remain recipe data.

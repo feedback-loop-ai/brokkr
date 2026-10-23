@@ -413,7 +413,11 @@ fn a_fresh_members_commit_or_edit_cannot_publish_a_mixed_subject_aggregate() {
         ("git commit -q --allow-empty -m gate-commit", true, true),
     ] {
         let (_dir, mut runtime) = parked(moving_body(action, gate), false);
-        runtime.bundle.seats.get_mut("work").unwrap().has_gate = gate;
+        runtime.bundle.seats.get_mut("work").unwrap().gate = if gate {
+            crate::bundle::GateAssessment::AllGate
+        } else {
+            crate::bundle::GateAssessment::ContainsWork(crate::bundle::WorkSite::seat())
+        };
         execute_retry(&mut runtime, "b");
         let journal = events(&runtime);
         let terminal = journal.last().unwrap();

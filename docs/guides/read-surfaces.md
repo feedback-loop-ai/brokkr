@@ -859,3 +859,13 @@ Un-superseding is not a command. The record is append-only, so a
 mistaken annotation is answered by another `supersede` naming the right
 run, or by a run that re-reviews the tree — and both stay on the record,
 with a name on them.
+
+### Gate entries on a run
+
+A run entered at a gate shows one shared sentence naming that phase and
+the titles and ids of the runs continued. Multi-line features keep their
+full text in the JSON parts; headers use their titles. An unreadable
+present entry is stated with its reader's error. Proposed decision 0094
+also records the table order at every start: the rail uses that order,
+and draws a return only when a ruling goes backward in it. Older journals
+without a readable order retain the first-entry ordering.

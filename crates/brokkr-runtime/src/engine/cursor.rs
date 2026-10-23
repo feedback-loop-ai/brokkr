@@ -18,7 +18,8 @@ impl Engine {
     ) -> Result<(), EngineError> {
         match cursor {
             Cursor::Start => {
-                let initial = self.bundle.machine.initial.clone();
+                let initial = crate::bundle::entry::first_phase(&self.bundle, self.entry.as_ref())?
+                    .to_string();
                 self.enter_phase(&initial, &state)
             }
             Cursor::EnterPhase { phase } => self.enter_phase(&phase, &state),

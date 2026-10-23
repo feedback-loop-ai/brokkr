@@ -902,3 +902,13 @@ them under `harness` or `open`.
   attempts and deadlines.
 - [decision 0012](../decisions/0012-sealed-secret-bindings.md) — secret
   names on the wire, values never.
+
+### Context for an entered run
+
+Under proposed decision 0094 an entered run hands non-triage seats
+`context.entry`: the entry phase and the ordered continued run ids and
+their feature text. Continued runs supply no phase results. On a backward
+ruling, even a seat's first visit in an entered run receives
+`context.returned_from` with the finding it must answer. A forward first
+visit receives none. Ordinary runs retain the existing revisit rule;
+triage receives no entry or returned finding.

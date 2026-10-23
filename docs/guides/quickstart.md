@@ -1039,3 +1039,13 @@ actual output per stack, transcribed from real runs.
 - [driver-authoring.md](driver-authoring.md) — put a harness that is not
   Claude Code, Codex or dsh behind a seat.
 - [versioning.md](versioning.md) — what is stable, what may still move.
+
+### Re-drive finished branch work at a gate
+
+Start a fresh run with `brokkr run --recipe fast --feature "land the finished branch" --enter verify`.
+Add `--continues <run>` for each earlier concluded native run whose work you
+are continuing; ids, unique prefixes and `latest` use the usual selector.
+After `run started: <id>`, stderr prints the entered gate and each continued
+run's title and id. The new run rejudges the branch and keeps its own results.
+Work-phase entries refuse before a run is created. This option belongs to
+`run`; `queue add` cannot encode it in `queued-launch/v1` (proposed decision 0094).

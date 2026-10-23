@@ -7745,6 +7745,7 @@ fn an_empty_harness_fragment_is_the_hands_under_harness_and_refused_under_open()
             "probe",
             Some(repo),
             Some(world),
+            None,
         )
         .unwrap();
         let (bundle, facts) = (&engine.bundle, &engine.bundle.sites["work"]);
@@ -8924,7 +8925,6 @@ fn compile_every_shape_on(
     ]);
     matrix.insert("dsh-route".to_string(), routed);
     phases.push(("dsh-route".to_string(), "complete"));
-
     // One phase per seat, in order, every result stepping to the next.
     let mut names: Vec<String> = Vec::new();
     for (seat, _) in &phases {

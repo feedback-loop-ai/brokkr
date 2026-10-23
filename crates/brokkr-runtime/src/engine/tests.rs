@@ -1,5 +1,7 @@
+mod entry;
 use super::boundary_tests::sealed_tests::{boxed, boxed_a, REACH_ARG};
 use super::conclude_tests::invariant;
+use super::sequence::{dialect_attempt_outcome, expand_dialect_argv, nearest_change};
 use super::*;
 use crate::agents::HarnessHands;
 use crate::bundle::{Limits, Seat};
@@ -10,6 +12,7 @@ use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::decision::{Decision, PhaseResult, ReviewedHeads};
 use brokkr_core::fold::Status;
 use brokkr_core::policy::Machine;
+use entry::fixture_seat;
 // A test whose sites get real hands plays in an engine of its own (#403),
 // so no other test's orphan reads as a stray of its attempt.
 pub(super) use brokkr_protocol::process::in_its_own_engine;
@@ -137,7 +140,7 @@ pub(super) fn bundle(dir: &Path, body: SeatBody) -> Bundle {
     seats.insert(
         "work".into(),
         Seat {
-            has_gate: false,
+            gate: crate::bundle::GateAssessment::ContainsWork(crate::bundle::WorkSite::seat()),
             results: vec!["complete".into()],
             limits: Limits {
                 max_attempts: 2,
@@ -152,7 +155,7 @@ pub(super) fn bundle(dir: &Path, body: SeatBody) -> Bundle {
         seats.insert(
             phase.into(),
             Seat {
-                has_gate: false,
+                gate: crate::bundle::GateAssessment::ContainsWork(crate::bundle::WorkSite::seat()),
                 results: vec![result.into()],
                 limits: Limits::default(),
                 inputs: Vec::new(),
@@ -329,29 +332,10 @@ read -r done
         default: Some(Box::new(single_body(vec!["missing-driver".into()]))),
     };
     let mut compiled = bundle(dir.path(), body);
-    compiled.machine = Machine::from_table(&json!({
-        "phases":["triage", "work", "review", "ship", "done", "stop"],
-        "initial":"triage", "terminal":["done", "stop"],
-        "rules":[
-            {"id":"TRIAGE", "from":"triage", "result":"engine", "next":"work", "reason":"route"},
-            {"id":"TRIAGE-HALT", "from":"triage", "result":"halt", "next":"stop", "reason":"halt"},
-            {"id":"WORK", "from":"work", "result":"complete", "next":"review", "reason":"work"},
-            {"id":"REVIEW", "from":"review", "result":"clean", "next":"ship", "reason":"review"},
-            {"id":"SHIP", "from":"ship", "result":"shipped", "next":"done", "reason":"ship"}
-        ]
-    }))
-    .unwrap();
-    compiled.seats.insert(
-        "triage".into(),
-        Seat {
-            has_gate: false,
-            results: vec!["engine".into()],
-            limits: Limits::default(),
-            inputs: Vec::new(),
-            secrets: Vec::new(),
-            body: single_body(vec!["sh".into(), "-c".into(), triage_script.into()]),
-        },
-    );
+    compiled.machine = entry::routing_machine("engine", "TRIAGE-HALT", "halt");
+    compiled
+        .seats
+        .insert("triage".into(), fixture_seat("engine", triage_script));
     // The selected case's canonical facts resolve hands; the seat's PHASE
     // label owns none, so only dispatch-time marking can publish this.
     set_site_hands(
@@ -391,19 +375,6 @@ fn forward_context_carries_only_typed_phase_facts() {
     assert!(input["context"]["results"]["specify"]
         .get("notes")
         .is_none());
-}
-
-#[test]
-fn the_nearest_change_is_the_latest_drafting_phases() {
-    let mut context = json!({"results": {}});
-    for phase in ["intake", "triage", "specify", "design", "tasks"] {
-        context["results"][phase] = json!({"inputs": {"change": format!("{phase}-change")}});
-    }
-    for expected in ["tasks", "design", "specify", "triage", "intake"] {
-        assert_eq!(nearest_change(&context), Some(format!("{expected}-change")));
-        context["results"].as_object_mut().unwrap().remove(expected);
-    }
-    assert_eq!(nearest_change(&context), None);
 }
 
 #[test]
@@ -839,29 +810,10 @@ printf '{"proto":"forge-driver/v1","msg_id":"result","type":"result","effect_id"
 read -r done
 "#;
     let mut compiled = bundle(dir.path(), selecting(false));
-    compiled.machine = Machine::from_table(&json!({
-        "phases":["triage", "work", "review", "ship", "done", "stop"],
-        "initial":"triage", "terminal":["done", "stop"],
-        "rules":[
-            {"id":"TRIAGE", "from":"triage", "result":"feature", "next":"work", "reason":"route"},
-            {"id":"TRIAGE-STOP", "from":"triage", "result":"stop", "next":"stop", "reason":"stopped"},
-            {"id":"WORK", "from":"work", "result":"complete", "next":"review", "reason":"work"},
-            {"id":"REVIEW", "from":"review", "result":"clean", "next":"ship", "reason":"review"},
-            {"id":"SHIP", "from":"ship", "result":"shipped", "next":"done", "reason":"ship"}
-        ]
-    }))
-    .unwrap();
-    compiled.seats.insert(
-        "triage".into(),
-        Seat {
-            has_gate: false,
-            results: vec!["feature".into()],
-            limits: Limits::default(),
-            inputs: Vec::new(),
-            secrets: Vec::new(),
-            body: single_body(vec!["sh".into(), "-c".into(), script.into()]),
-        },
-    );
+    compiled.machine = entry::routing_machine("feature", "TRIAGE-STOP", "stopped");
+    compiled
+        .seats
+        .insert("triage".into(), fixture_seat("feature", script));
     let database = dir.path().join("forge.db");
     let store = Store::open(&database).unwrap();
     let mut runtime = Engine::start(
@@ -1063,13 +1015,7 @@ printf '{"proto":"forge-driver/v1","msg_id":"accepted","type":"accepted","body":
 printf '{"proto":"forge-driver/v1","msg_id":"result","type":"result","body":{"effect_id":"%s","attempt_id":"%s","status":"succeeded","result":{"result":"complete"},"error":null}}\n' "$effect_id" "$attempt_id"
 read -r done
 "#;
-    let store = Store::open(&dir.path().join("forge.db")).unwrap();
-    let mut compiled = bundle(
-        dir.path(),
-        single_body(vec!["sh".into(), "-c".into(), script.into()]),
-    );
-    compiled.seats.get_mut("work").unwrap().has_gate = true;
-    let mut engine = Engine::start(store, compiled, "gate moves", Some(repo)).unwrap();
+    let mut engine = entry::gate_engine(dir.path(), repo, script, "gate moves");
     let end = engine.drive().unwrap();
     assert_eq!(end.state.run.status(), Status::AwaitingOperator);
     assert!(parked_on_moved_head(&end.state));
@@ -1109,7 +1055,7 @@ read -r done
         dir.path(),
         single_body(vec!["sh".into(), "-c".into(), script]),
     );
-    compiled.seats.get_mut("work").unwrap().has_gate = true;
+    compiled.seats.get_mut("work").unwrap().gate = crate::bundle::GateAssessment::AllGate;
     let mut engine = Engine::start(store, compiled, "gate stays", Some(repo)).unwrap();
     let end = engine.drive().unwrap();
     assert_eq!(end.state.run.status(), Status::AwaitingOperator);
@@ -1268,7 +1214,7 @@ read -r done
     )
     .unwrap();
     let compiled = Bundle::compile_with(&bundle_dir, &agents, &adapters).unwrap();
-    assert!(!compiled.seats["work"].has_gate);
+    assert!(!compiled.seats["work"].has_gate());
     let SeatBody::Sequence { steps } = &compiled.seats["work"].body else {
         panic!("the fixture must compile as a sequence")
     };
@@ -1416,13 +1362,7 @@ printf '{"proto":"forge-driver/v1","msg_id":"result","type":"result","effect_id"
 read -r done
 "#;
     let db = dir.path().join("forge.db");
-    let store = Store::open(&db).unwrap();
-    let mut compiled = bundle(
-        dir.path(),
-        single_body(vec!["sh".into(), "-c".into(), script.into()]),
-    );
-    compiled.seats.get_mut("work").unwrap().has_gate = true;
-    let mut engine = Engine::start(store, compiled, "gate errors out", Some(repo.clone())).unwrap();
+    let mut engine = entry::gate_engine(dir.path(), repo.clone(), script, "gate errors out");
     fail_event(&db, "effect/checkpointed");
 
     // The real path: a live checkpoint that will not journal aborts the
@@ -1479,7 +1419,7 @@ fn an_all_gate_sequence_arms_no_observation_outside_its_steps() {
     let seat = |body: SeatBody| Seat {
         // Every site in it is a gate — which the compiler says of an
         // all-gate sequence exactly as it says it of a gate single seat.
-        has_gate: true,
+        gate: crate::bundle::GateAssessment::AllGate,
         results: vec!["complete".into()],
         limits: Limits::default(),
         inputs: Vec::new(),
@@ -3978,7 +3918,15 @@ fn engine_in(dir: &Path, world: Option<crate::realms::World>, repo: &Path) -> En
         .map_or(crate::capabilities::UNMAPPED, |realm| &realm.name);
     bundle.manifest["capabilities"] = json!({"realm": realm, "grants": {}, "definitions": {},
         "dialects": {}, "sites": {}});
-    Engine::start_in_world(store, bundle, "feature", Some(repo.to_path_buf()), world).unwrap()
+    Engine::start_in_world(
+        store,
+        bundle,
+        "feature",
+        Some(repo.to_path_buf()),
+        world,
+        None,
+    )
+    .unwrap()
 }
 
 #[test]

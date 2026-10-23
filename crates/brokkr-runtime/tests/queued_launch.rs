@@ -159,6 +159,7 @@ impl Fleet {
             host_path: Default::default(),
         };
         let run = NewRun {
+            entry: None,
             feature: "queued".into(),
             map,
             dispatch: None,

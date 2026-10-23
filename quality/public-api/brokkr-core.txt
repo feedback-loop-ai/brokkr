@@ -141,6 +141,28 @@ pub const brokkr_core::dispatch::RUN_MANIFEST_SCHEMA_V2: &str
 pub fn brokkr_core::dispatch::build_run_manifest_v2(&serde_json::value::Value, brokkr_core::dispatch::DispatchEnvelopeV2) -> core::result::Result<serde_json::value::Value, brokkr_core::dispatch::DispatchError>
 pub fn brokkr_core::dispatch::bundle_manifest_from_run(&serde_json::value::Value) -> core::result::Result<serde_json::value::Value, brokkr_core::dispatch::DispatchError>
 pub fn brokkr_core::dispatch::dispatch_from_run(&serde_json::value::Value) -> core::result::Result<core::option::Option<brokkr_core::dispatch::DispatchEnvelopeV2>, brokkr_core::dispatch::DispatchError>
+pub mod brokkr_core::entry
+pub enum brokkr_core::entry::EntryRead
+pub brokkr_core::entry::EntryRead::Phase
+pub brokkr_core::entry::EntryRead::Phase::phase: alloc::string::String
+pub brokkr_core::entry::EntryRead::RunId
+pub brokkr_core::entry::EntryRead::RunId::run_id: alloc::string::String
+pub brokkr_core::entry::EntryRead::Shape
+pub brokkr_core::entry::EntryRead::Shape::detail: alloc::string::String
+pub brokkr_core::entry::EntryRead::Twice
+pub brokkr_core::entry::EntryRead::Twice::run_id: alloc::string::String
+pub struct brokkr_core::entry::ContinuedRun
+pub brokkr_core::entry::ContinuedRun::feature: alloc::string::String
+pub brokkr_core::entry::ContinuedRun::run_id: alloc::string::String
+pub struct brokkr_core::entry::RunEntry
+pub brokkr_core::entry::RunEntry::continues: alloc::vec::Vec<brokkr_core::entry::ContinuedRun>
+pub brokkr_core::entry::RunEntry::phase: alloc::string::String
+impl brokkr_core::entry::RunEntry
+pub fn brokkr_core::entry::RunEntry::check(&self) -> core::result::Result<(), brokkr_core::entry::EntryRead>
+pub fn brokkr_core::entry::RunEntry::of_started(&serde_json::value::Value) -> core::result::Result<core::option::Option<Self>, brokkr_core::entry::EntryRead>
+pub fn brokkr_core::entry::check_record<'a>(&str, impl core::iter::traits::collect::IntoIterator<Item = &'a str>) -> core::result::Result<(), brokkr_core::entry::EntryRead>
+pub fn brokkr_core::entry::is_entry_name(&str) -> bool
+pub fn brokkr_core::entry::is_native_run_id(&str) -> bool
 pub mod brokkr_core::envelope
 pub enum brokkr_core::envelope::ChainError
 pub brokkr_core::envelope::ChainError::BadHash
@@ -425,6 +447,12 @@ pub brokkr_core::policy::audit::Audit::valuations: usize
 impl core::fmt::Display for brokkr_core::policy::audit::Audit
 pub fn brokkr_core::policy::audit::Audit::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub const brokkr_core::policy::audit::SWEEP_BUDGET: usize
+pub enum brokkr_core::policy::Direction
+pub brokkr_core::policy::Direction::Forward
+pub brokkr_core::policy::Direction::Loop
+pub brokkr_core::policy::Direction::Return
+impl brokkr_core::policy::Direction
+pub fn brokkr_core::policy::Direction::of(&[alloc::string::String], &str, &str) -> core::option::Option<Self>
 pub enum brokkr_core::policy::Malformed
 pub brokkr_core::policy::Malformed::DuplicateId(alloc::string::String)
 pub brokkr_core::policy::Malformed::IdentifierCondition
@@ -592,6 +620,9 @@ pub brokkr_core::policy::Machine::shippable_from: alloc::vec::Vec<alloc::string:
 pub brokkr_core::policy::Machine::terminal: alloc::vec::Vec<alloc::string::String>
 impl brokkr_core::policy::Machine
 pub fn brokkr_core::policy::Machine::audit_with(&self, usize, impl core::ops::function::Fn(&str) -> bool) -> core::result::Result<brokkr_core::policy::audit::Audit, brokkr_core::policy::audit::AuditError>
+pub fn brokkr_core::policy::Machine::groups_reading_strategy(&self) -> alloc::vec::Vec<(&str, &str)>
+pub fn brokkr_core::policy::Machine::groups_reading_visits(&self) -> alloc::vec::Vec<((&str, &str), alloc::vec::Vec<&str>)>
+pub fn brokkr_core::policy::Machine::reach_avoiding<'a>(&'a self, &'a str, &[&str]) -> alloc::collections::btree::set::BTreeSet<&'a str>
 pub fn brokkr_core::policy::Machine::refuse_unruled(&self) -> core::result::Result<(), brokkr_core::policy::PolicyError>
 impl brokkr_core::policy::Machine
 pub fn brokkr_core::policy::Machine::evaluate(&self, &str, &str, &serde_json::map::Map<alloc::string::String, serde_json::value::Value>) -> brokkr_core::policy::Outcome
@@ -607,6 +638,8 @@ pub brokkr_core::policy::Rule::reason: alloc::string::String
 pub brokkr_core::policy::Rule::requires_artifacts: alloc::vec::Vec<alloc::string::String>
 pub brokkr_core::policy::Rule::result: alloc::string::String
 pub brokkr_core::policy::Rule::severity: alloc::string::String
+impl brokkr_core::policy::Rule
+pub fn brokkr_core::policy::Rule::reads_visits(&self) -> alloc::vec::Vec<&str>
 impl brokkr_core::policy::Rule
 pub fn brokkr_core::policy::Rule::when_words(&self) -> alloc::vec::Vec<alloc::string::String>
 pub const brokkr_core::policy::BOOLEAN_INPUTS: [&str; 8]
@@ -1113,6 +1146,9 @@ pub brokkr_core::Machine::shippable_from: alloc::vec::Vec<alloc::string::String>
 pub brokkr_core::Machine::terminal: alloc::vec::Vec<alloc::string::String>
 impl brokkr_core::policy::Machine
 pub fn brokkr_core::policy::Machine::audit_with(&self, usize, impl core::ops::function::Fn(&str) -> bool) -> core::result::Result<brokkr_core::policy::audit::Audit, brokkr_core::policy::audit::AuditError>
+pub fn brokkr_core::policy::Machine::groups_reading_strategy(&self) -> alloc::vec::Vec<(&str, &str)>
+pub fn brokkr_core::policy::Machine::groups_reading_visits(&self) -> alloc::vec::Vec<((&str, &str), alloc::vec::Vec<&str>)>
+pub fn brokkr_core::policy::Machine::reach_avoiding<'a>(&'a self, &'a str, &[&str]) -> alloc::collections::btree::set::BTreeSet<&'a str>
 pub fn brokkr_core::policy::Machine::refuse_unruled(&self) -> core::result::Result<(), brokkr_core::policy::PolicyError>
 impl brokkr_core::policy::Machine
 pub fn brokkr_core::policy::Machine::evaluate(&self, &str, &str, &serde_json::map::Map<alloc::string::String, serde_json::value::Value>) -> brokkr_core::policy::Outcome

@@ -49,6 +49,7 @@ fn a_missing_recipe_never_masks_the_refusal_each_verb_met_first() {
     let dispatched = run(
         ws,
         RunArgs {
+            entry: Default::default(),
             launch: LaunchArgs {
                 delivery: missing(),
                 feature: "f".into(),

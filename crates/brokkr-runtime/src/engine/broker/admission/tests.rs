@@ -1693,7 +1693,10 @@ fn a_moved_head_gate_with_unresolved_cleanup_keeps_its_reservation() {
     engine.boundary = brokkr_core::realms::Boundary::Namespace;
     set_site_hands(&mut engine.bundle, "work", hands(&[]));
     let work = engine.bundle.seats.get_mut("work").unwrap();
-    (work.body, work.has_gate) = (single_body(driver(&before)), true);
+    (work.body, work.gate) = (
+        single_body(driver(&before)),
+        crate::bundle::GateAssessment::AllGate,
+    );
     let payload = unsettled(&host, &mut engine, holder);
     let reason = payload["reason"].as_str().unwrap();
     assert!(reason.starts_with("GATE-MOVED-HEAD "), "{payload}");

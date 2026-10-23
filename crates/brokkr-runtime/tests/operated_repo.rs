@@ -82,7 +82,7 @@ fn bundle(dir: &Path, gate: &str) -> Bundle {
     // Seated as a gate after compiling, as the engine's own gate tests
     // do: a `class: gate` in the file would need adapter data.
     let mut compiled = Bundle::compile(&bundle).unwrap();
-    compiled.seats.get_mut("work").unwrap().has_gate = true;
+    compiled.seats.get_mut("work").unwrap().gate = brokkr_runtime::bundle::GateAssessment::AllGate;
     compiled
 }
 

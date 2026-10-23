@@ -294,3 +294,15 @@ test('runs alike for 20 words of their feature are told apart by the time each s
   for (const label of listed) assert.match(label, /^Deliver the console… \(\d{2}:\d{2}( [AP]M)?\)/)
   assert.ok(listed.every((label) => !label.includes('started')), listed.join(' | '))
 })
+
+test('the run header paints the entry sentence and an unreadable entry as text', async () => {
+  for (const entry of [
+    { kind: 'entered', phase: 'verify', continues: [{ title: 'land the parked slice', feature: 'land the parked slice\nsecond\nthird', run_id: 'a-12345678' }], text: 'entered at verify, continuing land the parked slice (a-12345678)' },
+    { kind: 'unreadable', error: 'synthetic error', text: 'entry unreadable: synthetic error' },
+  ]) {
+    const client = await onRun({ ...runViewDoc(), entry })
+    const painted = findAll(client.tree(), (node) => node.type === 'div' && textOf(node) === entry.text)
+    assert.equal(painted.length, 1)
+    assert.deepEqual(painted[0].children, [entry.text])
+  }
+})

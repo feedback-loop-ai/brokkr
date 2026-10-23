@@ -9,6 +9,9 @@ use super::{DRIFT_PHASES, REALM_FACTS, REVIEWED_HEADS, STRATEGIES};
 /// and the one counter the table's `_gte` conditions name by itself.
 pub const CONSECUTIVE_FAILURES: &str = "consecutive_failures";
 
+/// The journal-computed strategy input shared by policy and the fold.
+pub(crate) const STRATEGY: &str = "strategy";
+
 /// What blocked a seat that returns `blocked` (decision 0092): its
 /// environment (a signing key, a tool, a capability its box refused),
 /// which the operator fixes before retrying the seat, or the work (a
@@ -84,7 +87,7 @@ pub(crate) const INPUTS: [Input; 16] = [
     // The fold remembers the last successful triage result. A seat may
     // neither declare nor overwrite the class that governs its run.
     input(
-        "strategy",
+        STRATEGY,
         InputKind::Choice {
             key: "strategy_in",
             vocabulary: &STRATEGIES,

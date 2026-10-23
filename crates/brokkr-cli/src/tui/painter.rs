@@ -339,6 +339,11 @@ pub(super) fn graph_lines(
     // The run header's boundary line (decision 0046 ruling 3): the
     // model's rendered text, adjective included, printed and never
     // composed. A run that boxes nothing carries no line at all.
+    if let Some(entry) = &view.entry {
+        let (brokkr_view::EntryView::Entered { text, .. }
+        | brokkr_view::EntryView::Unreadable { text, .. }) = entry;
+        lines.push(line(text, plain()));
+    }
     if !view.boundary.text.is_empty() {
         lines.push(line(&format!("boundary  {}", view.boundary.text), plain()));
     }

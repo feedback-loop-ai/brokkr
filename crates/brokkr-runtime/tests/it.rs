@@ -30,6 +30,7 @@ mod preflight_shape;
 mod recipe_library;
 mod recovery;
 mod release_shape;
+mod review_scope;
 mod roster;
 mod sdd_progress;
 mod sdd_shape;

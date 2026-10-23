@@ -7,6 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
+use brokkr_core::entry::RunEntry;
 use brokkr_core::realms::Boundary;
 use serde_json::{json, Map, Value};
 use uuid::Uuid;
@@ -27,8 +28,8 @@ pub(super) struct Admitted {
 }
 
 /// The door [`Engine::start_in_world`] runs before `create_run`: the run
-/// id, then the unbuilt, boundary, capability and charter fences, then
-/// the manifest pin.
+/// id, then the unbuilt fence and the entry's own check, then the
+/// boundary, capability and charter fences, then the manifest pin.
 ///
 /// [`Engine::start_in_world`]: super::Engine::start_in_world
 pub(super) fn door(
@@ -36,6 +37,7 @@ pub(super) fn door(
     feature: &str,
     repo: Option<PathBuf>,
     world: Option<&World>,
+    entry: Option<&RunEntry>,
 ) -> Result<Admitted, EngineError> {
     let run_id = run_id_for(feature);
     // Decision 0046 ruling 1 at the door, before `create_run` and
@@ -44,6 +46,7 @@ pub(super) fn door(
     // repository — and no world resolves `namespace`, which is what
     // every run meant before the word existed (design DD3).
     refuse_unbuilt(bundle)?;
+    entry.map_or(Ok(()), RunEntry::check)?;
     // The operated repository is what `workdir()` will answer: the
     // named one, else the directory the engine stands in.
     let operated = operated_repo(repo);
