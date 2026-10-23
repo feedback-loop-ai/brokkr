@@ -6,9 +6,11 @@
 //! writes is refused, so a row edited past its writer reads as none.
 //! Counts are kept as their bits, `u64` as `i64`, so no count is cut, and
 //! so are costs, `f64` as `i64`: SQLite keeps a whole-valued REAL as an
-//! integer, which reads a cost of -0.0 back as +0.0. The bits of a NaN or
-//! an infinity are refused, since a cost is read from JSON, which carries
-//! neither.
+//! integer, which reads a cost of -0.0 back as +0.0. Every bit pattern of
+//! a cost is kept, an infinity's and a NaN's among them: a record's cost
+//! is finite, but `spent` sums them, and two costs near `f64::MAX` sum to
+//! an infinity. An outcome column reads back only the words its writer
+//! writes.
 
 use super::{CarriedFrom, Carry, Last, Member, Outcome, Pin, Provider, SeatRow, Session, Stamp};
 use crate::seat::meter::Meter;
@@ -36,8 +38,10 @@ impl Outcome {
         }
     }
 
-    fn of_word(word: &str) -> Option<Outcome> {
-        Outcome::named(word).or((word == "carried").then_some(Outcome::Carried))
+    /// The outcome a terminal event concludes an attempt with: one the
+    /// view lets a member's finish name, but never `working`.
+    fn concluded(word: &str) -> Option<Outcome> {
+        Outcome::named(word).filter(|outcome| *outcome != Outcome::Working)
     }
 }
 
@@ -124,13 +128,8 @@ impl<I: Iterator<Item = Datum>> Take<I> {
         }
     }
 
-    /// A cost from its bits, refusing a NaN or an infinity: a cost is
-    /// read from JSON, which carries neither.
     fn real(&mut self) -> Option<Option<f64>> {
-        match self.int()?.map(f64::from_bits) {
-            Some(cost) if !cost.is_finite() => None,
-            cost => Some(cost),
-        }
+        Some(self.int()?.map(f64::from_bits))
     }
 
     fn flag(&mut self) -> Option<Option<bool>> {
@@ -153,9 +152,14 @@ impl<I: Iterator<Item = Datum>> Take<I> {
         Some(stamp.map(|(seq, at)| Stamp { seq, at }))
     }
 
-    fn outcome(&mut self) -> Option<Option<Outcome>> {
-        self.text()?
-            .map_or(Some(None), |word| Outcome::of_word(&word).map(Some))
+    /// An outcome by its word, `of` reading the words its writer writes.
+    fn outcome(&mut self, of: fn(&str) -> Option<Outcome>) -> Option<Option<Outcome>> {
+        self.text()?.map_or(Some(None), |word| of(&word).map(Some))
+    }
+
+    /// How a terminal event concluded an attempt, as `Seats::ended` keeps it.
+    fn ended(&mut self) -> Option<Option<Outcome>> {
+        self.outcome(Outcome::concluded)
     }
 
     fn provider(&mut self) -> Option<Last<Provider>> {
@@ -168,7 +172,7 @@ impl<I: Iterator<Item = Datum>> Take<I> {
 
     fn pin(&mut self) -> Option<Last<Pin>> {
         let seq = self.int()?;
-        let pin = match (seq, self.outcome()?) {
+        let pin = match (seq, self.outcome(Outcome::named)?) {
             (None, None) => return Some(None),
             (Some(_), Some(outcome)) => Pin::Pinned(outcome),
             (Some(_), None) => Pin::Unpinned,
@@ -434,7 +438,7 @@ impl<I: Iterator<Item = Datum>> Take<I> {
         row.provider = self.provider()?;
         row.boundary = self.last(Self::text)?;
         row.stamp = self.last(Self::text)?;
-        row.ended = self.last(Self::outcome)?;
+        row.ended = self.last(Self::ended)?;
         row.pin = self.pin()?;
         Some(())
     }

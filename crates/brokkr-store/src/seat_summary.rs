@@ -439,14 +439,30 @@ impl Store {
     /// view's participants (ruling 7), while the journal holds the run,
     /// carries the tables, their backfill finished and the run's seat head
     /// is its last event; [`SeatRows::Stale`] otherwise, for a reader to read the run
-    /// whole instead (ruling 8). The head and the rows are read in one
-    /// statement, so they are one snapshot.
+    /// whole instead (ruling 8). Every read is made in one read
+    /// transaction, so the run's last event, its seat head and its rows are
+    /// one snapshot, and a peer's append between two of them cannot pass
+    /// for the head the rows stand at. A read already inside one is
+    /// refused in SQLite's words, as [`Store::as_one_read`] refuses it.
     pub fn seat_rows(&self, run_id: &str) -> Result<SeatRows, StoreError> {
+        self.seat_rows_with(run_id, || {})
+    }
+
+    /// [`Store::seat_rows`], `between` run after the run's last event is
+    /// read and before its seat head and rows are: the instant a peer's
+    /// append lands, which the tests stage.
+    pub(crate) fn seat_rows_with(
+        &self,
+        run_id: &str,
+        mut between: impl FnMut(),
+    ) -> Result<SeatRows, StoreError> {
         patiently("seat_rows", self.patience, || {
+            let _snapshot = self.conn.unchecked_transaction()?;
             if !(seats_intact(&self.conn)? && finished(&self.conn, BACKFILLED)?) {
                 return Ok(SeatRows::Stale);
             }
             let (seq, hash) = head_of(&self.conn, run_id)?;
+            between();
             current(&self.conn, run_id, (seq, &hash))
         })
     }

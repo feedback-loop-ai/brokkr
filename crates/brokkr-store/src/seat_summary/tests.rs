@@ -162,6 +162,46 @@ fn an_append_with_no_fold_or_one_at_another_head_writes_no_seat_row() {
     lags(&mut store, &["r"]);
 }
 
+/// A read is one snapshot: a peer that appends to the run and refolds it
+/// after the read took the run's last event leaves the read at that
+/// event, with that head's rows, never naming one instant's head beside
+/// another's seat head.
+#[test]
+fn a_seat_read_is_one_snapshot_whatever_a_peer_writes_meanwhile() {
+    let (_dir, mut store) = store();
+    seated(&mut store, "r");
+    let before = folded_rows(&store, "r");
+    let mut peer = Store::open(store.path()).unwrap();
+    let found = store.seat_rows_with("r", || {
+        let more = checkpoint(Some("m"), 2);
+        append(&mut peer, "r", EventType::EffectCheckpointed, more);
+        peer.refold("r", &mut |_| {}).unwrap();
+    });
+    assert_eq!(found.unwrap(), SeatRows::Current(before));
+    assert_eq!(read(&store, "r"), folded_rows(&store, "r"));
+    assert_eq!(read(&store, "r").len(), 3);
+}
+
+/// A participant's costs summed past `f64::MAX` keep their sum, an
+/// infinity, which its seat row reads back current and as its fold.
+#[test]
+fn a_cost_summed_to_an_infinity_reads_current_as_its_fold() {
+    let (_dir, mut store) = store();
+    seated(&mut store, "r");
+    for turn in [2, 3] {
+        let priced = json!({"step": "seat-turn", "turn": turn, "total_cost_usd": 1e308});
+        let payload = json!({"effect_id": "fx", "attempt_id": "a", "checkpoint": priced});
+        append(&mut store, "r", EventType::EffectCheckpointed, payload);
+    }
+    let rows = read(&store, "r");
+    assert_eq!(rows, folded_rows(&store, "r"));
+    let costs: Vec<Option<f64>> = brokkr_core::seat::row::facts(&rows)
+        .iter()
+        .map(|facts| facts.cost)
+        .collect();
+    assert_eq!(costs, [Some(f64::INFINITY)]);
+}
+
 /// How many seat rows `run_id` holds, whatever its seat head.
 fn read_raw(store: &Store, run_id: &str) -> i64 {
     let count = "SELECT count(*) FROM seat_summary WHERE run_id = ?1";
@@ -328,8 +368,9 @@ fn an_import_writes_the_rows_the_projection_gives() {
     assert_eq!(counted(&store, &runs), expected);
 }
 
-/// A row that holds what no writer writes, a blob, a real or a word no
-/// outcome is, reads as stale, never as a row.
+/// A row that holds what no writer writes, a blob, a real, a word no
+/// outcome is or an outcome its column's writer never writes, reads as
+/// stale, never as a row.
 #[test]
 fn a_row_no_writer_writes_reads_as_stale() {
     let (_dir, mut store) = store();
@@ -338,6 +379,7 @@ fn a_row_no_writer_writes_reads_as_stale() {
         "UPDATE seat_summary SET seat = x'00' WHERE opened = 1",
         "UPDATE seat_summary SET seat = 'worker', turns = 1.5 WHERE opened = 1",
         "UPDATE seat_summary SET turns = 1, ended = 'done' WHERE opened = 1",
+        "UPDATE seat_summary SET ended_seq = 6, ended = 'carried' WHERE opened = 1",
     ] {
         sql(&store, edit);
         assert_eq!(store.seat_rows("r").unwrap(), SeatRows::Stale, "{edit}");

@@ -32,10 +32,22 @@ fn every_outcome_is_kept_by_its_word() {
         words,
         ["working", "succeeded", "failed", "indeterminate", "carried"]
     );
-    for outcome in outcomes {
-        assert_eq!(Outcome::of_word(outcome.word()), Some(outcome));
-    }
-    assert_eq!(Outcome::of_word("done"), None);
+    let concluded: Vec<Option<Outcome>> = words
+        .iter()
+        .chain(&["done"])
+        .map(|word| Outcome::concluded(word))
+        .collect();
+    assert_eq!(
+        concluded,
+        [
+            None,
+            Some(Outcome::Succeeded),
+            Some(Outcome::Failed),
+            Some(Outcome::Indeterminate),
+            None,
+            None,
+        ]
+    );
 }
 
 /// A row every column of which holds a value: each count 1, each word its
@@ -70,7 +82,8 @@ fn text(word: &str) -> Datum {
 /// Each value a row may hold without its every part reads back as the
 /// data it was read from: a provider named by none, a carried member's
 /// source named by none, a member's finish pinning no outcome, a session
-/// reporting no cost, a meter with no tokens.
+/// reporting no cost, a meter with no tokens; and a finish pinning
+/// `working`, and a cost summed past `f64::MAX`.
 #[test]
 fn a_row_holding_each_part_it_may_omit_reads_back_as_its_data() {
     let usage = [
@@ -90,6 +103,8 @@ fn a_row_holding_each_part_it_may_omit_reads_back_as_its_data() {
         vec![("session_cost", Datum::Null)],
         vec![("metered_settles", Datum::Integer(0))],
         untokened,
+        vec![("pin", text("working"))],
+        vec![("spent", Datum::Integer(f64::INFINITY.to_bits() as i64))],
     ];
     for columns in variants {
         let data = with(&columns);
@@ -99,9 +114,9 @@ fn a_row_holding_each_part_it_may_omit_reads_back_as_its_data() {
 }
 
 /// Data no row writes is no row: a value of another type than its
-/// column's, a cost that is a NaN or an infinity, a flag that is neither,
-/// a word no outcome is, a part of a value without the rest, and more or
-/// fewer values than columns.
+/// column's, a flag that is neither, a word no outcome is or one its
+/// column's writer never writes, a part of a value without the rest, and
+/// more or fewer values than columns.
 #[test]
 fn data_no_row_writes_reads_as_none() {
     let none = || Datum::Null;
@@ -111,12 +126,10 @@ fn data_no_row_writes_reads_as_none() {
         .map(|(name, _)| (*name, Datum::Null))
         .collect();
     let metered_untagged = [("metered_turn", none()), ("metered_settles", none())];
-    let bits = |cost: f64| Datum::Integer(cost.to_bits() as i64);
     let refused: Vec<Vec<(&str, Datum)>> = vec![
-        vec![("spent", bits(f64::NAN))],
-        vec![("spent", bits(f64::INFINITY))],
-        vec![("session_cost", bits(f64::NAN))],
-        vec![("session_cost", bits(f64::NEG_INFINITY))],
+        vec![("ended", text("carried"))],
+        vec![("ended", text("working"))],
+        vec![("pin", text("carried"))],
         vec![("request_seq", none())],
         vec![("effect_id", none())],
         vec![("since", text("1"))],
