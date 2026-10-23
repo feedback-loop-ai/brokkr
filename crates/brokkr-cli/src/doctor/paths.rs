@@ -46,9 +46,11 @@ pub(super) fn report_database(report: &mut Report, db: Result<&Path, &FolderErro
 /// such a run is corrupt. So is every run whose event index is not what
 /// its events project to, wherever its summary row stands, since the
 /// trigger keeps an index row and it never lags, and every run the index
-/// holds rows of that the journal does not. A summary the journal
-/// cannot be read for at all is one too. A journal whose every row agrees
-/// adds no line.
+/// holds rows of that the journal does not. So is every run whose seat
+/// rows stand at its head and are not its fold's; seat rows behind their
+/// head are a lag, as a summary row behind its head is. A summary the
+/// journal cannot be read for at all is one too. A journal whose every
+/// row agrees adds no line.
 fn report_summaries(report: &mut Report, store: &Store) {
     match store.summary_disagreements() {
         Ok(found) => {

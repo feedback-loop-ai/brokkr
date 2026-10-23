@@ -1,8 +1,9 @@
 //! Decision 0089 ruling 1: the engine decides on its own fold, never on a
-//! summary row or an event index row. The read model's readers are every
-//! public function of the store's summary and event index modules but the
-//! writer's hand-over, read from those modules' sources so a reader added
-//! later is held here without an edit, and the tables themselves by name;
+//! summary row, an event index row or a seat row. The read model's readers
+//! are every public function of the store's summary, event index and seat
+//! summary modules but the writer's hand-over, read from those modules'
+//! sources so a reader added later is held here without an edit, and the
+//! tables themselves by name;
 //! no `brokkr-runtime` production source names one. A test source may,
 //! since no decision runs in it.
 
@@ -70,18 +71,20 @@ fn naming(root: &Path, names: &[String]) -> Vec<String> {
 }
 
 /// The read model's readers: the tables, and every public function of the
-/// summary and event index modules but the writer's, each as a call.
+/// summary, event index and seat summary modules but the writer's, each
+/// as a call.
 fn readers() -> Vec<String> {
-    let summary = read("crates/brokkr-store/src/summary.rs");
-    let index = read("crates/brokkr-store/src/event_index.rs");
-    let mut readers = vec!["run_summary".to_string(), "event_index".to_string()];
-    readers.extend(
-        summary_functions(&summary)
-            .into_iter()
-            .chain(summary_functions(&index))
-            .filter(|name| name != WRITER)
-            .map(|name| format!("{name}(")),
-    );
+    let tables = ["run_summary", "event_index", "seat_summary", "seat_head"];
+    let mut readers: Vec<String> = tables.iter().map(|table| table.to_string()).collect();
+    for module in ["summary", "event_index", "seat_summary"] {
+        let source = read(&format!("crates/brokkr-store/src/{module}.rs"));
+        readers.extend(
+            summary_functions(&source)
+                .into_iter()
+                .filter(|name| name != WRITER)
+                .map(|name| format!("{name}(")),
+        );
+    }
     readers
 }
 
@@ -93,11 +96,14 @@ fn no_runtime_decision_names_a_projection_s_reader() {
         [
             "run_summary",
             "event_index",
+            "seat_summary",
+            "seat_head",
             "summary_disagreements(",
             "reads_index(",
             "index_trail(",
             "index_checkpoints(",
             "envelopes_at(",
+            "seat_rows(",
         ]
     );
     let named = naming(&workspace().join("crates/brokkr-runtime/src"), &readers);

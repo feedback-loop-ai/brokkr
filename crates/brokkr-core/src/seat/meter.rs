@@ -29,9 +29,9 @@ pub fn sum_usage(usages: impl Iterator<Item = TokenUsage>) -> Option<TokenUsage>
 /// reporting output, it settles the output its seat's turns streamed.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Meter {
-    turn: bool,
-    settles: bool,
-    usage: Option<TokenUsage>,
+    pub(crate) turn: bool,
+    pub(crate) settles: bool,
+    pub(crate) usage: Option<TokenUsage>,
 }
 
 /// Which of a seat's checkpoints meter it: its turns when any of them

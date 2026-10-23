@@ -82,6 +82,7 @@ mod read;
 mod redact;
 mod schema;
 mod seat_record;
+mod seat_summary;
 mod summary;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
@@ -98,6 +99,7 @@ pub use queue::{
 pub use redact::{redact_export, Redactor};
 pub use schema::DATABASE_SCHEMA;
 pub use seat_record::{validate_seat_record, SeatRecordError, SeatRecordVersion};
+pub use seat_summary::SeatRows;
 pub use summary::Disagreement;
 
 use brokkr_core::summary::{Account, Summary};
@@ -287,8 +289,9 @@ fn create_run_once(
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![run_id, feature, bundle_name, manifest, created_at, origin],
     )?;
-    let empty = Summary::of(&Account::empty(run_id), listed.listing());
-    summary::write(&tx, run_id, &empty)?;
+    let empty = Account::empty(run_id);
+    summary::write(&tx, run_id, &Summary::of(&empty, listed.listing()))?;
+    seat_summary::write_head(&tx, run_id, empty.head())?;
     tx.commit()?;
     Ok(listed)
 }

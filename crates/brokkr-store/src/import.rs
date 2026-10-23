@@ -11,8 +11,8 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::{
-    now_rfc3339, patiently, refuse_existing, seat_record, summary, SeatRecordError, Store,
-    StoreError,
+    now_rfc3339, patiently, refuse_existing, seat_record, seat_summary, summary, SeatRecordError,
+    Store, StoreError,
 };
 
 /// Why an adoption refused. Every variant refuses the import WHOLE:
@@ -99,8 +99,9 @@ fn adoptable(character: char) -> bool {
 /// character the gate does not allow becomes its codepoint, so the one
 /// line naming the refusal is ASCII by construction — an id that reached
 /// here precisely by being unprintable does not get to reorder the
-/// sentence that turns it away. The predicate is the gate's own, so the
-/// two can never drift apart.
+/// sentence that turns it away. The predicate is adoption's own, the
+/// stricter of the two gates that print by it, so those two can never
+/// drift apart and a writer's refusal is ASCII too.
 fn escaped(run_id: &str) -> String {
     run_id
         .chars()
@@ -203,7 +204,7 @@ fn adopt_once(
     row: &RunsRow<'_>,
     arrival: &Arrival,
     events: &[EventEnvelope],
-    summary: &Summary,
+    (account, summary): (&Account, &Summary),
 ) -> Result<(), StoreError> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     // Gate 5 inside the transaction that would write, so a concurrent
@@ -233,6 +234,7 @@ fn adopt_once(
         tx.execute(INSERT_EVENT, row_values)?;
     }
     summary::write(&tx, row.run_id, summary)?;
+    seat_summary::write(&tx, account, None)?;
     tx.commit()?;
     Ok(())
 }
@@ -328,11 +330,12 @@ impl Store {
             feature: &row.feature,
             created_at: row.created_at,
         };
-        let summary = Summary::of(&Account::whole(row.run_id, &events), listing);
+        let account = Account::whole(row.run_id, &events);
+        let summary = Summary::of(&account, listing);
 
         let conn = &mut self.conn;
         patiently("import_run", self.patience, || {
-            adopt_once(conn, &row, &arrival, &events, &summary)
+            adopt_once(conn, &row, &arrival, &events, (&account, &summary))
         })
         .map_err(|refused| match refused {
             StoreError::RunExists(run_id) => ImportError::Collision(run_id),

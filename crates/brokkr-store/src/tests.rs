@@ -10,6 +10,7 @@ use serde_json::json;
 pub(crate) mod env_guard;
 #[path = "../../../tests/support/envelope.rs"]
 pub(crate) mod envelope_builder;
+pub(crate) mod walk;
 use envelope_builder::EnvelopeBuilder;
 
 pub(crate) fn store() -> (tempfile::TempDir, Store) {

@@ -3,7 +3,7 @@ use crate::envelope_builder;
 use crate::summary::Account;
 
 #[path = "../../../../../tests/support/seat_rows.rs"]
-mod journals;
+pub(super) mod journals;
 
 use journals::at;
 

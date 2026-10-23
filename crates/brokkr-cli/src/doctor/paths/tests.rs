@@ -15,15 +15,20 @@ fn journal(dir: &Path, runs: &[&str]) -> PathBuf {
     let db = dir.join("forge.db");
     let mut store = Store::open(&db).unwrap();
     for run in runs {
-        store
-            .create_run(run, "a feature", "self", &json!({}))
-            .unwrap();
-        let opened = json!({"feature": "a feature", "manifest": {}});
-        store
-            .append_next(run, EventType::RunStarted, opened, None, None)
-            .unwrap();
+        started(&mut store, run);
     }
     db
+}
+
+/// `run` created and started by `store`, which carries its fold.
+fn started(store: &mut Store, run: &str) {
+    store
+        .create_run(run, "a feature", "self", &json!({}))
+        .unwrap();
+    let opened = json!({"feature": "a feature", "manifest": {}});
+    store
+        .append_next(run, EventType::RunStarted, opened, None, None)
+        .unwrap();
 }
 
 fn edit(db: &Path, statements: &str) {
@@ -163,4 +168,55 @@ fn an_event_index_that_is_not_its_events_is_a_failure_named_by_its_seq() {
              holds no event",
         ]
     );
+}
+
+/// `run` created in `db`, started, and its effect requested: its seat
+/// rows, the request's own.
+fn requested(db: &Path, run: &str) {
+    let mut store = Store::open(db).unwrap();
+    started(&mut store, run);
+    let requested = json!({"effect_id": "fx", "seat": "worker"});
+    store
+        .append_next(run, EventType::EffectRequested, requested, None, None)
+        .unwrap();
+}
+
+/// A seat row that stands at its run's head and is not its fold's is a
+/// failure, named by the run, the row's place and its first differing
+/// column (decision 0089 ruling 4).
+#[test]
+fn a_seat_row_at_its_head_that_is_not_its_fold_s_is_a_failure_named_by_its_column() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = journal(dir.path(), &[]);
+    requested(&db, "seated");
+    edit(&db, "UPDATE seat_summary SET seat = 'other'");
+    let mut report = report();
+    report_database(&mut report, Ok(&db));
+    assert!(!report.healthy);
+    assert_eq!(
+        report.lines[1..],
+        [
+            "MISSING  summary: run 'seated': its seat rows stand at its head, and the seat of its \
+          seat row 0 is not its fold's"
+        ]
+    );
+}
+
+/// Seat rows behind their run's head, as a writer from before them
+/// leaves them until the next writable open refolds them, are a lag, as
+/// a summary row's is: no line, whatever they hold.
+#[test]
+fn seat_rows_behind_their_head_add_no_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = journal(dir.path(), &[]);
+    requested(&db, "lagging");
+    let store = Store::open(&db).unwrap();
+    edit(
+        &db,
+        "UPDATE seat_head SET folded_seq = 1; UPDATE seat_summary SET seat = 'other';",
+    );
+    let mut report = report();
+    report_summaries(&mut report, &store);
+    assert!(report.healthy);
+    assert_eq!(report.lines, Vec::<String>::new());
 }

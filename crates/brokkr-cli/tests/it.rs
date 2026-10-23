@@ -73,6 +73,7 @@ mod retired_overrides;
 mod run_it_tests;
 mod script_gates;
 mod seat_items;
+mod seat_rows;
 mod shelf;
 mod status_pages;
 mod suppressions;

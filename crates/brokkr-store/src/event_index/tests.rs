@@ -8,6 +8,7 @@
 use super::*;
 use crate::test_support::{plant_event, plant_run, unindex};
 use crate::tests::envelope_builder::EnvelopeBuilder;
+use crate::tests::walk::cut_short;
 use crate::tests::{store, write_lock_on};
 use serde_json::{json, Value as Json};
 
@@ -332,17 +333,9 @@ fn a_backfill_cut_short_by_a_peer_s_lock_resumes_where_it_stopped() {
     lock.execute_batch("ROLLBACK").unwrap();
     assert!(!backfilled(&store));
     assert!(rows(&store, "a").is_empty());
-    let mut peer = None;
-    let mut reached = 0;
-    let stage = |_: &Connection| {
-        reached += 1;
-        if reached == 2 {
-            peer = Some(write_lock_on(&path));
-        }
-    };
-    store
-        .quietly(|store| store.index_behind_with(stage))
-        .unwrap();
+    let peer = cut_short(&mut store, &path, |store, stage| {
+        store.index_behind_with(stage)
+    });
     let indexed: Vec<usize> = ["a", "b", "c"]
         .iter()
         .map(|run_id| rows(&store, run_id).len())
@@ -351,7 +344,7 @@ fn a_backfill_cut_short_by_a_peer_s_lock_resumes_where_it_stopped() {
     assert!(!backfilled(&store));
     assert!(!store.reads_index().unwrap());
     drop(store);
-    peer.unwrap().execute_batch("ROLLBACK").unwrap();
+    peer.execute_batch("ROLLBACK").unwrap();
     let store = Store::open(&path).unwrap();
     assert!(backfilled(&store));
     for run_id in ["a", "b", "c"] {

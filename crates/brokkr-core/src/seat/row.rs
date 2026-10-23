@@ -30,6 +30,10 @@ use super::{
 use crate::envelope::{EventEnvelope, EventType};
 use crate::residual::text as field;
 
+mod kept;
+
+pub use kept::Datum;
+
 /// Whose row it is: the seat's own, or one of its sites', by the tag its
 /// records carry: a panel member, a sequence step.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]

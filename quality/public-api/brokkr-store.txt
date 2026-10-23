@@ -10,6 +10,10 @@ pub brokkr_store::Disagreement::Indexed::run_id: alloc::string::String
 pub brokkr_store::Disagreement::Indexed::seq: u64
 pub brokkr_store::Disagreement::Missing
 pub brokkr_store::Disagreement::Missing::run_id: alloc::string::String
+pub brokkr_store::Disagreement::Seated
+pub brokkr_store::Disagreement::Seated::fault: brokkr_store::IndexFault
+pub brokkr_store::Disagreement::Seated::row: u64
+pub brokkr_store::Disagreement::Seated::run_id: alloc::string::String
 pub brokkr_store::Disagreement::Unread
 pub brokkr_store::Disagreement::Unread::error: brokkr_store::StoreError
 pub brokkr_store::Disagreement::Unread::run_id: alloc::string::String
@@ -89,6 +93,9 @@ pub brokkr_store::SeatRecordVersion::V6
 impl brokkr_store::SeatRecordVersion
 pub fn brokkr_store::SeatRecordVersion::contract(self) -> &'static str
 pub fn brokkr_store::SeatRecordVersion::of_engine(&str) -> brokkr_store::SeatRecordVersion
+pub enum brokkr_store::SeatRows
+pub brokkr_store::SeatRows::Current(alloc::vec::Vec<brokkr_core::seat::row::SeatRow>)
+pub brokkr_store::SeatRows::Stale
 pub enum brokkr_store::StoreError
 pub brokkr_store::StoreError::AlreadyAcknowledged
 pub brokkr_store::StoreError::AlreadyAcknowledged::run_id: alloc::string::String
@@ -242,6 +249,8 @@ pub fn brokkr_store::Store::queue_entry(&self, brokkr_store::EntryId) -> core::r
 pub fn brokkr_store::Store::queue_latch(&mut self, brokkr_store::EntryId, &str, brokkr_store::Seen, brokkr_store::Attribution<'_>) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_list(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::QueueEntry>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_repin(&mut self, brokkr_store::EntryId, &str, brokkr_store::Seen, brokkr_store::Attribution<'_>) -> core::result::Result<(), brokkr_store::StoreError>
+impl brokkr_store::Store
+pub fn brokkr_store::Store::seat_rows(&self, &str) -> core::result::Result<brokkr_store::SeatRows, brokkr_store::StoreError>
 pub struct brokkr_store::Unread
 pub brokkr_store::Unread::order_at: i64
 pub brokkr_store::Unread::run_id: alloc::string::String

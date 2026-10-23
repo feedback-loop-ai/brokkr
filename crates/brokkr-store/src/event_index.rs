@@ -158,27 +158,35 @@ pub(crate) fn migrate_index(conn: &Connection) -> Result<(), StoreError> {
     Ok(conn.execute_batch(&migration())?)
 }
 
-/// Record that the backfill finished, once its walk found every event's
-/// row: the one place the key is written, a new journal's included.
-fn mark_indexed(conn: &Connection) -> Result<(), StoreError> {
+/// Record that the backfill `key` names finished.
+pub(crate) fn mark_finished(conn: &Connection, key: &str) -> Result<(), StoreError> {
     let marked = conn.execute(
         "INSERT OR IGNORE INTO meta (key, value) VALUES (?1, 'finished')",
-        [BACKFILLED],
+        [key],
     );
     marked?;
     Ok(())
 }
 
-/// Has the backfill finished?
-fn indexed(conn: &Connection) -> Result<bool, StoreError> {
+/// Has the backfill `key` names finished?
+pub(crate) fn finished(conn: &Connection, key: &str) -> Result<bool, StoreError> {
     let finished: Option<String> = conn
-        .query_row(
-            "SELECT value FROM meta WHERE key = ?1",
-            [BACKFILLED],
-            |row| row.get(0),
-        )
+        .query_row("SELECT value FROM meta WHERE key = ?1", [key], |row| {
+            row.get(0)
+        })
         .optional()?;
     Ok(finished.is_some())
+}
+
+/// Record that the backfill finished, once its walk found every event's
+/// row: the one place the key is written, a new journal's included.
+fn mark_indexed(conn: &Connection) -> Result<(), StoreError> {
+    mark_finished(conn, BACKFILLED)
+}
+
+/// Has the backfill finished?
+fn indexed(conn: &Connection) -> Result<bool, StoreError> {
+    finished(conn, BACKFILLED)
 }
 
 /// The rows a run's events that have none yet project to, as the trigger
@@ -257,15 +265,16 @@ fn seqs(conn: &Connection, sql: &str, bound: impl Params) -> Result<Vec<u64>, St
 }
 
 /// How a run's index stands against its events (ruling 4), at the first
-/// seq where they part.
+/// seq where they part, or its seat rows against its fold, at the first
+/// row's place where they part.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IndexFault {
-    /// The event has no row.
+    /// The event, or the fold's row, has no row.
     Missing,
-    /// The event's row holds, in this column, the first, what the event
-    /// does not project to.
+    /// The row holds, in this column, the first, what the event projects
+    /// or the fold's row holds otherwise.
     Column(&'static str),
-    /// A row stands where the run holds no event.
+    /// A row stands where the run holds no event, or the fold no row.
     Stray,
 }
 
@@ -300,14 +309,39 @@ pub(crate) fn first_unindexed(
     events: &[EventEnvelope],
 ) -> Result<Option<(u64, IndexFault)>, StoreError> {
     let mut statement = conn.prepare_cached(ROWS)?;
-    let mut rows = statement.query([run_id])?;
-    let mut events = events.iter();
+    let rows = statement.query([run_id])?;
+    first_parted(
+        rows,
+        events.iter().map(|event| (event.seq, projects(event))),
+    )
+}
+
+/// The columns `event` projects to after its key, by name.
+fn projects(event: &EventEnvelope) -> Vec<(&'static str, Value)> {
+    let indexed = Indexed::of(event);
+    let text = |text: Option<&str>| text.map_or(Value::Null, |text| Value::Text(text.into()));
+    vec![
+        ("type", text(Some(indexed.event_type.as_str()))),
+        ("attempt_id", text(indexed.attempt_id)),
+        ("member", text(indexed.member)),
+        ("recorded_at", text(Some(indexed.recorded_at))),
+    ]
+}
+
+/// The first key where `rows`, each its key and then its columns, part
+/// from `expected`, each a key and the columns its row should hold, both
+/// in key order, and how: the rows streamed beside what is expected, so a
+/// comparison holds one row at a time.
+pub(crate) fn first_parted(
+    mut rows: rusqlite::Rows<'_>,
+    mut expected: impl Iterator<Item = (u64, Vec<(&'static str, Value)>)>,
+) -> Result<Option<(u64, IndexFault)>, StoreError> {
     loop {
-        let found = match (events.next(), rows.next()?) {
+        let found = match (expected.next(), rows.next()?) {
             (None, None) => return Ok(None),
-            (Some(event), None) => Some((event.seq, IndexFault::Missing)),
+            (Some((key, _)), None) => Some((key, IndexFault::Missing)),
             (None, Some(row)) => Some((row.get(0)?, IndexFault::Stray)),
-            (Some(event), Some(row)) => parted(event, row)?,
+            (Some((key, columns)), Some(row)) => parted(key, &columns, row)?,
         };
         if found.is_some() {
             return Ok(found);
@@ -315,30 +349,24 @@ pub(crate) fn first_unindexed(
     }
 }
 
-/// Where `row` parts from `event`, each the next of its kind in seq order.
+/// Where `row` parts from the row expected at `key`, each the next of
+/// its kind in key order.
 fn parted(
-    event: &EventEnvelope,
+    key: u64,
+    expected: &[(&'static str, Value)],
     row: &rusqlite::Row<'_>,
 ) -> Result<Option<(u64, IndexFault)>, StoreError> {
-    let seq: u64 = row.get(0)?;
-    if seq != event.seq {
-        return Ok(Some(if seq > event.seq {
-            (event.seq, IndexFault::Missing)
+    let found: u64 = row.get(0)?;
+    if found != key {
+        return Ok(Some(if found > key {
+            (key, IndexFault::Missing)
         } else {
-            (seq, IndexFault::Stray)
+            (found, IndexFault::Stray)
         }));
     }
-    let indexed = Indexed::of(event);
-    let text = |text: Option<&str>| text.map_or(Value::Null, |text| Value::Text(text.into()));
-    let expected = [
-        ("type", text(Some(indexed.event_type.as_str()))),
-        ("attempt_id", text(indexed.attempt_id)),
-        ("member", text(indexed.member)),
-        ("recorded_at", text(Some(indexed.recorded_at))),
-    ];
-    for (at, (column, value)) in expected.into_iter().enumerate() {
-        if row.get::<_, Value>(at + 1)? != value {
-            return Ok(Some((seq, IndexFault::Column(column))));
+    for (at, (column, value)) in expected.iter().enumerate() {
+        if row.get::<_, Value>(at + 1)? != *value {
+            return Ok(Some((key, IndexFault::Column(column))));
         }
     }
     Ok(None)

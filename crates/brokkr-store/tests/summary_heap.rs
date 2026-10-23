@@ -1,5 +1,5 @@
-//! `brokkr doctor`'s summary comparison holds one run at a time
-//! (decision 0089 ruling 4): its peak heap is the largest run's, never
+//! `brokkr doctor`'s summary comparison, its seat rows' included, holds
+//! one run at a time (decision 0089 ruling 4): its peak heap is the largest run's, never
 //! the journal's, however many runs the journal lists. A writable open's
 //! catch-up holds one behind run at a time too (rulings 3 and 8).
 //!
@@ -150,6 +150,38 @@ fn the_comparison_holds_one_run_s_events_and_index_at_a_time() {
         many < bound,
         "comparing {RUNS} runs of {EVENTS} {PAYLOAD}-byte events held {many} bytes at its \
          peak, and one run {one}; the bound is {bound}"
+    );
+}
+
+/// Each run's requests, and the bytes of each one's effect id, which its
+/// seat row holds.
+const SEATS: usize = 32;
+const EFFECT_ID: usize = 32 << 10;
+
+/// The comparison over `RUNS` runs of `SEATS` seat rows each, every row
+/// holding an `EFFECT_ID`-byte effect id, peaks within one run's rows of
+/// the comparison over one: a run's seat rows are streamed beside its
+/// fold, one run at a time (decision 0089 ruling 4).
+#[test]
+fn the_comparison_holds_one_run_s_seat_rows_at_a_time() {
+    let _turn = turn();
+    let (one, many) = peaks_of_one_and_many(|store, run_id| {
+        store
+            .create_run(run_id, "feat", "self", &json!({}))
+            .unwrap();
+        for at in 0..SEATS {
+            let event = brokkr_core::EventType::EffectRequested;
+            let payload = json!({"effect_id": format!("{at:0EFFECT_ID$}"), "seat": "worker"});
+            store
+                .append_next(run_id, event, payload, None, None)
+                .unwrap();
+        }
+    });
+    let bound = one + (SEATS * EFFECT_ID) as isize;
+    assert!(
+        many < bound,
+        "comparing {RUNS} runs of {SEATS} seat rows of {EFFECT_ID}-byte effect ids held \
+         {many} bytes at its peak, and one run {one}; the bound is {bound}"
     );
 }
 
