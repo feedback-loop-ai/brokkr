@@ -7,7 +7,7 @@
 use std::hint::black_box;
 use std::path::PathBuf;
 
-use brokkr_core::envelope::{EventEnvelope, EventType};
+use brokkr_core::envelope::EventEnvelope;
 use brokkr_core::fold::{fold, fold_onto, RunState};
 use brokkr_core::realms::Boundary;
 use brokkr_runtime::dialect::Dialect;
@@ -15,53 +15,16 @@ use brokkr_runtime::Bundle;
 use brokkr_store::test_support::Width;
 use gungraun::{library_benchmark, library_benchmark_group, main};
 
-/// A real exported run: 105 events, 88 of them checkpoints.
-const FIXTURE: &str =
-    include_str!("../../../fixtures/journals/tui-graph-the-selection-box-gets-80f98deb.ndjson");
+#[path = "../tests/heap/grown.rs"]
+mod grown;
 
-/// The largest run in the operator's journal when #342 was filed. The fold
-/// and the view are measured at the scale a long run makes them meet.
-const EVENTS: usize = 7_510;
+use grown::{journal, EVENTS};
 
 /// The clock the view derivation takes as an argument.
 const NOW: &str = "2026-09-26T00:00:00Z";
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
-
-/// The fixture grown to `EVENTS` events by repeating each checkpoint in
-/// place and renumbering: a long-running seat's journal is mostly its
-/// checkpoints. Fold checks protocol shape, not the hash chain (callers
-/// verify the chain first), so the grown journal folds as the fixture does.
-fn journal() -> Vec<EventEnvelope> {
-    let fixture: Vec<EventEnvelope> = FIXTURE
-        .lines()
-        .map(|line| serde_json::from_str(line).expect("the fixture is an exported journal"))
-        .collect();
-    let is_checkpoint = |event: &EventEnvelope| event.event_type == EventType::EffectCheckpointed;
-    let checkpoints = fixture.iter().filter(|event| is_checkpoint(event)).count();
-    let spare = EVENTS - (fixture.len() - checkpoints);
-    let mut remainder = spare % checkpoints;
-    let mut grown = Vec::with_capacity(EVENTS);
-    for event in fixture {
-        let copies = match is_checkpoint(&event) {
-            true => spare / checkpoints + usize::from(remainder > 0),
-            false => 1,
-        };
-        remainder = remainder.saturating_sub(usize::from(is_checkpoint(&event)));
-        for _ in 0..copies {
-            let mut copy = event.clone();
-            copy.seq = grown.len() as u64 + 1;
-            grown.push(copy);
-        }
-    }
-    assert_eq!(
-        grown.len(),
-        EVENTS,
-        "the grown journal has the budget's size"
-    );
-    grown
 }
 
 /// The state the grown journal's first 7,509 events fold to, and its last
@@ -171,9 +134,34 @@ fn fleet_page(journal: (tempfile::TempDir, PathBuf)) -> String {
     )
 }
 
+/// A journal holding the grown run alone, its events chained, and the
+/// directory that holds it while it is read.
+fn chained_journal() -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().expect("a scratch directory");
+    let db = dir.path().join("forge.db");
+    drop(brokkr_store::Store::open(&db).expect("a fresh journal opens"));
+    grown::planted(&db, &grown::chained(journal()));
+    (dir, db)
+}
+
+// Opening the grown run (decision 0089 ruling 5): its read-only open, and
+// its chain read in seq order and verified one envelope at a time, at
+// ruling 7's rate of about 2.5 µs an event.
+#[library_benchmark]
+#[bench::events_7510(setup = chained_journal)]
+fn open_run(journal: (tempfile::TempDir, PathBuf)) -> brokkr_store::Opened {
+    let (_dir, db) = journal;
+    let store = brokkr_store::Store::open_read_only(black_box(&db)).expect("the journal opens");
+    black_box(
+        store
+            .open_run(black_box(grown::RUN))
+            .expect("the grown run opens"),
+    )
+}
+
 library_benchmark_group!(
     name = hot_paths;
-    benchmarks = fold_journal, fold_turn, run_view, compile_bundle, tui_frame, fleet_page
+    benchmarks = fold_journal, fold_turn, run_view, compile_bundle, tui_frame, fleet_page, open_run
 );
 
 main!(library_benchmark_groups = hot_paths);
