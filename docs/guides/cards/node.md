@@ -32,11 +32,22 @@ Three things to check before step 3:
   standing in its `PATH` directory as that one file, a volta shim as
   `~/.volta`, and an nvm version as its `bin` and `lib/node_modules`. The
   verifier puts the directory each was found in at the head of `PATH`,
-  and exports `VOLTA_HOME` for a volta shim. Only an install's own
-  directory is bound: one that holds anything else, such as a
-  `credentials` file, is refused, naming it. With no `npm` on `PATH`, or
-  one refused, `init` says so in one line, and the verifier fails with
-  that line.
+  and exports `VOLTA_HOME` for a volta shim. A tool's home is bound whole
+  only where the tool itself names it, `$VOLTA_HOME` or `~/.volta`,
+  `$BUN_INSTALL` or `~/.bun`, `$PNPM_HOME` or pnpm's default home, and
+  only where `PATH` found the binary in that home's own `bin` (pnpm's
+  home itself) and it resolves inside the home; `init` never climbs to a
+  directory above the one `PATH` named. Only an install's own directory
+  is bound: one that holds anything else, such as a `credentials` file,
+  is refused, naming it, and so is a node prefix's `bin` entry whose
+  links pass outside its `bin` and `lib/node_modules`, a binary that
+  resolves into no home its tool names and no node prefix, and a
+  directory whose name the verifier's `PATH` cannot carry (a `:`). With
+  no `npm` on `PATH`, or one refused, `init` says so in one line, and
+  the verifier fails with that line. A home its tool's variable names is
+  trusted below its top-level names: `BUN_INSTALL=/srv/t` binds `/srv/t`
+  whole when it holds only `bin` and `install`, whatever `install`
+  holds.
 
 The full transcript, annotated: [starters/node.md](../starters/node.md).
 

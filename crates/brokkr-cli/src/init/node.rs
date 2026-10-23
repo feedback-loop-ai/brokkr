@@ -9,24 +9,35 @@
 //! head of `PATH`. Nothing is re-resolved when a run starts.
 //!
 //! A binary is found where `PATH` lookup finds it: the first file of its
-//! name, followed through links, that this user may execute. One whose
-//! real file stands in the directory `PATH` found it in is bound alone,
-//! as that one file. Otherwise, and for a volta shim (`~/.volta/bin/npm`
-//! linking to `~/.volta/bin/volta-shim`, which runs the images under
-//! `~/.volta/tools`), the install has a root: the nearest directory
-//! holding both the real file and the `PATH` directory, starting from that
-//! directory's parent when it is a `bin`, and from the directory itself
-//! when it is not. Nothing is bound that holds more than the install
-//! (#717): the root must be one of the [`Layout`]s `init` recognises, and
-//! every entry it holds one that layout names, or it is refused, naming
-//! the entry. Volta's root, bun's and pnpm's home are bound whole; a node
-//! prefix, which cannot be told from a prefix other software shares, only
-//! by its `bin` and `lib/node_modules`. A binary whose directory and file
-//! both stand under a toolchain root every box already reads read-only
-//! (`HOST_TOOLCHAIN_BINDS`) adds no bind. A root that would bind `$HOME`,
-//! an ancestor of it, `~/.local` whole or `/` is refused before its
-//! entries are read, and so is a binary not found: either way verify fails
+//! name, followed through links, that this user may execute. Nothing is
+//! bound that holds more than the install (#717), and no root is found by
+//! climbing to an ancestor. A tool-managed home is one only where the tool
+//! itself names it ([`Homes`]): `$VOLTA_HOME` or `~/.volta`, `$BUN_INSTALL`
+//! or `~/.bun`, `$PNPM_HOME` or pnpm's default data directory. It is bound
+//! whole where `PATH` found the binary in the home's own runner directory
+//! (its `bin`, or pnpm's home itself), the real file stands inside it, and
+//! every entry it holds is one its [`Layout`] names; a volta shim
+//! (`~/.volta/bin/npm` linking to `~/.volta/bin/volta-shim`, which runs the
+//! images under `~/.volta/tools`) is bound so even standing in its `bin`.
+//! Otherwise a binary whose real file stands in its `PATH` directory is
+//! bound alone, as that one file; one found in a `bin` whose parent holds
+//! its real file is a node prefix, which cannot be told from a prefix other
+//! software shares, and is bound only by its `bin` and `lib/node_modules`;
+//! and anything else is refused, naming the file it resolves to. A binary
+//! whose directory and file both stand under a toolchain root every box
+//! already reads read-only (`HOST_TOOLCHAIN_BINDS`) adds no bind. A root
+//! that would bind `$HOME`, an ancestor of it, `~/.local` whole or `/` is
+//! refused before its entries are read, even where a tool's variable names
+//! it, and so is a binary not found, or one whose path the verifier's
+//! `PATH` or `bundle.json` cannot carry exactly: each way verify fails
 //! closed with the sentence `init` printed.
+//!
+//! The residual, at the operator's bar ("a tool-managed home is the
+//! install; its named entries' contents are the tool's own"): only a
+//! home's top-level names are read, so a home the tool's own variable
+//! names is trusted below them. `BUN_INSTALL=/srv/t`, where `/srv/t` holds
+//! only `bin` and `install`, binds `/srv/t` whole, whatever `install`
+//! holds.
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Component, Path, PathBuf};
@@ -38,7 +49,7 @@ use super::{shell_literal, Tool};
 /// The node-family runners the detection tables can lead a command with,
 /// and whether each runs on the `node` it finds on `PATH`: npm, npx,
 /// pnpm and yarn are node programs, and bun is its own runtime.
-const RUNNERS: &[(&str, bool)] = &[
+const FAMILY: &[(&str, bool)] = &[
     ("npm", true),
     ("npx", true),
     ("pnpm", true),
@@ -77,11 +88,33 @@ pub(super) enum Unbound {
     /// The root's entries, or a node prefix's `bin`, could not be listed,
     /// or the prefix has no `lib/node_modules` directory of its own.
     Unreadable,
+    /// The binary resolves to this file, outside the home or prefix it
+    /// was found in.
+    Outside(PathBuf),
+    /// The binary resolves to this file, and the `PATH` directory it was
+    /// found in is no home its tool names, nor a node prefix's `bin`.
+    Unowned(PathBuf),
+    /// The path cannot be written into the verifier's `PATH` or
+    /// `bundle.json` exactly.
+    Uncarried(Flaw),
+}
+
+/// What keeps a resolved path from being written exactly where `init`
+/// writes it.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Flaw {
+    /// A `:` in a directory exported on `PATH`, which splits it there.
+    Colon,
+    /// A newline, which the verifier's lines cannot carry.
+    Newline,
+    /// A byte that is not UTF-8, which `bundle.json` cannot carry.
+    NotUtf8,
 }
 
 /// An install layout `init` recognises, by the top-level entries each
 /// tool's own installer documents. No layout names a dotfile, and none a
-/// credential.
+/// credential. A tool's home is held to its layout only where [`Homes`]
+/// identifies it, never by the shape of a directory.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Layout {
     /// A node release's prefix, as its tarball unpacks: an nvm version
@@ -203,38 +236,101 @@ impl Unbound {
                 layout.name()
             ),
             Unbound::Unreadable => "whose entries could not be read, and which".to_string(),
+            Unbound::Outside(real) => {
+                format!("which it resolves out of, to {}, and which", real.display())
+            }
+            Unbound::Unowned(real) => format!(
+                "where it resolves to {}, in no home its tool names and no node prefix, \
+                 and which",
+                real.display()
+            ),
+            Unbound::Uncarried(Flaw::Colon) => {
+                "whose ':' would split the verifier's PATH, and which".to_string()
+            }
+            Unbound::Uncarried(Flaw::Newline) => {
+                "whose newline the verifier's lines cannot carry, and which".to_string()
+            }
+            Unbound::Uncarried(Flaw::NotUtf8) => {
+                "which is not UTF-8, as bundle.json must be, and which".to_string()
+            }
         }
     }
 }
 
+/// The homes the tools themselves name, canonical, beside the operator's
+/// `$HOME`.
+pub(super) struct Homes {
+    home: PathBuf,
+    tools: Vec<(Layout, PathBuf)>,
+}
+
+impl Homes {
+    /// Each tool's home as the tool names it, read from `var`, `init`'s
+    /// environment, and `os`: `$VOLTA_HOME`, else `~/.volta`;
+    /// `$BUN_INSTALL`, else `~/.bun`; `$PNPM_HOME`, else on macOS
+    /// `~/Library/pnpm`, and elsewhere `$XDG_DATA_HOME/pnpm` or
+    /// `~/.local/share/pnpm`. An empty variable is unset; one naming a
+    /// relative path names no home, nor does a home that does not exist.
+    pub(super) fn named(home: &Path, os: &str, var: impl Fn(&str) -> Option<OsString>) -> Homes {
+        let home = home.canonicalize().unwrap_or_else(|_| home.to_path_buf());
+        let under = |rest: &str| home.is_absolute().then(|| home.join(rest));
+        let named = |name: &str, default: Option<PathBuf>| match var(name)
+            .filter(|value| !value.is_empty())
+        {
+            Some(set) => Some(PathBuf::from(set)).filter(|set| set.is_absolute()),
+            None => default,
+        };
+        let pnpm = match os == "macos" {
+            true => under("Library/pnpm"),
+            false => named("XDG_DATA_HOME", under(".local/share")).map(|data| data.join("pnpm")),
+        };
+        let named = [
+            (Layout::Volta, named("VOLTA_HOME", under(".volta"))),
+            (Layout::Bun, named("BUN_INSTALL", under(".bun"))),
+            (Layout::PnpmHome, named("PNPM_HOME", pnpm)),
+        ];
+        let real =
+            |(layout, root): (Layout, Option<PathBuf>)| Some((layout, root?.canonicalize().ok()?));
+        let tools = named.into_iter().filter_map(real).collect();
+        Homes { home, tools }
+    }
+
+    /// The home whose own runner directory is `dir`: `bin` under volta's
+    /// and bun's, pnpm's home itself.
+    fn serving(&self, dir: &Path) -> Option<(Layout, PathBuf)> {
+        let runners = |layout: Layout, root: &Path| match layout {
+            Layout::PnpmHome => root.to_path_buf(),
+            Layout::Volta | Layout::Bun | Layout::NodePrefix => root.join("bin"),
+        };
+        let serves = |(layout, root): &&(Layout, PathBuf)| runners(*layout, root) == dir;
+        self.tools.iter().find(serves).cloned()
+    }
+}
+
 /// Resolve the node-family binaries `runners` names, and `node` where one
-/// of them runs on it, against `path`, with `home` the operator's `$HOME`.
-/// `None` when no runner is node-family.
-pub(super) fn reach(runners: &[Tool], path: &OsStr, home: &Path) -> Option<Reach> {
+/// of them runs on it, against `path`, with `homes` the operator's `$HOME`
+/// and the tools' own. `None` when no runner is node-family.
+pub(super) fn reach(runners: &[Tool], path: &OsStr, homes: &Homes) -> Option<Reach> {
     let named = |name: &&str| runners.iter().any(|tool| tool.name == *name);
-    let mut wanted: Vec<&'static str> = RUNNERS
-        .iter()
-        .map(|(name, _)| *name)
-        .filter(named)
-        .collect();
+    let mut wanted: Vec<&'static str> =
+        FAMILY.iter().map(|(name, _)| *name).filter(named).collect();
     if wanted.is_empty() {
         return None;
     }
-    if RUNNERS.iter().any(|(name, node)| *node && named(name)) {
+    if FAMILY.iter().any(|(name, node)| *node && named(name)) {
         wanted.push("node");
     }
-    let home = home.canonicalize().unwrap_or_else(|_| home.to_path_buf());
     let mut found = Found::default();
     for binary in wanted {
         let Some(install) = install(binary, path) else {
             return Some(Reach::Missing(binary));
         };
-        if let Err((root, unbound)) = found.add(install, &home) {
+        if let Err((root, unbound)) = found.add(install, homes) {
             return Some(Reach::Unbindable(binary, root, unbound));
         }
     }
     Some(Reach::Found {
-        binds: found.spelled(&home),
+        binds: found.spelled(&homes.home),
         path: found.path,
         volta: found.volta,
     })
@@ -284,30 +380,27 @@ struct Found {
 
 impl Found {
     /// Add one install: its directory to `PATH`, and what it binds unless
-    /// the box reads it already. `Err` is a root `init` will not bind, and
-    /// why.
-    fn add(&mut self, install: Install, home: &Path) -> Result<(), (PathBuf, Unbound)> {
-        let (root, layout) = root(&install);
-        if layout == Layout::Volta {
-            self.volta = Some(root.clone());
-        }
+    /// the box reads it already. `Err` is a root or path `init` will not
+    /// bind, and why.
+    fn add(&mut self, install: Install, homes: &Homes) -> Result<(), (PathBuf, Unbound)> {
+        // Every bind is the `PATH` directory, an entry in it, or a root
+        // above it (with `lib/node_modules`), so a newline or a byte not
+        // UTF-8 any bind holds, the directory holds first, and binds are
+        // not checked again: a_path_the_verifier_cannot_carry_is_refused
+        // plants the flaw in a root's own name.
+        carried(&install.dir)?;
         if !self.path.contains(&install.dir) {
             self.path.push(install.dir.clone());
+        }
+        let owner = owner(&install, homes);
+        if let Owner::Rooted(Layout::Volta, root) = &owner {
+            self.volta = Some(root.clone());
         }
         let paths = [install.dir.as_path(), install.real.as_path()];
         if paths.into_iter().all(read_by_every_box) {
             return Ok(());
         }
-        // A file standing in its `PATH` directory is bound alone, and a
-        // volta shim, which runs the images under its root, by its root.
-        let standing = install.real.parent() == Some(install.dir.as_path());
-        let bound = match standing & (layout != Layout::Volta) {
-            true => vec![install.entry],
-            false => {
-                rooted(&root, layout, &install.dir, home).map_err(|unbound| (root, unbound))?
-            }
-        };
-        for bind in bound {
+        for bind in owner.binds(install, &homes.home)? {
             if !self.binds.contains(&bind) {
                 self.binds.push(bind);
             }
@@ -328,18 +421,87 @@ impl Found {
     }
 }
 
+/// Whose an install is, by where `PATH` found it.
+enum Owner {
+    /// A root of this layout: a home its tool names, whose runner
+    /// directory `PATH` found it in, or the node prefix above the `bin` it
+    /// was found in.
+    Rooted(Layout, PathBuf),
+    /// No root: its real file stands in the `PATH` directory.
+    Standing,
+    /// None of these.
+    Unowned,
+}
+
+/// Whose `install` is. A volta shim is its home's even standing in the
+/// home's `bin`, as it runs the images under the home; any other file
+/// standing in its `PATH` directory is its own; then a home whose runner
+/// directory found it, and a `bin`'s parent. No ancestor is climbed to.
+fn owner(install: &Install, homes: &Homes) -> Owner {
+    let standing = install.real.parent() == Some(install.dir.as_path());
+    let bin = install.dir.file_name() == Some(OsStr::new("bin"));
+    match (homes.serving(&install.dir), standing) {
+        (Some((Layout::Volta, root)), _) => Owner::Rooted(Layout::Volta, root),
+        (_, true) => Owner::Standing,
+        (Some((layout, root)), false) => Owner::Rooted(layout, root),
+        (None, false) => match install.dir.parent().filter(|_| bin) {
+            Some(prefix) => Owner::Rooted(Layout::NodePrefix, prefix.to_path_buf()),
+            None => Owner::Unowned,
+        },
+    }
+}
+
+impl Owner {
+    /// What the install binds: the entry alone where it stands, else its
+    /// root as [`rooted`] rules; `Err` naming the root, or the `PATH`
+    /// directory where there is none, and why it is not bound.
+    fn binds(self, install: Install, home: &Path) -> Result<Vec<PathBuf>, (PathBuf, Unbound)> {
+        match self {
+            Owner::Standing => Ok(vec![install.entry]),
+            Owner::Rooted(layout, root) => {
+                rooted(&root, layout, &install, home).map_err(|unbound| (root, unbound))
+            }
+            Owner::Unowned => Err((install.dir, Unbound::Unowned(install.real))),
+        }
+    }
+}
+
 /// What a rooted install binds: its root whole where the root is a
 /// tool's own home, and a node prefix's `bin` (the `PATH` directory) and
-/// `lib/node_modules`; `Err` where the root is too broad or holds an
-/// entry its layout does not name.
-fn rooted(root: &Path, layout: Layout, bin: &Path, home: &Path) -> Result<Vec<PathBuf>, Unbound> {
+/// `lib/node_modules`; `Err` where the root is too broad, does not hold
+/// the real file, or holds an entry its layout does not name.
+fn rooted(
+    root: &Path,
+    layout: Layout,
+    install: &Install,
+    home: &Path,
+) -> Result<Vec<PathBuf>, Unbound> {
     if too_broad(root, home) {
         return Err(Unbound::TooBroad);
     }
+    if !install.real.starts_with(root) {
+        return Err(Unbound::Outside(install.real.clone()));
+    }
     holds_only(root, layout)?;
     match layout {
-        Layout::NodePrefix => prefix(root, bin),
+        Layout::NodePrefix => prefix(root, &install.dir),
         Layout::Volta | Layout::Bun | Layout::PnpmHome => Ok(vec![root.to_path_buf()]),
+    }
+}
+
+/// `Ok` where `dir`, a directory the verifier exports on `PATH`, is
+/// written exactly into its lines and `bundle.json`; else `Err` naming it
+/// and its flaw.
+fn carried(dir: &Path) -> Result<(), (PathBuf, Unbound)> {
+    let flaw = match dir.to_str() {
+        None => Some(Flaw::NotUtf8),
+        Some(text) if text.contains('\n') => Some(Flaw::Newline),
+        Some(text) if text.contains(':') => Some(Flaw::Colon),
+        Some(_) => None,
+    };
+    match flaw {
+        Some(flaw) => Err((dir.to_path_buf(), Unbound::Uncarried(flaw))),
+        None => Ok(()),
     }
 }
 
@@ -412,29 +574,6 @@ fn resolves_within(entry: &Path, binds: [&Path; 2]) -> bool {
         }
     }
     true
-}
-
-/// The install's root, and the layout it must hold to be bound: the
-/// nearest directory holding both the file the binary resolves to and
-/// its directory's parent where that directory is a `bin` (a node prefix,
-/// volta's or bun's root), or the directory itself where it is not
-/// (pnpm's home).
-fn root(install: &Install) -> (PathBuf, Layout) {
-    let bin = install.dir.file_name() == Some(OsStr::new("bin"));
-    let base = if bin {
-        install.dir.parent().unwrap_or(&install.dir)
-    } else {
-        &install.dir
-    };
-    let holds = |ancestor: &&Path| install.real.starts_with(ancestor);
-    let root = base.ancestors().find(holds).unwrap_or(Path::new("/"));
-    let layout = match (install.real.file_name().and_then(OsStr::to_str), bin) {
-        (Some("volta-shim"), _) => Layout::Volta,
-        (_, false) => Layout::PnpmHome,
-        (Some("bun"), true) => Layout::Bun,
-        (_, true) => Layout::NodePrefix,
-    };
-    (root.to_path_buf(), layout)
 }
 
 /// `Ok` when every entry `root` holds is one `layout` names; else the

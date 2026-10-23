@@ -15,9 +15,10 @@ commands are right.
     cargo clippy --workspace --all-targets --locked -- -D warnings # verifier
 ```
 
-- **`--locked` is deliberate.** The verifier refuses a lockfile the
-  change left out, and the implementer charter says to commit
-  `Cargo.lock` whenever the change creates or changes it.
+- **`--locked` is deliberate.** The verifier refuses a lockfile that
+  would have to be generated or changed, and the implementer charter
+  says to commit `Cargo.lock` whenever the change creates or changes it,
+  so the verifier resolves the versions the change was tested with.
 
 - **`-D warnings` is deliberate.** A lint that warns and exits 0 gives
   a gate seat nothing to fail on.

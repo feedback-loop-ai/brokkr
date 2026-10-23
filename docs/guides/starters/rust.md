@@ -202,9 +202,10 @@ Line by line, the parts that were chosen rather than fixed:
   implementer gets the arm's `build` and `test`. (The verifier gets
   `test` and `lint`; nobody gets all three, because the seat that builds
   and the seat that proves are asked for different things.)
-- **the `Cargo.lock` line** — the verifier runs `--locked`, so a
-  lockfile the change created and left uncommitted fails it rather than
-  leaving the tree dirty at ship (#717).
+- **the `Cargo.lock` line** — committed, `Cargo.lock` has the verifier
+  resolve the versions the change was tested with, and the verifier's
+  `--locked` refuses a lockfile that would have to be generated or
+  changed (#717). Left uncommitted, it does not fail `--locked`.
 - **the CARGO WORKSPACE paragraph** — this fixture's `Cargo.toml`
   carries a `[workspace]` table, so `init` says so. It adds no command:
   `--workspace` was already spanning every member crate. What was

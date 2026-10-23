@@ -1312,8 +1312,10 @@ fn commands(chosen: Option<(&Detected, &str, &str)>, placeholders: [&str; 2]) ->
     }
 }
 
-/// The one paragraph a cargo stack's charter adds below its commands: the
-/// verifier runs `--locked`, so a lockfile left out of the commit fails it.
+/// The one paragraph a cargo stack's charter adds below its commands:
+/// committing `Cargo.lock` has the verifier resolve the versions the change
+/// was tested with, and its `--locked` refuses a lockfile that would have
+/// to be generated or changed.
 const CARGO_LOCK: &str =
     "Commit `Cargo.lock` with the change whenever the change creates or changes it.\n\n";
 
@@ -1435,15 +1437,17 @@ pub(crate) struct Scaffold {
 /// grants, scripts and dialects an operator edits stand refused before
 /// this is reached. A `.gitignore` that already stands is kept. `path`
 /// and `os` are the machine's search path and operating system, read for
-/// the agent CLI and the boundary; `path` and `home`, the operator's
-/// `$HOME`, for where a node-family runner is installed.
+/// the agent CLI and the boundary; `path`, `os` and `home`, the operator's
+/// `$HOME`, with the variables naming volta's, bun's and pnpm's homes,
+/// read here, for where a node-family runner is installed.
 pub(crate) fn init(root: &Path, path: &std::ffi::OsStr, os: &str, home: &Path) -> Result<Scaffold> {
     let folder = root.join(FOLDER);
     let detection = detect(root);
     let mut host = host(path, os);
     let detected = detection.stack.as_ref();
     let grants = grants(detected);
-    let reach = detected.and_then(|stack| node::reach(&runner_tools(stack), path, home));
+    let homes = node::Homes::named(home, os, |name| std::env::var_os(name));
+    let reach = detected.and_then(|stack| node::reach(&runner_tools(stack), path, &homes));
     host.notes
         .extend(reach.as_ref().and_then(node::Reach::refusal));
     // One declaration per agent CLI a seat is hired from, then exec's.

@@ -932,15 +932,24 @@ fn a_cargo_charter_says_to_commit_its_lockfile() {
     }
 }
 
+/// The variables naming volta's, bun's and pnpm's homes, which `init`
+/// reads.
+const TOOL_HOMES: [&str; 4] = ["VOLTA_HOME", "BUN_INSTALL", "PNPM_HOME", "XDG_DATA_HOME"];
+
 /// `init` run with `PATH` and `HOME` under `aside`: a claude stub in
-/// `aside/bins`, then `extra` on `PATH`, so no host install is read.
-fn init_on(repo: &Path, aside: &Path, extra: &[PathBuf]) -> String {
+/// `aside/bins`, then `extra` on `PATH`, and of the tools' home variables
+/// only `vars`, so no host install is read.
+fn init_on(repo: &Path, aside: &Path, extra: &[PathBuf], vars: &[(&str, &Path)]) -> String {
     let bins = aside.join("bins");
     std::fs::create_dir_all(&bins).unwrap();
     std::fs::write(bins.join("claude"), "").unwrap();
     let path = std::env::join_paths(std::iter::once(bins).chain(extra.iter().cloned())).unwrap();
     let (code, _, stderr) = brokkr_with(&["init", "."], repo, |command| {
         command.env("PATH", &path).env("HOME", aside.join("home"));
+        for name in TOOL_HOMES {
+            command.env_remove(name);
+        }
+        command.envs(vars.iter().copied());
     });
     assert_eq!(code, Some(0), "{stderr}");
     stderr
@@ -965,7 +974,7 @@ fn a_volta_npm_folder_binds_the_volta_root_on_verify() {
     for shim in ["npm", "node"] {
         std::os::unix::fs::symlink("volta-shim", volta.join("bin").join(shim)).unwrap();
     }
-    let stderr = init_on(repo.path(), aside.path(), &[volta.join("bin")]);
+    let stderr = init_on(repo.path(), aside.path(), &[volta.join("bin")], &[]);
     assert!(!stderr.contains("was not found on PATH when"), "{stderr}");
     let bundle = repo.path().join(".brokkr");
     let source = read_json(&bundle.join("bundle.json"));
@@ -1003,7 +1012,7 @@ fn a_volta_npm_folder_binds_the_volta_root_on_verify() {
 fn an_npm_folder_with_no_npm_fails_verify_closed() {
     let repo = repository_of("node-npm");
     let aside = tempfile::tempdir().unwrap();
-    let stderr = init_on(repo.path(), aside.path(), &[]);
+    let stderr = init_on(repo.path(), aside.path(), &[], &[]);
     let said = "npm was not found on PATH when `brokkr init` ran; install it, or fill in \
                 .brokkr/scripts/verify-seat.sh";
     fails_verify_closed(repo.path(), aside.path(), &stderr, said);
@@ -1028,7 +1037,7 @@ fn an_npm_beside_credentials_binds_nothing_and_fails_verify_closed() {
         std::fs::set_permissions(aws.join(file), runs).unwrap();
     }
     std::os::unix::fs::symlink(format!("../{cli}"), aws.join("bin/npm")).unwrap();
-    let stderr = init_on(repo.path(), aside.path(), &[aws.join("bin")]);
+    let stderr = init_on(repo.path(), aside.path(), &[aws.join("bin")], &[]);
     let said = format!(
         "npm is installed under {}, which holds 'credentials', no part of a node prefix, \
          and which `brokkr init` will not bind into verify's hands; install it under a \
@@ -1036,6 +1045,51 @@ fn an_npm_beside_credentials_binds_nothing_and_fails_verify_closed() {
         aws.display()
     );
     fails_verify_closed(repo.path(), aside.path(), &stderr, &said);
+}
+
+/// The chief's reproduction V of #717's third hold, through `init`: an
+/// npm whose `bin` links to a volta shim under the `tools` beside it,
+/// which holds `aws.creds`. Named by no variable it is no volta home but a
+/// node prefix holding `tools`, refused in one line, and verify fails
+/// closed with it. With `VOLTA_HOME` naming it, volta's own word, it is
+/// bound whole as volta's root, `VOLTA_HOME` exported.
+#[test]
+fn a_volta_root_is_bound_only_where_volta_home_names_it() {
+    let aside = tempfile::tempdir().unwrap();
+    let v = aside.path().canonicalize().unwrap().join("opt/v");
+    let shim = v.join("tools/volta/bin/volta-shim");
+    std::fs::create_dir_all(shim.parent().unwrap()).unwrap();
+    std::fs::create_dir_all(v.join("bin")).unwrap();
+    std::fs::write(&shim, "").unwrap();
+    std::fs::write(v.join("tools/aws.creds"), "").unwrap();
+    let runs = std::os::unix::fs::PermissionsExt::from_mode(0o755);
+    std::fs::set_permissions(&shim, runs).unwrap();
+    for name in ["npm", "node"] {
+        std::os::unix::fs::symlink("../tools/volta/bin/volta-shim", v.join("bin").join(name))
+            .unwrap();
+    }
+    let repo = repository_of("node-npm");
+    let stderr = init_on(repo.path(), aside.path(), &[v.join("bin")], &[]);
+    let said = format!(
+        "npm is installed under {}, which holds 'tools', no part of a node prefix, \
+         and which `brokkr init` will not bind into verify's hands; install it under a \
+         directory of its own, or fill in .brokkr/scripts/verify-seat.sh",
+        v.display()
+    );
+    fails_verify_closed(repo.path(), aside.path(), &stderr, &said);
+    let repo = repository_of("node-npm");
+    let named = [("VOLTA_HOME", v.as_path())];
+    let stderr = init_on(repo.path(), aside.path(), &[v.join("bin")], &named);
+    assert!(!stderr.contains("will not bind"), "{stderr}");
+    let bundle = repo.path().join(".brokkr");
+    let source = read_json(&bundle.join("bundle.json"));
+    assert_eq!(
+        source["seats"]["verify"]["hands"]["binds"],
+        serde_json::json!([{"path": v.display().to_string(), "mode": "ro"}])
+    );
+    let script = verifier(&bundle);
+    let volta = format!("export VOLTA_HOME='{}'", v.display());
+    assert_eq!(script.lines().filter(|line| *line == volta).count(), 1);
 }
 
 /// init said `said` in one line, the verify box binds nothing for the

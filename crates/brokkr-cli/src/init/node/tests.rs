@@ -1,12 +1,19 @@
 //! Node resolution against planted layouts: a temporary HOME and PATH,
-//! never the host's own volta, nvm or system node.
+//! never the host's own volta, nvm or system node, and the tools' homes
+//! named as on Linux, by no variable unless a test sets one.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{symlink, PermissionsExt};
 use std::path::{Path, PathBuf};
 
-use super::{reach, Found, Install, Layout, Reach, Unbound};
+use super::{reach, Flaw, Found, Homes, Install, Layout, Reach, Unbound};
 use crate::init::{tools_for, Tool};
+
+/// The homes named where no HOME and no variable is.
+fn nowhere() -> Homes {
+    Homes::named(Path::new(""), "linux", |_| None)
+}
 
 /// A planted machine: `home` under a temporary root, and files made
 /// under either.
@@ -71,10 +78,38 @@ impl Machine {
         self.root.path().canonicalize().unwrap().join(relative)
     }
 
+    /// The homes named on Linux under the planted HOME, with `vars` the
+    /// only variables set.
+    fn homes(&self, vars: &[(&str, OsString)]) -> Homes {
+        let var = |name: &str| vars.iter().find(|(set, _)| *set == name);
+        Homes::named(&self.home(), "linux", |name| {
+            var(name).map(|(_, value)| value.clone())
+        })
+    }
+
     /// What `reach` makes of `runner` on a PATH of `dirs` under the root.
     fn reach(&self, runner: &str, dirs: &[&str]) -> Option<Reach> {
+        self.reach_named(runner, dirs, &[])
+    }
+
+    /// [`Machine::reach`] with `vars` naming the tools' homes.
+    fn reach_named(&self, runner: &str, dirs: &[&str], vars: &[(&str, OsString)]) -> Option<Reach> {
         let path = std::env::join_paths(dirs.iter().map(|dir| self.dir(dir))).unwrap();
-        reach(&tools_for(runner), &path, &self.home())
+        reach(&tools_for(runner), &path, &self.homes(vars))
+    }
+
+    /// `relative` under the root as `reach` spells a bind: `~/`-spelled
+    /// under HOME.
+    fn spell(&self, relative: &str) -> String {
+        match relative.strip_prefix("home/") {
+            Some(rest) => format!("~/{rest}"),
+            None => self.spelled(relative),
+        }
+    }
+
+    /// `relative` under the root as a variable's value.
+    fn var(&self, relative: &str) -> OsString {
+        self.dir(relative).into_os_string()
     }
 }
 
@@ -154,7 +189,7 @@ fn a_runner_outside_home_binds_no_home_directory() {
     // With no HOME at all, nothing is spelled under one.
     let path = machine.dir("opt/bun/bin").into_os_string();
     assert_eq!(
-        reach(&tools_for("bun"), &path, Path::new("")),
+        reach(&tools_for("bun"), &path, &nowhere()),
         Some(Reach::Found {
             binds: vec![machine.spelled("opt/bun/bin/bun")],
             path: vec![machine.dir("opt/bun/bin")],
@@ -216,16 +251,43 @@ fn a_root_too_broad_to_bind_is_refused() {
             home.join(".local").display()
         )
     );
-    // `/` itself, where no HOME was known to rule it out.
+    // `/` itself, a prefix above `/bin`, where no HOME was known to rule
+    // it out.
     let mut found = Found::default();
     let slash = Install {
-        dir: PathBuf::from("/"),
-        entry: PathBuf::from("/npm"),
+        dir: PathBuf::from("/bin"),
+        entry: PathBuf::from("/bin/npm"),
         real: PathBuf::from("/npm-cli/npm"),
     };
     assert_eq!(
-        found.add(slash, Path::new("")),
+        found.add(slash, &nowhere()),
         Err((PathBuf::from("/"), Unbound::TooBroad))
+    );
+}
+
+/// A home its tool's own variable names is still refused where it is
+/// `$HOME` or `~/.local` whole: `PNPM_HOME=$HOME`, `VOLTA_HOME=~/.local`.
+#[test]
+fn a_home_too_broad_is_refused_even_where_its_variable_names_it() {
+    let machine = Machine::new();
+    machine.file("home/global/pnpm.cjs");
+    machine.link("home/pnpm", "global/pnpm.cjs");
+    machine.file("home/.local/bin/volta-shim");
+    machine.link("home/.local/bin/npm", "volta-shim");
+    let home = machine.home();
+    let named = [("PNPM_HOME", home.clone().into_os_string())];
+    assert_eq!(
+        machine.reach_named("pnpm", &["home"], &named),
+        Some(Reach::Unbindable("pnpm", home.clone(), Unbound::TooBroad))
+    );
+    let named = [("VOLTA_HOME", machine.var("home/.local"))];
+    assert_eq!(
+        machine.reach_named("npm", &["home/.local/bin"], &named),
+        Some(Reach::Unbindable(
+            "npm",
+            home.join(".local"),
+            Unbound::TooBroad
+        ))
     );
 }
 
@@ -233,10 +295,17 @@ fn a_root_too_broad_to_bind_is_refused() {
 /// `entry` that `layout`, named in words, does not, and the verifier
 /// lines that fail closed with it.
 fn foreign(binary: &str, root: &Path, entry: &str, layout: &str) -> (String, String) {
+    let which = format!("which holds '{entry}', no part of {layout}, and which");
+    sentence(binary, root, &which)
+}
+
+/// The refusal for `binary` under `root`, its clause `which`, and the
+/// verifier lines that fail closed with it.
+fn sentence(binary: &str, root: &Path, which: &str) -> (String, String) {
     let said = format!(
-        "{binary} is installed under {}, which holds '{entry}', no part of {layout}, \
-         and which `brokkr init` will not bind into verify's hands; install it under \
-         a directory of its own, or fill in .brokkr/scripts/verify-seat.sh",
+        "{binary} is installed under {}, {which} `brokkr init` will not bind into \
+         verify's hands; install it under a directory of its own, or fill in \
+         .brokkr/scripts/verify-seat.sh",
         root.display()
     );
     let quoted = said.replace('\'', "'\\''");
@@ -365,7 +434,15 @@ fn a_prefix_bin_holding_another_entry_is_refused_naming_it() {
     let opt = machine.dir("opt");
     let credentials = Unbound::Foreign(Layout::NodePrefix, OsString::from("bin/credentials"));
     assert_eq!(refused, Reach::Unbindable("npm", opt.clone(), credentials));
-    let (said, script) = foreign("npm", &opt, "bin/credentials", "a node prefix");
+    fails_closed(
+        &refused,
+        foreign("npm", &opt, "bin/credentials", "a node prefix"),
+    );
+}
+
+/// `refused` says init's sentence, the verifier fails closed with it, and
+/// it binds nothing, as [`sentence`] spells them.
+fn fails_closed(refused: &Reach, (said, script): (String, String)) {
     assert_eq!((refused.refusal(), refused.script()), (Some(said), script));
     assert_eq!(refused.binds(), Vec::<serde_json::Value>::new());
 }
@@ -388,16 +465,12 @@ fn a_prefix_link_through_another_directory_is_refused_naming_it() {
         machine.link(&format!("{prefix}-links/npm"), &relative);
         let dirs = [format!("{prefix}/bin"), format!("{prefix}-second/bin")];
         let dirs: Vec<&str> = dirs.iter().map(String::as_str).collect();
-        let spelled = |dir: &str| match dir.strip_prefix("home/") {
-            Some(rest) => format!("~/{rest}"),
-            None => machine.spelled(dir),
-        };
         assert_eq!(
             machine.reach("npm", &dirs),
             Some(Reach::Found {
                 binds: vec![
-                    spelled(&format!("{prefix}/bin")),
-                    spelled(&format!("{prefix}/lib/node_modules")),
+                    machine.spell(&format!("{prefix}/bin")),
+                    machine.spell(&format!("{prefix}/lib/node_modules")),
                 ],
                 path: dirs.iter().map(|dir| machine.dir(dir)).take(1).collect(),
                 volta: None,
@@ -555,7 +628,9 @@ const PLANTED: &[Planted] = &[
 
 /// Each recognised layout, planted with exactly the entries it names,
 /// binds its root whole, or a node prefix its `bin` and `lib/node_modules`;
-/// one `credentials` beside them and the root is refused, naming it.
+/// one `credentials` beside them and the root is refused, naming it. Each
+/// tool's home stands at its default, `~/.local/share/pnpm` being pnpm's
+/// on Linux, as [`Machine::homes`] names them.
 #[test]
 fn each_layout_binds_whole_until_it_holds_one_entry_more() {
     for planted in PLANTED {
@@ -637,7 +712,8 @@ fn a_runner_every_box_reads_adds_no_bind() {
         entry: PathBuf::from("/usr/bin/npm"),
         real: PathBuf::from("/usr/share/nodejs/npm/bin/npm-cli.js"),
     };
-    assert_eq!(found.add(system, Path::new("/home/someone")), Ok(()));
+    let homes = Homes::named(Path::new("/home/someone"), "linux", |_| None);
+    assert_eq!(found.add(system, &homes), Ok(()));
     assert_eq!(
         (found.binds, found.path, found.volta),
         (Vec::<PathBuf>::new(), vec![PathBuf::from("/usr/bin")], None)
@@ -650,5 +726,260 @@ fn a_stack_with_no_node_runner_resolves_nothing() {
     let machine = Machine::new();
     let runners: Vec<Tool> = ["cargo", "make"].into_iter().flat_map(tools_for).collect();
     let path = machine.dir("bin").into_os_string();
-    assert_eq!(reach(&runners, &path, &machine.home()), None);
+    assert_eq!(reach(&runners, &path, &machine.homes(&[])), None);
+}
+
+/// The chief's reproductions of #717's third hold, A and B (outside HOME
+/// and under it), E and F: pnpm's shape in a directory no tool names as
+/// its home, its `node` linking into a sibling node prefix (named `node`,
+/// `nodejs` or `other`) whose `share` holds a keystore. No ancestor is
+/// climbed to: each is refused at its `PATH` directory, naming the file
+/// pnpm resolves to, and verify fails closed with that sentence.
+#[test]
+fn a_directory_no_tool_names_is_refused_naming_what_it_resolves_to() {
+    let machine = Machine::new();
+    let shapes = [
+        ("opt/tools", "node"),
+        ("home/tools", "node"),
+        ("opt/e", "nodejs"),
+        ("opt/f", "other"),
+    ];
+    for (base, sibling) in shapes {
+        machine.file(&format!("{base}/pnpm/global/pnpm.cjs"));
+        machine.link(&format!("{base}/pnpm/pnpm"), "global/pnpm.cjs");
+        machine.link(
+            &format!("{base}/pnpm/node"),
+            &format!("../{sibling}/bin/node"),
+        );
+        machine.linked_prefix(&format!("{base}/{sibling}"));
+        machine.file(&format!("{base}/{sibling}/share/keyrings/user.keystore"));
+        let pnpm = machine.dir(&format!("{base}/pnpm"));
+        let cjs = pnpm.join("global/pnpm.cjs");
+        let refused = machine.reach("pnpm", &[&format!("{base}/pnpm")]).unwrap();
+        let unowned = Unbound::Unowned(cjs.clone());
+        assert_eq!(refused, Reach::Unbindable("pnpm", pnpm.clone(), unowned));
+        let which = format!(
+            "where it resolves to {}, in no home its tool names and no node prefix, and which",
+            cjs.display()
+        );
+        fails_closed(&refused, sentence("pnpm", &pnpm, &which));
+    }
+}
+
+/// The chief's reproductions V and U, and A with pnpm's `node` in its own
+/// home, outside HOME and under it. Named by no variable, V's and U's
+/// directory is a node prefix holding `tools` or `install`, and refused
+/// naming it. Named by `VOLTA_HOME`, `BUN_INSTALL` or `PNPM_HOME`, each
+/// binds exactly that home: its named entries' contents are the tool's own
+/// at the operator's bar, V's `tools/aws.creds` and U's
+/// `install/token.txt` included. A pnpm home whose `node` links into a
+/// node prefix beside it is refused, naming the `node` it resolves to.
+#[test]
+fn a_home_its_tool_names_binds_exactly_that_home() {
+    let machine = Machine::new();
+    for base in ["opt", "home"] {
+        let (v, u, a) = (
+            format!("{base}/v"),
+            format!("{base}/u"),
+            format!("{base}/a/pnpm"),
+        );
+        machine.file(&format!("{v}/tools/volta/bin/volta-shim"));
+        machine.file(&format!("{v}/tools/aws.creds"));
+        for shim in ["npm", "node"] {
+            machine.link(&format!("{v}/bin/{shim}"), "../tools/volta/bin/volta-shim");
+        }
+        machine.file(&format!("{u}/install/bun-1.0/bun"));
+        machine.file(&format!("{u}/install/token.txt"));
+        machine.link(&format!("{u}/bin/bun"), "../install/bun-1.0/bun");
+        let (v_bin, u_bin) = (format!("{v}/bin"), format!("{u}/bin"));
+        let holds = |entry: &str| Unbound::Foreign(Layout::NodePrefix, OsString::from(entry));
+        assert_eq!(
+            machine.reach("npm", &[&v_bin]),
+            Some(Reach::Unbindable("npm", machine.dir(&v), holds("tools")))
+        );
+        assert_eq!(
+            machine.reach("bun", &[&u_bin]),
+            Some(Reach::Unbindable("bun", machine.dir(&u), holds("install")))
+        );
+        let named = [("VOLTA_HOME", machine.var(&v))];
+        assert_eq!(
+            machine.reach_named("npm", &[&v_bin], &named),
+            Some(Reach::Found {
+                binds: vec![machine.spell(&v)],
+                path: vec![machine.dir(&v_bin)],
+                volta: Some(machine.dir(&v)),
+            })
+        );
+        let named = [("BUN_INSTALL", machine.var(&u))];
+        assert_eq!(
+            machine.reach_named("bun", &[&u_bin], &named),
+            Some(Reach::Found {
+                binds: vec![machine.spell(&u)],
+                path: vec![machine.dir(&u_bin)],
+                volta: None,
+            })
+        );
+        machine.file(&format!("{a}/global/pnpm.cjs"));
+        machine.link(&format!("{a}/pnpm"), "global/pnpm.cjs");
+        machine.link(&format!("{a}/node"), "../node/bin/node");
+        machine.linked_prefix(&format!("{base}/a/node"));
+        let named = [("PNPM_HOME", machine.var(&a))];
+        let node = machine.dir(&format!("{base}/a/node/bin/node"));
+        let refused = machine.reach_named("pnpm", &[&a], &named).unwrap();
+        let outside = Unbound::Outside(node.clone());
+        assert_eq!(refused, Reach::Unbindable("node", machine.dir(&a), outside));
+        let which = format!("which it resolves out of, to {}, and which", node.display());
+        fails_closed(&refused, sentence("node", &machine.dir(&a), &which));
+        std::fs::remove_file(machine.dir(&format!("{a}/node"))).unwrap();
+        machine.file(&format!("{a}/nodejs/20.11.0/bin/node"));
+        machine.link(&format!("{a}/node"), "nodejs/20.11.0/bin/node");
+        assert_eq!(
+            machine.reach_named("pnpm", &[&a], &named),
+            Some(Reach::Found {
+                binds: vec![machine.spell(&a)],
+                path: vec![machine.dir(&a)],
+                volta: None,
+            })
+        );
+    }
+}
+
+/// A volta shim in `~/.volta/bin` resolving out of `~/.volta` is refused,
+/// naming the file it resolves to: a home is bound only where it holds the
+/// file `PATH` found.
+#[test]
+fn a_shim_resolving_out_of_its_home_is_refused() {
+    let machine = Machine::new();
+    let shim = machine.file("opt/elsewhere/volta-shim");
+    for name in ["npm", "node"] {
+        machine.link(&format!("home/.volta/bin/{name}"), shim.to_str().unwrap());
+    }
+    let volta = machine.home().join(".volta");
+    let refused = machine.reach("npm", &["home/.volta/bin"]).unwrap();
+    let outside = Unbound::Outside(shim.clone());
+    assert_eq!(refused, Reach::Unbindable("npm", volta.clone(), outside));
+    let which = format!("which it resolves out of, to {}, and which", shim.display());
+    fails_closed(&refused, sentence("npm", &volta, &which));
+}
+
+/// Each tool's home is the one its variable names, else its default,
+/// pnpm's under `$XDG_DATA_HOME` or `~/.local/share` on Linux and under
+/// `~/Library` on macOS. An empty variable is unset; one naming a relative
+/// path, or a home that does not exist, names none; a home named through
+/// a link is its canonical directory.
+#[test]
+fn each_tool_names_its_home_by_its_variable_else_its_default() {
+    let machine = Machine::new();
+    let planted = [
+        "home/.volta",
+        "home/.bun",
+        "home/.local/share/pnpm",
+        "home/Library/pnpm",
+        "opt/v",
+        "opt/b",
+        "opt/p",
+        "opt/data/pnpm",
+    ];
+    for dir in planted {
+        std::fs::create_dir_all(machine.dir(dir)).unwrap();
+    }
+    machine.link("opt/plink", "p");
+    let home = machine.home();
+    let defaults = vec![
+        (Layout::Volta, home.join(".volta")),
+        (Layout::Bun, home.join(".bun")),
+        (Layout::PnpmHome, home.join(".local/share/pnpm")),
+    ];
+    assert_eq!(machine.homes(&[]).tools, defaults);
+    let macos = Homes::named(&home, "macos", |_| None).tools;
+    assert_eq!(macos[2], (Layout::PnpmHome, home.join("Library/pnpm")));
+    let data = [("XDG_DATA_HOME", machine.var("opt/data"))];
+    let pnpm = (Layout::PnpmHome, machine.dir("opt/data/pnpm"));
+    assert_eq!(machine.homes(&data).tools[2], pnpm);
+    let set = [
+        ("VOLTA_HOME", machine.var("opt/v")),
+        ("BUN_INSTALL", machine.var("opt/b")),
+        ("PNPM_HOME", machine.var("opt/plink")),
+    ];
+    let named = vec![
+        (Layout::Volta, machine.dir("opt/v")),
+        (Layout::Bun, machine.dir("opt/b")),
+        (Layout::PnpmHome, machine.dir("opt/p")),
+    ];
+    assert_eq!(machine.homes(&set).tools, named);
+    let unnamed = [
+        // `.` stands wherever the test runs; read relative, it would name
+        // that directory.
+        ("VOLTA_HOME", OsString::from(".")),
+        ("BUN_INSTALL", OsString::new()),
+        ("PNPM_HOME", machine.var("opt/absent")),
+    ];
+    let bun = vec![(Layout::Bun, home.join(".bun"))];
+    assert_eq!(machine.homes(&unnamed).tools, bun);
+}
+
+/// The adversarial position's reproduction: npm and node in
+/// `opt/node:20/bin`, reached through the ASCII alias `opt/node20`. The
+/// canonical directory the verifier would export splits at the `:`, so it
+/// is refused naming it, and verify fails closed with init's sentence; so
+/// is a root whose own name holds a newline, or a byte that is not UTF-8,
+/// at the `PATH` directory below it.
+#[test]
+fn a_path_the_verifier_cannot_carry_is_refused() {
+    let machine = Machine::new();
+    machine.file("opt/node:20/bin/npm");
+    machine.file("opt/node:20/bin/node");
+    machine.link("opt/node20", "node:20");
+    let bin = machine.dir("opt/node:20/bin");
+    let refused = machine.reach("npm", &["opt/node20/bin"]).unwrap();
+    let colon = Unbound::Uncarried(Flaw::Colon);
+    assert_eq!(refused, Reach::Unbindable("npm", bin.clone(), colon));
+    let which = "whose ':' would split the verifier's PATH, and which";
+    fails_closed(&refused, sentence("npm", &bin, which));
+    let flawed: [(&[u8], Flaw, &str); 2] = [
+        (
+            b"/srv/no\nde/bin",
+            Flaw::Newline,
+            "whose newline the verifier's lines cannot carry, and which",
+        ),
+        (
+            b"/srv/n\xffde/bin",
+            Flaw::NotUtf8,
+            "which is not UTF-8, as bundle.json must be, and which",
+        ),
+    ];
+    for (name, flaw, which) in flawed {
+        let dir = PathBuf::from(OsStr::from_bytes(name));
+        let (entry, real) = (dir.join("npm"), dir.join("npm"));
+        let install = Install {
+            dir: dir.clone(),
+            entry,
+            real,
+        };
+        let Err((root, unbound)) = Found::default().add(install, &nowhere()) else {
+            panic!("{dir:?} is carried");
+        };
+        assert_eq!((&root, &unbound), (&dir, &Unbound::Uncarried(flaw)));
+        let refused = Reach::Unbindable("npm", root, unbound);
+        assert_eq!(refused.refusal(), Some(sentence("npm", &dir, which).0));
+    }
+}
+
+/// A `'` in an install's path round-trips: the verifier's `export PATH=`,
+/// run by bash, heads `PATH` with the directory exactly.
+#[test]
+fn an_install_path_holding_a_quote_round_trips_through_the_verifier() {
+    let machine = Machine::new();
+    machine.file("opt/it's/bin/npm");
+    machine.file("opt/it's/bin/node");
+    let found = machine.reach("npm", &["opt/it's/bin"]).unwrap();
+    let ran = std::process::Command::new("bash")
+        .arg("-c")
+        .arg(format!("{}printf '%s' \"$PATH\"", found.script()))
+        .env("PATH", "/usr/bin:/bin")
+        .output()
+        .unwrap();
+    let bin = machine.spelled("opt/it's/bin");
+    let path = String::from_utf8(ran.stdout).unwrap();
+    assert_eq!(path, format!("{bin}:/usr/bin:/bin"));
 }
