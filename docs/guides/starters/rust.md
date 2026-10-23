@@ -225,7 +225,7 @@ lint_command='cargo clippy --workspace --all-targets -- -D warnings'
 It runs both, types `pass` only when both exit zero, and quotes decisive
 output on `fail`. Where the realm's boundary is `namespace`, Brokkr
 boxes it with no network and it uses the bound Cargo registry cache.
-Under `harness` — a codex scaffold, or macOS — it runs under no box of
+Under `harness`, on macOS, it runs under no box of
 Brokkr's, and its note claims no denied network.
 
 - **`cargo test --workspace`** — the same command the implementer was

@@ -64,7 +64,7 @@ The deterministic verifier pins `uv run pytest` and
 `uv run ruff check .`. It runs both, types `pass` only when both exit
 zero, and quotes decisive output on `fail`. Brokkr boxes it, with no
 network, where the realm's boundary is `namespace`; under `harness`, on
-a codex scaffold or macOS, no box of Brokkr's stands and its note claims
+a macOS host, no box of Brokkr's stands and its note claims
 no denied network.
 
 Annotated:

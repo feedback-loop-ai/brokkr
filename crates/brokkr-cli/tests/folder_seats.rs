@@ -7,8 +7,9 @@
 //! recipe's own, which would pass. A folder whose verify declares no hands
 //! refuses such a seat at compile and at run.
 //!
-//! The folder is scaffolded for codex, whose `init` writes the `harness`
-//! boundary, so no box is needed.
+//! The folder is scaffolded for codex, whose realm stands under the host's
+//! boundary: `namespace` on Linux, where verify runs in Brokkr's box
+//! (#717), and `harness` on macOS, where it runs under none.
 
 use std::path::Path;
 
