@@ -103,9 +103,11 @@
    230 crates/brokkr-protocol/src/hands/sealed.rs
    296 crates/brokkr-protocol/src/hands/session.rs
    219 crates/brokkr-protocol/src/lib.rs
-  4296 crates/brokkr-protocol/src/native_controls.rs
-  1688 crates/brokkr-protocol/src/native_controls/grammar.rs
-   720 crates/brokkr-protocol/src/native_controls/mcp.rs
+  4204 crates/brokkr-protocol/src/native_controls.rs
+  1668 crates/brokkr-protocol/src/native_controls/grammar.rs
+   311 crates/brokkr-protocol/src/native_controls/grammar/config.rs
+   730 crates/brokkr-protocol/src/native_controls/mcp.rs
+   207 crates/brokkr-protocol/src/native_controls/read.rs
    138 crates/brokkr-protocol/src/oneshot.rs
    161 crates/brokkr-protocol/src/overrides.rs
    535 crates/brokkr-protocol/src/process.rs
@@ -315,7 +317,7 @@
    305 crates/brokkr-protocol/src/adapters/notice_tests.rs
    236 crates/brokkr-protocol/src/adapters/notice_tests/discovery_tests.rs
    623 crates/brokkr-protocol/src/adapters/route_overlay/tests.rs
- 18938 crates/brokkr-protocol/src/adapters/tests.rs
+ 18930 crates/brokkr-protocol/src/adapters/tests.rs
    555 crates/brokkr-protocol/src/broker/ledger/tests.rs
    326 crates/brokkr-protocol/src/broker/tests.rs
   3127 crates/brokkr-protocol/src/dsh_sandbox/tests.rs
@@ -331,8 +333,9 @@
   1085 crates/brokkr-protocol/src/hands/tests/server.rs
   1900 crates/brokkr-protocol/src/hands/tests/sources.rs
    182 crates/brokkr-protocol/src/native_controls/mcp/tests.rs
- 12590 crates/brokkr-protocol/src/native_controls/tests.rs
-   523 crates/brokkr-protocol/src/native_controls/tests/servers.rs
+ 12555 crates/brokkr-protocol/src/native_controls/tests.rs
+   648 crates/brokkr-protocol/src/native_controls/tests/isolation.rs
+   533 crates/brokkr-protocol/src/native_controls/tests/servers.rs
    374 crates/brokkr-protocol/src/native_controls/tests/serving.rs
    224 crates/brokkr-protocol/src/native_controls/tests/toml.rs
     65 crates/brokkr-protocol/src/native_controls/tests/transport.rs
@@ -415,7 +418,7 @@
     94 crates/brokkr-runtime/tests/anchor_test.rs
    384 crates/brokkr-runtime/tests/budgets.rs
    119 crates/brokkr-runtime/tests/capability_broker_launch.rs
-  11592 crates/brokkr-runtime/tests/capability_launch.rs
+  11563 crates/brokkr-runtime/tests/capability_launch.rs
     780 crates/brokkr-runtime/tests/capability_launch/legacy_journal.rs
     401 crates/brokkr-runtime/tests/capability_launch/legacy_journal/codex.rs
      14 crates/brokkr-runtime/tests/capability_launch/redrive.rs

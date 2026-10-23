@@ -15580,23 +15580,15 @@ fn every_authored_spelling_the_shipped_codex_adapter_guards_is_refused() {
                 }
             }
         }
-        // The adapter's `feature_flags` name options `codex exec` does not
-        // have. The grammar places every token or refuses it, so such a
-        // token never reaches the guard at all: it is refused EARLIER, and
-        // by name. The guard's own feature axis is proved over an option
-        // the grammar does place, in the native-controls tests.
+        // The adapter's `feature_flags` name the toggles `codex exec` has
+        // since the grammar modelled them (decision 0065 slice two, U9c1),
+        // so each guarded feature reaches the guard and is refused by it,
+        // naming the toggle and the feature, never forwarded.
         for flag in list("feature_flags") {
             for name in list("features") {
                 assert_eq!(
                     refused(&[flag.clone(), name.clone()]),
-                    format!(
-                        "refusing to invoke the agent CLI: the arguments of seat 'inline' do \
-                         not parse: the 'codex' command grammar cannot place argument 1 \
-                         ('{flag}'): it names no option. A harness brokkr launches is parsed \
-                         against a model of its options, and a token that grammar cannot place \
-                         is refused rather than passed through, because a control nobody can \
-                         read is a control nobody can rule on (decision 0066 ruling 6)"
-                    )
+                    refusal(&format!("{flag} {name}"))
                 );
             }
         }

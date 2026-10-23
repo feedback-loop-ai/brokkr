@@ -29,10 +29,12 @@ use serde_json::Value;
 
 pub mod grammar;
 mod mcp;
+mod read;
 
 use grammar::{Command, Effect, ListKind};
 use mcp::untransported;
 pub use mcp::{authored_server_conflict, SealedBroker, SealedServers, Transport, ARTIFACT_ROOT};
+use read::read_state;
 
 /// One list flag of a harness's tool selection, as its adapter names it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1522,8 +1524,9 @@ pub enum Expressed {
     /// A tool list and its patterns in order; an empty list is a list, and
     /// never the absence of one.
     List(ListKind, Vec<String>),
-    /// Codex's sandbox class, one effect whether a cold `--sandbox` or a
-    /// rejoin's `sandbox_mode` assignment expresses it.
+    /// Codex's sandbox class, one effect whether a cold `--sandbox`, a
+    /// rejoin's `sandbox_mode` assignment or a permission profile's
+    /// selector (U9c1) expresses it.
     Class(&'static str),
     /// A measured OFF: the native capability Codex's `web_search="disabled"`,
     /// spelled exactly as the adapter declares it, switches off. An ON is
@@ -1533,6 +1536,18 @@ pub enum Expressed {
     /// values: a loaded document, a capability server's assignment or a
     /// catalogue control.
     Control(&'static str, Vec<String>),
+    /// One of Codex's isolation options (decision 0065 slice two, U9c1).
+    Isolation(Isolation),
+}
+
+/// The isolation options of codex-cli 0.162.1 a command expresses (U9c1;
+/// SI2): the user's configuration and the project trust it records left
+/// unread, and the `apps` and `plugins` features switched off.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Isolation {
+    UserConfig,
+    Apps,
+    Plugins,
 }
 
 /// The capability state one command expresses (rebuild units 13, 13-fix
@@ -1596,12 +1611,16 @@ impl State {
 /// reading; the prompt a DSH command carries as data (rebuild unit 13-fix,
 /// F5); what it binds the box's hands to (rebuild unit 13-fix-b, R1), the
 /// sealed brokers beside them and the names its spawn removes from the
-/// harness's environment (U7a); and the isolated MCP configuration its
-/// intent built, which follows the composition (U1g2).
+/// harness's environment (U7a); the isolated MCP configuration its
+/// intent built, which follows the composition (U1g2); and the secrets
+/// store's path a Codex permission profile must deny, `None` where none is
+/// handed, and then every profile refuses (U9c1; operator ruling 4 of
+/// 2026-10-23).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Serving<'a> {
     pub program: &'a str,
     pub workdir: &'a str,
+    pub store: Option<&'a str>,
     pub authored: &'a [String],
     pub pins: &'a [String],
     pub mcp: &'a [String],
@@ -1663,126 +1682,6 @@ const CLASSES: [SandboxIntent; 3] = [
     SandboxIntent::WorkspaceWrite,
     SandboxIntent::DangerFullAccess,
 ];
-
-/// The native capability one assignment switches OFF, where it is exactly
-/// a declared, measured OFF: on [`grammar::LAUNCH_SETTINGS`] in the one
-/// canonical spelling [`grammar::launch_setting`] reads, with the admitted
-/// value a declared OFF argv's.
-fn measured_off(assignment: &str) -> Option<&'static str> {
-    let key = grammar::launch_setting(assignment).ok()?;
-    grammar::LAUNCH_SETTINGS
-        .iter()
-        .find(|admitted| admitted.key == key)
-        .and_then(|admitted| admitted.denies)
-}
-
-/// Read one parsed command's [`State`], or the fixed words of what cannot
-/// be read: a list value outside the managed grammar, an assignment with
-/// no bounded meaning, an assignment into a capability table whose meaning
-/// is not established, a class that is none or is expressed twice, or a
-/// session selector other than a rejoin's. Nothing read is echoed.
-///
-/// An assignment into a capability table is read by meaning or refused
-/// (rebuild unit 13-fix, F3): exactly a rejoin's class, exactly a measured
-/// OFF, or a capability server's entry. Any other spelling or value — a
-/// spaced key, a trailing space, `web_search="live"`, `web_search=garbage`,
-/// a web search mode, a sandbox or approval table — is read as neither ON
-/// nor OFF, and refuses.
-#[expect(
-    clippy::excessive_nesting,
-    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
-)]
-fn read_state(command: &Command) -> Result<State, String> {
-    let mut state = State::default();
-    for node in &command.nodes {
-        let at = node.at + 1;
-        let class = |state: &State, word: &str| {
-            let Some(class) = CLASSES.iter().find(|class| class.word() == word) else {
-                return Err(format!(
-                    "carries '{}' (argument {at}), whose value names no sandbox class: \
-                     read-only, workspace-write or danger-full-access",
-                    node.name()
-                ));
-            };
-            match state.class() {
-                None => Ok(Expressed::Class(class.word())),
-                Some(_) => Err(format!(
-                    "expresses the sandbox class a second time (argument {at})"
-                )),
-            }
-        };
-        let selector = || {
-            Err(format!(
-                "carries '{}' (argument {at}), a session selector other than a rejoin's",
-                node.name()
-            ))
-        };
-        match node.spec.effect {
-            Effect::List(kind) => {
-                let mut patterns = Vec::new();
-                for value in &node.values {
-                    let read = grammar::managed_patterns(value).map_err(|cause| {
-                        format!(
-                            "carries '{}' (argument {at}), whose value {cause}",
-                            node.name()
-                        )
-                    })?;
-                    patterns.extend(read.into_iter().map(str::to_string));
-                }
-                state.effects.push(Expressed::List(kind, patterns));
-            }
-            Effect::Config => {
-                for value in &node.values {
-                    let effect = match grammar::setting(value) {
-                        Ok(grammar::Setting::Inert(_)) => continue,
-                        Ok(grammar::Setting::Capability(table)) => {
-                            if let Some(known) = CLASSES
-                                .iter()
-                                .find(|known| grammar::rejoin_class(**known) == *value)
-                            {
-                                class(&state, known.word())?
-                            } else if let Some(capability) = measured_off(value) {
-                                Expressed::Off(capability)
-                            } else if table == "mcp_servers" {
-                                Expressed::Control(node.name(), vec![value.clone()])
-                            } else {
-                                return Err(format!(
-                                    "carries '--config' (argument {at}) into the '{table}' \
-                                     configuration in a spelling or with a value whose meaning is \
-                                     not established, so it is read as neither ON nor OFF"
-                                ));
-                            }
-                        }
-                        Err(cause) => {
-                            return Err(format!(
-                                "carries '--config' (argument {at}), whose value {cause}"
-                            ))
-                        }
-                    };
-                    state.effects.push(effect);
-                }
-            }
-            Effect::Control(grammar::Power::Permission) if node.name() == "--sandbox" => {
-                let effect = class(&state, &node.values[0])?;
-                state.effects.push(effect);
-            }
-            Effect::Control(_) | Effect::Load => state
-                .effects
-                .push(Expressed::Control(node.name(), node.values.clone())),
-            Effect::Session if node.name() == "--resume" => {
-                state.session = Some(node.values[0].clone())
-            }
-            Effect::Session => return selector(),
-            // A switch that copies, forks or relocates a conversation is a
-            // selector, as the adapter's structural reader judges it.
-            Effect::Switch if crate::adapters::CLAUDE_SELECTORS_BARE.contains(&node.name()) => {
-                return selector()
-            }
-            Effect::Inert | Effect::Switch | Effect::Route => {}
-        }
-    }
-    Ok(state)
-}
 
 /// Where and why an argv the final check reads cannot be placed: its
 /// position, bounded label and fixed cause, never a token.
@@ -1884,7 +1783,7 @@ pub fn check_final(
     let parsed = table
         .parse_final(argv)
         .map_err(|problem| refuse(vec![Piece::Words("cannot be read whole "), unread(problem)]))?;
-    let state = read_state(&parsed.command).map_err(|cause| {
+    let state = read_state(&parsed.command, serving.bound()).map_err(|cause| {
         refuse(vec![
             Piece::Words("cannot be read: it "),
             Piece::Grammar(cause),
@@ -1903,7 +1802,7 @@ pub fn check_final(
                 unread(problem),
             ])
         })?;
-    let composition = read_state(&recomposed).map_err(|cause| {
+    let composition = read_state(&recomposed, serving.bound()).map_err(|cause| {
         refuse(vec![
             Piece::Words("recomposes from its sealed inputs a command that cannot be read: it "),
             Piece::Grammar(cause),
@@ -2208,7 +2107,7 @@ fn sealed_inputs(
         table
             .parse(argv)
             .ok()
-            .and_then(|command| read_state(&command).ok())
+            .and_then(|command| read_state(&command, serving.bound()).ok())
             .is_some_and(|state| state.effects.is_empty() && state.session.is_none())
     };
     if !inert(serving.authored) || !inert(serving.pins) {
@@ -2254,7 +2153,7 @@ fn sealed_inputs(
         table
             .parse(argv)
             .ok()
-            .and_then(|command| read_state(&command).ok())
+            .and_then(|command| read_state(&command, serving.bound()).ok())
             .filter(|state| state.session.is_none())
     };
     let Some(template) = read(template_argv) else {
@@ -2286,7 +2185,7 @@ fn sealed_inputs(
             ])
         }
     };
-    let native = match read_state(&native) {
+    let native = match read_state(&native, serving.bound()) {
         Ok(native) if native.session.is_none() => native,
         Ok(_) => {
             return refuse(vec![Piece::Words(
@@ -2464,6 +2363,7 @@ fn effect(expressed: &Expressed) -> Vec<Piece<'_>> {
             Piece::Capability(capability),
         ],
         Expressed::Control(name, _) => vec![Piece::Flag(name)],
+        Expressed::Isolation(isolation) => vec![Piece::Words(isolation.option())],
     }
 }
 
@@ -3701,6 +3601,19 @@ pub fn compose_for_provider(
     compose_or_exclude(provider, authored, fragment, controls).map_err(Failure::refusal)
 }
 
+/// The plan for `provider` refused for the `typed_hands` arguments it types
+/// as the box's hands, `why` saying why after the count.
+fn typed_hands_refused<'a>(provider: &'a str, typed_hands: usize, why: Vec<Piece<'a>>) -> Failure {
+    let mut pieces = vec![
+        Piece::Words("the capability plan for "),
+        Piece::Provider(provider),
+        Piece::Words(" types "),
+        Piece::Count(typed_hands),
+    ];
+    pieces.extend(why);
+    refused(Why::Provenance, pieces).into()
+}
+
 /// [`compose_for_provider`], telling a held capability an explicit limit
 /// excludes apart from every other refusal, so that resolution can drop a
 /// wanted holding with OFF and refuse a required one (CQ1).
@@ -3724,13 +3637,10 @@ pub fn compose_or_exclude(
     // count the fragment cannot hold types nothing and refuses.
     let typed_hands = controls.provenance.hands;
     if typed_hands > fragment.len() {
-        return Err(refused(
-            Why::Provenance,
+        return Err(typed_hands_refused(
+            provider,
+            typed_hands,
             vec![
-                Piece::Words("the capability plan for "),
-                Piece::Provider(provider),
-                Piece::Words(" types "),
-                Piece::Count(typed_hands),
                 Piece::Words(
                     " arguments of the engine's fragment as the box's hands, but the fragment \
                      carries ",
@@ -3741,8 +3651,7 @@ pub fn compose_or_exclude(
                      launch is refused rather than composed on a guess (design D6)",
                 ),
             ],
-        )
-        .into());
+        ));
     }
     // Every origin is parsed to completion and SEPARATELY, so a dangling
     // value or terminator in one cannot reach across and consume another
@@ -3751,18 +3660,18 @@ pub fn compose_or_exclude(
     let handed = parse_origin(provider, &fragment[..typed_hands], false)?;
     parse_origin(provider, &fragment[typed_hands..], false)?;
     // Typed hands carry their whole transport (rebuild unit 13-fix-c, R1):
-    // present, not merely uncontradicted.
+    // present, not merely uncontradicted. The composer is handed no
+    // store's path, so a permission profile carries no class here until
+    // U9c2 hands one (U9c1; operator ruling 4 of 2026-10-23).
+    let unstored = grammar::Bound::default();
     if let Some(what) = handed
         .filter(|_| typed_hands > 0)
-        .and_then(|hands| untransported(provider, &hands))
+        .and_then(|hands| untransported(provider, &hands, unstored))
     {
-        return Err(refused(
-            Why::Provenance,
+        return Err(typed_hands_refused(
+            provider,
+            typed_hands,
             vec![
-                Piece::Words("the capability plan for "),
-                Piece::Provider(provider),
-                Piece::Words(" types "),
-                Piece::Count(typed_hands),
                 Piece::Words(
                     " arguments of the engine's fragment as the box's hands, but they carry no ",
                 ),
@@ -3772,8 +3681,7 @@ pub fn compose_or_exclude(
                      composed without them (decision 0043; design D6)",
                 ),
             ],
-        )
-        .into());
+        ));
     }
     for capability in known_powers(provider) {
         if let Inventory::Unmeasured(reason) = &controls.inventory {

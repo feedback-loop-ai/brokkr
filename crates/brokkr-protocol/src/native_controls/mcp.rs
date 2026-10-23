@@ -620,9 +620,16 @@ fn toml_strings(text: &str) -> Option<Vec<String>> {
 /// `hands` do not carry at `provider` (rebuild unit 13-fix-c, R1): strict
 /// MCP and the MCP document for Claude and LaneTally, whose include
 /// restriction and workspace allowance the composer writes itself; the
-/// sandbox class and the server's three bindings for Codex.
-pub(super) fn untransported(provider: &str, hands: &Command) -> Option<&'static str> {
+/// sandbox class and the server's three bindings for Codex, the class
+/// carried by `--sandbox` or by the engine's permission profile bound to
+/// `bound` (U9c1; operator ruling 4 of 2026-10-23).
+pub(super) fn untransported(
+    provider: &str,
+    hands: &Command,
+    bound: grammar::Bound<'_>,
+) -> Option<&'static str> {
     let named = |name: &str| hands.nodes.iter().any(|node| node.name() == name);
+    let profiled = || matches!(grammar::profile(hands, bound), Ok(Some(_)));
     let bound = |part: &str| {
         let key = format!("mcp_servers.{}.{part}", crate::hands::SERVER_NAME);
         hands
@@ -641,7 +648,10 @@ pub(super) fn untransported(provider: &str, hands: &Command) -> Option<&'static 
             (named("--mcp-config"), "MCP document ('--mcp-config')"),
         ],
         "codex" => vec![
-            (named("--sandbox"), "sandbox class ('--sandbox')"),
+            (
+                named("--sandbox") || profiled(),
+                "sandbox class ('--sandbox' or the engine's permission profile)",
+            ),
             (
                 bound("command"),
                 "server command binding ('mcp_servers.brokkr.command')",
