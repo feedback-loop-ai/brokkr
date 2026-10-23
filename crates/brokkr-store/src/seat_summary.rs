@@ -254,7 +254,8 @@ pub enum SeatRows {
 }
 
 /// `run_id`'s rows, where its seat head is `head`; stale where it is
-/// not, or where a row holds what no writer writes.
+/// not, or where a row holds what no writer writes: a value, or a place
+/// other than the next of `0, 1, 2, …`, the places its writer gives.
 fn current(conn: &Connection, run_id: &str, head: (u64, &str)) -> Result<SeatRows, StoreError> {
     let mut statement = conn.prepare_cached(&CURRENT)?;
     let mut found = statement.query(params![run_id, head.0 as i64, head.1])?;
@@ -262,9 +263,12 @@ fn current(conn: &Connection, run_id: &str, head: (u64, &str)) -> Result<SeatRow
     let mut at_head = false;
     while let Some(row) = found.next()? {
         at_head = true;
-        let opened: Option<i64> = row.get(0)?;
-        if opened.is_none() {
-            continue;
+        match row.get(0)? {
+            Value::Null => continue,
+            Value::Integer(opened) if opened == rows.len() as i64 => {}
+            Value::Integer(_) | Value::Real(_) | Value::Text(_) | Value::Blob(_) => {
+                return Ok(SeatRows::Stale)
+            }
         }
         let read: Vec<Value> = (1..=SeatRow::COLUMNS.len())
             .map(|at| row.get(at))

@@ -115,11 +115,13 @@ fn a_row_holding_each_part_it_may_omit_reads_back_as_its_data() {
 
 /// Data no row writes is no row: a value of another type than its
 /// column's, a flag that is neither, a word no outcome is or one its
-/// column's writer never writes, a part of a value without the rest, and
-/// more or fewer values than columns.
+/// column's writer never writes, a cost no record states or a sum no
+/// costs reach, a part of a value without the rest, and more or fewer
+/// values than columns.
 #[test]
 fn data_no_row_writes_reads_as_none() {
     let none = || Datum::Null;
+    let bits = |cost: f64| Datum::Integer(cost.to_bits() as i64);
     let session_unmetered: Vec<(&str, Datum)> = SeatRow::COLUMNS
         .iter()
         .filter(|(name, _)| name.starts_with("session_") && *name != "session_cost")
@@ -135,6 +137,10 @@ fn data_no_row_writes_reads_as_none() {
         vec![("since", text("1"))],
         vec![("seat", Datum::Integer(1))],
         vec![("spent", text("0.5"))],
+        vec![("spent", bits(f64::NAN))],
+        vec![("session_cost", bits(f64::NAN))],
+        vec![("session_cost", bits(f64::INFINITY))],
+        vec![("session_cost", bits(f64::NEG_INFINITY))],
         vec![("metered_turn", Datum::Integer(2))],
         vec![("started_at", none())],
         vec![("model_seq", none())],

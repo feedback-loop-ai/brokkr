@@ -6,11 +6,12 @@
 //! writes is refused, so a row edited past its writer reads as none.
 //! Counts are kept as their bits, `u64` as `i64`, so no count is cut, and
 //! so are costs, `f64` as `i64`: SQLite keeps a whole-valued REAL as an
-//! integer, which reads a cost of -0.0 back as +0.0. Every bit pattern of
-//! a cost is kept, an infinity's and a NaN's among them: a record's cost
-//! is finite, but `spent` sums them, and two costs near `f64::MAX` sum to
-//! an infinity. An outcome column reads back only the words its writer
-//! writes.
+//! integer, which reads a cost of -0.0 back as +0.0. A record's cost is
+//! finite, since its record's JSON can state no other, so a session's
+//! cost reads back only finite; `spent` sums them, and two costs near
+//! `f64::MAX` sum to an infinity, but finite terms never sum to a NaN, so
+//! `spent` reads back finite or an infinity, and a NaN in either is no
+//! row. An outcome column reads back only the words its writer writes.
 
 use super::{CarriedFrom, Carry, Last, Member, Outcome, Pin, Provider, SeatRow, Session, Stamp};
 use crate::seat::meter::Meter;
@@ -128,8 +129,22 @@ impl<I: Iterator<Item = Datum>> Take<I> {
         }
     }
 
-    fn real(&mut self) -> Option<Option<f64>> {
-        Some(self.int()?.map(f64::from_bits))
+    /// A cost by its bits, where `admits` it.
+    fn real(&mut self, admits: fn(f64) -> bool) -> Option<Option<f64>> {
+        match self.int()?.map(f64::from_bits) {
+            Some(cost) if !admits(cost) => None,
+            cost => Some(cost),
+        }
+    }
+
+    /// A record's cost: finite, as its record states it.
+    fn cost(&mut self) -> Option<Option<f64>> {
+        self.real(f64::is_finite)
+    }
+
+    /// Costs summed: finite or an infinity, never a NaN.
+    fn spent(&mut self) -> Option<Option<f64>> {
+        self.real(|spent| !spent.is_nan())
     }
 
     fn flag(&mut self) -> Option<Option<bool>> {
@@ -223,7 +238,7 @@ impl<I: Iterator<Item = Datum>> Take<I> {
     fn session(&mut self) -> Option<Last<Session>> {
         let seq = self.int()?;
         let meter = self.meter()?;
-        let cost = self.real()?;
+        let cost = self.cost()?;
         match both(seq, meter)? {
             Some((seq, meter)) => Some(Some((seq, Session { meter, cost }))),
             None => cost.is_none().then_some(None),
@@ -448,7 +463,7 @@ impl<I: Iterator<Item = Datum>> Take<I> {
         row.carried = self.carried()?;
         row.turns = self.int()?;
         row.items = self.int()?;
-        row.spent = self.last(Self::real)?;
+        row.spent = self.last(Self::spent)?;
         row.metered = self.meter()?;
         row.session = self.session()?;
         row.transcript = self.last(Self::transcript)?;

@@ -387,6 +387,36 @@ fn a_row_no_writer_writes_reads_as_stale() {
     lags(&mut store, &["r"]);
 }
 
+/// A row at a place its writer never gives, before the first, past a
+/// gap, or not a number, reads as stale; and a cost no record states or
+/// a sum no costs reach, a NaN, reads as stale, never as a row.
+#[test]
+fn a_row_at_a_place_or_cost_no_writer_writes_reads_as_stale() {
+    let finished = json!({"step": "exec-session-finished", "total_cost_usd": 1.0});
+    let payload = json!({"effect_id": "fx", "attempt_id": "a", "checkpoint": finished});
+    let nan = f64::NAN.to_bits() as i64;
+    for edit in [
+        "UPDATE seat_summary SET opened = -1 WHERE opened = 1".to_string(),
+        "UPDATE seat_summary SET opened = 7 WHERE opened = 1".to_string(),
+        "UPDATE seat_summary SET opened = 'x' WHERE opened = 1".to_string(),
+        format!("UPDATE seat_summary SET session_cost = {nan} WHERE opened = 1"),
+        format!("UPDATE seat_summary SET spent = {nan} WHERE opened = 1"),
+    ] {
+        let (_dir, mut store) = store();
+        seated(&mut store, "r");
+        append(
+            &mut store,
+            "r",
+            EventType::EffectCheckpointed,
+            payload.clone(),
+        );
+        assert_eq!(read(&store, "r").len(), 2, "{edit}");
+        sql(&store, &edit);
+        assert_eq!(store.seat_rows("r").unwrap(), SeatRows::Stale, "{edit}");
+        lags(&mut store, &["r"]);
+    }
+}
+
 /// A journal that lost one table of the seat summary loses the other with
 /// it at a writable open, so no seat head that survived vouches for rows
 /// that did not, and the walk refolds every run; until then its rows read
