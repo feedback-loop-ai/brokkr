@@ -11,7 +11,8 @@
 //! cost reads back only finite; `spent` sums them, and two costs near
 //! `f64::MAX` sum to an infinity, but finite terms never sum to a NaN, so
 //! `spent` reads back finite or an infinity, and a NaN in either is no
-//! row. An outcome column reads back only the words its writer writes.
+//! row. An outcome column reads back only the words its writer writes,
+//! and the turns' meter only a turn's that carries tokens.
 
 use super::{CarriedFrom, Carry, Last, Member, Outcome, Pin, Provider, SeatRow, Session, Stamp};
 use crate::seat::meter::Meter;
@@ -232,6 +233,15 @@ impl<I: Iterator<Item = Datum>> Take<I> {
                 usage,
             })),
             (None, Some(_)) => None,
+        }
+    }
+
+    /// The turns' meter a row keeps, as `SeatRow::metered` keeps one:
+    /// a turn's, with its tokens, and a turn's meter never settles.
+    fn metered(&mut self) -> Option<Option<Meter>> {
+        match self.meter()? {
+            Some(meter) if !meter.metered() || meter.settles => None,
+            meter => Some(meter),
         }
     }
 
@@ -464,7 +474,7 @@ impl<I: Iterator<Item = Datum>> Take<I> {
         row.turns = self.int()?;
         row.items = self.int()?;
         row.spent = self.last(Self::spent)?;
-        row.metered = self.meter()?;
+        row.metered = self.metered()?;
         row.session = self.session()?;
         row.transcript = self.last(Self::transcript)?;
         Some(())

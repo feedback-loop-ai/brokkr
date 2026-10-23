@@ -28,6 +28,7 @@
 //! events stay the record (decisions 0001 and 0003), and no
 //! `brokkr-runtime` decision reads a row (ruling 1).
 
+use std::collections::BTreeSet;
 use std::sync::LazyLock;
 
 use brokkr_core::seat::row::{Datum, SeatRow};
@@ -253,13 +254,55 @@ pub enum SeatRows {
     Stale,
 }
 
+/// A part of a row's key as its data holds it: an integer, a text, or
+/// neither.
+type Part = (Option<i64>, Option<String>);
+
+fn part(datum: &Datum) -> Part {
+    match datum {
+        Datum::Null => (None, None),
+        Datum::Integer(value) => (Some(*value), None),
+        Datum::Text(value) => (None, Some(value.clone())),
+    }
+}
+
+/// What the rows read so far admit of the next, as the projection opens
+/// them: each key once, each request's own row, naming no attempt and no
+/// member, before every other row of it, and the requests in the order
+/// they were asked. A row's key is its first four columns, the four
+/// [`SeatRow::COLUMNS`] opens a row under: its request's seq and effect,
+/// its attempt and its member.
+#[derive(Default)]
+struct Opened {
+    keys: BTreeSet<[Part; 4]>,
+    asked: Option<Part>,
+}
+
+impl Opened {
+    fn admits(&mut self, data: &[Datum]) -> bool {
+        let key: [Part; 4] = std::array::from_fn(|at| part(&data[at]));
+        let own = [key[0].clone(), key[1].clone(), (None, None), (None, None)];
+        let asked = self.asked.as_ref().is_none_or(|asked| key[0] > *asked);
+        if asked {
+            self.asked = Some(key[0].clone());
+        }
+        let fits = match asked {
+            true => key == own,
+            false => self.keys.contains(&own),
+        };
+        fits && self.keys.insert(key)
+    }
+}
+
 /// `run_id`'s rows, where its seat head is `head`; stale where it is
-/// not, or where a row holds what no writer writes: a value, or a place
-/// other than the next of `0, 1, 2, …`, the places its writer gives.
+/// not, or where a row holds what no writer writes: a value, a place
+/// other than the next of `0, 1, 2, …`, the places its writer gives, or
+/// a key out of the order [`Opened`] admits.
 fn current(conn: &Connection, run_id: &str, head: (u64, &str)) -> Result<SeatRows, StoreError> {
     let mut statement = conn.prepare_cached(&CURRENT)?;
     let mut found = statement.query(params![run_id, head.0 as i64, head.1])?;
     let mut rows = Vec::new();
+    let mut opened = Opened::default();
     let mut at_head = false;
     while let Some(row) = found.next()? {
         at_head = true;
@@ -274,6 +317,7 @@ fn current(conn: &Connection, run_id: &str, head: (u64, &str)) -> Result<SeatRow
             .map(|at| row.get(at))
             .collect::<Result<_, _>>()?;
         let data: Option<Vec<Datum>> = read.into_iter().map(datum).collect();
+        let data = data.filter(|data| opened.admits(data));
         match data.and_then(SeatRow::of_data) {
             Some(seat) => rows.push(seat),
             None => return Ok(SeatRows::Stale),

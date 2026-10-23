@@ -389,9 +389,10 @@ fn a_row_no_writer_writes_reads_as_stale() {
 
 /// A row at a place its writer never gives, before the first, past a
 /// gap, or not a number, reads as stale; and a cost no record states or
-/// a sum no costs reach, a NaN, reads as stale, never as a row.
+/// a sum no costs reach, a NaN, or a turns' meter no turn writes, reads
+/// as stale, never as a row.
 #[test]
-fn a_row_at_a_place_or_cost_no_writer_writes_reads_as_stale() {
+fn a_row_at_a_place_cost_or_meter_no_writer_writes_reads_as_stale() {
     let finished = json!({"step": "exec-session-finished", "total_cost_usd": 1.0});
     let payload = json!({"effect_id": "fx", "attempt_id": "a", "checkpoint": finished});
     let nan = f64::NAN.to_bits() as i64;
@@ -401,6 +402,13 @@ fn a_row_at_a_place_or_cost_no_writer_writes_reads_as_stale() {
         "UPDATE seat_summary SET opened = 'x' WHERE opened = 1".to_string(),
         format!("UPDATE seat_summary SET session_cost = {nan} WHERE opened = 1"),
         format!("UPDATE seat_summary SET spent = {nan} WHERE opened = 1"),
+        "UPDATE seat_summary SET metered_turn = 0 WHERE opened = 1".to_string(),
+        "UPDATE seat_summary SET metered_settles = 1 WHERE opened = 1".to_string(),
+        "UPDATE seat_summary SET metered_input_tokens = NULL, metered_output_tokens = NULL,
+             metered_cache_read_tokens = NULL, metered_cache_write_tokens = NULL,
+             metered_reasoning_output_tokens = NULL, metered_total_tokens = NULL
+             WHERE opened = 1"
+            .to_string(),
     ] {
         let (_dir, mut store) = store();
         seated(&mut store, "r");
@@ -411,6 +419,75 @@ fn a_row_at_a_place_or_cost_no_writer_writes_reads_as_stale() {
             payload.clone(),
         );
         assert_eq!(read(&store, "r").len(), 2, "{edit}");
+        sql(&store, &edit);
+        assert_eq!(store.seat_rows("r").unwrap(), SeatRows::Stale, "{edit}");
+        lags(&mut store, &["r"]);
+    }
+}
+
+/// [`seated`]'s run with a second effect asked and started after it, and
+/// then a member's checkpoint of the first: rows 0 and 1 the first
+/// effect's, 2 and 3 the second's, and 4 the first's again.
+fn interleaved(store: &mut Store, run_id: &str) {
+    seated(store, run_id);
+    let requested = json!({"effect_id": "fy", "seat": "worker", "phase": "work"});
+    append(store, run_id, EventType::EffectRequested, requested);
+    let started = json!({"effect_id": "fy", "attempt_id": "b"});
+    append(store, run_id, EventType::EffectStarted, started);
+    let member = checkpoint(Some("m"), 2);
+    append(store, run_id, EventType::EffectCheckpointed, member);
+}
+
+/// The statements that swap the rows at places `a` and `b`.
+fn swapped(a: usize, b: usize) -> String {
+    format!(
+        "UPDATE seat_summary SET opened = 99 WHERE opened = {a};
+         UPDATE seat_summary SET opened = {a} WHERE opened = {b};
+         UPDATE seat_summary SET opened = {b} WHERE opened = 99;"
+    )
+}
+
+/// The statements that copy the row at place `from` to place 5.
+fn copied(from: usize) -> String {
+    format!(
+        "CREATE TEMP TABLE copied AS SELECT * FROM seat_summary WHERE opened = {from};
+         UPDATE copied SET opened = 5;
+         INSERT INTO seat_summary SELECT * FROM copied;"
+    )
+}
+
+/// Rows in an order the projection opens, a request's row after a later
+/// request's, read as current; rows no projection opens read as stale: a
+/// key twice, an attempt's row before its request's own, a request before
+/// one asked earlier, an attempt's row of a request not yet asked, a row
+/// naming another effect than its request's, and a request with no row
+/// of its own.
+#[test]
+fn rows_out_of_the_order_the_projection_opens_read_as_stale() {
+    let key: Vec<&str> = SeatRow::COLUMNS[..4]
+        .iter()
+        .map(|(name, _)| *name)
+        .collect();
+    assert_eq!(key, ["request_seq", "effect_id", "attempt_id", "member"]);
+    let (_kept, mut kept) = store();
+    interleaved(&mut kept, "r");
+    let rows = read(&kept, "r");
+    assert_eq!(rows, folded_rows(&kept, "r"));
+    assert_eq!(rows.len(), 5);
+    for edit in [
+        copied(1),
+        copied(0),
+        swapped(0, 1),
+        swapped(0, 2),
+        swapped(2, 4),
+        "UPDATE seat_summary SET effect_id = 'fy' WHERE opened = 4".to_string(),
+        "DELETE FROM seat_summary WHERE opened = 2;
+         UPDATE seat_summary SET opened = 2 WHERE opened = 3;
+         UPDATE seat_summary SET opened = 3 WHERE opened = 4;"
+            .to_string(),
+    ] {
+        let (_dir, mut store) = store();
+        interleaved(&mut store, "r");
         sql(&store, &edit);
         assert_eq!(store.seat_rows("r").unwrap(), SeatRows::Stale, "{edit}");
         lags(&mut store, &["r"]);
