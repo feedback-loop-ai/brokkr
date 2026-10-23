@@ -22,7 +22,7 @@
    175 crates/brokkr-cli/src/budget_frame.rs
    710 crates/brokkr-cli/src/cli_args.rs
      9 crates/brokkr-cli/src/cli_args/compile.rs
-    69 crates/brokkr-cli/src/cli_args/entry.rs
+    14 crates/brokkr-cli/src/cli_args/entry.rs
     15 crates/brokkr-cli/src/cli_args/member_retry.rs
     96 crates/brokkr-cli/src/cli_args/queue.rs
     18 crates/brokkr-cli/src/cli_args/ui.rs
@@ -371,6 +371,7 @@
    223 crates/brokkr-cli/src/broker/session/retaining/tests.rs
    312 crates/brokkr-cli/src/broker/session/stderr/tests.rs
    148 crates/brokkr-cli/src/broker/survey/tests.rs
+    54 crates/brokkr-cli/src/cli_args/entry/tests.rs
   1633 crates/brokkr-cli/src/cli_reference_tests.rs
    350 crates/brokkr-cli/src/compare/tests.rs
   1994 crates/brokkr-cli/src/doctor/capability_tests.rs
