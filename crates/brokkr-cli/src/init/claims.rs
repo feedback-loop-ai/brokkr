@@ -84,7 +84,9 @@ pub(super) const MACOS: Claims = Claims {
 };
 
 /// The claims one host arm supports: `None` is the `namespace` default,
-/// and `init` declares `harness` only for a codex scaffold or on macOS.
+/// and `init` declares `harness` only on macOS, where codex's own sandbox
+/// holds a codex scaffold's hands (`CODEX`) and no other scaffold's seat
+/// has hands (`MACOS`).
 pub(super) fn claims(cli: Cli, boundary: Option<Boundary>) -> Claims {
     match boundary {
         None | Some(Boundary::Namespace) => NAMESPACE,

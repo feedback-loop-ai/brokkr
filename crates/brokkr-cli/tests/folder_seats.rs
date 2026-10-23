@@ -7,13 +7,17 @@
 //! recipe's own, which would pass. A folder whose verify declares no hands
 //! refuses such a seat at compile and at run.
 //!
-//! The folder is scaffolded for codex, whose `init` writes the `harness`
-//! boundary, so no box is needed.
+//! The folder is scaffolded for codex, whose realm stands under the host's
+//! boundary: `namespace` on Linux, where verify runs in Brokkr's box
+//! (#717), and `harness` on macOS, where it runs under none. Where no
+//! namespace can be built, inside a box among them, the runs skip.
 
 use std::path::Path;
 
+use brokkr_protocol::hands::{boundary_evidence_required, skip_boundary_proof};
 use serde_json::{json, Value};
 
+use crate::bootstrap_bench::can_box_the_gates;
 use crate::brokkr_folder::{completes, git, repository};
 use crate::init_stacks::brokkr_for;
 
@@ -109,8 +113,17 @@ impl Scratch {
 
     /// Start `run` in the folder, which stops having ruled `ruled`, each
     /// `[rule, from, result]`, its verify failing with `init`'s fill-in
-    /// text: everything the run journaled, as text.
-    fn verify_fails_closed(&self, run: &[&str], ruled: &[[&str; 3]]) -> String {
+    /// text: everything the run journaled, as text. Where the folder's
+    /// verify cannot be boxed, the run is skipped as `bootstrap_bench`
+    /// skips, and `None` comes back.
+    fn verify_fails_closed(&self, run: &[&str], ruled: &[[&str; 3]]) -> Option<String> {
+        if !can_box_the_gates() {
+            skip_boundary_proof(
+                boundary_evidence_required(),
+                "no namespace can be built here for the folder's boxed verify",
+            );
+            return None;
+        }
         let repo = self.repo.path();
         for identity in [["user.name", "t"], ["user.email", "t@example.invalid"]] {
             git(repo, &[&["config"][..], &identity[..]].concat());
@@ -130,7 +143,7 @@ impl Scratch {
         assert_eq!(decided, ruled, "{journaled:?}");
         let text = Value::Array(journaled).to_string();
         assert!(text.contains(FILL_IN), "{text}");
-        text
+        Some(text)
     }
 }
 
@@ -146,7 +159,9 @@ fn a_shelf_recipes_folder_seat_runs_the_folders_own_script() {
     assert_eq!(digest.len(), 64, "{digest}");
 
     // Either verdict ends the fixture's table at `stop`: the run stopped.
-    let text = scratch.verify_fails_closed(&RUN, &[["FAIL", "verify", "fail"]]);
+    let Some(text) = scratch.verify_fails_closed(&RUN, &[["FAIL", "verify", "fail"]]) else {
+        return;
+    };
     assert!(!text.contains(SENTINEL), "{text}");
 }
 
@@ -190,7 +205,10 @@ fn shelf_fasts_verify_in_a_folder_with_no_stack_fails_closed_with_inits_text() {
         ["IMPL-OK", "implement", "complete"],
         ["VERIFY-FAIL-EXHAUSTED", "verify", "fail"],
     ];
-    let text = scratch.verify_fails_closed(&run, &[returned, returned, exhausted].concat());
+    let ruled = [returned, returned, exhausted].concat();
+    let Some(text) = scratch.verify_fails_closed(&run, &ruled) else {
+        return;
+    };
     assert!(
         !text.contains("fast's verify is the folder's own"),
         "{text}"

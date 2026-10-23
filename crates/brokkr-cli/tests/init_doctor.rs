@@ -388,9 +388,10 @@ fn each_rosters_declarations_carry_their_shipped_mcp_facts_and_still_compile() {
 
 /// A claude-less host with codex gets a codex scaffold that compiles: the
 /// codex adapter and no claude one, every seat hired from codex with
-/// hands and no tool allowance, and a realm under `harness`, where
-/// codex's own sandbox classes hold those hands — so nothing asks for
-/// bubblewrap.
+/// hands and no tool allowance, and a realm under the host's boundary —
+/// `namespace` on Linux, where Brokkr's workspace tool serves those hands
+/// (#717), and `harness` on macOS, where codex's own sandbox classes hold
+/// them.
 #[test]
 fn a_codex_only_host_gets_a_codex_scaffold_that_compiles() {
     let (_dir, bundle, stderr) = init_with_only(&["codex"]);
@@ -399,15 +400,34 @@ fn a_codex_only_host_gets_a_codex_scaffold_that_compiles() {
             .contains("Scaffolded for `codex`, the first of claude, codex and dsh found on PATH."),
         "{stderr}"
     );
-    assert!(!stderr.contains("hands need bubblewrap"), "{stderr}");
+    // Under `namespace` every seat with hands, each codex office among
+    // them, needs the bubblewrap this PATH lacks, and is named (#717).
+    let warned = "hands need bubblewrap: no `bwrap` on PATH, and the boundary is never \
+                  simulated; the scaffolded seats [\"implement\", \"intake\", \"review\", \
+                  \"ship\", \"verify\"] declare hands";
+    assert_eq!(
+        stderr.contains(warned),
+        cfg!(target_os = "linux"),
+        "{stderr}"
+    );
     assert!(bundle.join("adapters/codex.json").is_file());
     assert!(!bundle.join("adapters/claude.json").exists());
     let adapter = json_at(&bundle.join("adapters/codex.json"));
     assert_eq!(adapter["trust_tier"], "trusted");
     assert_eq!(adapter["judges"], serde_json::json!(["astra", "sol"]));
     let map = json_at(&bundle.join("realms.json"));
-    assert_eq!(map["schema"], "forge.realms/v4");
-    assert_eq!(map["realms"][0]["boundary"], "harness");
+    let declared = match cfg!(target_os = "macos") {
+        true => ("forge.realms/v4", Some("harness")),
+        false => ("forge.realms/v3", None),
+    };
+    let boundary = map["realms"][0]
+        .get("boundary")
+        .and_then(|word| word.as_str());
+    assert_eq!(
+        (map["schema"].as_str().unwrap(), boundary),
+        declared,
+        "{map}"
+    );
     // Astra holds no scaffold chain, and sol hires one step below the
     // scaffold's `high` (decision 0045's 2026-09-30 addendum).
     let sol_terra = serde_json::json!({"sol": "medium", "terra": "high"});
@@ -435,9 +455,11 @@ fn a_codex_only_host_gets_a_codex_scaffold_that_compiles() {
     );
 }
 
-/// A codex scaffold declares `harness`, where verify runs under no box of
-/// Brokkr's: the note its script journals on a pass says so, and claims
-/// no denied network (#366).
+/// On macOS a codex scaffold declares `harness`, where verify runs under
+/// no box of Brokkr's: the note its script journals on a pass says so, and
+/// claims no denied network (#366). On Linux it stands under `namespace`
+/// (#717), whose note `init`'s own host-arm table pins.
+#[cfg(target_os = "macos")]
 #[test]
 fn a_harness_scaffolds_verify_note_claims_no_denied_network() {
     let (_dir, bundle, _) = init_with_only(&["codex"]);

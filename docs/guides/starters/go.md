@@ -84,8 +84,8 @@ lint_command='go vet ./...'
 
 It runs both from the repository root, types `pass` only when both exit
 zero, and quotes decisive output on `fail`. Where the realm's boundary
-is `namespace`, Brokkr boxes it with no network. Under `harness` — a
-codex scaffold, or macOS — it runs under no box of Brokkr's, and its
+is `namespace`, Brokkr boxes it with no network. Under `harness` —
+which `init` declares on macOS — it runs under no box of Brokkr's, and its
 note claims no denied network.
 
 - **`go vet ./...`** is the arm's `lint`, and it is the honest default

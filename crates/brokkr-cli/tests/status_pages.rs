@@ -696,8 +696,8 @@ const OVERCLAIMS: [&str; 8] = [
 ///
 /// The scaffold's verify and ship scripts said to be boxed, or to run
 /// with no network, on every host are refused too: `init` declares
-/// `harness` for a codex scaffold and on macOS, where they run under no
-/// box of Brokkr's and no network denial is reported. So is a gate said
+/// `harness` on macOS, where they run under no box of Brokkr's and no
+/// network denial is reported. So is a gate said
 /// never to write or to be boxed whatever it declares: the default
 /// delivery's review gate runs unboxed under `acceptEdits`.
 ///
