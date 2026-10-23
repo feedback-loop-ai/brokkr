@@ -14,7 +14,7 @@ use super::{SandboxIntent, KEY_BYTES_MAX};
 use crate::native_controls::Isolation;
 
 /// A feature toggle: one feature's name, split or equals-joined, repeatable.
-pub(super) const fn feature(canonical: &'static str, power: Power) -> Spec {
+pub(crate) const fn feature(canonical: &'static str, power: Power) -> Spec {
     Spec {
         canonical,
         aliases: &[],

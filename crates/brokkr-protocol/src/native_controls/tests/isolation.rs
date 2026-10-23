@@ -812,3 +812,18 @@ fn authored_isolation_options_and_profiles_are_refused() {
         );
     }
 }
+
+/// The feature-toggle shorthand builds what `--enable` and `--disable`
+/// are: one value, split or equals-joined, repeatable, and a control of the
+/// power it names. The tables call it only in constant evaluation, so this
+/// is its one run.
+#[test]
+fn the_feature_shorthand_builds_a_repeatable_control_of_its_power() {
+    use grammar::{feature, Arity, Power};
+    let toggle = feature("--w", Power::Mcp);
+    assert_eq!(toggle.canonical, "--w");
+    assert!(toggle.aliases.is_empty());
+    assert_eq!(toggle.arity, Arity::One);
+    assert!(toggle.equals && !toggle.attached && toggle.repeat);
+    assert_eq!(toggle.effect, Effect::Control(Power::Mcp));
+}

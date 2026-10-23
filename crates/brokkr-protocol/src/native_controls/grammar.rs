@@ -23,8 +23,8 @@
 use std::fmt;
 
 use super::{flatten, Origin, SandboxIntent, Segment};
-use config::{assignment_parts, feature};
-pub(crate) use config::{isolation, profile, Bound, Unisolated};
+use config::assignment_parts;
+pub(crate) use config::{feature, isolation, profile, Bound, Unisolated};
 
 mod config;
 
