@@ -42,8 +42,10 @@ pub fn every_run_reads_as_its_fold(store: &Store) -> Vec<String> {
 }
 
 /// What `compared` names `run_id` by, `run: what its row reads as`, or
-/// `None` where the row reads as its fold.
-fn named(run_id: &str, compared: Compared) -> Option<String> {
+/// `None` where the row reads as its fold. A seat head of no run is never
+/// a run's comparison, only the doctor's sweep's, and is named for the
+/// match to be whole.
+pub(crate) fn named(run_id: &str, compared: Compared) -> Option<String> {
     let words = match compared {
         Compared::Agrees => return None,
         Compared::Behind => "behind its head".to_string(),
@@ -59,6 +61,7 @@ fn named(run_id: &str, compared: Compared) -> Option<String> {
         Compared::Disagrees(Disagreement::Seated { row, fault, .. }) => {
             format!("seat row {row} {fault:?}")
         }
+        Compared::Disagrees(Disagreement::SeatHead { .. }) => "a seat head of no run".to_string(),
     };
     Some(format!("{run_id}: {words}"))
 }

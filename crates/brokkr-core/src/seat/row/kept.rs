@@ -4,24 +4,24 @@
 //! written. A value the projection keeps with the seq that stated it
 //! keeps that seq in the column before it; a part read back as no row
 //! writes is refused, so a row edited past its writer reads as none.
-//! Counts are kept as their bits, `u64` as `i64`, so no count is cut.
+//! Counts are kept as their bits, `u64` as `i64`, so no count is cut, and
+//! so are costs, `f64` as `i64`: SQLite keeps a whole-valued REAL as an
+//! integer, which reads a cost of -0.0 back as +0.0.
 
 use super::{CarriedFrom, Carry, Last, Member, Outcome, Pin, Provider, SeatRow, Session, Stamp};
 use crate::seat::meter::Meter;
 use crate::seat::{TokenUsage, Transcript};
 
-/// One column's value, in SQLite's own types.
+/// One column's value, in the SQLite types a row is kept in.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Datum {
     Null,
     Integer(i64),
-    Real(f64),
     Text(String),
 }
 
 const INTEGER: &str = "INTEGER";
 const TEXT: &str = "TEXT";
-const REAL: &str = "REAL";
 
 impl Outcome {
     fn word(self) -> &'static str {
@@ -54,7 +54,7 @@ impl Put {
     }
 
     fn real(&mut self, value: Option<f64>) {
-        self.0.push(value.map_or(Datum::Null, Datum::Real));
+        self.int(value.map(f64::to_bits));
     }
 
     fn flag(&mut self, value: Option<bool>) {
@@ -123,11 +123,7 @@ impl<I: Iterator<Item = Datum>> Take<I> {
     }
 
     fn real(&mut self) -> Option<Option<f64>> {
-        match self.0.next()? {
-            Datum::Null => Some(None),
-            Datum::Real(value) => Some(Some(value)),
-            _ => None,
-        }
+        Some(self.int()?.map(f64::from_bits))
     }
 
     fn flag(&mut self) -> Option<Option<bool>> {
@@ -235,6 +231,43 @@ impl<I: Iterator<Item = Datum>> Take<I> {
 }
 
 impl SeatRow {
+    /// A row under its key, its request's seq and effect, its attempt and
+    /// its member, holding nothing else yet: the one skeleton both the
+    /// projection opens a row on and a kept row is read onto.
+    pub(super) fn keyed(
+        request_seq: u64,
+        effect_id: String,
+        attempt_id: Option<String>,
+        member: Member,
+    ) -> SeatRow {
+        SeatRow {
+            request_seq,
+            effect_id,
+            attempt_id,
+            member,
+            seat: None,
+            phase: None,
+            started: None,
+            since: None,
+            first: None,
+            last: None,
+            model: None,
+            effort: None,
+            provider: None,
+            boundary: None,
+            stamp: None,
+            ended: None,
+            pin: None,
+            carried: None,
+            turns: None,
+            items: None,
+            spent: None,
+            metered: None,
+            session: None,
+            transcript: None,
+        }
+    }
+
     /// The columns a row is kept in, by name and SQL type, in the order
     /// [`SeatRow::data`] gives their values.
     pub const COLUMNS: [(&'static str, &'static str); 56] = [
@@ -271,7 +304,7 @@ impl SeatRow {
         ("turns", INTEGER),
         ("items", INTEGER),
         ("spent_seq", INTEGER),
-        ("spent", REAL),
+        ("spent", INTEGER),
         ("metered_turn", INTEGER),
         ("metered_settles", INTEGER),
         ("metered_input_tokens", INTEGER),
@@ -289,7 +322,7 @@ impl SeatRow {
         ("session_cache_write_tokens", INTEGER),
         ("session_reasoning_output_tokens", INTEGER),
         ("session_total_tokens", INTEGER),
-        ("session_cost", REAL),
+        ("session_cost", INTEGER),
         ("transcript_seq", INTEGER),
         ("transcript_kind", TEXT),
         ("transcript_locator", TEXT),
@@ -370,31 +403,20 @@ impl SeatRow {
 impl<I: Iterator<Item = Datum>> Take<I> {
     /// A row as it is opened: its key, its seat and phase, and its dates.
     fn opened(&mut self) -> Option<SeatRow> {
+        let keyed = SeatRow::keyed(
+            self.int()??,
+            self.text()??,
+            self.text()?,
+            Member::of(self.text()?.as_deref()),
+        );
         Some(SeatRow {
-            request_seq: self.int()??,
-            effect_id: self.text()??,
-            attempt_id: self.text()?,
-            member: Member::of(self.text()?.as_deref()),
             seat: self.text()?,
             phase: self.text()?,
             started: self.stamp()?,
             since: self.int()?,
             first: self.stamp()?,
             last: self.stamp()?,
-            model: None,
-            effort: None,
-            provider: None,
-            boundary: None,
-            stamp: None,
-            ended: None,
-            pin: None,
-            carried: None,
-            turns: None,
-            items: None,
-            spent: None,
-            metered: None,
-            session: None,
-            transcript: None,
+            ..keyed
         })
     }
 

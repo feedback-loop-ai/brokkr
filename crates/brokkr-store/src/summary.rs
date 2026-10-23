@@ -493,6 +493,9 @@ pub enum Disagreement {
         row: u64,
         fault: IndexFault,
     },
+    /// The seat summary holds a seat head of a run the journal does not
+    /// hold.
+    SeatHead { run_id: String },
 }
 
 /// How one run's row stands against its fold: the doctor keeps only what
@@ -540,6 +543,7 @@ impl std::fmt::Display for Disagreement {
             Disagreement::Seated { run_id, row, fault } => {
                 seat_summary::named(f, run_id, *row, *fault)
             }
+            Disagreement::SeatHead { run_id } => seat_summary::headless(f, run_id),
         }
     }
 }
@@ -628,8 +632,9 @@ impl Store {
     /// Every run read whole, one run at a time, so the memory is the
     /// largest run's (ruling 4), whose row disagrees with its fold, whose
     /// event index is not what its events project to, or which does not
-    /// load, then every run the index holds rows of and the journal does
-    /// not: what `brokkr doctor` names as failures. A run that loads,
+    /// load, then every run the index or the seat summary holds rows or a
+    /// seat head of and the journal does not: what `brokkr doctor` names
+    /// as failures. A run that loads,
     /// whose index agrees and whose row is behind its head is a lag, not a
     /// disagreement, and is passed.
     pub fn summary_disagreements(&self) -> Result<Vec<Disagreement>, StoreError> {
@@ -640,6 +645,7 @@ impl Store {
             }
         })?;
         found.extend(runless(&self.conn)?);
+        found.extend(seat_summary::runless(&self.conn)?);
         Ok(found)
     }
 

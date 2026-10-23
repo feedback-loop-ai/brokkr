@@ -46,20 +46,22 @@ const BACKFILLED: &str = "seat_summary_backfill";
 
 const TABLES: [&str; 2] = ["seat_summary", "seat_head"];
 
-/// The two tables, `IF NOT EXISTS` so racing openers agree, and the
-/// backfill marked unfinished, so a journal that lost one is walked again
-/// once it is restored.
+/// The two tables, made anew: a journal that lost one loses the other
+/// with it, so no seat head outlives the rows it vouches for and every
+/// run is walked again; and the backfill marked unfinished.
 fn migration() -> String {
     let columns: Vec<String> = SeatRow::COLUMNS
         .iter()
         .map(|(name, kind)| format!("{name} {kind}"))
         .collect();
     format!(
-        "CREATE TABLE IF NOT EXISTS seat_summary (
+        "DROP TABLE IF EXISTS seat_summary;
+        DROP TABLE IF EXISTS seat_head;
+        CREATE TABLE seat_summary (
             run_id TEXT NOT NULL, opened INTEGER NOT NULL, {},
             PRIMARY KEY (run_id, opened)
         ) WITHOUT ROWID;
-        CREATE TABLE IF NOT EXISTS seat_head (
+        CREATE TABLE seat_head (
             run_id TEXT PRIMARY KEY, folded_seq INTEGER NOT NULL, folded_hash TEXT NOT NULL
         ) WITHOUT ROWID;
         DELETE FROM meta WHERE key = '{BACKFILLED}';",
@@ -73,10 +75,15 @@ pub(crate) fn seats_intact(conn: &Connection) -> Result<bool, StoreError> {
 }
 
 /// Create the tables, on a connection holding the write lock: the seventh
-/// additive repair. Their rows come from the backfill that follows the
+/// additive repair. Their presence is asked again under the lock, so an
+/// opener that raced a peer to it drops none of the rows the peer's walk
+/// has written since. Their rows come from the backfill that follows the
 /// open, outside this lock.
 pub(crate) fn migrate_seats(conn: &Connection) -> Result<(), StoreError> {
-    Ok(conn.execute_batch(&migration())?)
+    if !seats_intact(conn)? {
+        conn.execute_batch(&migration())?;
+    }
+    Ok(())
 }
 
 /// Record that the backfill finished; a journal created with the tables
@@ -111,18 +118,20 @@ static KEPT: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// A run's rows read only where its seat head is the head named: none
-/// for a head that lags, and one empty row for a run with no rows, so
-/// one statement reads the head and the rows as one snapshot.
+/// A run's rows read only where the journal holds the run and its seat
+/// head is the head named: none for a head that lags or a run the journal
+/// does not hold, and one empty row for a run with no rows, so one
+/// statement reads the head and the rows as one snapshot.
 static CURRENT: LazyLock<String> = LazyLock::new(|| {
     let columns: Vec<String> = SeatRow::COLUMNS
         .iter()
         .map(|(name, _)| format!("s.{name}"))
         .collect();
     format!(
-        "SELECT s.opened, {} FROM seat_head AS h
+        "SELECT s.opened, {} FROM runs AS r
+             JOIN seat_head AS h ON h.run_id = r.run_id
              LEFT JOIN seat_summary AS s ON s.run_id = h.run_id
-         WHERE h.run_id = ?1 AND h.folded_seq = ?2 AND h.folded_hash = ?3
+         WHERE r.run_id = ?1 AND h.folded_seq = ?2 AND h.folded_hash = ?3
          ORDER BY s.opened",
         columns.join(", ")
     )
@@ -151,20 +160,18 @@ fn value(datum: Datum) -> Value {
     match datum {
         Datum::Null => Value::Null,
         Datum::Integer(value) => Value::Integer(value),
-        Datum::Real(value) => Value::Real(value),
         Datum::Text(value) => Value::Text(value),
     }
 }
 
-/// The value a column holds as a row's datum, `None` for a blob, which
-/// no row writes.
+/// The value a column holds as a row's datum, `None` for a real or a
+/// blob, which no row writes.
 fn datum(value: Value) -> Option<Datum> {
     match value {
         Value::Null => Some(Datum::Null),
         Value::Integer(value) => Some(Datum::Integer(value)),
-        Value::Real(value) => Some(Datum::Real(value)),
         Value::Text(value) => Some(Datum::Text(value)),
-        Value::Blob(_) => None,
+        Value::Real(_) | Value::Blob(_) => None,
     }
 }
 
@@ -327,6 +334,53 @@ pub(crate) fn named(
     }
 }
 
+/// The words `brokkr doctor` names a seat head of no run by.
+pub(crate) fn headless(f: &mut std::fmt::Formatter<'_>, run_id: &str) -> std::fmt::Result {
+    write!(
+        f,
+        "run '{run_id}': the seat summary holds a seat head of it, where the journal holds no \
+         such run"
+    )
+}
+
+/// Each run id the seat summary holds rows of and `runs` does not, with
+/// its first such place, in run id order: the rows a sweep that walks
+/// `runs` never reaches, read in one statement. A run a peer creates
+/// meanwhile is never named, since its `runs` row commits before its
+/// first seat row.
+const RUNLESS_ROWS: &str = "SELECT run_id, min(opened) FROM seat_summary
+     WHERE run_id NOT IN (SELECT run_id FROM runs) GROUP BY run_id ORDER BY run_id";
+
+/// Each run id the seat summary holds a seat head of and `runs` does not,
+/// in run id order; a run's head commits with its `runs` row.
+const RUNLESS_HEADS: &str = "SELECT run_id FROM seat_head
+     WHERE run_id NOT IN (SELECT run_id FROM runs) ORDER BY run_id";
+
+/// Every seat row of a run the journal does not hold, named as a stray at
+/// its run's first such place, then every seat head of one (ruling 4): no
+/// fold stands behind either, since every fold is a `runs` row's.
+pub(crate) fn runless(conn: &Connection) -> Result<Vec<Disagreement>, StoreError> {
+    let mut rows = conn.prepare_cached(RUNLESS_ROWS)?;
+    let strays = rows.query_map([], |row| {
+        Ok(Disagreement::Seated {
+            run_id: row.get(0)?,
+            row: row.get(1)?,
+            fault: IndexFault::Stray,
+        })
+    })?;
+    let mut found: Vec<Disagreement> = strays.collect::<Result<_, _>>()?;
+    let mut heads = conn.prepare_cached(RUNLESS_HEADS)?;
+    let headless = heads.query_map([], |row| {
+        Ok(Disagreement::SeatHead {
+            run_id: row.get(0)?,
+        })
+    })?;
+    for head in headless {
+        found.push(head?);
+    }
+    Ok(found)
+}
+
 impl Store {
     /// Refold every run whose seat head lags its head, one run per
     /// transaction, and record the backfill finished (ruling 8). Every
@@ -382,9 +436,9 @@ impl Store {
     }
 
     /// A run's seat rows, what brokkr-core's `facts` groups into the run
-    /// view's participants (ruling 7), while the journal carries the
-    /// tables, their backfill finished and the run's seat head is its last
-    /// event; [`SeatRows::Stale`] otherwise, for a reader to read the run
+    /// view's participants (ruling 7), while the journal holds the run,
+    /// carries the tables, their backfill finished and the run's seat head
+    /// is its last event; [`SeatRows::Stale`] otherwise, for a reader to read the run
     /// whole instead (ruling 8). The head and the rows are read in one
     /// statement, so they are one snapshot.
     pub fn seat_rows(&self, run_id: &str) -> Result<SeatRows, StoreError> {

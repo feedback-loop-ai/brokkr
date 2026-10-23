@@ -706,6 +706,7 @@ fn a_row_that_stands_at_its_head_and_disagrees_is_named_by_its_first_column() {
             Disagreement::Unread { run_id, error } => format!("{run_id} unread: {error}"),
             Disagreement::Indexed { run_id, seq, fault } => format!("{run_id} {seq} {fault:?}"),
             Disagreement::Seated { run_id, row, fault } => format!("{run_id} seat {row} {fault:?}"),
+            Disagreement::SeatHead { run_id } => format!("{run_id} seat head"),
         })
         .collect();
     assert_eq!(

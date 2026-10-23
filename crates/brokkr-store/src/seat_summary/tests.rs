@@ -328,20 +328,121 @@ fn an_import_writes_the_rows_the_projection_gives() {
     assert_eq!(counted(&store, &runs), expected);
 }
 
-/// A row that holds what no writer writes, a blob or a word no outcome
-/// is, reads as stale, never as a row.
+/// A row that holds what no writer writes, a blob, a real or a word no
+/// outcome is, reads as stale, never as a row.
 #[test]
 fn a_row_no_writer_writes_reads_as_stale() {
     let (_dir, mut store) = store();
     seated(&mut store, "r");
     for edit in [
         "UPDATE seat_summary SET seat = x'00' WHERE opened = 1",
-        "UPDATE seat_summary SET seat = 'worker', ended = 'done' WHERE opened = 1",
+        "UPDATE seat_summary SET seat = 'worker', turns = 1.5 WHERE opened = 1",
+        "UPDATE seat_summary SET turns = 1, ended = 'done' WHERE opened = 1",
     ] {
         sql(&store, edit);
         assert_eq!(store.seat_rows("r").unwrap(), SeatRows::Stale, "{edit}");
     }
     lags(&mut store, &["r"]);
+}
+
+/// A journal that lost one table of the seat summary loses the other with
+/// it at a writable open, so no seat head that survived vouches for rows
+/// that did not, and the walk refolds every run; until then its rows read
+/// as stale. A repair that finds both tables already made drops nothing.
+#[test]
+fn a_journal_that_lost_a_seat_table_reads_stale_until_a_writable_open_refolds_it() {
+    for lost in ["seat_summary", "seat_head"] {
+        let (_dir, mut store) = store();
+        seated(&mut store, "r");
+        let path = store.path().to_path_buf();
+        drop(store);
+        let raw = rusqlite::Connection::open(&path).unwrap();
+        raw.execute_batch(&format!("DROP TABLE {lost}")).unwrap();
+        let reader = Store::open_read_only(&path).unwrap();
+        assert_eq!(reader.seat_rows("r").unwrap(), SeatRows::Stale, "{lost}");
+        let store = Store::open(&path).unwrap();
+        assert_eq!(read(&store, "r"), folded_rows(&store, "r"), "{lost}");
+        assert_eq!(read(&store, "r").len(), 2, "{lost}");
+        migrate_seats(&store.conn).unwrap();
+        assert_eq!(read(&store, "r").len(), 2, "{lost}");
+    }
+}
+
+/// Seat rows and a seat head of a run the journal does not hold read as
+/// stale, whatever head they claim, and the doctor's sweep names each as
+/// a stray; a run created under that id later reads none of them.
+#[test]
+fn seat_rows_and_heads_of_no_run_read_stale_and_are_named_as_strays() {
+    let (_dir, mut store) = store();
+    seated(&mut store, "r");
+    sql(
+        &store,
+        &format!(
+            "CREATE TEMP TABLE copied AS SELECT * FROM seat_summary WHERE run_id = 'r';
+             UPDATE copied SET run_id = 'ghost';
+             INSERT INTO seat_summary SELECT * FROM copied;
+             INSERT INTO seat_head VALUES ('ghost', 0, '{ZERO}'), ('hollow', 0, '{ZERO}');"
+        ),
+    );
+    assert_eq!(store.seat_rows("ghost").unwrap(), SeatRows::Stale);
+    let found: Vec<String> = store
+        .summary_disagreements()
+        .unwrap()
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert_eq!(
+        found,
+        [
+            "run 'ghost': the seat summary holds a row at 0, where its fold holds none",
+            "run 'ghost': the seat summary holds a seat head of it, where the journal holds no \
+             such run",
+            "run 'hollow': the seat summary holds a seat head of it, where the journal holds no \
+             such run",
+        ]
+    );
+    store.create_run("ghost", "f", "self", &json!({})).unwrap();
+    assert_eq!(
+        store.seat_rows("ghost").unwrap(),
+        SeatRows::Current(Vec::new())
+    );
+}
+
+/// The binding names a seat head of no run, which no run's comparison
+/// gives, by its own words.
+#[test]
+fn the_binding_names_a_seat_head_of_no_run() {
+    let head = Disagreement::SeatHead {
+        run_id: "ghost".to_string(),
+    };
+    let named = crate::test_support::named("ghost", Compared::Disagrees(head));
+    assert_eq!(named.as_deref(), Some("ghost: a seat head of no run"));
+}
+
+/// A reported cost of -0.0, which the seat-record fence refuses today and
+/// a journal from before it may hold, is refolded and read back as -0.0,
+/// bit for bit, as the fold gives it: SQLite keeps a whole-valued REAL as
+/// an integer and would read it back as +0.0.
+#[test]
+fn a_negative_zero_cost_reads_back_bit_for_bit() {
+    let (_dir, mut store) = store();
+    seated(&mut store, "r");
+    let finished = json!({"step": "exec-session-finished", "total_cost_usd": -0.0});
+    let payload = json!({"effect_id": "fx", "attempt_id": "a", "checkpoint": finished});
+    let unfenced = next(&store, "r", EventType::EffectCheckpointed, payload);
+    plant_summary_writer(&store, "r", &[unfenced]);
+    let path = store.path().to_path_buf();
+    lags(&mut store, &["r"]);
+    drop(store);
+    let store = Store::open(&path).unwrap();
+    let data = |rows: Vec<SeatRow>| rows.iter().map(SeatRow::data).collect::<Vec<_>>();
+    let rows = read(&store, "r");
+    assert_eq!(data(rows.clone()), data(folded_rows(&store, "r")));
+    let costs: Vec<Option<u64>> = brokkr_core::seat::row::facts(&rows)
+        .iter()
+        .map(|facts| facts.last_attempt_cost.map(f64::to_bits))
+        .collect();
+    assert_eq!(costs, [Some((-0.0f64).to_bits())]);
 }
 
 /// A seat row that is not its fold's is named by its place and how: a

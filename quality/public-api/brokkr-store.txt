@@ -10,6 +10,8 @@ pub brokkr_store::Disagreement::Indexed::run_id: alloc::string::String
 pub brokkr_store::Disagreement::Indexed::seq: u64
 pub brokkr_store::Disagreement::Missing
 pub brokkr_store::Disagreement::Missing::run_id: alloc::string::String
+pub brokkr_store::Disagreement::SeatHead
+pub brokkr_store::Disagreement::SeatHead::run_id: alloc::string::String
 pub brokkr_store::Disagreement::Seated
 pub brokkr_store::Disagreement::Seated::fault: brokkr_store::IndexFault
 pub brokkr_store::Disagreement::Seated::row: u64

@@ -202,6 +202,35 @@ fn a_seat_row_at_its_head_that_is_not_its_fold_s_is_a_failure_named_by_its_colum
     );
 }
 
+/// Seat rows and a seat head of a run the journal does not hold are
+/// failures, the rows named at their first place and the head as a head
+/// (decision 0089 ruling 4): a sweep that walks the runs never reaches
+/// them.
+#[test]
+fn seat_rows_and_heads_of_no_run_are_failures_named_as_strays() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = journal(dir.path(), &[]);
+    requested(&db, "seated");
+    edit(
+        &db,
+        "INSERT INTO seat_summary (run_id, opened, request_seq, effect_id)
+             VALUES ('absent', 3, 1, 'fx'), ('absent', 5, 1, 'fx');
+         INSERT INTO seat_head (run_id, folded_seq, folded_hash) VALUES ('hollow', 0, 'h');",
+    );
+    let mut report = report();
+    report_database(&mut report, Ok(&db));
+    assert!(!report.healthy);
+    assert_eq!(
+        report.lines[1..],
+        [
+            "MISSING  summary: run 'absent': the seat summary holds a row at 3, where its fold \
+             holds none",
+            "MISSING  summary: run 'hollow': the seat summary holds a seat head of it, where the \
+             journal holds no such run",
+        ]
+    );
+}
+
 /// Seat rows behind their run's head, as a writer from before them
 /// leaves them until the next writable open refolds them, are a lag, as
 /// a summary row's is: no line, whatever they hold.

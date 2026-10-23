@@ -291,7 +291,7 @@ fn create_run_once(
     )?;
     let empty = Account::empty(run_id);
     summary::write(&tx, run_id, &Summary::of(&empty, listed.listing()))?;
-    seat_summary::write_head(&tx, run_id, empty.head())?;
+    seat_summary::write(&tx, &empty, None)?;
     tx.commit()?;
     Ok(listed)
 }

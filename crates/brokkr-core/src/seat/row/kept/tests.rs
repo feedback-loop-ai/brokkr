@@ -39,14 +39,13 @@ fn every_outcome_is_kept_by_its_word() {
 }
 
 /// A row every column of which holds a value: each count 1, each word its
-/// column's name, each outcome `failed` and each price a half.
+/// column's name, each outcome `failed` and each price the bits 1.
 fn full() -> Vec<Datum> {
     SeatRow::COLUMNS
         .iter()
         .map(|(name, kind)| match (*name, *kind) {
             ("ended" | "pin", _) => Datum::Text("failed".to_string()),
             (_, "TEXT") => Datum::Text(name.to_string()),
-            (_, "REAL") => Datum::Real(0.5),
             _ => Datum::Integer(1),
         })
         .collect()
