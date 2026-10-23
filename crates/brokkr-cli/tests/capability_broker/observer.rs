@@ -743,9 +743,12 @@ fn observer(locator: &Path) -> Option<i32> {
 
 /// The observer of `locator` once `block` holds it: waiting in the kernel
 /// ('D') on the stalled mount, or with a live child, the launcher it waits
-/// on.
+/// on. Looked for until the suite's wait for a broker
+/// ([`super::TALK_MAX`]) has passed since the call, made as the broker
+/// starts: past the startup's deadline that bounds the box's preparation,
+/// however loaded the host.
 fn blocked(locator: &Path, block: &Block) -> i32 {
-    let until = Instant::now() + Duration::from_secs(20);
+    let until = Instant::now() + super::TALK_MAX;
     while Instant::now() < until {
         let waiting = |pid: &i32| match block {
             Block::Mount { .. } => status(*pid).is_some_and(|(state, _, _)| state == 'D'),
