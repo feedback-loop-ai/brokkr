@@ -15,6 +15,7 @@ use brokkr_runtime::places::{self, Kind, Old, FOLDER};
 use brokkr_runtime::realms::{World, WorldError};
 
 use super::{Report, Seats};
+use crate::dsh_key::Reach;
 use crate::folder::{DoctorDefaults, FolderError, Found, Opening};
 use crate::recipes::personal::{Origin, ShelfPath};
 
@@ -171,7 +172,8 @@ fn compile_folder(workspace: &Path, dir: &Path, realms: Option<&Path>) -> anyhow
 
 /// Put the folder line first in `report`: the found folder compiled by
 /// [`compile_folder`], unless `compiled` already holds that compile's
-/// outcome, because the folder was the report's bundle ([`bundle`]).
+/// outcome, because the folder was the report's bundle ([`bundle`]); and
+/// where that folder hires dsh, its key lines last ([`report_keys`]).
 pub(super) fn report_folder(
     report: &mut Report,
     defaults: &DoctorDefaults,
@@ -188,6 +190,24 @@ pub(super) fn report_folder(
     };
     let personal = defaults.personal.as_ref();
     report_folder_with(report, &defaults.found, personal, compile, shelved);
+    if default_folder(&defaults.found).is_some() {
+        let reaches = crate::dsh_key::of_folder(&defaults.adapters, workspace);
+        report_keys(report, &reaches);
+    }
+}
+
+/// One line per route the found folder's dsh pins (#717): a key dsh
+/// reaches is ok, one it cannot fails the report with its remedies, and
+/// a route whose variable nothing names warns. No line holds a value.
+fn report_keys(report: &mut Report, reaches: &[Reach]) {
+    for reach in reaches {
+        let (what, detail) = (reach.what(), reach.detail());
+        match reach {
+            Reach::Reached { .. } => report.ok(&what, detail),
+            Reach::Unreached { .. } => report.missing(&what, detail),
+            Reach::Undeclared { .. } => report.warn(&what, detail),
+        }
+    }
 }
 
 /// [`report_folder`], `compile` the folder's compile and `shelved` a shelf

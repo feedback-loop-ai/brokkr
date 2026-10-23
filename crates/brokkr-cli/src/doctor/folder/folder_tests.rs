@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::{bundle, report_folder, report_folder_with, Inspected, Report, Seats};
+use super::{bundle, report_folder, report_folder_with, report_keys, Inspected, Report, Seats};
 use crate::folder::DoctorDefaults;
 use crate::recipes::personal::ShelfPath;
 
@@ -446,4 +446,45 @@ fn each_personal_recipe_is_a_line_that_never_fails_the_report() {
     let unlisted = format!("warn     personal shelf: {at}: Not a directory (os error 20)");
     let (found, healthy) = folder_lines_with(&root, Some(&personal), compiles);
     assert_eq!((&found[1..], healthy), (&[unlisted][..], true));
+}
+
+/// Each dsh key answer (#717) in its status column: ok, a failure of the
+/// report, or a warning, after what the report already held.
+#[test]
+fn each_dsh_key_answer_takes_its_status_column() {
+    use crate::dsh_key::{Reach, Source};
+    let (route, variable) = (String::from("r"), String::from("V"));
+    let answers = [
+        Reach::Reached {
+            route: route.clone(),
+            variable: variable.clone(),
+            source: Source::Environment,
+        },
+        Reach::Undeclared {
+            route: route.clone(),
+        },
+        Reach::Unreached {
+            route,
+            variable,
+            files: vec![PathBuf::from("/repo/.env")],
+            patch: Err("none".into()),
+        },
+    ];
+    let mut report = report();
+    report_keys(&mut report, &answers[..2]);
+    assert!(report.healthy);
+    report_keys(&mut report, &answers[2..]);
+    let status: Vec<&str> = report.lines.iter().map(|line| &line[..20]).collect();
+    assert_eq!(
+        (status, report.healthy),
+        (
+            vec![
+                "ok       later: line",
+                "ok       dsh key r: ",
+                "warn     dsh key r: ",
+                "MISSING  dsh key r: "
+            ],
+            false
+        )
+    );
 }

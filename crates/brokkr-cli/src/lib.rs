@@ -17,6 +17,7 @@ mod budget_frame;
 mod cli_args;
 mod compare;
 mod doctor;
+mod dsh_key;
 mod exit;
 mod fleet;
 mod folder;

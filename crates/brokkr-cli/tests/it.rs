@@ -45,6 +45,7 @@ mod diagrams;
 mod doc_samples;
 mod doc_truth;
 mod doctor_dsh_selection;
+mod dsh_key;
 mod dsh_sandbox_runner;
 mod effect_replay;
 mod folder_seats;
