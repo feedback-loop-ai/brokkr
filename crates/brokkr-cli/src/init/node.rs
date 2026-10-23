@@ -26,8 +26,9 @@
 //! and anything else is refused, naming the file it resolves to. A binary
 //! whose directory and file both stand under a toolchain root every box
 //! already reads read-only (`HOST_TOOLCHAIN_BINDS`) adds no bind. A root
-//! that would bind `$HOME`, an ancestor of it, `~/.local` whole or `/` is
-//! refused before its entries are read, even where a tool's variable names
+//! that would bind `$HOME`, `~/.local`, an ancestor of either, or `/` is
+//! refused before its entries are read, through a link to `$HOME` or
+//! `~/.local` as where each is spelled, even where a tool's variable names
 //! it, and so is a binary not found, or one whose path the verifier's
 //! `PATH` or `bundle.json` cannot carry exactly: each way verify fails
 //! closed with the sentence `init` printed.
@@ -80,7 +81,8 @@ pub(super) enum Reach {
 /// Why an install's root is not bound.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Unbound {
-    /// `/`, `$HOME` or an ancestor of it, or `~/.local` whole.
+    /// `/`, `$HOME` or an ancestor of it, or `~/.local` or an ancestor of
+    /// it, as spelled or as its links resolve.
     TooBroad,
     /// The root holds this entry, which its layout does not name, or a
     /// node prefix's `bin` does (spelled `bin/<name>`).
@@ -163,6 +165,7 @@ impl Layout {
                 "layout.v2",
                 "layout.v3",
                 "layout.v4",
+                "volta.lock",
             ],
             Layout::Bun => &["bin", "install", "_bun"],
             Layout::PnpmHome => &[
@@ -258,10 +261,11 @@ impl Unbound {
 }
 
 /// The homes the tools themselves name, canonical, beside the operator's
-/// `$HOME`.
+/// `$HOME`, and the paths no root may be or stand above.
 pub(super) struct Homes {
     home: PathBuf,
     tools: Vec<(Layout, PathBuf)>,
+    broad: Vec<PathBuf>,
 }
 
 impl Homes {
@@ -272,6 +276,7 @@ impl Homes {
     /// `~/.local/share/pnpm`. An empty variable is unset; one naming a
     /// relative path names no home, nor does a home that does not exist.
     pub(super) fn named(home: &Path, os: &str, var: impl Fn(&str) -> Option<OsString>) -> Homes {
+        let broad = broad(home);
         let home = home.canonicalize().unwrap_or_else(|_| home.to_path_buf());
         let under = |rest: &str| home.is_absolute().then(|| home.join(rest));
         let named = |name: &str, default: Option<PathBuf>| match var(name)
@@ -292,7 +297,14 @@ impl Homes {
         let real =
             |(layout, root): (Layout, Option<PathBuf>)| Some((layout, root?.canonicalize().ok()?));
         let tools = named.into_iter().filter_map(real).collect();
-        Homes { home, tools }
+        Homes { home, tools, broad }
+    }
+
+    /// Whether `root` would bind `/`, `$HOME` or an ancestor of it, or
+    /// `~/.local` or an ancestor of it: each holds far more than one
+    /// install, credentials included.
+    fn too_broad(&self, root: &Path) -> bool {
+        root.parent().is_none() || self.broad.iter().any(|path| path.starts_with(root))
     }
 
     /// The home whose own runner directory is `dir`: `bin` under volta's
@@ -400,7 +412,7 @@ impl Found {
         if paths.into_iter().all(read_by_every_box) {
             return Ok(());
         }
-        for bind in owner.binds(install, &homes.home)? {
+        for bind in owner.binds(install, homes)? {
             if !self.binds.contains(&bind) {
                 self.binds.push(bind);
             }
@@ -434,14 +446,18 @@ enum Owner {
 }
 
 /// Whose `install` is. A volta shim is its home's even standing in the
-/// home's `bin`, as it runs the images under the home; any other file
-/// standing in its `PATH` directory is its own; then a home whose runner
-/// directory found it, and a `bin`'s parent. No ancestor is climbed to.
+/// home's `bin`, as it runs the images under the home, and no one's
+/// standing elsewhere, as the box's volta would read another home; any
+/// other file standing in its `PATH` directory is its own; then a home
+/// whose runner directory found it, and a `bin`'s parent. No ancestor is
+/// climbed to.
 fn owner(install: &Install, homes: &Homes) -> Owner {
     let standing = install.real.parent() == Some(install.dir.as_path());
+    let shim = install.real.file_name() == Some(OsStr::new("volta-shim"));
     let bin = install.dir.file_name() == Some(OsStr::new("bin"));
     match (homes.serving(&install.dir), standing) {
         (Some((Layout::Volta, root)), _) => Owner::Rooted(Layout::Volta, root),
+        (_, true) if shim => Owner::Unowned,
         (_, true) => Owner::Standing,
         (Some((layout, root)), false) => Owner::Rooted(layout, root),
         (None, false) => match install.dir.parent().filter(|_| bin) {
@@ -455,11 +471,11 @@ impl Owner {
     /// What the install binds: the entry alone where it stands, else its
     /// root as [`rooted`] rules; `Err` naming the root, or the `PATH`
     /// directory where there is none, and why it is not bound.
-    fn binds(self, install: Install, home: &Path) -> Result<Vec<PathBuf>, (PathBuf, Unbound)> {
+    fn binds(self, install: Install, homes: &Homes) -> Result<Vec<PathBuf>, (PathBuf, Unbound)> {
         match self {
             Owner::Standing => Ok(vec![install.entry]),
             Owner::Rooted(layout, root) => {
-                rooted(&root, layout, &install, home).map_err(|unbound| (root, unbound))
+                rooted(&root, layout, &install, homes).map_err(|unbound| (root, unbound))
             }
             Owner::Unowned => Err((install.dir, Unbound::Unowned(install.real))),
         }
@@ -474,9 +490,9 @@ fn rooted(
     root: &Path,
     layout: Layout,
     install: &Install,
-    home: &Path,
+    homes: &Homes,
 ) -> Result<Vec<PathBuf>, Unbound> {
-    if too_broad(root, home) {
+    if homes.too_broad(root) {
         return Err(Unbound::TooBroad);
     }
     if !install.real.starts_with(root) {
@@ -608,10 +624,15 @@ fn read_by_every_box(path: &Path) -> bool {
         .any(|root| path.starts_with(root))
 }
 
-/// A root that would bind `/`, `$HOME` or an ancestor of it, or `~/.local`
-/// whole: each holds far more than one install, credentials included.
-fn too_broad(root: &Path, home: &Path) -> bool {
-    root.parent().is_none() || home.starts_with(root) || root == home.join(".local")
+/// `$HOME` and `~/.local`, each as `home` spells it and as its links
+/// resolve: a `~/.local` linking elsewhere is still `~/.local` whole. A
+/// path that does not resolve, a dangling link's, stands as spelled.
+fn broad(home: &Path) -> Vec<PathBuf> {
+    let paths = [home.to_path_buf(), home.join(".local")];
+    let real = paths.iter().filter_map(|path| path.canonicalize().ok());
+    let mut broad: Vec<PathBuf> = real.chain(paths.iter().cloned()).collect();
+    broad.retain(|path| path.is_absolute());
+    broad
 }
 
 #[cfg(test)]

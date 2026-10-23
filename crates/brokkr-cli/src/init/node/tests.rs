@@ -291,6 +291,97 @@ fn a_home_too_broad_is_refused_even_where_its_variable_names_it() {
     );
 }
 
+/// The chief's reproductions of 717g4's hold, `~/.local` a link to a
+/// directory outside HOME and to one under it: `~/.local` is still
+/// `~/.local` whole. A bun home `BUN_INSTALL` names there (P1), a node
+/// prefix there that nothing names (P2), a volta home `VOLTA_HOME` names
+/// there (P3), and a prefix above the link's target, are each refused
+/// naming the root, as P2 is with HOME itself reached through a link.
+#[test]
+fn a_local_reached_through_a_link_is_refused_as_local_whole() {
+    for target in ["data/local", "home/data/local"] {
+        let linked = || {
+            let machine = Machine::new();
+            let real = machine.dir(target);
+            std::fs::create_dir_all(&real).unwrap();
+            machine.link("home/.local", real.to_str().unwrap());
+            (machine, real)
+        };
+        let refused = |found: Option<Reach>, binary: &'static str, root: &Path| {
+            let found = found.unwrap();
+            assert_eq!(
+                found,
+                Reach::Unbindable(binary, root.into(), Unbound::TooBroad)
+            );
+            fails_closed(&found, sentence(binary, root, "which"));
+        };
+        let (machine, real) = linked();
+        machine.file(&format!("{target}/install/bun"));
+        machine.file(&format!("{target}/install/token.txt"));
+        machine.link(&format!("{target}/bin/bun"), "../install/bun");
+        let named = [("BUN_INSTALL", machine.var("home/.local"))];
+        let bin = ["home/.local/bin"];
+        refused(machine.reach_named("bun", &bin, &named), "bun", &real);
+        let (machine, real) = linked();
+        machine.linked_prefix(target);
+        machine.file(&format!("{target}/share/secret.txt"));
+        refused(machine.reach("npm", &bin), "npm", &real);
+        let via = machine.dir("via");
+        symlink(machine.home(), &via).unwrap();
+        let path = machine.dir("home/.local/bin").into_os_string();
+        let homes = Homes::named(&via, "linux", |_| None);
+        refused(reach(&tools_for("npm"), &path, &homes), "npm", &real);
+        let above = real.parent().unwrap();
+        let prefix = above
+            .strip_prefix(machine.dir(""))
+            .unwrap()
+            .to_str()
+            .unwrap();
+        machine.linked_prefix(prefix);
+        let bin = [format!("{prefix}/bin")];
+        refused(machine.reach("npm", &[&bin[0]]), "npm", above);
+        let (machine, real) = linked();
+        machine.file(&format!("{target}/bin/volta-shim"));
+        machine.file(&format!("{target}/tools/aws.creds"));
+        for shim in ["npm", "node"] {
+            machine.link(&format!("{target}/bin/{shim}"), "volta-shim");
+        }
+        let named = [("VOLTA_HOME", machine.var("home/.local"))];
+        refused(
+            machine.reach_named("npm", &["home/.local/bin"], &named),
+            "npm",
+            &real,
+        );
+    }
+}
+
+/// N6: `VOLTA_HOME` names one home while `PATH` holds another's shims.
+/// The box's volta would read the named home, so the shim standing in
+/// the other's `bin` is refused naming it, and verify fails closed with
+/// init's sentence rather than volta's own error.
+#[test]
+fn a_volta_shim_outside_the_home_volta_names_is_refused() {
+    let machine = Machine::new();
+    let shim = machine.file("home/.volta/bin/volta-shim");
+    for name in ["npm", "node"] {
+        machine.link(&format!("home/.volta/bin/{name}"), "volta-shim");
+    }
+    std::fs::create_dir_all(machine.dir("opt/v")).unwrap();
+    let named = [("VOLTA_HOME", machine.var("opt/v"))];
+    let refused = machine.reach_named("npm", &["home/.volta/bin"], &named);
+    let bin = machine.home().join(".volta/bin");
+    let unowned = Unbound::Unowned(shim.clone());
+    assert_eq!(
+        refused,
+        Some(Reach::Unbindable("npm", bin.clone(), unowned))
+    );
+    let which = format!(
+        "where it resolves to {}, in no home its tool names and no node prefix, and which",
+        shim.display()
+    );
+    fails_closed(&refused.unwrap(), sentence("npm", &bin, &which));
+}
+
 /// The refusal `refusal` gives for `binary` under `root`, which holds
 /// `entry` that `layout`, named in words, does not, and the verifier
 /// lines that fail closed with it.
@@ -580,6 +671,7 @@ const PLANTED: &[Planted] = &[
             "log",
             "tmp",
             "tools",
+            "volta.lock",
         ],
     },
     Planted {
