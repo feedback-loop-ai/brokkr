@@ -379,8 +379,13 @@ The operator queued it on 2026-10-22 ("dispatcher after the queue").
      written and which ends as a dead one does, leaves the entry to
      reconciliation's uncounted `reclaim` (ruling 3). That is the one
      attempt a crash costs, indistinguishable from a crash between claim
-     and start, and each further attempt past the bound needs a further
-     crash.
+     and start. A fence-out is treated as a crash, as the operator ruled
+     on 2026-10-23: a dispatcher is fenced out only when its lock file
+     is removed under it while a second dispatcher starts, which takes
+     the operator's own act and never happens on its own, and each such
+     act can cost one attempt past the bound, as a crash does. Each
+     further attempt past the bound needs a further crash or a further
+     fence-out.
 
    The retry stalls only this dispatcher's queue work, which one entry
    at a time already orders behind the disposal. It cannot deadlock: an
@@ -577,7 +582,8 @@ Each choice is listed with its recommendation first.
   (b), with a per-journal bound of 3 unless set. The refusals are
   counted on the `reclaim` and `hold` commands that dispose of them, by
   the typed `queue_refusals` row each writes in its own transaction,
-  keyed by its seq (ruling 7).
+  keyed by its seq (ruling 7). The operator accepted the fence-out as
+  crash-equivalent on 2026-10-23, and ruling 2 is unchanged.
 - **An entry queued with `--dispatch`.** Found in the code, not in the
   issue. (a) The pass holds it with the reason `dispatch_envelope`. Its
   run would be a run-manifest/v2, the counterpart system's contract,
@@ -655,7 +661,10 @@ Each choice is listed with its recommendation first.
 - The accepted races: a direct `brokkr run` or an `operator retry` that
   lands after the claim's transaction can take capacity the claim
   counted on, and free space and `host.json` are read by the pass
-  alone. The next pass sees both runs.
+  alone. The next pass sees both runs. A fence-out, a lock file removed
+  under a live dispatcher plus a second dispatcher, costs at most one
+  attempt past 8(b)'s bound per such act, as a crash does, as the
+  operator ruled on 2026-10-23.
 - The start transaction of ruling 4 changes `brokkr run` too: its run
   row and first event land together. A journal written by an older
   binary may still hold an unstarted run, which the census names.
