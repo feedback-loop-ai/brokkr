@@ -12,6 +12,7 @@
 //! class.
 
 use super::*;
+use crate::native_controls::read::{expressed, Unread};
 use grammar::{Bound, Unisolated};
 
 /// The hands' missing class, as the composer names it.
@@ -559,6 +560,79 @@ fn each_isolation_fault_reads_in_its_own_words() {
     let cause = format!("cannot be read: it {}", Unisolated::Beside(22));
     let refusal = Err(final_refusal("codex", &cause));
     assert_eq!(stored(&sealed, sandboxed), refusal);
+}
+
+/// R2 of U9c1's second review (decision 0071 ruling 8): what a command's
+/// state cannot be read for is typed, each variant read at its argument
+/// and its words written out by hand once; an isolation fault keeps its
+/// own words.
+#[test]
+fn each_unread_state_is_a_typed_fault_in_its_own_words() {
+    let enable = Unisolated::Enabled(5);
+    for (harness, options, fault, words) in [
+        (
+            "codex",
+            argv(&["--sandbox", "nowhere"]),
+            Unread::Classless("--sandbox", 5),
+            "carries '--sandbox' (argument 5), whose value names no sandbox class: read-only, \
+             workspace-write or danger-full-access",
+        ),
+        (
+            "codex",
+            argv(&["-s", "read-only", "-c", "sandbox_mode=\"read-only\""]),
+            Unread::Reclassed(7),
+            "expresses the sandbox class a second time (argument 7)",
+        ),
+        (
+            "codex",
+            argv(&["-c", "unassigned"]),
+            Unread::Unbounded(5, "is not a KEY=VALUE configuration assignment"),
+            "carries '--config' (argument 5), whose value is not a KEY=VALUE configuration \
+             assignment",
+        ),
+        (
+            "codex",
+            argv(&["-c", "sandbox_mode=\"nowhere\""]),
+            Unread::Unestablished(5, "sandbox_mode"),
+            "carries '--config' (argument 5) into the 'sandbox_mode' configuration in a spelling \
+             or with a value whose meaning is not established, so it is read as neither ON nor OFF",
+        ),
+        ("codex", argv(&["--enable", "apps"]), enable.into(), ""),
+        (
+            "claude",
+            argv(&["--session-id", "session-1"]),
+            Unread::Selector("--session-id", 1),
+            "carries '--session-id' (argument 1), a session selector other than a rejoin's",
+        ),
+        (
+            "claude",
+            argv(&["--allowedTools", "Read,,Edit"]),
+            Unread::Listed(
+                "--allowedTools",
+                1,
+                "joins an empty pattern: a doubled, leading or trailing separator",
+            ),
+            "carries '--allowedTools' (argument 1), whose value joins an empty pattern: a \
+             doubled, leading or trailing separator",
+        ),
+    ] {
+        // Codex's options follow its cold lead; Claude's stand alone.
+        let [(cold, _), _] = shapes(&options);
+        let command = if harness == "codex" {
+            cold
+        } else {
+            options.clone()
+        };
+        let parsed = grammar::parse_final(harness, &command).expect("modelled");
+        let read = expressed(&parsed.expect("placed").command, BOUND);
+        assert_eq!(read.map(|_| ()), Err(fault), "{options:?}");
+        let words = if words.is_empty() {
+            enable.to_string()
+        } else {
+            words.to_string()
+        };
+        assert_eq!(fault.to_string(), words);
+    }
 }
 
 /// Rebuild unit 13-fix-c, R1, moved here from the parent suite: the Codex

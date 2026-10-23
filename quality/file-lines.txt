@@ -334,7 +334,7 @@
   1900 crates/brokkr-protocol/src/hands/tests/sources.rs
    182 crates/brokkr-protocol/src/native_controls/mcp/tests.rs
  12555 crates/brokkr-protocol/src/native_controls/tests.rs
-   648 crates/brokkr-protocol/src/native_controls/tests/isolation.rs
+   722 crates/brokkr-protocol/src/native_controls/tests/isolation.rs
    533 crates/brokkr-protocol/src/native_controls/tests/servers.rs
    374 crates/brokkr-protocol/src/native_controls/tests/serving.rs
    224 crates/brokkr-protocol/src/native_controls/tests/toml.rs

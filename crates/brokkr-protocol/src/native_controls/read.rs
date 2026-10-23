@@ -41,49 +41,52 @@ impl super::Serving<'_> {
     }
 }
 
-/// An isolation fault in the words [`read_state`]'s refusals carry.
-fn unisolated(fault: grammar::Unisolated) -> String {
-    fault.to_string()
+/// Why one parsed command's [`State`] cannot be read, each at the argument
+/// it stands at, in the fixed words [`read_state`] renders: an option's
+/// canonical name and a grammar's fixed cause, never a value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub(super) enum Unread {
+    #[error(
+        "carries '{0}' (argument {1}), whose value names no sandbox class: read-only, \
+         workspace-write or danger-full-access"
+    )]
+    Classless(&'static str, usize),
+    #[error("expresses the sandbox class a second time (argument {0})")]
+    Reclassed(usize),
+    #[error("carries '{0}' (argument {1}), a session selector other than a rejoin's")]
+    Selector(&'static str, usize),
+    #[error("carries '{0}' (argument {1}), whose value {2}")]
+    Listed(&'static str, usize, &'static str),
+    #[error("carries '--config' (argument {0}), whose value {1}")]
+    Unbounded(usize, &'static str),
+    #[error(
+        "carries '--config' (argument {0}) into the '{1}' configuration in a spelling or with a \
+         value whose meaning is not established, so it is read as neither ON nor OFF"
+    )]
+    Unestablished(usize, &'static str),
+    #[error(transparent)]
+    Unisolated(#[from] grammar::Unisolated),
 }
 
 /// The class `word` names, expressed by `node` at argument `at`, where
 /// `state` expresses none yet; or why it cannot be read.
-fn class(state: &State, node: &Node, at: usize, word: &str) -> Result<Expressed, String> {
+fn class(state: &State, node: &Node, at: usize, word: &str) -> Result<Expressed, Unread> {
     let Some(class) = CLASSES.iter().find(|class| class.word() == word) else {
-        return Err(format!(
-            "carries '{}' (argument {at}), whose value names no sandbox class: read-only, \
-             workspace-write or danger-full-access",
-            node.name()
-        ));
+        return Err(Unread::Classless(node.name(), at));
     };
     match state.class() {
         None => Ok(Expressed::Class(class.word())),
-        Some(_) => Err(format!(
-            "expresses the sandbox class a second time (argument {at})"
-        )),
+        Some(_) => Err(Unread::Reclassed(at)),
     }
-}
-
-/// The refusal of `node` at argument `at`, a session selector other than a
-/// rejoin's.
-fn selector(node: &Node, at: usize) -> Result<State, String> {
-    Err(format!(
-        "carries '{}' (argument {at}), a session selector other than a rejoin's",
-        node.name()
-    ))
 }
 
 /// The managed patterns `node`'s list values write, or why one cannot be
 /// read.
-fn listed(node: &Node, at: usize) -> Result<Vec<String>, String> {
+fn listed(node: &Node, at: usize) -> Result<Vec<String>, Unread> {
     let mut patterns = Vec::new();
     for value in &node.values {
-        let read = grammar::managed_patterns(value).map_err(|cause| {
-            format!(
-                "carries '{}' (argument {at}), whose value {cause}",
-                node.name()
-            )
-        })?;
+        let read = grammar::managed_patterns(value)
+            .map_err(|cause| Unread::Listed(node.name(), at, cause))?;
         patterns.extend(read.into_iter().map(str::to_string));
     }
     Ok(patterns)
@@ -100,7 +103,7 @@ fn configured(
     value: &str,
     profile: Option<SandboxIntent>,
     at: usize,
-) -> Result<Option<Expressed>, String> {
+) -> Result<Option<Expressed>, Unread> {
     let table = match grammar::setting(value) {
         Ok(grammar::Setting::Inert(_) | grammar::Setting::Capability("permissions")) => {
             return Ok(None)
@@ -109,11 +112,7 @@ fn configured(
             return class(state, node, at, profile.map_or("", |class| class.word())).map(Some)
         }
         Ok(grammar::Setting::Capability(table)) => table,
-        Err(cause) => {
-            return Err(format!(
-                "carries '--config' (argument {at}), whose value {cause}"
-            ))
-        }
+        Err(cause) => return Err(Unread::Unbounded(at, cause)),
     };
     if let Some(known) = CLASSES
         .iter()
@@ -128,11 +127,7 @@ fn configured(
             vec![value.to_string()],
         )))
     } else {
-        Err(format!(
-            "carries '--config' (argument {at}) into the '{table}' configuration in a spelling \
-             or with a value whose meaning is not established, so it is read as neither ON nor \
-             OFF"
-        ))
+        Err(Unread::Unestablished(at, table))
     }
 }
 
@@ -143,7 +138,7 @@ fn configure(
     node: &Node,
     profile: Option<SandboxIntent>,
     at: usize,
-) -> Result<(), String> {
+) -> Result<(), Unread> {
     for value in &node.values {
         let effect = configured(state, node, value, profile, at)?;
         state.effects.extend(effect);
@@ -154,9 +149,9 @@ fn configure(
 /// The effect a capability-bearing option `node` expresses: an isolation
 /// option, the cause of a toggle the engine does not compose, or the
 /// control itself.
-fn controlled(node: &Node) -> Result<Expressed, String> {
+fn controlled(node: &Node) -> Result<Expressed, Unread> {
     match grammar::isolation(node) {
-        Some(read) => read.map(Expressed::Isolation).map_err(unisolated),
+        Some(read) => Ok(Expressed::Isolation(read?)),
         None => Ok(Expressed::Control(node.name(), node.values.clone())),
     }
 }
@@ -179,7 +174,12 @@ fn controlled(node: &Node) -> Result<Expressed, String> {
 /// option is its own effect, and a feature toggle the engine does not
 /// compose refuses (U9c1; SI2).
 pub(super) fn read_state(command: &Command, bound: Bound<'_>) -> Result<State, String> {
-    let profile = grammar::profile(command, bound).map_err(unisolated)?;
+    expressed(command, bound).map_err(|fault| fault.to_string())
+}
+
+/// [`read_state`], its fault typed.
+pub(super) fn expressed(command: &Command, bound: Bound<'_>) -> Result<State, Unread> {
+    let profile = grammar::profile(command, bound)?;
     let mut state = State::default();
     for node in &command.nodes {
         let at = node.at + 1;
@@ -194,11 +194,11 @@ pub(super) fn read_state(command: &Command, bound: Bound<'_>) -> Result<State, S
             Effect::Session if node.name() == "--resume" => {
                 state.session = Some(node.values[0].clone())
             }
-            Effect::Session => return selector(node, at),
+            Effect::Session => return Err(Unread::Selector(node.name(), at)),
             // A switch that copies, forks or relocates a conversation is a
             // selector, as the adapter's structural reader judges it.
             Effect::Switch if crate::adapters::CLAUDE_SELECTORS_BARE.contains(&node.name()) => {
-                return selector(node, at)
+                return Err(Unread::Selector(node.name(), at))
             }
             Effect::Inert | Effect::Switch | Effect::Route => {}
         }
