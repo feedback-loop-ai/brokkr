@@ -31,8 +31,11 @@ Three things to check before step 3:
   install under `$HOME`, such as a volta shim or an nvm version, is
   bound `ro` on verify's hands in `bundle.json` (`~/.volta`, say). The
   verifier puts the directory each was found in at the head of `PATH`,
-  and exports `VOLTA_HOME` for a volta shim. With no `npm` on `PATH`,
-  `init` says so in one line, and the verifier fails with that line.
+  and exports `VOLTA_HOME` for a volta shim. Only an install's own
+  directory is bound: one that holds anything else, such as a
+  `credentials` file, is refused, naming it. With no `npm` on `PATH`, or
+  one refused, `init` says so in one line, and the verifier fails with
+  that line.
 
 The full transcript, annotated: [starters/node.md](../starters/node.md).
 

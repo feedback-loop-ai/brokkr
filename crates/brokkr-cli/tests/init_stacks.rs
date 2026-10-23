@@ -960,6 +960,8 @@ fn a_volta_npm_folder_binds_the_volta_root_on_verify() {
     std::fs::create_dir_all(volta.join("bin")).unwrap();
     std::fs::create_dir_all(volta.join("tools/image/node/20.11.0/bin")).unwrap();
     std::fs::write(volta.join("bin/volta-shim"), "").unwrap();
+    let runs = std::os::unix::fs::PermissionsExt::from_mode(0o755);
+    std::fs::set_permissions(volta.join("bin/volta-shim"), runs).unwrap();
     for shim in ["npm", "node"] {
         std::os::unix::fs::symlink("volta-shim", volta.join("bin").join(shim)).unwrap();
     }
@@ -1004,25 +1006,57 @@ fn an_npm_folder_with_no_npm_fails_verify_closed() {
     let stderr = init_on(repo.path(), aside.path(), &[]);
     let said = "npm was not found on PATH when `brokkr init` ran; install it, or fill in \
                 .brokkr/scripts/verify-seat.sh";
+    fails_verify_closed(repo.path(), aside.path(), &stderr, said);
+}
+
+/// An npm installed in `~/.aws/bin`, beside `~/.aws/credentials`, binds
+/// nothing (#717's security hold): init names the credentials in one
+/// line, and the scaffold's verifier fails closed with it.
+#[test]
+fn an_npm_beside_credentials_binds_nothing_and_fails_verify_closed() {
+    let repo = repository_of("node-npm");
+    let aside = tempfile::tempdir().unwrap();
+    let aws = aside.path().canonicalize().unwrap().join("home/.aws");
+    std::fs::create_dir_all(aws.join("bin")).unwrap();
+    std::fs::write(aws.join("credentials"), "").unwrap();
+    for binary in ["npm", "node"] {
+        std::fs::write(aws.join("bin").join(binary), "").unwrap();
+        let runs = std::os::unix::fs::PermissionsExt::from_mode(0o755);
+        std::fs::set_permissions(aws.join("bin").join(binary), runs).unwrap();
+    }
+    let stderr = init_on(repo.path(), aside.path(), &[aws.join("bin")]);
+    let said = format!(
+        "npm is installed under {}, which holds 'credentials', no part of a node prefix, \
+         and which `brokkr init` will not bind into verify's hands; install it under a \
+         directory of its own, or fill in .brokkr/scripts/verify-seat.sh",
+        aws.display()
+    );
+    fails_verify_closed(repo.path(), aside.path(), &stderr, &said);
+}
+
+/// init said `said` in one line, the verify box binds nothing for the
+/// runner, and the verifier, run, fails closed with that same line before
+/// any command, as the no-stack verifier does.
+fn fails_verify_closed(repo: &Path, aside: &Path, stderr: &str, said: &str) {
     assert_eq!(
         stderr.lines().filter(|line| *line == said).count(),
         1,
         "{stderr}"
     );
-    let bundle = repo.path().join(".brokkr");
+    let bundle = repo.join(".brokkr");
     let source = read_json(&bundle.join("bundle.json"));
     assert_eq!(
         source["seats"]["verify"]["hands"]["binds"],
         serde_json::json!([])
     );
-    let result = aside.path().join("result.json");
-    let prompt = aside.path().join("prompt.md");
+    let result = aside.join("result.json");
+    let prompt = aside.join("prompt.md");
     std::fs::write(&prompt, format!("{}\n", result.display())).unwrap();
     let ran = Command::new("bash")
         .arg(bundle.join("scripts/verify-seat.sh"))
         .arg(&prompt)
-        .env("HOME", aside.path().join("home"))
-        .current_dir(repo.path())
+        .env("HOME", aside.join("home"))
+        .current_dir(repo)
         .output()
         .unwrap();
     assert_eq!(ran.status.code(), Some(0), "{ran:?}");
