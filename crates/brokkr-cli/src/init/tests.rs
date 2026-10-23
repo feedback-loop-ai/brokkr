@@ -584,7 +584,7 @@ fn a_codex_scaffold_on_linux_seats_codex_on_brokkrs_hands_and_boxes_its_scripts(
         std::fs::create_dir(dir).unwrap();
     }
     std::fs::write(bins.join("codex"), "").unwrap();
-    let scaffold = super::init(&repo, bins.as_os_str(), "linux").unwrap();
+    let scaffold = super::init(&repo, bins.as_os_str(), "linux", &home).unwrap();
     let folder = repo.join(super::FOLDER);
     let map = std::fs::read(folder.join("realms.json")).unwrap();
     let map: serde_json::Value = serde_json::from_slice(&map).unwrap();
