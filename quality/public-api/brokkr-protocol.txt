@@ -648,7 +648,7 @@ pub brokkr_protocol::native_controls::grammar::Spec::canonical: &'static str
 pub brokkr_protocol::native_controls::grammar::Spec::effect: brokkr_protocol::native_controls::grammar::Effect
 pub brokkr_protocol::native_controls::grammar::Spec::equals: bool
 pub brokkr_protocol::native_controls::grammar::Spec::repeat: bool
-pub const brokkr_protocol::native_controls::grammar::CAPABILITY_TABLES: [&str; 10]
+pub const brokkr_protocol::native_controls::grammar::CAPABILITY_TABLES: [&str; 12]
 pub const brokkr_protocol::native_controls::grammar::LAUNCH_SETTINGS: [brokkr_protocol::native_controls::grammar::Admitted; 2]
 pub const brokkr_protocol::native_controls::grammar::POSITIONAL_LABEL: &str
 pub const brokkr_protocol::native_controls::grammar::TABLES: [&brokkr_protocol::native_controls::grammar::Grammar; 4]
@@ -691,6 +691,7 @@ pub brokkr_protocol::native_controls::Conflict::Unheld(alloc::string::String)
 pub enum brokkr_protocol::native_controls::Expressed
 pub brokkr_protocol::native_controls::Expressed::Class(&'static str)
 pub brokkr_protocol::native_controls::Expressed::Control(&'static str, alloc::vec::Vec<alloc::string::String>)
+pub brokkr_protocol::native_controls::Expressed::Isolation(brokkr_protocol::native_controls::Isolation)
 pub brokkr_protocol::native_controls::Expressed::List(brokkr_protocol::native_controls::grammar::ListKind, alloc::vec::Vec<alloc::string::String>)
 pub brokkr_protocol::native_controls::Expressed::Off(&'static str)
 pub enum brokkr_protocol::native_controls::Failure
@@ -706,6 +707,10 @@ pub brokkr_protocol::native_controls::HandsIntent::Required
 pub enum brokkr_protocol::native_controls::Inventory
 pub brokkr_protocol::native_controls::Inventory::Known
 pub brokkr_protocol::native_controls::Inventory::Unmeasured(alloc::string::String)
+pub enum brokkr_protocol::native_controls::Isolation
+pub brokkr_protocol::native_controls::Isolation::Apps
+pub brokkr_protocol::native_controls::Isolation::Plugins
+pub brokkr_protocol::native_controls::Isolation::UserConfig
 pub enum brokkr_protocol::native_controls::LimitOrigin
 pub brokkr_protocol::native_controls::LimitOrigin::Hands
 pub brokkr_protocol::native_controls::LimitOrigin::Managed
@@ -889,6 +894,7 @@ pub brokkr_protocol::native_controls::Serving::program: &'a str
 pub brokkr_protocol::native_controls::Serving::prompt: core::option::Option<&'a str>
 pub brokkr_protocol::native_controls::Serving::removed: &'a [alloc::string::String]
 pub brokkr_protocol::native_controls::Serving::session: core::option::Option<&'a str>
+pub brokkr_protocol::native_controls::Serving::store: core::option::Option<&'a str>
 pub brokkr_protocol::native_controls::Serving::stream: bool
 pub brokkr_protocol::native_controls::Serving::workdir: &'a str
 pub struct brokkr_protocol::native_controls::Site<'a>

@@ -33,8 +33,8 @@ use crate::engine::broker::{
     owned, surveyed, Host as Hosting, Surveyor, Unprovisioned, PROTECTED_ROOT,
 };
 use crate::engine::tests::{
-    capturing_driver_command, draft_then_finish, engine, execute_work, member, requested,
-    set_site_hands, single_body,
+    capturing_driver_command, draft_then_finish, engine, execute_work, in_its_own_engine, member,
+    requested, set_site_hands, single_body,
 };
 use crate::engine::{spawn_site, Door, SiteSpawn};
 
@@ -527,6 +527,16 @@ fn unboxed(site: &str, run: &str) -> Conflict {
     }
 }
 
+/// Whether the test `test` of this module runs here, in an engine of its
+/// own (#403, #811): a test whose engine launches a process, a driver, a
+/// member or a site's command, otherwise shares the test binary's engine
+/// as its subreaper, and an orphan another test leaves there reads as a
+/// stray its attempt cannot be attributed. False in the parent, once the
+/// re-executed test passed alone.
+fn alone(test: &str) -> bool {
+    in_its_own_engine(&format!("engine::broker::admission::tests::{test}"))
+}
+
 /// Every refusal reads as its cause and its detail: CR2's for evidence and
 /// coordination, MB3's identity cause for participation, in the operator's
 /// words.
@@ -931,6 +941,9 @@ fn every_directory_admission_makes_is_synced_in_its_parent() {
 /// proceeds holding no lease, and nothing is sealed.
 #[test]
 fn an_unprotectable_root_proceeds_unreserved_only_where_nothing_is_at_stake() {
+    if !alone("an_unprotectable_root_proceeds_unreserved_only_where_nothing_is_at_stake") {
+        return;
+    }
     let host = Host::new();
     let work = host.worktree("work");
     let plain = open(&work, ["run-a", "a1"]);
@@ -1157,6 +1170,9 @@ fn git(repo: &Path, args: &[&str]) {
 /// sealed reach is U8a2c's.
 #[test]
 fn the_door_refuses_a_worktree_whose_git_names_another_repository() {
+    if !alone("the_door_refuses_a_worktree_whose_git_names_another_repository") {
+        return;
+    }
     let host = Host::new();
     let (main, other) = (host.worktree("main"), host.worktree("other"));
     crate::engine::tests::git_commit(&main, "base");
@@ -1225,6 +1241,9 @@ fn the_door_refuses_a_worktree_whose_git_names_another_repository() {
 /// stands spawns.
 #[test]
 fn the_dispatch_door_spawns_only_under_a_lease_that_stands() {
+    if !alone("the_dispatch_door_spawns_only_under_a_lease_that_stands") {
+        return;
+    }
     let host = Host::new();
     let (dir, engine) = engine(single_body(Vec::new()));
     let work = worktree(&engine);
@@ -1331,15 +1350,26 @@ fn worktree(engine: &Engine) -> PathBuf {
     std::fs::canonicalize(engine.workdir()).unwrap()
 }
 
+/// A host of the test's own, stood in as HOME for this thread's admissions
+/// until its stand-in drops, and an engine whose work seat the test writes:
+/// the host, its stand-in, the engine's directory and the engine.
+fn stood_in() -> (Host, Coordinated, tempfile::TempDir, Engine) {
+    let host = Host::new();
+    let home = Coordinated::at(&host.home);
+    let (dir, engine) = engine(single_body(Vec::new()));
+    (host, home, dir, engine)
+}
+
 /// Dispatch holds the lease from before its driver starts until the
 /// attempt's terminal event, and releases it once its driver is proven
 /// settled: the driver saw its run's reservation, and once the attempt
 /// succeeded the reservation names it settled.
 #[test]
 fn dispatch_holds_the_lease_while_its_driver_runs_and_releases_it_once_settled() {
-    let host = Host::new();
-    let _home = Coordinated::at(&host.home);
-    let (dir, mut engine) = engine(single_body(Vec::new()));
+    if !alone("dispatch_holds_the_lease_while_its_driver_runs_and_releases_it_once_settled") {
+        return;
+    }
+    let (host, _home, dir, mut engine) = stood_in();
     let reservation = host.reservation(&worktree(&engine), &engine.run_id);
     let saw = dir.path().join("saw");
     let probe = format!(
@@ -1362,9 +1392,10 @@ fn dispatch_holds_the_lease_while_its_driver_runs_and_releases_it_once_settled()
 /// before any driver starts, and the attempt fails with it.
 #[test]
 fn a_dispatch_on_a_held_worktree_fails_before_its_driver_starts() {
-    let host = Host::new();
-    let _home = Coordinated::at(&host.home);
-    let (dir, mut engine) = engine(single_body(Vec::new()));
+    if !alone("a_dispatch_on_a_held_worktree_fails_before_its_driver_starts") {
+        return;
+    }
+    let (host, _home, dir, mut engine) = stood_in();
     let ran = dir.path().join("ran");
     let touch = format!("touch '{}'", ran.display());
     engine.bundle.seats.get_mut("work").unwrap().body = single_body(driver(&touch));
@@ -1394,6 +1425,9 @@ fn refused_with(engine: &mut Engine, refusal: Unadmitted) {
 /// as its claim is made, before that HOME is touched.
 #[test]
 fn the_hosts_home_is_read_only_where_nothing_stood_in() {
+    if !alone("the_hosts_home_is_read_only_where_nothing_stood_in") {
+        return;
+    }
     let _home = Coordinated::host();
     let (_dir, mut engine) = engine(single_body(driver(":")));
     let artifacts = crate::engine::boxed::artifact_root(&engine.run_local());
@@ -1425,6 +1459,9 @@ fn sequenced(bound: &Path) -> (tempfile::TempDir, Engine, PathBuf) {
 /// own, so it stands on every host: no mount table is read to admit it.
 #[test]
 fn a_sequence_reserves_every_steps_reach_before_its_first() {
+    if !alone("a_sequence_reserves_every_steps_reach_before_its_first") {
+        return;
+    }
     let host = Host::new();
     let _home = Coordinated::at(&host.home);
     let kept = host.worktree("kept");
@@ -1469,6 +1506,9 @@ fn removing(engine: &mut Engine, reservation: &Path, ran: &Path, panel: bool) {
 /// before it spawns, and the reservation never stands to be removed.
 #[test]
 fn every_steps_door_rechecks_the_lease_its_attempt_holds() {
+    if !alone("every_steps_door_rechecks_the_lease_its_attempt_holds") {
+        return;
+    }
     let host = Host::new();
     let _home = Coordinated::at(&host.home);
     for panel in [false, true] {
@@ -1527,6 +1567,9 @@ fn panel(keeper: &str, sibling: &str) -> SeatBody {
 /// 0063), is refused at the coordination root.
 #[test]
 fn historical_evidence_refuses_a_panel_member_that_cannot_be_kept_from_it() {
+    if !alone("historical_evidence_refuses_a_panel_member_that_cannot_be_kept_from_it") {
+        return;
+    }
     let host = Host::new();
     let _home = Coordinated::at(&host.home);
     let (dir, mut engine) = engine(single_body(Vec::new()));
@@ -1638,9 +1681,10 @@ fn a_lease_is_released_only_on_proof_its_processes_settled() {
 #[cfg(target_os = "linux")]
 #[test]
 fn a_moved_head_gate_with_unresolved_cleanup_keeps_its_reservation() {
-    let host = Host::new();
-    let _home = Coordinated::at(&host.home);
-    let (dir, mut engine) = engine(single_body(Vec::new()));
+    if !alone("a_moved_head_gate_with_unresolved_cleanup_keeps_its_reservation") {
+        return;
+    }
+    let (host, _home, dir, mut engine) = stood_in();
     let repo = engine.workdir();
     crate::engine::tests::git_commit(&repo, "base");
     let moves = "git commit -q --allow-empty -m gate-moved-head";
@@ -1725,9 +1769,10 @@ fn held_open(dir: &Path, first: &str) -> (String, impl FnOnce()) {
 #[cfg(target_os = "linux")]
 #[test]
 fn a_panel_member_with_unresolved_cleanup_keeps_its_reservation() {
-    let host = Host::new();
-    let _home = Coordinated::at(&host.home);
-    let (dir, mut engine) = engine(single_body(Vec::new()));
+    if !alone("a_panel_member_with_unresolved_cleanup_keeps_its_reservation") {
+        return;
+    }
+    let (host, _home, dir, mut engine) = stood_in();
     let (before, holder) = held_open(dir.path(), ":");
     engine.bundle.seats.get_mut("work").unwrap().body = panel(&before, ":");
     let payload = unsettled(&host, &mut engine, holder);

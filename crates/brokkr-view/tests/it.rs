@@ -3,4 +3,8 @@
 //! `<file>::<name>`, and brokkr-cli's `test_targets` refuses a file that
 //! is not.
 
+#[path = "../../../tests/support/envelope.rs"]
+mod envelope_builder;
+
 mod seat_items;
+mod seat_rows;

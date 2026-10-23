@@ -21,6 +21,7 @@ use crate::policy::Severity;
 use crate::residual::{
     note_closing, open_severity, residuals, Claim, Mark, Residual, ResidualPhase,
 };
+use crate::seat::row::{SeatRow, Seats};
 use crate::stamp::parse_millis;
 
 /// The bound of a name a run's data states: a phase, a rule id, the phase
@@ -187,6 +188,8 @@ pub struct Account {
     /// Each as its ruling states it, unmarked: the marks are kept beside.
     findings: Vec<Stated>,
     marks: BTreeMap<u64, Mark>,
+    /// Its seats' rows (decision 0089 ruling 1).
+    seats: Seats,
 }
 
 impl Account {
@@ -201,6 +204,7 @@ impl Account {
             read: Err(FoldError::Empty),
             findings: Vec::new(),
             marks: BTreeMap::new(),
+            seats: Seats::default(),
         }
     }
 
@@ -230,6 +234,7 @@ impl Account {
         );
         for event in suffix {
             note_closing(&mut self.marks, event);
+            self.seats.note(event);
         }
         self.head = (last.seq, last.event_hash.clone());
         self.last_recorded_at = Some(last.recorded_at.clone());
@@ -249,6 +254,12 @@ impl Account {
     /// The fold at the head, or the fold's refusal there.
     pub fn state(&self) -> Result<&RunState, &FoldError> {
         self.read.as_ref()
+    }
+
+    /// Its seats' rows, in the order they were opened, whatever the fold
+    /// read: what [`facts`](crate::seat::row::facts) groups.
+    pub fn seats(&self) -> &[SeatRow] {
+        self.seats.rows()
     }
 }
 

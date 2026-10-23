@@ -2250,6 +2250,8 @@ Proof: Exact acceptance of the measured option set and profile on cold, replacem
 
 Operator rulings 2026-10-18 on U9b1's owed items (in chat: "1a, 2a, 3 ok 4 a, 5 add them 6 yes"; then "2 A" after the controller's Codex measurement, and "yes, add U0b"): Codex is qualified rather than refused, by this unit, U9c2, U0b and U1d3, all before U9b1. The measurement is the controller's record (~/.cache/forge-fires/jev/s2/codex-measure-2026-10-18.md): `--ignore-user-config` excluded the user's configuration (servers and hooks) and the project configuration of a folder the user trusts, since trust is read from the user's configuration; a permission profile denied the store; `-s` overrode it; and `/etc/codex` system and managed MCP servers started whatever was passed.
 
+Operator ruling 2026-10-23 on U9c1's first run (in chat, "A"; run 0065-slice-two-unit-u9c1-see-the-d3bfbca3 stopped REVIEW-SECURITY-HOLD): U9c1 is repaired in a second run that replays the first run's work, and no risk is accepted. The profile is never read by its shape alone: each `"write"` entry names exactly the seat's workspace root, and its one `"deny"` names exactly the secrets store's path that the final check is handed beside the workdir. Where no store path is handed, every profile refuses, so until U9c2 hands it no profile is admitted. The inline launch judgment (`judge_inline_codex_launch`) and the whole rejoin check move to U9c2, whose builders emit the profile; until then both keep refusing it. U9c1 proves acceptance and each refusal on rejoin commands through the grammar's own reading. U9c1's public API rise is approved up to +10 lines across `quality/public-api/*.txt` together, measured against its own base.
+
 Owning tests: `crates/brokkr-protocol/src/native_controls/tests.rs`.
 
 ### U9c2 — Launch Codex under its isolation options
@@ -2260,6 +2262,8 @@ Closes tasks 45.5 and 45.6; requirements [SI2](specs/strict-mcp-isolation/spec.m
 Proof: Exact cold, replacement and rejoin argv for both classes, the store's deny in each rendered profile, a seat binding no secret included; refusal with either `/etc/codex` file present, through an injected host observation, and admission without; independent removal of the flags, the deny, the host refusal and the measured-verdict reading each fail their own tests.
 
 Operator rulings 2026-10-18 on U9b1's owed items (in chat: "1a, 2a, 3 ok 4 a, 5 add them 6 yes"; then "2 A" after the controller's Codex measurement, and "yes, add U0b"): as for U9c1.
+
+Operator ruling 2026-10-23 on U9c1's first run (in chat, "A", "+12 for U9c2"): U9c2 also teaches the inline launch judgment (`judge_inline_codex_launch`) U9c1's bound profile reading, and proves the whole rejoin check accepting the profile its rejoin builder emits. Beside the files above, it may change the inline judgment's two callers, `crates/brokkr-runtime/src/engine.rs` and `crates/brokkr-runtime/src/bundle.rs`, only to hand that judgment the seat's workspace root and the store's path. It hands U9c1's final check the store's path. U9c2's public API rise is approved up to +12 lines across `quality/public-api/*.txt` together, measured against its own base.
 
 Owning tests: `crates/brokkr-protocol/src/adapters/tests.rs`, `crates/brokkr-protocol/src/adapters/mcp/tests.rs`.
 

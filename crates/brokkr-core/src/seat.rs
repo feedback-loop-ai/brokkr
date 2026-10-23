@@ -4,6 +4,7 @@
 //! rulings 5 and 7). What a surface paints of them stays in `brokkr-view`.
 
 pub mod meter;
+pub mod row;
 
 use serde::Serialize;
 use serde_json::Value;
@@ -26,7 +27,7 @@ use meter::sum_usage;
 /// is absent, never zero, wherever the harness reported none: claude
 /// meters its thinking only in its result, codex meters it per turn,
 /// and this record admits both without inventing the missing one.
-#[derive(Serialize, Clone, Default, PartialEq, Eq)]
+#[derive(Serialize, Clone, Debug, Default, PartialEq, Eq)]
 pub struct TokenUsage {
     pub input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,

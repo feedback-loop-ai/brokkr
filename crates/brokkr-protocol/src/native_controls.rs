@@ -28,11 +28,15 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 
 pub mod grammar;
+mod listed;
 mod mcp;
+mod read;
 
 use grammar::{Command, Effect, ListKind};
+use listed::{listed, Listing};
 use mcp::untransported;
 pub use mcp::{authored_server_conflict, SealedBroker, SealedServers, Transport, ARTIFACT_ROOT};
+use read::read_state;
 
 /// One list flag of a harness's tool selection, as its adapter names it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1522,8 +1526,9 @@ pub enum Expressed {
     /// A tool list and its patterns in order; an empty list is a list, and
     /// never the absence of one.
     List(ListKind, Vec<String>),
-    /// Codex's sandbox class, one effect whether a cold `--sandbox` or a
-    /// rejoin's `sandbox_mode` assignment expresses it.
+    /// Codex's sandbox class, one effect whether a cold `--sandbox`, a
+    /// rejoin's `sandbox_mode` assignment or a permission profile's
+    /// selector (U9c1) expresses it.
     Class(&'static str),
     /// A measured OFF: the native capability Codex's `web_search="disabled"`,
     /// spelled exactly as the adapter declares it, switches off. An ON is
@@ -1533,6 +1538,18 @@ pub enum Expressed {
     /// values: a loaded document, a capability server's assignment or a
     /// catalogue control.
     Control(&'static str, Vec<String>),
+    /// One of Codex's isolation options (decision 0065 slice two, U9c1).
+    Isolation(Isolation),
+}
+
+/// The isolation options of codex-cli 0.162.1 a command expresses (U9c1;
+/// SI2): the user's configuration and the project trust it records left
+/// unread, and the `apps` and `plugins` features switched off.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Isolation {
+    UserConfig,
+    Apps,
+    Plugins,
 }
 
 /// The capability state one command expresses (rebuild units 13, 13-fix
@@ -1596,12 +1613,16 @@ impl State {
 /// reading; the prompt a DSH command carries as data (rebuild unit 13-fix,
 /// F5); what it binds the box's hands to (rebuild unit 13-fix-b, R1), the
 /// sealed brokers beside them and the names its spawn removes from the
-/// harness's environment (U7a); and the isolated MCP configuration its
-/// intent built, which follows the composition (U1g2).
+/// harness's environment (U7a); the isolated MCP configuration its
+/// intent built, which follows the composition (U1g2); and the secrets
+/// store's path a Codex permission profile must deny, `None` where none is
+/// handed, and then every profile refuses (U9c1; operator ruling 4 of
+/// 2026-10-23).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Serving<'a> {
     pub program: &'a str,
     pub workdir: &'a str,
+    pub store: Option<&'a str>,
     pub authored: &'a [String],
     pub pins: &'a [String],
     pub mcp: &'a [String],
@@ -1664,126 +1685,6 @@ const CLASSES: [SandboxIntent; 3] = [
     SandboxIntent::DangerFullAccess,
 ];
 
-/// The native capability one assignment switches OFF, where it is exactly
-/// a declared, measured OFF: on [`grammar::LAUNCH_SETTINGS`] in the one
-/// canonical spelling [`grammar::launch_setting`] reads, with the admitted
-/// value a declared OFF argv's.
-fn measured_off(assignment: &str) -> Option<&'static str> {
-    let key = grammar::launch_setting(assignment).ok()?;
-    grammar::LAUNCH_SETTINGS
-        .iter()
-        .find(|admitted| admitted.key == key)
-        .and_then(|admitted| admitted.denies)
-}
-
-/// Read one parsed command's [`State`], or the fixed words of what cannot
-/// be read: a list value outside the managed grammar, an assignment with
-/// no bounded meaning, an assignment into a capability table whose meaning
-/// is not established, a class that is none or is expressed twice, or a
-/// session selector other than a rejoin's. Nothing read is echoed.
-///
-/// An assignment into a capability table is read by meaning or refused
-/// (rebuild unit 13-fix, F3): exactly a rejoin's class, exactly a measured
-/// OFF, or a capability server's entry. Any other spelling or value — a
-/// spaced key, a trailing space, `web_search="live"`, `web_search=garbage`,
-/// a web search mode, a sandbox or approval table — is read as neither ON
-/// nor OFF, and refuses.
-#[expect(
-    clippy::excessive_nesting,
-    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
-)]
-fn read_state(command: &Command) -> Result<State, String> {
-    let mut state = State::default();
-    for node in &command.nodes {
-        let at = node.at + 1;
-        let class = |state: &State, word: &str| {
-            let Some(class) = CLASSES.iter().find(|class| class.word() == word) else {
-                return Err(format!(
-                    "carries '{}' (argument {at}), whose value names no sandbox class: \
-                     read-only, workspace-write or danger-full-access",
-                    node.name()
-                ));
-            };
-            match state.class() {
-                None => Ok(Expressed::Class(class.word())),
-                Some(_) => Err(format!(
-                    "expresses the sandbox class a second time (argument {at})"
-                )),
-            }
-        };
-        let selector = || {
-            Err(format!(
-                "carries '{}' (argument {at}), a session selector other than a rejoin's",
-                node.name()
-            ))
-        };
-        match node.spec.effect {
-            Effect::List(kind) => {
-                let mut patterns = Vec::new();
-                for value in &node.values {
-                    let read = grammar::managed_patterns(value).map_err(|cause| {
-                        format!(
-                            "carries '{}' (argument {at}), whose value {cause}",
-                            node.name()
-                        )
-                    })?;
-                    patterns.extend(read.into_iter().map(str::to_string));
-                }
-                state.effects.push(Expressed::List(kind, patterns));
-            }
-            Effect::Config => {
-                for value in &node.values {
-                    let effect = match grammar::setting(value) {
-                        Ok(grammar::Setting::Inert(_)) => continue,
-                        Ok(grammar::Setting::Capability(table)) => {
-                            if let Some(known) = CLASSES
-                                .iter()
-                                .find(|known| grammar::rejoin_class(**known) == *value)
-                            {
-                                class(&state, known.word())?
-                            } else if let Some(capability) = measured_off(value) {
-                                Expressed::Off(capability)
-                            } else if table == "mcp_servers" {
-                                Expressed::Control(node.name(), vec![value.clone()])
-                            } else {
-                                return Err(format!(
-                                    "carries '--config' (argument {at}) into the '{table}' \
-                                     configuration in a spelling or with a value whose meaning is \
-                                     not established, so it is read as neither ON nor OFF"
-                                ));
-                            }
-                        }
-                        Err(cause) => {
-                            return Err(format!(
-                                "carries '--config' (argument {at}), whose value {cause}"
-                            ))
-                        }
-                    };
-                    state.effects.push(effect);
-                }
-            }
-            Effect::Control(grammar::Power::Permission) if node.name() == "--sandbox" => {
-                let effect = class(&state, &node.values[0])?;
-                state.effects.push(effect);
-            }
-            Effect::Control(_) | Effect::Load => state
-                .effects
-                .push(Expressed::Control(node.name(), node.values.clone())),
-            Effect::Session if node.name() == "--resume" => {
-                state.session = Some(node.values[0].clone())
-            }
-            Effect::Session => return selector(),
-            // A switch that copies, forks or relocates a conversation is a
-            // selector, as the adapter's structural reader judges it.
-            Effect::Switch if crate::adapters::CLAUDE_SELECTORS_BARE.contains(&node.name()) => {
-                return selector()
-            }
-            Effect::Inert | Effect::Switch | Effect::Route => {}
-        }
-    }
-    Ok(state)
-}
-
 /// Where and why an argv the final check reads cannot be placed: its
 /// position, bounded label and fixed cause, never a token.
 fn unread(problem: grammar::Problem) -> Piece<'static> {
@@ -1838,11 +1739,13 @@ fn unchecked<'a>(harness: &'a str, problem: Vec<Piece<'a>>) -> Refusal {
 ///    expanded from the typed [`Transport`]; and the dialect's boundary,
 ///    each fragment's result path the engine's. The recorded argv and the
 ///    record's raw controls are never read.
-/// 3. [`compose_for_provider`] composes them with the plan, so every
-///    refusal it gives — the known-power floor, a permission pattern both
-///    admitted and denied, a held or hands tool any denial would remove,
-///    typed hands without their whole transport, a limit that excludes a
-///    holding — is the check's refusal, unchanged.
+/// 3. [`compose_for_provider`]'s composer composes them with the plan, the
+///    box's hands' permission profile judged bound to the serving's
+///    workdir and store (U9c1), so every refusal it gives — the
+///    known-power floor, a permission pattern both admitted and denied, a
+///    held or hands tool any denial would remove, typed hands without
+///    their whole transport, a limit that excludes a holding — is the
+///    check's refusal, unchanged.
 /// 4. The complete serving command is rebuilt from that composition by the
 ///    driver's own builder ([`crate::adapters::serving_command`]): the
 ///    executable, the lead and its workdir, the Codex effort and rejoin
@@ -1884,14 +1787,15 @@ pub fn check_final(
     let parsed = table
         .parse_final(argv)
         .map_err(|problem| refuse(vec![Piece::Words("cannot be read whole "), unread(problem)]))?;
-    let state = read_state(&parsed.command).map_err(|cause| {
+    let state = read_state(&parsed.command, serving.bound()).map_err(|cause| {
         refuse(vec![
             Piece::Words("cannot be read: it "),
             Piece::Grammar(cause),
         ])
     })?;
     let (authored, fragment) = sealed_inputs(table, controls, expected, dialect, serving)?;
-    let mut composed = compose_for_provider(harness, &authored, &fragment, controls)?;
+    let mut composed = compose_bound(harness, &authored, &fragment, controls, serving.bound())
+        .map_err(Failure::refusal)?;
     composed.extra.extend_from_slice(serving.mcp);
     let recomposed = table
         .parse(&[composed.extra.clone(), composed.managed.clone()].concat())
@@ -1903,7 +1807,7 @@ pub fn check_final(
                 unread(problem),
             ])
         })?;
-    let composition = read_state(&recomposed).map_err(|cause| {
+    let composition = read_state(&recomposed, serving.bound()).map_err(|cause| {
         refuse(vec![
             Piece::Words("recomposes from its sealed inputs a command that cannot be read: it "),
             Piece::Grammar(cause),
@@ -2208,7 +2112,7 @@ fn sealed_inputs(
         table
             .parse(argv)
             .ok()
-            .and_then(|command| read_state(&command).ok())
+            .and_then(|command| read_state(&command, serving.bound()).ok())
             .is_some_and(|state| state.effects.is_empty() && state.session.is_none())
     };
     if !inert(serving.authored) || !inert(serving.pins) {
@@ -2254,7 +2158,7 @@ fn sealed_inputs(
         table
             .parse(argv)
             .ok()
-            .and_then(|command| read_state(&command).ok())
+            .and_then(|command| read_state(&command, serving.bound()).ok())
             .filter(|state| state.session.is_none())
     };
     let Some(template) = read(template_argv) else {
@@ -2286,7 +2190,7 @@ fn sealed_inputs(
             ])
         }
     };
-    let native = match read_state(&native) {
+    let native = match read_state(&native, serving.bound()) {
         Ok(native) if native.session.is_none() => native,
         Ok(_) => {
             return refuse(vec![Piece::Words(
@@ -2464,6 +2368,7 @@ fn effect(expressed: &Expressed) -> Vec<Piece<'_>> {
             Piece::Capability(capability),
         ],
         Expressed::Control(name, _) => vec![Piece::Flag(name)],
+        Expressed::Isolation(isolation) => vec![Piece::Words(isolation.option())],
     }
 }
 
@@ -3701,36 +3606,125 @@ pub fn compose_for_provider(
     compose_or_exclude(provider, authored, fragment, controls).map_err(Failure::refusal)
 }
 
+/// The plan for `provider` refused for the `typed_hands` arguments it types
+/// as the box's hands, `why` saying why after the count.
+fn typed_hands_refused<'a>(provider: &'a str, typed_hands: usize, why: Vec<Piece<'a>>) -> Failure {
+    let mut pieces = vec![
+        Piece::Words("the capability plan for "),
+        Piece::Provider(provider),
+        Piece::Words(" types "),
+        Piece::Count(typed_hands),
+    ];
+    pieces.extend(why);
+    refused(Why::Provenance, pieces).into()
+}
+
 /// [`compose_for_provider`], telling a held capability an explicit limit
 /// excludes apart from every other refusal, so that resolution can drop a
-/// wanted holding with OFF and refuse a required one (CQ1).
-#[expect(
-    clippy::too_many_lines,
-    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
-)]
+/// wanted holding with OFF and refuse a required one (CQ1). It is handed
+/// no store's path, so a permission profile in the box's hands carries no
+/// class here until U9c2 hands one (U9c1; operator ruling 4 of 2026-10-23).
 pub fn compose_or_exclude(
     provider: &str,
     authored: &[String],
     fragment: &[String],
     controls: &Controls,
 ) -> Result<Composed, Failure> {
+    compose_bound(
+        provider,
+        authored,
+        fragment,
+        controls,
+        grammar::Bound::default(),
+    )
+}
+
+/// [`compose_or_exclude`], the box's hands' permission profile judged bound
+/// to `bound`: the final check's own recomposition hands it the serving's
+/// workdir and store (U9c1, R1 of its second review), and every other
+/// caller none.
+fn compose_bound(
+    provider: &str,
+    authored: &[String],
+    fragment: &[String],
+    controls: &Controls,
+    bound: grammar::Bound<'_>,
+) -> Result<Composed, Failure> {
     // brokkr's own dispatch prefix is not the harness's argv: the compiler
     // sees the whole `<engine> driver <kind> --` invocation and the driver
     // sees only what follows it, and both parse the same tail.
     let head = &authored[..authored.len() - harness_arguments(authored).len()];
     let authored = harness_arguments(authored);
-    // The box's hands are as many leading arguments of the engine's fragment
-    // as the plan types, and the rest is the managed boundary fragment; a
-    // count the fragment cannot hold types nothing and refuses.
     let typed_hands = controls.provenance.hands;
+    handed(provider, authored, fragment, typed_hands, bound)?;
+    floor(provider, controls)?;
+    let extra: Vec<String> = authored.iter().chain(fragment).cloned().collect();
+    // Whatever the composition writes, the dispatch prefix opens the argv
+    // again exactly as it was written.
+    let composed = |extra: Vec<String>, managed: Vec<String>| Composed {
+        extra: [head.to_vec(), extra].concat(),
+        managed,
+    };
+    let selects = [
+        &controls.selection.include,
+        &controls.selection.allow,
+        &controls.selection.deny,
+    ]
+    .iter()
+    .any(|names| !names.is_empty());
+    match provider {
+        "codex" => {
+            if selects {
+                return Err(unconsumed(provider, "a tool selection").into());
+            }
+            // The plan's own argv is parsed under the codex grammar like
+            // every other origin, never appended unread (rebuild unit 11;
+            // design D6).
+            parse_origin(provider, &controls.argv, false)?;
+            Ok(composed(extra, controls.argv.clone()))
+        }
+        "claude" | "lanetally" => {
+            let listing = Listing {
+                provider,
+                controls,
+                split: authored.len(),
+                typed_hands,
+            };
+            listed(listing, extra).map(|extra| composed(extra, Vec::new()))
+        }
+        // Built-in launches that consume no native control at all.
+        "dsh" | "exec" => {
+            if selects {
+                return Err(unconsumed(provider, "a tool selection").into());
+            }
+            if !controls.argv.is_empty() {
+                return Err(unconsumed(provider, "managed arguments").into());
+            }
+            Ok(composed(extra, Vec::new()))
+        }
+        // An opaque custom driver: the plan rides its input as data.
+        _ => Ok(composed(extra, controls.argv.clone())),
+    }
+}
+
+/// Every origin of the launch read, and the box's hands judged whole,
+/// before anything is composed: the hands are as many leading arguments of
+/// the engine's `fragment` as the plan types, `typed_hands`, and the rest
+/// is the managed boundary fragment. A count the fragment cannot hold types
+/// nothing and refuses, and hands without their whole transport, a profile
+/// judged bound to `bound`, refuse.
+fn handed(
+    provider: &str,
+    authored: &[String],
+    fragment: &[String],
+    typed_hands: usize,
+    bound: grammar::Bound<'_>,
+) -> Result<(), Failure> {
     if typed_hands > fragment.len() {
-        return Err(refused(
-            Why::Provenance,
+        return Err(typed_hands_refused(
+            provider,
+            typed_hands,
             vec![
-                Piece::Words("the capability plan for "),
-                Piece::Provider(provider),
-                Piece::Words(" types "),
-                Piece::Count(typed_hands),
                 Piece::Words(
                     " arguments of the engine's fragment as the box's hands, but the fragment \
                      carries ",
@@ -3741,8 +3735,7 @@ pub fn compose_or_exclude(
                      launch is refused rather than composed on a guess (design D6)",
                 ),
             ],
-        )
-        .into());
+        ));
     }
     // Every origin is parsed to completion and SEPARATELY, so a dangling
     // value or terminator in one cannot reach across and consume another
@@ -3754,15 +3747,12 @@ pub fn compose_or_exclude(
     // present, not merely uncontradicted.
     if let Some(what) = handed
         .filter(|_| typed_hands > 0)
-        .and_then(|hands| untransported(provider, &hands))
+        .and_then(|hands| untransported(provider, &hands, bound))
     {
-        return Err(refused(
-            Why::Provenance,
+        return Err(typed_hands_refused(
+            provider,
+            typed_hands,
             vec![
-                Piece::Words("the capability plan for "),
-                Piece::Provider(provider),
-                Piece::Words(" types "),
-                Piece::Count(typed_hands),
                 Piece::Words(
                     " arguments of the engine's fragment as the box's hands, but they carry no ",
                 ),
@@ -3772,9 +3762,15 @@ pub fn compose_or_exclude(
                      composed without them (decision 0043; design D6)",
                 ),
             ],
-        )
-        .into());
+        ));
     }
+    Ok(())
+}
+
+/// The provider's known-power floor (design D6): every capability its
+/// launch can reach natively is held or switched off by a plan resolved
+/// for it from a measured inventory, or nothing is composed.
+fn floor(provider: &str, controls: &Controls) -> Result<(), Failure> {
     for capability in known_powers(provider) {
         if let Inventory::Unmeasured(reason) = &controls.inventory {
             return Err(unready(
@@ -3809,322 +3805,7 @@ pub fn compose_or_exclude(
             .into());
         }
     }
-    let mut extra: Vec<String> = authored.iter().chain(fragment).cloned().collect();
-    // Whatever the composition writes, the dispatch prefix opens the argv
-    // again exactly as it was written.
-    let composed = |extra: Vec<String>, managed: Vec<String>| Composed {
-        extra: [head.to_vec(), extra].concat(),
-        managed,
-    };
-    let selects = [
-        &controls.selection.include,
-        &controls.selection.allow,
-        &controls.selection.deny,
-    ]
-    .iter()
-    .any(|names| !names.is_empty());
-    match provider {
-        "codex" => {
-            if selects {
-                return Err(unconsumed(provider, "a tool selection").into());
-            }
-            // The plan's own argv is parsed under the codex grammar like
-            // every other origin, never appended unread (rebuild unit 11;
-            // design D6).
-            parse_origin(provider, &controls.argv, false)?;
-            Ok(composed(extra, controls.argv.clone()))
-        }
-        "claude" | "lanetally" => {
-            // The plan's own argv is parsed under the same grammar. A list
-            // it names is an EXPLICIT control on that list — including an
-            // explicitly empty one; anything else is a restriction
-            // transport, which is appended as written.
-            let plan = parse_origin(provider, &controls.argv, false)?
-                .expect("claude and lanetally have a grammar");
-            // The two origins together, so a duplicate ACROSS them — a
-            // seat's own `--tools` beside the boundary fragment's — is the
-            // same refusal a duplicate within one origin is.
-            let seat =
-                parse_origin(provider, &extra, true)?.expect("claude and lanetally have a grammar");
-            let verbatim: Vec<String> = plan
-                .nodes
-                .iter()
-                .filter(|node| node.list().is_none())
-                .flat_map(|node| controls.argv[node.at..node.at + node.tokens].to_vec())
-                .collect();
-            // What the plan holds and what it says each holding admits answer
-            // for each other exactly: an admission is never inferred for a
-            // holding, and never carried for a capability the plan denies.
-            if let Some(capability) = controls
-                .held
-                .iter()
-                .find(|name| !controls.admits.contains_key(*name))
-            {
-                return Err(unanswered(
-                    provider,
-                    vec![
-                        Piece::Words("holds "),
-                        Piece::Capability(capability),
-                        Piece::Words(" but admits no tool for it"),
-                    ],
-                )
-                .into());
-            }
-            if let Some(capability) = controls
-                .admits
-                .keys()
-                .find(|name| !controls.held.contains(name))
-            {
-                return Err(unanswered(
-                    provider,
-                    vec![
-                        Piece::Words("admits tools for "),
-                        Piece::Capability(capability),
-                        Piece::Words(", which it does not hold"),
-                    ],
-                )
-                .into());
-            }
-            // Which contribution carries a list is where the engine placed
-            // it (unit 12-fix-c), never what the list names: the part
-            // before the fragment is the template's and the local
-            // permissions', the typed hands follow, and the rest is the
-            // managed boundary fragment. The typed hands' include list is
-            // the base the holdings fill. Every other explicit include list
-            // an engine contribution carries is a limit (design D6): the
-            // template's own, each one the plan's argv names, and the
-            // managed fragment's, whatever its allow list names (unit
-            // 12-fix-b, R2). The seat's argv holds one include and one allow
-            // list at most: a duplicate across its origins refused above.
-            let split = authored.len();
-            let origin = |node: &grammar::Node| match node.at {
-                at if at < split => LimitOrigin::Template,
-                at if at < split + typed_hands => LimitOrigin::Hands,
-                _ => LimitOrigin::Managed,
-            };
-            let own = seat.lists(ListKind::Include).next();
-            let allowed = seat.lists(ListKind::Allow).next();
-            let carried: Vec<String> = allowed
-                .map(grammar::node_patterns)
-                .unwrap_or_default()
-                .into_iter()
-                .map(str::to_string)
-                .collect();
-            // W is the site's typed hands' own tool, and nothing without
-            // them; T is what the engine lowered from its typed allow.
-            let hands_tools: Vec<String> = match typed_hands {
-                0 => Vec::new(),
-                _ => vec![format!(
-                    "mcp__{}__{}",
-                    crate::hands::SERVER_NAME,
-                    crate::hands::TOOL_NAME
-                )],
-            };
-            let limits: Vec<Limit> = seat
-                .lists(ListKind::Include)
-                .map(|node| (origin(node), node))
-                .filter(|(origin, _)| *origin != LimitOrigin::Hands)
-                .chain(
-                    plan.lists(ListKind::Include)
-                        .map(|node| (LimitOrigin::Plan, node)),
-                )
-                .map(|(origin, node)| Limit {
-                    origin,
-                    flag: node.name().to_string(),
-                    names: distinct(grammar::node_patterns(node)),
-                })
-                .collect();
-            // The box's hands stand where the plan types them, and are never
-            // inferred from an include list (rebuild unit 13-fix-c, R1).
-            let hands = typed_hands > 0;
-            let named = |kind: ListKind| -> Vec<String> {
-                plan.lists(kind)
-                    .flat_map(grammar::node_patterns)
-                    .map(str::to_string)
-                    .collect()
-            };
-            // A managed allow list admits as much as the selection's does.
-            let allow: Vec<String> = controls
-                .selection
-                .allow
-                .iter()
-                .cloned()
-                .chain(named(ListKind::Allow))
-                .collect();
-            let carrier = allowed.map_or((LimitOrigin::Template, ""), |node| {
-                (origin(node), node.name())
-            });
-            let tools = final_tools(
-                &controls.admits,
-                Sources {
-                    include: &controls.selection.include,
-                    allow: &allow,
-                    carried: &carried,
-                    hands: &hands_tools,
-                    local: &controls.provenance.local,
-                },
-                &limits,
-                hands,
-            )
-            .map_err(|conflict| conflicting(provider, &limits, carrier, conflict))?;
-            // The include list is written only where it is not already the
-            // seat's own, spelled as it stands; the allow list gains what
-            // the seat does not carry.
-            let include = tools.include.as_ref().filter(|names| {
-                own.is_none_or(|node| {
-                    !grammar::node_patterns(node)
-                        .into_iter()
-                        .eq(names.iter().map(String::as_str))
-                })
-            });
-            let gained: Vec<String> = tools
-                .allow
-                .iter()
-                .filter(|tool| !carried.contains(tool))
-                .cloned()
-                .collect();
-            let deny: Vec<String> = controls
-                .selection
-                .deny
-                .iter()
-                .cloned()
-                .chain(named(ListKind::Deny))
-                .collect();
-            let flags = controls.selection.flags.as_ref();
-            let mut folding: Vec<Folding> = Vec::new();
-            for (kind, names) in [(ListKind::Allow, gained), (ListKind::Deny, deny)] {
-                let node = seat.lists(kind).next();
-                let carried: Vec<String> = node
-                    .map(grammar::node_patterns)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(str::to_string)
-                    .collect();
-                let names: Vec<String> = distinct(names)
-                    .into_iter()
-                    .filter(|tool| !carried.contains(tool))
-                    .collect();
-                folding.push(Folding {
-                    at: node.map(Place::of),
-                    create: !names.is_empty() || plan.lists(kind).next().is_some(),
-                    carried,
-                    names,
-                });
-            }
-            match flags {
-                // A plan that carries a list for a provider whose adapter
-                // maps none cannot be folded anywhere, and is refused rather
-                // than dropped (decision 0066 ruling 3); so is a final list
-                // that differs from the seat's own. Otherwise the seat's
-                // lists stand.
-                None => {
-                    if let Some(node) = plan.nodes.iter().find(|node| node.list().is_some()) {
-                        return Err(unconsumed_naming(
-                            provider,
-                            vec![
-                                Piece::Words("a managed "),
-                                Piece::Flag(node.name()),
-                                Piece::Words(" with no selection mapping to fold it into,"),
-                            ],
-                        )
-                        .into());
-                    }
-                    if include.is_some() || folding.iter().any(|list| list.create) {
-                        return Err(unconsumed(
-                            provider,
-                            "a final tool list with no selection mapping to write it into,",
-                        )
-                        .into());
-                    }
-                }
-                // The adapter's mapping must name a flag the harness's own
-                // grammar reads as THIS list: a mapping onto anything else
-                // cannot reach the final command, and is refused rather than
-                // folded into whatever the name happens to be.
-                Some(flags) => {
-                    let writes = [include.is_some(), folding[0].create, folding[1].create];
-                    for (slot, kind) in [ListKind::Include, ListKind::Allow, ListKind::Deny]
-                        .into_iter()
-                        .enumerate()
-                    {
-                        if writes[slot]
-                            && grammar::list_of(provider, &flags[slot].flag) != Some(kind)
-                        {
-                            // The mapping is the plan's, so its flag is an
-                            // identity (rebuild unit 12-fix-e).
-                            return Err(unconsumed_naming(
-                                provider,
-                                vec![
-                                    Piece::Words("a selection mapped onto "),
-                                    Piece::Flag(&flags[slot].flag),
-                                    Piece::Words(
-                                        ", which its grammar does not read as that tool list,",
-                                    ),
-                                ],
-                            )
-                            .into());
-                        }
-                    }
-                }
-            }
-            // Availability is judged on every path that composes (rebuild
-            // unit 13-fix-d, R3), with a selection mapping or without one:
-            // every held tool stays available, whether or not an emitted
-            // list names it (rebuild unit 13-fix-c, R3), and so does the
-            // hands tool, which the allow list always carries (R1).
-            let admitted: Vec<&String> = tools
-                .include
-                .as_ref()
-                .unwrap_or(&controls.selection.include)
-                .iter()
-                .chain(folding[0].all())
-                .chain(controls.admits.values().flatten())
-                .collect();
-            // Named by its tool alone, through the one bounded renderer
-            // (rebuild unit 12-fix-d): the pattern's payload is never said.
-            // A bare denial denies every pattern of its tool, as the final
-            // check reads it (rebuild unit 13-fix, F6).
-            if let Some(tool) = folding[1].all().into_iter().find(|denial| {
-                admitted.iter().any(|admission| {
-                    admission == denial || denies(denial, grammar::tool_name(admission))
-                })
-            }) {
-                return Err(unconsumed_naming(
-                    provider,
-                    vec![Piece::Tool(tool), Piece::Words(" both admitted and denied")],
-                )
-                .into());
-            }
-            // Only a judged composition returns: the seat's lists stand
-            // where no mapping writes any, and are folded where one does.
-            if let Some(flags) = flags {
-                extra = fold_lists(
-                    &extra,
-                    include.map(|names| Rewrite {
-                        own,
-                        flag: &flags[0],
-                        names,
-                    }),
-                    &folding,
-                    [&flags[1], &flags[2]],
-                );
-            }
-            extra.extend(verbatim);
-            Ok(composed(extra, Vec::new()))
-        }
-        // Built-in launches that consume no native control at all.
-        "dsh" | "exec" => {
-            if selects {
-                return Err(unconsumed(provider, "a tool selection").into());
-            }
-            if !controls.argv.is_empty() {
-                return Err(unconsumed(provider, "managed arguments").into());
-            }
-            Ok(composed(extra, Vec::new()))
-        }
-        // An opaque custom driver: the plan rides its input as data.
-        _ => Ok(composed(extra, controls.argv.clone())),
-    }
+    Ok(())
 }
 
 /// Where one of the seat's own list options stands in its argv.
