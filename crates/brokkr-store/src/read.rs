@@ -3,7 +3,7 @@
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{verify_chain_after, EventEnvelope};
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::{patiently, Store, StoreError, HEAD_OF_RUN};
 
@@ -82,24 +82,31 @@ impl Store {
         run_id: &str,
         after: Option<i64>,
     ) -> Result<Vec<EventEnvelope>, StoreError> {
-        let texts = match after {
-            None => self
-                .conn
-                .prepare("SELECT envelope FROM events WHERE run_id = ?1 ORDER BY seq")?
-                .query_map(params![run_id], |r| r.get::<_, String>(0))?
-                .collect::<Result<Vec<_>, _>>()?,
-            Some(seq) => self
-                .conn
-                .prepare("SELECT envelope FROM events WHERE run_id = ?1 AND seq > ?2 ORDER BY seq")?
-                .query_map(params![run_id, seq], |r| r.get::<_, String>(0))?
-                .collect::<Result<Vec<_>, _>>()?,
-        };
-        let events = texts
-            .into_iter()
-            .map(|raw| serde_json::from_str::<EventEnvelope>(&raw))
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(events)
+        rows_in(&self.conn, run_id, after)
     }
+}
+
+/// [`Store::rows`] on `conn`, so a transaction reads them as it stands.
+pub(crate) fn rows_in(
+    conn: &Connection,
+    run_id: &str,
+    after: Option<i64>,
+) -> Result<Vec<EventEnvelope>, StoreError> {
+    let texts = match after {
+        None => conn
+            .prepare("SELECT envelope FROM events WHERE run_id = ?1 ORDER BY seq")?
+            .query_map(params![run_id], |r| r.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?,
+        Some(seq) => conn
+            .prepare("SELECT envelope FROM events WHERE run_id = ?1 AND seq > ?2 ORDER BY seq")?
+            .query_map(params![run_id, seq], |r| r.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?,
+    };
+    let events = texts
+        .into_iter()
+        .map(|raw| serde_json::from_str::<EventEnvelope>(&raw))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(events)
 }
 
 #[cfg(test)]

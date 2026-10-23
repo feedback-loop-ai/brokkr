@@ -323,3 +323,20 @@ pub fn unindex(conn: &Connection) -> rusqlite::Result<()> {
 pub fn drop_seq_guard(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch("DROP TRIGGER IF EXISTS events_seq_is_a_position")
 }
+
+/// Link queued `entry` to `run`, which the journal holds, through the
+/// dispatcher's own claim and link (decision 0095 ruling 1), as
+/// generation 1 claiming a bundle of digest `test`, judging no run.
+pub fn linked(store: &mut Store, entry: crate::EntryId, run: &str) {
+    let read = store.queue_entry(entry).unwrap();
+    let claimed = store.queue_claim_with(
+        &read,
+        i64::MAX,
+        "test",
+        crate::Generation(1),
+        "test",
+        |_| Ok::<(), ()>(()),
+    );
+    let claim = claimed.unwrap().unwrap();
+    store.queue_link(claim, run, "test").unwrap();
+}

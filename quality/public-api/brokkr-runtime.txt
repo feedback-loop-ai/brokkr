@@ -135,10 +135,14 @@ pub brokkr_runtime::admission::Host::temp: &'a std::path::Path
 pub struct brokkr_runtime::admission::Judged
 pub brokkr_runtime::admission::Judged::entry: brokkr_store::queue::QueueEntry
 pub brokkr_runtime::admission::Judged::launch: brokkr_runtime::launch::QueuedLaunch
+pub brokkr_runtime::admission::Judged::room: core::option::Option<brokkr_runtime::admission::Room>
 pub brokkr_runtime::admission::Judged::verdict: core::option::Option<brokkr_runtime::admission::Verdict>
 pub struct brokkr_runtime::admission::Released(_)
 impl core::fmt::Display for brokkr_runtime::admission::Released
 pub fn brokkr_runtime::admission::Released::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct brokkr_runtime::admission::Room
+impl brokkr_runtime::admission::Room
+pub fn brokkr_runtime::admission::Room::claim(&self, &mut brokkr_store::Store, &brokkr_store::queue::QueueEntry, brokkr_store::queue::claim::Generation, &str) -> core::result::Result<core::result::Result<brokkr_store::queue::claim::Claim, brokkr_runtime::admission::Capacity>, brokkr_runtime::admission::AdmissionError>
 pub struct brokkr_runtime::admission::Shared<E>(_)
 impl<E: core::fmt::Display> core::fmt::Display for brokkr_runtime::admission::Shared<E>
 pub fn brokkr_runtime::admission::Shared<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result

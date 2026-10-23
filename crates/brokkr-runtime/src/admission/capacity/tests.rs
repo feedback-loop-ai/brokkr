@@ -10,7 +10,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use brokkr_core::EventType;
-use brokkr_store::{Attribution, EntryId, NewEntry, QueueCommand};
+use brokkr_store::{Attribution, EntryId, NewEntry, QueueCommand, QueueEntry};
 use serde_json::{json, Value};
 
 use super::super::{judge_within, pass, pass_within, HostError, Reason, Standing};
@@ -1121,4 +1121,133 @@ fn every_capacity_reason_has_its_word() {
             ("boxed_full", false),
         ]
     );
+}
+
+/// The one entry a pass over a plenty-free host reading `file` admitted,
+/// as the pass read it, and the room it found for it.
+fn admitted(fixture: &Fixture, file: &Path) -> (QueueEntry, Room) {
+    let judged = passed(&fixture.store, file).unwrap().remove(0);
+    (judged.entry, judged.room.expect("admitted"))
+}
+
+/// Claim `entry` in `room` as generation 1.
+fn claimed(fixture: &mut Fixture, entry: &QueueEntry, room: &Room) -> Result<Claim, Capacity> {
+    room.claim(&mut fixture.store, entry, Generation(1), "admitted")
+        .unwrap()
+}
+
+/// An operator's `retry` of a run, as `brokkr operator` journals it.
+fn retry() -> Value {
+    json!({"command_id": "c1", "command": "retry", "args": {}, "operator": "vy"})
+}
+
+/// Append each of `events` to `run`.
+fn appended(fixture: &mut Fixture, run: &str, events: Vec<(EventType, Value)>) {
+    for (event, payload) in events {
+        (fixture.store)
+            .append_next(run, event, payload, None, None)
+            .unwrap();
+    }
+}
+
+/// Under a ceiling of 1, a parked run retried and a run started between
+/// the pass and the claim each take the place the pass found, and the
+/// claim is refused for it with nothing written (decision 0095 ruling 7).
+#[test]
+fn a_run_retried_or_started_after_the_pass_refuses_the_claim_on_capacity() {
+    for retried in [true, false] {
+        let mut fixture = Fixture::new();
+        let entry = fixture.queue();
+        let held = fixture.queue();
+        (fixture.store)
+            .queue_command(held, QueueCommand::Hold, BY)
+            .unwrap();
+        let file = fixture.declare(&ceilings(1, 1, json!({})));
+        fixture.seating("r1", &[("alpha", "a-1")], false);
+        // Parked where its seat's attempts ran out, so a retry returns it.
+        let entered = (EventType::PhaseEntered, json!({"phase": "work"}));
+        let requested = json!({"effect_id": "e", "seat": "work"});
+        let requested = (EventType::EffectRequested, requested);
+        let parked = (
+            EventType::RunParked,
+            json!({"reason": "attempts exhausted"}),
+        );
+        appended(&mut fixture, "r1", vec![entered, requested, parked]);
+        let judged = passed(&fixture.store, &file).unwrap();
+        let rooms: Vec<bool> = judged.iter().map(|judged| judged.room.is_some()).collect();
+        assert_eq!(rooms, [true, false]);
+        let (read, room) = admitted(&fixture, &file);
+        let compiled = fixture.launch().compiled().unwrap();
+        assert_eq!(room.digest, compiled.manifest_digest());
+        match retried {
+            true => {
+                let accepted = json!({"command_id": "c1"});
+                let events = vec![
+                    (EventType::OperatorCommanded, retry()),
+                    (EventType::OperatorAccepted, accepted),
+                ];
+                appended(&mut fixture, "r1", events);
+            }
+            false => fixture.started("r2"),
+        }
+        let before = (fixture.store.queue_list()).unwrap();
+        let refused = claimed(&mut fixture, &read, &room);
+        assert_eq!(refused, Err(full("alpha", 1, 1).unwrap()));
+        assert_eq!(fixture.store.queue_list().unwrap(), before);
+        let state = fixture.store.queue_entry(entry).unwrap().state;
+        assert_eq!(state, brokkr_store::EntryState::Queued);
+    }
+}
+
+/// A run running at the pass that moved and seats what it seated is
+/// counted once, a run that ended since frees its place, and a run
+/// started since takes one: under a ceiling of 3, with two running at the
+/// pass and two after it, the claim lands.
+#[test]
+fn the_claim_counts_each_run_that_moved_once_as_it_stands_now() {
+    let mut fixture = Fixture::new();
+    let entry = fixture.queue();
+    let file = fixture.declare(&ceilings(3, 3, json!({})));
+    fixture.seating("ended", &[("alpha", "a-1")], false);
+    fixture.seating("live", &[("alpha", "a-1")], false);
+    let (read, room) = admitted(&fixture, &file);
+    let completed = (EventType::RunCompleted, json!({}));
+    appended(&mut fixture, "ended", vec![completed]);
+    // Its writer carries `live`'s fold, not this one's.
+    brokkr_store::test_support::lags(&mut fixture.store, &["ended"]);
+    let commanded = (EventType::OperatorCommanded, retry());
+    appended(&mut fixture, "live", vec![commanded]);
+    fixture.seating("new", &[("alpha", "a-1")], false);
+    claimed(&mut fixture, &read, &room).unwrap();
+    let state = fixture.store.queue_entry(entry).unwrap().state;
+    assert_eq!(state, brokkr_store::EntryState::Launching);
+}
+
+/// A run that moved since the pass is read as the census reads one: one
+/// whose manifest does not say what it seats refuses the claim on
+/// capacity, and one whose fold fails refuses it with the fold's error.
+#[test]
+fn a_run_that_moved_and_cannot_be_read_refuses_the_claim() {
+    let mut fixture = Fixture::new();
+    fixture.queue();
+    let file = fixture.declare(&ceilings(3, 3, json!({})));
+    fixture.seating("r1", &[("alpha", "a-1")], false);
+    let (read, room) = admitted(&fixture, &file);
+    fixture.running("unpinned", &json!({"schema": "run-manifest/v1"}));
+    let refused = claimed(&mut fixture, &read, &room).unwrap_err();
+    assert!(
+        matches!(&refused, Capacity::RunUnmeasured { run, why: Unmeasurable::Manifest(_) }
+            if run == "unpinned"),
+        "{refused:?}"
+    );
+    let completed = || (EventType::RunCompleted, json!({}));
+    appended(&mut fixture, "r1", vec![completed(), completed()]);
+    // A run that does not fold stands behind its head on purpose.
+    brokkr_store::test_support::lags(&mut fixture.store, &["r1"]);
+    let error = (room.claim(&mut fixture.store, &read, Generation(1), "admitted")).unwrap_err();
+    assert!(
+        matches!(&error, AdmissionError::Fold { run, .. } if run == "r1"),
+        "{error:?}"
+    );
+    assert_eq!(error.to_string(), "folding run 'r1'");
 }

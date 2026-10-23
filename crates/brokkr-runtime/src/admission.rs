@@ -64,7 +64,7 @@ mod capacity;
 mod governing;
 mod host;
 
-pub use capacity::{Capacity, Host, Measured, Shared, Unmeasurable};
+pub use capacity::{Capacity, Host, Measured, Room, Shared, Unmeasurable};
 pub(crate) use host::config_dir;
 pub use host::{free_bytes, host_file, HostError, Place, RouteClass};
 
@@ -350,12 +350,16 @@ impl Verdict {
 }
 
 /// One entry of the queue as the pass read it: the entry, its launch,
-/// and admission's verdict while it waits; `None` once it started a run.
+/// and admission's verdict while it waits; `None` once the dispatcher is
+/// launching it or it started a run. `room` is what a pass that judged
+/// the machine measured for an entry it admitted, which its claim
+/// re-checks; `None` for every other.
 #[derive(Debug)]
 pub struct Judged {
     pub entry: QueueEntry,
     pub launch: QueuedLaunch,
     pub verdict: Option<Verdict>,
+    pub room: Option<Room>,
 }
 
 /// Why the pass could not judge the queue at all. Nothing is admitted.
@@ -585,12 +589,15 @@ fn read(store: &Store) -> Result<Vec<(Judged, Option<Finding>)>, AdmissionError>
                     let (verdict, finding) = weigh(store, &entry, &launch)?;
                     (Some(verdict), finding)
                 }
-                EntryState::Claimed { .. } | EntryState::Dropped => (None, None),
+                EntryState::Launching | EntryState::Claimed { .. } | EntryState::Dropped => {
+                    (None, None)
+                }
             };
             let judged = Judged {
                 entry,
                 launch,
                 verdict,
+                room: None,
             };
             Ok((judged, finding))
         })
@@ -628,7 +635,7 @@ fn weigh(
 /// What an awaited entry has come to.
 #[derive(Debug)]
 enum Awaited {
-    /// Queued or held: no run yet.
+    /// Queued, held or launching: no run linked yet.
     Unstarted,
     Dropped,
     /// It started this run, which stands so.
@@ -641,7 +648,7 @@ enum Awaited {
 /// Read what `entry` has come to: its standing, and its run's status.
 fn observe(store: &Store, entry: EntryId) -> Result<Awaited, AdmissionError> {
     Ok(match store.queue_entry(entry)?.state {
-        EntryState::Queued | EntryState::Held => Awaited::Unstarted,
+        EntryState::Queued | EntryState::Held | EntryState::Launching => Awaited::Unstarted,
         EntryState::Dropped => Awaited::Dropped,
         EntryState::Claimed { run } => {
             let events = store.load(&run)?;

@@ -29,11 +29,15 @@ use thiserror::Error;
 use crate::{now_rfc3339, patiently, Store, StoreError};
 
 mod beside;
+mod claim;
 mod storage;
 
 pub use beside::Seen;
 use beside::{beside_once, Beside};
-use storage::{latch_row, queue_stored, PINNED_PAYLOAD, PINNED_SEQ, QUEUE_SCHEMA, STANDING_LATCH};
+pub use claim::{Claim, Generation};
+use storage::{
+    latch_row, queue_stored, Stored, PINNED_PAYLOAD, PINNED_SEQ, QUEUE_SCHEMA, STANDING_LATCH,
+};
 pub(crate) use storage::{migrate_queue, queue_intact};
 
 /// A queue entry's id: assigned at `add`, never reused, since no entry is
@@ -156,16 +160,23 @@ enum Standing {
     Queued,
     Held,
     Dropped,
+    Launching,
 }
 
 impl Standing {
-    const ALL: [Standing; 3] = [Standing::Queued, Standing::Held, Standing::Dropped];
+    const ALL: [Standing; 4] = [
+        Standing::Queued,
+        Standing::Held,
+        Standing::Dropped,
+        Standing::Launching,
+    ];
 
     fn word(self) -> &'static str {
         match self {
             Standing::Queued => "queued",
             Standing::Held => "held",
             Standing::Dropped => "dropped",
+            Standing::Launching => "launching",
         }
     }
 }
@@ -183,6 +194,10 @@ pub enum EntryState {
     Queued,
     /// Kept in its place, and not to be started until released.
     Held,
+    /// Claimed by the dispatcher, in its place, before its run exists
+    /// (decision 0095 ruling 1): linked to the run it starts, or returned
+    /// to the queue or held, before any other entry is claimed.
+    Launching,
     /// Started: the run it produced, recorded once.
     Claimed { run: String },
     /// Taken out of the queue by the operator.
@@ -195,6 +210,7 @@ impl EntryState {
         match self {
             EntryState::Queued => Standing::Queued.word(),
             EntryState::Held => Standing::Held.word(),
+            EntryState::Launching => Standing::Launching.word(),
             EntryState::Claimed { .. } => "claimed",
             EntryState::Dropped => Standing::Dropped.word(),
         }
@@ -204,17 +220,21 @@ impl EntryState {
     pub fn run(&self) -> Option<&str> {
         match self {
             EntryState::Claimed { run } => Some(run),
-            EntryState::Queued | EntryState::Held | EntryState::Dropped => None,
+            EntryState::Queued | EntryState::Held | EntryState::Launching | EntryState::Dropped => {
+                None
+            }
         }
     }
 
     fn of(standing: Standing, run: Option<String>) -> EntryState {
         match (run, standing) {
-            (Some(run), Standing::Queued | Standing::Held | Standing::Dropped) => {
-                EntryState::Claimed { run }
-            }
+            (
+                Some(run),
+                Standing::Queued | Standing::Held | Standing::Dropped | Standing::Launching,
+            ) => EntryState::Claimed { run },
             (None, Standing::Queued) => EntryState::Queued,
             (None, Standing::Held) => EntryState::Held,
+            (None, Standing::Launching) => EntryState::Launching,
             (None, Standing::Dropped) => EntryState::Dropped,
         }
     }
@@ -350,6 +370,33 @@ pub enum QueueRefusal {
          be read, and it is never recreated empty"
     )]
     TableLost { table: &'static str },
+    /// A command on an entry the dispatcher has claimed and not yet
+    /// linked, returned or held (decision 0095 ruling 1).
+    #[error("queue entry {0} is launching; the dispatcher links, returns or holds it first")]
+    Launching(EntryId),
+    /// A claim while this other entry stands launching: one entry is
+    /// claimed at a time (decision 0095 ruling 7).
+    #[error(
+        "queue entry {0} is launching, and no other entry is claimed until it is linked, \
+         returned or held"
+    )]
+    InFlight(EntryId),
+    /// A claim of an entry re-pinned or latched since the pass that
+    /// admitted it read it (decision 0095 ruling 7).
+    #[error(
+        "queue entry {0} was re-pinned or latched after the pass that admitted it read it, and \
+         it was not claimed"
+    )]
+    Unseen(EntryId),
+    /// A dispatcher's step under a claim that does not stand for it: the
+    /// entry was claimed again, returned, held or linked since, or the
+    /// step was taken already (decision 0095 ruling 1).
+    #[error(
+        "queue entry {}'s claim {} does not stand for this step",
+        .0.entry,
+        .0.seq
+    )]
+    Stale(Claim),
 }
 
 /// The standing of one entry, read inside the transaction that acts on it.
@@ -374,7 +421,8 @@ fn exists(
     Ok(tx.query_row(query, [key], |_| Ok(())).optional()?.is_some())
 }
 
-/// The entries in the queue's order: queued and held, by place. Every
+/// The entries in the queue's order: queued, held and launching, by
+/// place, since a claimed entry keeps its place until it is linked. Every
 /// unclaimed entry's state is read as a [`Standing`], so one this brokkr
 /// does not know refuses the command rather than being placed.
 fn waiting(tx: &Transaction<'_>) -> Result<Vec<EntryId>, StoreError> {
@@ -454,6 +502,7 @@ fn admit(entry: EntryId, state: EntryState, command: QueueCommand) -> Result<(),
     match (state, command) {
         (EntryState::Dropped, _) => Err(QueueRefusal::Dropped(entry)),
         (EntryState::Claimed { run }, _) => Err(QueueRefusal::Claimed { entry, run }),
+        (EntryState::Launching, _) => Err(QueueRefusal::Launching(entry)),
         (EntryState::Held, Hold) => Err(QueueRefusal::AlreadyHeld(entry)),
         (EntryState::Queued, Release) => Err(QueueRefusal::NotHeld(entry)),
         (EntryState::Queued, Move { .. } | Hold | Drop)
@@ -557,54 +606,18 @@ fn move_entry(tx: &Transaction<'_>, entry: EntryId, to: u32) -> Result<u32, Stor
     Ok(to)
 }
 
-fn claim_once(conn: &mut Connection, entry: EntryId, run: &str) -> Result<(), StoreError> {
-    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    queue_stored(&tx)?;
-    match standing(&tx, entry)? {
-        EntryState::Queued => {}
-        EntryState::Held => return Err(QueueRefusal::Held(entry).into()),
-        EntryState::Dropped => return Err(QueueRefusal::Dropped(entry).into()),
-        EntryState::Claimed { run } => return Err(QueueRefusal::Claimed { entry, run }.into()),
-    }
-    if !exists(&tx, "SELECT 1 FROM runs WHERE run_id = ?1", &run)? {
-        return Err(StoreError::RunNotFound(run.to_string()));
-    }
-    let taken: Option<i64> = tx
-        .query_row(
-            "SELECT entry_id FROM queue_entries WHERE run_id = ?1",
-            params![run],
-            |row| row.get(0),
-        )
-        .optional()?;
-    if let Some(other) = taken {
-        let run = run.to_string();
-        return Err(QueueRefusal::RunTaken {
-            run,
-            entry: EntryId(other),
-        }
-        .into());
-    }
-    tx.execute(
-        "UPDATE queue_entries SET run_id = ?1 WHERE entry_id = ?2",
-        params![run, entry.0],
-    )?;
-    leave_order(&tx, entry)?;
-    tx.commit()?;
-    Ok(())
-}
-
 /// The entries `filter` selects with `key`, in the queue's order, each
 /// with its waits, the launch it stands for and the latch that stands on
 /// it. A version 1 queue holds no pins and no latches.
 fn entries(
     conn: &Connection,
-    stored: u32,
+    stored: Stored,
     filter: &str,
     key: &dyn rusqlite::ToSql,
 ) -> Result<Vec<QueueEntry>, StoreError> {
     let (payload, pin, latched) = match stored {
-        QUEUE_SCHEMA => (PINNED_PAYLOAD, PINNED_SEQ, true),
-        _ => ("payload", "NULL", false),
+        Stored::V2 | Stored::V3 => (PINNED_PAYLOAD, PINNED_SEQ, true),
+        Stored::V1 => ("payload", "NULL", false),
     };
     let mut entries = conn.prepare(&format!(
         "SELECT entry_id, position, state, run_id, priority, {payload}, added_at, {pin}
@@ -682,17 +695,6 @@ impl Store {
         let conn = &mut self.conn;
         patiently("queue_command", self.patience, || {
             command_once(conn, entry, command, by)
-        })
-    }
-
-    /// Record the run a queued entry started, once: the entry leaves the
-    /// queue's order, and neither the entry's run nor the run's entry can
-    /// be rewritten after. The dispatcher's claim (#430's third slice)
-    /// is its caller.
-    pub fn queue_claim(&mut self, entry: EntryId, run: &str) -> Result<(), StoreError> {
-        let conn = &mut self.conn;
-        patiently("queue_claim", self.patience, || {
-            claim_once(conn, entry, run)
         })
     }
 
