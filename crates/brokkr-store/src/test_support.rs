@@ -335,8 +335,8 @@ pub fn linked(store: &mut Store, entry: crate::EntryId, run: &str) {
         "test",
         crate::Generation(1),
         "test",
-        |_| Ok::<(), ()>(()),
+        |_, _| Ok::<(), ()>(()),
     );
     let claim = claimed.unwrap().unwrap();
-    store.queue_link(claim, run, "test").unwrap();
+    (store.queue_link(claim, crate::Generation(1), run, "test")).unwrap();
 }

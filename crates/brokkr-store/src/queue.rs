@@ -34,9 +34,10 @@ mod storage;
 
 pub use beside::Seen;
 use beside::{beside_once, Beside};
-pub use claim::{Claim, Generation};
+pub use claim::{Claim, Generation, StartRefusal};
 use storage::{
-    latch_row, queue_stored, Stored, PINNED_PAYLOAD, PINNED_SEQ, QUEUE_SCHEMA, STANDING_LATCH,
+    latch_row, queue_stored, wait_row, Stored, PINNED_PAYLOAD, PINNED_SEQ, QUEUE_SCHEMA,
+    STANDING_LATCH, WAITS,
 };
 pub(crate) use storage::{migrate_queue, queue_intact};
 
@@ -397,6 +398,15 @@ pub enum QueueRefusal {
         .0.seq
     )]
     Stale(Claim),
+    /// A dispatcher's step under a claim another generation took (decision
+    /// 0095 ruling 1).
+    #[error(
+        "queue entry {}'s claim {} was not taken by generation {}",
+        .0.entry,
+        .0.seq,
+        .1.0
+    )]
+    OtherGeneration(Claim, Generation),
 }
 
 /// The standing of one entry, read inside the transaction that acts on it.
@@ -639,21 +649,13 @@ fn entries(
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
-    let mut waits = conn
-        .prepare("SELECT awaits, condition FROM queue_waits WHERE entry_id = ?1 ORDER BY awaits")?;
+    let mut waits = conn.prepare(WAITS)?;
     let mut latches = latched.then(|| conn.prepare(STANDING_LATCH)).transpose()?;
     for entry in &mut listed {
         if let Some(latches) = &mut latches {
             entry.latch = latches.query_row([entry.id.0], latch_row).optional()?;
         }
-        entry.waits = waits
-            .query_map([entry.id.0], |row| {
-                Ok(Wait {
-                    entry: EntryId(row.get(0)?),
-                    on: row.get(1)?,
-                })
-            })?
-            .collect::<Result<_, _>>()?;
+        entry.waits = (waits.query_map([entry.id.0], wait_row)?).collect::<Result<_, _>>()?;
     }
     Ok(listed)
 }

@@ -10,7 +10,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use brokkr_core::EventType;
-use brokkr_store::{Attribution, EntryId, NewEntry, QueueCommand, QueueEntry};
+use brokkr_store::{
+    Attribution, EntryId, NewEntry, QueueCommand, QueueRefusal, StoreError, WaitOn,
+};
 use serde_json::{json, Value};
 
 use super::super::{judge_within, pass, pass_within, HostError, Reason, Standing};
@@ -1123,16 +1125,16 @@ fn every_capacity_reason_has_its_word() {
     );
 }
 
-/// The one entry a pass over a plenty-free host reading `file` admitted,
-/// as the pass read it, and the room it found for it.
-fn admitted(fixture: &Fixture, file: &Path) -> (QueueEntry, Room) {
+/// The room a pass over a plenty-free host reading `file` found for the
+/// first entry it listed, which it admitted.
+fn admitted(fixture: &Fixture, file: &Path) -> Room {
     let judged = passed(&fixture.store, file).unwrap().remove(0);
-    (judged.entry, judged.room.expect("admitted"))
+    judged.room.expect("admitted")
 }
 
-/// Claim `entry` in `room` as generation 1.
-fn claimed(fixture: &mut Fixture, entry: &QueueEntry, room: &Room) -> Result<Claim, Capacity> {
-    room.claim(&mut fixture.store, entry, Generation(1), "admitted")
+/// Claim the entry `room` was measured for, as generation 1.
+fn claimed(fixture: &mut Fixture, room: &Room) -> Result<Claim, Reason> {
+    room.claim(&mut fixture.store, Generation(1), "admitted")
         .unwrap()
 }
 
@@ -1176,7 +1178,7 @@ fn a_run_retried_or_started_after_the_pass_refuses_the_claim_on_capacity() {
         let judged = passed(&fixture.store, &file).unwrap();
         let rooms: Vec<bool> = judged.iter().map(|judged| judged.room.is_some()).collect();
         assert_eq!(rooms, [true, false]);
-        let (read, room) = admitted(&fixture, &file);
+        let room = admitted(&fixture, &file);
         let compiled = fixture.launch().compiled().unwrap();
         assert_eq!(room.digest, compiled.manifest_digest());
         match retried {
@@ -1191,8 +1193,8 @@ fn a_run_retried_or_started_after_the_pass_refuses_the_claim_on_capacity() {
             false => fixture.started("r2"),
         }
         let before = (fixture.store.queue_list()).unwrap();
-        let refused = claimed(&mut fixture, &read, &room);
-        assert_eq!(refused, Err(full("alpha", 1, 1).unwrap()));
+        let refused = claimed(&mut fixture, &room);
+        assert_eq!(refused, Err(Reason::Capacity(full("alpha", 1, 1).unwrap())));
         assert_eq!(fixture.store.queue_list().unwrap(), before);
         let state = fixture.store.queue_entry(entry).unwrap().state;
         assert_eq!(state, brokkr_store::EntryState::Queued);
@@ -1210,7 +1212,7 @@ fn the_claim_counts_each_run_that_moved_once_as_it_stands_now() {
     let file = fixture.declare(&ceilings(3, 3, json!({})));
     fixture.seating("ended", &[("alpha", "a-1")], false);
     fixture.seating("live", &[("alpha", "a-1")], false);
-    let (read, room) = admitted(&fixture, &file);
+    let room = admitted(&fixture, &file);
     let completed = (EventType::RunCompleted, json!({}));
     appended(&mut fixture, "ended", vec![completed]);
     // Its writer carries `live`'s fold, not this one's.
@@ -1218,7 +1220,7 @@ fn the_claim_counts_each_run_that_moved_once_as_it_stands_now() {
     let commanded = (EventType::OperatorCommanded, retry());
     appended(&mut fixture, "live", vec![commanded]);
     fixture.seating("new", &[("alpha", "a-1")], false);
-    claimed(&mut fixture, &read, &room).unwrap();
+    claimed(&mut fixture, &room).unwrap();
     let state = fixture.store.queue_entry(entry).unwrap().state;
     assert_eq!(state, brokkr_store::EntryState::Launching);
 }
@@ -1232,22 +1234,135 @@ fn a_run_that_moved_and_cannot_be_read_refuses_the_claim() {
     fixture.queue();
     let file = fixture.declare(&ceilings(3, 3, json!({})));
     fixture.seating("r1", &[("alpha", "a-1")], false);
-    let (read, room) = admitted(&fixture, &file);
+    let room = admitted(&fixture, &file);
     fixture.running("unpinned", &json!({"schema": "run-manifest/v1"}));
-    let refused = claimed(&mut fixture, &read, &room).unwrap_err();
+    let refused = claimed(&mut fixture, &room).unwrap_err();
     assert!(
-        matches!(&refused, Capacity::RunUnmeasured { run, why: Unmeasurable::Manifest(_) }
-            if run == "unpinned"),
+        matches!(&refused, Reason::Capacity(Capacity::RunUnmeasured {
+            run, why: Unmeasurable::Manifest(_) }) if run == "unpinned"),
         "{refused:?}"
     );
     let completed = || (EventType::RunCompleted, json!({}));
     appended(&mut fixture, "r1", vec![completed(), completed()]);
     // A run that does not fold stands behind its head on purpose.
     brokkr_store::test_support::lags(&mut fixture.store, &["r1"]);
-    let error = (room.claim(&mut fixture.store, &read, Generation(1), "admitted")).unwrap_err();
+    let error = (room.claim(&mut fixture.store, Generation(1), "admitted")).unwrap_err();
     assert!(
         matches!(&error, AdmissionError::Fold { run, .. } if run == "r1"),
         "{error:?}"
     );
     assert_eq!(error.to_string(), "folding run 'r1'");
+}
+
+/// A hold, a drop or a re-pin of the entry a room was measured for,
+/// between the pass and the claim, refuses the claim by the store's
+/// variant with nothing written: the room claims its entry as the pass
+/// read it, never as it reads now (decision 0095 ruling 7).
+#[test]
+fn a_room_claims_its_entry_only_as_the_pass_read_it() {
+    type Between = (fn(&mut Fixture, EntryId), QueueRefusal, &'static str);
+    let between: [Between; 3] = [
+        (
+            |fixture, entry| {
+                let store = &mut fixture.store;
+                store.queue_command(entry, QueueCommand::Hold, BY).unwrap();
+            },
+            QueueRefusal::Held(EntryId(1)),
+            "queue entry 1 is held; release it first",
+        ),
+        (
+            |fixture, entry| {
+                let store = &mut fixture.store;
+                store.queue_command(entry, QueueCommand::Drop, BY).unwrap();
+            },
+            QueueRefusal::Dropped(EntryId(1)),
+            "queue entry 1 was dropped",
+        ),
+        (
+            |fixture, entry| {
+                let payload = fixture.launch().encode().unwrap();
+                let seen = fixture.store.queue_entry(entry).unwrap().seen();
+                (fixture.store.queue_repin(entry, &payload, seen, BY)).unwrap();
+            },
+            QueueRefusal::Unseen(EntryId(1)),
+            "queue entry 1 was re-pinned or latched after the pass that admitted it read it, \
+             and it was not claimed",
+        ),
+    ];
+    for (act, refusal, text) in between {
+        let mut fixture = Fixture::new();
+        let entry = fixture.queue();
+        let file = fixture.declare(&ceilings(3, 3, json!({})));
+        let room = admitted(&fixture, &file);
+        act(&mut fixture, entry);
+        let before = fixture.store.queue_entry(entry).unwrap();
+        let error = (room.claim(&mut fixture.store, Generation(1), "admitted")).unwrap_err();
+        let AdmissionError::Store(StoreError::Queue(refused)) = &error else {
+            panic!("not a queue refusal: {error:?}");
+        };
+        assert_eq!((refused, error.to_string()), (&refusal, text.to_string()));
+        assert_eq!(fixture.store.queue_entry(entry).unwrap(), before);
+    }
+}
+
+/// `room` as though it had been measured for `entry`: the shape a room
+/// handed to the wrong entry would take, which no pass builds.
+fn bound_to(room: &Room, entry: QueueEntry) -> Room {
+    Room {
+        entry,
+        high_water: room.high_water,
+        digest: room.digest.clone(),
+        lanes: room.lanes.clone(),
+        boxed: room.boxed,
+        config: room.config.clone(),
+        census: Arc::clone(&room.census),
+    }
+}
+
+/// The claim judges the entry's waits again inside its transaction: a
+/// room for an entry whose wait does not hold, because its awaited entry
+/// has not started or its run has not ended, is refused by that wait with
+/// nothing written; once the wait holds, the pass's own room claims it.
+#[test]
+fn a_claim_is_refused_while_a_wait_of_its_entry_does_not_hold() {
+    let mut fixture = Fixture::new();
+    let awaited = fixture.queue();
+    let wait = Wait {
+        entry: awaited,
+        on: WaitOn::Completed,
+    };
+    let payload = fixture.launch().encode().unwrap();
+    let new = NewEntry {
+        payload: &payload,
+        priority: 0,
+        waits: &[wait],
+    };
+    let waiting = fixture.store.queue_add(new, BY).unwrap();
+    let file = fixture.declare(&ceilings(3, 3, json!({})));
+    let room = admitted(&fixture, &file);
+    let unmet = bound_to(&room, fixture.store.queue_entry(waiting).unwrap());
+    let refused = |fixture: &mut Fixture, reason: Reason, text: &str| {
+        let before = fixture.store.queue_list().unwrap();
+        let refused = claimed(fixture, &unmet).unwrap_err();
+        assert_eq!((refused.to_string(), &refused), (text.to_string(), &reason));
+        assert_eq!(fixture.store.queue_list().unwrap(), before);
+    };
+    let unstarted = "waits on 1:completed: entry 1 has not started a run";
+    refused(&mut fixture, Reason::NotStarted(wait), unstarted);
+
+    let claim = claimed(&mut fixture, &room).unwrap();
+    fixture.started("awaited");
+    (fixture.store)
+        .queue_link(claim, Generation(1), "awaited", "started")
+        .unwrap();
+    let run = "awaited".to_string();
+    let unended = "waits on 1:completed: its run 'awaited' has not ended";
+    refused(&mut fixture, Reason::Unended { wait, run }, unended);
+
+    let completed = (EventType::RunCompleted, json!({}));
+    appended(&mut fixture, "awaited", vec![completed]);
+    let met = admitted(&fixture, &file);
+    claimed(&mut fixture, &met).unwrap();
+    let state = fixture.store.queue_entry(waiting).unwrap().state;
+    assert_eq!(state, brokkr_store::EntryState::Launching);
 }

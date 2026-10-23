@@ -15,7 +15,7 @@ use super::super::tests::{
     refusal, refused_as, rows, seen, started, BY,
 };
 use super::*;
-use crate::queue::{QueueCommand, Seen};
+use crate::queue::{NewEntry, QueueCommand, Seen, WaitOn};
 
 /// A journal whose queue is stored as main's binary leaves it at version
 /// 2: entry 1 queued, re-pinned and then latched, 2 held, 3 linked to
@@ -119,13 +119,18 @@ fn two_runs_and_a_claim(dir: &Path) -> (Store, Vec<EntryId>, Claim) {
     (store, ids, claim)
 }
 
+/// The generation [`claimed_now`] claims as.
+const ONE: Generation = Generation(1);
+
+/// The generation [`claim_of`] claims as.
+const SEVEN: Generation = Generation(7);
+
 /// Claim `entry` as the store reads it now, as generation 7 admitting a
-/// bundle of `digest`, judging no run.
+/// bundle of `digest`, judging nothing.
 fn claim_of(store: &mut Store, entry: EntryId, digest: &str) -> Claim {
     let read = store.queue_entry(entry).unwrap();
-    let judged = store.queue_claim_with(&read, 0, digest, Generation(7), "admitted", |_| {
-        Ok::<(), ()>(())
-    });
+    let judged =
+        store.queue_claim_with(&read, 0, digest, SEVEN, "admitted", |_, _| Ok::<(), ()>(()));
     judged.unwrap().unwrap()
 }
 
@@ -148,11 +153,11 @@ fn each_step_is_journaled_by_the_dispatcher_and_the_claim_records_its_generation
             (2, Some(2), EntryState::Queued)
         ]
     );
-    store.queue_link(first, "run-a", "started run-a").unwrap();
-    store.queue_spawn(first, "driving run-a").unwrap();
+    (store.queue_link(first, SEVEN, "run-a", "started run-a")).unwrap();
+    store.queue_spawn(first, SEVEN, "driving run-a").unwrap();
     let second = claim_of(&mut store, ids[1], "digest-2");
     store
-        .queue_reclaim(second, "its start wrote no run")
+        .queue_reclaim(second, SEVEN, None, "its start wrote no run")
         .unwrap();
     let again = claim_of(&mut store, ids[1], "digest-2");
     drop(store);
@@ -212,11 +217,11 @@ fn a_claim_is_refused_in_flight_while_another_entry_stands_launching() {
 
     // Linked, the first no longer stands launching; the second is claimed,
     // and while it stands so the third is refused; returned, it frees it.
-    store.queue_link(first, "run-a", "r").unwrap();
+    store.queue_link(first, ONE, "run-a", "r").unwrap();
     let second = claimed_now(&mut store, ids[1]).unwrap().unwrap();
     let refused = refusal(claimed_now(&mut store, ids[2]));
     refused_as(refused, QueueRefusal::InFlight(ids[1]), &text(2));
-    store.queue_reclaim(second, "r").unwrap();
+    store.queue_reclaim(second, ONE, None, "r").unwrap();
     claimed_now(&mut store, ids[2]).unwrap().unwrap();
 }
 
@@ -237,7 +242,7 @@ fn a_claim_over_a_hold_repin_or_latch_since_its_pass_read_the_entry_is_refused()
     store.queue_latch(ids[2], "drifted", latched, BY).unwrap();
     let before = (rows(&store), commands(&store.conn));
     let mut claim = |read: &QueueEntry| {
-        let judged = store.queue_claim_with(read, 0, "d", Generation(1), "r", |_| Ok::<(), ()>(()));
+        let judged = store.queue_claim_with(read, 0, "d", ONE, "r", |_, _| Ok::<(), ()>(()));
         refusal(judged)
     };
     refused_as(
@@ -292,7 +297,7 @@ fn every_command_on_a_launching_entry_is_refused_until_the_dispatcher_settles_it
 fn a_step_under_a_claim_that_does_not_stand_for_it_is_refused_and_writes_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let (mut store, ids, old) = two_runs_and_a_claim(dir.path());
-    store.queue_reclaim(old, "r").unwrap();
+    store.queue_reclaim(old, ONE, None, "r").unwrap();
     let standing = claimed_now(&mut store, ids[0]).unwrap().unwrap();
     let elsewhere = Claim {
         entry: ids[1],
@@ -309,9 +314,9 @@ fn a_step_under_a_claim_that_does_not_stand_for_it_is_refused_and_writes_nothing
         let before = (rows(store), commands(&store.conn));
         let (variant, text) = stale(claim);
         for refused in [
-            refusal(store.queue_link(claim, "run-a", "r")),
-            refusal(store.queue_spawn(claim, "r")),
-            refusal(store.queue_reclaim(claim, "r")),
+            refusal(store.queue_link(claim, ONE, "run-a", "r")),
+            refusal(store.queue_spawn(claim, ONE, "r")),
+            refusal(store.queue_reclaim(claim, ONE, None, "r")),
         ] {
             refused_as(refused, variant.clone(), &text);
         }
@@ -321,28 +326,32 @@ fn a_step_under_a_claim_that_does_not_stand_for_it_is_refused_and_writes_nothing
     check(&mut store, old);
     check(&mut store, elsewhere);
     // Linked, the claim stands for its spawn alone, and that only once.
-    store.queue_link(standing, "run-a", "r").unwrap();
+    store.queue_link(standing, ONE, "run-a", "r").unwrap();
     let (variant, text) = stale(standing);
     refused_as(
-        refusal(store.queue_link(standing, "run-b", "r")),
+        refusal(store.queue_link(standing, ONE, "run-b", "r")),
         variant.clone(),
         &text,
     );
     refused_as(
-        refusal(store.queue_reclaim(standing, "r")),
+        refusal(store.queue_reclaim(standing, ONE, None, "r")),
         variant.clone(),
         &text,
     );
-    store.queue_spawn(standing, "r").unwrap();
+    store.queue_spawn(standing, ONE, "r").unwrap();
     let before = commands(&store.conn);
-    refused_as(refusal(store.queue_spawn(standing, "r")), variant, &text);
+    refused_as(
+        refusal(store.queue_spawn(standing, ONE, "r")),
+        variant,
+        &text,
+    );
     assert_eq!(commands(&store.conn), before);
     let absent = Claim {
         entry: EntryId(99),
         seq: 1,
     };
     refused_as(
-        refusal(store.queue_link(absent, "run-a", "r")),
+        refusal(store.queue_link(absent, ONE, "run-a", "r")),
         QueueRefusal::UnknownEntry(EntryId(99)),
         "queue entry 99 does not exist",
     );
@@ -377,7 +386,7 @@ fn the_claim_hands_its_judge_each_run_past_the_high_water_and_its_refusal_writes
     let before = (rows(&store), commands(&store.conn));
     let mut handed = Vec::new();
     let refused = store
-        .queue_claim_with(&read, high_water, "d", Generation(1), "r", |moved| {
+        .queue_claim_with(&read, high_water, "d", ONE, "r", |_, moved| {
             handed = (moved.iter())
                 .map(|(run, events, manifest)| (run.clone(), events.len(), manifest.clone()))
                 .collect();
@@ -397,9 +406,8 @@ fn the_claim_hands_its_judge_each_run_past_the_high_water_and_its_refusal_writes
     assert!(claims(&store.conn).is_empty());
 
     // Judged to have room, it is claimed.
-    let claimed = store.queue_claim_with(&read, high_water, "d", Generation(1), "r", |_| {
-        Ok::<(), &str>(())
-    });
+    let claimed =
+        store.queue_claim_with(&read, high_water, "d", ONE, "r", |_, _| Ok::<(), &str>(()));
     let claim = claimed.unwrap().unwrap();
     assert_eq!(
         claims(&store.conn),
@@ -414,7 +422,7 @@ fn the_claim_hands_its_judge_each_run_past_the_high_water_and_its_refusal_writes
 fn version_3s_guards_refuse_every_rewrite_of_what_is_fixed() {
     let dir = tempfile::tempdir().unwrap();
     let (mut store, _, claim) = two_runs_and_a_claim(dir.path());
-    store.queue_link(claim, "run-a", "r").unwrap();
+    store.queue_link(claim, ONE, "run-a", "r").unwrap();
     store
         .conn
         .execute(
@@ -449,4 +457,163 @@ fn version_3s_guards_refuse_every_rewrite_of_what_is_fixed() {
         let error = store.conn.execute(statement, []).unwrap_err();
         assert_eq!(error.to_string(), guard, "{statement}");
     }
+}
+
+/// Each step after the claim refuses under a generation other than the one
+/// the claim row recorded, and writes nothing; under its own it lands.
+#[test]
+fn a_step_under_another_generation_than_its_claims_is_refused_and_writes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut store, _, claim) = two_runs_and_a_claim(dir.path());
+    let other = Generation(2);
+    let fenced = QueueRefusal::OtherGeneration(claim, other);
+    let text = "queue entry 1's claim 3 was not taken by generation 2";
+    let before = (rows(&store), commands(&store.conn), claims(&store.conn));
+    for refused in [
+        refusal(store.queue_link(claim, other, "run-a", "r")),
+        refusal(store.queue_reclaim(claim, other, None, "r")),
+    ] {
+        refused_as(refused, fenced.clone(), text);
+    }
+    let now = (rows(&store), commands(&store.conn), claims(&store.conn));
+    assert_eq!(now, before);
+    store.queue_link(claim, ONE, "run-a", "r").unwrap();
+    let before = commands(&store.conn);
+    refused_as(refusal(store.queue_spawn(claim, other, "r")), fenced, text);
+    assert_eq!(commands(&store.conn), before);
+    store.queue_spawn(claim, ONE, "r").unwrap();
+}
+
+/// The claim's judge is handed each of the entry's waits with what its
+/// awaited entry has come to inside the claim's transaction: a linked one
+/// with its run's events, a queued one with none.
+#[test]
+fn the_claim_hands_its_judge_each_wait_with_what_its_entry_came_to() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let ids = queue(&mut store, 2);
+    let completed = Wait {
+        entry: ids[0],
+        on: WaitOn::Completed,
+    };
+    let ended = Wait {
+        entry: ids[1],
+        on: WaitOn::Ended,
+    };
+    let new = NewEntry {
+        payload: "launch 3",
+        priority: 0,
+        waits: &[completed, ended],
+    };
+    let waiting = store.queue_add(new, BY).unwrap();
+    started(&mut store, "run-a");
+    let payload = json!({"feature": "f", "reason": "lost"});
+    (store.append_next("run-a", EventType::RunStarted, payload, None, None)).unwrap();
+    crate::test_support::linked(&mut store, ids[0], "run-a");
+
+    let read = store.queue_entry(waiting).unwrap();
+    let mut handed = Vec::new();
+    let refused = store.queue_claim_with(&read, i64::MAX, "d", ONE, "r", |waits, _| {
+        handed = (waits.iter())
+            .map(|(wait, state, events)| (*wait, state.clone(), events.len()))
+            .collect();
+        Err("unmet")
+    });
+    assert_eq!(refused.unwrap(), Err("unmet"));
+    let linked = EntryState::Claimed {
+        run: "run-a".into(),
+    };
+    assert_eq!(
+        handed,
+        vec![(completed, linked, 1), (ended, EntryState::Queued, 0)]
+    );
+    let state = store.queue_entry(waiting).unwrap().state;
+    assert_eq!(state, EntryState::Queued);
+}
+
+/// The refusals counted against entries, by seq: entry and word.
+fn refusals(conn: &Connection) -> Vec<(i64, i64, String)> {
+    let query = "SELECT seq, entry_id, refusal FROM queue_refusals ORDER BY seq";
+    let mut statement = conn.prepare(query).unwrap();
+    let read = statement.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)));
+    read.unwrap().collect::<Result<_, _>>().unwrap()
+}
+
+/// A start its admission refused is counted by a row keyed by its
+/// `reclaim`, written in the reclaim's transaction; a digest refusal or a
+/// `Contended` start reclaims with none. The count is read from the rows
+/// since the entry's latest release, and resets there; a word this brokkr
+/// does not know refuses it.
+#[test]
+fn a_counted_refusal_is_written_with_its_reclaim_and_counted_since_the_latest_release() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let entry = queue(&mut store, 2)[0];
+    let reclaimed = |store: &mut Store, refused: Option<StartRefusal>| {
+        let claim = claimed_now(store, entry).unwrap().unwrap();
+        let count = store.queue_reclaim(claim, ONE, refused, "r").unwrap();
+        (claim.seq + 1, count)
+    };
+    let compile = reclaimed(&mut store, Some(StartRefusal::Compile));
+    let digest = reclaimed(&mut store, None);
+    let unboxable = reclaimed(&mut store, Some(StartRefusal::Unboxable));
+    store.queue_command(entry, QueueCommand::Hold, BY).unwrap();
+    store
+        .queue_command(entry, QueueCommand::Release, BY)
+        .unwrap();
+    let contended = reclaimed(&mut store, None);
+    let crossing = reclaimed(&mut store, Some(StartRefusal::Crossing));
+    assert_eq!(
+        [compile, digest, unboxable, contended, crossing],
+        [(4, 1), (6, 1), (8, 2), (12, 0), (14, 1)]
+    );
+    assert_eq!(
+        refusals(&store.conn),
+        vec![
+            (4, 1, "compile".into()),
+            (8, 1, "unboxable".into()),
+            (14, 1, "crossing".into())
+        ]
+    );
+    let words: Vec<String> = commands(&store.conn).into_iter().map(|c| c.1).collect();
+    assert_eq!([&words[3], &words[7], &words[13]], ["reclaim"; 3]);
+
+    let claim = claimed_now(&mut store, entry).unwrap().unwrap();
+    let planted = "INSERT INTO queue_refusals (seq, entry_id, refusal) VALUES (?1, 1, 'drifted')";
+    store.conn.execute(planted, [claim.seq]).unwrap();
+    let before = (rows(&store), commands(&store.conn));
+    let error = store.queue_reclaim(claim, ONE, None, "r").unwrap_err();
+    let StoreError::Sqlite(rusqlite::Error::FromSqlConversionFailure(_, _, source)) = &error else {
+        panic!("not a conversion failure: {error:?}");
+    };
+    assert_eq!(
+        source.to_string(),
+        "queue column queue_refusals.refusal holds 'drifted', which this brokkr does not know"
+    );
+    assert_eq!((rows(&store), commands(&store.conn)), before);
+}
+
+/// A run past the high-water whose chain is broken refuses the claim with
+/// the chain's own error, and nothing is written.
+#[test]
+fn a_run_past_the_high_water_whose_chain_is_broken_refuses_the_claim() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let entry = queue(&mut store, 1)[0];
+    started(&mut store, "run-a");
+    let payload = json!({"feature": "f", "reason": "lost"});
+    let first = store.append_next("run-a", EventType::RunStarted, payload, None, None);
+    let high_water = store.high_water().unwrap();
+    crate::test_support::plant_broken_link(&store.conn, &first.unwrap(), 2).unwrap();
+    // A run whose chain is broken does not load, on purpose.
+    crate::test_support::lags(&mut store, &["run-a"]);
+    let read = store.queue_entry(entry).unwrap();
+    let before = (rows(&store), commands(&store.conn));
+    let refused = store.queue_claim_with(&read, high_water, "d", ONE, "r", |_, _| Ok::<(), ()>(()));
+    let error = refused.unwrap_err();
+    assert!(matches!(error, StoreError::Chain(_)), "{error:?}");
+    let text = "chain: event 2: previous_hash does not match event 1";
+    assert_eq!(error.to_string(), text);
+    assert_eq!((rows(&store), commands(&store.conn)), before);
+    assert!(claims(&store.conn).is_empty());
 }

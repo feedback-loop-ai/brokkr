@@ -47,6 +47,7 @@
 
 use std::fmt;
 
+use brokkr_core::envelope::EventEnvelope;
 use brokkr_core::fold::{fold, FoldError, Status};
 use brokkr_core::realms::Boundary;
 use brokkr_store::{
@@ -647,12 +648,22 @@ enum Awaited {
 
 /// Read what `entry` has come to: its standing, and its run's status.
 fn observe(store: &Store, entry: EntryId) -> Result<Awaited, AdmissionError> {
-    Ok(match store.queue_entry(entry)?.state {
+    let state = store.queue_entry(entry)?.state;
+    let events = match state.run() {
+        Some(run) => store.load(run)?,
+        None => Vec::new(),
+    };
+    came_to(state, &events)
+}
+
+/// What an entry standing so has come to, `events` its run's when it has
+/// one: the pass's reading, and its claim's.
+fn came_to(state: EntryState, events: &[EventEnvelope]) -> Result<Awaited, AdmissionError> {
+    Ok(match state {
         EntryState::Queued | EntryState::Held | EntryState::Launching => Awaited::Unstarted,
         EntryState::Dropped => Awaited::Dropped,
         EntryState::Claimed { run } => {
-            let events = store.load(&run)?;
-            let status = match fold(&events) {
+            let status = match fold(events) {
                 Ok(state) => state.run.status(),
                 Err(source) => return Err(AdmissionError::Fold { run, source }),
             };

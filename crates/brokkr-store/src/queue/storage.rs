@@ -4,7 +4,7 @@
 
 use rusqlite::{params, Connection, OptionalExtension};
 
-use super::{Latch, QueueRefusal};
+use super::{EntryId, Latch, QueueRefusal, Wait};
 use crate::StoreError;
 
 /// The launch an entry stands for: the one it was last re-pinned to,
@@ -32,6 +32,17 @@ pub(super) fn latch_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Latch> {
     Ok(Latch {
         seq: row.get(0)?,
         finding: row.get(1)?,
+    })
+}
+
+/// An entry's waits, by the entry each awaits. [`wait_row`] reads a row.
+pub(super) const WAITS: &str =
+    "SELECT awaits, condition FROM queue_waits WHERE entry_id = ?1 ORDER BY awaits";
+
+pub(super) fn wait_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Wait> {
+    Ok(Wait {
+        entry: EntryId(row.get(0)?),
+        on: row.get(1)?,
     })
 }
 

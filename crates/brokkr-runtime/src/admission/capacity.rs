@@ -37,15 +37,15 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use brokkr_core::envelope::EventEnvelope;
-use brokkr_core::fold::{fold, FoldError, Status};
+use brokkr_core::fold::{fold, Status};
 use brokkr_core::realms::Boundary;
-use brokkr_store::{Claim, Generation, QueueEntry, Store};
+use brokkr_store::{Claim, EntryState, Generation, QueueEntry, Store, Wait};
 use serde::Deserialize;
 use serde_json::Value;
 use thiserror::Error;
 
 use super::host::{self, At, HostConfig, Hosting, Place, Provider, Route, RouteClass};
-use super::{AdmissionError, Judged};
+use super::{awaiting, came_to, AdmissionError, Judged, Reason};
 use crate::capabilities::manifest::ModelPins;
 use crate::launch::{LaunchError, QueuedLaunch};
 
@@ -269,7 +269,10 @@ pub(super) fn sized(
     }
     let measure = Measure::take(store, host)?;
     for judged in queue.iter_mut().filter(unstopped) {
-        match (&mut judged.verdict, measure.room(&judged.launch)) {
+        match (
+            &mut judged.verdict,
+            measure.room(&judged.entry, &judged.launch),
+        ) {
             (Some(verdict), Err(unmet)) => verdict.reasons.push(super::Reason::Capacity(unmet)),
             (_, room) => judged.room = room.ok(),
         }
@@ -304,14 +307,16 @@ impl<'h> Measure<'h> {
         })
     }
 
-    /// Each check in its order; the first unmet one, or the room found.
-    fn room(&self, launch: &QueuedLaunch) -> Result<Room, Capacity> {
+    /// Each check in its order; the first unmet one, or the room found for
+    /// `read`, as the pass read it.
+    fn room(&self, read: &QueueEntry, launch: &QueuedLaunch) -> Result<Room, Capacity> {
         let config = self.declared()?;
         let entry = Entry::measure(launch).map_err(Capacity::Unmeasured)?;
         let running = ceilings(config, self.live.iter(), &entry.lanes)?;
         floors(config, self.host, entry.scratch)?;
         boxed(config, &running, entry.boxed)?;
         Ok(Room {
+            entry: read.clone(),
             high_water: self.high_water,
             digest: entry.digest,
             lanes: entry.lanes,
@@ -365,12 +370,15 @@ fn boxed(config: &HostConfig, running: &Running, boxed: bool) -> Result<(), Capa
     }
 }
 
-/// The room a pass found for an entry it admitted, as its claim re-checks
-/// it (decision 0095 ruling 7): the events high-water the pass read before
-/// its census, the census, the manifest digest of the bundle it compiled
-/// and what that bundle seats, under the host configuration it read.
+/// The room a pass found for the one entry it measured it for, as that
+/// entry's claim re-checks it (decision 0095 ruling 7): the entry as the
+/// pass read it, its id and the pin and latch it was seen under; the
+/// events high-water the pass read before its census, the census, the
+/// manifest digest of the bundle it compiled and what that bundle seats,
+/// under the host configuration it read.
 #[derive(Debug)]
 pub struct Room {
+    entry: QueueEntry,
     high_water: i64,
     digest: String,
     lanes: BTreeSet<Lane>,
@@ -381,51 +389,68 @@ pub struct Room {
 
 /// Why a claim's re-check refused it.
 enum Recheck {
-    /// The entry has no room now.
-    Full(Capacity),
-    /// A run that moved since the pass does not fold.
-    Unfolded { run: String, source: FoldError },
+    /// A wait no longer holds, or the entry has no room now.
+    Refused(Reason),
+    /// A run read again does not fold.
+    Failed(Box<AdmissionError>),
 }
 
+/// An awaited entry, as the claim's transaction reads it.
+type Awaiting = (Wait, EntryState, Vec<EventEnvelope>);
+
 impl Room {
-    /// Claim `entry`, as the pass read it, for the dispatcher of
-    /// `generation`, journaling `reason`, and record this room's digest
-    /// on the claim. Inside the claim's transaction each run with an event
-    /// past the pass's high-water is folded again and counted in place of
-    /// what the census held of it, and the entry's lanes and the boxed
-    /// builds are judged again by its ceilings: one at a ceiling now is
-    /// the inner refusal, and nothing is claimed. Free space is the pass's
-    /// to judge, and is not measured again.
+    /// Claim the entry this room was measured for, as the pass read it,
+    /// for the dispatcher of `generation`, journaling `reason`, and record
+    /// this room's digest on the claim. Inside the claim's transaction the
+    /// entry must still be queued under the pin and latch the pass read,
+    /// each of its waits must hold of what its awaited entry has come to,
+    /// and each run with an event past the pass's high-water is folded
+    /// again and counted in place of what the census held of it, and the
+    /// entry's lanes and the boxed builds are judged again by its
+    /// ceilings: an unmet wait or one at a ceiling now is the inner
+    /// refusal, and nothing is claimed. Free space is the pass's to judge,
+    /// and is not measured again.
     pub fn claim(
         &self,
         store: &mut Store,
-        entry: &QueueEntry,
         generation: Generation,
         reason: &str,
-    ) -> Result<Result<Claim, Capacity>, AdmissionError> {
+    ) -> Result<Result<Claim, Reason>, AdmissionError> {
         let claimed = store.queue_claim_with(
-            entry,
+            &self.entry,
             self.high_water,
             &self.digest,
             generation,
             reason,
-            |moved| self.recheck(moved),
+            |waits, moved| self.recheck(waits, moved),
         );
         match claimed? {
             Ok(claim) => Ok(Ok(claim)),
-            Err(Recheck::Full(capacity)) => Ok(Err(capacity)),
-            Err(Recheck::Unfolded { run, source }) => Err(AdmissionError::Fold { run, source }),
+            Err(Recheck::Refused(reason)) => Ok(Err(reason)),
+            Err(Recheck::Failed(error)) => Err(*error),
         }
     }
 
-    /// The census corrected by the runs that `moved`, and the entry's room
-    /// judged again against it.
-    fn recheck(&self, moved: &[(String, Vec<EventEnvelope>, String)]) -> Result<(), Recheck> {
+    /// The entry's waits judged again, then the census corrected by the
+    /// runs that `moved`, and the entry's room judged again against it.
+    fn recheck(
+        &self,
+        waits: &[Awaiting],
+        moved: &[(String, Vec<EventEnvelope>, String)],
+    ) -> Result<(), Recheck> {
+        let failed = |error| Recheck::Failed(Box::new(error));
+        for (wait, state, events) in waits {
+            let awaited = came_to(state.clone(), events).map_err(failed)?;
+            if let Some(unmet) = awaiting(*wait, awaited) {
+                return Err(Recheck::Refused(unmet));
+            }
+        }
+        let full = |capacity| Recheck::Refused(Reason::Capacity(capacity));
         let mut now = Vec::new();
         for (run, events, manifest) in moved {
-            let state = fold(events).map_err(|source| Recheck::Unfolded {
-                run: run.clone(),
-                source,
+            let state = fold(events).map_err(|source| {
+                let run = run.clone();
+                failed(AdmissionError::Fold { run, source })
             })?;
             if state.run.status() == Status::Running {
                 let seats = Seats::read(manifest);
@@ -437,9 +462,8 @@ impl Room {
         }
         let stood =
             (self.census.iter()).filter(|live| moved.iter().all(|(run, ..)| *run != live.run));
-        let running =
-            ceilings(&self.config, stood.chain(&now), &self.lanes).map_err(Recheck::Full)?;
-        boxed(&self.config, &running, self.boxed).map_err(Recheck::Full)
+        let running = ceilings(&self.config, stood.chain(&now), &self.lanes).map_err(full)?;
+        boxed(&self.config, &running, self.boxed).map_err(full)
     }
 }
 

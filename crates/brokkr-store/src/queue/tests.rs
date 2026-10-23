@@ -443,11 +443,11 @@ fn every_add_and_claim_refusal_is_typed_says_why_and_writes_nothing() {
         entry: claimed,
     };
     refused_as(
-        refusal(store.queue_link(claim, "run-b", "r")),
+        refusal(store.queue_link(claim, Generation(1), "run-b", "r")),
         taken,
         "run 'run-b' already started queue entry 4",
     );
-    let unstarted = store.queue_link(claim, "never-started", "r").unwrap_err();
+    let unstarted = (store.queue_link(claim, Generation(1), "never-started", "r")).unwrap_err();
     assert!(matches!(&unstarted, StoreError::RunNotFound(run) if run == "never-started"));
     assert_eq!((rows(&store), commands(&store.conn)), before);
 }
@@ -458,7 +458,7 @@ pub(super) fn claimed_now(
     entry: EntryId,
 ) -> Result<Result<Claim, ()>, StoreError> {
     let read = store.queue_entry(entry)?;
-    store.queue_claim_with(&read, 0, "d", Generation(1), "r", |_| Ok(()))
+    store.queue_claim_with(&read, 0, "d", Generation(1), "r", |_, _| Ok(()))
 }
 
 /// A journal that records the queue's storage but has lost its entries
@@ -496,7 +496,7 @@ fn a_queue_stored_in_a_version_this_brokkr_does_not_know_is_refused() {
             .unwrap();
         let mismatch = QueueRefusal::SchemaMismatch { found };
         let text = format!("queue storage {found} unsupported (want 3)");
-        let judge = |_: &[_]| Ok::<(), ()>(());
+        let judge = |_: &[_], _: &[_]| Ok::<(), ()>(());
         for refused in [
             refusal(store.queue_list()),
             refusal(store.queue_entry(entry)),
@@ -504,9 +504,9 @@ fn a_queue_stored_in_a_version_this_brokkr_does_not_know_is_refused() {
             refusal(store.queue_latch(entry, "x", Seen::default(), BY)),
             refusal(store.queue_command(entry, QueueCommand::Hold, BY)),
             refusal(store.queue_claim_with(&read, 0, "d", Generation(1), "r", judge)),
-            refusal(store.queue_link(claim, "r", "r")),
-            refusal(store.queue_spawn(claim, "r")),
-            refusal(store.queue_reclaim(claim, "r")),
+            refusal(store.queue_link(claim, Generation(1), "r", "r")),
+            refusal(store.queue_spawn(claim, Generation(1), "r")),
+            refusal(store.queue_reclaim(claim, Generation(1), None, "r")),
             refusal(store.queue_add(
                 NewEntry {
                     payload: "x",
@@ -701,7 +701,7 @@ fn journal_with_a_version_1_queue(path: &Path) {
 }
 
 /// A version 1 queue reads as it stands, and the first open that may
-/// write brings it to version 2 with its entries and commands kept, and
+/// write brings it to version 3 with its entries and commands kept, and
 /// re-pins then work on it.
 #[test]
 fn a_version_1_queue_is_read_as_it_stands_and_migrated_with_its_entries_kept() {
