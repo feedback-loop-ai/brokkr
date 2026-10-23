@@ -12,7 +12,8 @@
 //! `f64::MAX` sum to an infinity, but finite terms never sum to a NaN, so
 //! `spent` reads back finite or an infinity, and a NaN in either is no
 //! row. An outcome column reads back only the words its writer writes,
-//! and the turns' meter only a turn's that carries tokens.
+//! the turns' meter only a turn's that carries tokens, and the session
+//! meter only a record's that is no turn and settles only on its output.
 
 use super::{CarriedFrom, Carry, Last, Member, Outcome, Pin, Provider, SeatRow, Session, Stamp};
 use crate::seat::meter::Meter;
@@ -111,6 +112,12 @@ fn both<A, B>(a: Option<A>, b: Option<B>) -> Option<Option<(A, B)>> {
         (Some(a), Some(b)) => Some(Some((a, b))),
         _ => None,
     }
+}
+
+/// Whether `meter` carries an output count, as a settling record does.
+fn reports_output(meter: &Meter) -> bool {
+    let usage = meter.usage.as_ref();
+    usage.is_some_and(|usage| usage.output_tokens.is_some())
 }
 
 impl<I: Iterator<Item = Datum>> Take<I> {
@@ -245,9 +252,18 @@ impl<I: Iterator<Item = Datum>> Take<I> {
         }
     }
 
+    /// A session record's meter, as `Meter::of` reads one: never a turn's,
+    /// and settling only on the output it reports.
+    fn session_meter(&mut self) -> Option<Option<Meter>> {
+        match self.meter()? {
+            Some(meter) if meter.turn || (meter.settles && !reports_output(&meter)) => None,
+            meter => Some(meter),
+        }
+    }
+
     fn session(&mut self) -> Option<Last<Session>> {
         let seq = self.int()?;
-        let meter = self.meter()?;
+        let meter = self.session_meter()?;
         let cost = self.cost()?;
         match both(seq, meter)? {
             Some((seq, meter)) => Some(Some((seq, Session { meter, cost }))),

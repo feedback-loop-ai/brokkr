@@ -52,13 +52,14 @@ fn every_outcome_is_kept_by_its_word() {
 
 /// A row every column of which holds a value: each count 1, each word its
 /// column's name, each outcome `failed` and each price the bits 1; but
-/// its turns' meter does not settle, as no turn's does.
+/// its turns' meter does not settle, as no turn's does, and its session
+/// record is no turn, as none is.
 fn full() -> Vec<Datum> {
     SeatRow::COLUMNS
         .iter()
         .map(|(name, kind)| match (*name, *kind) {
             ("ended" | "pin", _) => Datum::Text("failed".to_string()),
-            ("metered_settles", _) => Datum::Integer(0),
+            ("metered_settles" | "session_turn", _) => Datum::Integer(0),
             (_, "TEXT") => Datum::Text(name.to_string()),
             _ => Datum::Integer(1),
         })
@@ -94,17 +95,20 @@ fn untokened(meter: &str) -> Vec<(&'static str, Datum)> {
 /// Each value a row may hold without its every part reads back as the
 /// data it was read from: a provider named by none, a carried member's
 /// source named by none, a member's finish pinning no outcome, a session
-/// reporting no cost, a session record with no tokens; and a finish
-/// pinning `working`, and a cost summed past `f64::MAX`.
+/// reporting no cost, a session record with no tokens and so settling
+/// nothing; and a finish pinning `working`, and a cost summed past
+/// `f64::MAX`.
 #[test]
 fn a_row_holding_each_part_it_may_omit_reads_back_as_its_data() {
+    let mut unsettled = untokened("session_");
+    unsettled.push(("session_settles", Datum::Integer(0)));
     let variants = [
         vec![],
         vec![("provider", Datum::Null)],
         vec![("carried_ordinal", Datum::Null)],
         vec![("pin", Datum::Null)],
         vec![("session_cost", Datum::Null)],
-        untokened("session_"),
+        unsettled,
         vec![("pin", text("working"))],
         vec![("spent", Datum::Integer(f64::INFINITY.to_bits() as i64))],
     ];
@@ -118,8 +122,9 @@ fn a_row_holding_each_part_it_may_omit_reads_back_as_its_data() {
 /// Data no row writes is no row: a value of another type than its
 /// column's, a flag that is neither, a word no outcome is or one its
 /// column's writer never writes, a cost no record states or a sum no
-/// costs reach, a turns' meter no turn writes, a part of a value without
-/// the rest, and more or fewer values than columns.
+/// costs reach, a turns' meter no turn writes, a session meter that is a
+/// turn's or settles no output, a part of a value without the rest, and
+/// more or fewer values than columns.
 #[test]
 fn data_no_row_writes_reads_as_none() {
     let none = || Datum::Null;
@@ -147,6 +152,9 @@ fn data_no_row_writes_reads_as_none() {
         vec![("metered_turn", Datum::Integer(0))],
         vec![("metered_settles", Datum::Integer(1))],
         untokened("metered_"),
+        vec![("session_turn", Datum::Integer(1))],
+        vec![("session_output_tokens", none())],
+        untokened("session_"),
         vec![("started_at", none())],
         vec![("model_seq", none())],
         vec![("provider_seq", none())],
