@@ -49,11 +49,13 @@ pub(crate) fn init(InitArgs { dir }: InitArgs) -> Result<ExitCode> {
     // needs bubblewrap; a realm may declare `harness` instead, and
     // a scaffold that already did asks nothing of bubblewrap.
     if let (true, Err(reason)) = (scaffold.namespace, brokkr_protocol::hands::bwrap_on(&path)) {
+        let quoted: Vec<String> = scaffold.hands.iter().map(|s| format!("\"{s}\"")).collect();
         eprintln!(
-            "warning: {reason}; the scaffolded seats [\"ship\", \"verify\"] \
-             declare hands and run under the realm's boundary — `namespace`, \
+            "warning: {reason}; the scaffolded seats [{}] declare hands and \
+             run under the realm's boundary — `namespace`, \
              the default, needs bubblewrap on PATH, and a realm may declare \
-             `harness` instead (decision 0046)"
+             `harness` instead (decision 0046)",
+            quoted.join(", ")
         );
     }
     // Discovery reads the folder from anywhere in the repository once it

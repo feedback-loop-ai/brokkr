@@ -209,10 +209,12 @@ fn claude(grants: &Grants) -> String {
 /// The scaffold's codex adapter, from the library's own: trusted, with
 /// the two judges the review gate is hired from. It restricts by sandbox
 /// CLASS, not by tool name, so no seat hired from it carries a tool
-/// allowance; its seats carry hands instead, and under the `harness`
-/// boundary the class fragments below are what hold them — read-only for
-/// the gate, workspace-write for the work seats. Its MCP facts are Codex's
-/// two cold shapes, the boxed and the harness hands it declares.
+/// allowance; its seats carry hands instead. Under `namespace` the
+/// `workspace` fragment serves them through Brokkr's workspace tool; under
+/// the `harness` boundary (macOS) the class fragments below are what hold
+/// them — read-only for the gate, workspace-write for the work seats. Its
+/// MCP facts are Codex's two cold shapes, the boxed and the harness hands
+/// it declares.
 const CODEX: &str = r#"{
   "provider": "codex",
   "trust_tier": "trusted",

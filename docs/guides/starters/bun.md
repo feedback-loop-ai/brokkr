@@ -92,7 +92,7 @@ The deterministic verifier pins `bun run test` and
 `bun run typecheck`. It runs both, types `pass` only when both exit
 zero, and quotes decisive output on `fail`. Brokkr boxes it, with no
 network, where the realm's boundary is `namespace`; under `harness`, on
-a codex scaffold or macOS, no box of Brokkr's stands and its note claims
+macOS, no box of Brokkr's stands and its note claims
 no denied network.
 
 - **`bun run typecheck` sits where the other node arms put `lint`.** The

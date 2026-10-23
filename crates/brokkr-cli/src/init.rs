@@ -597,8 +597,9 @@ fn grants(detected: Option<&Detected>) -> Grants {
 }
 
 /// The scaffold's hands for a codex-hired agent: the same workspace the
-/// verify gate stands in, so the seat's sandbox class comes from the
-/// adapter's fragment for the realm's boundary.
+/// verify gate stands in, served by the adapter's fragment for the realm's
+/// boundary — Brokkr's workspace tool under `namespace`, codex's own
+/// sandbox class under `harness`.
 fn codex_hands(detected: Option<&Detected>) -> serde_json::Value {
     json!({"kind": "workspace", "network": false, "binds": stack_binds(detected)})
 }
@@ -821,9 +822,11 @@ struct Host {
 }
 
 /// Read the search path and the operating system, decide nothing else.
-/// Two facts turn the boundary to `harness`: a codex scaffold, whose
-/// seats' hands are held by codex's own sandbox classes (the shape its
-/// adapter measured), and macOS, where `namespace` cannot be built.
+/// One fact turns the boundary to `harness`: macOS, where `namespace`
+/// cannot be built. A codex scaffold on Linux stands under `namespace`,
+/// its seats' hands served by Brokkr's workspace tool, because codex's
+/// own `workspace-write` class keeps `.git` read-only and its implementer
+/// could not commit (#717).
 fn host(path: &std::ffi::OsStr, os: &str) -> Host {
     let found = found_cli(path);
     let cli = found.unwrap_or(Cli::Claude);
@@ -857,7 +860,7 @@ fn host(path: &std::ffi::OsStr, os: &str) -> Host {
                 .to_string(),
         );
     }
-    let boundary = (cli == Cli::Codex || os == "macos").then_some(Boundary::Harness);
+    let boundary = (os == "macos").then_some(Boundary::Harness);
     notes.extend(claims::claims(cli, boundary).realm.map(str::to_string));
     Host {
         cli,
@@ -1409,12 +1412,14 @@ fn charters(stack: Option<&Detected>) -> [(&'static str, String); 3] {
 }
 
 /// What `init` hands back: the compiled scaffold's digest, whether its
-/// realm stands under `namespace` (which needs bubblewrap), the
-/// sentences that say which agent CLI and boundary it chose and why, and
-/// every path it wrote, relative to the root, sorted.
+/// realm stands under `namespace` (which needs bubblewrap), the seats
+/// whose hands it compiled, sorted, the sentences that say which agent
+/// CLI and boundary it chose and why, and every path it wrote, relative
+/// to the root, sorted.
 pub(crate) struct Scaffold {
     pub digest: String,
     pub namespace: bool,
+    pub hands: Vec<String>,
     pub notes: Vec<String>,
     pub written: Vec<PathBuf>,
 }
@@ -1477,8 +1482,9 @@ pub(crate) fn init(root: &Path, path: &std::ffi::OsStr, os: &str) -> Result<Scaf
     for spec in SEATS {
         let (provider, models) = spec.hire(host.cli);
         let allowance = allowance(spec, provider, &grants);
-        // A codex seat's sandbox class is what holds its hands; without
-        // them it would run at codex's own default, which writes nothing.
+        // A codex seat's hands are what its adapter's fragment serves;
+        // without them it would run at codex's own default, which writes
+        // nothing.
         let hands = (provider == Cli::Codex).then(|| codex_hands(detected));
         let definition = agent_json(spec, models, allowance, hands);
         files.push((library.join(format!("{}.json", spec.agent)), definition));
@@ -1520,6 +1526,7 @@ pub(crate) fn init(root: &Path, path: &std::ffi::OsStr, os: &str) -> Result<Scaf
     Ok(Scaffold {
         digest: bundle.manifest_digest(),
         namespace: boundary == Boundary::Namespace,
+        hands: bundle.hands.keys().cloned().collect(),
         notes: host.notes,
         written,
     })

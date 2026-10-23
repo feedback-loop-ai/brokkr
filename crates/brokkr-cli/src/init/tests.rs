@@ -423,7 +423,8 @@ fn every_host_arm_says_its_claims_and_no_other() {
     let arms = [
         ("namespace", "claude", "linux", Cli::Claude, None, NAMESPACE),
         ("macos", "claude", "macos", Cli::Claude, harness, MACOS),
-        ("codex", "codex", "linux", Cli::Codex, harness, CODEX),
+        ("codex", "codex", "linux", Cli::Codex, None, NAMESPACE),
+        ("codex-macos", "codex", "macos", Cli::Codex, harness, CODEX),
         ("dsh", "dsh", "linux", Cli::Dsh, None, NAMESPACE),
         ("dsh-macos", "dsh", "macos", Cli::Dsh, harness, MACOS),
     ];
@@ -482,8 +483,8 @@ fn unsaid(text: &str, said: &[&str]) -> Vec<String> {
 }
 
 /// The agent CLI is the first of claude, codex and dsh on PATH, claude
-/// when none is; the boundary is `harness` for a codex scaffold and on
-/// macOS, and left to the `namespace` default otherwise.
+/// when none is; the boundary is `harness` on macOS, and left to the
+/// `namespace` default otherwise, a codex scaffold's included (#717).
 #[test]
 fn the_host_picks_the_cli_on_path_and_the_boundary_the_os_can_build() {
     let bins = tempfile::tempdir().unwrap();
@@ -509,8 +510,9 @@ fn the_host_picks_the_cli_on_path_and_the_boundary_the_os_can_build() {
         picked(&all, "macos"),
         (Cli::Claude, Some(Boundary::Harness))
     );
+    assert_eq!(picked(&codex, "linux"), (Cli::Codex, None));
     assert_eq!(
-        picked(&codex, "linux"),
+        picked(&codex, "macos"),
         (Cli::Codex, Some(Boundary::Harness))
     );
     assert_eq!(picked(&dsh, "linux"), (Cli::Dsh, None));
@@ -537,11 +539,118 @@ fn the_host_picks_the_cli_on_path_and_the_boundary_the_os_can_build() {
         dsh_notes[2].starts_with("The review gate cannot be held by dsh"),
         "{dsh_notes:?}"
     );
-    let codex_notes = host(&codex, "linux").notes;
+    assert_eq!(host(&codex, "linux").notes.len(), 2);
+    let codex_notes = host(&codex, "macos").notes;
     assert_eq!(codex_notes.len(), 3, "{codex_notes:?}");
     assert!(
         codex_notes[2].contains("codex holds each seat's hands under its own sandbox"),
         "{codex_notes:?}"
+    );
+}
+
+/// One composed argv's shape: what it runs (`driver`, or `hands` for
+/// Brokkr's box), each sandbox class it hands codex, and each key of the
+/// brokkr MCP server it configures.
+fn shape(argv: &[String]) -> (String, Vec<String>, Vec<String>) {
+    let classes = argv.windows(2).filter(|pair| pair[0] == "--sandbox");
+    let served = argv
+        .iter()
+        .filter_map(|part| part.strip_prefix("mcp_servers.brokkr."));
+    (
+        argv[1].clone(),
+        classes.map(|pair| pair[1].clone()).collect(),
+        served
+            .map(|part| part.split('=').next().unwrap().to_string())
+            .collect(),
+    )
+}
+
+/// On Linux a codex scaffold stands under `namespace` (#717). Compiled and
+/// composed under the boundary its own `realms.json` declares, each codex
+/// seat — the review gate as well as intake and implement — runs codex
+/// read-only with Brokkr's workspace tool served, the adapter's
+/// `hands.workspace` shape, and never codex's `workspace-write` class,
+/// which keeps `.git` read-only; verify and ship run in Brokkr's box.
+#[test]
+fn a_codex_scaffold_on_linux_seats_codex_on_brokkrs_hands_and_boxes_its_scripts() {
+    use brokkr_runtime::engine::{compose_site, BuiltBoundary};
+    use brokkr_runtime::{argv::Executable, Invocation, SeatBody};
+    let root = tempfile::tempdir().unwrap();
+    let [bins, repo, home] = ["bin", "repo", "home"].map(|name| root.path().join(name));
+    for dir in [&bins, &repo] {
+        std::fs::create_dir(dir).unwrap();
+    }
+    std::fs::write(bins.join("codex"), "").unwrap();
+    let scaffold = super::init(&repo, bins.as_os_str(), "linux").unwrap();
+    let folder = repo.join(super::FOLDER);
+    let map = std::fs::read(folder.join("realms.json")).unwrap();
+    let map: serde_json::Value = serde_json::from_slice(&map).unwrap();
+    let (boundary, built) = match map["realms"][0]["boundary"].as_str() {
+        None => (Boundary::Namespace, BuiltBoundary::Namespace),
+        Some("harness") => (Boundary::Harness, BuiltBoundary::Harness),
+        Some(other) => panic!("init declares no {other}"),
+    };
+    let (agents, adapters) = (folder.join("agents"), folder.join("adapters"));
+    let compiled = brokkr_runtime::Bundle::compile_under(&folder, &agents, &adapters, boundary);
+    let compiled = compiled.unwrap();
+    let engine = Executable::current();
+    let roots = [folder.clone()];
+    let composed: Vec<_> = ["intake", "implement", "review", "verify", "ship"]
+        .into_iter()
+        .map(|seat| {
+            let SeatBody::Invocation(Invocation::Single {
+                command,
+                candidates,
+                class,
+                ..
+            }) = &compiled.seats[seat].body
+            else {
+                panic!("{seat} is a single seat")
+            };
+            let hands = compiled.hands.get(seat);
+            let facts = brokkr_protocol::hands::git_facts(&repo);
+            let sealed = hands.map(|spec| brokkr_protocol::hands::seal(spec, &home, &repo, &facts));
+            let boxed = (&engine, root.path(), sealed.as_ref());
+            let (link, result) = (candidates.first(), "/r/p.json");
+            let spawn = compose_site(
+                built,
+                *class,
+                command.clone(),
+                hands,
+                link,
+                &repo,
+                boxed,
+                &roots,
+                result,
+                None,
+            );
+            (seat, spawn.refusal, shape(&spawn.argv))
+        })
+        .collect();
+    let served = ["command", "args", "default_tools_approval_mode"].map(String::from);
+    let codex = || {
+        (
+            "driver".to_string(),
+            vec!["read-only".to_string()],
+            served.to_vec(),
+        )
+    };
+    let boxed = || ("hands".to_string(), Vec::new(), Vec::new());
+    assert_eq!(
+        (scaffold.namespace, scaffold.hands, composed),
+        (
+            true,
+            ["implement", "intake", "review", "ship", "verify"]
+                .map(String::from)
+                .to_vec(),
+            vec![
+                ("intake", None, codex()),
+                ("implement", None, codex()),
+                ("review", None, codex()),
+                ("verify", None, boxed()),
+                ("ship", None, boxed()),
+            ]
+        )
     );
 }
 

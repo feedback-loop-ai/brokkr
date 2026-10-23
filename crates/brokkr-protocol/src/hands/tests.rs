@@ -1261,6 +1261,63 @@ fn git_works_in_the_box_and_cannot_plant_a_hook() {
         .contains("evil"));
 }
 
+/// #717: a plain repository's `.git` stands inside the worktree, as in a
+/// folder `brokkr init` scaffolded, and is writable in the box with it: a
+/// seat stages and commits there, unsigned, as the host, while the hooks
+/// stay an empty tmpfs.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_plain_repositorys_seat_commits_in_the_box() {
+    if !can_create_namespace() {
+        skip_boundary_proof(
+            boundary_evidence_required(),
+            "this environment cannot create a bubblewrap namespace",
+        );
+        return;
+    }
+    let (_dir, root, work) = fixture();
+    committed(&work);
+    for (key, value) in [
+        ("user.name", "Host Operator"),
+        ("user.email", "host@example.invalid"),
+        ("commit.gpgsign", "true"),
+        ("gpg.program", "/nonexistent/gpg"),
+    ] {
+        git(&work, &["config", key, value]);
+    }
+    let spec = HandsSpec::default();
+    let owner = Session::create_under(&root, "plain").unwrap();
+    let (artifacts, reach) = (
+        artifact_root(&root),
+        sealed(&spec, &work, &root.join("home")),
+    );
+    let command = "echo b > b.txt && git add b.txt && git commit -q -m boxed \
+                   && git log -1 --format='%s %an %G?' && ls .git/hooks | wc -l";
+    let long = Duration::from_secs(30);
+    let ran = execute(
+        &spec,
+        &work,
+        &artifacts,
+        &reach,
+        owner.path(),
+        command,
+        long,
+    )
+    .unwrap();
+    assert_eq!(
+        (ran.exit_code, ran.stdout.as_str()),
+        (0, "boxed Host Operator N\n0\n"),
+        "{}",
+        ran.render()
+    );
+    let host = Command::new("git")
+        .args(["log", "-1", "--format=%s"])
+        .current_dir(&work)
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8_lossy(&host.stdout), "boxed\n");
+}
+
 /// Decision 0054: a boundary proof that cannot open a namespace logs a
 /// skip on a developer's laptop and FAILS on the host whose job is to
 /// produce the evidence. Both answers are reachable from one process

@@ -286,10 +286,12 @@ What the folder holds:
 `init` scaffolds for the first agent CLI on `PATH`: `claude`, `codex`
 or `dsh`, and `claude` when none is found. A codex scaffold writes
 `.brokkr/adapters/codex.json` in place of `.brokkr/adapters/claude.json`, hires every
-model seat from codex, and declares the `harness` boundary in
-`.brokkr/realms.json`, so codex's own sandbox holds each model seat's hands —
-read-only for the review gate, workspace-write for intake and
-implement. dsh cannot hold the
+model seat from codex, and on Linux leaves `.brokkr/realms.json` at the
+default `namespace` boundary, so each model seat runs codex read-only
+beside Brokkr's workspace tool, whose commands, `git commit` among them,
+run in Brokkr's box. On macOS codex's own sandbox holds each model seat's
+hands instead — read-only for the review gate, workspace-write for
+intake and implement. dsh cannot hold the
 review gate, because its adapter is untrusted and names no judges. A dsh
 scaffold therefore hires intake and implement from dsh and keeps the
 reviewer on claude, and says so. On macOS `.brokkr/realms.json` declares
