@@ -4,7 +4,8 @@
 //! seat whose turns and session record both
 //! carry tokens, a panel, a request never started, the records that
 //! name no attempt or no member, an attempt started again, and a
-//! provenance entry naming no provider, and a panel's carried members. brokkr-core pins each one's facts; brokkr-view holds the
+//! provenance entry naming no provider, and a panel's carried members, their
+//! sources named later. brokkr-core pins each one's facts; brokkr-view holds the
 //! same journals' facts equal to its run view. A test module includes this
 //! file through `#[path]` beside an `envelope_builder` module, the one
 //! place a test spells an envelope (#357).
@@ -471,6 +472,34 @@ pub(crate) fn carried() -> Vec<EventEnvelope> {
     ])
 }
 
+/// A start carrying `a` from an attempt that starts after it, and `b`
+/// from a start whose effect is first asked after every start: the view
+/// names both sources over the whole run.
+pub(crate) fn later() -> Vec<EventEnvelope> {
+    let asked = |effect: &str| {
+        let payload = json!({"effect_id": effect, "seat": "work", "phase": "work"});
+        (EventType::EffectRequested, payload)
+    };
+    let attempt = |event_type, effect: &str, attempt: &str| {
+        let payload = json!({"effect_id": effect, "attempt_id": attempt});
+        (event_type, payload)
+    };
+    journal(vec![
+        attempt(EventType::EffectStarted, "e0", "a0"),
+        asked("e1"),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "e1", "attempt_id": "a1", "carried":
+                   [{"member": "a", "attempt_id": "a2"}, {"member": "b", "attempt_id": "a0"}]}),
+        ),
+        attempt(EventType::EffectIndeterminate, "e1", "a1"),
+        asked("e2"),
+        attempt(EventType::EffectStarted, "e2", "a2"),
+        attempt(EventType::EffectFailed, "e2", "a2"),
+        asked("e0"),
+    ])
+}
+
 /// Every hand-built journal, by name.
 pub(crate) fn journals() -> Vec<(&'static str, Vec<EventEnvelope>)> {
     vec![
@@ -486,5 +515,6 @@ pub(crate) fn journals() -> Vec<(&'static str, Vec<EventEnvelope>)> {
         ("reopened", reopened()),
         ("unprovided", unprovided()),
         ("carried", carried()),
+        ("later", later()),
     ]
 }

@@ -78,18 +78,25 @@ pub struct CarriedFrom {
 }
 
 /// What a start's carried entry says of its member: carried from the
-/// attempt it names, or from one the view names no source for.
+/// attempt it names, or from one the view names no source for so far.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Carry {
     From(CarriedFrom),
-    Unsourced,
+    Unsourced(String),
 }
 
 impl Carry {
     fn source(&self) -> Option<&CarriedFrom> {
         match self {
             Carry::From(from) => Some(from),
-            Carry::Unsourced => None,
+            Carry::Unsourced(_) => None,
+        }
+    }
+
+    fn attempt_id(&self) -> &str {
+        match self {
+            Carry::From(from) => &from.attempt_id,
+            Carry::Unsourced(attempt_id) => attempt_id,
         }
     }
 }
@@ -298,10 +305,6 @@ impl Seats {
     pub(crate) fn note(&mut self, event: &EventEnvelope) {
         let payload = &event.payload;
         let effect_id = field(payload, "effect_id");
-        if event.event_type == EventType::EffectStarted {
-            let attempt = field(payload, "attempt_id").map(str::to_string);
-            self.begun.push((effect_id.map(str::to_string), attempt));
-        }
         match (event.event_type, effect_id) {
             (EventType::PhaseEntered, _) => {
                 self.phase = field(payload, "phase").map(str::to_string)
@@ -312,6 +315,29 @@ impl Seats {
                     self.attempted(request, event);
                 }
             }
+        }
+        if event.event_type == EventType::EffectStarted {
+            let attempt = field(payload, "attempt_id").map(str::to_string);
+            self.begun.push((effect_id.map(str::to_string), attempt));
+            self.sourced();
+        }
+    }
+
+    /// Every carried entry's source, named again over the fold so far: a
+    /// later start can name its attempt, and a later request can ask an
+    /// earlier start's effect in its phase, as the view reads its source
+    /// over the whole run.
+    fn sourced(&mut self) {
+        let mut named = Vec::new();
+        for (&(request, _), members) in &self.at {
+            for &at in members.values() {
+                if let Some((seq, carry)) = &self.rows[at].carried {
+                    named.push((at, *seq, self.source(request, carry.attempt_id())));
+                }
+            }
+        }
+        for (at, seq, carry) in named {
+            self.rows[at].carried = Some((seq, carry));
         }
     }
 
@@ -326,6 +352,7 @@ impl Seats {
             open: None,
         });
         self.row(self.requests.len() - 1, None, Member::Seat);
+        self.sourced();
     }
 
     fn attempted(&mut self, request: usize, event: &EventEnvelope) {
@@ -438,8 +465,9 @@ impl Seats {
 
     /// The members a start carries (decision 0093, panel-carry.v1): each
     /// entry naming a member and an attempt opens its member's row and
-    /// records that attempt's source; an entry naming either not is passed
-    /// over, as the view passes it over.
+    /// records that attempt, unsourced until [`Seats::sourced`] names its
+    /// source; an entry naming either not is passed over, as the view
+    /// passes it over.
     fn carried(&mut self, request: usize, attempt: Option<&str>, event: &EventEnvelope) {
         let carried = event.payload.get("carried").and_then(Value::as_array);
         for entry in carried.into_iter().flatten() {
@@ -447,23 +475,22 @@ impl Seats {
             else {
                 continue;
             };
-            let carry = self.source(request, source);
             let row = self.row(request, attempt, Member::of(Some(member)));
-            row.carried = Some((event.seq, carry));
+            row.carried = Some((event.seq, Carry::Unsourced(source.to_string())));
         }
     }
 
     /// The source the view names for a verdict `request` carries from
-    /// `attempt_id`: the first start naming that attempt, counted among
-    /// the starts through it whose effect was first asked in `request`'s
-    /// phase; none where a start before it names no effect, or no start
-    /// names that attempt.
+    /// `attempt_id`: the first start so far naming that attempt, counted
+    /// among the starts through it whose effect was first asked in
+    /// `request`'s phase; none where a start before it names no effect, or
+    /// no start names that attempt.
     fn source(&self, request: usize, attempt_id: &str) -> Carry {
         let phase = &self.requests[request].phase;
         let mut ordinal = 0;
         for (effect, attempt) in &self.begun {
             let Some(effect) = effect else {
-                return Carry::Unsourced;
+                return Carry::Unsourced(attempt_id.to_string());
             };
             let mut asked = self.requests.iter();
             let asked = asked.find(|asked| asked.effect_id == *effect);
@@ -476,7 +503,7 @@ impl Seats {
                 });
             }
         }
-        Carry::Unsourced
+        Carry::Unsourced(attempt_id.to_string())
     }
 
     fn checkpointed(&mut self, request: usize, attempt: Option<&str>, event: &EventEnvelope) {

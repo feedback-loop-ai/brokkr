@@ -311,6 +311,39 @@ fn a_carried_member_names_where_its_verdict_settled() {
     );
 }
 
+/// A carried verdict's source is named over the whole fold: an attempt
+/// first started after the carrying start, and a start counted in the
+/// phase by a request after every start.
+#[test]
+fn a_carried_source_named_later_is_named() {
+    let carried = |member: &str, attempt_id: &str, ordinal| SeatFacts {
+        outcome: Outcome::Carried,
+        carried_from: Some(CarriedFrom {
+            attempt_id: attempt_id.to_string(),
+            ordinal,
+        }),
+        ..asked("e1", named(member))
+    };
+    assert_eq!(
+        facts_of(&journals::later()),
+        [
+            SeatFacts {
+                outcome: Outcome::Indeterminate,
+                started_at: Some(at(3)),
+                ..asked("e1", Member::Seat)
+            },
+            carried("a", "a2", 3),
+            carried("b", "a0", 1),
+            SeatFacts {
+                outcome: Outcome::Failed,
+                started_at: Some(at(6)),
+                ..asked("e2", Member::Seat)
+            },
+            asked("e0", Member::Seat),
+        ]
+    );
+}
+
 /// A request no attempt started is a participant with nothing to report:
 /// at work until a terminal naming no attempt concludes it.
 #[test]

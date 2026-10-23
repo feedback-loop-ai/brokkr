@@ -45,7 +45,8 @@ fn status(outcome: Outcome) -> &'static str {
     }
 }
 /// When the view's clock starts for `participant`: a seat's at its
-/// effect's first start, a member's at its first checkpoint.
+/// effect's first start after its first request, as the view's scan
+/// passes over a start before it; a member's at its first checkpoint.
 fn started_at<'a>(events: &'a [EventEnvelope], participant: &'a Participant) -> Option<&'a str> {
     if participant.member.is_some() {
         return participant
@@ -54,10 +55,13 @@ fn started_at<'a>(events: &'a [EventEnvelope], participant: &'a Participant) -> 
             .map(|row| row.recorded_at.as_str());
     }
     let effect_id = participant.key.as_str();
-    let started = events.iter().find(|event| {
-        event.event_type == EventType::EffectStarted
-            && event.payload["effect_id"].as_str() == Some(effect_id)
-    });
+    let names = |event: &EventEnvelope, event_type| {
+        event.event_type == event_type && event.payload["effect_id"].as_str() == Some(effect_id)
+    };
+    let mut asked = events
+        .iter()
+        .skip_while(|event| !names(event, EventType::EffectRequested));
+    let started = asked.find(|event| names(event, EventType::EffectStarted));
     started.map(|event| event.recorded_at.as_str())
 }
 

@@ -48,5 +48,5 @@ fn every_hand_built_journal_s_seat_rows_read_as_its_participants() {
         compared += count;
     }
     assert_eq!(found, Vec::<String>::new());
-    assert_eq!(compared, 22);
+    assert_eq!(compared, 27);
 }
