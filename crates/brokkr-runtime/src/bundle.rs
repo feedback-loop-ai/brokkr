@@ -2280,8 +2280,9 @@ fn admit_inline_launch(
             Segment::new(Origin::Native, &plan.argv),
         ])
         .collect();
-        grammar::judge_inline_codex_launch(lowered.class.intent(), &segments, capture).map_err(
-            |cause| {
+        // Compile has no run, so it hands no run's paths: every profile refuses (U9c2).
+        grammar::judge_inline_codex_launch(lowered.class.intent(), &segments, capture, None)
+            .map_err(|cause| {
                 CompileError::Invalid(format!(
                     "seat {} declares 'tools.sandbox' '{}', but {} (operator ruling of \
                      2026-09-25; rebuild unit 5d-fix-b; design D5.3)",
@@ -2289,8 +2290,7 @@ fn admit_inline_launch(
                     lowered.class.name(),
                     inline_codex_refusal(what, &cause)
                 ))
-            },
-        )?;
+            })?;
     }
     Ok(())
 }

@@ -2709,14 +2709,15 @@ fn assert_paired_override(parts: &[String], key: &str, expected: &str, case: &st
 /// The effort literal genuinely is shared, and for two separate reasons:
 /// the harness lane's `high` comes from the shipped `agents/reviewer.json`
 /// `efforts.sol`, the inline lane's from the literal `--effort high` in
-/// the shipped `recipes/standby` argv.
+/// the shipped `recipes/standby` argv; a profile (U9c2) replaces `sandbox_mode`.
 fn assert_resume_argv(parts: &[String], class: &str, effort: &str, offered: &str, case: &str) {
-    assert_paired_override(
-        parts,
-        "sandbox_mode",
-        &format!("sandbox_mode=\"{class}\""),
-        case,
-    );
+    let (key, expected) = match class.starts_with("permissions.") {
+        true => ("permissions.brokkr", class.to_string()),
+        false => ("sandbox_mode", format!("sandbox_mode=\"{class}\"")),
+    };
+    assert_paired_override(parts, key, &expected, case);
+    let moded = parts.iter().any(|part| part.starts_with("sandbox_mode="));
+    assert_eq!(moded, key == "sandbox_mode", "{case}: {parts:?}");
     assert_paired_override(
         parts,
         "model_reasoning_effort",
@@ -3281,19 +3282,18 @@ fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() 
                 panic!("{shape:?} wrapped={wrapped}: the provider saw a resume argv: {log:?}")
             });
         assert!(
-            resume_line.contains(&format!("sandbox_mode=\"{PROOF_CLASS}\"")),
-            "{shape:?} wrapped={wrapped}: the class is re-expressed: {resume_line}"
-        );
-        assert!(
             resume_line.contains("model_reasoning_effort=\"high\""),
             "{shape:?} wrapped={wrapped}: the effort is re-expressed: {resume_line}"
         );
         // The same argv over element boundaries, at all four compiled
         // shapes. These are inline coordinates, so the class is the typed
-        // one the recipe declares and the engine lowered.
+        // one the recipe declares and the engine lowered, as the profile
+        // denying the store the engine handed the seat (U9c2).
+        let work = run_dir.path().join("work").display().to_string();
+        let paths = format!(r#""{work}"="write","{work}/.forge/secrets.env"="deny""#);
         assert_resume_argv(
             &resume_parts(run_dir.path()),
-            PROOF_CLASS,
+            &format!(r#"permissions.brokkr={{filesystem={{":root"="read",{paths}}}}}"#),
             "high",
             PROOF_OFFER,
             &format!("compiled live inline {shape:?} wrapped={wrapped}"),

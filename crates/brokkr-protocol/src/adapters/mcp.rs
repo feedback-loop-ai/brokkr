@@ -14,9 +14,9 @@
 //! to C06 and LT03 to LT10). dsh excludes it from an engine-only `DSH_HOME`
 //! with the engine's server row in the seat's one `--patch` overlay (U0 D03
 //! and D04, U0c K01 to K12r; U1c2), and only on the routes those cells
-//! measured. Codex has no passing candidate, so an intent for it refuses
-//! rather than borrowing another harness's result or falling back to
-//! ambient configuration. Exec has no model MCP surface (SI2), so its launch
+//! measured. Codex is served its measured isolation options and its
+//! store-denying profile (U9c2), and its declared verdicts are read as the
+//! others' are. Exec has no model MCP surface (SI2), so its launch
 //! reads no intent.
 //!
 //! Dispatch seals the intent inside the serving inputs of every launch it
@@ -41,6 +41,8 @@ use crate::native_controls::{
     SealedServing, Transport, ARTIFACT_ROOT, SERVING_INPUTS,
 };
 use crate::transcript::{DshHome, DshHomeError};
+
+mod admit;
 
 /// The MCP document of the empty server set, exactly as U0 measured it
 /// (cell C03).
@@ -460,46 +462,6 @@ impl SealedFence {
     }
 }
 
-impl SealedIsolation {
-    /// Whether `provider` may be served as `invocation`: its assessment
-    /// must be measured, and the engine must build a qualified mechanism
-    /// for its harness. A measured claim for a harness with none is missing
-    /// evidence, never a fallback. dsh's route is judged separately
-    /// ([`Isolated::dsh`]), once its model pin is read.
-    fn admit(&self, provider: &'static str, invocation: Invocation<'_>) -> Result<(), McpRefusal> {
-        let (assessment, shape) = match invocation {
-            Invocation::Cold => (&self.cold, "cold"),
-            Invocation::Replacement => (&self.replacement, "replacement"),
-            Invocation::Resume(shape) => (
-                self.resume
-                    .get(shape)
-                    .unwrap_or(&SealedAssessment::Unmeasured),
-                shape,
-            ),
-        };
-        let unmeasured = || {
-            McpRefusal::Strict(StrictCause::Unmeasured {
-                provider: provider.into(),
-                shape: shape.to_string(),
-            })
-        };
-        match assessment {
-            SealedAssessment::Unsupported(reason) => {
-                return Err(McpRefusal::Strict(StrictCause::Unsupported {
-                    provider: provider.into(),
-                    reason: reason.clone(),
-                }))
-            }
-            SealedAssessment::Unmeasured => return Err(unmeasured()),
-            SealedAssessment::Measured => {}
-        }
-        match ServingShape::of(provider) {
-            Some(ServingShape::Claude | ServingShape::Dsh) => Ok(()),
-            Some(ServingShape::Codex) | None => Err(unmeasured()),
-        }
-    }
-}
-
 /// How one dsh launch is served: from the operator's home where the input
 /// carries no intent, as before, or from an engine-only home, rejoining an
 /// offered session only where the intent's resume shape is admitted.
@@ -692,8 +654,10 @@ pub(super) fn isolated(
     extra: &[String],
     offered: bool,
 ) -> Result<Isolated, McpRefusal> {
+    let shape = ServingShape::of(provider);
+    let isolating = super::codex::isolating(shape, edge.input);
     let unbuilt = Isolated {
-        argv: extra.to_vec(),
+        argv: [extra, &isolating].concat(),
         isolation: None,
     };
     let Some((sealed, isolation)) = intent(edge)? else {
@@ -704,7 +668,6 @@ pub(super) fn isolated(
         return Err(not_sealed);
     }
     let hands = isolation.servers != SealedServers::Empty;
-    let shape = ServingShape::of(provider);
     if !isolation.servers.brokers().is_empty() && shape != Some(ServingShape::Claude) {
         return Err(McpRefusal::Strict(StrictCause::Unmeasured {
             provider: provider.into(),
@@ -733,11 +696,13 @@ pub(super) fn isolated(
         }
     });
     if let Err(refusal) = admitted {
-        return isolation.fence.refuses(refusal).map(|()| unbuilt);
+        isolation.fence.refuses(refusal)?;
+        edge.built.get_or_init(|| isolating);
+        return Ok(unbuilt);
     }
     let argv = match empty {
         true => with_empty_set(provider, extra.to_vec())?,
-        false => extra.to_vec(),
+        false => unbuilt.argv,
     };
     edge.built.get_or_init(|| argv[extra.len()..].to_vec());
     Ok(Isolated {

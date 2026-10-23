@@ -21,6 +21,7 @@ use serde_json::{json, Map, Value};
 
 pub mod capability_calls;
 mod claude_fold;
+mod codex;
 mod composite;
 mod discovery;
 mod dsh_effort;
@@ -43,6 +44,7 @@ pub use served_route::split_route;
 
 use crate::dsh_sandbox;
 use crate::hands::GitFacts;
+use crate::native_controls::grammar::Bound;
 use crate::overrides::{Override, OverrideError};
 use crate::secret;
 use crate::transcript::{dsh_transcript_root_under, Kind as TranscriptKind, Transcript};
@@ -2634,9 +2636,18 @@ fn picked(argv: &[String], kept: &[usize]) -> Vec<String> {
 /// the engine-managed native controls (decision 0065 ruling 4) — the OFF
 /// switch for a native capability the seat does not hold. They arrive
 /// from the driver input and never from `extra`: an authored pair that
-/// spells the same switch was refused before this builder ran.
-fn codex_cold(bin: &str, extra: &[String], workdir: &str, managed: &[String]) -> Vec<String> {
+/// spells the same switch was refused before this builder ran. Where a store
+/// is handed, the class leaves the passthrough and leads it as the engine's
+/// permission profile bound to `workdir` and `store` (U9c2).
+fn codex_cold(
+    bin: &str,
+    extra: &[String],
+    workdir: &str,
+    store: Option<&str>,
+    managed: &[String],
+) -> Vec<String> {
     let (effort, passthrough) = split_effort(extra);
+    let (profile, passthrough) = codex::profiled(passthrough, Bound { workdir, store });
     let mut command = vec![
         bin.to_string(),
         "exec".into(),
@@ -2644,6 +2655,7 @@ fn codex_cold(bin: &str, extra: &[String], workdir: &str, managed: &[String]) ->
         "-C".into(),
         workdir.to_string(),
     ];
+    command.extend(profile);
     if let Some(effort) = &effort {
         command.push("-c".into());
         command.push(codex_effort_config(effort));
@@ -2749,8 +2761,10 @@ const CODEX_RESUME_BARE_FLAGS: [&str; 4] = [
 /// Where the passthrough parses, each option is judged by the canonical
 /// name its node places, so a value is never classified on its own
 /// (rebuild unit 13), and the part returned is the option's own token; an
-/// attached short spelling is refused as it always was.
+/// attached short spelling is refused as it always was. The measured
+/// isolation options travel (U9c2): each only narrows what codex loads.
 fn codex_resume_blocker(passthrough: &[String]) -> Option<String> {
+    use crate::native_controls::grammar::isolation;
     if let Some(command) = placed("codex", passthrough) {
         return command
             .nodes
@@ -2758,7 +2772,8 @@ fn codex_resume_blocker(passthrough: &[String]) -> Option<String> {
             .find(|node| {
                 let name = node.name();
                 !(CODEX_RESUME_VALUE_FLAGS.contains(&name)
-                    || CODEX_RESUME_BARE_FLAGS.contains(&name))
+                    || CODEX_RESUME_BARE_FLAGS.contains(&name)
+                    || matches!(isolation(node), Some(Ok(_))))
                     || attached(passthrough, node)
             })
             .map(|node| passthrough[node.at].clone());
@@ -2921,32 +2936,29 @@ fn codex_launch_and_cold(
     // `web_search` config assignment, even the OFF pair itself — because
     // ordering two controls against each other is not a ruling.
     let composed = composed_launch("codex", extra, input)?;
-    // No measured mechanism excludes Codex's ambient MCP (U0), so the
-    // engine's isolation intent refuses here, before any provider work.
+    // The engine's isolation intent refuses a shape Codex's declared verdicts
+    // do not admit, before any provider work, and the isolation options
+    // follow the composition (U9c2).
     let edge = mcp::Edge::new(input);
-    mcp::isolated("codex", &edge, &composed.extra, session.is_some())
+    let isolated = mcp::isolated("codex", &edge, &composed.extra, session.is_some())
         .map_err(|refusal| refusal.at_launch())?;
-    let cold = codex_cold(bin, &composed.extra, workdir, &composed.managed);
-    let mut plan = codex_plan(
-        bin,
-        &composed.extra,
-        workdir,
-        session,
-        input,
-        &composed.managed,
-    );
+    let (argv, store) = (isolated.argv.as_slice(), codex::store(input));
+    let cold = codex_cold(bin, argv, workdir, store, &composed.managed);
+    let mut plan = codex_plan(bin, &isolated, workdir, session, input, &composed.managed);
     // Both commands this launch can spawn, the rejoin and the cold one a
     // rejected rejoin is replaced by, are judged as composed.
-    let rejoin = plan.rejoining.is_some();
-    inline_codex_final(input, &composed, workdir, &plan.command, rejoin)?;
-    inline_codex_final(input, &composed, workdir, &cold, false)?;
+    let (rejoin, isolating) = (plan.rejoining.is_some(), &argv[composed.extra.len()..]);
+    codex::inline_final(input, &composed, isolating, workdir, &plan.command, rejoin)?;
+    codex::inline_final(input, &composed, isolating, workdir, &cold, false)?;
     // Each serves only what the final check returns, checked on its own
     // (rebuild units 14 and 15): the rejoin with the session it rejoins, and
     // the cold replacement with none, so a replacement is never checked, or
-    // counted, as the rejoin it replaces.
+    // counted, as the rejoin it replaces. The check is handed the store its
+    // profile denies.
     let chosen = |session| crate::native_controls::Serving {
         program: bin,
         workdir,
+        store,
         session,
         ..Default::default()
     };
@@ -2962,118 +2974,29 @@ fn codex_launch_and_cold(
     Ok((plan, cold))
 }
 
-/// Rebuild unit 5d-fix-c2 (chief F2 of runs
-/// `0065-rebuild-unit-5d-fix-b-see-t-8067eebc` and
-/// `0065-rebuild-unit-5d-fix-c1-see--b800f52a`; operator ruling of
-/// 2026-09-25, "narrow"; design D5.3): where the sealed launch record names
-/// the engine's own `local` class, which is an inline Codex site's, the
-/// FINAL command — after `--effort` was translated, `--json` and `-C`
-/// generated and, on a rejoin, the class moved into an assignment — is
-/// judged exactly as the harness receives it, through
-/// [`grammar::judge_inline_codex_command`] and so the same
-/// `judge_inline_codex_launch` admission and the dispatch door call.
-///
-/// The record's segments must reassemble the arguments composed, so every
-/// part the harness receives is judged beside its origin: the translated
-/// effort carries the origin of the pin it translated, and the native plan
-/// is the engine's `native` contribution. A gate is the `read-only` class,
-/// whose capture must be into exactly the result path the input names. The
-/// cause is bounded and value-free, and names no seat. A launch no record
-/// was sealed for, and one whose record names no `local` class (an agent's
-/// class rides its hands), is not an inline Codex launch and is not judged
-/// here.
-///
-/// [`grammar::judge_inline_codex_command`]: crate::native_controls::grammar::judge_inline_codex_command
-fn inline_codex_final(
-    input: &Value,
-    composed: &crate::native_controls::Composed,
-    workdir: &str,
-    command: &[String],
-    rejoin: bool,
-) -> Result<(), String> {
-    use crate::native_controls::{
-        grammar, reassemble, HandsIntent, LaunchRecord, Origin, SandboxIntent, Segment,
-    };
-    let Some(sealed) = input.get("launch_record") else {
-        return Ok(());
-    };
-    let refuse = |cause: &str| {
-        format!(
-            "refusing to invoke the agent CLI: the final command of this inline Codex launch \
-             {cause} (decision 0046 ruling 4; operator ruling of 2026-09-25; rebuild unit \
-             5d-fix-c2)"
-        )
-    };
-    // The decoder's and the reassembly's text is not echoed: the final
-    // judgment's causes are fixed.
-    let record = LaunchRecord::decode(Some(sealed)).map_err(|_| {
-        refuse("carries a launch record that cannot be read, so its class cannot be judged")
-    })?;
-    let class = match record.expected.hands {
-        HandsIntent::None => record.expected.local.sandbox,
-        HandsIntent::Required => SandboxIntent::Unspecified,
-    };
-    if class == SandboxIntent::Unspecified {
-        return Ok(());
-    }
-    let extra = &composed.extra;
-    reassemble(&record.segments, extra).map_err(|_| {
-        refuse(
-            "is composed from arguments its sealed record does not reassemble, so no part of it \
-             has an origin to be judged by",
-        )
-    })?;
-    let origins: Vec<Origin> = record
-        .segments
-        .iter()
-        .flat_map(|segment| std::iter::repeat_n(segment.origin, segment.argv.len()))
-        .collect();
-    // The composition's own splits, by position: the effort leaves first,
-    // and on a rejoin the class leaves what remains.
-    let (effort, mut kept) = effort_split(extra);
-    if rejoin {
-        let (_, remaining) = sandbox_split(&picked(extra, &kept));
-        kept = remaining.iter().map(|&at| kept[at]).collect();
-    }
-    let mut runs: Vec<(Origin, Vec<String>)> = Vec::new();
-    let mut place = |origin: Origin, part: String| match runs.last_mut() {
-        Some((last, parts)) if *last == origin => parts.push(part),
-        _ => runs.push((origin, vec![part])),
-    };
-    if let Some((level, at)) = effort {
-        place(origins[at], "-c".to_string());
-        place(origins[at], codex_effort_config(&level));
-    }
-    for at in kept {
-        place(origins[at], extra[at].clone());
-    }
-    for part in &composed.managed {
-        place(Origin::Native, part.clone());
-    }
-    let contributions: Vec<Segment> = runs
-        .iter()
-        .map(|(origin, parts)| Segment::new(*origin, parts))
-        .collect();
-    let capture = (class == SandboxIntent::ReadOnly)
-        .then(|| input["result_path"].as_str().unwrap_or_default());
-    grammar::judge_inline_codex_command(class, &command[1..], &contributions, capture, workdir)
-        .map_err(|cause| refuse(&cause.to_string()))
-}
-
-/// The plan of one validated codex launch: `extra` and `managed` are what
-/// [`composed_launch`] composed, and nothing here can refuse.
+/// The plan of one validated codex launch: `isolated` holds what
+/// [`composed_launch`] composed with the isolation options behind it, and
+/// `managed` what it appends; nothing here can refuse. An offer is declined
+/// as `restrictions-unavailable` where the launch's isolation does not admit
+/// its resume shape, as every adapter's is (U9c2).
 fn codex_plan(
     bin: &str,
-    extra: &[String],
+    isolated: &mcp::Isolated,
     workdir: &str,
     session: Option<&str>,
     input: &Value,
     managed: &[String],
 ) -> LaunchPlan {
-    let gate = resume_gate(input, CODEX_SHAPE);
+    let (extra, store) = (isolated.argv.as_slice(), codex::store(input));
+    let gate = match resume_gate(input, CODEX_SHAPE) {
+        ResumeGate::Enabled { .. } if !isolated.resumes("codex", CODEX_SHAPE) => {
+            ResumeGate::Disabled("restrictions-unavailable")
+        }
+        gate => gate,
+    };
     let probe = vec![bin.to_string(), "--version".to_string()];
     let cold = |refusal: Option<&'static str>, version: Option<String>| LaunchPlan {
-        command: codex_cold(bin, extra, workdir, managed),
+        command: codex_cold(bin, extra, workdir, store, managed),
         rejoining: None,
         refusal,
         sandbox: None,
@@ -3102,7 +3025,7 @@ fn codex_plan(
     if !plain_thread_id(session) {
         return cold(Some("invalid-session-id"), None);
     }
-    let (command, class) = match codex_rejoin(bin, extra, managed, session) {
+    let (command, class) = match codex_rejoin(bin, extra, workdir, store, managed, session) {
         Ok(rejoin) => rejoin,
         Err(refusal) => return cold(Some(refusal), None),
     };
@@ -3128,10 +3051,14 @@ fn codex_plan(
 /// re-imposes, or the token that declines the rejoin (rebuild unit
 /// 13-fix-c, R4): the ONE builder the driver's plan and the final check's
 /// rebuild ([`serving_command`]) share, so the rejoin checked is the rejoin
-/// spawned. Pure: it reads nothing but its arguments.
+/// spawned. Pure: it reads nothing but its arguments. The class is the
+/// engine's permission profile bound to `workdir` and `store` where a store
+/// is handed (U9c2).
 fn codex_rejoin(
     bin: &str,
     extra: &[String],
+    workdir: &str,
+    store: Option<&str>,
     managed: &[String],
     session: &str,
 ) -> Result<(Vec<String>, String), &'static str> {
@@ -3161,9 +3088,8 @@ fn codex_rejoin(
         "exec".into(),
         "resume".into(),
         "--json".into(),
-        "-c".into(),
-        format!("sandbox_mode=\"{class}\""),
     ];
+    command.extend(codex::rejoined(&class, Bound { workdir, store }));
     // The rejoined thread carries the effort it was opened under only
     // because it is re-expressed here: a resume drops what it was given,
     // exactly as it drops the sandbox class.
@@ -3225,15 +3151,23 @@ pub(crate) fn serving_command(
                 program,
                 &composed.extra,
                 serving.workdir,
+                serving.store,
                 &composed.managed,
             )),
-            Some(session) => codex_rejoin(program, &composed.extra, &composed.managed, session)
-                .map(|(command, _)| command)
-                .map_err(|token| match token {
-                    "sandbox-unavailable" => "a rejoin its driver declines, no class to re-impose",
-                    "unsupported-sandbox" => "a rejoin its driver declines, an unsupported class",
-                    _ => "a rejoin its driver declines, an argument a rejoin cannot carry",
-                }),
+            Some(session) => codex_rejoin(
+                program,
+                &composed.extra,
+                serving.workdir,
+                serving.store,
+                &composed.managed,
+                session,
+            )
+            .map(|(command, _)| command)
+            .map_err(|token| match token {
+                "sandbox-unavailable" => "a rejoin its driver declines, no class to re-impose",
+                "unsupported-sandbox" => "a rejoin its driver declines, an unsupported class",
+                _ => "a rejoin its driver declines, an argument a rejoin cannot carry",
+            }),
         },
         ServingShape::Dsh => {
             let (Some(overlay), Some(prompt)) = (serving.overlay, serving.prompt) else {
@@ -3272,11 +3206,14 @@ impl ServingShape {
 }
 
 /// The command a Codex launch WOULD spawn for this driver argv and input,
-/// composed and refused exactly as a real launch is — the same function,
-/// read for its argv. It exists so the chain decision 0065 rests on can be
-/// proved end to end without a provider: a compiled seat's resolved
-/// native controls, handed over as the engine hands them, arriving in the
-/// harness's argv.
+/// composed and refused exactly as a real launch composes it — the same
+/// function, read for its argv. It exists so the chain decision 0065 rests
+/// on can be proved end to end without a provider: a compiled seat's
+/// resolved native controls, handed over as the engine hands them, arriving
+/// in the harness's argv. It reads the composition alone, beneath the
+/// driver's door (`codex::launch_on_host`): it observes no host, requires
+/// no store and checks no path a profile names, so compile, which has no
+/// run's store, can read an adapter's command through it (U9c2).
 pub fn codex_command(
     bin: &str,
     extra: &[String],
@@ -5566,7 +5503,7 @@ fn invoke_with_stager(
         }
         AdapterKind::Codex => {
             let (plan, validated_cold) =
-                codex_launch_and_cold(bin, extra, &workdir, session, input)?;
+                codex::launch_on_host(bin, extra, &workdir, session, input, codex::present)?;
             let command = plan.command.clone();
             let mut hold = LaunchHold::new("codex", plan);
             let mut invocation =

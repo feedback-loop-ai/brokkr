@@ -1185,6 +1185,7 @@ pub brokkr_runtime::engine::EngineError::UnbuiltBoundary::boundary: brokkr_core:
 pub brokkr_runtime::engine::EngineError::UnbuiltBoundary::seats: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::engine::EngineError::UnbuiltBoundary::slice: &'static str
 pub brokkr_runtime::engine::EngineError::Unreleased(brokkr_runtime::engine::broker::settlement::Unreleased)
+pub brokkr_runtime::engine::EngineError::Unspelled(brokkr_runtime::engine::input::Unspelled)
 pub brokkr_runtime::engine::EngineError::World(brokkr_runtime::realms::WorldError)
 impl brokkr_runtime::engine::EngineError
 pub fn brokkr_runtime::engine::EngineError::contention(&self) -> core::option::Option<&brokkr_store::StoreError>
@@ -1625,6 +1626,7 @@ pub brokkr_runtime::EngineError::UnbuiltBoundary::boundary: brokkr_core::realms:
 pub brokkr_runtime::EngineError::UnbuiltBoundary::seats: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::EngineError::UnbuiltBoundary::slice: &'static str
 pub brokkr_runtime::EngineError::Unreleased(brokkr_runtime::engine::broker::settlement::Unreleased)
+pub brokkr_runtime::EngineError::Unspelled(brokkr_runtime::engine::input::Unspelled)
 pub brokkr_runtime::EngineError::World(brokkr_runtime::realms::WorldError)
 impl brokkr_runtime::engine::EngineError
 pub fn brokkr_runtime::engine::EngineError::contention(&self) -> core::option::Option<&brokkr_store::StoreError>

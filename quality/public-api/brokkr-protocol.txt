@@ -601,6 +601,9 @@ pub brokkr_protocol::native_controls::grammar::Admitted::denies: core::option::O
 pub brokkr_protocol::native_controls::grammar::Admitted::key: &'static str
 pub brokkr_protocol::native_controls::grammar::Admitted::source: &'static str
 pub brokkr_protocol::native_controls::grammar::Admitted::values: &'static [&'static str]
+pub struct brokkr_protocol::native_controls::grammar::Bound<'a>
+pub brokkr_protocol::native_controls::grammar::Bound::store: core::option::Option<&'a str>
+pub brokkr_protocol::native_controls::grammar::Bound::workdir: &'a str
 pub struct brokkr_protocol::native_controls::grammar::BoundedCause(_)
 impl core::fmt::Display for brokkr_protocol::native_controls::grammar::BoundedCause
 pub fn brokkr_protocol::native_controls::grammar::BoundedCause::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -657,8 +660,8 @@ pub fn brokkr_protocol::native_controls::grammar::config_key(&str) -> alloc::str
 pub fn brokkr_protocol::native_controls::grammar::config_under(&str, &str) -> bool
 pub fn brokkr_protocol::native_controls::grammar::grammar(&str) -> core::option::Option<&'static brokkr_protocol::native_controls::grammar::Grammar>
 pub fn brokkr_protocol::native_controls::grammar::inline_codex_denials(&[alloc::string::String]) -> alloc::vec::Vec<&'static str>
-pub fn brokkr_protocol::native_controls::grammar::judge_inline_codex_command(brokkr_protocol::native_controls::SandboxIntent, &[alloc::string::String], &[brokkr_protocol::native_controls::Segment], core::option::Option<&str>, &str) -> core::result::Result<(), brokkr_protocol::native_controls::grammar::BoundedCause>
-pub fn brokkr_protocol::native_controls::grammar::judge_inline_codex_launch(brokkr_protocol::native_controls::SandboxIntent, &[brokkr_protocol::native_controls::Segment], core::option::Option<&str>) -> core::result::Result<(), brokkr_protocol::native_controls::grammar::BoundedCause>
+pub fn brokkr_protocol::native_controls::grammar::judge_inline_codex_command(brokkr_protocol::native_controls::SandboxIntent, &[alloc::string::String], &[brokkr_protocol::native_controls::Segment], core::option::Option<&str>, &str, core::option::Option<&str>) -> core::result::Result<(), brokkr_protocol::native_controls::grammar::BoundedCause>
+pub fn brokkr_protocol::native_controls::grammar::judge_inline_codex_launch(brokkr_protocol::native_controls::SandboxIntent, &[brokkr_protocol::native_controls::Segment], core::option::Option<&str>, core::option::Option<brokkr_protocol::native_controls::grammar::Bound<'_>>) -> core::result::Result<(), brokkr_protocol::native_controls::grammar::BoundedCause>
 pub fn brokkr_protocol::native_controls::grammar::launch_setting(&str) -> core::result::Result<&'static str, alloc::string::String>
 pub fn brokkr_protocol::native_controls::grammar::list_of(&str, &str) -> core::option::Option<brokkr_protocol::native_controls::grammar::ListKind>
 pub fn brokkr_protocol::native_controls::grammar::managed_patterns(&str) -> core::result::Result<alloc::vec::Vec<&str>, &'static str>

@@ -13,6 +13,8 @@ use brokkr_core::fold::RunState;
 use serde_json::{json, Map, Value};
 
 use super::{nearest_change, Engine, EngineError, RESULTS};
+use crate::agents::Candidate;
+use crate::argv::Dispatch;
 use crate::bundle::{ExecutableBody, Invocation, PanelMember, Seat, SequenceStep, StepBody};
 use crate::phase_name;
 
@@ -64,6 +66,12 @@ impl Engine {
                 EngineError::Invariant("selector has body", detail)
             })?;
         let workdir = self.workdir();
+        let codex = runs_codex(body);
+        // A Codex seat's profile is built from its workdir, so a workdir no
+        // text can name refuses before any lossy spelling of it is written.
+        if codex {
+            spelled(&workdir, RunPath::Workdir)?;
+        }
         let files = ResultFiles {
             dir: self.run_local().join(RESULTS),
             effect_id,
@@ -78,11 +86,16 @@ impl Engine {
         // exactly two facts to the driver — the declared NAMES and the
         // store PATH, both journal-safe. Values are resolved at spawn
         // time inside the exec driver; no store read exists anywhere in
-        // brokkr-runtime. Absent when the seat binds nothing, so
-        // pre-0012 bundles rebuild byte-identical seat inputs.
-        if !seat.secrets.is_empty() {
+        // brokkr-runtime. Absent when the seat binds nothing and runs no
+        // Codex driver, so pre-0012 bundles rebuild byte-identical seat
+        // inputs. A Codex seat is handed the store's path whatever it binds,
+        // since its permission profile denies the store (decision 0065 slice
+        // two, U9c2), and its names, none or more, carry both on to each
+        // panel member and sequence step.
+        if !seat.secrets.is_empty() || codex {
+            let store = self.secrets_store_path();
             input["secrets"] = json!(seat.secrets);
-            input["secrets_file"] = json!(self.secrets_store_path().to_string_lossy());
+            input["secrets_file"] = json!(spelled(&store, RunPath::Store)?);
         }
         if let Some(world) = &self.world {
             if let Some(house) = world.house_for(&self.repo)? {
@@ -195,6 +208,86 @@ impl Engine {
                 })
             }
         }
+    }
+}
+
+/// A run path refused because it is not valid UTF-8 (decision 0065 slice
+/// two, U9c2). A seat's input is JSON text, and a lossy spelling names
+/// another file: a Codex profile denying it would leave the real store
+/// readable. So the path is refused, never converted.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "the {} '{}' is not valid UTF-8, so a seat's input could only name another path; the \
+     seat is refused before it is requested (decision 0065 slice two, U9c2)",
+    .which.named(),
+    .path.display()
+)]
+pub struct Unspelled {
+    pub(super) which: RunPath,
+    pub(super) path: PathBuf,
+}
+
+/// Which run path a seat's input could not name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RunPath {
+    Workdir,
+    Store,
+}
+
+impl RunPath {
+    fn named(self) -> &'static str {
+        match self {
+            Self::Workdir => "seat's workdir",
+            Self::Store => "secrets store's path",
+        }
+    }
+}
+
+/// `path` as the text a seat's input carries, or refused as `which`.
+fn spelled(path: &Path, which: RunPath) -> Result<&str, Unspelled> {
+    path.to_str().ok_or_else(|| Unspelled {
+        which,
+        path: path.to_path_buf(),
+    })
+}
+
+/// Whether any driver `body` runs is Codex's: a step's or a member's alike.
+fn runs_codex(body: ExecutableBody<'_>) -> bool {
+    match body {
+        ExecutableBody::Invocation(invocation) => invokes_codex(invocation),
+        ExecutableBody::Sequence { steps } => steps.iter().any(|step| match &step.body {
+            StepBody::Invocation(invocation) => invokes_codex(invocation),
+            StepBody::Dialect { .. } => false,
+        }),
+    }
+}
+
+/// Whether `invocation` runs Codex's driver at any site: an inline command,
+/// or any agent candidate's, a fallback's included, that dispatches it. A
+/// candidate's harness is the one its dispatched command runs, never its
+/// provider's name (operator ruling of 2026-10-23).
+fn invokes_codex<C>(invocation: &Invocation<C>) -> bool {
+    let dispatches = |command: &[String]| {
+        matches!(
+            Dispatch::of(command),
+            Dispatch::Driver { kind: "codex", .. }
+        )
+    };
+    let codex = |command: &[String], candidates: &[Candidate]| {
+        dispatches(command)
+            || candidates
+                .iter()
+                .any(|candidate| dispatches(&candidate.argv))
+    };
+    match invocation {
+        Invocation::Single {
+            command,
+            candidates,
+            ..
+        } => codex(command, candidates),
+        Invocation::Panel { members, .. } => members
+            .iter()
+            .any(|member| codex(&member.command, &member.candidates)),
     }
 }
 
