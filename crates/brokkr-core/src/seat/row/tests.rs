@@ -30,6 +30,7 @@ fn asked(effect_id: &str, member: Member) -> SeatFacts {
         items: None,
         transcript: None,
         outcome: Outcome::Working,
+        carried_from: None,
         started_at: None,
     }
 }
@@ -265,6 +266,48 @@ fn a_provenance_entry_naming_no_provider_replaces_the_last() {
             started_at: Some(at(2)),
             ..asked("v1", Member::Seat)
         }]
+    );
+}
+
+/// A member its effect's last start carries is a participant concluded
+/// as carried, naming its source's attempt and that attempt's place among
+/// its phase's starts, none past a start naming no effect; a member only
+/// an earlier start carried is at work with its effect.
+#[test]
+fn a_carried_member_names_where_its_verdict_settled() {
+    let carried = |member: &str, from: Option<(&str, usize)>| SeatFacts {
+        outcome: Outcome::Carried,
+        carried_from: from.map(|(attempt_id, ordinal)| CarriedFrom {
+            attempt_id: attempt_id.to_string(),
+            ordinal,
+        }),
+        ..asked("c1", named(member))
+    };
+    assert_eq!(
+        facts_of(&journals::carried()),
+        [
+            SeatFacts {
+                started_at: Some(at(2)),
+                ..asked("x1", Member::Seat)
+            },
+            SeatFacts {
+                outcome: Outcome::Indeterminate,
+                started_at: Some(at(4)),
+                ..asked("s1", Member::Seat)
+            },
+            SeatFacts {
+                provider: provider("test"),
+                outcome: Outcome::Indeterminate,
+                ..asked("s1", named("a"))
+            },
+            SeatFacts {
+                started_at: Some(at(7)),
+                ..asked("c1", Member::Seat)
+            },
+            carried("a", Some(("two", 2))),
+            asked("c1", named("c")),
+            carried("b", None),
+        ]
     );
 }
 

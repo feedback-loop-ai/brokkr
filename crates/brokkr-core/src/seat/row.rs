@@ -10,8 +10,10 @@
 //! A participant is a request occurrence and a member, across attempts.
 //! Each request keeps a row of its own that names no attempt: an event
 //! naming none lands there, and a request no attempt has started is that
-//! row alone. What a participant takes from its last record is taken by
-//! seq. Its cost and its turns' tokens are read in journal order across
+//! row alone. A member its effect's last start carries (decision 0093)
+//! is concluded as carried, by the verdict an earlier attempt settled,
+//! and names that attempt as the view does. What a participant takes
+//! from its last record is taken by seq. Its cost and its turns' tokens are read in journal order across
 //! its rows, however its attempts' records interleave: the writer keeps
 //! each participant's running cost and last metered turn beside its rows,
 //! so a row holds the cost summed through its last priced record and its
@@ -56,13 +58,40 @@ impl Provider {
     }
 }
 
-/// Where a participant stands: at work, or how it concluded.
+/// Where a participant stands: at work, or how it concluded, a carried
+/// member by the verdict an earlier attempt settled (decision 0093).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
     Working,
     Succeeded,
     Failed,
     Indeterminate,
+    Carried,
+}
+
+/// The attempt where a carried verdict settled, and its place among the
+/// starts of the carrying request's phase, as the run view names it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CarriedFrom {
+    pub attempt_id: String,
+    pub ordinal: usize,
+}
+
+/// What a start's carried entry says of its member: carried from the
+/// attempt it names, or from one the view names no source for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Carry {
+    From(CarriedFrom),
+    Unsourced,
+}
+
+impl Carry {
+    fn source(&self) -> Option<&CarriedFrom> {
+        match self {
+            Carry::From(from) => Some(from),
+            Carry::Unsourced => None,
+        }
+    }
 }
 
 impl Outcome {
@@ -153,6 +182,8 @@ pub struct SeatRow {
     ended: Last<Outcome>,
     /// A member's last panel finish.
     pin: Last<Pin>,
+    /// The carried entry its attempt's start recorded for it.
+    carried: Last<Carry>,
     turns: Option<u64>,
     items: Option<u64>,
     /// Its participant's reported costs, every attempt's, summed in
@@ -225,13 +256,15 @@ impl SeatRow {
     }
 }
 
-/// A request occurrence: the effect it asked for, the seat it hired, and
-/// its attempt in flight, the last started until a terminal names it.
+/// A request occurrence: the effect it asked for, the seat it hired, the
+/// phase it names, and its attempt in flight, the last started until a
+/// terminal names it.
 #[derive(Debug, Clone)]
 struct Request {
     seq: u64,
     effect_id: String,
     seat: Option<String>,
+    phase: Option<String>,
     open: Option<String>,
 }
 
@@ -250,6 +283,9 @@ pub(crate) struct Seats {
     at: BTreeMap<Attempt, BTreeMap<Member, usize>>,
     /// Each participant's running state, by its request and member.
     running: BTreeMap<(usize, Member), Running>,
+    /// Every start so far, by the effect and the attempt it names: what a
+    /// carried source's ordinal counts.
+    begun: Vec<(Option<String>, Option<String>)>,
 }
 
 impl Seats {
@@ -262,6 +298,10 @@ impl Seats {
     pub(crate) fn note(&mut self, event: &EventEnvelope) {
         let payload = &event.payload;
         let effect_id = field(payload, "effect_id");
+        if event.event_type == EventType::EffectStarted {
+            let attempt = field(payload, "attempt_id").map(str::to_string);
+            self.begun.push((effect_id.map(str::to_string), attempt));
+        }
         match (event.event_type, effect_id) {
             (EventType::PhaseEntered, _) => {
                 self.phase = field(payload, "phase").map(str::to_string)
@@ -282,6 +322,7 @@ impl Seats {
             seq: event.seq,
             effect_id: effect_id.to_string(),
             seat: field(&event.payload, "seat").map(str::to_string),
+            phase: field(&event.payload, "phase").map(str::to_string),
             open: None,
         });
         self.row(self.requests.len() - 1, None, Member::Seat);
@@ -358,6 +399,7 @@ impl Seats {
             stamp: None,
             ended: None,
             pin: None,
+            carried: None,
             turns: None,
             items: None,
             spent: None,
@@ -391,6 +433,50 @@ impl Seats {
             let row = self.row(request, attempt, Member::of(entry.member.as_deref()));
             row.boundary = Some((seq, entry.word));
         }
+        self.carried(request, attempt, event);
+    }
+
+    /// The members a start carries (decision 0093, panel-carry.v1): each
+    /// entry naming a member and an attempt opens its member's row and
+    /// records that attempt's source; an entry naming either not is passed
+    /// over, as the view passes it over.
+    fn carried(&mut self, request: usize, attempt: Option<&str>, event: &EventEnvelope) {
+        let carried = event.payload.get("carried").and_then(Value::as_array);
+        for entry in carried.into_iter().flatten() {
+            let (Some(member), Some(source)) = (field(entry, "member"), field(entry, "attempt_id"))
+            else {
+                continue;
+            };
+            let carry = self.source(request, source);
+            let row = self.row(request, attempt, Member::of(Some(member)));
+            row.carried = Some((event.seq, carry));
+        }
+    }
+
+    /// The source the view names for a verdict `request` carries from
+    /// `attempt_id`: the first start naming that attempt, counted among
+    /// the starts through it whose effect was first asked in `request`'s
+    /// phase; none where a start before it names no effect, or no start
+    /// names that attempt.
+    fn source(&self, request: usize, attempt_id: &str) -> Carry {
+        let phase = &self.requests[request].phase;
+        let mut ordinal = 0;
+        for (effect, attempt) in &self.begun {
+            let Some(effect) = effect else {
+                return Carry::Unsourced;
+            };
+            let mut asked = self.requests.iter();
+            let asked = asked.find(|asked| asked.effect_id == *effect);
+            ordinal += usize::from(asked.is_some_and(|asked| asked.phase == *phase));
+            if attempt.as_deref() == Some(attempt_id) {
+                let attempt_id = attempt_id.to_string();
+                return Carry::From(CarriedFrom {
+                    attempt_id,
+                    ordinal,
+                });
+            }
+        }
+        Carry::Unsourced
     }
 
     fn checkpointed(&mut self, request: usize, attempt: Option<&str>, event: &EventEnvelope) {
@@ -457,6 +543,9 @@ pub struct SeatFacts {
     pub items: Option<u64>,
     pub transcript: Option<Transcript>,
     pub outcome: Outcome,
+    /// Where a member its effect's last start carries settled its verdict,
+    /// `None` for a source the view names none for.
+    pub carried_from: Option<CarriedFrom>,
     /// A seat's first attempt's start; a member's first checkpoint.
     pub started_at: Option<String>,
 }
@@ -531,9 +620,11 @@ fn usage(part: &[&SeatRow], session: Option<&Session>) -> Option<TokenUsage> {
 fn own(part: &[&SeatRow], effect: &Effect) -> SeatFacts {
     let row = part[0];
     let session = latest(part, 0, |row| row.session.as_ref());
-    let outcome = match latest(part, 0, |row| row.pin.as_ref()) {
-        Some(Pin::Pinned(outcome)) => *outcome,
-        Some(Pin::Unpinned) | None => effect.outcome,
+    let carried = latest(part, effect.since, |row| row.carried.as_ref());
+    let outcome = match (carried, latest(part, 0, |row| row.pin.as_ref())) {
+        (Some(_), _) => Outcome::Carried,
+        (None, Some(Pin::Pinned(outcome))) => *outcome,
+        (None, Some(Pin::Unpinned) | None) => effect.outcome,
     };
     let boundary = latest(part, effect.since, |row| row.boundary.as_ref());
     let stamp = || latest(part, effect.since, |row| row.stamp.as_ref());
@@ -562,6 +653,7 @@ fn own(part: &[&SeatRow], effect: &Effect) -> SeatFacts {
             .reduce(|all, items| all + items),
         transcript: latest(part, 0, |row| row.transcript.as_ref()).cloned(),
         outcome,
+        carried_from: carried.and_then(Carry::source).cloned(),
         started_at: started.map(|start| start.at.clone()),
     }
 }

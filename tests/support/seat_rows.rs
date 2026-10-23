@@ -4,7 +4,7 @@
 //! seat whose turns and session record both
 //! carry tokens, a panel, a request never started, the records that
 //! name no attempt or no member, an attempt started again, and a
-//! provenance entry naming no provider. brokkr-core pins each one's facts; brokkr-view holds the
+//! provenance entry naming no provider, and a panel's carried members. brokkr-core pins each one's facts; brokkr-view holds the
 //! same journals' facts equal to its run view. A test module includes this
 //! file through `#[path]` beside an `envelope_builder` module, the one
 //! place a test spells an envelope (#357).
@@ -424,6 +424,53 @@ pub(crate) fn unprovided() -> Vec<EventEnvelope> {
     ])
 }
 
+/// A panel retried with its members carried (decision 0093): its first
+/// retry carries `a` from the source's attempt and `c` from one never
+/// started, passing over entries naming no attempt or no member; its
+/// second carries `a` from the first retry and `b` from itself, after a
+/// start that names no effect. A seat of another phase started first.
+pub(crate) fn carried() -> Vec<EventEnvelope> {
+    let asked = |effect: &str, phase: &str| {
+        let payload = json!({"effect_id": effect, "seat": phase, "phase": phase});
+        (EventType::EffectRequested, payload)
+    };
+    let started = |effect: &str, attempt: &str, carried: Value| {
+        let payload = json!({"effect_id": effect, "attempt_id": attempt, "carried": carried});
+        (EventType::EffectStarted, payload)
+    };
+    journal(vec![
+        asked("x1", "intake"),
+        started("x1", "x", json!([])),
+        asked("s1", "review"),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "s1", "attempt_id": "one",
+                   "provenance": [{"member": "a", "agent": "reviewer", "provider": "test"}]}),
+        ),
+        (
+            EventType::EffectIndeterminate,
+            json!({"effect_id": "s1", "attempt_id": "one"}),
+        ),
+        asked("c1", "review"),
+        started(
+            "c1",
+            "two",
+            json!([{"member": "a", "attempt_id": "one"}, {"member": "c", "attempt_id": "ghost"},
+                   {"member": "bad"}, {"attempt_id": "one"}]),
+        ),
+        (
+            EventType::EffectFailed,
+            json!({"effect_id": "c1", "attempt_id": "two"}),
+        ),
+        (EventType::EffectStarted, json!({"attempt_id": "blind"})),
+        started(
+            "c1",
+            "three",
+            json!([{"member": "a", "attempt_id": "two"}, {"member": "b", "attempt_id": "three"}]),
+        ),
+    ])
+}
+
 /// Every hand-built journal, by name.
 pub(crate) fn journals() -> Vec<(&'static str, Vec<EventEnvelope>)> {
     vec![
@@ -438,5 +485,6 @@ pub(crate) fn journals() -> Vec<(&'static str, Vec<EventEnvelope>)> {
         ("unnamed", unnamed()),
         ("reopened", reopened()),
         ("unprovided", unprovided()),
+        ("carried", carried()),
     ]
 }

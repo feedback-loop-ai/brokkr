@@ -41,9 +41,9 @@ fn status(outcome: Outcome) -> &'static str {
         Outcome::Succeeded => "succeeded",
         Outcome::Failed => "failed",
         Outcome::Indeterminate => "indeterminate",
+        Outcome::Carried => "carried",
     }
 }
-
 /// When the view's clock starts for `participant`: a seat's at its
 /// effect's first start, a member's at its first checkpoint.
 fn started_at<'a>(events: &'a [EventEnvelope], participant: &'a Participant) -> Option<&'a str> {
@@ -73,6 +73,10 @@ fn differs(
     };
     let provenance = participant.provenance.as_ref();
     let bits = |cost: Option<f64>| cost.map(f64::to_bits);
+    let carried = facts.carried_from.as_ref();
+    let carried = carried.map(|from| (from.attempt_id.as_str(), from.ordinal));
+    let shown_carried = participant.carried_from.as_ref();
+    let shown_carried = shown_carried.map(|from| (from.attempt_id.as_str(), from.ordinal));
     let fields = [
         ("key", key == participant.key),
         ("model", facts.model == shown(&participant.served.model)),
@@ -107,6 +111,7 @@ fn differs(
         ("items", turns_cell(facts) == shown(&participant.turns_cell)),
         ("transcript", facts.transcript == participant.transcript),
         ("outcome", status(facts.outcome) == participant.status),
+        ("carried_from", carried == shown_carried),
         ("started_at", facts.started_at.as_deref() == start),
     ];
     fields

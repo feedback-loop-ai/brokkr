@@ -868,6 +868,7 @@ pub enum brokkr_core::seat::row::Member
 pub brokkr_core::seat::row::Member::Named(alloc::string::String)
 pub brokkr_core::seat::row::Member::Seat
 pub enum brokkr_core::seat::row::Outcome
+pub brokkr_core::seat::row::Outcome::Carried
 pub brokkr_core::seat::row::Outcome::Failed
 pub brokkr_core::seat::row::Outcome::Indeterminate
 pub brokkr_core::seat::row::Outcome::Succeeded
@@ -875,8 +876,12 @@ pub brokkr_core::seat::row::Outcome::Working
 pub enum brokkr_core::seat::row::Provider
 pub brokkr_core::seat::row::Provider::Named(alloc::string::String)
 pub brokkr_core::seat::row::Provider::Unnamed
+pub struct brokkr_core::seat::row::CarriedFrom
+pub brokkr_core::seat::row::CarriedFrom::attempt_id: alloc::string::String
+pub brokkr_core::seat::row::CarriedFrom::ordinal: usize
 pub struct brokkr_core::seat::row::SeatFacts
 pub brokkr_core::seat::row::SeatFacts::boundary: core::option::Option<alloc::string::String>
+pub brokkr_core::seat::row::SeatFacts::carried_from: core::option::Option<brokkr_core::seat::row::CarriedFrom>
 pub brokkr_core::seat::row::SeatFacts::cost: core::option::Option<f64>
 pub brokkr_core::seat::row::SeatFacts::cost_aggregated: bool
 pub brokkr_core::seat::row::SeatFacts::effect_id: alloc::string::String
