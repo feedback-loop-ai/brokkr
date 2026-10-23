@@ -11,9 +11,7 @@ use brokkr_core::EventEnvelope;
 use brokkr_view::{run_view, ABSENT};
 use serde_json::{json, Value};
 
-#[path = "../../../tests/support/envelope.rs"]
-mod envelope_builder;
-use envelope_builder::EnvelopeBuilder;
+use crate::envelope_builder::EnvelopeBuilder;
 
 const T0: &str = "2026-01-01T00:00:00Z";
 const T1: &str = "2026-01-01T00:02:03Z";
