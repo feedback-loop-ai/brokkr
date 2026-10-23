@@ -5624,6 +5624,9 @@ fn every_table_is_inventoried_with_its_forms_and_effects() {
     };
     let permission = Effect::Control(Power::Permission);
     let filesystem = Effect::Control(Power::Filesystem);
+    let (mcp, tools) = (Effect::Control(Power::Mcp), Effect::Control(Power::Tools));
+    let bare = |name, effect| (name, vec![], Bare, false, false, false, effect);
+    let toggle = |name, effect| (name, vec![], One, true, false, true, effect);
     let codex: Vec<Row> = vec![
         (
             "--config",
@@ -5678,15 +5681,7 @@ fn every_table_is_inventoried_with_its_forms_and_effects() {
             Effect::Load,
         ),
         ("--json", vec![], Bare, false, false, false, Effect::Switch),
-        (
-            "--include-plan-tool",
-            vec![],
-            Bare,
-            false,
-            false,
-            false,
-            Effect::Control(Power::Tools),
-        ),
+        bare("--include-plan-tool", tools),
         ("--full-auto", vec![], Bare, false, false, false, permission),
         (
             "--dangerously-bypass-approvals-and-sandbox",
@@ -5706,15 +5701,10 @@ fn every_table_is_inventoried_with_its_forms_and_effects() {
             false,
             Effect::Switch,
         ),
-        (
-            "--search",
-            vec![],
-            Bare,
-            false,
-            false,
-            false,
-            Effect::Control(Power::Web),
-        ),
+        bare("--search", Effect::Control(Power::Web)),
+        bare("--ignore-user-config", mcp),
+        toggle("--disable", mcp),
+        toggle("--enable", tools),
     ];
     let inert = |name| (name, vec![], One, true, false, false, Effect::Inert);
     let switch = |name| (name, vec![], Bare, false, false, false, Effect::Switch);
@@ -5908,6 +5898,7 @@ fn every_catalogue_spelling_bears_a_capability_or_refuses_by_name() {
     const NO_JOINED: &str = "names no option, or names one that has no equals-joined spelling";
     let permission = Effect::Control(Power::Permission);
     let filesystem = Effect::Control(Power::Filesystem);
+    let (mcp, tools) = (Effect::Control(Power::Mcp), Effect::Control(Power::Tools));
     // Value-taking options: (harnesses, every spelling, canonical, effect).
     let valued: Vec<(&[&str], &[&str], &str, Effect)> = vec![
         (
@@ -5973,6 +5964,8 @@ fn every_catalogue_spelling_bears_a_capability_or_refuses_by_name() {
             permission,
         ),
         (&["codex"], &["--profile", "-p"], "--profile", Effect::Load),
+        (&["codex"], &["--disable"], "--disable", mcp),
+        (&["codex"], &["--enable"], "--enable", tools),
     ];
     for (harnesses, spellings, canonical, effect) in &valued {
         for harness in *harnesses {
@@ -6047,6 +6040,7 @@ fn every_catalogue_spelling_bears_a_capability_or_refuses_by_name() {
             Effect::Control(Power::Mcp),
         ),
         (&["codex"], "--search", Effect::Control(Power::Web)),
+        (&["codex"], "--ignore-user-config", mcp),
         (
             &["codex"],
             "--include-plan-tool",
@@ -6090,13 +6084,7 @@ fn every_catalogue_spelling_bears_a_capability_or_refuses_by_name() {
         ),
         (
             &["codex"],
-            &[
-                "--enable",
-                "--disable",
-                "--approve-for-me",
-                "--ignore-rules",
-                "--yolo",
-            ],
+            &["--approve-for-me", "--ignore-rules", "--yolo"],
         ),
         (
             &["dsh"],
@@ -7145,8 +7133,8 @@ fn the_engines_hands_transport_is_expanded_from_its_typed_inputs() {
 /// and hands are never inferred from an include list. A Claude fragment that
 /// leaves the empty include restriction and the workspace allowance out has
 /// both written by the composer; one without strict MCP or the MCP
-/// document, and a Codex one without its class or any of the server's three
-/// bindings, refuses whole. A denial of the hands tool, or of the hands'
+/// document refuses whole, as a Codex one does (`isolation.rs`, U9c1). A
+/// denial of the hands tool, or of the hands'
 /// server, refuses as both admitted and denied although the fragment never
 /// spelled the allowance.
 #[test]
@@ -7262,33 +7250,6 @@ fn typed_hands_carry_their_whole_transport_through_the_composer() {
             ),
             Err(both("claude", denial)),
             "{denial}"
-        );
-    }
-    // Codex: the class and each of the server's three bindings.
-    let codex = codex_hands(&CODEX_HANDS);
-    for (dropped, what) in [
-        (0..2, "sandbox class ('--sandbox')"),
-        (
-            2..4,
-            "server command binding ('mcp_servers.brokkr.command')",
-        ),
-        (4..6, "server arguments binding ('mcp_servers.brokkr.args')"),
-        (
-            6..8,
-            "server approval binding ('mcp_servers.brokkr.default_tools_approval_mode')",
-        ),
-    ] {
-        let mut hands = argv(&CODEX_HANDS);
-        hands.drain(dropped);
-        assert_eq!(
-            compose_for_provider(
-                "codex",
-                &codex.authored,
-                &hands,
-                &in_box(6, &codex.controls)
-            ),
-            Err(unhanded("codex", 6, what)),
-            "{what}"
         );
     }
     // A harness with no hands transport is owed none (rebuild unit 26b).
@@ -7988,7 +7949,7 @@ fn a_complete_claude_command_checks_into_a_value_the_spawn_consumes_unchanged() 
     assert!(sealed.composed().unwrap().managed.is_empty());
     let parsed = grammar::parse_final("claude", &cold[1..]).unwrap().unwrap();
     assert_eq!(
-        read_state(&parsed.command),
+        read_state(&parsed.command, grammar::Bound::default()),
         Ok(State {
             effects: vec![
                 Expressed::Control("--permission-mode", argv(&["acceptEdits"])),
@@ -11793,7 +11754,7 @@ fn codex_states() -> Vec<Generated> {
                             ),
                         ),
                         ("boxed, classless", _) => {
-                            let refusal = unhanded("codex", 6, "sandbox class ('--sandbox')");
+                            let refusal = unhanded("codex", 6, UNCLASSED);
                             refused(Some(refusal.clone()), refusal)
                         }
                         (_, "unanswered" | "unmeasured") => {
@@ -12583,6 +12544,10 @@ mod servers;
 
 /// Every Codex TOML value decoding to itself (R2), moved here by U8a.
 mod toml;
+
+/// Codex's isolation options and permission profile (U9c1).
+mod isolation;
+use isolation::UNCLASSED;
 
 /// The fixtures' transports and their hand-written pins (U8a2c).
 mod transport;

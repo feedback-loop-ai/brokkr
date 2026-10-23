@@ -23,6 +23,10 @@
 use std::fmt;
 
 use super::{flatten, Origin, SandboxIntent, Segment};
+use config::assignment_parts;
+pub(crate) use config::{feature, isolation, profile, Bound, Unisolated};
+
+mod config;
 
 /// How many argv tokens one option's value occupies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -379,6 +383,11 @@ static CODEX: &[Spec] = &[
     ),
     switch("--skip-git-repo-check", &[]),
     control("--search", Power::Web),
+    // The isolation options of codex-cli 0.162.1 (U9c1; SI2): a feature
+    // toggle is judged by the feature it names ([`config::isolation`]).
+    control("--ignore-user-config", Power::Mcp),
+    feature("--disable", Power::Mcp),
+    feature("--enable", Power::Tools),
 ];
 
 /// The tool-list options Claude Code and LaneTally's wrapper share. Each
@@ -1048,9 +1057,10 @@ pub enum Setting {
 
 /// The top-level Codex configuration tables that carry a capability
 /// (the realm delta's catalogue): MCP servers, web search in every
-/// spelling, tool and feature tables, approval and sandbox policy, and a
-/// profile, which is another configuration document.
-pub const CAPABILITY_TABLES: [&str; 10] = [
+/// spelling, tool and feature tables, approval and sandbox policy, a
+/// profile, which is another configuration document, and a permission
+/// profile and the `default_permissions` selector that selects it.
+pub const CAPABILITY_TABLES: [&str; 12] = [
     "mcp_servers",
     "web_search",
     "web_search_mode",
@@ -1061,6 +1071,8 @@ pub const CAPABILITY_TABLES: [&str; 10] = [
     "sandbox_workspace_write",
     "profile",
     "profiles",
+    "permissions",
+    "default_permissions",
 ];
 
 /// The one inert key a Codex command needs — the effort the engine
@@ -1546,38 +1558,6 @@ pub fn inline_codex_denials(argv: &[String]) -> Vec<&'static str> {
                 .and_then(|admitted| admitted.denies)
         })
         .collect()
-}
-
-/// The dotted key parts and the trimmed value of one `KEY=VALUE`
-/// assignment, or the fixed cause it cannot be read for.
-fn assignment_parts(assignment: &str) -> Result<(Vec<&str>, &str), &'static str> {
-    const NOT_ASSIGNMENT: &str = "is not a KEY=VALUE configuration assignment";
-    const MALFORMED: &str = "assigns through a key the grammar cannot read: each dotted part is a \
-                             bare name or a quoted one without escapes, within 16 parts and 256 \
-                             bytes";
-    const NO_VALUE: &str = "assigns no value";
-    let mut quote = None;
-    let split = assignment.char_indices().find(|&(_, c)| {
-        match (quote, c) {
-            (None, '"' | '\'') => quote = Some(c),
-            (Some(open), _) if open == c => quote = None,
-            _ => {}
-        }
-        quote.is_none() && c == '='
-    });
-    let Some((at, _)) = split else {
-        return Err(NOT_ASSIGNMENT);
-    };
-    let (key, value) = (&assignment[..at], &assignment[at + 1..]);
-    if key.len() > KEY_BYTES_MAX || key.chars().any(char::is_control) {
-        return Err(MALFORMED);
-    }
-    let parts = key_parts(key).ok_or(MALFORMED)?;
-    let value = value.trim_matches(blank);
-    if value.is_empty() {
-        return Err(NO_VALUE);
-    }
-    Ok((parts, value))
 }
 
 /// The separators a managed tool list may be joined with. A comma is what

@@ -46,7 +46,10 @@ fn is_mcp(harness: &str, effect: &Expressed) -> bool {
 pub(super) fn unmatched(harness: &str, expected: &[String], command: &[String]) -> Option<Refusal> {
     let effects = |command: &[String]| -> Option<Vec<Expressed>> {
         let parsed = grammar::parse_final(harness, &command[1..])?.ok()?;
-        read_state(&parsed.command).ok().map(|state| state.effects)
+        let bound = grammar::Bound::default();
+        read_state(&parsed.command, bound)
+            .ok()
+            .map(|state| state.effects)
     };
     let (checked, mut left) = (effects(expected)?, effects(command)?);
     let servers = |effects: &[Expressed]| -> Vec<Expressed> {
@@ -68,6 +71,13 @@ pub(super) fn unmatched(harness: &str, expected: &[String], command: &[String]) 
             format!("the measured OFF for native capability '{capability}'")
         }
         Expressed::Control(name, _) => format!("'{name}'"),
+        Expressed::Isolation(Isolation::UserConfig) => {
+            "the isolation option '--ignore-user-config'".to_string()
+        }
+        Expressed::Isolation(Isolation::Apps) => "the isolation option '--disable apps'".into(),
+        Expressed::Isolation(Isolation::Plugins) => {
+            "the isolation option '--disable plugins'".to_string()
+        }
     };
     for effect in &checked {
         match left.iter().position(|other| other == effect) {
