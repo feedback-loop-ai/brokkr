@@ -103,9 +103,10 @@
    230 crates/brokkr-protocol/src/hands/sealed.rs
    296 crates/brokkr-protocol/src/hands/session.rs
    219 crates/brokkr-protocol/src/lib.rs
-  4204 crates/brokkr-protocol/src/native_controls.rs
+  3977 crates/brokkr-protocol/src/native_controls.rs
   1668 crates/brokkr-protocol/src/native_controls/grammar.rs
    311 crates/brokkr-protocol/src/native_controls/grammar/config.rs
+   375 crates/brokkr-protocol/src/native_controls/listed.rs
    730 crates/brokkr-protocol/src/native_controls/mcp.rs
    207 crates/brokkr-protocol/src/native_controls/read.rs
    138 crates/brokkr-protocol/src/oneshot.rs
@@ -334,7 +335,7 @@
   1900 crates/brokkr-protocol/src/hands/tests/sources.rs
    182 crates/brokkr-protocol/src/native_controls/mcp/tests.rs
  12555 crates/brokkr-protocol/src/native_controls/tests.rs
-   722 crates/brokkr-protocol/src/native_controls/tests/isolation.rs
+   814 crates/brokkr-protocol/src/native_controls/tests/isolation.rs
    533 crates/brokkr-protocol/src/native_controls/tests/servers.rs
    374 crates/brokkr-protocol/src/native_controls/tests/serving.rs
    224 crates/brokkr-protocol/src/native_controls/tests/toml.rs

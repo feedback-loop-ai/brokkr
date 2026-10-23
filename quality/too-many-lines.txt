@@ -10,9 +10,8 @@
  229 crates/brokkr-protocol/src/adapters/composite.rs:1346 pnpm_dependencies
  114 crates/brokkr-protocol/src/adapters/composite/image.rs:313 elf
  114 crates/brokkr-protocol/src/fake.rs:73 run_fake_session
- 136 crates/brokkr-protocol/src/native_controls.rs:1084 decode_record
- 326 crates/brokkr-protocol/src/native_controls.rs:1984 sealed_inputs
- 335 crates/brokkr-protocol/src/native_controls.rs:3624 compose_or_exclude
+ 136 crates/brokkr-protocol/src/native_controls.rs:1086 decode_record
+ 326 crates/brokkr-protocol/src/native_controls.rs:1989 sealed_inputs
  106 crates/brokkr-protocol/src/native_controls/grammar.rs:699 parse_span
  240 crates/brokkr-runtime/src/capabilities.rs:1491 native_plan
  115 crates/brokkr-seatbelt-probe/src/main.rs:346 run_payload

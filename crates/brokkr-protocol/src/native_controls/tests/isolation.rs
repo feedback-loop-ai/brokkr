@@ -224,6 +224,85 @@ fn a_profiled_cold_command_checks_and_one_that_lost_an_option_refuses() {
     );
 }
 
+/// [`codex_hands`]'s plan whose measured fragment is the profile over
+/// `entries` beside the isolation options, then the server's bindings.
+fn profiled_hands(entries: &str) -> Sealed {
+    let hands = [rendered(entries), argv(&CODEX_HANDS[2..])].concat();
+    codex_hands(&hands.iter().map(String::as_str).collect::<Vec<_>>())
+}
+
+/// The cold command [`profiled_hands`] is served as, its binary first,
+/// the hands' profile written over `written`.
+fn hands_cold(written: &str) -> Vec<String> {
+    [
+        argv(&CODEX_LEAD),
+        argv(&["--model", "gpt", "--image", "resume"]),
+        rendered(written),
+        argv(&["-c", "mcp_servers.brokkr.command=\"/bin/brokkr\"", "-c"]),
+        vec![format!("mcp_servers.brokkr.args={SERVER_ARGUMENTS}")],
+        argv(&[
+            "-c",
+            "mcp_servers.brokkr.default_tools_approval_mode=\"approve\"",
+            "-c",
+            "web_search=\"disabled\"",
+        ]),
+    ]
+    .concat()
+}
+
+/// R1 of U9c1's second review (SI2): the final check recomposes the box's
+/// hands judged bound to the paths its serving hands, so a profiled hands
+/// command — cold, and so the cold replacement of the rejoin the driver
+/// declines for the hands' bindings — checks whole where the serving hands
+/// the workdir its profile writes and the store it denies. Where it hands
+/// no store, another workdir or another store, and where the hands'
+/// measured profile is bound to none of them, it refuses.
+#[test]
+fn profiled_hands_check_whole_against_the_paths_the_serving_hands() {
+    let check = |sealed: &Sealed, command: &[String], workdir: &'static str, store| {
+        let serving = Serving {
+            workdir,
+            store,
+            ..Serving::default()
+        };
+        sealed
+            .check(command.to_vec(), serving)
+            .map(Checked::into_argv)
+    };
+    let unread = |fault: Unisolated| {
+        let cause = format!("cannot be read: it {fault}");
+        Err(final_refusal("codex", &cause))
+    };
+    for entries in [READ_ONLY, WORKSPACE_WRITE] {
+        let (boxed, cold) = (profiled_hands(entries), hands_cold(entries));
+        assert_eq!(check(&boxed, &cold, "/w", Some(STORE)), Ok(cold.clone()));
+        let unhanded = unread(Unisolated::Unhanded(14));
+        assert_eq!(check(&boxed, &cold, "/w", None), unhanded);
+        let moved = unread(Unisolated::Unstored(14));
+        assert_eq!(check(&boxed, &cold, "/w", Some("/moved")), moved);
+    }
+    let (boxed, cold) = (profiled_hands(WORKSPACE_WRITE), hands_cold(WORKSPACE_WRITE));
+    let elsewhere = unread(Unisolated::Unrooted(14));
+    assert_eq!(check(&boxed, &cold, "/elsewhere", Some(STORE)), elsewhere);
+    // The hostile profile, writing `/` and denying a path that is not the
+    // store, as the hands' measured fragment: served as written it is read
+    // as the profile it is, and under a bound command the sealed hands are
+    // read bound too, and refuse before anything is composed.
+    let hostile = r#"":root"="read","/"="write","/nonexistent"="deny""#;
+    let boxed = profiled_hands(hostile);
+    let unrooted = unread(Unisolated::Unrooted(14));
+    assert_eq!(
+        check(&boxed, &hands_cold(hostile), "/w", Some(STORE)),
+        unrooted
+    );
+    let bound = hands_cold(WORKSPACE_WRITE);
+    let unsealed = Err(final_refusal(
+        "codex",
+        "is sealed with a boundary that cannot be read",
+    ));
+    assert_eq!(check(&boxed, &bound, "/w", Some(STORE)), unsealed);
+}
+
 /// Each case of the refusal tables: the options, the index of the one the
 /// fault stands at among them, and the fault.
 type Case = (Vec<String>, usize, fn(usize) -> Unisolated);
@@ -678,6 +757,19 @@ fn codex_hands_carry_the_class_by_sandbox_or_profile_and_three_bindings() {
     }
     assert_eq!(transported(&profiled, BOUND), None);
     assert_eq!(transported(&profiled, Bound::default()), Some(UNCLASSED));
+    let written = [rendered(WORKSPACE_WRITE), argv(&CODEX_HANDS[2..])].concat();
+    assert_eq!(transported(&written, BOUND), None);
+    let elsewhere = Bound {
+        workdir: "/elsewhere",
+        ..BOUND
+    };
+    let moved = Bound {
+        store: Some("/moved"),
+        ..BOUND
+    };
+    for bound in [elsewhere, moved] {
+        assert_eq!(transported(&written, bound), Some(UNCLASSED), "{bound:?}");
+    }
     for (dropped, what) in [
         (0..9, UNCLASSED),
         (5..9, UNCLASSED),
