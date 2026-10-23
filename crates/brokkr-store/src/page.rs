@@ -85,8 +85,8 @@ pub fn keyed(order_at: i64, run_id: String) -> Keyed {
     }
 }
 
-/// Whether a writer admits `run_id`: the one bound every lane's key is
-/// held to.
+/// Whether `run_id` is within a writer's length bound: the one bound
+/// every lane's key is held to, so an id a journal already holds reads.
 fn admitted(run_id: &str) -> Result<(), RowRefusal> {
     if run_id.len() > RUN_ID_MAX {
         return Err(RowRefusal::RunIdPastBound);

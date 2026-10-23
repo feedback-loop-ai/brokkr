@@ -15,6 +15,7 @@ use serde_json::{json, Map, Value};
 
 use super::parse::{SeatScope, SiteCompiler};
 use super::site_form::{classify, SEAT};
+use super::survey::Refusals;
 use super::{
     body_manifest, claim_address, compose, dialect_gate_site, dialect_results, enforce_model_pins,
     enforce_model_policy, fold_driver_facts, is_engine_owned, owner_index, parse_limits,
@@ -380,18 +381,18 @@ fn pin_drivers(
 /// outcome lands in the one canonical site family so relocation carries it
 /// like every other fact.
 fn record_seat_capabilities(
-    authority: &Authority,
-    agents: &Opened<'_>,
+    (authority, agents): (&Authority, &Opened<'_>),
     at: (Boundary, &Executable),
     resolved: &compose::Resolved,
     sites: &mut BTreeMap<String, SiteFacts>,
+    refusals: &mut Refusals<'_>,
 ) -> Result<(), CompileError> {
     let walk = CapabilityWalk::of(authority, agents, at, resolved);
     for (phase, raw) in &resolved.seats {
         // The layer that wrote the seat, as its agent's hands
         // segment is expanded against (review return F1).
         let dir = &resolved.roots[resolved.seat_origin[phase]];
-        record_capabilities(&walk, dir, phase, raw, sites)?;
+        record_capabilities(&walk, dir, (phase, raw), sites, refusals)?;
     }
     Ok(())
 }
@@ -415,11 +416,13 @@ pub(super) struct Seated<'s, 'a> {
 
 impl Seated<'_, '_> {
     /// What the seats opened, settled; their model pins; the table's seat
-    /// and ruling lints; the capability pass; and the adapters' own load.
+    /// and ruling lints; the capability pass, meeting each seat's refusal
+    /// as `refusals` says; and the adapters' own load.
     pub(super) fn settle(
         &mut self,
         machine: &Machine,
         adapters_root: &Path,
+        refusals: &mut Refusals<'_>,
     ) -> Result<(), CompileError> {
         self.agents.settle(&self.resolved.seats)?;
         pin_drivers(&self.seats, &self.agents, &mut self.sites)?;
@@ -427,11 +430,11 @@ impl Seated<'_, '_> {
         phases::seated_and_ruled(machine, &self.seats)?;
 
         record_seat_capabilities(
-            self.authority,
-            &self.agents,
+            (self.authority, &self.agents),
             (self.boundary, self.engine),
             self.resolved,
             &mut self.sites,
+            refusals,
         )?;
         // Decision 0069: a PRESENT adapters root that does not load is
         // refused with the loader's own words, so a malformed discovery
@@ -446,8 +449,13 @@ impl Seated<'_, '_> {
     }
 
     /// The authoring census, the dialect wrapper where the realm's dialect
-    /// wraps a parsed verify seat, and the final aliasing walk.
-    pub(super) fn wrap(&mut self, wrapped_verify: Option<&Command>) -> Result<(), CompileError> {
+    /// wraps a parsed verify seat, its validator's capability record met by
+    /// `refusals`, and the final aliasing walk.
+    pub(super) fn wrap(
+        &mut self,
+        wrapped_verify: Option<&Command>,
+        refusals: &mut Refusals<'_>,
+    ) -> Result<(), CompileError> {
         // The authoring census (design D10 F2): every structural owner is
         // registered, and a raw collision refused, BEFORE the wrapper
         // changes an address or any destination fact is written. The
@@ -458,7 +466,7 @@ impl Seated<'_, '_> {
 
         let verify = phase_name::VERIFY;
         if let Some(command) = wrapped_verify.filter(|_| self.seats.contains_key(verify)) {
-            self.wrap_verify(command, census)?;
+            self.wrap_verify(command, census, refusals)?;
         }
 
         refuse_global_aliasing(&self.seats)?;
@@ -472,13 +480,15 @@ impl Seated<'_, '_> {
         &mut self,
         command: &Command,
         census: BTreeMap<String, SiteKey>,
+        refusals: &mut Refusals<'_>,
     ) -> Result<(), CompileError> {
         let verify = phase_name::VERIFY;
         let (prior_body, moved) = wrapped_owners(&self.seats)?;
         claim_wrapped_addresses(census, &moved)?;
         let dialect_site = "verify:dialect-verify";
-        self.seat_validator(dialect_site)?;
+        self.seat_validator(dialect_site, refusals)?;
         relocate_verify_facts(&mut self.sites, &moved);
+        refusals.relocate(&moved);
         let prior = SequenceStep {
             name: "checks".into(),
             class: SeatClass::of(self.seats[verify].has_gate()),
@@ -509,7 +519,11 @@ impl Seated<'_, '_> {
 
     /// The injected validator's site facts: its model policy, hands,
     /// capability outcome and judged tools.
-    fn seat_validator(&mut self, dialect_site: &str) -> Result<(), CompileError> {
+    fn seat_validator(
+        &mut self,
+        dialect_site: &str,
+        refusals: &mut Refusals<'_>,
+    ) -> Result<(), CompileError> {
         let verify = phase_name::VERIFY;
         let (boundary, resolved) = (self.boundary, self.resolved);
         let synthetic = dialect_gate_site(dialect_site, boundary)?;
@@ -545,7 +559,8 @@ impl Seated<'_, '_> {
             // validator's gate law read them.
             let at = (boundary, self.engine);
             let walk = CapabilityWalk::of(self.authority, &self.agents, at, resolved);
-            record_capabilities(&walk, law.dir, dialect_site, &synthetic, &mut self.sites)?;
+            let site = (dialect_site, &synthetic);
+            record_capabilities(&walk, law.dir, site, &mut self.sites, refusals)?;
         }
         // The generated validator declares no `tools`, and like every
         // other visited executable it records that as a CHECKED

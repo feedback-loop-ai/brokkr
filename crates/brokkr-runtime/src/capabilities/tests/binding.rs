@@ -256,7 +256,8 @@ fn an_admitted_mcp_dialect_seals_its_network_and_receipt_and_each_follows_its_ow
     use brokkr_protocol::broker::{Clearance, Network};
     let root = cq1_root();
     let class = |word| crate::agents::EgressClass::parse(word).unwrap();
-    let admitted = |authority: &Authority| authority.admitted(&authority.dialects["library-docs"]);
+    let admitted =
+        |authority: &Authority| admitted(&authority.dialects["library-docs"], authority.minimum());
     let digest = docs_at(root.path(), "local", None).dialects["library-docs"]
         .sha256
         .clone();
@@ -279,7 +280,7 @@ fn an_admitted_mcp_dialect_seals_its_network_and_receipt_and_each_follows_its_ow
                 minimum,
                 egress,
                 match class(egress) < class(minimum) {
-                    true => Err(Unserved::Below {
+                    true => Err(Below {
                         dialect: "docs-mcp".into(),
                         egress: class(egress),
                         minimum: class(minimum),

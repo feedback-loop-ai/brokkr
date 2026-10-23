@@ -16,10 +16,11 @@ use brokkr_protocol::broker::{Clearance, Network};
 use serde_json::{Map, Value};
 
 use super::{
-    gates, Authority, Cause, Connection, DialectKind, Implementation, McpServer, SiteAsks,
-    ToolDialect, Unheld,
+    gates, Authority, CapabilityContext, Cause, Connection, DialectKind, Implementation, McpServer,
+    Requests, SiteAsks, ToolDialect, Unheld, ADAPTER_SEAT,
 };
 use crate::agents::EgressClass;
+use crate::bundle::{CompileError, SeatClass};
 
 /// The binding minimum of a bundle that declares no `egress_minimum`
 /// (decision 0036 ruling 4): what the superseded `binding_grant: true`
@@ -93,18 +94,8 @@ pub(super) enum Unserved {
     ArgvReference,
     #[error("MCP URL connections are not implemented in decision 0065 slice two")]
     Url,
-    /// MB4: the dialect's own route does not meet the bundle's binding
-    /// minimum, whatever clearance the harness's route has.
-    #[error(
-        "MCP dialect '{dialect}' has egress '{}' below binding minimum '{}'",
-        .egress.name(),
-        .minimum.name()
-    )]
-    Below {
-        dialect: String,
-        egress: EgressClass,
-        minimum: EgressClass,
-    },
+    #[error(transparent)]
+    Below(#[from] Below),
     /// MB4: a secret the dialect binds is a name the serving harness reads
     /// to authenticate.
     #[error("MCP secret binding '{0}' collides with harness authentication")]
@@ -122,12 +113,26 @@ impl Unserved {
             Unserved::Unbound(_)
             | Unserved::ArgvReference
             | Unserved::Url
-            | Unserved::Below { .. }
+            | Unserved::Below(_)
             | Unserved::Collides(_) => {
                 Unheld::Cause(Cause::incompatible(dialect, self.to_string()))
             }
         }
     }
+}
+
+/// MB4: the dialect's own route does not meet the bundle's binding
+/// minimum, whatever clearance the harness's route has ([`admitted`]).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "MCP dialect '{dialect}' has egress '{}' below binding minimum '{}'",
+    .egress.name(),
+    .minimum.name()
+)]
+pub struct Below {
+    pub(super) dialect: String,
+    pub(super) egress: EgressClass,
+    pub(super) minimum: EgressClass,
 }
 
 /// What a dialect binds its capability to: one arm per bindable kind.
@@ -233,7 +238,9 @@ pub struct Retention {
 }
 
 impl Retention {
-    pub(super) fn of(dialect: &ToolDialect, grant: &CapabilityGrant) -> Retention {
+    /// What `grant` makes of `dialect`'s declaration: the holding's, and
+    /// what `brokkr doctor` names on an `mcp` grant's line (U9a2).
+    pub fn of(dialect: &ToolDialect, grant: &CapabilityGrant) -> Retention {
         let declared = match &dialect.kind {
             DialectKind::Mcp(server) => server.retained,
             DialectKind::Native { .. } | DialectKind::Hands => false,
@@ -328,28 +335,65 @@ fn network(egress: EgressClass) -> Network {
     }
 }
 
+/// The seat [`Authority::assess`]'s plan is resolved for: [`ADAPTER_SEAT`]
+/// of `office`, asking `asks`. A seatless hypothesis has no class to read:
+/// judged as work, it answers no gate's holding (GP1) and authorizes no
+/// launch.
+pub(super) fn hypothesis(office: &str, asks: Requests) -> SiteAsks {
+    SiteAsks {
+        label: ADAPTER_SEAT.to_string(),
+        office: office.to_string(),
+        asks,
+        subtracted: Vec::new(),
+        class: SeatClass::Work,
+    }
+}
+
+/// MB4's one comparison of `dialect`'s egress against the bundle's binding
+/// `minimum`: below it, the cause; at or above it, what the comparison
+/// sealed. The receipt binds the dialect's digest and the sha256 of the
+/// canonical bytes of exactly the minimum it read (operator ruling
+/// 2026-10-15). The resolver's, and what `brokkr doctor` names on an `mcp`
+/// grant's line (U9a2).
+pub fn admitted(dialect: &ToolDialect, minimum: EgressClass) -> Result<Admitted, Below> {
+    if dialect.egress < minimum {
+        return Err(Below {
+            dialect: dialect.name.clone(),
+            egress: dialect.egress,
+            minimum,
+        });
+    }
+    let policy = sha256_bytes(&to_bytes(&Value::from(minimum.name())));
+    Ok(Admitted {
+        network: network(dialect.egress),
+        clearance: Clearance {
+            dialect: dialect.sha256.clone(),
+            policy,
+        },
+    })
+}
+
 impl Authority {
-    /// MB4's one comparison of `dialect`'s egress against the bundle's
-    /// binding minimum: below it, the cause; at or above it, what the
-    /// comparison sealed. The receipt binds the dialect's digest and the
-    /// sha256 of the canonical bytes of exactly the minimum it read
-    /// (operator ruling 2026-10-15).
-    pub(super) fn admitted(&self, dialect: &ToolDialect) -> Result<Admitted, Unserved> {
-        if dialect.egress < self.minimum {
-            return Err(Unserved::Below {
-                dialect: dialect.name.clone(),
-                egress: dialect.egress,
-                minimum: self.minimum,
-            });
+    /// Validate every grant of the operated realm BEFORE any seat is
+    /// looked at, then the two realm-wide refusals, which hold whether or
+    /// not any seat asks: an `mcp` grant, the compile fence's (`McpFence`),
+    /// and a `hands` grant. None of these can become an optional drop.
+    pub fn load(context: CapabilityContext) -> Result<Authority, String> {
+        let authority = Authority::validated(context)?;
+        for (capability, dialect) in &authority.dialects {
+            let realm = &authority.context.realm;
+            native(realm, capability, dialect).map_err(|unbound| unbound.to_string())?;
         }
-        let policy = sha256_bytes(&to_bytes(&Value::from(self.minimum.name())));
-        Ok(Admitted {
-            network: network(dialect.egress),
-            clearance: Clearance {
-                dialect: dialect.sha256.clone(),
-                policy,
-            },
-        })
+        Ok(authority)
+    }
+
+    /// Every grant validated as [`Authority::load`] validates it, with
+    /// neither realm-wide refusal applied, refused as a compile refuses an
+    /// invalid one. What `brokkr doctor` reads an `mcp` grant through, and
+    /// what a survey of a bundle's seats resolves against (U9a2); no
+    /// compile or launch is given an authority, so neither can use it.
+    pub fn survey(context: CapabilityContext) -> Result<Authority, CompileError> {
+        Authority::validated(context).map_err(CompileError::Capability)
     }
 
     /// This authority, judging every `mcp` dialect's egress against the
@@ -373,8 +417,9 @@ impl Authority {
     /// bundle's binding minimum (MB4); the fence's own words follow its
     /// sealed holding ([`Holding::native`]) until U9b builds its broker. A
     /// native binding is judged as slice one judged it, whatever its
-    /// dialect's egress. Reached only past the compile fence, which
-    /// refuses every `mcp` grant first.
+    /// dialect's egress. A compile reaches it only past the compile fence,
+    /// which refuses every `mcp` grant first; a survey (U9a2) reaches it
+    /// for an `mcp` grant, which then meets the fence's own words.
     fn carried(
         &self,
         capability: &str,
@@ -391,7 +436,7 @@ impl Authority {
             Connection::Stdio(argv) if argv.iter().any(|part| references(part)) => {
                 Err(Unserved::ArgvReference)
             }
-            Connection::Stdio(_) => self.admitted(dialect).map(Some),
+            Connection::Stdio(_) => Ok(Some(admitted(dialect, self.minimum)?)),
         }
     }
 

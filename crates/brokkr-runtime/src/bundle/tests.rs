@@ -86,7 +86,7 @@ pub(super) fn unopened() -> Opened<'static> {
     )
 }
 
-fn workspace_root() -> PathBuf {
+pub(super) fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
@@ -104,7 +104,7 @@ fn enter_from_review(policy: &mut Value, phase: &str) {
     }));
 }
 
-fn dialect_config(verify: Value) -> (Value, Value) {
+pub(super) fn dialect_config(verify: Value) -> (Value, Value) {
     let policy = json!({
         "phases":["design","verify","review","done"], "initial":"design", "terminal":["done"],
         "rules":[

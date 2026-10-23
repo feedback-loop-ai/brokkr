@@ -427,6 +427,44 @@ fn a_run_id_past_its_bound_is_refused_before_anything_is_written() {
         .unwrap();
 }
 
+/// #820: an id no surface could name back, empty or holding a control
+/// character (NUL, the rest of C0, DEL, C1), is refused by name, escaped,
+/// before anything is written; one past the bound stays the bound's.
+#[test]
+fn a_run_id_no_surface_could_name_is_refused_before_anything_is_written() {
+    let (_dir, mut store) = store();
+    let past = format!("\n{}", "r".repeat(crate::import::RUN_ID_MAX));
+    for (run_id, escaped) in [
+        ("", ""),
+        ("r\0a", "r\\u{0000}a"),
+        ("line\nbreak", "line\\u{000a}break"),
+        ("r\u{7f}", "r\\u{007f}"),
+        ("r\u{85}", "r\\u{0085}"),
+    ] {
+        let refused = store
+            .create_run(run_id, "feat", "self", &json!({}))
+            .unwrap_err();
+        assert_eq!(
+            refused.to_string(),
+            format!(
+                "a run id is not empty and holds no control character; this one is \
+                 '{escaped}', and nothing was recorded"
+            )
+        );
+        assert!(matches!(refused, StoreError::RunIdUnnameable(said) if said == escaped));
+    }
+    let refused = store.create_run(&past, "feat", "self", &json!({}));
+    assert!(matches!(
+        refused,
+        Err(StoreError::RunIdTooLong { length: 129 })
+    ));
+    let written = |table: &str| -> i64 {
+        let count = format!("SELECT COUNT(*) FROM {table}");
+        store.conn.query_row(&count, [], |row| row.get(0)).unwrap()
+    };
+    assert_eq!([written("runs"), written("events")], [0, 0]);
+}
+
 /// A journal as a binary from before the summary left it: three runs,
 /// one acknowledged, and none of the summary's table, index or triggers.
 fn older_journal() -> (tempfile::TempDir, std::path::PathBuf) {

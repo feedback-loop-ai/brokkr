@@ -374,4 +374,25 @@ fn a_bridge_refusal_whose_head_never_holds_writes_nothing() {
         .all(|event| event.payload["command_id"] != "looper-command"));
 }
 
+/// #820: the id the engine derives from the operator's feature line is a
+/// slug of ASCII letters, digits and '-' and eight uuid characters, so a
+/// feature of nothing but control characters still starts a run the
+/// writer records: `-` and eight lowercase hex digits.
+#[test]
+fn a_feature_of_control_characters_derives_an_id_the_writer_records() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("work")).unwrap();
+    let store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let body = super::tests::single_body(vec!["true".into()]);
+    let bundle = super::tests::bundle(dir.path(), body);
+    let work = Some(dir.path().join("work"));
+    let engine = Engine::start(store, bundle, "\0\n\u{7f}\u{85}", work).unwrap();
+    let (slug, suffix) = engine.run_id.split_at(1);
+    let hex = |byte: u8| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte);
+    assert_eq!((slug, suffix.len()), ("-", 8), "{}", engine.run_id);
+    assert!(suffix.bytes().all(hex), "{suffix}");
+    let started = engine.store.load(&engine.run_id).unwrap();
+    assert_eq!(started[0].event_type, EventType::RunStarted);
+}
+
 mod release_tests;

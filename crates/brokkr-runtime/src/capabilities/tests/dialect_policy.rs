@@ -994,12 +994,14 @@ fn only_the_loaders_construct_an_authority() {
         }
     }
     constructions.sort();
+    // `load` and `survey` both read `validated` (U9a2), so the literal
+    // stands there alone.
     let file = "brokkr-runtime/src/capabilities.rs".to_string();
     assert_eq!(
         constructions,
         [
-            (file.clone(), "load".to_string()),
-            (file, "nothing".to_string())
+            (file.clone(), "nothing".to_string()),
+            (file, "validated".to_string())
         ]
     );
 }

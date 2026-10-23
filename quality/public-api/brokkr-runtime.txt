@@ -806,6 +806,12 @@ pub brokkr_runtime::bundle::SiteFacts::record: core::option::Option<serde_json::
 impl brokkr_runtime::bundle::SiteFacts
 pub fn brokkr_runtime::bundle::SiteFacts::hands_spec(&self) -> core::option::Option<&brokkr_protocol::hands::HandsSpec>
 pub fn brokkr_runtime::bundle::SiteFacts::inline_serving(&self) -> core::option::Option<brokkr_runtime::agents::ServingInputs>
+pub struct brokkr_runtime::bundle::Survey
+pub brokkr_runtime::bundle::Survey::failed: core::option::Option<brokkr_runtime::bundle::CompileError>
+pub brokkr_runtime::bundle::Survey::minimum: brokkr_runtime::agents::EgressClass
+pub brokkr_runtime::bundle::Survey::refused: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_runtime::bundle::CompileError>
+pub brokkr_runtime::bundle::Survey::sites: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_runtime::capabilities::SiteCapabilities>
+pub brokkr_runtime::bundle::Survey::strict: alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::vec::Vec<core::option::Option<brokkr_protocol::adapters::mcp::StrictCause>>>
 pub struct brokkr_runtime::bundle::WorkSite
 pub brokkr_runtime::bundle::WorkSite::compiled: bool
 pub brokkr_runtime::bundle::WorkSite::path: alloc::vec::Vec<alloc::string::String>
@@ -823,6 +829,7 @@ pub fn brokkr_runtime::bundle::charters_intact(&brokkr_runtime::bundle::Bundle) 
 pub fn brokkr_runtime::bundle::dialect_gate_hands() -> brokkr_protocol::hands::HandsSpec
 pub fn brokkr_runtime::bundle::expand_command(&brokkr_runtime::argv::Executable, &std::path::Path, &[alloc::string::String]) -> alloc::vec::Vec<alloc::string::String>
 pub fn brokkr_runtime::bundle::site_charter_text(&brokkr_runtime::bundle::Bundle, core::option::Option<&brokkr_runtime::bundle::CharterPin>, &std::path::Path) -> core::result::Result<alloc::string::String, (alloc::string::String, alloc::string::String)>
+pub fn brokkr_runtime::bundle::survey(&std::path::Path, core::option::Option<&std::path::Path>, core::option::Option<&brokkr_runtime::realms::World>, &std::path::Path) -> core::result::Result<brokkr_runtime::bundle::Survey, brokkr_runtime::launch::LaunchError>
 pub type brokkr_runtime::bundle::CharterPins = alloc::collections::btree::map::BTreeMap<std::path::PathBuf, alloc::collections::btree::set::BTreeSet<brokkr_runtime::bundle::CharterPin>>
 pub type brokkr_runtime::bundle::DriverDigests = serde_json::map::Map<alloc::string::String, serde_json::value::Value>
 pub mod brokkr_runtime::capabilities
@@ -908,13 +915,15 @@ pub brokkr_runtime::capabilities::Authority::definitions: brokkr_runtime::capabi
 pub brokkr_runtime::capabilities::Authority::dialects: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_runtime::capabilities::ToolDialect>
 impl brokkr_runtime::capabilities::Authority
 pub fn brokkr_runtime::capabilities::Authority::assess(&self, &brokkr_runtime::agents::Adapter, &str, brokkr_runtime::capabilities::Requests) -> core::result::Result<brokkr_runtime::capabilities::Outcome, alloc::string::String>
-pub fn brokkr_runtime::capabilities::Authority::load(brokkr_runtime::capabilities::CapabilityContext) -> core::result::Result<brokkr_runtime::capabilities::Authority, alloc::string::String>
 pub fn brokkr_runtime::capabilities::Authority::nothing(&str, &std::path::Path) -> brokkr_runtime::capabilities::Authority
 pub fn brokkr_runtime::capabilities::Authority::resolve(&self, &brokkr_runtime::capabilities::SiteAsks, &brokkr_runtime::capabilities::Serving<'_>) -> core::result::Result<brokkr_runtime::capabilities::Outcome, alloc::string::String>
 impl brokkr_runtime::capabilities::Authority
 pub fn brokkr_runtime::capabilities::Authority::binding(&self, &str) -> core::result::Result<brokkr_runtime::capabilities::Native<'_>, brokkr_runtime::capabilities::Unbound>
+pub fn brokkr_runtime::capabilities::Authority::load(brokkr_runtime::capabilities::CapabilityContext) -> core::result::Result<brokkr_runtime::capabilities::Authority, alloc::string::String>
+pub fn brokkr_runtime::capabilities::Authority::survey(brokkr_runtime::capabilities::CapabilityContext) -> core::result::Result<brokkr_runtime::capabilities::Authority, brokkr_runtime::bundle::CompileError>
 impl brokkr_runtime::capabilities::Authority
 pub fn brokkr_runtime::capabilities::Authority::manifest(&self, &[alloc::string::String]) -> serde_json::value::Value
+pub struct brokkr_runtime::capabilities::Below
 pub struct brokkr_runtime::capabilities::CapabilityContext
 pub brokkr_runtime::capabilities::CapabilityContext::grants: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_core::realms::grants::CapabilityGrant>
 pub brokkr_runtime::capabilities::CapabilityContext::realm: alloc::string::String
@@ -993,6 +1002,10 @@ pub fn brokkr_runtime::capabilities::Outcome::manifest(&self) -> serde_json::val
 pub struct brokkr_runtime::capabilities::Retention
 pub brokkr_runtime::capabilities::Retention::declared: bool
 pub brokkr_runtime::capabilities::Retention::realm: brokkr_core::realms::grants::GrantRetention
+impl brokkr_runtime::capabilities::Retention
+pub fn brokkr_runtime::capabilities::Retention::of(&brokkr_runtime::capabilities::ToolDialect, &brokkr_core::realms::grants::CapabilityGrant) -> brokkr_runtime::capabilities::Retention
+impl core::fmt::Display for brokkr_runtime::capabilities::Retention
+pub fn brokkr_runtime::capabilities::Retention::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct brokkr_runtime::capabilities::SelectionFlags
 pub brokkr_runtime::capabilities::SelectionFlags::allow: brokkr_runtime::capabilities::ListFlag
 pub brokkr_runtime::capabilities::SelectionFlags::deny: brokkr_runtime::capabilities::ListFlag
@@ -1051,6 +1064,7 @@ pub const brokkr_runtime::capabilities::DIALECTS_DIR: &str
 pub const brokkr_runtime::capabilities::OPAQUE_HARNESS: &str
 pub const brokkr_runtime::capabilities::RESTRICTIONS_SLOT: &str
 pub const brokkr_runtime::capabilities::UNMAPPED: &str
+pub fn brokkr_runtime::capabilities::admitted(&brokkr_runtime::capabilities::ToolDialect, brokkr_runtime::agents::EgressClass) -> core::result::Result<brokkr_runtime::capabilities::Admitted, brokkr_runtime::capabilities::Below>
 pub fn brokkr_runtime::capabilities::harness_of(&[alloc::string::String]) -> &str
 pub fn brokkr_runtime::capabilities::parse_requests(&str, &serde_json::value::Value) -> core::result::Result<brokkr_runtime::capabilities::Requests, alloc::string::String>
 pub fn brokkr_runtime::capabilities::restriction_names(&str, &serde_json::map::Map<alloc::string::String, serde_json::value::Value>) -> alloc::vec::Vec<alloc::string::String>

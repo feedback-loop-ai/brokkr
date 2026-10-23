@@ -2237,6 +2237,8 @@ Operator ruling 2026-10-21 splitting U9a (in chat, "A"): U9a is split in two. U9
 Closes tasks 45.1 and 45.2; requirements [SC5](specs/slice-two-contracts/spec.md), [SD3](specs/slice-two-delivery/spec.md).
 Proof: Grant versus holding and retention facts with static scope, native denial and exact no-spawn assertions.
 
+Operator ruling 2026-10-22 on U9a2's first run (in chat, "A"; run 0065-slice-two-unit-u9a2-see-the-fa11dabf parked REVIEW-REFORGE-EXHAUSTED-MEDIUM): U9a2 is repaired in a second run that replays the first run's work, and no risk is accepted. Beside the files above, U9a2 may change four existing private children of them for these purposes only: `crates/brokkr-runtime/src/bundle/assemble.rs` and `crates/brokkr-runtime/src/bundle/capability_record.rs`, so that compile's own seat and capability pass meets each executable site's refusal as its caller says (compile refuses with the first; doctor's survey keeps it as that site's own and walks on to its siblings); `crates/brokkr-runtime/src/capabilities/manifest.rs`, so that the retention facts keep one home; and `crates/brokkr-cli/src/doctor/folder.rs`, for the bundle directory doctor inspects. U9a2's public API rise is approved up to +20 lines across `quality/public-api/*.txt` together, measured against its own base. Compile's refusal of every MCP grant still stands until U9b.
+
 Owning tests: `crates/brokkr-cli/src/doctor/capability_tests.rs`.
 
 ### U9c1 — Admit Codex's isolation options in the final-command grammar

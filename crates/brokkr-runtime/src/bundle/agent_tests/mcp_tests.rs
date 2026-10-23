@@ -321,7 +321,10 @@ fn a_fallback_types_its_own_hands_and_equal_bytes_never_supply_their_origin() {
             .collect()
     };
     let candidates = mcp::candidate_capabilities(&authority, adapters, asks(), &chain, None);
-    assert_eq!(typed(candidates.unwrap()), vec![json!(8), json!(0)]);
+    assert_eq!(
+        typed(candidates.capabilities.unwrap()),
+        vec![json!(8), json!(0)]
+    );
     let argv: Vec<String> = serde_json::from_value(codex_inline(&[])).unwrap();
     let hands = bundle.sites["review"].inline_hands.clone().unwrap().argv;
     let inline = |intent: Option<McpIntent>| {
@@ -332,7 +335,8 @@ fn a_fallback_types_its_own_hands_and_equal_bytes_never_supply_their_origin() {
             hands: &hands,
             intent,
         };
-        typed(mcp::inline_capabilities(&authority, adapters, asks(), &serving).unwrap())
+        let planned = mcp::inline_capabilities(&authority, adapters, asks(), &serving);
+        typed(planned.capabilities.unwrap())
     };
     let rows: Vec<Row<Vec<Value>>> = [
         (Some(McpIntent::Hands), 8),
@@ -752,6 +756,7 @@ fn each_inline_site_records_its_drivers_support_and_a_gate_is_judged_cold_alone(
         &chain,
         None,
     )
+    .capabilities
     .unwrap();
     assert_eq!(
         site.strict,
@@ -1156,7 +1161,8 @@ fn judged(
     let site = SiteAsks::at(SeatClass::Work, "research", office, None).unwrap();
     let unasked = SiteAsks::at(SeatClass::Work, "research", None, None).unwrap();
     let loaded = CapabilityAdapters::loaded(&adapters);
-    let resolved = mcp::candidate_capabilities(&authority, loaded, unasked, &chain, None).unwrap();
+    let resolved = mcp::candidate_capabilities(&authority, loaded, unasked, &chain, None);
+    let resolved = resolved.capabilities.unwrap();
     (chain.iter().zip(resolved.outcomes).zip(held))
         .map(|((candidate, mut outcome), held)| {
             for capability in *held {
@@ -1490,7 +1496,8 @@ fn the_pass_judges_each_resolved_candidate_and_refuses_in_the_sites_words() {
         let office = Some(("researcher", &requests));
         let asks = SiteAsks::at(SeatClass::Work, "research", office, None).unwrap();
         let loaded = CapabilityAdapters::loaded(&adapters);
-        mcp::candidate_capabilities_with(&authority, loaded, asks, (chain, None), &resolve)
+        let planned = (chain.as_slice(), None);
+        mcp::candidate_capabilities_with(&authority, loaded, asks, planned, &resolve).capabilities
     };
     let site = pass("wants").unwrap();
     let cause = "provider 'codex' cannot carry MCP (engine MCP loading is unavailable)";
@@ -1558,7 +1565,8 @@ fn each_candidate_is_served_with_its_own_adapters_authentication_names() {
     let asks = SiteAsks::at(SeatClass::Work, "research", None, None).unwrap();
     let loaded = CapabilityAdapters::loaded(&adapters);
     let chain = (bundle.sites["work"].chain.as_slice(), None);
-    mcp::candidate_capabilities_with(&authority, loaded, asks, chain, &resolve).unwrap();
+    let planned = mcp::candidate_capabilities_with(&authority, loaded, asks, chain, &resolve);
+    planned.capabilities.unwrap();
     assert_eq!(
         served.into_inner(),
         [
@@ -1595,7 +1603,7 @@ fn an_inline_site_is_served_with_no_authentication_names() {
     };
     let loaded = CapabilityAdapters::loaded(&adapters);
     let Err(CompileError::Capability(refusal)) =
-        mcp::inline_capabilities(&authority, loaded, asks, &serving)
+        mcp::inline_capabilities(&authority, loaded, asks, &serving).capabilities
     else {
         panic!("a requires the fence refuses is a capability refusal");
     };
