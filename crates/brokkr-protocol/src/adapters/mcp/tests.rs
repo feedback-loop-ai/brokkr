@@ -1041,3 +1041,26 @@ fn a_harness_auth_declaration_reads_its_names_and_refuses_every_other_shape() {
         ]
     );
 }
+
+/// SI2 (U9c2): a shape measured for a harness the engine builds no qualified
+/// mechanism for is missing evidence, never a fallback: it refuses as that
+/// shape unmeasured, cold, replacing and on a rejoin alike, where the same
+/// measured assessments admit a harness that has one.
+#[test]
+fn a_measured_shape_of_a_harness_with_no_mechanism_refuses_as_unmeasured() {
+    let isolation = SealedIsolation {
+        cold: SealedAssessment::Measured,
+        replacement: SealedAssessment::Measured,
+        resume: [("exec-resume".to_string(), SealedAssessment::Measured)].into(),
+        ..SealedIsolation::default()
+    };
+    for (invocation, shape) in [
+        (Invocation::Cold, "cold"),
+        (Invocation::Replacement, "replacement"),
+        (Invocation::Resume("exec-resume"), "exec-resume"),
+    ] {
+        let refused = isolation.admit("exec", invocation);
+        assert_eq!(refused, Err(unmeasured_cause("exec", shape)), "{shape}");
+        assert_eq!(isolation.admit("codex", invocation), Ok(()), "{shape}");
+    }
+}

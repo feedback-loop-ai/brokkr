@@ -372,6 +372,35 @@ fn a_sealed_codex_launch_handed_no_store_refuses_at_the_door() {
     assert_eq!(codex::admitted(&base, "/w", absent), Ok(()));
 }
 
+/// 45.5: the compile-time reading, [`codex_command`], is the composition
+/// alone, beneath the door. A sealed inline site handed no store keeps its
+/// class where the seat's `local` fragment wrote it, so the inline judgment
+/// reads that fragment as the store-less form it is, and the reading returns
+/// it whole. The door, not the reading, refuses to spawn it.
+#[test]
+fn the_compile_reading_of_a_site_handed_no_store_keeps_its_class_where_it_was_written() {
+    let effort = [
+        "-c",
+        "model_reasoning_effort=\"high\"",
+        "--model",
+        "gpt-6-astra",
+    ];
+    let lead = ["codex", "exec", "--json", "-C", "/w"];
+    let off = ["-c", "web_search=\"disabled\""];
+    let absent = |_: &Path| false;
+    for (class, local, _) in classes() {
+        let base = json!({"workdir": "/w", "result_path": "/w/result.json"});
+        let (extra, mut sealed) = stored_site(base, class, &local);
+        sealed.as_object_mut().unwrap().remove("secrets_file");
+        let read = codex_command("codex", &extra, "/w", None, &sealed);
+        let unprofiled = strings(&[&lead[..], &effort, &local, &off].concat());
+        assert_eq!(read, Ok(unprofiled), "{class:?}");
+        let launched = codex::launch_on_host("codex", &extra, "/w", None, &sealed, absent);
+        let storeless = codex::Unlaunched::Door(codex::Unlaunchable::Storeless);
+        assert_eq!(launched.err(), Some(storeless), "{class:?}");
+    }
+}
+
 /// 45.5 (operator ruling of 2026-10-23, the row's recorded limitation): a
 /// workspace root or store path that a TOML basic string cannot carry
 /// without an escape refuses the launch, naming which path, never escaped.
