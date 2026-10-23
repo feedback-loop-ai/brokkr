@@ -24,8 +24,11 @@ fn native_ids_match_the_published_language() {
         ("-0a1b2c3d".into(), true),
         (format!("{}-0a1b2c3d", "a".repeat(32)), true),
         (format!("{}-0a1b2c3d", "a".repeat(33)), false),
+        ("story-120-0a1b2c3d".into(), true),
         ("a-0a1b2c3".into(), false),
         ("a-0A1b2c3d".into(), false),
+        ("A-0a1b2c3d".into(), false),
+        ("a_b-0a1b2c3d".into(), false),
         ("forge-bound-run".into(), false),
     ] {
         assert_eq!(is_native_run_id(&id), expected, "{id}");

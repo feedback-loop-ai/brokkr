@@ -251,6 +251,75 @@ fn change_dependencies_name_the_step_and_the_ruling_that_reached_it() {
 }
 
 #[test]
+fn a_declared_change_input_serves_every_step_after_the_first() {
+    let (config, policy) = recipe();
+    let mut bundle = compiled(&config, &policy);
+    let body = |argv: Vec<String>| StepBody::Dialect {
+        execution: DialectExecution { argv, state: None },
+    };
+    let review = bundle.seats.get_mut("review").unwrap();
+    review.inputs = vec!["change".into()];
+    review.body = SeatBody::Sequence {
+        steps: vec![
+            SequenceStep {
+                name: "check".into(),
+                class: SeatClass::Gate,
+                results: vec!["clean".into()],
+                body: body(vec!["check".into()]),
+            },
+            SequenceStep {
+                name: "judge".into(),
+                class: SeatClass::Gate,
+                results: vec!["clean".into()],
+                body: body(vec!["judge".into(), "{change}".into()]),
+            },
+        ],
+    };
+    assert_eq!(admitted(&bundle), ["verify", "review"]);
+    bundle.seats.get_mut("review").unwrap().inputs = vec![];
+    let needs = |step: &str| EntryRefusal::NeedsChange {
+        step: format!("review:{step}"),
+        sources: vec![],
+        reached_by: None,
+    };
+    expect_refusal(&bundle, "review", needs("judge"));
+    assert_eq!(admitted(&bundle), Vec::<String>::new());
+    // The declared input serves no first step: that one has nothing before
+    // it to carry the change.
+    let review = bundle.seats.get_mut("review").unwrap();
+    review.inputs = vec!["change".into()];
+    let SeatBody::Sequence { steps } = &mut review.body else {
+        panic!("sequence");
+    };
+    steps[0].body = body(vec!["check".into(), "{change}".into()]);
+    expect_refusal(&bundle, "review", needs("check"));
+}
+
+/// The compile writes every dialect step as a gate (step_class), so this arm
+/// is reached only by hand. It stays a work site, never AllGate: were that
+/// invariant to break, a work step would otherwise read as a gate.
+#[test]
+fn a_dialect_step_written_as_work_is_a_work_site_under_its_name() {
+    let body = StepBody::Dialect {
+        execution: DialectExecution {
+            argv: vec!["check".into()],
+            state: None,
+        },
+    };
+    assert_eq!(
+        crate::bundle::gate::step_assessment("check", SeatClass::Work, &body),
+        GateAssessment::ContainsWork(WorkSite {
+            path: vec!["check".into()],
+            compiled: true
+        })
+    );
+    assert_eq!(
+        crate::bundle::gate::step_assessment("check", SeatClass::Gate, &body),
+        GateAssessment::AllGate
+    );
+}
+
+#[test]
 fn the_first_uncompiled_dialect_work_site_is_the_witness() {
     let fixture = Fixture::new();
     let root = workspace_root();

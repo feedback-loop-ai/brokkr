@@ -1021,8 +1021,10 @@ fn the_gate_and_the_typed_reader_accept_the_same_bounded_names() {
         "-12345678".into(),
         format!("{}-abcdef01", "a".repeat(32)),
         format!("{}-abcdef01", "a".repeat(33)),
+        "story-120-0a1b2c3d".into(),
         "a-1234567".into(),
         "a-ABCDEF01".into(),
+        "A-0a1b2c3d".into(),
         "a-12345678\n".into(),
     ];
     let records = phases

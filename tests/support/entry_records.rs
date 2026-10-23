@@ -35,6 +35,10 @@ pub(crate) fn invalid_records() -> Vec<(&'static str, Value)> {
             json!({"phase":"verify","continues":[{"run_id":"forged\nline","feature":"a"}]}),
         ),
         (
+            "run_id",
+            json!({"phase":"verify","continues":[{"run_id":"A-0a1b2c3d","feature":"a"}]}),
+        ),
+        (
             "twice",
             json!({"phase":"verify","continues":[
             {"run_id":"a-12345678","feature":"a"},{"run_id":"a-12345678","feature":"b"}]}),

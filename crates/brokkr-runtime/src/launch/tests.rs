@@ -624,6 +624,30 @@ fn continued_lineage_is_typed_and_refusals_name_the_run() {
     assert_eq!(bound.load(id).unwrap().len(), 2);
 }
 
+#[test]
+fn a_continued_manifest_the_store_cannot_read_is_a_store_refusal() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let store = Store::open(&db).unwrap();
+    let id = "torn-0a1b2c3d";
+    // A manifest column the store itself never writes: the row is planted
+    // by a second connection so the only unreadable thing is its JSON.
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute(
+            "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
+             VALUES (?1, 'synthetic', 'test', '{not json', '2026-01-01T00:00:00Z')",
+            [id],
+        )
+        .unwrap();
+    let error = continued_entry(&store, &continuation(vec![id])).unwrap_err();
+    assert!(
+        matches!(error, LaunchError::Store(StoreError::Json(_))),
+        "{error:?}"
+    );
+    assert!(error.to_string().starts_with("json: "), "{error}");
+}
+
 fn continuation(ids: Vec<&str>) -> EntryRequest {
     EntryRequest {
         phase: "review".into(),
