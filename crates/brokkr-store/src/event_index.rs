@@ -350,18 +350,20 @@ pub(crate) fn first_parted(
 }
 
 /// Where `row` parts from the row expected at `key`, each the next of
-/// its kind in key order.
+/// its kind in key order. A row's key is SQLite's integer: one below
+/// zero, which no writer gives, stands before every key and is a stray,
+/// carried in its bits ([`place`] reads it back).
 fn parted(
     key: u64,
     expected: &[(&'static str, Value)],
     row: &rusqlite::Row<'_>,
 ) -> Result<Option<(u64, IndexFault)>, StoreError> {
-    let found: u64 = row.get(0)?;
-    if found != key {
-        return Ok(Some(if found > key {
+    let found: i64 = row.get(0)?;
+    if found != place(key) {
+        return Ok(Some(if found > place(key) {
             (key, IndexFault::Missing)
         } else {
-            (found, IndexFault::Stray)
+            (found as u64, IndexFault::Stray)
         }));
     }
     for (at, (column, value)) in expected.iter().enumerate() {
@@ -370,6 +372,13 @@ fn parted(
         }
     }
     Ok(None)
+}
+
+/// A seq or a place as SQLite holds it, an integer: a key [`parted`]
+/// carried in its bits reads back as the value its row holds, a stray
+/// below zero included.
+pub(crate) fn place(key: u64) -> i64 {
+    key as i64
 }
 
 impl Store {

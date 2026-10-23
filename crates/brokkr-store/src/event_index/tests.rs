@@ -438,6 +438,11 @@ fn a_run_s_rows_part_from_its_events_at_the_first_seq_and_by_the_first_column() 
             IndexFault::Stray,
         ),
         (
+            "INSERT INTO event_index (run_id, seq) VALUES ('r', -1)",
+            -1i64 as u64,
+            IndexFault::Stray,
+        ),
+        (
             "UPDATE event_index SET type = 'run/started' WHERE seq = 2",
             2,
             IndexFault::Column("type"),
@@ -464,6 +469,13 @@ fn a_run_s_rows_part_from_its_events_at_the_first_seq_and_by_the_first_column() 
         assert_eq!(parted_at(&store, "r"), None, "{edit}");
         store.conn.execute_batch(edit).unwrap();
         assert_eq!(parted_at(&store, "r"), Some((seq, fault)), "{edit}");
+        if seq == -1i64 as u64 {
+            let named = store.summary_disagreements().unwrap();
+            assert_eq!(
+                named.iter().map(ToString::to_string).collect::<Vec<_>>(),
+                ["run 'r': the event index holds a row at -1, where the run holds no event"]
+            );
+        }
     }
 }
 

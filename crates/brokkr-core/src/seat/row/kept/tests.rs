@@ -50,22 +50,43 @@ fn every_outcome_is_kept_by_its_word() {
     );
 }
 
-/// A row every column of which holds a value: each count 1, each word its
-/// column's name, each outcome `failed` and each price the bits 1; but
-/// its turns' meter does not settle, as no turn's does, its session
-/// record is no turn, as none is, and each meter's total is 2, its input
-/// and output summed.
+/// A member's row every column of which a member's row may hold holds a
+/// value, as a writer writes it: each count 1, each word its column's
+/// name, each boundary `namespace`, its pin `failed` and each price the
+/// bits 1; but no end, as a member's row never holds one, its turns'
+/// meter does not settle, as no turn's does, its session record is no
+/// turn, as none is, and each meter's total is 2, its input and output
+/// summed.
 fn full() -> Vec<Datum> {
     SeatRow::COLUMNS
         .iter()
         .map(|(name, kind)| match (*name, *kind) {
-            ("ended" | "pin", _) => Datum::Text("failed".to_string()),
+            ("ended_seq" | "ended", _) => Datum::Null,
+            ("pin", _) => text("failed"),
+            ("boundary" | "stamp", _) => text("namespace"),
             ("metered_settles" | "session_turn", _) => Datum::Integer(0),
             ("metered_total_tokens" | "session_total_tokens", _) => Datum::Integer(2),
-            (_, "TEXT") => Datum::Text(name.to_string()),
+            (_, "TEXT") => text(name),
             _ => Datum::Integer(1),
         })
         .collect()
+}
+
+/// A seat's own row, [`full`] as its seat's: no member, pin or carry,
+/// and an end `failed`, then each of `columns` holding its value.
+fn seat<'a>(columns: &[(&'a str, Datum)]) -> Vec<(&'a str, Datum)> {
+    let mut seat = vec![
+        ("member", Datum::Null),
+        ("pin_seq", Datum::Null),
+        ("pin", Datum::Null),
+        ("carried_seq", Datum::Null),
+        ("carried_attempt_id", Datum::Null),
+        ("carried_ordinal", Datum::Null),
+        ("ended_seq", Datum::Integer(1)),
+        ("ended", text("failed")),
+    ];
+    seat.extend_from_slice(columns);
+    seat
 }
 
 /// [`full`] with each named column holding its value.
@@ -99,8 +120,8 @@ fn untokened(meter: &str) -> Vec<(&'static str, Datum)> {
 /// source named by none, a member's finish pinning no outcome, a session
 /// reporting no cost, a session record with no tokens and so settling
 /// nothing, a meter with no input or output and so no total; and a
-/// finish pinning `working`, a cost summed past `f64::MAX`, and a total
-/// saturated at `u64::MAX`.
+/// finish pinning `working`, a cost summed past `f64::MAX`, a total
+/// saturated at `u64::MAX`, and a seat's own row, which ended.
 #[test]
 fn a_row_holding_each_part_it_may_omit_reads_back_as_its_data() {
     let mut unsettled = untokened("session_");
@@ -124,6 +145,7 @@ fn a_row_holding_each_part_it_may_omit_reads_back_as_its_data() {
         unsettled,
         vec![("pin", text("working"))],
         vec![("spent", Datum::Integer(f64::INFINITY.to_bits() as i64))],
+        seat(&[]),
     ];
     for columns in variants {
         let data = with(&columns);
@@ -150,8 +172,8 @@ fn data_no_row_writes_reads_as_none() {
         .collect();
     let metered_untagged = [("metered_turn", none()), ("metered_settles", none())];
     let refused: Vec<Vec<(&str, Datum)>> = vec![
-        vec![("ended", text("carried"))],
-        vec![("ended", text("working"))],
+        seat(&[("ended", text("carried"))]),
+        seat(&[("ended", text("working"))]),
         vec![("pin", text("carried"))],
         vec![("request_seq", none())],
         vec![("effect_id", none())],
@@ -179,7 +201,7 @@ fn data_no_row_writes_reads_as_none() {
         vec![("started_at", none())],
         vec![("model_seq", none())],
         vec![("provider_seq", none())],
-        vec![("ended", text("done"))],
+        seat(&[("ended", text("done"))]),
         vec![("pin_seq", none())],
         vec![("carried_seq", none())],
         vec![("carried_seq", none()), ("carried_attempt_id", none())],

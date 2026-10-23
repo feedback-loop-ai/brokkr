@@ -29,7 +29,7 @@ use rusqlite::types::Value;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::acknowledgement::standing;
-use crate::event_index::{finished, first_unindexed, runless, IndexFault};
+use crate::event_index::{finished, first_unindexed, place, runless, IndexFault};
 use crate::schema::all_present;
 use crate::{head_of, patiently, seat_summary, Acknowledgement, Store, StoreError};
 
@@ -536,8 +536,9 @@ impl std::fmt::Display for Disagreement {
                 ),
                 IndexFault::Stray => write!(
                     f,
-                    "run '{run_id}': the event index holds a row at {seq}, where the run holds \
-                     no event"
+                    "run '{run_id}': the event index holds a row at {}, where the run holds \
+                     no event",
+                    place(*seq)
                 ),
             },
             Disagreement::Seated { run_id, row, fault } => {

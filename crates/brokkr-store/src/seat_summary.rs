@@ -24,19 +24,25 @@
 //! head lags, one run per transaction, with a backfill key of its own
 //! (ruling 8), so no run's summary falls behind for it.
 //!
-//! The rows are derived, never exported and never hashed: the journal's
+//! Each row keeps a digest of itself as its writer wrote it (#753, the
+//! operator's 2026-10-24 ruling), in one private column, `digest`: a read
+//! that finds a row its digest is not of reads the run stale, whatever
+//! column was edited and however, and the doctor names it.
+//!
+//! The rows are derived, never exported and never chained: the journal's
 //! events stay the record (decisions 0001 and 0003), and no
 //! `brokkr-runtime` decision reads a row (ruling 1).
 
 use std::collections::BTreeSet;
 use std::sync::LazyLock;
 
+use brokkr_core::canonical::sha256_bytes;
 use brokkr_core::seat::row::{Datum, SeatRow};
 use brokkr_core::summary::Account;
 use rusqlite::types::Value;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 
-use crate::event_index::{finished, first_parted, mark_finished, IndexFault};
+use crate::event_index::{finished, first_parted, mark_finished, place, IndexFault};
 use crate::schema::all_present;
 use crate::summary::{refold_once, Compared};
 use crate::{head_of, patiently, Disagreement, Store, StoreError};
@@ -59,7 +65,7 @@ fn migration() -> String {
         "DROP TABLE IF EXISTS seat_summary;
         DROP TABLE IF EXISTS seat_head;
         CREATE TABLE seat_summary (
-            run_id TEXT NOT NULL, opened INTEGER NOT NULL, {},
+            run_id TEXT NOT NULL, opened INTEGER NOT NULL, {}, digest TEXT NOT NULL,
             PRIMARY KEY (run_id, opened)
         ) WITHOUT ROWID;
         CREATE TABLE seat_head (
@@ -70,9 +76,20 @@ fn migration() -> String {
     )
 }
 
-/// Does this journal carry both tables? A pure read of `sqlite_master`.
+/// Does this journal carry both tables, the rows' with their digest?
+/// Pure reads. A table without it is the shape an unreleased build of
+/// this slice made, which [`migrate_seats`] makes anew.
 pub(crate) fn seats_intact(conn: &Connection) -> Result<bool, StoreError> {
-    all_present(conn, "table", &TABLES)
+    Ok(all_present(conn, "table", &TABLES)? && digested(conn)?)
+}
+
+fn digested(conn: &Connection) -> Result<bool, StoreError> {
+    let found: rusqlite::Result<i64> = conn.query_row(
+        "SELECT count(*) FROM pragma_table_info('seat_summary') WHERE name = 'digest'",
+        [],
+        |row| row.get(0),
+    );
+    Ok(found? == 1)
 }
 
 /// Create the tables, on a connection holding the write lock: the seventh
@@ -94,14 +111,21 @@ pub(crate) fn mark_seated(conn: &Connection) -> Result<(), StoreError> {
     mark_finished(conn, BACKFILLED)
 }
 
-/// The names of a row's columns after its key, comma-joined.
-fn names() -> String {
-    let names: Vec<&str> = SeatRow::COLUMNS.iter().map(|(name, _)| *name).collect();
-    names.join(", ")
+/// The names of a row's columns after its key, its digest last.
+fn kept() -> impl Iterator<Item = &'static str> {
+    let names = SeatRow::COLUMNS.iter().map(|(name, _)| *name);
+    names.chain([DIGEST])
 }
 
+/// [`kept`], comma-joined.
+fn names() -> String {
+    kept().collect::<Vec<_>>().join(", ")
+}
+
+const DIGEST: &str = "digest";
+
 static INSERT: LazyLock<String> = LazyLock::new(|| {
-    let bound: Vec<String> = (1..=SeatRow::COLUMNS.len() + 2)
+    let bound: Vec<String> = (1..=SeatRow::COLUMNS.len() + 3)
         .map(|at| format!("?{at}"))
         .collect();
     format!(
@@ -111,7 +135,8 @@ static INSERT: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// A run's rows by their key, each its place and then its columns.
+/// A run's rows by their key, each its place, its columns and its
+/// digest.
 static KEPT: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT opened, {} FROM seat_summary WHERE run_id = ?1 ORDER BY opened",
@@ -124,10 +149,7 @@ static KEPT: LazyLock<String> = LazyLock::new(|| {
 /// does not hold, and one empty row for a run with no rows, so one
 /// statement reads the head and the rows as one snapshot.
 static CURRENT: LazyLock<String> = LazyLock::new(|| {
-    let columns: Vec<String> = SeatRow::COLUMNS
-        .iter()
-        .map(|(name, _)| format!("s.{name}"))
-        .collect();
+    let columns: Vec<String> = kept().map(|name| format!("s.{name}")).collect();
     format!(
         "SELECT s.opened, {} FROM runs AS r
              JOIN seat_head AS h ON h.run_id = r.run_id
@@ -174,6 +196,47 @@ fn datum(value: Value) -> Option<Datum> {
         Value::Text(value) => Some(Datum::Text(value)),
         Value::Real(_) | Value::Blob(_) => None,
     }
+}
+
+/// The digest of a row as its writer writes it: a SHA-256 over its run,
+/// its place and each of its values in [`SeatRow::COLUMNS`]' order, each
+/// tagged by its type, an integer by its eight bytes and a text by its
+/// length and then its bytes, so no two rows encode alike. The one home
+/// of the encoding: every writer writes the digest [`written`] gives, and
+/// [`current`] recomputes it from the values it reads.
+fn digest(run_id: &str, opened: i64, data: &[Datum]) -> String {
+    let mut bytes = Vec::new();
+    put_text(&mut bytes, run_id);
+    put_integer(&mut bytes, opened);
+    for datum in data {
+        match datum {
+            Datum::Null => bytes.push(b'N'),
+            Datum::Integer(value) => put_integer(&mut bytes, *value),
+            Datum::Text(value) => put_text(&mut bytes, value),
+        }
+    }
+    sha256_bytes(&bytes)
+}
+
+fn put_integer(bytes: &mut Vec<u8>, value: i64) {
+    bytes.push(b'I');
+    bytes.extend(value.to_be_bytes());
+}
+
+fn put_text(bytes: &mut Vec<u8>, value: &str) {
+    bytes.push(b'T');
+    bytes.extend((value.len() as u64).to_be_bytes());
+    bytes.extend(value.as_bytes());
+}
+
+/// The columns `row` is written as at the place `opened` of `run_id`'s
+/// rows, by name, its digest last: what every writer writes and the
+/// doctor expects.
+fn written(run_id: &str, opened: usize, row: &SeatRow) -> Vec<(&'static str, Value)> {
+    let data = row.data();
+    let sealed = digest(run_id, opened as i64, &data);
+    let values = data.into_iter().map(value).chain([Value::Text(sealed)]);
+    kept().zip(values).collect()
 }
 
 /// The head `run_id`'s seat rows were folded through, if any.
@@ -239,7 +302,9 @@ pub(crate) fn write(
                 Value::Text(run_id.to_string()),
                 Value::Integer(opened as i64),
             ];
-            let values = row.data().into_iter().map(value);
+            let values = written(run_id, opened, row)
+                .into_iter()
+                .map(|(_, value)| value);
             insert.execute(params_from_iter(key.into_iter().chain(values)))?;
         }
     }
@@ -296,8 +361,9 @@ impl Opened {
 
 /// `run_id`'s rows, where its seat head is `head`; stale where it is
 /// not, or where a row holds what no writer writes: a value, a place
-/// other than the next of `0, 1, 2, …`, the places its writer gives, or
-/// a key out of the order [`Opened`] admits.
+/// other than the next of `0, 1, 2, …`, the places its writer gives, a
+/// key out of the order [`Opened`] admits, or anything its digest is not
+/// of, the backstop for every shape the guards before it do not name.
 fn current(conn: &Connection, run_id: &str, head: (u64, &str)) -> Result<SeatRows, StoreError> {
     let mut statement = conn.prepare_cached(&CURRENT)?;
     let mut found = statement.query(params![run_id, head.0 as i64, head.1])?;
@@ -316,8 +382,12 @@ fn current(conn: &Connection, run_id: &str, head: (u64, &str)) -> Result<SeatRow
         let read: Vec<Value> = (1..=SeatRow::COLUMNS.len())
             .map(|at| row.get(at))
             .collect::<Result<_, _>>()?;
+        let sealed: Value = row.get(SeatRow::COLUMNS.len() + 1)?;
+        let place = rows.len() as i64;
         let data: Option<Vec<Datum>> = read.into_iter().map(datum).collect();
-        let data = data.filter(|data| opened.admits(data));
+        let data = data.filter(|data| {
+            opened.admits(data) && sealed == Value::Text(digest(run_id, place, data))
+        });
         match data.and_then(SeatRow::of_data) {
             Some(seat) => rows.push(seat),
             None => return Ok(SeatRows::Stale),
@@ -329,16 +399,11 @@ fn current(conn: &Connection, run_id: &str, head: (u64, &str)) -> Result<SeatRow
     })
 }
 
-/// The columns `row` is written as, by name.
-fn columns(row: &SeatRow) -> Vec<(&'static str, Value)> {
-    let names = SeatRow::COLUMNS.iter().map(|(name, _)| *name);
-    names.zip(row.data().into_iter().map(value)).collect()
-}
-
 /// How `account`'s seat rows stand in the table (ruling 4): behind where
 /// their seat head is not the account's head, a lag the next writer
 /// refolds; else the first row that parts from the account's, by its
-/// place and how, the rows streamed beside the account's.
+/// place and how, its digest a column of it, the rows streamed beside the
+/// account's.
 pub(crate) fn compared(conn: &Connection, account: &Account) -> Result<Compared, StoreError> {
     let run_id = account.run_id();
     if !folded_at(conn, run_id, account.head())? {
@@ -347,7 +412,7 @@ pub(crate) fn compared(conn: &Connection, account: &Account) -> Result<Compared,
     let mut statement = conn.prepare_cached(&KEPT)?;
     let rows = statement.query([run_id])?;
     let seats = account.seats().iter().enumerate();
-    let expected = seats.map(|(opened, row)| (opened as u64, columns(row)));
+    let expected = seats.map(|(opened, row)| (opened as u64, written(run_id, opened, row)));
     Ok(match first_parted(rows, expected)? {
         Some((row, fault)) => Compared::Disagrees(Disagreement::Seated {
             run_id: run_id.to_string(),
@@ -358,13 +423,15 @@ pub(crate) fn compared(conn: &Connection, account: &Account) -> Result<Compared,
     })
 }
 
-/// The words `brokkr doctor` names a seat row that is not its fold's by.
+/// The words `brokkr doctor` names a seat row that is not its fold's by,
+/// at its place as the row holds it.
 pub(crate) fn named(
     f: &mut std::fmt::Formatter<'_>,
     run_id: &str,
     row: u64,
     fault: IndexFault,
 ) -> std::fmt::Result {
+    let row = place(row);
     match fault {
         IndexFault::Missing => write!(
             f,
@@ -405,14 +472,15 @@ const RUNLESS_HEADS: &str = "SELECT run_id FROM seat_head
      WHERE run_id NOT IN (SELECT run_id FROM runs) ORDER BY run_id";
 
 /// Every seat row of a run the journal does not hold, named as a stray at
-/// its run's first such place, then every seat head of one (ruling 4): no
-/// fold stands behind either, since every fold is a `runs` row's.
+/// its run's first such place, one below zero carried in its bits as
+/// [`first_parted`] carries it, then every seat head of one (ruling 4):
+/// no fold stands behind either, since every fold is a `runs` row's.
 pub(crate) fn runless(conn: &Connection) -> Result<Vec<Disagreement>, StoreError> {
     let mut rows = conn.prepare_cached(RUNLESS_ROWS)?;
     let strays = rows.query_map([], |row| {
         Ok(Disagreement::Seated {
             run_id: row.get(0)?,
-            row: row.get(1)?,
+            row: row.get::<_, i64>(1)? as u64,
             fault: IndexFault::Stray,
         })
     })?;

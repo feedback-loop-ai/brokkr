@@ -213,8 +213,8 @@ fn seat_rows_and_heads_of_no_run_are_failures_named_as_strays() {
     requested(&db, "seated");
     edit(
         &db,
-        "INSERT INTO seat_summary (run_id, opened, request_seq, effect_id)
-             VALUES ('absent', 3, 1, 'fx'), ('absent', 5, 1, 'fx');
+        "INSERT INTO seat_summary (run_id, opened, request_seq, effect_id, digest)
+             VALUES ('absent', 3, 1, 'fx', ''), ('absent', 5, 1, 'fx', '');
          INSERT INTO seat_head (run_id, folded_seq, folded_hash) VALUES ('hollow', 0, 'h');",
     );
     let mut report = report();

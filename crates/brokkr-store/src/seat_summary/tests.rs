@@ -103,7 +103,8 @@ const ZERO: &str = brokkr_core::canonical::ZERO_HASH;
 
 /// A checkpoint's append writes its row and the seat head in its own
 /// transaction, and only the rows its event moved: a row it did not move
-/// keeps what the table held, here an edit the binding then names.
+/// keeps what the table held, here an edit the read and the binding then
+/// name, and which, undone, leaves every row its fold's.
 #[test]
 fn a_checkpoint_append_writes_the_rows_it_moved_and_the_seat_head() {
     let (_dir, mut store) = store();
@@ -122,14 +123,17 @@ fn a_checkpoint_append_writes_the_rows_it_moved_and_the_seat_head() {
     );
     let head_now = store.head_hash("r").unwrap();
     assert_eq!(head(&store, "r"), Some(head_now));
-    let rows = read(&store, "r");
-    assert_eq!(rows[1..], folded_rows(&store, "r")[1..]);
-    assert_eq!(rows.len(), 3);
+    assert_eq!(store.seat_rows("r").unwrap(), SeatRows::Stale);
     assert_eq!(
         every_run_reads_as_its_fold(&store),
         ["r: seat row 0 Column(\"seat\")"]
     );
-    lags(&mut store, &["r"]);
+    sql(
+        &store,
+        "UPDATE seat_summary SET seat = 'worker' WHERE opened = 0",
+    );
+    assert_eq!(read(&store, "r"), folded_rows(&store, "r"));
+    assert_eq!(read(&store, "r").len(), 3);
 }
 
 /// An append through a store that carries no fold writes no seat row and
@@ -433,6 +437,97 @@ fn a_row_at_a_place_cost_or_meter_no_writer_writes_reads_as_stale() {
     }
 }
 
+/// A row edited into a shape every guard of the read admits and no
+/// writer writes, a boundary or a stamp no boundary is, a pin or a carry
+/// on a seat's own row, an end on a member's, a start without its last,
+/// a first checkpoint without its last, a session's cost with no sum
+/// spent, reads as stale by its digest, and the doctor names its first
+/// column that is not its fold's; so does a digest that is another row's,
+/// not of its row, or of no shape a digest is.
+#[test]
+fn a_row_its_digest_is_not_of_reads_as_stale_and_is_named() {
+    let finished = json!({"step": "exec-session-finished", "total_cost_usd": 1.0});
+    let payload = json!({"effect_id": "fx", "attempt_id": "a", "checkpoint": finished});
+    let another = "digest = (SELECT digest FROM seat_summary AS o WHERE o.opened = 2)";
+    for (row, set, named) in [
+        (
+            1,
+            "boundary_seq = 4, boundary = 'not-a-boundary'",
+            "boundary_seq",
+        ),
+        (1, "stamp_seq = 6, stamp = 'not-a-boundary'", "stamp_seq"),
+        (1, "pin_seq = 6, pin = 'failed'", "pin_seq"),
+        (
+            1,
+            "carried_seq = 4, carried_attempt_id = 'a'",
+            "carried_seq",
+        ),
+        (2, "ended_seq = 6, ended = 'failed'", "ended_seq"),
+        (1, "since = NULL", "since"),
+        (1, "last_seq = NULL, last_at = NULL", "last_seq"),
+        (1, "spent_seq = NULL, spent = NULL", "spent_seq"),
+        (1, another, "digest"),
+        (1, "digest = upper(digest)", "digest"),
+        (1, "digest = x'00'", "digest"),
+    ] {
+        let (_dir, mut store) = store();
+        seated(&mut store, "r");
+        let member = checkpoint(Some("m"), 2);
+        append(&mut store, "r", EventType::EffectCheckpointed, member);
+        let session = payload.clone();
+        append(&mut store, "r", EventType::EffectCheckpointed, session);
+        assert_eq!(read(&store, "r").len(), 3, "{set}");
+        sql(
+            &store,
+            &format!("UPDATE seat_summary SET {set} WHERE opened = {row}"),
+        );
+        assert_eq!(store.seat_rows("r").unwrap(), SeatRows::Stale, "{set}");
+        let expected = format!("r: seat row {row} Column({named:?})");
+        assert_eq!(every_run_reads_as_its_fold(&store), [expected], "{set}");
+        lags(&mut store, &["r"]);
+    }
+}
+
+/// A row's digest is of its run, its place and every column, each value
+/// by its type and its length: any one of them changed changes it, and
+/// no two rows share an encoding.
+#[test]
+fn a_row_s_digest_is_of_its_run_its_place_and_every_column() {
+    let (_dir, mut store) = store();
+    seated(&mut store, "r");
+    let row = &folded_rows(&store, "r")[1];
+    let data = row.data();
+    let sealed = digest("r", 1, &data);
+    let last = written("r", 1, row).pop();
+    assert_eq!(last, Some((DIGEST, Value::Text(sealed.clone()))));
+    assert_ne!(digest("s", 1, &data), sealed);
+    assert_ne!(digest("r", 2, &data), sealed);
+    for (at, (column, _)) in SeatRow::COLUMNS.iter().enumerate() {
+        let mut changed = data.clone();
+        changed[at] = match &changed[at] {
+            Datum::Null => Datum::Integer(0),
+            Datum::Integer(value) => Datum::Integer(value ^ 1),
+            Datum::Text(value) => Datum::Text(format!("{value}.")),
+        };
+        assert_ne!(digest("r", 1, &changed), sealed, "{column}");
+    }
+    let pair = |a: &str, b: &str| [Datum::Text(a.into()), Datum::Text(b.into())];
+    assert_ne!(
+        digest("r", 1, &pair("ab", "c")),
+        digest("r", 1, &pair("a", "bc"))
+    );
+    let zeros = "\0".repeat(8);
+    let one = |datum: Datum| digest("r", 1, &[datum]);
+    let typed = [
+        one(Datum::Null),
+        one(Datum::Integer(0)),
+        one(Datum::Text(String::new())),
+        one(Datum::Text(zeros)),
+    ];
+    let distinct: BTreeSet<&String> = typed.iter().collect();
+    assert_eq!(distinct.len(), 4);
+}
+
 /// [`seated`]'s run with a second effect asked and started after it, and
 /// then a member's checkpoint of the first: rows 0 and 1 the first
 /// effect's, 2 and 3 the second's, and 4 the first's again.
@@ -502,19 +597,25 @@ fn rows_out_of_the_order_the_projection_opens_read_as_stale() {
     }
 }
 
-/// A journal that lost one table of the seat summary loses the other with
-/// it at a writable open, so no seat head that survived vouches for rows
-/// that did not, and the walk refolds every run; until then its rows read
-/// as stale. A repair that finds both tables already made drops nothing.
+/// A journal that lost one table of the seat summary, or the rows'
+/// digest an unreleased build of it made them without, loses both
+/// tables at a writable open, so no seat head that survived vouches for
+/// rows that did not, and the walk refolds every run; until then its rows
+/// read as stale. A repair that finds both tables already made drops
+/// nothing.
 #[test]
 fn a_journal_that_lost_a_seat_table_reads_stale_until_a_writable_open_refolds_it() {
-    for lost in ["seat_summary", "seat_head"] {
+    for lost in [
+        "DROP TABLE seat_summary",
+        "DROP TABLE seat_head",
+        "ALTER TABLE seat_summary DROP COLUMN digest",
+    ] {
         let (_dir, mut store) = store();
         seated(&mut store, "r");
         let path = store.path().to_path_buf();
         drop(store);
         let raw = rusqlite::Connection::open(&path).unwrap();
-        raw.execute_batch(&format!("DROP TABLE {lost}")).unwrap();
+        raw.execute_batch(lost).unwrap();
         let reader = Store::open_read_only(&path).unwrap();
         assert_eq!(reader.seat_rows("r").unwrap(), SeatRows::Stale, "{lost}");
         let store = Store::open(&path).unwrap();
@@ -603,20 +704,25 @@ fn a_negative_zero_cost_reads_back_bit_for_bit() {
 }
 
 /// A seat row that is not its fold's is named by its place and how: a
-/// row missing, a column that differs, a row the fold holds none at.
+/// row missing, a column that differs, a row the fold holds none at, one
+/// at a place below zero, and of a run the journal does not hold, at that
+/// place as it stands.
 #[test]
 fn seat_rows_that_part_from_the_fold_are_named_by_their_place_and_how() {
     let (_dir, mut store) = store();
-    for run_id in ["missing", "edited", "stray"] {
+    for run_id in ["missing", "edited", "stray", "under"] {
         seated(&mut store, run_id);
     }
     sql(
         &store,
         "DELETE FROM seat_summary WHERE run_id = 'missing' AND opened = 1;
          UPDATE seat_summary SET model = 'other' WHERE run_id = 'edited' AND opened = 1;
-         INSERT INTO seat_summary (run_id, opened, request_seq, effect_id)
-             SELECT 'stray', 2, request_seq, effect_id FROM seat_summary
-             WHERE run_id = 'stray' AND opened = 0;",
+         INSERT INTO seat_summary (run_id, opened, request_seq, effect_id, digest)
+             SELECT 'stray', 2, request_seq, effect_id, digest FROM seat_summary
+             WHERE run_id = 'stray' AND opened = 0;
+         UPDATE seat_summary SET opened = -1 WHERE run_id = 'under' AND opened = 1;
+         INSERT INTO seat_summary (run_id, opened, request_seq, effect_id, digest)
+             VALUES ('ghost', -2, 1, 'fx', ''), ('ghost', 0, 1, 'fx', '');",
     );
     let found: Vec<String> = store
         .summary_disagreements()
@@ -631,7 +737,15 @@ fn seat_rows_that_part_from_the_fold_are_named_by_their_place_and_how() {
              not its fold's",
             "run 'missing': its fold's seat row 1 has no seat summary row",
             "run 'stray': the seat summary holds a row at 2, where its fold holds none",
+            "run 'under': the seat summary holds a row at -1, where its fold holds none",
+            "run 'ghost': the seat summary holds a row at -2, where its fold holds none",
         ]
     );
-    lags(&mut store, &["missing", "edited", "stray"]);
+    let under = store.compared("under", || {}).unwrap();
+    let place = match under {
+        Compared::Disagrees(Disagreement::Seated { row, .. }) => row,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(place, (-1i64) as u64);
+    lags(&mut store, &["missing", "edited", "stray", "under"]);
 }
