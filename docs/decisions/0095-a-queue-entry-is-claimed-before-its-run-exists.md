@@ -87,10 +87,8 @@ answers. It builds nothing. The operator queued it on 2026-10-22
   `queue add` flattens `LaunchArgs`, which carries `--dispatch`, a
   forge-dispatch/v2 envelope pinned into a run-manifest/v2
   (`crates/brokkr-cli/src/cli_args.rs:196-226`).
-- **The manifest.** Run-manifest v13 is the latest, and it is closed
-  (`"additionalProperties": false`,
-  `contracts/run-manifest.v13.schema.json:8`). No manifest names a
-  queue entry.
+- **The manifest.** Run-manifest v13, the latest, is closed
+  (`contracts/run-manifest.v13.schema.json:8`) and names no queue entry.
 
 **What fails today.** Each of these follows from the code above.
 
@@ -124,25 +122,35 @@ answers. It builds nothing. The operator queued it on 2026-10-22
       claim in the manifest (ruling 5), by ruling 4's one transaction,
       which runs the claim's fence inside it.
    3. **link**: `run_id` is written (the existing once-only trigger
-      holds it), and the `link` command records it. The entry reads
-      `Claimed { run }` as today.
-   4. **spawn**: the `spawn` command is written, then the driver
-      process starts.
+      holds it), and the `link` command records it, in one `Immediate`
+      transaction. The entry reads `Claimed { run }` as today.
+   4. **spawn**: the `spawn` command is written in one `Immediate`
+      transaction, then the driver process starts.
 
    Every step is a `queue_commands` row whose operator is the word
    `dispatch` and whose reason states what the dispatcher saw. A step
    whose token is not the claim standing on the entry refuses, writing
-   nothing. The new command words (`claim`, `link`, `reclaim`, `spawn`)
-   are read into one closed enum (decision 0071 ruling 2), and an
-   unknown stored word refuses the read as `read_word` does today. The
-   existing `queue_claim` is replaced, not kept beside (0071 ruling 6).
+   nothing; each step checks its token and generation inside its own
+   transaction, so no step lands half. The new command words (`claim`,
+   `link`, `reclaim`, `spawn`) are read into one closed enum (decision
+   0071 ruling 2), and an unknown stored word refuses the read as
+   `read_word` does today. The existing `queue_claim` is replaced, not
+   kept beside (0071 ruling 6). The dispatcher's own `hold` of a refused
+   start (ruling 7) is a step under its token, as `reclaim` is. An
+   operator command (`move`, `hold`, `release`, `repin`, `drop`), or
+   admission's `latch`, on a `launching` entry refuses as
+   `QueueRefusal::Launching`, by a `Launching` arm in `admit`
+   (`crates/brokkr-store/src/queue.rs:452-462`) and `left_the_queue`
+   (`queue/beside.rs:52-58`), never a wildcard, until the dispatcher
+   links, reclaims or holds it or the next one reconciles it (ruling 3).
 
    **Enforcement binding:** the v3 migration's tables and triggers in
    `crates/brokkr-store/src/queue/storage.rs`, with a trigger that
    refuses `run_id` on an entry that is not `launching`. Store tests
-   pin each refusal's variant and text once, and a migration test opens
-   a v2 journal and reads its order, holds, latches, pins and links
-   unchanged at v3.
+   pin each refusal's variant and text once, including each operator
+   command's `Launching` refusal, and a migration test opens a v2
+   journal and reads its order, holds, latches, pins and links unchanged
+   at v3.
 
 2. **One dispatcher per journal, held by an OS lock.** `brokkr dispatch`,
    standing or one pass, takes an exclusive non-blocking `flock` on
@@ -161,11 +169,11 @@ answers. It builds nothing. The operator queued it on 2026-10-22
 
    Liveness is the lock: the kernel drops it when the process dies.
    There is no lease expiry, no heartbeat and no clock read for
-   liveness; the start time is for the operator. Every claim, start,
-   link, reclaim and spawn also refuses unless its generation is the
-   latest holder row, so a lock file removed and recreated under a
-   live dispatcher cannot admit a second one past the journal, and the
-   dispatcher fenced out writes no run (ruling 4).
+   liveness; the start time is for the operator. Every step (ruling 1,
+   and the dispatcher's `reclaim` and `hold`) also refuses unless its
+   generation is the latest holder row, so a lock file removed and
+   recreated under a live dispatcher cannot admit a second one past the
+   journal, and the dispatcher fenced out writes no run (ruling 4).
 
    **Enforcement binding:** a runtime test holds the lock in one handle
    and asserts the second's refusal and text. A test whose child
@@ -208,13 +216,13 @@ answers. It builds nothing. The operator queued it on 2026-10-22
    passes the queue's `claim_stands`, which refuses unless the entry is
    `launching` under this claim, its generation is the latest holder
    row and the bundle has the claim's digest (ruling 7). The queue owns
-   what the fence reads; `brokkr run` passes none. So step 2's token
-   check is inside its transaction, and a dispatcher fenced out by
-   ruling 2 leaves no run unlinked. A row an older binary left with no
-   events is read by the census and by `observe` as an unstarted run:
-   named in the pass's output as its own reason (`unstarted_run`),
-   counted against no ceiling, since it spawned nothing, and the pass
-   judges every other entry. An entry that waits on one is held.
+   what the fence reads; `brokkr run` passes none. A dispatcher fenced
+   out by ruling 2 leaves no run unlinked. A row an older binary left
+   with no events is read by the census and by `observe` as an
+   unstarted run: named in the pass's output as its own reason
+   (`unstarted_run`), counted against no ceiling, since it spawned
+   nothing, and the pass judges every other entry. An entry that waits
+   on one is held.
 
    **Enforcement binding:** store tests assert the run row and its first
    event land together or not at all, and that a start under a reclaimed
@@ -235,10 +243,9 @@ answers. It builds nothing. The operator queued it on 2026-10-22
    **Enforcement binding:** `contracts/run-manifest.v14.schema.json`
    beside v13, with v13 added to `FROZEN`
    (`crates/brokkr-runtime/tests/frozen_contracts.rs:27`) as each prior
-   version was. The manifest test at
-   `crates/brokkr-runtime/src/engine/tests.rs:4159-4164` validates a
-   dispatched run against v14, and a resume test resumes one with no
-   drift.
+   version was. The manifest test at `engine/tests.rs:4159-4164`
+   validates a dispatched run against v14, and a resume test resumes one
+   with no drift.
 
 6. **Direct runs stay outside the queue.** `brokkr run` starts a run as
    today, takes no lock and needs no dispatcher. The census counts it
@@ -254,10 +261,10 @@ answers. It builds nothing. The operator queued it on 2026-10-22
    rowid) misses a recipe or adapter edit that moves a seat to a
    provider at its ceiling, since the start compiles again, and a
    parked run made `Running` by `operator retry`, which adds no `runs`
-   row. Each would start a run past 0068 ruling 3's refusal. They share
-   one root: the pass measures the bundle it compiled and the census it
-   counted, and a fence on its reads holds neither. This one fence
-   answers both:
+   row. Each would start a run past 0068 ruling 3's refusal: the pass
+   measures the bundle it compiled and the census it counted, and a
+   fence on its reads holds neither. This fence answers both, and its
+   last part a race within one pass:
 
    - **The entry still stands.** Inside the claim's `Immediate`
      transaction, the entry is `queued`, its pin and latch are the ones
@@ -282,13 +289,32 @@ answers. It builds nothing. The operator queued it on 2026-10-22
      lane, route, model pin and boundary measured, by a function that
      exists, where a provider set would derive `Seats` a second time
      (0071 ruling 5). An edit that moves no lane also refuses, once.
+   - **One entry at a time.** The pass judges every entry against one
+     census (`sized`, `capacity.rs:255-276`), and a claim writes no
+     event, so two entries admitted in one pass could both start past a
+     ceiling. Within one dispatcher, claim, start, link and spawn
+     complete for one entry before the next claim, and a claim refuses
+     as `InFlight` while another entry stands `launching`. The next
+     claim's re-fold then counts the prior start's run by its
+     `run/started` above the high-water, with no second count of lanes
+     (0071 ruling 5). A dead holder's `launching` entry refuses fresh
+     claims the same way until reconciliation, before the first pass,
+     adopts it (its run counted) or reclaims it (nothing ran); its stale
+     generation cannot start it (ruling 2), and an entry reconciliation
+     cannot settle leaves claims refused.
 
    A refused claim writes nothing. A refused start writes no run, and
-   the dispatcher writes a `reclaim` naming both digests, so the next
-   pass judges the entry again. Free space and `host.json` are read by
-   the pass and not again inside the write lock. A direct `brokkr run`
-   or an `operator retry` after the claim's transaction is the accepted
-   race.
+   the dispatcher disposes of it by variant. A digest refusal writes a
+   `reclaim` naming both digests, so the next pass judges what it
+   compiles then. A refusal by the start's admission (the crossing
+   fence, the compile or `refuse_unboxable`, `launch.rs:381-388`, which
+   `compiled()` leaves to the start, `queued.rs:334-338`) recurs on the
+   same bytes, so a reclaim would claim and refuse every pass; the
+   dispatcher writes a `hold` whose reason is that variant, for the
+   operator. `Contended` reclaims. Free space and `host.json` are read
+   by the pass and not again inside the write lock. A direct `brokkr
+   run` or an `operator retry` after the claim's transaction is the
+   accepted race.
 
    **Enforcement binding:** store tests plant a hold, a re-pin and a
    latch between a pass and its claim and assert each refusal by
@@ -296,20 +322,23 @@ answers. It builds nothing. The operator queued it on 2026-10-22
    between pass and claim (a capacity refusal), append to a live run
    there (the claim lands), and move a seat to a provider at its ceiling
    between pass and start (the start refuses by variant, no run row, the
-   entry `queued` by its `reclaim`). Each binds by a mutation that drops
-   its check (0071 ruling 9).
+   entry `queued` by its `reclaim`). With two entries admitted in one
+   pass, the second's claim refuses as `InFlight` while the first stands
+   `launching` and on capacity after its link, and a planted dead
+   generation's `launching` entry refuses a fresh claim until
+   reconciled. A start `refuse_unboxable` refuses leaves its entry held
+   with that reason. Each binds by a mutation that drops its check (0071
+   ruling 9).
 
 8. **Where the code goes.** `crates/brokkr-store/src/queue.rs` (757
    lines) gains only the `Launching` state and its module lines, and
    `claim_once` leaves it. `crates/brokkr-runtime/src/admission.rs`
    (769) gains only its reason variants. New homes:
 
-   - `crates/brokkr-store/src/queue/claim.rs`: claim, link, reclaim,
-     spawn and the reconciliation query; v3's migration joins
-     `storage.rs` (237).
-   - `crates/brokkr-store/src/queue/holder.rs`: `dispatch_holders`.
-   - A child of `crates/brokkr-store/src/lib.rs` (790): the one
-     transaction of ruling 4.
+   - `crates/brokkr-store/src/queue/claim.rs`: the steps and the
+     reconciliation query; v3's migration joins `storage.rs` (237).
+   - `queue/holder.rs`: `dispatch_holders`. A child of
+     `crates/brokkr-store/src/lib.rs` (790): ruling 4's transaction.
    - `crates/brokkr-runtime/src/dispatch.rs`, with `dispatch/lock.rs`
      and `dispatch/reconcile.rs`. The broker's open-and-check of its
      lock file (`root.rs:218-245`) moves to one shared home that both
@@ -333,7 +362,7 @@ Each lands alone, tested, through the merge queue.
 - **3a: the claim and its storage.** Queue storage v3, `launching`,
   `queue_claims`, the four command words, their refusals and texts, the
   migration test. Ruling 1, and ruling 7's fence on the entry and the
-  census, with the digest on the claim row.
+  census, its `InFlight` refusal, and the digest on the claim row.
 - **3b: the lock and its holder record.** Ruling 2, with the shared
   lock-file home.
 - **3c: one start transaction and the unstarted run.** Ruling 4, with
@@ -343,7 +372,8 @@ Each lands alone, tested, through the merge queue.
 - **Then #430's slices 4 to 6, unchanged.** Cooldowns and probes;
   `shared-local` capacity and the scratch sweep; the `brokkr dispatch`
   command and its standing loop, which first calls the claim, start,
-  link and spawn these slices build.
+  link and spawn these slices build, all four for one entry before the
+  next claim (ruling 7), and disposes of a refused start by its variant.
 
 ## Asked of the operator
 
@@ -386,17 +416,33 @@ Each choice is listed with its recommendation first.
   across a reclaim.
 - **Direct runs.** (a) Outside the queue, counted by the census of their
   own journal (ruling 6).
-- **Capacity between the pass and the claim.** (a) Under one
-  dispatcher, the claim re-checks the entry's standing and what the pass
-  measured inside its transaction: the census, re-counted for each run
-  with an event past the pass's `events` high-water, and the bundle's
-  manifest digest, which the start's fence holds it to. A direct run or
-  a retry after the claim is the accepted race (ruling 7). (b) Refuse
+- **Capacity between the pass and the claim.** Changed since the story
+  run, by fix rounds 430cp2 and 430cp3. (a) Under one dispatcher, the
+  claim re-checks the entry's standing and what the pass measured
+  inside its transaction: the census, re-counted for each run with an
+  event past the pass's `events` high-water, and the bundle's manifest
+  digest, which the start's fence holds it to. One entry's claim,
+  start, link and spawn complete before the next claim, which refuses
+  while another stands `launching`, so each re-fold counts the runs
+  started before it. A direct run or a retry after the claim is the
+  accepted race (ruling 7). The alternative within (a): the claim's
+  census also counts each standing `launching` claim by the lanes of its
+  recorded digest. Claims could overlap, but lanes are counted a second
+  way, from a digest beside the census (0071 ruling 5). (b) Refuse
   the claim on any event past the high-water: no fold under the write
   lock, but a journal with live drivers keeps refusing claims. (c) Hand
   the pass's compiled bundle to the start instead of compiling again:
   no digest to check, but the run starts bytes read before its claim,
   and an edit since is first seen as drift at resume.
+- **A start refused on the same bytes.** New in fix round 430cp3.
+  (a) A start refused by its admission (the crossing fence, the compile
+  or `refuse_unboxable`) is held by the dispatcher, with the refusal's
+  variant as its journaled reason, for the operator to release; a
+  digest refusal and `Contended` reclaim (ruling 7). (b) Count refusals
+  on the `reclaim` rows and hold at a bound: a passing refusal is
+  retried, but each round up to the bound claims and journals again.
+  (c) Reclaim every refused start, paced by slice 4's cooldowns. Not
+  recommended: a refusal that recurs never ends.
 - **An entry queued with `--dispatch`.** Found in the code, not in the
   issue. (a) The pass holds it with the reason `dispatch_envelope`. Its
   run would be a run-manifest/v2, the counterpart system's contract,
@@ -435,8 +481,7 @@ Each choice is listed with its recommendation first.
   start. Within one dispatcher, an entry is started once, and a restart
   finds every start in flight by its claim.
 - `brokkr queue list` shows `launching` for an entry claimed and not
-  yet linked, so a crash in flight is visible before a dispatcher runs
-  again.
+  yet linked, so a crash in flight shows before the next dispatcher.
 - Liveness is the lock. A journal on a filesystem where `flock` does not
   exclude, such as some network mounts, is outside this guarantee, as
   the store's own SQLite locking already is.
@@ -449,6 +494,13 @@ Each choice is listed with its recommendation first.
   the claim's) and a parked run retried (its event is past the
   high-water). An edit that moves no lane is refused too, once. Ruling
   4's fence leaves a dispatcher fenced out no run to orphan.
+- Ruling 7 also closes a race within one pass. Under a ceiling of 1,
+  entries A and B on one provider are both admitted against one census;
+  claimed both before either start, neither re-fold sees an event past
+  the high-water, and both start. Now B's claim refuses as `InFlight`
+  until A is linked, then counts A's run and refuses on capacity. A dead
+  holder's `launching` entry refuses fresh claims until reconciled. A
+  start its admission refuses is held, not reclaimed every pass.
 - The claim holds the write lock while it folds the runs that moved
   since the pass. A driver's append waits under `patiently`, and past
   its deadline is refused as `Contended`, as any contended write is.
