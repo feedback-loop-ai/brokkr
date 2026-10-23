@@ -13,11 +13,12 @@
 //! `spent` reads back finite or an infinity, and a NaN in either is no
 //! row. An outcome column reads back only the words its writer writes,
 //! the turns' meter only a turn's that carries tokens, and the session
-//! meter only a record's that is no turn and settles only on its output.
+//! meter only a record's that is no turn and settles only on its output;
+//! a meter's total reads back only as its input and output sum to it.
 
 use super::{CarriedFrom, Carry, Last, Member, Outcome, Pin, Provider, SeatRow, Session, Stamp};
 use crate::seat::meter::Meter;
-use crate::seat::{TokenUsage, Transcript};
+use crate::seat::{finish_usage, TokenUsage, Transcript};
 
 /// One column's value, in the SQLite types a row is kept in.
 #[derive(Debug, Clone, PartialEq)]
@@ -218,6 +219,8 @@ impl<I: Iterator<Item = Datum>> Take<I> {
         Some(seq.map(|seq| (seq, carry)))
     }
 
+    /// A meter's counts, its total the one [`finish_usage`] derives from
+    /// them, as every meter's is: a total its parts do not make is no row.
     fn usage(&mut self) -> Option<Option<TokenUsage>> {
         let usage = TokenUsage {
             input_tokens: self.int()?,
@@ -227,7 +230,10 @@ impl<I: Iterator<Item = Datum>> Take<I> {
             reasoning_output_tokens: self.int()?,
             total_tokens: self.int()?,
         };
-        Some((usage != TokenUsage::default()).then_some(usage))
+        match finish_usage(usage.clone()) {
+            Some(finished) => (finished == usage).then_some(Some(usage)),
+            None => (usage == TokenUsage::default()).then_some(None),
+        }
     }
 
     fn meter(&mut self) -> Option<Option<Meter>> {

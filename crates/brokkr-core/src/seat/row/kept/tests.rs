@@ -52,14 +52,16 @@ fn every_outcome_is_kept_by_its_word() {
 
 /// A row every column of which holds a value: each count 1, each word its
 /// column's name, each outcome `failed` and each price the bits 1; but
-/// its turns' meter does not settle, as no turn's does, and its session
-/// record is no turn, as none is.
+/// its turns' meter does not settle, as no turn's does, its session
+/// record is no turn, as none is, and each meter's total is 2, its input
+/// and output summed.
 fn full() -> Vec<Datum> {
     SeatRow::COLUMNS
         .iter()
         .map(|(name, kind)| match (*name, *kind) {
             ("ended" | "pin", _) => Datum::Text("failed".to_string()),
             ("metered_settles" | "session_turn", _) => Datum::Integer(0),
+            ("metered_total_tokens" | "session_total_tokens", _) => Datum::Integer(2),
             (_, "TEXT") => Datum::Text(name.to_string()),
             _ => Datum::Integer(1),
         })
@@ -96,13 +98,24 @@ fn untokened(meter: &str) -> Vec<(&'static str, Datum)> {
 /// data it was read from: a provider named by none, a carried member's
 /// source named by none, a member's finish pinning no outcome, a session
 /// reporting no cost, a session record with no tokens and so settling
-/// nothing; and a finish pinning `working`, and a cost summed past
-/// `f64::MAX`.
+/// nothing, a meter with no input or output and so no total; and a
+/// finish pinning `working`, a cost summed past `f64::MAX`, and a total
+/// saturated at `u64::MAX`.
 #[test]
 fn a_row_holding_each_part_it_may_omit_reads_back_as_its_data() {
     let mut unsettled = untokened("session_");
     unsettled.push(("session_settles", Datum::Integer(0)));
+    let max = || Datum::Integer(u64::MAX as i64);
     let variants = [
+        vec![
+            ("metered_input_tokens", Datum::Null),
+            ("metered_output_tokens", Datum::Null),
+            ("metered_total_tokens", Datum::Null),
+        ],
+        vec![
+            ("session_input_tokens", max()),
+            ("session_total_tokens", max()),
+        ],
         vec![],
         vec![("provider", Datum::Null)],
         vec![("carried_ordinal", Datum::Null)],
@@ -123,8 +136,9 @@ fn a_row_holding_each_part_it_may_omit_reads_back_as_its_data() {
 /// column's, a flag that is neither, a word no outcome is or one its
 /// column's writer never writes, a cost no record states or a sum no
 /// costs reach, a turns' meter no turn writes, a session meter that is a
-/// turn's or settles no output, a part of a value without the rest, and
-/// more or fewer values than columns.
+/// turn's or settles no output, a meter's total its input and output do
+/// not sum to, a part of a value without the rest, and more or fewer
+/// values than columns.
 #[test]
 fn data_no_row_writes_reads_as_none() {
     let none = || Datum::Null;
@@ -155,6 +169,13 @@ fn data_no_row_writes_reads_as_none() {
         vec![("session_turn", Datum::Integer(1))],
         vec![("session_output_tokens", none())],
         untokened("session_"),
+        vec![("metered_total_tokens", Datum::Integer(999))],
+        vec![("session_total_tokens", Datum::Integer(999))],
+        vec![("session_total_tokens", none())],
+        vec![
+            ("metered_input_tokens", none()),
+            ("metered_output_tokens", none()),
+        ],
         vec![("started_at", none())],
         vec![("model_seq", none())],
         vec![("provider_seq", none())],

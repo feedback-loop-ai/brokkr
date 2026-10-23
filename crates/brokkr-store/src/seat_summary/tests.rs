@@ -389,9 +389,9 @@ fn a_row_no_writer_writes_reads_as_stale() {
 
 /// A row at a place its writer never gives, before the first, past a
 /// gap, or not a number, reads as stale; and a cost no record states or
-/// a sum no costs reach, a NaN, a turns' meter no turn writes, or a
-/// session meter that is a turn's or settles no output, reads as stale,
-/// never as a row.
+/// a sum no costs reach, a NaN, a turns' meter no turn writes, a session
+/// meter that is a turn's or settles no output, or a meter's total its
+/// input and output do not sum to, reads as stale, never as a row.
 #[test]
 fn a_row_at_a_place_cost_or_meter_no_writer_writes_reads_as_stale() {
     let finished = json!({"step": "exec-session-finished", "total_cost_usd": 1.0});
@@ -410,6 +410,11 @@ fn a_row_at_a_place_cost_or_meter_no_writer_writes_reads_as_stale() {
              metered_reasoning_output_tokens = NULL, metered_total_tokens = NULL
              WHERE opened = 1"
             .to_string(),
+        "UPDATE seat_summary SET metered_total_tokens = 999 WHERE opened = 1".to_string(),
+        "UPDATE seat_summary SET metered_input_tokens = NULL, metered_output_tokens = NULL
+             WHERE opened = 1"
+            .to_string(),
+        "UPDATE seat_summary SET session_total_tokens = 999 WHERE opened = 1".to_string(),
         "UPDATE seat_summary SET session_turn = 1 WHERE opened = 1".to_string(),
         "UPDATE seat_summary SET session_settles = 1 WHERE opened = 1".to_string(),
     ] {
