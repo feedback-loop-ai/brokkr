@@ -1009,21 +1009,25 @@ fn an_npm_folder_with_no_npm_fails_verify_closed() {
     fails_verify_closed(repo.path(), aside.path(), &stderr, said);
 }
 
-/// An npm installed in `~/.aws/bin`, beside `~/.aws/credentials`, binds
-/// nothing (#717's security hold): init names the credentials in one
-/// line, and the scaffold's verifier fails closed with it.
+/// An npm installed in `~/.aws/bin`, linking into `~/.aws/lib`, beside
+/// `~/.aws/credentials`, binds nothing (#717's security hold): init names
+/// the credentials in one line, and the scaffold's verifier fails closed
+/// with it.
 #[test]
 fn an_npm_beside_credentials_binds_nothing_and_fails_verify_closed() {
     let repo = repository_of("node-npm");
     let aside = tempfile::tempdir().unwrap();
     let aws = aside.path().canonicalize().unwrap().join("home/.aws");
+    let cli = "lib/node_modules/npm/bin/npm-cli.js";
+    std::fs::create_dir_all(aws.join(cli).parent().unwrap()).unwrap();
     std::fs::create_dir_all(aws.join("bin")).unwrap();
     std::fs::write(aws.join("credentials"), "").unwrap();
-    for binary in ["npm", "node"] {
-        std::fs::write(aws.join("bin").join(binary), "").unwrap();
+    for file in ["bin/node", cli] {
+        std::fs::write(aws.join(file), "").unwrap();
         let runs = std::os::unix::fs::PermissionsExt::from_mode(0o755);
-        std::fs::set_permissions(aws.join("bin").join(binary), runs).unwrap();
+        std::fs::set_permissions(aws.join(file), runs).unwrap();
     }
+    std::os::unix::fs::symlink(format!("../{cli}"), aws.join("bin/npm")).unwrap();
     let stderr = init_on(repo.path(), aside.path(), &[aws.join("bin")]);
     let said = format!(
         "npm is installed under {}, which holds 'credentials', no part of a node prefix, \

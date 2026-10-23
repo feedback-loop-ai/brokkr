@@ -27,9 +27,10 @@ Three things to check before step 3:
   repository depends on your CI and your network posture, and a charter
   that guessed would be guessing about the network.
 - **Where `npm` is installed was read once, at `init`.** It looked
-  `npm` and `node` up on its own `PATH`, following links (#717). An
-  install under `$HOME`, such as a volta shim or an nvm version, is
-  bound `ro` on verify's hands in `bundle.json` (`~/.volta`, say). The
+  `npm` and `node` up on its own `PATH`, following links (#717). What
+  it found is bound `ro` on verify's hands in `bundle.json`: a binary
+  standing in its `PATH` directory as that one file, a volta shim as
+  `~/.volta`, and an nvm version as its `bin` and `lib/node_modules`. The
   verifier puts the directory each was found in at the head of `PATH`,
   and exports `VOLTA_HOME` for a volta shim. Only an install's own
   directory is bound: one that holds anything else, such as a

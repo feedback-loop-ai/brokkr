@@ -4,30 +4,31 @@
 //! only, so a runner a version manager installed under `$HOME` was not
 //! found there ("npm: command not found"). `init` looks each binary up
 //! on its own `PATH`, follows links to the real file, and records what
-//! the box needs: the install's root, bound read-only on verify's hands in
+//! the box needs: the install, bound read-only on verify's hands in
 //! `bundle.json`, and the directories `scripts/verify-seat.sh` puts at the
 //! head of `PATH`. Nothing is re-resolved when a run starts.
 //!
 //! A binary is found where `PATH` lookup finds it: the first file of its
-//! name, followed through links, that is executable. An install's root
-//! is the nearest directory holding both the file it resolves to and the
-//! directory `PATH` found it in, starting from that directory's parent
-//! when it is a `bin`, and from the directory itself when it is not: a
-//! volta shim (`~/.volta/bin/npm` linking to `~/.volta/bin/volta-shim`)
-//! is rooted at `~/.volta`, which also holds the images the shim runs; an
-//! nvm install at its version directory; a standalone pnpm at its home.
-//! Nothing is bound that holds more than the install (#717): the root
-//! must be one of the [`Layout`]s `init` recognises, and every entry it
-//! holds one that layout names, or it is refused, naming the entry. A
-//! binary whose directory and file both stand under a toolchain root
-//! every box already reads read-only (`HOST_TOOLCHAIN_BINDS`) adds no
-//! bind. A root that would bind `$HOME`, an ancestor of it, `~/.local`
-//! whole or `/` is refused before its entries are read, and so is a
-//! binary not found: either way verify fails closed with the sentence
-//! `init` printed.
+//! name, followed through links, that this user may execute. One whose
+//! real file stands in the directory `PATH` found it in is bound alone,
+//! as that one file. Otherwise, and for a volta shim (`~/.volta/bin/npm`
+//! linking to `~/.volta/bin/volta-shim`, which runs the images under
+//! `~/.volta/tools`), the install has a root: the nearest directory
+//! holding both the real file and the `PATH` directory, starting from that
+//! directory's parent when it is a `bin`, and from the directory itself
+//! when it is not. Nothing is bound that holds more than the install
+//! (#717): the root must be one of the [`Layout`]s `init` recognises, and
+//! every entry it holds one that layout names, or it is refused, naming
+//! the entry. Volta's root, bun's and pnpm's home are bound whole; a node
+//! prefix, which cannot be told from a prefix other software shares, only
+//! by its `bin` and `lib/node_modules`. A binary whose directory and file
+//! both stand under a toolchain root every box already reads read-only
+//! (`HOST_TOOLCHAIN_BINDS`) adds no bind. A root that would bind `$HOME`,
+//! an ancestor of it, `~/.local` whole or `/` is refused before its
+//! entries are read, and so is a binary not found: either way verify fails
+//! closed with the sentence `init` printed.
 
 use std::ffi::{OsStr, OsString};
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use brokkr_protocol::hands::HOST_TOOLCHAIN_BINDS;
@@ -49,10 +50,11 @@ const RUNNERS: &[(&str, bool)] = &[
 /// What `init` found of the node-family binaries a stack runs through.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Reach {
-    /// Every binary was found: the install roots verify's box binds
-    /// read-only (`~/`-spelled under `$HOME`), the directories put at the
-    /// head of its `PATH`, and the `VOLTA_HOME` a volta shim reads, which
-    /// the box's private `HOME` would otherwise hide.
+    /// Every binary was found: the files and directories verify's box
+    /// binds read-only (`~/`-spelled under `$HOME`, none under another),
+    /// the directories put at the head of its `PATH`, and the
+    /// `VOLTA_HOME` a volta shim reads, which the box's private `HOME`
+    /// would otherwise hide.
     Found {
         binds: Vec<String>,
         path: Vec<PathBuf>,
@@ -69,19 +71,22 @@ pub(super) enum Reach {
 pub(super) enum Unbound {
     /// `/`, `$HOME` or an ancestor of it, or `~/.local` whole.
     TooBroad,
-    /// The root holds this entry, which its layout does not name.
+    /// The root holds this entry, which its layout does not name, or a
+    /// node prefix's `bin` does (spelled `bin/<name>`).
     Foreign(Layout, OsString),
-    /// The root's entries could not be listed.
+    /// The root's entries, or a node prefix's `bin`, could not be listed,
+    /// or the prefix has no `lib/node_modules` directory of its own.
     Unreadable,
 }
 
-/// An install layout `init` binds whole, by the top-level entries each
+/// An install layout `init` recognises, by the top-level entries each
 /// tool's own installer documents. No layout names a dotfile, and none a
 /// credential.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Layout {
     /// A node release's prefix, as its tarball unpacks: an nvm version
-    /// directory, an fnm `installation`, a node tarball anywhere.
+    /// directory, an fnm `installation`, a node tarball anywhere. Never
+    /// bound whole: its `bin` and `lib/node_modules` are.
     NodePrefix,
     /// `VOLTA_HOME`: the shims, volta's tool images and its own state.
     Volta,
@@ -229,44 +234,58 @@ pub(super) fn reach(runners: &[Tool], path: &OsStr, home: &Path) -> Option<Reach
         }
     }
     Some(Reach::Found {
-        binds: found.binds,
+        binds: found.spelled(&home),
         path: found.path,
         volta: found.volta,
     })
 }
 
-/// One binary as `PATH` holds it: the directory it was found in and the
-/// file it resolves to, both canonical.
+/// One binary as `PATH` holds it: the directory it was found in, the
+/// entry there of its name, and the file that entry resolves to, the
+/// directory and file canonical.
 struct Install {
     dir: PathBuf,
+    entry: PathBuf,
     real: PathBuf,
 }
 
-/// The first `binary` on `path` that resolves to an executable file, as
-/// `PATH` lookup skips one that is not.
+/// The first `binary` on `path` that resolves to a file this user may
+/// execute, as `PATH` lookup skips one that is not.
 fn install(binary: &str, path: &OsStr) -> Option<Install> {
     std::env::split_paths(path).find_map(|dir| {
         let dir = dir.canonicalize().ok()?;
-        let real = dir.join(binary).canonicalize().ok()?;
-        let runs = real
-            .metadata()
-            .is_ok_and(|held| held.is_file() & (held.permissions().mode() & 0o111 != 0));
-        runs.then_some(Install { dir, real })
+        let entry = dir.join(binary);
+        let real = entry.canonicalize().ok()?;
+        let runs = real.is_file() & runnable(&real);
+        runs.then_some(Install { dir, entry, real })
     })
+}
+
+/// Whether this process may execute `path`, asked of the kernel with its
+/// effective identity: `faccessat(AT_EACCESS)`, the check `execve` makes.
+/// `mode & 0o111` asked whether anyone may, so an owner's mode-0641 file
+/// shadowed a later install `PATH` lookup reaches. brokkr-protocol's
+/// `adapters/composite.rs` asks the same question in
+/// `effective_exec_access`, which is private to that module: sharing it
+/// means exporting it through `adapters.rs`, which the operator holds
+/// (2026-10-23, "keep the hold, go with node.rs").
+fn runnable(path: &Path) -> bool {
+    use rustix::fs::{accessat, Access, AtFlags, CWD};
+    accessat(CWD, path, Access::EXEC_OK, AtFlags::EACCESS).is_ok()
 }
 
 /// What the found binaries add up to, in the order they were found.
 #[derive(Default)]
 struct Found {
-    binds: Vec<String>,
+    binds: Vec<PathBuf>,
     path: Vec<PathBuf>,
     volta: Option<PathBuf>,
 }
 
 impl Found {
-    /// Add one install: its directory to `PATH`, and its root as a bind
-    /// unless the box reads it already. `Err` is a root `init` will not
-    /// bind, and why.
+    /// Add one install: its directory to `PATH`, and what it binds unless
+    /// the box reads it already. `Err` is a root `init` will not bind, and
+    /// why.
     fn add(&mut self, install: Install, home: &Path) -> Result<(), (PathBuf, Unbound)> {
         let (root, layout) = root(&install);
         if layout == Layout::Volta {
@@ -279,21 +298,76 @@ impl Found {
         if paths.into_iter().all(read_by_every_box) {
             return Ok(());
         }
-        if too_broad(&root, home) {
-            return Err((root, Unbound::TooBroad));
-        }
-        if let Err(unbound) = holds_only(&root, layout) {
-            return Err((root, unbound));
-        }
-        let spelled = match root.strip_prefix(home) {
-            Ok(rest) if home.is_absolute() => format!("~/{}", rest.display()),
-            _ => root.display().to_string(),
+        // A file standing in its `PATH` directory is bound alone, and a
+        // volta shim, which runs the images under its root, by its root.
+        let standing = install.real.parent() == Some(install.dir.as_path());
+        let bound = match standing & (layout != Layout::Volta) {
+            true => vec![install.entry],
+            false => {
+                rooted(&root, layout, &install.dir, home).map_err(|unbound| (root, unbound))?
+            }
         };
-        if !self.binds.contains(&spelled) {
-            self.binds.push(spelled);
+        for bind in bound {
+            if !self.binds.contains(&bind) {
+                self.binds.push(bind);
+            }
         }
         Ok(())
     }
+
+    /// The binds, in the order found, less any under another, each
+    /// `~/`-spelled under `home`.
+    fn spelled(&self, home: &Path) -> Vec<String> {
+        let under = |bind: &PathBuf, other: &PathBuf| (other != bind) & bind.starts_with(other);
+        let outer = |bind: &&PathBuf| !self.binds.iter().any(|other| under(bind, other));
+        let spell = |bind: &PathBuf| match bind.strip_prefix(home) {
+            Ok(rest) if home.is_absolute() => format!("~/{}", rest.display()),
+            _ => bind.display().to_string(),
+        };
+        self.binds.iter().filter(outer).map(spell).collect()
+    }
+}
+
+/// What a rooted install binds: its root whole where the root is a
+/// tool's own home, and a node prefix's `bin` (the `PATH` directory) and
+/// `lib/node_modules`; `Err` where the root is too broad or holds an
+/// entry its layout does not name.
+fn rooted(root: &Path, layout: Layout, bin: &Path, home: &Path) -> Result<Vec<PathBuf>, Unbound> {
+    if too_broad(root, home) {
+        return Err(Unbound::TooBroad);
+    }
+    holds_only(root, layout)?;
+    match layout {
+        Layout::NodePrefix => prefix(root, bin),
+        Layout::Volta | Layout::Bun | Layout::PnpmHome => Ok(vec![root.to_path_buf()]),
+    }
+}
+
+/// A node prefix's two binds: npm's global package directory,
+/// `lib/node_modules`, which must be a directory of the prefix's own,
+/// and `bin`, which must hold only a `node` file and links into it (npm,
+/// npx, corepack, global packages' bins). The prefix itself is never
+/// bound: its `share` or `include` may hold other software's files.
+fn prefix(root: &Path, bin: &Path) -> Result<Vec<PathBuf>, Unbound> {
+    let modules = root.join("lib/node_modules");
+    let own = modules
+        .canonicalize()
+        .is_ok_and(|real| (real == modules) & real.is_dir());
+    if !own {
+        return Err(Unbound::Unreadable);
+    }
+    for name in listed(bin)? {
+        let entry = bin.join(&name);
+        let node = (name == "node") & entry.symlink_metadata().is_ok_and(|held| held.is_file());
+        let linked = entry
+            .canonicalize()
+            .is_ok_and(|real| real.starts_with(&modules));
+        if !(node | linked) {
+            let spelled = bin.strip_prefix(root).unwrap_or(bin).join(name);
+            return Err(Unbound::Foreign(Layout::NodePrefix, spelled.into()));
+        }
+    }
+    Ok(vec![bin.to_path_buf(), modules])
 }
 
 /// The install's root, and the layout it must hold to be bound: the
@@ -323,18 +397,25 @@ fn root(install: &Install) -> (PathBuf, Layout) {
 /// first, by name, that it does not, or that the entries could not be
 /// read.
 fn holds_only(root: &Path, layout: Layout) -> Result<(), Unbound> {
-    let listed = std::fs::read_dir(root).and_then(|entries| {
+    let names = listed(root)?;
+    let named = |name: &&OsString| layout.entries().iter().any(|entry| *name == entry);
+    match names.iter().find(|name| !named(name)) {
+        Some(entry) => Err(Unbound::Foreign(layout, entry.clone())),
+        None => Ok(()),
+    }
+}
+
+/// The names `dir` holds, sorted, or `Unreadable` where they could not be
+/// listed.
+fn listed(dir: &Path) -> Result<Vec<OsString>, Unbound> {
+    let listed = std::fs::read_dir(dir).and_then(|entries| {
         entries
             .map(|entry| entry.map(|entry| entry.file_name()))
             .collect::<std::io::Result<Vec<OsString>>>()
     });
     let mut names = listed.map_err(|_| Unbound::Unreadable)?;
     names.sort();
-    let named = |name: &&OsString| layout.entries().iter().any(|entry| *name == entry);
-    match names.iter().find(|name| !named(name)) {
-        Some(entry) => Err(Unbound::Foreign(layout, entry.clone())),
-        None => Ok(()),
-    }
+    Ok(names)
 }
 
 /// Under a root every box binds read-only at its own path.
