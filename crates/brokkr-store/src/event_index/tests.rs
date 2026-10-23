@@ -413,7 +413,7 @@ fn three(store: &Store) {
 }
 
 /// Each edit of a run's rows is named at the first seq where they part
-/// from its events, and how.
+/// from its events, and how: a text that is not UTF-8 by its column.
 #[test]
 fn a_run_s_rows_part_from_its_events_at_the_first_seq_and_by_the_first_column() {
     let cases = [
@@ -454,6 +454,11 @@ fn a_run_s_rows_part_from_its_events_at_the_first_seq_and_by_the_first_column() 
         ),
         (
             "UPDATE event_index SET member = 'm1' WHERE seq = 2",
+            2,
+            IndexFault::Column("member"),
+        ),
+        (
+            "UPDATE event_index SET member = CAST(x'ff' AS TEXT) WHERE seq = 2",
             2,
             IndexFault::Column("member"),
         ),

@@ -392,7 +392,7 @@ fn a_row_no_writer_writes_reads_as_stale() {
 }
 
 /// A row at a place its writer never gives, before the first, past a
-/// gap, or not a number, reads as stale; and a cost no record states or
+/// gap, or not a number, a text not UTF-8 among them, reads as stale; and a cost no record states or
 /// a sum no costs reach, a NaN, a turns' meter no turn writes, a session
 /// meter that is a turn's or settles no output, or a meter's total its
 /// input and output do not sum to, reads as stale, never as a row.
@@ -405,6 +405,7 @@ fn a_row_at_a_place_cost_or_meter_no_writer_writes_reads_as_stale() {
         "UPDATE seat_summary SET opened = -1 WHERE opened = 1".to_string(),
         "UPDATE seat_summary SET opened = 7 WHERE opened = 1".to_string(),
         "UPDATE seat_summary SET opened = 'x' WHERE opened = 1".to_string(),
+        "UPDATE seat_summary SET opened = CAST(x'ff' AS TEXT) WHERE opened = 1".to_string(),
         format!("UPDATE seat_summary SET session_cost = {nan} WHERE opened = 1"),
         format!("UPDATE seat_summary SET spent = {nan} WHERE opened = 1"),
         "UPDATE seat_summary SET metered_turn = 0 WHERE opened = 1".to_string(),
@@ -443,7 +444,8 @@ fn a_row_at_a_place_cost_or_meter_no_writer_writes_reads_as_stale() {
 /// a first checkpoint without its last, a session's cost with no sum
 /// spent, reads as stale by its digest, and the doctor names its first
 /// column that is not its fold's; so does a digest that is another row's,
-/// not of its row, or of no shape a digest is.
+/// not of its row, or of no shape a digest is, and a text, a column's or
+/// the digest's, that is not UTF-8.
 #[test]
 fn a_row_its_digest_is_not_of_reads_as_stale_and_is_named() {
     let finished = json!({"step": "exec-session-finished", "total_cost_usd": 1.0});
@@ -469,6 +471,8 @@ fn a_row_its_digest_is_not_of_reads_as_stale_and_is_named() {
         (1, another, "digest"),
         (1, "digest = upper(digest)", "digest"),
         (1, "digest = x'00'", "digest"),
+        (1, "effect_id = CAST(x'ff' AS TEXT)", "effect_id"),
+        (1, "digest = CAST(x'ff' AS TEXT)", "digest"),
     ] {
         let (_dir, mut store) = store();
         seated(&mut store, "r");
@@ -705,17 +709,20 @@ fn a_negative_zero_cost_reads_back_bit_for_bit() {
 
 /// A seat row that is not its fold's is named by its place and how: a
 /// row missing, a column that differs, a row the fold holds none at, one
-/// at a place below zero, and of a run the journal does not hold, at that
-/// place as it stands.
+/// at a place below zero, of a fold with rows or with none, and of a run
+/// the journal does not hold, at that place as it stands.
 #[test]
 fn seat_rows_that_part_from_the_fold_are_named_by_their_place_and_how() {
     let (_dir, mut store) = store();
     for run_id in ["missing", "edited", "stray", "under"] {
         seated(&mut store, run_id);
     }
+    store.create_run("empty", "f", "self", &json!({})).unwrap();
     sql(
         &store,
-        "DELETE FROM seat_summary WHERE run_id = 'missing' AND opened = 1;
+        "INSERT INTO seat_summary (run_id, opened, request_seq, effect_id, digest)
+             VALUES ('empty', -1, 1, 'fx', '');
+         DELETE FROM seat_summary WHERE run_id = 'missing' AND opened = 1;
          UPDATE seat_summary SET model = 'other' WHERE run_id = 'edited' AND opened = 1;
          INSERT INTO seat_summary (run_id, opened, request_seq, effect_id, digest)
              SELECT 'stray', 2, request_seq, effect_id, digest FROM seat_summary
@@ -735,17 +742,27 @@ fn seat_rows_that_part_from_the_fold_are_named_by_their_place_and_how() {
         [
             "run 'edited': its seat rows stand at its head, and the model of its seat row 1 is \
              not its fold's",
+            "run 'empty': the seat summary holds a row at -1, where its fold holds none",
             "run 'missing': its fold's seat row 1 has no seat summary row",
             "run 'stray': the seat summary holds a row at 2, where its fold holds none",
             "run 'under': the seat summary holds a row at -1, where its fold holds none",
             "run 'ghost': the seat summary holds a row at -2, where its fold holds none",
         ]
     );
-    let under = store.compared("under", || {}).unwrap();
-    let place = match under {
-        Compared::Disagrees(Disagreement::Seated { row, .. }) => row,
-        other => panic!("{other:?}"),
-    };
-    assert_eq!(place, (-1i64) as u64);
-    lags(&mut store, &["missing", "edited", "stray", "under"]);
+    for run_id in ["under", "empty"] {
+        assert_eq!(
+            store.seat_rows(run_id).unwrap(),
+            SeatRows::Stale,
+            "{run_id}"
+        );
+        let place = match store.compared(run_id, || {}).unwrap() {
+            Compared::Disagrees(Disagreement::Seated { row, .. }) => row,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(place, (-1i64) as u64, "{run_id}");
+    }
+    lags(
+        &mut store,
+        &["missing", "edited", "stray", "under", "empty"],
+    );
 }

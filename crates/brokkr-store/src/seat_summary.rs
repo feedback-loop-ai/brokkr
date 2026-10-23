@@ -39,7 +39,7 @@ use std::sync::LazyLock;
 use brokkr_core::canonical::sha256_bytes;
 use brokkr_core::seat::row::{Datum, SeatRow};
 use brokkr_core::summary::Account;
-use rusqlite::types::Value;
+use rusqlite::types::{Value, ValueRef};
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 
 use crate::event_index::{finished, first_parted, mark_finished, place, IndexFault};
@@ -187,14 +187,16 @@ fn value(datum: Datum) -> Value {
     }
 }
 
-/// The value a column holds as a row's datum, `None` for a real or a
-/// blob, which no row writes.
-fn datum(value: Value) -> Option<Datum> {
+/// The value a column holds as a row's datum, read as its bytes: `None`
+/// for a real, a blob or a text that is not UTF-8, which no row writes.
+fn datum(value: ValueRef<'_>) -> Option<Datum> {
     match value {
-        Value::Null => Some(Datum::Null),
-        Value::Integer(value) => Some(Datum::Integer(value)),
-        Value::Text(value) => Some(Datum::Text(value)),
-        Value::Real(_) | Value::Blob(_) => None,
+        ValueRef::Null => Some(Datum::Null),
+        ValueRef::Integer(value) => Some(Datum::Integer(value)),
+        ValueRef::Text(text) => std::str::from_utf8(text)
+            .ok()
+            .map(|text| Datum::Text(text.into())),
+        ValueRef::Real(_) | ValueRef::Blob(_) => None,
     }
 }
 
@@ -372,21 +374,20 @@ fn current(conn: &Connection, run_id: &str, head: (u64, &str)) -> Result<SeatRow
     let mut at_head = false;
     while let Some(row) = found.next()? {
         at_head = true;
-        match row.get(0)? {
-            Value::Null => continue,
-            Value::Integer(opened) if opened == rows.len() as i64 => {}
-            Value::Integer(_) | Value::Real(_) | Value::Text(_) | Value::Blob(_) => {
+        match row.get_ref(0)? {
+            ValueRef::Null => continue,
+            ValueRef::Integer(opened) if opened == rows.len() as i64 => {}
+            ValueRef::Integer(_) | ValueRef::Real(_) | ValueRef::Text(_) | ValueRef::Blob(_) => {
                 return Ok(SeatRows::Stale)
             }
         }
-        let read: Vec<Value> = (1..=SeatRow::COLUMNS.len())
-            .map(|at| row.get(at))
+        let data: Option<Vec<Datum>> = (1..=SeatRow::COLUMNS.len())
+            .map(|at| row.get_ref(at).map(datum))
             .collect::<Result<_, _>>()?;
-        let sealed: Value = row.get(SeatRow::COLUMNS.len() + 1)?;
+        let sealed = row.get_ref(SeatRow::COLUMNS.len() + 1)?;
         let place = rows.len() as i64;
-        let data: Option<Vec<Datum>> = read.into_iter().map(datum).collect();
         let data = data.filter(|data| {
-            opened.admits(data) && sealed == Value::Text(digest(run_id, place, data))
+            opened.admits(data) && sealed == ValueRef::Text(digest(run_id, place, data).as_bytes())
         });
         match data.and_then(SeatRow::of_data) {
             Some(seat) => rows.push(seat),

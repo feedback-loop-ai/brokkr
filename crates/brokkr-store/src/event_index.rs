@@ -25,7 +25,7 @@ use std::sync::LazyLock;
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::event_index::Indexed;
-use rusqlite::types::Value;
+use rusqlite::types::{Value, ValueRef};
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Params};
 
 use crate::schema::all_present;
@@ -340,7 +340,7 @@ pub(crate) fn first_parted(
         let found = match (expected.next(), rows.next()?) {
             (None, None) => return Ok(None),
             (Some((key, _)), None) => Some((key, IndexFault::Missing)),
-            (None, Some(row)) => Some((row.get(0)?, IndexFault::Stray)),
+            (None, Some(row)) => Some((row.get::<_, i64>(0)? as u64, IndexFault::Stray)),
             (Some((key, columns)), Some(row)) => parted(key, &columns, row)?,
         };
         if found.is_some() {
@@ -352,7 +352,9 @@ pub(crate) fn first_parted(
 /// Where `row` parts from the row expected at `key`, each the next of
 /// its kind in key order. A row's key is SQLite's integer: one below
 /// zero, which no writer gives, stands before every key and is a stray,
-/// carried in its bits ([`place`] reads it back).
+/// carried in its bits ([`place`] reads it back), as [`first_parted`]
+/// carries one past every expected key. A column is compared as its
+/// bytes, so a text that is not UTF-8 parts there as the column it is.
 fn parted(
     key: u64,
     expected: &[(&'static str, Value)],
@@ -367,7 +369,7 @@ fn parted(
         }));
     }
     for (at, (column, value)) in expected.iter().enumerate() {
-        if row.get::<_, Value>(at + 1)? != *value {
+        if row.get_ref(at + 1)? != ValueRef::from(value) {
             return Ok(Some((key, IndexFault::Column(column))));
         }
     }
