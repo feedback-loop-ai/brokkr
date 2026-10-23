@@ -6,7 +6,9 @@
 //! writes is refused, so a row edited past its writer reads as none.
 //! Counts are kept as their bits, `u64` as `i64`, so no count is cut, and
 //! so are costs, `f64` as `i64`: SQLite keeps a whole-valued REAL as an
-//! integer, which reads a cost of -0.0 back as +0.0.
+//! integer, which reads a cost of -0.0 back as +0.0. The bits of a NaN or
+//! an infinity are refused, since a cost is read from JSON, which carries
+//! neither.
 
 use super::{CarriedFrom, Carry, Last, Member, Outcome, Pin, Provider, SeatRow, Session, Stamp};
 use crate::seat::meter::Meter;
@@ -122,8 +124,13 @@ impl<I: Iterator<Item = Datum>> Take<I> {
         }
     }
 
+    /// A cost from its bits, refusing a NaN or an infinity: a cost is
+    /// read from JSON, which carries neither.
     fn real(&mut self) -> Option<Option<f64>> {
-        Some(self.int()?.map(f64::from_bits))
+        match self.int()?.map(f64::from_bits) {
+            Some(cost) if !cost.is_finite() => None,
+            cost => Some(cost),
+        }
     }
 
     fn flag(&mut self) -> Option<Option<bool>> {

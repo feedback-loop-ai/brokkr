@@ -99,8 +99,9 @@ fn a_row_holding_each_part_it_may_omit_reads_back_as_its_data() {
 }
 
 /// Data no row writes is no row: a value of another type than its
-/// column's, a flag that is neither, a word no outcome is, a part of a
-/// value without the rest, and more or fewer values than columns.
+/// column's, a cost that is a NaN or an infinity, a flag that is neither,
+/// a word no outcome is, a part of a value without the rest, and more or
+/// fewer values than columns.
 #[test]
 fn data_no_row_writes_reads_as_none() {
     let none = || Datum::Null;
@@ -110,7 +111,12 @@ fn data_no_row_writes_reads_as_none() {
         .map(|(name, _)| (*name, Datum::Null))
         .collect();
     let metered_untagged = [("metered_turn", none()), ("metered_settles", none())];
+    let bits = |cost: f64| Datum::Integer(cost.to_bits() as i64);
     let refused: Vec<Vec<(&str, Datum)>> = vec![
+        vec![("spent", bits(f64::NAN))],
+        vec![("spent", bits(f64::INFINITY))],
+        vec![("session_cost", bits(f64::NAN))],
+        vec![("session_cost", bits(f64::NEG_INFINITY))],
         vec![("request_seq", none())],
         vec![("effect_id", none())],
         vec![("since", text("1"))],
