@@ -26,7 +26,8 @@ use crate::{world_and_hearths, AgentsCmd, Exit, MuninnCmd, RecipesCmd, SecretsCm
 pub(crate) fn init(InitArgs { dir }: InitArgs) -> Result<ExitCode> {
     let path = std::env::var_os("PATH").unwrap_or_default();
     let root = crate::folder::admit::root(&dir)?;
-    let scaffold = init::init(&root, &path, std::env::consts::OS)?;
+    let home = std::env::var_os("HOME").unwrap_or_default();
+    let scaffold = init::init(&root, &path, std::env::consts::OS, Path::new(&home))?;
     let folder = root.join(FOLDER);
     eprintln!(
         "initialized {} (digest {}), writing:",

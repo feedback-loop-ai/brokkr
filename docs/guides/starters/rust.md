@@ -172,7 +172,9 @@ This repository reads as a rust project (`Cargo.toml`), so use its own
 tooling:
 
     cargo build --workspace
-    cargo test --workspace
+    cargo test --workspace --locked
+
+Commit `Cargo.lock` with the change whenever the change creates or changes it.
 
 This is a CARGO WORKSPACE (`[workspace]` in `Cargo.toml`). The
 `--workspace` flag above already spans every member crate — there
@@ -196,10 +198,13 @@ Line by line, the parts that were chosen rather than fixed:
   back. One marker, so one file named. `Cargo.toml` is the first entry
   in the table: a language manifest outranks the `Makefile` catch-all,
   because a repo carrying both usually wraps the one in the other.
-- **`cargo build --workspace` / `cargo test --workspace`** — the
+- **`cargo build --workspace` / `cargo test --workspace --locked`** — the
   implementer gets the arm's `build` and `test`. (The verifier gets
   `test` and `lint`; nobody gets all three, because the seat that builds
   and the seat that proves are asked for different things.)
+- **the `Cargo.lock` line** — the verifier runs `--locked`, so a
+  lockfile the change created and left uncommitted fails it rather than
+  leaving the tree dirty at ship (#717).
 - **the CARGO WORKSPACE paragraph** — this fixture's `Cargo.toml`
   carries a `[workspace]` table, so `init` says so. It adds no command:
   `--workspace` was already spanning every member crate. What was
@@ -218,8 +223,8 @@ Line by line, the parts that were chosen rather than fixed:
 The deterministic verifier contains these detected command pins:
 
 ```bash
-test_command='cargo test --workspace'
-lint_command='cargo clippy --workspace --all-targets -- -D warnings'
+test_command='cargo test --workspace --locked'
+lint_command='cargo clippy --workspace --all-targets --locked -- -D warnings'
 ```
 
 It runs both, types `pass` only when both exit zero, and quotes decisive
@@ -228,10 +233,10 @@ boxes it with no network and it uses the bound Cargo registry cache.
 Under `harness`, on macOS, it runs under no box of
 Brokkr's, and its note claims no denied network.
 
-- **`cargo test --workspace`** — the same command the implementer was
+- **`cargo test --workspace --locked`** — the same command the implementer was
   given, on purpose. The implementer runs it to know it is done; the
   verifier runs it as the honest, independent signal.
-- **`cargo clippy --workspace --all-targets -- -D warnings`** — the
+- **`cargo clippy --workspace --all-targets --locked -- -D warnings`** — the
   arm's `lint`. `-D warnings` is deliberate: a lint that warns and
   exits 0 gives a gate seat nothing to fail on.
 

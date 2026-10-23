@@ -105,7 +105,7 @@ fn adopter(dir: &Path) -> PathBuf {
     let bins = repo.join("bin");
     std::fs::create_dir(&bins).unwrap();
     std::fs::write(bins.join("claude"), "").unwrap();
-    crate::init::init(&repo, bins.as_os_str(), "linux").unwrap();
+    crate::init::init(&repo, bins.as_os_str(), "linux", &repo).unwrap();
     repo
 }
 

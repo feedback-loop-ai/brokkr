@@ -36,8 +36,8 @@ const RECOGNIZED: &[(&str, &str, &str, &str, &str)] = &[
         "rust",
         "rust",
         "cargo build --workspace",
-        "cargo test --workspace",
-        "cargo clippy --workspace --all-targets -- -D warnings",
+        "cargo test --workspace --locked",
+        "cargo clippy --workspace --all-targets --locked -- -D warnings",
     ),
     (
         "node-bun",
@@ -209,6 +209,10 @@ const TOOLS: &[(&str, &[&str], &[&str])] = &[
     ),
 ];
 
+/// The base grant every scaffold carries, a stack recognized or not: the
+/// work allowance, then the gate's (#717).
+const BASE: (&[&str], &[&str]) = (&["git", "ls", "rg", "mkdir"], &["git", "ls", "rg"]);
+
 /// The Bash expression each granted tool name stands for — the same
 /// vocabulary the shipped adapters carry, written out again so an
 /// expression silently changed in `init.rs` fails here.
@@ -324,7 +328,7 @@ fn init_reads_the_repository_it_writes() {
     let named = commands(&implementer);
     assert_eq!(
         named,
-        ["cargo build --workspace", "cargo test --workspace"],
+        ["cargo build --workspace", "cargo test --workspace --locked"],
         "{implementer}"
     );
     assert!(!invoked.path().join(".brokkr").exists());
@@ -692,13 +696,13 @@ fn a_manifest_outranks_the_makefile_that_wraps_it() {
 
     assert_eq!(
         commands(&implementer),
-        vec!["cargo build --workspace", "cargo test --workspace"]
+        vec!["cargo build --workspace", "cargo test --workspace --locked"]
     );
     assert_eq!(
         verifier_commands(&verifier),
         vec![
-            "cargo test --workspace",
-            "cargo clippy --workspace --all-targets -- -D warnings"
+            "cargo test --workspace --locked",
+            "cargo clippy --workspace --all-targets --locked -- -D warnings"
         ]
     );
     for command in ["make build", "make test", "make lint"] {
@@ -824,7 +828,7 @@ fn a_workspace_charter_says_it_is_a_workspace_and_a_lone_package_does_not() {
     let (_repo, bundle) = scaffold_from("cargo-workspace");
     assert_eq!(
         commands(&charter(&bundle, "implementer.md")),
-        vec!["cargo build --workspace", "cargo test --workspace"]
+        vec!["cargo build --workspace", "cargo test --workspace --locked"]
     );
     let (_repo, bundle) = scaffold_from("go-workspace");
     assert_eq!(
@@ -910,6 +914,123 @@ fn each_stack_grants_its_own_tools_by_seat_class() {
         // its digest).
         compiles(&bundle);
     }
+}
+
+/// A cargo stack's verifier runs `--locked`, so its implementer charter
+/// says, in one sentence, to commit `Cargo.lock` with the change (#717:
+/// a folder made by `cargo init` parked SHIP-DIRTY on `?? Cargo.lock`).
+/// No other stack's charter says it.
+#[test]
+fn a_cargo_charter_says_to_commit_its_lockfile() {
+    let sentence = "Commit `Cargo.lock` with the change whenever the change creates or changes it.";
+    for (fixture, said) in [("rust", 1), ("node-npm", 0), ("generic", 0)] {
+        let (_repo, bundle) = scaffold_from(fixture);
+        let implementer = charter(&bundle, "implementer.md");
+        let lines = implementer.lines().filter(|line| *line == sentence);
+        assert_eq!(lines.count(), said, "{fixture}: {implementer}");
+        assert_eq!(implementer.matches("Cargo.lock").count(), said, "{fixture}");
+    }
+}
+
+/// `init` run with `PATH` and `HOME` under `aside`: a claude stub in
+/// `aside/bins`, then `extra` on `PATH`, so no host install is read.
+fn init_on(repo: &Path, aside: &Path, extra: &[PathBuf]) -> String {
+    let bins = aside.join("bins");
+    std::fs::create_dir_all(&bins).unwrap();
+    std::fs::write(bins.join("claude"), "").unwrap();
+    let path = std::env::join_paths(std::iter::once(bins).chain(extra.iter().cloned())).unwrap();
+    let (code, _, stderr) = brokkr_with(&["init", "."], repo, |command| {
+        command.env("PATH", &path).env("HOME", aside.join("home"));
+    });
+    assert_eq!(code, Some(0), "{stderr}");
+    stderr
+}
+
+/// Gap 3 of #717, composed: an npm folder on a host whose npm is a volta
+/// shim under `$HOME` compiles to a verify box holding the volta root
+/// read-only, and its verifier puts the shim's directory at the head of
+/// `PATH` and names `VOLTA_HOME`, which the box's private HOME would
+/// otherwise hide. The bind is recorded in `bundle.json` at `init`.
+#[test]
+fn a_volta_npm_folder_binds_the_volta_root_on_verify() {
+    let repo = repository_of("node-npm");
+    let aside = tempfile::tempdir().unwrap();
+    let home = aside.path().canonicalize().unwrap().join("home");
+    let volta = home.join(".volta");
+    std::fs::create_dir_all(volta.join("bin")).unwrap();
+    std::fs::create_dir_all(volta.join("tools/image/node/20.11.0/bin")).unwrap();
+    std::fs::write(volta.join("bin/volta-shim"), "").unwrap();
+    for shim in ["npm", "node"] {
+        std::os::unix::fs::symlink("volta-shim", volta.join("bin").join(shim)).unwrap();
+    }
+    let stderr = init_on(repo.path(), aside.path(), &[volta.join("bin")]);
+    assert!(!stderr.contains("was not found on PATH when"), "{stderr}");
+    let bundle = repo.path().join(".brokkr");
+    let source = read_json(&bundle.join("bundle.json"));
+    let binds = &source["seats"]["verify"]["hands"]["binds"];
+    assert_eq!(
+        binds,
+        &serde_json::json!([{"path": "~/.volta", "mode": "ro"}])
+    );
+    let compiled = compiles(&bundle);
+    let held = &compiled.hands["verify"].binds;
+    let held: Vec<_> = held
+        .iter()
+        .map(|bind| (bind.path.as_str(), bind.mode))
+        .collect();
+    assert_eq!(held, [("~/.volta", brokkr_protocol::hands::BindMode::Ro)]);
+    let script = verifier(&bundle);
+    let exports: Vec<&str> = script
+        .lines()
+        .filter(|l| l.starts_with("export "))
+        .collect();
+    let (bin, root) = (volta.join("bin"), volta.display().to_string());
+    assert_eq!(
+        exports,
+        [
+            format!("export PATH='{}':\"$PATH\"", bin.display()),
+            format!("export VOLTA_HOME='{root}'"),
+        ]
+    );
+}
+
+/// No npm on `PATH` when `init` ran: init says so in one line, the
+/// verify box binds nothing for it, and the verifier, run, fails closed
+/// with that same line before any command, as the no-stack verifier does.
+#[test]
+fn an_npm_folder_with_no_npm_fails_verify_closed() {
+    let repo = repository_of("node-npm");
+    let aside = tempfile::tempdir().unwrap();
+    let stderr = init_on(repo.path(), aside.path(), &[]);
+    let said = "npm was not found on PATH when `brokkr init` ran; install it, or fill in \
+                .brokkr/scripts/verify-seat.sh";
+    assert_eq!(
+        stderr.lines().filter(|line| *line == said).count(),
+        1,
+        "{stderr}"
+    );
+    let bundle = repo.path().join(".brokkr");
+    let source = read_json(&bundle.join("bundle.json"));
+    assert_eq!(
+        source["seats"]["verify"]["hands"]["binds"],
+        serde_json::json!([])
+    );
+    let result = aside.path().join("result.json");
+    let prompt = aside.path().join("prompt.md");
+    std::fs::write(&prompt, format!("{}\n", result.display())).unwrap();
+    let ran = Command::new("bash")
+        .arg(bundle.join("scripts/verify-seat.sh"))
+        .arg(&prompt)
+        .env("HOME", aside.path().join("home"))
+        .current_dir(repo.path())
+        .output()
+        .unwrap();
+    assert_eq!(ran.status.code(), Some(0), "{ran:?}");
+    let written = read_json(&result);
+    assert_eq!(
+        written,
+        serde_json::json!({"result": "fail", "notes": said})
+    );
 }
 
 /// The implement seat's resolved argv — the command the engine would
@@ -1024,27 +1145,29 @@ fn the_implement_seats_argv_ends_in_the_expected_allowed_tools_list() {
     }
 }
 
-/// A repository no row recognizes is granted nothing BY NAME: the
-/// adapter's names map stays empty and no agent declares a `tools` list
-/// (the loader reads an absent `tools` as no list and composes no tool
-/// flag — the only honest reading an empty map can serve). The README says so in
-/// those words rather than letting the silence pass for a choice, and the
-/// scaffold still compiles with no `--allowedTools` on any seat.
+/// A repository no row recognizes earns NO runner, and the base grant
+/// every seat's charter names (#717: a no-marker implement seat was
+/// refused `git add`): the adapter's map carries `git`, `ls`, `rg` and
+/// `mkdir`, the work agents allow all four and the reviewer the read
+/// trio. The README says it granted no runner, in those words, and the
+/// scaffold compiles with the base grant on each model seat.
 #[test]
-fn an_unrecognized_stack_scaffolds_an_empty_map_and_a_readme_that_says_so() {
+fn an_unrecognized_stack_scaffolds_the_base_grant_and_a_readme_that_says_so() {
     let (_repo, bundle) = scaffold_from("generic");
 
-    assert_eq!(
-        names_map(&bundle),
-        serde_json::json!({}),
-        "generic grants were invented"
-    );
-    for name in ["intake", "implementer", "reviewer"] {
+    let base = BASE
+        .0
+        .iter()
+        .map(|name| (name.to_string(), expr(name).into()));
+    assert_eq!(names_map(&bundle), Value::Object(base.collect()));
+    for (name, allow) in [
+        ("intake", BASE.0),
+        ("implementer", BASE.0),
+        ("reviewer", BASE.1),
+    ] {
         let definition = agent(&bundle, name);
-        assert!(
-            definition.get("tools").is_none(),
-            "generic agent {name} declares a tools list the empty map cannot express"
-        );
+        let tools = serde_json::json!({"allow": allow, "mcp": []});
+        assert_eq!(definition["tools"], tools, "{name}");
         // Everything else an agent needs is still there.
         assert_eq!(definition["charter"], format!("charters/{name}.md"));
         assert_eq!(definition["models"].as_array().unwrap().len(), 2);
@@ -1053,25 +1176,23 @@ fn an_unrecognized_stack_scaffolds_an_empty_map_and_a_readme_that_says_so() {
     let readme =
         std::fs::read_to_string(bundle.join(DEFAULT_AGENTS_DIR).join("README.md")).unwrap();
     assert!(readme.contains("NO STACK WAS RECOGNIZED"), "{readme}");
-    assert!(readme.contains("EMPTY"), "{readme}");
     assert!(
-        readme.contains("grants no tool it could not read from a manifest"),
+        readme.contains("the base set\nevery seat's charter names, and NO runner:"),
+        "{readme}"
+    );
+    assert!(
+        readme.contains("grants no runner it could not read from a manifest"),
         "{readme}"
     );
 
-    // A scaffold that declares nothing still compiles, with no seat
-    // handed a Bash grant it was never given.
     let compiled = compiles(&bundle);
-    for seat in ["intake", "implement", "review"] {
+    let work = "Bash(git:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)";
+    let gate = "Bash(git:*),Bash(ls:*),Bash(rg:*)";
+    for (seat, granted) in [("intake", work), ("implement", work), ("review", gate)] {
         let command = argv(&compiled, seat);
-        assert!(
-            !command.iter().any(|part| part == "--allowedTools"),
-            "{seat}: {command:?}"
-        );
-        assert!(
-            command.contains(&"--model".to_string()),
-            "{seat}: {command:?}"
-        );
+        let at = command.iter().position(|part| part == "--allowedTools");
+        let listed = at.map(|at| command[at + 1].as_str());
+        assert_eq!(listed, Some(granted), "{seat}: {command:?}");
     }
     for seat in ["verify", "ship"] {
         let command = argv(&compiled, seat);
@@ -1371,7 +1492,7 @@ const CHAINS: &[(&str, &str, Chain)] = &[
 /// Decision 0087 ruling 1's projection of the library's portable base
 /// office for a folder `init` scaffolded for `cli` on `stack`: the hiring
 /// CLI's chain and efforts, a codex-hired office's hands, and a
-/// claude-hired office's stack tools.
+/// claude-hired office's stack tools, or the base grant with no stack.
 fn projected(cli: &str, office: &str, stack: Option<&str>) -> Value {
     let library = crate::workspace_root::workspace().join("agents");
     let mut definition = read_json(&library.join(format!("{office}.json")));
@@ -1399,11 +1520,11 @@ fn projected(cli: &str, office: &str, stack: Option<&str>) -> Value {
             definition["hands"] =
                 serde_json::json!({"kind": "workspace", "network": false, "binds": binds});
         }
-        ("claude", Some(stack)) => {
-            let (_, work, gate) = TOOLS
-                .iter()
-                .find(|(fixture, ..)| *fixture == stack)
-                .unwrap();
+        ("claude", stack) => {
+            let (work, gate) = stack.map_or(BASE, |stack| {
+                let found = TOOLS.iter().find(|(fixture, ..)| *fixture == stack);
+                found.map(|(_, work, gate)| (*work, *gate)).unwrap()
+            });
             let allow = if office == "reviewer" { gate } else { work };
             definition["tools"] = serde_json::json!({"allow": allow, "mcp": []});
         }
@@ -1415,8 +1536,10 @@ fn projected(cli: &str, office: &str, stack: Option<&str>) -> Value {
 /// Decision 0087 ruling 6: `init` writes the library's portable base.
 /// Under claude, codex and dsh, each with no stack, a cargo stack and an
 /// npm stack, every office it writes parses equal to `agents/<office>.json`
-/// after ruling 1's projection; under claude with no stack the projection
-/// is the identity, and the files are equal byte for byte.
+/// after ruling 1's projection. Under claude with no stack the projection
+/// adds only the base grant every scaffold carries (#717, the operator's
+/// ruling of 2026-10-22), and both files are `init`'s serialization byte
+/// for byte: keys sorted, two-space indent, a closing newline.
 #[test]
 fn init_writes_the_librarys_portable_base_under_every_agent_cli() {
     let library = crate::workspace_root::workspace().join("agents");
@@ -1438,9 +1561,18 @@ fn init_writes_the_librarys_portable_base_under_every_agent_cli() {
                 if (cli, stack) == ("claude", None) {
                     let written = std::fs::read(bundle.join(DEFAULT_AGENTS_DIR).join(&file));
                     let source = std::fs::read(library.join(&file));
-                    assert_eq!(written.unwrap(), source.unwrap(), "{case}");
+                    let expected = serialized(&projected(cli, office, stack));
+                    assert_eq!(written.unwrap(), expected, "{case}");
+                    let library_value = read_json(&library.join(&file));
+                    assert_eq!(source.unwrap(), serialized(&library_value), "{case}");
                 }
             }
         }
     }
+}
+
+/// `init`'s serialization of one definition: keys sorted, two-space
+/// indent, a closing newline.
+fn serialized(value: &Value) -> Vec<u8> {
+    format!("{}\n", serde_json::to_string_pretty(value).unwrap()).into_bytes()
 }

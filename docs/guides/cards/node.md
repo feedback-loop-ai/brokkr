@@ -18,7 +18,7 @@ marker set and so the last one tried:
     npm run lint       # verifier
 ```
 
-Two things to check before step 3:
+Three things to check before step 3:
 
 - **`npm run lint` is a guess with a name on it.** If your
   `package.json` has no `lint` script, edit `.brokkr/scripts/verify-seat.sh` — that
@@ -26,6 +26,13 @@ Two things to check before step 3:
 - **No install step is scaffolded.** What `npm ci` should do in your
   repository depends on your CI and your network posture, and a charter
   that guessed would be guessing about the network.
+- **Where `npm` is installed was read once, at `init`.** It looked
+  `npm` and `node` up on its own `PATH`, following links (#717). An
+  install under `$HOME`, such as a volta shim or an nvm version, is
+  bound `ro` on verify's hands in `bundle.json` (`~/.volta`, say). The
+  verifier puts the directory each was found in at the head of `PATH`,
+  and exports `VOLTA_HOME` for a volta shim. With no `npm` on `PATH`,
+  `init` says so in one line, and the verifier fails with that line.
 
 The full transcript, annotated: [starters/node.md](../starters/node.md).
 

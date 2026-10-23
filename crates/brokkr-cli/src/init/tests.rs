@@ -167,18 +167,18 @@ fn grants_split_the_full_set_from_the_gate_subset() {
     assert_eq!(names(&grant.gate), ["bun", "git", "ls", "rg"]);
 }
 
-/// No recognized stack means no grant at all: both allowances empty, so
-/// the adapter map is written empty and no agent names a tool.
+/// No recognized stack means no runner, and the base set alone: the work
+/// seats' four and the gate's read trio, which the adapter map carries
+/// (#717: a no-marker implement seat was refused `git add`).
 #[test]
-fn an_unrecognized_stack_grants_nothing() {
+fn an_unrecognized_stack_grants_the_base_set_alone() {
     let grant = grants(None);
-    assert!(grant.work.is_empty());
-    assert!(grant.gate.is_empty());
+    assert_eq!(names(&grant.work), ["git", "ls", "rg", "mkdir"]);
+    assert_eq!(names(&grant.gate), ["git", "ls", "rg"]);
 }
 
 /// The allowance an agent is written with follows the class of the seat
-/// that names it — and, when nothing was granted, every agent omits the
-/// `tools` list rather than name a tool the empty map cannot back.
+/// that names it, a stack recognized or not.
 #[test]
 fn an_agents_allowance_follows_its_seats_class() {
     let work = AgentSpec {
@@ -213,9 +213,12 @@ fn an_agents_allowance_follows_its_seats_class() {
     assert_eq!(names(claude(&gate, &grant).unwrap()), names(&grant.gate));
     assert_eq!(claude(&work, &grant).unwrap().len(), 5);
 
-    let nothing = grants(None);
-    assert!(claude(&work, &nothing).is_none());
-    assert!(claude(&gate, &nothing).is_none());
+    let base = grants(None);
+    assert_eq!(
+        names(claude(&work, &base).unwrap()),
+        ["git", "ls", "rg", "mkdir"]
+    );
+    assert_eq!(names(claude(&gate, &base).unwrap()), ["git", "ls", "rg"]);
 
     // codex and dsh cannot express a tool name: no allowance, whatever
     // the stack granted.
@@ -353,7 +356,7 @@ fn the_scaffold_claims_the_box_and_a_denied_network_only_under_namespace() {
     let cargo = detected("cargo build", "cargo test", "cargo clippy");
     let said = |boundary: Option<Boundary>| {
         let readme = stack_readme(Some(&cargo), &[Cli::Claude], claims(boundary));
-        let script = verify_script(Some(&cargo), claims(boundary));
+        let script = verify_script(Some(&cargo), None, claims(boundary));
         let lines = |text: &str, with: &str, count: usize| {
             let at = text.lines().position(|line| line.contains(with));
             let at = at.expect(with);
@@ -437,7 +440,7 @@ fn every_host_arm_says_its_claims_and_no_other() {
         let repo = root.path().join(arm);
         std::fs::create_dir(&repo).unwrap();
         std::fs::write(repo.join("Cargo.toml"), "[workspace]\n").unwrap();
-        let scaffold = super::init(&repo, bins.as_os_str(), os).unwrap();
+        let scaffold = super::init(&repo, bins.as_os_str(), os, root.path()).unwrap();
         if super::claims::claims(cli, boundary) != claims {
             wrong.push(format!("{arm}: claims() hands this host another set"));
         }

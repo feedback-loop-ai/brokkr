@@ -1361,13 +1361,13 @@ fn scaffolded_capabilities(fixture: Option<&str>) -> (serde_json::Value, Vec<Str
 #[cfg(unix)]
 #[test]
 fn doctor_reads_a_stacks_typed_restrictions_as_granting_nothing() {
-    // The control: no stack, no typed restriction, and the three lines
-    // the test above pins whole.
+    // The control: no stack, so the base grant alone (#717), and the
+    // three lines the test above pins whole.
     let (unrestricted, control) = scaffolded_capabilities(None);
     let mut rows = vec![("unrestricted", unrestricted, control.first().cloned())];
     let mut expected = vec![(
         "unrestricted",
-        serde_json::Value::Null,
+        serde_json::json!({"allow": ["git", "ls", "rg", "mkdir"], "mcp": []}),
         Some(
             "ok       capabilities starter: grants nothing; every native capability is governed \
              by the no-grant default — switched off, or the seat is refused"

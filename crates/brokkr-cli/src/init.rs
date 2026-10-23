@@ -82,10 +82,10 @@
 //! test`, so it is each gate's charter — prove it, fix nothing — and not
 //! the grant that keeps a gate from building, and the README says so
 //! rather than promising a boundary the glob cannot draw. A stack no row
-//! of the two tables recognizes earns NO tool name: the map is written
-//! EMPTY, no agent declares a `tools` list, and the scaffold's
-//! README says so in those words — a tool name is a permission, and one
-//! guessed is one granted.
+//! of the two tables recognizes earns NO runner: the map and the agents
+//! carry the base set alone (`git`, `ls`, `rg`, and `mkdir` for work), and
+//! the scaffold's README says so in those words — a tool name is a
+//! permission, and one guessed is one granted.
 
 use std::path::{Path, PathBuf};
 
@@ -200,11 +200,17 @@ const POLICY: &str = r#"{
 }
 "#;
 
+/// Whether the stack's suite runs through cargo.
+fn cargo(stack: &Detected) -> bool {
+    leading_word(&stack.test) == "cargo"
+}
+
 /// The binds a box needs to run the stack's own suite: a cargo stack
-/// reads its toolchain and registry, and no other row needs anything.
+/// reads its toolchain and registry. A node-family runner's install is
+/// bound on verify's box alone, from what `init` resolved (`node::Reach`).
 fn stack_binds(detected: Option<&Detected>) -> Vec<serde_json::Value> {
     let mut binds = Vec::new();
-    if detected.is_some_and(|stack| leading_word(&stack.test) == "cargo") {
+    if detected.is_some_and(cargo) {
         binds.extend([
             json!({"path": "~/.cargo", "mode": "overlay", "mask": ["credentials.toml", "credentials"]}),
             json!({"path": "~/.rustup", "mode": "ro"}),
@@ -215,8 +221,9 @@ fn stack_binds(detected: Option<&Detected>) -> Vec<serde_json::Value> {
 
 /// The scaffold follows the shipped roster: work and review are model
 /// offices; verify and ship are exec scripts, boxed under `namespace`.
-fn bundle_json(detected: Option<&Detected>) -> String {
-    let verify_binds = stack_binds(detected);
+fn bundle_json(detected: Option<&Detected>, reach: Option<&node::Reach>) -> String {
+    let mut verify_binds = stack_binds(detected);
+    verify_binds.extend(reach.map_or_else(Vec::new, node::Reach::binds));
     let bundle = json!({
         "name": "starter",
         "policy": "policy.json",
@@ -367,6 +374,8 @@ mod adapters;
 // A link's effort is data beside its model, never derived from its name.
 mod claims;
 mod effort;
+// Where a node-family runner is installed, resolved once for verify's box.
+mod node;
 use {
     claims::{Claims, PRE_APPROVAL, REVIEW_GATE},
     effort::Effort,
@@ -571,23 +580,19 @@ fn runner_tools(detected: &Detected) -> Vec<Tool> {
 ///   lint lines also lead with — the grant is per binary, and the README
 ///   says so) plus `git`, `ls` and `rg`, and never `mkdir`.
 ///
-/// Both empty when no stack was recognized: the map is then empty too,
-/// and an agent that named a key the map lacks would refuse to compile —
-/// the right refusal, but not one a scaffold should hand over.
+/// When no stack was recognized there is no runner, and both sets are the
+/// base alone: `git`, `ls`, `rg` and `mkdir` for work, the read trio for
+/// the gate. The adapter's map carries every granted tool's permission in
+/// either case, so no agent names a key the map lacks and the scaffold
+/// compiles (#717: a no-marker implement seat was refused `git add`).
 struct Grants {
     work: Vec<Tool>,
     gate: Vec<Tool>,
 }
 
 fn grants(detected: Option<&Detected>) -> Grants {
-    let Some(detected) = detected else {
-        return Grants {
-            work: Vec::new(),
-            gate: Vec::new(),
-        };
-    };
-    let mut work = runner_tools(detected);
-    let mut gate = command_tools(&detected.test);
+    let mut work = detected.map_or_else(Vec::new, runner_tools);
+    let mut gate = detected.map_or_else(Vec::new, |stack| command_tools(&stack.test));
     for read in [GIT, LS, RG] {
         work.push(read);
         gate.push(read);
@@ -605,10 +610,10 @@ fn codex_hands(detected: Option<&Detected>) -> serde_json::Value {
 }
 
 /// One agent definition, in the repository's own library format. The
-/// `tools` key is omitted — not written empty — when there is nothing to
-/// grant: an empty `allow` is an explicit empty set, which the lowering
-/// refuses until a serving path can deliver it, and the README says what
-/// an absent key means.
+/// `tools` key is omitted — not written empty — for an agent whose CLI
+/// cannot express a tool name: an empty `allow` is an explicit empty set,
+/// which the lowering refuses until a serving path can deliver it, and the
+/// README says what an absent key means.
 fn agent_json(
     spec: &AgentSpec,
     models: &[(&str, Effort)],
@@ -653,13 +658,10 @@ fn agent_json(
 /// codex and dsh cannot express a tool name, and an allowance their
 /// adapter cannot express refuses the compile.
 fn allowance<'a>(spec: &AgentSpec, provider: Cli, grants: &'a Grants) -> Option<&'a [Tool]> {
-    match (provider, spec.class, grants.work.is_empty()) {
-        (Cli::Claude, Class::Work, false) => Some(&grants.work),
-        (Cli::Claude, Class::Gate, false) => Some(&grants.gate),
-        // No stack was recognized: no tool was granted, and an agent must
-        // not name one — omit the list and let the README say why.
-        (Cli::Claude, _, true) => None,
-        (Cli::Codex | Cli::Dsh, _, _) => None,
+    match (provider, spec.class) {
+        (Cli::Claude, Class::Work) => Some(&grants.work),
+        (Cli::Claude, Class::Gate) => Some(&grants.gate),
+        (Cli::Codex | Cli::Dsh, _) => None,
     }
 }
 
@@ -667,8 +669,9 @@ fn allowance<'a>(spec: &AgentSpec, provider: Cli, grants: &'a Grants) -> Option<
 /// it describes: what was written, where each half of the grant lives,
 /// and — the part an operator must be able to check — which tools the
 /// seats were granted and why. Where no stack was recognized it says the
-/// map is EMPTY, in those words, so an empty grant cannot be mistaken for
-/// a considered one. It is never written to the target's own README.md.
+/// map holds the base set and NO runner, in those words, so the base
+/// cannot be mistaken for a considered grant. It is never written to the
+/// target's own README.md.
 /// `hired` is the agent CLIs the seats are hired from: the adapters named
 /// here are the ones written, and only a claude adapter carries a tool map.
 fn stack_readme(detected: Option<&Detected>, hired: &[Cli], claims: Claims) -> String {
@@ -676,66 +679,54 @@ fn stack_readme(detected: Option<&Detected>, hired: &[Cli], claims: Claims) -> S
     if !hired.contains(&Cli::Claude) {
         return format!("{header}{NO_TOOL_MAP}");
     }
-    match detected {
-        Some(detected) => {
-            let grants = grants(Some(detected));
-            let rendered = |tools: &[Tool]| {
-                tools
-                    .iter()
-                    .map(|tool| format!("{} → {}", tool.name, tool.permission))
-                    .collect::<Vec<_>>()
-                    .join("\n    ")
-            };
-            format!(
-                "{header}## Tool grants\n\n\
-                 `adapters/claude.json` maps each tool the seats are granted below\n\
-                 to the `Bash(...)` expression the claude CLI reads — the stack's\n\
-                 own runners, and nothing broader:\n\
-                 \n    {work_rendered}\n\n\
-                 Work-class seats (intake, implement) are pre-approved for the whole set:\n\
-                 {work_list}. {PRE_APPROVAL}\n\n\
-                 The model-backed review gate is pre-approved for a smaller set — the\n\
-                 test runner's tools and the tools that read — and never `mkdir`:\n\
-                 {gate_list}. {scripts}\n\n\
-                 The grant is per BINARY, not per subcommand: the test runner's\n\
-                 binary also answers to its build and install subcommands, so it is\n\
-                 each gate's charter (prove it, fix nothing) and not the grant that\n\
-                 keeps a gate from building. {REVIEW_GATE}\n\n\
-                 An allowance is ONE grant with the adapter's `tool_permissions.names`:\n\
-                 an allowance whose name the map cannot express refuses this\n\
-                 scaffold's own compile, so when you edit one, edit both.\n\n\
-                 `brokkr init` chose all of this from the files at the repository\n\
-                 root — it ran nothing to find out. Correct it here if it is wrong.\n",
-                work_rendered = rendered(&grants.work),
-                work_list = grants
-                    .work
-                    .iter()
-                    .map(|tool| tool.name)
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                gate_list = grants
-                    .gate
-                    .iter()
-                    .map(|tool| tool.name)
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                scripts = claims.scripts,
-            )
-        }
-        None => format!(
-            "{header}The tool map was scaffolded EMPTY for the same reason:\n\
-                 `adapters/claude.json` → `tool_permissions.names` names nothing,\n\
-                 and no agent under `agents/` declares a `tools` list.\n\
-                 `brokkr init` grants no tool it could not read from a manifest,\n\
-                 because a tool name is a permission and one guessed is one granted.\n\n\
-                 Before a headless run, find this repository's own build, test and\n\
-                 lint commands and grant them by name: add each binary to the\n\
-                 adapter's `tool_permissions.names` as `Bash(<bin>:*)`, then list\n\
-                 the names in each agent's `tools.allow` — the work-class seats\n\
-                 (intake, implement) get the whole set and the model-backed review\n\
-                 gate gets git, ls, rg and the test runner, never `mkdir`.\n"
+    let (granted, closing) = match detected {
+        Some(_) => (
+            "the stack's\nown runners, and nothing broader",
+            "`brokkr init` chose all of this from the files at the repository\n\
+             root — it ran nothing to find out. Correct it here if it is wrong.\n",
         ),
-    }
+        None => (
+            "the base set\nevery seat's charter names, and NO runner",
+            "`brokkr init` grants no runner it could not read from a manifest,\n\
+             because a tool name is a permission and one guessed is one granted.\n\
+             Before a headless run, find this repository's own build, test and\n\
+             lint commands and grant them by name: add each binary to the\n\
+             adapter's `tool_permissions.names` as `Bash(<bin>:*)`, then list\n\
+             the names in each agent's `tools.allow` — the work-class seats\n\
+             (intake, implement) get every runner, the review gate the test runner.\n",
+        ),
+    };
+    let grants = grants(detected);
+    let names = |tools: &[Tool]| {
+        let names: Vec<&str> = tools.iter().map(|tool| tool.name).collect();
+        names.join(", ")
+    };
+    let rendered = (grants.work.iter())
+        .map(|tool| format!("{} → {}", tool.name, tool.permission))
+        .collect::<Vec<_>>()
+        .join("\n    ");
+    format!(
+        "{header}## Tool grants\n\n\
+         `adapters/claude.json` maps each tool the seats are granted below\n\
+         to the `Bash(...)` expression the claude CLI reads — {granted}:\n\
+         \n    {rendered}\n\n\
+         Work-class seats (intake, implement) are pre-approved for the whole set:\n\
+         {work}. {PRE_APPROVAL}\n\n\
+         The model-backed review gate is pre-approved for a smaller set — the\n\
+         test runner's tools and the tools that read — and never `mkdir`:\n\
+         {gate}. {scripts}\n\n\
+         The grant is per BINARY, not per subcommand: the test runner's\n\
+         binary also answers to its build and install subcommands, so it is\n\
+         each gate's charter (prove it, fix nothing) and not the grant that\n\
+         keeps a gate from building. {REVIEW_GATE}\n\n\
+         An allowance is ONE grant with the adapter's `tool_permissions.names`:\n\
+         an allowance whose name the map cannot express refuses this\n\
+         scaffold's own compile, so when you edit one, edit both.\n\n\
+         {closing}",
+        work = names(&grants.work),
+        gate = names(&grants.gate),
+        scripts = claims.scripts,
+    )
 }
 
 /// What a scaffold with no claude-hired seat says in place of the tool
@@ -894,8 +885,8 @@ const STACKS: &[Stack] = &[
         name: "rust",
         markers: &["Cargo.toml"],
         build: "cargo build --workspace",
-        test: "cargo test --workspace",
-        lint: "cargo clippy --workspace --all-targets -- -D warnings",
+        test: "cargo test --workspace --locked",
+        lint: "cargo clippy --workspace --all-targets --locked -- -D warnings",
     },
     // Bun ahead of the three older node arms, and ahead of them all
     // because `bun.lock` is the narrower evidence: a bun-managed
@@ -1298,11 +1289,12 @@ fn commands(chosen: Option<(&Detected, &str, &str)>, placeholders: [&str; 2]) ->
             "This repository reads as a {} project ({}), so use its own\n\
              tooling:\n\
              \n    {first}\n    {second}\n\n\
-             {}\
+             {}{}\
              `brokkr init` chose those from the files at the repository root —\n\
              it ran nothing to find out. Correct them here if they are wrong.\n",
             detected.name,
             detected.evidence,
+            if cargo(detected) { CARGO_LOCK } else { "" },
             detected
                 .note
                 .map_or(String::new(), |note| format!("{note}\n\n")),
@@ -1319,6 +1311,11 @@ fn commands(chosen: Option<(&Detected, &str, &str)>, placeholders: [&str; 2]) ->
         ),
     }
 }
+
+/// The one paragraph a cargo stack's charter adds below its commands: the
+/// verifier runs `--locked`, so a lockfile left out of the commit fails it.
+const CARGO_LOCK: &str =
+    "Commit `Cargo.lock` with the change whenever the change creates or changes it.\n\n";
 
 fn implementer(stack: Option<&Detected>) -> String {
     format!(
@@ -1345,10 +1342,15 @@ fn shell_literal(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-fn verify_script(stack: Option<&Detected>, Claims { note, .. }: Claims) -> String {
+fn verify_script(
+    stack: Option<&Detected>,
+    reach: Option<&node::Reach>,
+    Claims { note, .. }: Claims,
+) -> String {
     let (test, lint) = stack
         .map(|stack| (stack.test.as_str(), stack.lint.as_str()))
         .unwrap_or(("", ""));
+    let reach = reach.map_or_else(String::new, node::Reach::script);
     format!(
         r#"#!/usr/bin/env bash
 set -u
@@ -1382,7 +1384,7 @@ if [ -z "$test_command" ] || [ -z "$lint_command" ]; then
   printf 'no stack was recognized; fill in .brokkr/scripts/verify-seat.sh before running this gate' > "$notes"
   write_result fail; exit 0
 fi
-run "$test_command" "$test_command"
+{reach}run "$test_command" "$test_command"
 run "$lint_command" "$lint_command"
 printf '%s and %s passed {note}' "$test_command" "$lint_command" > "$notes"
 write_result pass
@@ -1433,13 +1435,17 @@ pub(crate) struct Scaffold {
 /// grants, scripts and dialects an operator edits stand refused before
 /// this is reached. A `.gitignore` that already stands is kept. `path`
 /// and `os` are the machine's search path and operating system, read for
-/// the agent CLI and the boundary.
-pub(crate) fn init(root: &Path, path: &std::ffi::OsStr, os: &str) -> Result<Scaffold> {
+/// the agent CLI and the boundary; `path` and `home`, the operator's
+/// `$HOME`, for where a node-family runner is installed.
+pub(crate) fn init(root: &Path, path: &std::ffi::OsStr, os: &str, home: &Path) -> Result<Scaffold> {
     let folder = root.join(FOLDER);
     let detection = detect(root);
-    let host = host(path, os);
+    let mut host = host(path, os);
     let detected = detection.stack.as_ref();
     let grants = grants(detected);
+    let reach = detected.and_then(|stack| node::reach(&runner_tools(stack), path, home));
+    host.notes
+        .extend(reach.as_ref().and_then(node::Reach::refusal));
     // One declaration per agent CLI a seat is hired from, then exec's.
     let mut hired: Vec<Cli> = Vec::new();
     for spec in SEATS {
@@ -1456,7 +1462,7 @@ pub(crate) fn init(root: &Path, path: &std::ffi::OsStr, os: &str) -> Result<Scaf
     // project's own README.md, which is the operator's file.
     let mut files: Vec<(PathBuf, String)> = vec![
         ("policy.json".into(), POLICY.to_string()),
-        ("bundle.json".into(), bundle_json(detected)),
+        ("bundle.json".into(), bundle_json(detected, reach.as_ref())),
         (
             "realms.json".into(),
             realms_json(&detection.dialect, host.boundary),
@@ -1467,7 +1473,7 @@ pub(crate) fn init(root: &Path, path: &std::ffi::OsStr, os: &str) -> Result<Scaf
         ),
         (
             "scripts/verify-seat.sh".into(),
-            verify_script(detected, host.claims()),
+            verify_script(detected, reach.as_ref(), host.claims()),
         ),
         ("scripts/ship-seat.sh".into(), SHIP_SCRIPT.to_string()),
         (adapters_dir.join("exec.json"), adapters::EXEC.to_string()),

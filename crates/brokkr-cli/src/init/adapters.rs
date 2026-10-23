@@ -143,8 +143,8 @@ const CLAUDE_MCP: &str = r#"{
 /// is the union of every allowance the scaffold wrote — the work set,
 /// which carries the gate set inside it — because a name any agent's
 /// `tools.allow` lists must be expressible here or the scaffold's own
-/// compile refuses. Where nothing was recognized the map stays EMPTY,
-/// and the README carries the sentence that says which of the two it is.
+/// compile refuses. Where nothing was recognized the map holds the base
+/// set alone, and the README carries the sentence that says which it is.
 fn claude(grants: &Grants) -> String {
     let mut names = Map::new();
     for tool in &grants.work {

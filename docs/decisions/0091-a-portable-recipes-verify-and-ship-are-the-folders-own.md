@@ -3,7 +3,7 @@
 Status: accepted — operator ruled 2026-10-20 (PR #793), every choice asked taken as recommended
 Date: 2026-10-20
 
-Built: partial (#717) — slice 3b built ruling 1; slice 3c built rulings 3 and 4 as data; slice 3d is unbuilt
+Built: partial (#717) — slice 3b built ruling 1; slice 3c built rulings 3 and 4 as data; slice 3d's first fix (the acceptance's gaps 3, 4 and 5) is built, and its acceptance is still owed
 Amends: 0048, 0087
 
 ## Context
