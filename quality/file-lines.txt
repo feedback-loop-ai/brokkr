@@ -608,7 +608,7 @@
    580 crates/brokkr-protocol/src/process/limits/tests.rs
    114 crates/brokkr-protocol/src/process/queue_tests.rs
    341 crates/brokkr-protocol/src/process/table/tests.rs
-  1979 crates/brokkr-protocol/src/process/tests.rs
+  1991 crates/brokkr-protocol/src/process/tests.rs
    210 crates/brokkr-protocol/src/secret/guard/tests.rs
   1355 crates/brokkr-protocol/src/secret/tests.rs
    110 crates/brokkr-protocol/src/zstd/tests.rs
