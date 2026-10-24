@@ -8,7 +8,7 @@
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use super::storage::{latch_row, queue_stored, STANDING_LATCH, STANDING_PIN};
-use super::{record, standing, Attribution, EntryId, EntryState, QueueRefusal};
+use super::{record, standing, Attribution, EntryId, EntryState, Latch, QueueRefusal};
 use crate::StoreError;
 
 /// What a caller read of a waiting entry before it writes beside it: the
@@ -48,13 +48,28 @@ impl Beside {
     }
 }
 
-/// Refuse a re-pin or a latch of an entry that has left the queue.
+/// Refuse a re-pin or a latch of an entry that has left the queue, or that
+/// the dispatcher is launching.
 fn left_the_queue(entry: EntryId, state: EntryState) -> Option<QueueRefusal> {
     match state {
         EntryState::Dropped => Some(QueueRefusal::Dropped(entry)),
         EntryState::Claimed { run } => Some(QueueRefusal::Claimed { entry, run }),
+        EntryState::Launching => Some(QueueRefusal::Launching(entry)),
         EntryState::Queued | EntryState::Held => None,
     }
+}
+
+/// The latch that stands on `entry` now, and the seq of the pin it stands
+/// for, read in the transaction that writes over them.
+pub(super) fn standing_now(
+    tx: &Transaction<'_>,
+    entry: EntryId,
+) -> Result<(Option<Latch>, Option<i64>), StoreError> {
+    let latch = tx
+        .query_row(STANDING_LATCH, [entry.0], latch_row)
+        .optional()?;
+    let pin: Option<i64> = tx.query_row(STANDING_PIN, [entry.0], |row| row.get(0))?;
+    Ok((latch, pin))
 }
 
 /// Refuse the write unless the pin and the latch `seen` read are the ones
@@ -66,10 +81,7 @@ fn fenced(
     beside: Beside,
     seen: Seen,
 ) -> Result<(), StoreError> {
-    let latch = tx
-        .query_row(STANDING_LATCH, [entry.0], latch_row)
-        .optional()?;
-    let pin: Option<i64> = tx.query_row(STANDING_PIN, [entry.0], |row| row.get(0))?;
+    let (latch, pin) = standing_now(tx, entry)?;
     let latch_stands = latch.as_ref().map(|latch| latch.seq) == seen.latch;
     let refusal = match (beside, latch_stands, pin == seen.pin) {
         (Beside::Latch | Beside::Pin, true, true) => return Ok(()),

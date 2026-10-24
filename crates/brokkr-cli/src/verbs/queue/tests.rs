@@ -111,7 +111,7 @@ fn the_queue_keeps_order_holds_and_runs_across_invocations() {
     store
         .create_run("run-3", "third", "b", &json!({"schema": "run-manifest/v1"}))
         .unwrap();
-    store.queue_claim(EntryId(3), "run-3").unwrap();
+    brokkr_store::test_support::linked(&mut store, EntryId(3), "run-3");
     for words in [
         ["release", "2", "--reason", "go"],
         ["hold", "2", "--reason", "again"],

@@ -269,6 +269,7 @@ fn rows(entries: &[Judged]) -> Vec<Row<'_>> {
                  entry,
                  launch,
                  verdict,
+                 ..
              }| Row {
                 place: entry.position,
                 entry: entry.id.0,
