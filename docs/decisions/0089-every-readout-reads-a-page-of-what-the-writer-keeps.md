@@ -957,10 +957,18 @@ model the writer keeps in the journal's own file and transaction.
    quote, a backslash and a newline, and 8,898,426 B for one holding
    180,000 plain one-byte strings, the first equal to the byte in a
    journal of 10,000 events and one of 1,000,000; no heap test binds
-   that shape. Either way
-   the peak stays bounded by the run's largest envelope, never by the
-   journal. `heap_open.rs` binds the long-string shape with an escaped
-   stretch, a quote and a backslash, a run of plain text and a newline,
+   that shape. The opening keeps the first event's run_id to hold every
+   later event to, as `Store::load` holds them to the first's, so that
+   text is held once more while each later envelope parses: 2,088,809 B
+   measured for a two-event run whose first envelope is a mebibyte
+   because its run_id is, and 4,176,455 B when that run_id carries
+   escapes, against 10,604 B for the same run with a 41-byte run_id. A
+   run with no event costs its manifest twice, read and parsed as
+   `Store::load` reads it to tell it from a run the journal lacks:
+   2,097,830 B measured for a manifest of a mebibyte, against 117 B for
+   `{}`. Either way the peak stays bounded by the run's largest envelope,
+   or its manifest, never by the journal. `heap_open.rs` binds the
+   long-string shape with an escaped stretch, a quote and a backslash, a run of plain text and a newline,
    in a journal of 10,000 events and one of 1,000,000: peaks equal to
    the byte, each grown over the unstretched peak by at most three
    envelopes (3,134,848 B measured against 3,145,728), within its budget
