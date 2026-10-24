@@ -968,7 +968,13 @@ model the writer keeps in the journal's own file and transaction.
    when its text is plain and about four times when it carries escapes,
    which the parser copies through the same scratch buffer: 2,097,833 B
    measured for a manifest of a mebibyte of plain text and 4,194,948 B
-   for one of escaped text, against 120 B for `{}`. Either way the peak stays bounded by the run's largest envelope,
+   for one of escaped text, against 120 B for `{}`, when the manifest is
+   one or a few long strings. A manifest of many short strings costs its
+   parsed size besides, as an envelope of them does: 9,946,380 B
+   measured for a mebibyte holding 180,000 plain one-byte strings, and
+   5,989,177 B for one holding 100,000 strings of a quote, a backslash
+   and a newline; no heap test binds that shape. Either way the peak
+   stays bounded by the run's largest envelope,
    or its manifest, never by the journal. `heap_open.rs` binds the
    long-string shape with an escaped stretch, a quote and a backslash, a run of plain text and a newline,
    in a journal of 10,000 events and one of 1,000,000: peaks equal to
