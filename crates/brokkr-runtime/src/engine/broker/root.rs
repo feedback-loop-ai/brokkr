@@ -23,6 +23,7 @@ use super::admission::{Unknown, LOCK, STAGED};
 use super::inventory::Budget;
 use super::sources::{observed, Table};
 use super::{directory, owned, protected, Synced, Unprovisioned, PROTECTED_ROOT, REPLY_BYTES_MAX};
+use crate::lock_file::{self, user};
 
 /// The protected root's path under `home`.
 pub(super) fn coordination(home: &Path) -> PathBuf {
@@ -217,11 +218,10 @@ pub(super) fn step(
 
 /// The admission lock in the protected `root`, made where it is missing,
 /// held exclusively before `deadline`: this user's own regular file of one
-/// link, or refused. Released as the handle is dropped.
+/// link, as [`lock_file::opened`] judges it, or refused. Released as the
+/// handle is dropped.
 pub(super) fn locked(root: &OwnedFd, deadline: Instant) -> Result<OwnedFd, Unknown> {
-    let flags = OFlags::RDWR | OFlags::CREATE | OFlags::NOFOLLOW | OFlags::CLOEXEC;
-    let lock = openat(root, LOCK, flags, Mode::RUSR | Mode::WUSR).or(Err(Unknown::Lock))?;
-    single(&lock).ok_or(Unknown::Lock)?;
+    let lock = lock_file::opened(root, LOCK).ok_or(Unknown::Lock)?;
     // A lock that cannot be taken now, for whatever reason, is waited for
     // until the deadline, and then refused.
     loop {
@@ -232,18 +232,6 @@ pub(super) fn locked(root: &OwnedFd, deadline: Instant) -> Result<OwnedFd, Unkno
         (!left.is_zero()).then_some(()).ok_or(Unknown::Expired)?;
         std::thread::sleep(left.min(POLL));
     }
-}
-
-/// Whether the open `file` is this user's own regular file of one link.
-fn single(file: &OwnedFd) -> Option<()> {
-    let stat = fstat(file).ok()?;
-    let regular = FileType::from_raw_mode(stat.st_mode) == FileType::RegularFile;
-    (regular & (stat.st_nlink == 1) & owned(&stat, user(), true)).then_some(())
-}
-
-/// The engine's own uid, which every directory it makes is owned by.
-fn user() -> u32 {
-    brokkr_protocol::hands::ids().0
 }
 
 /// The record `name` in the directory `dir` at `at`, as it stands

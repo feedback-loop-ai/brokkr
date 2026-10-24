@@ -2,6 +2,7 @@
 //! run linkage survive a reopen and a migration, every refusal is typed
 //! and writes nothing, and every guard bites.
 
+use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
@@ -452,11 +453,13 @@ fn every_add_and_claim_refusal_is_typed_says_why_and_writes_nothing() {
     assert_eq!((rows(&store), commands(&store.conn)), before);
 }
 
-/// Claim `entry` as the store reads it now, judging no run.
+/// Claim `entry` as the store reads it now, as generation 1, its holder
+/// planted, judging no run.
 pub(super) fn claimed_now(
     store: &mut Store,
     entry: EntryId,
 ) -> Result<Result<Claim, ()>, StoreError> {
+    crate::test_support::holding(store, Generation(1));
     let read = store.queue_entry(entry)?;
     store.queue_claim_with(&read, 0, "d", Generation(1), "r", |_, _, _| Ok(()))
 }
@@ -506,7 +509,7 @@ fn a_queue_stored_in_a_version_this_brokkr_does_not_know_is_refused() {
             refusal(store.queue_claim_with(&read, 0, "d", Generation(1), "r", judge)),
             refusal(store.queue_link(claim, Generation(1), "r", "r")),
             refusal(store.queue_spawn(claim, Generation(1), "r")),
-            refusal(store.queue_reclaim(claim, Generation(1), None, "r")),
+            refusal(store.queue_reclaim(claim, Generation(1), None, NonZeroU32::MIN, "r")),
             refusal(store.queue_add(
                 NewEntry {
                     payload: "x",

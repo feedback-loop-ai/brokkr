@@ -724,15 +724,15 @@ fn protected_with(
 }
 
 /// Whether a directory `stat` describes protects what lies below it: this
-/// user's alone where `private`, otherwise this user's or root's and
-/// writable by no one else, unless root-owned and sticky.
+/// user's alone where `private` (`lock_file::alone`), otherwise this
+/// user's or root's and writable by no one else, unless root-owned and sticky.
 pub(super) fn owned(stat: &Stat, user: u32, private: bool) -> bool {
     let mode = stat.st_mode;
     let mine = stat.st_uid == user;
     let shut = mode & 0o022 == 0;
     let sticky = (stat.st_uid == 0) & (mode & 0o1000 != 0);
     let shared = (mine | (stat.st_uid == 0)) & (shut | sticky);
-    (private & mine & (mode & 0o077 == 0)) | (!private & shared)
+    (private & crate::lock_file::alone(stat, user)) | (!private & shared)
 }
 
 /// The attempt's directory `control`, made exclusively in the run's

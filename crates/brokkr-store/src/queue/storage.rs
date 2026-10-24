@@ -52,8 +52,9 @@ pub(super) fn wait_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Wait> {
 /// queue stored in a version this binary does not know. Version 2 adds
 /// the realm-drift holds admission latches on an entry and the pins an
 /// operator releases one with (#430's realm-drift ruling). Version 3 adds
-/// the `launching` state, the dispatcher's claims and the refusals counted
-/// against an entry (decision 0095 ruling 1).
+/// the `launching` state, the dispatcher's claims, the refusals counted
+/// against an entry, the journal's dispatchers and its dispatch settings
+/// (decision 0095 rulings 1, 2 and 7).
 pub(crate) const QUEUE_SCHEMA: u32 = 3;
 
 /// The first queue storage, which held no pins: still read as it stands,
@@ -184,7 +185,16 @@ CREATE TRIGGER IF NOT EXISTS queue_pins_append_only_delete
 /// the claim is linked to one, written once. An entry's run is written
 /// only while it stands `launching`, under a claim. A refusal: one row per
 /// refused start counted against its entry, keyed by the `reclaim` or
-/// `hold` command that disposed of it.
+/// `hold` command that disposed of it. A holder: one row per dispatcher
+/// that took the journal's lock (ruling 2), its generation rising with
+/// each, since none is ever deleted. A setting: one row per command that
+/// set the journal's bound on counted refusals (ruling 7), keyed by its
+/// seq, the latest in force, and none holding anything but a whole number
+/// of at least 1 and at most `u32::MAX`.
+///
+/// No build that wrote version 3 without the holders and the settings was
+/// ever released: slice 3a's version 3 was never merged, so they join
+/// version 3's own migration rather than a repair of it.
 const MIGRATION_QUEUE_V3: &str = r#"
 CREATE TABLE IF NOT EXISTS queue_claims (
     seq INTEGER PRIMARY KEY REFERENCES queue_commands(seq),
@@ -218,11 +228,37 @@ CREATE TRIGGER IF NOT EXISTS queue_refusals_append_only_update
 CREATE TRIGGER IF NOT EXISTS queue_refusals_append_only_delete
     BEFORE DELETE ON queue_refusals
     BEGIN SELECT RAISE(ABORT, 'queue refusals are append-only'); END;
+CREATE TABLE IF NOT EXISTS dispatch_holders (
+    generation INTEGER PRIMARY KEY,
+    host TEXT,
+    pid INTEGER NOT NULL,
+    started_at TEXT NOT NULL
+);
+CREATE TRIGGER IF NOT EXISTS dispatch_holders_append_only_update
+    BEFORE UPDATE ON dispatch_holders
+    BEGIN SELECT RAISE(ABORT, 'dispatch holders are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS dispatch_holders_append_only_delete
+    BEFORE DELETE ON dispatch_holders
+    BEGIN SELECT RAISE(ABORT, 'dispatch holders are append-only'); END;
+CREATE TABLE IF NOT EXISTS dispatch_settings (
+    seq INTEGER PRIMARY KEY,
+    bound INTEGER NOT NULL
+        CHECK (typeof(bound) = 'integer' AND bound BETWEEN 1 AND 4294967295),
+    operator TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    recorded_at TEXT NOT NULL
+);
+CREATE TRIGGER IF NOT EXISTS dispatch_settings_append_only_update
+    BEFORE UPDATE ON dispatch_settings
+    BEGIN SELECT RAISE(ABORT, 'dispatch settings are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS dispatch_settings_append_only_delete
+    BEFORE DELETE ON dispatch_settings
+    BEGIN SELECT RAISE(ABORT, 'dispatch settings are append-only'); END;
 "#;
 
 /// The guards the migrations install, by name, so an open can ask
 /// whether a journal still carries every one.
-const QUEUE_TRIGGERS: [&str; 17] = [
+const QUEUE_TRIGGERS: [&str; 21] = [
     "queue_entries_fixed",
     "queue_entries_run_once",
     "queue_entries_kept",
@@ -240,12 +276,16 @@ const QUEUE_TRIGGERS: [&str; 17] = [
     "queue_entries_run_while_launching",
     "queue_refusals_append_only_update",
     "queue_refusals_append_only_delete",
+    "dispatch_holders_append_only_update",
+    "dispatch_holders_append_only_delete",
+    "dispatch_settings_append_only_update",
+    "dispatch_settings_append_only_delete",
 ];
 
 /// The queue's tables, in the order the migrations create them: version
-/// 1's three, then version 2's latches and pins, then version 3's claims
-/// and refusals.
-const QUEUE_TABLES: [&str; 7] = [
+/// 1's three, then version 2's latches and pins, then version 3's claims,
+/// refusals, holders and settings.
+const QUEUE_TABLES: [&str; 9] = [
     "queue_entries",
     "queue_waits",
     "queue_commands",
@@ -253,6 +293,8 @@ const QUEUE_TABLES: [&str; 7] = [
     "queue_pins",
     "queue_claims",
     "queue_refusals",
+    "dispatch_holders",
+    "dispatch_settings",
 ];
 
 /// Is the queue whole: stored in this binary's version and every guard

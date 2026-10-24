@@ -23,10 +23,10 @@
 //! outside the threat model (2026-09-26; #430, 2026-10-24).
 //!
 //! Every step after the claim checks, inside its transaction, that the
-//! generation it is taken under is the one the claim row recorded. Whether
-//! that generation is still the journal's latest holder, so that a
-//! dispatcher fenced out writes nothing, is #430's slice 3b, for all four
-//! steps alike, since the holder rows it reads are 3b's.
+//! generation it is taken under is the one the claim row recorded; and
+//! every step, the claim and the dispatcher's own `hold` included, is
+//! journaled only under the journal's latest holder (ruling 2), read in
+//! the same transaction, so a dispatcher fenced out writes nothing.
 //!
 //! A linked entry keeps the stored word `launching`, its run set: it
 //! reads `Claimed`, and no longer refuses another claim as `InFlight`.
@@ -37,8 +37,13 @@
 //! compile or `refuse_unboxable`) writes a `queue_refusals` row with the
 //! `reclaim`, keyed by its seq, and says the entry's count of such rows
 //! since its latest `release`, read in the same transaction; a digest
-//! refusal or a `Contended` start reclaims uncounted. Holding an entry at
-//! the journal's bound reads `dispatch_settings`, and is slice 3b's.
+//! refusal or a `Contended` start reclaims uncounted. A counted refusal
+//! that brings that count to the journal's bound, read from its settings
+//! at the start of the pass, holds the entry for the operator by the
+//! dispatcher's own `hold`, in the reclaim's place and in its transaction,
+//! the refusal's row keyed by the `hold`.
+
+use std::num::NonZeroU32;
 
 use brokkr_core::envelope::{verify_chain, EventEnvelope};
 use rusqlite::types::{FromSql, FromSqlResult, ValueRef};
@@ -46,6 +51,7 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use uuid::Uuid;
 
 use super::beside::standing_now;
+use super::holder::latest;
 use super::storage::{queue_stored, wait_row, WAITS};
 use super::{
     exists, leave_order, read_word, record, set_standing, standing, Attribution, EntryId,
@@ -64,18 +70,20 @@ pub struct Claim {
 }
 
 /// The dispatcher a claim is taken by, as its generation (decision 0095
-/// ruling 2), recorded on the claim. The holder rows that raise it, and
-/// the check of a step against the latest of them, are #430's slice 3b.
+/// ruling 2), recorded on the claim: the holder row it appended when it
+/// took the journal's lock.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Generation(pub i64);
 
 /// The operator a dispatcher's step is journaled under.
 const DISPATCH: &str = "dispatch";
 
-/// The steps of a start from the queue, by the word each is journaled as.
+/// The steps of a start from the queue, by the word each is journaled as:
+/// the dispatcher's `hold` of a refused start is the operator's word.
 #[derive(Debug, Clone, Copy)]
 enum Step {
     Claim,
+    Hold,
     Link,
     Reclaim,
     Spawn,
@@ -85,6 +93,7 @@ impl Step {
     fn word(self) -> &'static str {
         match self {
             Step::Claim => "claim",
+            Step::Hold => super::QueueCommand::Hold.word(),
             Step::Link => "link",
             Step::Reclaim => "reclaim",
             Step::Spawn => "spawn",
@@ -152,7 +161,7 @@ struct Over<'a> {
 
 /// One step's `Immediate` transaction: `body` checks and writes inside it,
 /// on a queue this brokkr reads, and lands whole or not at all.
-fn in_step<T>(
+pub(super) fn in_step<T>(
     conn: &mut Connection,
     body: impl FnOnce(&Transaction<'_>) -> Result<T, StoreError>,
 ) -> Result<T, StoreError> {
@@ -163,14 +172,17 @@ fn in_step<T>(
     Ok(done)
 }
 
-/// Journal one step under the dispatcher, saying its place in the
-/// journal of commands.
+/// Journal one step under the dispatcher of `generation`, saying its place
+/// in the journal of commands: refused, with the whole step, unless that
+/// generation is the journal's latest holder.
 fn journal(
     tx: &Transaction<'_>,
     entry: EntryId,
     step: Step,
+    generation: Generation,
     reason: &str,
 ) -> Result<i64, StoreError> {
+    latest(tx, generation)?;
     let by = Attribution {
         operator: DISPATCH,
         reason,
@@ -284,7 +296,7 @@ fn claim_in<R>(
     if let Err(refused) = judge(named, &waits, &moved(tx, over.high_water)?) {
         return Ok(Err(refused));
     }
-    let seq = journal(tx, entry, Step::Claim, reason)?;
+    let seq = journal(tx, entry, Step::Claim, over.generation, reason)?;
     tx.execute(
         "INSERT INTO queue_claims (seq, entry_id, generation, digest) VALUES (?1, ?2, ?3, ?4)",
         params![seq, entry.0, over.generation.0, over.digest],
@@ -336,8 +348,12 @@ struct Under<'a> {
 }
 
 fn link_in(tx: &Transaction<'_>, under: Under<'_>, run: &str) -> Result<(), StoreError> {
-    let Under { claim, reason, .. } = under;
-    launching_under(tx, claim, under.generation)?;
+    let Under {
+        claim,
+        generation,
+        reason,
+    } = under;
+    launching_under(tx, claim, generation)?;
     if !exists(tx, "SELECT 1 FROM runs WHERE run_id = ?1", &run)? {
         return Err(StoreError::RunNotFound(run.to_string()));
     }
@@ -362,11 +378,15 @@ fn link_in(tx: &Transaction<'_>, under: Under<'_>, run: &str) -> Result<(), Stor
         params![run, claim.seq],
     )?;
     leave_order(tx, claim.entry)?;
-    journal(tx, claim.entry, Step::Link, reason).map(drop)
+    journal(tx, claim.entry, Step::Link, generation, reason).map(drop)
 }
 
 fn spawn_in(tx: &Transaction<'_>, under: Under<'_>) -> Result<(), StoreError> {
-    let Under { claim, reason, .. } = under;
+    let Under {
+        claim,
+        generation,
+        reason,
+    } = under;
     let unspawned: Option<i64> = tx
         .query_row(
             "SELECT generation FROM queue_claims WHERE seq = ?1 AND entry_id = ?2
@@ -377,10 +397,10 @@ fn spawn_in(tx: &Transaction<'_>, under: Under<'_>) -> Result<(), StoreError> {
         )
         .optional()?;
     match unspawned {
-        Some(recorded) => claimed_by(claim, recorded, under.generation)?,
+        Some(recorded) => claimed_by(claim, recorded, generation)?,
         None => return Err(QueueRefusal::Stale(claim).into()),
     }
-    journal(tx, claim.entry, Step::Spawn, reason).map(drop)
+    journal(tx, claim.entry, Step::Spawn, generation, reason).map(drop)
 }
 
 /// The refusals counted against `entry` since its latest `release`, or
@@ -397,22 +417,35 @@ fn counted(tx: &Transaction<'_>, entry: EntryId) -> Result<Vec<Counted>, StoreEr
         .collect::<Result<_, _>>()?)
 }
 
+/// Return the entry launching under `under`'s claim to the queue, or hold
+/// it where `refused` counts and brings its count to `bound`, writing the
+/// counted refusal's row keyed by that command; and say the count.
 fn reclaim_in(
     tx: &Transaction<'_>,
     under: Under<'_>,
     refused: Option<StartRefusal>,
+    bound: NonZeroU32,
 ) -> Result<u32, StoreError> {
-    let Under { claim, reason, .. } = under;
-    launching_under(tx, claim, under.generation)?;
-    set_standing(tx, claim.entry, Standing::Queued)?;
-    let seq = journal(tx, claim.entry, Step::Reclaim, reason)?;
+    let Under {
+        claim,
+        generation,
+        reason,
+    } = under;
+    launching_under(tx, claim, generation)?;
+    let count = counted(tx, claim.entry)?.len() as u32 + u32::from(refused.is_some());
+    let (standing, step) = match refused.is_some() && count >= bound.get() {
+        true => (Standing::Held, Step::Hold),
+        false => (Standing::Queued, Step::Reclaim),
+    };
+    set_standing(tx, claim.entry, standing)?;
+    let seq = journal(tx, claim.entry, step, generation, reason)?;
     if let Some(refused) = refused {
         tx.execute(
             "INSERT INTO queue_refusals (seq, entry_id, refusal) VALUES (?1, ?2, ?3)",
             params![seq, claim.entry.0, refused.word()],
         )?;
     }
-    Ok(counted(tx, claim.entry)?.len() as u32)
+    Ok(count)
 }
 
 impl Store {
@@ -515,14 +548,18 @@ impl Store {
     /// the queue, in its place, journaling the `reclaim`: for a start that
     /// wrote no run. Its next claim is a new one. A start its admission
     /// `refused` is counted against the entry by a `queue_refusals` row
-    /// keyed by the `reclaim`; a digest refusal or a `Contended` start
-    /// passes `None` and is not. Says the entry's count since its latest
-    /// `release`, this refusal included, read in the same transaction.
+    /// keyed by the command that disposes of it; a digest refusal or a
+    /// `Contended` start passes `None` and is not. Says the entry's count
+    /// since its latest `release`, this refusal included, read in the same
+    /// transaction. A counted refusal that brings the count to `bound`, the
+    /// journal's bound as the pass read it at its start, holds the entry
+    /// instead, by the dispatcher's `hold`, for the operator to release.
     pub fn queue_reclaim(
         &mut self,
         claim: Claim,
         generation: Generation,
         refused: Option<StartRefusal>,
+        bound: NonZeroU32,
         reason: &str,
     ) -> Result<u32, StoreError> {
         let under = Under {
@@ -532,7 +569,7 @@ impl Store {
         };
         let conn = &mut self.conn;
         patiently("queue_reclaim", self.patience, || {
-            in_step(conn, |tx| reclaim_in(tx, under, refused))
+            in_step(conn, |tx| reclaim_in(tx, under, refused, bound))
         })
     }
 }

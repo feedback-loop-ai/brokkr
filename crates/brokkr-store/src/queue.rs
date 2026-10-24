@@ -30,6 +30,7 @@ use crate::{now_rfc3339, patiently, Store, StoreError};
 
 mod beside;
 mod claim;
+mod holder;
 mod storage;
 
 pub use beside::Seen;
@@ -407,6 +408,10 @@ pub enum QueueRefusal {
         .1.0
     )]
     OtherGeneration(Claim, Generation),
+    /// A dispatcher's step under a generation that is not the journal's
+    /// latest holder: a newer dispatcher fenced it out (decision 0095 ruling 2).
+    #[error("dispatcher generation {} is not the journal's latest holder; it writes nothing", .0.0)]
+    Superseded(Generation),
 }
 
 /// The standing of one entry, read inside the transaction that acts on it.
