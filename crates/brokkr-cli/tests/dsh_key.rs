@@ -1,10 +1,11 @@
 //! A dsh folder says whether dsh reaches a key for its route (#717; the
 //! operator's ruling of 2026-10-22, item 2): `brokkr init` ends with the
-//! check's line and `brokkr doctor` carries it in its status column,
+//! check's lines and `brokkr doctor` carries them in its status column,
 //! proved against the BUILT binary under a PATH holding only a dsh
 //! stand-in, a dsh home of the test's own, and each documented source
-//! planted in turn. A planted value is never printed, and a planted `.env`
-//! is told present but unread.
+//! planted in turn. Each asked route carries the served-home caveat (the
+//! operator's ruling of 2026-10-24 on fix round 717d2's block). A planted
+//! value is never printed, and a planted `.env` is told present but unread.
 #![cfg(unix)]
 
 use std::os::unix::fs::PermissionsExt;
@@ -54,7 +55,8 @@ impl DshHost {
             .env("DSH_HOME", &self.home);
         command
             .env_remove("BROKKR_DSH_BIN")
-            .env_remove("DEEPSEEK_API_KEY");
+            .env_remove("DEEPSEEK_API_KEY")
+            .env_remove("DASHSCOPE_API_KEY");
         command.envs(key.map(|key| ("DEEPSEEK_API_KEY", key)));
         let ran = Ran::of(command.output().unwrap());
         let printed = format!("{}{}", ran.stdout, ran.stderr);
@@ -62,42 +64,70 @@ impl DshHost {
         ran
     }
 
-    /// `brokkr init .`, and the last line it printed.
-    fn init(&self, key: Option<&str>) -> String {
+    /// `brokkr init .`, and the check's lines it printed last.
+    fn init(&self, key: Option<&str>) -> Vec<String> {
         let init = self.brokkr(&["init", "."], key);
         assert_eq!(init.code, Some(0), "{}", init.stderr);
-        init.stderr.lines().last().unwrap().to_string()
+        let lines = init
+            .stderr
+            .lines()
+            .skip_while(|line| !line.starts_with("dsh "));
+        lines.map(str::to_string).collect()
     }
 
-    /// `brokkr doctor`'s dsh key line, and its exit code.
-    fn doctor(&self, key: Option<&str>) -> (String, Option<i32>) {
+    /// `brokkr doctor`'s dsh key check lines, and its exit code.
+    fn doctor(&self, key: Option<&str>) -> (Vec<String>, Option<i32>) {
         let doctor = self.brokkr(&["doctor"], key);
-        let lines: Vec<&str> = doctor
-            .stdout
-            .lines()
-            .filter(|line| line.contains("dsh key"))
-            .collect();
-        assert_eq!(lines.len(), 1, "{}", doctor.stdout);
-        (lines[0].to_string(), doctor.code)
+        let lines = doctor.stdout.lines().filter(|line| {
+            ["dsh key ", "dsh home ", "dsh workdir:"]
+                .iter()
+                .any(|name| line.contains(name))
+        });
+        (lines.map(str::to_string).collect(), doctor.code)
     }
+
+    /// The words of a route whose `variable` no source gives.
+    fn unreached(&self, variable: &str) -> String {
+        let (root, home) = (self.repo.root.display(), self.home.display());
+        format!(
+            "dsh reaches no {variable}: it is not set in the launching environment, no .env file \
+             is present at {root}/.env or {home}/.env, and dsh's shipped headless bundle leaves \
+             its credentials service disabled; export {variable} where brokkr runs, or write the \
+             row `- id: credentials` with `  disabled: false` in \
+             {home}/profiles/headless/cordis.patch.yml and store {variable} through dsh's \
+             credentials service"
+        )
+    }
+}
+
+/// The served-home caveat of a `route` reading `variable`, as printed.
+fn caveat(route: &str, variable: &str) -> String {
+    format!(
+        "dsh home {route}: this check read the operator's dsh home: {variable}'s presence where \
+         brokkr runs, the profile and home patches, and each .env by name, unread; Brokkr can't \
+         yet tell whether it serves this route from its own engine-only home (decision 0065), \
+         which reads neither patch nor the home's .env, so past the environment this check \
+         can't confirm the key reaches a seat served there"
+    )
 }
 
 #[test]
 fn init_and_doctor_name_an_unreached_key_with_both_remedies() {
     let host = DshHost::new();
-    let line = host.init(None);
-    let (root, home) = (host.repo.root.display(), host.home.display());
-    let detail = format!(
-        "dsh reaches no DEEPSEEK_API_KEY: it is not set in the launching environment, no .env \
-         file is present at {root}/.env or {home}/.env, and dsh's shipped headless bundle leaves \
-         its credentials service disabled; export DEEPSEEK_API_KEY where brokkr runs, or write \
-         the row `- id: credentials` with `  disabled: false` in \
-         {home}/profiles/headless/cordis.patch.yml and store DEEPSEEK_API_KEY through dsh's \
-         credentials service"
+    let detail = host.unreached("DEEPSEEK_API_KEY");
+    let served = caveat("deepseek-official", "DEEPSEEK_API_KEY");
+    assert_eq!(
+        host.init(None),
+        [
+            format!("dsh key deepseek-official: {detail}"),
+            served.clone()
+        ]
     );
-    assert_eq!(line, format!("dsh key deepseek-official: {detail}"));
     let missing = (
-        format!("MISSING  dsh key deepseek-official: {detail}"),
+        vec![
+            format!("MISSING  dsh key deepseek-official: {detail}"),
+            format!("warn     {served}"),
+        ],
         Some(1),
     );
     assert_eq!(host.doctor(None), missing);
@@ -111,12 +141,19 @@ fn a_key_each_source_names_is_reached_and_its_value_never_printed() {
     let reached = |through: &str| {
         format!("dsh key deepseek-official: dsh reaches DEEPSEEK_API_KEY {through}")
     };
+    let served = caveat("deepseek-official", "DEEPSEEK_API_KEY");
     let environment = reached("through the launching environment");
-    assert_eq!(host.init(Some(PLANTED)), environment);
+    assert_eq!(
+        host.init(Some(PLANTED)),
+        [environment.clone(), served.clone()]
+    );
+    let warned = format!("warn     {served}");
     assert_eq!(
         host.doctor(Some(PLANTED)).0,
-        format!("ok       {environment}")
+        [format!("ok       {environment}"), warned.clone()]
     );
+    // A key only the operator's home gives depends on the home that serves
+    // the seat, so it warns and is never ok.
     let patch = host.home.join("profiles/headless/cordis.patch.yml");
     std::fs::write(&patch, "- id: credentials\n  disabled: false\n").unwrap();
     let service = format!(
@@ -126,30 +163,77 @@ fn a_key_each_source_names_is_reached_and_its_value_never_printed() {
     );
     assert_eq!(
         host.doctor(None).0,
-        format!("ok       {}", reached(&service))
+        [format!("warn     {}", reached(&service)), warned.clone()]
     );
     // A home patch composes after the profile's, and disables it again.
     let last = host.home.join("cordis.patch.yml");
     std::fs::write(&last, "- id: credentials\n  disabled: true\n").unwrap();
-    let (line, code) = host.doctor(None);
+    let (lines, code) = host.doctor(None);
     let disables = format!("and {} disables dsh's credentials service;", last.display());
     assert_eq!(
         (
-            line.starts_with("MISSING  "),
-            line.contains(&disables),
+            lines[0].starts_with("MISSING  "),
+            lines[0].contains(&disables),
+            &lines[1],
             code
         ),
-        (true, true, Some(1))
+        (true, true, &warned, Some(1))
     );
-    // A `.env` dsh reads is present but never read, so it is told as such.
-    for env in [host.home.join(".env"), host.repo.path(".env")] {
+    // A `.env` dsh reads is present but never read, so it is told as such,
+    // and one in the repository a dsh seat runs in warns of the refusal an
+    // engine-only home gives it, even where no one may read it.
+    let in_repo = host.repo.path(".env");
+    for env in [host.home.join(".env"), in_repo.clone()] {
         std::fs::write(&env, format!("DEEPSEEK_API_KEY={PLANTED}\n")).unwrap();
-        let untold = format!(
-            "warn     dsh key deepseek-official: DEEPSEEK_API_KEY is not set in the launching \
-             environment, and {} is present but unread: Brokkr does not read it, so it can't \
-             confirm DEEPSEEK_API_KEY is in it",
-            env.display()
-        );
+        std::fs::set_permissions(&env, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let mut untold = vec![
+            format!(
+                "warn     dsh key deepseek-official: DEEPSEEK_API_KEY is not set in the \
+                 launching environment, and {} is present but unread: Brokkr does not read it, so \
+                 it can't confirm DEEPSEEK_API_KEY is in it",
+                env.display()
+            ),
+            warned.clone(),
+        ];
+        untold.extend((env == in_repo).then(|| {
+            format!(
+                "warn     dsh workdir: {} is present, unread: if Brokkr serves a dsh seat from its \
+                 own engine-only home (decision 0065), it refuses that launch, since dsh would \
+                 read the file for a key",
+                in_repo.display()
+            )
+        }));
         assert_eq!(host.doctor(None).0, untold);
     }
+}
+
+#[test]
+fn every_asked_route_carries_the_served_home_caveat() {
+    let host = DshHost::new();
+    host.init(Some(PLANTED));
+    let adapter = host.repo.path(".brokkr/adapters/dsh.json");
+    let scaffold = std::fs::read_to_string(&adapter).unwrap();
+    let pinned = "\"pro\": \"deepseek-v4-pro\"\n  },";
+    assert!(scaffold.contains(pinned), "{scaffold}");
+    let two = "\"pro\": \"deepseek-v4-pro\",\n    \"glm\": \"dashscope/glm-5.2\"\n  },\n  \
+               \"credentials\": {\"dashscope\": \"DASHSCOPE_API_KEY\"},";
+    std::fs::write(&adapter, scaffold.replace(pinned, two)).unwrap();
+    let detail = host.unreached("DASHSCOPE_API_KEY");
+    assert_eq!(
+        host.doctor(Some(PLANTED)),
+        (
+            vec![
+                format!("MISSING  dsh key dashscope: {detail}"),
+                format!("warn     {}", caveat("dashscope", "DASHSCOPE_API_KEY")),
+                "ok       dsh key deepseek-official: dsh reaches DEEPSEEK_API_KEY through the \
+                 launching environment"
+                    .to_string(),
+                format!(
+                    "warn     {}",
+                    caveat("deepseek-official", "DEEPSEEK_API_KEY")
+                ),
+            ],
+            Some(1)
+        )
+    );
 }

@@ -85,16 +85,28 @@ impl Planted {
         answers(&self.adapters, &self.repo, &self.home, set)
     }
 
-    /// [`Planted::reaches`] on a thread of its own, refused past a bound:
-    /// a check that opened a FIFO planted as a `.env` or a patch would
-    /// wait on it for a writer that never comes.
+    /// [`Planted::reaches`] with no variable set, [`within_bound`].
     fn reaches_within_bound(&self) -> Vec<Reach> {
         let (adapters, repo, home) = (self.adapters.clone(), self.repo.clone(), self.home.clone());
-        let (sent, answered) = std::sync::mpsc::channel();
-        std::thread::spawn(move || sent.send(answers(&adapters, &repo, &home, unset)));
-        let answer = answered.recv_timeout(Duration::from_secs(10));
-        answer.expect("the check opened a planted FIFO and waited on it")
+        within_bound(move || answers(&adapters, &repo, &home, unset))
     }
+
+    /// The check's lines with their caveats, `set` the environment's,
+    /// [`within_bound`].
+    fn lines_within_bound(&self, set: fn(&str) -> bool) -> Vec<Line> {
+        let (adapters, repo, home) = (self.adapters.clone(), self.repo.clone(), self.home.clone());
+        within_bound(move || with_caveats(answers(&adapters, &repo, &home, set), &repo))
+    }
+}
+
+/// `check` on a thread of its own, refused past a bound: a check that
+/// opened a FIFO planted as a `.env` or a patch would wait on it for a
+/// writer that never comes.
+fn within_bound<T: Send + 'static>(check: impl FnOnce() -> T + Send + 'static) -> T {
+    let (sent, answered) = std::sync::mpsc::channel();
+    std::thread::spawn(move || sent.send(check()));
+    let answer = answered.recv_timeout(Duration::from_secs(10));
+    answer.expect("the check opened a planted FIFO and waited on it")
 }
 
 /// The check's answers for a folder's `adapters`, `repo` and dsh `home`.
@@ -529,9 +541,86 @@ fn each_route_reads_its_declared_variable_once_and_an_unnamed_one_is_undeclared(
     );
 }
 
+/// Each route whose key was asked carries the served-home caveat after its
+/// answer, an undeclared one none, and a `.env` in the repository, a FIFO
+/// or one no one may read, warns last and is never opened.
+#[test]
+fn each_asked_route_carries_the_served_home_caveat_and_a_workdir_dotenv_warns() {
+    let models = json!({
+        "a": "deepseek-flash",
+        "b": "dashscope/glm-5.2",
+        "c": "meta/meta/muse-spark-1.3",
+    });
+    let planted = Planted::new(models, json!({"dashscope": "DASHSCOPE_API_KEY"}));
+    let key = |route: &str, variable: &str| {
+        let source = Source::Environment;
+        let (route, variable) = (route.to_string(), variable.to_string());
+        let served = Line::Served {
+            route: route.clone(),
+            variable: variable.clone(),
+        };
+        [
+            Line::Key(Reach::Reached {
+                route,
+                variable,
+                source,
+            }),
+            served,
+        ]
+    };
+    let undeclared = Line::Key(Reach::Undeclared {
+        route: "meta".into(),
+    });
+    let [dashscope, dashscope_served] = key("dashscope", "DASHSCOPE_API_KEY");
+    let [deepseek, deepseek_served] = key("deepseek-official", "DEEPSEEK_API_KEY");
+    let mut expected = vec![
+        dashscope,
+        dashscope_served,
+        deepseek,
+        deepseek_served,
+        undeclared,
+    ];
+    let set = |_: &str| true;
+    assert_eq!(planted.lines_within_bound(set), expected);
+    let in_repo = planted.repo.join(".env");
+    fifo(&in_repo);
+    expected.push(Line::Workdir(in_repo.clone()));
+    assert_eq!(planted.lines_within_bound(set), expected);
+    std::fs::remove_file(&in_repo).unwrap();
+    planted.write(&in_repo, &format!("DEEPSEEK_API_KEY={PLANTED}\n"));
+    std::fs::set_permissions(&in_repo, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let lines = planted.lines_within_bound(set);
+    assert_eq!(lines, expected);
+    let printed: Vec<String> = [&lines[3], &lines[5]]
+        .iter()
+        .map(|line| format!("{}: {}", line.what(), line.detail()))
+        .collect();
+    assert!(!printed.concat().contains(PLANTED), "{printed:?}");
+    assert_eq!(
+        printed,
+        [
+            "dsh home deepseek-official: this check read the operator's dsh home: \
+             DEEPSEEK_API_KEY's presence where brokkr runs, the profile and home patches, and \
+             each .env by name, unread; Brokkr can't yet tell whether it serves this route from \
+             its own engine-only home (decision 0065), which reads neither patch nor the home's \
+             .env, so past the environment this check can't confirm the key reaches a seat \
+             served there"
+                .to_string(),
+            format!(
+                "dsh workdir: {} is present, unread: if Brokkr serves a dsh seat from its own \
+                 engine-only home (decision 0065), it refuses that launch, since dsh would read \
+                 the file for a key",
+                in_repo.display()
+            ),
+        ]
+    );
+}
+
 #[test]
 fn a_folder_that_hires_no_dsh_or_whose_adapters_do_not_load_has_no_line() {
     let planted = Planted::scaffold();
+    // A workdir `.env` is warned only beside a dsh seat.
+    planted.write(&planted.repo.join(".env"), "");
     std::fs::remove_file(planted.adapters.join("dsh.json")).unwrap();
     assert_eq!(planted.reaches(unset), []);
     assert_eq!(of_folder(&planted.adapters, &planted.repo), []);

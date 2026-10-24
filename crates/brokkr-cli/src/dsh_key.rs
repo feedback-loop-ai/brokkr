@@ -34,15 +34,30 @@
 //! What it models is a seat served from the operator's own dsh home, the
 //! one `DshSeams::resolve` resolves. A seat whose launch carries the
 //! engine's isolation intent (decision 0065 slice two) is served from an
-//! engine-only home instead, where neither the operator's patches nor
-//! `$DSH_HOME/.env` are read and a `<workdir>/.env` refuses the launch.
-//! Which seats those are is decided inside brokkr-protocol alone, and is
-//! not yet modelled here (#717's fix round 717d2, reported blocked on it).
-//! That path is re-checked when U8h lands and hides the secrets store
-//! inside every workspace box: the check would then ask whether
-//! `<repo>/.forge/secrets.env` is present by looking its name up, and
-//! whether the seat binds the route's variable by name, and never read
-//! the store.
+//! engine-only home instead, where the launching environment is still read
+//! but neither the operator's patches nor `$DSH_HOME/.env` are, and a
+//! `<workdir>/.env` refuses the launch (brokkr-protocol's
+//! `WorkdirCredentials`). On Linux that is most measured routes'
+//! (`adapters/dsh.json`). Which seats those are is decided inside
+//! brokkr-protocol alone, by private items, so it is not modelled here
+//! (the operator's ruling of 2026-10-24 on fix round 717d2's block, option
+//! (b)). Until it is, every route whose key was asked carries
+//! [`Line::Served`], which says what was read and that the serving home
+//! can't yet be told; a key only the operator's home gives warns rather
+//! than reads ok, and a `<repo>/.env` beside the folder's dsh seats warns
+//! as [`Line::Workdir`].
+//!
+//! The follow-up, once U8h has merged: brokkr-protocol makes public a
+//! pure served-home decision and a side-effect-free workdir `.env` check,
+//! and this module then models each seat's home from its capability plan
+//! through those two functions, in place of the caveat. brokkr-protocol's
+//! route-overlay reader made reachable in the same change would retire
+//! [`patch`]'s second, narrower reader, the bend of decision 0071 ruling 5
+//! it carries today. That path is re-checked when U8h lands and hides the
+//! secrets store inside every workspace box: the check would then ask
+//! whether `<repo>/.forge/secrets.env` is present by looking its name up,
+//! and whether the seat binds the route's variable by name, and never
+//! read the store.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -156,6 +171,54 @@ impl Reach {
     }
 }
 
+/// One line of the check, as both surfaces print it: a route's answer,
+/// the caveat that follows it, or the workdir's `.env`.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Line {
+    Key(Reach),
+    /// Whether the route's seats are served from the operator's home,
+    /// which the check read, or from an engine-only one, can't yet be
+    /// told.
+    Served {
+        route: String,
+        variable: String,
+    },
+    /// A `.env` in the repository the folder's dsh seats run in, present
+    /// and never opened, which an engine-only home refuses to launch with.
+    Workdir(PathBuf),
+}
+
+impl Line {
+    /// The line's name, on both surfaces.
+    pub(crate) fn what(&self) -> String {
+        match self {
+            Line::Key(reach) => reach.what(),
+            Line::Served { route, .. } => format!("dsh home {}", Safe::new(route).as_str()),
+            Line::Workdir(_) => "dsh workdir".to_string(),
+        }
+    }
+
+    /// The line's words, on both surfaces.
+    pub(crate) fn detail(&self) -> String {
+        match self {
+            Line::Key(reach) => reach.detail(),
+            Line::Served { variable, .. } => format!(
+                "this check read the operator's dsh home: {}'s presence where brokkr runs, the \
+                 profile and home patches, and each .env by name, unread; Brokkr can't yet tell \
+                 whether it serves this route from its own engine-only home (decision 0065), \
+                 which reads neither patch nor the home's .env, so past the environment this \
+                 check can't confirm the key reaches a seat served there",
+                Safe::new(variable).as_str()
+            ),
+            Line::Workdir(file) => format!(
+                "{} is present, unread: if Brokkr serves a dsh seat from its own engine-only home \
+                 (decision 0065), it refuses that launch, since dsh would read the file for a key",
+                file.display()
+            ),
+        }
+    }
+}
+
 impl Source {
     fn through(&self) -> String {
         match self {
@@ -239,11 +302,44 @@ impl<'a> Sources<'a> {
 }
 
 /// Each route the folder's dsh adapter under `adapters` pins, answered
-/// for `repo` and the dsh home dsh's own seam resolves; none where the
-/// folder hires no dsh, or its adapters do not load (doctor's adapters
-/// line already says so).
-pub(crate) fn of_folder(adapters: &Path, repo: &Path) -> Vec<Reach> {
-    in_folder(adapters, &Sources::served(repo, DshSeams::resolve()))
+/// for `repo` and the dsh home dsh's own seam resolves, with its caveats
+/// ([`with_caveats`]); none where the folder hires no dsh, or its adapters
+/// do not load (doctor's adapters line already says so).
+pub(crate) fn of_folder(adapters: &Path, repo: &Path) -> Vec<Line> {
+    let sources = Sources::served(repo, DshSeams::resolve());
+    with_caveats(in_folder(adapters, &sources), repo)
+}
+
+/// Each of `reaches` followed by its [`Line::Served`] caveat where its key
+/// was asked, then a `.env` present in `repo`, looked up by name alone, as
+/// [`Line::Workdir`]; none where no route was answered.
+fn with_caveats(reaches: Vec<Reach>, repo: &Path) -> Vec<Line> {
+    if reaches.is_empty() {
+        return Vec::new();
+    }
+    let workdir = Some(repo.join(".env")).filter(|file| present(file));
+    let mut lines = Vec::new();
+    for reach in reaches {
+        let served = match &reach {
+            Reach::Reached {
+                route, variable, ..
+            }
+            | Reach::Untold {
+                route, variable, ..
+            }
+            | Reach::Unreached {
+                route, variable, ..
+            } => Some(Line::Served {
+                route: route.clone(),
+                variable: variable.clone(),
+            }),
+            Reach::Undeclared { .. } => None,
+        };
+        lines.push(Line::Key(reach));
+        lines.extend(served);
+    }
+    lines.extend(workdir.map(Line::Workdir));
+    lines
 }
 
 /// [`of_folder`] over injected sources.

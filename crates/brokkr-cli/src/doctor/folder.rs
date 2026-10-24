@@ -15,7 +15,7 @@ use brokkr_runtime::places::{self, Kind, Old, FOLDER};
 use brokkr_runtime::realms::{World, WorldError};
 
 use super::{Report, Seats};
-use crate::dsh_key::Reach;
+use crate::dsh_key::{Line, Reach, Source};
 use crate::folder::{DoctorDefaults, FolderError, Found, Opening};
 use crate::recipes::personal::{Origin, ShelfPath};
 
@@ -191,22 +191,36 @@ pub(super) fn report_folder(
     let personal = defaults.personal.as_ref();
     report_folder_with(report, &defaults.found, personal, compile, shelved);
     if default_folder(&defaults.found).is_some() {
-        let reaches = crate::dsh_key::of_folder(&defaults.adapters, workspace);
-        report_keys(report, &reaches);
+        let lines = crate::dsh_key::of_folder(&defaults.adapters, workspace);
+        report_keys(report, &lines);
     }
 }
 
-/// One line per route the found folder's dsh pins (#717): a key dsh
-/// reaches is ok, one it cannot fails the report with its remedies, and
-/// a source that cannot be told, or a route whose variable nothing names,
-/// warns. No line holds a value.
-fn report_keys(report: &mut Report, reaches: &[Reach]) {
-    for reach in reaches {
-        let (what, detail) = (reach.what(), reach.detail());
-        match reach {
-            Reach::Reached { .. } => report.ok(&what, detail),
-            Reach::Unreached { .. } => report.missing(&what, detail),
-            Reach::Untold { .. } | Reach::Undeclared { .. } => report.warn(&what, detail),
+/// The lines of the found folder's dsh key check (#717): a key the
+/// launching environment gives, which every dsh home reads, is ok; one dsh
+/// cannot reach fails the report with its remedies; and one only the
+/// operator's home gives, a source that cannot be told, a route whose
+/// variable nothing names, the served-home caveat and a workdir `.env`
+/// warn. No line holds a value.
+fn report_keys(report: &mut Report, lines: &[Line]) {
+    for line in lines {
+        let (what, detail) = (line.what(), line.detail());
+        match line {
+            Line::Key(Reach::Reached {
+                source: Source::Environment,
+                ..
+            }) => report.ok(&what, detail),
+            Line::Key(Reach::Unreached { .. }) => report.missing(&what, detail),
+            Line::Key(
+                Reach::Reached {
+                    source: Source::Service(_),
+                    ..
+                }
+                | Reach::Untold { .. }
+                | Reach::Undeclared { .. },
+            )
+            | Line::Served { .. }
+            | Line::Workdir(_) => report.warn(&what, detail),
         }
     }
 }
