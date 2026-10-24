@@ -200,6 +200,9 @@ pub enum EngineError {
     /// could not be sealed where the fence rule asks it; its lease stands.
     #[error(transparent)]
     Unreleased(#[from] broker::settlement::Unreleased),
+    /// Decision 0065 slice two, U9c2: a run path no seat's input can name.
+    #[error(transparent)]
+    Unspelled(#[from] input::Unspelled),
     #[error("realms: {0}")]
     World(#[from] crate::realms::WorldError),
     /// Decision 0046 ruling 1, at the engine's own door: the bundle was
@@ -2447,7 +2450,11 @@ fn inline_codex_door(record: &LaunchRecord, input: &Value) -> Result<(), String>
     let native = plan.map(|plan| Segment::new(Origin::Native, &plan.argv));
     let segments: Vec<Segment> = record.segments.iter().cloned().chain(native).collect();
     let capture = gate.then(|| input["result_path"].as_str().unwrap_or_default());
-    grammar::judge_inline_codex_launch(class.intent(), &segments, capture)
+    // Bound to the seat's workspace root and the store's path the input hands
+    // it, as the driver's final judgment is (U9c2).
+    let (workdir, store) = (input["workdir"].as_str(), input["secrets_file"].as_str());
+    let paths = workdir.map(|workdir| grammar::Bound { workdir, store });
+    grammar::judge_inline_codex_launch(class.intent(), &segments, capture, paths)
         .map_err(|cause| refuse(crate::bundle::inline_codex_refusal(seat, &cause)))?;
     let expressed = grammar::inline_codex_denials(&flatten(&segments));
     match denied

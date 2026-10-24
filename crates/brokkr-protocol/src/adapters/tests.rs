@@ -2,6 +2,10 @@ use super::*;
 use crate::env_guard::EnvGuard;
 use std::{os::unix::ffi::OsStrExt, path::Path};
 mod claude_usage;
+mod codex_isolation;
+use codex_isolation::{
+    isolated, profiled_cold, strings, ISOLATION, READ_ONLY, SELECTOR, STORE, WORKSPACE_WRITE,
+};
 
 /// One invocation of `kind` over its override as this test's environment
 /// holds it, read by the one reader the way `run_seat` reads it.
@@ -1799,71 +1803,6 @@ fn the_effort_pin_is_split_out_in_both_spellings_and_never_dropped_silently() {
     assert_eq!(rest, s(&["--x", "y"]));
 }
 
-/// `codex exec` takes no effort FLAG — the level is the
-/// `model_reasoning_effort` config key — so the shared `--effort` pin
-/// becomes the `-c key=value` override codex actually reads, cold and on
-/// a resume alike. A resume that dropped it would rejoin the thread at
-/// the provider's default, which is the silent-substitution case the
-/// whole decision refuses.
-#[test]
-fn the_codex_arms_turn_the_effort_pin_into_the_config_override_it_reads() {
-    assert_eq!(
-        codex_effort_config("xhigh"),
-        "model_reasoning_effort=\"xhigh\""
-    );
-
-    let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-    let cold = codex_cold("codex", &s(&["--effort", "high", "--x"]), "/w", &[]);
-    assert_eq!(
-        cold,
-        s(&[
-            "codex",
-            "exec",
-            "--json",
-            "-C",
-            "/w",
-            "-c",
-            "model_reasoning_effort=\"high\"",
-            "--x"
-        ])
-    );
-    // No pin, no override: an unpinned seat's argv is what it always was.
-    assert_eq!(
-        codex_cold("codex", &s(&["--x"]), "/w", &[]),
-        s(&["codex", "exec", "--json", "-C", "/w", "--x"])
-    );
-
-    // The resume re-expresses the pin, exactly as it re-expresses the
-    // sandbox class, because `codex exec resume` inherits neither.
-    let launch = codex_launch(
-        "codex",
-        &s(&["--effort", "high", "-s", "workspace-write"]),
-        "/w",
-        Some("0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
-        &enabled_assessment(CODEX_SHAPE, "0.153.4", "namespace", "boxed"),
-    )
-    .unwrap();
-    assert!(
-        launch
-            .command
-            .windows(2)
-            .any(|pair| pair[0] == "-c" && pair[1] == "model_reasoning_effort=\"high\""),
-        "{:?}",
-        launch.command
-    );
-    // And the pin does not read as an argv a resume cannot carry: a
-    // dropped session over its own effort pin would be a regression.
-    // (The refusal here is the version probe's — this test does not run
-    // a codex — so what is asserted is only that the pin is NOT the
-    // reason: an incompatible-argv refusal would be.)
-    assert_ne!(
-        launch.refusal,
-        Some("incompatible-argv"),
-        "{:?}",
-        launch.command
-    );
-}
-
 /// Ruling 4 on codex's COLD path, as `claude_selector_conflict` and
 /// `dsh_control_conflict` already hold it for theirs: a bundle-authored
 /// `resume <id>` after the engine's own flags would parse as
@@ -2218,7 +2157,7 @@ fn a_closed_gate_names_its_own_reason_ahead_of_the_seat_s_local_checks() {
             assert!(plan.harness_version.is_none(), "codex, {case}: no probe");
             assert_eq!(
                 plan.command,
-                codex_cold("codex", &extra, "/w", &[]),
+                codex_cold("codex", &extra, "/w", None, &[]),
                 "codex, {case}: the cold argv"
             );
         }
@@ -3600,6 +3539,7 @@ fn a_codex_whose_version_cannot_be_read_declines_the_offer() {
             absent.to_str().unwrap(),
             &["--sandbox".to_string(), "read-only".into()],
             &workdir,
+            None,
             &[]
         ),
         "the cold argv, unchanged"
@@ -14724,6 +14664,10 @@ pub(super) fn sealed_pair(mut input: Value, extra: &[String], seal: Seal) -> Val
         },
     };
     (input["launch_record"], input[ARTIFACT_ROOT]) = (record.value(), json!("/a"));
+    // A Codex seat is handed the store its profile denies (U9c2).
+    if controls.harness == "codex" && input.get("secrets_file").is_none() {
+        input["secrets_file"] = json!(STORE);
+    }
     input[crate::hands::SEALED_REACH] = serde_json::to_value(super::mcp::tests::reach()).unwrap();
     input[SERVING_INPUTS] = super::mcp::tests::dispatched(seal.dialect, seal.pins, seal.spec);
     input
@@ -14795,23 +14739,31 @@ fn a_cold_codex_argv_carries_the_off_pair_exactly_when_search_is_not_held() {
         );
         let input = sealed_pair(input, extra, seal(case));
         let denied = codex_launch("codex", extra, "/w", None, &input).unwrap();
-        // The whole argv: the seat's own controls intact, the pair LAST.
-        let mut expected = s(&[
-            "codex",
-            "exec",
-            "--json",
-            "-C",
-            "/w",
-            "-c",
-            "model_reasoning_effort=\"high\"",
-        ]);
+        // The whole argv: the class the profile leading it (U9c2), the
+        // seat's own controls intact, the isolation options, the pair LAST.
+        let profile = if case == "boxed" {
+            READ_ONLY
+        } else {
+            WORKSPACE_WRITE
+        };
+        let lead = [
+            "codex", "exec", "--json", "-C", "/w", "-c", profile, "-c", SELECTOR,
+        ];
+        let mut expected = s(&[&lead[..], &["-c", "model_reasoning_effort=\"high\""]].concat());
+        let dropped = [
+            "--effort",
+            "high",
+            "--sandbox",
+            "read-only",
+            "workspace-write",
+        ];
         expected.extend(
             extra
                 .iter()
-                .filter(|part| !["--effort", "high"].contains(&part.as_str()))
+                .filter(|part| !dropped.contains(&part.as_str()))
                 .cloned(),
         );
-        expected.extend(s(&CODEX_OFF));
+        expected.extend(s(&[&ISOLATION[..], &CODEX_OFF].concat()));
         assert_eq!(denied.command, expected, "{case}: denied");
 
         let input = engine_input(json!({"workdir": "/w"}), plan(codex_held()), extra, managed);
@@ -14874,22 +14826,11 @@ fn an_eligible_codex_resume_reimposes_the_capability_control() {
         assert_eq!(launch.rejoining.as_deref(), Some(THREAD), "{case}");
         assert_eq!(launch.refusal, None, "{case}");
         assert_eq!(launch.sandbox.as_deref(), Some("workspace-write"), "{case}");
-        let mut expected: Vec<String> = [
-            shim.to_str().unwrap(),
-            "exec",
-            "resume",
-            "--json",
-            "-c",
-            "sandbox_mode=\"workspace-write\"",
-            "-c",
-            "model_reasoning_effort=\"high\"",
-            "--model",
-            "gpt-6-astra",
-        ]
-        .iter()
-        .map(|part| part.to_string())
-        .collect();
-        expected.extend(managed.iter().map(|part| part.to_string()));
+        // The class re-imposed as the profile denying the store, then the
+        // isolation options (U9c2), the managed control where it is one.
+        let lead = [shim.to_str().unwrap(), "exec", "resume", "--json"];
+        let mut expected = isolated(&lead, WORKSPACE_WRITE, &[]);
+        expected.truncate(expected.len() - CODEX_OFF.len() + managed.len());
         expected.extend([THREAD.to_string(), "-".to_string()]);
         assert_eq!(launch.command, expected, "{case}: the whole resumed argv");
         assert_eq!(carries_off(&launch.command), case == "denied", "{case}");
@@ -14992,6 +14933,7 @@ fn a_boxed_codex_offer_stays_ineligible_and_its_denied_cold_fallback_carries_off
     assert_eq!(unboxed.rejoining.as_deref(), Some(THREAD));
     assert_eq!(unboxed.refusal, None);
 
+    // The class is the profile denying the store, leading (U9c2).
     let cold_head = s(&[
         bin,
         "exec",
@@ -14999,11 +14941,13 @@ fn a_boxed_codex_offer_stays_ineligible_and_its_denied_cold_fallback_carries_off
         "-C",
         "/w",
         "-c",
+        READ_ONLY,
+        "-c",
+        SELECTOR,
+        "-c",
         "model_reasoning_effort=\"high\"",
         "--model",
         "gpt-6-astra",
-        "--sandbox",
-        "read-only",
     ]);
     for (case, extra, fragment) in [
         ("the seat's own argv", &seat, Vec::new()),
@@ -15020,7 +14964,13 @@ fn a_boxed_codex_offer_stays_ineligible_and_its_denied_cold_fallback_carries_off
             assert_eq!(launch.sandbox, None, "{case}");
             assert_eq!(
                 launch.command,
-                [cold_head.clone(), fragment.clone(), managed.clone()].concat(),
+                [
+                    cold_head.clone(),
+                    fragment.clone(),
+                    s(&ISOLATION),
+                    managed.clone()
+                ]
+                .concat(),
                 "{case}: the whole cold argv"
             );
             assert_eq!(
@@ -15061,18 +15011,22 @@ fn a_harness_refused_rejoin_is_replaced_by_a_cold_spawn_that_stays_denied() {
         ),
     );
     let extra = vec!["--sandbox".to_string(), "read-only".into()];
+    // The engine hands the seat its store, which the class's profile denies
+    // beside the isolation options (U9c2).
+    let store = dir.path().canonicalize().unwrap().join("secrets.env");
+    let class = format!(
+        r#"-c permissions.brokkr={{filesystem={{":root"="read","{}"="deny"}}}} -c default_permissions="brokkr" --ignore-user-config --disable apps --disable plugins"#,
+        store.display()
+    );
     for (case, plan, managed) in [
         ("denied", codex_denied(), " -c web_search=\"disabled\""),
         ("held", codex_held(), ""),
     ] {
         std::fs::remove_file(&argv).ok();
+        let mut base = enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path());
+        base["secrets_file"] = json!(store);
         let input = sealed_pair(
-            engine_input(
-                enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path()),
-                plan,
-                &extra,
-                0,
-            ),
+            engine_input(base, plan, &extra, 0),
             &extra,
             Seal::codex_template(0, &["--sandbox", "read-only"]),
         );
@@ -15092,11 +15046,8 @@ fn a_harness_refused_rejoin_is_replaced_by_a_cold_spawn_that_stays_denied() {
         assert_eq!(
             recorded(&argv),
             [
-                format!("exec resume --json -c sandbox_mode=\"read-only\"{managed} {THREAD} -"),
-                format!(
-                    "exec --json -C {} --sandbox read-only{managed}",
-                    dir.path().display()
-                ),
+                format!("exec resume --json {class}{managed} {THREAD} -"),
+                format!("exec --json -C {} {class}{managed}", dir.path().display()),
             ],
             "{case}: the refused rejoin, then its cold replacement"
         );
@@ -15117,7 +15068,10 @@ fn a_harness_refused_rejoin_is_replaced_by_a_cold_spawn_that_stays_denied() {
 /// read-only` where the handed argv spells `--sandbox read-only`: a rejoin
 /// re-expresses either as `sandbox_mode`, so the rejoin's check passes, and
 /// only the replacement's check sees its `--sandbox` depart from the rebuild.
-/// The launch, which composes both before either spawns, is refused.
+/// The launch, which composes both before either spawns, is refused. A
+/// handed store renders both as the profile, so the departure is only the
+/// store-less composition's, below the door, which refuses such an input
+/// before it is composed (U9c2).
 #[cfg(unix)]
 #[test]
 fn a_rejected_rejoins_replacement_is_served_only_as_its_own_check_returns_it() {
@@ -15131,16 +15085,11 @@ fn a_rejected_rejoins_replacement_is_served_only_as_its_own_check_returns_it() {
         "-s".into(),
         "read-only".into(),
     ]);
-    let input = sealed_pair(
-        engine_input(
-            enabled_input(CODEX_SHAPE, CODEX_VERSION, &root),
-            codex_denied(),
-            &extra,
-            0,
-        ),
-        &extra,
-        seal,
-    );
+    let base = enabled_input(CODEX_SHAPE, CODEX_VERSION, &root);
+    let mut input = sealed_pair(engine_input(base, codex_denied(), &extra, 0), &extra, seal);
+    input.as_object_mut().unwrap().remove("secrets_file");
+    let door = codex::admitted(&input, workdir, |_| false);
+    assert_eq!(door, Err(codex::Unlaunchable::Storeless));
     let refused = codex_launch_and_cold(bin, &extra, workdir, Some(THREAD), &input).err();
     let departs = checked_refusal(
         "codex",
@@ -15150,7 +15099,8 @@ fn a_rejected_rejoins_replacement_is_served_only_as_its_own_check_returns_it() {
     );
     assert_eq!(refused, Some(departs));
     // The rejoin alone is served: what refused is the replacement's check.
-    let (rejoin, _) = codex_rejoin(bin, &extra, &CODEX_OFF.map(String::from), THREAD).unwrap();
+    let off = CODEX_OFF.map(String::from);
+    let (rejoin, _) = codex_rejoin(bin, &extra, "/w", None, &off, THREAD).unwrap();
     let chosen = crate::native_controls::Serving {
         program: bin,
         workdir,
@@ -15746,18 +15696,11 @@ fn a_launch_with_no_computed_authority_is_refused_and_a_by_hand_launch_is_untouc
         &[],
         Seal::authored(0),
     );
-    assert_eq!(
-        cold(&denied).unwrap(),
-        [
-            "codex",
-            "exec",
-            "--json",
-            "-C",
-            "/w",
-            "-c",
-            "web_search=\"disabled\""
-        ]
-    );
+    // Sealed and handed the store, it is isolated; it names no class, so no
+    // profile leads it (U9c2).
+    let lead = ["codex", "exec", "--json", "-C", "/w"];
+    let isolated = strings(&[&lead[..], &ISOLATION, &CODEX_OFF].concat());
+    assert_eq!(cold(&denied).unwrap(), isolated);
 }
 
 const NO_AUTHORITY: &str = "refusing to invoke the agent CLI: the engine computed no capability \
@@ -17221,7 +17164,8 @@ const UNSEALED_REFUSAL: &str =
 /// An inline Codex site's driver input as the engine writes it: the plan,
 /// the argv's two parts, the result path and door, and the sealed launch
 /// record whose segments are `authored` then the engine's `local` fragment
-/// and whose expected state names `class` with no hands (or `hands`).
+/// and whose expected state names `class` with no hands (or `hands`), and
+/// the store a Codex seat is handed where `base` names none (U9c2).
 fn inline_codex_input(
     base: Value,
     authored: &[&str],
@@ -17287,6 +17231,9 @@ fn inline_codex_input(
     if class == SandboxIntent::ReadOnly {
         input["result_delivery"] = json!("last-message");
     }
+    if input.get("secrets_file").is_none() {
+        input["secrets_file"] = json!(STORE);
+    }
     (extra, input)
 }
 
@@ -17310,7 +17257,6 @@ fn inline_codex_input(
 )]
 fn the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_receives_it() {
     use crate::native_controls::{HandsIntent, SandboxIntent};
-    let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     let pins = ["--model", "gpt-6-astra", "--effort", "high"];
     let work_local = ["--sandbox", "workspace-write"];
     let gate_local = [
@@ -17327,21 +17273,16 @@ fn the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_rec
     let effort = "a configuration assignment that assigns 'model_reasoning_effort' a value \
                   outside the bounded ones its declaration admits";
     let noncanonical = format!("a configuration assignment that {NONCANONICAL_KEY}");
+    // The class is the profile denying the store, leading, and the
+    // isolation options follow the composition (U9c2).
+    let effort_pins = [
+        "-c",
+        "model_reasoning_effort=\"high\"",
+        "--model",
+        "gpt-6-astra",
+    ];
     let cold = |local: &[&str], managed: &[&str]| {
-        let mut command = s(&[
-            "codex",
-            "exec",
-            "--json",
-            "-C",
-            "/w",
-            "-c",
-            "model_reasoning_effort=\"high\"",
-            "--model",
-            "gpt-6-astra",
-        ]);
-        command.extend(s(local));
-        command.extend(s(managed));
-        Ok::<_, String>(command)
+        Ok::<_, String>(profiled_cold(&effort_pins, local, managed))
     };
     type Row<'a> = (
         &'static str,
@@ -17376,19 +17317,11 @@ fn the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_rec
             &work_local,
             work,
             codex_denied(),
-            Ok(s(&[
-                "codex",
-                "exec",
-                "--json",
-                "-C",
-                "/w",
-                "--model",
-                "gpt-6-astra",
-                "--sandbox",
-                "workspace-write",
-                "-c",
-                "web_search=\"disabled\"",
-            ])),
+            Ok(profiled_cold(
+                &["--model", "gpt-6-astra"],
+                &work_local,
+                &CODEX_OFF,
+            )),
         ),
         (
             "work, --effort ultra translated",
@@ -17396,7 +17329,7 @@ fn the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_rec
             &work_local,
             work,
             codex_denied(),
-            Err(final_carrying("--config", 2, "authored", effort)),
+            Err(final_carrying("--config", 6, "authored", effort)),
         ),
         (
             "work, an authored --json beside the driver's",
@@ -17406,7 +17339,7 @@ fn the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_rec
             codex_denied(),
             Err(final_refused(
                 "cannot be read whole as the harness receives it under the 'codex' grammar \
-                 (argument 7, '--json': it repeats option '--json', which the grammar admits \
+                 (argument 11, '--json': it repeats option '--json', which the grammar admits \
                  once; a CLI that resolves a duplicate last-wins would resolve it against the \
                  control the engine composed), so none of its effects can be judged",
             )),
@@ -17417,7 +17350,7 @@ fn the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_rec
             &work_local,
             work,
             with_argv(&["-c", "\"web_search\"=\"disabled\""]),
-            Err(final_carrying("--config", 8, "native", &noncanonical)),
+            Err(final_carrying("--config", 15, "native", &noncanonical)),
         ),
         (
             "gate, the OFF key double-quoted",
@@ -17425,7 +17358,7 @@ fn the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_rec
             &gate_local,
             gate,
             with_argv(&["-c", "\"web_search\"=\"disabled\""]),
-            Err(final_carrying("--config", 10, "native", &noncanonical)),
+            Err(final_carrying("--config", 17, "native", &noncanonical)),
         ),
         (
             "work, the OFF key single-quoted",
@@ -17433,7 +17366,7 @@ fn the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_rec
             &work_local,
             work,
             with_argv(&["-c", "'web_search'=\"disabled\""]),
-            Err(final_carrying("--config", 8, "native", &noncanonical)),
+            Err(final_carrying("--config", 15, "native", &noncanonical)),
         ),
         (
             "gate, the OFF key single-quoted",
@@ -17441,7 +17374,7 @@ fn the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_rec
             &gate_local,
             gate,
             with_argv(&["-c", "'web_search'=\"disabled\""]),
-            Err(final_carrying("--config", 10, "native", &noncanonical)),
+            Err(final_carrying("--config", 17, "native", &noncanonical)),
         ),
         (
             "work, a partly quoted dotted key",
@@ -17454,7 +17387,7 @@ fn the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_rec
                 "-c",
                 "\"tools\".web_search=false",
             ]),
-            Err(final_carrying("--config", 10, "native", &noncanonical)),
+            Err(final_carrying("--config", 17, "native", &noncanonical)),
         ),
         (
             "work, space before the '='",
@@ -17462,7 +17395,7 @@ fn the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_rec
             &work_local,
             work,
             with_argv(&["-c", "web_search =\"disabled\""]),
-            Err(final_carrying("--config", 8, "native", &noncanonical)),
+            Err(final_carrying("--config", 15, "native", &noncanonical)),
         ),
         (
             "work, space after the '='",
@@ -17470,7 +17403,7 @@ fn the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_rec
             &work_local,
             work,
             with_argv(&["-c", "web_search= \"disabled\""]),
-            Err(final_carrying("--config", 8, "native", &noncanonical)),
+            Err(final_carrying("--config", 15, "native", &noncanonical)),
         ),
         (
             "work, the canonical OFF joined and bare",
@@ -17524,7 +17457,7 @@ fn the_final_cold_command_of_an_inline_codex_launch_is_judged_as_the_harness_rec
         codex_command("codex", &extra, "/w", None, &input),
         Err(checked_refusal(
             "codex",
-            "cannot be read whole (argument 5, '--json': it repeats option '--json', which the \
+            "cannot be read whole (argument 9, '--json': it repeats option '--json', which the \
              grammar admits once; a CLI that resolves a duplicate last-wins would resolve it \
              against the control the engine composed)"
         ))
@@ -17865,45 +17798,37 @@ fn an_eligible_codex_rejoin_and_its_cold_replacement_are_each_served_as_checked(
     );
     let bin = shim.to_str().unwrap();
     let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    // The engine hands the seat its store: the class is the profile denying
+    // it, beside the isolation options (U9c2).
+    let mut base = enabled_input(CODEX_SHAPE, CODEX_VERSION, &root);
+    let store = root.join("secrets.env").to_str().unwrap().to_string();
+    base["secrets_file"] = json!(store);
     let (extra, input) = inline_codex_input(
-        enabled_input(CODEX_SHAPE, CODEX_VERSION, &root),
+        base,
         &["--model", "gpt-6-astra", "--effort", "high"],
         &["--sandbox", "workspace-write"],
         codex_denied(),
         SandboxIntent::WorkspaceWrite,
         HandsIntent::None,
     );
+    let profile = format!(
+        r#"permissions.brokkr={{filesystem={{":root"="read","{workdir}"="write","{store}"="deny"}}}}"#
+    );
+    let class = ["-c", &profile, "-c", SELECTOR];
+    let effort = [
+        "-c",
+        "model_reasoning_effort=\"high\"",
+        "--model",
+        "gpt-6-astra",
+    ];
+    let tail = [&class[..], &effort, &ISOLATION, &CODEX_OFF].concat();
     let rejoined = s(&[
-        bin,
-        "exec",
-        "resume",
-        "--json",
-        "-c",
-        "sandbox_mode=\"workspace-write\"",
-        "-c",
-        "model_reasoning_effort=\"high\"",
-        "--model",
-        "gpt-6-astra",
-        CODEX_OFF[0],
-        CODEX_OFF[1],
-        THREAD,
-        "-",
-    ]);
-    let cold = s(&[
-        bin,
-        "exec",
-        "--json",
-        "-C",
-        workdir,
-        "-c",
-        "model_reasoning_effort=\"high\"",
-        "--model",
-        "gpt-6-astra",
-        "--sandbox",
-        "workspace-write",
-        CODEX_OFF[0],
-        CODEX_OFF[1],
-    ]);
+        &[bin, "exec", "resume", "--json"][..],
+        &tail,
+        &[THREAD, "-"],
+    ]
+    .concat());
+    let cold = s(&[&[bin, "exec", "--json", "-C", workdir][..], &tail].concat());
 
     let (plan, replacement) = codex_launch_and_cold(bin, &extra, workdir, Some(THREAD), &input)
         .expect("an eligible, sealed rejoin");
@@ -17917,6 +17842,7 @@ fn an_eligible_codex_rejoin_and_its_cold_replacement_are_each_served_as_checked(
     let chosen = |session| Serving {
         program: bin,
         workdir,
+        store: Some(&store),
         session,
         ..Default::default()
     };
@@ -17930,7 +17856,9 @@ fn an_eligible_codex_rejoin_and_its_cold_replacement_are_each_served_as_checked(
             ),
         ))
     };
+    // The edge the launch serves through, the isolation options built on it.
     let edge = mcp::Edge::new(&input);
+    mcp::isolated("codex", &edge, &extra, true).unwrap();
     assert_eq!(
         (
             served("codex", rejoined.clone(), &extra, &edge, chosen(None)),
@@ -18153,19 +18081,14 @@ fn a_sealed_dsh_rejoin_is_spawned_only_as_its_final_check_returns_it() {
 
 /// Rebuild unit 5d-fix-c2 (chief F2): the REJOIN the driver composes for an
 /// inline Codex site is judged as the harness receives it — `exec resume`,
-/// the class moved into its one assignment, the translated effort, the
-/// passthrough and the plan, before the session and the stdin `-`. A real
-/// rejoin of the work seat and of the gate launches. A plan that also
-/// assigns `sandbox_mode` is refused: cold the `--sandbox` flag outranks it,
-/// but the rejoin's transform moves the class into the same last-wins
-/// channel, where the plan's later assignment would win. The rejoin's own
-/// `--effort ultra` translation is refused too.
+/// the class re-imposed as the profile denying the store (U9c2), the
+/// translated effort, the passthrough, the isolation options and the plan,
+/// before the session and the stdin `-`. A real rejoin of the work seat and
+/// of the gate launches. A plan that also assigns `sandbox_mode` is refused
+/// as an assignment beside the profile, which it would silently override.
+/// The rejoin's own `--effort ultra` translation is refused too.
 #[cfg(unix)]
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
-)]
 fn the_final_rejoin_of_an_inline_codex_launch_is_judged_as_the_harness_receives_it() {
     use crate::native_controls::{HandsIntent, SandboxIntent};
     let _env = EnvGuard::lock();
@@ -18191,28 +18114,23 @@ fn the_final_rejoin_of_an_inline_codex_launch_is_judged_as_the_harness_receives_
         ]);
         plan
     };
+    // The class is re-imposed as the profile denying the store, and the
+    // isolation options travel (U9c2).
     let rejoined = |class: &str, capture: &[&str]| {
-        let mut command = s(&[
-            bin,
-            "exec",
-            "resume",
-            "--json",
-            "-c",
-            &format!("sandbox_mode=\"{class}\""),
-            "-c",
-            "model_reasoning_effort=\"high\"",
-            "--model",
-            "gpt-6-astra",
-        ]);
-        command.extend(s(capture));
-        command.extend(s(&CODEX_OFF));
+        let profile = if class == "read-only" {
+            READ_ONLY
+        } else {
+            WORKSPACE_WRITE
+        };
+        let mut command = isolated(&[bin, "exec", "resume", "--json"], profile, capture);
         command.extend(s(&[THREAD, "-"]));
         Ok::<_, String>(command)
     };
     let effort = "a configuration assignment that assigns 'model_reasoning_effort' a value \
                   outside the bounded ones its declaration admits";
-    let table = "a configuration assignment that assigns into the 'sandbox_mode' configuration, \
-                 which is outside the closed set of keys an inline Codex launch admits";
+    // A plan's `sandbox_mode` now competes with the profile itself.
+    let beside = "carries '--sandbox' or a 'sandbox_mode' assignment (argument 17) beside a \
+                  permission profile, which on codex-cli 0.162.1 it silently overrides";
     type Row<'a> = (
         &'static str,
         Vec<&'a str>,
@@ -18244,7 +18162,7 @@ fn the_final_rejoin_of_an_inline_codex_launch_is_judged_as_the_harness_receives_
             &work_local,
             SandboxIntent::WorkspaceWrite,
             competing,
-            Err(final_carrying("--config", 10, "native", table)),
+            Err(final_refused(beside)),
         ),
         (
             "work, --effort ultra translated on the rejoin",
@@ -18252,7 +18170,7 @@ fn the_final_rejoin_of_an_inline_codex_launch_is_judged_as_the_harness_receives_
             &work_local,
             SandboxIntent::WorkspaceWrite,
             codex_denied(),
-            Err(final_carrying("--config", 4, "authored", effort)),
+            Err(final_carrying("--config", 6, "authored", effort)),
         ),
     ];
     assert_eq!(rows.len(), 4);
@@ -18329,7 +18247,7 @@ fn the_final_judgment_refuses_what_it_cannot_attribute() {
         ])
     };
     let judged = |command: &[String], contributions: &[Segment]| {
-        grammar::judge_inline_codex_command(work, command, contributions, None, "/w")
+        grammar::judge_inline_codex_command(work, command, contributions, None, "/w", None)
             .map_err(|cause| cause.to_string())
     };
     assert_eq!(judged(&command("/w"), &contributions), Ok(()));

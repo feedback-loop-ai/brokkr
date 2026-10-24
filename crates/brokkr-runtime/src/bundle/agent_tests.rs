@@ -3415,7 +3415,7 @@ fn the_inline_codex_launch_judgment_requires_the_engines_fragment_of_the_class()
         format!(
             "{:?}",
             brokkr_protocol::native_controls::grammar::judge_inline_codex_launch(
-                class, segments, None
+                class, segments, None, None
             )
             .map_err(|cause| inline_codex_refusal("work", &cause))
         )

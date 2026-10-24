@@ -47,7 +47,7 @@ fn codex_inventory() -> NativeInventory {
     .unwrap()
 }
 
-fn link(provider: &str, model: &str) -> Candidate {
+pub(super) fn link(provider: &str, model: &str) -> Candidate {
     Candidate {
         agent: "worker".into(),
         model: model.into(),

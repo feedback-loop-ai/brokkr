@@ -348,11 +348,10 @@ fn a_rejoin_keeps_the_isolation_only_where_its_resume_shape_is_measured() {
 }
 
 /// Every launch builder reads the intent before any provider work: a
-/// measured limitation is its own cause with its reason, missing evidence
-/// names the shape, and a measured claim for a harness the engine builds no
-/// mechanism for — Codex, which no U0 candidate qualified — is missing
-/// evidence, never Claude's result and never ambient configuration. dsh's
-/// shapes are judged the same way, ahead of its route (U1c2).
+/// measured limitation is its own cause with its reason, and missing
+/// evidence names the shape, Codex's as every adapter's (U9c2), never
+/// another harness's result and never ambient configuration. dsh's shapes
+/// are judged the same way, ahead of its route (U1c2).
 #[test]
 fn each_unqualified_shape_refuses_with_its_exact_cause() {
     let unsupported = |reason: &str| json!({"unsupported": reason});
@@ -382,7 +381,7 @@ fn each_unqualified_shape_refuses_with_its_exact_cause() {
             unsupported(CODEX_REASON),
             unsupported_cause("codex", CODEX_REASON),
         ),
-        ("codex", json!("measured"), unmeasured("codex")),
+        ("codex", json!("unmeasured"), unmeasured("codex")),
         ("dsh", json!("unmeasured"), unmeasured("dsh")),
         (
             "dsh",
@@ -429,6 +428,61 @@ fn each_unqualified_shape_refuses_with_its_exact_cause() {
         });
         assert_eq!(launch.map(drop), Err(refusal.at_launch()), "{replacement}");
     }
+}
+
+/// U9c2 (45.5): Codex's declared verdicts are read as every adapter's are.
+/// A measured shape is admitted past the lifted fence and served its
+/// isolation options behind its arguments where the store its profile
+/// denies is handed, and Claude none; a sealed Codex launch handed no store
+/// never reaches it, refused at the driver's door. A measured limitation
+/// keeps its reason and missing evidence names its shape, cold, replacement
+/// and resume alike.
+#[test]
+fn codex_verdicts_are_read_as_every_adapters_are() {
+    let extra = s(&["--model", "m"]);
+    let flags = s(&[
+        "--ignore-user-config",
+        "--disable",
+        "apps",
+        "--disable",
+        "plugins",
+    ]);
+    let unsupported = json!({"unsupported": PROJECT_REASON});
+    let codex = |input: &Value, offered| isolated("codex", &Edge::new(input), &extra, offered);
+    let mut stored = by_hand("empty", cold_only());
+    stored["secrets_file"] = json!("/s/secrets.env");
+    let built = codex(&stored, false).unwrap();
+    assert_eq!(built.argv, [extra.clone(), flags].concat());
+    assert!(built.isolation.is_some());
+    let mut unstored = by_hand("empty", cold_only());
+    unstored["launch_record"] = json!({});
+    let door = super::super::codex::admitted(&unstored, "/w", |_| false);
+    assert_eq!(door, Err(super::super::codex::Unlaunchable::Storeless));
+    let claude = isolated("claude", &Edge::new(&stored), &extra, false).unwrap();
+    assert_eq!(claude.argv, [extra.clone(), s(&EMPTY)].concat());
+    let measured = || json!("measured");
+    for (assessments, offered, refusal) in [
+        (
+            [unsupported.clone(), measured(), measured()],
+            false,
+            unsupported_cause("codex", PROJECT_REASON),
+        ),
+        (
+            [measured(), json!("unmeasured"), measured()],
+            true,
+            unmeasured_cause("codex", "replacement"),
+        ),
+    ] {
+        let refused = codex(&by_hand("empty", assessments), offered).map(drop);
+        assert_eq!(refused, Err(refusal), "{offered}");
+    }
+    let resumes = |resume: &Value| {
+        let mut input = by_hand("empty", [measured(), measured(), measured()]);
+        input[SERVING_INPUTS]["isolation"]["resume"] = json!({"work-site": resume});
+        codex(&input, true).unwrap().resumes("codex", "work-site")
+    };
+    let read = [measured(), json!("unmeasured"), unsupported].map(|resume| resumes(&resume));
+    assert_eq!(read, [true, false, false]);
 }
 
 /// The intent's server set must be the one the sealed inputs declare, and
@@ -809,7 +863,7 @@ fn a_standing_fence_serves_an_unadmitted_shape_as_before() {
         ("claude", json!("unmeasured")),
         ("claude", unsupported.clone()),
         ("lanetally", json!("unmeasured")),
-        ("codex", json!("measured")),
+        ("codex", json!("unmeasured")),
         ("codex", unsupported),
         ("dsh", json!("unmeasured")),
     ] {
@@ -986,4 +1040,27 @@ fn a_harness_auth_declaration_reads_its_names_and_refuses_every_other_shape() {
             "names 'X' twice",
         ]
     );
+}
+
+/// SI2 (U9c2): a shape measured for a harness the engine builds no qualified
+/// mechanism for is missing evidence, never a fallback: it refuses as that
+/// shape unmeasured, cold, replacing and on a rejoin alike, where the same
+/// measured assessments admit a harness that has one.
+#[test]
+fn a_measured_shape_of_a_harness_with_no_mechanism_refuses_as_unmeasured() {
+    let isolation = SealedIsolation {
+        cold: SealedAssessment::Measured,
+        replacement: SealedAssessment::Measured,
+        resume: [("exec-resume".to_string(), SealedAssessment::Measured)].into(),
+        ..SealedIsolation::default()
+    };
+    for (invocation, shape) in [
+        (Invocation::Cold, "cold"),
+        (Invocation::Replacement, "replacement"),
+        (Invocation::Resume("exec-resume"), "exec-resume"),
+    ] {
+        let refused = isolation.admit("exec", invocation);
+        assert_eq!(refused, Err(unmeasured_cause("exec", shape)), "{shape}");
+        assert_eq!(isolation.admit("codex", invocation), Ok(()), "{shape}");
+    }
 }

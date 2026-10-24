@@ -19,6 +19,12 @@ use brokkr_runtime::{Bundle, SeatBody, StepBody};
 use serde_json::{json, Value};
 #[path = "capability_launch/charters.rs"]
 mod charters;
+#[path = "capability_launch/codex_store.rs"]
+mod codex_store;
+use codex_store::{
+    codex_served, cold_served, owned, profile, profiled_cold, profiled_rejoin, ASTRA, ISOLATING,
+    STORE,
+};
 #[path = "capability_launch/legacy_journal.rs"]
 mod legacy_journal;
 #[path = "capability_launch/redrive.rs"]
@@ -275,12 +281,7 @@ fn try_launch(bundle: &Bundle, label: &str, candidate: usize) -> Result<Vec<Stri
     // dispatch seals them (`mark_capabilities`), or dispatch's refusal
     // where it seals none (rebuild unit 15-fix-a).
     seal_as_dispatch(bundle, label, candidate, &mut spawn, &mut input)?;
-    let argv = &spawn.argv;
-    let extra = &argv[argv.iter().position(|part| part == "--").unwrap() + 1..];
-    match outcome.provider.as_str() {
-        "codex" => brokkr_protocol::adapters::codex_command("codex", extra, "/w", None, &input),
-        _ => brokkr_protocol::adapters::claude_command("claude", extra, None, &input),
-    }
+    cold_served(&outcome.provider, &spawn, &input)
 }
 
 /// Seal `spawn`'s launch record and the serving inputs beside it into
@@ -356,18 +357,7 @@ fn seal_serving(
 /// provenance and the sealed record — and the actual command builder run on
 /// the sealed spawn's own argv.
 fn sealed_launch(bundle: &Bundle, label: &str, candidate: usize) -> Result<Vec<String>, String> {
-    let (spawn, mut input) = sealed(bundle, label, candidate);
-    let outcome = &bundle.sites[label].capabilities.as_ref().unwrap().outcomes[candidate];
-    (input["workdir"], input["artifact_root"]) = (json!("/w"), json!("/a"));
-    input["seat"] = json!(label);
-    input["native_controls"] = outcome.controls();
-    input["launch_arguments"] = spawn.launch_arguments();
-    let argv = &spawn.argv;
-    let extra = &argv[argv.iter().position(|part| part == "--").unwrap() + 1..];
-    match outcome.provider.as_str() {
-        "codex" => brokkr_protocol::adapters::codex_command("codex", extra, "/w", None, &input),
-        _ => brokkr_protocol::adapters::claude_command("claude", extra, None, &input),
-    }
+    tampered_launch(bundle, label, candidate, |_, _| {})
 }
 
 /// [`solo`], launched through [`sealed_launch`].
@@ -554,21 +544,16 @@ fn rejoin(bundle: &Bundle, label: &str, shim: &Path) -> Vec<String> {
         .unwrap_or_else(|refusal| panic!("{label} unsealed: {refusal}"));
     let argv = &spawn.argv;
     let extra = &argv[argv.iter().position(|part| part == "--").unwrap() + 1..];
-    brokkr_protocol::adapters::codex_command(
-        shim.to_str().unwrap(),
-        extra,
-        "/w",
-        Some(THREAD),
-        &input,
-    )
-    .unwrap_or_else(|refusal| panic!("{label} refused: {refusal}"))
+    codex_served(shim.to_str().unwrap(), extra, Some(THREAD), &input)
+        .unwrap_or_else(|refusal| panic!("{label} refused: {refusal}"))
 }
 
 /// The seat's own controls survive beside the managed one. A sandbox is
 /// the engine's alone, exactly one: the inline seat's lowered class, an
 /// agent's hands; the boxed inline seat authors none (fixture migration of
 /// 2026-09-26) and is served its hands like an agent (operator ruling (B)
-/// of 2026-09-27; rebuild unit 14a4a).
+/// of 2026-09-27; rebuild unit 14a4a), rendered as the one profile that
+/// denies the store, never as `--sandbox` (U9c2).
 fn assert_intact(argv: &[String], label: &str) {
     for expected in [
         ["--model", "gpt-6-astra"],
@@ -579,9 +564,11 @@ fn assert_intact(argv: &[String], label: &str) {
             "{label} lost {expected:?}: {argv:?}"
         );
     }
+    let selected = argv.iter().filter(|part| *part == &profile("read-only")[3]);
+    let sandboxed = argv.iter().any(|part| part == "--sandbox");
     assert_eq!(
-        argv.iter().filter(|part| *part == "--sandbox").count(),
-        1,
+        (selected.count(), sandboxed),
+        (1, false),
         "{label}: {argv:?}"
     );
 }
@@ -975,24 +962,26 @@ fn a_boxed_inline_seats_hands_are_emitted_and_typed_as_an_agent_backed_seats_are
 
 /// The cold command the final check passes for a boxed Codex site on
 /// `gpt-6-astra` at `high` that holds nothing, with `hands` its box's
-/// expanded `hands.workspace` fragment, and web search switched off
-/// behind it: written out, never composed.
+/// expanded `hands.workspace` fragment, its `--sandbox read-only` rendered
+/// as the leading profile, the isolation options and web search switched
+/// off behind it: written out, never composed.
 fn checked_codex(hands: &[String]) -> Vec<String> {
-    let lead = [
-        "codex",
-        "exec",
-        "--json",
-        "-C",
-        "/w",
+    let lead = owned(&["codex", "exec", "--json", "-C", "/w"]);
+    let pins = owned(&[
         "-c",
         "model_reasoning_effort=\"high\"",
         "--model",
         "gpt-6-astra",
-    ];
+    ]);
+    assert_eq!(hands[..2], ["--sandbox", "read-only"]);
+    let profile = profile("read-only").to_vec();
     [
-        lead.map(String::from).to_vec(),
-        hands.to_vec(),
-        OFF.map(String::from).to_vec(),
+        lead,
+        profile,
+        pins,
+        hands[2..].to_vec(),
+        owned(&ISOLATING),
+        owned(&OFF),
     ]
     .concat()
 }
@@ -1074,7 +1063,7 @@ fn tampered_launch(
     let mut extra = argv[argv.iter().position(|part| part == "--").unwrap() + 1..].to_vec();
     tamper(&mut input, &mut extra);
     match outcome.provider.as_str() {
-        "codex" => brokkr_protocol::adapters::codex_command("codex", &extra, "/w", None, &input),
+        "codex" => codex_served("codex", &extra, None, &input),
         _ => brokkr_protocol::adapters::claude_command("claude", &extra, None, &input),
     }
 }
@@ -1143,12 +1132,6 @@ fn a_compiled_cold_command_is_served_only_as_its_final_check_returns_it() {
         )
     };
     let claude_hands = claude_hands();
-    let words = |words: &[&str]| {
-        words
-            .iter()
-            .map(|word| word.to_string())
-            .collect::<Vec<_>>()
-    };
     let claude = |mode: &[&str], hands: &[String], deny: &[&str]| {
         let lead = [
             "claude",
@@ -1159,11 +1142,11 @@ fn a_compiled_cold_command_is_served_only_as_its_final_check_returns_it() {
         ];
         let pins = ["--model", "claude-opus-5-5", "--effort", "high"];
         Ok([
-            words(&lead),
-            words(mode),
-            words(&pins),
+            owned(&lead),
+            owned(mode),
+            owned(&pins),
             hands.to_vec(),
-            words(deny),
+            owned(deny),
         ]
         .concat())
     };
@@ -1274,7 +1257,7 @@ fn a_compiled_cold_command_is_served_only_as_its_final_check_returns_it() {
             "boxed",
             0,
             authored("--json"),
-            refused("codex", &repeats(7, "--json")),
+            refused("codex", &repeats(11, "--json")),
         ),
     ];
     assert_eq!(rows.len(), 10);
@@ -1749,8 +1732,7 @@ fn a_codex_adapter_whose_effort_flag_assigns_a_permission_table_refuses_the_comp
     };
     let launched = |pins: &[&str]| {
         let mut argv = vec!["codex", "exec", "--json", "-C", "/w"];
-        argv.extend(pins);
-        argv.extend(["-c", "web_search=\"disabled\""]);
+        argv.extend(pins.iter().chain(&ISOLATING).chain(&OFF));
         format!(
             "{:?} {} launched {argv:?}",
             Ok::<(), String>(()),
@@ -3044,7 +3026,7 @@ fn inline_codex_launching(
         let mut input = handed.clone();
         (input["workdir"], input["artifact_root"]) = (json!("/w"), json!("/a"));
         input["launch_arguments"] = spawn.launch_arguments();
-        brokkr_protocol::adapters::codex_command("codex", extra, "/w", None, &input)
+        codex_served("codex", extra, None, &input)
     });
     (sealing, record, launched, door.to_string())
 }
@@ -3080,20 +3062,10 @@ fn an_inline_codex_work_seat_and_gate_reach_their_final_commands_with_the_engine
         })
     };
     let pins = ["--model", "gpt-6-astra", "--effort", "high"];
+    // The class is the profile that leads the command (U9c2), and what
+    // remains of the fragment, a gate's capture, follows the pins.
     let expected = |segment: &[&str], class: &str, last: &[&str], door: &str| {
-        let mut last_argv = vec![
-            "codex",
-            "exec",
-            "--json",
-            "-C",
-            "/w",
-            "-c",
-            "model_reasoning_effort=\"high\"",
-            "--model",
-            "gpt-6-astra",
-        ];
-        last_argv.extend(last);
-        last_argv.extend(OFF);
+        let last_argv = profiled_cold("codex", ASTRA, class, last);
         json!({
             "sealed": "Ok(())",
             "segments": [{"origin": "authored", "argv": pins},
@@ -3115,13 +3087,8 @@ fn an_inline_codex_work_seat_and_gate_reach_their_final_commands_with_the_engine
         json!({"work": observed("work", SeatClass::Work),
                "review": observed("review", SeatClass::Gate)}),
         json!({
-            "work": expected(
-                &["--sandbox", "workspace-write"],
-                "workspace-write",
-                &["--sandbox", "workspace-write"],
-                "file",
-            ),
-            "review": expected(&gate_fragment, "read-only", &gate_fragment, "last-message"),
+            "work": expected(&["--sandbox", "workspace-write"], "workspace-write", &[], "file"),
+            "review": expected(&gate_fragment, "read-only", &gate_fragment[2..], "last-message"),
         })
     );
 }
@@ -4333,7 +4300,7 @@ fn an_inline_codex_launch_reads_its_keys_as_the_harness_does_and_is_judged_as_co
             level("ultra"),
             as_handed(),
             composed(format!(
-                "carries '--config' (argument 2) in its `authored` contribution, a configuration \
+                "carries '--config' (argument 6) in its `authored` contribution, a configuration \
                  assignment that assigns 'model_reasoning_effort' a value outside the bounded \
                  ones its declaration admits; {rest}"
             )),
@@ -4345,7 +4312,7 @@ fn an_inline_codex_launch_reads_its_keys_as_the_harness_does_and_is_judged_as_co
             as_handed(),
             composed(
                 "cannot be read whole as the harness receives it under the 'codex' grammar \
-                 (argument 9, '--json': it repeats option '--json', which the grammar admits \
+                 (argument 13, '--json': it repeats option '--json', which the grammar admits \
                  once; a CLI that resolves a duplicate last-wins would resolve it against the \
                  control the engine composed), so none of its effects can be judged"
                     .to_string(),
@@ -4386,7 +4353,8 @@ fn typed_allow(operator: &Operator, allow: Value) {
 /// hand-written plan: an inline and an agent-backed unboxed Codex work
 /// seat, each way round, offered the session they opened. What comes back
 /// is an actual `exec resume` — the offered thread, the stdin positional,
-/// the re-imposed sandbox class and effort — and it carries the OFF pair
+/// the re-imposed class as the profile denying the store (U9c2), the effort
+/// and the isolation options — and it carries the OFF pair
 /// exactly when the seat does not hold search, placed before the two
 /// positionals. A cold fallback would have no `resume` in it and fails
 /// here; it is never counted as this proof. The assessment is the shipped
@@ -4422,22 +4390,7 @@ fn an_eligible_rejoin_of_a_compiled_codex_seat_carries_the_control_either_way_ro
             .unwrap();
         for label in ["inline", "agent"] {
             let argv = rejoin(&bundle, label, &shim);
-            let mut expected = vec![
-                shim_path.clone(),
-                "exec".into(),
-                "resume".into(),
-                "--json".into(),
-                "-c".into(),
-                "sandbox_mode=\"workspace-write\"".into(),
-                "-c".into(),
-                "model_reasoning_effort=\"high\"".into(),
-                "--model".into(),
-                "gpt-6-astra".into(),
-            ];
-            if denied {
-                expected.extend(OFF.map(String::from));
-            }
-            expected.extend([THREAD.to_string(), "-".to_string()]);
+            let expected = profiled_rejoin(&shim_path, denied);
             assert_eq!(argv, expected, "{case} {label}: the whole resumed argv");
             assert_eq!(off_pairs(&argv), usize::from(denied), "{case} {label}");
         }
@@ -4509,9 +4462,7 @@ fn sealed_rejoin(
     let extra = &argv[argv.iter().position(|part| part == "--").unwrap() + 1..];
     let bin = bin.to_str().unwrap();
     match outcome.provider.as_str() {
-        "codex" => {
-            brokkr_protocol::adapters::codex_command(bin, extra, "/w", Some(session), &input)
-        }
+        "codex" => codex_served(bin, extra, Some(session), &input),
         _ => brokkr_protocol::adapters::claude_command(bin, extra, Some(session), &input),
     }
 }
@@ -4593,27 +4544,9 @@ fn a_compiled_rejoin_is_served_only_as_its_final_check_returns_it() {
     };
 
     // The Codex rejoin, with and without the OFF before its positionals.
-    let resumed = |off: bool| {
-        let mut argv = words(
-            &codex,
-            &[
-                "exec",
-                "resume",
-                "--json",
-                "-c",
-                "sandbox_mode=\"workspace-write\"",
-                "-c",
-                "model_reasoning_effort=\"high\"",
-                "--model",
-                "gpt-6-astra",
-            ],
-        );
-        if off {
-            argv.extend(OFF.map(String::from));
-        }
-        argv.extend([THREAD.to_string(), "-".to_string()]);
-        Ok(argv)
-    };
+    // Its class is the profile denying the store, its options behind the
+    // pins (U9c2).
+    let resumed = |off: bool| Ok(profiled_rejoin(codex.to_str().unwrap(), off));
     let compiled = |bundle: &Bundle, label: &str, candidate: usize| match bundle.sites[label]
         .chain
         .get(candidate)
@@ -4621,36 +4554,11 @@ fn a_compiled_rejoin_is_served_only_as_its_final_check_returns_it() {
         Some(link) => link.resume.value(),
         None => bundle.sites[label].inline_resume.clone().unwrap(),
     };
-    // The box's hands as independent literals, never production's own
-    // expansion (NC6): only the test's executable, the canonical fixture
-    // value `{brokkr}` binds, is substituted.
-    let exe = std::env::current_exe().unwrap();
-    let exe = exe.to_str().unwrap();
-    let serve = HANDS_SERVE;
-    // The selected fallback's cold command, its hands expanded for the box.
-    let fallback: Vec<String> = [
-        codex.to_str().unwrap(),
-        "exec",
-        "--json",
-        "-C",
-        "/w",
-        "-c",
-        "model_reasoning_effort=\"high\"",
-        "--model",
-        "gpt-6-astra",
-        "--sandbox",
-        "read-only",
-        "-c",
-        &format!("mcp_servers.brokkr.command=\"{exe}\""),
-        "-c",
-        &format!("mcp_servers.brokkr.args={serve}"),
-        "-c",
-        "mcp_servers.brokkr.default_tools_approval_mode=\"approve\"",
-        "-c",
-        "web_search=\"disabled\"",
-    ]
-    .map(String::from)
-    .to_vec();
+    // The selected fallback's cold command, its hands expanded for the box
+    // as independent literals ([`codex_hands`]), never production's own
+    // expansion (NC6), and written out by [`checked_codex`], on the shim.
+    let mut fallback = checked_codex(&codex_hands());
+    fallback[0] = codex.to_str().unwrap().to_string();
 
     // The Claude rejoin: the cold command, then the session it rejoins.
     let enabled = |boundary: &str, hands: &str| {
@@ -4803,7 +4711,7 @@ fn a_compiled_rejoin_is_served_only_as_its_final_check_returns_it() {
             Box::new(|input| input["launch_record"]["segments"][0]["origin"] = json!("local")),
             refused(
                 "codex",
-                "departs at argument 7 from the complete command its sealed inputs and the \
+                "departs at argument 8 from the complete command its sealed inputs and the \
                  engine's serving choices rebuild: missing, extra, reordered and respelled \
                  arguments are refused alike",
             ),
@@ -5834,19 +5742,7 @@ fn the_shipped_verify_and_codex_recipes_seat_their_typed_restrictions_as_the_eng
                 Bash(gh run view:*)";
     let codex_pins = ["--model", "gpt-6.1-sol", "--effort", "high"];
     let codex = |segment: &[&str], class: &str, door: &str| {
-        let mut last = vec![
-            "codex",
-            "exec",
-            "--json",
-            "-C",
-            "/w",
-            "-c",
-            "model_reasoning_effort=\"high\"",
-            "--model",
-            "gpt-6.1-sol",
-        ];
-        last.extend(segment);
-        last.extend(OFF);
+        let last = profiled_cold("codex", ("gpt-6.1-sol", "high"), class, &segment[2..]);
         json!({
             "authored command": ["driver", "codex", "--",
                                  "--model", "gpt-6.1-sol", "--effort", "high"],
@@ -5882,7 +5778,8 @@ fn the_shipped_verify_and_codex_recipes_seat_their_typed_restrictions_as_the_eng
 /// `recipes/wager-harness`'s inline Codex implementer authors no sandbox.
 /// Its typed class is the engine's own `local` segment at
 /// `workspace-write` (it was `danger-full-access`, which no path admits),
-/// it delivers by file, and its final command ends in the native denial.
+/// it delivers by file, and its final command, its class the profile
+/// denying the store (U9c2), ends in the native denial.
 /// It is compiled from the shipped directory in a realm that grants
 /// nothing, and the literals are written out here.
 #[test]
@@ -5930,19 +5827,7 @@ fn the_shipped_wager_harness_seats_its_typed_sandbox_narrowed_as_the_engines_own
     });
     let pins = ["--model", "gpt-6.1-sol", "--effort", "low"];
     let segment = ["--sandbox", "workspace-write"];
-    let mut last = vec![
-        "codex",
-        "exec",
-        "--json",
-        "-C",
-        "/w",
-        "-c",
-        "model_reasoning_effort=\"low\"",
-        "--model",
-        "gpt-6.1-sol",
-    ];
-    last.extend(segment);
-    last.extend(OFF);
+    let last = profiled_cold("codex", ("gpt-6.1-sol", "low"), "workspace-write", &[]);
     let expected = json!({
         "authored command": ["driver", "codex", "--",
                              "--model", "gpt-6.1-sol", "--effort", "low"],
@@ -8508,7 +8393,7 @@ fn served_as(
         None => (outcome.provider.clone(), None),
     };
     match outcome.provider.as_str() {
-        "codex" => brokkr_protocol::adapters::codex_command(&bin, &extra, "/w", session, &input),
+        "codex" => codex_served(&bin, &extra, session, &input),
         "claude" => brokkr_protocol::adapters::claude_command(&bin, &extra, session, &input),
         other => panic!("{label}[{candidate}] is served by {other}, which is not read here"),
     }
@@ -9224,19 +9109,12 @@ fn every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside
         "--model",
         "gpt-6-astra",
     ];
-    let work_class = ["--sandbox", "workspace-write"];
-    let gate_class = [
-        "--sandbox",
-        "read-only",
-        "--output-last-message",
-        "/w/result.json",
-    ];
-    let resumed = ["exec", "resume", "--json"];
-    let rejoined_class = ["-c", "sandbox_mode=\"workspace-write\""];
-    let at = [THREAD, "-"];
+    let capture = ["--output-last-message", "/w/result.json"];
     let (lanetally_bin, dsh_bin) = (root.join("lanetally-harness"), root.join("dsh-harness"));
     let (lanetally_bin, dsh_bin) = (lanetally_bin.to_str().unwrap(), dsh_bin.to_str().unwrap());
     let (claude_shim, codex_shim) = (claude.to_str().unwrap(), codex.to_str().unwrap());
+    // A Codex site's class is the profile denying the store (U9c2).
+    let rejoined = profiled_rejoin(codex_shim, true);
 
     // The cold command of a site seated with `carrier`, served by
     // `provider`, at `class`, on `program`.
@@ -9250,16 +9128,13 @@ fn every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside
             ),
             ("claude", true) => words(program, &[&lead, &claude_pins, &denial]),
             ("claude", false) => words(program, &[&lead, &template, &claude_pins, &denial]),
-            ("codex", _) if label == "codex" => {
-                words(program, &[&codex_lead, &codex_pins, &work_class, &OFF])
-            }
             ("codex", _) if label == "codex-gate" || (carrier == "boxed" && gate) => {
-                words(program, &[&codex_lead, &codex_pins, &gate_class, &OFF])
+                profiled_cold(program, ASTRA, "read-only", &capture)
             }
-            ("codex", _) if carrier == "boxed" => {
-                words(program, &[&codex_lead, &codex_pins, &work_class, &OFF])
+            ("codex", _) if label == "codex" || carrier == "boxed" => {
+                profiled_cold(program, ASTRA, "workspace-write", &[])
             }
-            ("codex", _) => words(program, &[&codex_lead, &codex_pins, &OFF]),
+            ("codex", _) => words(program, &[&codex_lead, &codex_pins, &ISOLATING, &OFF]),
             ("lanetally", true) => words(lanetally_bin, &[&lead, &claude_pins]),
             ("lanetally", false) => words(lanetally_bin, &[&lead, &template, &claude_pins]),
             ("dsh", _) => {
@@ -9330,10 +9205,9 @@ fn every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside
             // served cold on the binary it was offered on.
             let offered = match (class, *provider) {
                 (Gate, _) => None,
-                (_, "codex") if label == "codex" || *carrier == "boxed" => Some(Ok(words(
-                    codex_shim,
-                    &[&resumed, &rejoined_class, &codex_pins, &OFF, &at],
-                ))),
+                (_, "codex") if label == "codex" || *carrier == "boxed" => {
+                    Some(Ok(rejoined.clone()))
+                }
                 (_, "codex") => Some(Ok(cold_on(codex_shim))),
                 (_, "claude") => Some(Ok(cold_on(claude_shim))),
                 _ => Some(Ok(plain)),
@@ -10487,48 +10361,13 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_cold_and_on_an_actual_eligible_
     // The served outcomes. Codex's two sites share one command shape: the
     // inline seat's lowered class and the office's are both
     // `workspace-write` under `harness`.
+    // Its class is the profile denying the store (U9c2); the OFF ends the
+    // cold command where it is served.
     let command = |off: bool| {
-        let mut argv: Vec<String> = [
-            "codex",
-            "exec",
-            "--json",
-            "-C",
-            "/w",
-            "-c",
-            "model_reasoning_effort=\"high\"",
-            "--model",
-            "gpt-6-astra",
-            "--sandbox",
-            "workspace-write",
-        ]
-        .map(String::from)
-        .to_vec();
-        if off {
-            argv.extend(OFF.map(String::from));
-        }
-        argv
+        let argv = profiled_cold("codex", ASTRA, "workspace-write", &[]);
+        argv[..argv.len() - usize::from(!off) * OFF.len()].to_vec()
     };
-    let resumed = |off: bool| {
-        let mut argv: Vec<String> = [
-            shim.to_str().unwrap(),
-            "exec",
-            "resume",
-            "--json",
-            "-c",
-            "sandbox_mode=\"workspace-write\"",
-            "-c",
-            "model_reasoning_effort=\"high\"",
-            "--model",
-            "gpt-6-astra",
-        ]
-        .map(String::from)
-        .to_vec();
-        if off {
-            argv.extend(OFF.map(String::from));
-        }
-        argv.extend([THREAD.to_string(), "-".to_string()]);
-        argv
-    };
+    let resumed = |off: bool| profiled_rejoin(shim.to_str().unwrap(), off);
     let recipe = operator.root().join("bundle");
     let library = operator.root().join("agents");
     let charter = |label: &str| match label {
@@ -11222,21 +11061,8 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_at_every_compiled_codex_site_sh
         "--model",
         "gpt-6-astra",
     ];
-    let work_class = ["--sandbox", "workspace-write"];
-    let gate_class = [
-        "--sandbox",
-        "read-only",
-        "--output-last-message",
-        "/w/result.json",
-    ];
-    let resumed = [
-        "exec",
-        "resume",
-        "--json",
-        "-c",
-        "sandbox_mode=\"workspace-write\"",
-    ];
-    let at = [THREAD, "-"];
+    // A class is the profile denying the store (U9c2).
+    let capture = ["--output-last-message", "/w/result.json"];
     let dropped = "provider 'codex' cannot express restriction 'allow.hosts'; native capability \
                    remains OFF";
     for (label, candidate, class, seated) in &rows {
@@ -11248,14 +11074,16 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_at_every_compiled_codex_site_sh
             Err(office) => (*office, *office == "boxed"),
         };
         let cold = |program: &str| match (label, class) {
-            ("codex", _) => words(program, &[&lead, &pins, &work_class, &OFF]),
-            ("codex-gate" | "boxed-gate", _) => words(program, &[&lead, &pins, &gate_class, &OFF]),
-            (_, Work) if boxed => words(program, &[&lead, &pins, &work_class, &OFF]),
-            _ => words(program, &[&lead, &pins, &OFF]),
+            ("codex", _) => profiled_cold(program, ASTRA, "workspace-write", &[]),
+            ("codex-gate" | "boxed-gate", _) => {
+                profiled_cold(program, ASTRA, "read-only", &capture)
+            }
+            (_, Work) if boxed => profiled_cold(program, ASTRA, "workspace-write", &[]),
+            _ => words(program, &[&lead, &pins, &ISOLATING, &OFF]),
         };
         let offered = match class {
             Gate => None,
-            Work if label == "codex" || boxed => Some(words(shim, &[&resumed, &pins, &OFF, &at])),
+            Work if label == "codex" || boxed => Some(profiled_rejoin(shim, true)),
             Work => Some(cold(shim)),
         };
         let mut record = json!({"held": {}, "not_held": {"web-search": dropped},
@@ -11353,42 +11181,17 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_at_every_boxed_codex_site_shape
         write(root, &format!("agents/{office}.json"), &agent);
     };
 
-    let words = |program: &str, parts: &[&[&str]]| -> Vec<String> {
-        std::iter::once(program)
-            .chain(parts.iter().flat_map(|part| part.iter().copied()))
-            .map(String::from)
-            .collect()
-    };
-    let lead = ["exec", "--json", "-C", "/w"];
-    let pins = [
-        "-c",
-        "model_reasoning_effort=\"high\"",
-        "--model",
-        "gpt-6-astra",
-    ];
     // The box's hands as independent literals, never production's own
     // expansion (NC6): only the test's executable, which the canonical
-    // fixture value `{brokkr}` binds, is substituted. Boxed, a gate and a
-    // work seat are one command: the class is `read-only` and the result
-    // comes back through the hands, not a last message.
-    let exe = std::env::current_exe().unwrap();
-    let exe = exe.to_str().unwrap();
-    let command = format!("mcp_servers.brokkr.command=\"{exe}\"");
-    let args = format!(
-        "mcp_servers.brokkr.args={}",
-        r#"["hands","serve","--workdir","/w","--artifacts","/a","--reach","{\"home\":\"\",\"worktree\":{\"path\":\"\",\"identity\":null},\"git\":null,\"binds\":[]}","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#
-    );
-    let boxed = [
-        "--sandbox",
-        "read-only",
-        "-c",
-        &command,
-        "-c",
-        &args,
-        "-c",
-        "mcp_servers.brokkr.default_tools_approval_mode=\"approve\"",
-    ];
-    let cold = |program: &str| words(program, &[&lead, &pins, &boxed, &OFF]);
+    // fixture value `{brokkr}` binds, is substituted ([`codex_hands`]).
+    // Boxed, a gate and a work seat are one command: the class is
+    // `read-only`, rendered as the profile denying the store (U9c2), and the
+    // result comes back through the hands, not a last message.
+    let cold = |program: &str| {
+        let mut argv = checked_codex(&codex_hands());
+        argv[0] = program.to_string();
+        argv
+    };
     let inexpressible = "provider 'codex' cannot express restriction 'allow.hosts'";
     let dropped = format!("{inexpressible}; native capability remains OFF");
     let unasked = "provider 'codex' has it natively, granted, but this seat does not request \

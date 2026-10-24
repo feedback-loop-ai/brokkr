@@ -129,29 +129,86 @@ pub(crate) enum Unisolated {
     Beside(usize),
 }
 
+/// Each measured isolation option, the value it takes where it takes one,
+/// and the isolation it expresses, in the order the Codex builders emit
+/// them: the one home of their vocabulary, which [`isolation`] reads and
+/// [`isolation_options`] writes (U9c2).
+const ISOLATION: [(&str, Option<&str>, Isolation); 3] = [
+    ("--ignore-user-config", None, Isolation::UserConfig),
+    ("--disable", Some("apps"), Isolation::Apps),
+    ("--disable", Some("plugins"), Isolation::Plugins),
+];
+
+/// The isolation options, as a Codex launch carries them.
+pub(crate) fn isolation_options() -> Vec<String> {
+    let parts = ISOLATION
+        .iter()
+        .flat_map(|(option, value, _)| [Some(*option), *value]);
+    parts.flatten().map(String::from).collect()
+}
+
 /// The isolation one node of a Codex command expresses, its fixed cause
 /// where it is a toggle the engine does not compose, or `None` for a node
 /// that is no isolation option.
 pub(crate) fn isolation(node: &Node) -> Option<Result<Isolation, Unisolated>> {
     let at = node.at + 1;
-    match (node.name(), node.values.first().map(String::as_str)) {
-        ("--ignore-user-config", _) => Some(Ok(Isolation::UserConfig)),
-        ("--disable", Some("apps")) => Some(Ok(Isolation::Apps)),
-        ("--disable", Some("plugins")) => Some(Ok(Isolation::Plugins)),
-        ("--disable", _) => Some(Err(Unisolated::Disabled(at))),
-        ("--enable", _) => Some(Err(Unisolated::Enabled(at))),
+    let spelled = (node.name(), node.values.first().map(String::as_str));
+    let measured = ISOLATION
+        .iter()
+        .find(|(option, value, _)| spelled == (*option, *value));
+    if let Some((.., isolation)) = measured {
+        return Some(Ok(*isolation));
+    }
+    match spelled.0 {
+        "--disable" => Some(Err(Unisolated::Disabled(at))),
+        "--enable" => Some(Err(Unisolated::Enabled(at))),
         _ => None,
     }
 }
 
 /// The paths a permission profile is bound to (operator ruling 4 of
 /// 2026-10-23): the seat's workspace root, and the secrets store's path the
-/// final check is handed beside it. Where no store is handed, every profile
-/// refuses. The paths are compared as exact strings, never resolved.
+/// final check is handed beside it. Where no store is handed every profile
+/// refuses, and so it does under the default, which names no run's paths.
+/// The paths are compared as exact strings, never resolved.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct Bound<'a> {
-    pub(crate) workdir: &'a str,
-    pub(crate) store: Option<&'a str>,
+pub struct Bound<'a> {
+    pub workdir: &'a str,
+    pub store: Option<&'a str>,
+}
+
+/// The name the engine defines and selects its one permission profile by.
+const PROFILE: &str = "brokkr";
+
+/// The engine's rendering of the sandbox class the word `class` names as its
+/// one permission profile bound to `bound` (U9c2; SI2), the four arguments
+/// its Codex builders emit and [`rendering`] reads back as that class:
+/// `:root` read, exactly the workspace root written where the class is
+/// workspace-write, exactly the store denied, then the selector. `None`
+/// where no store is handed or the word names neither read-only nor
+/// workspace-write.
+pub(crate) fn rendered(class: &str, bound: Bound<'_>) -> Option<Vec<String>> {
+    let store = bound.store?;
+    let written = if class == SandboxIntent::WorkspaceWrite.word() {
+        format!(r#","{}"="write""#, bound.workdir)
+    } else if class == SandboxIntent::ReadOnly.word() {
+        String::new()
+    } else {
+        return None;
+    };
+    let filesystem = format!(r#"":root"="read"{written},"{store}"="deny""#);
+    Some(vec![
+        "-c".into(),
+        format!("permissions.{PROFILE}={{filesystem={{{filesystem}}}}}"),
+        "-c".into(),
+        format!("default_permissions=\"{PROFILE}\""),
+    ])
+}
+
+/// The table one configuration `value` assigns into, `None` where it is no
+/// assignment the grammar reads.
+pub(super) fn table(value: &str) -> Option<&str> {
+    assignment_parts(value).ok().map(|(parts, _)| parts[0])
 }
 
 /// What [`profile`] has read of one command so far: the profile defined,
@@ -306,6 +363,13 @@ fn filesystem(body: &str) -> Option<Vec<(&str, &str)>> {
 fn quoted(text: &str) -> Option<(&str, &str)> {
     let body = text.strip_prefix('"')?;
     let (inner, tail) = body.split_once('"')?;
-    let plain = !inner.is_empty() && !inner.contains('\\') && !inner.chars().any(char::is_control);
-    plain.then_some((inner, tail))
+    carried(inner).then_some((inner, tail))
+}
+
+/// Whether `text` is carried whole by a TOML basic string with no escape:
+/// nonempty, holding no quote, backslash or control character. A path that
+/// is not is refused at a Codex launch, never escape-encoded into its
+/// profile (U9c2; operator ruling of 2026-10-23).
+pub(crate) fn carried(text: &str) -> bool {
+    !text.is_empty() && !text.contains(['"', '\\']) && !text.chars().any(char::is_control)
 }

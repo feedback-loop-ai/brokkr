@@ -109,6 +109,13 @@ pub(super) fn checked_against(
         .flat_map(|segment| segment.argv.iter().cloned())
         .collect();
     let brokkr = std::env::current_exe().unwrap();
+    // A Codex launch is handed the store its profile denies, and its
+    // isolation built the measured options (U9c2).
+    let codex = harness == "codex";
+    let isolating: Vec<String> = match codex {
+        true => ISOLATING.map(String::from).to_vec(),
+        false => Vec::new(),
+    };
     check_final(
         harness,
         command,
@@ -124,8 +131,10 @@ pub(super) fn checked_against(
         Serving {
             program: harness,
             workdir: "/w",
+            store: codex.then_some(STORE),
             authored: &authored,
             pins: &carried.pins,
+            mcp: &isolating,
             hands: carried.spec.as_ref().map(|spec| Transport {
                 brokkr: &brokkr,
                 workdir: Path::new("/w"),
