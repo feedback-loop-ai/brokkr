@@ -234,6 +234,23 @@ fn two_engines_engine_child() {
 /// as the flag says. Deliberate contention: the two engines meet a held
 /// lock on the great majority of their appends rather than on whichever
 /// ones incidental timing happens to collide.
+///
+/// Each turn holds the lock for [`held_for`] of its number, then
+/// releases it for 3 ms: 15 ms held on average, as before, but never on
+/// a fixed period. A
+/// fixed one locks into step with the waiter. Once SQLite's busy handler
+/// has ramped it polls every 100 ms, so a churn turning every 20 ms (five
+/// turns to a poll) shows each poll the same phase, and a waiter whose
+/// phase falls inside the hold meets a held lock on every poll of its
+/// patience. That is how an engine spent its whole 30 s on one append
+/// under coverage on a hosted runner (#829): a fixed 15 ms hold turns in
+/// about 19 ms on a quiet workstation, and an instrumented, loaded
+/// build's overhead per turn is what closes the gap to 20. Measured on
+/// 2026-10-24 against one poller with a 10 s budget: a fixed 20.0 ms
+/// turn starved 3 of 100 waits for the whole budget, where this hold at
+/// the same 20 ms mean turn waited at most 1.7 s in 400. The tail that
+/// remains is the cost of meeting a 3 ms gap in every 18 at random, and
+/// the shipped 30 s patience covers it many times over.
 fn churn_the_write_lock(db: PathBuf, until: std::sync::Arc<std::sync::atomic::AtomicBool>) {
     let conn = rusqlite::Connection::open(&db).unwrap();
     conn.busy_timeout(std::time::Duration::from_secs(30))
@@ -243,10 +260,23 @@ fn churn_the_write_lock(db: PathBuf, until: std::sync::Arc<std::sync::atomic::At
         turn += 1;
         conn.execute_batch("BEGIN IMMEDIATE").unwrap();
         brokkr_store::test_support::plant_run(&conn, &format!("churn-{turn}"), "{}").unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(15));
+        std::thread::sleep(held_for(turn));
         conn.execute_batch("ROLLBACK").unwrap();
         std::thread::sleep(std::time::Duration::from_millis(3));
     }
+}
+
+/// How long the churn holds the lock on its `turn`th take: one of eight
+/// lengths from 8 to 22 ms, picked by the top three bits of the turn's
+/// splitmix64 hash. A hash rather than a golden-ratio step, because a
+/// low-discrepancy sequence keeps the sum of any five turns nearly
+/// constant, and that sum is the period a 100 ms poll sees.
+fn held_for(turn: u64) -> std::time::Duration {
+    let mut z = turn.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    let step = (z ^ (z >> 31)) >> 61;
+    std::time::Duration::from_millis(8 + 2 * step)
 }
 
 /// The recorded scenario, proved: one engine mid-phase streaming
