@@ -219,41 +219,6 @@ fn stack_binds(detected: Option<&Detected>) -> Vec<serde_json::Value> {
     binds
 }
 
-/// The scaffold follows the shipped roster: work and review are model
-/// offices; verify and ship are exec scripts, boxed under `namespace`.
-fn bundle_json(detected: Option<&Detected>, reach: Option<&node::Reach>) -> String {
-    let mut verify_binds = stack_binds(detected);
-    verify_binds.extend(reach.map_or_else(Vec::new, node::Reach::binds));
-    let bundle = json!({
-        "name": "starter",
-        "policy": "policy.json",
-        "protected_phase": "review",
-        "seats": {
-            "intake": {"agent": "intake", "class": "work", "results": ["resolved"]},
-            "implement": {"agent": "implementer", "class": "work", "results": ["complete", "broken", "blocked"]},
-            "verify": {
-                "class": "gate",
-                "results": ["pass", "fail"],
-                "limits": {"max_attempts": 2, "timeout_seconds": 3600},
-                "driver": {"command": ["{brokkr}", "driver", "exec", "--", "bash", "./scripts/verify-seat.sh", "{prompt_file}"]},
-                "hands": {"kind": "workspace", "network": false, "binds": verify_binds},
-            },
-            "review": {"agent": "reviewer", "class": "gate", "results": ["clean", "residual", "security-hold"]},
-            "ship": {
-                "class": "gate",
-                "results": ["ready", "shipped"],
-                "limits": {"max_attempts": 2, "timeout_seconds": 1800},
-                "driver": {"command": ["{brokkr}", "driver", "exec", "--", "bash", "./scripts/ship-seat.sh", "{prompt_file}", "{brokkr}"]},
-                "hands": {"kind": "workspace", "network": false, "binds": []},
-            },
-        }
-    });
-    format!(
-        "{}\n",
-        serde_json::to_string_pretty(&bundle).expect("bundle serializes")
-    )
-}
-
 const SHIP_SCRIPT: &str = r#"#!/usr/bin/env bash
 set -u
 prompt_file="${1:-}"
@@ -371,12 +336,15 @@ impl AgentSpec {
 // The declarations written under `adapters/`, each model one's MCP facts
 // copied from its shipped adapter.
 mod adapters;
+// The scaffold's seats and verify's binds, written as `bundle.json`.
+mod bundle;
 // A link's effort is data beside its model, never derived from its name.
 mod claims;
 mod effort;
 // Where a node-family runner is installed, resolved once for verify's box.
 mod node;
 use {
+    bundle::bundle_json,
     claims::{Claims, PRE_APPROVAL, REVIEW_GATE},
     effort::Effort,
 };

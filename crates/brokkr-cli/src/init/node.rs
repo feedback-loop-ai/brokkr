@@ -19,9 +19,11 @@
 //! whole where `PATH` found the binary in the home's own runner directory
 //! (its `bin`, or pnpm's home itself), the real file stands inside the home
 //! but not in that directory, and every entry the home holds is one its
-//! [`Layout`] names; a volta shim (`~/.volta/bin/npm` linking to
+//! [`Layout`] names; volta's home is bound so for any real file standing
+//! in its `bin`, a volta shim (`~/.volta/bin/npm` linking to
 //! `~/.volta/bin/volta-shim`, which runs the images under `~/.volta/tools`)
-//! is bound so even standing in its `bin`. Any other binary whose real file
+//! or not, as a home the tool's own variable or default names is trusted
+//! whole (the operator's bar). Any other binary whose real file
 //! stands in its `PATH` directory, a bun or pnpm home's runner directory
 //! included, is bound alone, as that one file; one found in a `bin` whose
 //! parent holds
@@ -371,9 +373,10 @@ struct Install {
 /// The first `binary` on `path` that resolves to a file this user may
 /// execute, as `PATH` lookup skips one that is not. An empty component is
 /// the current directory, as POSIX reads it, so `cwd` joins it as it
-/// joins a relative one; a `path` wholly empty, which is what an unset
-/// `PATH` reaches `init` as and the host's lookup does not read as the
-/// current directory, holds none.
+/// joins a relative one. A `path` wholly empty holds none: an unset
+/// `PATH` reaches `init` as one, which cannot be told from one set empty,
+/// so `init` refuses it with its not-found sentence rather than guess
+/// which it was.
 fn install(binary: &str, path: &OsStr, cwd: &Path) -> Option<Install> {
     if path.is_empty() {
         return None;
@@ -482,12 +485,13 @@ enum Owner {
     Unowned,
 }
 
-/// Whose `install` is. A volta shim is its home's even standing in the
-/// home's `bin`, as it runs the images under the home, and no one's
-/// standing elsewhere, as the box's volta would read another home; any
-/// other file standing in its `PATH` directory is its own; then a home
-/// whose runner directory found it, and a `bin`'s parent. No ancestor is
-/// climbed to.
+/// Whose `install` is. Anything `PATH` found in volta's `bin` is the
+/// home's, whatever real file stands there, a shim or not: a home the
+/// tool's own variable or default names is trusted whole (the operator's
+/// bar). A volta shim standing elsewhere is no one's, as the box's volta
+/// would read another home; any other file standing in its `PATH`
+/// directory is its own; then a home whose runner directory found it, and
+/// a `bin`'s parent. No ancestor is climbed to.
 fn owner(install: &Install, homes: &Homes) -> Owner {
     let standing = install.real.parent() == Some(install.dir.as_path());
     let shim = install.real.file_name() == Some(OsStr::new("volta-shim"));
