@@ -21,6 +21,7 @@ mod exit;
 mod fleet;
 mod folder;
 mod hands;
+mod hearths;
 mod init;
 mod ledger;
 mod local_transcript;
@@ -935,88 +936,11 @@ fn newest_answer(answered: Vec<(usize, String, String)>) -> Option<(usize, Strin
 /// the journal the operator did name, and a look is a look there too
 /// (#375) — no WAL, migration or guard repair.
 fn resolve_in_hearths(hearths: &[Hearth], run: String) -> Result<(usize, String)> {
-    let mut refusal: Option<anyhow::Error> = None;
-    // An ambiguous prefix in any hearth is preserved even when another
-    // hearth answers the same selector uniquely: a guess there would
-    // still be a guess about which run the operator meant.
-    let mut ambiguous: Option<anyhow::Error> = None;
-    // The hearths that answered: index, the id it resolved to, and when
-    // that run was created — which is what `latest` compares.
-    let mut answered: Vec<(usize, String, String)> = Vec::new();
-    for (index, hearth) in hearths.iter().enumerate() {
-        if !hearth.journal.is_file() {
-            continue;
-        }
-        let listed = Store::open_read_only(&hearth.journal)
-            .map_err(anyhow::Error::from)
-            .and_then(|store| Ok(store.list_runs()?));
-        let runs = match listed {
-            Ok(runs) => runs,
-            Err(error) => {
-                refusal.get_or_insert(error);
-                continue;
-            }
-        };
-        let refs: Vec<selector::RunRef<'_>> = runs
-            .iter()
-            .map(|(run_id, _feature, created_at)| selector::RunRef { run_id, created_at })
-            .collect();
-        match selector::resolve(&refs, &run) {
-            Ok(id) => {
-                let created = refs
-                    .iter()
-                    .find(|candidate| candidate.run_id == id)
-                    .map_or(String::new(), |candidate| candidate.created_at.to_string());
-                answered.push((index, id, created));
-            }
-            Err(error) => match selector::refusal_kind(&error) {
-                Some(selector::Refusal::Ambiguous) => {
-                    ambiguous.get_or_insert(error);
-                }
-                _ => {
-                    refusal.get_or_insert(error);
-                }
-            },
-        }
-    }
+    let answers = hearths::ask(hearths, &run);
     if run == selector::LATEST {
-        return match newest_answer(answered) {
-            Some((index, id)) => Ok((index, id)),
-            None => match refusal {
-                Some(error) => Err(error),
-                None => Ok((0, run)),
-            },
-        };
+        return hearths::latest(answers, run);
     }
-    if let Some(error) = ambiguous {
-        return Err(error);
-    }
-    match answered.len() {
-        1 => {
-            let (index, id, _) = answered.swap_remove(0);
-            Ok((index, id))
-        }
-        0 => match refusal {
-            Some(error) => Err(error),
-            None => Ok((0, run)),
-        },
-        // These strings reach a terminal through anyhow, so the selector
-        // and every realm and id named back are sanitized.
-        _ => Err(anyhow::anyhow!(
-            "'{}' matches a run in {} realms: {}; name one journal with --db",
-            render::Safe::new(&run).as_str(),
-            answered.len(),
-            answered
-                .iter()
-                .map(|(index, id, _)| format!(
-                    "{} ({})",
-                    render::Safe::new(&hearths[*index].label()).as_str(),
-                    render::Safe::new(id).as_str()
-                ))
-                .collect::<Vec<String>>()
-                .join(", ")
-        )),
-    }
+    hearths::named(hearths, answers, run)
 }
 
 /// `brokkr tui`'s impure entry: the console, watching nothing but its

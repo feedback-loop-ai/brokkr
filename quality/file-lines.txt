@@ -48,7 +48,7 @@
    106 crates/brokkr-cli/src/init/claims.rs
     24 crates/brokkr-cli/src/init/effort.rs
    180 crates/brokkr-cli/src/ledger.rs
-  1625 crates/brokkr-cli/src/lib.rs
+  1549 crates/brokkr-cli/src/lib.rs
    558 crates/brokkr-cli/src/local_transcript/discover.rs
    234 crates/brokkr-cli/src/local_transcript/mod.rs
    585 crates/brokkr-cli/src/local_transcript/safe_fs.rs
