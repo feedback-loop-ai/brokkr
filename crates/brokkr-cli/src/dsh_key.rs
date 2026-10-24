@@ -25,8 +25,9 @@
 //!   slice-two-mcp-isolation.md, "the profile patch, the home patch,
 //!   `--patch` overlays"). The seat's `--patch` overlay is the engine's
 //!   route row, which brokkr-protocol admits only as `llm-pi-ai`'s, so it
-//!   writes no `credentials` row. A layer is read by [`patch`]'s reader,
-//!   and one it cannot read answers "can't tell", never ok.
+//!   writes no `credentials` row. A layer is reached by a walk from the
+//!   dsh home that follows no link below it and read by [`patch`]'s
+//!   reader, and one it cannot read answers "can't tell", never ok.
 //!
 //! Nothing is logged, journaled or passed to a seat, and every line names
 //! the variable and never its value.
@@ -67,9 +68,12 @@ use brokkr_runtime::agents::Adapter;
 use brokkr_runtime::Adapters;
 
 use crate::render::Safe;
-use patch::{Unread, Write, SERVICE};
+use patch::{Layer, Unread, Write, SERVICE};
 
 mod patch;
+
+/// The name of each patch layer dsh composes, in a profile and the home.
+const PATCH: &str = "cordis.patch.yml";
 
 /// The key dsh's default route reads when the adapter names none: the
 /// variable `dsh-llm-deepseek` authenticates with (its
@@ -196,8 +200,40 @@ pub(crate) struct Asked {
     pub(crate) variable: String,
     /// Each `.env` name looked up after it, never opened.
     pub(crate) files: Vec<PathBuf>,
-    /// Each patch layer read after those for its `credentials` row.
-    pub(crate) patches: Vec<PathBuf>,
+    /// What the check did at each patch layer after those.
+    pub(crate) patches: Vec<AtLayer>,
+}
+
+/// What one route's check did at one patch layer, by its path.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum AtLayer {
+    /// No file is there, or no directory on the way to it.
+    Absent(PathBuf),
+    /// Read for its `credentials` row.
+    Read(PathBuf),
+    /// Present and not read past, for this reason.
+    Refused(PathBuf, Unread),
+}
+
+impl AtLayer {
+    /// What the check did at the layer at `path`, which `patch::layer`
+    /// `found`.
+    fn of(path: PathBuf, found: &Result<Layer, Unread>) -> AtLayer {
+        match found {
+            Ok(Layer::Absent) => AtLayer::Absent(path),
+            Ok(Layer::Read(_)) => AtLayer::Read(path),
+            Err(unread) => AtLayer::Refused(path, unread.clone()),
+        }
+    }
+
+    /// The layer's clause in the served-home caveat.
+    fn words(&self) -> String {
+        match self {
+            AtLayer::Absent(path) => format!("found no {}", path.display()),
+            AtLayer::Read(path) => format!("read {} for dsh's credentials row", path.display()),
+            AtLayer::Refused(path, unread) => format!("refused {}: {unread}", path.display()),
+        }
+    }
 }
 
 impl Line {
@@ -259,24 +295,20 @@ fn served(asked: Option<&Asked>) -> String {
              {unknown}"
         );
     }
-    let joined = |paths: &[PathBuf], by: &str| {
-        let paths: Vec<String> = paths
-            .iter()
-            .map(|path| path.display().to_string())
-            .collect();
-        paths.join(by)
-    };
-    let patches = match asked.patches.as_slice() {
-        [] => String::new(),
-        patches => format!(
-            ", then read {} for dsh's credentials row",
-            joined(patches, " then ")
-        ),
-    };
+    let files: Vec<String> = asked
+        .files
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect();
+    let patches: String = asked
+        .patches
+        .iter()
+        .map(|layer| format!(", then {}", layer.words()))
+        .collect();
     format!(
         "this check asked {environment}, then looked up {} by name, unread{patches}; {unknown}, \
          so past the environment this check can't confirm the key reaches a seat served there",
-        joined(&asked.files, " and ")
+        files.join(" and ")
     )
 }
 
@@ -535,21 +567,24 @@ enum Service {
 }
 
 /// What `home`'s patch layers leave of dsh's credentials service, each
-/// read in dsh's order, each pushed onto `read` as it is, and the last
-/// write winning.
-fn service(home: &Path, read: &mut Vec<PathBuf>) -> Service {
-    let profile = home
-        .join("profiles")
-        .join("headless")
-        .join("cordis.patch.yml");
-    let mut state = Service::Off(Off::Shipped(profile.clone()));
-    for layer in [profile, home.join("cordis.patch.yml")] {
-        read.push(layer.clone());
-        state = match patch::layer(&layer) {
+/// asked in dsh's order, what the check did at each pushed onto `asked`,
+/// and the last write winning.
+fn service(home: &Path, asked: &mut Vec<AtLayer>) -> Service {
+    let (profile, own) = (&["profiles", "headless"][..], &[][..]);
+    let path = |below: &[&str]| {
+        below
+            .iter()
+            .fold(home.to_path_buf(), |path, name| path.join(name))
+    };
+    let mut state = Service::Off(Off::Shipped(path(profile).join(PATCH)));
+    for below in [profile, own] {
+        let (layer, found) = (path(below).join(PATCH), patch::layer(home, below, PATCH));
+        asked.push(AtLayer::of(layer.clone(), &found));
+        state = match found {
             Err(unread) => return Service::Untold(Untold::Patch(layer, unread)),
-            Ok(Some(Write::Enables)) => Service::On(layer),
-            Ok(Some(Write::Disables)) => Service::Off(Off::Layer(layer)),
-            Ok(None) => state,
+            Ok(Layer::Read(Some(Write::Enables))) => Service::On(layer),
+            Ok(Layer::Read(Some(Write::Disables))) => Service::Off(Off::Layer(layer)),
+            Ok(Layer::Absent | Layer::Read(None)) => state,
         };
     }
     state

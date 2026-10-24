@@ -12,22 +12,36 @@
 //! tell" naming the line's number, never its text, so a row this reader
 //! does not see can never answer ok.
 //!
-//! A layer's name is looked up without following a link, and a symlink in
-//! its place is refused unread, so a patch path that names a credentials
-//! file is never opened (#717, fix round 717d4). The one open refuses a
-//! link too, `O_NOFOLLOW`, so one swapped in after the lookup fails to
-//! open; it does not wait, `O_NONBLOCK`, so a FIFO swapped in is never
-//! waited on; and only what `fstat` tells a regular file on that one
-//! descriptor is read. The follow-up that retires this reader for
-//! brokkr-protocol's must carry the same guard: `route_overlay.rs` looks a
-//! route file up with `std::fs::metadata` and reads it with
-//! `std::fs::read`, both of which follow a link.
+//! A layer is reached by a walk from the dsh home that follows no link
+//! below it (#717, fix rounds 717d4 and 717d5). The home is opened once by
+//! the name dsh's own seam resolves, `$DSH_HOME` else `$HOME/.dsh`, and a
+//! link there is followed: it is the operator's own root, and on macOS
+//! `/var` is itself a link to `/private/var`, so no walk could start at
+//! `/`. Every component below it, `profiles`, the profile's name and the
+//! layer's own, is looked up relative to the directory before it without
+//! following a link, and a symlink in its place is refused unread; it is
+//! then opened relative to that same directory with `O_NOFOLLOW`, so a
+//! link swapped in after the lookup fails to open, a directory with
+//! `O_DIRECTORY` and the layer with `O_NONBLOCK`, so a FIFO swapped in is
+//! never waited on; and only what `fstat` tells a directory, or a regular
+//! file at the last, on that one descriptor is walked or read. So a patch
+//! path that names a credentials file through a link at any component is
+//! never opened. One path serves both hosts: Linux's `RESOLVE_NO_SYMLINKS`
+//! has no macOS counterpart. A hard link to a credentials file is a
+//! regular file, which Brokkr can't tell from any other: it is read into
+//! the bounded buffer, refused at its first line that is not a row, and
+//! no line of it is echoed. The follow-up that retires this reader for
+//! brokkr-protocol's must carry the same component-wise guard, not only
+//! the leaf's: `route_overlay.rs` looks a route file up with
+//! `std::fs::metadata` and reads it with `std::fs::read`, both of which
+//! follow a link at every component.
 
 use std::fmt;
 use std::io::Read;
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::path::Path;
 
-use rustix::fs::{FileType, Mode, OFlags};
+use rustix::fs::{AtFlags, FileType, Mode, OFlags};
 use rustix::io::Errno;
 
 /// The row a patch writes to switch dsh's credentials service on or off.
@@ -90,57 +104,135 @@ impl fmt::Display for Unread {
     }
 }
 
-/// What the layer at `path` writes of the credentials service: nothing
-/// where it is absent or names no `credentials` row writing `disabled`.
-pub(super) fn layer(path: &Path) -> Result<Option<Write>, Unread> {
-    match read(path)? {
-        Some(text) => writes(&text),
-        None => Ok(None),
-    }
+/// What a present layer was found to hold.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Layer {
+    /// No file is there, or no directory on the way to it.
+    Absent,
+    /// Read for its `credentials` row: what its last one writes of
+    /// `disabled`, nothing where it names none.
+    Read(Option<Write>),
 }
 
-/// The layer's text, `None` where no file is there. Its name is looked up
-/// without following a link, and only a regular file is [`opened`], so a
-/// symlink, a FIFO or a device in its place is never opened.
-fn read(path: &Path) -> Result<Option<String>, Unread> {
-    let io = |error: std::io::Error| Unread::Io(error.kind());
-    let metadata = match std::fs::symlink_metadata(path) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        found => found.map_err(io)?,
+/// What the layer `leaf`, in the directories `below` under `home`, holds
+/// of the credentials service, reached by [`walk`].
+pub(super) fn layer(home: &Path, below: &[&str], leaf: &str) -> Result<Layer, Unread> {
+    let Some(file) = walk(home, below, leaf)? else {
+        return Ok(Layer::Absent);
     };
-    if metadata.is_symlink() {
-        return Err(Unread::Link);
-    }
-    if !metadata.is_file() {
-        return Err(Unread::NotAFile);
-    }
     let mut bytes = Vec::new();
-    let file = opened(path)?;
-    file.take(LIMIT + 1).read_to_end(&mut bytes).map_err(io)?;
+    let read = std::fs::File::from(file)
+        .take(LIMIT + 1)
+        .read_to_end(&mut bytes);
+    read.map_err(|error| Unread::Io(error.kind()))?;
     if bytes.len() as u64 > LIMIT {
         return Err(Unread::TooLarge);
     }
-    String::from_utf8(bytes)
-        .map(Some)
-        .map_err(|_| Unread::NotUtf8)
+    let text = String::from_utf8(bytes).map_err(|_| Unread::NotUtf8)?;
+    writes(&text).map(Layer::Read)
 }
 
-/// `path` opened for reading where it is a regular file reached without
-/// following a link, judged by `fstat` on the one descriptor that is read:
-/// a link swapped in after [`read`]'s lookup fails to open, and a FIFO
-/// swapped in opens without waiting and is refused unread.
-pub(super) fn opened(path: &Path) -> Result<std::fs::File, Unread> {
-    let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
-    let file = rustix::fs::open(path, flags, Mode::empty()).map_err(unread)?;
-    let held = rustix::fs::fstat(&file).map_err(unread)?;
-    if FileType::from_raw_mode(held.st_mode) != FileType::RegularFile {
-        return Err(Unread::NotAFile);
+/// The layer opened by a walk from `home`, opened by name, through each of
+/// `below` to `leaf`, each [`step`] relative to the directory before it;
+/// `None` where a name on the way is not there.
+fn walk(home: &Path, below: &[&str], leaf: &str) -> Result<Option<OwnedFd>, Unread> {
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC;
+    let mut directory = match rustix::fs::open(home, flags, Mode::empty()) {
+        Err(Errno::NOENT) => return Ok(None),
+        opened => opened.map_err(|errno| Unread::Io(std::io::Error::from(errno).kind()))?,
+    };
+    for name in below {
+        let Some(next) = step(directory.as_fd(), name, Kind::Directory)? else {
+            return Ok(None);
+        };
+        directory = next;
     }
-    Ok(std::fs::File::from(file))
+    step(directory.as_fd(), leaf, Kind::File)
 }
 
-/// Why an open or `fstat` failed: `ELOOP` is the link `O_NOFOLLOW` refused
-/// (Linux and macOS both answer it).
+/// What a walk expects at a name: a directory to walk on, or the layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Kind {
+    Directory,
+    File,
+}
+
+impl Kind {
+    fn file_type(self) -> FileType {
+        match self {
+            Kind::Directory => FileType::Directory,
+            Kind::File => FileType::RegularFile,
+        }
+    }
+
+    /// The open's own refusal of anything else: a directory's opens no
+    /// other kind, and the layer's never waits.
+    fn flags(self) -> OFlags {
+        match self {
+            Kind::Directory => OFlags::DIRECTORY,
+            Kind::File => OFlags::NONBLOCK,
+        }
+    }
+
+    /// Why a name of another kind is not walked or read.
+    fn other(self) -> Unread {
+        match self {
+            Kind::Directory => Unread::Io(std::io::ErrorKind::NotADirectory),
+            Kind::File => Unread::NotAFile,
+        }
+    }
+}
+
+/// `name` in `directory`, `None` where it is not there: looked up without
+/// following a link, and [`opened`] only where it is of `kind`, so a
+/// symlink, a FIFO or a device in its place is never opened.
+fn step(directory: BorrowedFd<'_>, name: &str, kind: Kind) -> Result<Option<OwnedFd>, Unread> {
+    let found = match rustix::fs::statat(directory, name, AtFlags::SYMLINK_NOFOLLOW) {
+        Err(Errno::NOENT) => return Ok(None),
+        found => found.map_err(unread)?,
+    };
+    let found = FileType::from_raw_mode(found.st_mode);
+    if found == FileType::Symlink {
+        return Err(Unread::Link);
+    }
+    if found != kind.file_type() {
+        return Err(kind.other());
+    }
+    opened(directory, name, kind).map(Some)
+}
+
+/// `name` in `directory` opened for reading where it is of `kind` reached
+/// without following a link, judged by `fstat` on the one descriptor that
+/// is walked or read: a link swapped in after [`step`]'s lookup fails to
+/// open, and a FIFO swapped in for the layer opens without waiting and is
+/// refused unread.
+pub(super) fn opened(directory: BorrowedFd<'_>, name: &str, kind: Kind) -> Result<OwnedFd, Unread> {
+    let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | kind.flags();
+    let file = rustix::fs::openat(directory, name, flags, Mode::empty())
+        .map_err(|errno| refused(directory, name, errno))?;
+    let held = rustix::fs::fstat(&file).map_err(unread)?;
+    if FileType::from_raw_mode(held.st_mode) != kind.file_type() {
+        return Err(kind.other());
+    }
+    Ok(file)
+}
+
+/// Why `name`'s open in `directory` failed. Linux answers a link opened
+/// `O_DIRECTORY|O_NOFOLLOW` with `ENOTDIR`, where macOS answers `ELOOP`, so
+/// an `ENOTDIR` is told a link where a lookup that follows none finds one.
+fn refused(directory: BorrowedFd<'_>, name: &str, errno: Errno) -> Unread {
+    let link = || {
+        let found = rustix::fs::statat(directory, name, AtFlags::SYMLINK_NOFOLLOW);
+        found.is_ok_and(|found| FileType::from_raw_mode(found.st_mode) == FileType::Symlink)
+    };
+    match errno {
+        Errno::NOTDIR if link() => Unread::Link,
+        errno => unread(errno),
+    }
+}
+
+/// Why a lookup, an open or an `fstat` failed: `ELOOP` is the link
+/// `O_NOFOLLOW` refused.
 fn unread(errno: Errno) -> Unread {
     match errno {
         Errno::LOOP => Unread::Link,

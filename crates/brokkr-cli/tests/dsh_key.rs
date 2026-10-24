@@ -99,13 +99,22 @@ impl DshHost {
         )
     }
 
-    /// What a check asks past the environment where no source answers.
-    fn everything(&self) -> String {
+    /// What a check asks past the environment where no source answers,
+    /// `read` whether the profile's patch and the home's are there to read.
+    fn everything(&self, read: [bool; 2]) -> String {
         let (root, home) = (self.repo.root.display(), self.home.display());
+        let layers = ["profiles/headless/cordis.patch.yml", "cordis.patch.yml"];
+        let did: Vec<String> = layers
+            .iter()
+            .zip(read)
+            .map(|(layer, read)| match read {
+                true => format!("read {home}/{layer} for dsh's credentials row"),
+                false => format!("found no {home}/{layer}"),
+            })
+            .collect();
         format!(
-            "then looked up {root}/.env and {home}/.env by name, unread, then read \
-             {home}/profiles/headless/cordis.patch.yml then {home}/cordis.patch.yml for dsh's \
-             credentials row"
+            "then looked up {root}/.env and {home}/.env by name, unread, then {}",
+            did.join(", then ")
         )
     }
 }
@@ -133,7 +142,7 @@ fn caveat(route: &str, variable: &str, past: Option<&str>) -> String {
 fn init_and_doctor_name_an_unreached_key_with_both_remedies() {
     let host = DshHost::new();
     let detail = host.unreached("DEEPSEEK_API_KEY");
-    let everything = host.everything();
+    let everything = host.everything([false, false]);
     let served = caveat("deepseek-official", "DEEPSEEK_API_KEY", Some(&everything));
     assert_eq!(
         host.init(None),
@@ -173,7 +182,7 @@ fn a_key_each_source_names_is_reached_and_its_value_never_printed() {
             format!("warn     {}", served(None))
         ]
     );
-    let warned = format!("warn     {}", served(Some(&host.everything())));
+    let warned = |read| format!("warn     {}", served(Some(&host.everything(read))));
     // A key only the operator's home gives depends on the home that serves
     // the seat, so it warns and is never ok.
     let patch = host.home.join("profiles/headless/cordis.patch.yml");
@@ -185,7 +194,10 @@ fn a_key_each_source_names_is_reached_and_its_value_never_printed() {
     );
     assert_eq!(
         host.doctor(None).0,
-        [format!("warn     {}", reached(&service)), warned.clone()]
+        [
+            format!("warn     {}", reached(&service)),
+            warned([true, false])
+        ]
     );
     // A home patch composes after the profile's, and disables it again.
     let last = host.home.join("cordis.patch.yml");
@@ -199,7 +211,7 @@ fn a_key_each_source_names_is_reached_and_its_value_never_printed() {
             &lines[1],
             code
         ),
-        (true, true, &warned, Some(1))
+        (true, true, &warned([true, true]), Some(1))
     );
     // A `.env` dsh reads is present but never read, so it is told as such,
     // and one in the repository a dsh seat runs in warns of the refusal an
@@ -261,7 +273,11 @@ fn every_route_carries_the_served_home_caveat() {
                 format!("MISSING  dsh key dashscope: {detail}"),
                 format!(
                     "warn     {}",
-                    caveat("dashscope", "DASHSCOPE_API_KEY", Some(&host.everything()))
+                    caveat(
+                        "dashscope",
+                        "DASHSCOPE_API_KEY",
+                        Some(&host.everything([false, false]))
+                    )
                 ),
                 "ok       dsh key deepseek-official: dsh reaches DEEPSEEK_API_KEY through the \
                  launching environment"

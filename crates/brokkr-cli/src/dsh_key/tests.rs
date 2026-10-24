@@ -2,13 +2,14 @@
 //! planted files under a home and a repository of the test's own; a
 //! planted value never reaches a line, and no `.env` is ever opened.
 
+use std::os::fd::AsFd;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde_json::json;
 
-use super::patch::{layer, opened, writes, Unread, Write};
+use super::patch::{layer, opened, writes, Kind, Layer, Unread, Write};
 use super::*;
 
 /// What a planted key holds: a line carrying it is a leak.
@@ -349,28 +350,47 @@ fn a_patch_layer_that_cannot_be_read_is_untold_and_never_ok() {
     );
 }
 
+/// The directories a walk takes from a dsh home to its headless profile.
+const PROFILE: &[&str] = &["profiles", "headless"];
+
+/// `path`, a directory, opened as a walk holds it.
+fn directory(path: &Path) -> std::os::fd::OwnedFd {
+    let flags = rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::DIRECTORY;
+    rustix::fs::open(path, flags, rustix::fs::Mode::empty()).unwrap()
+}
+
 #[test]
 fn a_patch_layer_is_read_only_from_a_bounded_utf8_regular_file() {
     let planted = Planted::scaffold();
-    let patch = planted.profile();
-    assert_eq!(layer(&patch), Ok(None));
-    assert_eq!(layer(&planted.home), Err(Unread::NotAFile));
-    let under_a_file = planted.adapters.join("dsh.json").join("cordis.patch.yml");
+    let (home, patch) = (&planted.home, planted.profile());
+    let profile = || layer(home, PROFILE, PATCH);
+    assert_eq!(profile(), Ok(Layer::Absent));
+    // A home, or a directory on the way, that is not there holds no layer.
+    assert_eq!(layer(&home.join("absent"), &[], PATCH), Ok(Layer::Absent));
+    assert_eq!(layer(home, &["absent"], PATCH), Ok(Layer::Absent));
+    assert_eq!(layer(home, &[], "profiles"), Err(Unread::NotAFile));
+    let not_a_directory = Err(Unread::Io(std::io::ErrorKind::NotADirectory));
+    let dsh = planted.adapters.join("dsh.json");
     assert_eq!(
-        layer(&under_a_file),
-        Err(Unread::Io(std::io::ErrorKind::NotADirectory))
+        layer(&planted.adapters, &["dsh.json"], PATCH),
+        not_a_directory
     );
+    assert_eq!(layer(&dsh, &[], PATCH), not_a_directory);
+    // A file swapped in for a directory after its lookup fails to open.
+    let held = directory(&planted.adapters);
+    let swapped = opened(held.as_fd(), "dsh.json", Kind::Directory);
+    assert_eq!(swapped.err(), not_a_directory.err());
     std::fs::write(&patch, [0xff, b'\n']).unwrap();
-    assert_eq!(layer(&patch), Err(Unread::NotUtf8));
+    assert_eq!(profile(), Err(Unread::NotUtf8));
     let large = "# a comment\n".repeat(64 * 1024 / 12 + 1);
     planted.write(&patch, &large);
-    assert_eq!(layer(&patch), Err(Unread::TooLarge));
+    assert_eq!(profile(), Err(Unread::TooLarge));
     planted.write(&patch, "- id: credentials\n  disabled: false\n");
-    assert_eq!(layer(&patch), Ok(Some(Write::Enables)));
+    assert_eq!(profile(), Ok(Layer::Read(Some(Write::Enables))));
     std::fs::set_permissions(&patch, std::fs::Permissions::from_mode(0o000)).unwrap();
     if !rustix::process::geteuid().is_root() {
         let denied = Err(Unread::Io(std::io::ErrorKind::PermissionDenied));
-        assert_eq!(layer(&patch), denied);
+        assert_eq!(profile(), denied);
     }
     let words: Vec<String> = [
         Unread::Link,
@@ -400,6 +420,28 @@ fn a_patch_layer_is_read_only_from_a_bounded_utf8_regular_file() {
     );
 }
 
+/// `planted`'s check, which tells `patch` a link and names it so, and
+/// `link`, a symlink where a `kind` is walked, failing to open as one
+/// swapped in after its lookup would.
+fn refused_as_a_link(planted: &Planted, patch: &Path, link: &Path, kind: Kind) {
+    let answers = planted.reaches_within_bound();
+    let refused = Untold::Patch(patch.to_path_buf(), Unread::Link);
+    assert_eq!(answers, untold(refused));
+    assert_eq!(
+        lines(&answers),
+        [format!(
+            "dsh key deepseek-official: DEEPSEEK_API_KEY is not set in the launching environment \
+             and no .env file dsh reads is present, but whether a patch re-enables dsh's \
+             credentials service can't be told: {}: it is a symbolic link, which Brokkr never \
+             follows",
+            patch.display()
+        )]
+    );
+    let held = directory(link.parent().unwrap());
+    let name = link.file_name().unwrap().to_str().unwrap();
+    assert_eq!(opened(held.as_fd(), name, kind).err(), Some(Unread::Link));
+}
+
 /// A patch layer symlinked to a credentials file is untold at either
 /// layer and never followed: the lookup refuses the link, and one swapped
 /// in after the lookup fails to open. A hard link is a regular file, read
@@ -413,19 +455,7 @@ fn a_patch_layer_symlinked_to_a_dotenv_is_untold_and_never_opened() {
     planted.write(&dotenv, &format!("DEEPSEEK_API_KEY={PLANTED}\n"));
     for patch in [planted.profile(), planted.home_patch()] {
         std::os::unix::fs::symlink(&dotenv, &patch).unwrap();
-        let answers = planted.reaches_within_bound();
-        assert_eq!(answers, untold(Untold::Patch(patch.clone(), Unread::Link)));
-        assert_eq!(
-            lines(&answers),
-            [format!(
-                "dsh key deepseek-official: DEEPSEEK_API_KEY is not set in the launching \
-                 environment and no .env file dsh reads is present, but whether a patch \
-                 re-enables dsh's credentials service can't be told: {}: it is a symbolic link, \
-                 which Brokkr never follows",
-                patch.display()
-            )]
-        );
-        assert_eq!(opened(&patch).err(), Some(Unread::Link));
+        refused_as_a_link(&planted, &patch, &patch, Kind::File);
         std::fs::remove_file(&patch).unwrap();
     }
     std::fs::hard_link(&dotenv, planted.home_patch()).unwrap();
@@ -447,13 +477,58 @@ fn a_patch_layer_symlinked_to_or_swapped_for_a_fifo_returns_at_once() {
         planted.reaches_within_bound(),
         untold(Untold::Patch(planted.home_patch(), Unread::Link))
     );
-    let swapped = within_bound(move || opened(&pipe).err());
+    let held = directory(planted.repo.parent().unwrap());
+    let swapped = within_bound(move || opened(held.as_fd(), "pipe", Kind::File).err());
     assert_eq!(swapped, Some(Unread::NotAFile));
+}
+
+/// A link at any directory below the dsh home is never followed: a
+/// symlinked profile directory, or `profiles` itself, holding a planted
+/// patch is refused as a link unread, and a directory swapped for a link
+/// after its lookup fails to open. The home itself is the operator's root,
+/// reached by the name dsh resolves, and a link there is followed.
+#[test]
+fn a_link_at_any_directory_below_the_dsh_home_is_never_followed() {
+    let planted = Planted::scaffold();
+    let credentials = planted.repo.with_file_name("credentials");
+    std::fs::create_dir_all(credentials.join("headless")).unwrap();
+    for dir in [credentials.clone(), credentials.join("headless")] {
+        planted.write(&dir.join(PATCH), &format!("DEEPSEEK_API_KEY={PLANTED}\n"));
+    }
+    let profiles = planted.home.join("profiles");
+    std::fs::remove_dir(profiles.join("headless")).unwrap();
+    for (link, target) in [
+        (profiles.join("headless"), credentials.clone()),
+        (profiles.clone(), credentials.clone()),
+    ] {
+        if link == profiles {
+            std::fs::remove_dir(&profiles).unwrap();
+        }
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        refused_as_a_link(&planted, &planted.profile(), &link, Kind::Directory);
+        std::fs::remove_file(&link).unwrap();
+    }
+    // An ordinary layout still reads, and a home reached through a link of
+    // the operator's is walked from where it leads.
+    std::fs::create_dir_all(profiles.join("headless")).unwrap();
+    planted.write(&planted.profile(), "- id: credentials\n  disabled: false\n");
+    assert_eq!(
+        planted.reaches(unset),
+        reached(Source::Service(planted.profile()))
+    );
+    let linked = planted.home.with_file_name("linked-home");
+    std::os::unix::fs::symlink(&planted.home, &linked).unwrap();
+    let through = linked.join("profiles/headless").join(PATCH);
+    assert_eq!(
+        answers(&planted.adapters, &planted.repo, &linked, unset),
+        reached(Source::Service(through))
+    );
 }
 
 /// Each route's caveat names only what its check asked: every source past
 /// the environment where none answers, the `.env` names up to the first
-/// present one and no patch, or the patches up to one that cannot be read.
+/// present one and no patch, or the patches up to one that cannot be read,
+/// each layer as absent, read, or refused and why.
 #[test]
 fn each_caveat_says_only_what_its_route_asked() {
     let planted = Planted::scaffold();
@@ -462,31 +537,48 @@ fn each_caveat_says_only_what_its_route_asked() {
     let caveat = |planted: &Planted| {
         let lines = planted.lines_within_bound(unset);
         let detail = lines[1].detail();
-        let Line::Served { asked, .. } = &lines[1] else {
-            panic!("{lines:?}")
+        let Line::Served {
+            asked: Some(asked), ..
+        } = lines.into_iter().nth(1).unwrap()
+        else {
+            panic!("no caveat with what was asked")
         };
-        let asked = asked.as_ref().unwrap();
-        ((asked.files.clone(), asked.patches.clone()), detail)
+        ((asked.files, asked.patches), detail)
     };
     let unknown = "Brokkr can't yet tell whether it serves this route from its own engine-only \
                    home (decision 0065), which reads neither patch nor the home's .env, so past \
                    the environment this check can't confirm the key reaches a seat served there";
+    let looked_up = format!(
+        "this check asked whether DEEPSEEK_API_KEY is set where brokkr runs, then looked up {} \
+         and {} by name, unread",
+        repo_env.display(),
+        home_env.display()
+    );
+    let both = vec![repo_env.clone(), home_env.clone()];
     assert_eq!(
         caveat(&planted),
         (
             (
-                vec![repo_env.clone(), home_env.clone()],
-                vec![profile.clone(), home_patch.clone()]
+                both.clone(),
+                vec![
+                    AtLayer::Absent(profile.clone()),
+                    AtLayer::Absent(home_patch.clone())
+                ]
             ),
             format!(
-                "this check asked whether DEEPSEEK_API_KEY is set where brokkr runs, then looked \
-                 up {} and {} by name, unread, then read {} then {} for dsh's credentials row; \
-                 {unknown}",
-                repo_env.display(),
-                home_env.display(),
+                "{looked_up}, then found no {}, then found no {}; {unknown}",
                 profile.display(),
                 home_patch.display()
             )
+        )
+    );
+    planted.write(&profile, "- id: other\n");
+    assert_eq!(
+        caveat(&planted).1,
+        format!(
+            "{looked_up}, then read {} for dsh's credentials row, then found no {}; {unknown}",
+            profile.display(),
+            home_patch.display()
         )
     );
     planted.write(&repo_env, &format!("DEEPSEEK_API_KEY={PLANTED}\n"));
@@ -505,7 +597,20 @@ fn each_caveat_says_only_what_its_route_asked() {
     planted.write(&profile, "not: a: row\n");
     assert_eq!(
         caveat(&planted).0,
-        (vec![repo_env, home_env], vec![profile])
+        (
+            both.clone(),
+            vec![AtLayer::Refused(profile.clone(), Unread::Line(1))]
+        )
+    );
+    std::fs::remove_file(&profile).unwrap();
+    fifo(&home_patch);
+    assert_eq!(
+        caveat(&planted).1,
+        format!(
+            "{looked_up}, then found no {}, then refused {}: it is not a regular file; {unknown}",
+            profile.display(),
+            home_patch.display()
+        )
     );
 }
 
