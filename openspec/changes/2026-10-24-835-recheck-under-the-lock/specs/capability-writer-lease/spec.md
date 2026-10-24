@@ -2,7 +2,7 @@
 
 ### Requirement: The dispatch door reads this run's reservation under the admission lock
 
-At every dispatch door, a seat's, a sequence step's and each panel member's, admission SHALL read the attempt's reservation only while holding the admission lock, taken before MB3's startup deadline as the driver's own settlement record is sealed under it, and SHALL release the lock once the record is read: before the writer's reach is observed again, before the artifact root's identity is compared, and before the driver's settlement record is written, which takes the lock again. Every seal of a reservation holds the lock from its first step to its last sync, so the door's read SHALL find the record that stood before a sibling's seal, the record that seal committed, or the one its undoing put back, and SHALL NOT be refused for the seal's own transient state.
+At every dispatch door, a seat's, a sequence step's and each panel member's, admission SHALL read the attempt's reservation only while holding the admission lock, taken before MB3's startup deadline as the driver's own settlement record is sealed under it, and SHALL release the lock once the record is read: before the writer's reach is observed again, before the artifact root's identity is compared, before the door's later checks of the launch record, the charter and the re-walk, and before the driver's settlement record is written, which takes the lock again. Every seal of a reservation holds the lock from its first step to its last sync, so the door's read SHALL find the record that stood before a sibling's seal, the record that seal committed, or the one its undoing put back, and SHALL NOT be refused for the seal's own transient state.
 
 #### Scenario: A sibling member seals the reservation while another member's door reads it
 
@@ -21,12 +21,12 @@ At every dispatch door, a seat's, a sequence step's and each panel member's, adm
 
 #### Scenario: What the door checks after its read runs without the lock
 
-- **WHEN** the door has read the reservation and goes on to observe the writer's sealed reach again, compare the artifact root admitted, and write the driver's settlement record
-- **THEN** the admission lock is not held across those checks; the settlement record's seal takes it again, and a sibling may seal between the two takes
+- **WHEN** the door has read the reservation and goes on to observe the writer's sealed reach again, compare the artifact root admitted, judge the launch record, read the charter, re-walk the script directory and write the driver's settlement record
+- **THEN** the admission lock is not held across those checks, whose order, variants and texts are as today; the settlement record's seal takes it again, and a sibling may seal between the two takes
 
 ### Requirement: A lock the door does not get is refused by the lock's own name
 
-A door whose admission lock is not held exclusively by the startup deadline SHALL refuse the dispatch as admission not completed before its startup deadline, and a lock file that is not this user's own single regular file SHALL refuse it as the admission lock not this user's own, each with the text the same refusal carries at admission and at the attempt's amendment; a run directory the door cannot enter SHALL keep its own refusal too. None of these SHALL be reported as the reservation no longer standing. The door's set of refusals SHALL be unchanged: no variant added or removed, and no variant's text changed. The lock SHALL be taken first, before the run's directory is entered, the reservation read, the writer's reach observed or the artifact root compared, so a lease refused twice over, by the lock and by one of those four, SHALL report the lock's refusal where today the door reports the coordination root not protected, the reservation no longer standing, the reach redirected or the artifact root replaced; those four are the only refusals whose reported name moves, and a door refused by the lock's name SHALL observe nothing and spawn nothing.
+A door whose admission lock is not held exclusively by the startup deadline SHALL refuse the dispatch as admission not completed before its startup deadline, and a lock file that is not this user's own single regular file SHALL refuse it as the admission lock not this user's own, each with the text the same refusal carries at admission and at the attempt's amendment; a run directory the door cannot enter SHALL keep its own refusal too. None of these SHALL be reported as the reservation no longer standing. The door's set of refusals SHALL be unchanged: no variant added or removed, and no variant's text changed. The lock SHALL be the door's first take, once a spawn composed refused is turned away: before the run's directory is entered, the reservation read, the writer's reach observed or the artifact root compared, and before every check the door makes after its read, today the launch record's, the charter's two and the re-walk's, which run ahead of the door's one lock take today, the settlement record's. So a lease refused twice over, by the lock and by any later check of the door, SHALL report the lock's refusal where today the door reports that check's and reaches no lock: the coordination root not protected, the reservation no longer standing, the reach redirected or the artifact root replaced, from the recheck; or the launch record, the charter text carried, the charter moved or the re-walk refused, from the door after it. Only a spawn refused as composed SHALL keep its place ahead of the lock. No refusal's variant or text SHALL change; what moves is which of its two refusals a doubly-refused lease reports, and a door refused by the lock's name SHALL observe nothing and spawn nothing.
 
 #### Scenario: The lock is released before the deadline
 
@@ -36,12 +36,17 @@ A door whose admission lock is not held exclusively by the startup deadline SHAL
 #### Scenario: The lock is held past the deadline
 
 - **WHEN** another thread holds the admission lock exclusively and the door's deadline is spent before it is released, once for a lease staked with an authored reach the door would report redirected if it looked, and once for a lease whose reservation was removed while the lock was held
-- **THEN** each door refuses as admission not completed before its startup deadline, the first not as redirected and the second not as the reservation no longer standing; no reach is observed, no driver spawns, and the standing reservation's bytes are unchanged; the one lock take proven here, first in the door's order, is what moves a lease the lock refuses that the door would also refuse for its run directory or its artifact root to the lock's name
+- **THEN** each door refuses as admission not completed before its startup deadline, the first not as redirected and the second not as the reservation no longer standing; no reach is observed, no driver spawns, and the standing reservation's bytes are unchanged; the one lock take proven here, first in the door's order, is what moves a lease the lock refuses that the door would also refuse for its run directory or its artifact root, or after the recheck for its launch record, its charter or its re-walk, to the lock's name; the recheck's place at the door, before those checks, is today's and unchanged
 
 #### Scenario: The lock file carries a second link
 
 - **WHEN** the coordination root's lock file carries a second link when the door opens it, as the admission suite makes one for admission itself
 - **THEN** the door refuses as the admission lock not this user's own, nothing is read or sealed, and the reservation's bytes are unchanged; a directory, a link or another user's file at the lock's name is refused by the same open and check, proven once, at the lock
+
+#### Scenario: A lease the lock refuses that the door would also refuse after its read
+
+- **WHEN** the door's lock is refused, held past the deadline or carrying a second link, for a lease whose spawn the door would also refuse after the recheck: an input carrying a launch record the engine sealed none for, charter text arriving before the door read one, a charter moved since the compile, or a script directory moved since the walk
+- **THEN** the door refuses by the lock's name, as admission not completed before its startup deadline or as the admission lock not this user's own, where today it reports the later check's refusal and reaches no lock; that check is not run, no record judged, no charter read, no directory re-walked, nothing sealed and nothing spawned; a lease whose lock is held past the deadline is refused when the deadline is spent, not at once, as a lease that passed those checks already is at the settlement record's seal
 
 #### Scenario: The lock line removed
 
