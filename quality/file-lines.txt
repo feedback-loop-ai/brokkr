@@ -27,11 +27,12 @@
     96 crates/brokkr-cli/src/cli_args/queue.rs
     18 crates/brokkr-cli/src/cli_args/ui.rs
    225 crates/brokkr-cli/src/compare.rs
-  1141 crates/brokkr-cli/src/doctor.rs
+  1064 crates/brokkr-cli/src/doctor.rs
    595 crates/brokkr-cli/src/doctor/capabilities.rs
    294 crates/brokkr-cli/src/doctor/capabilities/mcp.rs
    319 crates/brokkr-cli/src/doctor/folder.rs
     64 crates/brokkr-cli/src/doctor/paths.rs
+   104 crates/brokkr-cli/src/doctor/providers.rs
     54 crates/brokkr-cli/src/doctor/provisional.rs
    119 crates/brokkr-cli/src/exit.rs
    239 crates/brokkr-cli/src/fleet.rs
@@ -60,7 +61,8 @@
    542 crates/brokkr-cli/src/recipes/agents.rs
    424 crates/brokkr-cli/src/recipes/personal.rs
     50 crates/brokkr-cli/src/recipes/sources.rs
-   804 crates/brokkr-cli/src/render.rs
+   745 crates/brokkr-cli/src/render.rs
+    76 crates/brokkr-cli/src/render/inspect.rs
    241 crates/brokkr-cli/src/run_view.rs
    146 crates/brokkr-cli/src/selector.rs
    209 crates/brokkr-cli/src/tui.rs

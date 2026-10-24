@@ -32,6 +32,8 @@ use brokkr_view::{
     Phase, RunRow, RunView, RunsView, ScopeError,
 };
 
+mod inspect;
+
 const RESET: &str = "\x1b[0m";
 const DIM: &str = "\x1b[2m";
 const BOLD: &str = "\x1b[1m";
@@ -607,35 +609,7 @@ fn graph_block(view: &RunView, lens: Option<&Lens>) -> String {
 /// frame is this without the trail.
 pub(crate) fn inspect(view: &RunView, lens: Option<&Lens>, trail: bool, style: &Style) -> String {
     let mut out = String::new();
-    match &view.summary {
-        Some(summary) => {
-            push_line(
-                &mut out,
-                &format!("run  {}", Safe::new(&summary.run_id).as_str()),
-            );
-            let phase = match &summary.phase {
-                Some(phase) => phase.clone(),
-                None => "-".to_string(),
-            };
-            push_line(
-                &mut out,
-                &format!(
-                    "     {} · phase {} · seq {}",
-                    tint(
-                        Safe::new(&summary.status).as_str(),
-                        status_code(&summary.status),
-                        style
-                    ),
-                    Safe::new(&phase).as_str(),
-                    summary.seq
-                ),
-            );
-            if let Some(reason) = &summary.park_reason {
-                push_line(&mut out, &format!("park  {}", Safe::new(reason).as_str()));
-            }
-        }
-        None => push_line(&mut out, "run  — this journal does not fold"),
-    }
+    inspect::summary_lines(&mut out, view.summary.as_ref(), style);
     // The run-level boundary line (decision 0046 ruling 3): the model's
     // rendered text, adjective included, printed here and composed
     // nowhere. Empty for a run that boxes nothing, so such a run reads
@@ -647,40 +621,7 @@ pub(crate) fn inspect(view: &RunView, lens: Option<&Lens>, trail: bool, style: &
         );
     }
     if let Some(ruling) = &view.ruling {
-        let result = match &ruling.result {
-            Some(result) => format!(" · {}", Safe::new(result).as_str()),
-            None => String::new(),
-        };
-        push_line(
-            &mut out,
-            &format!(
-                "ruling  {}  {} → {}{result}",
-                Safe::new(&ruling.rule_id).as_str(),
-                Safe::new(&ruling.from).as_str(),
-                Safe::new(&ruling.next).as_str()
-            ),
-        );
-        if let Some(problem) = &ruling.problem {
-            push_line(
-                &mut out,
-                &format!("        {}", Safe::new(problem).as_str()),
-            );
-        }
-        // The operator's word that the residual this ruling recorded is
-        // closed elsewhere (decision 0047 ruling 3). The ruling above is
-        // printed exactly as it was ruled: a mark is not a correction.
-        if let Some(mark) = &ruling.superseded {
-            push_line(
-                &mut out,
-                &format!(
-                    "        superseded at seq {} by {} · {} · {}",
-                    mark.seq,
-                    Safe::new(&brokkr_view::cited(&mark.by)).as_str(),
-                    Safe::new(&mark.operator).as_str(),
-                    Safe::new(&mark.reason).as_str()
-                ),
-            );
-        }
+        inspect::ruling_lines(&mut out, ruling);
     }
     // Run-level notices before the seats table: a fallback selection and
     // an optional capability gap are facts an operator must see rather
