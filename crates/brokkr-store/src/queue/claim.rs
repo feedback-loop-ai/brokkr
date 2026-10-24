@@ -11,9 +11,16 @@
 //! The claim re-checks what the pass that admitted the entry read and
 //! measured (ruling 7): the entry still queued, under the pin and the
 //! latch the pass read; no other entry launching; and, handed to a judge
-//! the caller supplies, the entry's waits, each with what its awaited
-//! entry has come to now, and the census, by each run with an event past
-//! the high-water the pass read before counting.
+//! the caller supplies, the id the journal names itself by, the entry's
+//! waits, each with what its awaited entry has come to now, and the
+//! census, by each run with an event past the high-water the pass read
+//! before counting.
+//!
+//! A journal's id is stored inside it and read through the claim's own
+//! connection, so a path, a symlink or a file renamed since never bears
+//! on which journal a claim writes in. A byte copy of a journal carries
+//! its id and is the same journal: two copies each dispatched from are
+//! outside the threat model (2026-09-26; #430, 2026-10-24).
 //!
 //! Every step after the claim checks, inside its transaction, that the
 //! generation it is taken under is the one the claim row recorded. Whether
@@ -33,11 +40,10 @@
 //! refusal or a `Contended` start reclaims uncounted. Holding an entry at
 //! the journal's bound reads `dispatch_settings`, and is slice 3b's.
 
-use std::os::unix::fs::MetadataExt;
-
 use brokkr_core::envelope::{verify_chain, EventEnvelope};
 use rusqlite::types::{FromSql, FromSqlResult, ValueRef};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use uuid::Uuid;
 
 use super::beside::standing_now;
 use super::storage::{queue_stored, wait_row, WAITS};
@@ -46,6 +52,7 @@ use super::{
     EntryState, QueueEntry, QueueRefusal, Seen, Standing, Wait,
 };
 use crate::read::rows_in;
+use crate::schema::journal_named;
 use crate::{patiently, Store, StoreError};
 
 /// The token a dispatcher's steps on one entry are taken under: the entry,
@@ -254,16 +261,23 @@ fn awaited(tx: &Transaction<'_>, entry: EntryId) -> Result<Vec<Awaiting>, StoreE
         .collect()
 }
 
+/// The id `conn`'s journal names itself by, or `None` for a journal not
+/// yet named or whose id does not read as one.
+fn journal_id(conn: &Connection) -> Result<Option<Uuid>, StoreError> {
+    Ok(journal_named(conn)?.and_then(|named| Uuid::parse_str(&named).ok()))
+}
+
 fn claim_in<R>(
     tx: &Transaction<'_>,
     over: &Over<'_>,
     reason: &str,
-    judge: &mut impl FnMut(&[Awaiting], &[Moved]) -> Result<(), R>,
+    judge: &mut impl FnMut(Option<Uuid>, &[Awaiting], &[Moved]) -> Result<(), R>,
 ) -> Result<Result<Claim, R>, StoreError> {
     let entry = over.entry.id;
+    let named = journal_id(tx)?;
     claimable(tx, entry, over.entry.seen())?;
     let waits = awaited(tx, entry)?;
-    if let Err(refused) = judge(&waits, &moved(tx, over.high_water)?) {
+    if let Err(refused) = judge(named, &waits, &moved(tx, over.high_water)?) {
         return Ok(Err(refused));
     }
     let seq = journal(tx, entry, Step::Claim, reason)?;
@@ -413,25 +427,13 @@ impl Store {
         })
     }
 
-    /// The file this store's connection holds, by its device and inode,
-    /// as read when it opened: the file SQLite resolved the store's path
-    /// to, so through a symlink the file the link named then, however the
-    /// link is pointed since, and never read through [`Store::path`] as
-    /// given. `None` when it could not be read then, or when the name it
-    /// was resolved to no longer holds it: the file was unlinked, or
-    /// another was renamed into its place.
-    pub fn journal(&self) -> Option<(u64, u64)> {
-        let named = Store::identity(&self.conn);
-        self.opened.filter(|opened| named == Some(*opened))
-    }
-
-    /// The device and inode of the file `conn` holds, as the name SQLite
-    /// resolved its path to when it opened reads now.
-    pub(crate) fn identity(conn: &Connection) -> Option<(u64, u64)> {
-        let query = "SELECT file FROM pragma_database_list WHERE name = 'main'";
-        let file: String = conn.query_row(query, [], |row| row.get(0)).ok()?;
-        let found = std::fs::metadata(file).ok()?;
-        Some((found.dev(), found.ino()))
+    /// The id the journal this store's connection holds names itself by,
+    /// read with SQL on that connection and never through the filesystem,
+    /// so no path, symlink or file renamed since bears on it. `None` for
+    /// a journal not yet named, which only a read-only open sees, or one
+    /// whose id does not read as one.
+    pub fn journal(&self) -> Result<Option<Uuid>, StoreError> {
+        patiently("journal", self.patience, || journal_id(&self.conn))
     }
 
     /// Claim `entry`, as a pass read it, for the dispatcher of
@@ -440,11 +442,12 @@ impl Store {
     /// digest of the bundle the pass admitted (decision 0095 ruling 7).
     /// Refused, writing nothing, unless the entry is queued under the pin
     /// and the latch the pass read and no other entry is launching; and
-    /// `judge` is handed, inside the claim's transaction, each of the
-    /// entry's waits with what its awaited entry has come to, and each run
-    /// with an event past `high_water`, the one the pass read before its
-    /// census, by id with its events and manifest; its refusal is returned
-    /// as the claim's, with nothing written.
+    /// `judge` is handed, inside the claim's transaction, the id the
+    /// journal it writes in names itself by, as [`Store::journal`] reads
+    /// it, each of the entry's waits with what its awaited entry has come
+    /// to, and each run with an event past `high_water`, the one the pass
+    /// read before its census, by id with its events and manifest; its
+    /// refusal is returned as the claim's, with nothing written.
     pub fn queue_claim_with<R>(
         &mut self,
         entry: &QueueEntry,
@@ -452,7 +455,7 @@ impl Store {
         digest: &str,
         generation: Generation,
         reason: &str,
-        mut judge: impl FnMut(&[Awaiting], &[Moved]) -> Result<(), R>,
+        mut judge: impl FnMut(Option<Uuid>, &[Awaiting], &[Moved]) -> Result<(), R>,
     ) -> Result<Result<Claim, R>, StoreError> {
         let over = Over {
             entry,

@@ -299,7 +299,7 @@ impl<'h> Measure<'h> {
     /// runs running now.
     fn take(store: &Store, host: &'h Host<'h>) -> Result<Measure<'h>, AdmissionError> {
         let hosting = host::read(host.file)?;
-        let journal = Journal::of(store);
+        let journal = Journal::of(store)?;
         let high_water = store.high_water()?;
         let live = match hosting {
             Hosting::Declared(_) => census(store)?,
@@ -411,7 +411,7 @@ impl Room {
     /// Claim the entry this room was measured for, as the pass read it,
     /// for the dispatcher of `generation`, journaling `reason`, and record
     /// this room's digest on the claim, in the journal the pass measured
-    /// alone ([`journal::measured_in`]). Inside the claim's transaction the
+    /// alone, by its id ([`Room::judge`]). Inside the claim's transaction the
     /// entry must still be queued under the pin and latch the pass read,
     /// each of its waits must hold of what its awaited entry has come to,
     /// and each run with an event past the pass's high-water is folded
@@ -426,14 +426,13 @@ impl Room {
         generation: Generation,
         reason: &str,
     ) -> Result<Result<Claim, Reason>, AdmissionError> {
-        journal::measured_in(self.journal, store)?;
         let claimed = store.queue_claim_with(
             &self.entry,
             self.high_water,
             &self.digest,
             generation,
             reason,
-            |waits, moved| self.recheck(waits, moved),
+            self.judge(store.path()),
         );
         match claimed? {
             Ok(claim) => Ok(Ok(claim)),

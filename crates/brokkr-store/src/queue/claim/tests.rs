@@ -129,8 +129,9 @@ const SEVEN: Generation = Generation(7);
 /// bundle of `digest`, judging nothing.
 fn claim_of(store: &mut Store, entry: EntryId, digest: &str) -> Claim {
     let read = store.queue_entry(entry).unwrap();
-    let judged =
-        store.queue_claim_with(&read, 0, digest, SEVEN, "admitted", |_, _| Ok::<(), ()>(()));
+    let judged = store.queue_claim_with(&read, 0, digest, SEVEN, "admitted", |_, _, _| {
+        Ok::<(), ()>(())
+    });
     judged.unwrap().unwrap()
 }
 
@@ -242,7 +243,7 @@ fn a_claim_over_a_hold_repin_or_latch_since_its_pass_read_the_entry_is_refused()
     store.queue_latch(ids[2], "drifted", latched, BY).unwrap();
     let before = (rows(&store), commands(&store.conn));
     let mut claim = |read: &QueueEntry| {
-        let judged = store.queue_claim_with(read, 0, "d", ONE, "r", |_, _| Ok::<(), ()>(()));
+        let judged = store.queue_claim_with(read, 0, "d", ONE, "r", |_, _, _| Ok::<(), ()>(()));
         refusal(judged)
     };
     refused_as(
@@ -357,10 +358,11 @@ fn a_step_under_a_claim_that_does_not_stand_for_it_is_refused_and_writes_nothing
     );
 }
 
-/// The claim's judge is handed each run with an event past the
-/// high-water the pass read, by id with its events and manifest: a run
-/// that moved and one that started, never one that did not move or one
-/// with no event. Its refusal is the claim's, and nothing is written.
+/// The claim's judge is handed the id its journal names itself by, and
+/// each run with an event past the high-water the pass read, by id with
+/// its events and manifest: a run that moved and one that started, never
+/// one that did not move or one with no event. Its refusal is the
+/// claim's, and nothing is written.
 #[test]
 fn the_claim_hands_its_judge_each_run_past_the_high_water_and_its_refusal_writes_nothing() {
     let dir = tempfile::tempdir().unwrap();
@@ -384,9 +386,10 @@ fn the_claim_hands_its_judge_each_run_past_the_high_water_and_its_refusal_writes
 
     let read = store.queue_entry(entry).unwrap();
     let before = (rows(&store), commands(&store.conn));
-    let mut handed = Vec::new();
+    let (mut handed, mut named) = (Vec::new(), None);
     let refused = store
-        .queue_claim_with(&read, high_water, "d", ONE, "r", |_, moved| {
+        .queue_claim_with(&read, high_water, "d", ONE, "r", |journal, _, moved| {
+            named = journal;
             handed = (moved.iter())
                 .map(|(run, events, manifest)| (run.clone(), events.len(), manifest.clone()))
                 .collect();
@@ -394,6 +397,7 @@ fn the_claim_hands_its_judge_each_run_past_the_high_water_and_its_refusal_writes
         })
         .unwrap();
     assert_eq!(refused, Err("no room"));
+    assert_eq!(named, Some(store.journal().unwrap().unwrap()));
     let manifest = r#"{"schema":"run-manifest/v1"}"#.to_string();
     assert_eq!(
         handed,
@@ -406,8 +410,9 @@ fn the_claim_hands_its_judge_each_run_past_the_high_water_and_its_refusal_writes
     assert!(claims(&store.conn).is_empty());
 
     // Judged to have room, it is claimed.
-    let claimed =
-        store.queue_claim_with(&read, high_water, "d", ONE, "r", |_, _| Ok::<(), &str>(()));
+    let claimed = store.queue_claim_with(&read, high_water, "d", ONE, "r", |_, _, _| {
+        Ok::<(), &str>(())
+    });
     let claim = claimed.unwrap().unwrap();
     assert_eq!(
         claims(&store.conn),
@@ -513,7 +518,7 @@ fn the_claim_hands_its_judge_each_wait_with_what_its_entry_came_to() {
 
     let read = store.queue_entry(waiting).unwrap();
     let mut handed = Vec::new();
-    let refused = store.queue_claim_with(&read, i64::MAX, "d", ONE, "r", |waits, _| {
+    let refused = store.queue_claim_with(&read, i64::MAX, "d", ONE, "r", |_, waits, _| {
         handed = (waits.iter())
             .map(|(wait, state, events)| (*wait, state.clone(), events.len()))
             .collect();
@@ -609,11 +614,43 @@ fn a_run_past_the_high_water_whose_chain_is_broken_refuses_the_claim() {
     crate::test_support::lags(&mut store, &["run-a"]);
     let read = store.queue_entry(entry).unwrap();
     let before = (rows(&store), commands(&store.conn));
-    let refused = store.queue_claim_with(&read, high_water, "d", ONE, "r", |_, _| Ok::<(), ()>(()));
+    let judge = |_, _: &[_], _: &[_]| Ok::<(), ()>(());
+    let refused = store.queue_claim_with(&read, high_water, "d", ONE, "r", judge);
     let error = refused.unwrap_err();
     assert!(matches!(error, StoreError::Chain(_)), "{error:?}");
     let text = "chain: event 2: previous_hash does not match event 1";
     assert_eq!(error.to_string(), text);
     assert_eq!((rows(&store), commands(&store.conn)), before);
     assert!(claims(&store.conn).is_empty());
+}
+
+/// A journal names itself once (decision 0095, #430): a new one when it
+/// is created, and one from before journals did at its first open that
+/// may write, whose id every open after reads back. An open only to read
+/// names nothing and reads a journal with no id as none. A byte copy
+/// reads its source's id, and a journal created apart has its own.
+#[test]
+fn a_journal_names_itself_once_and_every_open_after_reads_the_same_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("forge.db");
+    let created = Store::open(&path).unwrap().journal().unwrap().unwrap();
+    let apart = Store::open(&dir.path().join("apart.db")).unwrap();
+    assert_ne!(apart.journal().unwrap().unwrap(), created);
+    crate::test_support::unname(&Connection::open(&path).unwrap()).unwrap();
+    let unnamed = Store::open_read_only(&path).unwrap();
+    assert_eq!(unnamed.journal().unwrap(), None);
+    drop(unnamed);
+
+    let named = Store::open(&path).unwrap().journal().unwrap().unwrap();
+    assert_ne!(named, created);
+    let reopened = Store::open(&path).unwrap();
+    let read = Store::open_read_only(&path).unwrap();
+    let ids = [&reopened, &read].map(|store| store.journal().unwrap());
+    assert_eq!(ids, [Some(named); 2]);
+    let copy = dir.path().join("copy.db");
+    for suffix in ["", "-wal"] {
+        let from = format!("{}{suffix}", path.display());
+        std::fs::copy(from, format!("{}{suffix}", copy.display())).unwrap();
+    }
+    assert_eq!(Store::open(&copy).unwrap().journal().unwrap(), Some(named));
 }

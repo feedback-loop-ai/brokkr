@@ -223,8 +223,6 @@ pub struct Store {
     /// never one each. [`BUSY_TIMEOUT`] unless a caller says otherwise;
     /// see [`Store::set_patience`].
     patience: std::time::Duration,
-    /// The file the connection holds, read at open ([`Store::journal`]).
-    opened: Option<(u64, u64)>,
     /// The writer's account of the run it appends to, which each append
     /// carries over what it seals and writes the run's summary from
     /// ([`Store::carry`]; decision 0089 ruling 3).
@@ -439,10 +437,9 @@ impl Store {
         Ok(Store::holding(conn, path))
     }
 
-    /// A store on `conn`, which opened `path`, and the file it holds.
+    /// A store on `conn`, which opened `path`.
     fn holding(conn: Connection, path: &Path) -> Store {
         Store {
-            opened: Store::identity(&conn),
             conn,
             path: path.to_path_buf(),
             patience: BUSY_TIMEOUT,

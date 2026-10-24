@@ -458,7 +458,7 @@ pub(super) fn claimed_now(
     entry: EntryId,
 ) -> Result<Result<Claim, ()>, StoreError> {
     let read = store.queue_entry(entry)?;
-    store.queue_claim_with(&read, 0, "d", Generation(1), "r", |_, _| Ok(()))
+    store.queue_claim_with(&read, 0, "d", Generation(1), "r", |_, _, _| Ok(()))
 }
 
 /// A journal that records the queue's storage but has lost its entries
@@ -496,7 +496,7 @@ fn a_queue_stored_in_a_version_this_brokkr_does_not_know_is_refused() {
             .unwrap();
         let mismatch = QueueRefusal::SchemaMismatch { found };
         let text = format!("queue storage {found} unsupported (want 3)");
-        let judge = |_: &[_], _: &[_]| Ok::<(), ()>(());
+        let judge = |_, _: &[_], _: &[_]| Ok::<(), ()>(());
         for refused in [
             refusal(store.queue_list()),
             refusal(store.queue_entry(entry)),
