@@ -712,8 +712,11 @@ fn one_write(sealed: &Sealed, digest: &str) -> Vec<u8> {
 }
 
 /// What `answers` holds through its `lines`th newline, or through its end
-/// where `lines` is none, read within twenty seconds, the deadline read
-/// again before every read, while the broker's harness shell `shell` runs,
+/// where `lines` is none, read within the suite's wait for a broker
+/// ([`super::TALK_MAX`]) from the call, made as the broker starts, so past
+/// the startup's deadline that bounds the box's start and the server's
+/// answers from it, the deadline read again before every read, while the
+/// broker's harness shell `shell` runs,
 /// or, read to its end, however long it has run. A broker that ends before
 /// those lines, or says too little or too much in time, fails the test,
 /// naming the shell's status and the broker's standard error, as `told`
@@ -724,7 +727,7 @@ fn heard_within(
     lines: Option<usize>,
     (shell, told): (&mut std::process::Child, &mut dyn FnMut() -> String),
 ) -> Vec<u8> {
-    let until = Instant::now() + Duration::from_secs(20);
+    let until = Instant::now() + super::TALK_MAX;
     let (mut heard, mut newlines) = (Vec::new(), 0);
     let mut failed = |why: &str, shell: &mut std::process::Child, bytes: usize| -> ! {
         let status = shell.try_wait();

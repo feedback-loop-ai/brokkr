@@ -442,8 +442,12 @@ fn halted(pid: i32) -> bool {
 /// server as its exec returns, the broker awaiting its initialization:
 /// the one `broker serve` of `sealed`'s own plan, never the tracer or the
 /// shell that name it in their arguments, nor another test's broker.
+/// Looked for until the suite's wait for a broker ([`super::TALK_MAX`])
+/// has passed since the call, made as the broker starts: past the
+/// startup's deadline that bounds the box's start, and so the server's
+/// exec, however loaded the host.
 fn stopped(sealed: &Sealed) -> (i32, i32) {
-    let until = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let until = std::time::Instant::now() + super::TALK_MAX;
     let arguments = |pid: i32| std::fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
     let named = |pid: i32, name: &[u8]| {
         arguments(pid)
@@ -661,11 +665,13 @@ impl Handing {
         boxed.iter().copied().find(inner)
     }
 
-    /// The bootstrap once `stage` holds, polled for 20 seconds with the
-    /// store's reads counted meanwhile; the server's reads before then,
-    /// the observer's among them, set aside.
+    /// The bootstrap once `stage` holds, polled until the suite's wait for
+    /// a broker ([`super::TALK_MAX`]) has passed since `begun`, past the
+    /// startup's deadline that bounds the box's start however loaded the
+    /// host, with the store's reads counted meanwhile; the server's reads
+    /// before then, the observer's among them, set aside.
     fn at(&mut self, stage: impl Fn(&Handing, i32) -> bool) -> i32 {
-        let until = Instant::now() + Duration::from_secs(20);
+        let until = self.begun + super::TALK_MAX;
         while Instant::now() < until {
             self.store.1 += self.store.0.seen();
             if let Some(bootstrap) = self.bootstrap().filter(|pid| stage(self, *pid)) {

@@ -116,9 +116,12 @@ struct Held {
 
 impl Held {
     /// The attempt below `harness` once its server has a child of its own
-    /// running `child`, looked at for at most twenty seconds.
+    /// running `child`, looked at until the suite's wait for a broker
+    /// ([`TALK_MAX`]) has passed since the call, made as the broker starts
+    /// where no answer is awaited first: past the startup's deadline that
+    /// bounds the box's start, and so the server's, however loaded the host.
     fn seen(harness: i32, child: &str) -> Held {
-        let until = Instant::now() + Duration::from_secs(20);
+        let until = Instant::now() + TALK_MAX;
         let named = |pid: &i32| arguments(*pid).first().is_some_and(|arg| arg == child);
         let running = loop {
             let members = descendants(harness);

@@ -168,8 +168,11 @@ const HELD: [&str; 11] = [
 /// on their command lines and pass through a tracer's stop at each fork,
 /// so a process merely stopped once could be the box's first process and
 /// put the chain one process short (CI's empty broker channel, #639).
-fn held(sealed: &Sealed) -> i32 {
-    let until = Instant::now() + Duration::from_secs(20);
+/// Looked for until the suite's wait for a broker ([`super::TALK_MAX`])
+/// has passed since `begun`, the broker's start: past the startup's
+/// deadline that bounds the box's start, however loaded the host.
+fn held(sealed: &Sealed, begun: Instant) -> i32 {
+    let until = begun + super::TALK_MAX;
     let stopped = |pid: i32| status(pid).is_some_and(|(state, _, _)| "tT".contains(state));
     let parent =
         |pid: i32| processes().any(|child| status(child).is_some_and(|(_, of, _)| of == pid));
@@ -227,7 +230,7 @@ impl Held {
         let mut command = started_to(command, &sealed, &digest, (starter, Some(&apart)));
         let begun = Instant::now();
         let attempt = command.stderr(Stdio::piped()).spawn().unwrap();
-        let mut chain = [held(&sealed); 4];
+        let mut chain = [held(&sealed, begun); 4];
         for at in 1..chain.len() {
             chain[at] = status(chain[at - 1]).unwrap().1;
         }
