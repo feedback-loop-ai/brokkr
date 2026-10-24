@@ -520,12 +520,20 @@ fn listed(keep: impl Fn((char, i32, i32)) -> bool) -> Vec<i32> {
     pids.filter(|pid| shown(*pid).is_some_and(&keep)).collect()
 }
 
-/// The one child of `parent` once it stands, within half a minute.
+/// The one child of `parent` running `program` once it stands, within half
+/// a minute. Named by its program, not as `parent`'s only child: before it
+/// forks its tracee, `strace` forks and reaps probes of its own that never
+/// run another program, and a loaded host keeps one standing long enough to
+/// be taken for the engine, which then never has a child (#855). The bound
+/// is the start's, not the probe's, so it stays where it was.
 #[cfg(target_os = "linux")]
-fn child_of(parent: i32) -> i32 {
+fn child_of(parent: i32, program: &Path) -> i32 {
     let until = Instant::now() + Duration::from_secs(30);
+    let runs =
+        |pid: &i32| std::fs::read_link(format!("/proc/{pid}/exe")).is_ok_and(|exe| exe == program);
     loop {
-        if let [child] = listed(|(_, of, _)| of == parent)[..] {
+        let children = listed(|(_, of, _)| of == parent);
+        if let [child] = children.into_iter().filter(runs).collect::<Vec<_>>()[..] {
             return child;
         }
         assert!(Instant::now() < until, "no child of {parent} started");
@@ -636,8 +644,8 @@ fn an_engine_ended_mid_survey_leaves_nothing_of_the_survey_running() {
             .stderr(Stdio::null())
             .spawn()
             .unwrap();
-        let engine = child_of(tracer.id() as i32);
-        let survey = child_of(engine);
+        let engine = child_of(tracer.id() as i32, &std::env::current_exe().unwrap());
+        let survey = child_of(engine, &built);
         held(survey);
         let pid = |pid: i32| rustix::process::Pid::from_raw(pid).unwrap();
         rustix::process::kill_process(pid(engine), signal).unwrap();
