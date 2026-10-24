@@ -1,6 +1,6 @@
 # 0096 — Driver evidence belongs to the current effect and attempt
 
-**Status**: proposed
+**Status:** proposed
 Date: 2026-10-24
 Built: not built
 
@@ -33,4 +33,4 @@ This proposal grants no new capability, accepts no other decision and reports no
 
 ## Design return disposition
 
-The preceding design check rejected the declared proposal status. This revision retains 0096 as the same proposal and uses the conventional `**Status**: proposed` header. It neither accepts the decision nor creates a replacement number. The final design commit must contain the linked proposal and all three specification artifacts, clean at HEAD; the sequence check owns acceptance of that artifact shape.
+The preceding design check rejected the declared proposal status. This continuation retains 0096 as the same proposal and uses the exact pinned-checker header `**Status:** proposed`. It neither accepts the decision nor creates a replacement number. The final design commit must contain the linked proposal and all three specification artifacts, clean at HEAD; the sequence check owns acceptance of that artifact shape.
