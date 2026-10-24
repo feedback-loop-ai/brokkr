@@ -88,11 +88,30 @@ fn retaining(retained: bool) -> super::Plan {
     serde_json::from_str(&plan).unwrap()
 }
 
+/// When a harness ends its input, its frames sent and answered.
+enum Ending {
+    /// At once: a session with no call active ends served.
+    Hanging,
+    /// Only once the broker has ended its output, so a session the server
+    /// ends after the last answer is never cut short by the harness first.
+    Outlasting,
+}
+
 /// A session over `script`'s server beside `beside`'s edge, given ten
 /// seconds, whose harness waits `pause`, sends `frames` one at a time,
 /// taking the answer to each of the first `count` as its very bytes before
 /// the next, and then ends its input: the session, and the answers.
 fn heard(
+    script: Script,
+    beside: Beside,
+    talk: (Duration, Vec<Value>, usize),
+) -> (Ran, Vec<Vec<u8>>) {
+    heard_as(Ending::Hanging, script, beside, talk)
+}
+
+/// [`heard`], its harness ending its input as `ending` has it.
+fn heard_as(
+    ending: Ending,
     script: Script,
     beside: Beside,
     (pause, frames, count): (Duration, Vec<Value>, usize),
@@ -105,7 +124,11 @@ fn heard(
             harness.send(frame);
             lines.extend((at < count).then(|| harness.line().unwrap()));
         }
-        drop(harness.to.take());
+        match ending {
+            Ending::Hanging => drop(harness.to.take()),
+            // Held open; dropped with the harness once the broker has ended.
+            Ending::Outlasting => {}
+        }
         assert_eq!(harness.line(), None);
         said.send(lines).unwrap();
     };
@@ -495,7 +518,9 @@ fn a_response_id_holding_a_bound_value_ends_the_session_masked_and_is_copied_now
     // case a response after the first that answers nothing, carry an id
     // holding CANARY. The session ends with MB4's cause: a call already
     // ended keeps its outcome, the active one fails, and the id reaches
-    // neither the harness, the ledger nor the diagnostics.
+    // neither the harness, the ledger nor the diagnostics. The harness
+    // outlasts the session: hanging up after its one answer in the last
+    // case would end it served before the broker read the response (#843).
     let two = vec![call("1", "lookup"), call("2", "lookup")];
     let unasked = |id: &Value| [frame(id, EMPTY), frame(&json!(876_543_210), "{}")].join("\n");
     let cases: [Case; 3] = [
@@ -505,7 +530,8 @@ fn a_response_id_holding_a_bound_value_ends_the_session_masked_and_is_copied_now
     ];
     for (case, script, frames, count) in cases {
         let beside = masked_by(plan());
-        let (ran, lines) = heard(script, beside, (Duration::ZERO, frames, count));
+        let talk = (Duration::ZERO, frames, count);
+        let (ran, lines) = heard_as(Ending::Outlasting, script, beside, talk);
         let answered = result(&json!("1"), json!({"content": []}));
         let mut expected = vec![answered];
         let mut calls = vec![("lookup", Some(Outcome::Succeeded))];
