@@ -1,6 +1,6 @@
 # Ordered implementation tasks
 
-Design is drafted. The exact proposed status header already present in decision 0096 is preserved, and stale return explanations are reconciled across the dependent artifacts. The final sequence check owns the artifact verdict. Every implementation/proof task below remains unchecked; design artifact checks do not discharge these obligations.
+Design is drafted. Decision 0096 carries the matching native `Status: proposed` and pinned-checker `- **Status:** proposed` lines; stale return explanations are reconciled across the dependent artifacts. The final sequence check owns the artifact verdict. Every implementation/proof task below remains unchecked; design artifact checks do not discharge these obligations.
 
 - [ ] 1. Establish current Brokkr origin/main through authorized remote access and preserve the existing commission, design commits and proposed 0096 while updating the implementation base. **Proof:** record fetched origin/main and resulting base revisions, retained design ancestry/artifacts, and a clean scoped diff; unavailable freshness evidence leaves this prerequisite pending (AC8–10).
 - [ ] 2. Reconfirm the reproduced boundary with typed protocol fixtures for current-effect/foreign-attempt Accepted, Checkpoint and both Result statuses; reuse shared builders and add matching controls including a matching Result without prior Accepted. **Proof:** new exact assertions fail against the unpatched receive loop for the intended admission defect, while the matching controls pass (AC1–4).

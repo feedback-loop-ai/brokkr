@@ -1,6 +1,7 @@
 # 0096 — Driver evidence belongs to the current effect and attempt
 
-**Status:** proposed
+Status: proposed
+- **Status:** proposed
 Date: 2026-10-24
 Built: not built
 
@@ -33,4 +34,4 @@ This proposal grants no new capability, accepts no other decision and reports no
 
 ## Design return disposition
 
-The preceding design check rejected the declared proposal status. Synthesis inspected 400aee25 and found the exact pinned-checker header `**Status:** proposed` already present. This continuation preserves that header and 0096 as the same proposal; the older intake and validation explanations about a pending header correction are superseded. It neither accepts the decision nor creates a replacement number. The final design commit must contain the linked proposal and all three specification artifacts, clean at HEAD; the sequence check owns acceptance of that artifact shape.
+The preceding design checks rejected the declared proposal status because the pinned design checker requires a list-prefixed `- **Status:** proposed` line. Brokkr's decision index reads the native `Status: proposed` line above; the two lines state the same proposed status and do not accept this decision. Preserve both forms and decision 0096. This continuation corrects the checker-format mismatch without changing the proposal's meaning or allocating a replacement number. The final design commit must contain the linked proposal and all three specification artifacts, clean at HEAD; the sequence check owns acceptance of that artifact shape.
