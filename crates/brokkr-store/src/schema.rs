@@ -8,6 +8,7 @@ use rusqlite::{Connection, OptionalExtension};
 use crate::acknowledgement::{acknowledgements_intact, migrate_acknowledgements};
 use crate::event_index::{index_intact, migrate_index};
 use crate::queue::{migrate_queue, queue_intact};
+use crate::seat_summary::{mark_seated, migrate_seats, seats_intact};
 use crate::summary::{mark_backfilled, migrate_summary, summary_intact};
 use crate::{patiently, Store, StoreError, BUSY_TIMEOUT};
 
@@ -166,7 +167,7 @@ impl Store {
 /// A journal that records a schema: supported, and whole.
 fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     schema_supported(found)?;
-    // Six additive repairs, each a READ in the steady state — the
+    // Seven additive repairs, each a READ in the steady state — the
     // starvation measurement holds — and each taking the immediate
     // transaction only when something is actually missing, so racing
     // openers serialise on the lock instead of colliding on the DDL.
@@ -200,6 +201,12 @@ fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     // ([`Store::index_behind_with`]), which a repair marks unfinished.
     let missing = !index_intact(conn)?;
     repair_if(conn, missing, migrate_index)?;
+    // Seventh: a journal from before the seat summary (decision 0089
+    // slice 2), or one that lost a table of it, gets them, and its rows
+    // from the walk that follows the open ([`Store::seat_behind_with`]),
+    // which a repair marks unfinished.
+    let missing = !seats_intact(conn)?;
+    repair_if(conn, missing, migrate_seats)?;
     let missing = !guards_intact(conn)?;
     repair_if(conn, missing, |conn| Ok(conn.execute_batch(MIGRATION_V1)?))
 }
@@ -235,6 +242,10 @@ fn initialize(conn: &mut Connection) -> Result<(), StoreError> {
     // may still carry events, and the open's walk, one read on an empty
     // journal, records the mark once every event has its row.
     migrate_index(&tx)?;
+    // A run without a seat head reads as stale whatever this key says, and
+    // the open's walk folds it, so a new journal is marked here.
+    migrate_seats(&tx)?;
+    mark_seated(&tx)?;
     tx.execute(
         "INSERT OR IGNORE INTO meta (key, value) VALUES ('database_schema', ?1)",
         [&DATABASE_SCHEMA.to_string()],

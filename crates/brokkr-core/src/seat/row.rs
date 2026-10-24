@@ -30,6 +30,10 @@ use super::{
 use crate::envelope::{EventEnvelope, EventType};
 use crate::residual::text as field;
 
+mod kept;
+
+pub use kept::Datum;
+
 /// Whose row it is: the seat's own, or one of its sites', by the tag its
 /// records carry: a panel member, a sequence step.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -408,31 +412,18 @@ impl Seats {
             .get(attempt)
             .and_then(|members| members.get(&Member::Seat));
         let seat = seat.map(|at| &self.rows[*at]);
+        let keyed = SeatRow::keyed(
+            asked.seq,
+            asked.effect_id.clone(),
+            attempt.1.clone(),
+            member.clone(),
+        );
         SeatRow {
-            request_seq: asked.seq,
-            effect_id: asked.effect_id.clone(),
-            attempt_id: attempt.1.clone(),
-            member: member.clone(),
             seat: asked.seat.clone(),
             phase: seat.and_then(|seat| seat.phase.clone()),
             started: seat.and_then(|seat| seat.started.clone()),
             since: seat.and_then(|seat| seat.since),
-            first: None,
-            last: None,
-            model: None,
-            effort: None,
-            provider: None,
-            boundary: None,
-            stamp: None,
-            ended: None,
-            pin: None,
-            carried: None,
-            turns: None,
-            items: None,
-            spent: None,
-            metered: None,
-            session: None,
-            transcript: None,
+            ..keyed
         }
     }
 

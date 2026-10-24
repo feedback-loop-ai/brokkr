@@ -897,6 +897,10 @@ pub fn brokkr_core::seat::meter::Meter::of(&serde_json::value::Value) -> brokkr_
 pub fn brokkr_core::seat::meter::once<'a>(impl core::iter::traits::collect::IntoIterator<Item = &'a mut brokkr_core::seat::meter::Meter>)
 pub fn brokkr_core::seat::meter::sum_usage(impl core::iter::traits::iterator::Iterator<Item = brokkr_core::seat::TokenUsage>) -> core::option::Option<brokkr_core::seat::TokenUsage>
 pub mod brokkr_core::seat::row
+pub enum brokkr_core::seat::row::Datum
+pub brokkr_core::seat::row::Datum::Integer(i64)
+pub brokkr_core::seat::row::Datum::Null
+pub brokkr_core::seat::row::Datum::Text(alloc::string::String)
 pub enum brokkr_core::seat::row::Member
 pub brokkr_core::seat::row::Member::Named(alloc::string::String)
 pub brokkr_core::seat::row::Member::Seat
@@ -932,6 +936,10 @@ pub brokkr_core::seat::row::SeatFacts::turns_aggregated: bool
 pub brokkr_core::seat::row::SeatFacts::usage: core::option::Option<brokkr_core::seat::TokenUsage>
 pub brokkr_core::seat::row::SeatFacts::usage_aggregated: bool
 pub struct brokkr_core::seat::row::SeatRow
+impl brokkr_core::seat::row::SeatRow
+pub const brokkr_core::seat::row::SeatRow::COLUMNS: [(&'static str, &'static str); 56]
+pub fn brokkr_core::seat::row::SeatRow::data(&self) -> alloc::vec::Vec<brokkr_core::seat::row::Datum>
+pub fn brokkr_core::seat::row::SeatRow::of_data(alloc::vec::Vec<brokkr_core::seat::row::Datum>) -> core::option::Option<brokkr_core::seat::row::SeatRow>
 pub fn brokkr_core::seat::row::facts(&[brokkr_core::seat::row::SeatRow]) -> alloc::vec::Vec<brokkr_core::seat::row::SeatFacts>
 pub struct brokkr_core::seat::BoundaryEntry
 pub brokkr_core::seat::BoundaryEntry::gate: bool

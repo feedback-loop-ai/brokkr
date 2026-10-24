@@ -8,6 +8,7 @@
 use super::*;
 use crate::test_support::{plant_event, plant_run, unindex};
 use crate::tests::envelope_builder::EnvelopeBuilder;
+use crate::tests::walk::cut_short;
 use crate::tests::{store, write_lock_on};
 use serde_json::{json, Value as Json};
 
@@ -332,17 +333,9 @@ fn a_backfill_cut_short_by_a_peer_s_lock_resumes_where_it_stopped() {
     lock.execute_batch("ROLLBACK").unwrap();
     assert!(!backfilled(&store));
     assert!(rows(&store, "a").is_empty());
-    let mut peer = None;
-    let mut reached = 0;
-    let stage = |_: &Connection| {
-        reached += 1;
-        if reached == 2 {
-            peer = Some(write_lock_on(&path));
-        }
-    };
-    store
-        .quietly(|store| store.index_behind_with(stage))
-        .unwrap();
+    let peer = cut_short(&mut store, &path, |store, stage| {
+        store.index_behind_with(stage)
+    });
     let indexed: Vec<usize> = ["a", "b", "c"]
         .iter()
         .map(|run_id| rows(&store, run_id).len())
@@ -351,7 +344,7 @@ fn a_backfill_cut_short_by_a_peer_s_lock_resumes_where_it_stopped() {
     assert!(!backfilled(&store));
     assert!(!store.reads_index().unwrap());
     drop(store);
-    peer.unwrap().execute_batch("ROLLBACK").unwrap();
+    peer.execute_batch("ROLLBACK").unwrap();
     let store = Store::open(&path).unwrap();
     assert!(backfilled(&store));
     for run_id in ["a", "b", "c"] {
@@ -420,7 +413,7 @@ fn three(store: &Store) {
 }
 
 /// Each edit of a run's rows is named at the first seq where they part
-/// from its events, and how.
+/// from its events, and how: a text that is not UTF-8 by its column.
 #[test]
 fn a_run_s_rows_part_from_its_events_at_the_first_seq_and_by_the_first_column() {
     let cases = [
@@ -445,6 +438,11 @@ fn a_run_s_rows_part_from_its_events_at_the_first_seq_and_by_the_first_column() 
             IndexFault::Stray,
         ),
         (
+            "INSERT INTO event_index (run_id, seq) VALUES ('r', -1)",
+            -1i64 as u64,
+            IndexFault::Stray,
+        ),
+        (
             "UPDATE event_index SET type = 'run/started' WHERE seq = 2",
             2,
             IndexFault::Column("type"),
@@ -460,6 +458,11 @@ fn a_run_s_rows_part_from_its_events_at_the_first_seq_and_by_the_first_column() 
             IndexFault::Column("member"),
         ),
         (
+            "UPDATE event_index SET member = CAST(x'ff' AS TEXT) WHERE seq = 2",
+            2,
+            IndexFault::Column("member"),
+        ),
+        (
             "UPDATE event_index SET recorded_at = '2026-01-01T00:00:01Z' WHERE seq = 2",
             2,
             IndexFault::Column("recorded_at"),
@@ -471,6 +474,13 @@ fn a_run_s_rows_part_from_its_events_at_the_first_seq_and_by_the_first_column() 
         assert_eq!(parted_at(&store, "r"), None, "{edit}");
         store.conn.execute_batch(edit).unwrap();
         assert_eq!(parted_at(&store, "r"), Some((seq, fault)), "{edit}");
+        if seq == -1i64 as u64 {
+            let named = store.summary_disagreements().unwrap();
+            assert_eq!(
+                named.iter().map(ToString::to_string).collect::<Vec<_>>(),
+                ["run 'r': the event index holds a row at -1, where the run holds no event"]
+            );
+        }
     }
 }
 

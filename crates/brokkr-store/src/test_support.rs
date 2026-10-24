@@ -14,22 +14,24 @@ use std::collections::BTreeSet;
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::EventEnvelope;
+use brokkr_core::summary::{Account, Summary};
 use rusqlite::{params, Connection, ToSql};
 
 use crate::import::INSERT_EVENT;
-use crate::summary::Compared;
+use crate::summary::{Compared, Listed};
 use crate::{Disagreement, Store};
 
 mod generated;
 
 pub use generated::{fleet, generate, Generated, Standing, Width};
 
-/// Every run's summary row stands at its head and reads as its fold
-/// (decision 0089 ruling 4): each run folded whole, and its row compared
-/// with the summary of that fold, column for column. Stricter than
-/// `brokkr doctor`, which passes a lag: a test's writers each hand over
-/// their fold, so here a row behind its head is named, as is a run with
-/// no row, a run that does not load, and a row's first differing column.
+/// Every run's summary row and seat rows stand at its head and read as its
+/// fold (decision 0089 ruling 4): each run folded whole, and its rows
+/// compared with the projections of that fold, column for column.
+/// Stricter than `brokkr doctor`, which passes a lag: a test's writers
+/// each hand over their fold, so here a row or seat rows behind its head
+/// are named, as is a run with no row, a run that does not load, and a
+/// row's first differing column.
 /// A journal the comparison cannot read panics, naming why.
 pub fn every_run_reads_as_its_fold(store: &Store) -> Vec<String> {
     let mut found = Vec::new();
@@ -40,11 +42,14 @@ pub fn every_run_reads_as_its_fold(store: &Store) -> Vec<String> {
 }
 
 /// What `compared` names `run_id` by, `run: what its row reads as`, or
-/// `None` where the row reads as its fold.
-fn named(run_id: &str, compared: Compared) -> Option<String> {
+/// `None` where the row reads as its fold. A seat head of no run is never
+/// a run's comparison, only the doctor's sweep's, and is named for the
+/// match to be whole.
+pub(crate) fn named(run_id: &str, compared: Compared) -> Option<String> {
     let words = match compared {
         Compared::Agrees => return None,
         Compared::Behind => "behind its head".to_string(),
+        Compared::SeatsBehind => "seat rows behind its head".to_string(),
         Compared::Disagrees(Disagreement::Missing { .. }) => "no summary row".to_string(),
         Compared::Disagrees(Disagreement::Column { column, .. }) => column.to_string(),
         Compared::Disagrees(Disagreement::Unread { error, .. }) => {
@@ -53,6 +58,10 @@ fn named(run_id: &str, compared: Compared) -> Option<String> {
         Compared::Disagrees(Disagreement::Indexed { seq, fault, .. }) => {
             format!("event {seq} indexed {fault:?}")
         }
+        Compared::Disagrees(Disagreement::Seated { row, fault, .. }) => {
+            format!("seat row {row} {fault:?}")
+        }
+        Compared::Disagrees(Disagreement::SeatHead { .. }) => "a seat head of no run".to_string(),
     };
     Some(format!("{run_id}: {words}"))
 }
@@ -208,6 +217,20 @@ pub fn plant_older_writer(store: &Store, run_id: &str, events: &[EventEnvelope])
     }
 }
 
+/// `events` appended to `run_id` as a writer from between the summary and
+/// the seat summary (decision 0089 slices 1 and 2) leaves them: the run's
+/// summary row folded at its new head, and its seat rows and seat head
+/// where they stood.
+pub fn plant_summary_writer(store: &Store, run_id: &str, events: &[EventEnvelope]) {
+    for event in events {
+        plant_envelope(&store.conn, event).expect("an event plants");
+    }
+    let whole = store.load(run_id).expect("the run loads");
+    let listed = Listed::of(&store.conn, run_id).expect("the run is listed");
+    let summary = Summary::of(&Account::whole(run_id, &whole), listed.listing());
+    crate::summary::write(&store.conn, run_id, &summary).expect("the summary writes");
+}
+
 /// Every exported journal under `fixtures/journals/`, in name order: its
 /// path, its lines and the events they hold, read whole, chain unjudged.
 pub(crate) fn fixture_events() -> Vec<(std::path::PathBuf, String, Vec<EventEnvelope>)> {
@@ -257,8 +280,8 @@ pub fn import_fixtures(store: &mut Store) -> (Vec<String>, Vec<String>) {
 
 /// Leave a journal as a binary from before the summary (decision 0089)
 /// left it: none of the summary's table, index or triggers, none of the
-/// event index's, and neither backfill recorded. Opening it read-write
-/// migrates it again.
+/// event index's or the seat summary's, and no backfill recorded. Opening
+/// it read-write migrates it again.
 pub fn unmigrate(conn: &Connection) -> rusqlite::Result<()> {
     let unsummarized = conn.execute_batch(
         "DROP TABLE run_summary;
@@ -268,7 +291,19 @@ pub fn unmigrate(conn: &Connection) -> rusqlite::Result<()> {
          DELETE FROM meta WHERE key = 'run_summary_backfill';",
     );
     unsummarized?;
-    unindex(conn)
+    unindex(conn)?;
+    unseat(conn)
+}
+
+/// Leave a journal as a binary from before the seat summary (decision
+/// 0089 slice 2) left it: neither of its tables, and no backfill
+/// recorded.
+pub fn unseat(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "DROP TABLE seat_summary;
+         DROP TABLE seat_head;
+         DELETE FROM meta WHERE key = 'seat_summary_backfill';",
+    )
 }
 
 /// Leave a journal as a binary from before the event index (decision

@@ -3,7 +3,7 @@ use crate::envelope_builder;
 use crate::summary::Account;
 
 #[path = "../../../../../tests/support/seat_rows.rs"]
-mod journals;
+pub(super) mod journals;
 
 use journals::at;
 
@@ -480,6 +480,28 @@ fn a_member_s_row_takes_its_attempt_s_start() {
             (&Member::Seat, None),
             (&named("a"), Some(3)),
             (&Member::Seat, Some(3))
+        ]
+    );
+}
+
+/// A member's row opened after its attempt started takes that start as
+/// its last start, as its seat's row holds it.
+#[test]
+fn a_member_s_row_takes_its_attempt_s_last_start() {
+    let account = Account::whole("run", &journals::panel());
+    let since: Vec<_> = account
+        .seats()
+        .iter()
+        .map(|row| (&row.member, row.since))
+        .collect();
+    assert_eq!(
+        since,
+        [
+            (&Member::Seat, None),
+            (&Member::Seat, Some(3)),
+            (&named("a"), Some(3)),
+            (&named("b"), Some(3)),
+            (&Member::Seat, None),
         ]
     );
 }

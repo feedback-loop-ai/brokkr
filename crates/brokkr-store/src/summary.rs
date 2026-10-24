@@ -29,9 +29,9 @@ use rusqlite::types::Value;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::acknowledgement::standing;
-use crate::event_index::{first_unindexed, runless, IndexFault};
+use crate::event_index::{finished, first_unindexed, place, runless, IndexFault};
 use crate::schema::all_present;
-use crate::{head_of, patiently, Acknowledgement, Store, StoreError};
+use crate::{head_of, patiently, seat_summary, Acknowledgement, Store, StoreError};
 
 /// The lane a row's range is read from (ruling 6), exactly as ruled.
 const LANE: &str = "CASE
@@ -370,7 +370,7 @@ impl Listed {
         }
     }
 
-    fn of(tx: &Connection, run_id: &str) -> Result<Listed, StoreError> {
+    pub(crate) fn of(tx: &Connection, run_id: &str) -> Result<Listed, StoreError> {
         Ok(tx.query_row(
             "SELECT feature, created_at FROM runs WHERE run_id = ?1",
             params![run_id],
@@ -414,7 +414,7 @@ pub(crate) enum Settled {
 /// Judge an append inside its transaction: when `carried` is the account
 /// of the run `sealed` was appended to, at `found`, the head the append
 /// chained onto, carry it over `sealed` and write the summary of the
-/// result.
+/// result, and its seat rows the append moved.
 pub(crate) fn judge(
     tx: &Connection,
     carried: Option<&Carried>,
@@ -436,15 +436,17 @@ pub(crate) fn judge(
         None => Listed::of(tx, &first.run_id)?,
     };
     write(tx, &first.run_id, &Summary::of(&account, listed.listing()))?;
+    seat_summary::write(tx, &account, Some(&carried.account))?;
     Ok(Settled::Carried(Box::new(Carried {
         account,
         listed: Some(listed),
     })))
 }
 
-/// One run of a catch-up, in its own transaction: written only while the
-/// head is still the one `account` was read at.
-fn refold_once(conn: &mut Connection, account: &Account) -> Result<(), StoreError> {
+/// One run of a catch-up, in its own transaction, its summary row and its
+/// seat rows: written only while the head is still the one `account` was
+/// read at.
+pub(crate) fn refold_once(conn: &mut Connection, account: &Account) -> Result<(), StoreError> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let (seq, hash) = head_of(&tx, account.run_id())?;
     if account.head() == (seq, hash.as_str()) {
@@ -454,6 +456,7 @@ fn refold_once(conn: &mut Connection, account: &Account) -> Result<(), StoreErro
             account.run_id(),
             &Summary::of(account, listed.listing()),
         )?;
+        seat_summary::write(&tx, account, None)?;
     }
     tx.commit()?;
     Ok(())
@@ -483,6 +486,16 @@ pub enum Disagreement {
         seq: u64,
         fault: IndexFault,
     },
+    /// The run's seat rows stand at its head, and are not its fold's,
+    /// first at the place `row`, where the projection opened it.
+    Seated {
+        run_id: String,
+        row: u64,
+        fault: IndexFault,
+    },
+    /// The seat summary holds a seat head of a run the journal does not
+    /// hold.
+    SeatHead { run_id: String },
 }
 
 /// How one run's row stands against its fold: the doctor keeps only what
@@ -493,6 +506,9 @@ pub(crate) enum Compared {
     /// The row is behind its head and the run loads: a lag, which the
     /// next writer refolds.
     Behind,
+    /// The summary row agrees, and the seat rows are behind their head: a
+    /// lag too.
+    SeatsBehind,
     Disagrees(Disagreement),
 }
 
@@ -520,10 +536,15 @@ impl std::fmt::Display for Disagreement {
                 ),
                 IndexFault::Stray => write!(
                     f,
-                    "run '{run_id}': the event index holds a row at {seq}, where the run holds \
-                     no event"
+                    "run '{run_id}': the event index holds a row at {}, where the run holds \
+                     no event",
+                    place(*seq)
                 ),
             },
+            Disagreement::Seated { run_id, row, fault } => {
+                seat_summary::named(f, run_id, *row, *fault)
+            }
+            Disagreement::SeatHead { run_id } => seat_summary::headless(f, run_id),
         }
     }
 }
@@ -565,10 +586,12 @@ impl Store {
     /// stopped, since a refolded row is no longer behind. A run that does
     /// not load stays behind, for a reader to read whole and refuse live,
     /// and for the doctor's sweep to name. The event index's backfill
-    /// follows, on the same terms ([`Store::index_behind_with`]).
+    /// follows, on the same terms ([`Store::index_behind_with`]), and the
+    /// seat rows' ([`Store::seat_behind_with`]).
     pub(crate) fn catch_up(&mut self) -> Result<(), StoreError> {
         self.quietly(|store| store.refold_behind_with(|_| {}))?;
-        self.quietly(|store| store.index_behind_with(|_| {}))
+        self.quietly(|store| store.index_behind_with(|_| {}))?;
+        self.quietly(|store| store.seat_behind_with(|_| {}))
     }
 
     /// `catch`, spending no patience: a peer's lock ends it, quietly.
@@ -597,23 +620,10 @@ impl Store {
     ) -> Result<(), StoreError> {
         let mut after: Option<Place> = None;
         while let Some(place) = self.behind_after(after.as_ref())? {
-            if let Ok(events) = self.load(&place.1) {
-                let account = Account::whole(&place.1, &events);
-                between(&self.conn);
-                let conn = &mut self.conn;
-                patiently("catch_up", self.patience, || refold_once(conn, &account))?;
-            }
+            self.refold(&place.1, &mut between)?;
             after = Some(place);
         }
-        let finished: Option<String> = self
-            .conn
-            .query_row(
-                "SELECT value FROM meta WHERE key = ?1",
-                [BACKFILLED],
-                |row| row.get(0),
-            )
-            .optional()?;
-        if finished.is_none() {
+        if !finished(&self.conn, BACKFILLED)? {
             let conn = &self.conn;
             patiently("catch_up", self.patience, || mark_backfilled(conn))?;
         }
@@ -623,8 +633,9 @@ impl Store {
     /// Every run read whole, one run at a time, so the memory is the
     /// largest run's (ruling 4), whose row disagrees with its fold, whose
     /// event index is not what its events project to, or which does not
-    /// load, then every run the index holds rows of and the journal does
-    /// not: what `brokkr doctor` names as failures. A run that loads,
+    /// load, then every run the index or the seat summary holds rows or a
+    /// seat head of and the journal does not: what `brokkr doctor` names
+    /// as failures. A run that loads,
     /// whose index agrees and whose row is behind its head is a lag, not a
     /// disagreement, and is passed.
     pub fn summary_disagreements(&self) -> Result<Vec<Disagreement>, StoreError> {
@@ -635,6 +646,7 @@ impl Store {
             }
         })?;
         found.extend(runless(&self.conn)?);
+        found.extend(seat_summary::runless(&self.conn)?);
         Ok(found)
     }
 
@@ -702,8 +714,11 @@ impl Store {
     /// that does not load is named whether its row stands at its head or
     /// behind it (ruling 7: the doctor's sweep reads every run whole). The
     /// same read holds the run's event index to its events, wherever the
-    /// row stands, since a trigger's row never lags. `between` runs after the run is loaded and before its row is
-    /// compared: the instant such an append lands, which the tests stage.
+    /// row stands, since a trigger's row never lags, and its seat rows to
+    /// the fold's wherever the summary row stands, a seat head that lags
+    /// read as a lag. `between` runs after the run is loaded and before
+    /// its row is compared: the instant such an append lands, which the
+    /// tests stage.
     pub(crate) fn compared(
         &self,
         run_id: &str,
@@ -733,18 +748,23 @@ impl Store {
                 fault,
             }));
         }
+        let account = Account::whole(&run_id, &events);
+        let seats = seat_summary::compared(&self.conn, &account)?;
+        if let Compared::Disagrees(_) = seats {
+            return Ok(seats);
+        }
         if folded != Some(head) {
             return Ok(Compared::Behind);
         }
         between();
         let listed = Listed::of(&self.conn, &run_id)?;
-        let summary = Summary::of(&Account::whole(&run_id, &events), listed.listing());
+        let summary = Summary::of(&account, listed.listing());
         let standing = standing(&self.conn, &run_id)?;
         let mut expected = written(&summary);
         expected.extend(kept(&summary, standing.as_ref()));
         Ok(match self.first_difference(&run_id, &expected)? {
             Some(column) => Compared::Disagrees(Disagreement::Column { run_id, column }),
-            None => Compared::Agrees,
+            None => seats,
         })
     }
 

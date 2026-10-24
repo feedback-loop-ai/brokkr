@@ -19,7 +19,7 @@ use rusqlite::params;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-use crate::{summary, Store, StoreError};
+use crate::{seat_summary, summary, Store, StoreError};
 
 /// When every generated run was created.
 const CREATED: &str = "2026-01-01T00:00:00Z";
@@ -109,7 +109,8 @@ pub fn fleet(now: &str, events: u64, stretched: Width) -> Vec<Generated> {
 }
 
 /// Write `runs` into `store`'s journal in one transaction: each run's
-/// `runs` row, its events, its summary row folded at its head and, for an
+/// `runs` row, its events, its summary row folded at its head, its seat
+/// head there with no seat row, as its events state no seat, and, for an
 /// acknowledged one, the acknowledgement standing there.
 pub fn generate(store: &Store, runs: &[Generated]) -> Result<(), StoreError> {
     let tx = store.conn.unchecked_transaction()?;
@@ -127,6 +128,7 @@ pub fn generate(store: &Store, runs: &[Generated]) -> Result<(), StoreError> {
             params![run.run_id, run.events as i64, run.last_at],
         )?;
         summary::write(&tx, &run.run_id, &summary)?;
+        seat_summary::write_head(&tx, &run.run_id, (run.events, &summary.folded_hash))?;
         if run.standing == Standing::Acknowledged {
             let words = |narrow: &str, chars: usize| value(run.width, narrow, chars);
             tx.execute(
