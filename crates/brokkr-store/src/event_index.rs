@@ -1,7 +1,8 @@
 //! The event index (decision 0089, slice 2): one row per event, keyed
-//! `(run_id, seq)`, holding its type, the attempt and member it names and
-//! its time, so a run's trail and a seat's checkpoints are read by key,
-//! never by reading the run whole (ruling 7).
+//! `(run_id, seq)`, holding its type, the attempt and member it names, its
+//! time and its id, so a run's trail, a seat's checkpoints and what caused
+//! each row of a journal page are read by key, never by reading the run
+//! whole (ruling 7).
 //!
 //! What the row states, the event alone states, so SQLite keeps it
 //! (ruling 3): a trigger after each insert into `events` adds the row,
@@ -21,6 +22,7 @@
 //! events stay the record (decisions 0001 and 0003), and no
 //! `brokkr-runtime` decision reads a row (ruling 1).
 
+use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
@@ -39,7 +41,11 @@ use crate::{patiently, Disagreement, Store, StoreError};
 const BACKFILLED: &str = "event_index_backfill";
 
 const TABLE: [&str; 1] = ["event_index"];
-const INDEXES: [&str; 2] = ["event_index_stream", "event_index_trail"];
+const INDEXES: [&str; 3] = [
+    "event_index_stream",
+    "event_index_trail",
+    "event_index_cause",
+];
 const TRIGGERS: [&str; 2] = ["event_index_of_an_event", "event_index_stamp_bounded"];
 
 /// The checkpoints one page of a seat's stream holds (ruling 7).
@@ -49,13 +55,14 @@ pub(crate) const CHECKPOINT_PAGE: usize = 50;
 const CHECKPOINTED: &str = EventType::EffectCheckpointed.as_str();
 
 /// A row's columns, in the order [`projected`] gives them.
-const COLUMNS: &str = "run_id, seq, type, attempt_id, member, recorded_at";
+const COLUMNS: &str = "run_id, seq, type, attempt_id, member, recorded_at, event_id";
 
 /// The row an `events` row named `event` projects to, in [`COLUMNS`]'
 /// order, read from its envelope's text as brokkr-core's [`Indexed::of`]
 /// reads the envelope: the type, the payload's attempt, the
 /// checkpoint's member or, where the payload carries no checkpoint, the
-/// result's, and the stamp whole, which the bounding trigger cuts. The
+/// result's, the stamp whole, which the bounding trigger cuts, and the
+/// envelope's own id, where it is text. The
 /// payload is walked by its entries, since serde keeps the last copy of a
 /// key the payload repeats where `json_extract` reads the first, and its
 /// event's hash, taken over the payload as serde parses it, cannot see
@@ -72,11 +79,12 @@ fn projected(event: &str) -> String {
          json_each(CASE WHEN kind = 'object' THEN record ELSE '{{}}' END)"
     );
     format!(
-        "{event}.run_id, {event}.seq, {kind}, {attempt}, {member}, {stamp}",
+        "{event}.run_id, {event}.seq, {kind}, {attempt}, {member}, {stamp}, {id}",
         kind = text_at(&envelope, "$.type"),
         attempt = last_text(&payload, "attempt_id"),
         member = last_text(&record, "member"),
         stamp = stamp_of(&envelope),
+        id = text_at(&envelope, "$.event_id"),
     )
 }
 
@@ -90,25 +98,27 @@ fn last_text(entries: &str, key: &str) -> String {
     )
 }
 
-/// The table, its two indexes and its two triggers, `IF NOT EXISTS`
+/// The table, its three indexes and its two triggers, `IF NOT EXISTS`
 /// throughout so racing openers agree, and the backfill marked
 /// unfinished, so a journal that lost an object is walked again once it
 /// is restored. The stream index keys a seat's checkpoints, `(run_id,
 /// attempt_id, member, seq)`; the trail index holds every event but a
-/// checkpoint. A stamp past its bound is cut by a trigger of its own,
+/// checkpoint; the cause index keys an event by its id, `(run_id,
+/// event_id)`. A stamp past its bound is cut by a trigger of its own,
 /// which fires only then, after the event's trigger or the backfill
 /// inserted the row, so the event's trigger reads the stamp once.
 fn migration() -> String {
     format!(
         "CREATE TABLE IF NOT EXISTS event_index (
             run_id TEXT NOT NULL, seq INTEGER NOT NULL,
-            type TEXT, attempt_id TEXT, member TEXT, recorded_at TEXT,
+            type TEXT, attempt_id TEXT, member TEXT, recorded_at TEXT, event_id TEXT,
             PRIMARY KEY (run_id, seq)
         ) WITHOUT ROWID;
         CREATE INDEX IF NOT EXISTS event_index_stream
             ON event_index (run_id, attempt_id, member, seq);
         CREATE INDEX IF NOT EXISTS event_index_trail
             ON event_index (run_id, seq) WHERE type <> '{CHECKPOINTED}';
+        CREATE INDEX IF NOT EXISTS event_index_cause ON event_index (run_id, event_id);
         CREATE TRIGGER IF NOT EXISTS event_index_of_an_event AFTER INSERT ON events BEGIN
             INSERT OR IGNORE INTO event_index ({COLUMNS}) SELECT {projected};
         END;
@@ -123,32 +133,47 @@ fn migration() -> String {
     )
 }
 
-/// Does the table hold its time? A table without it is the shape an
-/// unreleased build of this slice made, which [`migrate_index`] rebuilds.
-fn timed(conn: &Connection) -> Result<bool, StoreError> {
+/// Does the table hold `column`?
+fn holds(conn: &Connection, column: &str) -> Result<bool, StoreError> {
     let found: rusqlite::Result<i64> = conn.query_row(
-        "SELECT count(*) FROM pragma_table_info('event_index') WHERE name = 'recorded_at'",
-        [],
+        "SELECT count(*) FROM pragma_table_info('event_index') WHERE name = ?1",
+        [column],
         |row| row.get(0),
     );
     Ok(found? == 1)
 }
 
-/// Does this journal carry the table, with its time, both indexes and
-/// both triggers? Pure reads, so the steady-state open writes nothing.
+/// Does the table hold its time? A table without it is the shape an
+/// unreleased build of this slice made, which [`migrate_index`] rebuilds.
+fn timed(conn: &Connection) -> Result<bool, StoreError> {
+    holds(conn, "recorded_at")
+}
+
+/// Does the table hold each event's id? A table without it is the shape a
+/// build before slice 2b made, which [`migrate_index`] rebuilds; a build
+/// that made it reads this shape as its own, and its trigger, which lives
+/// in the journal, writes the id for it.
+fn keyed(conn: &Connection) -> Result<bool, StoreError> {
+    holds(conn, "event_id")
+}
+
+/// Does this journal carry the table, with its time and its ids, its three
+/// indexes and both triggers? Pure reads, so the steady-state open writes
+/// nothing.
 pub(crate) fn index_intact(conn: &Connection) -> Result<bool, StoreError> {
     Ok(all_present(conn, "table", &TABLE)?
         && timed(conn)?
+        && keyed(conn)?
         && all_present(conn, "index", &INDEXES)?
         && all_present(conn, "trigger", &TRIGGERS)?)
 }
 
 /// Create the index, on a connection holding the write lock: the sixth
-/// additive repair. A table without its time, and the trigger that wrote
-/// it, are dropped first, since every row is derived. Its rows come from
-/// the backfill that follows the open, outside this lock.
+/// additive repair. A table without its time or its ids, and the trigger
+/// that wrote it, are dropped first, since every row is derived. Its rows
+/// come from the backfill that follows the open, outside this lock.
 pub(crate) fn migrate_index(conn: &Connection) -> Result<(), StoreError> {
-    if !timed(conn)? {
+    if !(timed(conn)? && keyed(conn)?) {
         let dropped = conn.execute_batch(
             "DROP TRIGGER IF EXISTS event_index_of_an_event;
              DROP TABLE IF EXISTS event_index;",
@@ -201,13 +226,13 @@ static UNINDEXED: LazyLock<String> = LazyLock::new(|| {
 });
 
 static INSERT_ROW: LazyLock<String> = LazyLock::new(|| {
-    format!("INSERT OR IGNORE INTO event_index ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")
+    format!("INSERT OR IGNORE INTO event_index ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")
 });
 
 /// `run_id`'s rows yet to write, read without the write lock.
 fn unindexed(conn: &Connection, run_id: &str) -> Result<Vec<Vec<Value>>, StoreError> {
     let mut statement = conn.prepare_cached(&UNINDEXED)?;
-    let rows = statement.query_map([run_id], |row| (0..6).map(|at| row.get(at)).collect())?;
+    let rows = statement.query_map([run_id], |row| (0..7).map(|at| row.get(at)).collect())?;
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
@@ -254,8 +279,17 @@ static STREAM: LazyLock<String> = LazyLock::new(|| {
 const ENVELOPE: &str = "SELECT envelope FROM events WHERE run_id = ?1 AND seq = ?2";
 
 /// A run's index rows in seq order, by its key: what ruling 4 compares.
-const ROWS: &str = "SELECT seq, type, attempt_id, member, recorded_at FROM event_index
+const ROWS: &str = "SELECT seq, type, attempt_id, member, recorded_at, event_id FROM event_index
      WHERE run_id = ?1 ORDER BY seq";
+
+/// The last seq of a run's events that `event_id` names, NULL where none
+/// does, and whether a row of the run holds no id, each read through the
+/// cause index, in one statement so both are of one snapshot.
+const CAUSE: &str = "SELECT
+     (SELECT max(seq) FROM event_index INDEXED BY event_index_cause
+          WHERE run_id = ?1 AND event_id = ?2),
+     EXISTS (SELECT 1 FROM event_index INDEXED BY event_index_cause
+          WHERE run_id = ?1 AND event_id IS NULL)";
 
 /// The seqs `sql` selects with `bound`.
 fn seqs(conn: &Connection, sql: &str, bound: impl Params) -> Result<Vec<u64>, StoreError> {
@@ -325,6 +359,7 @@ fn projects(event: &EventEnvelope) -> Vec<(&'static str, Value)> {
         ("attempt_id", text(indexed.attempt_id)),
         ("member", text(indexed.member)),
         ("recorded_at", text(Some(indexed.recorded_at))),
+        ("event_id", text(Some(&event.event_id))),
     ]
 }
 
@@ -447,6 +482,37 @@ impl Store {
                 &STREAM,
                 params![run_id, attempt_id, member, before],
             )
+        })
+    }
+
+    /// What caused a journal page's rows (ruling 7): the seq of `run_id`'s
+    /// event that each of `event_ids` names, the last where an id repeats,
+    /// as the run view maps them, and no seq for an id no event of the run
+    /// carries. `None` where a row of the run holds no id: a build from
+    /// before the ids reads this table as its own and, opening the journal
+    /// while a current writer's walk is under way, backfills rows without
+    /// them, and such a row names no cause, so the reader reads the run
+    /// whole rather than miss one.
+    pub fn index_causes(
+        &self,
+        run_id: &str,
+        event_ids: &[&str],
+    ) -> Result<Option<BTreeMap<String, u64>>, StoreError> {
+        patiently("index", self.patience, || {
+            let mut statement = self.conn.prepare_cached(CAUSE)?;
+            let mut causes = BTreeMap::new();
+            for id in event_ids {
+                let read = |row: &rusqlite::Row<'_>| Ok((row.get(0)?, row.get(1)?));
+                let (seq, unkeyed): (Option<i64>, bool) =
+                    statement.query_row(params![run_id, id], read)?;
+                if unkeyed {
+                    return Ok(None);
+                }
+                if let Some(seq) = seq {
+                    causes.insert(id.to_string(), seq as u64);
+                }
+            }
+            Ok(Some(causes))
         })
     }
 

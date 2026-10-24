@@ -237,6 +237,7 @@ pub fn brokkr_store::Store::carry(&mut self, brokkr_core::summary::Account)
 pub fn brokkr_store::Store::summary_disagreements(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::Disagreement>, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::envelopes_at(&self, &str, &[u64]) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::index_causes(&self, &str, &[&str]) -> core::result::Result<core::option::Option<alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::index_checkpoints(&self, &str, &str, core::option::Option<&str>, core::option::Option<u64>) -> core::result::Result<alloc::vec::Vec<u64>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::index_trail(&self, &str) -> core::result::Result<alloc::vec::Vec<u64>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::reads_index(&self) -> core::result::Result<bool, brokkr_store::StoreError>

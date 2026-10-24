@@ -102,6 +102,7 @@ fn no_runtime_decision_names_a_projection_s_reader() {
             "reads_index(",
             "index_trail(",
             "index_checkpoints(",
+            "index_causes(",
             "envelopes_at(",
             "seat_rows(",
         ]

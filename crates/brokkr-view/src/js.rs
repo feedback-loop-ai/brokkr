@@ -103,34 +103,11 @@ pub fn round_half_up(value: f64) -> i64 {
 /// JS string conversion, as `'a' + value` performs it — including the
 /// literal `undefined` for an absent field. The console prints
 /// `turn undefined · tool undefined` for a checkpoint that carries
-/// neither; the quirk is ported deliberately.
+/// neither; the quirk is ported deliberately. Its one home is
+/// brokkr-core's `seat::row::shown`, which the seat rows keep a record's
+/// values by (decision 0089 slice 2b), so a row and the view agree.
 pub fn to_display(value: Option<&Value>) -> String {
-    match value {
-        None => "undefined".to_string(),
-        Some(Value::Null) => "null".to_string(),
-        Some(Value::Bool(flag)) => flag.to_string(),
-        Some(Value::String(text)) => text.clone(),
-        Some(Value::Number(number)) => {
-            // `serde_json` renders an integral float as `1.0`; JS
-            // renders `1`, and this is display, not the payload dump.
-            let text = number.to_string();
-            text.strip_suffix(".0").unwrap_or(&text).to_string()
-        }
-        Some(Value::Array(items)) => {
-            let parts: Vec<String> = items.iter().map(element_display).collect();
-            parts.join(",")
-        }
-        Some(Value::Object(_)) => "[object Object]".to_string(),
-    }
-}
-
-/// `Array.prototype.join` renders `null` and `undefined` as the empty
-/// string, unlike bare concatenation.
-fn element_display(value: &Value) -> String {
-    match value {
-        Value::Null => String::new(),
-        other => to_display(Some(other)),
-    }
+    brokkr_core::seat::row::shown(value)
 }
 
 #[cfg(test)]
