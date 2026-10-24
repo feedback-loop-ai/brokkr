@@ -13,6 +13,7 @@ use crate::bundle::{Limits, Seat};
 use brokkr_core::{fold::Status, policy::Machine};
 use brokkr_protocol::{Body, Message};
 use std::collections::BTreeMap;
+mod journal;
 
 /// work → review → work → done: the phase machine's own way back into a
 /// seat, which is the re-entry the ruling names beside the retry.
@@ -788,17 +789,18 @@ fn a_sequence_offers_its_work_steps_and_members_and_nothing_to_a_validator() {
     let mut bundle = bundle(dir.path(), seats);
     bundle.machine = panel_machine();
     let events = run(dir.path(), bundle);
-
+    let effects = journal::effects(&events);
     for tag in ["author", "step-alpha", "step-beta"] {
         assert_eq!(
             offers(&received(dir.path(), tag)),
             [None, Some(format!("{tag}-1"))],
-            "{tag} is a work model site and rejoins its own session"
+            "{tag} is a work model site and rejoins its own session\n{effects}"
         );
     }
     // The validator emits no stamped launch, so it has nothing to be
     // offered — and it is offered nothing on either visit.
-    assert_eq!(offers(&received(dir.path(), "validate")), [None, None]);
+    let validate = offers(&received(dir.path(), "validate"));
+    assert_eq!(validate, [None, None], "{effects}");
     // A label reused under a different parent never crosses: the
     // sequence's `alpha` and the seat panel's `alpha` are two sites, and
     // the digest that keys them is structural rather than a flat tag.
@@ -974,20 +976,18 @@ fn a_fresh_process_derives_the_same_offers_from_the_same_journal() {
 
     // A second process, with nothing of the first in memory.
     operator_command(&mut store, &run_id, Retry, "operator", "once more").unwrap();
-    Engine::resume(store, bundle, &run_id, Some(dir.path().join("work")))
-        .unwrap()
-        .drive()
-        .unwrap();
+    let mut engine = Engine::resume(store, bundle, &run_id, Some(dir.path().join("work"))).unwrap();
+    engine.drive().unwrap();
+    let effects = journal::effects(&engine.store.load(&run_id).unwrap());
 
     let after = offers(&received(dir.path(), "alpha"));
     assert_eq!(&after[..first.len()], &first[..], "the record did not move");
     for tag in ["alpha", "beta"] {
         let seen = offers(&received(dir.path(), tag));
-        assert_eq!(seen[0], None, "{tag}'s first invocation was cold");
         assert_eq!(
-            seen[1],
-            Some(format!("{tag}-1")),
-            "{tag}'s second invocation, in another process, rejoins its own"
+            seen.get(..2),
+            Some(&[None, Some(format!("{tag}-1"))][..]),
+            "{tag} starts cold, and in another process rejoins its own\n{effects}"
         );
     }
 }
