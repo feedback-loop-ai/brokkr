@@ -3,7 +3,7 @@
 //! check's lines and `brokkr doctor` carries them in its status column,
 //! proved against the BUILT binary under a PATH holding only a dsh
 //! stand-in, a dsh home of the test's own, and each documented source
-//! planted in turn. Each asked route carries the served-home caveat (the
+//! planted in turn. Each route carries the served-home caveat (the
 //! operator's ruling of 2026-10-24 on fix round 717d2's block). A planted
 //! value is never printed, and a planted `.env` is told present but unread.
 #![cfg(unix)]
@@ -207,17 +207,19 @@ fn a_key_each_source_names_is_reached_and_its_value_never_printed() {
     }
 }
 
+/// Every route carries the caveat, one that names no variable too.
 #[test]
-fn every_asked_route_carries_the_served_home_caveat() {
+fn every_route_carries_the_served_home_caveat() {
     let host = DshHost::new();
     host.init(Some(PLANTED));
     let adapter = host.repo.path(".brokkr/adapters/dsh.json");
     let scaffold = std::fs::read_to_string(&adapter).unwrap();
     let pinned = "\"pro\": \"deepseek-v4-pro\"\n  },";
     assert!(scaffold.contains(pinned), "{scaffold}");
-    let two = "\"pro\": \"deepseek-v4-pro\",\n    \"glm\": \"dashscope/glm-5.2\"\n  },\n  \
-               \"credentials\": {\"dashscope\": \"DASHSCOPE_API_KEY\"},";
-    std::fs::write(&adapter, scaffold.replace(pinned, two)).unwrap();
+    let three = "\"pro\": \"deepseek-v4-pro\",\n    \"glm\": \"dashscope/glm-5.2\",\n    \
+                 \"spark\": \"meta/meta/muse-spark-1.3\"\n  },\n  \
+                 \"credentials\": {\"dashscope\": \"DASHSCOPE_API_KEY\"},";
+    std::fs::write(&adapter, scaffold.replace(pinned, three)).unwrap();
     let detail = host.unreached("DASHSCOPE_API_KEY");
     assert_eq!(
         host.doctor(Some(PLANTED)),
@@ -232,6 +234,15 @@ fn every_asked_route_carries_the_served_home_caveat() {
                     "warn     {}",
                     caveat("deepseek-official", "DEEPSEEK_API_KEY")
                 ),
+                "warn     dsh key meta: the dsh adapter names no credential variable for this \
+                 route, so whether dsh reaches a key for it is unknown; declare one under the \
+                 adapter's `credentials`"
+                    .to_string(),
+                "warn     dsh home meta: this check asked nothing of the operator's dsh home, \
+                 since no variable is named for this route; Brokkr can't yet tell whether it \
+                 serves this route from its own engine-only home (decision 0065), which reads \
+                 neither patch nor the home's .env"
+                    .to_string(),
             ],
             Some(1)
         )

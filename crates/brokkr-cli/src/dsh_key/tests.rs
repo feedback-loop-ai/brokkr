@@ -489,6 +489,8 @@ fn with_no_dsh_home_only_the_repository_is_asked_and_the_cause_is_named() {
 
 #[test]
 fn a_seat_served_from_the_operators_home_reads_its_seams_home_or_cause() {
+    // The reader asks the environment raw, so no test may write it meanwhile.
+    let _env = crate::tests::env_guard::EnvGuard::lock();
     let (repo, home) = (Path::new("/repo"), PathBuf::from("/home/.dsh"));
     let seams = DshSeams {
         executable: "/bin/dsh".into(),
@@ -541,11 +543,12 @@ fn each_route_reads_its_declared_variable_once_and_an_unnamed_one_is_undeclared(
     );
 }
 
-/// Each route whose key was asked carries the served-home caveat after its
-/// answer, an undeclared one none, and a `.env` in the repository, a FIFO
-/// or one no one may read, warns last and is never opened.
+/// Each route carries the served-home caveat after its answer, an
+/// undeclared one saying nothing of the home was asked, and a `.env` in the
+/// repository, a FIFO or one no one may read, warns last and is never
+/// opened.
 #[test]
-fn each_asked_route_carries_the_served_home_caveat_and_a_workdir_dotenv_warns() {
+fn each_route_carries_the_served_home_caveat_and_a_workdir_dotenv_warns() {
     let models = json!({
         "a": "deepseek-flash",
         "b": "dashscope/glm-5.2",
@@ -557,7 +560,7 @@ fn each_asked_route_carries_the_served_home_caveat_and_a_workdir_dotenv_warns() 
         let (route, variable) = (route.to_string(), variable.to_string());
         let served = Line::Served {
             route: route.clone(),
-            variable: variable.clone(),
+            variable: Some(variable.clone()),
         };
         [
             Line::Key(Reach::Reached {
@@ -573,12 +576,17 @@ fn each_asked_route_carries_the_served_home_caveat_and_a_workdir_dotenv_warns() 
     });
     let [dashscope, dashscope_served] = key("dashscope", "DASHSCOPE_API_KEY");
     let [deepseek, deepseek_served] = key("deepseek-official", "DEEPSEEK_API_KEY");
+    let undeclared_served = Line::Served {
+        route: "meta".into(),
+        variable: None,
+    };
     let mut expected = vec![
         dashscope,
         dashscope_served,
         deepseek,
         deepseek_served,
         undeclared,
+        undeclared_served,
     ];
     let set = |_: &str| true;
     assert_eq!(planted.lines_within_bound(set), expected);
@@ -591,7 +599,7 @@ fn each_asked_route_carries_the_served_home_caveat_and_a_workdir_dotenv_warns() 
     std::fs::set_permissions(&in_repo, std::fs::Permissions::from_mode(0o000)).unwrap();
     let lines = planted.lines_within_bound(set);
     assert_eq!(lines, expected);
-    let printed: Vec<String> = [&lines[3], &lines[5]]
+    let printed: Vec<String> = [&lines[3], &lines[5], &lines[6]]
         .iter()
         .map(|line| format!("{}: {}", line.what(), line.detail()))
         .collect();
@@ -605,6 +613,11 @@ fn each_asked_route_carries_the_served_home_caveat_and_a_workdir_dotenv_warns() 
              its own engine-only home (decision 0065), which reads neither patch nor the home's \
              .env, so past the environment this check can't confirm the key reaches a seat \
              served there"
+                .to_string(),
+            "dsh home meta: this check asked nothing of the operator's dsh home, since no \
+             variable is named for this route; Brokkr can't yet tell whether it serves this \
+             route from its own engine-only home (decision 0065), which reads neither patch nor \
+             the home's .env"
                 .to_string(),
             format!(
                 "dsh workdir: {} is present, unread: if Brokkr serves a dsh seat from its own \

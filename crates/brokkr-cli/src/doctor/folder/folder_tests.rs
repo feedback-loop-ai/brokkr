@@ -477,7 +477,11 @@ fn each_dsh_key_answer_takes_its_status_column() {
         }),
         Line::Served {
             route: route.clone(),
-            variable: variable.clone(),
+            variable: Some(variable.clone()),
+        },
+        Line::Served {
+            route: route.clone(),
+            variable: None,
         },
         Line::Workdir(PathBuf::from("/repo/.env")),
         Line::Key(Reach::Unreached {
@@ -488,9 +492,9 @@ fn each_dsh_key_answer_takes_its_status_column() {
         }),
     ];
     let mut report = report();
-    report_keys(&mut report, &answers[..6]);
+    report_keys(&mut report, &answers[..7]);
     assert!(report.healthy);
-    report_keys(&mut report, &answers[6..]);
+    report_keys(&mut report, &answers[7..]);
     let status: Vec<&str> = report.lines.iter().map(|line| &line[..20]).collect();
     assert_eq!(
         (status, report.healthy),
@@ -501,6 +505,7 @@ fn each_dsh_key_answer_takes_its_status_column() {
                 "warn     dsh key r: ",
                 "warn     dsh key r: ",
                 "warn     dsh key r: ",
+                "warn     dsh home r:",
                 "warn     dsh home r:",
                 "warn     dsh workdir",
                 "MISSING  dsh key r: "

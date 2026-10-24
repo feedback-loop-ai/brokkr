@@ -41,9 +41,10 @@
 //! (`adapters/dsh.json`). Which seats those are is decided inside
 //! brokkr-protocol alone, by private items, so it is not modelled here
 //! (the operator's ruling of 2026-10-24 on fix round 717d2's block, option
-//! (b)). Until it is, every route whose key was asked carries
-//! [`Line::Served`], which says what was read and that the serving home
-//! can't yet be told; a key only the operator's home gives warns rather
+//! (b)). Until it is, every route carries [`Line::Served`], which says what
+//! was read of the operator's home (nothing, for a route that names no
+//! variable) and that the serving home can't yet be told; a key only the
+//! operator's home gives warns rather
 //! than reads ok, and a `<repo>/.env` beside the folder's dsh seats warns
 //! as [`Line::Workdir`].
 //!
@@ -177,11 +178,12 @@ impl Reach {
 pub(crate) enum Line {
     Key(Reach),
     /// Whether the route's seats are served from the operator's home,
-    /// which the check read, or from an engine-only one, can't yet be
-    /// told.
+    /// which the check read for `variable`, or from an engine-only one,
+    /// can't yet be told; `variable` is none where the route names none,
+    /// so nothing of the home was asked.
     Served {
         route: String,
-        variable: String,
+        variable: Option<String>,
     },
     /// A `.env` in the repository the folder's dsh seats run in, present
     /// and never opened, which an engine-only home refuses to launch with.
@@ -202,14 +204,7 @@ impl Line {
     pub(crate) fn detail(&self) -> String {
         match self {
             Line::Key(reach) => reach.detail(),
-            Line::Served { variable, .. } => format!(
-                "this check read the operator's dsh home: {}'s presence where brokkr runs, the \
-                 profile and home patches, and each .env by name, unread; Brokkr can't yet tell \
-                 whether it serves this route from its own engine-only home (decision 0065), \
-                 which reads neither patch nor the home's .env, so past the environment this \
-                 check can't confirm the key reaches a seat served there",
-                Safe::new(variable).as_str()
-            ),
+            Line::Served { variable, .. } => served(variable.as_deref()),
             Line::Workdir(file) => format!(
                 "{} is present, unread: if Brokkr serves a dsh seat from its own engine-only home \
                  (decision 0065), it refuses that launch, since dsh would read the file for a key",
@@ -229,6 +224,26 @@ impl Source {
                 patch.display()
             ),
         }
+    }
+}
+
+/// The served-home caveat's words: what was read of the operator's home
+/// for `variable`, or that nothing was where the route names none, and
+/// that the home serving the route can't yet be told.
+fn served(variable: Option<&str>) -> String {
+    let unknown = "Brokkr can't yet tell whether it serves this route from its own engine-only \
+                   home (decision 0065), which reads neither patch nor the home's .env";
+    match variable {
+        Some(variable) => format!(
+            "this check read the operator's dsh home: {}'s presence where brokkr runs, the \
+             profile and home patches, and each .env by name, unread; {unknown}, so past the \
+             environment this check can't confirm the key reaches a seat served there",
+            Safe::new(variable).as_str()
+        ),
+        None => format!(
+            "this check asked nothing of the operator's dsh home, since no variable is named \
+             for this route; {unknown}"
+        ),
     }
 }
 
@@ -310,9 +325,9 @@ pub(crate) fn of_folder(adapters: &Path, repo: &Path) -> Vec<Line> {
     with_caveats(in_folder(adapters, &sources), repo)
 }
 
-/// Each of `reaches` followed by its [`Line::Served`] caveat where its key
-/// was asked, then a `.env` present in `repo`, looked up by name alone, as
-/// [`Line::Workdir`]; none where no route was answered.
+/// Each of `reaches` followed by its [`Line::Served`] caveat, then a `.env`
+/// present in `repo`, looked up by name alone, as [`Line::Workdir`]; none
+/// where no route was answered.
 fn with_caveats(reaches: Vec<Reach>, repo: &Path) -> Vec<Line> {
     if reaches.is_empty() {
         return Vec::new();
@@ -320,7 +335,7 @@ fn with_caveats(reaches: Vec<Reach>, repo: &Path) -> Vec<Line> {
     let workdir = Some(repo.join(".env")).filter(|file| present(file));
     let mut lines = Vec::new();
     for reach in reaches {
-        let served = match &reach {
+        let (route, variable) = match &reach {
             Reach::Reached {
                 route, variable, ..
             }
@@ -329,14 +344,11 @@ fn with_caveats(reaches: Vec<Reach>, repo: &Path) -> Vec<Line> {
             }
             | Reach::Unreached {
                 route, variable, ..
-            } => Some(Line::Served {
-                route: route.clone(),
-                variable: variable.clone(),
-            }),
-            Reach::Undeclared { .. } => None,
+            } => (route.clone(), Some(variable.clone())),
+            Reach::Undeclared { route } => (route.clone(), None),
         };
         lines.push(Line::Key(reach));
-        lines.extend(served);
+        lines.push(Line::Served { route, variable });
     }
     lines.extend(workdir.map(Line::Workdir));
     lines
