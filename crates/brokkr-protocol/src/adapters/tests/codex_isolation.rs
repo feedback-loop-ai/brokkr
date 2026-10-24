@@ -401,6 +401,35 @@ fn the_compile_reading_of_a_site_handed_no_store_keeps_its_class_where_it_was_wr
     }
 }
 
+/// 45.5: the same reading of an offered rejoin, handed no store, re-imposes
+/// the class as the `sandbox_mode` its own fragment names, and the door
+/// refuses to spawn it.
+#[test]
+fn the_rejoin_reading_of_a_site_handed_no_store_reimposes_its_class_as_written() {
+    let _env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let absent = |_: &Path| false;
+    for (class, local, _) in classes() {
+        let (bin, extra, mut input) = shimmed(dir.path(), class, &local);
+        input.as_object_mut().unwrap().remove("secrets_file");
+        let (offered, _) = codex_launch_and_cold(&bin, &extra, "/w", Some(THREAD), &input).unwrap();
+        let mode = format!("sandbox_mode=\"{}\"", local[1]);
+        let effort = [
+            "-c",
+            "model_reasoning_effort=\"high\"",
+            "--model",
+            "gpt-6-astra",
+        ];
+        let lead = [&bin, "exec", "resume", "--json", "-c", &mode];
+        let off = ["-c", "web_search=\"disabled\"", THREAD, "-"];
+        let unprofiled = strings(&[&lead[..], &effort, &local[2..], &off].concat());
+        assert_eq!(offered.command, unprofiled, "{class:?}");
+        let launched = codex::launch_on_host(&bin, &extra, "/w", Some(THREAD), &input, absent);
+        let storeless = codex::Unlaunched::Door(codex::Unlaunchable::Storeless);
+        assert_eq!(launched.err(), Some(storeless), "{class:?}");
+    }
+}
+
 /// 45.5 (operator ruling of 2026-10-23, the row's recorded limitation): a
 /// workspace root or store path that a TOML basic string cannot carry
 /// without an escape refuses the launch, naming which path, never escaped.
