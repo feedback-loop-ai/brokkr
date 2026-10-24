@@ -47,3 +47,7 @@ Refuse before acceptance/session mutation, checkpoint retention or callback, and
 Conforming drivers already echo both fields and need no migration. Stale-attempt drivers now park and require correction; there is no compatibility bypass. No journal is rewritten. Uncommitted telemetry can still be lost on crash; this feature adds no exactly-once execution guarantee.
 
 No behavioral ambiguity blocks implementation. Decision 0058's top-level file status is proposed, despite the intake calling it accepted; its October overlay addendum records an operator ruling. Preserve both facts and follow the user's explicit crew pins without editing 0058. Reviewer availability and outside-box coverage authorization are downstream execution dependencies, not resolved evidence.
+
+## Returned design scenario
+
+Given the preceding check rejected the declared decision status, this retry keeps `Decision: 0096` linked to the same proposed document, with its conventional status header. When the final design commit is inspected, it must touch exactly this one spec directory and the proposed decision, with spec, plan, tasks and decision committed, nonempty and clean. An accepted authority link does not declare a new decision. No operator acceptance, implementation validation or final sequence verdict is inferred from this design draft.

@@ -1,6 +1,6 @@
 # 0096 — Driver evidence belongs to the current effect and attempt
 
-Status: proposed
+**Status**: proposed
 Date: 2026-10-24
 Built: not built
 
@@ -15,7 +15,7 @@ This repairs enforcement of the existing identity boundary under [0005](0005-sel
 1. Each Accepted, Checkpoint and Result is admitted only when both IDs exactly match the immutable pair sent in Start for that invocation. The shared protocol transport checks effect first, then attempt, before acceptance/session mutation, checkpoint retention/callback or result conversion. A resumed session conveys no authority for its earlier attempt. No duplicate rule lives in engine, panel or view (0071 rulings 1–3, 5 and 7).
 2. A mismatch after Start uses the existing Unread -> Indeterminate path, not determinate failure, ignored traffic, a successful transition or automatic retry. Preserve existing reader-limit, shutdown and cleanup-uncertainty precedence. A prior valid acceptance and journaled legitimate checkpoints remain facts; returned broken session/checkpoint fields are cleared as today. The foreign message contributes no admitted evidence.
 3. Mismatch diagnostics describe foreign bytes only by the existing length, first-byte class and SHA-256 prefix. They never quote foreign identifiers or payloads. The engine-owned expected identifier may be quoted as today. Existing foreign-effect reasons remain byte-identical and win if both identifiers differ. Attempt reasons are exactly `driver accepted a different attempt`, `checkpoint for foreign attempt`, and `result for foreign attempt`, followed by the established mismatch rendering and post-Start suffix. Reuse typed outcomes and the single evidence implementation (0071 rulings 3, 5 and 8).
-4. Proof must independently bind each of the three call sites, preserve matching traffic and foreign-effect behavior, and show that a foreign clean review Result cannot advance review to ship immediately or on journal replay. Paired matching controls establish fixture reachability. Every new test carries an executed compiling removal control; all existing house gates and exact coverage remain unchanged (0071 rulings 4 and 9).
+4. Proof must independently bind each of the three call sites, preserve matching traffic and foreign-effect behavior, retain prior legitimate checkpoint callbacks, reject foreign failed Results as indeterminate, and show that a foreign clean review Result cannot advance review to ship immediately or on journal replay. Paired matching controls establish fixture reachability. Every new test carries an executed compiling removal control; all existing house gates and exact coverage remain unchanged (0071 rulings 4 and 9).
 
 ## Alternatives and costs
 
@@ -30,3 +30,7 @@ The stronger proof suite wins over the smallest possible test matrix: prior legi
 Conforming drivers need no migration. Drivers sending stale attempts now park; correcting those drivers is the compatibility cost. No journal rewrite, retroactive certification, automatic replay or exactly-once external execution guarantee is introduced. Frozen contracts, fixtures, reference and production policy remain unchanged. Linux and macOS are the supported hosts; production remains Rust.
 
 This proposal grants no new capability, accepts no other decision and reports no implementation validation. The operator alone accepts it. The user's explicit downstream reviewer pins apply; decision 0058's proposed top-level status remains factual. Outside-box coverage and reviewer results remain pending until obtained. No gate, denominator or refusal may be weakened to finish this repair.
+
+## Design return disposition
+
+The preceding design check rejected the declared proposal status. This revision retains 0096 as the same proposal and uses the conventional `**Status**: proposed` header. It neither accepts the decision nor creates a replacement number. The final design commit must contain the linked proposal and all three specification artifacts, clean at HEAD; the sequence check owns acceptance of that artifact shape.
