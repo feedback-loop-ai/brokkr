@@ -963,10 +963,12 @@ model the writer keeps in the journal's own file and transaction.
    measured for a two-event run whose first envelope is a mebibyte
    because its run_id is, and 4,176,455 B when that run_id carries
    escapes, against 10,604 B for the same run with a 41-byte run_id. A
-   run with no event costs its manifest twice, read and parsed as
-   `Store::load` reads it to tell it from a run the journal lacks:
-   2,097,830 B measured for a manifest of a mebibyte, against 117 B for
-   `{}`. Either way the peak stays bounded by the run's largest envelope,
+   run with no event costs its manifest, read and parsed as
+   `Store::load` reads it to tell it from a run the journal lacks, twice
+   when its text is plain and about four times when it carries escapes,
+   which the parser copies through the same scratch buffer: 2,097,833 B
+   measured for a manifest of a mebibyte of plain text and 4,194,948 B
+   for one of escaped text, against 120 B for `{}`. Either way the peak stays bounded by the run's largest envelope,
    or its manifest, never by the journal. `heap_open.rs` binds the
    long-string shape with an escaped stretch, a quote and a backslash, a run of plain text and a newline,
    in a journal of 10,000 events and one of 1,000,000: peaks equal to
