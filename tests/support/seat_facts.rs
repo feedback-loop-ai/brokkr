@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::seat::row::{
-    facts, inner, live, models, Member, Outcome, Provider, SeatFacts, SeatRow,
+    facts as facts_of, inner, live, models, Datum, Member, Outcome, Provider, SeatFacts, SeatRow,
 };
 use brokkr_view::{fmt_dur, run_view, short_target, Cell, Participant, RunView};
 
@@ -345,33 +345,56 @@ fn visits_differ(
     )
 }
 
+/// Whether the effect `facts`' participant reads concluded: the one of the
+/// request among `rows` its participant was first seen under, read from
+/// that request's rows alone, as `facts` reads a participant's effect.
+fn concluded(rows: &[SeatRow], facts: &SeatFacts) -> bool {
+    let member = match &facts.member {
+        Member::Seat => Datum::Null,
+        Member::Named(member) => Datum::Text(member.clone()),
+    };
+    let effect_id = Datum::Text(facts.effect_id.clone());
+    let keys: Vec<Vec<Datum>> = rows.iter().map(SeatRow::data).collect();
+    let home = keys
+        .iter()
+        .find(|key| key[1] == effect_id && key[3] == member);
+    let asked = rows.iter().zip(&keys);
+    let asked: Vec<SeatRow> = asked
+        .filter(|(_, key)| home.is_some_and(|home| key[0] == home[0]))
+        .map(|(row, _)| row.clone())
+        .collect();
+    let own = facts_of(&asked);
+    let mut seats = own.iter().filter(|seat| seat.member == Member::Seat);
+    seats.any(|seat| seat.outcome != Outcome::Working)
+}
+
 /// Every participant of `run`, whose journal is `events`, that the facts
 /// `rows` group into state otherwise than its run view shows it, as `run:
-/// key: field`, then the live block where `rows` show another, as `run:
-/// live`, then each phase and each visit whose lists differ, and how many
-/// participants, phases and visits were compared.
+/// key: field`, then the live block where `rows` show another and `kept`
+/// says they keep it ([`Account::seats_kept`]; a run whose rows do not
+/// reads stale, so its reader reads it whole), as `run: live`, then each
+/// phase and each visit whose lists differ, and how many participants,
+/// phases and visits were compared.
+///
+/// [`Account::seats_kept`]: brokkr_core::summary::Account::seats_kept
 pub(crate) fn disagreements(
     run: &str,
     events: &[EventEnvelope],
     rows: &[SeatRow],
+    kept: bool,
 ) -> (Vec<String>, usize) {
-    let facts = facts(rows);
+    let facts = facts_of(rows);
     let view = run_view(events, None);
     let (lists, lists_compared) = lists_differ(run, events, rows, &view);
     if facts.len() != view.participants.len() {
         let counts = (facts.len(), view.participants.len());
         return (vec![format!("{run}: {counts:?} participants")], 0);
     }
-    let concluded = |effect_id: &str| {
-        let mut seats = facts.iter().filter(|seat| seat.member == Member::Seat);
-        let seat = seats.find(|seat| seat.effect_id == effect_id);
-        seat.is_some_and(|seat| seat.outcome != Outcome::Working)
-    };
     let pairs = facts.iter().zip(&view.participants);
     let mut found: Vec<String> = pairs
         .filter_map(|(facts, participant)| {
             let start = started_at(events, participant);
-            let field = differs(facts, concluded(&facts.effect_id), participant, start)?;
+            let field = differs(facts, concluded(rows, facts), participant, start)?;
             Some(format!("{run}: {}: {field}", participant.key))
         })
         .collect();
@@ -380,7 +403,7 @@ pub(crate) fn disagreements(
         .iter()
         .map(|line| (line.label.clone(), line.text.clone()))
         .collect();
-    if live_lines(rows) != shown {
+    if kept && live_lines(rows) != shown {
         found.push(format!("{run}: live"));
     }
     found.extend(lists);

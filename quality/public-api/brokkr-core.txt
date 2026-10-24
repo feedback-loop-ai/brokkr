@@ -987,6 +987,7 @@ pub fn brokkr_core::summary::Account::head(&self) -> (u64, &str)
 pub fn brokkr_core::summary::Account::onto(self, &[brokkr_core::envelope::EventEnvelope]) -> brokkr_core::summary::Account
 pub fn brokkr_core::summary::Account::run_id(&self) -> &str
 pub fn brokkr_core::summary::Account::seats(&self) -> &[brokkr_core::seat::row::SeatRow]
+pub fn brokkr_core::summary::Account::seats_kept(&self) -> bool
 pub fn brokkr_core::summary::Account::state(&self) -> core::result::Result<&brokkr_core::fold::RunState, &brokkr_core::fold::FoldError>
 pub fn brokkr_core::summary::Account::whole(&str, &[brokkr_core::envelope::EventEnvelope]) -> brokkr_core::summary::Account
 pub struct brokkr_core::summary::Bounded

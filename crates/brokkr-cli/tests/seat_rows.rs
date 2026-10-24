@@ -28,7 +28,9 @@ fn every_fixture_s_seat_rows_read_from_the_store_as_its_participants() {
         match store.seat_rows(run).unwrap() {
             SeatRows::Current(rows) => {
                 let events = store.load(run).unwrap();
-                let (differ, count) = seat_facts::disagreements(run, &events, &rows);
+                // Rows read current only where their writer kept a seat
+                // head, which it keeps only for rows that keep the live block.
+                let (differ, count) = seat_facts::disagreements(run, &events, &rows, true);
                 found.extend(differ);
                 compared += count;
             }

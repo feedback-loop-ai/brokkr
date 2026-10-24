@@ -661,6 +661,8 @@ fn rows_carried_over_any_split_are_the_rows_read_whole() {
             let (head, tail) = events.split_at(split);
             let carried = Account::whole("run", head).onto(tail);
             assert_eq!(carried.seats(), whole.seats(), "{name} split at {split}");
+            let kept = (carried.seats_kept(), whole.seats_kept());
+            assert_eq!(kept.0, kept.1, "{name} split at {split}");
         }
     }
 }

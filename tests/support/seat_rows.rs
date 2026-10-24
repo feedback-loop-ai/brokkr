@@ -8,7 +8,9 @@
 //! sources named later, a retried sequence's steps, tags and models
 //! over two visits, and records before their effect's request and a
 //! terminal after it is asked again, each also in flight, and a member an
-//! effect asked thrice carries. brokkr-core pins each one's facts; brokkr-view holds the
+//! effect asked thrice carries, a live start naming no effect or one never
+//! asked, and a member first seen under its effect's second request.
+//! brokkr-core pins each one's facts; brokkr-view holds the
 //! same journals' facts equal to its run view. A test module includes this
 //! file through `#[path]` beside an `envelope_builder` module, the one
 //! place a test spells an envelope (#357).
@@ -699,6 +701,61 @@ pub(crate) fn carried_again() -> Vec<EventEnvelope> {
     ])
 }
 
+/// brokkr-view's journal of a start naming no effect: its record, which
+/// names none either, is its live line, under the seat of the request
+/// naming no effect, never the other request's. No row is of that start.
+pub(crate) fn effectless() -> Vec<EventEnvelope> {
+    journal(vec![
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "other", "seat": "elsewhere", "phase": "p"}),
+        ),
+        (EventType::EffectRequested, json!({"seat": "ghost"})),
+        (EventType::EffectStarted, json!({})),
+        (
+            EventType::EffectCheckpointed,
+            json!({"checkpoint": {"step": "seat-turn", "turn": 1, "tool": "Grep"}}),
+        ),
+    ])
+}
+
+/// A start of an effect no request has asked for, and its turn: its live
+/// line is under the seat `?`, and no row is of it.
+pub(crate) fn never_asked() -> Vec<EventEnvelope> {
+    journal(vec![
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "e1", "seat": "work", "phase": "work"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "e9", "attempt_id": "a"}),
+        ),
+        checkpoint(
+            "e9",
+            "a",
+            json!({"step": "seat-turn", "turn": 1, "tool": "Read"}),
+        ),
+    ])
+}
+
+/// A member first seen under its effect's second request, the first never
+/// started: the member's clock reads the second request's attempt, which
+/// concluded, though the seat's first request is still asked.
+pub(crate) fn asked_twice() -> Vec<EventEnvelope> {
+    let asked = json!({"effect_id": "e1", "seat": "work", "phase": "work"});
+    let attempt = json!({"effect_id": "e1", "attempt_id": "a"});
+    let record = json!({"member": "m", "step": "item-completed"});
+    journal(vec![
+        (EventType::EffectRequested, asked.clone()),
+        (EventType::EffectRequested, asked),
+        (EventType::EffectStarted, attempt.clone()),
+        checkpoint("e1", "a", record.clone()),
+        checkpoint("e1", "a", record),
+        (EventType::EffectSucceeded, attempt),
+    ])
+}
+
 /// Every hand-built journal, by name.
 pub(crate) fn journals() -> Vec<(&'static str, Vec<EventEnvelope>)> {
     vec![
@@ -722,5 +779,8 @@ pub(crate) fn journals() -> Vec<(&'static str, Vec<EventEnvelope>)> {
         ("again in flight", in_flight(true)),
         ("carried again", carried_again()),
         ("started unasked", started_unasked()),
+        ("effectless", effectless()),
+        ("never asked", never_asked()),
+        ("asked twice", asked_twice()),
     ]
 }

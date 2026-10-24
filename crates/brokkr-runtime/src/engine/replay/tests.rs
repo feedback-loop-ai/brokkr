@@ -16,6 +16,7 @@ fn carried_disagreements(replay: &Replay) -> Option<(Vec<String>, usize)> {
         account.run_id(),
         &replay.events,
         account.seats(),
+        account.seats_kept(),
     ))
 }
 
@@ -268,7 +269,7 @@ fn an_engine_sequence_s_rows_list_its_steps_tags_and_models_as_its_view() {
     let models: Vec<String> = models.into_iter().collect();
     assert_eq!(view.dashboard.path.len(), 1);
     assert_eq!(Some(models.join(", ")), view.dashboard.path[0].model);
-    let found = seat_facts::disagreements(&engine.run_id, &events, rows);
+    let found = seat_facts::disagreements(&engine.run_id, &events, rows, account.seats_kept());
     // Its seat, its two steps' and its panel's two members, its one phase
     // and its one visit.
     assert_eq!(found, (Vec::new(), 7));

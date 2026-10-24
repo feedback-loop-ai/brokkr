@@ -180,6 +180,18 @@ impl Seats {
         let request = self.by_effect[&effect];
         self.row(request, attempt.as_deref(), Member::Seat);
     }
+
+    /// Whether the rows keep the live block: not while the live start
+    /// names no effect, or one no request has asked for yet, which no row
+    /// is of ([`live`]).
+    pub(crate) fn keep_live(&self) -> bool {
+        match &self.aside.started {
+            Some((effect_id, _)) => effect_id
+                .as_ref()
+                .is_some_and(|effect_id| self.by_effect.contains_key(effect_id)),
+            None => true,
+        }
+    }
 }
 
 /// A live line: its label, and the last `seat-turn` under it, with its seq.
@@ -212,8 +224,10 @@ fn heard(lines: &mut Vec<Line>, label: String, turn: Option<(u64, (String, Strin
 /// effect's first request labelled by the seat `?`, and a later one by the
 /// seat the effect was last asked by that names one, else `?`; one bare
 /// line for that seat while no record of the attempt is kept; and none
-/// while no row is live. A start naming no effect, or an effect never
-/// asked, is in no row, so its block reads as none.
+/// while no row is live. A start naming no effect, or an effect not yet
+/// asked, is in no row, so its block is not kept
+/// ([`Account::seats_kept`](crate::summary::Account::seats_kept)): the
+/// writer keeps no seat head for its run, which a reader reads whole.
 pub fn live(rows: &[SeatRow]) -> Vec<(String, Option<(String, String)>)> {
     let Some(open) = rows.iter().find(|row| row.live) else {
         return Vec::new();

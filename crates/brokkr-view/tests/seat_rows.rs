@@ -21,7 +21,8 @@ mod seat_facts;
 
 /// What `seat_facts::disagreements` finds of `run`'s account read whole.
 fn disagreements(run: &str, events: &[EventEnvelope]) -> (Vec<String>, usize) {
-    seat_facts::disagreements(run, events, Account::whole(run, events).seats())
+    let account = Account::whole(run, events);
+    seat_facts::disagreements(run, events, account.seats(), account.seats_kept())
 }
 
 #[test]
@@ -48,5 +49,23 @@ fn every_hand_built_journal_s_seat_rows_read_as_its_participants() {
         compared += count;
     }
     assert_eq!(found, Vec::<String>::new());
-    assert_eq!(compared, 64);
+    assert_eq!(compared, 68);
+}
+
+/// The rows of a run whose live start names no effect or one never asked
+/// do not keep its live block, so they read stale and the run view is read
+/// whole; every other journal's rows keep it, every committed one's too.
+#[test]
+fn only_a_live_start_no_row_is_of_leaves_its_rows_unkept() {
+    let committed = committed_journals::committed_journals();
+    let committed = committed
+        .into_iter()
+        .map(|(_, events)| ("committed", events));
+    let unkept: Vec<&str> = journals::journals()
+        .into_iter()
+        .chain(committed)
+        .filter(|(_, events)| !Account::whole("run", events).seats_kept())
+        .map(|(name, _)| name)
+        .collect();
+    assert_eq!(unkept, ["effectless", "never asked"]);
 }

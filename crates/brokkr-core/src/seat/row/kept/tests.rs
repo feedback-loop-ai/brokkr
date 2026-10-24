@@ -15,7 +15,7 @@ fn every_hand_built_row_reads_back_from_its_data() {
             read += 1;
         }
     }
-    assert_eq!(read, 80);
+    assert_eq!(read, 86);
 }
 
 #[test]

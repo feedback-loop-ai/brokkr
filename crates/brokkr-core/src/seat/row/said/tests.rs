@@ -267,3 +267,33 @@ fn a_participant_s_facts_carry_its_last_turn_finish_and_session() {
         )
     );
 }
+
+/// The rows keep the live block unless the live start, unended, names no
+/// effect or one not yet asked: a request of its effect after it, a
+/// terminal naming its effect and attempt, or a later start of an asked
+/// effect keeps it again.
+#[test]
+fn a_live_start_no_row_is_of_leaves_the_rows_unkept() {
+    let started = |payload: serde_json::Value| (EventType::EffectStarted, payload);
+    let ended = |payload: serde_json::Value| (EventType::EffectSucceeded, payload);
+    let one = json!({"effect_id": "p", "attempt_id": "one"});
+    let journals = [
+        vec![],
+        vec![asked(), started(one.clone())],
+        vec![started(one.clone())],
+        vec![started(one.clone()), asked()],
+        vec![started(one.clone()), ended(one.clone())],
+        vec![started(json!({}))],
+        vec![started(json!({})), ended(json!({}))],
+        vec![started(json!({})), asked(), started(one.clone())],
+        vec![asked(), started(one), started(json!({"effect_id": "q"}))],
+    ];
+    let kept: Vec<bool> = journals
+        .into_iter()
+        .map(|events| Account::whole("run", &journal(events)).seats_kept())
+        .collect();
+    assert_eq!(
+        kept,
+        [true, true, false, true, true, false, true, true, false]
+    );
+}

@@ -136,6 +136,43 @@ fn a_checkpoint_append_writes_the_rows_it_moved_and_the_seat_head() {
     assert_eq!(read(&store, "r").len(), 3);
 }
 
+/// A run whose live start names an effect no request has asked for keeps
+/// no seat head, its rows not keeping that start's live block: they read
+/// stale, and the binding holds them to their fold all the same, an edited
+/// row or a seat head kept for them named behind. A writable open refolds
+/// the run and keeps none still. The terminal ending that start keeps the
+/// head again, every row its fold's.
+#[test]
+fn a_live_start_no_row_is_of_keeps_no_seat_head() {
+    let (_dir, mut store) = store();
+    seated(&mut store, "r");
+    let unasked = json!({"effect_id": "other", "attempt_id": "b"});
+    append(&mut store, "r", EventType::EffectStarted, unasked.clone());
+    assert_eq!(head(&store, "r"), None);
+    assert_eq!(read_raw(&store, "r"), 2);
+    assert_eq!(store.seat_rows("r").unwrap(), SeatRows::Stale);
+    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+    let behind = ["r: seat rows behind its head"];
+    sql(
+        &store,
+        "UPDATE seat_summary SET seat = 'x' WHERE opened = 0",
+    );
+    assert_eq!(every_run_reads_as_its_fold(&store), behind);
+    sql(
+        &store,
+        "UPDATE seat_summary SET seat = 'worker' WHERE opened = 0",
+    );
+    let (seq, hash) = store.head_hash("r").unwrap();
+    write_head(&store.conn, "r", (seq, &hash)).unwrap();
+    assert_eq!(every_run_reads_as_its_fold(&store), behind);
+    sql(&store, "DELETE FROM seat_head WHERE run_id = 'r'");
+    let peer = Store::open(store.path()).unwrap();
+    assert_eq!(head(&peer, "r"), None);
+    append(&mut store, "r", EventType::EffectSucceeded, unasked);
+    assert_eq!(head(&store, "r"), Some(store.head_hash("r").unwrap()));
+    assert_eq!(read(&store, "r"), folded_rows(&store, "r"));
+}
+
 /// An append through a store that carries no fold writes no seat row and
 /// leaves the seat head behind; so does one whose fold stands at another
 /// head than the append found, and the rows read as stale.
