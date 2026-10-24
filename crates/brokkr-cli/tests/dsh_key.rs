@@ -98,24 +98,43 @@ impl DshHost {
              credentials service"
         )
     }
+
+    /// What a check asks past the environment where no source answers.
+    fn everything(&self) -> String {
+        let (root, home) = (self.repo.root.display(), self.home.display());
+        format!(
+            "then looked up {root}/.env and {home}/.env by name, unread, then read \
+             {home}/profiles/headless/cordis.patch.yml then {home}/cordis.patch.yml for dsh's \
+             credentials row"
+        )
+    }
 }
 
-/// The served-home caveat of a `route` reading `variable`, as printed.
-fn caveat(route: &str, variable: &str) -> String {
-    format!(
-        "dsh home {route}: this check read the operator's dsh home: {variable}'s presence where \
-         brokkr runs, the profile and home patches, and each .env by name, unread; Brokkr can't \
-         yet tell whether it serves this route from its own engine-only home (decision 0065), \
-         which reads neither patch nor the home's .env, so past the environment this check \
-         can't confirm the key reaches a seat served there"
-    )
+/// The served-home caveat of a `route` reading `variable`, as printed:
+/// `past` what its check asked after the environment, none where the
+/// environment gave the key.
+fn caveat(route: &str, variable: &str, past: Option<&str>) -> String {
+    let unknown = "Brokkr can't yet tell whether it serves this route from its own engine-only \
+                   home (decision 0065), which reads neither patch nor the home's .env";
+    match past {
+        None => format!(
+            "dsh home {route}: this check asked only whether {variable} is set where brokkr runs, \
+             and nothing of the operator's dsh home; {unknown}"
+        ),
+        Some(past) => format!(
+            "dsh home {route}: this check asked whether {variable} is set where brokkr runs, \
+             {past}; {unknown}, so past the environment this check can't confirm the key reaches \
+             a seat served there"
+        ),
+    }
 }
 
 #[test]
 fn init_and_doctor_name_an_unreached_key_with_both_remedies() {
     let host = DshHost::new();
     let detail = host.unreached("DEEPSEEK_API_KEY");
-    let served = caveat("deepseek-official", "DEEPSEEK_API_KEY");
+    let everything = host.everything();
+    let served = caveat("deepseek-official", "DEEPSEEK_API_KEY", Some(&everything));
     assert_eq!(
         host.init(None),
         [
@@ -141,17 +160,20 @@ fn a_key_each_source_names_is_reached_and_its_value_never_printed() {
     let reached = |through: &str| {
         format!("dsh key deepseek-official: dsh reaches DEEPSEEK_API_KEY {through}")
     };
-    let served = caveat("deepseek-official", "DEEPSEEK_API_KEY");
+    let served = |past: Option<&str>| caveat("deepseek-official", "DEEPSEEK_API_KEY", past);
     let environment = reached("through the launching environment");
     assert_eq!(
         host.init(Some(PLANTED)),
-        [environment.clone(), served.clone()]
+        [environment.clone(), served(None)]
     );
-    let warned = format!("warn     {served}");
     assert_eq!(
         host.doctor(Some(PLANTED)).0,
-        [format!("ok       {environment}"), warned.clone()]
+        [
+            format!("ok       {environment}"),
+            format!("warn     {}", served(None))
+        ]
     );
+    let warned = format!("warn     {}", served(Some(&host.everything())));
     // A key only the operator's home gives depends on the home that serves
     // the seat, so it warns and is never ok.
     let patch = host.home.join("profiles/headless/cordis.patch.yml");
@@ -193,7 +215,18 @@ fn a_key_each_source_names_is_reached_and_its_value_never_printed() {
                  it can't confirm DEEPSEEK_API_KEY is in it",
                 env.display()
             ),
-            warned.clone(),
+            // The check stops at the first `.env` present, before any patch.
+            format!(
+                "warn     {}",
+                served(Some(&match env == in_repo {
+                    true => format!("then looked up {} by name, unread", env.display()),
+                    false => format!(
+                        "then looked up {} and {} by name, unread",
+                        in_repo.display(),
+                        env.display()
+                    ),
+                }))
+            ),
         ];
         untold.extend((env == in_repo).then(|| {
             format!(
@@ -226,13 +259,16 @@ fn every_route_carries_the_served_home_caveat() {
         (
             vec![
                 format!("MISSING  dsh key dashscope: {detail}"),
-                format!("warn     {}", caveat("dashscope", "DASHSCOPE_API_KEY")),
+                format!(
+                    "warn     {}",
+                    caveat("dashscope", "DASHSCOPE_API_KEY", Some(&host.everything()))
+                ),
                 "ok       dsh key deepseek-official: dsh reaches DEEPSEEK_API_KEY through the \
                  launching environment"
                     .to_string(),
                 format!(
                     "warn     {}",
-                    caveat("deepseek-official", "DEEPSEEK_API_KEY")
+                    caveat("deepseek-official", "DEEPSEEK_API_KEY", None)
                 ),
                 "warn     dsh key meta: the dsh adapter names no credential variable for this \
                  route, so whether dsh reaches a key for it is unknown; declare one under the \

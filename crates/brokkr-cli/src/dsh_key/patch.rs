@@ -11,10 +11,24 @@
 //! marker or any other line is not read past: the layer answers "can't
 //! tell" naming the line's number, never its text, so a row this reader
 //! does not see can never answer ok.
+//!
+//! A layer's name is looked up without following a link, and a symlink in
+//! its place is refused unread, so a patch path that names a credentials
+//! file is never opened (#717, fix round 717d4). The one open refuses a
+//! link too, `O_NOFOLLOW`, so one swapped in after the lookup fails to
+//! open; it does not wait, `O_NONBLOCK`, so a FIFO swapped in is never
+//! waited on; and only what `fstat` tells a regular file on that one
+//! descriptor is read. The follow-up that retires this reader for
+//! brokkr-protocol's must carry the same guard: `route_overlay.rs` looks a
+//! route file up with `std::fs::metadata` and reads it with
+//! `std::fs::read`, both of which follow a link.
 
 use std::fmt;
 use std::io::Read;
 use std::path::Path;
+
+use rustix::fs::{FileType, Mode, OFlags};
+use rustix::io::Errno;
 
 /// The row a patch writes to switch dsh's credentials service on or off.
 pub(super) const SERVICE: &str = "credentials";
@@ -35,6 +49,8 @@ pub(crate) enum Write {
 /// and names a line by its number alone.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Unread {
+    /// A symlink in the layer's place, which is never followed.
+    Link,
     NotAFile,
     Io(std::io::ErrorKind),
     TooLarge,
@@ -52,6 +68,7 @@ pub(crate) enum Unread {
 impl fmt::Display for Unread {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Unread::Link => write!(f, "it is a symbolic link, which Brokkr never follows"),
             Unread::NotAFile => write!(f, "it is not a regular file"),
             Unread::Io(kind) => write!(f, "it cannot be read ({kind})"),
             Unread::TooLarge => write!(f, "it is over {LIMIT} bytes"),
@@ -82,26 +99,53 @@ pub(super) fn layer(path: &Path) -> Result<Option<Write>, Unread> {
     }
 }
 
-/// The layer's text, `None` where no file is there. Only a regular file is
-/// opened, so a FIFO or a device in its place is never waited on.
+/// The layer's text, `None` where no file is there. Its name is looked up
+/// without following a link, and only a regular file is [`opened`], so a
+/// symlink, a FIFO or a device in its place is never opened.
 fn read(path: &Path) -> Result<Option<String>, Unread> {
     let io = |error: std::io::Error| Unread::Io(error.kind());
-    let metadata = match std::fs::metadata(path) {
+    let metadata = match std::fs::symlink_metadata(path) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         found => found.map_err(io)?,
     };
+    if metadata.is_symlink() {
+        return Err(Unread::Link);
+    }
     if !metadata.is_file() {
         return Err(Unread::NotAFile);
     }
     let mut bytes = Vec::new();
-    let file = std::fs::File::open(path);
-    (file.and_then(|file| file.take(LIMIT + 1).read_to_end(&mut bytes))).map_err(io)?;
+    let file = opened(path)?;
+    file.take(LIMIT + 1).read_to_end(&mut bytes).map_err(io)?;
     if bytes.len() as u64 > LIMIT {
         return Err(Unread::TooLarge);
     }
     String::from_utf8(bytes)
         .map(Some)
         .map_err(|_| Unread::NotUtf8)
+}
+
+/// `path` opened for reading where it is a regular file reached without
+/// following a link, judged by `fstat` on the one descriptor that is read:
+/// a link swapped in after [`read`]'s lookup fails to open, and a FIFO
+/// swapped in opens without waiting and is refused unread.
+pub(super) fn opened(path: &Path) -> Result<std::fs::File, Unread> {
+    let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
+    let file = rustix::fs::open(path, flags, Mode::empty()).map_err(unread)?;
+    let held = rustix::fs::fstat(&file).map_err(unread)?;
+    if FileType::from_raw_mode(held.st_mode) != FileType::RegularFile {
+        return Err(Unread::NotAFile);
+    }
+    Ok(std::fs::File::from(file))
+}
+
+/// Why an open or `fstat` failed: `ELOOP` is the link `O_NOFOLLOW` refused
+/// (Linux and macOS both answer it).
+fn unread(errno: Errno) -> Unread {
+    match errno {
+        Errno::LOOP => Unread::Link,
+        errno => Unread::Io(std::io::Error::from(errno).kind()),
+    }
 }
 
 /// One top-level row: the line it opens on, its id and what it writes of

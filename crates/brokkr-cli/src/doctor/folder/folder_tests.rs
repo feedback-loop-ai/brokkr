@@ -455,7 +455,7 @@ fn each_personal_recipe_is_a_line_that_never_fails_the_report() {
 /// `.env`, after what the report already held.
 #[test]
 fn each_dsh_key_answer_takes_its_status_column() {
-    use crate::dsh_key::{Line, Off, Reach, Source, Untold};
+    use crate::dsh_key::{Asked, Line, Off, Reach, Source, Untold};
     let (route, variable) = (String::from("r"), String::from("V"));
     let reached = |source| {
         Line::Key(Reach::Reached {
@@ -477,11 +477,15 @@ fn each_dsh_key_answer_takes_its_status_column() {
         }),
         Line::Served {
             route: route.clone(),
-            variable: Some(variable.clone()),
+            asked: Some(Asked {
+                variable: variable.clone(),
+                files: Vec::new(),
+                patches: Vec::new(),
+            }),
         },
         Line::Served {
             route: route.clone(),
-            variable: None,
+            asked: None,
         },
         Line::Workdir(PathBuf::from("/repo/.env")),
         Line::Key(Reach::Unreached {

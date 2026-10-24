@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use serde_json::json;
 
-use super::patch::{layer, writes, Unread, Write};
+use super::patch::{layer, opened, writes, Unread, Write};
 use super::*;
 
 /// What a planted key holds: a line carrying it is a leak.
@@ -95,7 +95,7 @@ impl Planted {
     /// [`within_bound`].
     fn lines_within_bound(&self, set: fn(&str) -> bool) -> Vec<Line> {
         let (adapters, repo, home) = (self.adapters.clone(), self.repo.clone(), self.home.clone());
-        within_bound(move || with_caveats(answers(&adapters, &repo, &home, set), &repo))
+        within_bound(move || with_caveats(asked(&adapters, &repo, Ok(home), set), &repo))
     }
 }
 
@@ -111,12 +111,19 @@ fn within_bound<T: Send + 'static>(check: impl FnOnce() -> T + Send + 'static) -
 
 /// The check's answers for a folder's `adapters`, `repo` and dsh `home`.
 fn answers(adapters: &Path, repo: &Path, home: &Path, set: fn(&str) -> bool) -> Vec<Reach> {
-    let sources = Sources {
-        set,
-        repo,
-        home: Ok(home.to_path_buf()),
-    };
-    in_folder(adapters, &sources)
+    let answers = asked(adapters, repo, Ok(home.to_path_buf()), set);
+    answers.into_iter().map(|(reach, _)| reach).collect()
+}
+
+/// [`answers`] with what each route's check asked, `home` dsh's home or
+/// why none was resolved.
+fn asked(
+    adapters: &Path,
+    repo: &Path,
+    home: Result<PathBuf, CompositeError>,
+    set: fn(&str) -> bool,
+) -> Vec<(Reach, Option<Asked>)> {
+    in_folder(adapters, &Sources { set, repo, home })
 }
 
 fn unset(_: &str) -> bool {
@@ -366,6 +373,7 @@ fn a_patch_layer_is_read_only_from_a_bounded_utf8_regular_file() {
         assert_eq!(layer(&patch), denied);
     }
     let words: Vec<String> = [
+        Unread::Link,
         Unread::NotAFile,
         Unread::Io(std::io::ErrorKind::NotADirectory),
         Unread::TooLarge,
@@ -380,6 +388,7 @@ fn a_patch_layer_is_read_only_from_a_bounded_utf8_regular_file() {
     assert_eq!(
         words,
         [
+            "it is a symbolic link, which Brokkr never follows",
             "it is not a regular file",
             "it cannot be read (not a directory)",
             "it is over 65536 bytes",
@@ -388,6 +397,115 @@ fn a_patch_layer_is_read_only_from_a_bounded_utf8_regular_file() {
             "the row on line 2 names no id",
             "line 2 gives `disabled` a value other than true or false",
         ]
+    );
+}
+
+/// A patch layer symlinked to a credentials file is untold at either
+/// layer and never followed: the lookup refuses the link, and one swapped
+/// in after the lookup fails to open. A hard link is a regular file, read
+/// and refused at its first line, which is never echoed.
+#[test]
+fn a_patch_layer_symlinked_to_a_dotenv_is_untold_and_never_opened() {
+    let planted = Planted::scaffold();
+    let credentials = planted.repo.with_file_name("credentials");
+    std::fs::create_dir(&credentials).unwrap();
+    let dotenv = credentials.join(".env");
+    planted.write(&dotenv, &format!("DEEPSEEK_API_KEY={PLANTED}\n"));
+    for patch in [planted.profile(), planted.home_patch()] {
+        std::os::unix::fs::symlink(&dotenv, &patch).unwrap();
+        let answers = planted.reaches_within_bound();
+        assert_eq!(answers, untold(Untold::Patch(patch.clone(), Unread::Link)));
+        assert_eq!(
+            lines(&answers),
+            [format!(
+                "dsh key deepseek-official: DEEPSEEK_API_KEY is not set in the launching \
+                 environment and no .env file dsh reads is present, but whether a patch \
+                 re-enables dsh's credentials service can't be told: {}: it is a symbolic link, \
+                 which Brokkr never follows",
+                patch.display()
+            )]
+        );
+        assert_eq!(opened(&patch).err(), Some(Unread::Link));
+        std::fs::remove_file(&patch).unwrap();
+    }
+    std::fs::hard_link(&dotenv, planted.home_patch()).unwrap();
+    let answers = planted.reaches_within_bound();
+    let refused = Untold::Patch(planted.home_patch(), Unread::Line(1));
+    assert_eq!(lines(&answers).len(), 1);
+    assert_eq!(answers, untold(refused));
+}
+
+/// A patch layer symlinked to a FIFO returns at once, and a FIFO swapped
+/// in after the lookup opens without waiting and is refused unread.
+#[test]
+fn a_patch_layer_symlinked_to_or_swapped_for_a_fifo_returns_at_once() {
+    let planted = Planted::scaffold();
+    let pipe = planted.repo.with_file_name("pipe");
+    fifo(&pipe);
+    std::os::unix::fs::symlink(&pipe, planted.home_patch()).unwrap();
+    assert_eq!(
+        planted.reaches_within_bound(),
+        untold(Untold::Patch(planted.home_patch(), Unread::Link))
+    );
+    let swapped = within_bound(move || opened(&pipe).err());
+    assert_eq!(swapped, Some(Unread::NotAFile));
+}
+
+/// Each route's caveat names only what its check asked: every source past
+/// the environment where none answers, the `.env` names up to the first
+/// present one and no patch, or the patches up to one that cannot be read.
+#[test]
+fn each_caveat_says_only_what_its_route_asked() {
+    let planted = Planted::scaffold();
+    let (repo_env, home_env) = (planted.repo.join(".env"), planted.home.join(".env"));
+    let (profile, home_patch) = (planted.profile(), planted.home_patch());
+    let caveat = |planted: &Planted| {
+        let lines = planted.lines_within_bound(unset);
+        let detail = lines[1].detail();
+        let Line::Served { asked, .. } = &lines[1] else {
+            panic!("{lines:?}")
+        };
+        let asked = asked.as_ref().unwrap();
+        ((asked.files.clone(), asked.patches.clone()), detail)
+    };
+    let unknown = "Brokkr can't yet tell whether it serves this route from its own engine-only \
+                   home (decision 0065), which reads neither patch nor the home's .env, so past \
+                   the environment this check can't confirm the key reaches a seat served there";
+    assert_eq!(
+        caveat(&planted),
+        (
+            (
+                vec![repo_env.clone(), home_env.clone()],
+                vec![profile.clone(), home_patch.clone()]
+            ),
+            format!(
+                "this check asked whether DEEPSEEK_API_KEY is set where brokkr runs, then looked \
+                 up {} and {} by name, unread, then read {} then {} for dsh's credentials row; \
+                 {unknown}",
+                repo_env.display(),
+                home_env.display(),
+                profile.display(),
+                home_patch.display()
+            )
+        )
+    );
+    planted.write(&repo_env, &format!("DEEPSEEK_API_KEY={PLANTED}\n"));
+    assert_eq!(
+        caveat(&planted),
+        (
+            (vec![repo_env.clone()], Vec::new()),
+            format!(
+                "this check asked whether DEEPSEEK_API_KEY is set where brokkr runs, then looked \
+                 up {} by name, unread; {unknown}",
+                repo_env.display()
+            )
+        )
+    );
+    std::fs::remove_file(&repo_env).unwrap();
+    planted.write(&profile, "not: a: row\n");
+    assert_eq!(
+        caveat(&planted).0,
+        (vec![repo_env, home_env], vec![profile])
     );
 }
 
@@ -466,12 +584,18 @@ fn with_no_dsh_home_only_the_repository_is_asked_and_the_cause_is_named() {
     let planted = Planted::scaffold();
     planted.write(&planted.home.join(".env"), "DEEPSEEK_API_KEY=x\n");
     let cause = CompositeError::Config("no dsh home: set DSH_HOME or HOME".to_string());
-    let sources = Sources {
-        set: unset,
-        repo: &planted.repo,
-        home: Err(cause),
-    };
-    let answers = in_folder(&planted.adapters, &sources);
+    let answers = asked(&planted.adapters, &planted.repo, Err(cause), unset);
+    // Only the repository's `.env` is looked up, and no patch is read.
+    let (reach, asked) = answers.into_iter().next().unwrap();
+    assert_eq!(
+        asked,
+        Some(Asked {
+            variable: "DEEPSEEK_API_KEY".into(),
+            files: vec![planted.repo.join(".env")],
+            patches: Vec::new(),
+        })
+    );
+    let answers = [reach];
     assert_eq!(
         lines(&answers),
         [format!(
@@ -558,9 +682,15 @@ fn each_route_carries_the_served_home_caveat_and_a_workdir_dotenv_warns() {
     let key = |route: &str, variable: &str| {
         let source = Source::Environment;
         let (route, variable) = (route.to_string(), variable.to_string());
+        // A key the environment gives stops the check there.
+        let asked = Asked {
+            variable: variable.clone(),
+            files: Vec::new(),
+            patches: Vec::new(),
+        };
         let served = Line::Served {
             route: route.clone(),
-            variable: Some(variable.clone()),
+            asked: Some(asked),
         };
         [
             Line::Key(Reach::Reached {
@@ -578,7 +708,7 @@ fn each_route_carries_the_served_home_caveat_and_a_workdir_dotenv_warns() {
     let [deepseek, deepseek_served] = key("deepseek-official", "DEEPSEEK_API_KEY");
     let undeclared_served = Line::Served {
         route: "meta".into(),
-        variable: None,
+        asked: None,
     };
     let mut expected = vec![
         dashscope,
@@ -607,12 +737,10 @@ fn each_route_carries_the_served_home_caveat_and_a_workdir_dotenv_warns() {
     assert_eq!(
         printed,
         [
-            "dsh home deepseek-official: this check read the operator's dsh home: \
-             DEEPSEEK_API_KEY's presence where brokkr runs, the profile and home patches, and \
-             each .env by name, unread; Brokkr can't yet tell whether it serves this route from \
-             its own engine-only home (decision 0065), which reads neither patch nor the home's \
-             .env, so past the environment this check can't confirm the key reaches a seat \
-             served there"
+            "dsh home deepseek-official: this check asked only whether DEEPSEEK_API_KEY is set \
+             where brokkr runs, and nothing of the operator's dsh home; Brokkr can't yet tell \
+             whether it serves this route from its own engine-only home (decision 0065), which \
+             reads neither patch nor the home's .env"
                 .to_string(),
             "dsh home meta: this check asked nothing of the operator's dsh home, since no \
              variable is named for this route; Brokkr can't yet tell whether it serves this \

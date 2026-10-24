@@ -42,11 +42,10 @@
 //! brokkr-protocol alone, by private items, so it is not modelled here
 //! (the operator's ruling of 2026-10-24 on fix round 717d2's block, option
 //! (b)). Until it is, every route carries [`Line::Served`], which says what
-//! was read of the operator's home (nothing, for a route that names no
+//! that route's check asked ([`Asked`]; nothing, for a route that names no
 //! variable) and that the serving home can't yet be told; a key only the
-//! operator's home gives warns rather
-//! than reads ok, and a `<repo>/.env` beside the folder's dsh seats warns
-//! as [`Line::Workdir`].
+//! operator's home gives warns rather than reads ok, and a `<repo>/.env`
+//! beside the folder's dsh seats warns as [`Line::Workdir`].
 //!
 //! The follow-up, once U8h has merged: brokkr-protocol makes public a
 //! pure served-home decision and a side-effect-free workdir `.env` check,
@@ -177,17 +176,28 @@ impl Reach {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Line {
     Key(Reach),
-    /// Whether the route's seats are served from the operator's home,
-    /// which the check read for `variable`, or from an engine-only one,
-    /// can't yet be told; `variable` is none where the route names none,
-    /// so nothing of the home was asked.
+    /// Whether the route's seats are served from the operator's home, or
+    /// from an engine-only one, can't yet be told; `asked` is what the
+    /// route's check asked, none where the route names no variable.
     Served {
         route: String,
-        variable: Option<String>,
+        asked: Option<Asked>,
     },
     /// A `.env` in the repository the folder's dsh seats run in, present
     /// and never opened, which an engine-only home refuses to launch with.
     Workdir(PathBuf),
+}
+
+/// What one route's check asked, in dsh's order, each source only where
+/// none before it answered.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Asked {
+    /// The variable asked of the launching environment.
+    pub(crate) variable: String,
+    /// Each `.env` name looked up after it, never opened.
+    pub(crate) files: Vec<PathBuf>,
+    /// Each patch layer read after those for its `credentials` row.
+    pub(crate) patches: Vec<PathBuf>,
 }
 
 impl Line {
@@ -204,7 +214,7 @@ impl Line {
     pub(crate) fn detail(&self) -> String {
         match self {
             Line::Key(reach) => reach.detail(),
-            Line::Served { variable, .. } => served(variable.as_deref()),
+            Line::Served { asked, .. } => served(asked.as_ref()),
             Line::Workdir(file) => format!(
                 "{} is present, unread: if Brokkr serves a dsh seat from its own engine-only home \
                  (decision 0065), it refuses that launch, since dsh would read the file for a key",
@@ -227,24 +237,47 @@ impl Source {
     }
 }
 
-/// The served-home caveat's words: what was read of the operator's home
-/// for `variable`, or that nothing was where the route names none, and
-/// that the home serving the route can't yet be told.
-fn served(variable: Option<&str>) -> String {
+/// The served-home caveat's words: only what the route's check `asked`,
+/// or that nothing was where the route names no variable, and that the
+/// home serving the route can't yet be told.
+fn served(asked: Option<&Asked>) -> String {
     let unknown = "Brokkr can't yet tell whether it serves this route from its own engine-only \
                    home (decision 0065), which reads neither patch nor the home's .env";
-    match variable {
-        Some(variable) => format!(
-            "this check read the operator's dsh home: {}'s presence where brokkr runs, the \
-             profile and home patches, and each .env by name, unread; {unknown}, so past the \
-             environment this check can't confirm the key reaches a seat served there",
-            Safe::new(variable).as_str()
-        ),
-        None => format!(
+    let Some(asked) = asked else {
+        return format!(
             "this check asked nothing of the operator's dsh home, since no variable is named \
              for this route; {unknown}"
-        ),
+        );
+    };
+    let environment = format!(
+        "whether {} is set where brokkr runs",
+        Safe::new(&asked.variable).as_str()
+    );
+    if asked.files.is_empty() {
+        return format!(
+            "this check asked only {environment}, and nothing of the operator's dsh home; \
+             {unknown}"
+        );
     }
+    let joined = |paths: &[PathBuf], by: &str| {
+        let paths: Vec<String> = paths
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect();
+        paths.join(by)
+    };
+    let patches = match asked.patches.as_slice() {
+        [] => String::new(),
+        patches => format!(
+            ", then read {} for dsh's credentials row",
+            joined(patches, " then ")
+        ),
+    };
+    format!(
+        "this check asked {environment}, then looked up {} by name, unread{patches}; {unknown}, \
+         so past the environment this check can't confirm the key reaches a seat served there",
+        joined(&asked.files, " and ")
+    )
 }
 
 /// An untold route's words: what could not be told, and why.
@@ -325,37 +358,31 @@ pub(crate) fn of_folder(adapters: &Path, repo: &Path) -> Vec<Line> {
     with_caveats(in_folder(adapters, &sources), repo)
 }
 
-/// Each of `reaches` followed by its [`Line::Served`] caveat, then a `.env`
+/// Each of `answers` followed by its [`Line::Served`] caveat, then a `.env`
 /// present in `repo`, looked up by name alone, as [`Line::Workdir`]; none
 /// where no route was answered.
-fn with_caveats(reaches: Vec<Reach>, repo: &Path) -> Vec<Line> {
-    if reaches.is_empty() {
+fn with_caveats(answers: Vec<(Reach, Option<Asked>)>, repo: &Path) -> Vec<Line> {
+    if answers.is_empty() {
         return Vec::new();
     }
     let workdir = Some(repo.join(".env")).filter(|file| present(file));
     let mut lines = Vec::new();
-    for reach in reaches {
-        let (route, variable) = match &reach {
-            Reach::Reached {
-                route, variable, ..
-            }
-            | Reach::Untold {
-                route, variable, ..
-            }
-            | Reach::Unreached {
-                route, variable, ..
-            } => (route.clone(), Some(variable.clone())),
-            Reach::Undeclared { route } => (route.clone(), None),
-        };
+    for (reach, asked) in answers {
+        let (Reach::Reached { route, .. }
+        | Reach::Untold { route, .. }
+        | Reach::Unreached { route, .. }
+        | Reach::Undeclared { route }) = &reach;
+        let route = route.clone();
         lines.push(Line::Key(reach));
-        lines.push(Line::Served { route, variable });
+        lines.push(Line::Served { route, asked });
     }
     lines.extend(workdir.map(Line::Workdir));
     lines
 }
 
-/// [`of_folder`] over injected sources.
-pub(crate) fn in_folder(adapters: &Path, sources: &Sources<'_>) -> Vec<Reach> {
+/// [`of_folder`] over injected sources: each route's answer and what its
+/// check asked.
+pub(crate) fn in_folder(adapters: &Path, sources: &Sources<'_>) -> Vec<(Reach, Option<Asked>)> {
     Adapters::load(adapters)
         .map(|loaded| {
             let dsh = loaded.adapter("dsh");
@@ -414,46 +441,62 @@ fn routes(adapter: &Adapter) -> BTreeMap<&str, Option<&str>> {
     routes
 }
 
-/// Each of `adapter`'s routes, answered against `sources`.
-pub(crate) fn reaches(adapter: &Adapter, sources: &Sources<'_>) -> Vec<Reach> {
+/// Each of `adapter`'s routes, answered against `sources`, with what its
+/// check asked.
+pub(crate) fn reaches(adapter: &Adapter, sources: &Sources<'_>) -> Vec<(Reach, Option<Asked>)> {
     routes(adapter)
         .into_iter()
         .map(|(route, variable)| match variable {
-            Some(variable) => reach(route.to_string(), variable.to_string(), sources),
-            None => Reach::Undeclared {
-                route: route.to_string(),
-            },
+            Some(variable) => {
+                let (reach, asked) = reach(route.to_string(), variable.to_string(), sources);
+                (reach, Some(asked))
+            }
+            None => {
+                let route = route.to_string();
+                (Reach::Undeclared { route }, None)
+            }
         })
         .collect()
 }
 
 /// One route's answer, each source in dsh's order: the environment, each
-/// `.env` dsh reads, then the patch layers of the home.
-fn reach(route: String, variable: String, sources: &Sources<'_>) -> Reach {
+/// `.env` dsh reads, then the patch layers of the home; and what was asked
+/// before a source answered.
+fn reach(route: String, variable: String, sources: &Sources<'_>) -> (Reach, Asked) {
+    let mut asked = Asked {
+        variable: variable.clone(),
+        files: Vec::new(),
+        patches: Vec::new(),
+    };
     if (sources.set)(&variable) {
         let source = Source::Environment;
-        return Reach::Reached {
+        let reach = Reach::Reached {
             route,
             variable,
             source,
         };
+        return (reach, asked);
     }
     let files: Vec<PathBuf> = std::iter::once(sources.repo.join(".env"))
         .chain(sources.home.as_ref().ok().map(|home| home.join(".env")))
         .collect();
-    if let Some(file) = files.iter().find(|file| present(file)) {
-        let why = Untold::Dotenv(file.clone());
-        return Reach::Untold {
-            route,
-            variable,
-            why,
-        };
+    for file in &files {
+        asked.files.push(file.clone());
+        if present(file) {
+            let why = Untold::Dotenv(file.clone());
+            let reach = Reach::Untold {
+                route,
+                variable,
+                why,
+            };
+            return (reach, asked);
+        }
     }
     let service = match &sources.home {
-        Ok(home) => service(home),
+        Ok(home) => service(home, &mut asked.patches),
         Err(cause) => Service::Unhomed(cause.clone()),
     };
-    match service {
+    let reach = match service {
         Service::On(patch) => Reach::Reached {
             route,
             variable,
@@ -476,7 +519,8 @@ fn reach(route: String, variable: String, sources: &Sources<'_>) -> Reach {
             variable,
             why,
         },
-    }
+    };
+    (reach, asked)
 }
 
 /// What a seat's patch layers leave of dsh's credentials service.
@@ -491,14 +535,16 @@ enum Service {
 }
 
 /// What `home`'s patch layers leave of dsh's credentials service, each
-/// read in dsh's order and the last write winning.
-fn service(home: &Path) -> Service {
+/// read in dsh's order, each pushed onto `read` as it is, and the last
+/// write winning.
+fn service(home: &Path, read: &mut Vec<PathBuf>) -> Service {
     let profile = home
         .join("profiles")
         .join("headless")
         .join("cordis.patch.yml");
     let mut state = Service::Off(Off::Shipped(profile.clone()));
     for layer in [profile, home.join("cordis.patch.yml")] {
+        read.push(layer.clone());
         state = match patch::layer(&layer) {
             Err(unread) => return Service::Untold(Untold::Patch(layer, unread)),
             Ok(Some(Write::Enables)) => Service::On(layer),
