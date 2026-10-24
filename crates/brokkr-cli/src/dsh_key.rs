@@ -366,9 +366,10 @@ fn set_and_not_empty(name: &str) -> bool {
     };
     // SAFETY: `name` is NUL-terminated and outlives the call. `getenv`
     // returns null or a pointer to a NUL-terminated value inside the
-    // process's environment, so its first byte is readable. brokkr-cli
-    // never writes its own environment (it calls no `set_var` or
-    // `remove_var`), so no write can move the value while it is read.
+    // process's environment, so its first byte is readable. brokkr-cli's
+    // production code never writes its own environment, and a test writes
+    // it only through `EnvGuard` (tests/support/env_guard.rs), so no write
+    // can move the value while it is read.
     unsafe {
         let value = getenv(name.as_ptr());
         !value.is_null() && *value != 0

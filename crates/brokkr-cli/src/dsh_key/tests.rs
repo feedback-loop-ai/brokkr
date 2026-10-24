@@ -629,6 +629,7 @@ fn a_folder_that_hires_no_dsh_or_whose_adapters_do_not_load_has_no_line() {
 
 #[test]
 fn a_variable_is_asked_whether_it_is_set_by_name_alone() {
+    let _env = crate::tests::env_guard::EnvGuard::lock();
     assert!(set_and_not_empty("CARGO_MANIFEST_DIR"));
     assert!(!set_and_not_empty("BROKKR_717_NEVER_SET"));
     // A name no environment can hold is never set.
