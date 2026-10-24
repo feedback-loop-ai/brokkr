@@ -3,7 +3,9 @@
 //! for every committed journal and every hand-built seat journal, the
 //! facts `brokkr_core::seat::row::facts` derives from the rows of the
 //! run's account equal what `run_view` shows of each participant, field
-//! for field, and a field that differs is named with its run.
+//! for field, and each phase's inner columns and each visit's models equal
+//! what the rows list; a field that differs is named with its run. Each
+//! count is of the participants, phases and visits compared.
 
 use brokkr_core::summary::Account;
 use brokkr_core::EventEnvelope;
@@ -33,7 +35,7 @@ fn every_committed_journal_s_seat_rows_read_as_its_participants() {
         compared += count;
     }
     assert_eq!(found, Vec::<String>::new());
-    assert_eq!(compared, 72);
+    assert_eq!(compared, 212);
 }
 
 #[test]
@@ -46,5 +48,5 @@ fn every_hand_built_journal_s_seat_rows_read_as_its_participants() {
         compared += count;
     }
     assert_eq!(found, Vec::<String>::new());
-    assert_eq!(compared, 27);
+    assert_eq!(compared, 43);
 }

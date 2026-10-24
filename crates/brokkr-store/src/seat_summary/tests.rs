@@ -634,7 +634,8 @@ fn a_journal_that_lost_a_seat_table_reads_stale_until_a_writable_open_refolds_it
 /// slice 2b keeps reads stale, refusing its reader nothing, and a writable
 /// open makes both tables anew and refolds every run, the column's facts
 /// included: a turn's tool and target, a finish's time and outcome, a
-/// session's id.
+/// session's id, a sequence's finished steps, a member's tag and the
+/// models reported.
 #[test]
 fn a_seat_table_without_a_column_slice_2b_keeps_is_rebuilt_at_a_writable_open() {
     let unkept = [
@@ -645,6 +646,9 @@ fn a_seat_table_without_a_column_slice_2b_keeps_is_rebuilt_at_a_writable_open() 
         "seat_turn",
         "seat_turn_tool",
         "seat_turn_target",
+        "steps",
+        "tagged_seq",
+        "models",
     ];
     for column in unkept {
         let (_dir, mut store) = store();
@@ -652,6 +656,11 @@ fn a_seat_table_without_a_column_slice_2b_keeps_is_rebuilt_at_a_writable_open() 
         let turn = json!({"step": "seat-turn", "turn": 2, "tool": "Edit", "target": "a.rs"});
         let turned = json!({"effect_id": "fx", "attempt_id": "a", "checkpoint": turn});
         append(&mut store, "r", EventType::EffectCheckpointed, turned);
+        let step = json!({"step": "sequence-step-finished", "step_name": "draft"});
+        let stepped = json!({"effect_id": "fx", "attempt_id": "a", "checkpoint": step});
+        append(&mut store, "r", EventType::EffectCheckpointed, stepped);
+        let tagged = checkpoint(Some("b"), 1);
+        append(&mut store, "r", EventType::EffectCheckpointed, tagged);
         let path = store.path().to_path_buf();
         drop(store);
         let raw = rusqlite::Connection::open(&path).unwrap();
@@ -667,9 +676,15 @@ fn a_seat_table_without_a_column_slice_2b_keeps_is_rebuilt_at_a_writable_open() 
             SeatRows::Current(folded_rows(&store, "r")),
             "{column}"
         );
-        let facts = brokkr_core::seat::row::facts(&read(&store, "r"));
+        let read = read(&store, "r");
+        let facts = brokkr_core::seat::row::facts(&read);
         let target = facts[0].target.as_deref();
         assert_eq!(target, Some("a.rs"), "{column}");
+        let listed = brokkr_core::seat::row::inner(&read, "fx");
+        let words = |word: &str| vec![word.to_string()];
+        assert_eq!(listed, (words("draft"), words("b")), "{column}");
+        let models = brokkr_core::seat::row::models(&read, 0, u64::MAX);
+        assert_eq!(models.into_iter().collect::<Vec<_>>(), words("opus"));
     }
 }
 

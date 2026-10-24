@@ -2,14 +2,19 @@
 //! group into (#753; decision 0089 ruling 4 at the projection's level):
 //! each participant's facts compared with what `run_view` shows of it,
 //! field for field, a field that differs named with its run, and the live
-//! block with what the rows say of the attempt in flight (slice 2b).
-//! brokkr-view holds every committed and hand-built journal to it,
+//! block with what the rows say of the attempt in flight, each phase's
+//! inner columns with the steps and tags they list, and each visit's
+//! models with the ones they list (slice 2b). brokkr-view holds every committed and hand-built journal to it,
 //! brokkr-runtime every engine scenario's carried account, and brokkr-cli
 //! every fixture's rows read from the store.
 
+use std::collections::BTreeMap;
+
 use brokkr_core::envelope::{EventEnvelope, EventType};
-use brokkr_core::seat::row::{facts, live, Member, Outcome, Provider, SeatFacts, SeatRow};
-use brokkr_view::{fmt_dur, run_view, short_target, Cell, Participant};
+use brokkr_core::seat::row::{
+    facts, inner, live, models, Member, Outcome, Provider, SeatFacts, SeatRow,
+};
+use brokkr_view::{fmt_dur, run_view, short_target, Cell, Participant, RunView};
 
 /// A cell's text, or `None` where the view marks it absent.
 fn shown(cell: &Cell) -> Option<String> {
@@ -255,10 +260,130 @@ fn live_lines(events: &[EventEnvelope], rows: &[SeatRow]) -> Vec<(String, String
     live.into_iter().map(line).collect()
 }
 
+/// The rail's columns of a phase whose newest effect is `effect_id`, from
+/// the steps and tags `rows` keep of it, each column as its label and its
+/// nodes' keys: each finished step, then each step a tag names that none
+/// finished, a step's tagged members under its label, and a step alone a
+/// node of its own; the tags in one column where no step finished; else
+/// the seat's node.
+fn columns(rows: &[SeatRow], effect_id: &str) -> Vec<(Option<String>, Vec<String>)> {
+    let (finished, tags) = inner(rows, effect_id);
+    let key = |tag: &str| format!("{effect_id}:{tag}");
+    if finished.is_empty() {
+        let keys: Vec<String> = tags.iter().map(|tag| key(tag)).collect();
+        let keys = if keys.is_empty() {
+            vec![effect_id.to_string()]
+        } else {
+            keys
+        };
+        return vec![(None, keys)];
+    }
+    let mut steps: Vec<(String, Vec<String>)> = finished
+        .into_iter()
+        .map(|step| (step, Vec::new()))
+        .collect();
+    for tag in &tags {
+        let step = tag.split_once(':').map_or(tag.as_str(), |(step, _)| step);
+        if !steps.iter().any(|(name, _)| name == step) {
+            steps.push((step.to_string(), Vec::new()));
+        }
+        if step != tag {
+            let at = steps.iter().position(|(name, _)| name == step);
+            steps[at.unwrap()].1.push(key(tag));
+        }
+    }
+    let column = |(step, keys): (String, Vec<String>)| {
+        if keys.is_empty() {
+            (None, vec![key(&step)])
+        } else {
+            (Some(step), keys)
+        }
+    };
+    steps.into_iter().map(column).collect()
+}
+
+/// Each phase of `view` whose inner columns or plainness are not what
+/// `rows` keep of the effect `events` last asked for in it, as `run: phase
+/// name`, and how many phases were compared.
+fn phases_differ(
+    run: &str,
+    events: &[EventEnvelope],
+    rows: &[SeatRow],
+    view: &RunView,
+) -> (Vec<String>, usize) {
+    let asked = events
+        .iter()
+        .filter(|event| event.event_type == EventType::EffectRequested);
+    let newest: BTreeMap<&str, &str> = asked
+        .filter_map(|event| {
+            Some((
+                event.payload["phase"].as_str()?,
+                event.payload["effect_id"].as_str()?,
+            ))
+        })
+        .collect();
+    let found = view.phases.iter().filter(|phase| {
+        let kept = newest
+            .get(phase.name.as_str())
+            .map_or_else(Vec::new, |effect_id| columns(rows, effect_id));
+        let shown: Vec<(Option<String>, Vec<String>)> = phase
+            .columns
+            .iter()
+            .map(|column| {
+                (
+                    column.label.clone(),
+                    column.nodes.iter().map(|node| node.key.clone()).collect(),
+                )
+            })
+            .collect();
+        let plain = kept.len() < 2 && kept.first().is_none_or(|(_, keys)| keys.len() == 1);
+        kept != shown || plain != phase.plain
+    });
+    (
+        found
+            .map(|phase| format!("{run}: phase {}", phase.name))
+            .collect(),
+        view.phases.len(),
+    )
+}
+
+/// Each visit of `view`'s path whose models are not the ones `rows` keep
+/// of the requests asked in it, from its entry to the next, as `run:
+/// visit n`, and how many visits were compared.
+fn visits_differ(
+    run: &str,
+    events: &[EventEnvelope],
+    rows: &[SeatRow],
+    view: &RunView,
+) -> (Vec<String>, usize) {
+    let entered = events
+        .iter()
+        .filter(|event| event.event_type == EventType::PhaseEntered);
+    let entered: Vec<u64> = entered.map(|event| event.seq).collect();
+    let path = &view.dashboard.path;
+    if entered.len() != path.len() {
+        return (vec![format!("{run}: {} visits", path.len())], 0);
+    }
+    let ends = entered.iter().skip(1).copied().chain([u64::MAX]);
+    let kept = entered.iter().zip(ends).map(|(from, to)| {
+        let models: Vec<String> = models(rows, *from, to).into_iter().collect();
+        (!models.is_empty()).then(|| models.join(", "))
+    });
+    let differ = kept
+        .zip(path)
+        .enumerate()
+        .filter(|(_, (kept, visit))| *kept != visit.model);
+    (
+        differ.map(|(at, _)| format!("{run}: visit {at}")).collect(),
+        path.len(),
+    )
+}
+
 /// Every participant of `run`, whose journal is `events`, that the facts
 /// `rows` group into state otherwise than its run view shows it, as `run:
 /// key: field`, then the live block where `rows` show another, as `run:
-/// live`, and how many participants were compared.
+/// live`, then each phase and each visit whose lists differ, and how many
+/// participants, phases and visits were compared.
 pub(crate) fn disagreements(
     run: &str,
     events: &[EventEnvelope],
@@ -266,6 +391,8 @@ pub(crate) fn disagreements(
 ) -> (Vec<String>, usize) {
     let facts = facts(rows);
     let view = run_view(events, None);
+    let (phases, phases_compared) = phases_differ(run, events, rows, &view);
+    let (visits, visits_compared) = visits_differ(run, events, rows, &view);
     if facts.len() != view.participants.len() {
         let counts = (facts.len(), view.participants.len());
         return (vec![format!("{run}: {counts:?} participants")], 0);
@@ -291,5 +418,6 @@ pub(crate) fn disagreements(
     if live_lines(events, rows) != shown {
         found.push(format!("{run}: live"));
     }
-    (found, facts.len())
+    found.extend(phases.into_iter().chain(visits));
+    (found, facts.len() + phases_compared + visits_compared)
 }

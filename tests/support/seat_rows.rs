@@ -5,7 +5,8 @@
 //! carry tokens, a panel, a request never started, the records that
 //! name no attempt or no member, an attempt started again, and a
 //! provenance entry naming no provider, and a panel's carried members, their
-//! sources named later. brokkr-core pins each one's facts; brokkr-view holds the
+//! sources named later, and a retried sequence's steps, tags and models
+//! over two visits. brokkr-core pins each one's facts; brokkr-view holds the
 //! same journals' facts equal to its run view. A test module includes this
 //! file through `#[path]` beside an `envelope_builder` module, the one
 //! place a test spells an envelope (#357).
@@ -502,6 +503,79 @@ pub(crate) fn later() -> Vec<EventEnvelope> {
     ])
 }
 
+/// A sequence over two visits (slice 2b's lists): its first attempt fails
+/// after a tagged turn and a finished step, and records one more step
+/// while its retry is in flight; the retry finishes a step again, one
+/// under a member, which tags none, and one with no name, and tags a
+/// member its start's provenance opened before the others; the stale
+/// attempt's terminal is passed over, and the next visit's seat reports
+/// a model of its own.
+pub(crate) fn sequenced() -> Vec<EventEnvelope> {
+    let attempt = |event_type, attempt: &str, result: Value| {
+        let payload = json!({"effect_id": "s1", "attempt_id": attempt, "result": result});
+        (event_type, payload)
+    };
+    let step = |attempt: &str, record: Value| checkpoint("s1", attempt, record);
+    let finished = |name: &str| json!({"step": "sequence-step-finished", "step_name": name});
+    journal(vec![
+        (EventType::PhaseEntered, json!({"phase": "work"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "s1", "seat": "seq", "phase": "work"}),
+        ),
+        attempt(EventType::EffectStarted, "one", json!(null)),
+        step(
+            "one",
+            json!({"member": "review:a", "step": "seat-turn", "turn": 1, "model": "m-1"}),
+        ),
+        step(
+            "one",
+            json!({"step": "sequence-step-finished", "step_name": "draft", "model": "m-2"}),
+        ),
+        attempt(EventType::EffectFailed, "one", json!({"model": "m-3"})),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "s1", "attempt_id": "two",
+                   "provenance": [{"member": "solo", "provider": "p"}]}),
+        ),
+        step(
+            "two",
+            json!({"member": "review:b", "step": "session-started"}),
+        ),
+        step(
+            "two",
+            json!({"member": "review:a", "step": "seat-turn", "turn": 2}),
+        ),
+        step("two", finished("draft")),
+        step(
+            "two",
+            json!({"member": "x", "step": "sequence-step-finished", "step_name": "review"}),
+        ),
+        step("one", finished("stale")),
+        step("two", json!({"step": "sequence-step-finished"})),
+        step(
+            "two",
+            json!({"member": "solo", "step": "item-completed", "model": "m-4"}),
+        ),
+        attempt(EventType::EffectFailed, "one", json!({"model": "m-stale"})),
+        attempt(EventType::EffectSucceeded, "two", json!({"model": "m-1"})),
+        (EventType::PhaseEntered, json!({"phase": "check"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "s2", "seat": "check", "phase": "check"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "s2", "attempt_id": "c"}),
+        ),
+        checkpoint(
+            "s2",
+            "c",
+            json!({"step": "seat-turn", "turn": 1, "model": "m-5"}),
+        ),
+    ])
+}
+
 /// Every hand-built journal, by name.
 pub(crate) fn journals() -> Vec<(&'static str, Vec<EventEnvelope>)> {
     vec![
@@ -518,5 +592,6 @@ pub(crate) fn journals() -> Vec<(&'static str, Vec<EventEnvelope>)> {
         ("unprovided", unprovided()),
         ("carried", carried()),
         ("later", later()),
+        ("sequenced", sequenced()),
     ]
 }

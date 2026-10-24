@@ -14,8 +14,11 @@
 //! row. An outcome column reads back only the words its writer writes,
 //! the turns' meter only a turn's that carries tokens, and the session
 //! meter only a record's that is no turn and settles only on its output;
-//! a meter's total reads back only as its input and output sum to it.
+//! a meter's total reads back only as its input and output sum to it. A
+//! list is one column of length-prefixed entries, read back only as its
+//! writer writes it (`listed`).
 
+use super::listed::Listed;
 use super::{
     CarriedFrom, Carry, Finish, Last, Member, Outcome, Pin, Provider, SeatRow, Session, Stamp,
     Turned,
@@ -226,6 +229,13 @@ impl<I: Iterator<Item = Datum>> Take<I> {
         }
     }
 
+    /// Its finished steps, its member's tag and its models, each list as
+    /// [`Listed::of_kept`] reads it back.
+    fn listed(&mut self) -> Option<Listed> {
+        let (steps, tagged, models) = (self.text()?, self.int()?, self.text()?);
+        Listed::of_kept(steps, tagged, models)
+    }
+
     fn carried(&mut self) -> Option<Last<Carry>> {
         let seq = self.int()?;
         let carry = match (both(seq, self.text()?)?, self.int()?) {
@@ -345,12 +355,13 @@ impl SeatRow {
             metered: None,
             session: None,
             transcript: None,
+            listed: Listed::default(),
         }
     }
 
     /// The columns a row is kept in, by name and SQL type, in the order
     /// [`SeatRow::data`] gives their values.
-    pub const COLUMNS: [(&'static str, &'static str); 63] = [
+    pub const COLUMNS: [(&'static str, &'static str); 66] = [
         ("request_seq", INTEGER),
         ("effect_id", TEXT),
         ("attempt_id", TEXT),
@@ -414,6 +425,9 @@ impl SeatRow {
         ("seat_turn", TEXT),
         ("seat_turn_tool", TEXT),
         ("seat_turn_target", TEXT),
+        ("steps", TEXT),
+        ("tagged_seq", INTEGER),
+        ("models", TEXT),
     ];
 
     /// This row's values, in [`SeatRow::COLUMNS`]' order.
@@ -459,6 +473,9 @@ impl SeatRow {
         put.text(turn.map(|turn| turn.turn.as_str()));
         put.text(turn.map(|turn| turn.tool.as_str()));
         put.text(turn.and_then(|turn| turn.target.as_deref()));
+        put.text(self.listed.steps_kept().as_deref());
+        put.int(self.listed.tagged);
+        put.text(self.listed.models_kept().as_deref());
         put.0
     }
 
@@ -491,6 +508,7 @@ impl SeatRow {
         take.stated(&mut row)?;
         take.counted(&mut row)?;
         row.turn = take.turn()?;
+        row.listed = take.listed()?;
         take.0.next().is_none().then_some(row)
     }
 }

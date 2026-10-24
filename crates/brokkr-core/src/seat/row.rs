@@ -31,9 +31,11 @@ use crate::envelope::{EventEnvelope, EventType};
 use crate::residual::text as field;
 
 mod kept;
+mod listed;
 mod said;
 
 pub use kept::Datum;
+pub use listed::{inner, models};
 pub use said::{live, shown, Finish};
 use said::{Session, Turned};
 
@@ -202,6 +204,8 @@ pub struct SeatRow {
     metered: Option<Meter>,
     session: Last<Session>,
     transcript: Last<Transcript>,
+    /// Its finished steps, its member's tag and its models (`listed`).
+    listed: listed::Listed,
 }
 
 /// What a participant has stated so far, across its rows in journal
@@ -248,6 +252,7 @@ impl SeatRow {
         } else if step == Some("seat-turn") {
             self.turn = Some((seq, Turned::of(checkpoint)));
         }
+        self.listed.noted(seq, checkpoint, &self.member);
         self.last = Some(at);
         self.metered(meter, running);
     }
@@ -526,6 +531,7 @@ impl Seats {
         };
         let row = self.row(request, attempt, Member::Seat);
         row.ended = Some((seq, outcome));
+        row.listed.served(says("model").as_deref());
         state(&mut row.model, seq, says("model"));
         state(&mut row.stamp, seq, result.and_then(stamp_of));
         state(&mut row.effort, seq, says("effort"));

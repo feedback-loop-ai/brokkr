@@ -3,7 +3,8 @@
 //! fixture journal imported fresh, its rows read back by
 //! `Store::seat_rows` and grouped by brokkr-core's `facts`, equals what
 //! `run_view` shows of each participant, field for field, a price by its
-//! bits.
+//! bits, and of each phase's inner columns and each visit's models. The
+//! count is of the participants, phases and visits compared.
 
 use brokkr_store::test_support::import_fixtures;
 use brokkr_store::{SeatRows, Store};
@@ -36,7 +37,7 @@ fn every_fixture_s_seat_rows_read_from_the_store_as_its_participants() {
     }
     assert_eq!(found, Vec::<String>::new());
     assert_eq!(stale, ["conclude-broken-chain-hand-built"]);
-    assert_eq!(compared, 18);
+    assert_eq!(compared, 52);
 }
 
 /// Every fixture's journal rows are caused, read by key from the event

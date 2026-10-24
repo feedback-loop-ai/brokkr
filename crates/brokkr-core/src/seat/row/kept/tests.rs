@@ -15,7 +15,7 @@ fn every_hand_built_row_reads_back_from_its_data() {
             read += 1;
         }
     }
-    assert_eq!(read, 48);
+    assert_eq!(read, 58);
 }
 
 #[test]
@@ -52,8 +52,9 @@ fn every_outcome_is_kept_by_its_word() {
 
 /// A member's row every column of which a member's row may hold holds a
 /// value, as a writer writes it: each count 1, each word its column's
-/// name, each boundary `namespace`, its pin `failed` and each price the
-/// bits 1; but no end, as a member's row never holds one, its turns'
+/// name, each list that name as its one entry, a step's seq 1, each
+/// boundary `namespace`, its pin `failed` and each price the bits 1; but
+/// no end, as a member's row never holds one, its turns'
 /// meter does not settle, as no turn's does, its session record is no
 /// turn, as none is, and each meter's total is 2, its input and output
 /// summed.
@@ -66,6 +67,8 @@ fn full() -> Vec<Datum> {
             ("boundary" | "stamp", _) => text("namespace"),
             ("metered_settles" | "session_turn", _) => Datum::Integer(0),
             ("metered_total_tokens" | "session_total_tokens", _) => Datum::Integer(2),
+            ("steps", _) => text("1:15:steps"),
+            ("models", _) => text("6:models"),
             (_, "TEXT") => text(name),
             _ => Datum::Integer(1),
         })
@@ -157,6 +160,11 @@ fn a_row_holding_each_part_it_may_omit_reads_back_as_its_data() {
             ("seat_turn_tool", Datum::Null),
             ("seat_turn_target", Datum::Null),
         ],
+        vec![
+            ("steps", Datum::Null),
+            ("tagged_seq", Datum::Null),
+            ("models", Datum::Null),
+        ],
     ];
     for columns in variants {
         let data = with(&columns);
@@ -209,8 +217,8 @@ fn unsaid() -> Vec<Vec<(&'static str, Datum)>> {
 /// column's writer never writes, a cost no record states or a sum no
 /// costs reach, a turns' meter no turn writes, a session meter that is a
 /// turn's or settles no output, a meter's total its input and output do
-/// not sum to, a part of a value without the rest, and more or fewer
-/// values than columns.
+/// not sum to, a part of a value without the rest, a list its writer does
+/// not write, and more or fewer values than columns.
 #[test]
 fn data_no_row_writes_reads_as_none() {
     let none = || Datum::Null;
@@ -262,6 +270,10 @@ fn data_no_row_writes_reads_as_none() {
         vec![("transcript_seq", none())],
         vec![("transcript_locator", none())],
         vec![("transcript_home", none())],
+        vec![("steps", text("1:16:steps"))],
+        vec![("steps", Datum::Integer(1))],
+        vec![("tagged_seq", text("1"))],
+        vec![("models", text(""))],
     ];
     for columns in refused.into_iter().chain(unsaid()) {
         assert_eq!(SeatRow::of_data(with(&columns)), None, "{columns:?}");

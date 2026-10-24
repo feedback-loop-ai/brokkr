@@ -191,7 +191,77 @@ read -r done
             })
         )]
     );
-    assert_eq!(carried_disagreements(&engine.replay), Some((Vec::new(), 1)));
+    // Its one participant, its one phase and its one visit.
+    assert_eq!(carried_disagreements(&engine.replay), Some((Vec::new(), 3)));
+}
+
+/// The engine runs a sequence's steps inside one turn, so the drop check
+/// above reads none of them: a three-step sequence's journal read whole
+/// lists the steps it finished, the members its steps tag and the models
+/// its steps reported as its run view's rail and path show them (#753,
+/// decision 0089 slice 2b).
+#[test]
+fn an_engine_sequence_s_rows_list_its_steps_tags_and_models_as_its_view() {
+    use super::super::tests::{draft_then_finish, driver_command, engine, member, state};
+    use super::super::{AttemptOutcome, SeatBody, Selection, SequenceStep};
+    let done = |result: &str| {
+        let result = json!({"result": result, "model": format!("m-{result}")});
+        driver_command("seq", "a1", AttemptOutcome::Succeeded { result })
+    };
+    let members = vec![member("final", done("pass")), member("peer", done("pass"))];
+    let mut steps = draft_then_finish("role.md", done("drafted"), &["drafted"], members);
+    let redraft = SequenceStep {
+        name: "redraft".into(),
+        ..steps[0].clone()
+    };
+    steps.insert(1, redraft);
+    let body = SeatBody::Sequence {
+        steps: steps.clone(),
+    };
+    let (_dir, mut engine) = engine(body);
+    let seat = engine.bundle.seats.get_mut("work").unwrap();
+    seat.results = vec!["pass".into(), "fail".into()];
+    for (event_type, payload) in [
+        (EventType::PhaseEntered, json!({"phase": "work"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "seq", "seat": "work", "phase": "work"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "seq", "attempt_id": "a1"}),
+        ),
+    ] {
+        engine.append(event_type, payload, None).unwrap();
+    }
+    let asking = state(Some("work"), Cursor::RequestEffect);
+    let input = engine.seat_input(&asking, "work", "seq").unwrap();
+    let deadline = std::time::Duration::from_secs(10);
+    let selection = Selection::new();
+    engine
+        .execute_sequence("seq", "a1", "work", &steps, &input, deadline, &selection)
+        .unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let account = brokkr_core::summary::Account::whole(&engine.run_id, &events);
+    let rows = account.seats();
+    let words = |words: &[&str]| words.iter().map(|word| word.to_string()).collect();
+    // The final step's result is the effect's, so it finishes no step.
+    assert_eq!(
+        brokkr_core::seat::row::inner(rows, "seq"),
+        (
+            words(&["draft", "redraft"]),
+            words(&["draft", "redraft", "finish:final", "finish:peer"])
+        )
+    );
+    let models = brokkr_core::seat::row::models(rows, 0, u64::MAX);
+    assert_eq!(
+        models.into_iter().collect::<Vec<_>>(),
+        words(&["m-drafted", "m-pass"])
+    );
+    let found = seat_facts::disagreements(&engine.run_id, &events, rows);
+    // Its seat, its two steps' and its panel's two members, its one phase
+    // and its one visit.
+    assert_eq!(found, (Vec::new(), 7));
 }
 
 /// An engine driven to its conclusion leaves its run's summary at the
