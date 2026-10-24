@@ -204,7 +204,7 @@ pub struct SeatRow {
     metered: Option<Meter>,
     session: Last<Session>,
     transcript: Last<Transcript>,
-    /// Its finished steps, its member's tag and its models (`listed`).
+    /// Its finished steps, its member's tag, its models and its early tags (`listed`).
     listed: listed::Listed,
 }
 
@@ -297,9 +297,9 @@ pub(crate) struct Seats {
     at: BTreeMap<Attempt, BTreeMap<Member, usize>>,
     /// Each participant's running state, by its request and member.
     running: BTreeMap<(usize, Member), Running>,
-    /// Every start so far, by the effect and the attempt it names: what a
-    /// carried source's ordinal counts.
+    /// Every start so far, by its effect and attempt: what a source's ordinal counts.
     begun: Vec<(Option<String>, Option<String>)>,
+    aside: listed::Aside,
 }
 
 impl Seats {
@@ -328,6 +328,7 @@ impl Seats {
             self.begun.push((effect_id.map(str::to_string), attempt));
             self.sourced();
         }
+        self.aside(event);
     }
 
     /// Every carried entry's source, named again over the fold so far: a
@@ -531,7 +532,6 @@ impl Seats {
         };
         let row = self.row(request, attempt, Member::Seat);
         row.ended = Some((seq, outcome));
-        row.listed.served(says("model").as_deref());
         state(&mut row.model, seq, says("model"));
         state(&mut row.stamp, seq, result.and_then(stamp_of));
         state(&mut row.effort, seq, says("effort"));

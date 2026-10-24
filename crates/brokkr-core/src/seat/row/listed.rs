@@ -6,42 +6,62 @@
 //! length-prefixed entries, read back only as its writer writes it, so a
 //! list edited past its writer is no row and reads stale, never wrong.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
-use super::{Member, SeatRow};
+use super::{Member, SeatRow, Seats};
+use crate::envelope::{EventEnvelope, EventType};
 use crate::residual::text as field;
 
 /// What a row's records list: each step a `sequence-step-finished` record
 /// names, with the seq it was first finished at on this row; the seq of a
-/// member's first record of any other step, which tags the member; and
-/// every model its records and its attempt's terminal reported, each once,
-/// in the order first reported.
+/// member's first record of any other step, which tags the member; every
+/// model its records and its effect's concluding terminals reported, each
+/// once, in the order first reported; and, on a request's own row, each
+/// member a record before the effect's first request tagged, with the seq
+/// it first did.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(super) struct Listed {
     pub(super) steps: Vec<(u64, String)>,
     pub(super) tagged: Option<u64>,
     pub(super) models: Vec<String>,
+    pub(super) early: Vec<(u64, String)>,
 }
 
 impl Listed {
     /// A checkpoint at `seq` on `member`'s row, as the rail reads its step
     /// and member, and the dashboard its model.
     pub(super) fn noted(&mut self, seq: u64, checkpoint: &Value, member: &Member) {
-        if field(checkpoint, "step") == Some("sequence-step-finished") {
-            let name = field(checkpoint, "step_name");
-            let known = |name: &&str| self.steps.iter().any(|(_, step)| step == name);
-            if let Some(name) = name.filter(|name| !known(name)) {
-                self.steps.push((seq, name.to_string()));
-            }
-        } else if *member != Member::Seat {
+        if !self.finished(seq, checkpoint) && *member != Member::Seat {
             self.tagged.get_or_insert(seq);
         }
         self.served(field(checkpoint, "model"));
     }
 
-    /// A model its records or its attempt's terminal reported.
+    /// Whether `checkpoint` is a `sequence-step-finished` record, keeping
+    /// the step it names at `seq` where this row has not kept it yet.
+    fn finished(&mut self, seq: u64, checkpoint: &Value) -> bool {
+        let finished = field(checkpoint, "step") == Some("sequence-step-finished");
+        let name = field(checkpoint, "step_name").filter(|_| finished);
+        if let Some(name) = name.filter(|name| !known(&self.steps, name)) {
+            self.steps.push((seq, name.to_string()));
+        }
+        finished
+    }
+
+    /// A checkpoint at `seq` before its effect's first request, as the
+    /// rail reads it: its step, or the member it tags. The dashboard joins
+    /// its model to no visit.
+    fn early(&mut self, seq: u64, checkpoint: &Value) {
+        let finished = self.finished(seq, checkpoint);
+        let member = field(checkpoint, "member").filter(|_| !finished);
+        if let Some(member) = member.filter(|member| !known(&self.early, member)) {
+            self.early.push((seq, member.to_string()));
+        }
+    }
+
+    /// A model its records or its effect's concluding terminal reported.
     pub(super) fn served(&mut self, model: Option<&str>) {
         let known = |model: &&str| self.models.iter().any(|known| known == model);
         if let Some(model) = model.filter(|model| !known(model)) {
@@ -51,14 +71,7 @@ impl Listed {
 
     /// The steps' column: each step's seq and its name.
     pub(super) fn steps_kept(&self) -> Option<String> {
-        let seqs: Vec<String> = self.steps.iter().map(|(seq, _)| seq.to_string()).collect();
-        let names = self.steps.iter().map(|(_, name)| name.as_str());
-        kept(
-            seqs.iter()
-                .map(String::as_str)
-                .zip(names)
-                .flat_map(|(seq, name)| [seq, name]),
-        )
+        paired(&self.steps)
     }
 
     /// The models' column.
@@ -66,40 +79,140 @@ impl Listed {
         kept(self.models.iter().map(String::as_str))
     }
 
+    /// The early tags' column: each member's seq and its tag.
+    pub(super) fn early_kept(&self) -> Option<String> {
+        paired(&self.early)
+    }
+
     /// The lists its columns hold, or `None` for any its writer does not
     /// write: an entry cut short or its length not as written, a seq that
-    /// is not one, a step without its seq, a step or a model twice, steps
-    /// out of their seqs' order, or no entry at all.
+    /// is not one, a step or a tag without its seq, a step, a model or a
+    /// tag twice, steps or tags out of their seqs' order, or no entry at
+    /// all.
     pub(super) fn of_kept(
         steps: Option<String>,
         tagged: Option<u64>,
         models: Option<String>,
+        early: Option<String>,
     ) -> Option<Listed> {
-        let stepped = steps.as_deref().map_or(Some(Vec::new()), entries)?;
         let served = models.as_deref().map_or(Some(Vec::new()), entries)?;
-        let mut pairs = stepped.chunks(2);
-        let steps_read = pairs.try_fold(Vec::new(), |mut read, pair| {
-            let [seq, name] = pair else { return None };
-            read.push((seq.parse().ok()?, (*name).to_string()));
-            Some(read)
-        })?;
         let listed = Listed {
-            steps: steps_read,
+            steps: pairs(steps.as_deref())?,
             tagged,
             models: served.into_iter().map(str::to_string).collect(),
+            early: pairs(early.as_deref())?,
         };
-        let ordered = listed.steps.windows(2).all(|pair| pair[0].0 < pair[1].0);
-        let distinct =
-            once(listed.steps.iter().map(|(_, name)| name)) && once(listed.models.iter());
-        let canonical = listed.steps_kept() == steps && listed.models_kept() == models;
-        (ordered && distinct && canonical).then_some(listed)
+        let ordered = |pairs: &[(u64, String)]| pairs.windows(2).all(|pair| pair[0].0 < pair[1].0);
+        let names = |pairs: &'_ [(u64, String)]| once(pairs.iter().map(|(_, name)| name));
+        let lists = [&listed.steps, &listed.early];
+        let pairs_read = lists.iter().all(|list| ordered(list) && names(list));
+        let canonical = listed.steps_kept() == steps
+            && listed.models_kept() == models
+            && listed.early_kept() == early;
+        (pairs_read && once(listed.models.iter()) && canonical).then_some(listed)
     }
+}
+
+/// What the rail and the dashboard read of a run's records beside its
+/// rows (fix round 753p2): the steps and members a checkpoint before its
+/// effect's first request lists, which the rail buckets by effect id
+/// however early, and each effect's open attempt as the dashboard reads
+/// it, by effect id across its requests, not by request as a participant
+/// reads it.
+#[derive(Debug, Clone, Default)]
+pub(super) struct Aside {
+    early: BTreeMap<String, Listed>,
+    open: BTreeMap<String, String>,
+}
+
+impl Seats {
+    /// `event`, beside the rows: a checkpoint before its effect's first
+    /// request is listed aside, and that request's own row takes the list;
+    /// a start naming an attempt opens it for its effect; and a terminal
+    /// concluding its effect's open attempt lists the model its result
+    /// reports on the own row of the effect's latest request, the visit the
+    /// dashboard joins it to.
+    pub(super) fn aside(&mut self, event: &EventEnvelope) {
+        let payload = &event.payload;
+        let Some(effect_id) = field(payload, "effect_id") else {
+            return;
+        };
+        let attempt = field(payload, "attempt_id");
+        let own = self.by_effect.get(effect_id);
+        let own = own.map(|&request| self.at[&(request, None)][&Member::Seat]);
+        let aside = &mut self.aside;
+        match event.event_type {
+            EventType::EffectRequested => {
+                if let (Some(early), Some(own)) = (aside.early.remove(effect_id), own) {
+                    self.rows[own].listed = early;
+                }
+            }
+            EventType::EffectCheckpointed if own.is_none() => {
+                let checkpoint = payload.get("checkpoint").unwrap_or(&Value::Null);
+                let early = aside.early.entry(effect_id.to_string()).or_default();
+                early.early(event.seq, checkpoint);
+            }
+            EventType::EffectStarted => {
+                if let Some(attempt) = attempt {
+                    aside
+                        .open
+                        .insert(effect_id.to_string(), attempt.to_string());
+                }
+            }
+            EventType::EffectSucceeded
+            | EventType::EffectFailed
+            | EventType::EffectIndeterminate => {
+                if aside.open.get(effect_id).map(String::as_str) != attempt {
+                    return;
+                }
+                aside.open.remove(effect_id);
+                let model = payload.pointer("/result/model").and_then(Value::as_str);
+                if let Some(own) = own {
+                    self.rows[own].listed.served(model);
+                }
+            }
+            EventType::EffectCheckpointed
+            | EventType::RunStarted
+            | EventType::PhaseEntered
+            | EventType::TransitionDecided
+            | EventType::OperatorCommanded
+            | EventType::OperatorAccepted
+            | EventType::OperatorRejected
+            | EventType::RunParked
+            | EventType::RunCompleted
+            | EventType::RunStopped => {}
+        }
+    }
+}
+
+/// Whether `pairs` holds `name`.
+fn known(pairs: &[(u64, String)], name: &str) -> bool {
+    pairs.iter().any(|(_, known)| known == name)
 }
 
 /// Whether each of `values` is there once.
 fn once<'a>(mut values: impl Iterator<Item = &'a String>) -> bool {
     let mut seen = BTreeSet::new();
     values.all(|value| seen.insert(value))
+}
+
+/// `pairs` kept in one column: each pair's seq, and then its name.
+fn paired(pairs: &[(u64, String)]) -> Option<String> {
+    let seqs: Vec<String> = pairs.iter().map(|(seq, _)| seq.to_string()).collect();
+    let names = pairs.iter().map(|(_, name)| name.as_str());
+    let each = seqs.iter().map(String::as_str).zip(names);
+    kept(each.flat_map(|(seq, name)| [seq, name]))
+}
+
+/// The pairs a column [`paired`] keeps holds, none for `None`, or `None`
+/// where it cuts one short or a seq is not one.
+fn pairs(text: Option<&str>) -> Option<Vec<(u64, String)>> {
+    let read = text.map_or(Some(Vec::new()), entries)?;
+    read.chunks(2).try_fold(Vec::new(), |mut found, pair| {
+        let [seq, name] = pair else { return None };
+        found.push((seq.parse().ok()?, (*name).to_string()));
+        Some(found)
+    })
 }
 
 /// `entries` kept in one column: each its length in bytes, a `:`, and
@@ -142,7 +255,8 @@ fn firsts(mut seen: Vec<(u64, &str)>) -> Vec<String> {
 /// What the rail reads of `effect_id`, the effect a phase last asked for,
 /// from every row of it: the steps its records finished, by name in the
 /// order first finished, and the members they tag, in the order of each
-/// one's first record of another step than a finished one.
+/// one's first record of another step than a finished one, a record
+/// before the effect's first request among them.
 pub fn inner(rows: &[SeatRow], effect_id: &str) -> (Vec<String>, Vec<String>) {
     let rows = || rows.iter().filter(|row| row.effect_id == effect_id);
     let steps = rows().flat_map(|row| &row.listed.steps);
@@ -151,7 +265,12 @@ pub fn inner(rows: &[SeatRow], effect_id: &str) -> (Vec<String>, Vec<String>) {
         Member::Named(tag) => Some((row.listed.tagged?, tag.as_str())),
         Member::Seat => None,
     });
-    (firsts(finished.collect()), firsts(tags.collect()))
+    let early = rows().flat_map(|row| &row.listed.early);
+    let early = early.map(|(seq, tag)| (*seq, tag.as_str()));
+    (
+        firsts(finished.collect()),
+        firsts(tags.chain(early).collect()),
+    )
 }
 
 /// Every model reported by the rows of the requests asked at a seq from

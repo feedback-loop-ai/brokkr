@@ -391,8 +391,7 @@ pub(crate) fn disagreements(
 ) -> (Vec<String>, usize) {
     let facts = facts(rows);
     let view = run_view(events, None);
-    let (phases, phases_compared) = phases_differ(run, events, rows, &view);
-    let (visits, visits_compared) = visits_differ(run, events, rows, &view);
+    let (lists, lists_compared) = lists_differ(run, events, rows, &view);
     if facts.len() != view.participants.len() {
         let counts = (facts.len(), view.participants.len());
         return (vec![format!("{run}: {counts:?} participants")], 0);
@@ -418,6 +417,20 @@ pub(crate) fn disagreements(
     if live_lines(events, rows) != shown {
         found.push(format!("{run}: live"));
     }
-    found.extend(phases.into_iter().chain(visits));
-    (found, facts.len() + phases_compared + visits_compared)
+    found.extend(lists);
+    (found, facts.len() + lists_compared)
+}
+
+/// Each phase and each visit of `view`, `run`'s run view, whose lists are
+/// not what `rows` keep, and how many phases and visits were compared.
+pub(crate) fn lists_differ(
+    run: &str,
+    events: &[EventEnvelope],
+    rows: &[SeatRow],
+    view: &RunView,
+) -> (Vec<String>, usize) {
+    let (mut phases, phases_compared) = phases_differ(run, events, rows, view);
+    let (visits, visits_compared) = visits_differ(run, events, rows, view);
+    phases.extend(visits);
+    (phases, phases_compared + visits_compared)
 }

@@ -634,8 +634,8 @@ fn a_journal_that_lost_a_seat_table_reads_stale_until_a_writable_open_refolds_it
 /// slice 2b keeps reads stale, refusing its reader nothing, and a writable
 /// open makes both tables anew and refolds every run, the column's facts
 /// included: a turn's tool and target, a finish's time and outcome, a
-/// session's id, a sequence's finished steps, a member's tag and the
-/// models reported.
+/// session's id, a sequence's finished steps, a member's tag, the models
+/// reported and the members tagged before their effect's request.
 #[test]
 fn a_seat_table_without_a_column_slice_2b_keeps_is_rebuilt_at_a_writable_open() {
     let unkept = [
@@ -649,6 +649,7 @@ fn a_seat_table_without_a_column_slice_2b_keeps_is_rebuilt_at_a_writable_open() 
         "steps",
         "tagged_seq",
         "models",
+        "early_tags",
     ];
     for column in unkept {
         let (_dir, mut store) = store();

@@ -229,11 +229,11 @@ impl<I: Iterator<Item = Datum>> Take<I> {
         }
     }
 
-    /// Its finished steps, its member's tag and its models, each list as
-    /// [`Listed::of_kept`] reads it back.
+    /// Its finished steps, its member's tag, its models and its early
+    /// tags, each list as [`Listed::of_kept`] reads it back.
     fn listed(&mut self) -> Option<Listed> {
         let (steps, tagged, models) = (self.text()?, self.int()?, self.text()?);
-        Listed::of_kept(steps, tagged, models)
+        Listed::of_kept(steps, tagged, models, self.text()?)
     }
 
     fn carried(&mut self) -> Option<Last<Carry>> {
@@ -361,7 +361,7 @@ impl SeatRow {
 
     /// The columns a row is kept in, by name and SQL type, in the order
     /// [`SeatRow::data`] gives their values.
-    pub const COLUMNS: [(&'static str, &'static str); 66] = [
+    pub const COLUMNS: [(&'static str, &'static str); 67] = [
         ("request_seq", INTEGER),
         ("effect_id", TEXT),
         ("attempt_id", TEXT),
@@ -428,6 +428,7 @@ impl SeatRow {
         ("steps", TEXT),
         ("tagged_seq", INTEGER),
         ("models", TEXT),
+        ("early_tags", TEXT),
     ];
 
     /// This row's values, in [`SeatRow::COLUMNS`]' order.
@@ -476,6 +477,7 @@ impl SeatRow {
         put.text(self.listed.steps_kept().as_deref());
         put.int(self.listed.tagged);
         put.text(self.listed.models_kept().as_deref());
+        put.text(self.listed.early_kept().as_deref());
         put.0
     }
 

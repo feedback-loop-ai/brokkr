@@ -15,7 +15,7 @@ fn every_hand_built_row_reads_back_from_its_data() {
             read += 1;
         }
     }
-    assert_eq!(read, 58);
+    assert_eq!(read, 60);
 }
 
 #[test]
@@ -69,6 +69,7 @@ fn full() -> Vec<Datum> {
             ("metered_total_tokens" | "session_total_tokens", _) => Datum::Integer(2),
             ("steps", _) => text("1:15:steps"),
             ("models", _) => text("6:models"),
+            ("early_tags", _) => text("1:110:early_tags"),
             (_, "TEXT") => text(name),
             _ => Datum::Integer(1),
         })
@@ -164,6 +165,7 @@ fn a_row_holding_each_part_it_may_omit_reads_back_as_its_data() {
             ("steps", Datum::Null),
             ("tagged_seq", Datum::Null),
             ("models", Datum::Null),
+            ("early_tags", Datum::Null),
         ],
     ];
     for columns in variants {

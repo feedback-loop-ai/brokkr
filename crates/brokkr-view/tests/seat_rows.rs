@@ -48,5 +48,21 @@ fn every_hand_built_journal_s_seat_rows_read_as_its_participants() {
         compared += count;
     }
     assert_eq!(found, Vec::<String>::new());
-    assert_eq!(compared, 43);
+    assert_eq!(compared, 46);
+}
+
+/// An effect asked again while the attempt a start opened before its
+/// first request is in flight: its phases' steps and tags and its visits'
+/// models are what the rows keep, the attempt's terminal read open per
+/// effect, as the dashboard reads it, and not per request. The view counts
+/// the two requests as one participant where the rows count two, so only
+/// the lists are compared.
+#[test]
+fn an_effect_asked_again_lists_as_its_run_view() {
+    let events = journals::journal(journals::unasked_events(true));
+    let rows = Account::whole("again", &events);
+    let view = brokkr_view::run_view(&events, None);
+    let (differ, compared) = seat_facts::lists_differ("again", &events, rows.seats(), &view);
+    assert_eq!(differ, Vec::<String>::new());
+    assert_eq!(compared, 4);
 }

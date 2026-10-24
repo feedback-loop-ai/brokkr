@@ -5,8 +5,9 @@
 //! carry tokens, a panel, a request never started, the records that
 //! name no attempt or no member, an attempt started again, and a
 //! provenance entry naming no provider, and a panel's carried members, their
-//! sources named later, and a retried sequence's steps, tags and models
-//! over two visits. brokkr-core pins each one's facts; brokkr-view holds the
+//! sources named later, a retried sequence's steps, tags and models
+//! over two visits, and records before their effect's request and a
+//! terminal after it is asked again. brokkr-core pins each one's facts; brokkr-view holds the
 //! same journals' facts equal to its run view. A test module includes this
 //! file through `#[path]` beside an `envelope_builder` module, the one
 //! place a test spells an envelope (#357).
@@ -576,6 +577,67 @@ pub(crate) fn sequenced() -> Vec<EventEnvelope> {
     ])
 }
 
+/// What no engine writes, read as the view reads it: a sequence's step and
+/// a member's two turns recorded, and an attempt started, before their
+/// effect's request; a terminal naming no attempt, which concludes the request's
+/// participant but not the effect's open attempt, the one the dashboard
+/// reads; and that attempt's terminal, whose model the dashboard joins.
+pub(crate) fn unasked() -> Vec<EventEnvelope> {
+    journal(unasked_events(false))
+}
+
+/// [`unasked`]'s events; `again` asks its effect again in a second visit
+/// before its terminals, so they conclude the second request's attempt.
+pub(crate) fn unasked_events(again: bool) -> Vec<(EventType, Value)> {
+    let asked = |phase: &str| {
+        let payload = json!({"effect_id": "u1", "seat": phase, "phase": phase});
+        (EventType::EffectRequested, payload)
+    };
+    let mut events = vec![
+        (EventType::PhaseEntered, json!({"phase": "work"})),
+        checkpoint(
+            "u1",
+            "a1",
+            json!({"step": "sequence-step-finished", "step_name": "plan", "model": "m-early"}),
+        ),
+        checkpoint(
+            "u1",
+            "a1",
+            json!({"member": "review:a", "step": "seat-turn", "turn": 1}),
+        ),
+        checkpoint(
+            "u1",
+            "a1",
+            json!({"member": "review:a", "step": "seat-turn", "turn": 2}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "u1", "attempt_id": "a1"}),
+        ),
+        asked("work"),
+        checkpoint(
+            "u1",
+            "a1",
+            json!({"step": "sequence-step-finished", "step_name": "draft", "model": "m-work"}),
+        ),
+    ];
+    if again {
+        events.push((EventType::PhaseEntered, json!({"phase": "check"})));
+        events.push(asked("check"));
+    }
+    events.extend([
+        (
+            EventType::EffectFailed,
+            json!({"effect_id": "u1", "result": {"model": "m-none"}}),
+        ),
+        (
+            EventType::EffectSucceeded,
+            json!({"effect_id": "u1", "attempt_id": "a1", "result": {"model": "m-late"}}),
+        ),
+    ]);
+    events
+}
+
 /// Every hand-built journal, by name.
 pub(crate) fn journals() -> Vec<(&'static str, Vec<EventEnvelope>)> {
     vec![
@@ -593,5 +655,6 @@ pub(crate) fn journals() -> Vec<(&'static str, Vec<EventEnvelope>)> {
         ("carried", carried()),
         ("later", later()),
         ("sequenced", sequenced()),
+        ("unasked", unasked()),
     ]
 }

@@ -946,7 +946,7 @@ pub brokkr_core::seat::row::SeatFacts::usage: core::option::Option<brokkr_core::
 pub brokkr_core::seat::row::SeatFacts::usage_aggregated: bool
 pub struct brokkr_core::seat::row::SeatRow
 impl brokkr_core::seat::row::SeatRow
-pub const brokkr_core::seat::row::SeatRow::COLUMNS: [(&'static str, &'static str); 66]
+pub const brokkr_core::seat::row::SeatRow::COLUMNS: [(&'static str, &'static str); 67]
 pub fn brokkr_core::seat::row::SeatRow::data(&self) -> alloc::vec::Vec<brokkr_core::seat::row::Datum>
 pub fn brokkr_core::seat::row::SeatRow::of_data(alloc::vec::Vec<brokkr_core::seat::row::Datum>) -> core::option::Option<brokkr_core::seat::row::SeatRow>
 pub fn brokkr_core::seat::row::facts(&[brokkr_core::seat::row::SeatRow]) -> alloc::vec::Vec<brokkr_core::seat::row::SeatFacts>
