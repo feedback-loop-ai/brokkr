@@ -10,6 +10,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
+use super::kept::both;
+use super::said::Early;
 use super::{Member, SeatRow, Seats};
 use crate::envelope::{EventEnvelope, EventType};
 use crate::residual::text as field;
@@ -20,13 +22,15 @@ use crate::residual::text as field;
 /// model its records and its effect's concluding terminals reported, each
 /// once, in the order first reported; and, on a request's own row, each
 /// member a record before the effect's first request tagged, with the seq
-/// it first did.
+/// it first did, and the live lines such records open (`said::Early`), in
+/// the order first opened.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(super) struct Listed {
     pub(super) steps: Vec<(u64, String)>,
     pub(super) tagged: Option<u64>,
     pub(super) models: Vec<String>,
     pub(super) early: Vec<(u64, String)>,
+    pub(super) lines: Vec<Early>,
 }
 
 impl Listed {
@@ -50,15 +54,17 @@ impl Listed {
         finished
     }
 
-    /// A checkpoint at `seq` before its effect's first request, as the
-    /// rail reads it: its step, or the member it tags. The dashboard joins
-    /// its model to no visit.
-    fn early(&mut self, seq: u64, checkpoint: &Value) {
+    /// A checkpoint of `attempt` at `seq` before its effect's first
+    /// request, as the rail reads it: its step, or the member it tags; and
+    /// as the live block reads it, its line. The dashboard joins its model
+    /// to no visit.
+    fn early(&mut self, seq: u64, attempt: Option<&str>, checkpoint: &Value) {
         let finished = self.finished(seq, checkpoint);
         let member = field(checkpoint, "member").filter(|_| !finished);
         if let Some(member) = member.filter(|member| !known(&self.early, member)) {
             self.early.push((seq, member.to_string()));
         }
+        Early::noted(&mut self.lines, attempt, checkpoint);
     }
 
     /// A model its records or its effect's concluding terminal reported.
@@ -84,16 +90,36 @@ impl Listed {
         paired(&self.early)
     }
 
+    /// The early lines' column: each line's attempt, member, turn and
+    /// tool, each an optional entry ([`optional`]).
+    pub(super) fn lines_kept(&self) -> Option<String> {
+        let each = self.lines.iter().flat_map(|line| {
+            let member = match &line.member {
+                Member::Seat => None,
+                Member::Named(member) => Some(member.as_str()),
+            };
+            let turn = line.turn.as_ref();
+            let (turn, tool) = (
+                turn.map(|turn| turn.0.as_str()),
+                turn.map(|turn| turn.1.as_str()),
+            );
+            [line.attempt.as_deref(), member, turn, tool].map(optional)
+        });
+        let each: Vec<String> = each.collect();
+        kept(each.iter().map(String::as_str))
+    }
+
     /// The lists its columns hold, or `None` for any its writer does not
     /// write: an entry cut short or its length not as written, a seq that
     /// is not one, a step or a tag without its seq, a step, a model or a
-    /// tag twice, steps or tags out of their seqs' order, or no entry at
-    /// all.
+    /// tag twice, steps or tags out of their seqs' order, a line as
+    /// [`lines`] refuses it, or no entry at all.
     pub(super) fn of_kept(
         steps: Option<String>,
         tagged: Option<u64>,
         models: Option<String>,
         early: Option<String>,
+        lines: Option<String>,
     ) -> Option<Listed> {
         let served = models.as_deref().map_or(Some(Vec::new()), entries)?;
         let listed = Listed {
@@ -101,6 +127,7 @@ impl Listed {
             tagged,
             models: served.into_iter().map(str::to_string).collect(),
             early: pairs(early.as_deref())?,
+            lines: self::lines(lines.as_deref())?,
         };
         let ordered = |pairs: &[(u64, String)]| pairs.windows(2).all(|pair| pair[0].0 < pair[1].0);
         let names = |pairs: &'_ [(u64, String)]| once(pairs.iter().map(|(_, name)| name));
@@ -108,9 +135,51 @@ impl Listed {
         let pairs_read = lists.iter().all(|list| ordered(list) && names(list));
         let canonical = listed.steps_kept() == steps
             && listed.models_kept() == models
-            && listed.early_kept() == early;
+            && listed.early_kept() == early
+            && listed.lines_kept() == lines;
         (pairs_read && once(listed.models.iter()) && canonical).then_some(listed)
     }
+}
+
+/// An optional text as one entry: `-` for none, else `+` and the text.
+fn optional(text: Option<&str>) -> String {
+    text.map_or_else(|| "-".to_string(), |text| format!("+{text}"))
+}
+
+/// The optional text an [`optional`] entry holds, or `None` for another.
+fn optional_of(entry: &str) -> Option<Option<String>> {
+    match entry.strip_prefix('+') {
+        Some(text) => Some(Some(text.to_string())),
+        None => (entry == "-").then_some(None),
+    }
+}
+
+/// The lines a column [`Listed::lines_kept`] keeps holds, none for
+/// `None`, or `None` where it cuts a line short, an entry is no optional
+/// text, a turn is kept without its tool or a tool without its turn, or
+/// two lines name one attempt and member.
+fn lines(text: Option<&str>) -> Option<Vec<Early>> {
+    let read = text.map_or(Some(Vec::new()), entries)?;
+    read.chunks(4)
+        .try_fold(Vec::new(), |mut found: Vec<Early>, line| {
+            let [attempt, member, turn, tool] = line else {
+                return None;
+            };
+            let [attempt, member, turn, tool] =
+                [attempt, member, turn, tool].map(|entry| optional_of(entry));
+            let turn = both(turn?, tool?)?;
+            let (attempt, member) = (attempt?, Member::of(member?.as_deref()));
+            let known = |line: &Early| line.attempt == attempt && line.member == member;
+            if found.iter().any(known) {
+                return None;
+            }
+            found.push(Early {
+                attempt,
+                member,
+                turn,
+            });
+            Some(found)
+        })
 }
 
 /// What the rail and the dashboard read of a run's records beside its
@@ -118,11 +187,29 @@ impl Listed {
 /// effect's first request lists, which the rail buckets by effect id
 /// however early, and each effect's open attempt as the dashboard reads
 /// it, by effect id across its requests, not by request as a participant
-/// reads it.
+/// reads it; and the effect and attempt the run's last start names, as
+/// the live block reads them (`said`), until a terminal names both.
 #[derive(Debug, Clone, Default)]
 pub(super) struct Aside {
     early: BTreeMap<String, Listed>,
     open: BTreeMap<String, String>,
+    pub(super) started: Option<(Option<String>, Option<String>)>,
+}
+
+impl Aside {
+    /// Whether `row` is of the effect and attempt the live start names.
+    pub(super) fn lights(&self, row: &SeatRow) -> bool {
+        let started = self.started.as_ref();
+        started.is_some_and(|(effect_id, attempt_id)| {
+            effect_id.as_deref() == Some(row.effect_id.as_str()) && *attempt_id == row.attempt_id
+        })
+    }
+
+    /// `row`, live as [`Aside::lights`] reads it.
+    pub(super) fn lit(&self, mut row: SeatRow) -> SeatRow {
+        row.live = self.lights(&row);
+        row
+    }
 }
 
 impl Seats {
@@ -141,27 +228,25 @@ impl Seats {
         let own = self.by_effect.get(effect_id);
         let own = own.map(|&request| self.at[&(request, None)][&Member::Seat]);
         let aside = &mut self.aside;
-        match event.event_type {
-            EventType::EffectRequested => {
+        match Kind::of(event.event_type) {
+            Kind::Requested => {
                 if let (Some(early), Some(own)) = (aside.early.remove(effect_id), own) {
                     self.rows[own].listed = early;
                 }
             }
-            EventType::EffectCheckpointed if own.is_none() => {
+            Kind::Checkpointed if own.is_none() => {
                 let checkpoint = payload.get("checkpoint").unwrap_or(&Value::Null);
                 let early = aside.early.entry(effect_id.to_string()).or_default();
-                early.early(event.seq, checkpoint);
+                early.early(event.seq, attempt, checkpoint);
             }
-            EventType::EffectStarted => {
+            Kind::Started => {
                 if let Some(attempt) = attempt {
                     aside
                         .open
                         .insert(effect_id.to_string(), attempt.to_string());
                 }
             }
-            EventType::EffectSucceeded
-            | EventType::EffectFailed
-            | EventType::EffectIndeterminate => {
+            Kind::Ended => {
                 if aside.open.get(effect_id).map(String::as_str) != attempt {
                     return;
                 }
@@ -171,8 +256,31 @@ impl Seats {
                     self.rows[own].listed.served(model);
                 }
             }
-            EventType::EffectCheckpointed
-            | EventType::RunStarted
+            Kind::Checkpointed | Kind::Other => {}
+        }
+    }
+}
+
+/// What an event is to what is read beside the rows: an effect's request,
+/// start, checkpoint or terminal, or another kind, which none of it reads.
+pub(super) enum Kind {
+    Requested,
+    Started,
+    Checkpointed,
+    Ended,
+    Other,
+}
+
+impl Kind {
+    pub(super) fn of(event_type: EventType) -> Kind {
+        match event_type {
+            EventType::EffectRequested => Kind::Requested,
+            EventType::EffectStarted => Kind::Started,
+            EventType::EffectCheckpointed => Kind::Checkpointed,
+            EventType::EffectSucceeded
+            | EventType::EffectFailed
+            | EventType::EffectIndeterminate => Kind::Ended,
+            EventType::RunStarted
             | EventType::PhaseEntered
             | EventType::TransitionDecided
             | EventType::OperatorCommanded
@@ -180,7 +288,7 @@ impl Seats {
             | EventType::OperatorRejected
             | EventType::RunParked
             | EventType::RunCompleted
-            | EventType::RunStopped => {}
+            | EventType::RunStopped => Kind::Other,
         }
     }
 }

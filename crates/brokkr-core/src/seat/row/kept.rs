@@ -113,7 +113,7 @@ impl Put {
 struct Take<I>(I);
 
 /// Both parts of a value or neither, else no row.
-fn both<A, B>(a: Option<A>, b: Option<B>) -> Option<Option<(A, B)>> {
+pub(super) fn both<A, B>(a: Option<A>, b: Option<B>) -> Option<Option<(A, B)>> {
     match (a, b) {
         (None, None) => Some(None),
         (Some(a), Some(b)) => Some(Some((a, b))),
@@ -229,11 +229,11 @@ impl<I: Iterator<Item = Datum>> Take<I> {
         }
     }
 
-    /// Its finished steps, its member's tag, its models and its early
-    /// tags, each list as [`Listed::of_kept`] reads it back.
+    /// Its finished steps, its member's tag, its models, its early tags
+    /// and its early lines, each list as [`Listed::of_kept`] reads it back.
     fn listed(&mut self) -> Option<Listed> {
         let (steps, tagged, models) = (self.text()?, self.int()?, self.text()?);
-        Listed::of_kept(steps, tagged, models, self.text()?)
+        Listed::of_kept(steps, tagged, models, self.text()?, self.text()?)
     }
 
     fn carried(&mut self) -> Option<Last<Carry>> {
@@ -356,12 +356,13 @@ impl SeatRow {
             session: None,
             transcript: None,
             listed: Listed::default(),
+            live: false,
         }
     }
 
     /// The columns a row is kept in, by name and SQL type, in the order
     /// [`SeatRow::data`] gives their values.
-    pub const COLUMNS: [(&'static str, &'static str); 67] = [
+    pub const COLUMNS: [(&'static str, &'static str); 69] = [
         ("request_seq", INTEGER),
         ("effect_id", TEXT),
         ("attempt_id", TEXT),
@@ -429,6 +430,8 @@ impl SeatRow {
         ("tagged_seq", INTEGER),
         ("models", TEXT),
         ("early_tags", TEXT),
+        ("early_lines", TEXT),
+        ("live", INTEGER),
     ];
 
     /// This row's values, in [`SeatRow::COLUMNS`]' order.
@@ -478,6 +481,8 @@ impl SeatRow {
         put.int(self.listed.tagged);
         put.text(self.listed.models_kept().as_deref());
         put.text(self.listed.early_kept().as_deref());
+        put.text(self.listed.lines_kept().as_deref());
+        put.flag(Some(self.live));
         put.0
     }
 
@@ -511,6 +516,7 @@ impl SeatRow {
         take.counted(&mut row)?;
         row.turn = take.turn()?;
         row.listed = take.listed()?;
+        row.live = take.flag()??;
         take.0.next().is_none().then_some(row)
     }
 }

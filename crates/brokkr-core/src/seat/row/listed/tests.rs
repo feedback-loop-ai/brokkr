@@ -68,9 +68,21 @@ fn records_before_a_request_list_and_its_open_attempt_concludes_per_effect() {
         owns.find(|row| row.request_seq == asked)
             .map(|row| &row.listed)
     };
+    let line = |member, turn: Option<(&str, &str)>| Early {
+        attempt: Some("a1".to_string()),
+        member,
+        turn: turn.map(|(turn, tool)| (turn.to_string(), tool.to_string())),
+    };
     let first = Listed {
         steps: vec![(2, "plan".to_string())],
         early: vec![(3, "review:a".to_string())],
+        lines: vec![
+            line(Member::Seat, None),
+            line(
+                Member::Named("review:a".to_string()),
+                Some(("2", "undefined")),
+            ),
+        ],
         ..Listed::default()
     };
     assert_eq!(own(6), Some(&first));
@@ -95,8 +107,18 @@ fn a_row_lists_each_model_once_in_the_order_first_served() {
     assert_eq!(listed.models, words(&["b", "a"]));
 }
 
+/// An early line of `attempt` and `member`, with its turn and tool.
+fn line(attempt: Option<&str>, member: Option<&str>, turn: Option<(&str, &str)>) -> Early {
+    Early {
+        attempt: attempt.map(str::to_string),
+        member: Member::of(member),
+        turn: turn.map(|(turn, tool)| (turn.to_string(), tool.to_string())),
+    }
+}
+
 /// Each list a writer writes reads back as written: none, one entry, an
-/// empty name or model, a seq past `u32`.
+/// empty name or model, a seq past `u32`; a line naming no attempt or no
+/// member, or an empty one, a line with a turn and one without.
 #[test]
 fn a_list_reads_back_from_its_columns_as_written() {
     let pairs = |pairs: &[(u64, &str)]| -> Vec<(u64, String)> {
@@ -108,6 +130,11 @@ fn a_list_reads_back_from_its_columns_as_written() {
         tagged,
         models: words(models),
         early: pairs(early),
+        lines: Vec::new(),
+    };
+    let lined = |lines: Vec<Early>| Listed {
+        lines,
+        ..Listed::default()
     };
     let lists = [
         listed(&[], None, &[], &[]),
@@ -118,12 +145,27 @@ fn a_list_reads_back_from_its_columns_as_written() {
             &[(1, "b")],
         ),
         listed(&[(1, "naïve:step")], None, &["a:b"], &[(2, "x:y"), (9, "")]),
+        lined(vec![
+            line(None, None, None),
+            line(Some(""), Some("-"), Some(("", "+"))),
+            line(Some("a1"), None, Some(("2", "undefined"))),
+            line(Some("a1"), Some("review:a"), None),
+        ]),
     ];
     for list in lists {
         let (steps, models) = (list.steps_kept(), list.models_kept());
-        let read = Listed::of_kept(steps, list.tagged, models, list.early_kept());
+        let (early, lines) = (list.early_kept(), list.lines_kept());
+        let read = Listed::of_kept(steps, list.tagged, models, early, lines);
         assert_eq!(read.as_ref(), Some(&list), "{list:?}");
     }
+    assert_eq!(
+        lined(vec![line(Some("a1"), Some("b"), Some(("2", "Read")))]).lines_kept(),
+        Some("3:+a12:+b2:+25:+Read".to_string())
+    );
+    assert_eq!(
+        lined(vec![line(None, None, None)]).lines_kept(),
+        Some("1:-1:-1:-1:-".to_string())
+    );
     assert_eq!(
         listed(&[(3, "draft"), (12, "review")], None, &["m-1", "gpt"], &[]).steps_kept(),
         Some("1:35:draft2:126:review".to_string())
@@ -161,13 +203,45 @@ fn a_list_no_writer_writes_reads_as_none() {
         "1:31:\u{e9}",
     ];
     for text in steps {
-        let read = Listed::of_kept(Some(text.to_string()), None, None, None);
+        let read = Listed::of_kept(Some(text.to_string()), None, None, None, None);
         assert_eq!(read, None, "steps {text:?}");
-        let read = Listed::of_kept(None, None, None, Some(text.to_string()));
+        let read = Listed::of_kept(None, None, None, Some(text.to_string()), None);
         assert_eq!(read, None, "early {text:?}");
     }
     for text in ["", "3:m-13:m-1", "2:m", "x:m", "1:m1:"] {
-        let read = Listed::of_kept(None, None, Some(text.to_string()), None);
+        let read = Listed::of_kept(None, None, Some(text.to_string()), None, None);
         assert_eq!(read, None, "{text:?}");
     }
+}
+
+/// Early lines no writer writes are none: no entry, a line cut short, an
+/// entry that is no optional text, a turn without its tool or a tool
+/// without its turn, a length not as written, and two lines of one
+/// attempt and member.
+#[test]
+fn early_lines_no_writer_writes_read_as_none() {
+    let lines = [
+        "",
+        "1:-1:-1:-",
+        "1:-1:-1:-1:-1:-",
+        "0:1:-1:-1:-",
+        "1:x1:-1:-1:-",
+        "2:-x1:-1:-1:-",
+        "1:-1:-2:+11:-",
+        "1:-1:-1:-2:+1",
+        "01:-1:-1:-1:-",
+        "3:+a11:-1:-1:-3:+a11:-1:-1:-",
+    ];
+    for text in lines {
+        let read = Listed::of_kept(None, None, None, None, Some(text.to_string()));
+        assert_eq!(read, None, "{text:?}");
+    }
+    let one = "3:+a11:-1:-1:-3:+a12:+b1:-1:-";
+    let read = Listed::of_kept(None, None, None, None, Some(one.to_string()));
+    let read = read.map(|listed| listed.lines);
+    let lines = vec![
+        line(Some("a1"), None, None),
+        line(Some("a1"), Some("b"), None),
+    ];
+    assert_eq!(read, Some(lines));
 }

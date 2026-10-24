@@ -2,7 +2,7 @@ use serde_json::json;
 
 use super::*;
 use crate::envelope::{EventEnvelope, EventType};
-use crate::seat::row::tests::journals::{at, checkpoint, journal};
+use crate::seat::row::tests::journals::{self, at, checkpoint, journal};
 use crate::seat::row::{facts, SeatFacts};
 use crate::summary::Account;
 
@@ -106,7 +106,7 @@ fn turn(member: Option<&str>, turn: u64, tool: &str) -> serde_json::Value {
     json!({"member": member, "step": "seat-turn", "turn": turn, "tool": tool})
 }
 
-fn live_of(events: &[EventEnvelope]) -> Vec<(Member, Option<(String, String)>)> {
+fn live_of(events: &[EventEnvelope]) -> Vec<(String, Option<(String, String)>)> {
     live(Account::whole("run", events).seats())
 }
 
@@ -116,6 +116,11 @@ fn named(member: &str) -> Member {
 
 fn turned(turn: &str, tool: &str) -> Option<(String, String)> {
     Some((turn.to_string(), tool.to_string()))
+}
+
+/// A live line labelled `label`, with `turn`.
+fn line(label: &str, turn: Option<(String, String)>) -> (String, Option<(String, String)>) {
+    (label.to_string(), turn)
 }
 
 /// The live block reads the attempt in flight: its participants in the
@@ -147,18 +152,19 @@ fn the_live_block_reads_the_attempt_in_flight_in_its_checkpoints_order() {
     assert_eq!(
         live_of(&events),
         [
-            (named("b"), None),
-            (Member::Seat, turned("4", "Bash")),
-            (named("a"), turned("2", "Grep")),
+            line("panel:b", None),
+            line("panel", turned("4", "Bash")),
+            line("panel:a", turned("2", "Grep")),
         ]
     );
 }
 
-/// No attempt in flight reads no live participant: none started, the one
-/// started concluded, or the one in flight with no checkpoint yet; a
-/// start re-opening a concluded attempt puts it in flight again.
+/// No attempt in flight reads no live line: none started, or the one
+/// started concluded; the one in flight with no checkpoint yet reads its
+/// seat's bare line, and a start re-opening a concluded attempt puts it in
+/// flight again.
 #[test]
-fn no_attempt_in_flight_reads_no_live_participant() {
+fn no_attempt_in_flight_reads_no_live_line() {
     let mut concluded = vec![asked()];
     concluded.extend(panel("one", vec![turn(None, 1, "Read")]));
     concluded.push((
@@ -171,9 +177,53 @@ fn no_attempt_in_flight_reads_no_live_participant() {
     quiet.extend(panel("one", vec![]));
     assert_eq!(live_of(&journal(concluded)), []);
     assert_eq!(live_of(&journal(vec![asked()])), []);
-    assert_eq!(live_of(&journal(quiet)), []);
+    assert_eq!(live_of(&journal(quiet)), [line("panel", None)]);
     let reopened = live_of(&journal(reopened));
-    assert_eq!(reopened, [(Member::Seat, turned("1", "Read"))]);
+    assert_eq!(reopened, [line("panel", turned("1", "Read"))]);
+}
+
+/// A start before its effect's request is live once the effect is asked:
+/// the records before the request are listed first under the seat `?`,
+/// each line with its last turn; a later record under the seat its
+/// request names; one after the effect is asked again under that
+/// request's seat; and a terminal naming the start's effect and attempt
+/// ends it, though no request's attempt in flight is it.
+#[test]
+fn a_start_before_its_request_is_live_with_the_records_before_it() {
+    let early = [
+        line("?", None),
+        line("?:review:a", turned("2", "undefined")),
+    ];
+    let mut lines = early.to_vec();
+    lines.push(line("work", None));
+    assert_eq!(live_of(&journals::in_flight(false)), lines);
+    lines.push(line("check:review:a", turned("3", "Read")));
+    assert_eq!(live_of(&journals::in_flight(true)), lines);
+    assert_eq!(live_of(&journals::unasked()), []);
+    assert_eq!(live_of(&journal(journals::unasked_events(true))), []);
+    let quiet = live_of(&journals::started_unasked());
+    assert_eq!(quiet, [line("quiet", None)]);
+}
+
+/// A request naming no seat, or an empty one, labels its records `?`, as a
+/// record before any request is: one line under both, its turn the last
+/// stated under either, and none passed over for a later record with none.
+#[test]
+fn a_record_under_no_seat_shares_the_line_of_one_before_the_request() {
+    let unseated = |seat: serde_json::Value, last: serde_json::Value| {
+        let mut events = vec![checkpoint("p", "one", turn(Some("a"), 1, "Read"))];
+        events.extend(panel("one", vec![]));
+        let asked = json!({"effect_id": "p", "seat": seat});
+        events.push((EventType::EffectRequested, asked));
+        events.push(checkpoint("p", "one", last));
+        live_of(&journal(events))
+    };
+    let completed = json!({"member": "a", "step": "item-completed"});
+    let kept = [line("?:a", turned("1", "Read"))];
+    assert_eq!(unseated(json!(null), completed.clone()), kept);
+    assert_eq!(unseated(json!(""), completed), kept);
+    let later = [line("?:a", turned("2", "Grep"))];
+    assert_eq!(unseated(json!(""), turn(Some("a"), 2, "Grep")), later);
 }
 
 /// What a participant's facts carry of its records: its last checkpoint's

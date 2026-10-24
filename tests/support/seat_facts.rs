@@ -52,8 +52,9 @@ fn status(outcome: Outcome) -> &'static str {
     }
 }
 /// When the view's clock starts for `participant`: a seat's at its
-/// effect's first start after its first request, as the view's scan
-/// passes over a start before it; a member's at its first checkpoint.
+/// effect's first start after its first request and before the next, as
+/// the view's scan passes over a start before it and reads the seat by its
+/// first request; a member's at its first checkpoint.
 fn started_at<'a>(events: &'a [EventEnvelope], participant: &'a Participant) -> Option<&'a str> {
     if participant.member.is_some() {
         return participant
@@ -65,10 +66,13 @@ fn started_at<'a>(events: &'a [EventEnvelope], participant: &'a Participant) -> 
     let names = |event: &EventEnvelope, event_type| {
         event.event_type == event_type && event.payload["effect_id"].as_str() == Some(effect_id)
     };
-    let mut asked = events
+    let asked = events
         .iter()
         .skip_while(|event| !names(event, EventType::EffectRequested));
-    let started = asked.find(|event| names(event, EventType::EffectStarted));
+    let mut first = asked
+        .skip(1)
+        .take_while(|event| !names(event, EventType::EffectRequested));
+    let started = first.find(|event| names(event, EventType::EffectStarted));
     started.map(|event| event.recorded_at.as_str())
 }
 
@@ -209,55 +213,17 @@ fn differs(
         .map(|(field, _)| field)
 }
 
-/// Whether `event` is a terminal of the effect and attempt `start` names.
-fn concludes(event: &EventEnvelope, start: &EventEnvelope) -> bool {
-    let terminal = matches!(
-        event.event_type,
-        EventType::EffectSucceeded | EventType::EffectFailed | EventType::EffectIndeterminate
-    );
-    let names = |key: &str| event.payload.get(key) == start.payload.get(key);
-    terminal && names("effect_id") && names("attempt_id")
-}
-
-/// The live block `rows` show, each line its label and its text, labelled
-/// as the trail reads the attempt in flight: the run's last start, while
-/// no terminal of its effect and attempt followed it, its seat the last
-/// that effect was asked by that names one, else `?`; one bare line for
-/// that seat while the rows hold no checkpoint of it yet.
-fn live_lines(events: &[EventEnvelope], rows: &[SeatRow]) -> Vec<(String, String)> {
-    let mut starts = events
-        .iter()
-        .filter(|event| event.event_type == EventType::EffectStarted);
-    let Some(start) = starts.next_back() else {
-        return Vec::new();
-    };
-    let mut after = events.iter().filter(|event| event.seq > start.seq);
-    if after.any(|event| concludes(event, start)) {
-        return Vec::new();
-    }
-    let asked = events.iter().filter(|event| {
-        event.event_type == EventType::EffectRequested
-            && event.payload.get("effect_id") == start.payload.get("effect_id")
-    });
-    let named = asked.filter_map(|event| event.payload["seat"].as_str());
-    let mut named = named.filter(|seat| !seat.is_empty());
-    let seat = named.next_back().unwrap_or("?");
-    let live = live(rows);
-    if live.is_empty() {
-        return vec![(seat.to_string(), format!("{seat} · working"))];
-    }
-    let line = |(member, turn): (Member, Option<(String, String)>)| {
-        let label = match member {
-            Member::Seat => seat.to_string(),
-            Member::Named(member) => format!("{seat}:{member}"),
-        };
+/// The live block `rows` keep, each line its label and its text as the
+/// trail paints it: its turn and tool, or `working`.
+fn live_lines(rows: &[SeatRow]) -> Vec<(String, String)> {
+    let line = |(label, turn): (String, Option<(String, String)>)| {
         let text = match turn {
             Some((turn, tool)) => format!("{label} · turn {turn} · {tool}"),
             None => format!("{label} · working"),
         };
         (label, text)
     };
-    live.into_iter().map(line).collect()
+    live(rows).into_iter().map(line).collect()
 }
 
 /// The rail's columns of a phase whose newest effect is `effect_id`, from
@@ -414,7 +380,7 @@ pub(crate) fn disagreements(
         .iter()
         .map(|line| (line.label.clone(), line.text.clone()))
         .collect();
-    if live_lines(events, rows) != shown {
+    if live_lines(rows) != shown {
         found.push(format!("{run}: live"));
     }
     found.extend(lists);
@@ -423,7 +389,7 @@ pub(crate) fn disagreements(
 
 /// Each phase and each visit of `view`, `run`'s run view, whose lists are
 /// not what `rows` keep, and how many phases and visits were compared.
-pub(crate) fn lists_differ(
+fn lists_differ(
     run: &str,
     events: &[EventEnvelope],
     rows: &[SeatRow],

@@ -15,7 +15,7 @@ fn every_hand_built_row_reads_back_from_its_data() {
             read += 1;
         }
     }
-    assert_eq!(read, 60);
+    assert_eq!(read, 80);
 }
 
 #[test]
@@ -70,6 +70,7 @@ fn full() -> Vec<Datum> {
             ("steps", _) => text("1:15:steps"),
             ("models", _) => text("6:models"),
             ("early_tags", _) => text("1:110:early_tags"),
+            ("early_lines", _) => text("6:+early1:-1:-1:-"),
             (_, "TEXT") => text(name),
             _ => Datum::Integer(1),
         })
@@ -166,7 +167,9 @@ fn a_row_holding_each_part_it_may_omit_reads_back_as_its_data() {
             ("tagged_seq", Datum::Null),
             ("models", Datum::Null),
             ("early_tags", Datum::Null),
+            ("early_lines", Datum::Null),
         ],
+        vec![("live", Datum::Integer(0))],
     ];
     for columns in variants {
         let data = with(&columns);
@@ -276,6 +279,10 @@ fn data_no_row_writes_reads_as_none() {
         vec![("steps", Datum::Integer(1))],
         vec![("tagged_seq", text("1"))],
         vec![("models", text(""))],
+        vec![("early_lines", text("1:-"))],
+        vec![("early_lines", Datum::Integer(1))],
+        vec![("live", none())],
+        vec![("live", Datum::Integer(2))],
     ];
     for columns in refused.into_iter().chain(unsaid()) {
         assert_eq!(SeatRow::of_data(with(&columns)), None, "{columns:?}");

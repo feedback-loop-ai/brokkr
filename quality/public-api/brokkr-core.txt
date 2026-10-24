@@ -946,12 +946,12 @@ pub brokkr_core::seat::row::SeatFacts::usage: core::option::Option<brokkr_core::
 pub brokkr_core::seat::row::SeatFacts::usage_aggregated: bool
 pub struct brokkr_core::seat::row::SeatRow
 impl brokkr_core::seat::row::SeatRow
-pub const brokkr_core::seat::row::SeatRow::COLUMNS: [(&'static str, &'static str); 67]
+pub const brokkr_core::seat::row::SeatRow::COLUMNS: [(&'static str, &'static str); 69]
 pub fn brokkr_core::seat::row::SeatRow::data(&self) -> alloc::vec::Vec<brokkr_core::seat::row::Datum>
 pub fn brokkr_core::seat::row::SeatRow::of_data(alloc::vec::Vec<brokkr_core::seat::row::Datum>) -> core::option::Option<brokkr_core::seat::row::SeatRow>
 pub fn brokkr_core::seat::row::facts(&[brokkr_core::seat::row::SeatRow]) -> alloc::vec::Vec<brokkr_core::seat::row::SeatFacts>
 pub fn brokkr_core::seat::row::inner(&[brokkr_core::seat::row::SeatRow], &str) -> (alloc::vec::Vec<alloc::string::String>, alloc::vec::Vec<alloc::string::String>)
-pub fn brokkr_core::seat::row::live(&[brokkr_core::seat::row::SeatRow]) -> alloc::vec::Vec<(brokkr_core::seat::row::Member, core::option::Option<(alloc::string::String, alloc::string::String)>)>
+pub fn brokkr_core::seat::row::live(&[brokkr_core::seat::row::SeatRow]) -> alloc::vec::Vec<(alloc::string::String, core::option::Option<(alloc::string::String, alloc::string::String)>)>
 pub fn brokkr_core::seat::row::models(&[brokkr_core::seat::row::SeatRow], u64, u64) -> alloc::collections::btree::set::BTreeSet<alloc::string::String>
 pub fn brokkr_core::seat::row::shown(core::option::Option<&serde_json::value::Value>) -> alloc::string::String
 pub struct brokkr_core::seat::BoundaryEntry

@@ -3,7 +3,7 @@
 Status: accepted — operator ruled 2026-10-19 (PR #769), every choice asked taken as recommended
 Date: 2026-10-18
 
-Built: partial (#753) — slice 1, the fleet, is built but Muninn's queue, which still reads the kept way, and the console's last page by the reverse order; of slice 2, `event_index` is built, its trigger, backfill, keyed reads, each event's id and ruling 4's check, and `seat_summary` is built, its table, writer, seat head, backfill, ruling 4's check, the seat-rows read and the facts the run view reads of a seat's records, a sequence's finished steps and a visit's models among them (an effect asked twice is kept as two participants where the view shows one), but the run and seat views that read them are unbuilt; slices 3 and 4 are unbuilt
+Built: partial (#753) — slice 1, the fleet, is built but Muninn's queue, which still reads the kept way, and the console's last page by the reverse order; of slice 2, `event_index` is built, its trigger, backfill, keyed reads, each event's id and ruling 4's check, and `seat_summary` is built, its table, writer, seat head, backfill, ruling 4's check, the seat-rows read and the facts the run view reads of a seat's records, a sequence's finished steps, a visit's models and the live block among them (a start of an effect never asked, or naming none, is in no row, so its live block is kept as none), but the run and seat views that read them are unbuilt; slices 3 and 4 are unbuilt
 Supersedes in part: 0088
 
 ## Context

@@ -7,7 +7,8 @@
 //! provenance entry naming no provider, and a panel's carried members, their
 //! sources named later, a retried sequence's steps, tags and models
 //! over two visits, and records before their effect's request and a
-//! terminal after it is asked again. brokkr-core pins each one's facts; brokkr-view holds the
+//! terminal after it is asked again, each also in flight, and a member an
+//! effect asked thrice carries. brokkr-core pins each one's facts; brokkr-view holds the
 //! same journals' facts equal to its run view. A test module includes this
 //! file through `#[path]` beside an `envelope_builder` module, the one
 //! place a test spells an envelope (#357).
@@ -638,6 +639,66 @@ pub(crate) fn unasked_events(again: bool) -> Vec<(EventType, Value)> {
     events
 }
 
+/// [`unasked_events`] while the attempt started before its effect's
+/// request is in flight, before either terminal: the live block lists the
+/// records before the request under the seat `?`, and `again`'s one more
+/// turn of the member after the effect is asked again under that seat.
+pub(crate) fn in_flight(again: bool) -> Vec<EventEnvelope> {
+    let mut events = unasked_events(again);
+    events.truncate(events.len() - 2);
+    if again {
+        let turn = json!({"member": "review:a", "step": "seat-turn", "turn": 3, "tool": "Read"});
+        events.push(checkpoint("u1", "a1", turn));
+    }
+    journal(events)
+}
+
+/// An attempt started before its effect's request, which no record
+/// follows: the live block is the request's seat's bare line.
+pub(crate) fn started_unasked() -> Vec<EventEnvelope> {
+    journal(vec![
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "q1", "attempt_id": "a"}),
+        ),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "q1", "seat": "quiet"}),
+        ),
+    ])
+}
+
+/// A member first seen under its effect's second request, in another
+/// phase than its first, carried by a start under a third: its source is
+/// counted among the starts in the phase of the request it was first seen
+/// under, as the view counts it, not the carrying request's.
+pub(crate) fn carried_again() -> Vec<EventEnvelope> {
+    let asked = |effect: &str, phase: &str| {
+        let payload = json!({"effect_id": effect, "seat": effect, "phase": phase});
+        (EventType::EffectRequested, payload)
+    };
+    let provenance = json!([{"member": "m", "provider": "p"}]);
+    let carried = json!([{"member": "m", "attempt_id": "b"}]);
+    journal(vec![
+        asked("e1", "w"),
+        asked("e1", "x"),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "e1", "attempt_id": "a", "provenance": provenance}),
+        ),
+        asked("e3", "x"),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "e3", "attempt_id": "b"}),
+        ),
+        asked("e1", "y"),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "e1", "attempt_id": "c", "carried": carried}),
+        ),
+    ])
+}
+
 /// Every hand-built journal, by name.
 pub(crate) fn journals() -> Vec<(&'static str, Vec<EventEnvelope>)> {
     vec![
@@ -656,5 +717,10 @@ pub(crate) fn journals() -> Vec<(&'static str, Vec<EventEnvelope>)> {
         ("later", later()),
         ("sequenced", sequenced()),
         ("unasked", unasked()),
+        ("again", journal(unasked_events(true))),
+        ("unasked in flight", in_flight(false)),
+        ("again in flight", in_flight(true)),
+        ("carried again", carried_again()),
+        ("started unasked", started_unasked()),
     ]
 }
