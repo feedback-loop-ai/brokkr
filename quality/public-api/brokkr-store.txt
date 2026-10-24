@@ -254,6 +254,7 @@ pub fn brokkr_store::Store::index_trail(&self, &str) -> core::result::Result<all
 pub fn brokkr_store::Store::reads_index(&self) -> core::result::Result<bool, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::high_water(&self) -> core::result::Result<i64, brokkr_store::StoreError>
+pub fn brokkr_store::Store::journal(&self) -> core::option::Option<(u64, u64)>
 pub fn brokkr_store::Store::queue_claim_with<R>(&mut self, &brokkr_store::QueueEntry, i64, &str, brokkr_store::Generation, &str, impl core::ops::function::FnMut(&[(brokkr_store::Wait, brokkr_store::EntryState, alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>)], &[(alloc::string::String, alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, alloc::string::String)]) -> core::result::Result<(), R>) -> core::result::Result<core::result::Result<brokkr_store::Claim, R>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_link(&mut self, brokkr_store::Claim, brokkr_store::Generation, &str, &str) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_reclaim(&mut self, brokkr_store::Claim, brokkr_store::Generation, core::option::Option<brokkr_store::StartRefusal>, &str) -> core::result::Result<u32, brokkr_store::StoreError>

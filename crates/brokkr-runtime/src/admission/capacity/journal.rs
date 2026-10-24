@@ -3,15 +3,17 @@
 //! counted are that journal's, and an entry of the same id in another
 //! journal is not the one measured.
 //!
-//! A journal is its file, as the filesystem names it: the device and the
-//! inode its store's path resolves to, read when the pass measures and
-//! again before the claim reads or writes anything. A new store on the
-//! same path, through a symlink to the file or a hard link of it, is the
-//! same journal and claims. A copy, or a file renamed into its place, is
-//! another, since it is written apart from the file measured, and is
-//! refused, as a path that cannot be read is.
-
-use std::os::unix::fs::MetadataExt;
+//! A journal is the file its store's connection holds, by the device and
+//! inode [`Store::journal`] read when the store opened it, read when the
+//! pass measures and again before the claim reads or writes anything. It
+//! is never read through the path as given, which a symlink retargeted
+//! under an open store points at another file. A new store on the same
+//! path, or through a symlink to the file, is the same journal and claims.
+//! A copy is another, since it is written apart from the file measured,
+//! and is refused, as a file renamed into a store's place, an unlinked
+//! one, and one that cannot be read are. A hard link of the file, opened
+//! while a store holds it, is refused by SQLite at [`Store::open`] as a
+//! disk I/O error, before any pass or claim.
 
 use brokkr_store::Store;
 
@@ -25,13 +27,11 @@ pub(super) struct Journal {
 }
 
 impl Journal {
-    /// The journal `store` opened, or `None` when its path cannot be read.
+    /// The journal `store`'s connection holds, or `None` when its file
+    /// cannot be read.
     pub(super) fn of(store: &Store) -> Option<Journal> {
-        let found = std::fs::metadata(store.path()).ok()?;
-        Some(Journal {
-            dev: found.dev(),
-            ino: found.ino(),
-        })
+        let (dev, ino) = store.journal()?;
+        Some(Journal { dev, ino })
     }
 }
 

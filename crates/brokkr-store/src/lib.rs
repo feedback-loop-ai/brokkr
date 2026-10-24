@@ -223,6 +223,8 @@ pub struct Store {
     /// never one each. [`BUSY_TIMEOUT`] unless a caller says otherwise;
     /// see [`Store::set_patience`].
     patience: std::time::Duration,
+    /// The file the connection holds, read at open ([`Store::journal`]).
+    opened: Option<(u64, u64)>,
     /// The writer's account of the run it appends to, which each append
     /// carries over what it seals and writes the run's summary from
     /// ([`Store::carry`]; decision 0089 ruling 3).
@@ -391,14 +393,7 @@ impl Store {
         ensure_wal(&conn)?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         patiently("migrate", BUSY_TIMEOUT, || Store::migrate(&mut conn))?;
-        let mut store = Store {
-            conn,
-            path: path.to_path_buf(),
-            patience: BUSY_TIMEOUT,
-            carried: None,
-            #[cfg(any(test, feature = "test-support"))]
-            binding: Default::default(),
-        };
+        let mut store = Store::holding(conn, path);
         store.catch_up()?;
         Ok(store)
     }
@@ -441,14 +436,20 @@ impl Store {
             Ok(conn.query_row(RECORDED_SCHEMA, [], |row| row.get(0))?)
         })?;
         schema_supported(found.parse().unwrap_or(0))?;
-        Ok(Store {
+        Ok(Store::holding(conn, path))
+    }
+
+    /// A store on `conn`, which opened `path`, and the file it holds.
+    fn holding(conn: Connection, path: &Path) -> Store {
+        Store {
+            opened: Store::identity(&conn),
             conn,
             path: path.to_path_buf(),
             patience: BUSY_TIMEOUT,
             carried: None,
             #[cfg(any(test, feature = "test-support"))]
             binding: Default::default(),
-        })
+        }
     }
 
     /// Declare a run in the journal. The existence check and the insert

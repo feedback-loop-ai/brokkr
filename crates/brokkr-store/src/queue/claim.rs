@@ -33,6 +33,8 @@
 //! refusal or a `Contended` start reclaims uncounted. Holding an entry at
 //! the journal's bound reads `dispatch_settings`, and is slice 3b's.
 
+use std::os::unix::fs::MetadataExt;
+
 use brokkr_core::envelope::{verify_chain, EventEnvelope};
 use rusqlite::types::{FromSql, FromSqlResult, ValueRef};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
@@ -409,6 +411,27 @@ impl Store {
             let query = "SELECT COALESCE(MAX(rowid), 0) FROM events";
             Ok(self.conn.query_row(query, [], |row| row.get(0))?)
         })
+    }
+
+    /// The file this store's connection holds, by its device and inode,
+    /// as read when it opened: the file SQLite resolved the store's path
+    /// to, so through a symlink the file the link named then, however the
+    /// link is pointed since, and never read through [`Store::path`] as
+    /// given. `None` when it could not be read then, or when the name it
+    /// was resolved to no longer holds it: the file was unlinked, or
+    /// another was renamed into its place.
+    pub fn journal(&self) -> Option<(u64, u64)> {
+        let named = Store::identity(&self.conn);
+        self.opened.filter(|opened| named == Some(*opened))
+    }
+
+    /// The device and inode of the file `conn` holds, as the name SQLite
+    /// resolved its path to when it opened reads now.
+    pub(crate) fn identity(conn: &Connection) -> Option<(u64, u64)> {
+        let query = "SELECT file FROM pragma_database_list WHERE name = 'main'";
+        let file: String = conn.query_row(query, [], |row| row.get(0)).ok()?;
+        let found = std::fs::metadata(file).ok()?;
+        Some((found.dev(), found.ino()))
     }
 
     /// Claim `entry`, as a pass read it, for the dispatcher of

@@ -1312,6 +1312,18 @@ fn a_room_claims_its_entry_only_as_the_pass_read_it() {
     }
 }
 
+/// Another journal, whose entry 1 stands as `one_admitted`'s does, and
+/// for which its own pass finds no room: its one place under ceilings of
+/// 1 is taken.
+fn full_elsewhere() -> Fixture {
+    let mut other = Fixture::new();
+    other.queue();
+    let full_file = other.declare(&ceilings(1, 1, json!({})));
+    other.seating("r1", &[("alpha", "a-1")], false);
+    assert_eq!(other.room(&full_file), full("alpha", 1, 1));
+    other
+}
+
 /// A room claims in no journal but the file its pass measured: another
 /// journal whose entry 1 stands as the room's did, its own pass having
 /// found no room for it, and a copy of the measured journal are each
@@ -1320,11 +1332,7 @@ fn a_room_claims_its_entry_only_as_the_pass_read_it() {
 #[test]
 fn a_room_claims_in_no_journal_but_the_file_its_pass_measured() {
     let (mut measured, entry, file, room) = one_admitted();
-    let mut other = Fixture::new();
-    other.queue();
-    let full_file = other.declare(&ceilings(1, 1, json!({})));
-    other.seating("r1", &[("alpha", "a-1")], false);
-    assert_eq!(other.room(&full_file), full("alpha", 1, 1));
+    let other = full_elsewhere();
     let copy = measured.root.join("copy.db");
     for suffix in ["", "-wal"] {
         let from = format!("{}{suffix}", measured.store.path().display());
@@ -1384,6 +1392,81 @@ fn a_room_claims_through_any_store_on_the_file_its_pass_measured() {
         let state = fixture.store.queue_entry(entry).unwrap().state;
         assert_eq!(state, brokkr_store::EntryState::Launching);
     }
+}
+
+/// What a claim writes, as the journal `store` opened holds it: its
+/// entries, and its count of queue commands and of claim rows.
+fn written(store: &Store) -> (Vec<QueueEntry>, i64, i64) {
+    let read = rusqlite::Connection::open(store.path()).unwrap();
+    let query = "SELECT (SELECT COUNT(*) FROM queue_commands), (SELECT COUNT(*) FROM queue_claims)";
+    let counts = |row: &rusqlite::Row| Ok((row.get(0)?, row.get(1)?));
+    let (commands, claims) = read.query_row(query, [], counts).unwrap();
+    (store.queue_list().unwrap(), commands, claims)
+}
+
+/// A store opened through a symlink is the file the link named when it
+/// opened, however the link is pointed since. With `current.db` naming
+/// journal B, whose own pass finds no room for its entry 1, when a store
+/// opens through it, and journal A after: the room A's pass found claims
+/// through that store in neither journal, and the room a pass over that
+/// store found, handed A's own store, claims in neither; each is refused
+/// by `OtherJournal` naming the store it was handed, with nothing written
+/// in either journal.
+#[test]
+fn a_store_opened_through_a_symlink_retargeted_since_is_the_file_it_opened() {
+    for before_the_pass in [false, true] {
+        let (mut measured, _, file, mut room) = one_admitted();
+        let other = full_elsewhere();
+        let alias = measured.root.join("current.db");
+        std::os::unix::fs::symlink(other.store.path(), &alias).unwrap();
+        let mut through = Store::open(&alias).unwrap();
+        std::fs::remove_file(&alias).unwrap();
+        std::os::unix::fs::symlink(measured.store.path(), &alias).unwrap();
+        if before_the_pass {
+            room = (passed(&through, &file).unwrap().remove(0).room).expect("admitted");
+        }
+        let before = [written(&measured.store), written(&other.store)];
+        let (handed, named) = match before_the_pass {
+            false => (&mut through, alias),
+            true => {
+                let named = measured.store.path().to_path_buf();
+                (&mut measured.store, named)
+            }
+        };
+        let error = (room.claim(handed, Generation(1), "admitted")).unwrap_err();
+        let AdmissionError::OtherJournal(path) = &error else {
+            panic!("not another journal: {error:?}");
+        };
+        assert_eq!(path, &named);
+        let text = format!(
+            "the journal at {} is not shown to be the one the pass that found this room \
+             measured, and nothing was claimed",
+            named.display()
+        );
+        assert_eq!(error.to_string(), text);
+        let after = [written(&measured.store), written(&other.store)];
+        assert_eq!(after, before);
+    }
+}
+
+/// A store is the file it opened, not the one its name holds now: with
+/// the file A's pass measured renamed onto the path of journal B while a
+/// store holds B, the room is refused through that store by
+/// `OtherJournal`, and neither file's entries move.
+#[test]
+fn a_store_whose_place_another_file_was_renamed_into_is_the_file_it_opened() {
+    let (measured, _, _, room) = one_admitted();
+    let mut other = Fixture::new();
+    other.queue();
+    let before = [&measured.store, &other.store].map(|store| store.queue_list().unwrap());
+    std::fs::rename(measured.store.path(), other.store.path()).unwrap();
+    let error = (room.claim(&mut other.store, Generation(1), "admitted")).unwrap_err();
+    assert!(
+        matches!(&error, AdmissionError::OtherJournal(path) if path == other.store.path()),
+        "{error:?}"
+    );
+    let after = [&measured.store, &other.store].map(|store| store.queue_list().unwrap());
+    assert_eq!(after, before);
 }
 
 /// `room` as though it had been measured for `entry`: the shape a room
