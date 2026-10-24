@@ -6,8 +6,9 @@
 
 use std::path::Path;
 
+use brokkr_core::envelope::ChainError;
 use brokkr_store::test_support::unmigrate;
-use brokkr_store::Store;
+use brokkr_store::{Store, StoreError};
 use brokkr_view::Quarantine;
 use clap::Parser;
 
@@ -162,17 +163,40 @@ fn drawn_after(db: &Path, run: &str, steps: &[&str]) -> serde_json::Value {
     serde_json::from_str(&drawn.to_std_string_escaped()).unwrap()
 }
 
+/// Is `refusal` the store's of the edited event, its broken hash?
+fn is_the_edit(refusal: Option<&StoreError>) -> bool {
+    matches!(
+        refusal,
+        Some(StoreError::Chain(ChainError::BadHash { seq: 1 }))
+    )
+}
+
 /// `line` run as `brokkr` runs it, refused: the refusal's words, and each
-/// cause's beneath them.
+/// cause's beneath them. A readout that reads the run, or refuses it with
+/// no store refusal of the edit among its causes, is named.
 fn refused(line: &[&str]) -> Vec<String> {
     let cli = Cli::try_parse_from(line).unwrap();
-    let refusal = run(cli).unwrap_err();
+    let Err(refusal) = run(cli) else {
+        panic!("{line:?} read the corrupt run");
+    };
+    let store = refusal.chain().find_map(|cause| cause.downcast_ref());
+    assert!(is_the_edit(store), "{line:?}: {store:?}");
     refusal.chain().map(ToString::to_string).collect()
+}
+
+/// The opening the readouts move to refuses the run as they do, in the
+/// store's variant and words.
+fn the_opening_refuses_it(db: &Path) {
+    let opened = Store::open_read_only(db).unwrap().open_run("r1");
+    assert!(is_the_edit(opened.as_ref().err()), "{opened:?}");
+    assert_eq!(opened.unwrap_err().to_string(), EDITED);
 }
 
 /// The binding ruling 5 names: a journal with one event below a run's
 /// head edited, whose summary row the page's head check passes, is
-/// refused by every readout of that run in the store's words — the
+/// refused by every readout of that run in the store's words, each verb
+/// with the store's own variant, the edited event's broken hash, as the
+/// opening the readouts move to refuses it — the
 /// console's opened run, on a journal the summary pages and on one it does
 /// not, shows it quarantined and draws no run; `/api/view`, the
 /// participant presentation and the transcript refuse it in the same
@@ -231,6 +255,7 @@ fn a_corrupt_run_is_refused_wherever_it_is_opened() {
         };
         assert_eq!(refused(line), words, "{line:?}");
     }
+    the_opening_refuses_it(&db);
     let served = serde_json::json!({ "error": EDITED }).to_string();
     for route in [
         "/api/view/r1",

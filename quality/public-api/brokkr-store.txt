@@ -175,6 +175,9 @@ pub brokkr_store::NewEntry::payload: &'a str
 pub brokkr_store::NewEntry::priority: i64
 pub brokkr_store::NewEntry::waits: &'a [brokkr_store::Wait]
 pub struct brokkr_store::NotAWait(pub alloc::string::String)
+pub struct brokkr_store::Opened
+pub brokkr_store::Opened::hash: alloc::string::String
+pub brokkr_store::Opened::seq: u64
 pub struct brokkr_store::QueueEntry
 pub brokkr_store::QueueEntry::added_at: alloc::string::String
 pub brokkr_store::QueueEntry::id: brokkr_store::EntryId
@@ -243,6 +246,8 @@ pub fn brokkr_store::Store::reads_index(&self) -> core::result::Result<bool, bro
 impl brokkr_store::Store
 pub fn brokkr_store::Store::load_after(&self, &str, u64, &str) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::rows_through(&self, &[(&str, u64)]) -> core::result::Result<alloc::vec::Vec<u64>, brokkr_store::StoreError>
+impl brokkr_store::Store
+pub fn brokkr_store::Store::open_run(&self, &str) -> core::result::Result<brokkr_store::Opened, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::queue_add(&mut self, brokkr_store::NewEntry<'_>, brokkr_store::Attribution<'_>) -> core::result::Result<brokkr_store::EntryId, brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_claim(&mut self, brokkr_store::EntryId, &str) -> core::result::Result<(), brokkr_store::StoreError>
