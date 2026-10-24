@@ -366,3 +366,6 @@ fn landing_inputs_preserve_classification_without_inventing_a_return() {
         );
     }
 }
+
+#[path = "attempt_correlation.rs"]
+mod attempt_correlation;

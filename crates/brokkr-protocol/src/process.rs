@@ -599,22 +599,18 @@ impl DriverProcess {
             let ended = self.unsent(format!("could not send start: {e}"));
             return self.end(ended, account);
         }
-        let ended = self.converse(effect_id, &mut account, &mut on_checkpoint);
+        let ended = self.converse(effect_id, attempt_id, &mut account, &mut on_checkpoint);
         self.end(ended, account)
     }
 
-    /// Read the driver's account of the attempt to its end. Each
-    /// checkpoint is kept within the limits before `on_checkpoint`
-    /// journals it, so a checkpoint past them is neither. `start` has
-    /// been sent, so a violation here is `Unread`, whichever read found it.
+    /// Admit current-invocation driver evidence after Start; checkpoints remain journaled.
     fn converse(
         &self,
         effect_id: &str,
+        attempt_id: &str,
         account: &mut Account,
         on_checkpoint: &mut impl FnMut(&Value),
     ) -> Ended {
-        let foreign =
-            |said, eid: &str| Ended::Unread(evidence::mismatch(said, "effect_id", eid, effect_id));
         loop {
             let (message, bytes) = match self.recv() {
                 Ok(received) => received,
@@ -624,11 +620,18 @@ impl DriverProcess {
             match message.body {
                 Body::Accepted {
                     effect_id: eid,
+                    attempt_id: aid,
                     session_ref,
-                    ..
                 } => {
-                    if eid != effect_id {
-                        return foreign("driver accepted a different effect", &eid);
+                    if let Some(ended) = refuse_foreign(
+                        (
+                            "driver accepted a different effect",
+                            "driver accepted a different attempt",
+                        ),
+                        (effect_id, attempt_id),
+                        (&eid, &aid),
+                    ) {
+                        return ended;
                     }
                     account.accepted = true;
                     account.session_ref = session_ref;
@@ -636,10 +639,17 @@ impl DriverProcess {
                 Body::Checkpoint {
                     data,
                     effect_id: eid,
-                    ..
+                    attempt_id: aid,
                 } => {
-                    if eid != effect_id {
-                        return foreign("checkpoint for foreign effect", &eid);
+                    if let Some(ended) = refuse_foreign(
+                        (
+                            "checkpoint for foreign effect",
+                            "checkpoint for foreign attempt",
+                        ),
+                        (effect_id, attempt_id),
+                        (&eid, &aid),
+                    ) {
+                        return ended;
                     }
                     match account.retained.keep(data, bytes, &self.limits) {
                         Ok(kept) => on_checkpoint(kept),
@@ -648,13 +658,17 @@ impl DriverProcess {
                 }
                 Body::Result {
                     effect_id: eid,
+                    attempt_id: aid,
                     status,
                     result,
                     error,
-                    ..
                 } => {
-                    if eid != effect_id {
-                        return foreign("result for foreign effect", &eid);
+                    if let Some(ended) = refuse_foreign(
+                        ("result for foreign effect", "result for foreign attempt"),
+                        (effect_id, attempt_id),
+                        (&eid, &aid),
+                    ) {
+                        return ended;
                     }
                     return Ended::Reached(reached(status, result, error));
                 }
@@ -695,6 +709,19 @@ impl DriverProcess {
     fn broken(self, outcome: AttemptOutcome, accepted: bool) -> AttemptReport {
         self.finish(Standing::Yielding(outcome), None, Vec::new(), accepted)
     }
+}
+
+fn refuse_foreign(
+    reasons: (&str, &str),
+    current: (&str, &str),
+    received: (&str, &str),
+) -> Option<Ended> {
+    let (said, name, held, want) = match (received.0 == current.0, received.1 == current.1) {
+        (false, false) | (false, true) => (reasons.0, "effect_id", received.0, current.0),
+        (true, false) => (reasons.1, "attempt_id", received.1, current.1),
+        (true, true) => return None,
+    };
+    Some(Ended::Unread(evidence::mismatch(said, name, held, want)))
 }
 
 /// An end after `start` that read no result: whatever the driver said
