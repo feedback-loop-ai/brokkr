@@ -218,7 +218,8 @@ fn claimable(tx: &Transaction<'_>, entry: EntryId, seen: Seen) -> Result<(), Sto
     }
 }
 
-/// Each run with an event past `high_water`, by id, as it stands in `tx`.
+/// Each run with an event past `high_water`, by id, as it stands in `tx`;
+/// one whose `runs` row is gone refuses the claim as not found.
 fn moved(tx: &Transaction<'_>, high_water: i64) -> Result<Vec<Moved>, StoreError> {
     let runs: Vec<String> = tx
         .prepare("SELECT DISTINCT run_id FROM events WHERE rowid > ?1 ORDER BY run_id")?
@@ -227,11 +228,14 @@ fn moved(tx: &Transaction<'_>, high_water: i64) -> Result<Vec<Moved>, StoreError
     runs.into_iter()
         .map(|run| {
             let events = verified(tx, &run)?;
-            let manifest = tx.query_row(
-                "SELECT manifest FROM runs WHERE run_id = ?1",
-                [&run],
-                |row| row.get(0),
-            )?;
+            let manifest = tx
+                .query_row(
+                    "SELECT manifest FROM runs WHERE run_id = ?1",
+                    [&run],
+                    |row| row.get(0),
+                )
+                .optional()?
+                .ok_or_else(|| StoreError::RunNotFound(run.clone()))?;
             Ok((run, events, manifest))
         })
         .collect()
@@ -289,41 +293,36 @@ fn claim_in<R>(
     Ok(Ok(Claim { entry, seq }))
 }
 
-/// Refuse a step taken under `generation` unless the claim row of
-/// `claim` recorded it. Read after the step's own check of its token, so
-/// the row is there.
-fn claimed_by(
-    tx: &Transaction<'_>,
-    claim: Claim,
-    generation: Generation,
-) -> Result<(), StoreError> {
-    let recorded: i64 = tx.query_row(
-        "SELECT generation FROM queue_claims WHERE seq = ?1",
-        [claim.seq],
-        |row| row.get(0),
-    )?;
+/// Refuse a step taken under `generation` unless it is the one `recorded`
+/// on the claim row of `claim`, which the step's own check of its token
+/// read.
+fn claimed_by(claim: Claim, recorded: i64, generation: Generation) -> Result<(), StoreError> {
     match recorded == generation.0 {
         true => Ok(()),
         false => Err(QueueRefusal::OtherGeneration(claim, generation).into()),
     }
 }
 
-/// Refuse a step unless its entry stands launching under `claim`, taken
-/// by `generation`.
+/// Refuse a step unless its entry stands launching under `claim`, its
+/// latest claim, taken by `generation`.
 fn launching_under(
     tx: &Transaction<'_>,
     claim: Claim,
     generation: Generation,
 ) -> Result<(), StoreError> {
     let state = standing(tx, claim.entry)?;
-    let latest: Option<i64> = tx.query_row(
-        "SELECT MAX(seq) FROM queue_claims WHERE entry_id = ?1",
-        [claim.entry.0],
-        |row| row.get(0),
-    )?;
-    match state == EntryState::Launching && latest == Some(claim.seq) {
-        true => claimed_by(tx, claim, generation),
-        false => Err(QueueRefusal::Stale(claim).into()),
+    let latest: Option<(i64, i64)> = tx
+        .query_row(
+            "SELECT seq, generation FROM queue_claims WHERE entry_id = ?1
+             ORDER BY seq DESC LIMIT 1",
+            [claim.entry.0],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    let under = latest.filter(|&(seq, _)| state == EntryState::Launching && seq == claim.seq);
+    match under {
+        Some((_, recorded)) => claimed_by(claim, recorded, generation),
+        None => Err(QueueRefusal::Stale(claim).into()),
     }
 }
 
@@ -370,16 +369,17 @@ fn spawn_in(tx: &Transaction<'_>, under: Under<'_>) -> Result<(), StoreError> {
     let Under { claim, reason, .. } = under;
     let unspawned: Option<i64> = tx
         .query_row(
-            "SELECT 1 FROM queue_claims WHERE seq = ?1 AND entry_id = ?2 AND run_id IS NOT NULL
+            "SELECT generation FROM queue_claims WHERE seq = ?1 AND entry_id = ?2
+             AND run_id IS NOT NULL
              AND NOT EXISTS (SELECT 1 FROM queue_commands WHERE entry_id = ?2 AND command = ?3)",
             params![claim.seq, claim.entry.0, Step::Spawn.word()],
             |row| row.get(0),
         )
         .optional()?;
-    if unspawned.is_none() {
-        return Err(QueueRefusal::Stale(claim).into());
+    match unspawned {
+        Some(recorded) => claimed_by(claim, recorded, under.generation)?,
+        None => return Err(QueueRefusal::Stale(claim).into()),
     }
-    claimed_by(tx, claim, under.generation)?;
     journal(tx, claim.entry, Step::Spawn, reason).map(drop)
 }
 

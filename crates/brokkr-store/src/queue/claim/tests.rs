@@ -598,30 +598,65 @@ fn a_counted_refusal_is_written_with_its_reclaim_and_counted_since_the_latest_re
     assert_eq!((rows(&store), commands(&store.conn)), before);
 }
 
+/// A new journal under `dir` with one entry queued and `run-a` started
+/// with one event: the store, the entry and that event.
+fn one_entry_and_a_run(dir: &Path) -> (Store, EntryId, EventEnvelope) {
+    let mut store = Store::open(&dir.join("forge.db")).unwrap();
+    let entry = queue(&mut store, 1)[0];
+    started(&mut store, "run-a");
+    let payload = json!({"feature": "f", "reason": "lost"});
+    let first = store.append_next("run-a", EventType::RunStarted, payload, None, None);
+    (store, entry, first.unwrap())
+}
+
+/// The error a claim of `entry` past `high_water`, judging nothing, is
+/// refused with, having written nothing.
+fn refused_past(store: &mut Store, entry: EntryId, high_water: i64) -> StoreError {
+    let read = store.queue_entry(entry).unwrap();
+    let before = (rows(store), commands(&store.conn));
+    let judge = |_, _: &[_], _: &[_]| Ok::<(), ()>(());
+    let refused = store.queue_claim_with(&read, high_water, "d", ONE, "r", judge);
+    let error = refused.unwrap_err();
+    assert_eq!((rows(store), commands(&store.conn)), before);
+    assert!(claims(&store.conn).is_empty());
+    error
+}
+
 /// A run past the high-water whose chain is broken refuses the claim with
 /// the chain's own error, and nothing is written.
 #[test]
 fn a_run_past_the_high_water_whose_chain_is_broken_refuses_the_claim() {
     let dir = tempfile::tempdir().unwrap();
-    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
-    let entry = queue(&mut store, 1)[0];
-    started(&mut store, "run-a");
-    let payload = json!({"feature": "f", "reason": "lost"});
-    let first = store.append_next("run-a", EventType::RunStarted, payload, None, None);
+    let (mut store, entry, first) = one_entry_and_a_run(dir.path());
     let high_water = store.high_water().unwrap();
-    crate::test_support::plant_broken_link(&store.conn, &first.unwrap(), 2).unwrap();
+    crate::test_support::plant_broken_link(&store.conn, &first, 2).unwrap();
     // A run whose chain is broken does not load, on purpose.
     crate::test_support::lags(&mut store, &["run-a"]);
-    let read = store.queue_entry(entry).unwrap();
-    let before = (rows(&store), commands(&store.conn));
-    let judge = |_, _: &[_], _: &[_]| Ok::<(), ()>(());
-    let refused = store.queue_claim_with(&read, high_water, "d", ONE, "r", judge);
-    let error = refused.unwrap_err();
+    let error = refused_past(&mut store, entry, high_water);
     assert!(matches!(error, StoreError::Chain(_)), "{error:?}");
     let text = "chain: event 2: previous_hash does not match event 1";
     assert_eq!(error.to_string(), text);
-    assert_eq!((rows(&store), commands(&store.conn)), before);
-    assert!(claims(&store.conn).is_empty());
+}
+
+/// A run past the high-water whose `runs` row is gone, deleted behind the
+/// store's back, refuses the claim as not found, and nothing is written.
+#[test]
+fn a_run_past_the_high_water_with_no_runs_row_refuses_the_claim() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut store, entry, _) = one_entry_and_a_run(dir.path());
+    let kept = "PRAGMA foreign_keys = OFF;
+        CREATE TEMP TABLE kept AS SELECT * FROM runs WHERE run_id = 'run-a';
+        DELETE FROM runs WHERE run_id = 'run-a';";
+    store.conn.execute_batch(kept).unwrap();
+    let error = refused_past(&mut store, entry, 0);
+    assert!(
+        matches!(&error, StoreError::RunNotFound(run) if run == "run-a"),
+        "{error:?}"
+    );
+    assert_eq!(error.to_string(), "run 'run-a' not found");
+    // The row put back, so the store's drop check reads the journal whole.
+    let restored = "INSERT INTO runs SELECT * FROM kept; PRAGMA foreign_keys = ON;";
+    store.conn.execute_batch(restored).unwrap();
 }
 
 /// A journal names itself once (decision 0095, #430): a new one when it
