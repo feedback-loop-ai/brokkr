@@ -176,6 +176,19 @@ fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     // re-asked inside the transaction. Second: a journal whose append
     // guards predate compare-and-append re-runs the idempotent migration
     // batch that carries them.
+    repair_tables(conn)?;
+    repair_projections(conn)?;
+    // Eighth: a journal from before it named itself (decision 0095, #430)
+    // gets its id, once; a peer that named it first keeps its own.
+    let missing = journal_named(conn)?.is_none();
+    repair_if(conn, missing, name_journal)?;
+    let missing = !guards_intact(conn)?;
+    repair_if(conn, missing, |conn| Ok(conn.execute_batch(MIGRATION_V1)?))
+}
+
+/// The first, third and fourth of [`repair`]'s additive repairs, in its
+/// order: the sidecar columns, the queue, the acknowledgements.
+fn repair_tables(conn: &mut Connection) -> Result<(), StoreError> {
     let missing = sidecar_columns_missing(conn)?;
     repair_if(conn, missing, migrate_sidecar_columns)?;
     // Third: a journal from before the queue (decision 0068), or one that
@@ -188,7 +201,12 @@ fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     // Fourth: a journal from before quarantine acknowledgements (#511),
     // or one that lost the table or a guard on it, gets them.
     let missing = !acknowledgements_intact(conn)?;
-    repair_if(conn, missing, migrate_acknowledgements)?;
+    repair_if(conn, missing, migrate_acknowledgements)
+}
+
+/// The fifth, sixth and seventh of [`repair`]'s additive repairs, in its
+/// order: decision 0089's run summary, event index and seat summary.
+fn repair_projections(conn: &mut Connection) -> Result<(), StoreError> {
     // Fifth: a journal from before the run summary (decision 0089), or
     // one that lost its table, index or a trigger, gets them, and a row
     // for every run it carries, kept at its head and folded by the
@@ -206,13 +224,7 @@ fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     // from the walk that follows the open ([`Store::seat_behind_with`]),
     // which a repair marks unfinished.
     let missing = !seats_intact(conn)?;
-    repair_if(conn, missing, migrate_seats)?;
-    // Eighth: a journal from before it named itself (decision 0095, #430)
-    // gets its id, once; a peer that named it first keeps its own.
-    let missing = journal_named(conn)?.is_none();
-    repair_if(conn, missing, name_journal)?;
-    let missing = !guards_intact(conn)?;
-    repair_if(conn, missing, |conn| Ok(conn.execute_batch(MIGRATION_V1)?))
+    repair_if(conn, missing, migrate_seats)
 }
 
 /// Apply `fix` under the immediate transaction, and only when `missing`:
