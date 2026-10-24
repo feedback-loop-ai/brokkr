@@ -13,7 +13,7 @@ use super::*;
 use crate::tests::env_guard::EnvGuard;
 use crate::{failure_line, report, Cli, Cmd};
 
-/// A machine of the test's own (#783): the environment held for the
+/// A machine of the test's own (#783, #856): the environment held for the
 /// test's whole body, with `XDG_CONFIG_HOME` at a directory the test owns
 /// and that holds no host configuration, so the verb reads neither the
 /// ambient `HOME` nor a value another test is writing.
@@ -21,6 +21,10 @@ fn own_host() -> (EnvGuard, tempfile::TempDir) {
     let mut env = EnvGuard::lock();
     let config = tempfile::tempdir().unwrap();
     env.set("XDG_CONFIG_HOME", config.path());
+    // No ambient `HOME` either: the verb's tests read only the root set
+    // above, so an edit that drops it fails every run with the host
+    // configuration refusal instead of flaking under load (#856).
+    env.remove("HOME");
     (env, config)
 }
 
