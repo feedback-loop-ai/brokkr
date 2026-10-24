@@ -3,7 +3,8 @@
 //! check's line and `brokkr doctor` carries it in its status column,
 //! proved against the BUILT binary under a PATH holding only a dsh
 //! stand-in, a dsh home of the test's own, and each documented source
-//! planted in turn. A planted value is never printed.
+//! planted in turn. A planted value is never printed, and a planted `.env`
+//! is told present but unread.
 #![cfg(unix)]
 
 use std::os::unix::fs::PermissionsExt;
@@ -88,20 +89,20 @@ fn init_and_doctor_name_an_unreached_key_with_both_remedies() {
     let (root, home) = (host.repo.root.display(), host.home.display());
     let detail = format!(
         "dsh reaches no DEEPSEEK_API_KEY: it is not set in the launching environment, no .env \
-         file at {root}/.env or {home}/.env names it, and the headless profile leaves dsh's \
-         credentials service disabled; export DEEPSEEK_API_KEY where brokkr runs, or add the \
-         row `- id: credentials` with `  disabled: false` to \
+         file is present at {root}/.env or {home}/.env, and dsh's shipped headless bundle leaves \
+         its credentials service disabled; export DEEPSEEK_API_KEY where brokkr runs, or write \
+         the row `- id: credentials` with `  disabled: false` in \
          {home}/profiles/headless/cordis.patch.yml and store DEEPSEEK_API_KEY through dsh's \
          credentials service"
     );
     assert_eq!(line, format!("dsh key deepseek-official: {detail}"));
-    assert_eq!(
-        host.doctor(None),
-        (
-            format!("MISSING  dsh key deepseek-official: {detail}"),
-            Some(1)
-        )
+    let missing = (
+        format!("MISSING  dsh key deepseek-official: {detail}"),
+        Some(1),
     );
+    assert_eq!(host.doctor(None), missing);
+    // A variable set to nothing is no key.
+    assert_eq!(host.doctor(Some("")), missing);
 }
 
 #[test]
@@ -127,9 +128,28 @@ fn a_key_each_source_names_is_reached_and_its_value_never_printed() {
         host.doctor(None).0,
         format!("ok       {}", reached(&service))
     );
+    // A home patch composes after the profile's, and disables it again.
+    let last = host.home.join("cordis.patch.yml");
+    std::fs::write(&last, "- id: credentials\n  disabled: true\n").unwrap();
+    let (line, code) = host.doctor(None);
+    let disables = format!("and {} disables dsh's credentials service;", last.display());
+    assert_eq!(
+        (
+            line.starts_with("MISSING  "),
+            line.contains(&disables),
+            code
+        ),
+        (true, true, Some(1))
+    );
+    // A `.env` dsh reads is present but never read, so it is told as such.
     for env in [host.home.join(".env"), host.repo.path(".env")] {
         std::fs::write(&env, format!("DEEPSEEK_API_KEY={PLANTED}\n")).unwrap();
-        let file = format!("through {}, which names it", env.display());
-        assert_eq!(host.doctor(None).0, format!("ok       {}", reached(&file)));
+        let untold = format!(
+            "warn     dsh key deepseek-official: DEEPSEEK_API_KEY is not set in the launching \
+             environment, and {} is present but unread: Brokkr does not read it, so it can't \
+             confirm DEEPSEEK_API_KEY is in it",
+            env.display()
+        );
+        assert_eq!(host.doctor(None).0, untold);
     }
 }

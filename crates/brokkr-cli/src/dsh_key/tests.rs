@@ -1,11 +1,14 @@
 //! Every answer the dsh key check gives (#717), each exactly, against
-//! planted files under a home and a repository of the test's own; and a
-//! planted value never reaches a line.
+//! planted files under a home and a repository of the test's own; a
+//! planted value never reaches a line, and no `.env` is ever opened.
 
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use serde_json::json;
 
+use super::patch::{layer, writes, Unread, Write};
 use super::*;
 
 /// What a planted key holds: a line carrying it is a leak.
@@ -67,26 +70,54 @@ impl Planted {
         std::fs::write(path, text).unwrap();
     }
 
-    fn patch(&self) -> PathBuf {
+    /// The headless profile's patch, which dsh composes first.
+    fn profile(&self) -> PathBuf {
         self.home.join("profiles/headless/cordis.patch.yml")
+    }
+
+    /// The home's own patch, which dsh composes after the profile's.
+    fn home_patch(&self) -> PathBuf {
+        self.home.join("cordis.patch.yml")
     }
 
     /// The check's answers, `set` the environment's.
     fn reaches(&self, set: fn(&str) -> bool) -> Vec<Reach> {
-        let home = Ok(self.home.clone());
-        in_folder(
-            &self.adapters,
-            &Sources {
-                set,
-                repo: &self.repo,
-                home,
-            },
-        )
+        answers(&self.adapters, &self.repo, &self.home, set)
     }
+
+    /// [`Planted::reaches`] on a thread of its own, refused past a bound:
+    /// a check that opened a FIFO planted as a `.env` or a patch would
+    /// wait on it for a writer that never comes.
+    fn reaches_within_bound(&self) -> Vec<Reach> {
+        let (adapters, repo, home) = (self.adapters.clone(), self.repo.clone(), self.home.clone());
+        let (sent, answered) = std::sync::mpsc::channel();
+        std::thread::spawn(move || sent.send(answers(&adapters, &repo, &home, unset)));
+        let answer = answered.recv_timeout(Duration::from_secs(10));
+        answer.expect("the check opened a planted FIFO and waited on it")
+    }
+}
+
+/// The check's answers for a folder's `adapters`, `repo` and dsh `home`.
+fn answers(adapters: &Path, repo: &Path, home: &Path, set: fn(&str) -> bool) -> Vec<Reach> {
+    let sources = Sources {
+        set,
+        repo,
+        home: Ok(home.to_path_buf()),
+    };
+    in_folder(adapters, &sources)
 }
 
 fn unset(_: &str) -> bool {
     false
+}
+
+/// A FIFO at `path`, which an open for reading waits on.
+fn fifo(path: &Path) {
+    let (fifo, mode) = (
+        rustix::fs::FileType::Fifo,
+        rustix::fs::Mode::from_raw_mode(0o600),
+    );
+    rustix::fs::mknodat(rustix::fs::CWD, path, fifo, mode, 0).unwrap();
 }
 
 fn reached(source: Source) -> Vec<Reach> {
@@ -94,6 +125,14 @@ fn reached(source: Source) -> Vec<Reach> {
         route: "deepseek-official".into(),
         variable: "DEEPSEEK_API_KEY".into(),
         source,
+    }]
+}
+
+fn untold(why: Untold) -> Vec<Reach> {
+    vec![Reach::Untold {
+        route: "deepseek-official".into(),
+        variable: "DEEPSEEK_API_KEY".into(),
+        why,
     }]
 }
 
@@ -113,22 +152,31 @@ fn lines(reaches: &[Reach]) -> Vec<String> {
 #[test]
 fn a_scaffold_with_no_source_is_unreached_and_names_both_remedies() {
     let planted = Planted::scaffold();
-    let answers = planted.reaches(unset);
     let (repo, home) = (planted.repo.display(), planted.home.display());
     assert_eq!(
-        lines(&answers),
+        lines(&planted.reaches(unset)),
         [format!(
             "dsh key deepseek-official: dsh reaches no DEEPSEEK_API_KEY: it is not set in the \
-             launching environment, no .env file at {repo}/.env or {home}/.env names it, and \
-             the headless profile leaves dsh's credentials service disabled; export \
-             DEEPSEEK_API_KEY where brokkr runs, or add the row `- id: credentials` with \
-             `  disabled: false` to {home}/profiles/headless/cordis.patch.yml and store \
+             launching environment, no .env file is present at {repo}/.env or {home}/.env, and \
+             dsh's shipped headless bundle leaves its credentials service disabled; export \
+             DEEPSEEK_API_KEY where brokkr runs, or write the row `- id: credentials` with \
+             `  disabled: false` in {home}/profiles/headless/cordis.patch.yml and store \
              DEEPSEEK_API_KEY through dsh's credentials service"
         )]
     );
-    // A patch that leaves the service disabled is no key either.
-    planted.write(&planted.patch(), "- id: credentials\n  disabled: true\n");
-    assert_eq!(planted.reaches(unset), answers);
+    // A patch that leaves the service disabled is no key either, and is
+    // named as the layer that disables it.
+    planted.write(&planted.profile(), "- id: credentials\n  disabled: true\n");
+    let off = Off::Layer(planted.profile());
+    assert_eq!(
+        planted.reaches(unset),
+        [Reach::Unreached {
+            route: "deepseek-official".into(),
+            variable: "DEEPSEEK_API_KEY".into(),
+            files: vec![planted.repo.join(".env"), planted.home.join(".env")],
+            off: Ok(off),
+        }]
+    );
 }
 
 #[test]
@@ -146,32 +194,43 @@ fn a_key_in_the_launching_environment_is_reached_and_not_echoed() {
 }
 
 #[test]
-fn a_key_a_dotenv_names_is_reached_through_that_file_and_not_echoed() {
+fn a_present_dotenv_is_reported_unread_and_never_opened() {
     let planted = Planted::scaffold();
     let at_home = planted.home.join(".env");
     planted.write(&at_home, &format!("DEEPSEEK_API_KEY={PLANTED}\n"));
-    let answers = planted.reaches(unset);
-    assert_eq!(answers, reached(Source::File(at_home.clone())));
+    let answers = planted.reaches_within_bound();
+    assert_eq!(answers, untold(Untold::Dotenv(at_home.clone())));
     assert_eq!(
         lines(&answers),
         [format!(
-            "dsh key deepseek-official: dsh reaches DEEPSEEK_API_KEY through {}, which names it",
+            "dsh key deepseek-official: DEEPSEEK_API_KEY is not set in the launching environment, \
+             and {} is present but unread: Brokkr does not read it, so it can't confirm \
+             DEEPSEEK_API_KEY is in it",
             at_home.display()
         )]
     );
-    // The repository's own `.env` is asked first.
+    // The repository's own `.env` is asked first, and a FIFO there, which
+    // an open would wait on, or one no one may read, is told as one that
+    // holds the key: the check never opens it.
     let in_repo = planted.repo.join(".env");
-    planted.write(
-        &in_repo,
-        &format!("export DEEPSEEK_API_KEY = '{PLANTED}'\n"),
+    fifo(&in_repo);
+    assert_eq!(
+        planted.reaches_within_bound(),
+        untold(Untold::Dotenv(in_repo.clone()))
     );
-    assert_eq!(planted.reaches(unset), reached(Source::File(in_repo)));
+    std::fs::remove_file(&in_repo).unwrap();
+    planted.write(&in_repo, &format!("DEEPSEEK_API_KEY={PLANTED}\n"));
+    std::fs::set_permissions(&in_repo, std::fs::Permissions::from_mode(0o000)).unwrap();
+    assert_eq!(
+        planted.reaches_within_bound(),
+        untold(Untold::Dotenv(in_repo))
+    );
 }
 
 #[test]
 fn a_profile_that_re_enables_the_service_is_reached_through_it() {
     let planted = Planted::scaffold();
-    let patch = planted.patch();
+    let patch = planted.profile();
     planted.write(
         &patch,
         "- id: other\n- id: credentials\n  disabled: false\n",
@@ -189,28 +248,249 @@ fn a_profile_that_re_enables_the_service_is_reached_through_it() {
 }
 
 #[test]
+fn the_home_patch_composes_after_the_profile_patch() {
+    let planted = Planted::scaffold();
+    let (profile, home) = (planted.profile(), planted.home_patch());
+    planted.write(&profile, "- id: credentials\n  disabled: false\n");
+    planted.write(&home, "- id: credentials\n  disabled: true\n");
+    let (repo_env, home_env) = (planted.repo.join(".env"), planted.home.join(".env"));
+    assert_eq!(
+        lines(&planted.reaches(unset)),
+        [format!(
+            "dsh key deepseek-official: dsh reaches no DEEPSEEK_API_KEY: it is not set in the \
+             launching environment, no .env file is present at {} or {}, and {} disables dsh's \
+             credentials service; export DEEPSEEK_API_KEY where brokkr runs, or write the row \
+             `- id: credentials` with `  disabled: false` in {} and store DEEPSEEK_API_KEY \
+             through dsh's credentials service",
+            repo_env.display(),
+            home_env.display(),
+            home.display(),
+            home.display()
+        )]
+    );
+    planted.write(&profile, "- id: credentials\n  disabled: true\n");
+    planted.write(&home, "- id: other\n- id: credentials\n  disabled: false\n");
+    assert_eq!(
+        planted.reaches(unset),
+        reached(Source::Service(home.clone()))
+    );
+    // A home patch that writes nothing of the service leaves the
+    // profile's answer standing.
+    planted.write(&home, "- id: other\n  disabled: true\n");
+    assert_eq!(
+        planted.reaches(unset)[0],
+        Reach::Unreached {
+            route: "deepseek-official".into(),
+            variable: "DEEPSEEK_API_KEY".into(),
+            files: vec![repo_env, home_env],
+            off: Ok(Off::Layer(profile)),
+        }
+    );
+}
+
+#[test]
+fn a_patch_layer_that_cannot_be_read_is_untold_and_never_ok() {
+    let planted = Planted::scaffold();
+    let (profile, home) = (planted.profile(), planted.home_patch());
+    // Invalid YAML after a good row.
+    planted.write(
+        &profile,
+        "- id: credentials\n  disabled: false\nthis: is: not a row\n",
+    );
+    let answers = planted.reaches(unset);
+    assert_eq!(
+        answers,
+        untold(Untold::Patch(profile.clone(), Unread::Line(3)))
+    );
+    assert_eq!(
+        lines(&answers),
+        [format!(
+            "dsh key deepseek-official: DEEPSEEK_API_KEY is not set in the launching environment \
+             and no .env file dsh reads is present, but whether a patch re-enables dsh's \
+             credentials service can't be told: {}: line 3 is not a row Brokkr reads (a \
+             top-level `- key: value` and its own `  key: value` members, each value one plain \
+             scalar)",
+            profile.display()
+        )]
+    );
+    // A `credentials` row nested under a mapping key is not a top-level
+    // row, and is not read past.
+    planted.write(&profile, "config:\n- id: credentials\n  disabled: false\n");
+    assert_eq!(
+        planted.reaches(unset),
+        untold(Untold::Patch(profile.clone(), Unread::Line(1)))
+    );
+    // A home patch that cannot be read is untold after an enabling
+    // profile, and a FIFO in its place is never opened.
+    planted.write(&profile, "- id: credentials\n  disabled: false\n");
+    fifo(&home);
+    assert_eq!(
+        planted.reaches_within_bound(),
+        untold(Untold::Patch(home, Unread::NotAFile))
+    );
+}
+
+#[test]
+fn a_patch_layer_is_read_only_from_a_bounded_utf8_regular_file() {
+    let planted = Planted::scaffold();
+    let patch = planted.profile();
+    assert_eq!(layer(&patch), Ok(None));
+    assert_eq!(layer(&planted.home), Err(Unread::NotAFile));
+    let under_a_file = planted.adapters.join("dsh.json").join("cordis.patch.yml");
+    assert_eq!(
+        layer(&under_a_file),
+        Err(Unread::Io(std::io::ErrorKind::NotADirectory))
+    );
+    std::fs::write(&patch, [0xff, b'\n']).unwrap();
+    assert_eq!(layer(&patch), Err(Unread::NotUtf8));
+    let large = "# a comment\n".repeat(64 * 1024 / 12 + 1);
+    planted.write(&patch, &large);
+    assert_eq!(layer(&patch), Err(Unread::TooLarge));
+    planted.write(&patch, "- id: credentials\n  disabled: false\n");
+    assert_eq!(layer(&patch), Ok(Some(Write::Enables)));
+    std::fs::set_permissions(&patch, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if !rustix::process::geteuid().is_root() {
+        let denied = Err(Unread::Io(std::io::ErrorKind::PermissionDenied));
+        assert_eq!(layer(&patch), denied);
+    }
+    let words: Vec<String> = [
+        Unread::NotAFile,
+        Unread::Io(std::io::ErrorKind::NotADirectory),
+        Unread::TooLarge,
+        Unread::NotUtf8,
+        Unread::Repeated(3),
+        Unread::NoId(2),
+        Unread::Disabled(2),
+    ]
+    .iter()
+    .map(ToString::to_string)
+    .collect();
+    assert_eq!(
+        words,
+        [
+            "it is not a regular file",
+            "it cannot be read (not a directory)",
+            "it is over 65536 bytes",
+            "it is not UTF-8",
+            "line 3 repeats a key of its row",
+            "the row on line 2 names no id",
+            "line 2 gives `disabled` a value other than true or false",
+        ]
+    );
+}
+
+#[test]
+fn only_a_recognised_last_credentials_row_writes_the_service() {
+    let (enables, disables) = (Ok(Some(Write::Enables)), Ok(Some(Write::Disables)));
+    for (patch, written) in [
+        ("- id: credentials\n  disabled: false\n", enables.clone()),
+        ("- disabled: false  \n  id: credentials\n", enables.clone()),
+        (
+            "- id: credentials\n  disabled: false\n- id: other\n  disabled: true\n",
+            enables,
+        ),
+        (
+            "# a comment\n- id: credentials\n  disabled: true\n\n- id: credentials\n",
+            disables.clone(),
+        ),
+        (
+            "- id: credentials\n  disabled: false\n- id: credentials\n  disabled: true\n",
+            disables,
+        ),
+        ("- id: other\n  disabled: false\n", Ok(None)),
+        ("  # only a comment\n", Ok(None)),
+        ("", Ok(None)),
+        (
+            "- id: credentials\n  disabled: no\n",
+            Err(Unread::Disabled(2)),
+        ),
+        (
+            "- id: credentials\n  disabled: \"false\"\n",
+            Err(Unread::Line(2)),
+        ),
+        ("- id: 'credentials'\n", Err(Unread::Line(1))),
+        (
+            "- id: credentials\n  disabled: false # on\n",
+            Err(Unread::Line(2)),
+        ),
+        (
+            "- id: other\n  config:\n    disabled: false\n",
+            Err(Unread::Line(2)),
+        ),
+        (
+            "- id: other\n  list:\n  - id: credentials\n",
+            Err(Unread::Line(2)),
+        ),
+        (
+            "  disabled: false\n- id: credentials\n",
+            Err(Unread::Line(1)),
+        ),
+        (
+            "- id: credentials\n   disabled: false\n",
+            Err(Unread::Line(2)),
+        ),
+        ("- id: credentials\r\n", Err(Unread::Line(1))),
+        ("\t- id: credentials\n", Err(Unread::Line(1))),
+        ("---\n- id: credentials\n", Err(Unread::Line(1))),
+        ("-\n", Err(Unread::Line(1))),
+        ("- 9id: credentials\n", Err(Unread::Line(1))),
+        ("- id: credentials\n  na me: x\n", Err(Unread::Line(2))),
+        ("- id: credentials\n  note: a: b\n", Err(Unread::Line(2))),
+        (
+            "- id: credentials\n  disabled: false\n  disabled: true\n",
+            Err(Unread::Repeated(3)),
+        ),
+        (
+            "- id: credentials\n- disabled: false\n",
+            Err(Unread::NoId(2)),
+        ),
+    ] {
+        assert_eq!(writes(patch), written, "{patch:?}");
+    }
+}
+
+#[test]
 fn with_no_dsh_home_only_the_repository_is_asked_and_the_cause_is_named() {
     let planted = Planted::scaffold();
     planted.write(&planted.home.join(".env"), "DEEPSEEK_API_KEY=x\n");
-    let home = Err("no dsh home: set DSH_HOME or HOME".to_string());
+    let cause = CompositeError::Config("no dsh home: set DSH_HOME or HOME".to_string());
     let sources = Sources {
         set: unset,
         repo: &planted.repo,
-        home,
+        home: Err(cause),
     };
     let answers = in_folder(&planted.adapters, &sources);
     assert_eq!(
         lines(&answers),
         [format!(
             "dsh key deepseek-official: dsh reaches no DEEPSEEK_API_KEY: it is not set in the \
-             launching environment, no .env file at {}/.env names it, and the headless \
-             profile leaves dsh's credentials service disabled; export DEEPSEEK_API_KEY where \
-             brokkr runs, or add the row `- id: credentials` with `  disabled: false` to the \
-             headless profile's cordis.patch.yml (no dsh home was resolved: no dsh home: set \
-             DSH_HOME or HOME) and store DEEPSEEK_API_KEY through dsh's credentials service",
+             launching environment, no .env file is present at {}/.env, and no dsh home was \
+             resolved (the DSH layout is unreadable: no dsh home: set DSH_HOME or HOME), so no \
+             patch re-enables dsh's credentials service; export DEEPSEEK_API_KEY where brokkr \
+             runs, or write the row `- id: credentials` with `  disabled: false` in the headless \
+             profile's cordis.patch.yml and store DEEPSEEK_API_KEY through dsh's credentials \
+             service",
             planted.repo.display()
         )]
     );
+}
+
+#[test]
+fn a_seat_served_from_the_operators_home_reads_its_seams_home_or_cause() {
+    let (repo, home) = (Path::new("/repo"), PathBuf::from("/home/.dsh"));
+    let seams = DshSeams {
+        executable: "/bin/dsh".into(),
+        home: home.clone(),
+        node: None,
+        head: Vec::new(),
+    };
+    let served = Sources::served(repo, Ok(seams));
+    assert_eq!(
+        (served.repo, served.home, (served.set)("CARGO_MANIFEST_DIR")),
+        (repo, Ok(home), true)
+    );
+    let cause = CompositeError::Config("unresolved".into());
+    assert_eq!(Sources::served(repo, Err(cause.clone())).home, Err(cause));
 }
 
 #[test]
@@ -262,58 +542,19 @@ fn a_folder_that_hires_no_dsh_or_whose_adapters_do_not_load_has_no_line() {
 fn a_variable_is_asked_whether_it_is_set_by_name_alone() {
     assert!(set_and_not_empty("CARGO_MANIFEST_DIR"));
     assert!(!set_and_not_empty("BROKKR_717_NEVER_SET"));
+    // A name no environment can hold is never set.
+    assert!(!set_and_not_empty("CARGO_MANIFEST_DIR\0"));
 }
 
+/// The default key is the shipped dsh adapter's own for dsh's default
+/// route (decision 0071 ruling 5).
 #[test]
-fn a_dotenv_names_the_variable_only_on_its_own_line_with_a_value() {
-    let planted = Planted::scaffold();
-    let file = planted.repo.join(".env");
-    let long = "x".repeat(64);
-    for (text, named) in [
-        ("DEEPSEEK_API_KEY=x", true),
-        ("  export DEEPSEEK_API_KEY=\t\"x\"\n", true),
-        (&format!("{long}\nDEEPSEEK_API_KEY=x\n"), true),
-        (&format!("{long}=\nDEEPSEEK_API_KEY=x\n"), true),
-        ("DEEPSEEK_API_KEY=\nOTHER=x\n", false),
-        ("DEEPSEEK_API_KEY=\"\"\r\n", false),
-        ("DEEPSEEK_API_KEY_2=x\n", false),
-        ("# DEEPSEEK_API_KEY=x\n", false),
-        ("OTHER=DEEPSEEK_API_KEY=x\n", false),
-        (&format!("{long}DEEPSEEK_API_KEY=x\n"), false),
-        ("", false),
-    ] {
-        planted.write(&file, text);
-        assert_eq!(names(&file, "DEEPSEEK_API_KEY"), named, "{text:?}");
-    }
-    // A file that is not there, and one that cannot be read, name nothing.
-    assert!(!names(&planted.repo.join("absent"), "DEEPSEEK_API_KEY"));
-    assert!(!names(&planted.home, "DEEPSEEK_API_KEY"));
-}
-
-#[test]
-fn only_a_last_top_level_credentials_row_writing_false_re_enables_the_service() {
-    for (patch, enabled) in [
-        ("- id: credentials\n  disabled: false\n", true),
-        ("- id: 'credentials'\n  disabled: \"false\" # on\n", true),
-        ("- disabled: false\n  id: credentials\n", true),
-        (
-            "- id: credentials\n  disabled: false\n- id: other\n  disabled: true\n",
-            true,
-        ),
-        (
-            "# a comment\n- id: credentials\n  disabled: true\n- id: credentials\n",
-            false,
-        ),
-        (
-            "- id: credentials\n  disabled: false\n- id: credentials\n  disabled: true\n",
-            false,
-        ),
-        ("- id: credentials\n  config:\n    disabled: false\n", false),
-        ("- id: credentials\n  disabled: no\n", false),
-        ("- id: other\n  disabled: false\n", false),
-        ("  disabled: false\n", false),
-        ("", false),
-    ] {
-        assert_eq!(re_enables(patch), enabled, "{patch:?}");
-    }
+fn the_default_key_is_the_shipped_adapters_deepseek_official_credential() {
+    let adapters = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../adapters");
+    let adapters = Adapters::load(&adapters).unwrap();
+    let dsh = adapters.adapter("dsh").unwrap();
+    assert_eq!(
+        dsh.credentials.get("deepseek-official").map(String::as_str),
+        Some(DEFAULT_KEY)
+    );
 }

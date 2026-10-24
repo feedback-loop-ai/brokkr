@@ -198,14 +198,15 @@ pub(super) fn report_folder(
 
 /// One line per route the found folder's dsh pins (#717): a key dsh
 /// reaches is ok, one it cannot fails the report with its remedies, and
-/// a route whose variable nothing names warns. No line holds a value.
+/// a source that cannot be told, or a route whose variable nothing names,
+/// warns. No line holds a value.
 fn report_keys(report: &mut Report, reaches: &[Reach]) {
     for reach in reaches {
         let (what, detail) = (reach.what(), reach.detail());
         match reach {
             Reach::Reached { .. } => report.ok(&what, detail),
             Reach::Unreached { .. } => report.missing(&what, detail),
-            Reach::Undeclared { .. } => report.warn(&what, detail),
+            Reach::Untold { .. } | Reach::Undeclared { .. } => report.warn(&what, detail),
         }
     }
 }

@@ -1,7 +1,6 @@
-//! `brokkr` — the one shipped binary (decision 0003, named by decision
-//! 0019). No UI, no required services: one executable, one workspace
-//! database. The compatibility shim that kept the old name working for
-//! a release is gone; one bin target enters here (ruling 9).
+//! `brokkr` — the one shipped binary (decision 0003, named by decision 0019). No UI, no
+//! required services: one executable, one workspace database. The compatibility shim that
+//! kept the old name working for a release is gone; one bin target enters here (ruling 9).
 
 // A leaked fault-seam guard would leave its plan's entries unfired with
 // nothing to fail the test (change `prove-transcript-reader-faults` D4.5).

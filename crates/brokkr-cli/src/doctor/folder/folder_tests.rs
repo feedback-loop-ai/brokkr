@@ -449,10 +449,11 @@ fn each_personal_recipe_is_a_line_that_never_fails_the_report() {
 }
 
 /// Each dsh key answer (#717) in its status column: ok, a failure of the
-/// report, or a warning, after what the report already held.
+/// report, or a warning for an untold source or an undeclared route, after
+/// what the report already held.
 #[test]
 fn each_dsh_key_answer_takes_its_status_column() {
-    use crate::dsh_key::{Reach, Source};
+    use crate::dsh_key::{Off, Reach, Source, Untold};
     let (route, variable) = (String::from("r"), String::from("V"));
     let answers = [
         Reach::Reached {
@@ -463,17 +464,22 @@ fn each_dsh_key_answer_takes_its_status_column() {
         Reach::Undeclared {
             route: route.clone(),
         },
+        Reach::Untold {
+            route: route.clone(),
+            variable: variable.clone(),
+            why: Untold::Dotenv(PathBuf::from("/repo/.env")),
+        },
         Reach::Unreached {
             route,
             variable,
             files: vec![PathBuf::from("/repo/.env")],
-            patch: Err("none".into()),
+            off: Ok(Off::Shipped(PathBuf::from("/home/patch"))),
         },
     ];
     let mut report = report();
-    report_keys(&mut report, &answers[..2]);
+    report_keys(&mut report, &answers[..3]);
     assert!(report.healthy);
-    report_keys(&mut report, &answers[2..]);
+    report_keys(&mut report, &answers[3..]);
     let status: Vec<&str> = report.lines.iter().map(|line| &line[..20]).collect();
     assert_eq!(
         (status, report.healthy),
@@ -481,6 +487,7 @@ fn each_dsh_key_answer_takes_its_status_column() {
             vec![
                 "ok       later: line",
                 "ok       dsh key r: ",
+                "warn     dsh key r: ",
                 "warn     dsh key r: ",
                 "MISSING  dsh key r: "
             ],
