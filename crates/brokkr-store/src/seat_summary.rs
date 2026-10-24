@@ -76,20 +76,21 @@ fn migration() -> String {
     )
 }
 
-/// Does this journal carry both tables, the rows' with their digest?
-/// Pure reads. A table without it is the shape an unreleased build of
-/// this slice made, which [`migrate_seats`] makes anew.
+/// Does this journal carry both tables, the rows' with every column a
+/// row is kept in and its digest? Pure reads. A table without one is a
+/// shape an unreleased build of this slice made, a row without its digest
+/// or without the facts slice 2b keeps, which [`migrate_seats`] makes
+/// anew.
 pub(crate) fn seats_intact(conn: &Connection) -> Result<bool, StoreError> {
-    Ok(all_present(conn, "table", &TABLES)? && digested(conn)?)
+    Ok(all_present(conn, "table", &TABLES)? && shaped(conn)?)
 }
 
-fn digested(conn: &Connection) -> Result<bool, StoreError> {
-    let found: rusqlite::Result<i64> = conn.query_row(
-        "SELECT count(*) FROM pragma_table_info('seat_summary') WHERE name = 'digest'",
-        [],
-        |row| row.get(0),
-    );
-    Ok(found? == 1)
+fn shaped(conn: &Connection) -> Result<bool, StoreError> {
+    let mut statement = conn.prepare("SELECT name FROM pragma_table_info('seat_summary')")?;
+    let found: Vec<String> = statement
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    Ok(kept().all(|column| found.iter().any(|name| name == column)))
 }
 
 /// Create the tables, on a connection holding the write lock: the seventh

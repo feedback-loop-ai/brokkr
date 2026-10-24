@@ -32,6 +32,12 @@ fn asked(effect_id: &str, member: Member) -> SeatFacts {
         outcome: Outcome::Working,
         carried_from: None,
         started_at: None,
+        last_at: None,
+        turn: None,
+        tool: None,
+        target: None,
+        finish: None,
+        session_id: None,
     }
 }
 
@@ -41,6 +47,14 @@ fn named(member: &str) -> Member {
 
 fn words(word: &str) -> Option<String> {
     Some(word.to_string())
+}
+
+/// A finish at `seq`'s stamp, its outcome shown as `outcome`.
+fn finish(seq: u64, outcome: &str) -> Option<Finish> {
+    Some(Finish {
+        at: at(seq),
+        outcome: words(outcome),
+    })
 }
 
 fn provider(name: &str) -> Option<Provider> {
@@ -81,6 +95,9 @@ fn a_retried_seat_sums_its_attempts_and_reads_its_last() {
             }),
             outcome: Outcome::Succeeded,
             started_at: Some(at(3)),
+            last_at: Some(at(13)),
+            turn: words("2"),
+            tool: words("undefined"),
             ..asked("e1", Member::Seat)
         }]
     );
@@ -100,6 +117,9 @@ fn an_attempt_recording_after_its_retry_started_reads_in_journal_order() {
             turns: Some(2),
             outcome: Outcome::Succeeded,
             started_at: Some(at(2)),
+            last_at: Some(at(6)),
+            turn: words("2"),
+            tool: words("undefined"),
             ..asked("i1", Member::Seat)
         }]
     );
@@ -118,6 +138,7 @@ fn a_retry_s_two_prices_sum_after_its_first_attempt_s() {
             items: Some(1),
             outcome: Outcome::Succeeded,
             started_at: Some(at(2)),
+            last_at: Some(at(7)),
             ..asked("c1", Member::Seat)
         }]
     );
@@ -141,6 +162,7 @@ fn a_seat_s_turns_meter_it_over_its_session_record() {
             turns: Some(3),
             items: Some(2),
             started_at: Some(at(2)),
+            last_at: Some(at(10)),
             ..asked("e2", Member::Seat)
         }]
     );
@@ -172,6 +194,7 @@ fn a_panel_seat_reports_its_members() {
                 turns_aggregated: true,
                 outcome: Outcome::Succeeded,
                 started_at: Some(at(3)),
+                last_at: Some(at(8)),
                 ..asked("p1", Member::Seat)
             },
             SeatFacts {
@@ -183,6 +206,10 @@ fn a_panel_seat_reports_its_members() {
                 last_attempt_cost: Some(0.5),
                 turns: Some(3),
                 outcome: Outcome::Failed,
+                last_at: Some(at(11)),
+                turn: words("undefined"),
+                tool: words("Read"),
+                finish: finish(9, "failed"),
                 ..member("a", "anthropic")
             },
             SeatFacts {
@@ -194,6 +221,8 @@ fn a_panel_seat_reports_its_members() {
                 last_attempt_cost: Some(0.25),
                 turns: Some(2),
                 outcome: Outcome::Succeeded,
+                last_at: Some(at(10)),
+                finish: finish(10, "unheard-of"),
                 ..member("b", "openai")
             },
             asked("p2", Member::Seat),
@@ -223,6 +252,10 @@ fn a_seat_retrying_is_at_work() {
                 home: "/h".to_string(),
             }),
             started_at: Some(at(3)),
+            last_at: Some(at(9)),
+            turn: words("1"),
+            tool: words("Edit"),
+            target: words("crates/brokkr-core/src/seat/row/said.rs"),
             ..asked("e1", Member::Seat)
         }]
     );
@@ -376,6 +409,9 @@ fn records_naming_no_attempt_land_on_the_request_s_row() {
             turns: Some(1),
             outcome: Outcome::Succeeded,
             started_at: Some(at(4)),
+            last_at: Some(at(5)),
+            turn: words("1"),
+            tool: words("undefined"),
             ..asked("s1", Member::Seat)
         }]
     );

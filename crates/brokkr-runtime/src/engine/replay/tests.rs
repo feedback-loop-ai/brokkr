@@ -12,11 +12,10 @@ mod seat_facts;
 /// carried, held to the run view of the events it read.
 fn carried_disagreements(replay: &Replay) -> Option<(Vec<String>, usize)> {
     let account = replay.account.as_ref()?;
-    let facts = brokkr_core::seat::row::facts(account.seats());
     Some(seat_facts::disagreements(
         account.run_id(),
         &replay.events,
-        &facts,
+        account.seats(),
     ))
 }
 

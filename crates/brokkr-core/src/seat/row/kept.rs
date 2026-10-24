@@ -16,7 +16,10 @@
 //! meter only a record's that is no turn and settles only on its output;
 //! a meter's total reads back only as its input and output sum to it.
 
-use super::{CarriedFrom, Carry, Last, Member, Outcome, Pin, Provider, SeatRow, Session, Stamp};
+use super::{
+    CarriedFrom, Carry, Finish, Last, Member, Outcome, Pin, Provider, SeatRow, Session, Stamp,
+    Turned,
+};
 use crate::seat::meter::Meter;
 use crate::seat::{finish_usage, TokenUsage, Transcript};
 
@@ -194,15 +197,33 @@ impl<I: Iterator<Item = Datum>> Take<I> {
         }
     }
 
-    fn pin(&mut self) -> Option<Last<Pin>> {
+    /// A member's finish: the outcome it pins, its time and its outcome as
+    /// shown, each kept with its seq and none without it.
+    fn finish(&mut self) -> Option<Last<(Pin, Finish)>> {
         let seq = self.int()?;
-        let pin = match (seq, self.outcome(Outcome::named)?) {
-            (None, None) => return Some(None),
+        let pin = self.outcome(Outcome::named)?;
+        let (at, outcome) = (self.text()?, self.text()?);
+        let pin = match (seq, pin) {
+            (None, None) => return (at.is_none() && outcome.is_none()).then_some(None),
             (Some(_), Some(outcome)) => Pin::Pinned(outcome),
             (Some(_), None) => Pin::Unpinned,
             (None, Some(_)) => return None,
         };
-        Some(seq.map(|seq| (seq, pin)))
+        let finish = Finish { at: at?, outcome };
+        Some(seq.map(|seq| (seq, (pin, finish))))
+    }
+
+    /// A `seat-turn`'s turn and tool, both or neither, and a target only
+    /// beside them.
+    fn turn(&mut self) -> Option<Last<Turned>> {
+        let seq = self.int()?;
+        let said = both(self.text()?, self.text()?)?;
+        let target = self.text()?;
+        match (both(seq, said)?, target) {
+            (None, None) => Some(None),
+            (Some((seq, (turn, tool))), target) => Some(Some((seq, Turned { turn, tool, target }))),
+            (None, Some(_)) => None,
+        }
     }
 
     fn carried(&mut self) -> Option<Last<Carry>> {
@@ -270,10 +291,10 @@ impl<I: Iterator<Item = Datum>> Take<I> {
     fn session(&mut self) -> Option<Last<Session>> {
         let seq = self.int()?;
         let meter = self.session_meter()?;
-        let cost = self.cost()?;
+        let (cost, id) = (self.cost()?, self.text()?);
         match both(seq, meter)? {
-            Some((seq, meter)) => Some(Some((seq, Session { meter, cost }))),
-            None => cost.is_none().then_some(None),
+            Some((seq, meter)) => Some(Some((seq, Session { meter, cost, id }))),
+            None => (cost.is_none() && id.is_none()).then_some(None),
         }
     }
 
@@ -315,7 +336,8 @@ impl SeatRow {
             boundary: None,
             stamp: None,
             ended: None,
-            pin: None,
+            finish: None,
+            turn: None,
             carried: None,
             turns: None,
             items: None,
@@ -328,7 +350,7 @@ impl SeatRow {
 
     /// The columns a row is kept in, by name and SQL type, in the order
     /// [`SeatRow::data`] gives their values.
-    pub const COLUMNS: [(&'static str, &'static str); 56] = [
+    pub const COLUMNS: [(&'static str, &'static str); 63] = [
         ("request_seq", INTEGER),
         ("effect_id", TEXT),
         ("attempt_id", TEXT),
@@ -356,6 +378,8 @@ impl SeatRow {
         ("ended", TEXT),
         ("pin_seq", INTEGER),
         ("pin", TEXT),
+        ("finish_at", TEXT),
+        ("finish_outcome", TEXT),
         ("carried_seq", INTEGER),
         ("carried_attempt_id", TEXT),
         ("carried_ordinal", INTEGER),
@@ -381,10 +405,15 @@ impl SeatRow {
         ("session_reasoning_output_tokens", INTEGER),
         ("session_total_tokens", INTEGER),
         ("session_cost", INTEGER),
+        ("session_id", TEXT),
         ("transcript_seq", INTEGER),
         ("transcript_kind", TEXT),
         ("transcript_locator", TEXT),
         ("transcript_home", TEXT),
+        ("seat_turn_seq", INTEGER),
+        ("seat_turn", TEXT),
+        ("seat_turn_tool", TEXT),
+        ("seat_turn_target", TEXT),
     ];
 
     /// This row's values, in [`SeatRow::COLUMNS`]' order.
@@ -418,12 +447,18 @@ impl SeatRow {
         }
         let ended = put.seq(&self.ended);
         put.text(ended.map(|outcome| outcome.word()));
-        let pin = put.seq(&self.pin);
-        put.text(pin.and_then(|pin| match pin {
+        let finish = put.seq(&self.finish);
+        put.text(finish.and_then(|(pin, _)| match pin {
             Pin::Pinned(outcome) => Some(outcome.word()),
             Pin::Unpinned => None,
         }));
+        put.text(finish.map(|(_, finish)| finish.at.as_str()));
+        put.text(finish.and_then(|(_, finish)| finish.outcome.as_deref()));
         self.put_tail(&mut put);
+        let turn = put.seq(&self.turn);
+        put.text(turn.map(|turn| turn.turn.as_str()));
+        put.text(turn.map(|turn| turn.tool.as_str()));
+        put.text(turn.and_then(|turn| turn.target.as_deref()));
         put.0
     }
 
@@ -440,6 +475,7 @@ impl SeatRow {
         let session = put.seq(&self.session);
         put.meter(session.map(|session| &session.meter));
         put.real(session.and_then(|session| session.cost));
+        put.text(session.and_then(|session| session.id.as_deref()));
         let transcript = put.seq(&self.transcript);
         put.text(transcript.map(|transcript| transcript.kind.as_str()));
         put.text(transcript.map(|transcript| transcript.locator.as_str()));
@@ -454,6 +490,7 @@ impl SeatRow {
         let mut row = take.opened()?;
         take.stated(&mut row)?;
         take.counted(&mut row)?;
+        row.turn = take.turn()?;
         take.0.next().is_none().then_some(row)
     }
 }
@@ -486,7 +523,7 @@ impl<I: Iterator<Item = Datum>> Take<I> {
         row.boundary = self.last(Self::text)?;
         row.stamp = self.last(Self::text)?;
         row.ended = self.last(Self::ended)?;
-        row.pin = self.pin()?;
+        row.finish = self.finish()?;
         Some(())
     }
 

@@ -79,6 +79,8 @@ fn seat<'a>(columns: &[(&'a str, Datum)]) -> Vec<(&'a str, Datum)> {
         ("member", Datum::Null),
         ("pin_seq", Datum::Null),
         ("pin", Datum::Null),
+        ("finish_at", Datum::Null),
+        ("finish_outcome", Datum::Null),
         ("carried_seq", Datum::Null),
         ("carried_attempt_id", Datum::Null),
         ("carried_ordinal", Datum::Null),
@@ -146,12 +148,60 @@ fn a_row_holding_each_part_it_may_omit_reads_back_as_its_data() {
         vec![("pin", text("working"))],
         vec![("spent", Datum::Integer(f64::INFINITY.to_bits() as i64))],
         seat(&[]),
+        vec![("finish_outcome", Datum::Null)],
+        vec![("session_id", Datum::Null)],
+        vec![("seat_turn_target", Datum::Null)],
+        vec![
+            ("seat_turn_seq", Datum::Null),
+            ("seat_turn", Datum::Null),
+            ("seat_turn_tool", Datum::Null),
+            ("seat_turn_target", Datum::Null),
+        ],
     ];
     for columns in variants {
         let data = with(&columns);
         let row = SeatRow::of_data(data.clone());
         assert_eq!(row.map(|row| row.data()), Some(data), "{columns:?}");
     }
+}
+
+/// What a record says, kept in part, which no row writes (#753, slice
+/// 2b): a finish with no time, or a time or an outcome with no finish; a
+/// session's id with no session record; a turn's seq, turn or tool
+/// without the rest, and a target without its turn.
+fn unsaid() -> Vec<Vec<(&'static str, Datum)>> {
+    let none = || Datum::Null;
+    let unfinished = || vec![("pin_seq", none()), ("pin", none())];
+    let with_unfinished = |column: &'static str| {
+        let mut columns = unfinished();
+        columns.push((column, text(column)));
+        columns.push((
+            if column == "finish_at" {
+                "finish_outcome"
+            } else {
+                "finish_at"
+            },
+            none(),
+        ));
+        columns
+    };
+    let unturned = ["seat_turn_seq", "seat_turn", "seat_turn_tool"];
+    let mut sessionless: Vec<(&str, Datum)> = SeatRow::COLUMNS
+        .iter()
+        .filter(|(name, _)| name.starts_with("session_") && *name != "session_id")
+        .map(|(name, _)| (*name, none()))
+        .collect();
+    sessionless.push(("session_id", text("s")));
+    let mut found = vec![
+        vec![("finish_at", none())],
+        with_unfinished("finish_at"),
+        with_unfinished("finish_outcome"),
+        sessionless,
+    ];
+    found.extend(unturned.map(|column| vec![(column, none())]));
+    let targeted = unturned.map(|column| (column, none()));
+    found.push(targeted.to_vec());
+    found
 }
 
 /// Data no row writes is no row: a value of another type than its
@@ -213,7 +263,7 @@ fn data_no_row_writes_reads_as_none() {
         vec![("transcript_locator", none())],
         vec![("transcript_home", none())],
     ];
-    for columns in refused {
+    for columns in refused.into_iter().chain(unsaid()) {
         assert_eq!(SeatRow::of_data(with(&columns)), None, "{columns:?}");
     }
     let mut fewer = full();

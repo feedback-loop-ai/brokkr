@@ -31,8 +31,11 @@ use crate::envelope::{EventEnvelope, EventType};
 use crate::residual::text as field;
 
 mod kept;
+mod said;
 
 pub use kept::Datum;
+pub use said::{live, shown, Finish};
+use said::{Session, Turned};
 
 /// Whose row it is: the seat's own, or one of its sites', by the tag its
 /// records carry: a panel member, a sequence step.
@@ -153,14 +156,6 @@ impl Stamp {
     }
 }
 
-/// A seat's finishing or opening session record: its meter and the cost
-/// it reported.
-#[derive(Debug, Clone, PartialEq)]
-struct Session {
-    meter: Meter,
-    cost: Option<f64>,
-}
-
 /// One participant of one attempt, as its records state it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SeatRow {
@@ -192,7 +187,9 @@ pub struct SeatRow {
     /// The terminal event that concluded the attempt in flight.
     ended: Last<Outcome>,
     /// A member's last panel finish.
-    pin: Last<Pin>,
+    finish: Last<(Pin, Finish)>,
+    /// Its last `seat-turn`.
+    turn: Last<Turned>,
     /// The carried entry its attempt's start recorded for it.
     carried: Last<Carry>,
     turns: Option<u64>,
@@ -228,7 +225,6 @@ impl SeatRow {
         let transcript = checkpoint.get("transcript").and_then(transcript_of);
         state(&mut self.transcript, seq, transcript);
         self.first.get_or_insert_with(|| at.clone());
-        self.last = Some(at);
         let step = field(checkpoint, "step");
         if matches!(step, Some("seat-turn" | "turn-completed")) {
             if let Some(turn) = checkpoint.get("turn").and_then(Value::as_u64) {
@@ -245,12 +241,14 @@ impl SeatRow {
         let meter = Meter::of(checkpoint);
         if step.is_some_and(|step| step.ends_with("-session-finished") || step == "session-started")
         {
-            let meter = meter.clone();
-            self.session = Some((seq, Session { meter, cost }));
+            let (meter, id) = (meter.clone(), says("session_id"));
+            self.session = Some((seq, Session { meter, cost, id }));
         } else if step == Some("panel-member-finished") && self.member != Member::Seat {
-            let outcome = field(checkpoint, "outcome").and_then(Outcome::named);
-            self.pin = Some((seq, outcome.map_or(Pin::Unpinned, Pin::Pinned)));
+            self.finish = Some((seq, said::finished(checkpoint, &at.at)));
+        } else if step == Some("seat-turn") {
+            self.turn = Some((seq, Turned::of(checkpoint)));
         }
+        self.last = Some(at);
         self.metered(meter, running);
     }
 
@@ -566,6 +564,17 @@ pub struct SeatFacts {
     pub carried_from: Option<CarriedFrom>,
     /// A seat's first attempt's start; a member's first checkpoint.
     pub started_at: Option<String>,
+    /// Its last checkpoint's time.
+    pub last_at: Option<String>,
+    /// Its last `seat-turn`'s turn and tool as shown ([`shown`]), and the
+    /// target it names: what a working participant's activity shows.
+    pub turn: Option<String>,
+    pub tool: Option<String>,
+    pub target: Option<String>,
+    /// A member's last panel finish.
+    pub finish: Option<Finish>,
+    /// The session its last session record names.
+    pub session_id: Option<String>,
 }
 
 /// What a request's rows say of its effect: its first start, its last
@@ -639,11 +648,14 @@ fn own(part: &[&SeatRow], effect: &Effect) -> SeatFacts {
     let row = part[0];
     let session = latest(part, 0, |row| row.session.as_ref());
     let carried = latest(part, effect.since, |row| row.carried.as_ref());
-    let outcome = match (carried, latest(part, 0, |row| row.pin.as_ref())) {
+    let finish = latest(part, 0, |row| row.finish.as_ref());
+    let outcome = match (carried, finish.map(|(pin, _)| pin)) {
         (Some(_), _) => Outcome::Carried,
         (None, Some(Pin::Pinned(outcome))) => *outcome,
         (None, Some(Pin::Unpinned) | None) => effect.outcome,
     };
+    let turn = latest(part, 0, |row| row.turn.as_ref());
+    let last = part.iter().filter_map(|row| row.last.as_ref());
     let boundary = latest(part, effect.since, |row| row.boundary.as_ref());
     let stamp = || latest(part, effect.since, |row| row.stamp.as_ref());
     let first_checkpoint = part.iter().filter_map(|row| row.first.as_ref());
@@ -673,6 +685,12 @@ fn own(part: &[&SeatRow], effect: &Effect) -> SeatFacts {
         outcome,
         carried_from: carried.and_then(Carry::source).cloned(),
         started_at: started.map(|start| start.at.clone()),
+        last_at: last.max_by_key(|last| last.seq).map(|last| last.at.clone()),
+        turn: turn.map(|turn| turn.turn.clone()),
+        tool: turn.map(|turn| turn.tool.clone()),
+        target: turn.and_then(|turn| turn.target.clone()),
+        finish: finish.map(|(_, finish)| finish.clone()),
+        session_id: session.and_then(|session| session.id.clone()),
     }
 }
 

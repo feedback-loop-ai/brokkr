@@ -630,6 +630,49 @@ fn a_journal_that_lost_a_seat_table_reads_stale_until_a_writable_open_refolds_it
     }
 }
 
+/// A journal whose rows' table an unreleased build made without a column
+/// slice 2b keeps reads stale, refusing its reader nothing, and a writable
+/// open makes both tables anew and refolds every run, the column's facts
+/// included: a turn's tool and target, a finish's time and outcome, a
+/// session's id.
+#[test]
+fn a_seat_table_without_a_column_slice_2b_keeps_is_rebuilt_at_a_writable_open() {
+    let unkept = [
+        "finish_at",
+        "finish_outcome",
+        "session_id",
+        "seat_turn_seq",
+        "seat_turn",
+        "seat_turn_tool",
+        "seat_turn_target",
+    ];
+    for column in unkept {
+        let (_dir, mut store) = store();
+        seated(&mut store, "r");
+        let turn = json!({"step": "seat-turn", "turn": 2, "tool": "Edit", "target": "a.rs"});
+        let turned = json!({"effect_id": "fx", "attempt_id": "a", "checkpoint": turn});
+        append(&mut store, "r", EventType::EffectCheckpointed, turned);
+        let path = store.path().to_path_buf();
+        drop(store);
+        let raw = rusqlite::Connection::open(&path).unwrap();
+        let dropped = format!("ALTER TABLE seat_summary DROP COLUMN {column}");
+        raw.execute_batch(&dropped).unwrap();
+        let reader = Store::open_read_only(&path).unwrap();
+        assert!(!seats_intact(&reader.conn).unwrap(), "{column}");
+        assert_eq!(reader.seat_rows("r").unwrap(), SeatRows::Stale, "{column}");
+        let store = Store::open(&path).unwrap();
+        let rows = store.seat_rows("r").unwrap();
+        assert_eq!(
+            rows,
+            SeatRows::Current(folded_rows(&store, "r")),
+            "{column}"
+        );
+        let facts = brokkr_core::seat::row::facts(&read(&store, "r"));
+        let target = facts[0].target.as_deref();
+        assert_eq!(target, Some("a.rs"), "{column}");
+    }
+}
+
 /// Seat rows and a seat head of a run the journal does not hold read as
 /// stale, whatever head they claim, and the doctor's sweep names each as
 /// a stray; a run created under that id later reads none of them.

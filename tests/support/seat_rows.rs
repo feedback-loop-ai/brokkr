@@ -44,11 +44,13 @@ pub(crate) fn checkpoint(effect: &str, attempt: &str, checkpoint: Value) -> (Eve
 /// reporting a cost: its second attempt's first turn repeats the first
 /// attempt's last, and its Claude session record settles its output. The
 /// retry's attempt id sorts before the first's, and the first attempt
-/// records once more while the retry is in flight.
+/// records once more while the retry is in flight. Each turn edits a
+/// file its target names, past the width a target is shown at.
 pub(crate) fn retried() -> Vec<EventEnvelope> {
     let turn = |turn: u64, input: u64, output: u64| {
         json!({"step": "seat-turn", "turn": turn, "model": "opus", "effort": "high",
-               "input_tokens": input, "output_tokens": output})
+               "input_tokens": input, "output_tokens": output, "tool": "Edit",
+               "target": "crates/brokkr-core/src/seat/row/said.rs"})
     };
     let session = |cost: f64, output: u64, locator: &str| {
         json!({"step": "claude-code-session-finished", "total_cost_usd": cost,

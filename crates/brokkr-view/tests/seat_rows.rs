@@ -5,7 +5,6 @@
 //! run's account equal what `run_view` shows of each participant, field
 //! for field, and a field that differs is named with its run.
 
-use brokkr_core::seat::row::facts;
 use brokkr_core::summary::Account;
 use brokkr_core::EventEnvelope;
 
@@ -20,8 +19,7 @@ mod seat_facts;
 
 /// What `seat_facts::disagreements` finds of `run`'s account read whole.
 fn disagreements(run: &str, events: &[EventEnvelope]) -> (Vec<String>, usize) {
-    let facts = facts(Account::whole(run, events).seats());
-    seat_facts::disagreements(run, events, &facts)
+    seat_facts::disagreements(run, events, Account::whole(run, events).seats())
 }
 
 #[test]

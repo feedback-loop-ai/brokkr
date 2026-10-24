@@ -3,7 +3,7 @@
 Status: accepted — operator ruled 2026-10-19 (PR #769), every choice asked taken as recommended
 Date: 2026-10-18
 
-Built: partial (#753) — slice 1, the fleet, is built but Muninn's queue, which still reads the kept way, and the console's last page by the reverse order; of slice 2, `event_index` is built, its trigger, backfill, keyed reads and ruling 4's check, and `seat_summary` is built, its table, writer, seat head, backfill, ruling 4's check and the seat-rows read, but the run and seat views that read them are unbuilt; slices 3 and 4 are unbuilt
+Built: partial (#753) — slice 1, the fleet, is built but Muninn's queue, which still reads the kept way, and the console's last page by the reverse order; of slice 2, `event_index` is built, its trigger, backfill, keyed reads, each event's id and ruling 4's check, and `seat_summary` is built, its table, writer, seat head, backfill, ruling 4's check, the seat-rows read and the facts the run view reads of a seat's records but a sequence's finished steps and a visit's models, but the run and seat views that read them are unbuilt; slices 3 and 4 are unbuilt
 Supersedes in part: 0088
 
 ## Context
@@ -263,13 +263,16 @@ model the writer keeps in the journal's own file and transaction.
      member)`: its seat, phase, outcome, model, effort, provider, boundary,
      token counts, reported cost, item and turn counts, transcript
      reference, its start, and its first and last checkpoint's seq and
-     time;
+     time; and what the run view reads of its records: its last
+     `seat-turn`'s turn, tool and target, a member's finish's time and
+     outcome as shown, and its session record's session id (slice 2b);
    - `event_index`: one row per event, keyed `(run_id, seq)`: its type,
-     attempt, member and time, with an index `(run_id, attempt_id,
-     member, seq)` for a seat's checkpoint stream and a partial index on
-     `(run_id, seq)` over every type but `effect/checkpointed` for a run's
-     trail; a checkpoint's and a park's row also carry the dated facts the
-     aggregates read (ruling 7).
+     attempt, member, time and event id, with an index `(run_id,
+     attempt_id, member, seq)` for a seat's checkpoint stream, a partial
+     index on `(run_id, seq)` over every type but `effect/checkpointed`
+     for a run's trail, and an index `(run_id, event_id)` for what caused
+     a journal page's rows; a checkpoint's and a park's row also carry
+     the dated facts the aggregates read (ruling 7).
 
    Which readout reads which is ruling 7. Nothing else reads a
    projection's row as a fact: the engine decides on its own fold, never

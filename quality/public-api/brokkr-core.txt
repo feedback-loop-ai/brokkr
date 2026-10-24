@@ -916,6 +916,9 @@ pub brokkr_core::seat::row::Provider::Unnamed
 pub struct brokkr_core::seat::row::CarriedFrom
 pub brokkr_core::seat::row::CarriedFrom::attempt_id: alloc::string::String
 pub brokkr_core::seat::row::CarriedFrom::ordinal: usize
+pub struct brokkr_core::seat::row::Finish
+pub brokkr_core::seat::row::Finish::at: alloc::string::String
+pub brokkr_core::seat::row::Finish::outcome: core::option::Option<alloc::string::String>
 pub struct brokkr_core::seat::row::SeatFacts
 pub brokkr_core::seat::row::SeatFacts::boundary: core::option::Option<alloc::string::String>
 pub brokkr_core::seat::row::SeatFacts::carried_from: core::option::Option<brokkr_core::seat::row::CarriedFrom>
@@ -923,24 +926,32 @@ pub brokkr_core::seat::row::SeatFacts::cost: core::option::Option<f64>
 pub brokkr_core::seat::row::SeatFacts::cost_aggregated: bool
 pub brokkr_core::seat::row::SeatFacts::effect_id: alloc::string::String
 pub brokkr_core::seat::row::SeatFacts::effort: core::option::Option<alloc::string::String>
+pub brokkr_core::seat::row::SeatFacts::finish: core::option::Option<brokkr_core::seat::row::Finish>
 pub brokkr_core::seat::row::SeatFacts::items: core::option::Option<u64>
+pub brokkr_core::seat::row::SeatFacts::last_at: core::option::Option<alloc::string::String>
 pub brokkr_core::seat::row::SeatFacts::last_attempt_cost: core::option::Option<f64>
 pub brokkr_core::seat::row::SeatFacts::member: brokkr_core::seat::row::Member
 pub brokkr_core::seat::row::SeatFacts::model: core::option::Option<alloc::string::String>
 pub brokkr_core::seat::row::SeatFacts::outcome: brokkr_core::seat::row::Outcome
 pub brokkr_core::seat::row::SeatFacts::provider: core::option::Option<brokkr_core::seat::row::Provider>
+pub brokkr_core::seat::row::SeatFacts::session_id: core::option::Option<alloc::string::String>
 pub brokkr_core::seat::row::SeatFacts::started_at: core::option::Option<alloc::string::String>
+pub brokkr_core::seat::row::SeatFacts::target: core::option::Option<alloc::string::String>
+pub brokkr_core::seat::row::SeatFacts::tool: core::option::Option<alloc::string::String>
 pub brokkr_core::seat::row::SeatFacts::transcript: core::option::Option<brokkr_core::seat::Transcript>
+pub brokkr_core::seat::row::SeatFacts::turn: core::option::Option<alloc::string::String>
 pub brokkr_core::seat::row::SeatFacts::turns: core::option::Option<u64>
 pub brokkr_core::seat::row::SeatFacts::turns_aggregated: bool
 pub brokkr_core::seat::row::SeatFacts::usage: core::option::Option<brokkr_core::seat::TokenUsage>
 pub brokkr_core::seat::row::SeatFacts::usage_aggregated: bool
 pub struct brokkr_core::seat::row::SeatRow
 impl brokkr_core::seat::row::SeatRow
-pub const brokkr_core::seat::row::SeatRow::COLUMNS: [(&'static str, &'static str); 56]
+pub const brokkr_core::seat::row::SeatRow::COLUMNS: [(&'static str, &'static str); 63]
 pub fn brokkr_core::seat::row::SeatRow::data(&self) -> alloc::vec::Vec<brokkr_core::seat::row::Datum>
 pub fn brokkr_core::seat::row::SeatRow::of_data(alloc::vec::Vec<brokkr_core::seat::row::Datum>) -> core::option::Option<brokkr_core::seat::row::SeatRow>
 pub fn brokkr_core::seat::row::facts(&[brokkr_core::seat::row::SeatRow]) -> alloc::vec::Vec<brokkr_core::seat::row::SeatFacts>
+pub fn brokkr_core::seat::row::live(&[brokkr_core::seat::row::SeatRow]) -> alloc::vec::Vec<(brokkr_core::seat::row::Member, core::option::Option<(alloc::string::String, alloc::string::String)>)>
+pub fn brokkr_core::seat::row::shown(core::option::Option<&serde_json::value::Value>) -> alloc::string::String
 pub struct brokkr_core::seat::BoundaryEntry
 pub brokkr_core::seat::BoundaryEntry::gate: bool
 pub brokkr_core::seat::BoundaryEntry::member: core::option::Option<alloc::string::String>
