@@ -107,22 +107,16 @@ fn median_micros(mut read: impl FnMut()) -> u128 {
     times[times.len() / 2]
 }
 
-/// How many times its own length one envelope costs Brokkr to verify, at
-/// most: its parse, and in brokkr-core's `compute_hash` its copy into the
-/// `Value` the hash is taken over and that value's canonical bytes, whose
-/// buffer serde_json grows to twice the envelope. 4,166,518 B were
-/// measured for a 1,048,576 B envelope (2026-10-24).
-const COPIES: u64 = 4;
-
 /// Ruling 9 on opening a run: Brokkr's peak to open the grown run of
 /// 7,510 events is the same to the byte in a journal of 10,000 events and
 /// one of 1,000,000, and within its budget, which holds no more than a
 /// tenth of the run's envelopes: the opening holds one envelope at a time,
 /// never the run. With one envelope stretched to a mebibyte, Brokkr's peak
-/// grows by what that one envelope costs to verify and no more, and
+/// grows by that envelope and no more, since the row is parsed from the
+/// text SQLite holds and its hash streams from the parsed envelope, and
 /// SQLite's, which holds the row it steps to, by that envelope; each
-/// stays within its budget besides. Ruling 9's cap for Brokkr's share is
-/// 256 KiB.
+/// stays within its budget and that envelope. Ruling 9's cap for Brokkr's
+/// share is 256 KiB.
 #[test]
 fn opening_a_run_holds_one_envelope_at_a_time() {
     let dir = tempfile::tempdir().unwrap();
@@ -178,11 +172,11 @@ fn opening_a_run_holds_one_envelope_at_a_time() {
     let stretch = STRETCH as u64;
     let growth = wide.brokkr - small.brokkr;
     assert!(
-        (stretch..=COPIES * stretch).contains(&growth),
+        growth <= stretch,
         "a mebibyte envelope grew the opening's peak by {growth} bytes"
     );
     assert!(
-        wide.brokkr <= brokkr + COPIES * stretch,
+        wide.brokkr <= brokkr + stretch,
         "{} bytes with one envelope a mebibyte; the budget is {brokkr} and the envelope",
         wide.brokkr
     );

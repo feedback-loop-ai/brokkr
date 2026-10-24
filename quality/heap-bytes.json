@@ -11,7 +11,7 @@
     "fleet-painted-frame-at-every-bound": 649651,
     "fleet-page-sqlite": 399176,
     "fleet-listing-behind": 375282,
-    "open-run": 30075,
+    "open-run": 10607,
     "open-run-sqlite": 387552
   },
   "budgets": {
@@ -24,7 +24,7 @@
     "fleet-painted-frame-at-every-bound": 714617,
     "fleet-page-sqlite": 512000,
     "fleet-listing-behind": 412811,
-    "open-run": 33083,
+    "open-run": 11668,
     "open-run-sqlite": 426308
   }
 }

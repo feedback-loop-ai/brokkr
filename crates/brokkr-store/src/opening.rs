@@ -78,14 +78,18 @@ impl Store {
         let mut rows = statement.query(params![run_id])?;
         let (mut chain, mut defect) = (None, None);
         while let Some(row) = rows.next()? {
-            let text: String = row.get(0)?;
+            // The row's text as SQLite holds it, borrowed, so the parse is
+            // the one copy of the envelope. `load` reads it as a `String`,
+            // which fails exactly where the borrow does, in its words.
+            let Ok(text) = row.get_ref(0)?.as_str() else {
+                return Err(row.get::<_, String>(0).expect_err("unborrowed").into());
+            };
             if matches!(defect, Some(StoreError::Json(_))) {
                 continue;
             }
-            match serde_json::from_str::<EventEnvelope>(&text) {
+            match serde_json::from_str::<EventEnvelope>(text) {
                 Err(unparsed) => defect = Some(unparsed.into()),
                 Ok(event) if defect.is_none() => {
-                    drop(text);
                     defect = extend(&mut chain, event).err().map(StoreError::from);
                 }
                 Ok(_) => {}

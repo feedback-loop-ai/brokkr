@@ -76,11 +76,11 @@ fn appended(store: &mut Store, run_id: &str) -> Vec<EventEnvelope> {
         .unwrap()
 }
 
-/// What a planted row holds: an envelope's text, or bytes that are not
-/// text at all.
+/// What a planted row holds: an envelope's text, or the SQL value of
+/// bytes that are not text at all, or not UTF-8.
 enum Row {
     Text(String),
-    Blob,
+    Raw(&'static str),
 }
 
 /// `event` as the store serializes it.
@@ -102,10 +102,12 @@ fn plant(db: &Path, run_id: &str, rows: Vec<Row>) {
     for (seq, row) in (1i64..).zip(rows) {
         match row {
             Row::Text(text) => plant_event(&conn, run_id, &seq, "x", &text).unwrap(),
-            Row::Blob => conn
+            Row::Raw(value) => conn
                 .execute(
-                    "INSERT INTO events (run_id, seq, event_hash, envelope)
-                     VALUES (?1, ?2, 'x', X'00')",
+                    &format!(
+                        "INSERT INTO events (run_id, seq, event_hash, envelope)
+                         VALUES (?1, ?2, 'x', {value})"
+                    ),
                     rusqlite::params![run_id, seq],
                 )
                 .unwrap(),
@@ -170,7 +172,14 @@ fn journal(db: &Path) -> Vec<EventEnvelope> {
             "unparsed-twice",
             vec![text(&events[0]), unparsed(), Row::Text("{".to_string())],
         ),
-        ("unread", vec![text(&events[0]), unparsed(), Row::Blob]),
+        (
+            "unread",
+            vec![text(&events[0]), unparsed(), Row::Raw("X'00'")],
+        ),
+        (
+            "not-utf8",
+            vec![text(&events[0]), Row::Raw("CAST(X'FF' AS TEXT)")],
+        ),
     ];
     for (run_id, rows) in journals {
         plant(db, run_id, rows);
@@ -182,7 +191,8 @@ fn journal(db: &Path) -> Vec<EventEnvelope> {
 /// opening refuses with the same variant naming the same seqs, in the same
 /// words — a gap, a broken link, an event edited below the head, a foreign
 /// run, a schema version not supported, a run the journal lacks, and a row
-/// that does not parse or cannot be read, which outranks a chain defect
+/// that does not parse or cannot be read, as a blob or as text that is not
+/// UTF-8, which outranks a chain defect
 /// before it as `load`'s order has it — and every journal `load` reads,
 /// the opening stands at the head it read to: the run's last event, or
 /// the empty head for a run with no event. Read-only, as every readout
@@ -245,6 +255,14 @@ fn a_run_is_opened_as_the_whole_read_reads_it() {
             "unread",
             Verdict::Unread("sqlite: Invalid column type Blob at index: 0, name: envelope".into()),
         ),
+        (
+            "not-utf8",
+            Verdict::Unread(
+                "sqlite: Conversion error from type Text at index: 0, \
+                 invalid utf-8 sequence of 1 bytes from index 0"
+                    .into(),
+            ),
+        ),
     ];
     for (run_id, verdict_of) in expected {
         let opened = verdict(store.open_run(run_id));
@@ -255,4 +273,43 @@ fn a_run_is_opened_as_the_whole_read_reads_it() {
         store.head_hash("whole").unwrap(),
         (4, last.event_hash.clone())
     );
+}
+
+/// What a contended read names: its operation, and the words after the
+/// time it waited, which varies.
+fn contention(read: Result<impl std::fmt::Debug, StoreError>) -> (&'static str, String) {
+    let error = read.unwrap_err();
+    let words = error.to_string();
+    let StoreError::Contended { operation, .. } = error else {
+        panic!("not contention: {words}");
+    };
+    let (_, after) = words.split_once("ms of ").unwrap();
+    (operation, after.to_string())
+}
+
+/// The opening waits out a peer's lock under the store's patience as
+/// `load` does, and answers typed contention named `load`'s, in `load`'s
+/// words, so a readout that moves from `load` to the opening refuses the
+/// same. The journal is in rollback mode, where a peer's exclusive lock
+/// shuts readers out.
+#[test]
+fn the_opening_contends_as_load_does() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    appended(&mut Store::open(&db).unwrap(), "whole");
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .pragma_update(None, "journal_mode", "DELETE")
+        .unwrap();
+    let mut reader = Store::open_read_only(&db).unwrap();
+    reader
+        .set_patience(std::time::Duration::from_millis(50))
+        .unwrap();
+    let holder = rusqlite::Connection::open(&db).unwrap();
+    holder.execute_batch("BEGIN EXCLUSIVE").unwrap();
+    let words = ("load", "load; nothing was written".to_string());
+    assert_eq!(contention(reader.open_run("whole")), words);
+    assert_eq!(contention(reader.load("whole")), words);
+    drop(holder);
+    assert_eq!(reader.open_run("whole").unwrap().seq, 4);
 }
