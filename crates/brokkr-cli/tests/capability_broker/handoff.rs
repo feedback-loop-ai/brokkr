@@ -11,7 +11,7 @@
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 use brokkr_protocol::broker::ledger::{Failure, Invalid};
@@ -579,6 +579,17 @@ fn hold_lookup(store: &Path, seconds: u32) -> Vec<String> {
         .collect()
 }
 
+/// MB3's absolute startup deadline, which `serve` counts from its own
+/// start (`STARTUP` in `src/broker/session.rs`, private to the crate, so
+/// stated here, as the deadline tests state it).
+const STARTUP: Duration = Duration::from_secs(30);
+
+/// How long after [`Handing::begun`] the broker may yet start its own
+/// clock: the tracer, `script(1)` and the harness's shell spawn it first,
+/// which a saturated host slows. A margin, not a wait: [`Handing::at`]
+/// returns as soon as its stage holds or the attempt ends.
+const SPAWNED: Duration = Duration::from_secs(10);
+
 /// A broker serving a plan that declares `DOCS_TOKEN` under a tracer that
 /// holds one stage of its handoff: when it began, the reads of its store,
 /// with those already counted, the reads of its server since the hold,
@@ -661,25 +672,42 @@ impl Handing {
         boxed.iter().copied().find(inner)
     }
 
-    /// The bootstrap once `stage` holds, polled for 20 seconds with the
-    /// store's reads counted meanwhile; the server's reads before then,
-    /// the observer's among them, set aside.
+    /// The bootstrap once `stage` holds, with the store's reads counted
+    /// meanwhile; the server's reads before then, the observer's among
+    /// them, set aside. Polled until the broker has certainly acted on its
+    /// own startup deadline ([`SPAWNED`] and [`STARTUP`] from `begun`), or
+    /// until the attempt has ended, when no stage can come. A fixed 20
+    /// seconds from the call gave up while a loaded host was still
+    /// launching the box, the broker within its deadline (#811).
     fn at(&mut self, stage: impl Fn(&Handing, i32) -> bool) -> i32 {
-        let until = Instant::now() + Duration::from_secs(20);
-        while Instant::now() < until {
+        let until = self.begun + SPAWNED + STARTUP;
+        loop {
+            // Asked before the stage, so an attempt seen ended has had its
+            // stage looked for once more.
+            let ended = self.attempt.try_wait().unwrap();
             self.store.1 += self.store.0.seen();
             if let Some(bootstrap) = self.bootstrap().filter(|pid| stage(self, *pid)) {
                 self.server.seen();
                 return bootstrap;
             }
+            if ended.is_some() | (Instant::now() >= until) {
+                self.unreached(ended);
+            }
             std::thread::sleep(Duration::from_millis(20));
         }
+    }
+
+    /// Fail [`Handing::at`]: what of the box stands, and the attempt's exit
+    /// where it has ended, with the broker's own stderr so far, so a box not
+    /// yet launched is told from a broker already gone.
+    fn unreached(&self, ended: Option<ExitStatus>) -> ! {
         let boxed: Vec<_> = boxed(&self.sealed)
             .into_iter()
             .map(|pid| (pid, status(pid)))
             .collect();
+        let stderr = std::fs::read_to_string(self.sealed.path("broker.err"));
         panic!(
-            "no stage of {} reached: {boxed:?}",
+            "no stage of {} reached: {boxed:?}; the attempt's exit {ended:?}, its broker's stderr {stderr:?}",
             self.sealed.locator.display()
         );
     }
