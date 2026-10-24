@@ -48,6 +48,9 @@ use super::host::{self, At, HostConfig, Hosting, Place, Provider, Route, RouteCl
 use super::{awaiting, came_to, AdmissionError, Judged, Reason};
 use crate::capabilities::manifest::ModelPins;
 use crate::launch::{LaunchError, QueuedLaunch};
+use journal::Journal;
+
+mod journal;
 
 /// The machine an admission pass measures, its effects injected: where
 /// its host configuration is, the temp directory a `temp` floor measures,
@@ -284,6 +287,8 @@ pub(super) fn sized(
 struct Measure<'h> {
     host: &'h Host<'h>,
     hosting: Hosting,
+    /// The journal measured, read before what it holds.
+    journal: Option<Journal>,
     /// The events high-water, read before the census.
     high_water: i64,
     live: Arc<Vec<Live>>,
@@ -294,6 +299,7 @@ impl<'h> Measure<'h> {
     /// runs running now.
     fn take(store: &Store, host: &'h Host<'h>) -> Result<Measure<'h>, AdmissionError> {
         let hosting = host::read(host.file)?;
+        let journal = Journal::of(store);
         let high_water = store.high_water()?;
         let live = match hosting {
             Hosting::Declared(_) => census(store)?,
@@ -302,6 +308,7 @@ impl<'h> Measure<'h> {
         Ok(Measure {
             host,
             hosting,
+            journal,
             high_water,
             live: Arc::new(live),
         })
@@ -316,6 +323,7 @@ impl<'h> Measure<'h> {
         floors(config, self.host, entry.scratch)?;
         boxed(config, &running, entry.boxed)?;
         Ok(Room {
+            journal: self.journal,
             entry: read.clone(),
             high_water: self.high_water,
             digest: entry.digest,
@@ -371,13 +379,14 @@ fn boxed(config: &HostConfig, running: &Running, boxed: bool) -> Result<(), Capa
 }
 
 /// The room a pass found for the one entry it measured it for, as that
-/// entry's claim re-checks it (decision 0095 ruling 7): the entry as the
-/// pass read it, its id and the pin and latch it was seen under; the
-/// events high-water the pass read before its census, the census, the
-/// manifest digest of the bundle it compiled and what that bundle seats,
-/// under the host configuration it read.
+/// entry's claim re-checks it (decision 0095 ruling 7): the journal the
+/// pass measured; the entry as the pass read it, its id and the pin and
+/// latch it was seen under; the events high-water the pass read before
+/// its census, the census, the manifest digest of the bundle it compiled
+/// and what that bundle seats, under the host configuration it read.
 #[derive(Debug)]
 pub struct Room {
+    journal: Option<Journal>,
     entry: QueueEntry,
     high_water: i64,
     digest: String,
@@ -401,7 +410,8 @@ type Awaiting = (Wait, EntryState, Vec<EventEnvelope>);
 impl Room {
     /// Claim the entry this room was measured for, as the pass read it,
     /// for the dispatcher of `generation`, journaling `reason`, and record
-    /// this room's digest on the claim. Inside the claim's transaction the
+    /// this room's digest on the claim, in the journal the pass measured
+    /// alone ([`journal::measured_in`]). Inside the claim's transaction the
     /// entry must still be queued under the pin and latch the pass read,
     /// each of its waits must hold of what its awaited entry has come to,
     /// and each run with an event past the pass's high-water is folded
@@ -416,6 +426,7 @@ impl Room {
         generation: Generation,
         reason: &str,
     ) -> Result<Result<Claim, Reason>, AdmissionError> {
+        journal::measured_in(self.journal, store)?;
         let claimed = store.queue_claim_with(
             &self.entry,
             self.high_water,

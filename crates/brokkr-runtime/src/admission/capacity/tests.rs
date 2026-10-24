@@ -1132,6 +1132,16 @@ fn admitted(fixture: &Fixture, file: &Path) -> Room {
     judged.room.expect("admitted")
 }
 
+/// A fixture with one entry queued under ceilings of 3, the host
+/// configuration declaring them, and the room a pass found for it.
+fn one_admitted() -> (Fixture, EntryId, PathBuf, Room) {
+    let mut fixture = Fixture::new();
+    let entry = fixture.queue();
+    let file = fixture.declare(&ceilings(3, 3, json!({})));
+    let room = admitted(&fixture, &file);
+    (fixture, entry, file, room)
+}
+
 /// Claim the entry `room` was measured for, as generation 1.
 fn claimed(fixture: &mut Fixture, room: &Room) -> Result<Claim, Reason> {
     room.claim(&mut fixture.store, Generation(1), "admitted")
@@ -1290,10 +1300,7 @@ fn a_room_claims_its_entry_only_as_the_pass_read_it() {
         ),
     ];
     for (act, refusal, text) in between {
-        let mut fixture = Fixture::new();
-        let entry = fixture.queue();
-        let file = fixture.declare(&ceilings(3, 3, json!({})));
-        let room = admitted(&fixture, &file);
+        let (mut fixture, entry, _, room) = one_admitted();
         act(&mut fixture, entry);
         let before = fixture.store.queue_entry(entry).unwrap();
         let error = (room.claim(&mut fixture.store, Generation(1), "admitted")).unwrap_err();
@@ -1305,10 +1312,85 @@ fn a_room_claims_its_entry_only_as_the_pass_read_it() {
     }
 }
 
+/// A room claims in no journal but the file its pass measured: another
+/// journal whose entry 1 stands as the room's did, its own pass having
+/// found no room for it, and a copy of the measured journal are each
+/// refused by `OtherJournal` with nothing written in either journal; and
+/// a room whose pass could not read its journal's path claims in none.
+#[test]
+fn a_room_claims_in_no_journal_but_the_file_its_pass_measured() {
+    let (mut measured, entry, file, room) = one_admitted();
+    let mut other = Fixture::new();
+    other.queue();
+    let full_file = other.declare(&ceilings(1, 1, json!({})));
+    other.seating("r1", &[("alpha", "a-1")], false);
+    assert_eq!(other.room(&full_file), full("alpha", 1, 1));
+    let copy = measured.root.join("copy.db");
+    for suffix in ["", "-wal"] {
+        let from = format!("{}{suffix}", measured.store.path().display());
+        std::fs::copy(from, format!("{}{suffix}", copy.display())).unwrap();
+    }
+    let copied = Store::open(&copy).unwrap();
+    let read = measured.store.queue_entry(entry).unwrap();
+    assert_eq!(copied.queue_entry(entry).unwrap(), read);
+    for mut foreign in [other.store, copied] {
+        let before = (measured.store.queue_list()).unwrap();
+        let theirs = foreign.queue_list().unwrap();
+        let error = (room.claim(&mut foreign, Generation(1), "admitted")).unwrap_err();
+        let AdmissionError::OtherJournal(path) = &error else {
+            panic!("not another journal: {error:?}");
+        };
+        assert_eq!(path, foreign.path());
+        let text = format!(
+            "the journal at {} is not shown to be the one the pass that found this room \
+             measured, and nothing was claimed",
+            foreign.path().display()
+        );
+        assert_eq!(error.to_string(), text);
+        assert_eq!(measured.store.queue_list().unwrap(), before);
+        assert_eq!(foreign.queue_list().unwrap(), theirs);
+    }
+    // A pass over a journal whose path no longer reads claims in none.
+    std::fs::remove_file(measured.store.path()).unwrap();
+    let unread = admitted(&measured, &file);
+    let before = (measured.store.queue_list()).unwrap();
+    let error = (unread.claim(&mut measured.store, Generation(1), "admitted")).unwrap_err();
+    assert!(
+        matches!(&error, AdmissionError::OtherJournal(path) if path == measured.store.path()),
+        "{error:?}"
+    );
+    assert_eq!(measured.store.queue_list().unwrap(), before);
+}
+
+/// A new store on the file the pass measured, by its path or through a
+/// symlink to it, claims the room's entry in that file.
+#[test]
+fn a_room_claims_through_any_store_on_the_file_its_pass_measured() {
+    for linked in [false, true] {
+        let (fixture, entry, _, room) = one_admitted();
+        let path = fixture.store.path().to_path_buf();
+        let path = match linked {
+            false => path,
+            true => {
+                let link = fixture.root.join("link.db");
+                std::os::unix::fs::symlink(&path, &link).unwrap();
+                link
+            }
+        };
+        let mut reconnected = Store::open(&path).unwrap();
+        (room.claim(&mut reconnected, Generation(1), "admitted"))
+            .unwrap()
+            .unwrap();
+        let state = fixture.store.queue_entry(entry).unwrap().state;
+        assert_eq!(state, brokkr_store::EntryState::Launching);
+    }
+}
+
 /// `room` as though it had been measured for `entry`: the shape a room
 /// handed to the wrong entry would take, which no pass builds.
 fn bound_to(room: &Room, entry: QueueEntry) -> Room {
     Room {
+        journal: room.journal,
         entry,
         high_water: room.high_water,
         digest: room.digest.clone(),

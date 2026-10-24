@@ -17,6 +17,7 @@ pub brokkr_runtime::admission::AdmissionError::LatchMoved::differences: alloc::v
 pub brokkr_runtime::admission::AdmissionError::LatchMoved::entry: brokkr_store::queue::EntryId
 pub brokkr_runtime::admission::AdmissionError::MapMoved(brokkr_store::queue::EntryId)
 pub brokkr_runtime::admission::AdmissionError::NothingLatched(brokkr_store::queue::EntryId)
+pub brokkr_runtime::admission::AdmissionError::OtherJournal(std::path::PathBuf)
 pub brokkr_runtime::admission::AdmissionError::Store(brokkr_store::StoreError)
 pub brokkr_runtime::admission::AdmissionError::Unmeasured(brokkr_store::queue::EntryId)
 pub enum brokkr_runtime::admission::Capacity

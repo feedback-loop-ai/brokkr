@@ -420,6 +420,15 @@ pub enum AdmissionError {
          what it found was not latched; `brokkr queue judge` measures it afresh"
     )]
     Unmeasured(EntryId),
+    /// A room's claim taken through a store that is not shown to be the
+    /// journal its pass measured: the path that store opened. Nothing is
+    /// claimed in either.
+    #[error(
+        "the journal at {} is not shown to be the one the pass that found this room measured, \
+         and nothing was claimed",
+        .0.display()
+    )]
+    OtherJournal(std::path::PathBuf),
     /// A host configuration that cannot be found, or is read and invalid.
     #[error(transparent)]
     Host(#[from] HostError),
