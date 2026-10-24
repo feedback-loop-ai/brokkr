@@ -226,6 +226,49 @@ fn a_record_under_no_seat_shares_the_line_of_one_before_the_request() {
     assert_eq!(unseated(json!(""), turn(Some("a"), 2, "Grep")), later);
 }
 
+/// Records before their effect's first request open a line per attempt
+/// and member: two members of one attempt each keep their own turn, a
+/// later record of one taking its line's, and one member of two attempts
+/// keeps a line per attempt.
+#[test]
+fn an_early_line_is_of_one_attempt_and_one_member() {
+    let noted = |records: Vec<(&str, serde_json::Value)>| {
+        let mut lines = Vec::new();
+        for (attempt, record) in records {
+            Early::noted(&mut lines, Some(attempt), &record);
+        }
+        lines
+    };
+    let early = |attempt: &str, member: &str, turn: &str, tool: &str| Early {
+        attempt: Some(attempt.to_string()),
+        member: named(member),
+        turn: turned(turn, tool),
+    };
+    let members = vec![
+        ("one", turn(Some("a"), 1, "Read")),
+        ("one", turn(Some("b"), 2, "Edit")),
+        ("one", turn(Some("a"), 3, "Grep")),
+    ];
+    assert_eq!(
+        noted(members),
+        [
+            early("one", "a", "3", "Grep"),
+            early("one", "b", "2", "Edit")
+        ]
+    );
+    let attempts = vec![
+        ("one", turn(Some("a"), 1, "Read")),
+        ("two", turn(Some("a"), 2, "Edit")),
+    ];
+    assert_eq!(
+        noted(attempts),
+        [
+            early("one", "a", "1", "Read"),
+            early("two", "a", "2", "Edit")
+        ]
+    );
+}
+
 /// What a participant's facts carry of its records: its last checkpoint's
 /// time, its last `seat-turn` over every attempt, a member's last finish
 /// and its last session record's session.
