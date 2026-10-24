@@ -244,20 +244,30 @@ fn an_engine_sequence_s_rows_list_its_steps_tags_and_models_as_its_view() {
     let events = engine.store.load(&engine.run_id).unwrap();
     let account = brokkr_core::summary::Account::whole(&engine.run_id, &events);
     let rows = account.seats();
-    let words = |words: &[&str]| words.iter().map(|word| word.to_string()).collect();
-    // The final step's result is the effect's, so it finishes no step.
+    let view = brokkr_view::run_view(&events, None);
+    let work = view.phases.iter().find(|phase| phase.name == "work");
+    let columns = &work.unwrap().columns;
+    // The rail draws each finished step as a node of its own, and the final
+    // step, whose result is the effect's and so finishes no step, as its
+    // members under its label.
+    let labels: Vec<Option<&str>> = columns.iter().map(|at| at.label.as_deref()).collect();
+    assert_eq!(labels, [None, None, Some("finish")]);
+    // Each node is keyed by its effect and its tag. The members run on
+    // threads of their own, so the journal takes their records in either
+    // order, and the rows list their tags as the view orders them.
+    let tags = |finished: bool| -> Vec<String> {
+        let drawn = columns.iter().filter(|at| !finished || at.label.is_none());
+        let tag = |node: &brokkr_view::Node| node.key.strip_prefix("seq:").unwrap().to_string();
+        drawn.flat_map(|at| &at.nodes).map(tag).collect()
+    };
     assert_eq!(
         brokkr_core::seat::row::inner(rows, "seq"),
-        (
-            words(&["draft", "redraft"]),
-            words(&["draft", "redraft", "finish:final", "finish:peer"])
-        )
+        (tags(true), tags(false))
     );
     let models = brokkr_core::seat::row::models(rows, 0, u64::MAX);
-    assert_eq!(
-        models.into_iter().collect::<Vec<_>>(),
-        words(&["m-drafted", "m-pass"])
-    );
+    let models: Vec<String> = models.into_iter().collect();
+    assert_eq!(view.dashboard.path.len(), 1);
+    assert_eq!(Some(models.join(", ")), view.dashboard.path[0].model);
     let found = seat_facts::disagreements(&engine.run_id, &events, rows);
     // Its seat, its two steps' and its panel's two members, its one phase
     // and its one visit.
