@@ -1,0 +1,49 @@
+# Current-attempt driver admission
+
+Status: drafted; implementation and validation pending.
+Decision: 0096
+
+The semantic enforcement proposal is [decision 0096](../../docs/decisions/0096-attempt-correlation.md), status proposed. Only the operator accepts it. Accepted authorities include [0004](../../docs/decisions/0004-strict-condition-evaluation.md), [0005](../../docs/decisions/0005-self-forging-first-scope.md), and [0071](../../docs/decisions/0071-the-architectural-principles.md).
+
+## Context and rationale
+
+Triage classified this commission as engine. The supplied reproduction reports that a clean review result with the current effect but a foreign attempt can advance to ship. Static inspection confirms the defect: `DriverProcess::run_attempt_resuming` sends both identities in Start, but `converse` receives only `effect_id`; its Accepted, Checkpoint and Result arms discard `attempt_id`. Design has not executed the reproduction.
+
+An effect can survive retries; each execution has a distinct attempt. Effect equality alone cannot authorize acceptance/session evidence, checkpoints or a terminal receipt for the current attempt. In particular, the runtime stamps live checkpoints with its current attempt before journaling them. Checking after that callback cannot undo misattributed append-only evidence. This is a security-sensitive admission repair, despite its small implementation scope.
+
+The intake and both panel positions were read from run-local evidence. Their conclusions are resolved under Decisions in [the plan](plan.md); this committed record is self-contained and does not require those uncommitted files.
+
+## Goals and non-goals
+
+For each Accepted, Checkpoint and Result, require exact equality with BOTH engine-owned identifiers sent in Start for this invocation, before any consequence of that message. A foreign message ends admission through the existing post-Start indeterminate path. Matching traffic remains valid.
+
+No wire/schema version, persisted-data migration, new policy, ordering requirement, retry change, global attempt registry, receipt authentication, compatibility flag or public API is introduced. A Result need not gain a preceding-Accepted requirement. Cancelled and resume negotiation keep their existing semantics. This does not authenticate a producer that saw Start and copies both identifiers. It does not certify historical receipts from vulnerable binaries.
+
+The repository is a Rust engine using subprocess NDJSON, not the mail service described by an inapplicable panel charter. SMTP acceptance, inbox pruning, subscriptions and TLS renewal impose no requirements here. Production stays Rust (0009); hosts remain Linux and macOS, including WSL2 as Linux (0063).
+
+## Required behavior
+
+The protocol transport owns one private correlation rule shared by all three arms. Check effect first and preserve its existing reasons byte for byte. Only then check attempt, without normalization, UUID parsing, fallback or rebinding. Both-foreign messages take the effect refusal. Expected identity is local to the invocation, including resumed invocations; never consult a mutable global latest-attempt value.
+
+For an attempt mismatch, use `Ended::Unread` and the established `AttemptOutcome::Indeterminate` conversion. The fixed reason prefixes are `driver accepted a different attempt`, `checkpoint for foreign attempt`, and `result for foreign attempt`. Reuse `process/evidence.rs::mismatch` with field `attempt_id`, foreign bytes and the engine-owned expected value. It emits byte count, first-byte class and SHA-256 prefix, never foreign identifier content. Existing quoting of the engine-owned expected ID remains allowed. The existing post-Start suffix remains unchanged.
+
+Refuse before acceptance/session mutation, checkpoint retention or callback, and Result conversion, including failed Results. Do not skip foreign traffic and wait for a good message, return retryable Failed, or automatically retry. A prior valid acceptance keeps `accepted=true`; foreign Accepted alone cannot set it. The broken path clears returned session/checkpoints as today. Previously journaled valid checkpoints remain historical evidence; the foreign checkpoint never reaches persistence. Reader-limit precedence, checkpoint budgets, bounded teardown and cleanup uncertainty retain their existing authority, so a stronger existing refusal can supersede mismatch text while remaining indeterminate/fail closed.
+
+## Acceptance Criteria
+
+1. **AC1 — All admission sites.** For each of Accepted, Checkpoint and Result, a current-effect/foreign-attempt message produces the exact typed Indeterminate outcome and fixed content-free reason under settled, in-limit test conditions. Failed and successful foreign Results are both refused. Neither can supply a result or become retryable Failed.
+2. **AC2 — Accepted accounting.** With no preceding legitimate acceptance, a foreign Accepted carrying a nonempty session followed by a valid current Result leaves `accepted=false`, `session_ref=None`, and returned checkpoints empty. With prior legitimate acceptance, `accepted=true` survives but no foreign session is adopted. Bypassing only Accepted correlation makes its regression fail.
+3. **AC3 — Checkpoint boundary.** After valid acceptance, a foreign Checkpoint followed by a valid current Result causes no callback or retention of its payload. With one legitimate checkpoint before it, callbacks contain exactly that legitimate payload; broken report fields remain cleared. Bypassing only Checkpoint correlation makes its regression fail.
+4. **AC4 — Matching controls.** A current-effect/current-attempt stream preserves exact acceptance, concrete session, checkpoint callback and retained data, and successful result payload. A matching failed Result retains its existing exact Failed outcome. No new ordering restriction is imposed.
+5. **AC5 — Effect compatibility and disclosure.** Existing foreign-effect outcomes and diagnostic text remain unchanged. For all three message kinds, both-foreign controls select effect refusal. Plant a sensitive marker only in the foreign attempt wire field; assert exact evidence and its absence from serialized outcome/report fields and the engine journal. Refusal must not interpolate foreign session, checkpoint, result or error content. Independent stderr or legitimate payload content is outside this mismatch-redaction guarantee.
+6. **AC6 — Durable engine consequence.** A real DriverProcess drives the work -> review -> ship fixture, reads actual Start identities, and emits valid review acceptance/checkpoints followed by a clean Result changing only its attempt. The engine parks in review with `Status::AwaitingOperator`, exactly one current-attempt EffectIndeterminate terminal fact and no successful review terminal fact, REVIEW transition to ship, ship phase entry/request/invocation or RunCompleted. Reopen/replay yields the same parked state. A paired same-attempt control reaches REVIEW, invokes ship and completes. Result-check removal must fail the negative engine regression.
+7. **AC7 — Binding proof.** Every new test has an executed, compiling behavior-removal control with its failing name/assertion recorded. Independently bypass each admission call site; use an evidence-leak mutation for disclosure and behavior-removal controls for positive/replay assertions. Restore production behavior and rerun the affected tests. Exact variants and values are required; EOF alone, source inspection and `is_err()` alone are insufficient (0071 rulings 8–9).
+8. **AC8 — Architectural and frozen boundaries.** One private rule at the parsed transport edge serves single, sequence, panel and one-shot consumers; no engine duplicate or new trait/public type/dependency. Respect 0071 rulings 1–10 and existing size/complexity/clone gates without new suppressions or ratchet increases. Frozen contracts, fixtures, reference and production policy remain byte-identical.
+9. **AC9 — Implementation validation.** Record focused tests and mutation failures, full workspace tests, fmt, clippy, self/verify bundle compiles, applicable recipe/architecture gates and Brokkr non-Rust lints. Run `scripts/coverage-exact.sh` outside the workspace box on the implementation revision, retain full proof with revision/toolchain/command/exit status, and preserve the exact denominator and exclusions. Pending or unavailable checks are never passes. Commands and evidence obligations are in the plan.
+10. **AC10 — Handoff.** Codex implements; Astra reviews correctness/guarantees, official DeepSeek Flash security, Sonnet 5.5 tests, and Fable 5.1 independently reviews. No DeepSeek Pro or silent substitution. Record unavailable routing as pending. Commit unsigned; do not push, merge, tag or close the issue.
+
+## Migration and open questions
+
+Conforming drivers already echo both fields and need no migration. Stale-attempt drivers now park and require correction; there is no compatibility bypass. No journal is rewritten. Uncommitted telemetry can still be lost on crash; this feature adds no exactly-once execution guarantee.
+
+No behavioral ambiguity blocks implementation. Decision 0058's top-level file status is proposed, despite the intake calling it accepted; its October overlay addendum records an operator ruling. Preserve both facts and follow the user's explicit crew pins without editing 0058. Reviewer availability and outside-box coverage authorization are downstream execution dependencies, not resolved evidence.
