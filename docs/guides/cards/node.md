@@ -18,7 +18,7 @@ marker set and so the last one tried:
     npm run lint       # verifier
 ```
 
-Two things to check before step 3:
+Three things to check before step 3:
 
 - **`npm run lint` is a guess with a name on it.** If your
   `package.json` has no `lint` script, edit `.brokkr/scripts/verify-seat.sh` — that
@@ -26,6 +26,34 @@ Two things to check before step 3:
 - **No install step is scaffolded.** What `npm ci` should do in your
   repository depends on your CI and your network posture, and a charter
   that guessed would be guessing about the network.
+- **Where `npm` is installed was read once, at `init`.** It looked
+  `npm` and `node` up on its own `PATH`, following links (#717). What
+  it found is bound `ro` on verify's hands in `bundle.json`: a binary
+  standing in its `PATH` directory as that one file, a binary in volta's
+  `bin` as `~/.volta`, and an nvm version as its `bin` and
+  `lib/node_modules`. The verifier puts the directory each was found in
+  at the head of `PATH`, in the order your `PATH` lists them, an empty
+  entry being the directory `init` ran in, and exports `VOLTA_HOME` for
+  a binary in volta's home. A tool's home is bound whole only where the
+  tool itself names it, `$VOLTA_HOME` or `~/.volta`, `$BUN_INSTALL` or
+  `~/.bun`, `$PNPM_HOME` or pnpm's default home, and only where `PATH`
+  found the binary in that home's own `bin` (pnpm's home itself). A home
+  so named is trusted whole: volta's binds for whatever real file stands
+  in its `bin`, a volta shim or not, while a bun or pnpm home binds only
+  where the binary resolves to a file elsewhere in the home, and one
+  standing in bun's `bin` or in pnpm's home is bound as that one file, as
+  any standing binary is. `init` never climbs to a
+  directory above the one `PATH` named. Only an install's own directory
+  is bound: one that holds anything else, such as a `credentials` file,
+  is refused, naming it, and so is a node prefix's `bin` entry whose
+  links pass outside its `bin` and `lib/node_modules`, a binary that
+  resolves into no home its tool names and no node prefix, and a
+  directory whose name the verifier's `PATH` cannot carry (a `:`). With
+  no `npm` on `PATH`, or one refused, `init` says so in one line, and
+  the verifier fails with that line. A home its tool's variable names is
+  trusted below its top-level names: `BUN_INSTALL=/srv/t` binds `/srv/t`
+  whole when it holds only `bin` and `install`, whatever `install`
+  holds.
 
 The full transcript, annotated: [starters/node.md](../starters/node.md).
 

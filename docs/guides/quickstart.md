@@ -340,8 +340,9 @@ review. That smaller set does not make the review gate read-only: it runs
 unboxed under `acceptEdits`, and the engine checks only that it left HEAD
 where it found it. The
 verify and ship gates are scripts with no model grant. A
-repository `init` does not recognize gets an EMPTY map and a README
-that says so, rather than a guessed permission. The grant is claude's
+repository `init` does not recognize gets `git`, `ls`, `rg` and `mkdir`
+alone, NO runner, and a README that says so, rather than a guessed
+permission. The grant is claude's
 `--allowedTools`, which pre-approves and removes no other tool: an
 unboxed seat also runs under the operator's own Claude Code permission
 settings. Decision 0065 makes its MCP servers the engine's to compose,
@@ -1022,8 +1023,9 @@ entries and granted in the agents' `tools.allow` — the whole set to the
 work seats, and the same set without `mkdir` (the test runner's tools
 plus `git`, `ls` and `rg`) to the review gate's agent, which that smaller
 set does not make read-only; verify and ship are scripts with no grant. A repository no row
-recognizes gets an EMPTY map and a scaffold README that says so, because
-a tool name is a permission and one guessed is one granted. The digest
+recognizes gets that base set and NO runner, and a scaffold README that
+says so, because a tool name is a permission and one guessed is one
+granted. The digest
 is therefore a function of what was scaffolded and differs from
 repository to repository; the one printed above is elided for that
 reason. [`docs/guides/starters/`](starters/) shows the

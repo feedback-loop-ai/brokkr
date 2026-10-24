@@ -10,10 +10,15 @@ the only toolchain, and `Cargo.lock` changes nothing about which
 commands are right.
 
 ```
-    cargo build --workspace                              # implementer
-    cargo test --workspace                               # implementer + verifier
-    cargo clippy --workspace --all-targets -- -D warnings # verifier
+    cargo build --workspace                                       # implementer
+    cargo test --workspace --locked                               # implementer + verifier
+    cargo clippy --workspace --all-targets --locked -- -D warnings # verifier
 ```
+
+- **`--locked` is deliberate.** The verifier refuses a lockfile that
+  would have to be generated or changed, and the implementer charter
+  says to commit `Cargo.lock` whenever the change creates or changes it,
+  so the verifier resolves the versions the change was tested with.
 
 - **`-D warnings` is deliberate.** A lint that warns and exits 0 gives
   a gate seat nothing to fail on.
