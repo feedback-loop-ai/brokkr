@@ -81,6 +81,7 @@ mod page;
 mod queue;
 mod read;
 mod redact;
+mod run_read;
 mod schema;
 mod seat_record;
 mod seat_summary;
@@ -99,6 +100,7 @@ pub use queue::{
     QueueEntry, QueueRefusal, Seen, StartRefusal, Wait, WaitOn,
 };
 pub use redact::{redact_export, Redactor};
+pub use run_read::RunRead;
 pub use schema::DATABASE_SCHEMA;
 pub use seat_record::{validate_seat_record, SeatRecordError, SeatRecordVersion};
 pub use seat_summary::SeatRows;

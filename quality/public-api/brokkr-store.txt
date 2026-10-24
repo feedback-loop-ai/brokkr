@@ -91,6 +91,12 @@ pub brokkr_store::RowRefusal::Severity(alloc::string::String)
 pub brokkr_store::RowRefusal::Status(alloc::string::String)
 impl core::convert::From<rusqlite::error::Error> for brokkr_store::RowRefusal
 pub fn brokkr_store::RowRefusal::from(rusqlite::error::Error) -> brokkr_store::RowRefusal
+pub enum brokkr_store::RunRead
+pub brokkr_store::RunRead::Current
+pub brokkr_store::RunRead::Current::page: alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>
+pub brokkr_store::RunRead::Current::seats: alloc::vec::Vec<brokkr_core::seat::row::SeatRow>
+pub brokkr_store::RunRead::Current::trail: alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>
+pub brokkr_store::RunRead::Kept
 pub enum brokkr_store::SeatRecordVersion
 pub brokkr_store::SeatRecordVersion::V1
 pub brokkr_store::SeatRecordVersion::V2
@@ -275,6 +281,8 @@ pub fn brokkr_store::Store::queue_entry(&self, brokkr_store::EntryId) -> core::r
 pub fn brokkr_store::Store::queue_latch(&mut self, brokkr_store::EntryId, &str, brokkr_store::Seen, brokkr_store::Attribution<'_>) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_list(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::QueueEntry>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_repin(&mut self, brokkr_store::EntryId, &str, brokkr_store::Seen, brokkr_store::Attribution<'_>) -> core::result::Result<(), brokkr_store::StoreError>
+impl brokkr_store::Store
+pub fn brokkr_store::Store::run_read(&self, &str, &brokkr_store::Opened, u64) -> core::result::Result<brokkr_store::RunRead, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::seat_rows(&self, &str) -> core::result::Result<brokkr_store::SeatRows, brokkr_store::StoreError>
 pub struct brokkr_store::Unread

@@ -192,11 +192,24 @@ fn the_opening_refuses_it(db: &Path) {
     assert_eq!(opened.unwrap_err().to_string(), EDITED);
 }
 
+/// The run view's read (#753) is made at the head its opening verified,
+/// so it refuses the run as the opening does, in the store's variant and
+/// words, though the run's index and seat rows stand at its head.
+fn the_run_views_read_refuses_it(db: &Path) {
+    let store = Store::open_read_only(db).unwrap();
+    let read = store
+        .open_run("r1")
+        .and_then(|opened| store.run_read("r1", &opened, 0));
+    assert!(is_the_edit(read.as_ref().err()), "{read:?}");
+    assert_eq!(read.unwrap_err().to_string(), EDITED);
+}
+
 /// The binding ruling 5 names: a journal with one event below a run's
 /// head edited, whose summary row the page's head check passes, is
 /// refused by every readout of that run in the store's words, each verb
 /// with the store's own variant, the edited event's broken hash, as the
-/// opening the readouts move to refuses it — the
+/// opening the readouts move to refuses it, and the run view's read after
+/// it — the
 /// console's opened run, on a journal the summary pages and on one it does
 /// not, shows it quarantined and draws no run; `/api/view`, the
 /// participant presentation and the transcript refuse it in the same
@@ -256,6 +269,7 @@ fn a_corrupt_run_is_refused_wherever_it_is_opened() {
         assert_eq!(refused(line), words, "{line:?}");
     }
     the_opening_refuses_it(&db);
+    the_run_views_read_refuses_it(&db);
     let served = serde_json::json!({ "error": EDITED }).to_string();
     for route in [
         "/api/view/r1",

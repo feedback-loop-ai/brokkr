@@ -601,14 +601,27 @@ impl Store {
     ) -> Result<SeatRows, StoreError> {
         patiently("seat_rows", self.patience, || {
             let _snapshot = self.conn.unchecked_transaction()?;
-            if !(seats_intact(&self.conn)? && finished(&self.conn, BACKFILLED)?) {
-                return Ok(SeatRows::Stale);
-            }
             let (seq, hash) = head_of(&self.conn, run_id)?;
             between();
-            current(&self.conn, run_id, (seq, &hash))
+            rows_at(&self.conn, run_id, (seq, &hash))
         })
     }
+}
+
+/// `run_id`'s seat rows standing at `head`, its last event as a read
+/// already begun found it: [`SeatRows::Stale`] unless the journal carries
+/// the tables and their backfill finished. [`Store::seat_rows`] and the
+/// run view's read ([`Store::run_read`]) read them so, each in its one
+/// snapshot.
+pub(crate) fn rows_at(
+    conn: &Connection,
+    run_id: &str,
+    head: (u64, &str),
+) -> Result<SeatRows, StoreError> {
+    if !(seats_intact(conn)? && finished(conn, BACKFILLED)?) {
+        return Ok(SeatRows::Stale);
+    }
+    current(conn, run_id, head)
 }
 
 #[cfg(test)]
