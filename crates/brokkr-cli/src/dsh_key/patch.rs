@@ -266,14 +266,15 @@ fn rows(text: &str) -> Result<Vec<Row>, Unread> {
     let (mut rows, mut row) = (Vec::new(), None::<Row>);
     for (index, line) in text.split('\n').enumerate() {
         let number = index + 1;
-        if line.chars().any(char::is_control) || line == "---" || line == "..." {
+        if line.chars().any(char::is_control) {
             return Err(Unread::Line(number));
         }
         let body = line.trim_start_matches(' ');
         if body.is_empty() || body.starts_with('#') {
             continue;
         }
-        // An item opens a row; a member is exactly two spaces in.
+        // An item opens a row; a member is exactly two spaces in. Any other
+        // line, a document marker `---` or `...` among them, is refused.
         let member = match line.strip_prefix("- ") {
             Some(item) => {
                 rows.extend(row.replace(Row {

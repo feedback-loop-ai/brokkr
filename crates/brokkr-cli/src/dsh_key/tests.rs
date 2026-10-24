@@ -243,8 +243,18 @@ fn a_present_dotenv_is_reported_unread_and_never_opened() {
     std::fs::set_permissions(&in_repo, std::fs::Permissions::from_mode(0o000)).unwrap();
     assert_eq!(
         planted.reaches_within_bound(),
-        untold(Untold::Dotenv(in_repo))
+        untold(Untold::Dotenv(in_repo.clone()))
     );
+    // A `.env` whose directory can't be searched can't be looked up, and
+    // counts as present. Root searches any directory, so the case is
+    // asked only of a test that runs as another user.
+    if !rustix::process::geteuid().is_root() {
+        let mode = |mode| std::fs::Permissions::from_mode(mode);
+        std::fs::set_permissions(&planted.repo, mode(0o000)).unwrap();
+        let answers = planted.reaches_within_bound();
+        std::fs::set_permissions(&planted.repo, mode(0o700)).unwrap();
+        assert_eq!(answers, untold(Untold::Dotenv(in_repo)));
+    }
 }
 
 #[test]
@@ -391,6 +401,12 @@ fn a_patch_layer_is_read_only_from_a_bounded_utf8_regular_file() {
     if !rustix::process::geteuid().is_root() {
         let denied = Err(Unread::Io(std::io::ErrorKind::PermissionDenied));
         assert_eq!(profile(), denied);
+    }
+    // A regular file whose read fails after its open is refused unread:
+    // Linux's `/proc/self/mem` opens, and answers its first read with EIO.
+    if cfg!(target_os = "linux") {
+        let eio = Unread::Io(std::io::Error::from(rustix::io::Errno::IO).kind());
+        assert_eq!(layer(Path::new("/proc/self"), &[], "mem"), Err(eio));
     }
     let words: Vec<String> = [
         Unread::Link,
@@ -669,6 +685,18 @@ fn only_a_recognised_last_credentials_row_writes_the_service() {
         ("---\n- id: credentials\n", Err(Unread::Line(1))),
         ("-\n", Err(Unread::Line(1))),
         ("- 9id: credentials\n", Err(Unread::Line(1))),
+        ("- -id: credentials\n", Err(Unread::Line(1))),
+        ("- : credentials\n", Err(Unread::Line(1))),
+        ("- id: credentials\n  1st: x\n", Err(Unread::Line(2))),
+        ("- id: credentials\n  : x\n", Err(Unread::Line(2))),
+        ("- id: credentials\n---\n", Err(Unread::Line(2))),
+        ("...\n- id: credentials\n", Err(Unread::Line(1))),
+        ("- id: credentials\n...\n", Err(Unread::Line(2))),
+        // A member this check does not read is admitted and passed over.
+        (
+            "- id: credentials\n  config_dir: x\n  api-key: y\n  disabled: false\n",
+            Ok(Some(Write::Enables)),
+        ),
         ("- id: credentials\n  na me: x\n", Err(Unread::Line(2))),
         ("- id: credentials\n  note: a: b\n", Err(Unread::Line(2))),
         (
