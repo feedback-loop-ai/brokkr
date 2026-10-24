@@ -11,8 +11,8 @@ At every dispatch door, a seat's, a sequence step's and each panel member's, adm
 
 #### Scenario: Readers beside many seals
 
-- **WHEN** three reader threads each recheck a standing lease a fixed count of times beside one sibling thread that reseals the same reservation through the attempt's amendment a fixed count of times, all released together, every take of the lock bound to one deadline shared by the whole stress and shorter than MB3's startup bound
-- **THEN** every read returns admitted and every seal reports committed and synced, so a read refused as the reservation no longer standing, as admission not completed before its deadline or as the lock not this user's own, and a seal late or not proven synced, each fail by name; every reader completes its count before the deadline, so none passes by reading less; and with the door's lock take removed the same stress refuses reads as the reservation no longer standing under load, its count recorded
+- **WHEN** three reader threads each recheck a standing lease a fixed count of times beside one sibling thread that reseals the same reservation through the attempt's amendment as fast as it can until a sealing budget is spent or a cap of seals is reached, whichever is first, all released together, every take of the lock bound to one deadline shared by the whole stress and shorter than MB3's startup bound, every thread collecting every result
+- **THEN** after the join, each reader's count is exactly the count asked, every read is exactly admitted, every seal exactly committed and synced, and the seals made are at least the floor and at most the cap, each assertion's message tallying the results that differ by variant and count: a read refused as the reservation no longer standing, as admission not completed before its deadline or as the lock not this user's own, a seal late or not proven synced, a reader that read less, and a host that sealed fewer than the floor within the budget each fail by name; the budget, the floor and the cap are sized from a seal rate measured on a disk-backed directory and on tmpfs under load, quoted in the test's comment, so the deadline is never spent by sealing; and with the door's lock take removed the same stress refuses reads as the reservation no longer standing under load, its tally the count recorded
 
 #### Scenario: The attempt is truly gone
 
@@ -26,7 +26,7 @@ At every dispatch door, a seat's, a sequence step's and each panel member's, adm
 
 ### Requirement: A lock the door does not get is refused by the lock's own name
 
-A door whose admission lock is not held exclusively by the startup deadline SHALL refuse the dispatch as admission not completed before its startup deadline, and a lock file that is not this user's own single regular file SHALL refuse it as the admission lock not this user's own, each with the text the same refusal carries at admission and at the attempt's amendment; a run directory the door cannot enter SHALL keep its own refusal too. None of these SHALL be reported as the reservation no longer standing, and no refusal the door makes today SHALL change its variant or its text. The lock is taken before the reach is observed, so a door refused by the lock's name SHALL observe nothing and spawn nothing.
+A door whose admission lock is not held exclusively by the startup deadline SHALL refuse the dispatch as admission not completed before its startup deadline, and a lock file that is not this user's own single regular file SHALL refuse it as the admission lock not this user's own, each with the text the same refusal carries at admission and at the attempt's amendment; a run directory the door cannot enter SHALL keep its own refusal too. None of these SHALL be reported as the reservation no longer standing. The door's set of refusals SHALL be unchanged: no variant added or removed, and no variant's text changed. The lock SHALL be taken first, before the run's directory is entered, the reservation read, the writer's reach observed or the artifact root compared, so a lease refused twice over, by the lock and by one of those four, SHALL report the lock's refusal where today the door reports the coordination root not protected, the reservation no longer standing, the reach redirected or the artifact root replaced; those four are the only refusals whose reported name moves, and a door refused by the lock's name SHALL observe nothing and spawn nothing.
 
 #### Scenario: The lock is released before the deadline
 
@@ -35,8 +35,8 @@ A door whose admission lock is not held exclusively by the startup deadline SHAL
 
 #### Scenario: The lock is held past the deadline
 
-- **WHEN** another thread holds the admission lock exclusively and the door's deadline is spent before it is released, the lease staked with an authored reach the door would report redirected if it looked
-- **THEN** the door refuses as admission not completed before its startup deadline, not as redirected; the reach is not observed, the driver does not spawn, and the reservation's bytes are unchanged
+- **WHEN** another thread holds the admission lock exclusively and the door's deadline is spent before it is released, once for a lease staked with an authored reach the door would report redirected if it looked, and once for a lease whose reservation was removed while the lock was held
+- **THEN** each door refuses as admission not completed before its startup deadline, the first not as redirected and the second not as the reservation no longer standing; no reach is observed, no driver spawns, and the standing reservation's bytes are unchanged; the one lock take proven here, first in the door's order, is what moves a lease the lock refuses that the door would also refuse for its run directory or its artifact root to the lock's name
 
 #### Scenario: The lock file carries a second link
 
@@ -46,7 +46,7 @@ A door whose admission lock is not held exclusively by the startup deadline SHAL
 #### Scenario: The lock line removed
 
 - **WHEN** the door's read is made without taking the lock, as a mutation of the build
-- **THEN** the door returns admitted through a lock another thread holds, before the holder releases it, and the test that holds the lock fails on that order: it is the test that binds this requirement
+- **THEN** the door returns admitted through a lock another thread holds, before the holder releases it, and the lease whose reservation was removed is refused as no longer standing instead of by the deadline; the test that holds the lock fails on that order and on that name: it is the test that binds this requirement
 
 ### Requirement: No refusal of admission comes from a read of a reservation taken outside the lock
 
