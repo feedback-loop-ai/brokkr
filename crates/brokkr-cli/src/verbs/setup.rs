@@ -62,6 +62,12 @@ pub(crate) fn init(InitArgs { dir }: InitArgs) -> Result<ExitCode> {
     // Discovery reads the folder from anywhere in the repository once it
     // is committed, and the ship gate closes out only on a clean tree.
     eprintln!("commit the folder: git add {FOLDER} && git commit");
+    // A dsh scaffold ends with doctor's own key check (#717), so the
+    // remedy and its caveats are read before a run parks on it.
+    let adapters = folder.join(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR);
+    for line in crate::dsh_key::of_folder(&adapters, &root) {
+        eprintln!("{}: {}", line.what(), line.detail());
+    }
     Ok(Exit::Completed.into())
 }
 

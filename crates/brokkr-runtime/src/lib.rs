@@ -12,9 +12,11 @@ pub mod boundary;
 pub mod bundle;
 pub mod capabilities;
 pub mod dialect;
+mod dispatch;
 pub mod engine;
 pub mod keep_refs;
 pub mod launch;
+mod lock_file;
 mod phase_name;
 pub mod places;
 pub mod realms;
@@ -30,6 +32,7 @@ pub use bundle::{
     Aggregate, Bundle, CompileError, Invocation, PanelMember, Seat, SeatBody, SeatClass,
     SequenceStep, StepBody, ENGINE_VERSION,
 };
+pub use dispatch::{take_dispatch, Dispatcher, DispatcherError};
 pub use engine::{
     apply_fenced_operator_command, conclude, git_head, operator_command, operator_supersede,
     CarryRefusal, CommandWord, ConcludeRefusal, DriveEnd, Engine, EngineError, FencedCommand,

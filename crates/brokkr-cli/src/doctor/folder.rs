@@ -15,6 +15,7 @@ use brokkr_runtime::places::{self, Kind, Old, FOLDER};
 use brokkr_runtime::realms::{World, WorldError};
 
 use super::{Report, Seats};
+use crate::dsh_key::{Line, Reach, Source};
 use crate::folder::{DoctorDefaults, FolderError, Found, Opening};
 use crate::recipes::personal::{Origin, ShelfPath};
 
@@ -171,7 +172,8 @@ fn compile_folder(workspace: &Path, dir: &Path, realms: Option<&Path>) -> anyhow
 
 /// Put the folder line first in `report`: the found folder compiled by
 /// [`compile_folder`], unless `compiled` already holds that compile's
-/// outcome, because the folder was the report's bundle ([`bundle`]).
+/// outcome, because the folder was the report's bundle ([`bundle`]); and
+/// where that folder hires dsh, its key lines last ([`report_keys`]).
 pub(super) fn report_folder(
     report: &mut Report,
     defaults: &DoctorDefaults,
@@ -188,6 +190,39 @@ pub(super) fn report_folder(
     };
     let personal = defaults.personal.as_ref();
     report_folder_with(report, &defaults.found, personal, compile, shelved);
+    if default_folder(&defaults.found).is_some() {
+        let lines = crate::dsh_key::of_folder(&defaults.adapters, workspace);
+        report_keys(report, &lines);
+    }
+}
+
+/// The lines of the found folder's dsh key check (#717): a key the
+/// launching environment gives, which every dsh home reads, is ok; one dsh
+/// cannot reach fails the report with its remedies; and one only the
+/// operator's home gives, a source that cannot be told, a route whose
+/// variable nothing names, the served-home caveat and a workdir `.env`
+/// warn. No line holds a value.
+fn report_keys(report: &mut Report, lines: &[Line]) {
+    for line in lines {
+        let (what, detail) = (line.what(), line.detail());
+        match line {
+            Line::Key(Reach::Reached {
+                source: Source::Environment,
+                ..
+            }) => report.ok(&what, detail),
+            Line::Key(Reach::Unreached { .. }) => report.missing(&what, detail),
+            Line::Key(
+                Reach::Reached {
+                    source: Source::Service(_),
+                    ..
+                }
+                | Reach::Untold { .. }
+                | Reach::Undeclared { .. },
+            )
+            | Line::Served { .. }
+            | Line::Workdir(_) => report.warn(&what, detail),
+        }
+    }
 }
 
 /// [`report_folder`], `compile` the folder's compile and `shelved` a shelf

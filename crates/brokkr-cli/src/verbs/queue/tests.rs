@@ -13,7 +13,7 @@ use super::*;
 use crate::tests::env_guard::EnvGuard;
 use crate::{failure_line, report, Cli, Cmd};
 
-/// A machine of the test's own (#783): the environment held for the
+/// A machine of the test's own (#783, #856): the environment held for the
 /// test's whole body, with `XDG_CONFIG_HOME` at a directory the test owns
 /// and that holds no host configuration, so the verb reads neither the
 /// ambient `HOME` nor a value another test is writing.
@@ -21,6 +21,10 @@ fn own_host() -> (EnvGuard, tempfile::TempDir) {
     let mut env = EnvGuard::lock();
     let config = tempfile::tempdir().unwrap();
     env.set("XDG_CONFIG_HOME", config.path());
+    // No ambient `HOME` either: the verb's tests read only the root set
+    // above, so an edit that drops it fails every run with the host
+    // configuration refusal instead of flaking under load (#856).
+    env.remove("HOME");
     (env, config)
 }
 
@@ -111,7 +115,7 @@ fn the_queue_keeps_order_holds_and_runs_across_invocations() {
     store
         .create_run("run-3", "third", "b", &json!({"schema": "run-manifest/v1"}))
         .unwrap();
-    store.queue_claim(EntryId(3), "run-3").unwrap();
+    brokkr_store::test_support::linked(&mut store, EntryId(3), "run-3");
     for words in [
         ["release", "2", "--reason", "go"],
         ["hold", "2", "--reason", "again"],

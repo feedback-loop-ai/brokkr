@@ -10,7 +10,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use brokkr_core::EventType;
-use brokkr_store::{Attribution, EntryId, NewEntry, QueueCommand};
+use brokkr_store::{
+    Attribution, EntryId, NewEntry, QueueCommand, QueueRefusal, StoreError, WaitOn,
+};
 use serde_json::{json, Value};
 
 use super::super::{judge_within, pass, pass_within, HostError, Reason, Standing};
@@ -52,8 +54,12 @@ impl Fixture {
                    "tool_permissions": "unsupported", "mcp": "unsupported",
                    "native_capabilities": {"known": {}}})
         };
+        let mut store = Store::open(&root.join("forge.db")).unwrap();
+        // The dispatcher its rooms claim as: generation 1 (decision 0095
+        // ruling 2).
+        store.dispatch_hold(1).unwrap();
         let fixture = Fixture {
-            store: Store::open(&root.join("forge.db")).unwrap(),
+            store,
             _dir: dir,
             root,
         };
@@ -1121,4 +1127,457 @@ fn every_capacity_reason_has_its_word() {
             ("boxed_full", false),
         ]
     );
+}
+
+/// The room a pass over a plenty-free host reading `file` found for the
+/// first entry it listed, which it admitted.
+fn admitted(fixture: &Fixture, file: &Path) -> Room {
+    let judged = passed(&fixture.store, file).unwrap().remove(0);
+    judged.room.expect("admitted")
+}
+
+/// A fixture with one entry queued under ceilings of 3, the host
+/// configuration declaring them, and the room a pass found for it.
+fn one_admitted() -> (Fixture, EntryId, PathBuf, Room) {
+    let mut fixture = Fixture::new();
+    let entry = fixture.queue();
+    let file = fixture.declare(&ceilings(3, 3, json!({})));
+    let room = admitted(&fixture, &file);
+    (fixture, entry, file, room)
+}
+
+/// Claim the entry `room` was measured for, as generation 1.
+fn claimed(fixture: &mut Fixture, room: &Room) -> Result<Claim, Reason> {
+    room.claim(&mut fixture.store, Generation(1), "admitted")
+        .unwrap()
+}
+
+/// An operator's `retry` of a run, as `brokkr operator` journals it.
+fn retry() -> Value {
+    json!({"command_id": "c1", "command": "retry", "args": {}, "operator": "vy"})
+}
+
+/// Append each of `events` to `run`.
+fn appended(fixture: &mut Fixture, run: &str, events: Vec<(EventType, Value)>) {
+    for (event, payload) in events {
+        (fixture.store)
+            .append_next(run, event, payload, None, None)
+            .unwrap();
+    }
+}
+
+/// Under a ceiling of 1, a parked run retried and a run started between
+/// the pass and the claim each take the place the pass found, and the
+/// claim is refused for it with nothing written (decision 0095 ruling 7).
+#[test]
+fn a_run_retried_or_started_after_the_pass_refuses_the_claim_on_capacity() {
+    for retried in [true, false] {
+        let mut fixture = Fixture::new();
+        let entry = fixture.queue();
+        let held = fixture.queue();
+        (fixture.store)
+            .queue_command(held, QueueCommand::Hold, BY)
+            .unwrap();
+        let file = fixture.declare(&ceilings(1, 1, json!({})));
+        fixture.seating("r1", &[("alpha", "a-1")], false);
+        // Parked where its seat's attempts ran out, so a retry returns it.
+        let entered = (EventType::PhaseEntered, json!({"phase": "work"}));
+        let requested = json!({"effect_id": "e", "seat": "work"});
+        let requested = (EventType::EffectRequested, requested);
+        let parked = (
+            EventType::RunParked,
+            json!({"reason": "attempts exhausted"}),
+        );
+        appended(&mut fixture, "r1", vec![entered, requested, parked]);
+        let judged = passed(&fixture.store, &file).unwrap();
+        let rooms: Vec<bool> = judged.iter().map(|judged| judged.room.is_some()).collect();
+        assert_eq!(rooms, [true, false]);
+        let room = admitted(&fixture, &file);
+        let compiled = fixture.launch().compiled().unwrap();
+        assert_eq!(room.digest, compiled.manifest_digest());
+        match retried {
+            true => {
+                let accepted = json!({"command_id": "c1"});
+                let events = vec![
+                    (EventType::OperatorCommanded, retry()),
+                    (EventType::OperatorAccepted, accepted),
+                ];
+                appended(&mut fixture, "r1", events);
+            }
+            false => fixture.started("r2"),
+        }
+        let before = (fixture.store.queue_list()).unwrap();
+        let refused = claimed(&mut fixture, &room);
+        assert_eq!(refused, Err(Reason::Capacity(full("alpha", 1, 1).unwrap())));
+        assert_eq!(fixture.store.queue_list().unwrap(), before);
+        let state = fixture.store.queue_entry(entry).unwrap().state;
+        assert_eq!(state, brokkr_store::EntryState::Queued);
+    }
+}
+
+/// A run running at the pass that moved and seats what it seated is
+/// counted once, a run that ended since frees its place, and a run
+/// started since takes one: under a ceiling of 3, with two running at the
+/// pass and two after it, the claim lands.
+#[test]
+fn the_claim_counts_each_run_that_moved_once_as_it_stands_now() {
+    let mut fixture = Fixture::new();
+    let entry = fixture.queue();
+    let file = fixture.declare(&ceilings(3, 3, json!({})));
+    fixture.seating("ended", &[("alpha", "a-1")], false);
+    fixture.seating("live", &[("alpha", "a-1")], false);
+    let room = admitted(&fixture, &file);
+    let completed = (EventType::RunCompleted, json!({}));
+    appended(&mut fixture, "ended", vec![completed]);
+    // Its writer carries `live`'s fold, not this one's.
+    brokkr_store::test_support::lags(&mut fixture.store, &["ended"]);
+    let commanded = (EventType::OperatorCommanded, retry());
+    appended(&mut fixture, "live", vec![commanded]);
+    fixture.seating("new", &[("alpha", "a-1")], false);
+    claimed(&mut fixture, &room).unwrap();
+    let state = fixture.store.queue_entry(entry).unwrap().state;
+    assert_eq!(state, brokkr_store::EntryState::Launching);
+}
+
+/// A run that moved since the pass is read as the census reads one: one
+/// whose manifest does not say what it seats refuses the claim on
+/// capacity, and one whose fold fails refuses it with the fold's error.
+#[test]
+fn a_run_that_moved_and_cannot_be_read_refuses_the_claim() {
+    let mut fixture = Fixture::new();
+    fixture.queue();
+    let file = fixture.declare(&ceilings(3, 3, json!({})));
+    fixture.seating("r1", &[("alpha", "a-1")], false);
+    let room = admitted(&fixture, &file);
+    fixture.running("unpinned", &json!({"schema": "run-manifest/v1"}));
+    let refused = claimed(&mut fixture, &room).unwrap_err();
+    assert!(
+        matches!(&refused, Reason::Capacity(Capacity::RunUnmeasured {
+            run, why: Unmeasurable::Manifest(_) }) if run == "unpinned"),
+        "{refused:?}"
+    );
+    let completed = || (EventType::RunCompleted, json!({}));
+    appended(&mut fixture, "r1", vec![completed(), completed()]);
+    // A run that does not fold stands behind its head on purpose.
+    brokkr_store::test_support::lags(&mut fixture.store, &["r1"]);
+    let error = (room.claim(&mut fixture.store, Generation(1), "admitted")).unwrap_err();
+    assert!(
+        matches!(&error, AdmissionError::Fold { run, .. } if run == "r1"),
+        "{error:?}"
+    );
+    assert_eq!(error.to_string(), "folding run 'r1'");
+}
+
+/// A hold, a drop or a re-pin of the entry a room was measured for,
+/// between the pass and the claim, refuses the claim by the store's
+/// variant with nothing written: the room claims its entry as the pass
+/// read it, never as it reads now (decision 0095 ruling 7).
+#[test]
+fn a_room_claims_its_entry_only_as_the_pass_read_it() {
+    type Between = (fn(&mut Fixture, EntryId), QueueRefusal, &'static str);
+    let between: [Between; 3] = [
+        (
+            |fixture, entry| {
+                let store = &mut fixture.store;
+                store.queue_command(entry, QueueCommand::Hold, BY).unwrap();
+            },
+            QueueRefusal::Held(EntryId(1)),
+            "queue entry 1 is held; release it first",
+        ),
+        (
+            |fixture, entry| {
+                let store = &mut fixture.store;
+                store.queue_command(entry, QueueCommand::Drop, BY).unwrap();
+            },
+            QueueRefusal::Dropped(EntryId(1)),
+            "queue entry 1 was dropped",
+        ),
+        (
+            |fixture, entry| {
+                let payload = fixture.launch().encode().unwrap();
+                let seen = fixture.store.queue_entry(entry).unwrap().seen();
+                (fixture.store.queue_repin(entry, &payload, seen, BY)).unwrap();
+            },
+            QueueRefusal::Unseen(EntryId(1)),
+            "queue entry 1 was re-pinned or latched after the pass that admitted it read it, \
+             and it was not claimed",
+        ),
+    ];
+    for (act, refusal, text) in between {
+        let (mut fixture, entry, _, room) = one_admitted();
+        act(&mut fixture, entry);
+        let before = fixture.store.queue_entry(entry).unwrap();
+        let error = (room.claim(&mut fixture.store, Generation(1), "admitted")).unwrap_err();
+        let AdmissionError::Store(StoreError::Queue(refused)) = &error else {
+            panic!("not a queue refusal: {error:?}");
+        };
+        assert_eq!((refused, error.to_string()), (&refusal, text.to_string()));
+        assert_eq!(fixture.store.queue_entry(entry).unwrap(), before);
+    }
+}
+
+/// Another journal, whose entry 1 stands as `one_admitted`'s does, and
+/// for which its own pass finds no room: its one place under ceilings of
+/// 1 is taken.
+fn full_elsewhere() -> Fixture {
+    let mut other = Fixture::new();
+    other.queue();
+    let full_file = other.declare(&ceilings(1, 1, json!({})));
+    other.seating("r1", &[("alpha", "a-1")], false);
+    assert_eq!(other.room(&full_file), full("alpha", 1, 1));
+    other
+}
+
+/// Assert `error` refuses the claim through the store at `path` as
+/// another journal than the one its pass measured, by its text.
+fn refused_elsewhere(error: &AdmissionError, path: &Path) {
+    let AdmissionError::OtherJournal(named) = error else {
+        panic!("not another journal: {error:?}");
+    };
+    assert_eq!(named, path);
+    let text = format!(
+        "the journal at {} is not shown to be the one the pass that found this room measured, \
+         and nothing was claimed",
+        path.display()
+    );
+    assert_eq!(error.to_string(), text);
+}
+
+/// What a claim writes, as the journal at `store`'s path holds it: its
+/// entries, and its count of queue commands and of claim rows.
+fn written(store: &Store) -> (Vec<QueueEntry>, i64, i64) {
+    let read = rusqlite::Connection::open(store.path()).unwrap();
+    let query = "SELECT (SELECT COUNT(*) FROM queue_commands), (SELECT COUNT(*) FROM queue_claims)";
+    let counts = |row: &rusqlite::Row| Ok((row.get(0)?, row.get(1)?));
+    let (commands, claims) = read.query_row(query, [], counts).unwrap();
+    (store.queue_list().unwrap(), commands, claims)
+}
+
+/// A room claims in no journal but the one its pass measured, by the id
+/// it names itself by: another journal whose entry 1 stands as the room's
+/// did, its own pass having found no room for it, is refused by
+/// `OtherJournal` with nothing written in either journal. A byte copy of
+/// the measured journal carries its id, so it is the same journal, as
+/// ruled (#430, 2026-10-24), and the room claims its entry in the copy.
+#[test]
+fn a_room_claims_in_no_journal_but_the_one_its_pass_measured() {
+    let (measured, entry, _, room) = one_admitted();
+    let mut other = full_elsewhere();
+    let copy = measured.root.join("copy.db");
+    for suffix in ["", "-wal"] {
+        let from = format!("{}{suffix}", measured.store.path().display());
+        std::fs::copy(from, format!("{}{suffix}", copy.display())).unwrap();
+    }
+    let mut copied = Store::open(&copy).unwrap();
+    let before = [written(&measured.store), written(&other.store)];
+    let error = (room.claim(&mut other.store, Generation(1), "admitted")).unwrap_err();
+    refused_elsewhere(&error, other.store.path());
+    assert_eq!([written(&measured.store), written(&other.store)], before);
+
+    (room.claim(&mut copied, Generation(1), "admitted"))
+        .unwrap()
+        .unwrap();
+    let state = copied.queue_entry(entry).unwrap().state;
+    assert_eq!(state, brokkr_store::EntryState::Launching);
+    assert_eq!(written(&measured.store), before[0]);
+}
+
+/// A new store on the journal the pass measured, by its path or through a
+/// symlink to it, claims the room's entry in that journal.
+#[test]
+fn a_room_claims_through_any_store_on_the_journal_its_pass_measured() {
+    for linked in [false, true] {
+        let (fixture, entry, _, room) = one_admitted();
+        let path = fixture.store.path().to_path_buf();
+        let path = match linked {
+            false => path,
+            true => {
+                let link = fixture.root.join("link.db");
+                std::os::unix::fs::symlink(&path, &link).unwrap();
+                link
+            }
+        };
+        let mut reconnected = Store::open(&path).unwrap();
+        (room.claim(&mut reconnected, Generation(1), "admitted"))
+            .unwrap()
+            .unwrap();
+        let state = fixture.store.queue_entry(entry).unwrap().state;
+        assert_eq!(state, brokkr_store::EntryState::Launching);
+    }
+}
+
+/// A store opened through a symlink is the journal its connection holds,
+/// however the link is pointed since. With `current.db` naming journal B,
+/// whose own pass finds no room for its entry 1, when a store opens
+/// through it, and journal A after: the room A's pass found claims
+/// through that store in neither journal, and the room a pass over that
+/// store found, handed A's own store, claims in neither; each is refused
+/// by `OtherJournal` naming the store it was handed, with nothing written
+/// in either journal.
+#[test]
+fn a_store_opened_through_a_symlink_retargeted_since_is_the_journal_it_holds() {
+    for before_the_pass in [false, true] {
+        let (mut measured, _, file, mut room) = one_admitted();
+        let other = full_elsewhere();
+        let alias = measured.root.join("current.db");
+        std::os::unix::fs::symlink(other.store.path(), &alias).unwrap();
+        let mut through = Store::open(&alias).unwrap();
+        std::fs::remove_file(&alias).unwrap();
+        std::os::unix::fs::symlink(measured.store.path(), &alias).unwrap();
+        if before_the_pass {
+            room = (passed(&through, &file).unwrap().remove(0).room).expect("admitted");
+        }
+        let before = [written(&measured.store), written(&other.store)];
+        let (handed, named) = match before_the_pass {
+            false => (&mut through, alias),
+            true => {
+                let named = measured.store.path().to_path_buf();
+                (&mut measured.store, named)
+            }
+        };
+        let error = (room.claim(handed, Generation(1), "admitted")).unwrap_err();
+        refused_elsewhere(&error, &named);
+        let after = [written(&measured.store), written(&other.store)];
+        assert_eq!(after, before);
+    }
+}
+
+/// A store is the journal it opened, not the one its name holds now: with
+/// the file A's pass measured renamed onto the path of journal B while a
+/// store holds B, the room is refused through that store by
+/// `OtherJournal`, and neither journal's entries move.
+#[test]
+fn a_store_whose_place_another_file_was_renamed_into_is_the_journal_it_opened() {
+    let (measured, _, _, room) = one_admitted();
+    let mut other = Fixture::new();
+    other.queue();
+    let before = [&measured.store, &other.store].map(|store| store.queue_list().unwrap());
+    std::fs::rename(measured.store.path(), other.store.path()).unwrap();
+    let error = (room.claim(&mut other.store, Generation(1), "admitted")).unwrap_err();
+    refused_elsewhere(&error, other.store.path());
+    let after = [&measured.store, &other.store].map(|store| store.queue_list().unwrap());
+    assert_eq!(after, before);
+}
+
+/// A store is the journal its connection holds, however long its open
+/// waited: journal B, from before journals named themselves, with entries
+/// 1 and 2 queued, is opened while a peer holds its write lock, so the
+/// open waits to name it, and A's file, whose pass found a room for its
+/// entry 1, is renamed onto B's path before the lock is let go. The room
+/// is refused through that store by `OtherJournal`, and neither journal's
+/// entries, commands or claims move.
+#[test]
+fn a_store_whose_path_was_replaced_while_its_open_waited_is_the_journal_it_holds() {
+    let (measured, _, _, room) = one_admitted();
+    let mut other = Fixture::new();
+    other.queue();
+    other.queue();
+    let path = other.store.path().to_path_buf();
+    let mut peer = rusqlite::Connection::open(&path).unwrap();
+    brokkr_store::test_support::unname(&peer).unwrap();
+    let before = [written(&measured.store), written(&other.store)];
+    // B keeps a name while A's file stands in its place.
+    let kept = other.root.join("kept.db");
+    std::fs::hard_link(&path, &kept).unwrap();
+    let lock = (peer.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)).unwrap();
+    let opening = std::thread::spawn({
+        let path = path.clone();
+        move || Store::open(&path).unwrap()
+    });
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    std::fs::rename(measured.store.path(), &path).unwrap();
+    lock.rollback().unwrap();
+    let mut waited = opening.join().unwrap();
+    assert_eq!(waited.queue_list().unwrap(), before[1].0, "not B's store");
+
+    let error = (room.claim(&mut waited, Generation(1), "admitted")).unwrap_err();
+    refused_elsewhere(&error, &path);
+    std::fs::rename(&path, measured.store.path()).unwrap();
+    std::fs::rename(&kept, &path).unwrap();
+    assert_eq!([written(&measured.store), written(&other.store)], before);
+}
+
+/// A journal with no id, read only by an open that may not write, claims
+/// in nothing: the room a pass over that open found is refused through
+/// it, and through a store that may write, which names the journal as it
+/// opens, by `OtherJournal`, with nothing written.
+#[test]
+fn a_room_whose_pass_read_a_journal_with_no_id_claims_in_nothing() {
+    let (measured, _, file, _) = one_admitted();
+    let path = measured.store.path().to_path_buf();
+    brokkr_store::test_support::unname(&rusqlite::Connection::open(&path).unwrap()).unwrap();
+    let mut read = Store::open_read_only(&path).unwrap();
+    assert_eq!(read.journal().unwrap(), None);
+    let room = (passed(&read, &file).unwrap().remove(0).room).expect("admitted");
+    let before = written(&measured.store);
+    let mut named = Store::open(&path).unwrap();
+    assert_ne!(named.journal().unwrap(), None);
+    for store in [&mut read, &mut named] {
+        let error = (room.claim(store, Generation(1), "admitted")).unwrap_err();
+        refused_elsewhere(&error, &path);
+    }
+    assert_eq!(written(&measured.store), before);
+}
+
+/// `room` as though it had been measured for `entry`: the shape a room
+/// handed to the wrong entry would take, which no pass builds.
+fn bound_to(room: &Room, entry: QueueEntry) -> Room {
+    Room {
+        journal: room.journal,
+        entry,
+        high_water: room.high_water,
+        digest: room.digest.clone(),
+        lanes: room.lanes.clone(),
+        boxed: room.boxed,
+        config: room.config.clone(),
+        census: Arc::clone(&room.census),
+    }
+}
+
+/// The claim judges the entry's waits again inside its transaction: a
+/// room for an entry whose wait does not hold, because its awaited entry
+/// has not started or its run has not ended, is refused by that wait with
+/// nothing written; once the wait holds, the pass's own room claims it.
+#[test]
+fn a_claim_is_refused_while_a_wait_of_its_entry_does_not_hold() {
+    let mut fixture = Fixture::new();
+    let awaited = fixture.queue();
+    let wait = Wait {
+        entry: awaited,
+        on: WaitOn::Completed,
+    };
+    let payload = fixture.launch().encode().unwrap();
+    let new = NewEntry {
+        payload: &payload,
+        priority: 0,
+        waits: &[wait],
+    };
+    let waiting = fixture.store.queue_add(new, BY).unwrap();
+    let file = fixture.declare(&ceilings(3, 3, json!({})));
+    let room = admitted(&fixture, &file);
+    let unmet = bound_to(&room, fixture.store.queue_entry(waiting).unwrap());
+    let refused = |fixture: &mut Fixture, reason: Reason, text: &str| {
+        let before = fixture.store.queue_list().unwrap();
+        let refused = claimed(fixture, &unmet).unwrap_err();
+        assert_eq!((refused.to_string(), &refused), (text.to_string(), &reason));
+        assert_eq!(fixture.store.queue_list().unwrap(), before);
+    };
+    let unstarted = "waits on 1:completed: entry 1 has not started a run";
+    refused(&mut fixture, Reason::NotStarted(wait), unstarted);
+
+    let claim = claimed(&mut fixture, &room).unwrap();
+    fixture.started("awaited");
+    (fixture.store)
+        .queue_link(claim, Generation(1), "awaited", "started")
+        .unwrap();
+    let run = "awaited".to_string();
+    let unended = "waits on 1:completed: its run 'awaited' has not ended";
+    refused(&mut fixture, Reason::Unended { wait, run }, unended);
+
+    let completed = (EventType::RunCompleted, json!({}));
+    appended(&mut fixture, "awaited", vec![completed]);
+    let met = admitted(&fixture, &file);
+    claimed(&mut fixture, &met).unwrap();
+    let state = fixture.store.queue_entry(waiting).unwrap().state;
+    assert_eq!(state, brokkr_store::EntryState::Launching);
 }

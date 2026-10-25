@@ -2,6 +2,7 @@
 //! run linkage survive a reopen and a migration, every refusal is typed
 //! and writes nothing, and every guard bites.
 
+use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
@@ -10,21 +11,21 @@ use serde_json::json;
 use super::storage::queue_schema;
 use super::*;
 use crate::schema::{MIGRATION_V1, SIDECAR_COLUMNS};
-use crate::test_support::plant_run;
+use crate::test_support::{linked, plant_run};
 use crate::DATABASE_SCHEMA;
 
-const BY: Attribution<'static> = Attribution {
+pub(super) const BY: Attribution<'static> = Attribution {
     operator: "vy",
     reason: "operator's word",
 };
 
 /// An entry's payload, named by its number so a listing reads back.
-fn payload(n: u32) -> String {
+pub(super) fn payload(n: u32) -> String {
     format!("launch {n}")
 }
 
 /// Queue `count` entries with no waits and priority 0.
-fn queue(store: &mut Store, count: u32) -> Vec<EntryId> {
+pub(super) fn queue(store: &mut Store, count: u32) -> Vec<EntryId> {
     (1..=count)
         .map(|n| {
             let new = NewEntry {
@@ -39,9 +40,9 @@ fn queue(store: &mut Store, count: u32) -> Vec<EntryId> {
 
 /// The listing without its arrival stamps: id, place, state, priority,
 /// waits and payload.
-type Row = (i64, Option<u32>, EntryState, i64, Vec<Wait>, String);
+pub(super) type Row = (i64, Option<u32>, EntryState, i64, Vec<Wait>, String);
 
-fn rows(store: &Store) -> Vec<Row> {
+pub(super) fn rows(store: &Store) -> Vec<Row> {
     store
         .queue_list()
         .unwrap()
@@ -52,20 +53,32 @@ fn rows(store: &Store) -> Vec<Row> {
 
 /// The operator commands journaled so far: entry, word, place, operator
 /// and reason.
-fn commands(conn: &Connection) -> Vec<(i64, String, Option<u32>, String, String)> {
-    conn.prepare(
-        "SELECT entry_id, command, position, operator, reason FROM queue_commands ORDER BY seq",
-    )
-    .unwrap()
-    .query_map([], |r| {
-        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
-    })
-    .unwrap()
-    .collect::<Result<_, _>>()
-    .unwrap()
+pub(super) fn commands(conn: &Connection) -> Vec<(i64, String, Option<u32>, String, String)> {
+    let query =
+        "SELECT entry_id, command, position, operator, reason FROM queue_commands ORDER BY seq";
+    five_columns(conn, query)
 }
 
-fn refusal(result: Result<impl std::fmt::Debug, StoreError>) -> QueueRefusal {
+/// Each row `query` selects, its first five columns read as typed.
+pub(super) fn five_columns<A, B, C, D, E>(conn: &Connection, query: &str) -> Vec<(A, B, C, D, E)>
+where
+    A: rusqlite::types::FromSql,
+    B: rusqlite::types::FromSql,
+    C: rusqlite::types::FromSql,
+    D: rusqlite::types::FromSql,
+    E: rusqlite::types::FromSql,
+{
+    conn.prepare(query)
+        .unwrap()
+        .query_map([], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+        })
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap()
+}
+
+pub(super) fn refusal(result: Result<impl std::fmt::Debug, StoreError>) -> QueueRefusal {
     match result.unwrap_err() {
         StoreError::Queue(refusal) => refusal,
         other => panic!("not a queue refusal: {other:?}"),
@@ -73,7 +86,7 @@ fn refusal(result: Result<impl std::fmt::Debug, StoreError>) -> QueueRefusal {
 }
 
 /// What a caller reads of `entry` now, to write a latch or re-pin over.
-fn seen(store: &Store, entry: EntryId) -> Seen {
+pub(super) fn seen(store: &Store, entry: EntryId) -> Seen {
     store.queue_entry(entry).unwrap().seen()
 }
 
@@ -85,7 +98,7 @@ fn over(seq: Option<i64>) -> Seen {
     }
 }
 
-fn started(store: &mut Store, run: &str) {
+pub(super) fn started(store: &mut Store, run: &str) {
     store
         .create_run(
             run,
@@ -98,7 +111,7 @@ fn started(store: &mut Store, run: &str) {
 
 /// A journal exactly as main's binary leaves it: the v1 tables, the
 /// sidecar columns and the recorded schema, with one run in it.
-fn journal_at_mains_schema(path: &Path) {
+pub(super) fn journal_at_mains_schema(path: &Path) {
     let conn = Connection::open(path).unwrap();
     conn.execute_batch(MIGRATION_V1).unwrap();
     for (_, statement) in SIDECAR_COLUMNS {
@@ -134,7 +147,7 @@ fn order_holds_waits_and_run_linkage_survive_a_reopen() {
     store.queue_command(ids[1], QueueCommand::Hold, BY).unwrap();
     store.queue_command(ids[2], QueueCommand::Drop, BY).unwrap();
     started(&mut store, "run-a");
-    store.queue_claim(ids[0], "run-a").unwrap();
+    linked(&mut store, ids[0], "run-a");
     drop(store);
 
     let store = Store::open(&path).unwrap();
@@ -165,6 +178,7 @@ fn order_holds_waits_and_run_linkage_survive_a_reopen() {
             BY.reason.to_string(),
         )
     };
+    let step = |word: &str| (1, word.into(), None, "dispatch".into(), "test".into());
     assert_eq!(
         commands(&store.conn),
         vec![
@@ -175,6 +189,8 @@ fn order_holds_waits_and_run_linkage_survive_a_reopen() {
             word(4, "move", Some(1)),
             word(2, "hold", None),
             word(3, "drop", None),
+            step("claim"),
+            step("link"),
         ]
     );
     // Released, the held entry keeps its place; moved last, it takes it.
@@ -210,7 +226,7 @@ fn a_journal_at_mains_schema_migrates_to_the_queue_and_keeps_its_runs() {
 
     let mut store = opened_whole(&path);
     let entry = queue(&mut store, 1)[0];
-    store.queue_claim(entry, "old-run").unwrap();
+    linked(&mut store, entry, "old-run");
     drop(store);
 
     let store = Store::open_read_only(&path).unwrap();
@@ -226,7 +242,7 @@ fn a_journal_at_mains_schema_migrates_to_the_queue_and_keeps_its_runs() {
 
 /// Open the journal at `path` to write, and find its queue whole at this
 /// binary's version.
-fn opened_whole(path: &Path) -> Store {
+pub(super) fn opened_whole(path: &Path) -> Store {
     let store = Store::open(path).unwrap();
     assert_eq!(queue_schema(&store.conn).unwrap(), Some(QUEUE_SCHEMA));
     assert!(queue_intact(&store.conn).unwrap());
@@ -265,6 +281,10 @@ fn a_journal_that_lost_a_queue_table_is_refused_on_open_not_recreated_empty() {
         ("DROP TABLE queue_commands", "queue_commands"),
         ("DROP TABLE queue_latches", "queue_latches"),
         ("DROP TABLE queue_pins", "queue_pins"),
+        ("DROP TABLE queue_claims", "queue_claims"),
+        ("DROP TABLE queue_refusals", "queue_refusals"),
+        ("DROP TABLE dispatch_holders", "dispatch_holders"),
+        ("DROP TABLE dispatch_settings", "dispatch_settings"),
     ] {
         let path = dir.path().join(format!("{table}.db"));
         let mut store = Store::open(&path).unwrap();
@@ -298,6 +318,53 @@ fn a_journal_that_lost_a_queue_table_is_refused_on_open_not_recreated_empty() {
     }
 }
 
+/// A journal at version 3 as slice 3a's build wrote it, holding neither
+/// the dispatchers nor the dispatch settings (decision 0095 slice 3b),
+/// gains both at its next writable open, guards and all, and keeps its
+/// entries and its claim.
+#[test]
+fn a_version_3_journal_from_before_its_dispatchers_gains_them_and_keeps_its_queue() {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, _) = every_standing(dir.path());
+    let dispatch = |conn: &Connection| -> Vec<String> {
+        let query = "SELECT name FROM sqlite_master WHERE name LIKE 'dispatch_%' ORDER BY name";
+        let mut names = conn.prepare(query).unwrap();
+        (names.query_map([], |row| row.get(0)).unwrap())
+            .collect::<Result<_, _>>()
+            .unwrap()
+    };
+    let claims = |conn: &Connection| -> Vec<(i64, i64, String)> {
+        let query = "SELECT entry_id, generation, run_id FROM queue_claims ORDER BY seq";
+        let mut statement = conn.prepare(query).unwrap();
+        let read = |row: &rusqlite::Row<'_>| Ok((row.get(0)?, row.get(1)?, row.get(2)?));
+        let claims = statement.query_map([], read).unwrap();
+        claims.collect::<Result<_, _>>().unwrap()
+    };
+    let (queued, claimed) = (rows(&store), claims(&store.conn));
+    let unheld = "DROP TABLE dispatch_holders; DROP TABLE dispatch_settings;";
+    store.conn.execute_batch(unheld).unwrap();
+    assert_eq!(dispatch(&store.conn), Vec::<String>::new());
+    assert_eq!(queue_schema(&store.conn).unwrap(), Some(QUEUE_SCHEMA));
+    drop(store);
+
+    let store = opened_whole(&dir.path().join("forge.db"));
+    assert_eq!(
+        dispatch(&store.conn),
+        [
+            "dispatch_holders",
+            "dispatch_holders_append_only_delete",
+            "dispatch_holders_append_only_update",
+            "dispatch_settings",
+            "dispatch_settings_append_only_delete",
+            "dispatch_settings_append_only_update",
+        ]
+    );
+    assert_eq!(claimed, [(4, 1, "run-b".to_string())]);
+    assert_eq!((rows(&store), claims(&store.conn)), (queued, claimed));
+    assert_eq!(store.dispatch_holder().unwrap(), None);
+    assert_eq!(store.dispatch_bound().unwrap(), NonZeroU32::new(3).unwrap());
+}
+
 /// A queue with an entry in every standing: 1 queued, 2 held, 3 dropped
 /// and 4 claimed by `run-b`, with `run-a` started and claimed by none.
 fn every_standing(dir: &Path) -> (Store, [EntryId; 4]) {
@@ -307,12 +374,12 @@ fn every_standing(dir: &Path) -> (Store, [EntryId; 4]) {
     store.queue_command(ids[2], QueueCommand::Drop, BY).unwrap();
     started(&mut store, "run-a");
     started(&mut store, "run-b");
-    store.queue_claim(ids[3], "run-b").unwrap();
+    linked(&mut store, ids[3], "run-b");
     (store, [ids[0], ids[1], ids[2], ids[3]])
 }
 
 /// A refusal is the variant expected, saying exactly this.
-fn refused_as(refused: QueueRefusal, variant: QueueRefusal, text: &str) {
+pub(super) fn refused_as(refused: QueueRefusal, variant: QueueRefusal, text: &str) {
     assert_eq!((refused.to_string(), refused), (text.to_string(), variant));
 }
 
@@ -400,34 +467,50 @@ fn every_add_and_claim_refusal_is_typed_says_why_and_writes_nothing() {
         QueueRefusal::DuplicateWait(queued),
         "a new queue entry names entry 1 to wait for twice",
     );
-    let mut claim = |entry, run| refusal(store.queue_claim(entry, run));
+    let mut claim = |entry| refusal(claimed_now(&mut store, entry));
     refused_as(
-        claim(held, "run-a"),
+        claim(held),
         QueueRefusal::Held(held),
         "queue entry 2 is held; release it first",
     );
     refused_as(
-        claim(dropped, "run-a"),
+        claim(dropped),
         QueueRefusal::Dropped(dropped),
         "queue entry 3 was dropped",
     );
     refused_as(
-        claim(claimed, "run-a"),
+        claim(claimed),
         claimed_by_run_b(claimed),
         "queue entry 4 is claimed by run 'run-b'",
     );
+    assert_eq!((rows(&store), commands(&store.conn)), before);
+
+    // A run is linked only once it exists, and to one entry.
+    let claim = claimed_now(&mut store, queued).unwrap().unwrap();
+    let before = (rows(&store), commands(&store.conn));
     let taken = QueueRefusal::RunTaken {
         run: "run-b".into(),
         entry: claimed,
     };
     refused_as(
-        claim(queued, "run-b"),
+        refusal(store.queue_link(claim, Generation(1), "run-b", "r")),
         taken,
         "run 'run-b' already started queue entry 4",
     );
-    let unstarted = store.queue_claim(queued, "never-started").unwrap_err();
+    let unstarted = (store.queue_link(claim, Generation(1), "never-started", "r")).unwrap_err();
     assert!(matches!(&unstarted, StoreError::RunNotFound(run) if run == "never-started"));
     assert_eq!((rows(&store), commands(&store.conn)), before);
+}
+
+/// Claim `entry` as the store reads it now, as generation 1, its holder
+/// planted, judging no run.
+pub(super) fn claimed_now(
+    store: &mut Store,
+    entry: EntryId,
+) -> Result<Result<Claim, ()>, StoreError> {
+    crate::test_support::holding(store, Generation(1));
+    let read = store.queue_entry(entry)?;
+    store.queue_claim_with(&read, 0, "d", Generation(1), "r", |_, _, _| Ok(()))
 }
 
 /// A journal that records the queue's storage but has lost its entries
@@ -453,7 +536,9 @@ fn a_queue_stored_in_a_version_this_brokkr_does_not_know_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
     let entry = queue(&mut store, 1)[0];
-    for (recorded, found) in [("3", 3), ("two", 0)] {
+    let read = store.queue_entry(entry).unwrap();
+    let claim = Claim { entry, seq: 1 };
+    for (recorded, found) in [("4", 4), ("two", 0)] {
         store
             .conn
             .execute(
@@ -462,14 +547,18 @@ fn a_queue_stored_in_a_version_this_brokkr_does_not_know_is_refused() {
             )
             .unwrap();
         let mismatch = QueueRefusal::SchemaMismatch { found };
-        let text = format!("queue storage {found} unsupported (want 2)");
+        let text = format!("queue storage {found} unsupported (want 3)");
+        let judge = |_, _: &[_], _: &[_]| Ok::<(), ()>(());
         for refused in [
             refusal(store.queue_list()),
             refusal(store.queue_entry(entry)),
             refusal(store.queue_repin(entry, "x", Seen::default(), BY)),
             refusal(store.queue_latch(entry, "x", Seen::default(), BY)),
             refusal(store.queue_command(entry, QueueCommand::Hold, BY)),
-            refusal(store.queue_claim(entry, "r")),
+            refusal(store.queue_claim_with(&read, 0, "d", Generation(1), "r", judge)),
+            refusal(store.queue_link(claim, Generation(1), "r", "r")),
+            refusal(store.queue_spawn(claim, Generation(1), "r")),
+            refusal(store.queue_reclaim(claim, Generation(1), None, NonZeroU32::MIN, "r")),
             refusal(store.queue_add(
                 NewEntry {
                     payload: "x",
@@ -560,6 +649,7 @@ fn a_wait_reads_back_as_written_and_nothing_else_reads_as_one() {
     let states = [
         (EntryState::Queued, "queued", None),
         (EntryState::Held, "held", None),
+        (EntryState::Launching, "launching", None),
         (claimed, "claimed", Some("r")),
         (EntryState::Dropped, "dropped", None),
     ];
@@ -594,7 +684,7 @@ fn the_queue_guards_refuse_every_rewrite_of_what_is_fixed() {
         .unwrap();
     started(&mut store, "run-a");
     started(&mut store, "run-b");
-    store.queue_claim(first, "run-a").unwrap();
+    linked(&mut store, first, "run-a");
     let cases = [
         (
             "UPDATE queue_entries SET payload = 'moved'",
@@ -663,7 +753,7 @@ fn journal_with_a_version_1_queue(path: &Path) {
 }
 
 /// A version 1 queue reads as it stands, and the first open that may
-/// write brings it to version 2 with its entries and commands kept, and
+/// write brings it to version 3 with its entries and commands kept, and
 /// re-pins then work on it.
 #[test]
 fn a_version_1_queue_is_read_as_it_stands_and_migrated_with_its_entries_kept() {
@@ -700,7 +790,7 @@ fn a_version_1_queue_is_read_as_it_stands_and_migrated_with_its_entries_kept() {
 #[test]
 fn a_queue_stored_in_a_version_this_brokkr_does_not_know_is_left_as_found() {
     let dir = tempfile::tempdir().unwrap();
-    let surgery = "UPDATE meta SET value = '3' WHERE key = 'queue_schema';
+    let surgery = "UPDATE meta SET value = '4' WHERE key = 'queue_schema';
                    DROP TRIGGER queue_entries_run_once;
                    DROP TABLE queue_pins;";
     let (path, store) = journal_after(dir.path(), surgery);
@@ -717,7 +807,7 @@ fn a_queue_stored_in_a_version_this_brokkr_does_not_know_is_left_as_found() {
         (named("queue_entries_run_once"), named("queue_pins")),
         (0, 0)
     );
-    assert_eq!(queue_schema(&store.conn).unwrap(), Some(3));
+    assert_eq!(queue_schema(&store.conn).unwrap(), Some(4));
 }
 
 #[test]

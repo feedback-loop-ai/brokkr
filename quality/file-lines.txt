@@ -447,7 +447,7 @@
    504 crates/brokkr-cli/tests/capability_artifacts.rs
   1990 crates/brokkr-cli/tests/capability_broker.rs
    462 crates/brokkr-cli/tests/capability_broker/cleanup.rs
-   960 crates/brokkr-cli/tests/capability_broker/handoff.rs
+   994 crates/brokkr-cli/tests/capability_broker/handoff.rs
   1028 crates/brokkr-cli/tests/capability_broker/ledger.rs
   1044 crates/brokkr-cli/tests/capability_broker/observer.rs
    812 crates/brokkr-cli/tests/capability_broker/protocol.rs
@@ -614,7 +614,7 @@
    580 crates/brokkr-protocol/src/process/limits/tests.rs
    114 crates/brokkr-protocol/src/process/queue_tests.rs
    341 crates/brokkr-protocol/src/process/table/tests.rs
-  1979 crates/brokkr-protocol/src/process/tests.rs
+  1991 crates/brokkr-protocol/src/process/tests.rs
    210 crates/brokkr-protocol/src/secret/guard/tests.rs
   1355 crates/brokkr-protocol/src/secret/tests.rs
    110 crates/brokkr-protocol/src/zstd/tests.rs

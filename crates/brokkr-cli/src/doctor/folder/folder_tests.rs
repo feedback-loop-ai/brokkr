@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::{bundle, report_folder, report_folder_with, Inspected, Report, Seats};
+use super::{bundle, report_folder, report_folder_with, report_keys, Inspected, Report, Seats};
 use crate::folder::DoctorDefaults;
 use crate::recipes::personal::ShelfPath;
 
@@ -446,4 +446,75 @@ fn each_personal_recipe_is_a_line_that_never_fails_the_report() {
     let unlisted = format!("warn     personal shelf: {at}: Not a directory (os error 20)");
     let (found, healthy) = folder_lines_with(&root, Some(&personal), compiles);
     assert_eq!((&found[1..], healthy), (&[unlisted][..], true));
+}
+
+/// Each dsh key line (#717) in its status column: ok only for a key the
+/// launching environment gives, a failure of the report for an unreached
+/// one, and a warning for a key only the operator's home gives, an untold
+/// source, an undeclared route, the served-home caveat and a workdir
+/// `.env`, after what the report already held.
+#[test]
+fn each_dsh_key_answer_takes_its_status_column() {
+    use crate::dsh_key::{Asked, Line, Off, Reach, Source, Untold};
+    let (route, variable) = (String::from("r"), String::from("V"));
+    let reached = |source| {
+        Line::Key(Reach::Reached {
+            route: route.clone(),
+            variable: variable.clone(),
+            source,
+        })
+    };
+    let answers = [
+        reached(Source::Environment),
+        reached(Source::Service(PathBuf::from("/home/patch"))),
+        Line::Key(Reach::Undeclared {
+            route: route.clone(),
+        }),
+        Line::Key(Reach::Untold {
+            route: route.clone(),
+            variable: variable.clone(),
+            why: Untold::Dotenv(PathBuf::from("/repo/.env")),
+        }),
+        Line::Served {
+            route: route.clone(),
+            asked: Some(Asked {
+                variable: variable.clone(),
+                files: Vec::new(),
+                patches: Vec::new(),
+            }),
+        },
+        Line::Served {
+            route: route.clone(),
+            asked: None,
+        },
+        Line::Workdir(PathBuf::from("/repo/.env")),
+        Line::Key(Reach::Unreached {
+            route,
+            variable,
+            files: vec![PathBuf::from("/repo/.env")],
+            off: Ok(Off::Shipped(PathBuf::from("/home/patch"))),
+        }),
+    ];
+    let mut report = report();
+    report_keys(&mut report, &answers[..7]);
+    assert!(report.healthy);
+    report_keys(&mut report, &answers[7..]);
+    let status: Vec<&str> = report.lines.iter().map(|line| &line[..20]).collect();
+    assert_eq!(
+        (status, report.healthy),
+        (
+            vec![
+                "ok       later: line",
+                "ok       dsh key r: ",
+                "warn     dsh key r: ",
+                "warn     dsh key r: ",
+                "warn     dsh key r: ",
+                "warn     dsh home r:",
+                "warn     dsh home r:",
+                "warn     dsh workdir",
+                "MISSING  dsh key r: "
+            ],
+            false
+        )
+    );
 }

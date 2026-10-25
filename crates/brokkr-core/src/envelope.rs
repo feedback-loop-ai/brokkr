@@ -7,9 +7,10 @@
 
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::canonical::{self, ZERO_HASH};
+use crate::canonical::ZERO_HASH;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum EventType {
@@ -165,16 +166,64 @@ pub enum ChainError {
     SeqOverflow { after: u64 },
 }
 
+/// An envelope's hashed content: every member but `event_hash`, borrowed,
+/// declared in the sorted order the canonical bytes write them, so it
+/// serializes to the bytes [`crate::canonical::to_bytes`] makes of the envelope's
+/// `Value` without the copy (decision 0089 ruling 9).
+#[derive(Serialize)]
+struct Hashed<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    attempt_id: &'a Option<String>,
+    causation_id: &'a Option<String>,
+    correlation_id: &'a str,
+    event_id: &'a str,
+    event_schema_version: u32,
+    payload: &'a Value,
+    previous_hash: &'a str,
+    recorded_at: &'a str,
+    run_id: &'a str,
+    seq: u64,
+    #[serde(rename = "type")]
+    event_type: EventType,
+}
+
 impl EventEnvelope {
     /// Compute the event hash for this envelope's content (ignoring any
-    /// current `event_hash` value).
+    /// current `event_hash` value). The canonical bytes stream into the
+    /// digest, so hashing an envelope holds nothing beside it. The
+    /// destructuring names every member, so a new one does not compile
+    /// until it is hashed.
     pub fn compute_hash(&self) -> String {
-        let mut value = serde_json::to_value(self).expect("envelope serializes");
-        value
-            .as_object_mut()
-            .expect("envelope is an object")
-            .remove("event_hash");
-        canonical::sha256_hex(&value)
+        let EventEnvelope {
+            run_id,
+            seq,
+            event_id,
+            event_schema_version,
+            event_type,
+            payload,
+            causation_id,
+            correlation_id,
+            attempt_id,
+            recorded_at,
+            previous_hash,
+            event_hash: _,
+        } = self;
+        let hashed = Hashed {
+            attempt_id,
+            causation_id,
+            correlation_id,
+            event_id,
+            event_schema_version: *event_schema_version,
+            payload,
+            previous_hash,
+            recorded_at,
+            run_id,
+            seq: *seq,
+            event_type: *event_type,
+        };
+        let mut hasher = Sha256::new();
+        serde_json::to_writer(&mut hasher, &hashed).expect("envelope serializes");
+        hex::encode(hasher.finalize())
     }
 
     /// Seal the envelope: set `event_hash` from its canonical content.

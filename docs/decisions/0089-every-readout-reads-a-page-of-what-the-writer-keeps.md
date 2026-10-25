@@ -3,7 +3,7 @@
 Status: accepted — operator ruled 2026-10-19 (PR #769), every choice asked taken as recommended
 Date: 2026-10-18
 
-Built: partial (#753) — slice 1, the fleet, is built but Muninn's queue, which still reads the kept way, and the console's last page by the reverse order; of slice 2, `event_index` is built, its trigger, backfill, keyed reads and ruling 4's check, and `seat_summary` is built, its table, writer, seat head, backfill, ruling 4's check and the seat-rows read, but the run and seat views that read them are unbuilt; slices 3 and 4 are unbuilt
+Built: partial (#753) — slice 1, the fleet, is built but Muninn's queue, which still reads the kept way, and the console's last page by the reverse order; of slice 2, `event_index` is built, its trigger, backfill, keyed reads, each event's id and ruling 4's check, and `seat_summary` is built, its table, writer, seat head, backfill, ruling 4's check, the seat-rows read and the facts the run view reads of a seat's records, a sequence's finished steps, a visit's models and the live block among them (a run whose live start names an effect not yet asked, or none, which no row is of, keeps no seat head, so its rows read stale and the run is read whole), but the run and seat views that read them are unbuilt; slices 3 and 4 are unbuilt
 Supersedes in part: 0088
 
 ## Context
@@ -263,13 +263,16 @@ model the writer keeps in the journal's own file and transaction.
      member)`: its seat, phase, outcome, model, effort, provider, boundary,
      token counts, reported cost, item and turn counts, transcript
      reference, its start, and its first and last checkpoint's seq and
-     time;
+     time; and what the run view reads of its records: its last
+     `seat-turn`'s turn, tool and target, a member's finish's time and
+     outcome as shown, and its session record's session id (slice 2b);
    - `event_index`: one row per event, keyed `(run_id, seq)`: its type,
-     attempt, member and time, with an index `(run_id, attempt_id,
-     member, seq)` for a seat's checkpoint stream and a partial index on
-     `(run_id, seq)` over every type but `effect/checkpointed` for a run's
-     trail; a checkpoint's and a park's row also carry the dated facts the
-     aggregates read (ruling 7).
+     attempt, member, time and event id, with an index `(run_id,
+     attempt_id, member, seq)` for a seat's checkpoint stream, a partial
+     index on `(run_id, seq)` over every type but `effect/checkpointed`
+     for a run's trail, and an index `(run_id, event_id)` for what caused
+     a journal page's rows; a checkpoint's and a park's row also carry
+     the dated facts the aggregates read (ruling 7).
 
    Which readout reads which is ruling 7. Nothing else reads a
    projection's row as a fact: the engine decides on its own fold, never
@@ -938,8 +941,53 @@ model the writer keeps in the journal's own file and transaction.
    | The run view, its first screen | 50 ms, its opening included | Brokkr's: 256 KiB and the run's control envelopes as parsed (24,885 B for 25, measured), after an opening that holds one envelope at a time. SQLite's: the page cache, its statements and the largest of its control envelopes, its summary row's whole last columns and its acknowledgement's whole pair, each read by key (ruling 2) | its opening's events, then the run's control events | `heap_run_view.rs`: the same run in a 10,000- and a 1,000,000-event journal, peaks equal to the byte, and with one park's reason stretched to 1 MiB; the trail's plan on the partial index |
    | The seat view, a page of 50 checkpoints | 50 ms, its opening included | Brokkr's: 256 KiB and the largest checkpoint body on the page, each parsed into its row and dropped, after its opening. SQLite's: the page cache, its statements and the largest checkpoint envelope on the page | its opening's events, then the page's checkpoints | `heap_seat_view.rs`, the same two journals, peaks equal, and with one checkpoint on the page stretched to 1 MiB; the stream index's plan |
    | `costs`, `compare` | 50 ms, their openings included | Brokkr's: 256 KiB for two runs of 100 seat rows each, about 200 B a row estimated, after their openings. SQLite's: their openings' | their openings' events, then the runs' seats | `heap_costs.rs`, the same two journals, peaks equal |
-   | Opening a run, chain verified | about 2.5 µs an event | Brokkr's: one envelope at a time, at most 256 KiB and the largest envelope. SQLite's: the page cache, its statements and the largest envelope | the run's events | `heap_open.rs`: a 7,510-event run, peaks equal in both journals, and with one envelope stretched to 1 MiB |
+   | Opening a run, chain verified | about 2.5 µs an event | Brokkr's: one envelope at a time, at most 256 KiB and the largest envelope when it is one or a few long strings, or about three times it when their text carries escapes; an envelope of many short strings costs its parsed size besides (amended below). SQLite's: the page cache, its statements and the largest envelope | the run's events | `heap_open.rs`: a 7,510-event run, peaks equal in both journals, and with one envelope stretched to 1 MiB of plain text, and of escaped text in both journals, peaks equal |
    | The aggregates: `analytics`, Muninn's dossier | 250 ms for a window of 20,000 runs, 240,000 seat rows and 240,000 checkpoints: the streamed scans measured 4.7 and 57 ms for the first two; the checkpoints, the parks' 64 ranges and the medians' passes are unmeasured, and slice 4 measures them before the number is final | Brokkr's 256 KiB: the accumulators of at most 64 groups a figure, each key at its bound, and the medians' histograms, 64 KiB at most (732 B and 2,769 B measured for the scans at both sizes). SQLite's about 1.5 MiB: the 256 KiB page cache and `GROUP BY`'s sorter, 1,050,320 to 1,273,184 B measured (Context); proposed, and slice 4 fixes it on its own measurement | the window's runs, seats and dated facts, the parks that overlap it or ended within their own length of its start, and the preceding window's finished runs, counted | `heap_aggregates.rs` at 2,000 and 20,000 runs, Brokkr's peaks equal to the byte and SQLite's within its share, over a distribution of 2,000 and of 9,000 distinct models, phases and realms in the window (each past 64 and the same number of digits in its "N more"), and over one whose every group key is 1 MiB beside one whose keys are cut to their bounds, Brokkr's peaks equal to the byte, its removal control a figure grouped by the whole phase, whose peak grows by the megabyte; `a_window_visits_only_the_parks_near_it`, in `brokkr-store`: one window held fixed while a year of later parks, and a year of older ones each shorter than half its distance from the window, are added, its park ranges' VM-step counts equal to the step, and then k parks added inside ruling 7's band, each ended before `from` within its own length, which grow the count by exactly k times what one adds, so the band is every earlier park the window visits, and then 10,000 parks of class 0 at `from - 1` and inside the window, zero-length and ended a year before they started, which leave the count equal to the step; its removal controls the one range on `COALESCE(ended_ms, 9223372036854775807) >= from`, whose count grows with the later parks, and a class-0 range on `at_ms >= from - 1`, whose count grows with the class-0 parks; a `fleet_aggregate` Callgrind bench over two journals whose windows hold the same facts and one of which adds a year of runs older than the preceding window, instruction counts equal; and `every_figure_is_its_whole_read` |
+
+   *Amended, 2026-10-24 (operator, recorded on #753):* an envelope whose
+   text carries escapes (a quote, a backslash, a newline or a control
+   character, as a checkpoint's body normally does) is copied through the
+   parser's scratch buffer before the string it keeps, and that buffer
+   grows past the text at an escape that follows a long plain run. So
+   for an envelope that is one or a few long strings, Brokkr's peak
+   opening a run is its 256 KiB plus the largest envelope's text, and
+   two copies more when that text carries escapes: 3,145,455 B measured
+   with one envelope a mebibyte of escaped text, against 10,607 B
+   unstretched and 1,049,813 B for the same envelope plain. An envelope
+   of many short strings costs its parsed size besides, each string's
+   own allocation and its place in the parsed tree, escaped or not:
+   4,644,120 B measured for a mebibyte holding 100,000 strings of a
+   quote, a backslash and a newline, and 8,898,426 B for one holding
+   180,000 plain one-byte strings, the first equal to the byte in a
+   journal of 10,000 events and one of 1,000,000; no heap test binds
+   that shape. The opening keeps the first event's run_id to hold every
+   later event to, as `Store::load` holds them to the first's, so that
+   text is held once more while each later envelope parses: 2,088,809 B
+   measured for a two-event run whose first envelope is a mebibyte
+   because its run_id is, and 4,176,455 B when that run_id carries
+   escapes, against 10,604 B for the same run with a 41-byte run_id. A
+   run with no event costs its manifest, read and parsed as
+   `Store::load` reads it to tell it from a run the journal lacks, twice
+   when its text is plain and about four times when it carries escapes,
+   which the parser copies through the same scratch buffer: 2,097,833 B
+   measured for a manifest of a mebibyte of plain text and 4,194,948 B
+   for one of escaped text, against 120 B for `{}`, when the manifest is
+   one or a few long strings. A manifest of many short strings costs its
+   parsed size besides, as an envelope of them does: 9,946,380 B
+   measured for a mebibyte holding 180,000 plain one-byte strings, and
+   5,989,177 B for one holding 100,000 strings of a quote, a backslash
+   and a newline; no heap test binds that shape. Either way the peak
+   stays bounded by the run's largest envelope,
+   or its manifest, never by the journal. `heap_open.rs` binds the
+   long-string shape with an escaped stretch, a quote and a backslash, a run of plain text and a newline,
+   in a journal of 10,000 events and one of 1,000,000: peaks equal to
+   the byte, each grown over the unstretched peak by at most three
+   envelopes (3,134,848 B measured against 3,145,728), within its budget
+   (`open-run-escaped`, the measured peak plus a tenth, 3,460,001 B), and
+   past the plain stretch's by more than the envelope. The run view and
+   the seat view parse their envelopes the same way, so their heap tests
+   stretch with escaped text too, and their stories measure their
+   bounds. SQLite's share is unchanged.
 
    **The aggregates are the one exception, and it is put to the
    operator.** Each answers a question about every run in a window: what

@@ -32,6 +32,12 @@ fn asked(effect_id: &str, member: Member) -> SeatFacts {
         outcome: Outcome::Working,
         carried_from: None,
         started_at: None,
+        last_at: None,
+        turn: None,
+        tool: None,
+        target: None,
+        finish: None,
+        session_id: None,
     }
 }
 
@@ -41,6 +47,14 @@ fn named(member: &str) -> Member {
 
 fn words(word: &str) -> Option<String> {
     Some(word.to_string())
+}
+
+/// A finish at `seq`'s stamp, its outcome shown as `outcome`.
+fn finish(seq: u64, outcome: &str) -> Option<Finish> {
+    Some(Finish {
+        at: at(seq),
+        outcome: words(outcome),
+    })
 }
 
 fn provider(name: &str) -> Option<Provider> {
@@ -81,6 +95,9 @@ fn a_retried_seat_sums_its_attempts_and_reads_its_last() {
             }),
             outcome: Outcome::Succeeded,
             started_at: Some(at(3)),
+            last_at: Some(at(13)),
+            turn: words("2"),
+            tool: words("undefined"),
             ..asked("e1", Member::Seat)
         }]
     );
@@ -100,6 +117,9 @@ fn an_attempt_recording_after_its_retry_started_reads_in_journal_order() {
             turns: Some(2),
             outcome: Outcome::Succeeded,
             started_at: Some(at(2)),
+            last_at: Some(at(6)),
+            turn: words("2"),
+            tool: words("undefined"),
             ..asked("i1", Member::Seat)
         }]
     );
@@ -118,6 +138,7 @@ fn a_retry_s_two_prices_sum_after_its_first_attempt_s() {
             items: Some(1),
             outcome: Outcome::Succeeded,
             started_at: Some(at(2)),
+            last_at: Some(at(7)),
             ..asked("c1", Member::Seat)
         }]
     );
@@ -141,6 +162,7 @@ fn a_seat_s_turns_meter_it_over_its_session_record() {
             turns: Some(3),
             items: Some(2),
             started_at: Some(at(2)),
+            last_at: Some(at(10)),
             ..asked("e2", Member::Seat)
         }]
     );
@@ -172,6 +194,7 @@ fn a_panel_seat_reports_its_members() {
                 turns_aggregated: true,
                 outcome: Outcome::Succeeded,
                 started_at: Some(at(3)),
+                last_at: Some(at(8)),
                 ..asked("p1", Member::Seat)
             },
             SeatFacts {
@@ -183,6 +206,10 @@ fn a_panel_seat_reports_its_members() {
                 last_attempt_cost: Some(0.5),
                 turns: Some(3),
                 outcome: Outcome::Failed,
+                last_at: Some(at(11)),
+                turn: words("undefined"),
+                tool: words("Read"),
+                finish: finish(9, "failed"),
                 ..member("a", "anthropic")
             },
             SeatFacts {
@@ -194,6 +221,8 @@ fn a_panel_seat_reports_its_members() {
                 last_attempt_cost: Some(0.25),
                 turns: Some(2),
                 outcome: Outcome::Succeeded,
+                last_at: Some(at(10)),
+                finish: finish(10, "unheard-of"),
                 ..member("b", "openai")
             },
             asked("p2", Member::Seat),
@@ -223,6 +252,10 @@ fn a_seat_retrying_is_at_work() {
                 home: "/h".to_string(),
             }),
             started_at: Some(at(3)),
+            last_at: Some(at(9)),
+            turn: words("1"),
+            tool: words("Edit"),
+            target: words("crates/brokkr-core/src/seat/row/said.rs"),
             ..asked("e1", Member::Seat)
         }]
     );
@@ -360,6 +393,103 @@ fn a_request_never_started_is_a_participant() {
     );
 }
 
+/// An effect asked twice is one participant, as the view keys it by its
+/// effect and member: read by the request it was first seen under, at
+/// work while that request's attempt is, its cost summed in journal order
+/// across both requests; a member first seen under the second request is
+/// that request's, and no seat sums it.
+#[test]
+fn an_effect_asked_twice_is_one_participant_read_by_its_first_request() {
+    use serde_json::json;
+    let asked_in = |phase: &str| {
+        let payload = json!({"effect_id": "e", "seat": "s", "phase": phase});
+        (EventType::EffectRequested, payload)
+    };
+    let started = |attempt: &str| {
+        let payload = json!({"effect_id": "e", "attempt_id": attempt});
+        (EventType::EffectStarted, payload)
+    };
+    let session =
+        |cost: f64| json!({"step": "claude-code-session-finished", "total_cost_usd": cost});
+    let turn = json!({"member": "m", "step": "seat-turn", "turn": 2, "tool": "Read"});
+    let done = json!({"effect_id": "e", "attempt_id": "b"});
+    let events = journals::journal(vec![
+        asked_in("work"),
+        started("a"),
+        journals::checkpoint("e", "a", session(1.0)),
+        asked_in("check"),
+        started("b"),
+        journals::checkpoint("e", "b", session(0.5)),
+        journals::checkpoint("e", "b", turn),
+        (EventType::EffectSucceeded, done),
+    ]);
+    assert_eq!(
+        facts_of(&events),
+        [
+            SeatFacts {
+                cost: Some(1.5),
+                last_attempt_cost: Some(0.5),
+                started_at: Some(at(2)),
+                last_at: Some(at(6)),
+                ..asked("e", Member::Seat)
+            },
+            SeatFacts {
+                turns: Some(2),
+                outcome: Outcome::Succeeded,
+                started_at: Some(at(7)),
+                last_at: Some(at(7)),
+                turn: words("2"),
+                tool: words("Read"),
+                ..asked("e", named("m"))
+            },
+        ]
+    );
+}
+
+/// A member an effect asked again carries names its source counted in the
+/// phase of the request it was first seen under, `x`, where one start is
+/// counted, and not in the carrying request's, `y`, where none is.
+#[test]
+fn a_carried_source_counts_in_the_phase_its_member_was_first_seen_in() {
+    let found = facts_of(&journals::carried_again());
+    let member = found.iter().find(|facts| facts.member == named("m"));
+    let carried = member.map(|member| (member.outcome, member.carried_from.clone()));
+    let from = CarriedFrom {
+        attempt_id: "b".to_string(),
+        ordinal: 1,
+    };
+    assert_eq!(carried, Some((Outcome::Carried, Some(from))));
+}
+
+/// The request a participant was first seen under: the first of its
+/// effect's requests holding a row of its member, though the effect was
+/// asked before it, another effect's row of that member passed over.
+#[test]
+fn a_participant_s_home_is_its_effect_s_first_request_holding_its_member() {
+    use serde_json::json;
+    let asked_for = |effect: &str| (EventType::EffectRequested, json!({"effect_id": effect}));
+    let started = |effect: &str| {
+        let provenance = json!([{"member": "m", "provider": "p"}]);
+        let payload = json!({"effect_id": effect, "attempt_id": "a", "provenance": provenance});
+        (EventType::EffectStarted, payload)
+    };
+    let events = journals::journal(vec![
+        asked_for("e0"),
+        started("e0"),
+        asked_for("e1"),
+        asked_for("e1"),
+        started("e1"),
+        asked_for("e2"),
+        asked_for("e1"),
+    ]);
+    let mut seats = Seats::default();
+    for event in &events {
+        seats.note(event);
+    }
+    assert_eq!(seats.home(4, &named("m")), 2);
+    assert_eq!(seats.home(4, &Member::Seat), 1);
+}
+
 /// Records that name no attempt are the request's own row's, read while
 /// no attempt is in flight; a stale attempt's terminal is passed over;
 /// and a request with no effect, a record of an effect never asked and an
@@ -376,6 +506,9 @@ fn records_naming_no_attempt_land_on_the_request_s_row() {
             turns: Some(1),
             outcome: Outcome::Succeeded,
             started_at: Some(at(4)),
+            last_at: Some(at(5)),
+            turn: words("1"),
+            tool: words("undefined"),
             ..asked("s1", Member::Seat)
         }]
     );
@@ -528,6 +661,8 @@ fn rows_carried_over_any_split_are_the_rows_read_whole() {
             let (head, tail) = events.split_at(split);
             let carried = Account::whole("run", head).onto(tail);
             assert_eq!(carried.seats(), whole.seats(), "{name} split at {split}");
+            let kept = (carried.seats_kept(), whole.seats_kept());
+            assert_eq!(kept.0, kept.1, "{name} split at {split}");
         }
     }
 }

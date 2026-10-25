@@ -1525,17 +1525,29 @@ fn signal_group(engine: &Child, signal: i32) {
     .unwrap();
 }
 
-/// The engine's exit status, waited on for up to ten seconds.
+/// The engine's exit status, waited on for the settle bound a blind stop
+/// waits out in full and a margin for the rest of its stop: the signal
+/// thread's wake, the kill, the exit and, instrumented, the profile it
+/// writes. That rest measured at most 143 ms alone, in-suite and under
+/// coverage on a loaded host, yet an instrumented engine on a shared
+/// runner once overran a five-second margin (#784), so the margin is five
+/// times that one. A live engine is still killed at the limit.
 fn exit_code(engine: &mut Child) -> Option<i32> {
-    let until = Instant::now() + Duration::from_secs(10);
+    let margin = Duration::from_secs(25);
+    let begun = Instant::now();
     loop {
         if let Some(status) = engine.try_wait().unwrap() {
             return status.code();
         }
-        if Instant::now() >= until {
+        let waited = begun.elapsed();
+        if waited >= Bounds::DEFAULT.settle + margin {
             engine.kill().unwrap();
             engine.wait().unwrap();
-            panic!("the engine did not exit on its stop signal");
+            panic!(
+                "the engine did not exit on its stop signal: waited {waited:?}, the settle \
+                 bound {:?} and a margin of {margin:?}",
+                Bounds::DEFAULT.settle
+            );
         }
         std::thread::sleep(Duration::from_millis(10));
     }
