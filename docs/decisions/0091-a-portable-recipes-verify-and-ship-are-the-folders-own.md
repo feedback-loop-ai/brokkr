@@ -3,7 +3,7 @@
 Status: accepted — operator ruled 2026-10-20 (PR #793), every choice asked taken as recommended
 Date: 2026-10-20
 
-Built: partial (#717) — slice 3b built ruling 1; slice 3c built rulings 3 and 4 as data; slice 3d's first fix (the acceptance's gaps 3, 4 and 5) is built, and its acceptance is still owed
+Built: built — slice 3a (#796) the portable overlays' run-local wording; slice 3b ruling 1; slice 3c rulings 3 and 4 as data; slice 3d's fixes, the acceptance's gaps 1 to 5 (#852, #859, #872) and `brokkr init --cli` for a CLI PATH's order cannot reach (#882); the acceptance passed on main 59a8bf9d on 2026-10-25: six fresh folders under claude, codex and dsh, each a Cargo.toml or package.json, reached verify and passed it, and one with no marker failed closed with the fill-in text (#717)
 Amends: 0048, 0087
 
 ## Context
