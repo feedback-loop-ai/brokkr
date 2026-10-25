@@ -31,6 +31,12 @@
 //! event ends that start or asks its effect. No engine writes such a
 //! start.
 //!
+//! A seat head also names the shape of the rows it vouches for, `shape`,
+//! a digest of [`SeatRow::COLUMNS`] (#753): an older build writing the
+//! same journal writes its head without it, its rows without the columns
+//! it does not know, so a run it wrote lags for this build as a run whose
+//! head moved does, and is refolded whole by the next writer.
+//!
 //! Each row keeps a digest of itself as its writer wrote it (#753, the
 //! operator's 2026-10-24 ruling), in one private column, `digest`: a read
 //! that finds a row its digest is not of reads the run stale, whatever
@@ -43,6 +49,7 @@
 use std::collections::BTreeSet;
 use std::sync::LazyLock;
 
+use brokkr_core::canonical::sha256_bytes;
 use brokkr_core::seat::row::{Datum, SeatRow};
 use brokkr_core::summary::Account;
 use rusqlite::types::{Value, ValueRef};
@@ -60,14 +67,27 @@ const BACKFILLED: &str = "seat_summary_backfill";
 
 const TABLES: [&str; 2] = ["seat_summary", "seat_head"];
 
-/// The two tables, made anew: a journal that lost one loses the other
-/// with it, so no seat head outlives the rows it vouches for and every
-/// run is walked again; and the backfill marked unfinished.
-fn migration() -> String {
+/// A row's columns after its key as the table declares them, each its
+/// name and its type, comma-joined.
+fn declared() -> String {
     let columns: Vec<String> = SeatRow::COLUMNS
         .iter()
         .map(|(name, kind)| format!("{name} {kind}"))
         .collect();
+    columns.join(", ")
+}
+
+/// The shape of the rows this build writes, a digest of their declared
+/// columns, which every seat head it writes names: a head that names
+/// another, or none, is another build's, and its rows lag for this one.
+static SHAPE: LazyLock<String> = LazyLock::new(|| sha256_bytes(declared().as_bytes()));
+
+/// The two tables, made anew: a journal that lost one loses the other
+/// with it, so no seat head outlives the rows it vouches for and every
+/// run is walked again; and the backfill marked unfinished. A head's
+/// `shape` takes no `NOT NULL`, so an older build's writer, which names
+/// three columns of it, still appends, and leaves its head shapeless.
+fn migration() -> String {
     format!(
         "DROP TABLE IF EXISTS seat_summary;
         DROP TABLE IF EXISTS seat_head;
@@ -76,29 +96,41 @@ fn migration() -> String {
             PRIMARY KEY (run_id, opened)
         ) WITHOUT ROWID;
         CREATE TABLE seat_head (
-            run_id TEXT PRIMARY KEY, folded_seq INTEGER NOT NULL, folded_hash TEXT NOT NULL
+            run_id TEXT PRIMARY KEY, folded_seq INTEGER NOT NULL, folded_hash TEXT NOT NULL,
+            shape TEXT
         ) WITHOUT ROWID;
         DELETE FROM meta WHERE key = '{BACKFILLED}';",
-        columns.join(", ")
+        declared()
     )
 }
 
 /// Does this journal carry both tables, the rows' with every column a
-/// row is kept in and its digest? Pure reads. A table without one is a
-/// shape an unreleased build of this slice made, a row without its digest
-/// or without the facts slice 2b keeps, which [`migrate_seats`] makes
-/// anew.
+/// row is kept in and its digest, and the heads' with the shape they
+/// name? Pure reads. A table without one is a shape an unreleased build
+/// of this slice made, a row without its digest or without the facts
+/// slice 2b keeps, or a head that names no shape, which [`migrate_seats`]
+/// makes anew.
 pub(crate) fn seats_intact(conn: &Connection) -> Result<bool, StoreError> {
-    Ok(all_present(conn, "table", &TABLES)? && shaped(conn)?)
+    Ok(all_present(conn, "table", &TABLES)?
+        && holds(conn, "seat_summary", kept())?
+        && holds(conn, "seat_head", [SHAPED])?)
 }
 
-fn shaped(conn: &Connection) -> Result<bool, StoreError> {
-    let mut statement = conn.prepare("SELECT name FROM pragma_table_info('seat_summary')")?;
+/// Does `table` declare every one of `columns`?
+fn holds<'a>(
+    conn: &Connection,
+    table: &str,
+    columns: impl IntoIterator<Item = &'a str>,
+) -> Result<bool, StoreError> {
+    let mut statement = conn.prepare("SELECT name FROM pragma_table_info(?1)")?;
     let found: Vec<String> = statement
-        .query_map([], |row| row.get(0))?
+        .query_map([table], |row| row.get(0))?
         .collect::<Result<_, _>>()?;
-    Ok(kept().all(|column| found.iter().any(|name| name == column)))
+    let mut columns = columns.into_iter();
+    Ok(columns.all(|column| found.iter().any(|name| name == column)))
 }
+
+const SHAPED: &str = "shape";
 
 /// Create the tables, on a connection holding the write lock: the seventh
 /// additive repair. Their presence is asked again under the lock, so an
@@ -153,11 +185,12 @@ static KEPT: LazyLock<String> = LazyLock::new(|| {
 });
 
 /// A run's rows read only where the journal holds the run and its seat
-/// head is the head named: none for a head that lags or a run the journal
-/// does not hold, and one empty row for a run with no rows, so one
-/// statement reads the head and the rows as one snapshot. Where `?4`
-/// names an effect, only that effect's rows, read by the run's key, so no
-/// other effect's row leaves SQLite.
+/// head is the head named, of this build's shape (`?5`): none for a head
+/// that lags, another build's, or a run the journal does not hold, and
+/// one empty row for a run with no rows, so one statement reads the head
+/// and the rows as one snapshot. Where `?4` names an effect, only that
+/// effect's rows, read by the run's key, so no other effect's row leaves
+/// SQLite.
 static CURRENT: LazyLock<String> = LazyLock::new(|| {
     let columns: Vec<String> = kept().map(|name| format!("s.{name}")).collect();
     format!(
@@ -165,7 +198,7 @@ static CURRENT: LazyLock<String> = LazyLock::new(|| {
              JOIN seat_head AS h ON h.run_id = r.run_id
              LEFT JOIN seat_summary AS s ON s.run_id = h.run_id
                  AND (?4 IS NULL OR s.effect_id = ?4)
-         WHERE r.run_id = ?1 AND h.folded_seq = ?2 AND h.folded_hash = ?3
+         WHERE r.run_id = ?1 AND h.folded_seq = ?2 AND h.folded_hash = ?3 AND h.shape = ?5
          ORDER BY s.opened",
         columns.join(", ")
     )
@@ -178,24 +211,32 @@ const PLACED: &str = "SELECT count(*) = coalesce(max(opened) + 1, 0)
          AND coalesce(min(opened), 0) = 0 AND count(*) = total(typeof(opened) = 'integer')
      FROM seat_summary WHERE run_id = ?1";
 
-const HEAD: &str =
-    "INSERT OR REPLACE INTO seat_head (run_id, folded_seq, folded_hash) VALUES (?1, ?2, ?3)";
+const HEAD: &str = "INSERT OR REPLACE INTO seat_head (run_id, folded_seq, folded_hash, shape)
+     VALUES (?1, ?2, ?3, ?4)";
 
-const FOLDED: &str = "SELECT folded_seq, folded_hash FROM seat_head WHERE run_id = ?1";
+/// A run's seat head, and whether it names this build's shape (`?2`).
+const FOLDED: &str = "SELECT folded_seq, folded_hash, shape IS ?2 FROM seat_head WHERE run_id = ?1";
 
-/// The first run past `after`, or the first of all, whose seat head is
-/// not its summary row's head, which the summary's trigger keeps at the
-/// run's last event: one search of each key a run.
-const LAGGING: &str = "SELECT s.run_id FROM run_summary AS s
-     LEFT JOIN seat_head AS h ON h.run_id = s.run_id
-     WHERE s.run_id > ?1 AND (h.run_id IS NULL OR h.folded_seq <> s.head_seq
-           OR h.folded_hash <> s.head_hash)
-     ORDER BY s.run_id LIMIT 1";
+/// Whether a run's seat head `h` lags its summary row `s`: none, not the
+/// row's head, which the summary's trigger keeps at the run's last event,
+/// or written by a build of another shape than this one's (`?1`).
+const LAGS: &str = "(h.run_id IS NULL OR h.folded_seq <> s.head_seq
+     OR h.folded_hash <> s.head_hash OR h.shape IS NOT ?1)";
 
-const FIRST_LAGGING: &str = "SELECT s.run_id FROM run_summary AS s
-     LEFT JOIN seat_head AS h ON h.run_id = s.run_id
-     WHERE h.run_id IS NULL OR h.folded_seq <> s.head_seq OR h.folded_hash <> s.head_hash
-     ORDER BY s.run_id LIMIT 1";
+/// The first run past `after` (`?2`), or the first of all, whose seat
+/// head lags ([`LAGS`]): one search of each key a run.
+static LAGGING: LazyLock<String> = LazyLock::new(|| lagging("s.run_id > ?2 AND"));
+
+static FIRST_LAGGING: LazyLock<String> = LazyLock::new(|| lagging(""));
+
+fn lagging(after: &str) -> String {
+    format!(
+        "SELECT s.run_id FROM run_summary AS s
+         LEFT JOIN seat_head AS h ON h.run_id = s.run_id
+         WHERE {after} {LAGS}
+         ORDER BY s.run_id LIMIT 1"
+    )
+}
 
 fn value(datum: Datum) -> Value {
     match datum {
@@ -303,35 +344,44 @@ fn written(run_id: &str, opened: usize, row: &SeatRow) -> Vec<(&'static str, Val
     kept().zip(values).collect()
 }
 
-/// The head `run_id`'s seat rows were folded through, if any.
-fn folded(conn: &Connection, run_id: &str) -> Result<Option<(u64, String)>, StoreError> {
+/// The head `run_id`'s seat rows were folded through, if any, and whether
+/// a writer of this build's shape wrote it.
+fn folded(conn: &Connection, run_id: &str) -> Result<Option<(u64, String, bool)>, StoreError> {
     let found = conn
         .prepare_cached(FOLDED)?
-        .query_row([run_id], |row| Ok((row.get(0)?, row.get(1)?)))
+        .query_row(params![run_id, *SHAPE], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
         .optional();
     Ok(found?)
 }
 
-/// Does `run_id`'s seat head stand at `head`?
+/// Does `run_id`'s seat head stand at `head`, written by this build's
+/// shape?
 fn folded_at(conn: &Connection, run_id: &str, head: (u64, &str)) -> Result<bool, StoreError> {
     let folded = folded(conn, run_id)?;
-    Ok(folded.as_ref().map(|(seq, hash)| (*seq, hash.as_str())) == Some(head))
+    let folded = folded
+        .as_ref()
+        .map(|(seq, hash, shaped)| (*seq, hash.as_str(), *shaped));
+    Ok(folded == Some((head.0, head.1, true)))
 }
 
-/// Record that `run_id`'s seat rows are folded through `head`.
+/// Record that `run_id`'s seat rows are folded through `head`, in this
+/// build's shape.
 pub(crate) fn write_head(
     tx: &Connection,
     run_id: &str,
     (seq, hash): (u64, &str),
 ) -> Result<(), StoreError> {
     tx.prepare_cached(HEAD)?
-        .execute(params![run_id, seq as i64, hash])?;
+        .execute(params![run_id, seq as i64, hash, *SHAPE])?;
     Ok(())
 }
 
 /// The rows the table already holds of `run_id`, as `before` carries
-/// them, where its seat head stands at `before`'s head; otherwise none,
-/// and the table holds none of the run's once this returns.
+/// them, where its seat head stands at `before`'s head in this build's
+/// shape; otherwise none, and the table holds none of the run's once this
+/// returns, so rows another build wrote are all written again.
 fn held<'a>(
     tx: &Connection,
     run_id: &str,
@@ -471,7 +521,7 @@ fn sealed_at(
         return Ok(false);
     }
     let mut statement = conn.prepare_cached(&CURRENT)?;
-    let mut found = statement.query(params![run_id, head.0 as i64, head.1, effect])?;
+    let mut found = statement.query(params![run_id, head.0 as i64, head.1, effect, *SHAPE])?;
     let mut at_head = false;
     while let Some(row) = found.next()? {
         at_head = true;
@@ -516,8 +566,8 @@ fn unsealed(
 }
 
 /// How `account`'s seat rows stand in the table (ruling 4): behind where
-/// their seat head is not the account's head, a lag the next writer
-/// refolds; else the first row that parts from the account's, by its
+/// their seat head is not the account's head, or another build's, a lag
+/// the next writer refolds; else the first row that parts from the account's, by its
 /// place and how, its digest a column of it, the rows streamed beside the
 /// account's. Rows that do not keep the live block
 /// ([`Account::seats_kept`]) stand where their writer leaves them with no
@@ -669,9 +719,14 @@ impl Store {
     /// The first run past `after` whose seat head lags, or the first of
     /// all.
     fn lagging_after(&self, after: Option<&str>) -> Result<Option<String>, StoreError> {
+        let shape = SHAPE.as_str();
         let next = match after {
-            None => self.conn.query_row(FIRST_LAGGING, [], |row| row.get(0)),
-            Some(after) => self.conn.query_row(LAGGING, [after], |row| row.get(0)),
+            None => self
+                .conn
+                .query_row(&FIRST_LAGGING, [shape], |row| row.get(0)),
+            Some(after) => self
+                .conn
+                .query_row(&LAGGING, [shape, after], |row| row.get(0)),
         };
         Ok(next.optional()?)
     }
