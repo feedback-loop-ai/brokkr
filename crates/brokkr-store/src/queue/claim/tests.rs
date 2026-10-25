@@ -701,3 +701,88 @@ fn a_journal_names_itself_once_and_every_open_after_reads_the_same_id() {
     }
     assert_eq!(Store::open(&copy).unwrap().journal().unwrap(), Some(named));
 }
+
+/// Start `run` from the queue under `claim`, as `generation`, of a bundle
+/// of `digest`, through the store's one start transaction fenced by the
+/// queue's [`claim_stands`].
+fn started_under(
+    store: &mut Store,
+    claim: Claim,
+    generation: Generation,
+    digest: &str,
+) -> Result<EventEnvelope, StoreError> {
+    let manifest = json!({"schema": "run-manifest/v1"});
+    let mut fence = claim_stands(claim, generation, digest);
+    let started = json!({"feature": "f"});
+    store.start_run("run-q", "f", "self", &manifest, started, Some(&mut fence))
+}
+
+/// A start under the claim standing on its entry, by the generation that
+/// took it and of the bundle it measured, writes its run, which the entry
+/// is then linked to.
+#[test]
+fn a_start_under_its_standing_claim_writes_the_run_its_entry_links_to() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let entry = queue(&mut store, 1)[0];
+    let claim = claim_of(&mut store, entry, "measured");
+    let sealed = started_under(&mut store, claim, SEVEN, "measured").unwrap();
+    let held = store.load("run-q").unwrap();
+    let hashes: Vec<&str> = held.iter().map(|event| event.event_hash.as_str()).collect();
+    assert_eq!(hashes, [sealed.event_hash.as_str()]);
+    store.queue_link(claim, SEVEN, "run-q", "started").unwrap();
+    let run = "run-q".to_string();
+    assert_eq!(
+        store.queue_entry(entry).unwrap().state,
+        EntryState::Claimed { run }
+    );
+}
+
+/// A start under a claim that does not stand refuses by variant, with its
+/// own text, and writes no run and no command: a claim reclaimed, a bundle
+/// that is not the one the claim's pass measured, a generation a newer
+/// dispatcher fenced out, and a claim another generation took.
+#[test]
+fn a_start_whose_claim_does_not_stand_refuses_by_variant_and_writes_no_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let entry = queue(&mut store, 1)[0];
+    let refused = |store: &mut Store, claim, generation, digest| {
+        let before = (rows(store), commands(&store.conn));
+        let error = refusal(started_under(store, claim, generation, digest));
+        assert_eq!((rows(store), commands(&store.conn)), before);
+        assert_eq!(store.list_runs().unwrap(), vec![]);
+        error
+    };
+    let reclaimed = claim_of(&mut store, entry, "measured");
+    (store.queue_reclaim(reclaimed, SEVEN, None, UNREACHED, "r")).unwrap();
+    let stale = format!(
+        "queue entry 1's claim {} does not stand for this step",
+        reclaimed.seq
+    );
+    let error = refused(&mut store, reclaimed, SEVEN, "measured");
+    refused_as(error, QueueRefusal::Stale(reclaimed), &stale);
+
+    let claim = claim_of(&mut store, entry, "measured");
+    let error = refused(&mut store, claim, SEVEN, "compiled");
+    let moved = format!(
+        "queue entry 1's claim {} admitted the bundle of manifest digest measured, and this \
+         start's is another; no run was written",
+        claim.seq
+    );
+    let variant = QueueRefusal::BundleMoved(claim, "measured".into());
+    refused_as(error, variant, &moved);
+
+    let eight = Generation(8);
+    crate::test_support::holding(&store, eight);
+    let error = refused(&mut store, claim, SEVEN, "measured");
+    let fenced_out =
+        "dispatcher generation 7 is not the journal's latest holder; it writes nothing";
+    refused_as(error, QueueRefusal::Superseded(SEVEN), fenced_out);
+    let error = refused(&mut store, claim, eight, "measured");
+    let other = format!(
+        "queue entry 1's claim {} was not taken by generation 8",
+        claim.seq
+    );
+    refused_as(error, QueueRefusal::OtherGeneration(claim, eight), &other);
+}

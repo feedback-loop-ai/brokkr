@@ -403,6 +403,30 @@ fn spawn_in(tx: &Transaction<'_>, under: Under<'_>) -> Result<(), StoreError> {
     journal(tx, claim.entry, Step::Spawn, generation, reason).map(drop)
 }
 
+/// The fence a start from the queue runs inside its one transaction
+/// ([`Store::start_run`]; decision 0095 ruling 4): refused, and no run
+/// written, unless `generation` is the journal's latest holder, the entry
+/// stands launching under `claim`, its latest claim, taken by `generation`,
+/// and `digest`, the manifest digest of the bundle the start compiled, is
+/// the one the claim recorded of the bundle its pass measured (ruling 7).
+pub fn claim_stands(
+    claim: Claim,
+    generation: Generation,
+    digest: &str,
+) -> impl FnMut(&Transaction<'_>) -> Result<(), StoreError> + '_ {
+    move |tx| {
+        queue_stored(tx)?;
+        latest(tx, generation)?;
+        launching_under(tx, claim, generation)?;
+        let query = "SELECT digest FROM queue_claims WHERE seq = ?1";
+        let claimed: String = tx.query_row(query, [claim.seq], |row| row.get(0))?;
+        match claimed == digest {
+            true => Ok(()),
+            false => Err(QueueRefusal::BundleMoved(claim, claimed).into()),
+        }
+    }
+}
+
 /// The refusals counted against `entry` since its latest `release`, or
 /// since it was queued, each read by its word.
 fn counted(tx: &Transaction<'_>, entry: EntryId) -> Result<Vec<Counted>, StoreError> {

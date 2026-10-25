@@ -47,12 +47,11 @@
 
 use std::fmt;
 
-use brokkr_core::envelope::EventEnvelope;
-use brokkr_core::fold::{fold, FoldError, Status};
+use brokkr_core::fold::FoldError;
 use brokkr_core::realms::Boundary;
 use brokkr_store::{
     Attribution, EntryId, EntryState, Latch, QueueEntry, QueueRefusal, Seen, Store, StoreError,
-    Wait, WaitOn,
+    Wait,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -61,9 +60,12 @@ use thiserror::Error;
 use crate::launch::{HeldAndNow, LaunchError, QueuedLaunch};
 use crate::realms::WorldError;
 
+mod awaited;
 mod capacity;
 mod governing;
 mod host;
+
+use awaited::{awaiting, came_to, observe};
 
 pub use capacity::{Capacity, Host, Measured, Room, Shared, Unmeasurable};
 pub(crate) use host::config_dir;
@@ -97,6 +99,13 @@ pub enum Reason {
     },
     /// The map on disk cannot be read, so the realm cannot be compared.
     MapUnreadable(String),
+    /// A run an older brokkr left with no `run/started`, which spawned
+    /// nothing (decision 0095 ruling 4): `wait` the entry's that waits on
+    /// it, or `None` where the census names it beside the queue.
+    UnstartedRun { wait: Option<Wait>, run: String },
+    /// It was queued with `--dispatch`: its run would be a run-manifest/v2,
+    /// which carries no queue entry (decision 0095 ruling 4).
+    DispatchEnvelope,
     /// The machine has no room for it now.
     Capacity(Capacity),
 }
@@ -112,7 +121,9 @@ impl Reason {
             | Reason::Stopped { .. }
             | Reason::RealmChanged { .. }
             | Reason::RealmLatched { .. }
-            | Reason::MapUnreadable(_) => true,
+            | Reason::MapUnreadable(_)
+            | Reason::UnstartedRun { .. }
+            | Reason::DispatchEnvelope => true,
         }
     }
 
@@ -127,6 +138,8 @@ impl Reason {
             Reason::RealmChanged { .. } => "realm_changed",
             Reason::RealmLatched { .. } => "realm_latched",
             Reason::MapUnreadable(_) => "map_unreadable",
+            Reason::UnstartedRun { .. } => "unstarted_run",
+            Reason::DispatchEnvelope => "dispatch_envelope",
             Reason::Capacity(capacity) => capacity.kind(),
         }
     }
@@ -186,6 +199,24 @@ impl fmt::Display for Reason {
             Reason::MapUnreadable(detail) => write!(
                 f,
                 "the realms map it was queued under cannot be read now: {detail}"
+            ),
+            Reason::UnstartedRun {
+                wait: Some(wait),
+                run,
+            } => write!(
+                f,
+                "waits on {wait}: its run '{run}' was never started, a row an older brokkr left \
+                 with no run/started"
+            ),
+            Reason::UnstartedRun { wait: None, run } => write!(
+                f,
+                "run '{run}' was never started, a row an older brokkr left with no run/started: \
+                 it spawned nothing, and counts against no ceiling"
+            ),
+            Reason::DispatchEnvelope => write!(
+                f,
+                "queued with --dispatch: its run would be a run-manifest/v2, which carries no \
+                 queue entry, so the dispatcher never starts it"
             ),
             Reason::Capacity(capacity) => write!(f, "{capacity}"),
         }
@@ -330,7 +361,8 @@ impl Standing {
 
 /// Admission's word on one waiting entry: every reason it may not start
 /// now, the operator's hold first, then its waits in order, then its
-/// realm, and only when none of those stops it, the first capacity check
+/// realm, then a `--dispatch` it was queued with, and only when none of
+/// those stops it, the first capacity check
 /// the machine does not meet. None, and it may.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Verdict {
@@ -442,17 +474,24 @@ pub fn pass(store: &Store) -> Result<Vec<Judged>, AdmissionError> {
 
 /// [`pass`], and then, for each entry nothing in it stops, whether
 /// `host` has room for it now: the first capacity check it does not meet
-/// is its reason. Nothing is written.
-pub fn pass_within(store: &Store, host: &Host<'_>) -> Result<Vec<Judged>, AdmissionError> {
+/// is its reason. Beside the queue, each run an older brokkr left with no
+/// events, which the census counts against no ceiling, named as an
+/// [`Reason::UnstartedRun`] that no entry waits on (decision 0095 ruling
+/// 4). Nothing is written.
+pub fn pass_within(
+    store: &Store,
+    host: &Host<'_>,
+) -> Result<(Vec<Judged>, Vec<Reason>), AdmissionError> {
     capacity::sized(store, host, pass(store)?)
 }
 
-/// [`judge`], and then the machine's room as [`pass_within`] judges it.
+/// [`judge`], and then the machine's room as [`pass_within`] judges it,
+/// with the unstarted runs it names.
 pub fn judge_within(
     store: &mut Store,
     host: &Host<'_>,
     by: Attribution<'_>,
-) -> Result<Vec<Judged>, AdmissionError> {
+) -> Result<(Vec<Judged>, Vec<Reason>), AdmissionError> {
     let judged = judge(store, by)?;
     capacity::sized(store, host, judged)
 }
@@ -639,84 +678,10 @@ fn weigh(
         .transpose()?;
     let (realm, finding) = realm(latched, sight(worlds));
     reasons.extend(realm);
-    Ok((Verdict { reasons }, finding))
-}
-
-/// What an awaited entry has come to.
-#[derive(Debug)]
-enum Awaited {
-    /// Queued, held or launching: no run linked yet.
-    Unstarted,
-    Dropped,
-    /// It started this run, which stands so.
-    Run {
-        run: String,
-        status: Status,
-    },
-}
-
-/// Read what `entry` has come to: its standing, and its run's status.
-fn observe(store: &Store, entry: EntryId) -> Result<Awaited, AdmissionError> {
-    let state = store.queue_entry(entry)?.state;
-    let events = match state.run() {
-        Some(run) => store.load(run)?,
-        None => Vec::new(),
-    };
-    came_to(state, &events)
-}
-
-/// What an entry standing so has come to, `events` its run's when it has
-/// one: the pass's reading, and its claim's.
-fn came_to(state: EntryState, events: &[EventEnvelope]) -> Result<Awaited, AdmissionError> {
-    Ok(match state {
-        EntryState::Queued | EntryState::Held | EntryState::Launching => Awaited::Unstarted,
-        EntryState::Dropped => Awaited::Dropped,
-        EntryState::Claimed { run } => {
-            let status = match fold(events) {
-                Ok(state) => state.run.status(),
-                Err(source) => return Err(AdmissionError::Fold { run, source }),
-            };
-            Awaited::Run { run, status }
-        }
-    })
-}
-
-/// Why `wait` does not hold of what its entry came to, or `None` when it
-/// holds.
-fn awaiting(wait: Wait, awaited: Awaited) -> Option<Reason> {
-    use WaitOn::{Completed, Ended};
-    match (awaited, wait.on) {
-        (Awaited::Unstarted, Completed | Ended) => Some(Reason::NotStarted(wait)),
-        (Awaited::Dropped, Completed | Ended) => Some(Reason::Dropped(wait)),
-        (
-            Awaited::Run {
-                status: Status::Completed,
-                ..
-            },
-            Completed | Ended,
-        )
-        | (
-            Awaited::Run {
-                status: Status::Stopped,
-                ..
-            },
-            Ended,
-        ) => None,
-        (
-            Awaited::Run {
-                run,
-                status: Status::Stopped,
-            },
-            Completed,
-        ) => Some(Reason::Stopped { wait, run }),
-        (
-            Awaited::Run {
-                run,
-                status: Status::Running | Status::AwaitingOperator,
-            },
-            Completed | Ended,
-        ) => Some(Reason::Unended { wait, run }),
+    if launch.dispatch.is_some() {
+        reasons.push(Reason::DispatchEnvelope);
     }
+    Ok((Verdict { reasons }, finding))
 }
 
 /// What admission sees of an entry's realm now.

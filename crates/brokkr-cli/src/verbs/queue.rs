@@ -7,11 +7,12 @@
 //! starts a run.
 
 use std::ffi::OsString;
+use std::io::Write;
 use std::path::Path;
 use std::process::ExitCode;
 
 use anyhow::Result;
-use brokkr_runtime::admission::{self, Host, Judged, Verdict};
+use brokkr_runtime::admission::{self, Host, Judged, Reason, Verdict};
 use brokkr_runtime::launch::{BundleSource, QueuedLaunch};
 use brokkr_store::{Attribution, NewEntry, QueueCommand, Wait};
 use serde::Serialize;
@@ -25,12 +26,12 @@ use crate::{open_journal, Access, Exit};
 pub(crate) fn queue(workspace: &Path, command: QueueCmd) -> Result<ExitCode> {
     match command {
         QueueCmd::Add(args) => add(workspace, args),
-        QueueCmd::List(args) => list(workspace, args),
-        QueueCmd::Judge(args) => judge(workspace, args),
+        QueueCmd::List(args) => list(workspace, args, &mut std::io::stderr()),
+        QueueCmd::Judge(args) => judge(workspace, args, &mut std::io::stderr()),
         QueueCmd::Move(args) => change(workspace, args.entry, QueueCommand::Move { to: args.to }),
         QueueCmd::Hold(args) => change(workspace, args, QueueCommand::Hold),
         QueueCmd::Release(args) => change(workspace, args, QueueCommand::Release),
-        QueueCmd::Repin(args) => repin(workspace, args),
+        QueueCmd::Repin(args) => repin(workspace, args, &mut std::io::stderr()),
         QueueCmd::Drop(args) => change(workspace, args, QueueCommand::Drop),
     }
 }
@@ -97,7 +98,8 @@ fn change(
 /// that would govern it now, written beside the one it was queued with
 /// and journaled with its reason, saying the differences it accepted.
 /// Admission compares the entry against the map it stands for from then
-/// on.
+/// on. The differences are the latch's, read from the journal, so the
+/// line `stderr` is told passes through [`Safe`] as the table's cells do.
 fn repin(
     workspace: &Path,
     QueueEntryArgs {
@@ -105,23 +107,30 @@ fn repin(
         reason,
         journal,
     }: QueueEntryArgs,
+    stderr: &mut impl Write,
 ) -> Result<ExitCode> {
     let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
     let accepted = attributed(&reason, |by| {
         admission::release(&mut store, entry, by).map_err(anyhow::Error::from)
     })?;
-    eprintln!("re-pinned queue entry {entry} to the realms map on disk, accepting: {accepted}");
+    let said =
+        format!("re-pinned queue entry {entry} to the realms map on disk, accepting: {accepted}");
+    writeln!(stderr, "{}", Safe::new(&said).as_str())?;
     Ok(Exit::Completed.into())
 }
 
 /// `brokkr queue list`: a look, so the journal is opened read-only. Each
 /// waiting entry carries admission's verdict, judged as the journal, the
 /// maps and this machine stand now; a drift no latch records yet is
-/// shown, and not latched.
-fn list(workspace: &Path, QueueListArgs { journal, json }: QueueListArgs) -> Result<ExitCode> {
+/// shown, and not latched. Each unstarted run is named on `stderr`.
+fn list(
+    workspace: &Path,
+    QueueListArgs { journal, json }: QueueListArgs,
+    stderr: &mut impl Write,
+) -> Result<ExitCode> {
     let store = open_journal(&journal.journal(workspace)?, Access::Read)?;
-    let entries = on_this_host(|host| Ok(admission::pass_within(&store, host)?))?;
-    show(&entries, json)
+    let (entries, unstarted) = on_this_host(|host| Ok(admission::pass_within(&store, host)?))?;
+    show(&entries, &unstarted, json, stderr)
 }
 
 /// `brokkr queue judge`: admission's writing pass ([`admission::judge`]),
@@ -133,14 +142,15 @@ fn judge(
         reason,
         list: QueueListArgs { journal, json },
     }: QueueJudgeArgs,
+    stderr: &mut impl Write,
 ) -> Result<ExitCode> {
     let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
-    let entries = on_this_host(|host| {
+    let (entries, unstarted) = on_this_host(|host| {
         attributed(&reason, |by| {
             admission::judge_within(&mut store, host, by).map_err(anyhow::Error::from)
         })
     })?;
-    show(&entries, json)
+    show(&entries, &unstarted, json, stderr)
 }
 
 /// Do `act` on this machine as admission measures it (decision 0068
@@ -173,8 +183,16 @@ fn on_the_host_at<T>(
     })
 }
 
-/// Print the judged queue, as a table or as `--json`.
-fn show(entries: &[Judged], json: bool) -> Result<ExitCode> {
+/// Print the judged queue, as a table or as `--json`, once each unstarted
+/// run the pass named beside it is named on `stderr`: the seam a test
+/// reads to pin what the binary prints there.
+fn show(
+    entries: &[Judged],
+    unstarted: &[Reason],
+    json: bool,
+    stderr: &mut impl Write,
+) -> Result<ExitCode> {
+    write!(stderr, "{}", named(unstarted))?;
     let rows = rows(entries);
     match json {
         true => println!("{}", serde_json::to_string_pretty(&rows)?),
@@ -259,6 +277,19 @@ fn each_wait<S: serde::Serializer>(waits: &&[Wait], to: S) -> Result<S::Ok, S::E
         entry: wait.entry.0,
         on: wait.on.word(),
     }))
+}
+
+/// Each unstarted run the pass named beside the queue (decision 0095
+/// ruling 4), a line each, its kind first as scripts read it. The run id
+/// is the journal's, so the line passes through [`Safe`] as the table's
+/// cells do.
+fn named(unstarted: &[Reason]) -> String {
+    (unstarted.iter())
+        .map(|reason| {
+            let says = Safe::new(&reason.to_string());
+            format!("{}: {}\n", reason.kind(), says.as_str())
+        })
+        .collect()
 }
 
 fn rows(entries: &[Judged]) -> Vec<Row<'_>> {

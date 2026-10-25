@@ -35,7 +35,7 @@ mod storage;
 
 pub use beside::Seen;
 use beside::{beside_once, Beside};
-pub use claim::{Claim, Generation, StartRefusal};
+pub use claim::{claim_stands, Claim, Generation, StartRefusal};
 use storage::{
     latch_row, queue_stored, wait_row, Stored, PINNED_PAYLOAD, PINNED_SEQ, QUEUE_SCHEMA,
     STANDING_LATCH, WAITS,
@@ -412,6 +412,17 @@ pub enum QueueRefusal {
     /// latest holder: a newer dispatcher fenced it out (decision 0095 ruling 2).
     #[error("dispatcher generation {} is not the journal's latest holder; it writes nothing", .0.0)]
     Superseded(Generation),
+    /// A start under a claim whose bundle is not the one the pass measured:
+    /// the manifest digest the claim recorded, which the start's is not
+    /// (decision 0095 ruling 7). The start's is its caller's own.
+    #[error(
+        "queue entry {}'s claim {} admitted the bundle of manifest digest {}, and this start's \
+         is another; no run was written",
+        .0.entry,
+        .0.seq,
+        .1
+    )]
+    BundleMoved(Claim, String),
 }
 
 /// The standing of one entry, read inside the transaction that acts on it.

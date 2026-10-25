@@ -514,19 +514,14 @@ impl Engine {
         entry: Option<brokkr_core::entry::RunEntry>,
     ) -> Result<Engine, EngineError> {
         let admitted = start::door(&bundle, feature, repo, world.as_ref(), entry.as_ref())?;
-        store.create_run(&admitted.run_id, feature, &bundle.name, &admitted.manifest)?;
-        store.append_next(
-            &admitted.run_id,
-            EventType::RunStarted,
-            bundle.run_started(
-                feature,
-                &admitted.manifest,
-                admitted.charters,
-                entry.as_ref(),
-            ),
-            None,
-            None,
-        )?;
+        let started = bundle.run_started(
+            feature,
+            &admitted.manifest,
+            admitted.charters,
+            entry.as_ref(),
+        );
+        let (run_id, manifest) = (&admitted.run_id, &admitted.manifest);
+        store.start_run(run_id, feature, &bundle.name, manifest, started, None)?;
         Ok(Engine {
             entry,
             store,
@@ -566,14 +561,8 @@ impl Engine {
         verify_dispatch_bundle_bounds(&dispatch, &bundle)?;
         let charters = refuse_moved_charter(&bundle)?;
         let manifest = build_run_manifest_v2(&bundle.manifest, dispatch)?;
-        store.create_run(&run_id, feature, &bundle.name, &manifest)?;
-        store.append_next(
-            &run_id,
-            EventType::RunStarted,
-            bundle.run_started(feature, &manifest, charters, None),
-            None,
-            None,
-        )?;
+        let started = bundle.run_started(feature, &manifest, charters, None);
+        store.start_run(&run_id, feature, &bundle.name, &manifest, started, None)?;
         Ok(Engine {
             entry: None,
             store,
