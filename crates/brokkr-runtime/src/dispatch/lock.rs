@@ -31,7 +31,21 @@ const LOCK: &str = ".dispatch.lock";
 #[derive(Debug)]
 pub struct Dispatcher {
     pub generation: Generation,
-    _held: OwnedFd,
+    pub(super) _held: Held,
+}
+
+/// A dispatch lock held by its descriptor.
+#[derive(Debug)]
+pub(super) struct Held(pub(super) OwnedFd);
+
+/// Let the lock go as it is dropped, not as its descriptor closes: a
+/// process this one forked holds a copy of the descriptor, and the lock
+/// with it, from its fork until its exec.
+impl Drop for Held {
+    fn drop(&mut self) {
+        // Unlocking a lock this descriptor holds has no failure to act on.
+        let _ = flock(&self.0, FlockOperation::Unlock);
+    }
 }
 
 /// The dispatch lock beside `journal`.
@@ -60,6 +74,6 @@ pub fn take_dispatch(store: &mut Store) -> Result<Result<Dispatcher, DispatcherE
     let generation = store.dispatch_hold(std::process::id())?;
     Ok(Ok(Dispatcher {
         generation,
-        _held: held,
+        _held: Held(held),
     }))
 }

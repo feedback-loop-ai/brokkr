@@ -52,7 +52,8 @@ fn dispatched(path: &Path, holder: &str) -> String {
 /// A second dispatcher of a journal, through another store and another
 /// open of its lock, is refused at once by the holder the journal's latest
 /// row names, recording nothing; with the first dropped, it takes the
-/// journal as the next generation. A lock held by a process that has not
+/// journal as the next generation, though a copy of the first's lock
+/// outlives it. A lock held by a process that has not
 /// recorded itself yet is refused as that.
 #[test]
 fn a_second_dispatcher_is_refused_naming_the_one_that_holds_the_journal() {
@@ -70,10 +71,13 @@ fn a_second_dispatcher_is_refused_naming_the_one_that_holds_the_journal() {
     assert!(matches!(&refused, DispatcherError::Dispatched(at, Some(_)) if at == &path));
     assert_eq!(refused.to_string(), dispatched(&path, &holder));
     assert_eq!(holders(&path), 1, "the refused one recorded nothing");
+    // A copy of the lock's descriptor, as a process forked while it was
+    // held keeps one until it execs, does not keep the lock past the drop.
+    let forked = held._held.0.try_clone().unwrap();
     drop(held);
     let next = take_dispatch(&mut second).unwrap().unwrap();
     assert_eq!(next.generation, Generation(2));
-    drop(next);
+    drop((next, forked));
 
     let fresh = tempfile::tempdir().unwrap();
     let (path, mut unrecorded) = journal(fresh.path());
