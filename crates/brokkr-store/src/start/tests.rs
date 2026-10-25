@@ -64,6 +64,7 @@ fn a_fault_between_the_run_row_and_its_first_event_leaves_neither() {
         )
         .unwrap();
     let refused = start(&mut store, "r1", None).unwrap_err();
+    assert!(matches!(&refused, StoreError::Sqlite(_)), "{refused:?}");
     assert_eq!(refused.to_string(), "sqlite: fault after the row");
     assert_eq!(held(&store, "r1"), None);
     assert_eq!(store.list_runs().unwrap(), vec![]);

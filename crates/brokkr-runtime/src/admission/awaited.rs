@@ -36,6 +36,12 @@ pub(super) fn observe(store: &Store, entry: EntryId) -> Result<Awaited, Admissio
     came_to(state, &events)
 }
 
+/// Whether a run holding `events` is an unstarted run, a row with no
+/// event: the one reading of it, the census's and an awaited entry's.
+pub(super) fn never_started(events: &[EventEnvelope]) -> bool {
+    events.is_empty()
+}
+
 /// What an entry standing so has come to, `events` its run's when it has
 /// one: the pass's reading, and its claim's.
 pub(super) fn came_to(
@@ -45,7 +51,7 @@ pub(super) fn came_to(
     Ok(match state {
         EntryState::Queued | EntryState::Held | EntryState::Launching => Awaited::Unstarted,
         EntryState::Dropped => Awaited::Dropped,
-        EntryState::Claimed { run } if events.is_empty() => Awaited::UnstartedRun(run),
+        EntryState::Claimed { run } if never_started(events) => Awaited::UnstartedRun(run),
         EntryState::Claimed { run } => {
             let status = match fold(events) {
                 Ok(state) => state.run.status(),
