@@ -623,7 +623,7 @@ fn plan(store: &Store, sql: &str, bound: impl Params) -> Vec<String> {
 }
 
 const STREAM_PLAN: &str = "SEARCH event_index USING INDEX event_index_stream \
-     (run_id=? AND attempt_id=? AND member=? AND seq<?)";
+     (run_id=? AND attempt_id=? AND member=? AND seq>? AND seq<?)";
 
 /// Each keyed read searches its index, with no scan and no temporary
 /// B-tree: the trail its partial index, a seat's stream its own, the
@@ -635,8 +635,8 @@ fn each_read_searches_its_index() {
     assert_eq!(
         [
             plan(&store, &TRAIL, params!["r"]),
-            plan(&store, &STREAM, params!["r", "a", none, 9]),
-            plan(&store, &STREAM, params!["r", "a", "m", 9]),
+            plan(&store, &STREAM, params!["r", "a", none, 0, 9, 50]),
+            plan(&store, &STREAM, params!["r", "a", "m", 0, 9, 50]),
             plan(&store, ENVELOPE, params!["r", 1]),
             plan(&store, ROWS, params!["r"]),
         ],

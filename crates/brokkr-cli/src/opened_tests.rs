@@ -18,6 +18,8 @@ use crate::{run, tui, Cli};
 
 #[path = "../../../tests/support/composed_read.rs"]
 mod composed_read;
+#[path = "../../../tests/support/seat_read.rs"]
+mod seat_read;
 
 /// The store's refusal of a run whose first event was edited.
 const EDITED: &str = "chain: event 1: event_hash does not match canonical content";
@@ -201,7 +203,25 @@ fn the_opening_refuses_it(db: &Path) {
 /// stand at its head; the run beside it composes.
 fn the_run_views_read_refuses_it(db: &Path) {
     let store = Store::open_read_only(db).unwrap();
-    let pages = |run| composed_read::pages(&store, run).map(|pages| pages.map(|pages| pages.len()));
+    refused_as_opened(|run| {
+        composed_read::pages(&store, run).map(|pages| pages.map(|pages| pages.len()))
+    });
+}
+
+/// The seat view's read (#753) is made at the head its opening verified
+/// too, so a participant's pages refuse the run as the opening does, in
+/// the store's variant and words; the run beside it reads its one page.
+fn the_seat_views_read_refuses_it(db: &Path) {
+    let store = Store::open_read_only(db).unwrap();
+    let seat = ("work", None);
+    refused_as_opened(|run| {
+        seat_read::pages(&store, run, seat).map(|pages| pages.map(|pages| pages.len()))
+    });
+}
+
+/// `pages`, a readout's pages of a run counted, refuses `r1` in the
+/// store's variant and words, and reads one page of `r2`.
+fn refused_as_opened(pages: impl Fn(&str) -> Result<Option<usize>, StoreError>) {
     let read = pages("r1");
     assert!(is_the_edit(read.as_ref().err()), "{read:?}");
     assert_eq!(read.unwrap_err().to_string(), EDITED);
@@ -274,6 +294,7 @@ fn a_corrupt_run_is_refused_wherever_it_is_opened() {
     }
     the_opening_refuses_it(&db);
     the_run_views_read_refuses_it(&db);
+    the_seat_views_read_refuses_it(&db);
     let served = serde_json::json!({ "error": EDITED }).to_string();
     for route in [
         "/api/view/r1",

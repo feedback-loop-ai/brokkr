@@ -17,7 +17,7 @@ use brokkr_view::run_view;
 use serde_json::json;
 
 #[path = "../../../tests/support/composed_read.rs"]
-mod composed_read;
+pub(crate) mod composed_read;
 #[path = "../../../tests/support/composed_view.rs"]
 mod composed_view_support;
 
@@ -60,7 +60,7 @@ fn read(path: &std::path::Path, runs: &[String]) -> Read {
 /// Every fixture imported into a fresh journal at `path`, its runs folded
 /// by a writable open: the fixture the import refuses is planted as an
 /// older writer's, and that open folds its rows.
-fn imported(path: &std::path::Path) -> (Store, Vec<String>) {
+pub(crate) fn imported(path: &std::path::Path) -> (Store, Vec<String>) {
     let mut store = Store::open(path).unwrap();
     let (runs, _) = import_fixtures(&mut store);
     drop(store);
@@ -68,7 +68,7 @@ fn imported(path: &std::path::Path) -> (Store, Vec<String>) {
 }
 
 /// The broken chain's refusal at its opening, in the store's words.
-const BROKEN: &str =
+pub(crate) const BROKEN: &str =
     "conclude-broken-chain-hand-built: chain: event 11: event_hash does not match canonical content";
 
 #[test]
@@ -86,7 +86,7 @@ fn every_fixture_s_run_view_read_a_page_at_a_time_is_its_run_view() {
 
 /// The checkpoint after the last of `events`, as a writer chains it: a
 /// turn of the last attempt started, served by a model no other names.
-fn next(events: &[EventEnvelope]) -> EventEnvelope {
+pub(crate) fn next(events: &[EventEnvelope]) -> EventEnvelope {
     let head = events.last().unwrap();
     let started = events
         .iter()

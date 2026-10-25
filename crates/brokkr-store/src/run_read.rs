@@ -39,8 +39,9 @@ use brokkr_core::fold::{fold, RunState};
 use brokkr_core::seat::row::SeatRow;
 use rusqlite::{params, OptionalExtension};
 
+use crate::seat_read::Seat;
 use crate::seat_summary::rows_at;
-use crate::{head_of, patiently, Opened, SeatRows, Store, StoreError};
+use crate::{head_of, patiently, Opened, SeatRead, SeatRows, Store, StoreError};
 
 /// The journal rows one page holds, as many as a seat's checkpoint page
 /// and the fleet's page of runs hold (ruling 7).
@@ -100,6 +101,31 @@ impl Store {
         self.run_read_with(run_id, opened, after, || {})
     }
 
+    /// A page of the participant `seat`'s checkpoints in `run_id`, read at
+    /// `opened`, the head its opening verified, newest first and each
+    /// below `before` where a page resumes, in one read transaction, with
+    /// the run view's read's checks (the seat view's read, `seat_read.rs`).
+    /// `rows` is handed, once a page, the start each attempt on the page
+    /// last names, and makes of them what makes a checkpoint's row; each
+    /// checkpoint's envelope is then parsed and not verified, made into its
+    /// row, and dropped.
+    pub fn seat_read<T, R: FnMut(&EventEnvelope) -> T>(
+        &self,
+        run_id: &str,
+        opened: &Opened,
+        seat: Seat<'_>,
+        before: Option<u64>,
+        mut rows: impl FnMut(&[EventEnvelope]) -> R,
+    ) -> Result<SeatRead<T>, StoreError> {
+        patiently("load", self.patience, || {
+            let _snapshot = self.conn.unchecked_transaction()?;
+            if !self.headed_at(run_id, opened)? {
+                return Ok(SeatRead::Kept);
+            }
+            self.seat_page(run_id, opened, seat, before, &mut rows)
+        })
+    }
+
     /// [`Store::run_read`], `between` run after the run's head is read and
     /// before its seat rows, trail and page are: the instant a peer's
     /// append lands, which the tests stage.
@@ -123,21 +149,46 @@ impl Store {
         after: u64,
         between: &mut impl FnMut(),
     ) -> Result<RunRead, StoreError> {
-        if !(self.reads_index()? && self.pages()?) {
-            return Ok(RunRead::Kept);
-        }
-        let (seq, hash) = head_of(&self.conn, run_id)?;
-        if (seq, hash.as_str()) != (opened.seq, opened.hash.as_str()) || seq == 0 {
-            return Ok(RunRead::Kept);
-        }
-        between();
-        let SeatRows::Current(seats) = rows_at(&self.conn, run_id, (seq, &hash))? else {
+        let Some(seats) = self.seated_at(run_id, opened, between)? else {
             return Ok(RunRead::Kept);
         };
         let Some(summary) = self.refused_at(run_id, opened)? else {
             return Ok(RunRead::Kept);
         };
         self.paged_at(run_id, opened, after, seats, summary)
+    }
+
+    /// `run_id`'s seat rows at `opened`, inside a read already begun: none
+    /// where it is not read there ([`Store::headed_at`]) or its seat rows
+    /// do not stand there.
+    fn seated_at(
+        &self,
+        run_id: &str,
+        opened: &Opened,
+        between: &mut impl FnMut(),
+    ) -> Result<Option<Vec<SeatRow>>, StoreError> {
+        if !self.headed_at(run_id, opened)? {
+            return Ok(None);
+        }
+        between();
+        let head = (opened.seq, opened.hash.as_str());
+        Ok(match rows_at(&self.conn, run_id, head)? {
+            SeatRows::Current(seats) => Some(seats),
+            SeatRows::Stale => None,
+        })
+    }
+
+    /// Whether `run_id` is read at `opened`, inside a read already begun:
+    /// not where the journal's event index or summary is not read, the
+    /// run's last event is not that head, or it has none. The run view's
+    /// read and the seat view's ([`Store::seat_read`]) each check so, and
+    /// read the kept way where it is not.
+    pub(crate) fn headed_at(&self, run_id: &str, opened: &Opened) -> Result<bool, StoreError> {
+        if !(self.reads_index()? && self.pages()?) {
+            return Ok(false);
+        }
+        let (seq, hash) = head_of(&self.conn, run_id)?;
+        Ok((seq, hash.as_str()) == (opened.seq, opened.hash.as_str()) && seq != 0)
     }
 
     /// The rest of the read at `opened`, whose `seats` stand there and

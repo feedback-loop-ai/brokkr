@@ -717,6 +717,7 @@ pub fn brokkr_view::need(&brokkr_view::RunRow, &str) -> core::option::Option<bro
 pub fn brokkr_view::operator_commands(&brokkr_core::fold::RunState) -> alloc::vec::Vec<alloc::string::String>
 pub fn brokkr_view::operator_refusal(&str, &str, &str) -> alloc::string::String
 pub fn brokkr_view::page<E>(core::option::Option<&brokkr_view::Cursor>, (usize, &str), impl core::ops::function::FnMut(brokkr_view::Section, core::option::Option<brokkr_core::page::Place<'_>>, usize) -> core::result::Result<alloc::vec::Vec<brokkr_view::RunRow>, E>) -> core::result::Result<brokkr_view::Page, E>
+pub fn brokkr_view::page_rows(&[brokkr_core::envelope::EventEnvelope]) -> impl core::ops::function::Fn(&brokkr_core::envelope::EventEnvelope) -> core::option::Option<brokkr_view::CheckpointRow>
 pub fn brokkr_view::quarantine_finding(&str, u64, &str) -> brokkr_view::ResidualFinding
 pub fn brokkr_view::ranges(brokkr_view::Section, &str) -> alloc::vec::Vec<brokkr_core::page::Range>
 pub fn brokkr_view::residual_findings(&str, &[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_view::ResidualFinding>

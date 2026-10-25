@@ -221,7 +221,7 @@ const SHARDS: [&str; 6] = [
     "--bin brokkr --test driver_conformance --test transcript_surfaces --test hands_exits \
      --test secret_drop --test capability_launch --test operated_repo --test queued_launch \
      --test seatbelt_lifetime_probe --test summary_heap --test heap_fleet --test heap_open \
-     --test heap_run_view",
+     --test heap_run_view --test heap_seat_view",
     "--doc",
     "--test it -- capability_broker::",
 ];

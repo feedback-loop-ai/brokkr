@@ -153,6 +153,12 @@ name = "heap_open"
 [[test]]
 name = "heap_run_view"
 
+# The seat view's page (decision 0089 ruling 9): dhat's peak beside SQLite's
+# own high-water, for a page of one long seat's checkpoints in two journal
+# sizes.
+[[test]]
+name = "heap_seat_view"
+
 # The CPU budgets (#342). Library benches measure the fold, the run view,
 # a compile of recipes/self and one TUI frame; binary benches measure the
 # shipped binary's startup and `inspect`.

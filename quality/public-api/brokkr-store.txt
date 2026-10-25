@@ -101,6 +101,9 @@ pub brokkr_store::RunRead::Current::seats: alloc::vec::Vec<brokkr_core::seat::ro
 pub brokkr_store::RunRead::Current::state: core::option::Option<alloc::boxed::Box<brokkr_core::fold::RunState>>
 pub brokkr_store::RunRead::Current::trail: alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>
 pub brokkr_store::RunRead::Kept
+pub enum brokkr_store::SeatRead<T>
+pub brokkr_store::SeatRead::Current(alloc::vec::Vec<T>, core::option::Option<u64>)
+pub brokkr_store::SeatRead::Kept
 pub enum brokkr_store::SeatRecordVersion
 pub brokkr_store::SeatRecordVersion::V1
 pub brokkr_store::SeatRecordVersion::V2
@@ -292,6 +295,7 @@ pub fn brokkr_store::Store::queue_list(&self) -> core::result::Result<alloc::vec
 pub fn brokkr_store::Store::queue_repin(&mut self, brokkr_store::EntryId, &str, brokkr_store::Seen, brokkr_store::Attribution<'_>) -> core::result::Result<(), brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::run_read(&self, &str, &brokkr_store::Opened, u64) -> core::result::Result<brokkr_store::RunRead, brokkr_store::StoreError>
+pub fn brokkr_store::Store::seat_read<T, R: core::ops::function::FnMut(&brokkr_core::envelope::EventEnvelope) -> T>(&self, &str, &brokkr_store::Opened, (&'_ str, core::option::Option<&'_ str>), core::option::Option<u64>, impl core::ops::function::FnMut(&[brokkr_core::envelope::EventEnvelope]) -> R) -> core::result::Result<brokkr_store::SeatRead<T>, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::seat_rows(&self, &str) -> core::result::Result<brokkr_store::SeatRows, brokkr_store::StoreError>
 pub struct brokkr_store::Unread

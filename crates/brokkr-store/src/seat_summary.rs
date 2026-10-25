@@ -155,18 +155,28 @@ static KEPT: LazyLock<String> = LazyLock::new(|| {
 /// A run's rows read only where the journal holds the run and its seat
 /// head is the head named: none for a head that lags or a run the journal
 /// does not hold, and one empty row for a run with no rows, so one
-/// statement reads the head and the rows as one snapshot.
+/// statement reads the head and the rows as one snapshot. Where `?4`
+/// names an effect, only that effect's rows, read by the run's key, so no
+/// other effect's row leaves SQLite.
 static CURRENT: LazyLock<String> = LazyLock::new(|| {
     let columns: Vec<String> = kept().map(|name| format!("s.{name}")).collect();
     format!(
         "SELECT s.opened, {} FROM runs AS r
              JOIN seat_head AS h ON h.run_id = r.run_id
              LEFT JOIN seat_summary AS s ON s.run_id = h.run_id
+                 AND (?4 IS NULL OR s.effect_id = ?4)
          WHERE r.run_id = ?1 AND h.folded_seq = ?2 AND h.folded_hash = ?3
          ORDER BY s.opened",
         columns.join(", ")
     )
 });
+
+/// Whether a run's rows stand at the places their writer gives, `0, 1,
+/// 2, …`, each an integer: none before the first, past a gap, or not a
+/// number. Read in SQLite, so no row leaves it.
+const PLACED: &str = "SELECT count(*) = coalesce(max(opened) + 1, 0)
+         AND coalesce(min(opened), 0) = 0 AND count(*) = total(typeof(opened) = 'integer')
+     FROM seat_summary WHERE run_id = ?1";
 
 const HEAD: &str =
     "INSERT OR REPLACE INTO seat_head (run_id, folded_seq, folded_hash) VALUES (?1, ?2, ?3)";
@@ -380,41 +390,60 @@ impl Opened {
 
 /// `run_id`'s rows, where its seat head is `head`; stale where it is
 /// not, or where a row holds what no writer writes: a value, a place
-/// other than the next of `0, 1, 2, …`, the places its writer gives, a
-/// key out of the order [`Opened`] admits, or anything its digest is not
-/// of, the backstop for every shape the guards before it do not name.
+/// other than the places its writer gives ([`PLACED`]), a key out of the
+/// order [`Opened`] admits, or anything its digest is not of, the
+/// backstop for every shape the guards before it do not name.
 fn current(conn: &Connection, run_id: &str, head: (u64, &str)) -> Result<SeatRows, StoreError> {
-    let mut statement = conn.prepare_cached(&CURRENT)?;
-    let mut found = statement.query(params![run_id, head.0 as i64, head.1])?;
     let mut rows = Vec::new();
     let mut opened = Opened::default();
+    let read = sealed_at(conn, run_id, head, None, |data| {
+        let seat = Some(data).filter(|data| opened.admits(data));
+        seat.and_then(SeatRow::of_data).map(|seat| rows.push(seat))
+    })?;
+    Ok(match read {
+        true => SeatRows::Current(rows),
+        false => SeatRows::Stale,
+    })
+}
+
+/// Each row of `run_id` at `head`, or of its effect `effect` alone where
+/// one is named ([`CURRENT`]), handed to `each` as its data, where the
+/// run's places are its writer's ([`PLACED`]) and the row's digest is of
+/// its run, its place and its values: false where they are not, where a
+/// row holds a value no row writes or one `each` refuses (`None`), or
+/// where the seat head is not `head`.
+fn sealed_at(
+    conn: &Connection,
+    run_id: &str,
+    head: (u64, &str),
+    effect: Option<&str>,
+    mut each: impl FnMut(Vec<Datum>) -> Option<()>,
+) -> Result<bool, StoreError> {
+    let placed: bool = conn
+        .prepare_cached(PLACED)?
+        .query_row([run_id], |row| row.get(0))?;
+    if !placed {
+        return Ok(false);
+    }
+    let mut statement = conn.prepare_cached(&CURRENT)?;
+    let mut found = statement.query(params![run_id, head.0 as i64, head.1, effect])?;
     let mut at_head = false;
     while let Some(row) = found.next()? {
         at_head = true;
-        match row.get_ref(0)? {
-            ValueRef::Null => continue,
-            ValueRef::Integer(opened) if opened == rows.len() as i64 => {}
-            ValueRef::Integer(_) | ValueRef::Real(_) | ValueRef::Text(_) | ValueRef::Blob(_) => {
-                return Ok(SeatRows::Stale)
-            }
-        }
+        let Some(place) = row.get::<_, Option<i64>>(0)? else {
+            continue;
+        };
         let data: Option<Vec<Datum>> = (1..=SeatRow::COLUMNS.len())
             .map(|at| row.get_ref(at).map(datum))
             .collect::<Result<_, _>>()?;
         let sealed = row.get_ref(SeatRow::COLUMNS.len() + 1)?;
-        let place = rows.len() as i64;
-        let data = data.filter(|data| {
-            opened.admits(data) && sealed == ValueRef::Text(digest(run_id, place, data).as_bytes())
-        });
-        match data.and_then(SeatRow::of_data) {
-            Some(seat) => rows.push(seat),
-            None => return Ok(SeatRows::Stale),
+        let data =
+            data.filter(|data| sealed == ValueRef::Text(digest(run_id, place, data).as_bytes()));
+        if data.and_then(&mut each).is_none() {
+            return Ok(false);
         }
     }
-    Ok(match at_head {
-        true => SeatRows::Current(rows),
-        false => SeatRows::Stale,
-    })
+    Ok(at_head)
 }
 
 /// How `account`'s seat rows stand in the table (ruling 4): behind where
@@ -618,10 +647,39 @@ pub(crate) fn rows_at(
     run_id: &str,
     head: (u64, &str),
 ) -> Result<SeatRows, StoreError> {
-    if !(seats_intact(conn)? && finished(conn, BACKFILLED)?) {
+    if !kept_whole(conn)? {
         return Ok(SeatRows::Stale);
     }
     current(conn, run_id, head)
+}
+
+/// `run_id`'s rows of the effect `effect_id` standing at `head`, read as
+/// [`rows_at`] reads the run's and each handed to `each` as its data once
+/// its digest is checked, so the reader holds one row at a time and no
+/// other effect's: false where the run's rows would read stale for it, a
+/// table, the backfill, the seat head, a place or a digest (the seat
+/// view's read, [`Store::seat_read`]). The order [`Opened`] admits is the
+/// run's, which a reader of one effect's rows does not see; the digest
+/// holds every row it reads to its writer's.
+pub(crate) fn effect_rows_at(
+    conn: &Connection,
+    run_id: &str,
+    head: (u64, &str),
+    effect_id: &str,
+    mut each: impl FnMut(&[Datum]),
+) -> Result<bool, StoreError> {
+    if !kept_whole(conn)? {
+        return Ok(false);
+    }
+    sealed_at(conn, run_id, head, Some(effect_id), |data| {
+        each(&data);
+        Some(())
+    })
+}
+
+/// Does this journal carry the tables and has their backfill finished?
+fn kept_whole(conn: &Connection) -> Result<bool, StoreError> {
+    Ok(seats_intact(conn)? && finished(conn, BACKFILLED)?)
 }
 
 #[cfg(test)]

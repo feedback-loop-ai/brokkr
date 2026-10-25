@@ -327,10 +327,33 @@ pub fn unname(conn: &Connection) -> rusqlite::Result<()> {
 /// 9), each step's detail in order: what a heap test asserts of the
 /// journal it measures.
 pub fn trail_plan(store: &Store, run_id: &str) -> rusqlite::Result<Vec<String>> {
-    let sql = format!("EXPLAIN QUERY PLAN {}", *crate::event_index::TRAIL);
-    let mut statement = store.conn.prepare(&sql)?;
-    let steps = statement.query_map([run_id], |row| row.get(3))?;
+    plan(store, &crate::event_index::TRAIL, [run_id])
+}
+
+/// The plan SQLite takes for `sql` bound to `bound`, each step's detail in
+/// order.
+pub(crate) fn plan(
+    store: &Store,
+    sql: &str,
+    bound: impl rusqlite::Params,
+) -> rusqlite::Result<Vec<String>> {
+    let mut statement = store.conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}"))?;
+    let steps = statement.query_map(bound, |row| row.get(3))?;
     steps.collect()
+}
+
+/// The plan SQLite takes for a page of `run_id`'s checkpoints under
+/// `attempt_id` that name `member` (decision 0089 ruling 9), each step's
+/// detail in order: what the seat view's heap test asserts of the journal
+/// it measures.
+pub fn stream_plan(
+    store: &Store,
+    run_id: &str,
+    attempt_id: &str,
+    member: Option<&str>,
+) -> rusqlite::Result<Vec<String>> {
+    let bound = params![run_id, attempt_id, member, 1, i64::MAX, 51];
+    plan(store, &crate::event_index::STREAM, bound)
 }
 
 /// Take the seq guard (#354) off a journal, leaving it as a journal

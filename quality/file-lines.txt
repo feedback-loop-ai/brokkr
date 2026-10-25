@@ -353,7 +353,7 @@
    524 crates/brokkr-view/src/graph/figures.rs
     22 crates/brokkr-view/src/items.rs
    137 crates/brokkr-view/src/js.rs
-  2509 crates/brokkr-view/src/lib.rs
+  2435 crates/brokkr-view/src/lib.rs
    107 crates/brokkr-view/src/participant.rs
    127 crates/brokkr-view/src/rail.rs
    265 crates/brokkr-view/src/scope.rs

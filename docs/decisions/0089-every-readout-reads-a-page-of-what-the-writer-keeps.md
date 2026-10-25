@@ -1017,6 +1017,65 @@ model the writer keeps in the journal's own file and transaction.
    from the envelope and `brokkr_view::Summary` to share it, a change of
    their public API that slice 2b's story does not make.
 
+   *Proposed amendment, 2026-10-25, the seat view (asked of the operator
+   on #753, unruled):* a page of the seat view parses each checkpoint's
+   envelope from the text SQLite holds, makes its row and drops it, so it
+   holds one checkpoint at a time; and an envelope whose text carries
+   escapes is copied through the parser's scratch buffer before the
+   string it keeps, as the opening's is (2026-10-24). So with the newest
+   checkpoint on a page of the grown run's longest-running seat stretched
+   to a mebibyte (`heap_seat_view.rs`, by a payload field beside its
+   record), the page's peak, its opening included, grows over the
+   unstretched page's (58,549 B in a journal of 10,000 events and one of
+   1,000,000) by 1,029,629 B when the text is plain, within one
+   checkpoint as the row states, and by 3,123,794 B when it carries
+   escapes, against 3,145,728 B for three mebibytes. With the opening
+   made before the measurement, the page alone peaks at 58,429 B,
+   1,088,058 B and 3,182,221 B, so the escaped growth is the page's own
+   parse, not its opening's. SQLite's high-water grows by 1,047,536 B and
+   1,047,544 B, within the envelope. The peaks stay bounded by the page's
+   largest checkpoint, never by the run or the journal. Recommended: the
+   seat view row's Brokkr share is 256 KiB and the largest checkpoint on
+   the page, or about three times it when its text carries escapes, as
+   the opening's is, and `heap_seat_view.rs` holds the escaped growth
+   over the unstretched page to at most three checkpoints and past the
+   plain stretch's peak by more than one, within its budget
+   (`seat-view-escaped`, the measured peak plus a tenth, 3,500,578 B). Or:
+   the page parses a checkpoint without the scratch copy, which moves the
+   read to a borrowing parse of the envelope, a change slice 2b's story
+   does not make. Until the operator rules, slice 2's acceptance of ruling
+   9's seat view budget for a checkpoint whose text carries escapes is
+   pending on this bound.
+
+   *Proposed amendment, 2026-10-25, the seat view's starts (asked of the
+   operator on #753, unruled, beside the one above):* a checkpoint's row
+   reads its boundary from the start its attempt last names, so a page
+   reads, by its key, the start of each attempt with a checkpoint on it,
+   hands the starts' boundary entries to the rows and drops the starts
+   before its first checkpoint is parsed. Ruling 9's row names the page's
+   checkpoints alone; a start is not one, and it is held whole while its
+   entries are read. With the start of the page's attempt stretched to a
+   mebibyte (`heap_seat_view.rs`), the page's peak, its opening included,
+   grows over the unstretched page's by 997,284 B when the text is plain,
+   within one start, and by 3,090,931 B when it carries escapes, within
+   three; the page alone, after its opening, peaks at 1,055,705 B and
+   3,149,350 B, and SQLite's high-water grows by 1,047,568 B and
+   1,047,576 B, within the start. No other attempt's start and no other
+   seat's is read: a mebibyte start of the seat's older attempt and of
+   another seat leaves the page's peak after its opening unmoved to the
+   byte. Recommended: the seat view row's Brokkr share is 256 KiB and the
+   larger of the page's largest checkpoint and the starts of its
+   attempts, each about three times where its text carries escapes, and
+   `heap_seat_view.rs` holds the stretched start's growth to one start
+   plain and three escaped, within its budgets (`seat-view-started`,
+   1,161,417 B, and `seat-view-started-escaped`, 3,464,428 B, the
+   measured peaks plus a tenth). Or: the page reads a start's boundary
+   entries alone, which a parse of the envelope that keeps only them, or
+   SQLite's own reading of them, makes, and which holds the start in
+   SQLite instead, past its share's bound as the row states it. Until the
+   operator rules, slice 2's acceptance of ruling 9's seat view budget
+   for a page whose attempt's start is wide is pending on this bound.
+
    **The aggregates are the one exception, and it is put to the
    operator.** Each answers a question about every run in a window: what
    the fleet cost, which models ran, which crossings Muninn's queue holds.

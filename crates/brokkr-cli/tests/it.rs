@@ -76,6 +76,7 @@ mod run_it_tests;
 mod script_gates;
 mod seat_items;
 mod seat_rows;
+mod seat_view;
 mod shelf;
 mod status_pages;
 mod suppressions;
