@@ -333,7 +333,8 @@ fn fd_of(server: &ServerBox, host: &Path) -> Option<String> {
 #[cfg(target_os = "linux")]
 fn server_argv(server: &ServerBox, net: &str, dns: bool, tree: Option<&Path>) -> Vec<String> {
     let mut argv: Vec<String> = format!(
-        "bwrap --die-with-parent --unshare-pid --unshare-ipc --unshare-uts \
+        "bwrap --die-with-parent --unshare-user --disable-userns --assert-userns-disabled \
+         --unshare-pid --unshare-ipc --unshare-uts \
          --unshare-cgroup-try --cap-drop ALL {net} --clearenv --setenv {HANDS_BOX_ENV} 1 \
          --proc /proc --dev /dev --dir /runtime --dir /etc --dir /home --dir /root --dir /run \
          --dir /usr"
@@ -850,6 +851,54 @@ fn a_server_box_stands_without_the_seats_or_the_hosts_private_paths() {
     assert!(scratch.is_dir());
     drop(entry);
     assert!(!scratch.exists());
+}
+
+/// U8j (SI1, MB4): a server box, launched on its entry with a shell
+/// standing for its bootstrap, makes no further user namespace, each
+/// attempt meeting the box's own limit ([`super::NESTED`]) as a workspace
+/// box's does; the shell reports each error and exit status on the ready
+/// pipe.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_server_box_makes_no_nested_user_namespace() {
+    if !super::can_create_namespace() {
+        skip_boundary_proof(
+            boundary_evidence_required(),
+            "no namespace can be built here",
+        );
+        return;
+    }
+    if unservable() {
+        return;
+    }
+    let host = Host::new();
+    let attempts: String = (super::NESTED.iter())
+        .map(|(command, _)| format!("{command}; echo \"exit $?\"; "))
+        .collect();
+    let script = format!("exec >\"/proc/self/fd/$2\" 2>&1; {attempts}");
+    let sh = ServerProgram::resolve("sh", &host.home).unwrap();
+    let (bootstrap, seat) = (shell(), reach(&[host.path("work")], &[]));
+    let profile = ServerProfile {
+        reach: &seat,
+        network: &Network::Isolated,
+        bootstrap: &bootstrap,
+        writers: &[],
+    };
+    let mut server = ServerBox::prepare_with(&sh, &profile, &super::sources::confined()).unwrap();
+    let entry = server.entry(std::process::id()).unwrap();
+    let handles: Vec<_> = server.handles().map(|(_, fd)| fd.as_fd()).collect();
+    let command = |control: i32, ready: i32, status: i32| {
+        let numbers = [control, ready, status].map(|fd| fd.to_string());
+        let args = ["-c", &script, "sh", &numbers[0], &numbers[1], &numbers[2]];
+        args.map(String::from).to_vec()
+    };
+    let mut launched = ServerBox::launch(&entry, &handles, command, super::entry::soon()).unwrap();
+    let said = std::io::read_to_string(&mut launched.ready).unwrap();
+    let refused = std::io::read_to_string(&mut launched.errors).unwrap();
+    let expected: String = (super::NESTED.iter())
+        .map(|(_, said)| format!("{said}exit 1\n"))
+        .collect();
+    assert_eq!((said, refused), (expected, String::new()));
 }
 
 /// The names of the environment the process `pid` was started with, as

@@ -1412,8 +1412,9 @@ witness/compose pins accompany only rows that change their inputs.
 | U0b | U9c2 | Measure every shape a seat can be served as; 1.5–1.6 | None |
 | U8h | U9c2 | Hide the secrets store in every workspace box; 45.9–45.10 | `crates/brokkr-protocol/src/hands/sealed.rs`; `crates/brokkr-runtime/src/engine/boxed.rs`; `crates/brokkr-runtime/src/engine/broker/admission.rs`; `crates/brokkr-runtime/src/engine.rs` |
 | U8i | U8h | Pin the store's folder in a Codex seat's profile; 45.11–45.12 | `crates/brokkr-protocol/src/native_controls/grammar/config.rs`; `crates/brokkr-protocol/src/adapters/codex.rs` |
+| U8j | U8h | Forbid nested user namespaces in every box; 45.13–45.14 | `crates/brokkr-protocol/src/hands/namespace.rs` |
 | U1d3 | U0b | Record U0b's shapes; 5.3–5.4 | `adapters/claude.json`; `adapters/codex.json`; `adapters/dsh.json`; `adapters/lanetally.json`; `crates/brokkr-cli/src/init/adapters.rs` |
-| U9b1 | U1d3, U8e3, U8h, U8i | Enable the proved namespace path; 42.2, 46.1–46.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
+| U9b1 | U1d3, U8e3, U8h, U8i, U8j | Enable the proved namespace path; 42.2, 46.1–46.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
 | U9b2 | U9b1 | Publish implemented scope and contract guidance; 47.1–47.2 | None |
 | U10a | U9b2 | Audit removals and run final candidate gates; 48.1–49.2 | None |
 | U10b | U10a | Fold the change and hand off; 49.3 | None |
@@ -2252,6 +2253,19 @@ Proof: Exact argv pins show the workspace-write profile carrying a written entry
 Operator rulings 2026-10-24 (in chat, "1. a" on U0b's X29, then "4. a" on U8i): the store's folder is protected against a move for Codex seats before U9b1, in this one unit, measured first without a model (X31). (1) The files above, and no public API rise. (2) A workspace-write profile whose store lies inside the root without its pins refuses: fail closed. (3) On macOS a sealed workspace-write Codex launch whose store lies inside the root refuses, rather than being recorded as an unmeasured limitation.
 
 Owning tests: `crates/brokkr-protocol/src/adapters/tests/codex_isolation.rs`, `crates/brokkr-protocol/src/native_controls/tests/isolation.rs`.
+
+### U8j — Forbid nested user namespaces in every box
+
+U0b's R16 found that nothing in a box itself stops a boxed command from creating a nested user namespace: on the measured host every attempt (a user namespace, unmounting the store's mask from a nested mount namespace, a non-recursive bind of its folder, an overlay over it, a nested bubblewrap) was refused only by the host's AppArmor restriction (`kernel.apparmor_restrict_unprivileged_userns=1`) and the box's empty capability set. On a host that allows unprivileged user namespaces those attempts reach the kernel, and the overlay case is unmeasured. U8j makes every box `Namespace::open` builds, workspace and server alike, open with `--unshare-user --disable-userns --assert-userns-disabled`, so no command in a box can create a further user namespace on any host, and a bubblewrap that cannot disable them refuses to start the box. R16b measured it on a scratch build: a boxed `unshare -Ur` then fails "No space left on device" and a nested bubblewrap fails ENOSPC, the box's own limit rather than the host's; the store stays denied, its folder pinned, a git commit works and files written in the box keep the operator as their owner; every protocol hands test passes but the two that pin the exact argv.
+
+Files: `crates/brokkr-protocol/src/hands/namespace.rs` (with new private children under `hands/namespace/` as the standing child-module rule allows, since the file stands one line below its ceiling). The exact argv the existing suites pin moves with it.
+
+Closes tasks 45.13 and 45.14; requirements [SI1](specs/strict-mcp-isolation/spec.md), [MB4](specs/mcp-capability-broker/spec.md).
+Proof: A real namespace box of each profile refuses `unshare -Ur` and a nested bubblewrap with the box's own ENOSPC cause while the workspace still writes, commits and hides the store; the exact argv pins carry the three options in their place; and an independent compiling removal of `--disable-userns` fails its own test (on this host the nested attempt then fails with the host's EPERM instead, which the test distinguishes).
+
+Operator ruling 2026-10-25 (in chat, "go with recommended", after U0b's R16): every box blocks nested user namespaces itself, before U9b1, in this one unit, measured first (R16b); no public API rise; any file outside this row comes back to the operator.
+
+Owning tests: `crates/brokkr-protocol/src/hands/tests.rs` and its child modules.
 
 ### U9a1 — Move doctor's capability reporting into its module
 
