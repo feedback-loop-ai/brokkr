@@ -317,9 +317,32 @@ pub fn unindex(conn: &Connection) -> rusqlite::Result<()> {
     )
 }
 
+/// Leave a journal as a binary from before journals named themselves
+/// (decision 0095, #430) left it: no id. Opening it read-write names it.
+pub fn unname(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch("DELETE FROM meta WHERE key = 'journal_id'")
+}
+
 /// Take the seq guard (#354) off a journal, leaving it as a journal
 /// written before the guard existed: one that may hold a row at a seq
 /// that is not a position. Opening the journal read-write restores it.
 pub fn drop_seq_guard(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch("DROP TRIGGER IF EXISTS events_seq_is_a_position")
+}
+
+/// Link queued `entry` to `run`, which the journal holds, through the
+/// dispatcher's own claim and link (decision 0095 ruling 1), as
+/// generation 1 claiming a bundle of digest `test`, judging no run.
+pub fn linked(store: &mut Store, entry: crate::EntryId, run: &str) {
+    let read = store.queue_entry(entry).unwrap();
+    let claimed = store.queue_claim_with(
+        &read,
+        i64::MAX,
+        "test",
+        crate::Generation(1),
+        "test",
+        |_, _, _| Ok::<(), ()>(()),
+    );
+    let claim = claimed.unwrap().unwrap();
+    (store.queue_link(claim, crate::Generation(1), run, "test")).unwrap();
 }

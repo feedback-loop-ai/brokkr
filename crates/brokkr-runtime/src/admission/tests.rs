@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use brokkr_core::realms::Boundary;
 use brokkr_core::EventType;
+use brokkr_store::test_support::linked;
 use brokkr_store::{Attribution, NewEntry, QueueCommand};
 use serde_json::{json, Value};
 
@@ -1162,7 +1163,7 @@ fn a_wait_clears_when_its_condition_holds_and_holds_the_entry_when_it_never_can(
     ];
     for ((name, events), entry) in ends.into_iter().zip(&awaited[2..]) {
         run(&mut store, name, &events);
-        store.queue_claim(*entry, name).unwrap();
+        linked(&mut store, *entry, name);
     }
     let mut dependents = Vec::new();
     for entry in &awaited {
@@ -1342,7 +1343,7 @@ fn a_queue_the_pass_cannot_read_admits_nothing_and_says_why() {
     store
         .create_run("r0", "f", "b", &json!({"schema": "run-manifest/v1"}))
         .unwrap();
-    store.queue_claim(awaited, "r0").unwrap();
+    linked(&mut store, awaited, "r0");
     let wait = Wait {
         entry: awaited,
         on: WaitOn::Ended,
