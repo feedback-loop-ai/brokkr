@@ -803,6 +803,17 @@ fn pinning(claim: Claim) -> String {
         .to_string()
 }
 
+/// What reconciliation's query reads under `generation`, its judge
+/// handed the journal's own id, as [`Store::journal`] reads it.
+fn unsettled(store: &mut Store, generation: Generation) -> Result<Unsettled, StoreError> {
+    let journal = store.journal().unwrap();
+    let judged = store.queue_unsettled_with(generation, |named| {
+        assert_eq!(named, journal);
+        Ok::<(), ()>(())
+    });
+    judged.map(Result::unwrap)
+}
+
 /// Reconciliation's query (decision 0095 ruling 3) names an entry left
 /// launching under its standing claim with the one run whose manifest
 /// carries that claim, read as `engine` is: a manifest that is not JSON,
@@ -810,7 +821,8 @@ fn pinning(claim: Claim) -> String {
 /// the claim's object as a string, or the claim under a `queue_entry` key
 /// a later one overrides, carries none. A linked entry with no `spawn` row is named with its run,
 /// and one with a `spawn` row is settled. Under a generation that is not
-/// the latest holder, the query is refused.
+/// the latest holder, the query is refused, but its judge, handed the
+/// journal's id before anything is read, refuses it first.
 #[test]
 fn reconciliation_reads_what_was_left_unsettled_and_the_run_that_carries_a_claim() {
     let dir = tempfile::tempdir().unwrap();
@@ -851,22 +863,62 @@ fn reconciliation_reads_what_was_left_unsettled_and_the_run_that_carries_a_claim
     ] {
         run_carrying(&store, run, &manifest);
     }
-    let unsettled = |store: &mut Store| store.queue_unsettled(ONE).unwrap();
     let linked = vec![(linked, "run-b".to_string())];
     assert_eq!(
-        unsettled(&mut store),
+        unsettled(&mut store, ONE).unwrap(),
         (vec![(launching, None)], linked.clone())
     );
 
     let overriding = format!("{{\"queue_entry\": {{}}, \"queue_entry\": {pin}}}");
     run_carrying(&store, "carrier", &overriding);
     let carried = vec![(launching, Some("carrier".to_string()))];
-    assert_eq!(unsettled(&mut store), (carried, linked));
+    assert_eq!(unsettled(&mut store, ONE).unwrap(), (carried, linked));
 
     let nine = Generation(9);
     let text = "dispatcher generation 9 is not the journal's latest holder; it writes nothing";
-    let refused = refusal(store.queue_unsettled(nine));
+    let refused = refusal(unsettled(&mut store, nine));
     refused_as(refused, QueueRefusal::Superseded(nine), text);
+    let judged = store.queue_unsettled_with(nine, Err).unwrap();
+    assert_eq!(judged, Err(store.journal().unwrap()));
+}
+
+/// Of an inner key the pin holds twice, its last answers, and only as an
+/// integer, as serde reads the manifest: a claim whose last `claim` is
+/// null or text, or whose last `entry` is text, carries none, though an
+/// earlier key of each holds the claim's own integer; one whose last key
+/// of each is the claim's integer carries it.
+#[test]
+fn a_pin_whose_last_inner_key_is_not_the_claims_integer_carries_no_claim() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let entry = queue(&mut store, 1)[0];
+    let claim = claimed_now(&mut store, entry).unwrap().unwrap();
+    let (entry, seq) = (entry.0, claim.seq);
+    let pinned = |pin: &str| format!("{{\"queue_entry\": {{{pin}}}}}");
+    for (run, pin) in [
+        (
+            "claim-nulled",
+            format!("\"entry\": {entry}, \"claim\": {seq}, \"claim\": null"),
+        ),
+        (
+            "claim-text",
+            format!("\"entry\": {entry}, \"claim\": {seq}, \"claim\": \"other\""),
+        ),
+        (
+            "entry-text",
+            format!("\"entry\": {entry}, \"entry\": \"other\", \"claim\": {seq}"),
+        ),
+    ] {
+        run_carrying(&store, run, &pinned(&pin));
+        let read = unsettled(&mut store, ONE).unwrap();
+        assert_eq!(read, (vec![(claim, None)], vec![]), "{run}");
+    }
+
+    let last =
+        format!("\"entry\": \"other\", \"entry\": {entry}, \"claim\": null, \"claim\": {seq}");
+    run_carrying(&store, "carrier", &pinned(&last));
+    let carried = vec![(claim, Some("carrier".to_string()))];
+    assert_eq!(unsettled(&mut store, ONE).unwrap(), (carried, vec![]));
 }
 
 /// Runs that carry one claim, more than one, are no dispatcher's writing:
@@ -884,7 +936,7 @@ fn two_runs_that_carry_one_claim_are_refused_and_neither_is_adopted() {
     let carried = QueueRefusal::Carried(claim, runs.map(String::from).to_vec());
     let text = "queue entry 1's claim 2 is carried by runs 'carrier-a', 'carrier-b', and a claim \
                 starts one run; none is adopted";
-    refused_as(refusal(store.queue_unsettled(ONE)), carried, text);
+    refused_as(refusal(unsettled(&mut store, ONE)), carried, text);
 }
 
 /// The journal's latest holder takes a link, a spawn or a reclaim of a

@@ -11,6 +11,14 @@
 //! holder row then fences the first out of the journal, which writes
 //! nothing after, as the operator ruled a fence-out crash-equivalent
 //! (#430, 2026-10-23).
+//!
+//! A generation is the journal's own count, so a dispatcher is bound to
+//! the journal it took by the id that journal names itself by (#430,
+//! 2026-10-24), read through the connection that takes its holder row,
+//! and acts in no store whose journal is another, or has no id. A path is
+//! not the binding: a symlink retargeted or a file renamed into place
+//! since names another journal, and a byte copy carries the id and is the
+//! same journal.
 
 use std::ffi::OsString;
 use std::os::fd::OwnedFd;
@@ -18,6 +26,7 @@ use std::path::{Path, PathBuf};
 
 use brokkr_store::{Generation, Store, StoreError};
 use rustix::fs::{flock, FlockOperation, CWD};
+use uuid::Uuid;
 
 use super::DispatcherError;
 use crate::lock_file;
@@ -26,12 +35,26 @@ use crate::lock_file;
 const LOCK: &str = ".dispatch.lock";
 
 /// This process as a journal's dispatcher: its lock, held until this is
-/// dropped or the process ends, and the generation its holder row
-/// recorded, the one each step it takes is journaled under.
+/// dropped or the process ends, the generation its holder row recorded,
+/// the one each step it takes is journaled under, and the id of the
+/// journal it took, `None` for one with no id.
 #[derive(Debug)]
 pub struct Dispatcher {
     pub generation: Generation,
+    pub(super) journal: Option<Uuid>,
     pub(super) _held: Held,
+}
+
+impl Dispatcher {
+    /// Refuse a store whose journal, `named` as the store's own
+    /// transaction reads it, is not the one this dispatcher took; a
+    /// journal with no id is none it took.
+    pub(super) fn took(&self, named: Option<Uuid>) -> Result<(), DispatcherError> {
+        match self.journal.is_some() && named == self.journal {
+            true => Ok(()),
+            false => Err(DispatcherError::OtherJournal(self.journal, named)),
+        }
+    }
 }
 
 /// A dispatch lock held by its descriptor.
@@ -82,9 +105,11 @@ pub(super) fn take_dispatch_with(
     // Held from here, so a holder row the journal does not record lets
     // the lock go as surely as a dispatcher dropped.
     let held = Held(held);
+    let journal = store.journal()?;
     let generation = store.dispatch_hold(std::process::id())?;
     Ok(Ok(Dispatcher {
         generation,
+        journal,
         _held: held,
     }))
 }

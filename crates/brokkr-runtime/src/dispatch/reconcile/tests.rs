@@ -7,7 +7,8 @@
 
 use std::path::Path;
 
-use brokkr_store::{EntryId, EntryState, Generation, QueueRefusal};
+use brokkr_store::{EntryId, EntryState, Generation, QueueEntry, QueueRefusal};
+use uuid::Uuid;
 
 use super::*;
 use crate::dispatch::take_dispatch;
@@ -85,6 +86,14 @@ fn row(seq: i64, command: &str, operator: &str, reason: &str) -> (i64, String, S
     (seq, command.into(), operator.into(), reason.into())
 }
 
+/// The `link` row's reason for `run`, adopted under claim 2 of entry 1.
+fn adoption(run: &str) -> String {
+    format!(
+        "reconciled: run '{run}' carries claim 2 of entry 1, so it is adopted, never \
+         relaunched, stopped or concluded (decision 0068 ruling 7)"
+    )
+}
+
 /// The rows a start writes up to its link, the entry added by the
 /// operator and claimed by the dispatcher.
 fn added_and_claimed() -> Vec<(i64, String, String, String)> {
@@ -100,6 +109,58 @@ fn runs(store: &Store) -> Vec<String> {
     listed.map(|(run, ..)| run).collect()
 }
 
+/// What `dispatcher` settled reconciling `store`, refused by neither.
+fn reconciled(store: &mut Store, dispatcher: &Dispatcher) -> Vec<Settled> {
+    reconcile(store, dispatcher).unwrap().unwrap()
+}
+
+/// A claim row: its seq, entry, generation, digest and run.
+type ClaimRow = (i64, i64, i64, String, Option<String>);
+
+/// A journal's entries, claims, commands and runs, row for row.
+type Written = (
+    Vec<QueueEntry>,
+    Vec<ClaimRow>,
+    Vec<(i64, String, String, String)>,
+    Vec<String>,
+);
+
+/// What a reconciliation may write, as the journal at `store`'s path holds
+/// it, row for row: its entries, its claims, its commands and its runs.
+fn written(store: &Store) -> Written {
+    let conn = rusqlite::Connection::open(store.path()).unwrap();
+    let query = "SELECT seq, entry_id, generation, digest, run_id FROM queue_claims ORDER BY seq";
+    let mut rows = conn.prepare(query).unwrap();
+    let read = |row: &rusqlite::Row<'_>| {
+        Ok((
+            row.get(0)?,
+            row.get(1)?,
+            row.get(2)?,
+            row.get(3)?,
+            row.get(4)?,
+        ))
+    };
+    let claims = rows.query_map([], read).unwrap();
+    let claims = claims.collect::<Result<_, _>>().unwrap();
+    let queue = store.queue_list().unwrap();
+    (queue, claims, commands(store), runs(store))
+}
+
+/// Assert `refused` refuses `dispatcher`, which took the journal `took`,
+/// the store of journal `named`, by its variant and its text.
+fn refused_elsewhere(refused: DispatcherError, took: Option<Uuid>, named: Option<Uuid>) {
+    let id = |journal: Option<Uuid>| journal.map_or("(no id)".into(), |id| id.to_string());
+    let text = format!(
+        "dispatch: this dispatcher took journal {}, and the store it was handed holds journal \
+         {}; a dispatcher acts in the journal it took alone, so nothing was written (decision \
+         0095)",
+        id(took),
+        id(named)
+    );
+    assert_eq!(refused.to_string(), text);
+    assert_eq!(refused, DispatcherError::OtherJournal(took, named));
+}
+
 /// After the claim, no run carries it: the entry goes back to its place
 /// by a `reclaim` naming the claim it ends, no run is written, and its
 /// next claim is a new seq.
@@ -108,7 +169,7 @@ fn a_pass_ended_after_its_claim_is_reclaimed_to_its_place_and_claimed_anew() {
     let dir = tempfile::tempdir().unwrap();
     let (mut store, next, claim, _) = crashed_at(dir.path(), Boundary::Claim);
 
-    let settled = reconcile(&mut store, &next).unwrap();
+    let settled = reconciled(&mut store, &next);
     assert_eq!(settled, vec![Settled::Reclaimed(claim)]);
     let entry = store.queue_entry(EntryId(1)).unwrap();
     assert_eq!(
@@ -137,7 +198,7 @@ fn a_pass_ended_after_its_start_is_adopted_and_linked_with_no_second_run() {
     let (mut store, next, claim, run) = crashed_at(dir.path(), Boundary::Start);
     let run = run.unwrap();
 
-    let settled = reconcile(&mut store, &next).unwrap();
+    let settled = reconciled(&mut store, &next);
     assert_eq!(settled, vec![Settled::ToSpawn(claim, run.clone())]);
     let state = store.queue_entry(EntryId(1)).unwrap().state;
     assert_eq!(
@@ -145,12 +206,8 @@ fn a_pass_ended_after_its_start_is_adopted_and_linked_with_no_second_run() {
         EntryState::Claimed { run: run.clone() },
         "no reclaim ends a claim whose run exists"
     );
-    let reason = format!(
-        "reconciled: run '{run}' carries claim 2 of entry 1, so it is adopted, never \
-         relaunched, stopped or concluded (decision 0068 ruling 7)"
-    );
     let mut rows = added_and_claimed();
-    rows.push(row(3, "link", "dispatch", &reason));
+    rows.push(row(3, "link", "dispatch", &adoption(&run)));
     assert_eq!(commands(&store), rows);
     assert_eq!(runs(&store), vec![run]);
 }
@@ -167,7 +224,7 @@ fn a_pass_ended_after_its_link_is_to_be_spawned_with_no_second_run_or_link() {
     rows.push(row(3, "link", "dispatch", "started"));
     assert_eq!(commands(&store), rows);
 
-    let settled = reconcile(&mut store, &next).unwrap();
+    let settled = reconciled(&mut store, &next);
     assert_eq!(settled, vec![Settled::ToSpawn(claim, run.clone())]);
     assert_eq!(commands(&store), rows);
     assert_eq!(runs(&store), vec![run]);
@@ -190,7 +247,7 @@ fn a_pass_ended_after_its_spawn_row_is_left_alone_and_never_spawned_again() {
     rows.push(row(4, "spawn", "dispatch", "spawning"));
     assert_eq!(commands(&store), rows);
 
-    assert_eq!(reconcile(&mut store, &next).unwrap(), vec![]);
+    assert_eq!(reconciled(&mut store, &next), vec![]);
     assert_eq!(commands(&store), rows);
     assert_eq!(runs(&store), vec![run.unwrap()]);
 }
@@ -204,17 +261,16 @@ fn a_standing_dispatcher_reconciles_its_own_unlinked_or_unspawned_entry() {
     let dir = tempfile::tempdir().unwrap();
     let (standing, claim, run) = driven_to(dir.path(), Boundary::Start);
     let (mut store, run) = (journal(dir.path()), run.unwrap());
-    let settled = reconcile(&mut store, &standing).unwrap();
+    let settled = reconciled(&mut store, &standing);
     assert_eq!(settled, vec![Settled::ToSpawn(claim, run.clone())]);
     let link = commands(&store).pop().unwrap();
-    assert_eq!((link.0, link.1.as_str()), (3, "link"));
-    assert!(link.3.starts_with("reconciled: run "), "{}", link.3);
+    assert_eq!(link, row(3, "link", "dispatch", &adoption(&run)));
 
     let dir = tempfile::tempdir().unwrap();
     let (standing, claim, run) = driven_to(dir.path(), Boundary::Link);
     let mut store = journal(dir.path());
     let before = commands(&store);
-    let settled = reconcile(&mut store, &standing).unwrap();
+    let settled = reconciled(&mut store, &standing);
     assert_eq!(settled, vec![Settled::ToSpawn(claim, run.unwrap())]);
     assert_eq!(commands(&store), before);
 }
@@ -248,4 +304,119 @@ fn a_superseded_dispatchers_reconciliation_is_refused_and_writes_nothing() {
         let state = store.queue_entry(EntryId(1)).unwrap().state;
         assert_eq!(state == EntryState::Launching, left, "{boundary:?}");
     }
+}
+
+/// The journal at `root`'s own id.
+fn id_of(root: &Path) -> Option<Uuid> {
+    journal(root).journal().unwrap()
+}
+
+/// A dispatcher acts in the journal it took alone (decision 0095 rulings
+/// 2 and 3), whatever its generation: journals A and B each hold their
+/// entry 1 left launching under claim 2 by their own live dispatcher, both
+/// of generation 1. A's dispatcher handed B's store is refused by
+/// `OtherJournal`, naming both journals, and B's entries, claims, commands
+/// and runs are unchanged, row for row; B's own dispatcher reconciles it.
+#[test]
+fn a_dispatcher_reconciles_no_journal_but_the_one_it_took() {
+    let (a, b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (of_a, _, _) = driven_to(a.path(), Boundary::Claim);
+    let (of_b, claim, _) = driven_to(b.path(), Boundary::Claim);
+    assert_eq!(
+        (of_a.generation, of_b.generation),
+        (Generation(1), Generation(1))
+    );
+    let mut store = journal(b.path());
+    let before = written(&store);
+
+    let refused = reconcile(&mut store, &of_a).unwrap().unwrap_err();
+    refused_elsewhere(refused, id_of(a.path()), id_of(b.path()));
+    assert_eq!(written(&store), before);
+    assert_eq!(
+        reconciled(&mut store, &of_b),
+        vec![Settled::Reclaimed(claim)]
+    );
+}
+
+/// A dispatcher's journal is the id it names itself by, not a path, as
+/// slice 3a's claim reads it (#430, 2026-10-24). With A's dispatcher live,
+/// a store opened through a symlink to B's file, the link retargeted to
+/// A's since, or opened at A's path after B's file was renamed into it,
+/// holds B: it is refused by `OtherJournal` with B's rows unchanged. A
+/// byte copy of A carries its id, so it is the same journal, and the
+/// dispatcher reconciles the copy, A's own rows unmoved.
+#[test]
+fn a_dispatcher_is_bound_to_its_journals_id_not_a_path() {
+    for renamed in [false, true] {
+        let (a, b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let (of_a, _, _) = driven_to(a.path(), Boundary::Claim);
+        let (_of_b, _, _) = driven_to(b.path(), Boundary::Claim);
+        let (took, named) = (id_of(a.path()), id_of(b.path()));
+        let (to_a, to_b) = (a.path().join("forge.db"), b.path().join("forge.db"));
+        let mut store = match renamed {
+            false => {
+                let link = a.path().join("current.db");
+                std::os::unix::fs::symlink(&to_b, &link).unwrap();
+                let through = Store::open(&link).unwrap();
+                std::fs::remove_file(&link).unwrap();
+                std::os::unix::fs::symlink(&to_a, &link).unwrap();
+                through
+            }
+            true => {
+                std::fs::rename(&to_b, &to_a).unwrap();
+                Store::open(&to_a).unwrap()
+            }
+        };
+        let before = written(&store);
+        let refused = reconcile(&mut store, &of_a).unwrap().unwrap_err();
+        refused_elsewhere(refused, took, named);
+        assert_eq!(written(&store), before, "renamed: {renamed}");
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let (of_a, claim, _) = driven_to(dir.path(), Boundary::Claim);
+    let copy = dir.path().join("copy.db");
+    std::fs::copy(dir.path().join("forge.db"), &copy).unwrap();
+    let before = written(&journal(dir.path()));
+    let mut copied = Store::open(&copy).unwrap();
+    assert_eq!(copied.journal().unwrap(), id_of(dir.path()));
+    assert_eq!(
+        reconciled(&mut copied, &of_a),
+        vec![Settled::Reclaimed(claim)]
+    );
+    assert_eq!(written(&journal(dir.path())), before);
+}
+
+/// A journal with no id is none a dispatcher took: one taken while its
+/// journal had no id reconciles nothing, not even in that journal, with
+/// no id still or named since, and a dispatcher of a named journal
+/// reconciles nothing in it once it has no id. Each is refused by
+/// `OtherJournal`, with nothing written.
+#[test]
+fn a_journal_with_no_id_is_reconciled_by_no_dispatcher() {
+    let dir = tempfile::tempdir().unwrap();
+    let (first, _, _) = driven_to(dir.path(), Boundary::Claim);
+    drop(first);
+    let path = dir.path().join("forge.db");
+    let unnamed = || {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        brokkr_store::test_support::unname(&conn).unwrap();
+    };
+    let mut store = journal(dir.path());
+    unnamed();
+    let next = take_dispatch(&mut store).unwrap().unwrap();
+    let before = written(&store);
+    let refused = reconcile(&mut store, &next).unwrap().unwrap_err();
+    refused_elsewhere(refused, None, None);
+    let named = id_of(dir.path());
+    let refused = reconcile(&mut store, &next).unwrap().unwrap_err();
+    refused_elsewhere(refused, None, named);
+    assert_eq!(written(&store), before);
+    drop(next);
+
+    let next = take_dispatch(&mut store).unwrap().unwrap();
+    unnamed();
+    let refused = reconcile(&mut store, &next).unwrap().unwrap_err();
+    refused_elsewhere(refused, named, None);
+    assert_eq!(written(&store), before);
 }

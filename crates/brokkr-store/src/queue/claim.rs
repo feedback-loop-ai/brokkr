@@ -362,14 +362,17 @@ fn taken_by(
 /// decision 0095 ruling 5), read as [`crate::ENGINE_OF_RUN`] reads
 /// `engine`: a manifest that is not JSON carries none, `CASE` keeping
 /// `json_each` from it, and of two keys the last answers, as serde reads
-/// them. The outer `json_each` is named, since an inner one's argument
-/// would otherwise read its own `value`.
+/// them, at each level: the last `queue_entry`, and its last `entry` and
+/// last `claim`, each then read only as an integer, so a later key of
+/// another type overrides an earlier integer. The outer `json_each` is
+/// named, since an inner one's argument would otherwise read its own
+/// `value`.
 const CARRYING: &str = "SELECT run_id FROM runs WHERE CASE WHEN json_valid(manifest) THEN
          (SELECT CASE pin.type WHEN 'object' THEN
-             (SELECT atom FROM json_each(pin.value) WHERE key = 'entry' AND type = 'integer'
-              ORDER BY id DESC LIMIT 1) = ?1
-             AND (SELECT atom FROM json_each(pin.value) WHERE key = 'claim' AND type = 'integer'
-              ORDER BY id DESC LIMIT 1) = ?2
+             (SELECT CASE type WHEN 'integer' THEN atom END FROM json_each(pin.value)
+              WHERE key = 'entry' ORDER BY id DESC LIMIT 1) = ?1
+             AND (SELECT CASE type WHEN 'integer' THEN atom END FROM json_each(pin.value)
+              WHERE key = 'claim' ORDER BY id DESC LIMIT 1) = ?2
           END FROM json_each(manifest) AS pin WHERE pin.key = 'queue_entry'
           ORDER BY pin.id DESC LIMIT 1)
      END ORDER BY run_id";
@@ -556,7 +559,14 @@ fn reclaim_in(
 /// under its claim, with its run.
 type Unsettled = (Vec<(Claim, Option<String>)>, Vec<(Claim, String)>);
 
-fn unsettled_in(tx: &Transaction<'_>, generation: Generation) -> Result<Unsettled, StoreError> {
+fn unsettled_in<R>(
+    tx: &Transaction<'_>,
+    generation: Generation,
+    judge: &mut impl FnMut(Option<Uuid>) -> Result<(), R>,
+) -> Result<Result<Unsettled, R>, StoreError> {
+    if let Err(refused) = judge(journal_id(tx)?) {
+        return Ok(Err(refused));
+    }
     latest(tx, generation)?;
     let query = "SELECT e.entry_id, c.seq, e.run_id FROM queue_entries e
         JOIN queue_claims c ON c.seq = (SELECT MAX(seq) FROM queue_claims WHERE entry_id = e.entry_id)
@@ -579,7 +589,7 @@ fn unsettled_in(tx: &Transaction<'_>, generation: Generation) -> Result<Unsettle
             None => launching.push((claim, carried(tx, claim)?)),
         }
     }
-    Ok((launching, linked))
+    Ok(Ok((launching, linked)))
 }
 
 impl Store {
@@ -713,14 +723,22 @@ impl Store {
     /// run whose manifest carries that claim, if any, by one query over
     /// `runs.manifest`; and each entry linked with no `spawn` row, under
     /// its claim, with its run. An entry with a `spawn` row is settled.
-    /// Refused unless `generation` is the journal's latest holder, and
-    /// where two runs carry one claim. A link, a spawn or a reclaim of a
-    /// claim an older generation took is that latest holder's to take, a
-    /// link only to the run that carries it.
-    pub fn queue_unsettled(&mut self, generation: Generation) -> Result<Unsettled, StoreError> {
+    /// `judge` is handed first, inside the query's transaction and before
+    /// anything of the queue is read, the id the journal names itself by,
+    /// as [`Store::journal`] reads it: its refusal is returned as the
+    /// query's, with nothing read past it. Refused unless `generation` is
+    /// the journal's latest holder, and where two runs carry one claim. A
+    /// link, a spawn or a reclaim of a claim an older generation took is
+    /// that latest holder's to take, a link only to the run that carries
+    /// it.
+    pub fn queue_unsettled_with<R>(
+        &mut self,
+        generation: Generation,
+        mut judge: impl FnMut(Option<Uuid>) -> Result<(), R>,
+    ) -> Result<Result<Unsettled, R>, StoreError> {
         let conn = &mut self.conn;
         patiently("queue_unsettled", self.patience, || {
-            in_step(conn, |tx| unsettled_in(tx, generation))
+            in_step(conn, |tx| unsettled_in(tx, generation, &mut judge))
         })
     }
 }

@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use brokkr_store::Generation;
 use thiserror::Error;
+use uuid::Uuid;
 
 mod lock;
 mod reconcile;
@@ -16,8 +17,9 @@ mod reconcile;
 pub use lock::{take_dispatch, Dispatcher};
 pub use reconcile::{reconcile, Settled};
 
-/// Why this process could not take a journal as its dispatcher. Nothing
-/// was recorded, and the lock is not held.
+/// Why this process could not take a journal as its dispatcher, or, as
+/// one, act in a store. Nothing was recorded, and a lock refused is not
+/// held.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum DispatcherError {
     /// Another dispatcher holds the journal's lock: the one its latest
@@ -37,6 +39,26 @@ pub enum DispatcherError {
         .0.display()
     )]
     Lock(PathBuf),
+    /// A dispatcher handed a store whose journal is not the one it took,
+    /// by the id each names itself by: the dispatcher's journal, then the
+    /// store's, `None` for one with no id. Nothing of the queue was read,
+    /// and nothing was written.
+    #[error(
+        "dispatch: this dispatcher took journal {}, and the store it was handed holds journal \
+         {}; a dispatcher acts in the journal it took alone, so nothing was written (decision \
+         0095)",
+        id(.0.as_ref()),
+        id(.1.as_ref())
+    )]
+    OtherJournal(Option<Uuid>, Option<Uuid>),
+}
+
+/// A journal as the id it names itself by.
+fn id(journal: Option<&Uuid>) -> String {
+    match journal {
+        Some(id) => id.to_string(),
+        None => "(no id)".into(),
+    }
 }
 
 /// A dispatcher holding a lock, as its holder row names it. The lock

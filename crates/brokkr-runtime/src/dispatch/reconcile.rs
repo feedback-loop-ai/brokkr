@@ -18,7 +18,7 @@ use std::num::NonZeroU32;
 
 use brokkr_store::{Claim, Store, StoreError};
 
-use super::Dispatcher;
+use super::{Dispatcher, DispatcherError};
 
 /// An entry reconciliation settled.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,12 +54,22 @@ fn reclaimed(claim: Claim) -> String {
 /// `dispatcher`, before its pass: link each entry left launching to the run
 /// that carries its claim, or reclaim it where none does, and say each
 /// entry settled, in the order of the entries, those left launching first.
-/// Refused, writing nothing, unless the dispatcher's generation is the
-/// journal's latest holder; a refusal of one step leaves every step before
-/// it written.
-pub fn reconcile(store: &mut Store, dispatcher: &Dispatcher) -> Result<Vec<Settled>, StoreError> {
+/// Refused, writing nothing, unless `store`'s journal, read first inside
+/// the query's transaction, is the one the dispatcher took, the inner
+/// refusal; and unless the dispatcher's generation is the journal's latest
+/// holder. Each step after acts through the same store, whose connection
+/// holds that journal. A refusal of one step leaves every step before it
+/// written.
+pub fn reconcile(
+    store: &mut Store,
+    dispatcher: &Dispatcher,
+) -> Result<Result<Vec<Settled>, DispatcherError>, StoreError> {
     let generation = dispatcher.generation;
-    let (launching, linked) = store.queue_unsettled(generation)?;
+    let unsettled = store.queue_unsettled_with(generation, |named| dispatcher.took(named))?;
+    let (launching, linked) = match unsettled {
+        Ok(unsettled) => unsettled,
+        Err(refused) => return Ok(Err(refused)),
+    };
     let mut settled = Vec::with_capacity(launching.len() + linked.len());
     for (claim, carrier) in launching {
         settled.push(match carrier {
@@ -77,7 +87,7 @@ pub fn reconcile(store: &mut Store, dispatcher: &Dispatcher) -> Result<Vec<Settl
     }
     let to_spawn = linked.into_iter();
     settled.extend(to_spawn.map(|(claim, run)| Settled::ToSpawn(claim, run)));
-    Ok(settled)
+    Ok(Ok(settled))
 }
 
 #[cfg(test)]
