@@ -55,14 +55,15 @@ fn queue_in(workspace: &Path, db: &Path, words: &[&str]) -> Result<ExitCode> {
     queue(workspace, parsed(db, words))
 }
 
-/// What `brokkr queue list` or `judge`, run in `workspace` against `db`,
-/// prints on stderr.
+/// What `brokkr queue list`, `judge` or `repin`, run in `workspace`
+/// against `db`, prints on stderr.
 fn stderr_of(workspace: &Path, db: &Path, words: &[&str]) -> String {
     let mut stderr = Vec::new();
     let exit = match parsed(db, words) {
         QueueCmd::List(args) => list(workspace, args, &mut stderr),
         QueueCmd::Judge(args) => judge(workspace, args, &mut stderr),
-        _ => unreachable!("only list and judge name unstarted runs"),
+        QueueCmd::Repin(args) => repin(workspace, args, &mut stderr),
+        _ => unreachable!("only list, judge and repin paint the journal's strings on stderr"),
     };
     assert_eq!(exit.unwrap(), completed());
     String::from_utf8(stderr).unwrap()
@@ -77,6 +78,14 @@ fn refused_in(workspace: &Path, db: &Path, words: &[&str]) -> (String, ExitCode)
 /// A refusal that says `line` and leaves as failed.
 fn failed(line: &str) -> (String, ExitCode) {
     (line.to_string(), ExitCode::from(Exit::Failed))
+}
+
+/// Write `workspace`'s realms map: one realm, `here`, at `boundary`.
+fn map_of(workspace: &Path, boundary: &str) {
+    let map = json!({"schema": "forge.realms/v4", "journal": "forge.db",
+        "realms": [{"name": "here", "path": ".", "default_branch": "main",
+                    "boundary": boundary}]});
+    std::fs::write(workspace.join("realms.json"), map.to_string()).unwrap();
 }
 
 /// The listing as the handler reads it: each entry, its launch and
@@ -243,12 +252,7 @@ fn an_entry_held_for_a_changed_realm_is_released_by_repin() {
     let _host = own_host();
     let dir = tempfile::tempdir().unwrap();
     let (ws, db) = library(&dir);
-    let map = |boundary: &str| {
-        let map = json!({"schema": "forge.realms/v4", "journal": "forge.db",
-            "realms": [{"name": "here", "path": ".", "default_branch": "main",
-                        "boundary": boundary}]});
-        std::fs::write(ws.join("realms.json"), map.to_string()).unwrap();
-    };
+    let map = |boundary: &str| map_of(ws, boundary);
     map("open");
     let add = ["add", "--bundle", "b", "--feature", "f", "--reason", "r"];
     queue_in(ws, &db, &add).unwrap();
@@ -309,6 +313,48 @@ fn an_entry_held_for_a_changed_realm_is_released_by_repin() {
             "error: queue entry 2 holds no latched realm drift to release; `brokkr queue judge` \
              latches what it finds"
         )
+    );
+}
+
+/// The differences a re-pin accepts are the latch's, read from the
+/// journal, and an older brokkr or a hand-edited map let control,
+/// reordering and zero-width characters into their names: `repin` says
+/// them on stderr with those out (`render::Safe`).
+#[test]
+fn a_repin_says_the_differences_it_accepted_with_their_names_made_safe() {
+    use brokkr_runtime::admission::Difference;
+
+    let _host = own_host();
+    let dir = tempfile::tempdir().unwrap();
+    let (ws, db) = library(&dir);
+    map_of(ws, "open");
+    let add = ["add", "--bundle", "b", "--feature", "f", "--reason", "r"];
+    queue_in(ws, &db, &add).unwrap();
+    map_of(ws, "harness");
+    queue_in(ws, &db, &["judge", "--reason", "r"]).unwrap();
+    // The latch judge wrote, its differences named as an older brokkr let
+    // them be, latched again over the same pin: its map on disk stands.
+    let mut store = Store::open(&db).unwrap();
+    let queued = store.queue_entry(EntryId(1)).unwrap();
+    let mut finding: serde_json::Value =
+        serde_json::from_str(&queued.latch.as_ref().unwrap().finding).unwrap();
+    let [reorder, zero_width] = [0x202E, 0x200B].map(|c| char::from_u32(c).unwrap());
+    finding["differences"] = json!([
+        Difference::GrantAdded("web\x1b[2J\rhidden".into()),
+        Difference::Realm {
+            was: Some(format!("old{reorder}{zero_width}name")),
+            now: Some("here".into()),
+        },
+    ]);
+    let by = brokkr_store::Attribution {
+        operator: "o",
+        reason: "r",
+    };
+    (store.queue_latch(EntryId(1), &finding.to_string(), queued.seen(), by)).unwrap();
+    assert_eq!(
+        stderr_of(ws, &db, &["repin", "1", "--reason", "r"]),
+        "re-pinned queue entry 1 to the realms map on disk, accepting: grant web[2Jhidden added; \
+         the repository's realm oldname → here\n"
     );
 }
 

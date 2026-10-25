@@ -31,7 +31,7 @@ pub(crate) fn queue(workspace: &Path, command: QueueCmd) -> Result<ExitCode> {
         QueueCmd::Move(args) => change(workspace, args.entry, QueueCommand::Move { to: args.to }),
         QueueCmd::Hold(args) => change(workspace, args, QueueCommand::Hold),
         QueueCmd::Release(args) => change(workspace, args, QueueCommand::Release),
-        QueueCmd::Repin(args) => repin(workspace, args),
+        QueueCmd::Repin(args) => repin(workspace, args, &mut std::io::stderr()),
         QueueCmd::Drop(args) => change(workspace, args, QueueCommand::Drop),
     }
 }
@@ -98,7 +98,8 @@ fn change(
 /// that would govern it now, written beside the one it was queued with
 /// and journaled with its reason, saying the differences it accepted.
 /// Admission compares the entry against the map it stands for from then
-/// on.
+/// on. The differences are the latch's, read from the journal, so the
+/// line `stderr` is told passes through [`Safe`] as the table's cells do.
 fn repin(
     workspace: &Path,
     QueueEntryArgs {
@@ -106,12 +107,15 @@ fn repin(
         reason,
         journal,
     }: QueueEntryArgs,
+    stderr: &mut impl Write,
 ) -> Result<ExitCode> {
     let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
     let accepted = attributed(&reason, |by| {
         admission::release(&mut store, entry, by).map_err(anyhow::Error::from)
     })?;
-    eprintln!("re-pinned queue entry {entry} to the realms map on disk, accepting: {accepted}");
+    let said =
+        format!("re-pinned queue entry {entry} to the realms map on disk, accepting: {accepted}");
+    writeln!(stderr, "{}", Safe::new(&said).as_str())?;
     Ok(Exit::Completed.into())
 }
 
