@@ -329,7 +329,7 @@ jobs:
     # deadline, which the design forbids shortening for tests, so the
     # instrumented run outgrew 20 minutes, then reached 28 of 30, and a
     # merge group's run was cancelled at 30.
-    timeout-minutes: 45
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
