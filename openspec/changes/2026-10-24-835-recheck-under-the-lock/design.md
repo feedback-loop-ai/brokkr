@@ -8,8 +8,10 @@ the council's two positions reconciled. A decision is stated once here and
 cited from there. Where this design reversed a record of the proposal (S1,
 S5, S8, and the proof S10 named) the proposal now says so at that record
 and points here; everything else of it stands. Every line number is this
-tree's (`c6e557cf`; the code is unchanged through `e6623cbf`), re-verified
-by this seat.
+tree's (`999c820b`; the code is unchanged since `efa9af75`), re-verified
+by this seat on each of its two visits, the second after the council's
+second positions and the clarify that cleared `999c820b`
+(`.forge/results/ffd18e5e-…-judge.json`).
 
 ## Context
 
@@ -46,11 +48,13 @@ made a test, shows the wrong refusal before the fix and none after; the two
 resume tests hold in-suite on this host, with counts; no assertion weakened.
 
 **What the branch holds.** `efa9af75` (the diagnostic print; the resume
-tests' assertions unchanged); the proposal and delta, `fba1d60e` through
-`c6e557cf`, cleared by clarify; the two positions under
-`.forge/design/positions/`; the earlier attempts' measurements under
-`.forge/scratch/` (alone 100/100 each; in-suite 30 runs of 1,378 tests, 0
-failed, all with production code unchanged). No fix is on the branch yet.
+tests' assertions unchanged); the change's artifacts, `fba1d60e` through
+`999c820b`, the last cleared by clarify with no finding; the council's two
+positions under `.forge/design/positions/`, each written twice, the second
+time at `999c820b` against D1 to D11 as committed; the earlier attempts'
+measurements under `.forge/scratch/` (alone 100/100 each; in-suite 30 runs
+of 1,378 tests, 0 failed, all with production code unchanged). No fix is
+on the branch yet.
 
 **The pieces the design builds on, as read in this tree.**
 
@@ -100,8 +104,10 @@ Goals:
 2. Every refusal the door makes keeps its variant and its text; a lock not
    had is refused by the lock's name, never as a loss (ruling 8).
 3. A test in the suite fails on the unfixed tree with the race's own
-   refusal and passes on the fixed one, deterministically, and a second
-   binds the lock's own refusal at the door (ruling 9).
+   refusal whenever the unlocked door reaches its read within the test's
+   hold, and passes on the fixed one, which no time can fail short of the
+   broker's own deadline; and a second binds the lock's own refusal at the
+   door, with no bound at all (ruling 9).
 4. The two resume tests hold alone and in-suite on this host, with counts,
    their assertions as `efa9af75` left them.
 5. Every reader of a reservation is named in the commit with its lock.
@@ -120,7 +126,16 @@ test; the sweep's other flakes (#857).
 ## The council, reconciled
 
 Each claim is adopted, rejected or combined on evidence, with the ruling of
-decision 0071 it turns on.
+decision 0071 it turns on. The council sat twice: at `c6e557cf`, on the
+proposal, and at `999c820b`, on D1 to D11 as committed. The second visit
+moved no mechanism. Simplicity asked that the design not be reopened and
+offered two cuts of text; robustness withdrew its stress mandate and its
+helper move on the scope evidence, concurred with D1, D5 and D6, and asked
+that the design claim of its wait test only what a bounded observation
+proves. Each is answered below where its claim lands. The clarify of
+`999c820b` found nothing against the artifacts; the two citation slips
+and the notes on D8 it considered and did not count are taken up in D1
+and D8 all the same.
 
 **Adopted from both positions.** Mechanism (a), the operator's: the read
 under `root::locked`, taken the one way (ruling 5), before `reserved_at`
@@ -139,11 +154,17 @@ ends at 800, its ceiling (D9). The tests in `admission/tests.rs` beside the
 door's existing tests, no `door.rs` (D9; ruling 5). The binding test models
 a seal in flight by its two invariants, the lock held and the record as a
 descheduled reader composes it, which `standing` refuses: the race's own
-refusal before the fix, deterministically, and admission after (D6). The
-budgeted stress is not a suite test (D7). The `Expired`-at-the-door
-scenarios go: `Expired` is `locked`'s refusal, proven with the lock held at
-admission, and reaches the door by the one conversion the lock-file test
-proves there (D3).
+refusal before the fix, with no wait and no load-dependent rate, and
+admission after (D6). The budgeted stress is not a suite test (D7). The
+`Expired`-at-the-door scenarios go: `Expired` is `locked`'s refusal, proven
+with the lock held at admission, and reaches the door by the one conversion
+the lock-file test proves there (D3). From its second visit, two cuts of
+text: `recheck`'s doc comment gains four words, `read under the admission
+lock`, and is otherwise reflowed within its six lines, the reach clause
+and the ruling citation unchanged and no issue number added, for the
+number's home is the commit and the tests' docs (ruling 5; D1); and the
+open question of a shared constant for a test's bounded hold is dropped,
+for it named a consumer that does not exist (ruling 6).
 
 **Adopted from robustness alone.** Its invariants become the implementer's
 checklist and the tests' shape: the guard is bound as `let _lock`, never
@@ -163,6 +184,19 @@ negative half of the wait test is a bounded observation and is called one
 reason the stress leaves the suite rather than gaining a floor (D7). The
 Lock and wait behaviours are proven by two tests, one per mutation, so each
 mutation names the test it fails (ruling 9), where simplicity drafted one.
+From its second visit: the words "deterministically" and "every time",
+which goal 3, this section, D6 and D7 and the proposal's S5 and proof
+used of the unfixed tree, are replaced by what the observation proves:
+the unlocked door makes no wait, so the test fails whenever that door
+reaches its read within `HOLD`, and a thread descheduled past `HOLD`
+before its read is the one way the mutation survives a run, which the
+recorded run is read for and the lock-file test closes (D6, D7). The
+fixed test's one time-bound failure is named too: a door kept from the
+released lock for the broker's 30 seconds answers `Expired`, the
+deadline's own refusal and not the test's (D6, Risks). The residual on
+`Expired`, that no door test binds a remapping of `Expired` alone, is
+named as robustness asks (D2, Risks), as is the reader audit's standing
+as today's substitute for a type-level guarantee (D5; open question 2).
 
 **Rejected from robustness.** Retaining the stress and adding progress
 tracking or coordinated rounds to show exercised contention (D7): more
@@ -170,9 +204,22 @@ machinery for evidence its own author calls inconclusive, a timing test
 inside a timing-flake sweep, and a floor that fails by name on a slow host.
 `recheck_by` as the operation under a bounded wrapper (D2): its only
 consumer beyond `recheck` is a test whose facts are proven elsewhere, and
-it costs the `identity` move into two more files. A root-bound lock token
-(named by robustness as separately authorized): outside this mechanism's
-fence, recorded under open questions.
+it costs the `identity` move into two more files. Robustness's second visit
+withdraws both on the scope evidence, so they stand rejected on the record
+and in no contention. A root-bound lock token (named by robustness as
+separately authorized): outside this mechanism's fence, recorded under open
+questions. From its second visit, the `let _` mutation offered "if needed"
+to show the wait test binds the guard's lifetime: traced against D6's
+test, it does not bind, so it is not recorded as a mutation that fails.
+`let _ = locked(…)?` takes the lock and drops it at the statement's end
+(`locked` returns the `OwnedFd` whose drop releases it, `root.rs:218-221`),
+so that door waits in `locked`'s loop while the holder holds, as the fixed
+door does, then reads after the heal and admits; and the lock-file test
+refuses `Lock` through the same `?`. Both pass. The lifetime is named as a
+residual the tests do not prove (D6), owned by review, with D1 naming the
+binding as `amend` binds its own (`admission.rs:757`). No test binds it
+without a seam between the door's take and its read, a new `Hook` in a
+fenced change.
 
 **Rejected from simplicity.** One test for both behaviours: split in two
 (D6). The assertion that the reservation's bytes are unchanged after a
@@ -185,7 +232,7 @@ be named and `f7183e97` cleared the text as written; it is true, marked
 doubly-refused scenario: it encodes an answered ambiguity, which the
 dialect's return rule says a scenario does; it is kept, with the proof it
 rests on named (D4). Re-quoting the scratch stress as the only before side:
-the deterministic test is the before side the acceptance names, and the
+the modelled test is the before side the acceptance names, and the
 scratch is quoted beside it (D7, D8).
 
 **Combined.** The operator's acceptance is read with both: "a test … shows
@@ -218,10 +265,12 @@ pub(in crate::engine) fn recheck(held: &Held) -> Result<(), Unadmitted> {
 ```
 
 - `locked`, `read`, `startup`, `Duration` and `Instant` are already imported
-  (`admission.rs:41`, `:52`, `:54`); no import line is added.
-- The guard is `_lock`, a named binding, so it lives to the block's end;
-  `let _ = locked(…)` would drop the descriptor at once and lock nothing
-  (robustness's first invariant). The run directory's descriptor `run` and
+  (`admission.rs:41`, `:51`, `:54`); no import line is added.
+- The guard is `_lock`, a named binding, as `amend` binds its own (`:757`),
+  so it lives to the block's end; `let _ = locked(…)` would drop the
+  descriptor at the statement's end and read unlocked, which no test of D6
+  can tell from the fixed door (robustness's first invariant, owned by
+  review; D6). The run directory's descriptor `run` and
   the guard drop together at the brace, before `ours` is judged, before
   `redirected` observes hands and Git, before the artifact root is compared,
   and before `spawning` takes its own lock (D4).
@@ -233,7 +282,7 @@ pub(in crate::engine) fn recheck(held: &Held) -> Result<(), Unadmitted> {
   deadline inside the call the arguments are 63 columns, and the tree is
   formatted to rustfmt's defaults (no `rustfmt.toml`): a call whose
   arguments pass `fn_call_width`'s 60 is laid one argument per line, as
-  `fold/tests.rs:1006-1010` (62 columns) and
+  `fold/tests.rs:1010-1014` (62 columns) and
   `admission/tests/sealing.rs:123-127` (66) are, while one of exactly 60
   keeps its line (`admission/tests.rs:760`). So the inline form would be
   four lines, the block eight and the file 802, which the files gate refuses
@@ -243,20 +292,21 @@ pub(in crate::engine) fn recheck(held: &Held) -> Result<(), Unadmitted> {
   `Unadmitted::Identity` through the one `From` impl, as `amend`'s do; only
   the read's failure is mapped to `Lost`, as today (D3).
 - The block observes, the lines after it decide (ruling 10).
-- `recheck`'s doc comment carries the lock within its six lines, each at
-  most 80 columns as the file keeps them:
+- `recheck`'s doc comment (`:688-693`) gains four words, `read under the
+  admission lock`, and is reflowed within its six lines, each at most 77
+  columns where the file keeps its doc lines within 80; nothing else of it
+  changes, not the reach clause nor the ruling it cites, and no issue
+  number is added, for the number's home is the commit and the tests' docs
+  (simplicity's second visit; ruling 5):
 
   ```
   /// Whether the lease `held` still stands at the dispatch door: its
-  /// reservation, read under the admission lock (#835), still names its
-  /// attempt standing; each boxed writer's sealed reach, observed again from
-  /// its authored hands and from Git, still resolves as sealed (R1; operator
-  /// ruling 2026-10-18, after U8a2a's third run), under the fence rule; and
-  /// the artifact root it protects is still the directory admitted.
+  /// reservation, read under the admission lock, still names its attempt
+  /// standing, every path each boxed writer's box is built from, observed
+  /// again from its authored hands and from Git, still resolves as sealed (R1;
+  /// operator ruling 2026-10-18, after U8a2a's third run), under the fence
+  /// rule, and the artifact root it protects is still the directory admitted.
   ```
-
-  The reach's long form ("every path each boxed writer's box is built
-  from") stays in `redirected`'s doc (`:720-724`), its home.
 - `admission.rs`: 796 + 4 = 800 lines, its ceiling, which the files gate
   admits (D9). `cargo fmt --all -- --check` is run on the block before the
   count is read, so the count the gate reads is the formatted one.
@@ -455,26 +505,37 @@ fn the_door_waits_for_a_seal_in_flight() {
   joins; the door's thread ignores a send to a receiver gone the same way.
   On the fixed code the door's own deadline is 30 s, so no failure path
   waits longer than that in any case.
-- `early` is `Timeout` deterministically on the fixed code: the door is
-  inside `locked`'s loop until the holder drops, which happens after this
-  assertion. The last assertion is deterministic too: after the heal the
-  record has one link, the door's next poll (within 10 ms) takes the lock,
-  `standing` returns the record, the attempt stands in it, `open`'s lease
-  has no authored boxes and no artifact root, so `recheck` is `Ok(())`.
+- `early` is `Timeout` on the fixed code by construction, not by timing:
+  the door is inside `locked`'s loop until the holder drops, which happens
+  after this assertion, and nothing but the broker's 30-second deadline
+  takes it out of that loop sooner. The last assertion follows from the
+  heal: after it the record has one link, the door's next poll (within
+  10 ms) takes the lock, `standing` returns the record, the attempt stands
+  in it, `open`'s lease has no authored boxes and no artifact root, so
+  `recheck` is `Ok(())`. The one way time fails the fixed test is a door
+  kept from the released lock for the 30 seconds its deadline allows, which
+  answers `Expired`, the deadline's own refusal: the broker's bound, not
+  the test's, and a host that stalls a thread so long fails every door test
+  alike.
 - The binding mutation, recorded in the commit: the `locked` line removed.
-  The door reads at once and `early` is
-  `Ok(Err(Unadmitted::Identity(Unknown::Lost)))`, the race's own refusal,
-  so the first assertion fails naming it. That is the operator's "wrong
-  refusal before the fix"; the passing run after is "none after". A door
-  whose lock were taken after its read would also fail the last assertion
-  with `Lost`, so the test binds the take's place before the read.
+  That door makes no wait, so whenever its thread reaches the read within
+  `HOLD`, `early` is `Ok(Err(Unadmitted::Identity(Unknown::Lost)))`, the
+  race's own refusal, and the first assertion fails naming it. That is the
+  operator's "wrong refusal before the fix"; the passing run after is "none
+  after". The claim is a bounded observation, as robustness asks it be
+  called: a thread descheduled past `HOLD` before its read is the one way
+  the mutation survives a run, so the recorded run is read for the refusal
+  it names, never for a pass, and the lock-file test closes the same
+  mutation with no bound. A door whose lock were taken after its read would
+  also fail the last assertion with `Lost`, so the test binds the take's
+  place before the read.
 - `HOLD` bounds only how long the mutation is given to show itself. The
   fixed door cannot fail this test by time, which is why the bound is the
   test's and not the code's; the operator's rule on a bound that moves (a
   fail-closed limit and a comment saying why) is met by the constant's
   comment. Under a load that deschedules the mutated door for over 500 ms
   the mutation could survive one run; the lock-file test catches the same
-  mutation deterministically, and the implementer's recorded mutation run
+  mutation with no bound, and the implementer's recorded mutation run
   is read for the refusal it names, not for a pass.
 
 ```rust
@@ -516,10 +577,17 @@ one per line), `tests.rs` at about 1,875 of 2,000 (D9). The existing
 `coordination.rs` test stay green and unchanged. `resume_tests.rs` is not
 touched beyond `efa9af75`.
 
-What these tests do not prove, said plainly: that the guard is dropped
-before `redirected` (an efficiency rule of U8a2a, read on the page; a wider
-scope changes no result here), and contention under real seals, which the
-resume tests in-suite and the scratch carry (D7, D8).
+What these tests do not prove, said plainly: that the guard lives through
+the read (a `let _` door waits for the holder as the fixed door does, drops
+the lock at its statement's end, reads the healed record and admits, and
+refuses the second link through the same `?`, so it passes both; the
+binding's name is D1's and review's, as `amend`'s is); that the guard is
+dropped before `redirected` (an efficiency rule of U8a2a, read on the page;
+a wider scope changes no result here); and contention under real seals,
+which the resume tests in-suite and the scratch carry (D7, D8). Binding the
+first would need a seam between the door's take and its read, a new `Hook`
+in a fenced change, for a mutation that leaves a narrower window than
+today's and that review reads on one line.
 
 ### D7. The stress is not a suite test
 
@@ -530,9 +598,10 @@ on disk. It is cut, for these reasons together:
 
 - The operator's acceptance is disjunctive, "a test, or the scratch stress
   made a test", and D6's first test meets its first clause strictly better:
-  it fails every time on the unfixed tree, where the stress's mutated form
-  refused at 0.76 % and 2.6 % of reads under this host's load and, by S5's
-  own words, is "load-sensitive evidence, not a proof".
+  on the unfixed tree it fails whenever the unlocked door reaches its read
+  within `HOLD`, with no rate below that to wait for, where the stress's
+  mutated form refused at 0.76 % and 2.6 % of reads under this host's load
+  and, by S5's own words, is "load-sensitive evidence, not a proof".
 - Robustness shows what a passing stress proves without more machinery:
   little. "Zero `Lost` with zero useful work is not a pass", and a
   simultaneous start with final totals does not show the readers ran while
@@ -561,20 +630,31 @@ fix builds and D6's tests pass, before the workspace validation and before
 any measuring: the attempt is killed at two hours, and the earlier attempts'
 workspace runs on this host took about 1,700 s and 1,500 s of test time
 before build time (`.forge/scratch/workspace-full.txt`,
-`workspace-rest.txt`). Only `cargo fmt --all -- --check` runs before that
-commit, because it compiles nothing and the files gate reads the formatted
-count (D1, D9). Clippy, `cargo test --workspace` split by crate around the
+`workspace-rest.txt`). What runs before that commit is what its message
+carries and nothing that measures: `cargo fmt --all -- --check`, which
+compiles nothing and gives the files gate its formatted count (D1, D9);
+the two mutation runs, each on the one test binary the fix already built,
+whose recorded failures ruling 9 asks for; the door's neighbours, filtered
+in that binary; and the reader audit's grep (tasks 2.1 to 2.4; the clarify
+of `999c820b`, note b). Clippy, `cargo test --workspace` split by crate
+around the
 seat's 20-minute command limit, both bundles and the ratchets run after the
 commit and amend it with their results, unsigned (the clarify of
 `e6623cbf`, finding 2). Then, in 45 minutes at most: up to 20 runs of each
 resume test alone, filtered to itself as its before side was
-(`before-alone-seq.txt` and `before-alone-fresh.txt` each read `running 1
-test … 1377 filtered out`, 100 runs each): `cargo test -p brokkr-runtime
+(`before-alone-seq.txt` and `before-alone-fresh.txt` under
+`.forge/scratch/`, where every earlier attempt's measurement is, the
+commission's `.forge/loops/` never having existed on this worktree; each
+reads `running 1 test … 1377 filtered out`, 100 runs each): `cargo test -p
+brokkr-runtime
 --lib -- engine::resume_tests::a_sequence_offers`, then the same for
 `engine::resume_tests::a_fresh_process_derives`, 40 invocations at most,
 each test's count set beside its own before side; and up to 3 in-suite runs
 (`cargo test -p brokkr-runtime --lib`), beside the before side's 30 runs of
-1,378 tests, 0 failed (`suite-a.txt` to `suite-c.txt`). The commission's
+1,378 tests passed, 0 failed (`suite-a.txt` to `suite-c.txt`; in 21 of the
+30 the binary held a 1,379th test, an earlier attempt's scratch test,
+ignored, so a run's `1378 passed` is the count to set beside; the clarify
+of `999c820b`, note e). The commission's
 budget names one test and #835 has two, so each test has the budget of one,
 and the one 45 minutes bounds both alone loops and the in-suite runs
 together (finding 3). The counts in hand when the budget ends go in the
@@ -642,10 +722,13 @@ API; a dispatch-level test holding the lock against `spawn_site`; the
 ## Risks
 
 - **The mutated wait test can pass once under extreme load** (a mutated
-  door descheduled for over `HOLD`). One-way: the fixed door cannot fail
-  this test by time. The lock-file test catches the same mutation
-  deterministically, and the recorded mutation run is read for the refusal
-  it names (D6).
+  door descheduled for over `HOLD` before its read), so its catch is a
+  bounded observation and is never called deterministic. One-way but for
+  the broker's own bound: the fixed door cannot fail this test by time
+  short of the 30 seconds its deadline allows, after which it answers
+  `Expired`, the deadline's refusal and not the test's. The lock-file test
+  catches the same mutation with no bound, and the recorded mutation run is
+  read for the refusal it names (D6).
 - **The race is modelled, not raced, in the suite.** The model is exact for
   what `standing` computes (traced in D6) and rests on D5's audit that every
   production seal holds the lock. The real race's reproduction is the
@@ -656,9 +739,11 @@ API; a dispatch-level test holding the lock against `spawn_site`; the
   `Lock`. A mutation that folds only `Expired` into `Lost` while keeping
   `Lock` is not one anyone writes; it is named here rather than bought with
   `recheck_by` (D2).
-- **The lock's scope has no binding test.** A guard held across
-  `redirected` changes no result, only contention; code review owns it, and
-  the block makes it visible (D4).
+- **The lock's scope and the guard's lifetime have no binding test.** A
+  guard held across `redirected` changes no result, only contention; a
+  `let _` guard dropped before the read passes both tests and leaves a
+  narrower window than today's. Code review owns both, the block shows them
+  on two lines, and D1 names the binding as `amend` names its own (D4, D6).
 - **`admission.rs` at 800 of 800.** The next change that grows it moves
   something out first, under its own scope; this change keeps no fallback
   move, and a gate refusal of 800 is reported, not moved around (D9).
@@ -694,7 +779,3 @@ branch.
    "admission lock for this root". A type carrying that invariant would
    strengthen every reader's API; it is #853's territory under decision
    0065 slice two, not this mechanism's, and is left for that work.
-3. **Whether the sweep wants a shared constant for a test's bounded hold.**
-   `HOLD` is the one such bound in this suite; if #857's other fixes add
-   bounds of the same kind, one constant with one comment is ruling 5's
-   answer then.
