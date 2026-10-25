@@ -18,17 +18,17 @@
 //! | `summary`, `commands` | the fold | the trail folded, its seq and hash the opened head's (a checkpoint moves only the fold's seq and hash); none where the summary row records the fold's refusal at that head, a checkpoint's included |
 //! | `ruling`, `unavailable`, `clarify` | the fold, the rulings, the supersedes and the last success | the trail and the fold |
 //! | `participants`: which, in order, key, label, member, phase, visit, attempts, provenance, effort pin | requests, starts and checkpoints | the facts, each under the request its first row names, and the trail's requests and starts |
-//! | `participants`: model, effort, boundary, usage, costs, turns, items, transcript, status, carried | requests, starts, terminals and checkpoints | the facts |
+//! | `participants`: model, effort, boundary, usage, costs, turns, items, transcript, status, carried | requests, starts, terminals and checkpoints | the facts; a seat's own model, which its facts join with its members', its rows' `model` |
 //! | `participants`: `activity` | a working seat's last `seat-turn` tool and target; a member's first checkpoint, its finish or last checkpoint; a seat's start and terminal | the facts' `tool`, `target`, `started_at`, `finish` and `last_at`; the trail |
 //! | `participants`: `terminal_line`, `session_id` | a member's last `panel-member-finished`; the session record's `session_id` | the facts' `finish` and `session_id` |
 //! | `participants`: `checkpoints` | every checkpoint | none: the seat view's checkpoint pages |
 //! | `live` | the open attempt's checkpoints: each member's first, its last `seat-turn`'s turn and tool | `seat::row::live` |
 //! | `phases`: name, visits, current, strategy, returns | phase entries, rulings, the fold | the trail |
-//! | `phases`: `columns`, `plain` | the newest effect's checkpoints: its finished sequence steps' names and its members in first order | `seat::row::inner`; each node's state and cells the facts' |
+//! | `phases`: `columns`, `plain` | the newest effect's checkpoints: its finished sequence steps' names and its members in first order | `seat::row::inner`; each node's cells the facts' and its own model, its state the facts' and the word its rows' `pin` keeps |
 //! | `journal` | every event | the journal page; each row's model and boundary from its own payload, the trail's starts and the facts |
 //! | `journal`: `causation_seq` | every event's id | the causes, by `event_index`'s ids |
 //! | `event_count` | every event, counted | the opened head's seq, a position from 1 |
-//! | `dashboard`: path, decision, last seat, last review | phases, rulings, terminals | the trail, the last visit ending at the head's stamp |
+//! | `dashboard`: path, decision, last seat, last review | phases, rulings, terminals | the trail, the last visit ending at the head's stamp, which the summary row keeps whole |
 //! | `dashboard`: a visit's `model` | every model its checkpoints and terminals reported | `seat::row::models` |
 //! | `scopes`, `view_version` | nothing of the run | nothing |
 
@@ -46,14 +46,14 @@ use crate::{head_of, patiently, Opened, SeatRows, Store, StoreError};
 /// and the fleet's page of runs hold (ruling 7).
 const JOURNAL_PAGE: u64 = 50;
 
-/// Whether a run's summary row records the fold's refusal, read only where
-/// it stands at the head it is asked at.
-const REFUSED: &str = "SELECT refusal_seq IS NOT NULL FROM run_summary
-     WHERE run_id = ?1 AND folded_seq = ?2 AND folded_hash = ?3";
-
-/// The stamp of a run's event, by its key.
-const STAMP: &str = "SELECT json_extract(envelope, '$.recorded_at') FROM events
-     WHERE run_id = ?1 AND seq = ?2";
+/// Whether a run's summary row records the fold's refusal, and the head's
+/// stamp it keeps whole, read only where it stands, folded, at the head it
+/// is asked at: never the head's envelope, which a park's reason may
+/// stretch, parsed by SQLite for its stamp.
+const REFUSED: &str = "SELECT refusal_seq IS NOT NULL,
+         COALESCE(last_recorded_at_whole, last_recorded_at) FROM run_summary
+     WHERE run_id = ?1 AND folded_seq = ?2 AND folded_hash = ?3
+       AND head_seq = ?2 AND head_hash = ?3";
 
 /// What the run view reads of one run at the head its opening verified.
 #[derive(Debug, Clone)]
@@ -133,23 +133,23 @@ impl Store {
         let SeatRows::Current(seats) = rows_at(&self.conn, run_id, (seq, &hash))? else {
             return Ok(RunRead::Kept);
         };
-        let Some(refused) = self.refused_at(run_id, opened)? else {
+        let Some(summary) = self.refused_at(run_id, opened)? else {
             return Ok(RunRead::Kept);
         };
-        self.paged_at(run_id, opened, after, seats, refused)
+        self.paged_at(run_id, opened, after, seats, summary)
     }
 
     /// The rest of the read at `opened`, whose `seats` stand there and
-    /// whose summary row says whether the fold was `refused` there: the
-    /// page past `after` and what caused its rows, the trail, the fold and
-    /// the head's stamp.
+    /// whose summary row says whether the fold was `refused` there and
+    /// the head's stamp: the page past `after` and what caused its rows,
+    /// the trail and the fold.
     fn paged_at(
         &self,
         run_id: &str,
         opened: &Opened,
         after: u64,
         seats: Vec<SeatRow>,
-        refused: bool,
+        (refused, last_at): (bool, String),
     ) -> Result<RunRead, StoreError> {
         // The opening verified each seq the position it holds, from 1 to
         // the head, so a page's seqs are its keys.
@@ -160,13 +160,12 @@ impl Store {
             return Ok(RunRead::Kept);
         };
         let trail = self.envelopes_at(run_id, &self.index_trail(run_id)?)?;
-        let head = params![run_id, opened.seq as i64];
         Ok(RunRead::Current {
             state: (!refused)
                 .then(|| folded(&trail, opened))
                 .flatten()
                 .map(Box::new),
-            last_at: self.conn.query_row(STAMP, head, |row| row.get(0))?,
+            last_at,
             trail,
             seats,
             page,
@@ -175,10 +174,16 @@ impl Store {
     }
 
     /// Whether `run_id`'s summary row records the fold's refusal at
-    /// `opened`, none where it does not stand there.
-    fn refused_at(&self, run_id: &str, opened: &Opened) -> Result<Option<bool>, StoreError> {
+    /// `opened`, and the head's stamp, none where it does not stand there.
+    fn refused_at(
+        &self,
+        run_id: &str,
+        opened: &Opened,
+    ) -> Result<Option<(bool, String)>, StoreError> {
         let head = params![run_id, opened.seq as i64, opened.hash];
-        let refused = self.conn.query_row(REFUSED, head, |row| row.get(0));
+        let refused = self
+            .conn
+            .query_row(REFUSED, head, |row| Ok((row.get(0)?, row.get(1)?)));
         Ok(refused.optional()?)
     }
 }

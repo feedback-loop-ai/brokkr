@@ -78,11 +78,12 @@ impl Told {
     }
 
     /// What `facts` keep of a participant, its own: a seat's figures its
-    /// members sum are its members' to state.
-    pub(crate) fn kept(facts: &SeatFacts) -> Told {
+    /// members sum are its members' to state. `pinned` is the word its last
+    /// finish pinned: the rows keep any outcome as the text it shows, so an
+    /// outcome given otherwise than as a word pins none, as the scan reads.
+    pub(crate) fn kept(facts: &SeatFacts, pinned: Option<String>) -> Told {
         let own = |figure: Option<f64>, summed: bool| figure.filter(|_| !summed);
         let member = facts.member != Member::Seat;
-        let finish = facts.finish.clone();
         Told {
             spent: own(facts.cost, facts.cost_aggregated),
             last_cost: facts.last_attempt_cost,
@@ -94,8 +95,8 @@ impl Told {
                 tool,
                 target: facts.target.clone(),
             }),
-            word: finish.as_ref().and_then(|finish| finish.outcome.clone()),
-            finish,
+            finish: facts.finish.clone(),
+            word: pinned,
         }
     }
 }

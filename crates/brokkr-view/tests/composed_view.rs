@@ -14,6 +14,7 @@ use brokkr_core::fold::fold;
 use brokkr_core::summary::Account;
 use brokkr_core::{EventEnvelope, EventType};
 use brokkr_view::{composed_view, run_view, Parts, RunView};
+use serde_json::{json, Value};
 
 use crate::{committed_journals, journals};
 
@@ -72,27 +73,88 @@ fn disagreements(run: &str, events: &[EventEnvelope]) -> (Vec<String>, bool) {
     (composed::disagreements(run, &whole, &pages), true)
 }
 
-#[test]
-fn every_committed_journal_composed_from_its_trail_and_rows_is_its_run_view() {
+/// What composing each of `journals` shows otherwise than its run view,
+/// and how many were composed.
+fn compared<N: AsRef<str>>(
+    journals: impl IntoIterator<Item = (N, Vec<EventEnvelope>)>,
+) -> (Vec<String>, usize) {
     let (mut found, mut compared) = (Vec::new(), 0);
-    for (path, events) in committed_journals::committed_journals() {
-        let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        let (differ, kept) = disagreements(&name, &events);
+    for (name, events) in journals {
+        let (differ, kept) = disagreements(name.as_ref(), &events);
         found.extend(differ);
         compared += usize::from(kept);
     }
+    (found, compared)
+}
+
+#[test]
+fn every_committed_journal_composed_from_its_trail_and_rows_is_its_run_view() {
+    let journals = committed_journals::committed_journals();
+    let (found, compared) = compared(journals.into_iter().map(|(path, events)| {
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        (name, events)
+    }));
     assert_eq!(found, Vec::<String>::new());
     assert_eq!(compared, 16);
 }
 
 #[test]
 fn every_hand_built_journal_composed_from_its_trail_and_rows_is_its_run_view() {
-    let (mut found, mut compared) = (Vec::new(), 0);
-    for (name, events) in journals::journals() {
-        let (differ, kept) = disagreements(name, &events);
-        found.extend(differ);
-        compared += usize::from(kept);
-    }
+    let (found, compared) = compared(journals::journals());
     assert_eq!(found, Vec::<String>::new());
     assert_eq!(compared, 21);
+}
+
+/// A seat with no model of its own whose member states one in a finished
+/// step that names no step, so its phase draws the seat's node: the node
+/// shows the seat's own model, which it has none of, never its members'.
+fn joined() -> Vec<EventEnvelope> {
+    let finished = json!({"member": "m", "step": "sequence-step-finished", "model": "opus"});
+    journals::journal(vec![
+        (EventType::PhaseEntered, json!({"phase": "implement"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "s1", "seat": "solo", "phase": "implement"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "s1", "attempt_id": "a1"}),
+        ),
+        journals::checkpoint("s1", "a1", finished),
+    ])
+}
+
+/// A panel retried, its member's first attempt pinning its failure and its
+/// retry's finish giving its outcome as an array of one status word, which
+/// pins nothing: the retry's outcome stands for its node, and its node
+/// shows the model its retry stated, the last.
+fn unpinned() -> Vec<EventEnvelope> {
+    let finished = |outcome: Value, model: &str| {
+        json!({"member": "a", "step": "panel-member-finished", "outcome": outcome,
+               "model": model})
+    };
+    let attempt = |attempt: &str| json!({"effect_id": "p1", "attempt_id": attempt});
+    journals::journal(vec![
+        (EventType::PhaseEntered, json!({"phase": "review"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "p1", "seat": "panel", "phase": "review"}),
+        ),
+        (EventType::EffectStarted, attempt("c1")),
+        journals::checkpoint("p1", "c1", finished(json!("failed"), "m1")),
+        (EventType::EffectFailed, attempt("c1")),
+        (EventType::EffectStarted, attempt("c2")),
+        journals::checkpoint("p1", "c2", finished(json!(["failed"]), "m2")),
+        (
+            EventType::EffectSucceeded,
+            json!({"effect_id": "p1", "attempt_id": "c2", "result": {"result": "pass"}}),
+        ),
+    ])
+}
+
+#[test]
+fn a_seat_s_members_model_and_a_member_s_unpinned_finish_compose_as_read_whole() {
+    let (found, compared) = compared([("joined", joined()), ("unpinned", unpinned())]);
+    assert_eq!(found, Vec::<String>::new());
+    assert_eq!(compared, 2);
 }

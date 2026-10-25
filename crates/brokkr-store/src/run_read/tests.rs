@@ -14,7 +14,8 @@ use brokkr_core::fold::{fold, RunState};
 use brokkr_core::seat::row::SeatRow;
 use serde_json::{json, Value};
 
-use crate::test_support::unindex;
+use crate::test_support::{lags, plant_envelope, unindex};
+use crate::tests::envelope_builder::EnvelopeBuilder;
 use crate::tests::{plant_unfenced, store};
 use crate::{Opened, RunRead, SeatRows, Store, StoreError};
 
@@ -260,6 +261,36 @@ fn a_run_whose_fold_refuses_a_checkpoint_reads_no_state() {
         panic!("r read as kept");
     };
     assert_eq!(state, None);
+}
+
+/// A head stamped past the summary row's bound is read with its whole
+/// stamp, which the row keeps beside the cut one, by key: never through
+/// the head's envelope.
+#[test]
+fn a_head_stamped_past_the_summary_s_bound_reads_its_whole_stamp() {
+    let (dir, mut store) = store();
+    worked(&mut store, 1);
+    let (seq, previous) = store.head_hash("r").unwrap();
+    let stamp = format!("2026-01-01T00:00:00.{}Z", "1".repeat(40));
+    let envelope = EnvelopeBuilder::new(EventType::EffectCheckpointed, turn(2))
+        .run("r")
+        .seq(seq + 1)
+        .event_id("stamped")
+        .at(stamp.clone())
+        .previous(previous)
+        .sealed();
+    plant_envelope(&store.conn, &envelope).unwrap();
+    lags(&mut store, &["r"]);
+    drop(store);
+    // A writable open catches the run's projections up to the head.
+    let path = dir.path().join("forge.db");
+    drop(Store::open(&path).unwrap());
+    let reader = Store::open_read_only(&path).unwrap();
+    let opened = reader.open_run("r").unwrap();
+    let Read::Current { last_at, .. } = read(reader.run_read("r", &opened, 0)) else {
+        panic!("r read as kept");
+    };
+    assert_eq!(last_at, stamp);
 }
 
 /// A run with no event, a journal whose summary's backfill has not

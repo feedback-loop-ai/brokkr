@@ -36,7 +36,7 @@ const STRETCHED: usize = grown::EVENTS / 2;
 /// The grown run, chained, its middle envelope's text stretched to
 /// exactly [`STRETCH`] bytes unless it is unstretched.
 fn opened_run(stretch: Stretch) -> Vec<EventEnvelope> {
-    stretched::grown_run(STRETCHED, "stretch", stretch)
+    stretched::run_stretched(grown::journal(), STRETCHED, "stretch", stretch)
 }
 
 /// A journal under `dir` named `name` of `events` events: the grown run,

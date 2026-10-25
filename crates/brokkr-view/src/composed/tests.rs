@@ -4,12 +4,14 @@ use serde_json::json;
 use super::*;
 use crate::tests::ev;
 
-/// A participant is read by its row's request, effect and member, at the
-/// places `SeatRow::COLUMNS` names them.
+/// A participant is read by its row's request, effect and member, and its
+/// own model and pin, at the places `SeatRow::COLUMNS` names them.
 #[test]
 fn a_participant_is_read_by_its_row_s_request_effect_and_member() {
     let named = [ASKED, EFFECT, MEMBER].map(|at| SeatRow::COLUMNS[at].0);
     assert_eq!(named, ["request_seq", "effect_id", "member"]);
+    let stated = [MODEL, PIN].map(|pair| pair.map(|at| SeatRow::COLUMNS[at].0));
+    assert_eq!(stated, [["model_seq", "model"], ["pin_seq", "pin"]]);
 }
 
 /// Each outcome a participant's rows keep shows the status the scan shows

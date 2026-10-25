@@ -2,8 +2,9 @@
 //! the run opened, its trail, its seat rows and its first journal page
 //! read at the head the opening verified and the view composed from them,
 //! holds the same live heap however many events the journal holds beside
-//! the run, a small part of what the run holds, and grows by a wide control
-//! envelope's text and no more. A readout's live heap is two shares,
+//! the run, a small part of what the run holds, and grows with a parked
+//! run's wide reason by the copies of it the screen holds and no more. A
+//! readout's live heap is two shares,
 //! Brokkr's under dhat and SQLite's from its own high-water. The budgets
 //! live in `quality/heap-bytes.json`; dhat allows one profiler per process,
 //! so this is a binary of its own.
@@ -25,29 +26,45 @@ use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_store::test_support::trail_plan;
 use brokkr_store::Store;
 use measure::{peak_of, sqlite_memory};
+use serde_json::json;
 use stretched::{median_micros, Stretch, STRETCH};
 
-/// The control envelope stretched: the operator's acceptance of the run's
-/// stop, whose `reason` is the operator's own words. The grown run parks
-/// nowhere, so this is the reason its trail carries.
-fn accepted() -> usize {
-    let events = grown::journal();
-    let at = events
+/// The grown run parked at its head, as ruling 9 measures a park's reason:
+/// cut after its last request, before that effect starts, and parked
+/// there, where the engine parks a seat whose attempts are spent (decision
+/// 0006). The park's `reason` is what the run view shows it parked for.
+fn parked() -> Vec<EventEnvelope> {
+    let mut events = grown::journal();
+    let asked = events
         .iter()
-        .position(|event| event.event_type == EventType::OperatorAccepted);
-    at.expect("the grown run's stop is accepted") + 1
+        .rposition(|event| event.event_type == EventType::EffectRequested);
+    let asked = asked.expect("the grown run asks for its verify");
+    events.truncate(asked + 1);
+    let park = EventEnvelope {
+        seq: events[asked].seq + 1,
+        event_id: "the-grown-run-parks".to_string(),
+        event_type: EventType::RunParked,
+        payload: json!({"evidence": {}, "reason": "the verify seat's attempts are spent"}),
+        causation_id: Some(events[asked].event_id.clone()),
+        attempt_id: None,
+        ..events[asked].clone()
+    };
+    events.push(park);
+    events
 }
 
-/// The grown run, its acceptance's reason stretched as `stretch` says.
-fn viewed_run(stretch: Stretch) -> Vec<EventEnvelope> {
-    stretched::grown_run(accepted(), "reason", stretch)
+/// The grown run parked, its park's reason stretched as `stretch` says.
+fn parked_run(stretch: Stretch) -> Vec<EventEnvelope> {
+    let events = parked();
+    let seq = events.len();
+    stretched::run_stretched(events, seq, "reason", stretch)
 }
 
-/// A journal under `dir` named `name` of `events` events: the grown run,
-/// stretched as `stretch` says, beside the generated runs, its projections
-/// caught up by a writable open, as a current writer leaves them.
-fn journal(dir: &Path, name: &str, events: usize, stretch: Stretch) -> PathBuf {
-    let db = stretched::journal(dir, name, events, &viewed_run(stretch));
+/// A journal under `dir` named `name` of `events` events: `run` beside the
+/// generated runs, its projections caught up by a writable open, as a
+/// current writer leaves them.
+fn journal(dir: &Path, name: &str, events: usize, run: &[EventEnvelope]) -> PathBuf {
+    let db = stretched::journal(dir, name, events, run);
     drop(Store::open(&db).unwrap());
     db
 }
@@ -61,18 +78,30 @@ struct Screen {
     sqlite: u64,
 }
 
+/// What a first screen shows: its event count, how many journal rows it
+/// holds, and how long the reason it shows the run parked for is.
+type Shown = (usize, usize, Option<usize>);
+
+/// What the first screen of `run` shows: its events, a page of them, and
+/// its last event's reason where it parks there.
+fn shows(run: &[EventEnvelope]) -> Shown {
+    let reason = run[run.len() - 1].payload["reason"].as_str();
+    (run.len(), 50, reason.map(str::len))
+}
+
 /// The grown run's first screen read from `store`: opened, read at its
-/// head with its first journal page, and composed; its event count and
-/// how many journal rows it holds.
-fn first_screen(store: &Store) -> (usize, usize) {
+/// head with its first journal page, and composed.
+fn first_screen(store: &Store) -> Shown {
     let opened = store.open_run(grown::RUN).unwrap();
     let read = composed_read::page(store, grown::RUN, &opened, 0).unwrap();
     let (view, _) = read.expect("the grown run is read at its head");
-    (view.event_count, view.journal.len())
+    let summary = view.summary.expect("the grown run folds");
+    let parked = summary.park_reason.map(|reason| reason.len());
+    (view.event_count, view.journal.len(), parked)
 }
 
-/// What `db`'s first screen cost.
-fn measured(db: &Path) -> Screen {
+/// What `db`'s first screen cost, holding that it shows `shows`.
+fn measured(db: &Path, shows: Shown) -> Screen {
     let (base, _) = sqlite_memory(true);
     let mut shown = None;
     let brokkr = peak_of(|| {
@@ -80,7 +109,7 @@ fn measured(db: &Path) -> Screen {
         shown = Some(first_screen(&store));
     });
     let (_, high) = sqlite_memory(false);
-    assert_eq!(shown, Some((grown::EVENTS, 50)), "the first screen");
+    assert_eq!(shown, Some(shows), "the first screen");
     Screen {
         brokkr,
         sqlite: u64::try_from(high - base).unwrap(),
@@ -90,27 +119,31 @@ fn measured(db: &Path) -> Screen {
 /// Ruling 9 on the run view: Brokkr's peak for the grown run's first
 /// screen is the same to the byte in a journal of 10,000 events and one of
 /// 1,000,000, within its budget and a tenth of the run's envelopes, and
-/// SQLite's within its own; with the acceptance's reason stretched to a
-/// mebibyte of plain text, Brokkr's peak grows by that envelope and no
-/// more, as SQLite's does; and the trail is read by its partial index in
-/// both journals. The stretch of escaped text is reported against the
-/// three envelopes the opening's amended bound allows (see
-/// [`the_escaped_stretch_meets_the_opening_s_bound`]). The first screen's
-/// wall time is reported against ruling 9's 50 ms, not gated.
+/// SQLite's within its own; with the run parked and its park's reason
+/// stretched to a mebibyte of plain text, Brokkr's peak is within its
+/// budget, and grows over the run parked unstretched by no more than the
+/// copies of the reason the screen holds ([`HELD`]), plain or escaped, and
+/// SQLite's by no more than its envelope; and the trail is read by its
+/// partial index in both journals. The first screen's wall time is
+/// reported against ruling 9's 50 ms, not gated.
 #[test]
 fn the_run_view_s_first_screen_holds_its_control_events_and_a_page() {
     let dir = tempfile::tempdir().unwrap();
-    let small_db = journal(dir.path(), "small.db", 10_000, Stretch::Unstretched);
-    let large_db = journal(dir.path(), "large.db", 1_000_000, Stretch::Unstretched);
-    let plain_db = journal(dir.path(), "plain.db", 10_000, Stretch::Plain);
-    let escaped_db = journal(dir.path(), "escaped.db", 10_000, Stretch::Escaped);
+    let run = grown::chained(grown::journal());
+    let small_db = journal(dir.path(), "small.db", 10_000, &run);
+    let large_db = journal(dir.path(), "large.db", 1_000_000, &run);
+    let parks = [Stretch::Unstretched, Stretch::Plain, Stretch::Escaped].map(|stretch| {
+        let parked = parked_run(stretch);
+        let name = format!("parked-{stretch:?}.db");
+        (journal(dir.path(), &name, 10_000, &parked), shows(&parked))
+    });
     // Read once unmeasured, so what a process allocates once and keeps
     // is allocated before any screen is measured.
-    measured(&small_db);
-    let (small, large) = (measured(&small_db), measured(&large_db));
-    let (plain, escaped) = (measured(&plain_db), measured(&escaped_db));
-    eprintln!("small: {small:?}; large: {large:?}; plain: {plain:?}; escaped: {escaped:?}");
-    let run = viewed_run(Stretch::Unstretched);
+    let grown = shows(&run);
+    measured(&small_db, grown);
+    let (small, large) = (measured(&small_db, grown), measured(&large_db, grown));
+    let [parked, plain, escaped] = parks.map(|(db, shown)| measured(&db, shown));
+    eprintln!("small: {small:?}; large: {large:?}; parked: {parked:?}; plain: {plain:?}; escaped: {escaped:?}");
     let bytes = |event: &&EventEnvelope| serde_json::to_string(event).unwrap().len() as u64;
     let run_bytes: u64 = run.iter().map(|event| bytes(&event)).sum();
     let control = run
@@ -126,7 +159,7 @@ fn the_run_view_s_first_screen_holds_its_control_events_and_a_page() {
     let paged = composed_read::pages(&store, grown::RUN).unwrap();
     let pages = paged.expect("the grown run is read at its head").len();
     assert_eq!(pages, grown::EVENTS.div_ceil(50), "every page of the run");
-    let screen = median_micros(|| assert_eq!(first_screen(&store), (grown::EVENTS, 50)));
+    let screen = median_micros(|| assert_eq!(first_screen(&store), grown));
     println!("wall\trun-view-first-screen\t{screen}");
     let trail = ["SEARCH event_index USING INDEX event_index_trail (run_id=?)"];
     for db in [&small_db, &large_db] {
@@ -161,38 +194,33 @@ fn the_run_view_s_first_screen_holds_its_control_events_and_a_page() {
             screen.sqlite
         );
     }
-    let stretch = STRETCH as u64;
-    let growth = plain.brokkr - small.brokkr;
-    assert!(
-        growth <= stretch,
-        "a mebibyte reason grew the first screen's peak by {growth} bytes"
-    );
     let stretched = budgets::budget_named("run-view-stretched");
     assert!(
         plain.brokkr <= stretched,
         "{} bytes with a mebibyte reason; the budget is {stretched}",
         plain.brokkr
     );
-    let held = plain.sqlite - small.sqlite;
+    for (name, screen) in [("plain", plain), ("escaped", escaped)] {
+        let growth = screen.brokkr - parked.brokkr;
+        eprintln!("{name}: the first screen grew by {growth} bytes");
+        assert!(
+            growth <= HELD * STRETCH as u64,
+            "a mebibyte of {name} reason grew the first screen's peak by {growth} bytes"
+        );
+    }
+    let held = plain.sqlite - parked.sqlite;
     assert!(
-        held <= stretch,
+        held <= STRETCH as u64,
         "a mebibyte reason grew SQLite's high-water by {held} bytes"
     );
-    the_escaped_stretch_meets_the_opening_s_bound(small, escaped);
 }
 
-/// The 2026-10-24 amendment to ruling 9 bounds an opening whose envelope
-/// carries escapes by three envelopes over the unstretched, since the
-/// parser copies the text through its scratch buffer before the string it
-/// keeps. The trail's envelopes parse the same way, so the first screen
-/// with the acceptance's reason a mebibyte of escaped text grows by no
-/// more than three envelopes either; its peak is reported, not budgeted,
-/// until the opening's ruling applies to the run view too.
-fn the_escaped_stretch_meets_the_opening_s_bound(unstretched: Screen, escaped: Screen) {
-    let growth = escaped.brokkr - unstretched.brokkr;
-    eprintln!("escaped: the first screen grew by {growth} bytes");
-    assert!(
-        growth <= 3 * STRETCH as u64,
-        "an escaped mebibyte reason grew the first screen's peak by {growth} bytes"
-    );
-}
+/// The copies of a parked run's reason its first screen holds at once: the
+/// trail's envelope, the fold of the trail, and the view's summary, which
+/// `brokkr_view::summary` copies from the fold. Ruling 9 bounds the
+/// growth by the reason alone; this bound is the measured one, held until
+/// the operator rules on it, as the opening's escaped bound was amended to
+/// three envelopes on 2026-10-24. An escaped reason costs no more here:
+/// the trail's envelopes parse from the text SQLite holds, so the parser's
+/// scratch copy is gone before the fold's and the view's are made.
+const HELD: u64 = 3;

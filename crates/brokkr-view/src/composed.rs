@@ -72,25 +72,66 @@ pub fn composed_view(parts: &Parts<'_>, state: Option<&RunState>) -> Option<RunV
 }
 
 /// The columns a row's participant is read by (`SeatRow::COLUMNS`): the
-/// request it was opened under, its effect and its member.
+/// request it was opened under, its effect and its member; and the seq
+/// and value of the model it stated and of the word its finish pinned.
 const ASKED: usize = 0;
 const EFFECT: usize = 1;
 const MEMBER: usize = 3;
+const MODEL: [usize; 2] = [13, 14];
+const PIN: [usize; 2] = [25, 26];
 
-/// The request each participant of `rows` was first seen under, in the
-/// order [`facts`] lists them: its first row's.
-fn homes(rows: &[SeatRow]) -> Vec<Datum> {
+/// A value a row keeps and the seq that stated it, `None` for a value the
+/// statement left absent.
+type Stated = Option<(i64, Option<String>)>;
+
+/// What a participant's rows keep that its facts do not hold apart: the
+/// request its first row names, the model it stated itself, where a seat's
+/// facts give its members' joined, and the word its last finish pinned,
+/// which a finish whose outcome is no status word given as one leaves
+/// absent, as the scan reads it.
+struct Own {
+    home: Datum,
+    model: Stated,
+    pin: Stated,
+}
+
+/// The value at `columns` of `data`, as its seq stated it.
+fn stated(data: &[Datum], [seq, value]: [usize; 2]) -> Stated {
+    let Datum::Integer(seq) = data[seq] else {
+        return None;
+    };
+    let value = match &data[value] {
+        Datum::Text(text) => Some(text.clone()),
+        _ => None,
+    };
+    Some((seq, value))
+}
+
+/// What each participant of `rows` keeps of its own, in the order
+/// [`facts`] lists them: its first row's request, and its model and pin
+/// as the last of its rows to state them did.
+fn owned(rows: &[SeatRow]) -> Vec<Own> {
     let mut seen = Vec::new();
-    let mut homes = Vec::new();
+    let mut owned: Vec<Own> = Vec::new();
     for row in rows {
         let data = row.data();
         let participant = (data[EFFECT].clone(), data[MEMBER].clone());
-        if !seen.contains(&participant) {
+        let at = seen.iter().position(|known| *known == participant);
+        let at = at.unwrap_or_else(|| {
             seen.push(participant);
-            homes.push(data[ASKED].clone());
-        }
+            let home = data[ASKED].clone();
+            owned.push(Own {
+                home,
+                model: None,
+                pin: None,
+            });
+            owned.len() - 1
+        });
+        let own = &mut owned[at];
+        own.model = own.model.take().max(stated(&data, MODEL));
+        own.pin = own.pin.take().max(stated(&data, PIN));
     }
-    homes
+    owned
 }
 
 /// The participants `rows` keep, in their order, each under the request
@@ -111,8 +152,8 @@ fn scanned(trail: &[EventEnvelope], rows: &[SeatRow]) -> Option<Scan> {
         .filter(|event| field(&event.payload, "effect_id").is_some())
         .map(|event| Datum::Integer(event.seq as i64))
         .collect();
-    for (facts, home) in facts(rows).iter().zip(homes(rows)) {
-        let slot = asked.iter().position(|asked| *asked == home)?;
+    for (facts, own) in facts(rows).iter().zip(owned(rows)) {
+        let slot = asked.iter().position(|asked| *asked == own.home)?;
         let member = match &facts.member {
             Member::Seat => None,
             Member::Named(member) => Some(member.as_str()),
@@ -120,24 +161,26 @@ fn scanned(trail: &[EventEnvelope], rows: &[SeatRow]) -> Option<Scan> {
         let at = ensure(&mut scan, slot, &facts.effect_id, member);
         let planned = read.by_key.get(&scan.parts[at].key);
         let planned = planned.and_then(|index| read.parts[*index].provenance.clone());
-        kept(&mut scan.parts[at], facts, planned);
+        kept(&mut scan.parts[at], facts, own, planned);
     }
     Some(scan)
 }
 
-/// `part` as `facts` keep it, `provenance` its plan's.
-fn kept(part: &mut Build, facts: &SeatFacts, provenance: Option<Value>) {
+/// `part` as `facts` and its rows' `own` keep it, `provenance` its plan's.
+/// Its model is its own, as the scan's is: the view joins a seat's
+/// members' where it shows them.
+fn kept(part: &mut Build, facts: &SeatFacts, own: Own, provenance: Option<Value>) {
     let member = part.member.as_deref().unwrap_or_default();
     let carried = facts.carried_from.as_ref();
     part.carried = carried.map(|from| CarriedEntry::of(member, &from.attempt_id));
     part.provenance = provenance;
-    part.model.clone_from(&facts.model);
+    part.model = own.model.and_then(|(_, model)| model);
     part.effort.clone_from(&facts.effort);
     part.boundary.clone_from(&facts.boundary);
     part.transcript.clone_from(&facts.transcript);
     part.turns = facts.turns.filter(|_| !facts.turns_aggregated);
     part.items = facts.items;
-    part.told = Told::kept(facts);
+    part.told = Told::kept(facts, own.pin.and_then(|(_, word)| word));
     (part.status, part.status_class) = status(facts.outcome);
 }
 

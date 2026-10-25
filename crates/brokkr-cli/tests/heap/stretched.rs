@@ -55,11 +55,16 @@ impl Stretch {
     }
 }
 
-/// The grown run, chained, its envelope at `seq` stretched by its payload's
-/// `field` to exactly [`STRETCH`] bytes of text unless it is unstretched.
-pub(crate) fn grown_run(seq: usize, field: &str, stretch: Stretch) -> Vec<EventEnvelope> {
+/// `events`, a run grown from the grown run, chained, its envelope at `seq`
+/// stretched by its payload's `field` to exactly [`STRETCH`] bytes of text
+/// unless it is unstretched.
+pub(crate) fn run_stretched(
+    mut events: Vec<EventEnvelope>,
+    seq: usize,
+    field: &str,
+    stretch: Stretch,
+) -> Vec<EventEnvelope> {
     let stretched = stretch != Stretch::Unstretched;
-    let mut events = super::grown::journal();
     if stretched {
         let event = &mut events[seq - 1];
         event.payload[field] = "".into();
