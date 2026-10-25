@@ -136,6 +136,43 @@ fn a_checkpoint_append_writes_the_rows_it_moved_and_the_seat_head() {
     assert_eq!(read(&store, "r").len(), 3);
 }
 
+/// A run whose live start names an effect no request has asked for keeps
+/// no seat head, its rows not keeping that start's live block: they read
+/// stale, and the binding holds them to their fold all the same, an edited
+/// row or a seat head kept for them named behind. A writable open refolds
+/// the run and keeps none still. The terminal ending that start keeps the
+/// head again, every row its fold's.
+#[test]
+fn a_live_start_no_row_is_of_keeps_no_seat_head() {
+    let (_dir, mut store) = store();
+    seated(&mut store, "r");
+    let unasked = json!({"effect_id": "other", "attempt_id": "b"});
+    append(&mut store, "r", EventType::EffectStarted, unasked.clone());
+    assert_eq!(head(&store, "r"), None);
+    assert_eq!(read_raw(&store, "r"), 2);
+    assert_eq!(store.seat_rows("r").unwrap(), SeatRows::Stale);
+    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+    let behind = ["r: seat rows behind its head"];
+    sql(
+        &store,
+        "UPDATE seat_summary SET seat = 'x' WHERE opened = 0",
+    );
+    assert_eq!(every_run_reads_as_its_fold(&store), behind);
+    sql(
+        &store,
+        "UPDATE seat_summary SET seat = 'worker' WHERE opened = 0",
+    );
+    let (seq, hash) = store.head_hash("r").unwrap();
+    write_head(&store.conn, "r", (seq, &hash)).unwrap();
+    assert_eq!(every_run_reads_as_its_fold(&store), behind);
+    sql(&store, "DELETE FROM seat_head WHERE run_id = 'r'");
+    let peer = Store::open(store.path()).unwrap();
+    assert_eq!(head(&peer, "r"), None);
+    append(&mut store, "r", EventType::EffectSucceeded, unasked);
+    assert_eq!(head(&store, "r"), Some(store.head_hash("r").unwrap()));
+    assert_eq!(read(&store, "r"), folded_rows(&store, "r"));
+}
+
 /// An append through a store that carries no fold writes no seat row and
 /// leaves the seat head behind; so does one whose fold stands at another
 /// head than the append found, and the rows read as stale.
@@ -627,6 +664,78 @@ fn a_journal_that_lost_a_seat_table_reads_stale_until_a_writable_open_refolds_it
         assert_eq!(read(&store, "r").len(), 2, "{lost}");
         migrate_seats(&store.conn).unwrap();
         assert_eq!(read(&store, "r").len(), 2, "{lost}");
+    }
+}
+
+/// A journal whose rows' table an unreleased build made without a column
+/// slice 2b keeps reads stale, refusing its reader nothing, and a writable
+/// open makes both tables anew and refolds every run, the column's facts
+/// included: a turn's tool and target, a finish's time and outcome, a
+/// session's id, a sequence's finished steps, a member's tag, the models
+/// reported, the members tagged and the live lines opened before their
+/// effect's request, and which rows are of the run's last start.
+#[test]
+fn a_seat_table_without_a_column_slice_2b_keeps_is_rebuilt_at_a_writable_open() {
+    let unkept = [
+        "finish_at",
+        "finish_outcome",
+        "session_id",
+        "seat_turn_seq",
+        "seat_turn",
+        "seat_turn_tool",
+        "seat_turn_target",
+        "steps",
+        "tagged_seq",
+        "models",
+        "early_tags",
+        "early_lines",
+        "live",
+    ];
+    for column in unkept {
+        let (_dir, mut store) = store();
+        seated(&mut store, "r");
+        let turn = json!({"step": "seat-turn", "turn": 2, "tool": "Edit", "target": "a.rs"});
+        let turned = json!({"effect_id": "fx", "attempt_id": "a", "checkpoint": turn});
+        append(&mut store, "r", EventType::EffectCheckpointed, turned);
+        let step = json!({"step": "sequence-step-finished", "step_name": "draft"});
+        let stepped = json!({"effect_id": "fx", "attempt_id": "a", "checkpoint": step});
+        append(&mut store, "r", EventType::EffectCheckpointed, stepped);
+        let tagged = checkpoint(Some("b"), 1);
+        append(&mut store, "r", EventType::EffectCheckpointed, tagged);
+        let early = json!({"member": "c", "step": "seat-turn", "turn": 1, "tool": "Read"});
+        let early = json!({"effect_id": "fy", "attempt_id": "z", "checkpoint": early});
+        append(&mut store, "r", EventType::EffectCheckpointed, early);
+        let asked = json!({"effect_id": "fy", "seat": "other"});
+        append(&mut store, "r", EventType::EffectRequested, asked);
+        let started = json!({"effect_id": "fy", "attempt_id": "z"});
+        append(&mut store, "r", EventType::EffectStarted, started);
+        let path = store.path().to_path_buf();
+        drop(store);
+        let raw = rusqlite::Connection::open(&path).unwrap();
+        let dropped = format!("ALTER TABLE seat_summary DROP COLUMN {column}");
+        raw.execute_batch(&dropped).unwrap();
+        let reader = Store::open_read_only(&path).unwrap();
+        assert!(!seats_intact(&reader.conn).unwrap(), "{column}");
+        assert_eq!(reader.seat_rows("r").unwrap(), SeatRows::Stale, "{column}");
+        let store = Store::open(&path).unwrap();
+        let rows = store.seat_rows("r").unwrap();
+        assert_eq!(
+            rows,
+            SeatRows::Current(folded_rows(&store, "r")),
+            "{column}"
+        );
+        let read = read(&store, "r");
+        let facts = brokkr_core::seat::row::facts(&read);
+        let target = facts[0].target.as_deref();
+        assert_eq!(target, Some("a.rs"), "{column}");
+        let listed = brokkr_core::seat::row::inner(&read, "fx");
+        let words = |word: &str| vec![word.to_string()];
+        assert_eq!(listed, (words("draft"), words("b")), "{column}");
+        let models = brokkr_core::seat::row::models(&read, 0, u64::MAX);
+        assert_eq!(models.into_iter().collect::<Vec<_>>(), words("opus"));
+        let turned = Some(("1".to_string(), "Read".to_string()));
+        let live = brokkr_core::seat::row::live(&read);
+        assert_eq!(live, [("?:c".to_string(), turned)], "{column}");
     }
 }
 
