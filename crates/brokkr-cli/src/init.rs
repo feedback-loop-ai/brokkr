@@ -1351,14 +1351,16 @@ fn charters(stack: Option<&Detected>) -> [(&'static str, String); 3] {
 /// What `init` hands back: the compiled scaffold's digest, whether its
 /// realm stands under `namespace` (which needs bubblewrap), the seats
 /// whose hands it compiled, sorted, the sentences that say which agent
-/// CLI and boundary it chose and why, and every path it wrote, relative
-/// to the root, sorted.
+/// CLI and boundary it chose and why, every path it wrote, relative to the
+/// root, sorted, and the compiled scaffold itself, whose dsh seats the key
+/// check models (#717).
 pub(crate) struct Scaffold {
     pub digest: String,
     pub namespace: bool,
     pub hands: Vec<String>,
     pub notes: Vec<String>,
     pub written: Vec<PathBuf>,
+    pub bundle: Bundle,
 }
 
 /// Scaffold the folder `.brokkr/` under `root`, having read `root` for
@@ -1479,6 +1481,7 @@ pub(crate) fn init(
         hands: bundle.hands.keys().cloned().collect(),
         notes: host.notes,
         written,
+        bundle,
     })
 }
 

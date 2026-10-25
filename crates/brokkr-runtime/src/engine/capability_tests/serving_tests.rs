@@ -314,6 +314,32 @@ fn the_serving_inputs_are_sealed_beside_the_record_and_admitted_only_as_sealed()
     );
 }
 
+/// #717: the fence doctor reads a launch's intent under is the one dispatch
+/// seals beside the selected link's launch, and none where the site's plan
+/// holds no outcome for that link, beside which dispatch seals nothing.
+#[test]
+fn the_sealed_fence_is_the_one_dispatch_seals_and_none_without_an_outcome() {
+    use brokkr_protocol::native_controls::SealedFence;
+    let (_dir, engine) = two_candidate_engine();
+    let (link, facts) = (dsh_fallback(), engine.bundle.sites.get("work"));
+    let (_, sealed) = marked(&engine, &link, json!({}));
+    assert_eq!(
+        (
+            &sealed[SERVING_INPUTS]["isolation"]["fence"],
+            crate::engine::sealed_fence(Some(&link), facts)
+        ),
+        (&json!("standing"), Some(SealedFence::Standing))
+    );
+    let pro = Candidate {
+        model: "pro".into(),
+        ..dsh_fallback()
+    };
+    let (_, unserved) = marked(&engine, &pro, json!({}));
+    assert_eq!(unserved.get(SERVING_INPUTS), None);
+    assert_eq!(crate::engine::sealed_fence(Some(&pro), facts), None);
+    assert_eq!(crate::engine::sealed_fence(Some(&link), None), None);
+}
+
 /// U1g2: an inline site whose MCP server set the compile never recorded
 /// seals nothing and refuses its spawn; the set is never derived again from
 /// its argv, and the same site with its set recorded seals the empty one.

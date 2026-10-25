@@ -17,11 +17,13 @@ pub mod overrides;
 pub mod probe;
 pub mod process;
 pub mod secret;
+mod served_home;
 mod transcript;
 pub mod zstd;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+pub use served_home::{dsh_served, holds_dotenv, DshRefusal, DshServed};
 
 pub const PROTO: &str = "forge-driver/v1";
 

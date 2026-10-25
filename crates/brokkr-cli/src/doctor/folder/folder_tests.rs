@@ -260,13 +260,21 @@ fn the_folder_is_the_reports_bundle_compiled_once() {
         (dir, format!("{held:#}")),
         (folder.clone(), no_bundle.clone())
     );
-    let folder_line = |held: anyhow::Result<()>| {
+    let folder_line = |held: anyhow::Result<brokkr_runtime::bundle::Bundle>| {
         let mut report = report();
         report_folder(&mut report, &defaults, None, Some(held));
         report.lines.swap_remove(0)
     };
     let found = format!("{}/.brokkr (found from {})", root.display(), root.display());
-    assert_eq!(folder_line(Ok(())), format!("ok       folder: {found}"));
+    // A compile that held is any bundle: a claude scaffold's, elsewhere.
+    let elsewhere = tempfile::tempdir().unwrap();
+    let (repo, path) = (elsewhere.path(), std::ffi::OsStr::new(""));
+    let claude = Some(crate::init::Cli::Claude);
+    let held = crate::init::init(repo, path, "linux", repo, claude).unwrap();
+    assert_eq!(
+        folder_line(Ok(held.bundle)),
+        format!("ok       folder: {found}")
+    );
     assert_eq!(
         folder_line(Err(anyhow::anyhow!("held"))),
         format!("MISSING  folder: {found}, but its compile refuses (decision 0083): held")
@@ -516,5 +524,53 @@ fn each_dsh_key_answer_takes_its_status_column() {
             ],
             false
         )
+    );
+}
+
+/// Each line of a modelled seat's home (#717) in its status column: the
+/// home that serves a route's seats is ok, and a key an engine-only home
+/// does not read, a launch refused for a repository `.env` and one the
+/// served-home decision refuses each fail the report.
+#[test]
+fn each_served_home_line_takes_its_status_column() {
+    use crate::dsh_key::{Home, Line, Reach};
+    let home = |home| Line::Home {
+        route: "r".into(),
+        seats: vec!["s".into()],
+        home,
+    };
+    let answers = [
+        home(Home::Operator),
+        home(Home::Engine),
+        Line::Key(Reach::Unset {
+            route: "r".into(),
+            variable: "V".into(),
+        }),
+        home(Home::Workdir(PathBuf::from("/repo/.env"))),
+        home(Home::Refused("refused".into())),
+    ];
+    let mut report = report();
+    report_keys(&mut report, &answers[..2]);
+    assert!(report.healthy);
+    for answer in &answers[2..] {
+        let mut failed = Report {
+            healthy: true,
+            lines: Vec::new(),
+        };
+        report_keys(&mut failed, std::slice::from_ref(answer));
+        assert!(!failed.healthy, "{:?}", failed.lines);
+        report.lines.extend(failed.lines);
+    }
+    let status: Vec<&str> = report.lines.iter().map(|line| &line[..20]).collect();
+    assert_eq!(
+        status,
+        [
+            "ok       later: line",
+            "ok       dsh home r:",
+            "ok       dsh home r:",
+            "MISSING  dsh key r: ",
+            "MISSING  dsh home r:",
+            "MISSING  dsh home r:",
+        ]
     );
 }

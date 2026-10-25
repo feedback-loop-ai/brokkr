@@ -40,6 +40,7 @@ use crate::native_controls::{
     SealedAssessment, SealedBoundary, SealedBroker, SealedFence, SealedIsolation, SealedServers,
     SealedServing, Transport, ARTIFACT_ROOT, SERVING_INPUTS,
 };
+use crate::served_home::{dsh_served, DshServed, RouteRefusal};
 use crate::transcript::{DshHome, DshHomeError};
 
 mod admit;
@@ -327,57 +328,11 @@ pub(super) enum McpRefusal {
          stands before it"
     )]
     Unplaced { provider: &'static str },
-    #[error("provider 'dsh' has no measured strict MCP configuration on route '{route}'")]
-    UnmeasuredRoute { route: String },
-    #[error(
-        "provider 'dsh' has no measured strict MCP configuration for a seat that pins no \
-         `--model`: the route it would run is the profile's unnamed default"
-    )]
-    Unpinned,
-    #[error("provider 'dsh' route '{route}' {}", row.mismatch())]
-    RouteEntry { route: String, row: RouteRow },
+    /// A dsh route no engine-only home was measured on, as the one
+    /// served-home decision refuses it ([`dsh_served`]).
+    #[error(transparent)]
+    Route(#[from] RouteRefusal),
 }
-
-/// How a qualified dsh route reached its engine-only home when U0 or U0c
-/// measured it: on `dsh-base`'s shipped row alone, or with its validated
-/// `llm-pi-ai` provider entry, which production carries as the seat's one
-/// bound route overlay.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum RouteRow {
-    Shipped,
-    Overlay,
-}
-
-impl RouteRow {
-    /// Why a seat's overlay is not the measured configuration of a route
-    /// whose row is `self`.
-    fn mismatch(self) -> &'static str {
-        match self {
-            RouteRow::Shipped => {
-                "was measured on dsh-base's shipped row alone, and the seat's overlay carries a \
-                 provider entry for it"
-            }
-            RouteRow::Overlay => {
-                "was measured with its validated provider entry, and the seat carries no route \
-                 overlay"
-            }
-        }
-    }
-}
-
-/// The routes, by the provider segment of the seat's model pin, on which
-/// an engine-only dsh home was measured to exclude ambient MCP and serve
-/// the engine's server: `spark-glm` by U0 (D03 and D04), the four keyed
-/// families by U0c, and nothing else. U0c's `spark` cells are partial, no
-/// tool call observed, so `spark` is unmeasured (operator ruling
-/// 2026-10-07).
-const DSH_ROUTES: [(&str, RouteRow); 5] = [
-    ("spark-glm", RouteRow::Overlay),
-    ("deepseek-official", RouteRow::Shipped),
-    ("dashscope", RouteRow::Overlay),
-    ("meta", RouteRow::Overlay),
-    ("meta-contributor", RouteRow::Overlay),
-];
 
 impl McpRefusal {
     /// The refusal as a driver states it, before any provider work.
@@ -474,40 +429,19 @@ pub(super) enum DshIsolation {
 impl Isolated {
     /// dsh's serving under this launch's intent, once the seat's model pin
     /// is read to the provider segment it names, its route, and whether
-    /// the seat carries a route overlay: a route U0 or U0c did not measure,
-    /// a seat that pins none and an overlay that is not the measured
-    /// route's each refuse before any route is claimed or home staged past
-    /// the fence, and while it stands are served from the operator's home.
+    /// the seat carries a route overlay, as the one served-home decision
+    /// rules it ([`dsh_served`]); an engine-only home rejoins an offered
+    /// session only where the intent's resume shape is admitted.
     pub(super) fn dsh(
         &self,
         route: Option<&str>,
         routed: bool,
     ) -> Result<DshIsolation, McpRefusal> {
-        let Some(isolation) = &self.isolation else {
-            return Ok(DshIsolation::Operator);
-        };
-        match Isolated::route(route, routed) {
-            Ok(()) => Ok(DshIsolation::Engine {
+        let fence = self.isolation.as_ref().map(|isolation| isolation.fence);
+        match dsh_served(fence, route, routed).map_err(|refused| refused.0)? {
+            DshServed::Operator => Ok(DshIsolation::Operator),
+            DshServed::Engine => Ok(DshIsolation::Engine {
                 rejoins: self.resumes("dsh", super::DSH_SHAPE),
-            }),
-            Err(refusal) => (isolation.fence.refuses(refusal)).map(|()| DshIsolation::Operator),
-        }
-    }
-
-    /// Whether `route`, with or without a route overlay, is one U0 or U0c
-    /// measured an engine-only home on.
-    fn route(route: Option<&str>, routed: bool) -> Result<(), McpRefusal> {
-        let route = route.ok_or(McpRefusal::Unpinned)?;
-        let Some((_, row)) = DSH_ROUTES.iter().find(|(name, _)| *name == route) else {
-            return Err(McpRefusal::UnmeasuredRoute {
-                route: route.to_string(),
-            });
-        };
-        match routed == (*row == RouteRow::Overlay) {
-            true => Ok(()),
-            false => Err(McpRefusal::RouteEntry {
-                route: route.to_string(),
-                row: *row,
             }),
         }
     }

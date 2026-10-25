@@ -7,8 +7,10 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use brokkr_protocol::native_controls::SealedFence;
 use serde_json::json;
 
+use super::home::Seat;
 use super::patch::{layer, opened, writes, Kind, Layer, Unread, Write};
 use super::*;
 
@@ -899,8 +901,11 @@ fn a_folder_that_hires_no_dsh_or_whose_adapters_do_not_load_has_no_line() {
     planted.write(&planted.repo.join(".env"), "");
     std::fs::remove_file(planted.adapters.join("dsh.json")).unwrap();
     assert_eq!(planted.reaches(unset), []);
-    assert_eq!(of_folder(&planted.adapters, &planted.repo), []);
-    assert_eq!(of_folder(&planted.repo.join("absent"), &planted.repo), []);
+    assert_eq!(of_folder(&planted.adapters, &planted.repo, None), []);
+    assert_eq!(
+        of_folder(&planted.repo.join("absent"), &planted.repo, None),
+        []
+    );
 }
 
 #[test]
@@ -922,5 +927,251 @@ fn the_default_key_is_the_shipped_adapters_deepseek_official_credential() {
     assert_eq!(
         dsh.credentials.get("deepseek-official").map(String::as_str),
         Some(DEFAULT_KEY)
+    );
+}
+
+/// A dsh scaffold written and compiled by `brokkr init --cli dsh` under a
+/// directory of its own, and that compile.
+fn scaffolded() -> (tempfile::TempDir, Bundle) {
+    let dir = tempfile::tempdir().unwrap();
+    let (root, path) = (dir.path(), std::ffi::OsStr::new(""));
+    let dsh = Some(crate::init::Cli::Dsh);
+    let scaffold = crate::init::init(root, path, "linux", root, dsh).unwrap();
+    (dir, scaffold.bundle)
+}
+
+/// A seat at `label` pinning `model`, its launch carrying an intent under
+/// `fence`.
+fn seat(label: &str, model: &str, routed: bool, fence: Option<SealedFence>) -> Seat {
+    Seat {
+        label: label.into(),
+        model: model.into(),
+        routed,
+        fence,
+    }
+}
+
+/// Each dsh seat of a compile is read from its candidate's argv as the
+/// launch reads it, with the fence the predicate dispatch seals by gives;
+/// a compile holding a dsh seat whose launch can't be read so, an inline
+/// dsh site or a candidate pinning no `--model`, models no seat.
+#[test]
+fn each_dsh_seat_of_a_compile_is_read_from_its_candidates_argv() {
+    let (_dir, mut compiled) = scaffolded();
+    let standing = Some(SealedFence::Standing);
+    let (flash, pro) = ("deepseek-flash", "deepseek-v4-pro");
+    assert_eq!(
+        home::seats(&compiled),
+        Some(vec![
+            seat("implement", pro, false, standing),
+            seat("implement", flash, false, standing),
+            seat("intake", flash, false, standing),
+            seat("intake", pro, false, standing),
+        ])
+    );
+    // A `--patch` is a route overlay, and a site whose plan holds no
+    // outcome launches with no intent.
+    let implement = compiled.sites.get_mut("implement").unwrap();
+    implement.chain[0]
+        .argv
+        .extend(["--patch", "route.yml"].map(String::from));
+    implement.capabilities = None;
+    // An inline site that dsh does not serve, or that holds no plan, is
+    // no dsh seat.
+    let mut inline = compiled.sites["review"].clone();
+    inline.chain.clear();
+    compiled.sites.insert("inline".into(), inline);
+    compiled.sites.insert("planless".into(), Default::default());
+    assert_eq!(
+        home::seats(&compiled).unwrap()[..2],
+        [
+            seat("implement", pro, true, None),
+            seat("implement", flash, false, None)
+        ]
+    );
+    let mut inline = compiled.sites["intake"].clone();
+    inline.chain.clear();
+    compiled.sites.insert("inline".into(), inline);
+    assert_eq!(home::seats(&compiled), None);
+    compiled.sites.remove("inline");
+    let intake = compiled.sites.get_mut("intake").unwrap();
+    intake.chain[1].argv.retain(|part| part != "--model");
+    assert_eq!(home::seats(&compiled), None);
+}
+
+/// Six seats, one for each way the served-home decision rules, and the
+/// folder they are answered in: `a` and `b` on dsh's default route, which
+/// an engine-only home was measured on with no overlay, under the standing
+/// fence; `c` with no intent on a measured route; `d` past the lifted fence
+/// on a measured route with its overlay, its route naming no variable; `e`
+/// past the lifted fence on a route no home was measured on; and `f` with
+/// no intent on an unmeasured route that names no variable.
+struct Served {
+    planted: Planted,
+    seats: [Seat; 6],
+}
+
+impl Served {
+    fn new() -> Served {
+        let (standing, lifted) = (Some(SealedFence::Standing), Some(SealedFence::Lifted));
+        Served {
+            planted: Planted::new(json!({}), json!({"dashscope": "DASHSCOPE_API_KEY"})),
+            seats: [
+                seat("b", "deepseek-v4-pro", false, standing),
+                seat("a", "deepseek-flash", false, standing),
+                seat("c", "dashscope/glm-5.2", false, None),
+                seat("d", "meta/meta/muse-spark-1.3", true, lifted),
+                seat("e", "openai/gpt-6", false, lifted),
+                seat("f", "spark/qwen3.8-flash", true, None),
+            ],
+        }
+    }
+
+    /// The seats' lines, `set` the environment's, [`within_bound`].
+    fn homed(&self, set: fn(&str) -> bool) -> Vec<Line> {
+        let planted = &self.planted;
+        let (dir, repo) = (planted.adapters.clone(), planted.repo.clone());
+        let (dsh_home, seats) = (planted.home.clone(), self.seats.to_vec());
+        within_bound(move || {
+            let adapters = Adapters::load(&dir).unwrap();
+            let sources = Sources {
+                set,
+                repo: &repo,
+                home: Ok(dsh_home),
+            };
+            home::homed(adapters.adapter("dsh").unwrap(), &seats, &sources)
+        })
+    }
+}
+
+/// The home line of `seats` on `route`.
+fn group(route: &str, seats: &[&str], home: Home) -> Line {
+    Line::Home {
+        route: route.into(),
+        seats: seats.iter().map(|seat| seat.to_string()).collect(),
+        home,
+    }
+}
+
+fn undeclared(route: &str) -> Line {
+    Line::Key(Reach::Undeclared {
+        route: route.into(),
+    })
+}
+
+/// `e`'s refusal, in the driver's words.
+const OPENAI: &str = "provider 'dsh' has no measured strict MCP configuration on route 'openai'";
+
+/// Each seat is answered for the home brokkr-protocol's decision serves
+/// it from, grouped by route and home: the operator's home asked of every
+/// source, an engine-only home of the launching environment alone, and a
+/// refused launch named with its refusal and no key.
+#[test]
+fn each_seat_is_answered_for_the_home_that_serves_it() {
+    let served = Served::new();
+    let planted = &served.planted;
+    let deepseek = || (String::from("deepseek-official"), "DEEPSEEK_API_KEY".into());
+    let (route, variable) = deepseek();
+    let unreached = Reach::Unreached {
+        route: "dashscope".into(),
+        variable: "DASHSCOPE_API_KEY".into(),
+        files: vec![planted.repo.join(".env"), planted.home.join(".env")],
+        off: Ok(Off::Shipped(planted.profile())),
+    };
+    let mut expected = vec![
+        Line::Key(unreached),
+        group("dashscope", &["c"], Home::Operator),
+        Line::Key(Reach::Reached {
+            route,
+            variable,
+            source: Source::Environment,
+        }),
+        group("deepseek-official", &["a", "b"], Home::Engine),
+        undeclared("meta"),
+        group("meta", &["d"], Home::Engine),
+        group("openai", &["e"], Home::Refused(OPENAI.into())),
+        undeclared("spark"),
+        group("spark", &["f"], Home::Operator),
+    ];
+    assert_eq!(served.homed(|name| name == "DEEPSEEK_API_KEY"), expected);
+    let (route, variable) = deepseek();
+    expected[2] = Line::Key(Reach::Unset { route, variable });
+    let keyless = served.homed(unset);
+    assert_eq!(keyless, expected);
+    let printed = [&keyless[1], &keyless[2], &keyless[3], &keyless[6]]
+        .map(|line| format!("{}: {}", line.what(), line.detail()));
+    assert_eq!(
+        printed,
+        [
+            "dsh home dashscope: Brokkr serves seats [c] on this route from the operator's own dsh \
+             home, which reads every source this check asks",
+            "dsh key deepseek-official: dsh reaches no DEEPSEEK_API_KEY: Brokkr serves this route \
+             from its own engine-only home (decision 0065), which reads a key from the launching \
+             environment alone, and DEEPSEEK_API_KEY is not set there; export DEEPSEEK_API_KEY \
+             where brokkr runs",
+            "dsh home deepseek-official: Brokkr serves seats [a, b] on this route from its own \
+             engine-only home (decision 0065), where dsh reads a key from the launching \
+             environment alone, never the operator's .env or patch layers",
+            "dsh home openai: Brokkr refuses to launch seats [e] on this route: provider 'dsh' has \
+             no measured strict MCP configuration on route 'openai'",
+        ]
+    );
+}
+
+/// Beside a repository `.env`, which is never opened, every engine-only
+/// launch is refused and keyless, while the operator's home tells the file
+/// present but unread.
+#[test]
+fn an_engine_only_launch_beside_a_repository_dotenv_is_refused_keyless() {
+    let served = Served::new();
+    let in_repo = served.planted.repo.join(".env");
+    fifo(&in_repo);
+    let workdir = Home::Workdir(in_repo.clone());
+    let beside = vec![
+        Line::Key(Reach::Untold {
+            route: "dashscope".into(),
+            variable: "DASHSCOPE_API_KEY".into(),
+            why: Untold::Dotenv(in_repo.clone()),
+        }),
+        group("dashscope", &["c"], Home::Operator),
+        group("deepseek-official", &["a", "b"], workdir.clone()),
+        group("meta", &["d"], workdir),
+        group("openai", &["e"], Home::Refused(OPENAI.into())),
+        undeclared("spark"),
+        group("spark", &["f"], Home::Operator),
+    ];
+    let lines = served.homed(unset);
+    assert_eq!(lines, beside);
+    assert_eq!(
+        [format!("{}: {}", lines[2].what(), lines[2].detail())],
+        [format!(
+            "dsh home deepseek-official: Brokkr serves seats [a, b] on this route from its own \
+                 engine-only home (decision 0065), and refuses each launch while {} is present, \
+                 unread, since dsh would read it for a key; export the key where brokkr runs and \
+                 remove the file",
+            in_repo.display()
+        ),]
+    );
+}
+
+/// The folder's check models a compiled folder's seats: the scaffold's
+/// ride dsh's default route and an engine-only home serves them, whatever
+/// the environment running the test gives.
+#[test]
+fn a_compiled_folder_is_answered_by_the_homes_of_its_seats() {
+    let (dir, compiled) = scaffolded();
+    let adapters = dir.path().join(".brokkr/adapters");
+    let lines = of_folder(&adapters, dir.path(), Some(&compiled));
+    let seats = vec!["implement".to_string(), "intake".to_string()];
+    assert_eq!(
+        (lines.len(), &lines[1]),
+        (
+            2,
+            &Line::Home {
+                route: "deepseek-official".into(),
+                seats,
+                home: Home::Engine,
+            }
+        )
     );
 }

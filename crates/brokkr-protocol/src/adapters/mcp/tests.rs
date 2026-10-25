@@ -6,6 +6,7 @@ use super::super::{
     LANETALLY_SHAPE,
 };
 use super::*;
+use crate::served_home::RouteRow;
 use serde_json::json;
 
 /// dsh's engine-only home and its routes (U1c2), in their own file.
@@ -949,29 +950,29 @@ fn each_refusal_reads_as_the_operator_sees_it() {
              model stands before it",
         ),
         (
-            McpRefusal::UnmeasuredRoute {
+            McpRefusal::Route(RouteRefusal::UnmeasuredRoute {
                 route: "openai".into(),
-            },
+            }),
             "provider 'dsh' has no measured strict MCP configuration on route 'openai'",
         ),
         (
-            McpRefusal::Unpinned,
+            McpRefusal::Route(RouteRefusal::Unpinned),
             "provider 'dsh' has no measured strict MCP configuration for a seat that pins no \
              `--model`: the route it would run is the profile's unnamed default",
         ),
         (
-            McpRefusal::RouteEntry {
+            McpRefusal::Route(RouteRefusal::RouteEntry {
                 route: "deepseek-official".into(),
                 row: RouteRow::Shipped,
-            },
+            }),
             "provider 'dsh' route 'deepseek-official' was measured on dsh-base's shipped row \
              alone, and the seat's overlay carries a provider entry for it",
         ),
         (
-            McpRefusal::RouteEntry {
+            McpRefusal::Route(RouteRefusal::RouteEntry {
                 route: "meta".into(),
                 row: RouteRow::Overlay,
-            },
+            }),
             "provider 'dsh' route 'meta' was measured with its validated provider entry, and the \
              seat carries no route overlay",
         ),

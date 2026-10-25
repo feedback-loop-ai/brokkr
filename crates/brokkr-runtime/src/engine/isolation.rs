@@ -29,6 +29,7 @@ use super::{composed, Selection, SiteSpawn};
 use crate::agents::{Candidate, McpAxis, McpInvocation};
 use crate::argv::Executable;
 use crate::bundle::{HandsState, McpIntent, SeatClass, SiteFacts};
+use crate::capabilities::Outcome;
 
 impl Selection {
     /// The brokers this attempt's provisioning sealed for the site at
@@ -75,6 +76,37 @@ pub(super) fn served(
     let serving = serving_with(link, facts, spawn.class, boundary, provisioned)?;
     beside(spawn, &serving, worktree, provisioned)?;
     Ok(serving)
+}
+
+/// The outcome that serves a launch at the site `facts` describe, for the
+/// serving `link` selects: the one dispatch seals the launch's record and
+/// serving inputs from, its isolation intent among them (U1g2). `None`
+/// where the site's capability plan holds none, and the launch is sealed
+/// nothing beside.
+pub(super) fn serving_outcome<'f>(
+    facts: Option<&'f SiteFacts>,
+    link: Option<&Candidate>,
+) -> Option<&'f Outcome> {
+    let site = facts?.capabilities.as_ref()?;
+    site.serving(link.map(|link| (link.provider.as_str(), link.model.as_str())))
+}
+
+/// The fence of the isolation intent dispatch seals beside a launch at the
+/// site `facts` describe, for the serving `link` selects
+/// (`serving_outcome`): `None` where it seals none, so the launch is
+/// served as a driver run by hand is. Doctor models a dsh seat's home from
+/// it (#717).
+pub fn sealed_fence(link: Option<&Candidate>, facts: Option<&SiteFacts>) -> Option<SealedFence> {
+    serving_outcome(facts, link).map(|_| fence())
+}
+
+/// The MCP fence this engine stands under, as an intent seals it.
+fn fence() -> SealedFence {
+    match crate::capabilities::McpFence::current() {
+        crate::capabilities::McpFence::Standing => SealedFence::Standing,
+        #[cfg(test)]
+        crate::capabilities::McpFence::Lifted => SealedFence::Lifted,
+    }
 }
 
 /// [`serving_inputs`] with the brokers the attempt's provisioning sealed
@@ -226,14 +258,9 @@ fn isolation_intent(
         let at = (site.outcomes.iter()).position(|each| std::ptr::eq(each, outcome))?;
         site.strict.get(at)
     });
-    let fence = match crate::capabilities::McpFence::current() {
-        crate::capabilities::McpFence::Standing => SealedFence::Standing,
-        #[cfg(test)]
-        crate::capabilities::McpFence::Lifted => SealedFence::Lifted,
-    };
     let mut sealed = SealedIsolation {
         servers,
-        fence,
+        fence: fence(),
         ..SealedIsolation::default()
     };
     for (shape, axis) in record.into_iter().flatten() {

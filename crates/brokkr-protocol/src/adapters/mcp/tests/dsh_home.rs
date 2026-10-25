@@ -475,9 +475,9 @@ fn missing_evidence_and_a_worktree_credential_file_refuse_before_staging() {
             "openai/gpt-6",
             empty_set(base.clone(), "unmeasured"),
             None,
-            McpRefusal::UnmeasuredRoute {
+            McpRefusal::Route(RouteRefusal::UnmeasuredRoute {
                 route: "openai".into(),
-            },
+            }),
         ),
     ] {
         assert_eq!(
@@ -535,10 +535,10 @@ fn dsh_is_admitted_only_on_a_route_u0_or_u0c_measured() {
             true => RouteRow::Overlay,
             false => RouteRow::Shipped,
         };
-        let entry = McpRefusal::RouteEntry {
+        let entry = McpRefusal::Route(RouteRefusal::RouteEntry {
             route: route.into(),
             row,
-        };
+        });
         assert_eq!(served(without, &intent), Err(entry.at_launch()), "{route}");
         assert_eq!(
             served(with, &json!({"workdir": "/w"})),
@@ -556,21 +556,21 @@ fn dsh_is_admitted_only_on_a_route_u0_or_u0c_measured() {
     for (extra, refusal) in [
         (
             &["--model", "deepseek/deepseek-v4-flash"][..],
-            McpRefusal::UnmeasuredRoute {
+            RouteRefusal::UnmeasuredRoute {
                 route: "deepseek".into(),
             },
         ),
         (
             &["--model", "spark/qwen3.8-flash", "--patch", "route.yml"][..],
-            McpRefusal::UnmeasuredRoute {
+            RouteRefusal::UnmeasuredRoute {
                 route: "spark".into(),
             },
         ),
-        (&[][..], McpRefusal::Unpinned),
+        (&[][..], RouteRefusal::Unpinned),
     ] {
         assert_eq!(
             served(extra, &intent),
-            Err(refusal.at_launch()),
+            Err(McpRefusal::from(refusal).at_launch()),
             "{extra:?}"
         );
     }
@@ -582,6 +582,60 @@ fn dsh_is_admitted_only_on_a_route_u0_or_u0c_measured() {
     assert_eq!(
         served(&["--model", "openai/gpt-6"], &unmeasured),
         Err(unmeasured_cause("dsh", "cold").at_launch())
+    );
+}
+
+/// The public served-home decision is the one a launch is served by (#717;
+/// decision 0071 ruling 5): for each measured route with and without an
+/// overlay, an unmeasured route and a seat that pins none, under no intent,
+/// the standing fence and the lifted one, [`crate::dsh_served`] answers
+/// what the launch's argv is judged to, its refusal in the driver's words.
+#[test]
+fn the_public_served_home_decision_is_the_one_a_launch_is_served_by() {
+    use crate::adapters::AdapterKind;
+    use crate::{dsh_served, DshServed};
+    let base = json!({"workdir": "/w"});
+    let measured = || [json!("measured"), json!("measured"), json!("unmeasured")];
+    let intents = [
+        (None, base.clone()),
+        (
+            Some(SealedFence::Standing),
+            fenced(base.clone(), "empty", measured(), "standing"),
+        ),
+        (
+            Some(SealedFence::Lifted),
+            fenced(base, "empty", measured(), "lifted"),
+        ),
+    ];
+    let pins = ROUTES.map(|(_, pinned, _)| Some(pinned));
+    let mut answers = Vec::new();
+    for (fence, input) in &intents {
+        for pinned in pins.into_iter().chain([Some("openai/gpt-6"), None]) {
+            for routed in [false, true] {
+                let mut extra = pinned.map_or_else(Vec::new, |pinned| vec!["--model", pinned]);
+                extra.extend(["--patch", "route.yml"].iter().filter(|_| routed));
+                let launch = dsh_argv(&s(&extra), input, false).map(|argv| argv.isolation);
+                let route = pinned.and_then(|pinned| AdapterKind::Dsh.served_route(pinned));
+                let decided = match dsh_served(*fence, route, routed) {
+                    Ok(DshServed::Operator) => Ok(DshIsolation::Operator),
+                    Ok(DshServed::Engine) => Ok(DshIsolation::Engine { rejoins: false }),
+                    Err(refusal) => Err(format!("refusing to invoke the agent CLI: {refusal}")),
+                };
+                assert_eq!(launch, decided, "{fence:?} {extra:?}");
+                answers.push(decided.map_err(|_| ()));
+            }
+        }
+    }
+    // Every case is asked: 2 x 7 per intent, five routes measured once each
+    // under each fence, and the other nine refused past the lifted fence.
+    let count = |answer| answers.iter().filter(|each| **each == answer).count();
+    let (operator, engine) = (
+        Ok(DshIsolation::Operator),
+        Ok(DshIsolation::Engine { rejoins: false }),
+    );
+    assert_eq!(
+        (count(operator), count(engine), count(Err(()))),
+        (23, 10, 9)
     );
 }
 

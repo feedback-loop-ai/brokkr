@@ -32,44 +32,51 @@
 //! Nothing is logged, journaled or passed to a seat, and every line names
 //! the variable and never its value.
 //!
-//! What it models is a seat served from the operator's own dsh home, the
-//! one `DshSeams::resolve` resolves. A seat whose launch carries the
-//! engine's isolation intent (decision 0065 slice two) is served from an
-//! engine-only home instead, where the launching environment is still read
-//! but neither the operator's patches nor `$DSH_HOME/.env` are, and a
-//! `<workdir>/.env` refuses the launch (brokkr-protocol's
-//! `WorkdirCredentials`). On Linux that is most measured routes'
-//! (`adapters/dsh.json`). Which seats those are is decided inside
-//! brokkr-protocol alone, by private items, so it is not modelled here
-//! (the operator's ruling of 2026-10-24 on fix round 717d2's block, option
-//! (b)). Until it is, every route carries [`Line::Served`], which says what
-//! that route's check asked ([`Asked`]; nothing, for a route that names no
-//! variable) and that the serving home can't yet be told; a key only the
-//! operator's home gives warns rather than reads ok, and a `<repo>/.env`
-//! beside the folder's dsh seats warns as [`Line::Workdir`].
+//! Which home serves each dsh seat is modelled from the folder's compile
+//! ([`home`]; the served-home model, #717's ruled follow-up): whether the
+//! seat's launch carries the engine's isolation intent, read by the
+//! predicate dispatch seals it by (`brokkr_runtime::engine::sealed_fence`),
+//! and then brokkr-protocol's own served-home decision
+//! (`brokkr_protocol::dsh_served`), which the launch is served by. A seat
+//! served from the operator's own dsh home, the one `DshSeams::resolve`
+//! resolves, is asked of every source above. One served from an
+//! engine-only home (decision 0065 slice two) reads a key from the
+//! launching environment alone, so a key only the operator's home gives
+//! is no key there, and a `<repo>/.env` refuses its launch
+//! (brokkr-protocol's `WorkdirCredentials`, looked up by
+//! `brokkr_protocol::holds_dotenv`). A seat the decision refuses is named
+//! with its refusal.
 //!
-//! The follow-up, once U8h has merged: brokkr-protocol makes public a
-//! pure served-home decision and a side-effect-free workdir `.env` check,
-//! and this module then models each seat's home from its capability plan
-//! through those two functions, in place of the caveat. brokkr-protocol's
-//! route-overlay reader made reachable in the same change would retire
-//! [`patch`]'s second, narrower reader, the bend of decision 0071 ruling 5
-//! it carries today. That path is re-checked when U8h lands and hides the
-//! secrets store inside every workspace box: the check would then ask
-//! whether `<repo>/.forge/secrets.env` is present by looking its name up,
-//! and whether the seat binds the route's variable by name, and never
-//! read the store.
+//! Where the folder did not compile, or holds an inline dsh site whose
+//! argv the compile does not carry, no seat is modelled: every route the
+//! adapter pins carries [`Line::Served`], which says what that route's
+//! check asked ([`Asked`]; nothing, for a route that names no variable)
+//! and that the serving home can't be told; a key only the operator's home
+//! gives warns rather than reads ok, and a `<repo>/.env` beside the
+//! folder's dsh seats warns as [`Line::Workdir`].
+//!
+//! [`patch`]'s second, narrower reader stays, the bend of decision 0071
+//! ruling 5 the operator accepted on 2026-10-25, until brokkr-protocol's
+//! route-overlay reader is reachable with the same component-wise link
+//! guard. When the secrets store is hidden inside every workspace box
+//! (U8h), the check could also ask whether `<repo>/.forge/secrets.env` is
+//! present by looking its name up, and whether the seat binds the route's
+//! variable by name, and never read the store.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use brokkr_protocol::adapters::{split_route, AdapterKind, CompositeError, DshSeams};
+use brokkr_protocol::holds_dotenv;
 use brokkr_runtime::agents::Adapter;
+use brokkr_runtime::bundle::Bundle;
 use brokkr_runtime::Adapters;
 
 use crate::render::Safe;
+pub(crate) use home::Home;
 use patch::{Layer, Unread, Write, SERVICE};
 
+mod home;
 mod patch;
 
 /// The name of each patch layer dsh composes, in a profile and the home.
@@ -138,16 +145,26 @@ pub(crate) enum Reach {
     /// Neither the adapter's `credentials` nor dsh's default names the
     /// variable this route reads, so nothing can be asked for it.
     Undeclared { route: String },
+    /// The route's seats are served from an engine-only home, which reads
+    /// a key from the launching environment alone, and `variable` is not
+    /// set there.
+    Unset { route: String, variable: String },
 }
 
 impl Reach {
-    /// The line's name, on both surfaces.
-    pub(crate) fn what(&self) -> String {
+    /// The route this answer is for.
+    fn route(&self) -> &str {
         let (Reach::Reached { route, .. }
         | Reach::Untold { route, .. }
         | Reach::Unreached { route, .. }
-        | Reach::Undeclared { route }) = self;
-        format!("dsh key {}", Safe::new(route).as_str())
+        | Reach::Undeclared { route }
+        | Reach::Unset { route, .. }) = self;
+        route
+    }
+
+    /// The line's name, on both surfaces.
+    pub(crate) fn what(&self) -> String {
+        format!("dsh key {}", Safe::new(self.route()).as_str())
     }
 
     /// The line's words, on both surfaces.
@@ -171,18 +188,36 @@ impl Reach {
                                          this route, so whether dsh reaches a key for it is \
                                          unknown; declare one under the adapter's `credentials`"
                 .to_string(),
+            Reach::Unset { variable, .. } => {
+                let variable = Safe::new(variable);
+                let variable = variable.as_str();
+                format!(
+                    "dsh reaches no {variable}: Brokkr serves this route from its own engine-only \
+                     home (decision 0065), which reads a key from the launching environment \
+                     alone, and {variable} is not set there; export {variable} where brokkr runs"
+                )
+            }
         }
     }
 }
 
 /// One line of the check, as both surfaces print it: a route's answer,
-/// the caveat that follows it, or the workdir's `.env`.
+/// the home that serves its seats or the caveat that it can't be told, or
+/// the workdir's `.env`.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Line {
     Key(Reach),
+    /// The home `seats`, by site, are served from on `route`, as the
+    /// protocol's served-home decision rules it for each ([`home`]).
+    Home {
+        route: String,
+        seats: Vec<String>,
+        home: Home,
+    },
     /// Whether the route's seats are served from the operator's home, or
-    /// from an engine-only one, can't yet be told; `asked` is what the
-    /// route's check asked, none where the route names no variable.
+    /// from an engine-only one, can't be told, because no seat of the
+    /// folder was modelled; `asked` is what the route's check asked, none
+    /// where the route names no variable.
     Served {
         route: String,
         asked: Option<Asked>,
@@ -241,7 +276,9 @@ impl Line {
     pub(crate) fn what(&self) -> String {
         match self {
             Line::Key(reach) => reach.what(),
-            Line::Served { route, .. } => format!("dsh home {}", Safe::new(route).as_str()),
+            Line::Home { route, .. } | Line::Served { route, .. } => {
+                format!("dsh home {}", Safe::new(route).as_str())
+            }
             Line::Workdir(_) => "dsh workdir".to_string(),
         }
     }
@@ -250,6 +287,7 @@ impl Line {
     pub(crate) fn detail(&self) -> String {
         match self {
             Line::Key(reach) => reach.detail(),
+            Line::Home { seats, home, .. } => home.words(seats),
             Line::Served { asked, .. } => served(asked.as_ref()),
             Line::Workdir(file) => format!(
                 "{} is present, unread: if Brokkr serves a dsh seat from its own engine-only home \
@@ -275,7 +313,7 @@ impl Source {
 
 /// The served-home caveat's words: only what the route's check `asked`,
 /// or that nothing was where the route names no variable, and that the
-/// home serving the route can't yet be told.
+/// home serving the route can't yet be told, where no seat was modelled.
 fn served(asked: Option<&Asked>) -> String {
     let unknown = "Brokkr can't yet tell whether it serves this route from its own engine-only \
                    home (decision 0065), which reads neither patch nor the home's .env";
@@ -381,13 +419,19 @@ impl<'a> Sources<'a> {
     }
 }
 
-/// Each route the folder's dsh adapter under `adapters` pins, answered
-/// for `repo` and the dsh home dsh's own seam resolves, with its caveats
-/// ([`with_caveats`]); none where the folder hires no dsh, or its adapters
-/// do not load (doctor's adapters line already says so).
-pub(crate) fn of_folder(adapters: &Path, repo: &Path) -> Vec<Line> {
+/// The folder's dsh key check, for `repo` and the dsh home dsh's own seam
+/// resolves: each dsh seat of `compiled`, the folder's compile, grouped by
+/// the route it rides and the home that serves it ([`home::homed`]); where
+/// no seat can be modelled, each route the folder's dsh adapter under
+/// `adapters` pins with its caveats ([`with_caveats`]). None where the
+/// folder hires no dsh, or its adapters do not load (doctor's adapters
+/// line already says so).
+pub(crate) fn of_folder(adapters: &Path, repo: &Path, compiled: Option<&Bundle>) -> Vec<Line> {
     let sources = Sources::served(repo, DshSeams::resolve());
-    with_caveats(in_folder(adapters, &sources), repo)
+    match compiled.and_then(home::seats) {
+        Some(seats) => with_dsh(adapters, |dsh| home::homed(dsh, &seats, &sources)),
+        None => with_caveats(in_folder(adapters, &sources), repo),
+    }
 }
 
 /// Each of `answers` followed by its [`Line::Served`] caveat, then a `.env`
@@ -397,14 +441,10 @@ fn with_caveats(answers: Vec<(Reach, Option<Asked>)>, repo: &Path) -> Vec<Line> 
     if answers.is_empty() {
         return Vec::new();
     }
-    let workdir = Some(repo.join(".env")).filter(|file| present(file));
+    let workdir = holds_dotenv(repo).then(|| repo.join(".env"));
     let mut lines = Vec::new();
     for (reach, asked) in answers {
-        let (Reach::Reached { route, .. }
-        | Reach::Untold { route, .. }
-        | Reach::Unreached { route, .. }
-        | Reach::Undeclared { route }) = &reach;
-        let route = route.clone();
+        let route = reach.route().to_string();
         lines.push(Line::Key(reach));
         lines.push(Line::Served { route, asked });
     }
@@ -412,14 +452,17 @@ fn with_caveats(answers: Vec<(Reach, Option<Asked>)>, repo: &Path) -> Vec<Line> 
     lines
 }
 
-/// [`of_folder`] over injected sources: each route's answer and what its
-/// check asked.
+/// [`of_folder`]'s unmodelled check over injected sources: each route's
+/// answer and what its check asked.
 pub(crate) fn in_folder(adapters: &Path, sources: &Sources<'_>) -> Vec<(Reach, Option<Asked>)> {
+    with_dsh(adapters, |dsh| reaches(dsh, sources))
+}
+
+/// What `answer` says of the folder's dsh adapter under `adapters`;
+/// nothing where the folder hires no dsh, or its adapters do not load.
+fn with_dsh<T>(adapters: &Path, answer: impl FnOnce(&Adapter) -> Vec<T>) -> Vec<T> {
     Adapters::load(adapters)
-        .map(|loaded| {
-            let dsh = loaded.adapter("dsh");
-            dsh.map_or_else(Vec::new, |dsh| reaches(dsh, sources))
-        })
+        .map(|loaded| loaded.adapter("dsh").map_or_else(Vec::new, answer))
         .unwrap_or_default()
 }
 
@@ -447,26 +490,24 @@ fn set_and_not_empty(name: &str) -> bool {
     }
 }
 
-/// Whether a `.env` dsh reads is there: its name is looked up and the
-/// file never opened, so nothing of it reaches Brokkr. A name that cannot
-/// be looked up counts as present, as brokkr-protocol's own `<workdir>/.env`
-/// refusal counts it.
-fn present(path: &Path) -> bool {
-    !matches!(
-        std::fs::symlink_metadata(path),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound
+/// The route dsh serves the model `id` on, and the variable it reads
+/// there: `adapter`'s `credentials` row, else dsh's default key for a bare
+/// id, which rides dsh's default route.
+fn keyed<'a>(adapter: &'a Adapter, id: &'a str) -> (&'a str, Option<&'a str>) {
+    let route = AdapterKind::Dsh.served_route(id).unwrap_or(id);
+    let declared = adapter.credentials.get(route).map(String::as_str);
+    (
+        route,
+        declared.or(split_route(id).0.is_none().then_some(DEFAULT_KEY)),
     )
 }
 
 /// Each route `adapter`'s models are served on, once, with the variable
-/// it reads: the adapter's `credentials` row, else dsh's default key for
-/// a bare id, which rides dsh's default route.
+/// it reads ([`keyed`]).
 fn routes(adapter: &Adapter) -> BTreeMap<&str, Option<&str>> {
     let mut routes: BTreeMap<&str, Option<&str>> = BTreeMap::new();
     for id in adapter.models.values() {
-        let route = AdapterKind::Dsh.served_route(id).unwrap_or(id);
-        let declared = adapter.credentials.get(route).map(String::as_str);
-        let variable = declared.or(split_route(id).0.is_none().then_some(DEFAULT_KEY));
+        let (route, variable) = keyed(adapter, id);
         let entry = routes.entry(route).or_insert(variable);
         *entry = entry.or(variable);
     }
@@ -509,12 +550,16 @@ fn reach(route: String, variable: String, sources: &Sources<'_>) -> (Reach, Aske
         };
         return (reach, asked);
     }
-    let files: Vec<PathBuf> = std::iter::once(sources.repo.join(".env"))
-        .chain(sources.home.as_ref().ok().map(|home| home.join(".env")))
+    // Each `.env` dsh reads is looked up by name and never opened, so
+    // nothing of it reaches Brokkr; one that cannot be looked up counts as
+    // present, as brokkr-protocol's own `<workdir>/.env` refusal counts it.
+    let dirs: Vec<&Path> = std::iter::once(sources.repo)
+        .chain(sources.home.as_deref().ok())
         .collect();
-    for file in &files {
+    let files: Vec<PathBuf> = dirs.iter().map(|dir| dir.join(".env")).collect();
+    for (dir, file) in dirs.into_iter().zip(&files) {
         asked.files.push(file.clone());
-        if present(file) {
+        if holds_dotenv(dir) {
             let why = Untold::Dotenv(file.clone());
             let reach = Reach::Untold {
                 route,
