@@ -1,14 +1,14 @@
 //! One seat's journal, as the seat-costs and resolution tests read it
-//! (#351): the view's `seat_costs` tests and `brokkr compare`'s resolution
-//! test share it rather than each restating it. A test module includes
-//! this file through `#[path]`; it spells its envelopes through the
-//! including crate's `crate::tests::envelope_builder`, the one place a
-//! test spells one (#357).
+//! (#351): brokkr-core's `seat_costs` tests, the view's participant tests
+//! and `brokkr compare`'s resolution test share it rather than each
+//! restating it. A test module includes this file through `#[path]`
+//! beside an `envelope_builder` module, the one place a test spells an
+//! envelope (#357).
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use serde_json::{json, Value};
 
-use crate::tests::envelope_builder::EnvelopeBuilder;
+use super::envelope_builder::EnvelopeBuilder;
 
 pub(crate) fn event(event_type: EventType, payload: Value) -> EventEnvelope {
     EnvelopeBuilder::new(event_type, payload)

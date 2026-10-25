@@ -56,13 +56,14 @@ fn every_outcome_is_kept_by_its_word() {
 /// boundary `namespace`, its pin `failed` and each price the bits 1; but
 /// no end, as a member's row never holds one, its turns'
 /// meter does not settle, as no turn's does, its session record is no
-/// turn, as none is, and each meter's total is 2, its input and output
-/// summed.
+/// turn, as none is, each meter's total is 2, its input and output
+/// summed, and no accounting, as only a request's own row holds one.
 fn full() -> Vec<Datum> {
     SeatRow::COLUMNS
         .iter()
         .map(|(name, kind)| match (*name, *kind) {
             ("ended_seq" | "ended", _) => Datum::Null,
+            (costs, _) if costs.starts_with("costs_") => Datum::Null,
             ("pin", _) => text("failed"),
             ("boundary" | "stamp", _) => text("namespace"),
             ("metered_settles" | "session_turn", _) => Datum::Integer(0),
@@ -94,6 +95,32 @@ fn seat<'a>(columns: &[(&'a str, Datum)]) -> Vec<(&'a str, Datum)> {
     ];
     seat.extend_from_slice(columns);
     seat
+}
+
+/// A request's own row, [`seat`]'s naming no attempt, holding its effect's
+/// accounting: each count 1, each set its column's name as its one entry;
+/// then each of `columns` holding its value.
+fn own<'a>(columns: &[(&'a str, Datum)]) -> Vec<(&'a str, Datum)> {
+    let mut own = seat(&[("attempt_id", Datum::Null)]);
+    let costs = SeatRow::COLUMNS
+        .iter()
+        .filter(|(name, _)| name.starts_with("costs_"));
+    own.extend(costs.map(|(name, kind)| match *kind {
+        "TEXT" => (*name, text(&format!("{}:{name}", name.len()))),
+        _ => (*name, Datum::Integer(1)),
+    }));
+    own.extend_from_slice(columns);
+    own
+}
+
+/// Every column of an effect's accounting whose name has `part` in it
+/// held as none.
+fn uncosted(part: &str) -> Vec<(&'static str, Datum)> {
+    let costs = SeatRow::COLUMNS.iter().filter(|(name, _)| {
+        name.strip_prefix("costs_")
+            .is_some_and(|name| name.contains(part))
+    });
+    costs.map(|(name, _)| (*name, Datum::Null)).collect()
 }
 
 /// [`full`] with each named column holding its value.
@@ -128,12 +155,27 @@ fn untokened(meter: &str) -> Vec<(&'static str, Datum)> {
 /// reporting no cost, a session record with no tokens and so settling
 /// nothing, a meter with no input or output and so no total; and a
 /// finish pinning `working`, a cost summed past `f64::MAX`, a total
-/// saturated at `u64::MAX`, and a seat's own row, which ended.
+/// saturated at `u64::MAX`, and a seat's own row, which ended; and a
+/// request's own row holding its effect's accounting, one naming no seat
+/// holding it or none, its sets and counters none, and its cost summed
+/// past `f64::MAX`.
 #[test]
 fn a_row_holding_each_part_it_may_omit_reads_back_as_its_data() {
     let mut unsettled = untokened("session_");
     unsettled.push(("session_settles", Datum::Integer(0)));
     let max = || Datum::Integer(u64::MAX as i64);
+    let mut unseated = uncosted("");
+    unseated.push(("seat", Datum::Null));
+    let counted = ["costs_attempts", "costs_turns", "costs_cost"];
+    let mut unlisted = uncosted("");
+    unlisted.retain(|(name, _)| !counted.contains(name));
+    let costs_variants = [
+        own(&[]),
+        own(&unseated),
+        own(&[("seat", Datum::Null)]),
+        own(&unlisted),
+        own(&[("costs_cost", Datum::Integer(f64::INFINITY.to_bits() as i64))]),
+    ];
     let variants = [
         vec![
             ("metered_input_tokens", Datum::Null),
@@ -171,7 +213,7 @@ fn a_row_holding_each_part_it_may_omit_reads_back_as_its_data() {
         ],
         vec![("live", Datum::Integer(0))],
     ];
-    for columns in variants {
+    for columns in variants.into_iter().chain(costs_variants) {
         let data = with(&columns);
         let row = SeatRow::of_data(data.clone());
         assert_eq!(row.map(|row| row.data()), Some(data), "{columns:?}");
@@ -214,6 +256,36 @@ fn unsaid() -> Vec<Vec<(&'static str, Datum)>> {
     found.extend(unturned.map(|column| vec![(column, none())]));
     let targeted = unturned.map(|column| (column, none()));
     found.push(targeted.to_vec());
+    found
+}
+
+/// An effect's accounting no row keeps (decision 0089 slice 3): on a
+/// request's own row naming a seat, none; on a member's row or an
+/// attempt's, one; a start count, turns or cost without the rest, a set or
+/// a counter without them, a cost no sum reaches, a set out of order,
+/// twice or cut short, and a value of another type than its column's.
+fn uncounted() -> Vec<Vec<(&'static str, Datum)>> {
+    let none = || Datum::Null;
+    let mut found = vec![
+        own(&uncosted("")),
+        own(&[("member", text("m"))]),
+        own(&[("attempt_id", text("a"))]),
+        own(&[("costs_attempts", none())]),
+        own(&[("costs_turns", none())]),
+        own(&[("costs_cost", none())]),
+        own(&[("costs_cost", Datum::Integer(f64::NAN.to_bits() as i64))]),
+        own(&[("costs_models", text("1:b1:a"))]),
+        own(&[("costs_efforts", text("1:a1:a"))]),
+        own(&[("costs_boundaries", text("2:a"))]),
+        own(&[("costs_models", Datum::Integer(1))]),
+        own(&[("costs_turn_input_tokens", text("1"))]),
+        own(&[("costs_finishing_reasoning_output_tokens", text("1"))]),
+    ];
+    for kept in ["costs_models", "costs_turn_output_tokens"] {
+        let mut uncounted = uncosted("");
+        uncounted.retain(|(name, _)| *name != kept);
+        found.push(own(&uncounted));
+    }
     found
 }
 
@@ -284,7 +356,7 @@ fn data_no_row_writes_reads_as_none() {
         vec![("live", none())],
         vec![("live", Datum::Integer(2))],
     ];
-    for columns in refused.into_iter().chain(unsaid()) {
+    for columns in refused.into_iter().chain(unsaid()).chain(uncounted()) {
         assert_eq!(SeatRow::of_data(with(&columns)), None, "{columns:?}");
     }
     let mut fewer = full();

@@ -111,9 +111,11 @@ fn a_checkpoint_append_writes_the_rows_it_moved_and_the_seat_head() {
     seated(&mut store, "r");
     assert_eq!(read(&store, "r"), folded_rows(&store, "r"));
     assert_eq!(read(&store, "r").len(), 2);
+    // The seat's attempt row: a member's checkpoint moves the request's
+    // own row, which keeps the effect's accounting, and not this one.
     sql(
         &store,
-        "UPDATE seat_summary SET seat = 'edited' WHERE opened = 0",
+        "UPDATE seat_summary SET seat = 'edited' WHERE opened = 1",
     );
     append(
         &mut store,
@@ -126,11 +128,11 @@ fn a_checkpoint_append_writes_the_rows_it_moved_and_the_seat_head() {
     assert_eq!(store.seat_rows("r").unwrap(), SeatRows::Stale);
     assert_eq!(
         every_run_reads_as_its_fold(&store),
-        ["r: seat row 0 Column(\"seat\")"]
+        ["r: seat row 1 Column(\"seat\")"]
     );
     sql(
         &store,
-        "UPDATE seat_summary SET seat = 'worker' WHERE opened = 0",
+        "UPDATE seat_summary SET seat = 'worker' WHERE opened = 1",
     );
     assert_eq!(read(&store, "r"), folded_rows(&store, "r"));
     assert_eq!(read(&store, "r").len(), 3);
@@ -775,6 +777,65 @@ fn a_seat_table_without_a_column_slice_2b_keeps_is_rebuilt_at_a_writable_open() 
         let live = brokkr_core::seat::row::live(&read);
         assert_eq!(live, [("?:c".to_string(), turned)], "{column}");
     }
+}
+
+/// A journal the seat view's build wrote, its rows' table without the
+/// columns an effect's accounting is kept in (decision 0089 slice 3),
+/// reads stale, refusing its reader nothing, and a writable open makes
+/// both tables anew and refolds every run, its accounting included: the
+/// rows read back cost as `seat_costs` gives the journal. A column of it
+/// edited past its writer is named by the doctor.
+#[test]
+fn a_seat_table_without_the_accounting_s_columns_gains_them_at_a_writable_open() {
+    let costs = SeatRow::COLUMNS.iter().map(|(name, _)| *name);
+    let costs = costs.filter(|name| name.starts_with("costs_"));
+    let unkept: String = costs
+        .map(|column| format!("ALTER TABLE seat_summary DROP COLUMN {column};"))
+        .collect();
+    let (_dir, mut store) = store();
+    seated(&mut store, "r");
+    let path = store.path().to_path_buf();
+    drop(store);
+    rusqlite::Connection::open(&path)
+        .and_then(|raw| raw.execute_batch(&unkept))
+        .unwrap();
+    let reader = Store::open_read_only(&path).unwrap();
+    let count = "SELECT count(*) FROM pragma_table_info('seat_summary')";
+    let columns: i64 = reader.conn.query_row(count, [], |row| row.get(0)).unwrap();
+    // Its run and place, the seat view's 69 columns and the digest.
+    assert_eq!(columns, 2 + 69 + 1);
+    assert!(!seats_intact(&reader.conn).unwrap());
+    assert_eq!(reader.seat_rows("r").unwrap(), SeatRows::Stale);
+    let mut store = Store::open(&path).unwrap();
+    let rows = read(&store, "r");
+    assert_eq!(rows, folded_rows(&store, "r"));
+    let (seats, total) = brokkr_core::seat::row::costs(&rows);
+    assert_eq!(
+        serde_json::to_value(&seats).unwrap(),
+        json!({"worker": {"attempts": 1, "turns": 0, "cost_usd": 0.0, "model": "opus",
+                          "boundary": "not recorded", "effort": "not reported",
+                          "input_tokens": 10, "output_tokens": 1}})
+    );
+    let events = store.load("r").unwrap();
+    assert_eq!((seats, total), brokkr_core::seat::seat_costs(&events));
+    sql(
+        &store,
+        "UPDATE seat_summary SET costs_attempts = 9 WHERE run_id = 'r' AND opened = 0",
+    );
+    let found: Vec<String> = store
+        .summary_disagreements()
+        .unwrap()
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert_eq!(
+        found,
+        [
+            "run 'r': its seat rows stand at its head, and the costs_attempts of its seat row 0 \
+          is not its fold's"
+        ]
+    );
+    lags(&mut store, &["r"]);
 }
 
 /// Seat rows and a seat head of a run the journal does not hold read as

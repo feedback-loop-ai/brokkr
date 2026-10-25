@@ -142,7 +142,7 @@ fn no_rust_readout_reads_the_model_cell_outside_the_pair_helper() {
 /// A seat-costs record that names `model` names `boundary` beside it.
 #[test]
 fn the_seat_costs_record_emits_the_boundary_beside_the_model() {
-    let compare = source("crates/brokkr-view/src/compare.rs");
+    let compare = source("crates/brokkr-core/src/seat/costs.rs");
     let model_at = compare
         .find("model: reduce(accounting.models, \"not reported\"),")
         .expect("the seat-costs record names its model");
@@ -152,7 +152,7 @@ fn the_seat_costs_record_emits_the_boundary_beside_the_model() {
         .expect("the seat-costs record names its boundary");
     assert!(
         boundary_at < 200,
-        "crates/brokkr-view/src/compare.rs emits the `model` key of a seat-costs record \
+        "crates/brokkr-core/src/seat/costs.rs emits the `model` key of a seat-costs record \
          without `boundary` beside it"
     );
 }

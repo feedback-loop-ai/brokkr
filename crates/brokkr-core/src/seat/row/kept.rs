@@ -16,13 +16,20 @@
 //! meter only a record's that is no turn and settles only on its output;
 //! a meter's total reads back only as its input and output sum to it. A
 //! list is one column of length-prefixed entries, read back only as its
-//! writer writes it (`listed`).
+//! writer writes it (`listed`). An effect's accounting (`costed`) is kept
+//! in columns of its own, its sets each a list in order and each entry
+//! once, its cost summed as `spent` is: its start count, turns and cost
+//! read back all or none, and none without the rest of it; on a request's
+//! own row alone, and on every one naming a seat.
 
-use super::listed::Listed;
+use std::collections::BTreeSet;
+
+use super::listed::{entries, kept, Listed};
 use super::{
     CarriedFrom, Carry, Finish, Last, Member, Outcome, Pin, Provider, SeatRow, Session, Stamp,
     Turned,
 };
+use crate::seat::costs::{Cost, EffectAccounting, Usage};
 use crate::seat::meter::Meter;
 use crate::seat::{finish_usage, TokenUsage, Transcript};
 
@@ -106,6 +113,31 @@ impl Put {
         self.flag(meter.map(|meter| meter.turn));
         self.flag(meter.map(|meter| meter.settles));
         self.usage(meter.and_then(|meter| meter.usage.as_ref()));
+    }
+
+    /// An effect's accounting: its counts and cost, its sets, and its
+    /// turns' and its finishing record's counters.
+    fn costs(&mut self, costs: Option<&EffectAccounting>) {
+        self.int(costs.map(|costs| costs.attempts));
+        self.int(costs.map(|costs| costs.turns));
+        self.real(costs.map(|costs| costs.cost.0));
+        let sets: [fn(&EffectAccounting) -> &BTreeSet<String>; 3] = [
+            |costs| &costs.models,
+            |costs| &costs.efforts,
+            |costs| &costs.boundaries,
+        ];
+        for set in sets {
+            let listed = costs.and_then(|costs| kept(set(costs).iter().map(String::as_str)));
+            self.text(listed.as_deref());
+        }
+        let usages: [fn(&EffectAccounting) -> &Usage; 2] =
+            [|costs| &costs.turns_usage, |costs| &costs.finishing_usage];
+        for usage in usages {
+            let counts = costs.map(|costs| usage(costs).counts());
+            for count in counts.unwrap_or_default() {
+                self.int(count);
+            }
+        }
     }
 }
 
@@ -317,6 +349,59 @@ impl<I: Iterator<Item = Datum>> Take<I> {
             home,
         }))
     }
+
+    /// One record's token counters, as [`Put::costs`] keeps them.
+    fn counters(&mut self) -> Option<Usage> {
+        Some(Usage {
+            input: self.int()?,
+            output: self.int()?,
+            cache_read: self.int()?,
+            cache_write: self.int()?,
+            reasoning: self.int()?,
+        })
+    }
+
+    /// An effect's accounting as [`Put::costs`] keeps it: its start count,
+    /// turns and cost, a cost summed as `spent` is, all or none; its sets
+    /// ([`set`]); and none where it keeps no count, nor any set or counter.
+    fn costs(&mut self) -> Option<Option<EffectAccounting>> {
+        let counted = both(both(self.int()?, self.int()?)?, self.spent()?)?;
+        let sets = [self.text()?, self.text()?, self.text()?];
+        accounting(counted, sets, [self.counters()?, self.counters()?])
+    }
+}
+
+/// The accounting its columns hold, [`Take::costs`]' read: its counts and
+/// cost, its sets' columns and its counters.
+fn accounting(
+    counted: Option<((u64, u64), f64)>,
+    sets: [Option<String>; 3],
+    usages: [Usage; 2],
+) -> Option<Option<EffectAccounting>> {
+    let Some(((attempts, turns), cost)) = counted else {
+        let none = [None, None, None];
+        return ((sets, usages) == (none, Default::default())).then_some(None);
+    };
+    let [models, efforts, boundaries] = sets;
+    let [turns_usage, finishing_usage] = usages;
+    Some(Some(EffectAccounting {
+        attempts,
+        turns,
+        cost: Cost(cost),
+        models: set(models)?,
+        efforts: set(efforts)?,
+        boundaries: set(boundaries)?,
+        turns_usage,
+        finishing_usage,
+    }))
+}
+
+/// The set a column [`Put::costs`] keeps holds, none for `None`, or `None`
+/// where its entries are cut short, out of order or not each once.
+fn set(text: Option<String>) -> Option<BTreeSet<String>> {
+    let read = text.as_deref().map_or(Some(Vec::new()), entries)?;
+    let set: BTreeSet<String> = read.into_iter().map(str::to_string).collect();
+    (kept(set.iter().map(String::as_str)) == text).then_some(set)
 }
 
 impl SeatRow {
@@ -357,12 +442,13 @@ impl SeatRow {
             transcript: None,
             listed: Listed::default(),
             live: false,
+            costs: None,
         }
     }
 
     /// The columns a row is kept in, by name and SQL type, in the order
     /// [`SeatRow::data`] gives their values.
-    pub const COLUMNS: [(&'static str, &'static str); 69] = [
+    pub const COLUMNS: [(&'static str, &'static str); 85] = [
         ("request_seq", INTEGER),
         ("effect_id", TEXT),
         ("attempt_id", TEXT),
@@ -432,6 +518,22 @@ impl SeatRow {
         ("early_tags", TEXT),
         ("early_lines", TEXT),
         ("live", INTEGER),
+        ("costs_attempts", INTEGER),
+        ("costs_turns", INTEGER),
+        ("costs_cost", INTEGER),
+        ("costs_models", TEXT),
+        ("costs_efforts", TEXT),
+        ("costs_boundaries", TEXT),
+        ("costs_turn_input_tokens", INTEGER),
+        ("costs_turn_output_tokens", INTEGER),
+        ("costs_turn_cache_read_tokens", INTEGER),
+        ("costs_turn_cache_write_tokens", INTEGER),
+        ("costs_turn_reasoning_output_tokens", INTEGER),
+        ("costs_finishing_input_tokens", INTEGER),
+        ("costs_finishing_output_tokens", INTEGER),
+        ("costs_finishing_cache_read_tokens", INTEGER),
+        ("costs_finishing_cache_write_tokens", INTEGER),
+        ("costs_finishing_reasoning_output_tokens", INTEGER),
     ];
 
     /// This row's values, in [`SeatRow::COLUMNS`]' order.
@@ -483,6 +585,7 @@ impl SeatRow {
         put.text(self.listed.early_kept().as_deref());
         put.text(self.listed.lines_kept().as_deref());
         put.flag(Some(self.live));
+        put.costs(self.costs.as_ref());
         put.0
     }
 
@@ -508,7 +611,8 @@ impl SeatRow {
 
     /// The row `data` holds, read in [`SeatRow::COLUMNS`]' order, or
     /// `None` where it holds a value of another type than its column's,
-    /// a part of a value without the rest, or more or fewer values.
+    /// a part of a value without the rest, an accounting on a row no
+    /// writer keeps one on or none on one it does, or more or fewer values.
     pub fn of_data(data: Vec<Datum>) -> Option<SeatRow> {
         let mut take = Take(data.into_iter());
         let mut row = take.opened()?;
@@ -517,7 +621,9 @@ impl SeatRow {
         row.turn = take.turn()?;
         row.listed = take.listed()?;
         row.live = take.flag()??;
-        take.0.next().is_none().then_some(row)
+        row.costs = take.costs()?;
+        let costed = row.costed();
+        take.0.next().is_none().then_some(row).filter(|_| costed)
     }
 }
 

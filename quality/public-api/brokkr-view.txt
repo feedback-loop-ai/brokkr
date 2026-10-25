@@ -1,9 +1,11 @@
 # produced by quality/measure.sh with cargo-public-api 0.52.0 on nightly-2026-09-05, -sss
 pub mod brokkr_view
 pub use brokkr_view::RuleSeverity
+pub use brokkr_view::SeatCost
 pub use brokkr_view::TokenUsage
 pub use brokkr_view::Transcript
 pub use brokkr_view::reported_cost
+pub use brokkr_view::seat_costs
 pub mod brokkr_view::capability_calls
 pub enum brokkr_view::capability_calls::CallState
 pub brokkr_view::capability_calls::CallState::Failed
@@ -627,7 +629,6 @@ pub fn brokkr_view::RunsView::of(alloc::vec::Vec<brokkr_view::RunRow>) -> brokkr
 pub struct brokkr_view::Scopes
 pub brokkr_view::Scopes::phases: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::Membership>
 pub brokkr_view::Scopes::seats: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::Membership>
-pub struct brokkr_view::SeatCost
 pub struct brokkr_view::Sides<T>
 pub struct brokkr_view::Subject
 pub brokkr_view::Subject::key: alloc::string::String
@@ -727,7 +728,6 @@ pub fn brokkr_view::resolutions(&[brokkr_core::envelope::EventEnvelope]) -> allo
 pub fn brokkr_view::run_row(&brokkr_view::RunEntry<'_>) -> brokkr_view::RunRow
 pub fn brokkr_view::run_rows(&[brokkr_view::RunEntry<'_>]) -> brokkr_view::RunsView
 pub fn brokkr_view::run_view(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> brokkr_view::RunView
-pub fn brokkr_view::seat_costs(&[brokkr_core::envelope::EventEnvelope]) -> (alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::SeatCost>, f64)
 pub fn brokkr_view::section_of(&brokkr_view::RunRow, &str) -> brokkr_view::Section
 pub fn brokkr_view::section_of_rows(&[brokkr_view::RunRow], brokkr_view::Section, &str, core::option::Option<brokkr_core::page::Place<'_>>, (usize, &dyn core::ops::function::Fn(&brokkr_view::RunRow) -> bool)) -> alloc::vec::Vec<brokkr_view::RunRow>
 pub fn brokkr_view::sections<'a>(&'a [brokkr_view::RunRow], &str) -> alloc::vec::Vec<(brokkr_view::Section, alloc::vec::Vec<&'a brokkr_view::RunRow>)>

@@ -19,7 +19,8 @@
 //! its attempts' records interleave: the writer keeps each participant's
 //! running cost and last metered turn beside its rows, so a row holds the
 //! cost summed through its last priced record and its turns' tokens, each
-//! message once.
+//! message once. A request's own row also keeps its effect's accounting,
+//! what `brokkr costs` reads ([`costs`]; decision 0089 slice 3).
 
 use std::collections::BTreeMap;
 
@@ -32,11 +33,13 @@ use super::{
 use crate::envelope::{EventEnvelope, EventType};
 use crate::residual::text as field;
 
+mod costed;
 mod kept;
 mod listed;
 mod members;
 mod said;
 
+pub use costed::costs;
 pub use kept::Datum;
 pub use listed::{inner, models};
 use members::with_members;
@@ -210,6 +213,8 @@ pub struct SeatRow {
     transcript: Last<Transcript>,
     /// Its finished steps, its member's tag, its models and its early tags (`listed`).
     listed: listed::Listed,
+    /// On a request's own row, its effect's accounting so far (`costed`).
+    costs: Option<super::costs::EffectAccounting>,
     /// Whether it is of the attempt the run's last start opened, while no
     /// terminal naming that start's effect and attempt has followed it.
     live: bool,
@@ -337,6 +342,7 @@ impl Seats {
         }
         self.aside(event);
         self.lived(event);
+        self.accounted(event);
     }
 
     /// Every carried entry's source, named again over the fold so far: a

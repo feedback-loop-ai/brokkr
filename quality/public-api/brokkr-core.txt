@@ -946,9 +946,10 @@ pub brokkr_core::seat::row::SeatFacts::usage: core::option::Option<brokkr_core::
 pub brokkr_core::seat::row::SeatFacts::usage_aggregated: bool
 pub struct brokkr_core::seat::row::SeatRow
 impl brokkr_core::seat::row::SeatRow
-pub const brokkr_core::seat::row::SeatRow::COLUMNS: [(&'static str, &'static str); 69]
+pub const brokkr_core::seat::row::SeatRow::COLUMNS: [(&'static str, &'static str); 85]
 pub fn brokkr_core::seat::row::SeatRow::data(&self) -> alloc::vec::Vec<brokkr_core::seat::row::Datum>
 pub fn brokkr_core::seat::row::SeatRow::of_data(alloc::vec::Vec<brokkr_core::seat::row::Datum>) -> core::option::Option<brokkr_core::seat::row::SeatRow>
+pub fn brokkr_core::seat::row::costs(&[brokkr_core::seat::row::SeatRow]) -> (alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_core::seat::SeatCost>, f64)
 pub fn brokkr_core::seat::row::facts(&[brokkr_core::seat::row::SeatRow]) -> alloc::vec::Vec<brokkr_core::seat::row::SeatFacts>
 pub fn brokkr_core::seat::row::inner(&[brokkr_core::seat::row::SeatRow], &str) -> (alloc::vec::Vec<alloc::string::String>, alloc::vec::Vec<alloc::string::String>)
 pub fn brokkr_core::seat::row::live(&[brokkr_core::seat::row::SeatRow]) -> alloc::vec::Vec<(alloc::string::String, core::option::Option<(alloc::string::String, alloc::string::String)>)>
@@ -958,6 +959,7 @@ pub struct brokkr_core::seat::BoundaryEntry
 pub brokkr_core::seat::BoundaryEntry::gate: bool
 pub brokkr_core::seat::BoundaryEntry::member: core::option::Option<alloc::string::String>
 pub brokkr_core::seat::BoundaryEntry::word: alloc::string::String
+pub struct brokkr_core::seat::SeatCost
 pub struct brokkr_core::seat::TokenUsage
 pub brokkr_core::seat::TokenUsage::cache_read_tokens: core::option::Option<u64>
 pub brokkr_core::seat::TokenUsage::cache_write_tokens: core::option::Option<u64>
@@ -974,6 +976,7 @@ pub fn brokkr_core::seat::boundary_entries(&serde_json::value::Value) -> alloc::
 pub fn brokkr_core::seat::count_item(&mut core::option::Option<u64>, core::option::Option<&str>)
 pub fn brokkr_core::seat::finish_usage(brokkr_core::seat::TokenUsage) -> core::option::Option<brokkr_core::seat::TokenUsage>
 pub fn brokkr_core::seat::reported_cost(&serde_json::value::Value) -> core::option::Option<f64>
+pub fn brokkr_core::seat::seat_costs(&[brokkr_core::envelope::EventEnvelope]) -> (alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_core::seat::SeatCost>, f64)
 pub fn brokkr_core::seat::stamp_of(&serde_json::value::Value) -> core::option::Option<alloc::string::String>
 pub fn brokkr_core::seat::token_usage<'a>(impl core::iter::traits::iterator::Iterator<Item = &'a serde_json::value::Value>) -> core::option::Option<brokkr_core::seat::TokenUsage>
 pub fn brokkr_core::seat::transcript_of(&serde_json::value::Value) -> core::option::Option<brokkr_core::seat::Transcript>
