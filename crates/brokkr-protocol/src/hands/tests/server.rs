@@ -878,19 +878,21 @@ fn a_server_box_makes_no_nested_user_namespace() {
     let script = format!("exec >\"/proc/self/fd/$2\" 2>&1; {attempts}");
     let sh = ServerProgram::resolve("sh", &host.home).unwrap();
     let (bootstrap, seat) = (shell(), reach(&[host.path("work")], &[]));
+    let (network, writers) = (Network::Isolated, []);
     let profile = ServerProfile {
         reach: &seat,
-        network: &Network::Isolated,
+        network: &network,
         bootstrap: &bootstrap,
-        writers: &[],
+        writers: &writers,
     };
     let mut server = ServerBox::prepare_with(&sh, &profile, &super::sources::confined()).unwrap();
     let entry = server.entry(std::process::id()).unwrap();
     let handles: Vec<_> = server.handles().map(|(_, fd)| fd.as_fd()).collect();
+    // The shell's own words, then the three descriptors it is handed.
     let command = |control: i32, ready: i32, status: i32| {
-        let numbers = [control, ready, status].map(|fd| fd.to_string());
-        let args = ["-c", &script, "sh", &numbers[0], &numbers[1], &numbers[2]];
-        args.map(String::from).to_vec()
+        let fds = [control, ready, status].map(|fd| fd.to_string());
+        let words = ["-c", script.as_str(), "sh"].map(String::from);
+        words.into_iter().chain(fds).collect()
     };
     let mut launched = ServerBox::launch(&entry, &handles, command, super::entry::soon()).unwrap();
     let said = std::io::read_to_string(&mut launched.ready).unwrap();
