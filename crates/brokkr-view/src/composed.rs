@@ -49,7 +49,8 @@ pub struct Parts<'a> {
 /// The run view of the run `parts` read, `state` its fold at the head:
 /// what [`run_view`](crate::run_view) shows of the run read whole, but its
 /// participants' checkpoints and its journal's other pages. `None` where a
-/// seat row names a request the trail does not ask, which no writer keeps,
+/// seat row names a request the trail does not ask or a participant's
+/// facts find no rows of its own, which no writer keeps,
 /// or where two participants' effects and members name one node, which
 /// only a hand-built journal's effect ids can, so the reader reads the run
 /// whole.
@@ -109,37 +110,59 @@ fn stated(data: &[Datum], [seq, value]: [usize; 2]) -> Stated {
     Some((seq, value))
 }
 
-/// What each participant of `rows` keeps of its own, in the order
-/// [`facts`] lists them: its first row's request, and its model and pin
-/// as the last of its rows to state them did.
-fn owned(rows: &[SeatRow]) -> Vec<Own> {
-    let mut seen = Vec::new();
-    let mut owned: Vec<Own> = Vec::new();
+/// A participant's key: its effect and its member, as its rows' columns
+/// name them.
+type Key = (Datum, Datum);
+
+/// What each participant of `rows` keeps of its own, by its key: its
+/// first row's request, and its model and pin as the last of its rows to
+/// state them did.
+fn owned(rows: &[SeatRow]) -> Vec<(Key, Own)> {
+    let mut owned: Vec<(Key, Own)> = Vec::new();
     for row in rows {
         let data = row.data();
-        let participant = (data[EFFECT].clone(), data[MEMBER].clone());
-        let at = seen.iter().position(|known| *known == participant);
+        let key = (data[EFFECT].clone(), data[MEMBER].clone());
+        let at = owned.iter().position(|(known, _)| *known == key);
         let at = at.unwrap_or_else(|| {
-            seen.push(participant);
             let home = data[ASKED].clone();
-            owned.push(Own {
+            let own = Own {
                 home,
                 model: None,
                 pin: None,
-            });
+            };
+            owned.push((key, own));
             owned.len() - 1
         });
-        let own = &mut owned[at];
+        let own = &mut owned[at].1;
         own.model = own.model.take().max(stated(&data, MODEL));
         own.pin = own.pin.take().max(stated(&data, PIN));
     }
     owned
 }
 
+/// Each of `listed`, the facts of `rows`' participants, with what its own
+/// rows keep, found by its effect and member and never by its place in
+/// the list: `None` where facts name a participant no row keeps, or one
+/// another's facts already took, so none is paired with another's.
+fn paired(listed: Vec<SeatFacts>, rows: &[SeatRow]) -> Option<Vec<(SeatFacts, Own)>> {
+    let mut owned = owned(rows);
+    let mut take = |facts: SeatFacts| {
+        let member = match &facts.member {
+            Member::Seat => Datum::Null,
+            Member::Named(member) => Datum::Text(member.clone()),
+        };
+        let key = (Datum::Text(facts.effect_id.clone()), member);
+        let at = owned.iter().position(|(known, _)| *known == key)?;
+        Some((facts, owned.swap_remove(at).1))
+    };
+    listed.into_iter().map(&mut take).collect()
+}
+
 /// The participants `rows` keep, in their order, each under the request
 /// of the trail it was first seen under, with its plan's provenance as the
 /// trail's starts state it: `None` where a row names a request the trail
-/// does not ask, or where a participant's key is another's.
+/// does not ask, where a participant's key is another's, or where its
+/// facts and its rows do not pair.
 fn scanned(trail: &[EventEnvelope], rows: &[SeatRow]) -> Option<Scan> {
     let read = scan_participants(trail);
     let mut scan = Scan {
@@ -154,7 +177,7 @@ fn scanned(trail: &[EventEnvelope], rows: &[SeatRow]) -> Option<Scan> {
         .filter(|event| field(&event.payload, "effect_id").is_some())
         .map(|event| Datum::Integer(event.seq as i64))
         .collect();
-    for (facts, own) in facts(rows).iter().zip(owned(rows)) {
+    for (facts, own) in paired(facts(rows), rows)? {
         let slot = asked.iter().position(|asked| *asked == own.home)?;
         let member = match &facts.member {
             Member::Seat => None,
@@ -170,7 +193,7 @@ fn scanned(trail: &[EventEnvelope], rows: &[SeatRow]) -> Option<Scan> {
         }
         let planned = read.by_key.get(&scan.parts[at].key);
         let planned = planned.and_then(|index| read.parts[*index].provenance.clone());
-        kept(&mut scan.parts[at], facts, own, planned);
+        kept(&mut scan.parts[at], &facts, own, planned);
     }
     Some(scan)
 }

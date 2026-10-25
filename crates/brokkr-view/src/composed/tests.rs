@@ -37,6 +37,43 @@ fn each_outcome_shows_its_status() {
     );
 }
 
+/// A participant's facts pair with what its own rows keep by its effect
+/// and member, never by place: facts listed in another order pair as they
+/// are listed, and facts naming a participant no row keeps pair with none.
+#[test]
+fn facts_pair_with_their_own_rows_by_effect_and_member() {
+    let at = "2026-01-01T00:00:00Z";
+    let asked = |seq, effect| {
+        ev(
+            seq,
+            EventType::EffectRequested,
+            json!({"effect_id": effect}),
+            at,
+        )
+    };
+    let events = [
+        ev(1, EventType::RunStarted, json!({"manifest": {}}), at),
+        asked(2, "e"),
+        asked(3, "f"),
+    ];
+    let account = Account::whole("r", &events);
+    let homes = |listed: Vec<SeatFacts>| {
+        let pairs = paired(listed, account.seats())?;
+        let home = |(facts, own): (SeatFacts, Own)| (facts.effect_id, own.home);
+        Some(pairs.into_iter().map(home).collect::<Vec<_>>())
+    };
+    let mut listed = facts(account.seats());
+    let (e, f) = (
+        ("e".to_string(), Datum::Integer(2)),
+        ("f".to_string(), Datum::Integer(3)),
+    );
+    assert_eq!(homes(listed.clone()), Some(vec![e.clone(), f.clone()]));
+    listed.reverse();
+    assert_eq!(homes(listed.clone()), Some(vec![f, e]));
+    listed[0].effect_id = "g".to_string();
+    assert_eq!(homes(listed), None);
+}
+
 /// Seat rows naming a request the trail does not ask are no writer's, so
 /// no run view is composed of them, and the reader reads the run whole.
 #[test]

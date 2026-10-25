@@ -3,9 +3,9 @@
 //! time, every page together the run as `load` reads it, with what caused
 //! each page's rows, the fold at the head and the head's stamp; a run that
 //! moved past that head, a journal whose index or summary is not read, a
-//! run whose seat rows or summary row lag, a run with no event and an
-//! index row naming no cause are each said so; and the read is one
-//! snapshot.
+//! run whose seat rows or summary row lag, a run with no event, an index
+//! row naming no cause and a trail that does not begin at the run's first
+//! event are each said so; and the read is one snapshot.
 
 use std::collections::BTreeMap;
 
@@ -291,6 +291,50 @@ fn a_head_stamped_past_the_summary_s_bound_reads_its_whole_stamp() {
         panic!("r read as kept");
     };
     assert_eq!(last_at, stamp);
+}
+
+/// A run whose trail does not begin at its first event, which no writer
+/// keeps and only SQL plants: all checkpoints, its trail empty, or a
+/// checkpoint before its start, its trail begun at 2. Each reads the kept
+/// way, never as a view of an empty or a cut trail.
+#[test]
+fn a_trail_that_does_not_begin_at_the_first_event_is_read_the_kept_way() {
+    let (dir, mut store) = store();
+    let started = (
+        EventType::RunStarted,
+        json!({"feature": "a feature", "manifest": {}}),
+    );
+    let checkpoint = (EventType::EffectCheckpointed, turn(1));
+    let shapes = [
+        ("checkpoints", [checkpoint.clone(), checkpoint.clone()]),
+        ("late", [checkpoint, started]),
+    ];
+    for (run_id, events) in &shapes {
+        store
+            .create_run(run_id, "a feature", "self", &json!({}))
+            .unwrap();
+        for (event_type, payload) in events {
+            let (seq, previous) = store.head_hash(run_id).unwrap();
+            let envelope = EnvelopeBuilder::new(*event_type, payload.clone())
+                .run(run_id)
+                .seq(seq + 1)
+                .event_id(format!("{run_id}-{}", seq + 1))
+                .previous(previous)
+                .sealed();
+            plant_envelope(&store.conn, &envelope).unwrap();
+        }
+    }
+    lags(&mut store, &["checkpoints", "late"]);
+    drop(store);
+    // A writable open catches the runs' projections up to their heads.
+    let path = dir.path().join("forge.db");
+    drop(Store::open(&path).unwrap());
+    let reader = Store::open_read_only(&path).unwrap();
+    for (run_id, _) in shapes {
+        let opened = reader.open_run(run_id).unwrap();
+        let found = read(reader.run_read(run_id, &opened, 0));
+        assert_eq!(found, Read::Kept, "{run_id}");
+    }
 }
 
 /// A run with no event, a journal whose summary's backfill has not

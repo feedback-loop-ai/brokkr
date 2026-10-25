@@ -122,12 +122,12 @@ fn measured(db: &Path, shows: Shown) -> Screen {
 /// SQLite's within its own; and the trail is read by its partial index in
 /// both journals. With the run parked and its park's reason stretched to a
 /// mebibyte, plain or escaped, Brokkr's peak grows over the run parked
-/// unstretched by more than the reason, so ruling 9's bound of the reason
-/// alone is not met, and by no more than the copies of it the screen holds
-/// ([`HELD`]), the amendment proposed to the operator on 2026-10-25 and
-/// unruled; the plain peak is within its budget, and SQLite's growth within
-/// the envelope. The first screen's wall time is reported against ruling
-/// 9's 50 ms, not gated.
+/// unstretched by more than the reason and by no more than the copies of
+/// it the screen holds ([`HELD`]), ruling 9 as the operator amended it on
+/// 2026-10-25; the plain peak is within its budget, and SQLite's growth
+/// within the envelope. SQLite's budget is the fleet's cap on every host.
+/// The first screen's wall time is reported against ruling 9's 50 ms, not
+/// gated.
 #[test]
 fn the_run_view_s_first_screen_holds_its_control_events_and_a_page() {
     let dir = tempfile::tempdir().unwrap();
@@ -180,6 +180,11 @@ fn the_run_view_s_first_screen_holds_its_control_events_and_a_page() {
         brokkr <= run_bytes / 10,
         "the budget {brokkr} is past a tenth of the run's {run_bytes} bytes"
     );
+    assert_eq!(
+        sqlite,
+        measure::SQLITE_CAP,
+        "SQLite's budget is the fleet's cap on every host"
+    );
     assert!(
         brokkr <= 256 * 1024 + control_bytes,
         "the budget {brokkr} is past ruling 9's 256 KiB and the {control_bytes} bytes of the run's control envelopes"
@@ -207,11 +212,11 @@ fn the_run_view_s_first_screen_holds_its_control_events_and_a_page() {
         eprintln!("{name}: the first screen grew by {growth} bytes");
         assert!(
             growth > STRETCH as u64,
-            "a mebibyte of {name} reason grew the first screen's peak by {growth} bytes, within ruling 9's one reason: retire HELD and its proposed amendment"
+            "a mebibyte of {name} reason grew the first screen's peak by {growth} bytes, within one reason: the screen no longer holds the copies ruling 9's amendment of 2026-10-25 counts"
         );
         assert!(
             growth <= HELD * STRETCH as u64,
-            "a mebibyte of {name} reason grew the first screen's peak by {growth} bytes"
+            "a mebibyte of {name} reason grew the first screen's peak by {growth} bytes, past ruling 9's three reasons as amended 2026-10-25"
         );
     }
     let held = plain.sqlite - parked.sqlite;
@@ -223,12 +228,10 @@ fn the_run_view_s_first_screen_holds_its_control_events_and_a_page() {
 
 /// The copies of a parked run's reason its first screen holds at once: the
 /// trail's envelope, the fold of the trail, and the view's summary, which
-/// `brokkr_view::summary` copies from the fold. Ruling 9 bounds the
-/// growth by the reason alone, which this screen does not meet; three is
-/// the bound decision 0089's amendment of 2026-10-25 proposes, unruled, as
-/// the opening's escaped bound was amended to three envelopes on
-/// 2026-10-24. Holding it once moves brokkr-core's fold and
-/// `brokkr_view::Summary`, which the amendment names as the alternative.
+/// `brokkr_view::summary` copies from the fold. Three is ruling 9's bound
+/// as the operator amended it on 2026-10-25, as the opening's escaped
+/// bound was amended to three envelopes on 2026-10-24. Holding it once
+/// would move brokkr-core's fold and `brokkr_view::Summary`.
 /// An escaped reason costs no more here:
 /// the trail's envelopes parse from the text SQLite holds, so the parser's
 /// scratch copy is gone before the fold's and the view's are made.

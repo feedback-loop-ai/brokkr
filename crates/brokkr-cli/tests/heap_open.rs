@@ -128,6 +128,11 @@ fn opening_a_run_holds_one_envelope_at_a_time() {
         brokkr <= 256 * 1024,
         "the budget {brokkr} is past ruling 9's 256 KiB"
     );
+    assert_eq!(
+        sqlite,
+        measure::SQLITE_CAP,
+        "SQLite's budget is the fleet's cap on every host"
+    );
     assert!(
         brokkr <= run_bytes / 10,
         "the budget {brokkr} is past a tenth of the run's {run_bytes} bytes"

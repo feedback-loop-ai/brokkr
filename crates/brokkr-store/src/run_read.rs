@@ -78,8 +78,9 @@ pub enum RunRead {
     /// Not read at that head: the journal's event index or summary is not
     /// read, the run's last event is no longer the head it was opened at,
     /// it has none, its seat rows or its summary row do not stand at its
-    /// head, or a row of its index names no cause. The reader reads the
-    /// run the kept way (ruling 8).
+    /// head, a row of its index names no cause, or its trail does not
+    /// begin at its first event. The reader reads the run the kept way
+    /// (ruling 8).
     Kept,
 }
 
@@ -159,7 +160,13 @@ impl Store {
         let Some(causes) = self.index_causes(run_id, &caused(&page))? else {
             return Ok(RunRead::Kept);
         };
-        let trail = self.envelopes_at(run_id, &self.index_trail(run_id)?)?;
+        // A run's first event is its start, never a checkpoint: a trail
+        // that does not begin there is no writer's, and reads the kept way.
+        let trail = self.index_trail(run_id)?;
+        if trail.first() != Some(&1) {
+            return Ok(RunRead::Kept);
+        }
+        let trail = self.envelopes_at(run_id, &trail)?;
         Ok(RunRead::Current {
             state: (!refused)
                 .then(|| folded(&trail, opened))
