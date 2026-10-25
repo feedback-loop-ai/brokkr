@@ -25,8 +25,8 @@ use std::fmt;
 use super::SandboxIntent;
 use config::assignment_parts;
 pub use config::Bound;
-pub(crate) use config::Unisolated;
 pub(crate) use config::{carried, feature, isolation, isolation_options, profile, rendered};
+pub(crate) use config::{pinned, Unisolated};
 pub use inline::{judge_inline_codex_command, judge_inline_codex_launch};
 
 mod config;

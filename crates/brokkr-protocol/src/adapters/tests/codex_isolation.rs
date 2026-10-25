@@ -30,6 +30,28 @@ pub(super) const WORKSPACE_WRITE: &str =
     r#"permissions.brokkr={filesystem={":root"="read","/w"="write","/s/secrets.env"="deny"}}"#;
 pub(super) const SELECTOR: &str = r#"default_permissions="brokkr""#;
 
+/// The store where the engine keeps it with no folder state, inside the
+/// workdir `/w`, and its workspace-write profile, the one folder between
+/// them pinned (U8i), as an independent literal.
+const INSIDE: &str = "/w/.forge/secrets.env";
+const INSIDE_WRITE: &str = r#"permissions.brokkr={filesystem={":root"="read","/w"="write","/w/.forge"="write","/w/.forge/secrets.env"="deny"}}"#;
+
+/// The workspace-write profile over the workdir `root`, writing each of
+/// `pins` beside it and denying `store`.
+fn pinned_profile(root: &str, pins: &[&str], store: &str) -> String {
+    let pins: String = pins
+        .iter()
+        .map(|pin| format!(r#","{pin}"="write""#))
+        .collect();
+    let entries = format!(r#"":root"="read","{root}"="write"{pins},"{store}"="deny""#);
+    format!("permissions.brokkr={{filesystem={{{entries}}}}}")
+}
+
+/// The read-only profile denying `store`.
+fn read_only_profile(store: &str) -> String {
+    format!(r#"permissions.brokkr={{filesystem={{":root"="read","{store}"="deny"}}}}"#)
+}
+
 /// What never stands beside the profile: each spelling that sets, lifts or
 /// widens the sandbox (U9c1's carried L1, which U10a closes).
 const BESIDE: [&str; 7] = [
@@ -48,8 +70,18 @@ pub(super) fn strings(parts: &[&str]) -> Vec<String> {
 
 /// An inline site of `class` on its `local` fragment, as the engine writes
 /// its input over `base`, handed the store.
-fn stored_site(mut base: Value, class: SandboxIntent, local: &[&str]) -> (Vec<String>, Value) {
-    base["secrets_file"] = json!(STORE);
+fn stored_site(base: Value, class: SandboxIntent, local: &[&str]) -> (Vec<String>, Value) {
+    stored_at(base, class, local, STORE)
+}
+
+/// [`stored_site`] handed the store at `store`.
+fn stored_at(
+    mut base: Value,
+    class: SandboxIntent,
+    local: &[&str],
+    store: &str,
+) -> (Vec<String>, Value) {
+    base["secrets_file"] = json!(store);
     let pins = ["--model", "gpt-6-astra", "--effort", "high"];
     inline_codex_input(base, &pins, local, codex_denied(), class, HandsIntent::None)
 }
@@ -298,6 +330,21 @@ fn the_inline_judgment_reads_the_profile_bound_to_the_paths_it_is_handed() {
     );
 }
 
+/// A codex shim in `dir` that marks the file beside it, which it returns,
+/// whenever it runs, and fails.
+fn marking(dir: &Path) -> (String, PathBuf) {
+    let ran = dir.join("ran");
+    let script = format!("#!/bin/sh\ntouch {}\nexit 1\n", ran.display());
+    let shim = executable(dir, "codex", &script);
+    (shim.to_str().unwrap().to_string(), ran)
+}
+
+/// A recording codex shim in `dir`, as its path.
+fn recording(dir: &Path) -> String {
+    let shim = codex_shim(dir, "codex", &dir.join("argv"));
+    shim.to_str().unwrap().to_string()
+}
+
 /// 45.5: a host holding codex's system or managed configuration refuses a
 /// Codex seat with its own cause before any provider work — an offered
 /// rejoin's version probe included — and a host holding neither launches it.
@@ -306,13 +353,8 @@ fn the_inline_judgment_reads_the_profile_bound_to_the_paths_it_is_handed() {
 fn a_host_holding_codex_configuration_refuses_the_seat_before_any_provider_work() {
     let _env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let ran = dir.path().join("ran");
-    let shim = executable(
-        dir.path(),
-        "codex",
-        &format!("#!/bin/sh\ntouch {}\nexit 1\n", ran.display()),
-    );
-    let bin = shim.to_str().unwrap();
+    let (bin, ran) = marking(dir.path());
+    let bin = bin.as_str();
     let base = enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path());
     let local = ["--sandbox", "workspace-write"];
     let (extra, input) = stored_site(base, SandboxIntent::WorkspaceWrite, &local);
@@ -499,6 +541,14 @@ fn each_codex_door_refusal_keeps_its_text() {
             uncarried("secrets store's path", "deny"),
         ]
     );
+    assert_eq!(
+        Unlaunchable::Unpinnable.to_string(),
+        "refusing to invoke the agent CLI: this sealed Codex launch of the workspace-write class \
+         keeps the secrets store inside its workspace root, and on macOS Codex's sandbox matches \
+         paths, so no mount pins the store's folder and a command could move it and read the \
+         store at its new path; such a launch is refused on macOS, where the move is unmeasured \
+         (decision 0065 slice two, U8i; SI2)"
+    );
     // The launch seam's refusal is the door's text, or the composition's.
     let door = codex::Unlaunched::Door(Unlaunchable::Storeless).to_string();
     let composed = codex::Unlaunched::Composition("composed".into()).to_string();
@@ -508,7 +558,9 @@ fn each_codex_door_refusal_keeps_its_text() {
 /// 45.5: an agent's class rides its hands, composed from the shipped
 /// adapter's `hands.harness.work` and `hands.harness.gate` fragments, read
 /// from the committed file, and is launched as the same profile denying the
-/// store: the exact cold, rejoin and cold replacement argv of each.
+/// store: the exact cold, rejoin and cold replacement argv of each. 45.11:
+/// with the store inside the root the work fragment's profile pins its
+/// folder and the gate's read-only split pins none.
 #[test]
 fn an_agents_harness_fragment_is_launched_as_the_store_denying_profile() {
     let _env = EnvGuard::lock();
@@ -518,14 +570,20 @@ fn an_agents_harness_fragment_is_launched_as_the_store_denying_profile() {
     let shipped = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../adapters/codex.json");
     let adapter: Value = serde_json::from_slice(&std::fs::read(shipped).unwrap()).unwrap();
     let harness = &adapter["hands"]["harness"];
-    for (class, fragment, profile) in [
-        (
-            SandboxIntent::WorkspaceWrite,
-            &harness["work"],
-            WORKSPACE_WRITE,
-        ),
-        (SandboxIntent::ReadOnly, &harness["gate"], READ_ONLY),
-    ] {
+    let stores = [(STORE, WORKSPACE_WRITE), (INSIDE, INSIDE_WRITE)];
+    for (class, fragment, profile, store) in stores.into_iter().flat_map(|(store, written)| {
+        let read_only = read_only_profile(store);
+        [
+            (
+                SandboxIntent::WorkspaceWrite,
+                &harness["work"],
+                written.to_string(),
+                store,
+            ),
+            (SandboxIntent::ReadOnly, &harness["gate"], read_only, store),
+        ]
+    }) {
+        let profile = profile.as_str();
         let declared: Vec<String> = serde_json::from_value(fragment.clone()).unwrap();
         let hands = declared
             .iter()
@@ -545,7 +603,7 @@ fn an_agents_harness_fragment_is_launched_as_the_store_denying_profile() {
         let extra = extra.concat();
         let plan = codex_denied();
         let mut base = enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path());
-        (base["secrets_file"], base["result_path"]) = (json!(STORE), json!("/w/result.json"));
+        (base["secrets_file"], base["result_path"]) = (json!(store), json!("/w/result.json"));
         if class == SandboxIntent::ReadOnly {
             base["result_delivery"] = json!("last-message");
         }
@@ -627,4 +685,175 @@ fn the_codex_arms_turn_the_effort_pin_into_the_config_override_it_reads() {
         "{:?}",
         launch.command
     );
+}
+
+/// 45.11 (U8i; operator ruling 4 of 2026-10-24): a workspace-write seat
+/// whose store lies inside its root is launched under the profile writing
+/// every folder between them, from the root outwards, cold, as the cold
+/// replacement and on the rejoin, each through the inline judgment and the
+/// final check; a store directly in the root, or in a folder whose name
+/// only begins with the root's, pins none, and the read-only class pins
+/// none for a store inside the root.
+#[test]
+fn a_workspace_write_seat_pins_every_folder_to_a_store_inside_its_root() {
+    let _env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let bin = recording(dir.path());
+    let bin = bin.as_str();
+    let [work, gate] = classes();
+    let deep = "/w/a/b/secrets.env";
+    for (store, (class, local, _), profile) in [
+        (INSIDE, &work, INSIDE_WRITE.to_string()),
+        (deep, &work, pinned_profile("/w", &["/w/a", "/w/a/b"], deep)),
+        (
+            "/w/secrets.env",
+            &work,
+            pinned_profile("/w", &[], "/w/secrets.env"),
+        ),
+        (
+            "/w2/a/secrets.env",
+            &work,
+            pinned_profile("/w", &[], "/w2/a/secrets.env"),
+        ),
+        (INSIDE, &gate, read_only_profile(INSIDE)),
+    ] {
+        let base = enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path());
+        let (extra, input) = stored_at(base, *class, local, store);
+        let capture = &local[2..];
+        let cold = isolated(&[bin, "exec", "--json", "-C", "/w"], &profile, capture);
+        let mut rejoin = isolated(&[bin, "exec", "resume", "--json"], &profile, capture);
+        rejoin.extend(strings(&[THREAD, "-"]));
+        let (plan, _) = codex_launch_and_cold(bin, &extra, "/w", None, &input).unwrap();
+        assert_eq!(plan.command, cold, "{store} {class:?}: cold");
+        let (offered, replacement) =
+            codex_launch_and_cold(bin, &extra, "/w", Some(THREAD), &input).unwrap();
+        assert_eq!(offered.command, rejoin, "{store} {class:?}: rejoin");
+        assert_eq!(replacement, cold, "{store} {class:?}: replacement");
+    }
+}
+
+/// 45.11: the final check and the inline judgment bound to a store inside
+/// the root refuse the workspace-write profile without its pin, each with
+/// the new cause, and admit the profile with it.
+#[test]
+fn a_profile_without_its_pins_refuses_at_the_final_check_and_the_inline_judgment() {
+    let base = json!({"workdir": "/w"});
+    let [(class, local, _), _] = classes();
+    let (extra, input) = stored_at(base, class, &local, INSIDE);
+    let (plan, _) = codex_launch_and_cold("codex", &extra, "/w", None, &input).unwrap();
+    let edge = mcp::Edge::new(&input);
+    let composed = composed_launch("codex", &extra, &input).unwrap();
+    mcp::isolated("codex", &edge, &composed.extra, false).unwrap();
+    let unpinned: Vec<String> = (plan.command.iter())
+        .map(|part| part.replace(r#","/w/.forge"="write""#, ""))
+        .collect();
+    assert_ne!(unpinned, plan.command);
+    let check = |command: &[String]| {
+        let chosen = crate::native_controls::Serving {
+            program: "codex",
+            workdir: "/w",
+            store: Some(INSIDE),
+            ..Default::default()
+        };
+        served("codex", command.to_vec(), &extra, &edge, chosen)
+    };
+    assert_eq!(check(&plan.command), Ok(plan.command.clone()));
+    let problem = format!("cannot be read: it {}", Unisolated::Unpinned(5));
+    assert_eq!(check(&unpinned), Err(checked_refusal("codex", &problem)));
+    let paths = Some(grammar::Bound {
+        workdir: "/w",
+        store: Some(INSIDE),
+    });
+    let judge = |profile: &str| {
+        let segments = judged_inline(profile, &ISOLATION, &[]);
+        grammar::judge_inline_codex_launch(class, &segments, None, paths)
+            .map_err(|cause| cause.to_string())
+    };
+    assert_eq!(judge(INSIDE_WRITE), Ok(()));
+    let root_only = pinned_profile("/w", &[], INSIDE);
+    assert_eq!(judge(&root_only), Err(Unisolated::Unpinned(2).to_string()));
+}
+
+/// A root reached through a symbolic link in a canonical temporary folder,
+/// spelled through the link, and the store the engine keeps at its
+/// canonical place inside it, beside the one folder between them.
+fn linked_root(dir: &Path) -> (String, String, String) {
+    let canonical = std::fs::canonicalize(dir).unwrap();
+    let real = canonical.join("real");
+    std::fs::create_dir(&real).unwrap();
+    std::os::unix::fs::symlink(&real, canonical.join("link")).unwrap();
+    let root = canonical.join("link").display().to_string();
+    let folder = real.join(".forge").display().to_string();
+    (root, format!("{folder}/secrets.env"), folder)
+}
+
+/// 45.11 (U8h's canonical store, the macOS shape on Linux): a root spelled
+/// through a link holds the store kept at its canonical place, so its
+/// workspace-write profile writes the root as spelled and the folder at the
+/// store's canonical place, on the rejoin and its cold replacement, each
+/// through the inline judgment and the final check.
+#[test]
+fn a_root_spelled_through_a_link_pins_the_folder_of_its_canonical_store() {
+    let _env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let (root, store, folder) = linked_root(dir.path());
+    let bin = recording(dir.path());
+    let bin = bin.as_str();
+    let base = enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path());
+    let local = ["--sandbox", "workspace-write"];
+    let (extra, input) = stored_at(base, SandboxIntent::WorkspaceWrite, &local, &store);
+    let profile = pinned_profile(&root, &[&folder], &store);
+    let cold = isolated(&[bin, "exec", "--json", "-C", &root], &profile, &[]);
+    let (plan, replacement) =
+        codex_launch_and_cold(bin, &extra, &root, Some(THREAD), &input).unwrap();
+    assert_eq!(replacement, cold);
+    let mut rejoin = isolated(&[bin, "exec", "resume", "--json"], &profile, &[]);
+    rejoin.extend(strings(&[THREAD, "-"]));
+    assert_eq!(plan.command, rejoin);
+}
+
+/// 45.11 (operator ruling 5 of 2026-10-24): where Codex's sandbox matches
+/// paths, as on macOS, a sealed workspace-write launch whose store lies
+/// inside its root (a root spelled through a link included, and a store
+/// directly in it) refuses at the driver's door before any provider work,
+/// its version probe included; the read-only class, a store outside the
+/// root, a class not written, a launch not sealed, and every launch where
+/// the sandbox mounts, pass the door. The sandboxing is injected, so this
+/// runs on Linux.
+#[test]
+fn a_sealed_workspace_write_launch_with_an_inside_store_refuses_where_paths_are_matched() {
+    use codex::Sandboxing::{Mounts, Paths};
+    let _env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let (root, store, _) = linked_root(dir.path());
+    let (bin, ran) = marking(dir.path());
+    let bin = bin.as_str();
+    let base = enabled_input(CODEX_SHAPE, CODEX_VERSION, dir.path());
+    let [(work, local, _), (gate, gated, _)] = classes();
+    let (extra, input) = stored_at(base.clone(), work, &local, &store);
+    let absent = |_: &Path| false;
+    let unpinnable = Err(codex::Unlaunchable::Unpinnable);
+    assert_eq!(codex::pinnable(&input, &extra, &root, Paths), unpinnable);
+    let launched = codex::launch_on(bin, &extra, &root, Some(THREAD), &input, absent, Paths);
+    let door = codex::Unlaunched::Door(codex::Unlaunchable::Unpinnable);
+    assert_eq!(launched.err(), Some(door));
+    assert!(!ran.exists(), "no provider work");
+    let direct = format!("{root}/secrets.env");
+    let (_, directly) = stored_at(base.clone(), work, &local, &direct);
+    assert_eq!(codex::pinnable(&directly, &extra, &root, Paths), unpinnable);
+    let (read_extra, read) = stored_at(base.clone(), gate, &gated, &store);
+    assert_eq!(codex::pinnable(&read, &read_extra, &root, Paths), Ok(()));
+    let (_, outside) = stored_at(base, work, &local, STORE);
+    assert_eq!(codex::pinnable(&outside, &extra, &root, Paths), Ok(()));
+    assert_eq!(codex::pinnable(&input, &[], &root, Paths), Ok(()));
+    for key in ["launch_record", crate::native_controls::SERVING_INPUTS] {
+        let mut unsealed = input.clone();
+        unsealed.as_object_mut().unwrap().remove(key);
+        let passed = codex::pinnable(&unsealed, &extra, &root, Paths);
+        assert_eq!(passed, Ok(()), "{key}");
+    }
+    assert_eq!(codex::pinnable(&input, &extra, &root, Mounts), Ok(()));
+    let launched = codex::launch_on(bin, &extra, &root, Some(THREAD), &input, absent, Mounts);
+    assert_eq!(launched.err(), None);
+    assert!(ran.exists(), "the admitted launch probed its version");
 }

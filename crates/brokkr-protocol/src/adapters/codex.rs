@@ -8,7 +8,9 @@
 //! managed configuration, which loads whatever options are passed, is
 //! refused before any provider work, as is a sealed launch handed no store
 //! and a path its profile's basic strings cannot carry unescaped (operator
-//! ruling of 2026-10-23). Beside them, the inline launch's final
+//! ruling of 2026-10-23), and on macOS a sealed workspace-write launch
+//! whose store lies inside its root, which no mount pins there (U8i;
+//! operator ruling 3 of 2026-10-24). Beside them, the inline launch's final
 //! judgment, moved here from `adapters.rs`, which sits at its line
 //! baseline, when it learned the profile.
 
@@ -135,6 +137,54 @@ pub(super) enum Unlaunchable {
          escaped (decision 0065 slice two, U9c2; SI2)"
     )]
     UncarriedStore,
+    #[error(
+        "refusing to invoke the agent CLI: this sealed Codex launch of the workspace-write class \
+         keeps the secrets store inside its workspace root, and on macOS Codex's sandbox matches \
+         paths, so no mount pins the store's folder and a command could move it and read the \
+         store at its new path; such a launch is refused on macOS, where the move is unmeasured \
+         (decision 0065 slice two, U8i; SI2)"
+    )]
+    Unpinnable,
+}
+
+/// How the host's Codex sandbox holds the paths a profile names (U8i): by
+/// mounts on Linux, where a folder named as written is pinned against a
+/// move, and by matching paths on macOS, where nothing pins one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Sandboxing {
+    Mounts,
+    Paths,
+}
+
+/// This host's [`Sandboxing`].
+const HOST: Sandboxing = if cfg!(target_os = "macos") {
+    Sandboxing::Paths
+} else {
+    Sandboxing::Mounts
+};
+
+/// Whether a launch over `input` and `extra`, rooted at `workdir`, may
+/// proceed under `sandboxing` (U8i; operator ruling 3 of 2026-10-24): one
+/// the engine sealed, of the workspace-write class, whose handed store lies
+/// inside the workspace root ([`grammar::pinned`]), refuses where the sandbox
+/// matches paths. Every other launch passes.
+pub(super) fn pinnable(
+    input: &Value,
+    extra: &[String],
+    workdir: &str,
+    sandboxing: Sandboxing,
+) -> Result<(), Unlaunchable> {
+    let sealed = input.get("launch_record").is_some() && input.get(SERVING_INPUTS).is_some();
+    let (class, _) = sandbox_split(extra);
+    let bound = Bound {
+        workdir,
+        store: store(input),
+    };
+    let inside = class.is_some_and(|class| grammar::pinned(&class, bound).is_some());
+    match (sandboxing, sealed && inside) {
+        (Sandboxing::Paths, true) => Err(Unlaunchable::Unpinnable),
+        _ => Ok(()),
+    }
 }
 
 /// Whether a Codex launch over `input`, rooted at `workdir`, may proceed on a
@@ -188,9 +238,7 @@ impl From<Unlaunched> for String {
     }
 }
 
-/// [`codex_launch_and_cold`] on a host `exists` observes, refused before any
-/// provider work, the version probe included, where [`admitted`] refuses.
-/// The refusal stays typed here; the driver's spawn turns it into its text.
+/// [`launch_on`] under this host's [`Sandboxing`].
 pub(super) fn launch_on_host(
     bin: &str,
     extra: &[String],
@@ -199,7 +247,24 @@ pub(super) fn launch_on_host(
     input: &Value,
     exists: impl Fn(&Path) -> bool,
 ) -> Result<(LaunchPlan, Vec<String>), Unlaunched> {
+    launch_on(bin, extra, workdir, session, input, exists, HOST)
+}
+
+/// [`codex_launch_and_cold`] on a host `exists` observes, its sandbox holding
+/// paths by `sandboxing`, refused before any provider work, the version probe
+/// included, where [`admitted`] or [`pinnable`] refuses. The refusal stays
+/// typed here; the driver's spawn turns it into its text.
+pub(super) fn launch_on(
+    bin: &str,
+    extra: &[String],
+    workdir: &str,
+    session: Option<&str>,
+    input: &Value,
+    exists: impl Fn(&Path) -> bool,
+    sandboxing: Sandboxing,
+) -> Result<(LaunchPlan, Vec<String>), Unlaunched> {
     admitted(input, workdir, exists)?;
+    pinnable(input, extra, workdir, sandboxing)?;
     codex_launch_and_cold(bin, extra, workdir, session, input).map_err(Unlaunched::Composition)
 }
 
