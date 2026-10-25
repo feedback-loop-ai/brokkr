@@ -559,6 +559,19 @@ fn reclaim_in(
 /// under its claim, with its run.
 type Unsettled = (Vec<(Claim, Option<String>)>, Vec<(Claim, String)>);
 
+/// Each entry in state `?1` with no command `?2`, under its latest claim,
+/// with its run, by entry. [`standing_row`] reads a row.
+const STANDING: &str = "SELECT e.entry_id, c.seq, e.run_id FROM queue_entries e
+        JOIN queue_claims c ON c.seq = (SELECT MAX(seq) FROM queue_claims WHERE entry_id = e.entry_id)
+        WHERE e.state = ?1
+        AND NOT EXISTS (SELECT 1 FROM queue_commands WHERE entry_id = e.entry_id AND command = ?2)
+        ORDER BY e.entry_id";
+
+fn standing_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(Claim, Option<String>)> {
+    let (entry, seq) = (EntryId(row.get(0)?), row.get(1)?);
+    Ok((Claim { entry, seq }, row.get(2)?))
+}
+
 fn unsettled_in<R>(
     tx: &Transaction<'_>,
     generation: Generation,
@@ -568,20 +581,9 @@ fn unsettled_in<R>(
         return Ok(Err(refused));
     }
     latest(tx, generation)?;
-    let query = "SELECT e.entry_id, c.seq, e.run_id FROM queue_entries e
-        JOIN queue_claims c ON c.seq = (SELECT MAX(seq) FROM queue_claims WHERE entry_id = e.entry_id)
-        WHERE e.state = ?1
-        AND NOT EXISTS (SELECT 1 FROM queue_commands WHERE entry_id = e.entry_id AND command = ?2)
-        ORDER BY e.entry_id";
-    let standing: Vec<(Claim, Option<String>)> = (tx.prepare(query)?)
-        .query_map(
-            params![Standing::Launching.word(), Step::Spawn.word()],
-            |row| {
-                let (entry, seq) = (EntryId(row.get(0)?), row.get(1)?);
-                Ok((Claim { entry, seq }, row.get(2)?))
-            },
-        )?
-        .collect::<Result<_, _>>()?;
+    let words = params![Standing::Launching.word(), Step::Spawn.word()];
+    let standing: Vec<(Claim, Option<String>)> =
+        (tx.prepare(STANDING)?.query_map(words, standing_row)?).collect::<Result<_, _>>()?;
     let (mut launching, mut linked) = (Vec::new(), Vec::new());
     for (claim, run) in standing {
         match run {
