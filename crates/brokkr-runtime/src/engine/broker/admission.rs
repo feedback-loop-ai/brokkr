@@ -498,7 +498,7 @@ impl Engine {
         site: &str,
         body: ExecutableBody<'_>,
     ) -> (Vec<Writer>, Vec<(HandsSpec, Reach)>) {
-        let (git, store) = (hands::git_facts(workdir), self.kept_store().sealed());
+        let (git, store) = (hands::git_facts(workdir), || self.kept_store().sealed());
         let boxed = built_boundary(self.boundary) == Ok(BuiltBoundary::Namespace);
         let (mut writers, mut boxes) = (Vec::new(), Vec::new());
         for (at, _) in invocation_sites(body) {
@@ -506,10 +506,10 @@ impl Engine {
             let reach = match self.runtime_hands(&label).filter(|_| boxed) {
                 Some(spec) => {
                     if let Some(own) = self.hands_for(&label).filter(|own| *own != spec) {
-                        let sealed = boxed_reach(&own, home, workdir, &git, store);
+                        let sealed = boxed_reach(&own, home, workdir, &git, store());
                         boxes.push((own, sealed));
                     }
-                    let reach = boxed_reach(&spec, home, workdir, &git, store);
+                    let reach = boxed_reach(&spec, home, workdir, &git, store());
                     boxes.push((spec, reach.clone()));
                     reach
                 }

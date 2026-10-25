@@ -1,5 +1,6 @@
 //! The secrets store hidden in every workspace box (decision 0065 slice
-//! two, U8h; SI1, MB4), in real namespaces: a store the worktree, a bind or
+//! two, U8h; SI1, MB4), by the box's argv everywhere and in real
+//! namespaces where the host makes them ([`boxes`]): a store the worktree, a bind or
 //! the bundle root holds reads as denied to a workspace call and an exec
 //! while the host's store is unchanged, its folders cannot be moved, a
 //! store outside every mount is not mounted, and a store absent in reach,
@@ -32,23 +33,19 @@ struct Stored {
 
 impl Stored {
     /// A store at `store` below the root holding [`FAKE`], owner-only,
-    /// `binds` bound as authored below the root, each `(path, mode)`; none
-    /// where this host cannot make a namespace.
-    fn at(store: &str, binds: &[(&str, &str)]) -> Option<Stored> {
-        let mut stored = Stored::sealed(store, binds)?;
+    /// `binds` bound as authored below the root, each `(path, mode)`. The
+    /// fixture and the box's argv need no namespace; only a real box does
+    /// ([`boxes`]).
+    fn at(store: &str, binds: &[(&str, &str)]) -> Stored {
+        let mut stored = Stored::sealed(store, binds);
         std::fs::create_dir_all(stored.store.parent().unwrap()).unwrap();
         planted(&stored.store, FAKE);
         stored.reseal(stored.store.clone());
-        Some(stored)
+        stored
     }
 
     /// [`Stored::at`] with nothing planted at `store`.
-    fn sealed(store: &str, binds: &[(&str, &str)]) -> Option<Stored> {
-        if !can_create_namespace() {
-            let reason = "this environment cannot create a bubblewrap namespace";
-            skip_boundary_proof(boundary_evidence_required(), reason);
-            return None;
-        }
+    fn sealed(store: &str, binds: &[(&str, &str)]) -> Stored {
         let (dir, root, work) = fixture();
         let binds: Vec<(PathBuf, &str)> = (binds.iter())
             .map(|(path, mode)| (root.join(path), *mode))
@@ -74,7 +71,7 @@ impl Stored {
             artifacts,
         };
         stored.reseal(stored.store.clone());
-        Some(stored)
+        stored
     }
 
     /// Seal the reach again, its store now configured at `store`, at the
@@ -135,8 +132,13 @@ impl Stored {
         built.map_err(|error| *error.into_inner().unwrap().downcast::<Unhidden>().unwrap())
     }
 
-    /// The refusal `unhidden`, as a workspace call and an exec return it.
+    /// The refusal `unhidden`, as the box's argv is refused, and, where this
+    /// host makes a namespace, as a workspace call and an exec return it.
     fn refused(&self, unhidden: &Unhidden) {
+        assert_eq!(self.built().err().as_ref(), Some(unhidden), "the argv");
+        if !boxes() {
+            return;
+        }
         let text = format!("hands namespace: {unhidden}");
         let marker = self.work.join("ran");
         let called = self.call("touch ran").map(|ran| ran.exit_code);
@@ -148,15 +150,24 @@ impl Stored {
     /// A workspace call's `mv from to`, refused as a mount point cannot be
     /// renamed (U0b X31).
     fn busy(&self, from: &str, to: &str) {
+        if !boxes() {
+            return;
+        }
         let ran = self.call(&format!("mv {from} {to}")).unwrap();
         let text = format!("mv: cannot move '{from}' to '{to}': Device or resource busy\n");
         assert_eq!((ran.stderr, ran.exit_code), (text, 1), "{from}");
     }
 
-    /// Ruling 10's exact denial of the store at `path`, through a workspace
-    /// call's `cat` and an exec's, each its stderr and exit code; and the
-    /// host's store still [`FAKE`].
+    /// The box's argv hiding the store at `path`, and the host's store still
+    /// [`FAKE`]; and where this host makes a namespace, ruling 10's exact
+    /// denial of it through a workspace call's `cat` and an exec's, each its
+    /// stderr and exit code.
     fn denies(&self, path: &Path) {
+        assert!(self.built().unwrap().join(" ").contains(&hide(path)));
+        assert_eq!(std::fs::read_to_string(&self.store).unwrap(), FAKE);
+        if !boxes() {
+            return;
+        }
         let ran = self.call(&format!("cat {}", path.display())).unwrap();
         assert_eq!((ran.stdout.as_str(), ran.exit_code), ("", 1), "the call");
         denied(path, &ran.stderr);
@@ -167,6 +178,9 @@ impl Stored {
     /// Ruling 10's exact denial of the store at `path` to an exec handed
     /// the bundle root `bundle`.
     fn exec_denies(&self, path: &Path, bundle: Option<&Path>) {
+        if !boxes() {
+            return;
+        }
         let exec = format!("exec 2>seen; exec cat {}", path.display());
         assert_eq!(self.exec_in(&exec, bundle), Ok(1), "the exec");
         denied(
@@ -174,6 +188,19 @@ impl Stored {
             &std::fs::read_to_string(self.work.join("seen")).unwrap(),
         );
     }
+}
+
+/// Whether this host makes a real namespace for the proofs that need one;
+/// where it cannot, the skip is logged, or fails a host that declared it
+/// must produce the evidence (decision 0054). Run 6's M1: only the real
+/// box's half of a proof is gated, never the fixture or the argv's.
+fn boxes() -> bool {
+    let made = can_create_namespace();
+    if !made {
+        let reason = "this environment cannot create a bubblewrap namespace";
+        skip_boundary_proof(boundary_evidence_required(), reason);
+    }
+    made
 }
 
 /// Plant `text` at `path`, owner-only, as the engine makes a store.
@@ -201,9 +228,7 @@ fn denied(path: &Path, stderr: &str) {
 #[test]
 fn a_store_in_the_worktree_is_denied_to_a_workspace_call_or_an_exec() {
     for spelled in ["work/.forge/secrets.env", "outside/link/secrets.env"] {
-        let Some((mut stored, held, _)) = linked_outside("link") else {
-            return;
-        };
+        let (mut stored, held, _) = linked_outside("link");
         stored.reseal(stored.root.join(spelled));
         let sealed = serde_json::to_value(&stored.reach).unwrap()["store"].clone();
         let both = json!({"place": held, "spelling": stored.root.join(spelled)});
@@ -222,14 +247,14 @@ fn a_store_in_the_worktree_is_denied_to_a_workspace_call_or_an_exec() {
 
 /// A store planted in the worktree's `.forge`, its place, and a link
 /// `outside/<name>` to that folder, which a system folder outside every
-/// mount holds; none where this host cannot make a namespace.
-fn linked_outside(name: &str) -> Option<(Stored, PathBuf, PathBuf)> {
-    let stored = Stored::at("work/.forge/secrets.env", &[])?;
+/// mount holds.
+fn linked_outside(name: &str) -> (Stored, PathBuf, PathBuf) {
+    let stored = Stored::at("work/.forge/secrets.env", &[]);
     let held = stored.work.join(".forge/secrets.env");
     std::fs::create_dir(stored.root.join("outside")).unwrap();
     let link = stored.root.join("outside").join(name);
     std::os::unix::fs::symlink("../work/.forge", &link).unwrap();
-    Some((stored, held, link))
+    (stored, held, link)
 }
 
 /// Replace the folder or file at `at` on the host with a symbolic link to
@@ -260,9 +285,7 @@ fn unlinked(at: &Path) {
 /// the next box hides it (ruling 5).
 #[test]
 fn a_link_on_the_sealed_store_path_refuses_wherever_it_lies() {
-    let Some(stored) = Stored::at("work/conf/secrets.env", &[]) else {
-        return;
-    };
+    let stored = Stored::at("work/conf/secrets.env", &[]);
     let conf = stored.work.join("conf");
     relinked(&conf);
     let routed = Unhidden::Routed(stored.store.clone(), conf.clone());
@@ -285,15 +308,11 @@ fn a_link_on_the_sealed_store_path_refuses_wherever_it_lies() {
     planted(&new, FAKE);
     std::fs::rename(&new, &stored.store).unwrap();
     stored.denies(&stored.store);
-    let Some(outside) = Stored::at("outside/sys/secrets.env", &[]) else {
-        return;
-    };
+    let outside = Stored::at("outside/sys/secrets.env", &[]);
     let sys = outside.root.join("outside/sys");
     relinked(&sys);
     outside.refused(&Unhidden::Routed(outside.store.clone(), sys));
-    let Some(mut twice) = Stored::at("work/shared/deep/secrets.env", &[]) else {
-        return;
-    };
+    let mut twice = Stored::at("work/shared/deep/secrets.env", &[]);
     let tools = twice.root.join("tools");
     std::os::unix::fs::symlink(twice.work.join("shared"), &tools).unwrap();
     let bound = json!({"kind": "workspace", "binds": [{"path": tools, "mode": "rw"}]});
@@ -316,9 +335,7 @@ fn a_link_on_the_sealed_store_path_refuses_wherever_it_lies() {
 /// does every box once the spelling no longer resolves at all (ruling 18).
 #[test]
 fn a_configured_spelling_that_no_longer_leads_to_the_sealed_store_refuses() {
-    let Some((mut stored, held, route)) = linked_outside("route") else {
-        return;
-    };
+    let (mut stored, held, route) = linked_outside("route");
     stored.reseal(route.join("secrets.env"));
     let new = stored.work.join(".forge/.secrets.env.new");
     planted(&new, FAKE);
@@ -353,21 +370,20 @@ fn a_configured_spelling_that_no_longer_leads_to_the_sealed_store_refuses() {
 /// never mounted, and the box does not see it at all.
 #[test]
 fn a_store_a_bind_holds_is_hidden_and_one_outside_every_mount_is_not_mounted() {
-    let Some(stored) = Stored::at("tools/secrets.env", &[("tools", "ro")]) else {
-        return;
-    };
+    let stored = Stored::at("tools/secrets.env", &[("tools", "ro")]);
     stored.denies(&stored.store);
     let argv = stored.built().unwrap().join(" ");
     let tools = stored.root.join("tools");
     let bind = format!("--ro-bind-try {t} {t}", t = tools.display());
     let hide = format!("--ro-bind /dev/null {}", stored.store.display());
     assert!(argv.find(&bind) < argv.find(&hide), "{argv}");
-    let Some(outside) = Stored::at("outside/secrets.env", &[]) else {
-        return;
-    };
+    let outside = Stored::at("outside/secrets.env", &[]);
     let argv = outside.built().unwrap().join(" ");
     assert!(!argv.contains("/dev/null"), "{argv}");
     assert!(!argv.contains("outside"), "{argv}");
+    if !boxes() {
+        return;
+    }
     let probe = format!(
         "test -e {} && echo shown; echo done",
         outside.store.display()
@@ -383,9 +399,7 @@ fn a_store_a_bind_holds_is_hidden_and_one_outside_every_mount_is_not_mounted() {
 /// one in a read-write bind, pinned after that bind's own mount.
 #[test]
 fn a_call_cannot_move_the_store_s_folders_and_the_next_box_still_hides_it() {
-    let Some(stored) = Stored::at("work/conf/deep/secrets.env", &[]) else {
-        return;
-    };
+    let stored = Stored::at("work/conf/deep/secrets.env", &[]);
     stored.busy("conf", "conf-moved");
     stored.busy("conf/deep", "conf/moved");
     assert!(stored.store.exists() & !stored.work.join("conf-moved").exists());
@@ -396,9 +410,7 @@ fn a_call_cannot_move_the_store_s_folders_and_the_next_box_still_hides_it() {
     let second = position(&argv, pin(&deep));
     let hidden = position(&argv, hide(&stored.store));
     assert!((first < second) & (second < hidden), "{argv}");
-    let Some(bound) = Stored::at("tools/conf/secrets.env", &[("tools", "rw")]) else {
-        return;
-    };
+    let bound = Stored::at("tools/conf/secrets.env", &[("tools", "rw")]);
     let (tools, conf) = (bound.root.join("tools"), bound.root.join("tools/conf"));
     let moved = tools.join("moved");
     bound.busy(&conf.display().to_string(), &moved.display().to_string());
@@ -414,14 +426,15 @@ fn a_call_cannot_move_the_store_s_folders_and_the_next_box_still_hides_it() {
 /// shadows the other chain's deeper pins: no call moves either chain.
 #[test]
 fn the_store_s_and_the_artifact_root_s_folders_are_pinned_together() {
-    let Some(mut stored) = Stored::at("work/s/keys/secrets.env", &[]) else {
-        return;
-    };
+    let mut stored = Stored::at("work/s/keys/secrets.env", &[]);
     stored.artifacts = artifact_root(&stored.work.join("s/run"));
     stored.busy("s/run", "s/run-moved");
     stored.busy("s/keys", "s/keys-moved");
     stored.busy("s", "s-moved");
     stored.denies(&stored.store);
+    if !boxes() {
+        return;
+    }
     let table = stored.call("cat /proc/self/mountinfo").unwrap().stdout;
     let at = |point: &Path| -> Vec<(&str, &str)> {
         let point = point.display().to_string();
@@ -488,9 +501,7 @@ fn every_mount_the_box_makes_is_the_store_s_description_in_order() {
     use super::super::evidence::Protected;
     use super::super::sealed::{Held, Hidden};
     let binds = [("tools", "ro"), ("cache", "rw"), ("layer", "overlay")];
-    let Some(mut stored) = Stored::sealed("cache/deep/secrets.env", &binds) else {
-        return;
-    };
+    let mut stored = Stored::sealed("cache/deep/secrets.env", &binds);
     let main = stored.root.join("main");
     std::fs::create_dir(&main).unwrap();
     linked_worktree(&main, &stored.work);
@@ -652,14 +663,10 @@ fn hide(at: &Path) -> String {
 /// root inside the worktree is denied at both places the box shows it.
 #[test]
 fn a_store_a_bundle_root_holds_is_denied_wherever_the_box_shows_it() {
-    let Some(outside) = Stored::at("bundle/secrets.env", &[]) else {
-        return;
-    };
+    let outside = Stored::at("bundle/secrets.env", &[]);
     let shown = Path::new("/runtime/bundle/secrets.env");
     outside.exec_denies(shown, Some(&outside.root.join("bundle")));
-    let Some(inside) = Stored::at("work/bundle/secrets.env", &[]) else {
-        return;
-    };
+    let inside = Stored::at("work/bundle/secrets.env", &[]);
     let bundle = inside.work.join("bundle");
     inside.exec_denies(shown, Some(&bundle));
     inside.exec_denies(&inside.store, Some(&bundle));
@@ -669,41 +676,64 @@ fn a_store_a_bundle_root_holds_is_denied_wherever_the_box_shows_it() {
 }
 
 /// The host toolchain the box binds is accounted for too (ruling 7): a
-/// store sealed absent below `/usr/local`, which no test can write, would
-/// be shown there, so the box refuses as it refuses any absent store in
-/// its reach.
+/// store sealed absent in `/usr/local`, which no test can write, would be
+/// shown there, so the box refuses as it refuses any absent store in its
+/// reach.
 #[test]
 fn a_store_the_host_toolchain_would_show_is_accounted_for() {
-    let Some(mut stored) = Stored::sealed("outside/secrets.env", &[]) else {
-        return;
-    };
-    let absent = Path::new("/usr/local/brokkr-u8h-absent/secrets.env");
+    let mut stored = Stored::sealed("outside/secrets.env", &[]);
+    let absent = Path::new("/usr/local/brokkr-u8h-absent.env");
     stored.reseal(absent.to_path_buf());
     let local = std::fs::canonicalize("/usr/local").unwrap();
-    let place = local.join("brokkr-u8h-absent/secrets.env");
+    let place = local.join("brokkr-u8h-absent.env");
     assert_eq!(stored.built(), Err(Unhidden::Absent(place)));
 }
 
 /// A store sealed in reach but absent as the box is built refuses, and
 /// the box creates nothing on the host; one absent outside every mount
-/// mounts nothing and the box runs.
+/// mounts nothing and the box runs. A store whose folder is missing has no
+/// place to resolve, and refuses by that error, never as spelled (ruling
+/// 18; run 6's L1).
 #[test]
 fn a_store_absent_in_reach_refuses_and_the_box_makes_none() {
-    let Some(stored) = Stored::sealed("work/.forge/secrets.env", &[]) else {
-        return;
-    };
+    let mut stored = Stored::sealed("work/.forge/secrets.env", &[]);
+    std::fs::create_dir(stored.work.join(".forge")).unwrap();
+    stored.reseal(stored.store.clone());
     stored.refused(&Unhidden::Absent(stored.store.clone()));
     assert!(!stored.store.exists(), "the box made no store");
-    let Some(stored) = Stored::sealed("work/deep/er/secrets.env", &[]) else {
-        return;
-    };
-    stored.refused(&Unhidden::Absent(stored.store.clone()));
-    let Some(outside) = Stored::sealed("outside/secrets.env", &[]) else {
-        return;
-    };
+    let stored = Stored::sealed("work/deep/er/secrets.env", &[]);
+    let kind = std::io::ErrorKind::NotFound;
+    stored.refused(&Unhidden::Unobserved(stored.store.clone(), kind));
+    assert!(!stored.work.join("deep").exists(), "the box made no folder");
+    let mut outside = Stored::sealed("outside/secrets.env", &[]);
+    std::fs::create_dir(outside.root.join("outside")).unwrap();
+    outside.reseal(outside.store.clone());
     assert!(!outside.built().unwrap().join(" ").contains("/dev/null"));
+    assert!(!outside.store.exists());
+    if !boxes() {
+        return;
+    }
     assert_eq!(outside.call("echo ran").unwrap().stdout, "ran\n");
     assert!(!outside.store.exists());
+}
+
+/// Run 6's L1 (ruling 18): the store's place is walked as Linux's lookup
+/// walks it. Only the store itself may be missing, through a dangling link
+/// too; a missing folder, one a link names, and a `..` that steps out of
+/// a missing folder or a file have no place, by the error each is.
+#[test]
+fn only_the_store_itself_may_be_missing_from_its_place() {
+    use std::io::ErrorKind::{NotADirectory, NotFound};
+    let (_dir, _, work) = fixture();
+    std::fs::write(work.join("file"), "").unwrap();
+    std::os::unix::fs::symlink("missing", work.join("dangling")).unwrap();
+    let place = |at: &str| store_place(&work.join(at)).map_err(|error| error.kind());
+    assert_eq!(place("secrets.env"), Ok(work.join("secrets.env")));
+    assert_eq!(place("dangling"), Ok(work.join("missing")));
+    assert_eq!(place("missing/secrets.env"), Err(NotFound));
+    assert_eq!(place("dangling/secrets.env"), Err(NotFound));
+    assert_eq!(place("missing/../secrets.env"), Err(NotFound));
+    assert_eq!(place("file/../secrets.env"), Err(NotADirectory));
 }
 
 /// A store with a second link, wherever that link lies, and a store that
@@ -714,9 +744,7 @@ fn a_store_absent_in_reach_refuses_and_the_box_makes_none() {
 /// refuses as no longer resolving to itself.
 #[test]
 fn a_store_of_two_links_or_no_regular_file_refuses_before_the_command_runs() {
-    let Some(stored) = Stored::at("outside/secrets.env", &[]) else {
-        return;
-    };
+    let stored = Stored::at("outside/secrets.env", &[]);
     std::fs::hard_link(&stored.store, stored.root.join("outside/again")).unwrap();
     stored.refused(&Unhidden::Linked(stored.store.clone()));
     let text = format!(
@@ -725,14 +753,10 @@ fn a_store_of_two_links_or_no_regular_file_refuses_before_the_command_runs() {
         stored.store.display()
     );
     assert_eq!(Unhidden::Linked(stored.store.clone()).to_string(), text);
-    let Some(stored) = Stored::sealed("work/.forge/secrets.env", &[]) else {
-        return;
-    };
+    let stored = Stored::sealed("work/.forge/secrets.env", &[]);
     std::fs::create_dir_all(&stored.store).unwrap();
     stored.refused(&Unhidden::Linked(stored.store.clone()));
-    let Some(mut blocked) = Stored::sealed("work/file/secrets.env", &[]) else {
-        return;
-    };
+    let mut blocked = Stored::sealed("work/file/secrets.env", &[]);
     std::fs::write(blocked.work.join("file"), "").unwrap();
     let kind = std::io::ErrorKind::NotADirectory;
     blocked.refused(&Unhidden::Unobserved(blocked.store.clone(), kind));
@@ -749,9 +773,7 @@ fn a_store_of_two_links_or_no_regular_file_refuses_before_the_command_runs() {
         unplain.display()
     );
     assert_eq!(Unhidden::Unresolved(unplain).to_string(), text);
-    let Some(mut looped) = Stored::sealed("outside/secrets.env", &[]) else {
-        return;
-    };
+    let mut looped = Stored::sealed("outside/secrets.env", &[]);
     std::fs::create_dir(looped.root.join("outside")).unwrap();
     std::os::unix::fs::symlink("b", looped.root.join("outside/a")).unwrap();
     std::os::unix::fs::symlink("a", looped.root.join("outside/b")).unwrap();
@@ -765,9 +787,7 @@ fn a_store_of_two_links_or_no_regular_file_refuses_before_the_command_runs() {
 /// runs, and is never changed; at 0600 it is hidden.
 #[test]
 fn a_store_open_to_its_group_or_others_refuses_and_is_never_changed() {
-    let Some(stored) = Stored::at("work/.forge/secrets.env", &[]) else {
-        return;
-    };
+    let stored = Stored::at("work/.forge/secrets.env", &[]);
     for mode in [0o640, 0o644, 0o666] {
         let open = std::fs::Permissions::from_mode(mode);
         std::fs::set_permissions(&stored.store, open).unwrap();
@@ -826,9 +846,7 @@ fn own_record(store: &Path) -> (Vec<u8>, super::super::namespace::sources::host:
 /// is hidden as before, and a table that names no mount for it refuses.
 #[test]
 fn a_store_a_mount_shows_in_reach_refuses_before_the_command_runs() {
-    let Some(stored) = Stored::at("outside/secrets.env", &[("tools", "ro")]) else {
-        return;
-    };
+    let stored = Stored::at("outside/secrets.env", &[("tools", "ro")]);
     for point in ["work/alias", "tools/alias"] {
         let point = stored.root.join(point);
         TABLE.set(Some(aliased(&stored.store, &point)));
@@ -847,10 +865,15 @@ fn a_store_a_mount_shows_in_reach_refuses_before_the_command_runs() {
         Unhidden::Shown(stored.store.clone(), alias).to_string(),
         text
     );
-    TABLE.set(Some(aliased(&stored.store, &stored.root.join("away"))));
-    assert_eq!(stored.call("echo ran").unwrap().stdout, "ran\n");
     TABLE.set(Some(b"1 0 0:1 / / rw - tmpfs none rw\n".to_vec()));
     stored.refused(&Unhidden::Unmapped(stored.store.clone()));
+    TABLE.set(Some(aliased(&stored.store, &stored.root.join("away"))));
+    assert!(stored
+        .built()
+        .is_ok_and(|argv| !argv.join(" ").contains("/dev/null")));
+    if boxes() {
+        assert_eq!(stored.call("echo ran").unwrap().stdout, "ran\n");
+    }
     TABLE.set(None);
 }
 
@@ -859,9 +882,7 @@ fn a_store_a_mount_shows_in_reach_refuses_before_the_command_runs() {
 /// holds is hidden as before (review M1).
 #[test]
 fn a_directory_mounted_back_onto_itself_shows_the_store_at_no_second_place() {
-    let Some(stored) = Stored::at("work/.forge/secrets.env", &[]) else {
-        return;
-    };
+    let stored = Stored::at("work/.forge/secrets.env", &[]);
     let folder = stored.store.parent().unwrap();
     TABLE.set(Some(aliased(&stored.store, folder)));
     stored.denies(&stored.store);
@@ -885,9 +906,7 @@ fn retyped(store: &Path, dev: &str, kind: &str) -> Vec<u8> {
 /// refuses.
 #[test]
 fn the_store_s_mount_is_the_table_s_own_on_a_local_filesystem() {
-    let Some(stored) = Stored::at("work/.forge/secrets.env", &[]) else {
-        return;
-    };
+    let stored = Stored::at("work/.forge/secrets.env", &[]);
     TABLE.set(Some(retyped(&stored.store, "4095:4095", "tmpfs")));
     stored.denies(&stored.store);
     TABLE.set(Some(retyped(&stored.store, "4095:4095", "fuse")));
@@ -900,9 +919,7 @@ fn the_store_s_mount_is_the_table_s_own_on_a_local_filesystem() {
 /// overlay, so its folders cannot be pinned.
 #[test]
 fn a_store_an_overlay_shows_refuses_before_the_command_runs() {
-    let Some(stored) = Stored::at("cache/secrets.env", &[("cache", "overlay")]) else {
-        return;
-    };
+    let stored = Stored::at("cache/secrets.env", &[("cache", "overlay")]);
     let overlaid = Unhidden::Overlaid(stored.store.clone(), stored.store.clone());
     stored.refused(&overlaid);
     let text = format!(
@@ -919,17 +936,13 @@ fn a_store_an_overlay_shows_refuses_before_the_command_runs() {
 /// before: it refuses with the one cause before the command runs.
 #[test]
 fn a_store_whose_folder_pins_would_uncover_the_git_directory_refuses() {
-    let Some(mut stored) = Stored::sealed("outside/secrets.env", &[]) else {
-        return;
-    };
+    let mut stored = Stored::sealed("outside/secrets.env", &[]);
     git(&stored.work, &["init", "-q"]);
     let store = stored.work.join(".git/secrets.env");
     planted(&store, FAKE);
     stored.reseal(store);
     stored.refused(&Unhidden::Gitted(stored.store.clone()));
-    let Some(mut nested) = Stored::sealed("outside/secrets.env", &[]) else {
-        return;
-    };
+    let mut nested = Stored::sealed("outside/secrets.env", &[]);
     let sub = nested.work.join("sub");
     git(&nested.work, &["init", "-q", "sub"]);
     let gitdir = format!("gitdir: {}\n", sub.join(".git").display());
@@ -937,9 +950,7 @@ fn a_store_whose_folder_pins_would_uncover_the_git_directory_refuses() {
     planted(&sub.join("secrets.env"), FAKE);
     nested.reseal(sub.join("secrets.env"));
     nested.refused(&Unhidden::Gitted(nested.store.clone()));
-    let Some(mut linked) = Stored::sealed("outside/secrets.env", &[]) else {
-        return;
-    };
+    let mut linked = Stored::sealed("outside/secrets.env", &[]);
     std::fs::remove_dir(&linked.work).unwrap();
     let common = linked.root.join("repo/.git");
     linked_worktree(&linked.root.join("repo"), &linked.work);
@@ -960,9 +971,7 @@ fn a_store_whose_folder_pins_would_uncover_the_git_directory_refuses() {
 /// the store again.
 #[test]
 fn a_store_the_artifact_root_holds_refuses_before_the_command_runs() {
-    let Some(mut stored) = Stored::at("work/.forge/artifacts/secrets.env", &[]) else {
-        return;
-    };
+    let mut stored = Stored::at("work/.forge/artifacts/secrets.env", &[]);
     stored.artifacts = artifact_root(&stored.work.join(".forge"));
     let rooted = Unhidden::Rooted(stored.store.clone(), stored.artifacts.clone());
     stored.refused(&rooted);
@@ -994,9 +1003,7 @@ fn entries(dir: &Path) -> Vec<std::ffi::OsString> {
 fn a_store_whose_real_place_is_not_utf8_refuses_and_the_host_is_unchanged() {
     use std::os::unix::ffi::OsStrExt;
     let lossy = std::ffi::OsStr::from_bytes(b"secret-\xFF.env");
-    let Some(mut stored) = Stored::sealed("outside/store.env", &[]) else {
-        return;
-    };
+    let mut stored = Stored::sealed("outside/store.env", &[]);
     let forge = stored.work.join(".forge");
     let place = forge.join(lossy);
     std::fs::create_dir_all(stored.root.join("outside")).unwrap();
@@ -1016,9 +1023,7 @@ fn a_store_whose_real_place_is_not_utf8_refuses_and_the_host_is_unchanged() {
         ("work/.forge/secrets.env", ".forge"),
         ("work/secrets.env", "secrets.env"),
     ] {
-        let Some(mut spelled) = Stored::at(store, &[]) else {
-            return;
-        };
+        let mut spelled = Stored::at(store, &[]);
         let workdir = spelled.root.join(std::ffi::OsStr::from_bytes(b"wt-\xFF"));
         std::os::unix::fs::symlink(&spelled.work, &workdir).unwrap();
         spelled.work = workdir.clone();
@@ -1043,9 +1048,7 @@ fn a_store_whose_real_place_is_not_utf8_refuses_and_the_host_is_unchanged() {
 /// absent, and the box is judged on the mounts it declares.
 #[test]
 fn a_mount_that_would_shadow_a_hide_refuses_and_the_host_is_unchanged() {
-    let Some(mut stored) = Stored::at("bundle/secrets.env", &[]) else {
-        return;
-    };
+    let mut stored = Stored::at("bundle/secrets.env", &[]);
     let bound = json!({"kind": "workspace", "binds": [{"path": SANDBOX_BUNDLE, "mode": "rw"}]});
     stored.spec = spec_of(bound);
     stored.reseal(stored.store.clone());
@@ -1053,10 +1056,6 @@ fn a_mount_that_would_shadow_a_hide_refuses_and_the_host_is_unchanged() {
     let before = entries(&bundle);
     let shown = Path::new(SANDBOX_BUNDLE).join("secrets.env");
     let shadowed = Unhidden::Shadowed(stored.store.clone(), shown.clone());
-    let text = format!("hands namespace: {shadowed}");
-    assert_eq!(stored.exec_in("touch ran", Some(&bundle)), Err(text));
-    assert!(!stored.work.join("ran").exists(), "the command never ran");
-    assert_eq!(entries(&bundle), before);
     let text = format!(
         "secrets store cannot be hidden from workspace hands: a later mount shadows '{}', where \
          the box would hide '{}'",
@@ -1064,6 +1063,13 @@ fn a_mount_that_would_shadow_a_hide_refuses_and_the_host_is_unchanged() {
         stored.store.display()
     );
     assert_eq!(shadowed.to_string(), text);
+    if !boxes() {
+        return;
+    }
+    let text = format!("hands namespace: {shadowed}");
+    assert_eq!(stored.exec_in("touch ran", Some(&bundle)), Err(text));
+    assert!(!stored.work.join("ran").exists(), "the command never ran");
+    assert_eq!(entries(&bundle), before);
 }
 
 /// A store replaced at its name once the box hid it, before its argv is
@@ -1071,18 +1077,17 @@ fn a_mount_that_would_shadow_a_hide_refuses_and_the_host_is_unchanged() {
 /// observation is not the first.
 #[test]
 fn a_store_replaced_between_the_box_observations_refuses() {
-    let Some(stored) = Stored::at("work/.forge/secrets.env", &[]) else {
-        return;
+    let stored = Stored::at("work/.forge/secrets.env", &[]);
+    let replaced = || {
+        let (store, new) = (stored.store.clone(), stored.root.join("new.env"));
+        CONFIRMING.set(Some(Box::new(move || {
+            planted(&new, FAKE);
+            std::fs::rename(&new, &store).unwrap();
+        })));
     };
-    let (store, new) = (stored.store.clone(), stored.root.join("new.env"));
-    CONFIRMING.set(Some(Box::new(move || {
-        planted(&new, FAKE);
-        std::fs::rename(&new, &store).unwrap();
-    })));
     let changed = Unhidden::Changed(stored.store.clone());
-    let text = format!("hands namespace: {changed}");
-    assert_eq!(stored.call("touch ran").map(|ran| ran.exit_code), Err(text));
-    assert!(!stored.work.join("ran").exists(), "the command never ran");
+    replaced();
+    assert_eq!(stored.built().err(), Some(changed.clone()), "the argv");
     let text = format!(
         "secrets store cannot be hidden from workspace hands: '{}' changed between the box's \
          two observations",
@@ -1090,6 +1095,13 @@ fn a_store_replaced_between_the_box_observations_refuses() {
     );
     assert_eq!(changed.to_string(), text);
     stored.denies(&stored.store);
+    if !boxes() {
+        return;
+    }
+    replaced();
+    let text = format!("hands namespace: {changed}");
+    assert_eq!(stored.call("touch ran").map(|ran| ran.exit_code), Err(text));
+    assert!(!stored.work.join("ran").exists(), "the command never ran");
 }
 
 /// Operator ruling 3 of 2026-10-23, as Linux does it: a store renamed over
@@ -1097,9 +1109,10 @@ fn a_store_replaced_between_the_box_observations_refuses() {
 /// that one call reads the new store; the next call hides it again.
 #[test]
 fn a_store_renamed_over_during_one_box_shows_that_box_the_new_store() {
-    let Some(stored) = Stored::at("work/.forge/secrets.env", &[]) else {
+    let stored = Stored::at("work/.forge/secrets.env", &[]);
+    if !boxes() {
         return;
-    };
+    }
     let path = stored.store.display();
     let command = format!(
         "cat {path} 2>/dev/null; echo first; touch ready; \

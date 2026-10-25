@@ -61,11 +61,17 @@ impl super::Engine {
 
     /// The secrets store as this run keeps it (U8h, ruling 18): its
     /// configured spelling resolved to its canonical place the first time
-    /// anything asks, and never again for the run, so making the store, the
-    /// path a seat's input names and the place a box's reach seals are one.
+    /// anything uses it, a seat's input or a box, and never again for the
+    /// run, so making the store, the path a seat's input names and the place
+    /// a box's reach seals are one. The run-local directory, the default
+    /// store's folder, is the run's own, made first as its results and
+    /// artifact root are; any other folder of the store is resolved as it
+    /// stands, and one that is missing refuses (run 6's L1).
     pub(super) fn kept_store(&self) -> &KeptStore {
-        self.store_place
-            .get_or_init(|| KeptStore::resolved(self.secrets_store_spelling()))
+        self.store_place.get_or_init(|| {
+            drop(std::fs::create_dir_all(self.run_local()));
+            KeptStore::resolved(self.secrets_store_spelling())
+        })
     }
 
     /// The operator-side store path threaded to drivers and sealed in a
@@ -100,8 +106,10 @@ impl super::Engine {
     /// the spawn is, by the refusal this returns. Where admission sealed the
     /// store at another place, the spawn refuses before anything is made
     /// there (ruling 17). An unboxed spawn, `hands` none, makes nothing, but
-    /// once a seat's input has named the kept place it refuses as a box
-    /// would where the spelling no longer leads there (ruling 18).
+    /// once the run has resolved its kept place, as a seat's input names it
+    /// or a box seals or makes it, it refuses as a box would where the
+    /// spelling no longer leads there (ruling 18); a run that never used the
+    /// store resolves nothing, so its unboxed spawns are never judged by it.
     pub(super) fn prepared(
         &self,
         artifacts: &Path,

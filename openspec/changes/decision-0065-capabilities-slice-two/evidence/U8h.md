@@ -17,12 +17,31 @@ observed in those runs' seats and are carried. Every test they name passes
 on this tree (the suites below), except where run 6 says it replaced or
 changed a test. What could not be run is listed as pending at the end.
 
+Run 6's review (the chief's, of 9545c18c..2995e808) returned the run to
+implement. Its second implement visit is marked "run 6, return" below. It
+built on 2995e808 and repairs that review's findings. Where it corrected a
+claim this file made, the correction is in place and says so.
+
+## Run 6, return, at a glance
+
+| Finding | What the return did | Proof |
+| --- | --- | --- |
+| M1 (medium) | The protocol store fixture no longer gates on a namespace. `Stored::at` and `Stored::sealed` always build, and only the real box's half of a proof asks `boxes()`, which logs the skip, or fails a host that set `BROKKR_REQUIRE_BOUNDARY_EVIDENCE`. `refused` first asserts the argv's exact refusal (`box_argv`, no namespace), and `denies` first asserts the argv's `/dev/null` hide and the host store's bytes. The second-observation test asserts `Changed` from the argv, and the shadow test's text check runs before its gate. The overstated skip claims under "Proof" are corrected there. | Below: the namespace proofs on this host at this head, and a simulated host without namespaces |
+| L1 (low) | `store_place` walks as Linux's lookup does. Only the final entry, the store itself, may be missing, and a final link that dangles resolves to its missing target. A missing folder, a link that names one, and a `..` out of a missing folder or a file are each the error they are (`symlink_metadata(<at>/..)` before popping). The engine keeps that error and every spawn refuses `Unprepared::Unresolved`. The engine makes its own run-local directory, the default store's folder, before resolving it (`kept_store`), as it makes its results and artifact root there. | `only_the_store_itself_may_be_missing_from_its_place`; runtime `a_store_whose_folder_cannot_be_resolved_refuses_every_spawn` (now with `missing`); `a_store_absent_in_reach_refuses_and_the_box_makes_none`; removals RL1–RL4 |
+| L2 (low) | A new runtime test plants a reach sealed at `real/secrets.env` and then lets the engine keep `moved/secrets.env`, to which the configured spelling now leads. The boxed spawn refuses `Strayed` at `prepared`'s admitted-place check alone, since `led` passes. | `a_reach_sealed_at_another_place_than_the_kept_one_refuses`; removal RL5 |
+| L3 (low) | Admission resolves the kept store only for a boxed writer (`writers`' `store` is a closure called in the boxed branch). An attempt with no box never resolves it, so its unboxed spawns are not judged by it. `prepared`'s doc and "What changed" state the scope as built: an unboxed spawn is judged once the run has resolved its kept place, by an input naming it or a box sealing or making it. | `only_a_boxed_writer_resolves_the_kept_store_and_seals_that_place`; removal RL6 |
+| L4 (low) | Unchanged limits, recorded under "Limits and scope". | — |
+| R1 | Recorded here as a finding about the review text. This file argues no disposition. | — |
+| I1 | Unchanged; see "Limits and scope". | — |
+| I2 (info) | The L3 test also reads the reach `writers()` itself seals, not `sealed_for`'s copy, and asserts it names the kept place the seat's input names. | the same test |
+| I3 (info) | Not changed. `emitted` skips flags it does not know, so a future filesystem flag would escape the parity test until `emitted` learns it. | — |
+
 ## Run 6 at a glance
 
 | Finding | What run 6 did | Proof |
 | --- | --- | --- |
 | H1 (high) | The engine keeps the store's place once per run in a private `OnceLock` (`Engine::store_place`), filled the first time anything asks (`Engine::kept_store`, `engine/boxed.rs`). Making the store, the path a seat's input names (`secrets_store_path`), the path MB4's excluded store reads and the place admission seals all read that one kept place. Nothing resolves the place again for the run. Before every boxed spawn, and before every unboxed spawn once an input has named the store, the configured spelling is checked to still lead to the kept place (`Engine::led`), and the spawn refuses exactly if it does not. | `the_run_keeps_one_store_place_and_refuses_a_spelling_that_left_it`; removals Q2, V2, W2, S2 |
-| L1 (low) | `store_place` returns `std::io::Result` and has no fallback. A way no lookup passes (through a file, a folder the user may not search, more than 40 links) is an error, which the engine keeps and which refuses every spawn as `Unprepared::Unresolved`. `make_store` makes only the file, never a folder, so a missing folder refuses as `Unstored(.., NotFound)`. The box refuses a sealed spelling that no longer resolves as `Unobserved`. | `a_store_whose_folder_cannot_be_resolved_refuses_every_spawn`, `the_engine_makes_a_missing_store_owner_only_or_refuses`, `a_boxed_spawn_makes_its_store_before_launch_or_refuses`, the protocol ruling 17 test; removals F, P, U |
+| L1 (low) | `store_place` returns `std::io::Result` and has no fallback. A way no lookup passes (through a file, a folder the user may not search, more than 40 links) is an error, which the engine keeps and which refuses every spawn as `Unprepared::Unresolved`. `make_store` makes only the file, never a folder, so a missing folder refuses as `Unstored(.., NotFound)`. The box refuses a sealed spelling that no longer resolves as `Unobserved`. (Run 6's return: a missing folder now refuses at the walk, as `Unresolved(.., NotFound)`, before `make_store`.) | `a_store_whose_folder_cannot_be_resolved_refuses_every_spawn`, `the_engine_makes_a_missing_store_owner_only_or_refuses`, `a_boxed_spawn_makes_its_store_before_launch_or_refuses`, the protocol ruling 17 test; removals F, P, U |
 | L2 (low) | The parity test now asserts every filesystem step the box emits, in order, by its exact flag (bind vs bind-try kept apart), with nothing filtered: `/proc`, `/dev` and the box's folders, the scratch identity files, home and tmp, a bind's mask, the store's hide, the Git hooks tmpfs and config, and the artifact root. It then holds the description to exactly the steps it describes. | `every_mount_the_box_makes_is_the_store_s_description_in_order`; removal M2 |
 | L3 (low) | Recorded under "Limits and scope", apart from H1's in-run refusal. | — |
 | I1 (info) | Recorded under "Limits and scope". `engine/broker.rs` is unchanged. | — |
@@ -45,8 +64,9 @@ session or box is made. The store's file identity is not sealed: a store
 Run 4 sealed the store's canonical path (ruling 15). `hands::store_place`
 makes the configured spelling absolute and walks it one entry at a time,
 outside any box, following every symbolic link on it, the final entry's
-included, up to Linux's 40. A missing entry leaves the rest as spelled. No
-link can stand there, since nothing stands there. `drifted` re-seals with
+included, up to Linux's 40. Run 4 left the rest as spelled below a missing
+entry. Since run 6's return only the final entry may be missing; a missing
+folder is an error (L1). `drifted` re-seals with
 no store, since it compares only the sources. Run 3's writable-mount link
 classification is removed, not extended.
 
@@ -66,6 +86,8 @@ authority at all. Review H1 named this. Run 6 replaces it as follows.
   configured spelling, made absolute, and either the place `store_place`
   resolved it to or the error kind it failed with. `Engine::kept_store()`
   fills it the first time anything asks and never again for that engine.
+  Since run 6's return it first makes the run-local directory, which holds
+  the default store, as the engine makes its results there.
 - `Engine::secrets_store_path()` moved from `engine.rs` to `engine/boxed.rs`
   and returns the kept place. `engine/input.rs` (the seat's
   `secrets_file`), `engine/broker.rs` (MB4's excluded store) and the Codex
@@ -78,15 +100,21 @@ authority at all. Review H1 named this. Run 6 replaces it as follows.
   `compose_at` changed in place to
   `self.prepared(&artifacts, hands.filter(|_| boxed))`. A boxed spawn makes
   the artifact root, then checks the kept place (`Engine::led`). An unboxed
-  spawn checks only once a place is kept, which is when a seat's input has
-  named the store. `led` refuses `Unprepared::Unresolved(spelling, kind)`
+  spawn checks only once a place is kept. Correction (run 6, return, L3):
+  this file said that is when a seat's input has named the store, but
+  admission resolved the place for every attempt. Since the return,
+  admission resolves it only for a boxed writer, so a place is kept once a
+  seat's input names the store or a box seals or makes it. An unboxed spawn
+  in a run that has used the store elsewhere is still judged, which can
+  refuse a seat that binds nothing; it fails closed. `led` refuses `Unprepared::Unresolved(spelling, kind)`
   where the kept place was never resolved, or where the configured spelling
   no longer resolves. It refuses `Unprepared::Strayed(spelling, place)`
   where the spelling now leads elsewhere. A boxed spawn then refuses
   `Strayed` where the reach admission sealed holds another place, and only
   then makes the store at the kept place.
 - Admission seals the kept place beside the spelling
-  (`self.kept_store().sealed()` into `boxed_reach`, then `hands::seal`). An
+  (`self.kept_store().sealed()` into `boxed_reach`, then `hands::seal`),
+  for a boxed writer only since run 6's return. An
   unresolved store is sealed as its spelling at both. No box is built from
   that reach, because the spawn refuses first.
 - Every box still refuses `Strayed` where `store_place` of the sealed
@@ -113,8 +141,11 @@ then checks the kept place, then calls `make_store` there. Since run 6,
 and never makes a folder (ruling 18, L1). It keeps an existing store
 untouched, whatever its mode (ruling 8). A store it cannot make refuses the
 spawn with `Unstored`: `dispatch refused: secrets store cannot be hidden
-from workspace hands: the store '<path>' cannot be made: <kind>`. A missing
-folder gives `entity not found`.
+from workspace hands: the store '<path>' cannot be made: <kind>`, for
+instance a folder its user may not write. Since run 6's return a missing
+folder never reaches `make_store` from the engine: the walk refuses it
+first, as `Unresolved(.., NotFound)`. `make_store` alone still refuses one
+with `entity not found`.
 
 `Unprepared::Unresolved` reads `dispatch refused: secrets store cannot be
 hidden from workspace hands: the configured store '<spelling>' cannot be
@@ -124,7 +155,7 @@ The box hides the store in the private child `hands/sealed/hidden.rs`,
 driven from `sealed::mount_binds`. `hands.rs` changed lines in place only
 and stays at 1094 lines. Run 6 split `hidden.rs` (672 lines) before adding
 to it, into two new private children declared from it:
-`hands/sealed/hidden/place.rs` (124 lines: `Store`, `store_place`, the walk
+`hands/sealed/hidden/place.rs` (124 lines, 130 after the return's walk: `Store`, `store_place`, the walk
 and `unlinked`) and `hands/sealed/hidden/table.rs` (83 lines: `judged` with
 its non-Linux stand-in, and the mount-table read). `hidden.rs` is now 498
 lines. The moved code is unchanged except for `store_place`'s return type,
@@ -222,15 +253,33 @@ is Linux-only and builds real bubblewrap namespaces, and in
 There is one test each in `admission/tests/reach.rs` and
 `brokkr-cli/src/hands/tests.rs`. Each fixture plants the fake value
 `DOCS_TOKEN=fake-u8h-value` at 0600 under a canonical temporary root. None
-reads `.forge/` or the real HOME. Run 4 ran the store tests with
-`--nocapture` and none printed `skipped:`, so every namespace proof built a
-real box. Run 5 ran the new protocol test with `--nocapture`, and it printed
-no `skipped:`; removal H below shows a real box's `cat` reading the fake
-value once the hide is gone. Run 6 ran the whole protocol store suite with
-`--nocapture`, and `grep -ci skipped` over its output counted 0. Run 6's
-removal H again showed real boxes reading the fake value. The runtime
-namespace test `a_store_the_engine_made_is_hidden_in_the_box_it_composes`
-printed no skip under `--nocapture` either.
+reads `.forge/` or the real HOME.
+
+Where the namespace proofs ran (correction, run 6's return, M1). Each
+namespace proof builds a real box only on a host that can make one. Until
+the return, the protocol fixture itself asked for a namespace, so on a host
+without one every store test but the generated-pin test built nothing and
+passed. The chief's run counted 22 skips there. The run 4, run 5 and run 6
+observations above and below were made in their implement seats on this
+workstation (Linux 6.17), each on its own head; none was made on the
+chief's host, and this file does not establish them for any other host.
+The skips the chief saw do not make them false. They do mean "passed" on a
+host without namespaces proves only the argv, and since the return that half
+runs everywhere:
+
+- On this host at this head, after the last code edit, `cargo test -p
+  brokkr-protocol --lib hands::tests::store -- --nocapture` passed 24 of 24
+  and its output held no `skipped`. `cargo test -p brokkr-runtime --lib
+  store_tests -- --nocapture` passed 6 of 6, no `skip` either. So every
+  namespace proof here built a real box.
+- A host without namespaces was simulated by building `boxes()` with
+  `can_create_namespace() & false` for one run, then restored. The protocol
+  store suite passed 24 of 24 and printed 38 `skipped:` lines, one for each
+  real-box half it gated. Every argv refusal, hide and parity assertion ran.
+  `BROKKR_HANDS_BOX` could not be set from this seat instead, since its
+  shell refuses an environment prefix.
+- The capable-host results of the namespace proofs and their removal
+  controls on the final PR head, on CI's runners, are pending (below).
 
 Three tests outside the owning suites changed in run 6, because they
 configure another store on one engine to stand for a later command's
@@ -260,7 +309,11 @@ parenthesis. The assertion admits exactly those two strings.
 | The run keeps one store place. Every consumer reads it after the route moves, and every spawn that would use it refuses before anything is made (ruling 18, H1). | runtime `the_run_keeps_one_store_place_and_refuses_a_spelling_that_left_it` (replaces run 5's `a_moved_configured_spelling_refuses_the_engine_s_next_launch`) | Run 6. The seat `work` binds `TOKEN`. `--secrets` is `route/secrets.env`, `route -> real`. The seat's input names `real/secrets.env`. `route` relinked to `moved`. Then the input and `secrets_store_path()` still give `(real/secrets.env, real/secrets.env)`. The boxed compose refused with `Unprepared::Strayed(<base>/route/secrets.env, <base>/real/secrets.env)`. The reach it sealed holds `real/secrets.env` (`sealed_store`). An unboxed compose refused with the same text. Nothing was made at `real/secrets.env` or `moved/secrets.env` (`NotFound`). `route` relinked to a regular file: the boxed compose refused `Unresolved(<base>/route/secrets.env, NotADirectory)`. Relinked back to `real`: no refusal, and `real/secrets.env` was made empty at 0600. Exact text for `Strayed`. |
 | A store whose folder cannot be resolved refuses every spawn, with its own cause and nothing standing in for its place (ruling 18, L1). | runtime `a_store_whose_folder_cannot_be_resolved_refuses_every_spawn` | Run 6, for `file/secrets.env` (`file` a regular file) and `shut/secrets.env` (`shut` at mode 0000). The kept place is `Err(NotADirectory)` and `Err(PermissionDenied)`. A boxed compose and an unboxed one each refused `Unprepared::Unresolved(<spelling>, <kind>)`. The reach admission sealed holds the spelling, and no box was built from it. With `shut` reopened it held no entry, so nothing was made. Exact text for the `NotADirectory` case. |
 | The engine makes a missing store in a folder that stands, keeps an existing one, and makes no folder (ruling 18, L1). | runtime `the_engine_makes_a_missing_store_owner_only_or_refuses` | Run 6: `adopter/secrets.env` (folder present) was made empty at 0600. An existing 0640 store kept its bytes and its mode. `missing/secrets.env` gave `Unstored(.., NotFound)` and `missing` was not made. `file/secrets.env` gave `NotADirectory`, and a 300-byte name gave `InvalidFilename`. Exact text for `NotFound` ("entity not found"). |
-| A boxed spawn makes its store before launch, or refuses where its folder is missing. | `a_boxed_spawn_makes_its_store_before_launch_or_refuses` | Run 6: the default store was made empty at 0600 by the first boxed compose. A second engine configured at `.forge/missing/secrets.env` refused `Unstored(<kept place>, NotFound)`, and `missing` was not made. |
+| A boxed spawn makes its store before launch, or refuses where its folder will not take it. | `a_boxed_spawn_makes_its_store_before_launch_or_refuses` | Run 6: the default store was made empty at 0600 by the first boxed compose. Run 6's return: its run-local folder did not stand in the fixture, and the engine made it before resolving the store. A second engine configured at `closed/secrets.env`, `closed` at mode 0500, refused `Unstored(<kept place>, PermissionDenied)` and nothing was made. (Run 6's missing-folder case moved to the next row, since the walk now refuses it.) |
+| A store whose folder is missing refuses every spawn (run 6's return, L1). | runtime `a_store_whose_folder_cannot_be_resolved_refuses_every_spawn`, case `missing` | Run 6's return: `missing/secrets.env`, `missing` absent: the kept place is `Err(NotFound)`, the boxed and the unboxed compose each refused `Unprepared::Unresolved(<spelling>, NotFound)`, the reach sealed the spelling, and `missing` was not made. |
+| Only the store itself may be missing from its place (run 6's return, L1). | protocol `only_the_store_itself_may_be_missing_from_its_place` (no namespace) | Run 6's return, under a canonical worktree holding a file `file` and a link `dangling -> missing`: `secrets.env` resolves to itself and `dangling` to `<work>/missing`; `missing/secrets.env`, `dangling/secrets.env` and `missing/../secrets.env` give `Err(NotFound)`; `file/../secrets.env` gives `Err(NotADirectory)`. |
+| A reach sealed at another place than the one the run keeps refuses (run 6's return, L2). | runtime `a_reach_sealed_at_another_place_than_the_kept_one_refuses` | Run 6's return: `--secrets` is `route/secrets.env`, `route -> real`. A reach is sealed with the place `real/secrets.env` kept then. `route` is relinked to `moved` and the kept place emptied, as a later engine process would have it, so the engine keeps `moved/secrets.env` and `led` passes. `compose_at` with that reservation refused `Unprepared::Strayed(<base>/route/secrets.env, <base>/real/secrets.env)`, and nothing was made at either place. |
+| Only a boxed writer resolves the kept store, and the reach `writers()` seals names it (run 6's return, L3, I2). | runtime `only_a_boxed_writer_resolves_the_kept_store_and_seals_that_place` | Run 6's return: under `Boundary::Open`, `writers` gave one `Reach::Unbounded` writer and no box, and the engine's kept store was still unset. Under `Namespace`, the boxed reach's `sealed_store` and the kept place both equal `secrets_store_path()`. |
 | Every filesystem step the box emits is named, in order, with its exact flag, and the description is exactly the steps it holds (L1, L2). | `every_mount_the_box_makes_is_the_store_s_description_in_order` | Run 6, from `box_argv` with a linked worktree, a bundle root, the artifact root at `work/s/run/artifacts`, a store at `cache/deep/secrets.env`, and `tools` (ro, masking `masked`, which exists), `cache` (rw) and `layer` (overlay) binds. The 45 emitted steps equal the test's list, `--proc /proc` through the artifact root's `--ro-bind`, and the description equals its marked subsequence. |
 | A link that comes to lie on the sealed path refuses wherever it lies, and a store renamed over is still hidden in the next box (H1, rulings 15 and 5). | `a_link_on_the_sealed_store_path_refuses_wherever_it_lies` | Run 4. Store sealed at `work/conf/secrets.env`, then `conf` moved and linked back on the host: both verbs gave `Routed(<store>, <work>/conf)`, no marker. The final entry linked: `Routed(<store>, <store>)`. Restored, then `.secrets.env.new` renamed over the store: both verbs denied it. A store outside every mount whose folder `outside/sys` became a link: `Routed(<store>, <root>/outside/sys)`. A store in `work/shared/deep`, shown twice, through the worktree and through a read-write bind declared at `tools -> work/shared`: denied at both places; once `shared/deep` became a link, `Routed(<store>, <work>/shared/deep)` from both verbs and the store unchanged. |
 | A store sealed as spelled because no walk resolves it refuses, and a store of two links, a directory, a path through a file each refuse. | `a_store_of_two_links_or_no_regular_file_refuses_before_the_command_runs` | Since run 6 the fixture plants the spelled reach itself (`store_place(..).unwrap_or(spelling)` in `Stored::reseal`), since no engine seals one, and the outcomes below are unchanged. Run 4: `Linked` for a second hard link and a directory; `Unobserved(NotADirectory)` through a file; `work/file/x/../secrets.env`, sealed as spelled, gave `Unresolved` both while `file` was a file and after `file/x/` and `file/secrets.env` were made; `outside/a -> b`, `outside/b -> a` sealed through `outside/a` gave `Routed(<store>, <root>/outside/a)`. |
@@ -271,9 +324,9 @@ parenthesis. The assertion admits exactly those two strings.
 | A store's folders cannot be moved, and the next box still hides it. | `a_call_cannot_move_the_store_s_folders_and_the_next_box_still_hides_it` | Run 4: `mv conf conf-moved` and `mv conf/deep conf/moved` gave the exact EBUSY, the next box denied the store, and a read-write bind's pin followed its `--bind-try` and gave EBUSY too. |
 | A store a read-only bind holds is hidden after the bind. A store outside every mount is not mounted. | `a_store_a_bind_holds_is_hidden_and_one_outside_every_mount_is_not_mounted` | Run 4: exact EACCES for both verbs. The outside case's argv carries no `/dev/null` and no `outside`, and `test -e` in the box finds nothing. |
 | The bundle root is accounted for. | `a_store_a_bundle_root_holds_is_denied_wherever_the_box_shows_it` | Run 4: exact EACCES at `/runtime/bundle/secrets.env` for an outside bundle root, and at both places for one inside the worktree. |
-| The host toolchain is accounted for. | `a_store_the_host_toolchain_would_show_is_accounted_for` | Run 4: a store sealed at `/usr/local/brokkr-u8h-absent/secrets.env` gives `Err(Absent(..))`, not an argv. |
+| The host toolchain is accounted for. | `a_store_the_host_toolchain_would_show_is_accounted_for` | Run 4: a store sealed at `/usr/local/brokkr-u8h-absent/secrets.env` gives `Err(Absent(..))`, not an argv. Run 6's return: its folder is missing, which the walk now refuses, so the store is sealed at `/usr/local/brokkr-u8h-absent.env` and gives `Err(Absent(<canonical /usr/local>/brokkr-u8h-absent.env))`. |
 | A missing store under a folder that stands is made empty at 0600 by the engine and hidden. | `a_store_the_engine_made_is_hidden_in_the_box_it_composes` | Run 4 (passing) and run 2 (details): the composed spawn's `--reach` names the store; the real exec box from that reach returned `Ok(1)` with exact EACCES. Run 6: passes, its folder `.forge` made by the artifact root's making first. |
-| The box makes no store. | `a_store_absent_in_reach_refuses_and_the_box_makes_none` | Run 4: `Absent` for an absent store in reach, two directories deep too, and nothing created. An absent store outside every mount runs. |
+| The box makes no store. | `a_store_absent_in_reach_refuses_and_the_box_makes_none` | Run 4: `Absent` for an absent store in reach, two directories deep too, and nothing created. An absent store outside every mount runs. Run 6's return: the fixture makes `.forge` first, and the store absent in it gives `Absent`. The store two missing folders deep, sealed as spelled, now gives `Unobserved(<store>, NotFound)` from the argv and both verbs, and `deep` is not made. `outside` is made before the outside case. |
 | A store open to its group or others refuses and is never changed. | `a_store_open_to_its_group_or_others_refuses_and_is_never_changed` | Run 4: 0640, 0644 and 0666 each gave `Shared(<store>, mode)`, the mode stayed as set, and back at 0600 the store was denied. |
 | A store a bind mount shows at another place in reach refuses. | `a_store_a_mount_shows_in_reach_refuses_before_the_command_runs` | Run 4: with a planted table aliasing the store's directory into the worktree or a bind, both verbs gave `Shown`. An alias outside reach runs. A table naming no mount for it gives `Unmapped`. |
 | A directory mounted back onto itself is no alias. | `a_directory_mounted_back_onto_itself_shows_the_store_at_no_second_place` | Run 4: denied as usual. |
@@ -316,6 +369,35 @@ store_tests`. Each row below names every test that failed. After the
 restores the protocol store suite passed 23 of 23 and the runtime
 `store_tests` 5 of 5. The L2 control M2 was run again after the parity test
 was split under clippy's line ceiling, with the same result.
+
+Run 6's return ran each removal below alone, one build each, on its own
+tree after the return's edits, and restored it by the reverse edit.
+`git diff` then showed `hidden.rs` and `hidden/table.rs` unchanged against
+2995e808, and the protocol store suite passed 24 of 24 and the runtime
+`store_tests` 6 of 6. Protocol removals ran `cargo test -p brokkr-protocol
+--lib --locked hands::tests::store`; runtime ones ran `cargo test -p
+brokkr-runtime --lib --locked` filtered to `store_tests`, or to
+`only_a_boxed_writer` for RL6. The five controls the unit's proof names
+(the hide, the link check, the alias check, the second observation and the
+engine's store making) were run again here, at this head, with real boxes.
+Since M1's repair, the argv half of a test fails first where it can, so
+the link, alias and second-observation controls now fail at the argv.
+
+| Removal | Change | Failed test and assertion |
+| --- | --- | --- |
+| RL1, a missing folder (return, L1) | `& (last \| true)` on the walk's `NotFound` arm | `only_the_store_itself_…`: left `Ok("…/work/missing/secrets.env")`, right `Err(NotFound)`; `a_store_absent_in_reach_…`, "the argv": left `Some(Absent("…/work/deep/er/secrets.env"))`, right `Some(Unobserved("…/work/deep/er/secrets.env", NotFound))`. 22 of 24 passed. |
+| RL2, `..` proved (return, L1) | `drop(..)` around the `symlink_metadata(<at>/..)` check | only `only_the_store_itself_…`: left `Ok("…/work/secrets.env")`, right `Err(NotADirectory)` (the `file/../secrets.env` case) |
+| RL3, a link to a missing folder (return, L1) | the link's walk handed `last \| true` | only `only_the_store_itself_…`: left `Ok("…/work/missing/secrets.env")`, right `Err(NotFound)` (the `dangling/secrets.env` case) |
+| RL4, the run-local folder made (return, L1) | `drop(self.run_local())` in place of `kept_store`'s `create_dir_all` (run on the final form; an earlier guarded form failed the same way) | `a_boxed_spawn_makes_its_store_…` and `a_store_the_engine_made_is_hidden_…`: left `Some("dispatch refused: … the configured store '…/work/.forge/secrets.env' cannot be resolved to its place: entity not found")`, right `None`. 4 of 6 passed. |
+| RL5, the admitted place (return, L2) | `&& false` in the sealed-place filter in `prepared` | only `a_reach_sealed_at_another_place_…`: left `None`, right `Some("dispatch refused: … the configured store '…/route/secrets.env' no longer leads to '…/real/secrets.env', where the box's reach sealed it")` |
+| RL6, admission's scope (return, L3) | `store();` called at the top of `writers` | only `only_a_boxed_writer_…`, "nothing resolved the store": left `Some(KeptStore { spelling: "…/work/.forge/secrets.env", place: Ok("…/work/.forge/secrets.env") })`, right `None` |
+| H, the hide (return) | `#[cfg(any())]` on `hide`'s mount loop | 13 of 24 failed. Ten at `denies`' argv check (`store.rs:166`). The parity test: right holds `["--ro-bind", "/dev/null", "…/cache/deep/secrets.env"]`, left lacks it. `a_store_a_bundle_root_holds_…`, "the exec": left `Ok(0)`, right `Ok(1)`, a real box reading the store. `a_store_renamed_over_during_one_box_…`: left `"DOCS_TOKEN=fake-u8h-value\nfirst\nDOCS_TOKEN=renamed\nsecond\n"`, right `"first\nDOCS_TOKEN=renamed\nsecond\n"`: a real box's `cat` read the fake value. |
+| L, the link-count check (return) | `\| true` after `single(..)` in `table.rs` | only `a_store_of_two_links_…`, "the argv": left `None`, right `Some(Linked("…/outside/secrets.env"))` |
+| A, the alias check (return) | `false &` before the alias predicate in `table.rs` | only `a_store_a_mount_shows_in_reach_…`, "the argv": left `None`, right `Some(Shown("…/outside/secrets.env", "…/work/alias/secrets.env"))` |
+| O2, the second observation (return) | `return Ok(());` after `sealed.confirm` in `Hidden::confirm` | only `a_store_replaced_between_…`, "the argv": left `None`, right `Some(Changed("…/work/.forge/secrets.env"))` |
+| E, the engine's store making (return) | `return Ok(());` first in `make_store` | four of six `store_tests`, each at "the engine made the store": left `(None, None)`, right `(Some([]), Some(384))`; the unresolved-folder and other-place tests passed |
+
+The table below is run 6's first visit and earlier runs.
 
 | Removal | Change | Failed test and assertion |
 | --- | --- | --- |
@@ -376,8 +458,11 @@ check into `present`) but its predicate did not change, and each named test
 passes on this tree. Run 3's removal W (the writable-link predicate) no
 longer applies: run 4 removed that code (ruling 15). Run 5's rows Q and N
 name `a_moved_configured_spelling_refuses_the_engine_s_next_launch`, which
-run 6 replaced. Run 6's Q2, V2 and S2 bind what those rows bound, against
-the kept place. Run 6 moved the code of run 4's removals L, A and K into
+run 6 replaced. Correction (run 6's return, L2): this file said run 6's
+Q2, V2 and S2 bind what those rows bound. They did not bind run 5's row Q,
+the admitted-place check in `prepared`: in the replacement test the route
+moves, so `led` refuses first and that check is never reached. The return's
+RL5 binds it with its own test. Run 6 moved the code of run 4's removals L, A and K into
 `hidden/table.rs` and `hidden/place.rs` unchanged, and L and A were run
 again there (above).
 
@@ -409,6 +494,28 @@ integration binaries (`acknowledge` through `writer_lease`) were not run in
 run 6. No known load flake fired, and no git step failed for an author
 identity.
 
+Run 6's return, after its last code edit: the format check, workspace
+clippy (all targets, all features, `--locked`, `-D warnings`), `typos
+--hidden` and `git diff --check` reported nothing; `openspec validate --all
+--strict` passed 36 of 36; `recipes/self` and `recipes/verify` compiled
+with 48 valuations over 11 groups and 16 over 5, each 0 unruled. The
+suites ran crate by crate with no failure: brokkr-protocol 1070 lib tests
+(3 ignored), `hands_exits` (6), `secret_drop` (1) and its doctest (1);
+brokkr-runtime 1388 lib tests, `capability_launch` (76), `it` (142),
+`operated_repo` (1) and `queued_launch` (8); brokkr-cli 1054 lib tests (1
+ignored), `it` (801, 3 ignored), `driver_conformance` (27),
+`transcript_surfaces` (14), `heap_claude`, `heap_codex`, `heap_dsh` (1
+each) and `heap_fleet` (3); the remaining crates (bridge 17, core 213 and
+its `it` 27, seatbelt probe 99 with 2 ignored, store 186 and its
+integration binaries, view 380 with 3 ignored and its `it` 8). They ran on
+the final production code. The removal controls ran after them and were
+restored, and the one later edit folded the runtime store tests' route
+setup into helpers, after which `store_tests` and the L3 test ran again
+(6 and 1 passed). No known load flake fired and no git step
+failed for an author identity. `quality/ratchet.sh clones` first refused a
+6-line clone between the two route-moving runtime tests; the setup moved
+into the helpers `routed` and `relinked`, and it held.
+
 `bash quality/ratchet.sh files`, `clones` and `api` printed "file size
 holds", "duplication holds" and "public API holds". `clones` first reported
 the moved `engine.rs` clone described under "What changed"; with the
@@ -437,19 +544,19 @@ because the seat cannot run `quality/measure.sh`:
 | --- | --- | --- |
 | `hands/sealed.rs` | 230 | 291 |
 | `hands/sealed/hidden.rs` (new, production) | — | 498 |
-| `hands/sealed/hidden/place.rs` (new, production, run 6) | — | 124 |
+| `hands/sealed/hidden/place.rs` (new, production, run 6; 130 since the return) | — | 130 |
 | `hands/sealed/hidden/table.rs` (new, production, run 6) | — | 83 |
-| `engine/boxed.rs` | 249 | 397 |
+| `engine/boxed.rs` (405 since the return) | 249 | 405 |
 | `engine/broker/admission.rs` | 796 | 798 |
 | `engine.rs` | 3316 | 3314 |
 | `hands.rs`, `doctor.rs`, `probe/observe.rs` | 1094, 1064, 522 | unchanged |
 | `hands/tests.rs` | 1844 | 1846 |
-| `hands/tests/store.rs` (new) | — | 1130 |
+| `hands/tests/store.rs` (new; 1143 since the return) | — | 1143 |
 | `boundary_tests/sealed_tests.rs` | 104 | 132 |
-| `sealed_tests/store_tests.rs` (new) | — | 301 |
+| `sealed_tests/store_tests.rs` (new; 343 since the return) | — | 343 |
 | `boundary_tests/evidence_tests.rs` | 273 | 258 |
 | `admission/tests.rs` | 1820 | 1837 |
-| `admission/tests/reach.rs` | 163 | 203 |
+| `admission/tests/reach.rs` (231 since the return) | 163 | 231 |
 | `engine/secret_threading_tests.rs` | 299 | 303 |
 | `carry/fixture_tests.rs` (run 6) | 153 | 162 |
 | `carry/drive_tests.rs`, `operator/retry/tests.rs` (run 6) | 525, 290 | unchanged |
@@ -478,8 +585,9 @@ configures the store through a link. It passes unchanged in run 6.
 
 What the run refuses, and what it records. Inside one engine's run, the
 kept place is the one authority. The configured spelling is checked to lead
-to it before every boxed spawn, before every unboxed spawn once a seat's
-input names it, and again in each box's two observations. Where it does not,
+to it before every boxed spawn, before every unboxed spawn once the run has
+kept a place (a seat's input named the store, or a box sealed or made it),
+and again in each box's two observations. Where it does not,
 the spawn or box refuses (`Strayed`, `Unresolved`, `Unobserved`), and
 nothing is made. That is H1's in-run refusal. The four limits below are
 apart from it. Each is a window or a case these checks do not cover.
@@ -519,12 +627,19 @@ admission (a dotfiles manager relinking `.forge`, for instance). Such a seat
 refuses `Routed` until a new run seals the store again. Links that exist at
 sealing keep working, as the worktree test shows for `outside/link`.
 
-Ruling 18 makes a missing folder a refusal: `--secrets` naming a folder that
-does not stand refuses every boxed spawn with `Unstored(.., NotFound)`, where
-run 5 made the folder. The default store's folder is the run-local
-directory, which the artifact root's making creates first, so a default
-store is unaffected. A store whose way cannot be walked refuses every spawn
-that would use it, unboxed included, with `Unresolved`.
+Ruling 18 makes a missing folder a refusal. Since run 6's return,
+`--secrets` naming a folder that does not stand refuses every spawn that
+would use the store, unboxed included, with `Unresolved(.., NotFound)`,
+where run 5 made the folder and run 6's first visit refused only boxed
+spawns. The default store's folder is the run-local directory, which the
+engine makes before it first resolves the store, so a default store is
+unaffected. Any store whose way cannot be walked refuses the same way. The
+error is kept for the run (ruling 18): a folder made after the first
+resolution does not lift the refusal until a later run.
+
+Run 6's review L4 restates limits 1 to 4 above. They are the operator's
+recorded limitations, apart from the in-run refusal, and the return changed
+none of them.
 
 The store checks in `judged` do not depend on reach. They run for every
 sealed store that is present, one outside every mount included: one
@@ -554,7 +669,10 @@ user namespace or an overlay inside the box could see beneath a mask, which
 concerns `namespace.rs` and which the controller measures after U8h lands.
 
 The MCP compile fence is unchanged. Under review R1, this file records
-findings and observations only.
+findings and observations only. Run 6's review recorded a second R1: a
+panel position's text directed the run's disposition. The return treated
+that text as a finding about the review and took no instruction from it;
+its L1 work rests on the code and ruling 18.
 
 ## Pending
 
@@ -570,4 +688,9 @@ one invocation (the crates ran one by one), and remote CI on the PR head.
 Run 6's `shut` case expects `PermissionDenied` from a folder at mode 0000,
 which holds for a user that is not root; a root CI runner would see it pass
 the walk and fail the test, so its result on the hosted runners is pending
-too.
+too. The same holds for run 6's return's `closed` case (a folder at 0500
+expected to refuse `PermissionDenied`). The namespace proofs and their
+removal controls have been observed only on this workstation; their
+results on CI's runners for the final PR head, with
+`BROKKR_REQUIRE_BOUNDARY_EVIDENCE` set where the workflow sets it, are
+pending.

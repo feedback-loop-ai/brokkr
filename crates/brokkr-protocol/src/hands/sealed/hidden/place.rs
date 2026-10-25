@@ -56,28 +56,33 @@ impl Store {
 /// at, name it to a seat by and seal it in a box's reach by (rulings 15, 17
 /// and 18): made absolute, and walked one entry at a time with every
 /// symbolic link on it resolved, the final entry's included ([`walked`]).
-/// A missing entry, a store not yet made or a folder of it, leaves the rest
-/// as spelled below the existing folder it resolved, where nothing is a
-/// link; the engine makes only the store itself there. A way no lookup
-/// passes, through a file, a folder it may not search or more links than
-/// Linux follows, is the error it is: nothing stands in for the place.
+/// A store not yet made, the final entry alone, is its place as spelled in
+/// the folder it resolved, which the engine makes it in. Every folder on
+/// the way must stand and be passed as Linux's lookup passes it, `..` too
+/// (ruling 18; run 6's L1): a missing folder, a file, a folder it may not
+/// search or more links than Linux follows is the error it is, and nothing
+/// stands in for the place.
 pub fn store_place(store: &Path) -> std::io::Result<PathBuf> {
-    walked(&std::path::absolute(store)?, &mut 0)
+    walked(&std::path::absolute(store)?, true, &mut 0)
 }
 
 /// The most symbolic links one walk follows, as Linux's own lookup does.
 const LINKS: usize = 40;
 
 /// The real place of the absolute `path`, walked one entry at a time, each
-/// symbolic link followed and counted in `links`. A missing entry leaves
-/// the rest of the way as spelled; an entry no lookup passes, or more links
-/// than Linux follows, is the error it is.
-fn walked(path: &Path, links: &mut usize) -> std::io::Result<PathBuf> {
+/// symbolic link followed and counted in `links`. Its final entry may be
+/// missing only where `open`, and is then as spelled; any other missing
+/// entry, an entry no lookup passes, or more links than Linux follows, is
+/// the error it is.
+fn walked(path: &Path, open: bool, links: &mut usize) -> std::io::Result<PathBuf> {
     let mut at = PathBuf::from("/");
-    for part in path.components() {
+    let mut parts = path.components().peekable();
+    while let Some(part) = parts.next() {
+        let last = open & parts.peek().is_none();
         let name = match part {
             Component::Normal(name) => name,
             Component::ParentDir => {
+                std::fs::symlink_metadata(at.join(".."))?;
                 at.pop();
                 continue;
             }
@@ -88,9 +93,10 @@ fn walked(path: &Path, links: &mut usize) -> std::io::Result<PathBuf> {
             Ok(_) if *links == LINKS => return Err(rustix::io::Errno::LOOP.into()),
             Ok(target) => {
                 *links += 1;
-                walked(&at.join(target), links)?
+                walked(&at.join(target), last, links)?
             }
-            Err(error) if matches!(error.kind(), NotLink | NotFound) => next,
+            Err(error) if error.kind() == NotLink => next,
+            Err(error) if (error.kind() == NotFound) & last => next,
             Err(error) => return Err(error),
         };
     }

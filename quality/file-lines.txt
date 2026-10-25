@@ -165,7 +165,7 @@
     64 crates/brokkr-protocol/src/hands/overlay.rs
    291 crates/brokkr-protocol/src/hands/sealed.rs
    498 crates/brokkr-protocol/src/hands/sealed/hidden.rs
-   124 crates/brokkr-protocol/src/hands/sealed/hidden/place.rs
+   130 crates/brokkr-protocol/src/hands/sealed/hidden/place.rs
     83 crates/brokkr-protocol/src/hands/sealed/hidden/table.rs
    442 crates/brokkr-protocol/src/hands/session.rs
    222 crates/brokkr-protocol/src/lib.rs
@@ -268,7 +268,7 @@
    772 crates/brokkr-runtime/src/dialect.rs
   3314 crates/brokkr-runtime/src/engine.rs
    508 crates/brokkr-runtime/src/engine/artifacts.rs
-   397 crates/brokkr-runtime/src/engine/boxed.rs
+   405 crates/brokkr-runtime/src/engine/boxed.rs
    800 crates/brokkr-runtime/src/engine/broker.rs
    798 crates/brokkr-runtime/src/engine/broker/admission.rs
    509 crates/brokkr-runtime/src/engine/broker/exclusion.rs
@@ -595,7 +595,7 @@
    519 crates/brokkr-protocol/src/hands/tests/sealed.rs
   1085 crates/brokkr-protocol/src/hands/tests/server.rs
   1900 crates/brokkr-protocol/src/hands/tests/sources.rs
-  1130 crates/brokkr-protocol/src/hands/tests/store.rs
+  1143 crates/brokkr-protocol/src/hands/tests/store.rs
    182 crates/brokkr-protocol/src/native_controls/mcp/tests.rs
  12555 crates/brokkr-protocol/src/native_controls/tests.rs
    829 crates/brokkr-protocol/src/native_controls/tests/isolation.rs
@@ -677,13 +677,13 @@
    132 crates/brokkr-runtime/src/engine/boundary_tests/sealed_tests.rs
    182 crates/brokkr-runtime/src/engine/boundary_tests/sealed_tests/executable_tests.rs
    107 crates/brokkr-runtime/src/engine/boundary_tests/sealed_tests/folder_tests.rs
-   301 crates/brokkr-runtime/src/engine/boundary_tests/sealed_tests/store_tests.rs
+   343 crates/brokkr-runtime/src/engine/boundary_tests/sealed_tests/store_tests.rs
    331 crates/brokkr-runtime/src/engine/boundary_tests/smith_tests.rs
   1837 crates/brokkr-runtime/src/engine/broker/admission/tests.rs
    959 crates/brokkr-runtime/src/engine/broker/admission/tests/coordination.rs
    283 crates/brokkr-runtime/src/engine/broker/admission/tests/foreign.rs
    522 crates/brokkr-runtime/src/engine/broker/admission/tests/processes.rs
-   203 crates/brokkr-runtime/src/engine/broker/admission/tests/reach.rs
+   231 crates/brokkr-runtime/src/engine/broker/admission/tests/reach.rs
    200 crates/brokkr-runtime/src/engine/broker/admission/tests/recovery.rs
    599 crates/brokkr-runtime/src/engine/broker/admission/tests/sealing.rs
   1528 crates/brokkr-runtime/src/engine/broker/admission/tests/sources.rs

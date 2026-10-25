@@ -59,6 +59,23 @@ fn boxed_engine() -> (tempfile::TempDir, Engine, Vec<String>) {
     (dir, engine, command)
 }
 
+/// Under `base`, the folders `real` and `moved`, and the link `route` to
+/// `real`, which `engine`'s store is configured through: their paths.
+fn routed(engine: &mut Engine, base: &Path) -> (PathBuf, PathBuf, PathBuf) {
+    let (real, moved, route) = (base.join("real"), base.join("moved"), base.join("route"));
+    std::fs::create_dir(&real).unwrap();
+    std::fs::create_dir(&moved).unwrap();
+    std::os::unix::fs::symlink(&real, &route).unwrap();
+    engine.secrets_file = Some(route.join("secrets.env"));
+    (real, moved, route)
+}
+
+/// Point the link `route` at `to`.
+fn relinked(route: &Path, to: &Path) {
+    std::fs::remove_file(route).unwrap();
+    std::os::unix::fs::symlink(to, route).unwrap();
+}
+
 /// The refusal of `engine`'s next spawn of `command`, boxed with default
 /// hands, or unboxed where `boxed` is false.
 fn refusal(engine: &mut Engine, command: &[String], boxed: bool) -> Option<String> {
@@ -105,9 +122,9 @@ fn the_engine_makes_a_missing_store_owner_only_or_refuses() {
 }
 
 /// Under `namespace` a seat with hands is composed only once the engine
-/// made its store, empty and owner-only, where admission sealed it; a
-/// store whose folder is missing refuses the spawn with the store's cause,
-/// and the folder is not made.
+/// made its store, empty and owner-only, where admission sealed it, in a
+/// folder that stands; a store its folder will not take refuses the spawn
+/// with the store's cause, and nothing is made.
 #[test]
 fn a_boxed_spawn_makes_its_store_before_launch_or_refuses() {
     let (_dir, mut engine, command) = boxed_engine();
@@ -115,32 +132,39 @@ fn a_boxed_spawn_makes_its_store_before_launch_or_refuses() {
     assert!(!store.exists());
     assert_eq!(refusal(&mut engine, &command, true), None);
     made_empty(&store);
-    let (_blocked_dir, mut blocked, command) = boxed_engine();
-    let folder = blocked.secrets_store_spelling().with_file_name("missing");
+    let (dir, mut blocked, command) = boxed_engine();
+    let folder = dir.path().canonicalize().unwrap().join("closed");
+    std::fs::create_dir(&folder).unwrap();
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o500)).unwrap();
     blocked.secrets_file = Some(folder.join("secrets.env"));
     let place = blocked.secrets_store_path();
-    let unstored = Unstored(place, NotFound);
+    let unstored = Unstored(place.clone(), PermissionDenied);
     assert_eq!(
         refusal(&mut blocked, &command, true),
         Some(unstored.to_string())
     );
-    unmade(&folder);
+    unmade(&place);
 }
 
-/// Operator ruling 18 of 2026-10-25: a store whose folder cannot be
-/// resolved, through a file or a folder its user may not search, refuses
-/// every spawn, boxed or not, with its own cause, and nothing stands in for
-/// its place: the reach seals no place of its own, the box is never built
-/// and nothing is made.
+/// Operator ruling 18 of 2026-10-25 and run 6's L1: a store whose folder
+/// cannot be resolved, missing, a file or a folder its user may not search,
+/// refuses every spawn, boxed or not, with its own cause, and nothing
+/// stands in for its place: the reach seals no place of its own, the box is
+/// never built and nothing is made.
 #[test]
 fn a_store_whose_folder_cannot_be_resolved_refuses_every_spawn() {
-    for (folder, kind) in [("file", NotADirectory), ("shut", PermissionDenied)] {
+    let cases = [
+        ("missing", NotFound),
+        ("file", NotADirectory),
+        ("shut", PermissionDenied),
+    ];
+    for (folder, kind) in cases {
         let (dir, mut engine, command) = boxed_engine();
         let base = dir.path().canonicalize().unwrap();
         let spelling = base.join(folder).join("secrets.env");
         if folder == "file" {
             std::fs::write(base.join(folder), "").unwrap();
-        } else {
+        } else if folder == "shut" {
             std::fs::create_dir(base.join(folder)).unwrap();
             let shut = std::fs::Permissions::from_mode(0o000);
             std::fs::set_permissions(base.join(folder), shut).unwrap();
@@ -163,8 +187,10 @@ fn a_store_whose_folder_cannot_be_resolved_refuses_every_spawn() {
             "sealed as spelled, never built"
         );
         assert_eq!(engine.secrets_store_path(), spelling);
-        let open = std::fs::Permissions::from_mode(0o700);
-        std::fs::set_permissions(base.join(folder), open).unwrap();
+        if folder == "shut" {
+            let open = std::fs::Permissions::from_mode(0o700);
+            std::fs::set_permissions(base.join(folder), open).unwrap();
+        }
         let held = std::fs::read_dir(base.join(folder)).map(Iterator::count);
         assert_eq!(
             held.ok(),
@@ -194,15 +220,8 @@ fn the_run_keeps_one_store_place_and_refuses_a_spelling_that_left_it() {
     let (dir, mut engine, command) = boxed_engine();
     engine.bundle.seats.get_mut("work").unwrap().secrets = vec!["TOKEN".into()];
     let base = dir.path().canonicalize().unwrap();
-    let (real, moved, route) = (base.join("real"), base.join("moved"), base.join("route"));
-    std::fs::create_dir(&real).unwrap();
-    std::fs::create_dir(&moved).unwrap();
-    std::os::unix::fs::symlink(&real, &route).unwrap();
-    let relink = |to: &Path| {
-        std::fs::remove_file(&route).unwrap();
-        std::os::unix::fs::symlink(to, &route).unwrap();
-    };
-    engine.secrets_file = Some(route.join("secrets.env"));
+    let (real, moved, route) = routed(&mut engine, &base);
+    let relink = |to: &Path| relinked(&route, to);
     let place = real.join("secrets.env");
     let named = |engine: &Engine| seat_input_of(engine, "work")["secrets_file"].clone();
     assert_eq!(named(&engine), json!(place));
@@ -243,6 +262,29 @@ fn the_run_keeps_one_store_place_and_refuses_a_spelling_that_left_it() {
     );
     let strayed = Unprepared::Strayed(route.join("secrets.env"), place);
     assert_eq!(strayed.to_string(), text);
+}
+
+/// Run 6's L2 (ruling 17): a reach retained from another resolution of the
+/// store, as an earlier engine process sealed one before the store's route
+/// moved, names another place than the one this run keeps, though the
+/// configured spelling leads to the kept place now. The boxed spawn built
+/// from that reach refuses before anything is made at either place.
+#[test]
+fn a_reach_sealed_at_another_place_than_the_kept_one_refuses() {
+    let (dir, mut engine, command) = boxed_engine();
+    let base = dir.path().canonicalize().unwrap();
+    let (real, moved, route) = routed(&mut engine, &base);
+    let spec = HandsSpec::default();
+    engine.sealed_for(&base.join("home"), &spec);
+    relinked(&route, &moved);
+    engine.store_place = std::sync::OnceLock::new();
+    let (sealed, kept) = (real.join("secrets.env"), moved.join("secrets.env"));
+    assert_eq!(engine.secrets_store_path(), kept);
+    let spawn = engine.compose_at(None, "attempt", false, command, Some(&spec), None, "r.json");
+    let strayed = Unprepared::Strayed(route.join("secrets.env"), sealed.clone());
+    assert_eq!(spawn.refusal, Some(strayed.to_string()));
+    unmade(&sealed);
+    unmade(&kept);
 }
 
 /// In a real namespace: an exec seat whose store lies in its worktree, and

@@ -178,6 +178,34 @@ fn a_box_whose_hands_were_sealed_nothing_refuses_its_spawn() {
     assert_eq!(spawn.refusal.as_deref(), Some(text), "another hands' reach");
 }
 
+/// Run 6's L3 and I2 (U8h ruling 18): admission resolves the run's kept
+/// store only for a boxed writer, so an attempt with no box never resolves
+/// the store, and the reach it seals for a boxed one names the very place
+/// the run keeps, as the seat's input does.
+#[test]
+fn only_a_boxed_writer_resolves_the_kept_store_and_seals_that_place() {
+    let (_dir, mut engine, spec, _) = boxed_seat();
+    let body = single_body(exec_seat());
+    let (body, _) = body.selected(None).unwrap();
+    let (home, work) = (Path::new("/home/fixture"), worktree(&engine));
+    engine.boundary = Boundary::Open;
+    let (writers, boxes) = engine.writers(home, &work, "work", body);
+    assert_eq!(
+        (writers[0].reach.clone(), boxes.len()),
+        (Reach::Unbounded, 0)
+    );
+    assert_eq!(engine.store_place.get(), None, "nothing resolved the store");
+    engine.boundary = Boundary::Namespace;
+    let (_, boxes) = engine.writers(home, &work, "work", body);
+    let Reach::Boxed { sealed, .. } = &boxes[0].1 else {
+        panic!("a boxed writer of {spec:?}")
+    };
+    let kept = engine.store_place.get().map(|kept| kept.place.clone());
+    let place = hands::sealed_store(sealed).map(Path::to_path_buf);
+    let named = engine.secrets_store_path();
+    assert_eq!((kept, place), (Some(Ok(named.clone())), Some(named)));
+}
+
 /// A panel member or a step of the ship phase is composed from its site's
 /// own hands, which the phase's journal bind widens for the reservation:
 /// admission seals both, so every box the attempt composes is built from a
