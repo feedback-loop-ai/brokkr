@@ -33,9 +33,11 @@ test-support = ["rusqlite/trace"]
 
 [dependencies]
 brokkr-core = { workspace = true }
+hex = { workspace = true }
 serde_json = { workspace = true }
 jsonschema = { workspace = true }
 rusqlite = { workspace = true }
+sha2 = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 time = { workspace = true }

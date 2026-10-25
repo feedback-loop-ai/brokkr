@@ -6,6 +6,7 @@
 //! brokkr-view; or said kept where the read says the run is read whole.
 //! brokkr-cli's parity, corrupt-run and heap tests read a seat so.
 
+use brokkr_core::envelope::EventEnvelope;
 use brokkr_store::{Opened, SeatRead, Store, StoreError};
 use brokkr_view::{page_rows, CheckpointRow};
 
@@ -24,8 +25,8 @@ pub(crate) fn page(
     seat: Seat<'_>,
     before: Option<u64>,
 ) -> Result<Option<Page>, StoreError> {
-    let SeatRead::Current(rows, next) = store.seat_read(run, opened, seat, before, page_rows)?
-    else {
+    let rows = |starts: &mut dyn Iterator<Item = EventEnvelope>| page_rows(seat.1, starts);
+    let SeatRead::Current(rows, next) = store.seat_read(run, opened, seat, before, rows)? else {
         return Ok(None);
     };
     let rows: Option<Vec<CheckpointRow>> = rows.into_iter().collect();

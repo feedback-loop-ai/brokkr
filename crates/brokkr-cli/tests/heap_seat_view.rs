@@ -6,9 +6,10 @@
 //! part of what the run holds, and grows with one wide checkpoint on the
 //! page, or a wide start of its attempt, by the copies of it the read holds
 //! at once, with the wide starts of many attempts on the page by one
-//! start's copies, never their sum, with no member's checkpoint, which it
-//! reads no body of, and with none of its seat's earlier attempts, its
-//! statements the same however many there are. A
+//! start's copies, never their sum, wide in a field or in a member's
+//! label, with no member's checkpoint, which it reads no body of, with
+//! none of its seat's earlier attempts, its statements the same however
+//! many there are, and with none of its effect's rows' lists. A
 //! readout's live heap is two shares, Brokkr's under dhat and SQLite's
 //! from its own high-water. The budgets live in `quality/heap-bytes.json`;
 //! dhat allows one profiler per process, so this is a binary of its own.
@@ -227,6 +228,7 @@ fn the_seat_view_s_page_holds_its_checkpoints_one_at_a_time() {
     the_page_reads_no_member_s_body(dir.path(), &longest);
     the_page_holds_none_of_its_seat_s_attempts(dir.path(), &longest);
     the_spread_page_holds_one_start_at_a_time(dir.path(), &longest);
+    the_page_holds_none_of_its_effect_s_lists(dir.path(), &longest);
 }
 
 /// Where the grown run's first event of `longest`'s effect of `event_type`
@@ -433,20 +435,70 @@ fn the_page_holds_none_of_its_seat_s_attempts(dir: &Path, longest: &Longest) {
     );
 }
 
+/// The grown run with an attempt of its longest seat started before the
+/// seat's own and checkpointed `checkpoints` times, each checkpoint
+/// naming a model of its own, so the attempt's seat row lists them all:
+/// a row of the page's effect none of whose checkpoints are on the page.
+fn after_models(longest: &Longest, checkpoints: usize) -> Vec<EventEnvelope> {
+    let mut events = grown::journal();
+    let start = ours(&events, longest, EventType::EffectStarted);
+    let mut prior = vec![events[start].clone()];
+    prior[0].payload["attempt_id"] = "historical".into();
+    for at in 0..checkpoints {
+        let mut checkpoint = events[start + 1].clone();
+        checkpoint.payload["attempt_id"] = "historical".into();
+        checkpoint.payload["checkpoint"]["model"] = format!("model-{at:074}").into();
+        prior.push(checkpoint);
+    }
+    events.splice(start..start, prior);
+    renumbered(events)
+}
+
+/// A page holds none of its effect's rows' lists: beside an earlier
+/// attempt of its seat whose row lists 6,000 models, Brokkr's peak after
+/// the run's opening is the page's beside the same attempt with no
+/// checkpoint, to the byte, as each row's digest is checked a value at a
+/// time and only the columns a stream is read by are kept. SQLite holds
+/// the row whole while the read checks its digest; its share is reported,
+/// not gated, until the operator rules how a page is held against a wide
+/// row (#753).
+fn the_page_holds_none_of_its_effect_s_lists(dir: &Path, longest: &Longest) {
+    let [none, listed] = [0, 6_000].map(|checkpoints| {
+        let db = caught_up(
+            dir,
+            &format!("models-{checkpoints}.db"),
+            after_models(longest, checkpoints),
+        );
+        after_opening(&db, longest.seat());
+        let (cost, shown) = after_opening(&db, longest.seat());
+        assert_eq!(shown, Some((PAGE, true)), "{checkpoints}: the first page");
+        cost
+    });
+    eprintln!("beside an attempt listing no model: {none:?}; listing 6,000: {listed:?}");
+    assert_eq!(
+        listed.brokkr, none.brokkr,
+        "a page grew with an earlier attempt's listed models"
+    );
+}
+
 /// The grown run with its longest seat's newest `attempts` checkpoints
 /// each under an attempt of its own, started just before it, the newest
-/// the seat's own attempt started again, every such start stretched as
-/// `stretch` stretches the seat's first start.
-fn spread(longest: &Longest, attempts: usize, stretch: Stretch) -> Vec<EventEnvelope> {
+/// the seat's own attempt started again, every such start made of the
+/// seat's first start by `restart`.
+fn spread(
+    longest: &Longest,
+    attempts: usize,
+    restart: impl Fn(EventEnvelope) -> EventEnvelope,
+) -> Vec<EventEnvelope> {
     let mut events = grown::journal();
     let start = ours(&events, longest, EventType::EffectStarted);
     let succeeded = ours(&events, longest, EventType::EffectSucceeded);
-    let restart = stretched::run_stretched(vec![events[start].clone()], 1, "stretch", stretch);
+    let restart = restart(events[start].clone());
     let from = succeeded - attempts;
     let tail: Vec<EventEnvelope> = events.drain(from..succeeded).collect();
     let mut spread = Vec::with_capacity(2 * attempts);
     for (at, mut checkpoint) in tail.into_iter().enumerate() {
-        let mut started = restart[0].clone();
+        let mut started = restart.clone();
         if at + 1 < attempts {
             let attempt = format!("spread-{at}");
             started.payload["attempt_id"] = attempt.clone().into();
@@ -458,30 +510,61 @@ fn spread(longest: &Longest, attempts: usize, stretch: Stretch) -> Vec<EventEnve
     renumbered(events)
 }
 
+/// `start` with one boundary entry, of the harness, whose member is no
+/// participant's, its label stretched so the start is a mebibyte of text.
+fn widely_membered(mut start: EventEnvelope) -> EventEnvelope {
+    let entry = |member: String| serde_json::json!([{"member": member, "boundary": "harness", "gate": true}]);
+    start.payload["boundary"] = entry(String::new());
+    let text = serde_json::to_string(&start).unwrap().len();
+    start.payload["boundary"] = entry("m".repeat(STRETCH - text));
+    start
+}
+
 /// A page holds one start at a time: its 50 checkpoints each of an attempt
 /// of its own, each attempt's start a mebibyte, grow its peak after the
 /// run's opening over the same page with small starts by no more than the
 /// copies of one start the read holds at once ([`PLAIN`], [`ESCAPED`]),
-/// never their sum; and SQLite's high-water by no more than one start and
+/// never their sum, whether the start is wide in a field no row reads or
+/// in a boundary entry's member label, which none of the page's rows
+/// reads; and SQLite's high-water by no more than one start and
 /// [`SQLITE_SLACK`].
 fn the_spread_page_holds_one_start_at_a_time(dir: &Path, longest: &Longest) {
     let stretch = STRETCH as u64;
-    let [small, plain, escaped] =
-        [Stretch::Unstretched, Stretch::Plain, Stretch::Escaped].map(|wide| {
-            let run = spread(longest, PAGE + 1, wide);
-            let db = caught_up(dir, &format!("spread-{wide:?}.db"), run);
-            after_opening(&db, longest.seat());
-            let (cost, shown) = after_opening(&db, longest.seat());
-            assert_eq!(shown, Some((PAGE, true)), "{wide:?}: the first page");
-            cost
-        });
-    eprintln!("a page across 50 attempts: {small:?}; their starts a mebibyte: plain {plain:?}, escaped {escaped:?}");
-    for (name, cost, copies) in [("plain", plain, PLAIN), ("escaped", escaped, ESCAPED)] {
+    let stretched =
+        |wide| move |start| stretched::run_stretched(vec![start], 1, "stretch", wide).remove(0);
+    type Restart = Box<dyn Fn(EventEnvelope) -> EventEnvelope>;
+    let starts: [(&str, Restart); 4] = [
+        ("small", Box::new(stretched(Stretch::Unstretched))),
+        ("plain", Box::new(stretched(Stretch::Plain))),
+        ("escaped", Box::new(stretched(Stretch::Escaped))),
+        ("membered", Box::new(widely_membered)),
+    ];
+    let [small, plain, escaped, membered] = starts.map(|(name, restart)| {
+        let run = spread(longest, PAGE + 1, restart);
+        let db = caught_up(dir, &format!("spread-{name}.db"), run);
+        after_opening(&db, longest.seat());
+        let (cost, shown) = after_opening(&db, longest.seat());
+        assert_eq!(shown, Some((PAGE, true)), "{name}: the first page");
+        cost
+    });
+    eprintln!("a page across 50 attempts: {small:?}; their starts a mebibyte: plain {plain:?}, escaped {escaped:?}, by a member's label {membered:?}");
+    for (name, cost, copies) in [
+        ("plain", plain, PLAIN),
+        ("escaped", escaped, ESCAPED),
+        ("membered", membered, PLAIN),
+    ] {
         let growth = cost.brokkr - small.brokkr;
         assert!(
             growth <= copies * stretch,
             "50 mebibyte {name} starts grew the page's peak by {growth} bytes, past {copies} starts"
         );
+        // A member's label opens a seat row of its own, keyed by it, which
+        // SQLite holds whole while the read checks its digest: SQLite's
+        // share of a wide row is reported here, not gated, until the
+        // operator rules how a page is held against one (#753).
+        if name == "membered" {
+            continue;
+        }
         let held = cost.sqlite - small.sqlite;
         assert!(
             held <= stretch + SQLITE_SLACK,

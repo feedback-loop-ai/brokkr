@@ -1032,9 +1032,10 @@ model the writer keeps in the journal's own file and transaction.
    escapes, against 3,145,728 B for three mebibytes. With the opening
    made before the measurement, the page alone peaks at 58,429 B,
    1,088,058 B and 3,182,221 B, so the escaped growth is the page's own
-   parse, not its opening's. Reading the page's starts one at a time
-   (below) moves the unstretched page to 58,305 B and neither growth by a
-   byte. SQLite's high-water grows by 1,047,536 B and 1,047,544 B, within
+   parse, not its opening's. Reading the page's starts one at a time and
+   keeping of each the words its rows read (below) moves the unstretched
+   page to 58,641 B, the plain growth by no byte and the escaped by 72 B,
+   to 3,123,722 B. SQLite's high-water grows by 1,047,536 B and 1,047,544 B, within
    the envelope; `heap_seat_view.rs` holds it to the checkpoint and
    `SQLITE_SLACK`'s 64 KiB, its allocator and page cache around the row,
    as the opening's and the run view's are, since CI's macOS leg measures
@@ -1056,28 +1057,33 @@ model the writer keeps in the journal's own file and transaction.
    operator on #753, unruled, beside the one above):* a checkpoint's row
    reads its boundary from the start its attempt last names, so a page
    reads, by its key, the start of each attempt with a checkpoint on it,
-   one at a time in seq order: each start's boundary entries are handed to
-   the rows and the start is dropped before the next is read, and every
-   start before the page's first checkpoint is parsed. Ruling 9's row
-   names the page's checkpoints alone; a start is not one, and it is held
-   whole while its entries are read. With the start of the page's attempt
-   stretched to a mebibyte (`heap_seat_view.rs`), the page's peak, its
-   opening included, grows over the unstretched page's (58,305 B) by
-   996,116 B when the text is plain, within one start, and by 3,090,499 B
-   when it carries escapes, within three; the page alone, after its
-   opening, peaks at 1,054,293 B and 3,148,674 B. With each of the page's
-   50 checkpoints of an attempt of its own and each attempt's start a
-   mebibyte, the page alone grows over the same page with small starts
-   (66,089 B) by 996,608 B plain and 3,091,085 B escaped: one start's
-   copies, never the 50 starts' sum, which a page holding its starts at
-   once measured at 52,386,550 B. SQLite's high-water grows by about
+   one at a time in seq order: of each start the rows keep only the words
+   a row of the participant reads, its member's entry's and, for the
+   seat's own, every entry's joined, each within the six, the labels of
+   other members let go of first; and the start is dropped before the next
+   is read, and every start before the page's first checkpoint is parsed.
+   Ruling 9's row names the page's checkpoints alone; a start is not one,
+   and it is held whole while its words are read. With the start of the
+   page's attempt stretched to a mebibyte (`heap_seat_view.rs`), the
+   page's peak, its opening included, grows over the unstretched page's
+   (58,641 B) by 995,780 B when the text is plain, within one start, and
+   by 3,090,163 B when it carries escapes, within three; the page alone,
+   after its opening, peaks at 1,054,293 B and 3,148,674 B. With each of
+   the page's 50 checkpoints of an attempt of its own and each attempt's
+   start a mebibyte, the page alone grows over the same page with small
+   starts (67,717 B) by 996,516 B plain and 3,090,993 B escaped, and by
+   997,598 B where each start is a mebibyte in one boundary entry's member
+   label, which none of the page's rows reads: one start's copies, never
+   the 50 starts' sum, which a page holding its starts at once measured at
+   52,386,550 B and a page keeping every start's entries at 53,391,859 B
+   more with the labels wide. SQLite's high-water grows by about
    1,031,000 B in each, within the start, and `heap_seat_view.rs` holds it
    to the start and `SQLITE_SLACK`'s 64 KiB, as above. No other attempt's
    start and no other seat's is read: a mebibyte start of the seat's older
    attempt and of another seat leaves the page's peak after its opening
    unmoved to the byte; and the page keeps only the streams that can reach
    it, so the same 50 newest checkpoints read after 10, 1,000 and 5,000
-   earlier attempts of their seat peak at 58,185 B and begin 80
+   earlier attempts of their seat peak at 58,521 B and begin 80
    statements in each. Recommended: the seat view row's Brokkr share is
    256 KiB and the larger of the page's largest checkpoint and one start
    of its attempts, never their sum, either about three times where its
@@ -1092,6 +1098,31 @@ model the writer keeps in the journal's own file and transaction.
    states it. Until the operator rules, slice 2's acceptance of ruling 9's
    seat view budget for a page whose attempt's start is wide is pending on
    this bound.
+
+   *Proposed amendment, 2026-10-25, the seat view's rows (to be asked of
+   the operator on #753, unruled, beside the two above):* a page reads its
+   effect's seat rows by the run's key and the effect, one at a time, each
+   checked by its digest over all 69 columns. Each value is fed to the
+   digest as SQLite holds it and only the twelve columns a stream is read
+   by are kept, so Brokkr holds none of a row's lists: beside an earlier
+   attempt of the seat whose row lists 6,000 models, none of whose
+   checkpoints is on the page, the page's peak after its opening is
+   58,521 B, as beside the same attempt with no checkpoint, to the byte
+   (506,458 B with every column kept). SQLite holds a row whole while it
+   is read, so its high-water after the opening grows with the effect's
+   widest row: 75,024 B to 552,920 B beside those 6,000 models, past the
+   512,000 B cap; and since a boundary entry's member label opens a seat
+   row keyed by it, the 50 starts above each a mebibyte in a member's
+   label grow it from 75,024 B to 2,151,200 B while Brokkr's peak grows by
+   one start. `heap_seat_view.rs` reports SQLite's share of both and
+   gates neither. Recommended: amend ruling 9's seat view row to name
+   SQLite's share as the page's checkpoints and starts and the effect's
+   widest seat row, as the run view's row names the run's seat rows. Or:
+   bound a row's lists and labels where the writer keeps them, a schema
+   change; or digest the columns the read keeps apart from the rest, a
+   writer change that re-seals every row. Until the operator rules, slice 2's
+   acceptance of ruling 9's SQLite share for a seat view page beside a
+   wide seat row is pending on this bound.
 
    **The aggregates are the one exception, and it is put to the
    operator.** Each answers a question about every run in a window: what

@@ -8,7 +8,9 @@
 //! A participant is an effect and a member, as the run view keys it,
 //! across its requests and attempts. Its effect's seat rows are read by
 //! the run's key and the effect, one at a time, so no other effect's row
-//! is held. Each of its rows that holds a checkpoint names the attempt
+//! is held, and of each only the columns its stream is read by ([`HELD`]),
+//! its digest checked a value at a time, so no row's lists are held. Each
+//! of its rows that holds a checkpoint names the attempt
 //! its stream is read by, and its first and last checkpoint's seq, which
 //! bound the stream. A page keeps only the streams that can reach it
 //! ([`Gathered`]): once the streams kept vouch for a page and one more
@@ -74,6 +76,11 @@ const MEMBER: usize = 3;
 const SINCE: usize = 8;
 const FIRST: usize = 9;
 const LAST: usize = 11;
+
+/// The columns of a row the read holds, through its last checkpoint's
+/// seq: the rest, its lists among them, are checked by its digest and
+/// never held ([`effect_rows_at`]).
+const HELD: usize = LAST + 1;
 
 /// The least member at or above `?3` an attempt's index rows name, read
 /// by the stream index's key.
@@ -229,7 +236,7 @@ impl Store {
         let member = member.map_or(Datum::Null, |member| Datum::Text(member.to_string()));
         let mut gathered = Gathered::below(before);
         let head = (opened.seq, opened.hash.as_str());
-        let read = effect_rows_at(&self.conn, run_id, head, effect_id, |data| {
+        let read = effect_rows_at(&self.conn, run_id, head, (effect_id, HELD), |data| {
             gathered.row(data, &member);
         })?;
         Ok(read.then(|| gathered.streams()).flatten())
@@ -253,7 +260,7 @@ impl Store {
         on_page.dedup();
         let mut since: Vec<Option<u64>> = vec![None; on_page.len()];
         let head = (opened.seq, opened.hash.as_str());
-        let read = effect_rows_at(&self.conn, run_id, head, effect_id, |data| {
+        let read = effect_rows_at(&self.conn, run_id, head, (effect_id, HELD), |data| {
             let (Datum::Text(attempt), Datum::Integer(at)) = (&data[ATTEMPT], &data[SINCE]) else {
                 return;
             };
