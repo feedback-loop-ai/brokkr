@@ -358,6 +358,12 @@ fn taken(lock: &Path) -> std::fs::File {
     file
 }
 
+/// How long the seal-in-flight test holds the lock after the door's call,
+/// so a door that reads without the lock (the binding mutation) shows
+/// itself by answering. It bounds only that: the fixed door waits on the
+/// lock to its own startup deadline, and never on this (#835).
+const HOLD: Duration = Duration::from_millis(500);
+
 /// Five seconds from now.
 pub(in crate::engine) fn soon() -> Instant {
     Instant::now() + Duration::from_secs(5)
@@ -1075,6 +1081,54 @@ fn the_door_refuses_a_lease_whose_reach_was_redirected() {
     assert_eq!(recheck(&staked), redirected, "evidence at stake");
     let _lift = crate::capabilities::McpFence::lift();
     assert_eq!(recheck(&held), redirected, "fence lifted");
+}
+
+/// #835: the door reads the reservation under the admission lock, so a
+/// sibling's seal in flight is waited for and never read as a loss. The
+/// seal in flight is modelled by what every seal holds, the lock, and what
+/// a reader descheduled between its link and its unlink finds, the record
+/// of two links and no prior, which `standing` refuses. Without the lock
+/// the door answers that refusal at once; with it, nothing until the record
+/// is whole and the lock released, and then admission.
+#[test]
+fn the_door_waits_for_a_seal_in_flight() {
+    let host = Host::new();
+    let work = host.worktree("work");
+    let held = host.admit(&open(&work, ["run-a", "a1"])).unwrap();
+    let mid_seal = host.dir.path().join("mid-seal");
+    std::fs::hard_link(host.reservation(&work, "run-a"), &mid_seal).unwrap();
+    std::thread::scope(|scope| {
+        let holder = taken(&host.root().join(LOCK));
+        let (door, answered) = mpsc::channel();
+        scope.spawn(move || {
+            let _ = door.send(recheck(&held));
+        });
+        let early = answered.recv_timeout(HOLD);
+        assert_eq!(
+            early,
+            Err(mpsc::RecvTimeoutError::Timeout),
+            "read through the held lock"
+        );
+        std::fs::remove_file(&mid_seal).unwrap();
+        drop(holder);
+        assert_eq!(answered.recv().unwrap(), Ok(()));
+    });
+}
+
+/// #835: the door's take of the lock is `locked`'s, so a lock file that is
+/// not this user's single regular file refuses the dispatch by the lock's
+/// own name, as it refuses admission, and nothing is read; with the second
+/// link gone the same lease is admitted.
+#[test]
+fn the_door_refuses_a_lock_file_by_its_own_name() {
+    let host = Host::new();
+    let work = host.worktree("work");
+    let held = host.admit(&open(&work, ["run-a", "a1"])).unwrap();
+    let second = host.dir.path().join("second-link");
+    std::fs::hard_link(host.root().join(LOCK), &second).unwrap();
+    assert_eq!(recheck(&held), Err(Unadmitted::Identity(Unknown::Lock)));
+    std::fs::remove_file(&second).unwrap();
+    assert_eq!(recheck(&held), Ok(()));
 }
 
 /// A boxed writer held with no sealed reach, as no box admission builds

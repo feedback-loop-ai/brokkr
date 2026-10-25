@@ -450,7 +450,7 @@
    504 crates/brokkr-cli/tests/capability_artifacts.rs
   1990 crates/brokkr-cli/tests/capability_broker.rs
    462 crates/brokkr-cli/tests/capability_broker/cleanup.rs
-   960 crates/brokkr-cli/tests/capability_broker/handoff.rs
+   994 crates/brokkr-cli/tests/capability_broker/handoff.rs
   1028 crates/brokkr-cli/tests/capability_broker/ledger.rs
   1044 crates/brokkr-cli/tests/capability_broker/observer.rs
    812 crates/brokkr-cli/tests/capability_broker/protocol.rs

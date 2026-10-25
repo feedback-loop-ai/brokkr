@@ -24,6 +24,13 @@
 //! head lags, one run per transaction, with a backfill key of its own
 //! (ruling 8), so no run's summary falls behind for it.
 //!
+//! A run whose rows do not keep its live block, while its last start
+//! names no effect or one not yet asked ([`Account::seats_kept`]), keeps
+//! no seat head: its rows read stale, so a reader reads it whole, and
+//! every writable open refolds it, as it refolds a lagging run, until an
+//! event ends that start or asks its effect. No engine writes such a
+//! start.
+//!
 //! Each row keeps a digest of itself as its writer wrote it (#753, the
 //! operator's 2026-10-24 ruling), in one private column, `digest`: a read
 //! that finds a row its digest is not of reads the run stale, whatever
@@ -76,20 +83,21 @@ fn migration() -> String {
     )
 }
 
-/// Does this journal carry both tables, the rows' with their digest?
-/// Pure reads. A table without it is the shape an unreleased build of
-/// this slice made, which [`migrate_seats`] makes anew.
+/// Does this journal carry both tables, the rows' with every column a
+/// row is kept in and its digest? Pure reads. A table without one is a
+/// shape an unreleased build of this slice made, a row without its digest
+/// or without the facts slice 2b keeps, which [`migrate_seats`] makes
+/// anew.
 pub(crate) fn seats_intact(conn: &Connection) -> Result<bool, StoreError> {
-    Ok(all_present(conn, "table", &TABLES)? && digested(conn)?)
+    Ok(all_present(conn, "table", &TABLES)? && shaped(conn)?)
 }
 
-fn digested(conn: &Connection) -> Result<bool, StoreError> {
-    let found: rusqlite::Result<i64> = conn.query_row(
-        "SELECT count(*) FROM pragma_table_info('seat_summary') WHERE name = 'digest'",
-        [],
-        |row| row.get(0),
-    );
-    Ok(found? == 1)
+fn shaped(conn: &Connection) -> Result<bool, StoreError> {
+    let mut statement = conn.prepare("SELECT name FROM pragma_table_info('seat_summary')")?;
+    let found: Vec<String> = statement
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    Ok(kept().all(|column| found.iter().any(|name| name == column)))
 }
 
 /// Create the tables, on a connection holding the write lock: the seventh
@@ -289,7 +297,9 @@ fn held<'a>(
 /// only the rows that are not `before`'s where the table stands at the
 /// head `before` was carried to, so an append writes the rows its events
 /// moved, a carried member whose source they named again among them; and
-/// every row where it does not, or where no `before` is given.
+/// every row where it does not, or where no `before` is given. Where the
+/// rows do not keep what the run view reads of them
+/// ([`Account::seats_kept`]), no seat head is kept, so they read stale.
 pub(crate) fn write(
     tx: &Connection,
     account: &Account,
@@ -310,7 +320,14 @@ pub(crate) fn write(
             insert.execute(params_from_iter(key.into_iter().chain(values)))?;
         }
     }
-    write_head(tx, run_id, account.head())
+    match account.seats_kept() {
+        true => write_head(tx, run_id, account.head()),
+        false => {
+            let withheld = tx.prepare_cached("DELETE FROM seat_head WHERE run_id = ?1");
+            withheld?.execute([run_id])?;
+            Ok(())
+        }
+    }
 }
 
 /// What a run's seat rows read as: current, at the run's last event, or
@@ -404,23 +421,32 @@ fn current(conn: &Connection, run_id: &str, head: (u64, &str)) -> Result<SeatRow
 /// their seat head is not the account's head, a lag the next writer
 /// refolds; else the first row that parts from the account's, by its
 /// place and how, its digest a column of it, the rows streamed beside the
-/// account's.
+/// account's. Rows that do not keep the live block
+/// ([`Account::seats_kept`]) stand where their writer leaves them with no
+/// seat head, and are behind where one is kept or a row parts: a headless
+/// row is a lag's as readily as a writer's.
 pub(crate) fn compared(conn: &Connection, account: &Account) -> Result<Compared, StoreError> {
     let run_id = account.run_id();
-    if !folded_at(conn, run_id, account.head())? {
+    let kept = account.seats_kept();
+    let headed = match kept {
+        true => folded_at(conn, run_id, account.head())?,
+        false => folded(conn, run_id)?.is_none(),
+    };
+    if !headed {
         return Ok(Compared::SeatsBehind);
     }
     let mut statement = conn.prepare_cached(&KEPT)?;
     let rows = statement.query([run_id])?;
     let seats = account.seats().iter().enumerate();
     let expected = seats.map(|(opened, row)| (opened as u64, written(run_id, opened, row)));
-    Ok(match first_parted(rows, expected)? {
-        Some((row, fault)) => Compared::Disagrees(Disagreement::Seated {
+    Ok(match (first_parted(rows, expected)?, kept) {
+        (Some((row, fault)), true) => Compared::Disagrees(Disagreement::Seated {
             run_id: run_id.to_string(),
             row,
             fault,
         }),
-        None => Compared::Agrees,
+        (Some(_), false) => Compared::SeatsBehind,
+        (None, _) => Compared::Agrees,
     })
 }
 

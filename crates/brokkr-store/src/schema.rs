@@ -167,7 +167,7 @@ impl Store {
 /// A journal that records a schema: supported, and whole.
 fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     schema_supported(found)?;
-    // Seven additive repairs, each a READ in the steady state — the
+    // Eight additive repairs, each a READ in the steady state — the
     // starvation measurement holds — and each taking the immediate
     // transaction only when something is actually missing, so racing
     // openers serialise on the lock instead of colliding on the DDL.
@@ -176,6 +176,19 @@ fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     // re-asked inside the transaction. Second: a journal whose append
     // guards predate compare-and-append re-runs the idempotent migration
     // batch that carries them.
+    repair_tables(conn)?;
+    repair_projections(conn)?;
+    // Eighth: a journal from before it named itself (decision 0095, #430)
+    // gets its id, once; a peer that named it first keeps its own.
+    let missing = journal_named(conn)?.is_none();
+    repair_if(conn, missing, name_journal)?;
+    let missing = !guards_intact(conn)?;
+    repair_if(conn, missing, |conn| Ok(conn.execute_batch(MIGRATION_V1)?))
+}
+
+/// The first, third and fourth of [`repair`]'s additive repairs, in its
+/// order: the sidecar columns, the queue, the acknowledgements.
+fn repair_tables(conn: &mut Connection) -> Result<(), StoreError> {
     let missing = sidecar_columns_missing(conn)?;
     repair_if(conn, missing, migrate_sidecar_columns)?;
     // Third: a journal from before the queue (decision 0068), or one that
@@ -188,7 +201,12 @@ fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     // Fourth: a journal from before quarantine acknowledgements (#511),
     // or one that lost the table or a guard on it, gets them.
     let missing = !acknowledgements_intact(conn)?;
-    repair_if(conn, missing, migrate_acknowledgements)?;
+    repair_if(conn, missing, migrate_acknowledgements)
+}
+
+/// The fifth, sixth and seventh of [`repair`]'s additive repairs, in its
+/// order: decision 0089's run summary, event index and seat summary.
+fn repair_projections(conn: &mut Connection) -> Result<(), StoreError> {
     // Fifth: a journal from before the run summary (decision 0089), or
     // one that lost its table, index or a trigger, gets them, and a row
     // for every run it carries, kept at its head and folded by the
@@ -206,9 +224,7 @@ fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     // from the walk that follows the open ([`Store::seat_behind_with`]),
     // which a repair marks unfinished.
     let missing = !seats_intact(conn)?;
-    repair_if(conn, missing, migrate_seats)?;
-    let missing = !guards_intact(conn)?;
-    repair_if(conn, missing, |conn| Ok(conn.execute_batch(MIGRATION_V1)?))
+    repair_if(conn, missing, migrate_seats)
 }
 
 /// Apply `fix` under the immediate transaction, and only when `missing`:
@@ -246,6 +262,7 @@ fn initialize(conn: &mut Connection) -> Result<(), StoreError> {
     // the open's walk folds it, so a new journal is marked here.
     migrate_seats(&tx)?;
     mark_seated(&tx)?;
+    name_journal(&tx)?;
     tx.execute(
         "INSERT OR IGNORE INTO meta (key, value) VALUES ('database_schema', ?1)",
         [&DATABASE_SCHEMA.to_string()],
@@ -346,6 +363,30 @@ fn schema_version(conn: &Connection) -> Result<Option<u32>, StoreError> {
         .query_row(RECORDED_SCHEMA, [], |row| row.get(0))
         .optional()?;
     Ok(recorded.map(|value| value.parse().unwrap_or(0)))
+}
+
+/// The meta key a journal names itself by (decision 0095, #430): a random
+/// id, written once, when the journal is created or first opened for
+/// writing without one, and never rewritten. A byte copy carries it.
+const JOURNAL_ID: &str = "journal_id";
+
+/// The id `conn`'s journal names itself by, as stored, or `None` for a
+/// journal not yet named. Read through `conn`, so it is the file the
+/// connection holds, whatever its path names now.
+pub(crate) fn journal_named(conn: &Connection) -> Result<Option<String>, StoreError> {
+    let query = "SELECT value FROM meta WHERE key = ?1";
+    Ok(conn
+        .query_row(query, [JOURNAL_ID], |row| row.get(0))
+        .optional()?)
+}
+
+/// Name a journal with a v4 UUID drawn from the OS's random source, unless
+/// a peer named it first.
+fn name_journal(conn: &Connection) -> Result<(), StoreError> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let named = "INSERT OR IGNORE INTO meta (key, value) VALUES (?1, ?2)";
+    conn.execute(named, [JOURNAL_ID, id.as_str()])?;
+    Ok(())
 }
 
 pub(crate) fn schema_supported(found: u32) -> Result<(), StoreError> {

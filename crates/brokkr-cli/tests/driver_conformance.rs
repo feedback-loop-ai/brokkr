@@ -3285,12 +3285,12 @@ fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() 
             resume_line.contains("model_reasoning_effort=\"high\""),
             "{shape:?} wrapped={wrapped}: the effort is re-expressed: {resume_line}"
         );
-        // The same argv over element boundaries, at all four compiled
-        // shapes. These are inline coordinates, so the class is the typed
-        // one the recipe declares and the engine lowered, as the profile
-        // denying the store the engine handed the seat (U9c2).
+        // The same argv over element boundaries, at all four compiled shapes:
+        // the typed class the recipe declares, as the profile denying the
+        // store at the canonical place the engine keeps (U9c2, U8h).
         let work = run_dir.path().join("work").display().to_string();
-        let paths = format!(r#""{work}"="write","{work}/.forge/secrets.env"="deny""#);
+        let kept = std::fs::canonicalize(&work).unwrap().display().to_string();
+        let paths = format!(r#""{work}"="write","{kept}/.forge/secrets.env"="deny""#);
         assert_resume_argv(
             &resume_parts(run_dir.path()),
             &format!(r#"permissions.brokkr={{filesystem={{":root"="read",{paths}}}}}"#),

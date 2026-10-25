@@ -93,8 +93,8 @@ pub use event_index::IndexFault;
 pub use import::{verified_events, verify_export, Adoption, Arrival, ImportError, VerifyError};
 pub use page::{keyed, place_of, Keyed, Paged, RowRefusal, Unread};
 pub use queue::{
-    Attribution, EntryId, EntryState, Latch, NewEntry, NotAWait, QueueCommand, QueueEntry,
-    QueueRefusal, Seen, Wait, WaitOn,
+    Attribution, Claim, EntryId, EntryState, Generation, Latch, NewEntry, NotAWait, QueueCommand,
+    QueueEntry, QueueRefusal, Seen, StartRefusal, Wait, WaitOn,
 };
 pub use redact::{redact_export, Redactor};
 pub use schema::DATABASE_SCHEMA;
@@ -391,14 +391,7 @@ impl Store {
         ensure_wal(&conn)?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         patiently("migrate", BUSY_TIMEOUT, || Store::migrate(&mut conn))?;
-        let mut store = Store {
-            conn,
-            path: path.to_path_buf(),
-            patience: BUSY_TIMEOUT,
-            carried: None,
-            #[cfg(any(test, feature = "test-support"))]
-            binding: Default::default(),
-        };
+        let mut store = Store::holding(conn, path);
         store.catch_up()?;
         Ok(store)
     }
@@ -441,14 +434,19 @@ impl Store {
             Ok(conn.query_row(RECORDED_SCHEMA, [], |row| row.get(0))?)
         })?;
         schema_supported(found.parse().unwrap_or(0))?;
-        Ok(Store {
+        Ok(Store::holding(conn, path))
+    }
+
+    /// A store on `conn`, which opened `path`.
+    fn holding(conn: Connection, path: &Path) -> Store {
+        Store {
             conn,
             path: path.to_path_buf(),
             patience: BUSY_TIMEOUT,
             carried: None,
             #[cfg(any(test, feature = "test-support"))]
             binding: Default::default(),
-        })
+        }
     }
 
     /// Declare a run in the journal. The existence check and the insert

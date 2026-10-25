@@ -521,14 +521,12 @@ impl Engine {
     }
 }
 
-/// The reach of a box of the authored hands `spec`, as hands builds it
-/// from them now ([`super::reach`]), the sources it binds apart, as
-/// authored, and every path it is built from, sealed ([`hands::seal`]),
-/// the secrets `store` its boxes hide, the place the run keeps (U8h), among them. Hands
-/// binds the Git common directory apart, read-write, only where it lies
-/// outside the worktree, so it is then a writable root of its own; inside
-/// it, it is the worktree's own, not a source the box is rebuilt from, so
-/// it is neither a source nor a writable root of its own here.
+/// The reach of a box of the authored hands `spec` as hands builds it now
+/// ([`super::reach`]), its bound sources apart, and every path it is built
+/// from sealed ([`hands::seal`]), the secrets `store` the run keeps (U8h)
+/// among them. Hands binds the Git common directory apart, read-write, only
+/// outside the worktree, where it is a writable root of its own; inside, it
+/// is the worktree's own, neither a source nor a writable root here.
 pub(super) fn boxed_reach(
     spec: &HandsSpec,
     home: &Path,
@@ -688,14 +686,18 @@ fn joined(claim: &Claim, standing: Vec<Standing>) -> Reservation {
 }
 
 /// Whether the lease `held` still stands at the dispatch door: its
-/// reservation still names its attempt standing, every path each boxed
-/// writer's box is built from, observed again from its authored hands and
-/// from Git, still resolves as sealed (R1; operator ruling 2026-10-18,
-/// after U8a2a's third run), under the fence rule, and the artifact root it
-/// protects is still the directory admitted.
+/// reservation, read under the admission lock, still names its attempt
+/// standing, every path each boxed writer's box is built from, observed
+/// again from its authored hands and from Git, still resolves as sealed (R1;
+/// operator ruling 2026-10-18, after U8a2a's third run), under the fence
+/// rule, and the artifact root it protects is still the directory admitted.
 pub(in crate::engine) fn recheck(held: &Held) -> Result<(), Unadmitted> {
-    let (run, at) = reserved_at(held)?;
-    let standing: Reservation = read(&run, RESERVATION, &at).or(Err(Unknown::Lost))?;
+    let standing: Reservation = {
+        let deadline = startup(Instant::now(), Duration::MAX);
+        let _lock = locked(held.coordination.dir(), deadline)?;
+        let (run, at) = reserved_at(held)?;
+        read(&run, RESERVATION, &at).or(Err(Unknown::Lost))?
+    };
     let ours = (standing.repo == held.repo) & (standing.run == held.run);
     let ours = ours & standing.attempts.contains_key(&held.attempt);
     ours.then_some(()).ok_or(Unknown::Lost)?;

@@ -7,19 +7,21 @@
 //! view's scan groups its events, into the facts the view shows of each
 //! (decision 0089 rulings 3 and 4).
 //!
-//! A participant is a request occurrence and a member, across attempts.
-//! Each request keeps a row of its own that names no attempt: an event
-//! naming none lands there, and a request no attempt has started is that
-//! row alone. A member its effect's last start carries (decision 0093)
-//! is concluded as carried, by the verdict an earlier attempt settled,
-//! and names that attempt as the view does. What a participant takes
-//! from its last record is taken by seq. Its cost and its turns' tokens are read in journal order across
-//! its rows, however its attempts' records interleave: the writer keeps
-//! each participant's running cost and last metered turn beside its rows,
-//! so a row holds the cost summed through its last priced record and its
-//! turns' tokens, each message once.
+//! A participant is an effect and a member, as the view keys it, across
+//! its requests and attempts; it reads its effect by the request it was
+//! first seen under. Each request keeps a row of its own naming no
+//! attempt: an event naming none lands there, and a request no attempt
+//! has started is that row alone. A member its effect's last start
+//! carries (decision 0093) is concluded as carried, by the verdict an
+//! earlier attempt settled, and names that attempt as the view does. What
+//! a participant takes from its last record is taken by seq. Its cost and
+//! its turns' tokens are read in journal order across its rows, however
+//! its attempts' records interleave: the writer keeps each participant's
+//! running cost and last metered turn beside its rows, so a row holds the
+//! cost summed through its last priced record and its turns' tokens, each
+//! message once.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use serde_json::Value;
 
@@ -31,8 +33,15 @@ use crate::envelope::{EventEnvelope, EventType};
 use crate::residual::text as field;
 
 mod kept;
+mod listed;
+mod members;
+mod said;
 
 pub use kept::Datum;
+pub use listed::{inner, models};
+use members::with_members;
+pub use said::{live, shown, Finish};
+use said::{Session, Turned};
 
 /// Whose row it is: the seat's own, or one of its sites', by the tag its
 /// records carry: a panel member, a sequence step.
@@ -153,14 +162,6 @@ impl Stamp {
     }
 }
 
-/// A seat's finishing or opening session record: its meter and the cost
-/// it reported.
-#[derive(Debug, Clone, PartialEq)]
-struct Session {
-    meter: Meter,
-    cost: Option<f64>,
-}
-
 /// One participant of one attempt, as its records state it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SeatRow {
@@ -192,7 +193,9 @@ pub struct SeatRow {
     /// The terminal event that concluded the attempt in flight.
     ended: Last<Outcome>,
     /// A member's last panel finish.
-    pin: Last<Pin>,
+    finish: Last<(Pin, Finish)>,
+    /// Its last `seat-turn`.
+    turn: Last<Turned>,
     /// The carried entry its attempt's start recorded for it.
     carried: Last<Carry>,
     turns: Option<u64>,
@@ -205,6 +208,11 @@ pub struct SeatRow {
     metered: Option<Meter>,
     session: Last<Session>,
     transcript: Last<Transcript>,
+    /// Its finished steps, its member's tag, its models and its early tags (`listed`).
+    listed: listed::Listed,
+    /// Whether it is of the attempt the run's last start opened, while no
+    /// terminal naming that start's effect and attempt has followed it.
+    live: bool,
 }
 
 /// What a participant has stated so far, across its rows in journal
@@ -228,7 +236,6 @@ impl SeatRow {
         let transcript = checkpoint.get("transcript").and_then(transcript_of);
         state(&mut self.transcript, seq, transcript);
         self.first.get_or_insert_with(|| at.clone());
-        self.last = Some(at);
         let step = field(checkpoint, "step");
         if matches!(step, Some("seat-turn" | "turn-completed")) {
             if let Some(turn) = checkpoint.get("turn").and_then(Value::as_u64) {
@@ -245,12 +252,15 @@ impl SeatRow {
         let meter = Meter::of(checkpoint);
         if step.is_some_and(|step| step.ends_with("-session-finished") || step == "session-started")
         {
-            let meter = meter.clone();
-            self.session = Some((seq, Session { meter, cost }));
+            let (meter, id) = (meter.clone(), says("session_id"));
+            self.session = Some((seq, Session { meter, cost, id }));
         } else if step == Some("panel-member-finished") && self.member != Member::Seat {
-            let outcome = field(checkpoint, "outcome").and_then(Outcome::named);
-            self.pin = Some((seq, outcome.map_or(Pin::Unpinned, Pin::Pinned)));
+            self.finish = Some((seq, said::finished(checkpoint, &at.at)));
+        } else if step == Some("seat-turn") {
+            self.turn = Some((seq, Turned::of(checkpoint)));
         }
+        self.listed.noted(seq, checkpoint, &self.member);
+        self.last = Some(at);
         self.metered(meter, running);
     }
 
@@ -292,11 +302,11 @@ pub(crate) struct Seats {
     rows: Vec<SeatRow>,
     /// Each row's place, by its attempt and member.
     at: BTreeMap<Attempt, BTreeMap<Member, usize>>,
-    /// Each participant's running state, by its request and member.
-    running: BTreeMap<(usize, Member), Running>,
-    /// Every start so far, by the effect and the attempt it names: what a
-    /// carried source's ordinal counts.
+    /// Each participant's running state, by its effect and member.
+    running: BTreeMap<(String, Member), Running>,
+    /// Every start so far, by its effect and attempt: what a source's ordinal counts.
     begun: Vec<(Option<String>, Option<String>)>,
+    aside: listed::Aside,
 }
 
 impl Seats {
@@ -325,24 +335,38 @@ impl Seats {
             self.begun.push((effect_id.map(str::to_string), attempt));
             self.sourced();
         }
+        self.aside(event);
+        self.lived(event);
     }
 
     /// Every carried entry's source, named again over the fold so far: a
     /// later start can name its attempt, and a later request can ask an
     /// earlier start's effect in its phase, as the view reads its source
-    /// over the whole run.
+    /// over the whole run. A source is counted in the phase of the request
+    /// its participant was first seen under, as the view counts it.
     fn sourced(&mut self) {
         let mut named = Vec::new();
         for (&(request, _), members) in &self.at {
-            for &at in members.values() {
+            for (member, &at) in members {
                 if let Some((seq, carry)) = &self.rows[at].carried {
-                    named.push((at, *seq, self.source(request, carry.attempt_id())));
+                    let home = self.home(request, member);
+                    named.push((at, *seq, self.source(home, carry.attempt_id())));
                 }
             }
         }
         for (at, seq, carry) in named {
             self.rows[at].carried = Some((seq, carry));
         }
+    }
+
+    /// The first request of `request`'s effect holding a row of `member`:
+    /// the one its participant was first seen under (`facts`).
+    fn home(&self, request: usize, member: &Member) -> usize {
+        let effect = &self.requests[request].effect_id;
+        let seen = self.at.iter().filter(|((at, _), members)| {
+            self.requests[*at].effect_id == *effect && members.contains_key(member)
+        });
+        seen.map(|((at, _), _)| *at).fold(request, usize::min)
     }
 
     fn request(&mut self, event: &EventEnvelope, effect_id: &str) {
@@ -396,7 +420,7 @@ impl Seats {
         match members.and_then(|members| members.get(&member)) {
             Some(at) => *at,
             None => {
-                let row = self.opened(&attempt, &member);
+                let row = self.aside.lit(self.opened(&attempt, &member));
                 self.rows.push(row);
                 let members = self.at.entry(attempt).or_default();
                 members.insert(member, self.rows.len() - 1);
@@ -502,7 +526,8 @@ impl Seats {
         let open = self.requests[request].open.as_deref() == attempt;
         let member = Member::of(field(checkpoint, "member"));
         let at = self.place(request, attempt, member.clone());
-        let running = self.running.entry((request, member)).or_default();
+        let effect_id = self.requests[request].effect_id.clone();
+        let running = self.running.entry((effect_id, member)).or_default();
         self.rows[at].checkpointed(Stamp::of(event), checkpoint, open, running);
     }
 
@@ -566,6 +591,17 @@ pub struct SeatFacts {
     pub carried_from: Option<CarriedFrom>,
     /// A seat's first attempt's start; a member's first checkpoint.
     pub started_at: Option<String>,
+    /// Its last checkpoint's time.
+    pub last_at: Option<String>,
+    /// Its last `seat-turn`'s turn and tool as shown ([`shown`]), and the
+    /// target it names: what a working participant's activity shows.
+    pub turn: Option<String>,
+    pub tool: Option<String>,
+    pub target: Option<String>,
+    /// A member's last panel finish.
+    pub finish: Option<Finish>,
+    /// The session its last session record names.
+    pub session_id: Option<String>,
 }
 
 /// What a request's rows say of its effect: its first start, its last
@@ -619,11 +655,6 @@ fn latest<'a, T>(
     since.max_by_key(|(seq, _)| *seq).map(|(_, value)| value)
 }
 
-/// `values` summed in their order, or `None` for none.
-fn summed(values: impl Iterator<Item = f64>) -> Option<f64> {
-    values.fold(None, |total, value| Some(total.unwrap_or(0.0) + value))
-}
-
 /// The tokens `part`'s turns and session record metered, by the rule
 /// [`Metering`] states, each message once across its rows.
 fn usage(part: &[&SeatRow], session: Option<&Session>) -> Option<TokenUsage> {
@@ -639,11 +670,14 @@ fn own(part: &[&SeatRow], effect: &Effect) -> SeatFacts {
     let row = part[0];
     let session = latest(part, 0, |row| row.session.as_ref());
     let carried = latest(part, effect.since, |row| row.carried.as_ref());
-    let outcome = match (carried, latest(part, 0, |row| row.pin.as_ref())) {
+    let finish = latest(part, 0, |row| row.finish.as_ref());
+    let outcome = match (carried, finish.map(|(pin, _)| pin)) {
         (Some(_), _) => Outcome::Carried,
         (None, Some(Pin::Pinned(outcome))) => *outcome,
         (None, Some(Pin::Unpinned) | None) => effect.outcome,
     };
+    let turn = latest(part, 0, |row| row.turn.as_ref());
+    let last = part.iter().filter_map(|row| row.last.as_ref());
     let boundary = latest(part, effect.since, |row| row.boundary.as_ref());
     let stamp = || latest(part, effect.since, |row| row.stamp.as_ref());
     let first_checkpoint = part.iter().filter_map(|row| row.first.as_ref());
@@ -673,75 +707,26 @@ fn own(part: &[&SeatRow], effect: &Effect) -> SeatFacts {
         outcome,
         carried_from: carried.and_then(Carry::source).cloned(),
         started_at: started.map(|start| start.at.clone()),
+        last_at: last.max_by_key(|last| last.seq).map(|last| last.at.clone()),
+        turn: turn.map(|turn| turn.turn.clone()),
+        tool: turn.map(|turn| turn.tool.clone()),
+        target: turn.and_then(|turn| turn.target.clone()),
+        finish: finish.map(|(_, finish)| finish.clone()),
+        session_id: session.and_then(|session| session.id.clone()),
     }
-}
-
-/// The words `reported`, sorted and each once, joined: how a seat with
-/// none of its own reports what its members reported.
-fn joined<'a>(reported: impl Iterator<Item = &'a str>) -> Option<String> {
-    let words: BTreeSet<&str> = reported.collect();
-    let words: Vec<&str> = words.into_iter().collect();
-    (!words.is_empty()).then(|| words.join(", "))
-}
-
-/// `own`, or the sum of `members` where it has none, and whether it is.
-fn own_or_summed(
-    own: Option<f64>,
-    members: impl Iterator<Item = Option<f64>>,
-) -> (Option<f64>, bool) {
-    match own {
-        Some(_) => (own, false),
-        None => {
-            let summed = summed(members.flatten());
-            (summed, summed.is_some())
-        }
-    }
-}
-
-/// A seat's facts with its `members'` where it has none of its own. A
-/// member has no members, so its own facts stand.
-fn with_members(own: &SeatFacts, members: &[&SeatFacts]) -> SeatFacts {
-    let mut facts = own.clone();
-    let each = |pick: fn(&SeatFacts) -> Option<f64>| members.iter().map(move |member| pick(member));
-    (facts.cost, facts.cost_aggregated) = own_or_summed(own.cost, each(|member| member.cost));
-    let last = each(|member| member.last_attempt_cost);
-    facts.last_attempt_cost = own_or_summed(own.last_attempt_cost, last).0;
-    if own.usage.is_none() {
-        facts.usage = sum_usage(members.iter().filter_map(|member| member.usage.clone()));
-        facts.usage_aggregated = facts.usage.is_some();
-    }
-    if own.turns.is_none() {
-        facts.turns = members
-            .iter()
-            .filter_map(|member| member.turns)
-            .reduce(|all, turns| all + turns);
-        facts.turns_aggregated = facts.turns.is_some();
-    }
-    let words = |pick: fn(&SeatFacts) -> Option<&str>| {
-        joined(members.iter().filter_map(|member| pick(member)))
-    };
-    facts.model = facts
-        .model
-        .or_else(|| words(|member| member.model.as_deref()));
-    facts.effort = facts
-        .effort
-        .or_else(|| words(|member| member.effort.as_deref()));
-    facts.boundary = facts
-        .boundary
-        .or_else(|| words(|member| member.boundary.as_deref()));
-    facts
 }
 
 /// Each participant's facts, from a run's `rows` in the order they were
 /// opened (decision 0089 ruling 1): the participants in the order the run
-/// view lists them, each request's seat before its members.
+/// view lists them, each request's seat before its members, each by its
+/// effect and member, read by the request whose row it first had.
 pub fn facts(rows: &[SeatRow]) -> Vec<SeatFacts> {
     let mut parts: Vec<Vec<&SeatRow>> = Vec::new();
-    let mut place: BTreeMap<(u64, &Member), usize> = BTreeMap::new();
+    let mut place: BTreeMap<(&str, &Member), usize> = BTreeMap::new();
     let mut requests: BTreeMap<u64, Vec<&SeatRow>> = BTreeMap::new();
     for row in rows {
         let at = *place
-            .entry((row.request_seq, &row.member))
+            .entry((row.effect_id.as_str(), &row.member))
             .or_insert_with(|| {
                 parts.push(Vec::new());
                 parts.len() - 1

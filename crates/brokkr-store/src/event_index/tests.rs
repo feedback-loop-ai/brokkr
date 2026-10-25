@@ -649,3 +649,153 @@ fn each_read_searches_its_index() {
         ]
     );
 }
+
+/// Every row holds its event's own id, and a journal page's causes are
+/// read by it: each id's last event, as the run view maps them, and none
+/// for an id the run carries no event of, another run's included.
+#[test]
+fn each_row_holds_its_event_s_id_and_a_cause_is_read_by_it() {
+    let (_dir, store) = store();
+    let opened = || event(EventType::RunStarted, json!({"feature": "f"}));
+    run_of(&store, "r", vec![opened(), opened(), opened()]);
+    run_of(&store, "s", vec![opened()]);
+    let (seq, previous) = store.head_hash("r").unwrap();
+    let again = opened().run("r").seq(seq + 1).event_id("r-2".to_string());
+    let again = again.previous(previous).sealed();
+    crate::test_support::plant_envelope(&store.conn, &again).unwrap();
+    assert_eq!(
+        ids(&store, "r"),
+        [text("r-1"), text("r-2"), text("r-3"), text("r-2")]
+    );
+    assert_eq!(parted_at(&store, "r"), None);
+    let causes = store.index_causes("r", &["r-1", "r-2", "s-1", "none"]);
+    let expected = [("r-1".to_string(), 1), ("r-2".to_string(), 4)];
+    assert_eq!(causes.unwrap(), Some(BTreeMap::from(expected)));
+    assert_eq!(store.index_causes("r", &[]).unwrap(), Some(BTreeMap::new()));
+}
+
+/// The id each of `run_id`'s index rows holds, in seq order.
+fn ids(store: &Store, run_id: &str) -> Vec<Value> {
+    let mut statement = store.conn.prepare(ROWS).unwrap();
+    let found = statement.query_map([run_id], |row| row.get(5)).unwrap();
+    found.collect::<Result<_, _>>().unwrap()
+}
+
+/// What a build from before the ids (2e3c6ff5, the operator's installed
+/// one among them) writes: its table, its two indexes and its trigger,
+/// each naming no id.
+const IDLESS_TABLE: &str = "CREATE TABLE event_index (run_id TEXT NOT NULL,
+        seq INTEGER NOT NULL, type TEXT, attempt_id TEXT, member TEXT, recorded_at TEXT,
+        PRIMARY KEY (run_id, seq)) WITHOUT ROWID;
+    CREATE TRIGGER event_index_of_an_event AFTER INSERT ON events BEGIN
+        INSERT OR IGNORE INTO event_index (run_id, seq, type, recorded_at)
+            VALUES (NEW.run_id, NEW.seq, json_extract(NEW.envelope, '$.type'),
+                    json_extract(NEW.envelope, '$.recorded_at'));
+    END;
+    CREATE INDEX event_index_trail ON event_index (run_id, seq)
+        WHERE type <> 'effect/checkpointed';
+    CREATE INDEX event_index_stream ON event_index (run_id, attempt_id, member, seq);";
+
+/// That build's backfill of `run_id`, finished: a row of every event but
+/// its id, beside whatever rows a current walk already wrote, as its
+/// insert names its six columns.
+fn idless_backfill(conn: &rusqlite::Connection, run_id: &str) {
+    let inserted = conn.execute(
+        "INSERT OR IGNORE INTO event_index (run_id, seq, type, recorded_at)
+             SELECT run_id, seq, json_extract(envelope, '$.type'),
+                    json_extract(envelope, '$.recorded_at')
+             FROM events WHERE run_id = ?1",
+        [run_id],
+    );
+    inserted.unwrap();
+    mark_finished(conn, BACKFILLED).unwrap();
+}
+
+/// A journal holding the table a build before the ids made, its rows
+/// without them and its backfill finished, is not read by its index, and
+/// a writable open rebuilds the table and indexes every event again, its
+/// id included.
+#[test]
+fn a_journal_with_the_idless_table_is_rebuilt_at_a_writable_open() {
+    let (_dir, path) = older_journal();
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    conn.execute_batch(IDLESS_TABLE).unwrap();
+    for run_id in ["a", "b", "c"] {
+        idless_backfill(&conn, run_id);
+    }
+    drop(conn);
+    let reader = Store::open_read_only(&path).unwrap();
+    assert!(timed(&reader.conn).unwrap());
+    assert!(!keyed(&reader.conn).unwrap());
+    assert!(!reader.reads_index().unwrap());
+    let store = Store::open(&path).unwrap();
+    assert!(keyed(&store.conn).unwrap());
+    assert!(backfilled(&store));
+    assert!(store.reads_index().unwrap());
+    for run_id in ["a", "b", "c"] {
+        let own = |seq| text(&format!("{run_id}-{seq}"));
+        assert_eq!(ids(&store, run_id), [own(1), own(2)], "{run_id}");
+        assert_eq!(parted_at(&store, run_id), None, "{run_id}");
+    }
+}
+
+/// A build from before the ids reads the rebuilt table as its own, since
+/// it asks only for its names and its time, and backfills while a current
+/// writer's walk is unfinished: the rows it writes hold no id, beside the
+/// rows the walk wrote. A run with such a row names no cause, so it is
+/// read whole, and the comparison names the row by its id, never a cause
+/// read wrong; an append meanwhile is indexed whole, since the trigger is
+/// the journal's.
+#[test]
+fn rows_an_idless_build_backfills_are_read_as_not_kept_and_named() {
+    let (_dir, path) = older_journal();
+    let mut conn = rusqlite::Connection::open(&path).unwrap();
+    migrate_index(&conn).unwrap();
+    let walked = unindexed(&conn, "a").unwrap();
+    index_once(&mut conn, &walked).unwrap();
+    for run_id in ["a", "b", "c"] {
+        idless_backfill(&conn, run_id);
+    }
+    drop(conn);
+    let store = Store::open(&path).unwrap();
+    assert!(store.reads_index().unwrap());
+    let causes = store.index_causes("a", &["a-2"]).unwrap();
+    assert_eq!(causes, Some(BTreeMap::from([("a-2".to_string(), 2)])));
+    assert_eq!(store.index_causes("b", &["b-1"]).unwrap(), None);
+    let parted = Some((1, IndexFault::Column("event_id")));
+    assert_eq!(parted_at(&store, "b"), parted);
+    let named: Vec<String> = store
+        .summary_disagreements()
+        .unwrap()
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    let idless = |run_id| {
+        format!(
+            "run '{run_id}': the event index row of its event 1 is not the event's in its event_id"
+        )
+    };
+    assert_eq!(named, [idless("b"), idless("c")]);
+    let entered = event(EventType::PhaseEntered, json!({"phase": "p"}));
+    planted(&store, "a", entered);
+    let causes = store.index_causes("a", &["a-3"]).unwrap();
+    assert_eq!(causes, Some(BTreeMap::from([("a-3".to_string(), 3)])));
+}
+
+/// A cause is read through the cause index, its id's rows and the run's
+/// rows without one each searched, with no scan and no temporary B-tree.
+#[test]
+fn a_cause_searches_its_index() {
+    let (_dir, store) = store();
+    let cause = "SEARCH event_index USING COVERING INDEX event_index_cause";
+    assert_eq!(
+        plan(&store, CAUSE, params!["r", "r-1"]),
+        [
+            "SCAN CONSTANT ROW".to_string(),
+            "SCALAR SUBQUERY 1".to_string(),
+            format!("{cause} (run_id=? AND event_id=?)"),
+            "SCALAR SUBQUERY 2".to_string(),
+            format!("{cause} (run_id=? AND event_id=?)"),
+        ]
+    );
+}

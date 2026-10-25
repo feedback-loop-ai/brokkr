@@ -5,7 +5,12 @@
 //! carry tokens, a panel, a request never started, the records that
 //! name no attempt or no member, an attempt started again, and a
 //! provenance entry naming no provider, and a panel's carried members, their
-//! sources named later. brokkr-core pins each one's facts; brokkr-view holds the
+//! sources named later, a retried sequence's steps, tags and models
+//! over two visits, and records before their effect's request and a
+//! terminal after it is asked again, each also in flight, and a member an
+//! effect asked thrice carries, a live start naming no effect or one never
+//! asked, and a member first seen under its effect's second request.
+//! brokkr-core pins each one's facts; brokkr-view holds the
 //! same journals' facts equal to its run view. A test module includes this
 //! file through `#[path]` beside an `envelope_builder` module, the one
 //! place a test spells an envelope (#357).
@@ -44,11 +49,13 @@ pub(crate) fn checkpoint(effect: &str, attempt: &str, checkpoint: Value) -> (Eve
 /// reporting a cost: its second attempt's first turn repeats the first
 /// attempt's last, and its Claude session record settles its output. The
 /// retry's attempt id sorts before the first's, and the first attempt
-/// records once more while the retry is in flight.
+/// records once more while the retry is in flight. Each turn edits a
+/// file its target names, past the width a target is shown at.
 pub(crate) fn retried() -> Vec<EventEnvelope> {
     let turn = |turn: u64, input: u64, output: u64| {
         json!({"step": "seat-turn", "turn": turn, "model": "opus", "effort": "high",
-               "input_tokens": input, "output_tokens": output})
+               "input_tokens": input, "output_tokens": output, "tool": "Edit",
+               "target": "crates/brokkr-core/src/seat/row/said.rs"})
     };
     let session = |cost: f64, output: u64, locator: &str| {
         json!({"step": "claude-code-session-finished", "total_cost_usd": cost,
@@ -500,6 +507,255 @@ pub(crate) fn later() -> Vec<EventEnvelope> {
     ])
 }
 
+/// A sequence over two visits (slice 2b's lists): its first attempt fails
+/// after a tagged turn and a finished step, and records one more step
+/// while its retry is in flight; the retry finishes a step again, one
+/// under a member, which tags none, and one with no name, and tags a
+/// member its start's provenance opened before the others; the stale
+/// attempt's terminal is passed over, and the next visit's seat reports
+/// a model of its own.
+pub(crate) fn sequenced() -> Vec<EventEnvelope> {
+    let attempt = |event_type, attempt: &str, result: Value| {
+        let payload = json!({"effect_id": "s1", "attempt_id": attempt, "result": result});
+        (event_type, payload)
+    };
+    let step = |attempt: &str, record: Value| checkpoint("s1", attempt, record);
+    let finished = |name: &str| json!({"step": "sequence-step-finished", "step_name": name});
+    journal(vec![
+        (EventType::PhaseEntered, json!({"phase": "work"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "s1", "seat": "seq", "phase": "work"}),
+        ),
+        attempt(EventType::EffectStarted, "one", json!(null)),
+        step(
+            "one",
+            json!({"member": "review:a", "step": "seat-turn", "turn": 1, "model": "m-1"}),
+        ),
+        step(
+            "one",
+            json!({"step": "sequence-step-finished", "step_name": "draft", "model": "m-2"}),
+        ),
+        attempt(EventType::EffectFailed, "one", json!({"model": "m-3"})),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "s1", "attempt_id": "two",
+                   "provenance": [{"member": "solo", "provider": "p"}]}),
+        ),
+        step(
+            "two",
+            json!({"member": "review:b", "step": "session-started"}),
+        ),
+        step(
+            "two",
+            json!({"member": "review:a", "step": "seat-turn", "turn": 2}),
+        ),
+        step("two", finished("draft")),
+        step(
+            "two",
+            json!({"member": "x", "step": "sequence-step-finished", "step_name": "review"}),
+        ),
+        step("one", finished("stale")),
+        step("two", json!({"step": "sequence-step-finished"})),
+        step(
+            "two",
+            json!({"member": "solo", "step": "item-completed", "model": "m-4"}),
+        ),
+        attempt(EventType::EffectFailed, "one", json!({"model": "m-stale"})),
+        attempt(EventType::EffectSucceeded, "two", json!({"model": "m-1"})),
+        (EventType::PhaseEntered, json!({"phase": "check"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "s2", "seat": "check", "phase": "check"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "s2", "attempt_id": "c"}),
+        ),
+        checkpoint(
+            "s2",
+            "c",
+            json!({"step": "seat-turn", "turn": 1, "model": "m-5"}),
+        ),
+    ])
+}
+
+/// What no engine writes, read as the view reads it: a sequence's step and
+/// a member's two turns recorded, and an attempt started, before their
+/// effect's request; a terminal naming no attempt, which concludes the request's
+/// participant but not the effect's open attempt, the one the dashboard
+/// reads; and that attempt's terminal, whose model the dashboard joins.
+pub(crate) fn unasked() -> Vec<EventEnvelope> {
+    journal(unasked_events(false))
+}
+
+/// [`unasked`]'s events; `again` asks its effect again in a second visit
+/// before its terminals, so they conclude the second request's attempt.
+pub(crate) fn unasked_events(again: bool) -> Vec<(EventType, Value)> {
+    let asked = |phase: &str| {
+        let payload = json!({"effect_id": "u1", "seat": phase, "phase": phase});
+        (EventType::EffectRequested, payload)
+    };
+    let mut events = vec![
+        (EventType::PhaseEntered, json!({"phase": "work"})),
+        checkpoint(
+            "u1",
+            "a1",
+            json!({"step": "sequence-step-finished", "step_name": "plan", "model": "m-early"}),
+        ),
+        checkpoint(
+            "u1",
+            "a1",
+            json!({"member": "review:a", "step": "seat-turn", "turn": 1}),
+        ),
+        checkpoint(
+            "u1",
+            "a1",
+            json!({"member": "review:a", "step": "seat-turn", "turn": 2}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "u1", "attempt_id": "a1"}),
+        ),
+        asked("work"),
+        checkpoint(
+            "u1",
+            "a1",
+            json!({"step": "sequence-step-finished", "step_name": "draft", "model": "m-work"}),
+        ),
+    ];
+    if again {
+        events.push((EventType::PhaseEntered, json!({"phase": "check"})));
+        events.push(asked("check"));
+    }
+    events.extend([
+        (
+            EventType::EffectFailed,
+            json!({"effect_id": "u1", "result": {"model": "m-none"}}),
+        ),
+        (
+            EventType::EffectSucceeded,
+            json!({"effect_id": "u1", "attempt_id": "a1", "result": {"model": "m-late"}}),
+        ),
+    ]);
+    events
+}
+
+/// [`unasked_events`] while the attempt started before its effect's
+/// request is in flight, before either terminal: the live block lists the
+/// records before the request under the seat `?`, and `again`'s one more
+/// turn of the member after the effect is asked again under that seat.
+pub(crate) fn in_flight(again: bool) -> Vec<EventEnvelope> {
+    let mut events = unasked_events(again);
+    events.truncate(events.len() - 2);
+    if again {
+        let turn = json!({"member": "review:a", "step": "seat-turn", "turn": 3, "tool": "Read"});
+        events.push(checkpoint("u1", "a1", turn));
+    }
+    journal(events)
+}
+
+/// An attempt started before its effect's request, which no record
+/// follows: the live block is the request's seat's bare line.
+pub(crate) fn started_unasked() -> Vec<EventEnvelope> {
+    journal(vec![
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "q1", "attempt_id": "a"}),
+        ),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "q1", "seat": "quiet"}),
+        ),
+    ])
+}
+
+/// A member first seen under its effect's second request, in another
+/// phase than its first, carried by a start under a third: its source is
+/// counted among the starts in the phase of the request it was first seen
+/// under, as the view counts it, not the carrying request's.
+pub(crate) fn carried_again() -> Vec<EventEnvelope> {
+    let asked = |effect: &str, phase: &str| {
+        let payload = json!({"effect_id": effect, "seat": effect, "phase": phase});
+        (EventType::EffectRequested, payload)
+    };
+    let provenance = json!([{"member": "m", "provider": "p"}]);
+    let carried = json!([{"member": "m", "attempt_id": "b"}]);
+    journal(vec![
+        asked("e1", "w"),
+        asked("e1", "x"),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "e1", "attempt_id": "a", "provenance": provenance}),
+        ),
+        asked("e3", "x"),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "e3", "attempt_id": "b"}),
+        ),
+        asked("e1", "y"),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "e1", "attempt_id": "c", "carried": carried}),
+        ),
+    ])
+}
+
+/// brokkr-view's journal of a start naming no effect: its record, which
+/// names none either, is its live line, under the seat of the request
+/// naming no effect, never the other request's. No row is of that start.
+pub(crate) fn effectless() -> Vec<EventEnvelope> {
+    journal(vec![
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "other", "seat": "elsewhere", "phase": "p"}),
+        ),
+        (EventType::EffectRequested, json!({"seat": "ghost"})),
+        (EventType::EffectStarted, json!({})),
+        (
+            EventType::EffectCheckpointed,
+            json!({"checkpoint": {"step": "seat-turn", "turn": 1, "tool": "Grep"}}),
+        ),
+    ])
+}
+
+/// A start of an effect no request has asked for, and its turn: its live
+/// line is under the seat `?`, and no row is of it.
+pub(crate) fn never_asked() -> Vec<EventEnvelope> {
+    journal(vec![
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "e1", "seat": "work", "phase": "work"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "e9", "attempt_id": "a"}),
+        ),
+        checkpoint(
+            "e9",
+            "a",
+            json!({"step": "seat-turn", "turn": 1, "tool": "Read"}),
+        ),
+    ])
+}
+
+/// A member first seen under its effect's second request, the first never
+/// started: the member's clock reads the second request's attempt, which
+/// concluded, though the seat's first request is still asked.
+pub(crate) fn asked_twice() -> Vec<EventEnvelope> {
+    let asked = json!({"effect_id": "e1", "seat": "work", "phase": "work"});
+    let attempt = json!({"effect_id": "e1", "attempt_id": "a"});
+    let record = json!({"member": "m", "step": "item-completed"});
+    journal(vec![
+        (EventType::EffectRequested, asked.clone()),
+        (EventType::EffectRequested, asked),
+        (EventType::EffectStarted, attempt.clone()),
+        checkpoint("e1", "a", record.clone()),
+        checkpoint("e1", "a", record),
+        (EventType::EffectSucceeded, attempt),
+    ])
+}
+
 /// Every hand-built journal, by name.
 pub(crate) fn journals() -> Vec<(&'static str, Vec<EventEnvelope>)> {
     vec![
@@ -516,5 +772,15 @@ pub(crate) fn journals() -> Vec<(&'static str, Vec<EventEnvelope>)> {
         ("unprovided", unprovided()),
         ("carried", carried()),
         ("later", later()),
+        ("sequenced", sequenced()),
+        ("unasked", unasked()),
+        ("again", journal(unasked_events(true))),
+        ("unasked in flight", in_flight(false)),
+        ("again in flight", in_flight(true)),
+        ("carried again", carried_again()),
+        ("started unasked", started_unasked()),
+        ("effectless", effectless()),
+        ("never asked", never_asked()),
+        ("asked twice", asked_twice()),
     ]
 }

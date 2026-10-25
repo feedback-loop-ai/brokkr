@@ -300,12 +300,38 @@ fn a_protected_installed_server_alone_receives_its_bindings_beside_its_fixed_env
     assert!(within(|| boxed(&sealed).is_empty()));
 }
 
+/// The fewest characters any listed encoding of a value the broker looks
+/// up may have where a test pins its refusal's text: once looked up, the
+/// value guards every line after it, the ledger's Opened among them, whose
+/// plan digest is 64 random hex digits over the fixture's temp paths. A
+/// needle of this length occurs in one with odds under 64 in 16^16, where
+/// the four digits `fffe` of `\xff\xfe` occur about once in a thousand
+/// runs, and the masker then refuses in the cause's stead (#743); nor can
+/// a temp name's six random characters hold one.
+const CHANCE_FREE: usize = 16;
+
+/// What a failed answer names (#743): the ledger's records, how long the
+/// broker ran from its spawn to its traces read, the plan's digest and the
+/// fixture's root. A ledger holding its Opened alone after the startup's
+/// 30-second deadline is the deadline's; any other is new evidence.
+fn diagnosed(sealed: &Sealed, digest: &str, taken: Duration) -> String {
+    let records = std::fs::read_to_string(super::ledger::of(&sealed.locator));
+    let root = sealed.root.path.display();
+    format!("ledger {records:?} after {taken:?}, plan {digest}, root {root}")
+}
+
 #[test]
 fn a_handoff_that_fails_after_the_lookup_starts_no_server() {
     // A name the store lacks and a value no environment holds are decision
     // 0012's own causes; a value with NUL the bootstrap refuses after the
     // whole frame, and one past the frame's bound the broker never sends:
-    // each the handoff's cause. None starts the server.
+    // each the handoff's cause. None starts the server. The value no
+    // environment holds is long enough that no listed encoding of it
+    // occurs by chance in what the broker writes ([`CHANCE_FREE`]).
+    let not_utf8 = b"\xff\xfe".repeat(8);
+    let encoded = NEEDLE_ENCODINGS.iter().map(|(_, encode)| encode(&not_utf8));
+    let shortest = encoded.map(|needle| needle.len()).min();
+    assert!(shortest >= Some(CHANCE_FREE), "{shortest:?}");
     let cause = |case: &str, sealed: &Sealed| match case {
         "missing" => Refusal::Name(format!(
             "secret 'DOCS_TOKEN' is not in the store at {} (brokkr secrets set DOCS_TOKEN)",
@@ -314,10 +340,11 @@ fn a_handoff_that_fails_after_the_lookup_starts_no_server() {
         "not UTF-8" => Refusal::Name("secret 'DOCS_TOKEN' is not valid UTF-8".into()),
         _ => Refusal::Handoff,
     };
+    let not_utf8 = [b"DOCS_TOKEN=".as_slice(), &not_utf8, b"\n"].concat();
     let over = format!("DOCS_TOKEN={}\n", "v".repeat(1 << 20));
     let cases: [(&str, &[u8]); 4] = [
         ("missing", b"OTHER=value\n"),
-        ("not UTF-8", b"DOCS_TOKEN=\xff\xfe\n"),
+        ("not UTF-8", &not_utf8),
         ("NUL", b"DOCS_TOKEN=ab\0cd\n"),
         ("over", over.as_bytes()),
     ];
@@ -326,8 +353,15 @@ fn a_handoff_that_fails_after_the_lookup_starts_no_server() {
         else {
             return;
         };
+        let begun = Instant::now();
         let (answer, execs, _) = recorded(&sealed, &digest, &tracer);
-        assert_eq!((case, answer), (case, refused(cause(case, &sealed))));
+        let taken = begun.elapsed();
+        assert_eq!(
+            (case, answer),
+            (case, refused(cause(case, &sealed))),
+            "{}",
+            diagnosed(&sealed, &digest, taken)
+        );
         assert_eq!(
             (case, of(&execs, &server(&sealed))),
             (case, Vec::<&str>::new())

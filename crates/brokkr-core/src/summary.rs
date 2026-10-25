@@ -261,6 +261,15 @@ impl Account {
     pub fn seats(&self) -> &[SeatRow] {
         self.seats.rows()
     }
+
+    /// Whether its seats' rows keep all the run view reads of them: not
+    /// while the run's last start, unended, names no effect or one no
+    /// request has asked for, whose live block no row holds. The writer
+    /// keeps no seat head for such a run, so a reader reads it whole
+    /// (decision 0089 ruling 8).
+    pub fn seats_kept(&self) -> bool {
+        self.seats.keep_live()
+    }
 }
 
 /// What the run's `runs` row states: its feature and when it was created.
