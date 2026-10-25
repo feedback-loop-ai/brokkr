@@ -934,7 +934,8 @@ fn a_cargo_charter_says_to_commit_its_lockfile() {
 
 /// The variables naming volta's, bun's and pnpm's homes, which `init`
 /// reads.
-const TOOL_HOMES: [&str; 4] = ["VOLTA_HOME", "BUN_INSTALL", "PNPM_HOME", "XDG_DATA_HOME"];
+pub(crate) const TOOL_HOMES: [&str; 4] =
+    ["VOLTA_HOME", "BUN_INSTALL", "PNPM_HOME", "XDG_DATA_HOME"];
 
 /// `init` run with `PATH` and `HOME` under `aside`: a claude stub in
 /// `aside/bins`, then `extra` on `PATH`, and of the tools' home variables

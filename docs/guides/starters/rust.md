@@ -51,7 +51,8 @@ the bundle, so the script paths `bundle.json` names are read from there.
 
 A repository carrying `.specify/` or `openspec/config.yaml` also gets
 `.brokkr/dialects/`, the detected dialect's pinned data. The adapters
-follow the agent CLI on `PATH`: this fixture was scaffolded for `claude`.
+follow the agent CLI on `PATH`, or the one `--cli` names: this fixture was
+scaffolded for `claude`.
 A codex scaffold writes `.brokkr/adapters/codex.json` in its place, and a
 dsh scaffold writes `.brokkr/adapters/dsh.json` beside it.
 

@@ -290,10 +290,10 @@ struct AgentSpec {
 }
 
 /// The agent CLIs `init` scaffolds for, in the order it prefers them when
-/// more than one is on PATH: the README promises that any one of the
-/// three is enough.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Cli {
+/// more than one is on PATH and `--cli` names none: the README promises
+/// that any one of the three is enough.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, clap::ValueEnum)]
+pub(crate) enum Cli {
     Claude,
     Codex,
     Dsh,
@@ -310,13 +310,6 @@ impl Cli {
             Cli::Dsh => "dsh",
         }
     }
-}
-
-/// The first agent CLI on `path`, in `CLIS` order. File presence is the
-/// whole of the evidence, as it is for the stack: nothing is executed.
-fn found_cli(path: &std::ffi::OsStr) -> Option<Cli> {
-    let look = crate::boundary::on_path(path);
-    CLIS.into_iter().find(|cli| look(cli.binary()).is_some())
 }
 
 impl AgentSpec {
@@ -338,6 +331,8 @@ impl AgentSpec {
 mod adapters;
 // The scaffold's seats and verify's binds, written as `bundle.json`.
 mod bundle;
+// Which agent CLI the seats are hired from, and the notes that say why.
+mod choice;
 // A link's effort is data beside its model, never derived from its name.
 mod claims;
 mod effort;
@@ -780,45 +775,15 @@ struct Host {
     notes: Vec<String>,
 }
 
-/// Read the search path and the operating system, decide nothing else.
-/// One fact turns the boundary to `harness`: macOS, where `namespace`
-/// cannot be built. A codex scaffold on Linux stands under `namespace`,
-/// its seats' hands served by Brokkr's workspace tool, because codex's
-/// own `workspace-write` class keeps `.git` read-only and its implementer
-/// could not commit (#717).
-fn host(path: &std::ffi::OsStr, os: &str) -> Host {
-    let found = found_cli(path);
-    let cli = found.unwrap_or(Cli::Claude);
-    let mut notes = vec![match found {
-        Some(cli) => format!(
-            "Scaffolded for `{}`, the first of claude, codex and dsh found on PATH.",
-            cli.binary()
-        ),
-        None => "No agent CLI (claude, codex or dsh) was found on PATH, so this \
-                 scaffold is written for `claude`. Install one before the first \
-                 run; to scaffold for codex or dsh instead, re-run `init` once it \
-                 is installed."
-            .to_string(),
-    }];
-    if cli != Cli::Claude {
-        notes.push(format!(
-            "`{}` cannot express a tool name, so no `{}`-hired agent carries a \
-             tool allowance; where this README speaks of tool grants, it speaks \
-             of the claude-hired seats only.",
-            cli.binary(),
-            cli.binary()
-        ));
-    }
-    if cli == Cli::Dsh {
-        notes.push(
-            "The review gate cannot be held by dsh: its adapter is untrusted and \
-             names no judges, and a gate seat judges only on a trusted adapter's \
-             judge (decision 0021). So intake and implement are hired from dsh \
-             and `agents/reviewer.json` is hired from claude, which is not on \
-             PATH — install claude before a run reaches review."
-                .to_string(),
-        );
-    }
+/// Read the search path and the operating system, decide nothing else:
+/// the agent CLI is the one `named` (`--cli`), else the first on PATH
+/// ([`choice::chosen`]). One fact turns the boundary to `harness`: macOS,
+/// where `namespace` cannot be built. A codex scaffold on Linux stands
+/// under `namespace`, its seats' hands served by Brokkr's workspace tool,
+/// because codex's own `workspace-write` class keeps `.git` read-only and
+/// its implementer could not commit (#717).
+fn host(path: &std::ffi::OsStr, os: &str, named: Option<Cli>) -> Host {
+    let (cli, mut notes) = choice::chosen(path, named);
     let boundary = (os == "macos").then_some(Boundary::Harness);
     notes.extend(claims::claims(cli, boundary).realm.map(str::to_string));
     Host {
@@ -1407,11 +1372,18 @@ pub(crate) struct Scaffold {
 /// and `os` are the machine's search path and operating system, read for
 /// the agent CLI and the boundary; `path`, `os` and `home`, the operator's
 /// `$HOME`, with the variables naming volta's, bun's and pnpm's homes,
-/// read here, for where a node-family runner is installed.
-pub(crate) fn init(root: &Path, path: &std::ffi::OsStr, os: &str, home: &Path) -> Result<Scaffold> {
+/// read here, for where a node-family runner is installed. `named` is the
+/// agent CLI `--cli` names, which the seats follow in place of PATH's.
+pub(crate) fn init(
+    root: &Path,
+    path: &std::ffi::OsStr,
+    os: &str,
+    home: &Path,
+    named: Option<Cli>,
+) -> Result<Scaffold> {
     let folder = root.join(FOLDER);
     let detection = detect(root);
-    let mut host = host(path, os);
+    let mut host = host(path, os, named);
     let detected = detection.stack.as_ref();
     let grants = grants(detected);
     let homes = node::Homes::named(home, os, |name| std::env::var_os(name));

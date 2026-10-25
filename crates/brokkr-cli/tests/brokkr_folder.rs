@@ -139,11 +139,7 @@ impl Repo {
     /// CLIs `present`, made beside the repository, so it scaffolds for the
     /// first of them whatever this host carries.
     pub(crate) fn init_with_only(&self, present: &[&str]) -> Ran {
-        let bins = self.aside.join("bins");
-        std::fs::create_dir_all(&bins).unwrap();
-        for binary in present {
-            std::fs::write(bins.join(binary), "").unwrap();
-        }
+        let bins = bins_holding(&self.aside, present);
         let mut init = self.command("");
         init.args(["init", "."]).env("PATH", &bins);
         Ran::of(init.output().unwrap())
@@ -245,6 +241,17 @@ pub(crate) fn repository() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     git(dir.path(), &["init", "-q"]);
     dir
+}
+
+/// `aside/bins`, holding an empty file for each of the agent CLIs
+/// `present`: a PATH on which `init` finds those and no others.
+pub(crate) fn bins_holding(aside: &Path, present: &[&str]) -> PathBuf {
+    let bins = aside.join("bins");
+    std::fs::create_dir_all(&bins).unwrap();
+    for binary in present {
+        std::fs::write(bins.join(binary), "").unwrap();
+    }
+    bins
 }
 
 /// Commit what `root`'s index holds.

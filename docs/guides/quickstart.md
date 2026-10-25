@@ -284,7 +284,10 @@ What the folder holds:
 ```
 
 `init` scaffolds for the first agent CLI on `PATH`: `claude`, `codex`
-or `dsh`, and `claude` when none is found. A codex scaffold writes
+or `dsh`, and `claude` when none is found. `--cli claude`, `--cli codex`
+or `--cli dsh` names the one to scaffold for instead, where several share
+a directory on `PATH`; a named CLI that `PATH` lacks is scaffolded for all
+the same, and `init` says to install it. A codex scaffold writes
 `.brokkr/adapters/codex.json` in place of `.brokkr/adapters/claude.json`, hires every
 model seat from codex, and on Linux leaves `.brokkr/realms.json` at the
 default `namespace` boundary, so each model seat runs codex read-only

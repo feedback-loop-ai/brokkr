@@ -38,6 +38,10 @@ pub(super) struct InitArgs {
     /// The repository root whose .brokkr/ folder is written; a folder that
     /// already holds more than moved state is refused, never overwritten.
     pub(super) dir: PathBuf,
+    /// The agent CLI the seats are hired from (default: the first of
+    /// claude, codex and dsh on PATH); scaffolded for even where PATH lacks it.
+    #[arg(long, value_enum)]
+    pub(super) cli: Option<crate::init::Cli>,
 }
 
 #[derive(clap::Subcommand)]
