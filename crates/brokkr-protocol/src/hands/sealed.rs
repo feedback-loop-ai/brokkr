@@ -19,6 +19,15 @@
 //! the same way: nothing derives it again. bubblewrap resolves each source
 //! once more as it mounts it, a window the second observation narrows and
 //! cannot close.
+//!
+//! The reach seals the operator's secrets store by its canonical path, each
+//! symbolic link on the way the engine spells it at resolved once for the
+//! run, which the engine keeps ([`store_place`]), beside that configured
+//! spelling, or none where
+//! nothing serves one (U8h): every box built from it refuses a spelling
+//! that no longer leads there (ruling 17), pins the store's folders and
+//! hides the store behind `/dev/null` wherever it mounts it ([`hidden`]). A
+//! reach sealed before the store was sealed in it does not read.
 
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -31,6 +40,14 @@ use super::overlay::overlay_argv;
 use super::{expand_home, git_dirs, BindMode, GitFacts, HandsSpec, OverlayWrites};
 use crate::broker::Refusal;
 
+/// The secrets store each box hides, observed twice (U8h).
+mod hidden;
+pub(super) use hidden::Hidden;
+use hidden::Store;
+#[cfg(all(test, target_os = "linux"))]
+pub(super) use hidden::{placed, Held, Mounted, Unhidden, TABLE};
+pub use hidden::{store_place, UNHIDDEN_STORE};
+
 /// The driver-input key the box's sealed reach rides under, beside the
 /// artifact root and written with it (U8a2c): the final check binds the
 /// box's hands to it as the engine sealed it, never derived.
@@ -38,7 +55,10 @@ pub const SEALED_REACH: &str = "sealed_reach";
 
 /// What one writer's boxes are built from, as it was sealed: the HOME its
 /// binds' `~/` named, the worktree, its two Git directories where it is a
-/// repository, and each bind's source in the order the hands declare them.
+/// repository, each bind's source in the order the hands declare them, and
+/// the secrets store its boxes hide, by its canonical place and the
+/// absolute path the engine spells it at, or none. The store must be
+/// written, `null` where none is sealed: a reach without it does not read.
 /// The default seals nothing, and no box is built from it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -47,6 +67,8 @@ pub struct Sealed {
     worktree: Source,
     git: Option<Git>,
     binds: Vec<Source>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    store: Option<Store>,
 }
 
 /// The worktree's Git directory and Git common directory, as sealed.
@@ -100,8 +122,17 @@ impl From<Drifted> for std::io::Error {
 
 /// The reach a box of `spec` in `workdir` is built from, observed now: the
 /// worktree, the Git directories `git` names, and each bind's source, its
-/// `~/` the host `home`.
-pub fn seal(spec: &HandsSpec, home: &Path, workdir: &Path, git: &GitFacts) -> Sealed {
+/// `~/` the host `home`; and `store`, the secrets store its boxes hide, as
+/// `(place, spelling)`: the canonical place the engine resolved once for
+/// the run and keeps ([`store_place`]), beside the absolute spelling it was
+/// configured at, sealed as handed and never resolved again here (U8h).
+pub fn seal(
+    spec: &HandsSpec,
+    home: &Path,
+    workdir: &Path,
+    git: &GitFacts,
+    store: Option<(&Path, &Path)>,
+) -> Sealed {
     let dirs = git.git_dir.as_deref().zip(git.common_dir.as_deref());
     Sealed {
         home: home.to_path_buf(),
@@ -113,6 +144,7 @@ pub fn seal(spec: &HandsSpec, home: &Path, workdir: &Path, git: &GitFacts) -> Se
         binds: (spec.binds.iter())
             .map(|bind| source(&expand_home(&bind.path, home)))
             .collect(),
+        store: store.map(Store::sealed),
     }
 }
 
@@ -128,11 +160,19 @@ pub fn drifted(sealed: &Sealed, spec: &HandsSpec, workdir: &Path) -> Option<Path
         common_dir,
         identity: Vec::new(),
     };
-    let now = seal(spec, &sealed.home, workdir, &git);
+    let now = seal(spec, &sealed.home, workdir, &git, None);
     let (was, now) = (sealed.sources(), now.sources());
     let at = (0..was.len().max(now.len())).find(|&at| was.get(at) != now.get(at))?;
     let moved = was.get(at).or(now.get(at));
     moved.map(|source| source.path.clone())
+}
+
+/// The canonical place of the secrets store `sealed` seals, where it seals
+/// one (U8h): where the engine makes the store and names it to a seat, or
+/// refuses the launch where its configured spelling now leads elsewhere
+/// (ruling 17).
+pub fn sealed_store(sealed: &Sealed) -> Option<&Path> {
+    sealed.store()
 }
 
 impl Sealed {
@@ -164,6 +204,12 @@ impl Sealed {
     /// The Git common directory's canonical path, where there is one.
     pub(super) fn common(&self) -> Option<&Path> {
         self.git.as_ref().map(|git| git.common.path.as_path())
+    }
+
+    /// The canonical place of the secrets store its boxes hide, where one
+    /// is sealed (U8h).
+    fn store(&self) -> Option<&Path> {
+        self.store.as_ref().map(Store::place)
     }
 
     /// This reach with `host` sealed now beside its binds: the engine's own
@@ -202,14 +248,27 @@ fn source(path: &Path) -> Source {
 /// just held to its sealed source, and each masked file the source holds
 /// hidden behind `/dev/null`. A mask over a file that is not there would
 /// make bwrap create it on the host to mount over, so only what exists is
-/// hidden.
+/// hidden. The sealed secrets store is observed first, for a box seen at
+/// `workdir` and handed `bundle`, with every mount the box makes
+/// ([`Hidden::observe`]); each folder above it or above the artifact root
+/// in the worktree is pinned from that one description, outermost first,
+/// before any bind ([`Hidden::pin_worktree`]), and each above it in
+/// a writable bind as that bind is mounted, before anything below it
+/// ([`Hidden::pin`]). Last, after every writable mount, the store is hidden
+/// wherever the box shows it ([`Hidden::hide`]); what was observed is
+/// returned, to be observed again once the argv is final
+/// ([`Hidden::confirm`]).
 pub(super) fn mount_binds(
     namespace: &mut Namespace,
     protected: &mut Protected,
     spec: &HandsSpec,
     sealed: &Sealed,
+    seen: (&Path, Option<&Path>),
     writes: OverlayWrites<'_>,
-) -> std::io::Result<()> {
+) -> std::io::Result<Hidden> {
+    let root = (protected.held(), protected.ancestors());
+    let store = Hidden::observe(spec, sealed, seen, root)?;
+    store.pin_worktree(namespace);
     for (index, (bind, source)) in spec.binds.iter().zip(&sealed.binds).enumerate() {
         let (host, from) = (expand_home(&bind.path, &sealed.home), &source.path);
         if bind.mode != BindMode::Ro {
@@ -221,10 +280,12 @@ pub(super) fn mount_binds(
             BindMode::Rw => namespace.mount(Mount::BindTry, from, &target),
             BindMode::Overlay => namespace.overlay(overlay_argv(from, &host, index, writes)?),
         }
+        store.pin(namespace, index);
         for name in bind.mask.iter().filter(|name| from.join(name).exists()) {
             let target = namespace_path(&host.join(name));
             namespace.mount(Mount::RoBind, Path::new("/dev/null"), &target);
         }
     }
-    Ok(())
+    store.hide(namespace);
+    Ok(store)
 }

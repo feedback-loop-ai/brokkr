@@ -921,7 +921,7 @@ fn the_sealed_reach_names_each_hands_root_where_the_hands_box_binds_it() {
         &spec,
         &workdir,
         &artifacts,
-        &brokkr_protocol::hands::seal(&spec, &home, &workdir, &observed),
+        &brokkr_protocol::hands::seal(&spec, &home, &workdir, &observed, None),
         &scratch,
         OverlayWrites::Ram,
         &git.identity,

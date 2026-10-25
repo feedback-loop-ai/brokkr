@@ -66,23 +66,25 @@ fn declared_names_and_store_path_ride_the_driver_input() {
         store_path.display()
     );
     assert!(
-        store_path.starts_with(dir.path().join("work")),
+        store_path.starts_with(dir.path().canonicalize().unwrap().join("work")),
         "workdir-relative default: {}",
         store_path.display()
     );
 }
 
+/// The override wins, and the input names the store by the canonical place
+/// its spelling leads to, a link on the way resolved, as the engine makes
+/// and seals it (decision 0065 slice two, U8h, operator ruling 17).
 #[test]
 fn secrets_file_override_wins_over_the_default() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("work")).unwrap();
     let mut engine = engine_with(dir.path(), Some(vec!["GH_TOKEN"]));
-    engine.secrets_file = Some(dir.path().join("elsewhere.env"));
+    std::os::unix::fs::symlink(dir.path(), dir.path().join("route")).unwrap();
+    engine.secrets_file = Some(dir.path().join("route/elsewhere.env"));
     let input = work_input(&engine);
-    assert_eq!(
-        input["secrets_file"].as_str().unwrap(),
-        dir.path().join("elsewhere.env").to_str().unwrap()
-    );
+    let place = dir.path().canonicalize().unwrap().join("elsewhere.env");
+    assert_eq!(input["secrets_file"], json!(place));
 }
 
 #[test]
@@ -97,6 +99,8 @@ fn a_folder_run_threads_the_store_in_its_state() {
     assert_eq!(
         input["secrets_file"].as_str().unwrap(),
         dir.path()
+            .canonicalize()
+            .unwrap()
             .join(".brokkr/state/secrets.env")
             .to_str()
             .unwrap()

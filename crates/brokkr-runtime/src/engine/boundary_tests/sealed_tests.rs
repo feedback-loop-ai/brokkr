@@ -20,7 +20,7 @@ static REACH: LazyLock<Sealed> = LazyLock::new(Sealed::default);
 
 /// [`REACH`] as the exec argv and the hands server carry it.
 pub(in crate::engine) const REACH_ARG: &str =
-    "{\"home\":\"\",\"worktree\":{\"path\":\"\",\"identity\":null},\"git\":null,\"binds\":[]}";
+    "{\"home\":\"\",\"worktree\":{\"path\":\"\",\"identity\":null},\"git\":null,\"binds\":[],\"store\":null}";
 
 /// What a box is handed in the argv fixtures: the test binary's own
 /// [`ENGINE`], `artifacts` and [`REACH`].
@@ -51,9 +51,37 @@ pub(in crate::engine) fn already_boxed() -> bool {
     boxed
 }
 
+/// The bwrap this host builds a real namespace with; none where it cannot,
+/// or where this test already runs in a box, the proof's skip logged, or
+/// failed on a host that declared it must produce boundary evidence.
+#[cfg(target_os = "linux")]
+pub(in crate::engine) fn namespace_bwrap() -> Option<PathBuf> {
+    let probe = brokkr_protocol::hands::require_bwrap()
+        .ok()
+        .filter(|bwrap| {
+            Command::new(bwrap)
+                .args(["--ro-bind", "/", "/", "--", "true"])
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success())
+        });
+    let found = probe.filter(|_| std::env::var_os(brokkr_protocol::hands::HANDS_BOX_ENV).is_none());
+    if found.is_none() {
+        brokkr_protocol::hands::skip_boundary_proof(
+            brokkr_protocol::hands::boundary_evidence_required(),
+            "this environment cannot create a bubblewrap namespace",
+        );
+    }
+    found
+}
+
 /// The engine executable every box, harness fragment and dialect step is
 /// composed with (#349, ask 8).
 mod executable_tests;
+
+/// The secrets store the engine makes before a boxed launch and its box
+/// hides (U8h).
+mod store_tests;
 
 /// A seat taken from the folder, walked at its spawn (decision 0091).
 mod folder_tests;

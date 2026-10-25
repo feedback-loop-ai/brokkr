@@ -3,11 +3,13 @@
 //! 2026-10-09), beside the artifact root the engine makes before launch and
 //! hands the box as a typed fact (CR2; operator ruling of 2026-10-17).
 
-use std::os::unix::fs::DirBuilderExt;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 use brokkr_protocol::broker::Refusal;
-use brokkr_protocol::hands::{HandsSpec, Sealed, UNPROTECTED_EVIDENCE};
+use brokkr_protocol::hands::{
+    sealed_store, store_place, HandsSpec, Sealed, UNHIDDEN_STORE, UNPROTECTED_EVIDENCE,
+};
 use brokkr_protocol::native_controls::{Segment, Transport};
 use thiserror::Error;
 
@@ -49,6 +51,131 @@ impl super::Engine {
         }
         Some(spec)
     }
+
+    /// The secrets store as the operator configured it, the CLI override or
+    /// `secrets.env` in the run-local directory, as spelled: the spelling
+    /// a reach seals beside the place it leads to (U8h, ruling 17).
+    pub(super) fn secrets_store_spelling(&self) -> PathBuf {
+        (self.secrets_file.clone()).unwrap_or_else(|| self.run_local().join(crate::places::SECRETS))
+    }
+
+    /// The secrets store as this run keeps it (U8h, ruling 18): its
+    /// configured spelling resolved to its canonical place the first time
+    /// anything asks, and never again for the run, so making the store, the
+    /// path a seat's input names and the place a box's reach seals are one.
+    pub(super) fn kept_store(&self) -> &KeptStore {
+        self.store_place
+            .get_or_init(|| KeptStore::resolved(self.secrets_store_spelling()))
+    }
+
+    /// The operator-side store path threaded to drivers and sealed in a
+    /// box's reach: the place this run keeps ([`Self::kept_store`]). Where
+    /// the spelling could not be resolved, the spelling stands in a seat's
+    /// input, and every spawn handed that input refuses as [`Self::prepared`]
+    /// finds the kept place unresolved, before any driver or box reads it.
+    pub(super) fn secrets_store_path(&self) -> PathBuf {
+        let kept = self.kept_store();
+        (kept.place.clone()).unwrap_or_else(|_| kept.spelling.clone())
+    }
+
+    /// The kept place, where the configured spelling still leads to it now
+    /// (ruling 18): refused where it was never resolved, where the spelling
+    /// no longer resolves, or where it leads elsewhere.
+    fn led<'k>(&self, kept: &'k KeptStore) -> Result<&'k Path, Unprepared> {
+        let unresolved =
+            |spelling: &Path, kind| Unprepared::Unresolved(spelling.to_path_buf(), kind);
+        let place = (kept.place.as_ref()).map_err(|kind| unresolved(&kept.spelling, *kind))?;
+        let spelling = self.secrets_store_spelling();
+        match store_place(&spelling) {
+            Ok(now) if now == *place => Ok(place),
+            Ok(_) => Err(Unprepared::Strayed(spelling, place.clone())),
+            Err(error) => Err(unresolved(&spelling, error.kind())),
+        }
+    }
+
+    /// U8a, U8h: what a box of `hands` is handed made before its launch,
+    /// the run's artifact root `artifacts` ([`make_root`]) and then the
+    /// secrets store at the place this run keeps, where its configured
+    /// spelling still leads ([`Self::led`]; [`make_store`]); either refused,
+    /// the spawn is, by the refusal this returns. Where admission sealed the
+    /// store at another place, the spawn refuses before anything is made
+    /// there (ruling 17). An unboxed spawn, `hands` none, makes nothing, but
+    /// once a seat's input has named the kept place it refuses as a box
+    /// would where the spelling no longer leads there (ruling 18).
+    pub(super) fn prepared(
+        &self,
+        artifacts: &Path,
+        hands: Option<&HandsSpec>,
+    ) -> Option<Unprepared> {
+        let made = || -> Result<(), Unprepared> {
+            let Some(spec) = hands else {
+                return self
+                    .store_place
+                    .get()
+                    .map_or(Ok(()), |kept| self.led(kept).map(drop));
+            };
+            make_root(artifacts)?;
+            let store = self.led(self.kept_store())?;
+            let sealed = self.reach.sealed(spec);
+            if let Some(place) = sealed.and_then(sealed_store).filter(|at| at != &store) {
+                let spelling = self.secrets_store_spelling();
+                return Err(Unprepared::Strayed(spelling, place.to_path_buf()));
+            }
+            Ok(make_store(store)?)
+        };
+        made().err()
+    }
+}
+
+/// The secrets store one run keeps (U8h, ruling 18): the spelling it was
+/// configured at, absolute, and the canonical place that spelling resolved
+/// to ([`store_place`]), or why it could not be resolved, which refuses
+/// every spawn that would use it, never a place standing in for it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct KeptStore {
+    pub(super) spelling: PathBuf,
+    pub(super) place: Result<PathBuf, std::io::ErrorKind>,
+}
+
+impl KeptStore {
+    /// The store configured at `spelling`, resolved now.
+    fn resolved(spelling: PathBuf) -> KeptStore {
+        let spelling = std::path::absolute(&spelling).unwrap_or(spelling);
+        let place = store_place(&spelling).map_err(|error| error.kind());
+        KeptStore { spelling, place }
+    }
+
+    /// The store as a box's reach seals it, `(place, spelling)`. Unresolved,
+    /// the spelling is sealed as both; no box is built from that reach, for
+    /// every boxed spawn refuses first ([`super::Engine::prepared`]), and a
+    /// box handed it refuses it unless the spelling now resolves to itself.
+    pub(super) fn sealed(&self) -> (&Path, &Path) {
+        let place = (self.place.as_ref()).map_or(self.spelling.as_path(), PathBuf::as_path);
+        (place, &self.spelling)
+    }
+}
+
+/// Why a box is not launched: what it is handed cannot be made.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub(super) enum Unprepared {
+    #[error(transparent)]
+    Root(#[from] Unrooted),
+    #[error(transparent)]
+    Store(#[from] Unstored),
+    /// The configured store no longer leads to the place admission sealed
+    /// in the box's reach (ruling 17): the configured spelling, the place.
+    #[error(
+        "dispatch refused: {UNHIDDEN_STORE}: the configured store '{}' no longer leads to '{}', \
+         where the box's reach sealed it", .0.display(), .1.display()
+    )]
+    Strayed(PathBuf, PathBuf),
+    /// The configured store's way cannot be walked to a canonical place
+    /// (ruling 18): the configured spelling, and why.
+    #[error(
+        "dispatch refused: {UNHIDDEN_STORE}: the configured store '{}' cannot be resolved to its \
+         place: {}", .0.display(), .1
+    )]
+    Unresolved(PathBuf, std::io::ErrorKind),
 }
 
 /// Why the engine cannot hand a box its artifact root, in the operator's
@@ -82,6 +209,27 @@ pub(super) fn make_root(root: &Path) -> Result<(), Unrooted> {
         return Err(Unrooted::Foreign(root.to_path_buf()));
     }
     Ok(())
+}
+
+/// Why the engine cannot hand a box its secrets store to hide (U8h): the
+/// cause every box's own refusal carries, never a box without it.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("dispatch refused: {UNHIDDEN_STORE}: the store '{}' cannot be made: {}", .0.display(), .1)]
+pub(super) struct Unstored(pub(super) PathBuf, pub(super) std::io::ErrorKind);
+
+/// Make the secrets store at its kept place `store` where it is missing,
+/// one empty file only its owner may read or write (operator ruling 2 of
+/// 2026-10-23), in the folder that holds it: a folder that is missing is
+/// never made, and refuses (ruling 18). An existing store is kept as it is,
+/// for the box judges it. Nothing it holds is read.
+pub(super) fn make_store(store: &Path) -> Result<(), Unstored> {
+    let unmade = |error: std::io::Error| Unstored(store.to_path_buf(), error.kind());
+    let mut new = std::fs::OpenOptions::new();
+    let created = new.write(true).create_new(true).mode(0o600).open(store);
+    match created {
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+        created => created.map(drop).map_err(unmade),
+    }
 }
 
 /// The tail every [`Unnamed`] refusal ends with: why a path a box is

@@ -353,12 +353,18 @@ fn cold(program: &str, document: &str) -> Vec<String> {
 /// `broker` on its own plan, both run by this test binary, written out by
 /// hand; `None` for the hands alone. The hands carry the reach sealed for
 /// them under the fixture's HOME beside `workdir`, sealed here on its own
-/// (U8a2c).
+/// (U8a2c), with the run-local secrets store its boxes hide (U8h).
 fn document(workdir: &Path, broker: Option<&SealedBroker>) -> String {
     let exe = std::env::current_exe().unwrap();
     let home = workdir.parent().unwrap().join("home");
     let git = brokkr_protocol::hands::git_facts(workdir);
-    let sealed = brokkr_protocol::hands::seal(&HandsSpec::default(), &home, workdir, &git);
+    let store = crate::places::run_local(None, workdir).join(crate::places::SECRETS);
+    let (spec, place) = (
+        HandsSpec::default(),
+        brokkr_protocol::hands::store_place(&store),
+    );
+    let sealed =
+        brokkr_protocol::hands::seal(&spec, &home, workdir, &git, Some((&place.unwrap(), &store)));
     let reach = serde_json::to_string(&serde_json::to_string(&sealed).unwrap()).unwrap();
     let (exe, workdir) = (exe.to_str().unwrap(), workdir.to_str().unwrap());
     let spec = r#"{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"#;

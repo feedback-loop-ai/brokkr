@@ -79,7 +79,14 @@ fn a_seats_box_is_built_from_the_reach_its_admission_sealed() {
         }
         std::fs::create_dir(&pad).unwrap();
         let work = worktree(&engine);
-        let now = hands::seal(&spec, &host.home, &work, &hands::git_facts(&work));
+        let store = engine.kept_store().clone();
+        let now = hands::seal(
+            &spec,
+            &host.home,
+            &work,
+            &hands::git_facts(&work),
+            Some(store.sealed()),
+        );
         assert_ne!(now, held, "a reach sealed now differs");
         let spawn = engine.compose_at(
             Some("work"),
@@ -101,6 +108,39 @@ fn a_seats_box_is_built_from_the_reach_its_admission_sealed() {
             Some(pad.clone()),
             "{leased}"
         );
+    }
+}
+
+/// U8h (operator ruling 1 of 2026-10-23): admission seals the engine's
+/// secrets store in each boxed writer's reach, by its canonical place
+/// beside its configured spelling (ruling 17), and a reservation sealed
+/// before it was, its reach without the store or with the store's path
+/// alone, no longer reads: amending it refuses with MB3's identity cause,
+/// never a box that hides nothing.
+#[test]
+fn a_reservation_sealed_without_the_store_no_longer_reads() {
+    for older in [None, Some("/sealed/before/ruling-17/secrets.env")] {
+        let host = Host::new();
+        let (_dir, mut engine, _, _) = boxed_seat();
+        let root = || Some(opened(&host.home));
+        assert!(admitted(&mut engine, (host.home.clone(), &root)));
+        let at = host.reservation(&worktree(&engine), &engine.run_id);
+        let mut read: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&at).unwrap()).unwrap();
+        let sealed = &mut read["attempts"]["attempt"]["writers"][0]["reach"]["boxed"]["sealed"];
+        let (place, spelling) = (engine.secrets_store_path(), engine.secrets_store_spelling());
+        assert_eq!(
+            sealed["store"],
+            json!({"place": place, "spelling": spelling})
+        );
+        match older {
+            None => drop(sealed.as_object_mut().unwrap().remove("store")),
+            Some(path) => sealed["store"] = json!(path),
+        }
+        std::fs::write(&at, serde_json::to_vec(&read).unwrap()).unwrap();
+        let held = engine.held.clone().expect("a lease");
+        let refused = release(&held, soon());
+        assert_eq!(refused, Err(Unadmitted::Identity(Unknown::Participant(at))));
     }
 }
 

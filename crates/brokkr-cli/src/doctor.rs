@@ -126,7 +126,7 @@ fn probe_in_box(spec: &HandsSpec, workdir: &Path, program: &str) -> Result<Optio
     io_context(std::fs::create_dir(&artifacts), "artifacts").map_err(unbuilt)?;
     // Doctor admits nothing, so it seals its own reach as it starts (U8a2c).
     let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-    let reach = seal(spec, &home, workdir, &git_facts(workdir));
+    let reach = seal(spec, &home, workdir, &git_facts(workdir), None);
     let (root, at) = (&artifacts, session.path());
     match execute(spec, workdir, root, &reach, at, &command, PROBE_TIMEOUT) {
         Ok(executed) => box_answer(&executed),

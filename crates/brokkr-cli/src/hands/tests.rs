@@ -4,7 +4,7 @@ use super::*;
 /// its HOME beside the worktree (U8a2c).
 fn reach(work: &std::path::Path) -> String {
     let (spec, home) = (hands::HandsSpec::default(), work.join("home"));
-    let sealed = hands::seal(&spec, &home, work, &hands::git_facts(work));
+    let sealed = hands::seal(&spec, &home, work, &hands::git_facts(work), None);
     serde_json::to_string(&sealed).unwrap()
 }
 
@@ -38,6 +38,42 @@ fn a_reach_that_does_not_read_refuses_both_verbs_before_any_box() {
     let exec = run_with(exec, unreached).unwrap_err().to_string();
     let missing = "missing field `worktree` at line 1 column 13";
     assert_eq!(exec, format!("{cause}: {missing}"));
+}
+
+/// U8h (operator ruling 1 of 2026-10-23): a reach sealed before the store
+/// was sealed in it, its every other field as admission writes it, no
+/// longer reads, and refuses both verbs with MB3's identity cause before
+/// any session or box is made, never a box that hides nothing.
+#[test]
+fn a_reach_sealed_without_the_store_refuses_both_verbs_before_any_box() {
+    let tmp = tempfile::tempdir().unwrap();
+    let unreached = |_: &str| -> Result<Session, SessionError> { panic!("no session is made") };
+    let (workdir, artifacts) = (tmp.path().to_path_buf(), tmp.path().join("artifacts"));
+    let mut sealed: serde_json::Value = serde_json::from_str(&reach(&workdir)).unwrap();
+    assert_eq!(sealed["store"], serde_json::Value::Null);
+    sealed.as_object_mut().unwrap().remove("store");
+    let legacy = sealed.to_string();
+    let serve = HandsCommand::Serve {
+        workdir: workdir.clone(),
+        artifacts: artifacts.clone(),
+        reach: legacy.clone(),
+        spec: "\"workspace\"".to_string(),
+    };
+    let exec = HandsCommand::Exec {
+        workdir,
+        artifacts,
+        reach: legacy.clone(),
+        bundle_root: None,
+        spec: "\"workspace\"".to_string(),
+        command: vec!["true".to_string()],
+    };
+    let refused = format!(
+        "--reach: MCP server box filesystem identity is not protected: missing field `store` at \
+         line 1 column {}",
+        legacy.len()
+    );
+    assert_eq!(run_with(serve, unreached).unwrap_err().to_string(), refused);
+    assert_eq!(run_with(exec, unreached).unwrap_err().to_string(), refused);
 }
 
 /// Decision 0043 through the in-process verb: a boxed command runs whole

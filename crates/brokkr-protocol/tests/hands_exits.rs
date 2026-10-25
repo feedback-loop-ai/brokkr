@@ -66,6 +66,7 @@ fn sealed(dir: &Path) -> Sealed {
         &dir.join("home"),
         dir,
         &git_facts(dir),
+        None,
     )
 }
 

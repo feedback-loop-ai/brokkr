@@ -612,7 +612,8 @@ fn a_codex_scaffold_on_linux_seats_codex_on_brokkrs_hands_and_boxes_its_scripts(
             };
             let hands = compiled.hands.get(seat);
             let facts = brokkr_protocol::hands::git_facts(&repo);
-            let sealed = hands.map(|spec| brokkr_protocol::hands::seal(spec, &home, &repo, &facts));
+            let seal = |spec| brokkr_protocol::hands::seal(spec, &home, &repo, &facts, None);
+            let sealed = hands.map(seal);
             let boxed = (&engine, root.path(), sealed.as_ref());
             let (link, result) = (candidates.first(), "/r/p.json");
             let spawn = compose_site(

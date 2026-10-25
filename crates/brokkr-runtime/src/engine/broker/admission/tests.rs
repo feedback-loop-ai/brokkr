@@ -487,7 +487,9 @@ impl Engine {
     /// admitting its attempt stands in.
     pub(in crate::engine) fn sealed_for(&mut self, home: &Path, spec: &HandsSpec) {
         let workdir = std::fs::canonicalize(self.workdir()).unwrap();
-        let reach = boxed_reach(spec, home, &workdir, &hands::git_facts(&workdir));
+        let store = self.kept_store().clone();
+        let git = hands::git_facts(&workdir);
+        let reach = boxed_reach(spec, home, &workdir, &git, store.sealed());
         self.reach.boxes.push((spec.clone(), reach));
     }
 }
@@ -1036,7 +1038,14 @@ fn the_door_refuses_a_lease_whose_reach_was_redirected() {
         network: false,
         binds: vec![bind],
     };
-    let reach = boxed_reach(&spec, &host.home, &work, &hands::git_facts(&work));
+    let store = host.home.join("secrets.env");
+    let reach = boxed_reach(
+        &spec,
+        &host.home,
+        &work,
+        &hands::git_facts(&work),
+        (&store, &store),
+    );
     let writer = Writer {
         site: "work".into(),
         reach: reach.clone(),
@@ -1189,7 +1198,14 @@ fn the_door_refuses_a_worktree_whose_git_names_another_repository() {
         ],
     );
     let (spec, common) = (hands(&[]), main.join(".git"));
-    let reach = boxed_reach(&spec, &host.home, &linked, &hands::git_facts(&linked));
+    let store = host.home.join("secrets.env");
+    let reach = boxed_reach(
+        &spec,
+        &host.home,
+        &linked,
+        &hands::git_facts(&linked),
+        (&store, &store),
+    );
     let Reach::Boxed {
         writable, sealed, ..
     } = &reach
@@ -1203,7 +1219,8 @@ fn the_door_refuses_a_worktree_whose_git_names_another_repository() {
         common_dir: Some(common.clone()),
         identity: Vec::new(),
     };
-    assert_eq!(**sealed, hands::seal(&spec, &host.home, &linked, &named));
+    let held = hands::seal(&spec, &host.home, &linked, &named, Some((&store, &store)));
+    assert_eq!(**sealed, held);
     let writer = Writer {
         site: "work".into(),
         reach: reach.clone(),

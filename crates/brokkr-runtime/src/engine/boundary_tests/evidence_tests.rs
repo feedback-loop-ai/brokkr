@@ -6,7 +6,7 @@
 
 use std::os::unix::fs::PermissionsExt;
 
-use super::super::boxed::Unrooted;
+use super::super::boxed::{make_root, Unrooted};
 use super::*;
 
 // What the namespace proofs alone use: they run on Linux only, and macOS
@@ -14,11 +14,9 @@ use super::*;
 #[cfg(target_os = "linux")]
 use super::super::boxed::Unnamed;
 #[cfg(target_os = "linux")]
-use brokkr_protocol::hands::{require_bwrap, run_boxed_in, GitFacts};
+use brokkr_protocol::hands::{run_boxed_in, GitFacts};
 #[cfg(target_os = "linux")]
 use std::os::unix::fs::MetadataExt;
-#[cfg(target_os = "linux")]
-use std::process::Stdio;
 
 /// The engine makes a missing artifact root owner-only, with each
 /// directory above it that it makes, keeps an existing one as it is, and
@@ -198,7 +196,7 @@ fn a_zero_grant_exec_box_keeps_historical_evidence_without_an_authored_key() {
     inner.push(tamper.clone());
     let spec = HandsSpec::default();
     let home = dir.path().join("home");
-    let reach = brokkr_protocol::hands::seal(&spec, &home, &work, &GitFacts::default());
+    let reach = brokkr_protocol::hands::seal(&spec, &home, &work, &GitFacts::default(), None);
     let carried = (&*ENGINE, artifacts.as_path(), Some(&reach));
     let argv = hands_command(inner, Some(&spec), &work, carried, &[]).unwrap();
     let (work_arg, root_arg) = (work.display().to_string(), artifacts.display().to_string());
@@ -223,20 +221,7 @@ fn a_zero_grant_exec_box_keeps_historical_evidence_without_an_authored_key() {
         json!({"kind": "workspace", "network": false, "binds": []})
     );
     assert_eq!(argv[16..], ["/bin/sh", "-c", tamper.as_str()]);
-    let probe = require_bwrap().ok().filter(|bwrap| {
-        Command::new(bwrap)
-            .args(["--ro-bind", "/", "/", "--", "true"])
-            .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|status| status.success())
-    });
-    let Some(bwrap) =
-        probe.filter(|_| std::env::var_os(brokkr_protocol::hands::HANDS_BOX_ENV).is_none())
-    else {
-        brokkr_protocol::hands::skip_boundary_proof(
-            brokkr_protocol::hands::boundary_evidence_required(),
-            "this environment cannot create a bubblewrap namespace",
-        );
+    let Some(bwrap) = super::sealed_tests::namespace_bwrap() else {
         return;
     };
     // A rename across the box's mounts falls back to a copy at best: the

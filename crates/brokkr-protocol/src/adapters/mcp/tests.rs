@@ -97,7 +97,7 @@ pub(in crate::adapters) fn dispatched(
 /// writes beside the sealed inputs (U8a2c).
 pub(in crate::adapters) fn reach() -> Sealed {
     let (home, work) = (Path::new("/h"), Path::new("/w"));
-    crate::hands::seal(&Default::default(), home, work, &Default::default())
+    crate::hands::seal(&Default::default(), home, work, &Default::default(), None)
 }
 
 /// `fragment` expanded for the box's hands as dispatch binds them in the
@@ -157,6 +157,7 @@ fn the_hands_are_bound_to_the_reach_the_engine_sealed() {
         Path::new("/x"),
         Path::new("/w"),
         &Default::default(),
+        None,
     );
     let (mut moved, mut unread, mut reachless) = (bound.clone(), bound.clone(), bound.clone());
     moved[SEALED_REACH] = serde_json::to_value(elsewhere).unwrap();
@@ -572,7 +573,7 @@ fn a_server_set_its_sealed_inputs_do_not_declare_is_refused() {
     // The document as an independent literal (NC6), only the test's own
     // executable substituted.
     let exe = std::env::current_exe().unwrap();
-    let serve = r#"["hands","serve","--workdir","/w","--artifacts","/a","--reach","{\"home\":\"/h\",\"worktree\":{\"path\":\"/w\",\"identity\":null},\"git\":null,\"binds\":[]}","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#;
+    let serve = r#"["hands","serve","--workdir","/w","--artifacts","/a","--reach","{\"home\":\"/h\",\"worktree\":{\"path\":\"/w\",\"identity\":null},\"git\":null,\"binds\":[],\"store\":null}","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#;
     let document = format!(
         r#"{{"mcpServers":{{"brokkr":{{"args":{serve},"command":"{}"}}}}}}"#,
         exe.to_str().unwrap()

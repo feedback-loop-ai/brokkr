@@ -498,7 +498,7 @@ impl Engine {
         site: &str,
         body: ExecutableBody<'_>,
     ) -> (Vec<Writer>, Vec<(HandsSpec, Reach)>) {
-        let git = hands::git_facts(workdir);
+        let (git, store) = (hands::git_facts(workdir), self.kept_store().sealed());
         let boxed = built_boundary(self.boundary) == Ok(BuiltBoundary::Namespace);
         let (mut writers, mut boxes) = (Vec::new(), Vec::new());
         for (at, _) in invocation_sites(body) {
@@ -506,10 +506,10 @@ impl Engine {
             let reach = match self.runtime_hands(&label).filter(|_| boxed) {
                 Some(spec) => {
                     if let Some(own) = self.hands_for(&label).filter(|own| *own != spec) {
-                        let sealed = boxed_reach(&own, home, workdir, &git);
+                        let sealed = boxed_reach(&own, home, workdir, &git, store);
                         boxes.push((own, sealed));
                     }
-                    let reach = boxed_reach(&spec, home, workdir, &git);
+                    let reach = boxed_reach(&spec, home, workdir, &git, store);
                     boxes.push((spec, reach.clone()));
                     reach
                 }
@@ -523,7 +523,8 @@ impl Engine {
 
 /// The reach of a box of the authored hands `spec`, as hands builds it
 /// from them now ([`super::reach`]), the sources it binds apart, as
-/// authored, and every path it is built from, sealed ([`hands::seal`]). Hands
+/// authored, and every path it is built from, sealed ([`hands::seal`]),
+/// the secrets `store` its boxes hide, the place the run keeps (U8h), among them. Hands
 /// binds the Git common directory apart, read-write, only where it lies
 /// outside the worktree, so it is then a writable root of its own; inside
 /// it, it is the worktree's own, not a source the box is rebuilt from, so
@@ -533,6 +534,7 @@ pub(super) fn boxed_reach(
     home: &Path,
     workdir: &Path,
     git: &hands::GitFacts,
+    store: (&Path, &Path),
 ) -> Reach {
     let mut reach = super::reach(spec, home, workdir, git);
     let (inner, apart): (Vec<_>, Vec<_>) =
@@ -553,7 +555,7 @@ pub(super) fn boxed_reach(
         writable: reach.writable,
         readable: reach.readable,
         sources: sources.collect(),
-        sealed: Box::new(hands::seal(spec, home, workdir, git)),
+        sealed: Box::new(hands::seal(spec, home, workdir, git, Some(store))),
     }
 }
 
