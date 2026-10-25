@@ -128,7 +128,7 @@
   7031 crates/brokkr-protocol/src/adapters.rs
    180 crates/brokkr-protocol/src/adapters/capability_calls.rs
    140 crates/brokkr-protocol/src/adapters/claude_fold.rs
-   374 crates/brokkr-protocol/src/adapters/codex.rs
+   386 crates/brokkr-protocol/src/adapters/codex.rs
   4660 crates/brokkr-protocol/src/adapters/composite.rs
     61 crates/brokkr-protocol/src/adapters/composite/glibc.rs
    571 crates/brokkr-protocol/src/adapters/composite/image.rs
@@ -171,7 +171,7 @@
    222 crates/brokkr-protocol/src/lib.rs
   3977 crates/brokkr-protocol/src/native_controls.rs
   1427 crates/brokkr-protocol/src/native_controls/grammar.rs
-   451 crates/brokkr-protocol/src/native_controls/grammar/config.rs
+   498 crates/brokkr-protocol/src/native_controls/grammar/config.rs
    343 crates/brokkr-protocol/src/native_controls/grammar/inline.rs
    375 crates/brokkr-protocol/src/native_controls/listed.rs
    730 crates/brokkr-protocol/src/native_controls/mcp.rs
@@ -579,7 +579,7 @@
     23 crates/brokkr-protocol/src/adapters/served_route/tests.rs
  18848 crates/brokkr-protocol/src/adapters/tests.rs
    212 crates/brokkr-protocol/src/adapters/tests/claude_usage.rs
-   859 crates/brokkr-protocol/src/adapters/tests/codex_isolation.rs
+   865 crates/brokkr-protocol/src/adapters/tests/codex_isolation.rs
    555 crates/brokkr-protocol/src/broker/ledger/tests.rs
    326 crates/brokkr-protocol/src/broker/tests.rs
    326 crates/brokkr-protocol/src/dsh_sandbox/errors/tests.rs
@@ -598,7 +598,7 @@
   1143 crates/brokkr-protocol/src/hands/tests/store.rs
    182 crates/brokkr-protocol/src/native_controls/mcp/tests.rs
  12555 crates/brokkr-protocol/src/native_controls/tests.rs
-   968 crates/brokkr-protocol/src/native_controls/tests/isolation.rs
+   993 crates/brokkr-protocol/src/native_controls/tests/isolation.rs
    533 crates/brokkr-protocol/src/native_controls/tests/servers.rs
    374 crates/brokkr-protocol/src/native_controls/tests/serving.rs
    224 crates/brokkr-protocol/src/native_controls/tests/toml.rs

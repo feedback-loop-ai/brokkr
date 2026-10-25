@@ -482,21 +482,28 @@ fn a_profile_reads_as_workspace_write_only_with_every_folder_to_an_inside_store_
     );
 }
 
-/// 45.11: only a store strictly inside the root, through plain components,
-/// pins a folder. A store directly in the root, one in a folder whose name
-/// only begins with the root's, one through a `..`, one that is the root
-/// itself and one beside a relative root render the root alone, and read
-/// back as the workspace-write class with it alone, but the root named
-/// twice, which renders no class.
+/// 45.11: only a store strictly inside the root pins a folder, and only one
+/// its paths place, inside or outside, renders a workspace-write class. A
+/// store directly in the root and one in a folder whose name only begins
+/// with the root's render the root alone and read back with it alone. A
+/// store the paths cannot place, one through a `..`, through a doubled
+/// separator or relative, or beside a root that is relative or spelled
+/// with a trailing separator, renders the root alone and is refused, never
+/// taken to lie outside; the store that is the root names one path twice.
+/// The read-only class reads back beside each.
 #[test]
-fn no_folder_is_pinned_for_a_store_not_strictly_inside_the_root() {
+fn a_store_outside_the_root_pins_nothing_and_one_its_paths_cannot_place_refuses() {
     let write = Ok(Some(SandboxIntent::WorkspaceWrite));
+    let unplaced = Err(Unisolated::Unpinned(5));
     for (workdir, store, read) in [
         ("/w", "/w/store", write),
         ("/w", "/w2/a/store", write),
-        ("/w", "/w/../a/store", write),
+        ("/w", "/w/../a/store", unplaced),
+        ("/w", "/w//a/store", unplaced),
+        ("/w", "w/a/store", unplaced),
+        ("w", "w/a/store", unplaced),
+        ("/w/", "/w/a/store", unplaced),
         ("/w", "/w", Err(Unisolated::Classless(5))),
-        ("w", "w/a/store", write),
     ] {
         let bound = Bound {
             workdir,
@@ -505,9 +512,17 @@ fn no_folder_is_pinned_for_a_store_not_strictly_inside_the_root() {
         let entries = format!(r#"":root"="read","{workdir}"="write","{store}"="deny""#);
         let alone = paired(&definition(&entries));
         let rendered = grammar::rendered("workspace-write", bound);
-        assert_eq!(rendered.as_ref(), Some(&alone), "{store}");
+        assert_eq!(rendered.as_ref(), Some(&alone), "{workdir} {store}");
         let [(command, _), _] = shapes(&alone);
         assert_eq!(grammar::profile(&placed(&command), bound), read, "{store}");
+        let read_only = grammar::rendered("read-only", bound).unwrap();
+        let [(command, _), _] = shapes(&read_only);
+        let class = grammar::profile(&placed(&command), bound);
+        assert_eq!(
+            class,
+            Ok(Some(SandboxIntent::ReadOnly)),
+            "{workdir} {store}"
+        );
     }
 }
 
@@ -515,7 +530,8 @@ fn no_folder_is_pinned_for_a_store_not_strictly_inside_the_root() {
 /// through a link in a canonical temporary folder holds the store kept at
 /// its canonical place, so the folder between them is rendered at the
 /// store's spelling and required; the root as spelled holds a store spelled
-/// through it the same way.
+/// through it the same way. A store that is the root's canonical form
+/// cannot be placed, and refuses.
 #[test]
 fn a_root_spelled_through_a_link_pins_the_folder_of_the_canonical_store_inside_it() {
     let dir = tempfile::tempdir().unwrap();
@@ -543,6 +559,15 @@ fn a_root_spelled_through_a_link_pins_the_folder_of_the_canonical_store_inside_i
         let unpinned = paired(&definition(&format!("{written},{deny}")));
         refuses_bound(bound, vec![(unpinned, 0, Unisolated::Unpinned)]);
     }
+    // A store that is the root's canonical form is no store inside it.
+    let real = text(canonical.join("real"));
+    let bound = Bound {
+        workdir: &root,
+        store: Some(&real),
+    };
+    let entries = format!(r#"":root"="read","{root}"="write","{real}"="deny""#);
+    let alone = paired(&definition(&entries));
+    refuses_bound(bound, vec![(alone, 0, Unisolated::Unpinned)]);
 }
 
 /// 45.3: any `--enable`, `--disable` of another feature, a dotted profile
@@ -738,9 +763,9 @@ fn each_isolation_fault_reads_in_its_own_words() {
         ),
         (
             Unisolated::Unpinned(3),
-            "carries '--config' (argument 3), a permission profile writing the workspace root but \
-             not every folder between it and the secrets store inside it, which a command could \
-             move",
+            "carries '--config' (argument 3), a permission profile writing the workspace root \
+             without every folder to the secrets store inside it, or beside a store it cannot \
+             place",
         ),
         (
             Unisolated::Unstored(3),

@@ -104,8 +104,8 @@ pub(crate) enum Unisolated {
     )]
     Unrooted(usize),
     #[error(
-        "carries '--config' (argument {0}), a permission profile writing the workspace root but \
-         not every folder between it and the secrets store inside it, which a command could move"
+        "carries '--config' (argument {0}), a permission profile writing the workspace root \
+         without every folder to the secrets store inside it, or beside a store it cannot place"
     )]
     Unpinned(usize),
     #[error(
@@ -190,13 +190,18 @@ const PROFILE: &str = "brokkr";
 /// one permission profile bound to `bound` (U9c2; SI2), the four arguments
 /// its Codex builders emit and [`rendering`] reads back as that class:
 /// `:root` read, exactly the workspace root written where the class is
-/// workspace-write, followed by every folder it [`pinned`] (U8i), exactly
+/// workspace-write, followed by every folder [`pinned`] names (U8i), exactly
 /// the store denied, then the selector. `None` where no store is handed or
 /// the word names neither read-only nor workspace-write.
 pub(crate) fn rendered(class: &str, bound: Bound<'_>) -> Option<Vec<String>> {
     let store = bound.store?;
     let written = if class == SandboxIntent::WorkspaceWrite.word() {
-        let pins = pinned(class, bound).unwrap_or_default();
+        // A store the paths cannot place renders the root alone, which
+        // the reading then refuses as `Unpinned`.
+        let pins = match pinned(class, bound) {
+            Pins::Folders(pins) => pins,
+            Pins::Unneeded | Pins::Unplaceable => Vec::new(),
+        };
         let written = std::iter::once(bound.workdir).chain(pins);
         written
             .map(|path| format!(r#","{path}"="write""#))
@@ -215,49 +220,80 @@ pub(crate) fn rendered(class: &str, bound: Bound<'_>) -> Option<Vec<String>> {
     ])
 }
 
-/// The folders the profile of the class the word `class` names, bound to
-/// `bound`, writes beside its root (U8i; SI2), which only a workspace-write
-/// one does, since a read-only class already refuses the move and a pin
-/// would grant it writes: Codex builds a fresh sandbox for each command
-/// and denies the store by its path, so a written folder holding it could be
-/// moved and the store read at its new path, while a folder named as
-/// written is its own mount in every sandbox, which the kernel never moves
-/// (U0b's X29 and X31). `Some` of every folder strictly between the
-/// workspace root and a store lying strictly inside it, from the root
-/// outwards, each spelled as a prefix of the store's handed path, so empty
-/// for a store directly in the root; `None` for another class, where no
-/// store is handed or where it lies outside the root. The store is the
-/// engine's canonical place (U8h), so the root is compared both as spelled
-/// and as its canonical form, by whole components: a root spelled through a
-/// link still holds the store it resolves to.
-pub(crate) fn pinned<'a>(class: &str, bound: Bound<'a>) -> Option<Vec<&'a str>> {
-    let writes = class == SandboxIntent::WorkspaceWrite.word();
-    let store = bound.store.filter(|_| writes)?;
-    let canonical = std::fs::canonicalize(bound.workdir).ok();
-    let spelled = Some(std::path::Path::new(bound.workdir));
-    let mut roots = [spelled, canonical.as_deref()].into_iter().flatten();
-    roots.find_map(|root| folders(root, store))
+/// The folders a permission profile writes beside its root (U8i; SI2),
+/// which only a workspace-write one does, since a read-only class already
+/// refuses the move and a pin would grant it writes: Codex builds a fresh
+/// sandbox for each command and denies the store by its path, so a written
+/// folder holding it could be moved and the store read at its new path,
+/// while a folder named as written is its own mount in every sandbox, which
+/// the kernel never moves (U0b's X29 and X31).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Pins<'a> {
+    /// None to write: another class, no store handed, or a store outside
+    /// the root.
+    Unneeded,
+    /// Every folder strictly between the workspace root and a store lying
+    /// strictly inside it, from the root outwards, each spelled as a prefix
+    /// of the store's handed path, so none for a store directly in the root.
+    Folders(Vec<&'a str>),
+    /// A store the paths cannot place inside or outside the root: a root or
+    /// store that is no absolute path in its normal form, or a store that is
+    /// the root itself. It is refused, never taken to lie outside.
+    Unplaceable,
 }
 
-/// The folders strictly between an absolute `root` and a `store` lying
-/// strictly inside it through plain components only, from the root
-/// outwards, as prefixes of `store`; `None` for any other pair, so a
-/// relative root, a `..` or a store that is the root itself pins nothing.
-fn folders<'s>(root: &std::path::Path, store: &'s str) -> Option<Vec<&'s str>> {
-    use std::path::{Component, Path};
-    let rest = Path::new(store).strip_prefix(root).ok()?;
-    let plain = rest
-        .components()
-        .all(|part| matches!(part, Component::Normal(_)));
-    let depth = rest.components().count();
-    if !root.is_absolute() || !plain || depth == 0 {
-        return None;
+/// The [`Pins`] of the profile of the class the word `class` names, bound
+/// to `bound`, deciding ([`pins_in`]) on the one observation it makes: the
+/// root's canonical form. The store is the engine's canonical place (U8h),
+/// so a root spelled through a link still holds the store it resolves to.
+/// A root that cannot be resolved is compared as spelled alone, and a
+/// relative one is [`Pins::Unplaceable`] whatever it resolves to, so no
+/// answer turns on the process's directory.
+pub(crate) fn pinned<'a>(class: &str, bound: Bound<'a>) -> Pins<'a> {
+    let canonical = std::fs::canonicalize(bound.workdir).ok();
+    pins_in(class, bound, canonical.as_deref())
+}
+
+/// [`pinned`]'s decision, given the root's `canonical` form: the root is
+/// compared both as spelled and as that form, by whole components, so
+/// `/w2/x` does not lie inside `/w`.
+fn pins_in<'a>(class: &str, bound: Bound<'a>, canonical: Option<&std::path::Path>) -> Pins<'a> {
+    use std::path::Path;
+    let writes = class == SandboxIntent::WorkspaceWrite.word();
+    let Some(store) = bound.store.filter(|_| writes) else {
+        return Pins::Unneeded;
+    };
+    if !normal(bound.workdir) || !normal(store) {
+        return Pins::Unplaceable;
     }
-    let mut folders: Vec<&str> = (Path::new(store).ancestors().skip(1).take(depth - 1))
-        .filter_map(Path::to_str)
-        .collect();
-    folders.reverse();
-    Some(folders)
+    let roots = [Some(Path::new(bound.workdir)), canonical].into_iter();
+    let rest = roots
+        .flatten()
+        .find_map(|root| Path::new(store).strip_prefix(root).ok());
+    match rest.map(|rest| rest.components().count()) {
+        None => Pins::Unneeded,
+        Some(0) => Pins::Unplaceable,
+        Some(depth) => {
+            let ancestors = Path::new(store).ancestors().skip(1).take(depth - 1);
+            let mut folders: Vec<&str> = ancestors.filter_map(Path::to_str).collect();
+            folders.reverse();
+            Pins::Folders(folders)
+        }
+    }
+}
+
+/// Whether `path` is absolute and spelled in its normal form: a root, then
+/// plain components each once separated, with no `.`, no `..` and no
+/// doubled or trailing separator, so its ancestors are spelled as prefixes.
+fn normal(path: &str) -> bool {
+    use std::path::{Component, Path, PathBuf};
+    let parts = Path::new(path).components();
+    let rejoined: PathBuf = parts.clone().collect();
+    Path::new(path).is_absolute()
+        && parts
+            .skip(1)
+            .all(|part| matches!(part, Component::Normal(_)))
+        && rejoined.as_os_str() == path
 }
 
 /// The table one configuration `value` assigns into, `None` where it is no
@@ -364,9 +400,10 @@ fn definition<'a>(
 /// (operator ruling 4 of 2026-10-23), never read by their shape alone: a
 /// store must be handed; `":root"="read"` once; a `"write"` only of exactly
 /// the workspace root or a folder it [`pinned`], and of those folders only
-/// beside the root's, every one of them (U8i); one `"deny"`, of exactly the
-/// store; no other entry, and no path twice. Workspace-write where the root
-/// is written, read-only where nothing is.
+/// beside the root's, every one of them, and never the root beside a store
+/// it cannot place (U8i); one `"deny"`, of exactly the store; no other
+/// entry, and no path twice. Workspace-write where the root is written,
+/// read-only where nothing is.
 fn rendering(
     entries: &[(&str, &str)],
     bound: Bound<'_>,
@@ -375,10 +412,14 @@ fn rendering(
     let Some(store) = bound.store else {
         return Err(Unisolated::Unhanded(at));
     };
-    let pins = pinned(SandboxIntent::WorkspaceWrite.word(), bound).unwrap_or_default();
+    let pins = pinned(SandboxIntent::WorkspaceWrite.word(), bound);
+    let folders: &[&str] = match &pins {
+        Pins::Folders(folders) => folders,
+        Pins::Unneeded | Pins::Unplaceable => &[],
+    };
     for &(path, access) in entries {
         match access {
-            "write" if path != bound.workdir && !pins.contains(&path) => {
+            "write" if path != bound.workdir && !folders.contains(&path) => {
                 return Err(Unisolated::Unrooted(at))
             }
             "deny" if path != store => return Err(Unisolated::Unstored(at)),
@@ -394,25 +435,31 @@ fn rendering(
     if !entries.contains(&(store, "deny")) {
         return Err(Unisolated::Undenied(at));
     }
-    classed(entries, bound.workdir, pins.len(), at)
+    classed(entries, bound.workdir, &pins, at)
 }
 
 /// The class `entries` render once [`rendering`] has held each write to the
 /// root `workdir` or one of its `pins` folders and each path to one entry,
 /// so the count of writes says whether every pin stands beside the root's:
 /// read-only where nothing is written, workspace-write where the root and
-/// every pin are, and a refusal otherwise.
+/// every pin are, and a refusal otherwise, the root written beside a store
+/// the paths cannot place included.
 fn classed(
     entries: &[(&str, &str)],
     workdir: &str,
-    pins: usize,
+    pins: &Pins<'_>,
     at: usize,
 ) -> Result<SandboxIntent, Unisolated> {
+    let required = match pins {
+        Pins::Unneeded => Some(1),
+        Pins::Folders(folders) => Some(folders.len() + 1),
+        Pins::Unplaceable => None,
+    };
     let written = entries.iter().filter(|(_, access)| *access == "write");
     match (entries.contains(&(workdir, "write")), written.count()) {
         (false, 0) => Ok(SandboxIntent::ReadOnly),
         (false, _) => Err(Unisolated::Unrooted(at)),
-        (true, count) if count == pins + 1 => Ok(SandboxIntent::WorkspaceWrite),
+        (true, count) if Some(count) == required => Ok(SandboxIntent::WorkspaceWrite),
         (true, _) => Err(Unisolated::Unpinned(at)),
     }
 }

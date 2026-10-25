@@ -22,7 +22,7 @@ use super::{
     codex_effort_config, codex_launch_and_cold, effort_split, picked, sandbox_split, LaunchPlan,
     ServingShape,
 };
-use crate::native_controls::grammar::{self, Bound};
+use crate::native_controls::grammar::{self, Bound, Pins};
 use crate::native_controls::SERVING_INPUTS;
 
 /// The secrets store's path the input hands a seat, which a Codex seat's
@@ -139,7 +139,8 @@ pub(super) enum Unlaunchable {
     UncarriedStore,
     #[error(
         "refusing to invoke the agent CLI: this sealed Codex launch of the workspace-write class \
-         keeps the secrets store inside its workspace root, and on macOS Codex's sandbox matches \
+         keeps the secrets store inside its workspace root, or where its paths cannot place it \
+         outside, and on macOS Codex's sandbox matches \
          paths, so no mount pins the store's folder and a command could move it and read the \
          store at its new path; such a launch is refused on macOS, where the move is unmeasured \
          (decision 0065 slice two, U8i; SI2)"
@@ -166,25 +167,37 @@ const HOST: Sandboxing = if cfg!(target_os = "macos") {
 /// Whether a launch over `input` and `extra`, rooted at `workdir`, may
 /// proceed under `sandboxing` (U8i; operator ruling 3 of 2026-10-24): one
 /// the engine sealed, of the workspace-write class, whose handed store lies
-/// inside the workspace root ([`grammar::pinned`]), refuses where the sandbox
-/// matches paths. Every other launch passes.
+/// inside the workspace root or cannot be placed outside it
+/// ([`grammar::pinned`]), refuses where the sandbox matches paths. Every
+/// other launch passes.
 pub(super) fn pinnable(
     input: &Value,
     extra: &[String],
     workdir: &str,
     sandboxing: Sandboxing,
 ) -> Result<(), Unlaunchable> {
-    let sealed = input.get("launch_record").is_some() && input.get(SERVING_INPUTS).is_some();
     let (class, _) = sandbox_split(extra);
     let bound = Bound {
         workdir,
         store: store(input),
     };
-    let inside = class.is_some_and(|class| grammar::pinned(&class, bound).is_some());
-    match (sandboxing, sealed && inside) {
-        (Sandboxing::Paths, true) => Err(Unlaunchable::Unpinnable),
-        _ => Ok(()),
+    let held = |class: String| match grammar::pinned(&class, bound) {
+        Pins::Unneeded => false,
+        Pins::Folders(_) | Pins::Unplaceable => true,
+    };
+    match sandboxing {
+        Sandboxing::Mounts => Ok(()),
+        Sandboxing::Paths if sealed(input) && class.is_some_and(held) => {
+            Err(Unlaunchable::Unpinnable)
+        }
+        Sandboxing::Paths => Ok(()),
     }
+}
+
+/// Whether the engine sealed a launch over `input`: its launch record
+/// beside its sealed serving inputs.
+fn sealed(input: &Value) -> bool {
+    input.get("launch_record").is_some() && input.get(SERVING_INPUTS).is_some()
 }
 
 /// Whether a Codex launch over `input`, rooted at `workdir`, may proceed on a
@@ -204,8 +217,7 @@ pub(super) fn admitted(
         return Err(held.into());
     }
     let Some(store) = store(input) else {
-        let sealed = input.get("launch_record").is_some() && input.get(SERVING_INPUTS).is_some();
-        return if sealed {
+        return if sealed(input) {
             Err(Unlaunchable::Storeless)
         } else {
             Ok(())

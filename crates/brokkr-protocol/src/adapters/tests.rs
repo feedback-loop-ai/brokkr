@@ -17801,7 +17801,7 @@ fn an_eligible_codex_rejoin_and_its_cold_replacement_are_each_served_as_checked(
     // The engine hands the seat its store: the class is the profile denying
     // it, beside the isolation options (U9c2).
     let mut base = enabled_input(CODEX_SHAPE, CODEX_VERSION, &root);
-    let store = root.join("secrets.env").to_str().unwrap().to_string();
+    let store = format!("{workdir}.secrets.env"); // beside the root, so macOS admits it (U8i)
     base["secrets_file"] = json!(store);
     let (extra, input) = inline_codex_input(
         base,

@@ -3183,20 +3183,17 @@ fn capture_proof_input(env: &mut EnvGuard, run_dir: &Path, bundle: Bundle, label
     panic!("the engine composed no start for '{label}'; it composed {seen:?}");
 }
 
-/// Design D10 item 1: the compiled no-hands shapes (single and panel
-/// member, wrapped and unwrapped) rejoin the provider-confirmed root the
-/// cold invocation recorded. The provider announces one fixed root; the
-/// engine records it and offers exactly that root back on its own retry,
-/// which the real adapter confirms as `resumed` with the current sandbox
-/// re-expressed and no refusal.
+/// Design D10 item 1: the compiled no-hands shapes (single and panel member, wrapped and unwrapped)
+/// rejoin the provider-confirmed root the cold invocation recorded. The provider announces one
+/// fixed root; the engine records it and offers exactly that root back on its own retry, which
+/// the real adapter confirms as `resumed` with the current sandbox re-expressed and no refusal.
 ///
-/// Fixture migration of 2026-09-26: a recipe authors no `--sandbox`
-/// (operator ruling 1 of 2026-09-23), and unit 5d lowers a typed class only
-/// at a seat. The single seat declares its class and rejoins as before; a
-/// no-hands panel member can express no class at all, so the adapter's
-/// gate refuses its rejoin as `sandbox-unavailable` — its OWN refusal, not
-/// its hands-bearing sibling's `restrictions-unavailable` — and the retry
-/// runs cold, never resumed without its confinement re-expressed.
+/// Fixture migration of 2026-09-26: a recipe authors no `--sandbox` (operator ruling 1 of
+/// 2026-09-23), and unit 5d lowers a typed class only at a seat. The single seat declares its
+/// class and rejoins as before; a no-hands panel member can express no class at all, so the
+/// adapter's gate refuses its rejoin as `sandbox-unavailable` — its OWN refusal, not its
+/// hands-bearing sibling's `restrictions-unavailable` — and the retry runs cold, never resumed
+/// without its confinement re-expressed.
 #[test]
 fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() {
     let mut env = EnvGuard::lock();
@@ -3209,16 +3206,20 @@ fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() 
         let (recipe, mut bundle, from) = compile_proof_shape(shape, wrapped);
         patch_proof_bundle(&mut bundle, &from, brokkr_bin());
         let run_dir = tempfile::tempdir().unwrap();
-        let shim = make_shim(
-            run_dir.path(),
-            &proof_shim_body(run_dir.path(), PROOF_OFFER),
-        );
+        let body = proof_shim_body(run_dir.path(), PROOF_OFFER);
+        let shim = make_shim(run_dir.path(), &body);
         env.set("BROKKR_CODEX_BIN", &shim);
         env.set("CODEX_HOME", run_dir.path().join("codex-home"));
         let member = proof_member_of(shape, wrapped);
         let ran = run_proof_engine(&mut env, run_dir.path(), bundle.clone());
         let (mut store, run_id, events) = ran;
         let cold = proof_launch_rows(&events, member);
+        // On macOS the door refuses the sealed single seat, its store inside its work, unrun (U8i).
+        if cfg!(target_os = "macos") && matches!(shape, ProofShape::Single) {
+            let probed = run_dir.path().join("argv.log").exists();
+            assert_eq!((cold.len(), probed), (0, false));
+            continue;
+        }
         let cold_row = cold
             .last()
             .unwrap_or_else(|| panic!("{shape:?} wrapped={wrapped}: a cold launch row"));
@@ -3288,9 +3289,8 @@ fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() 
         // The same argv at all four shapes, the kept store's folder pinned (U9c2, U8h, U8i).
         let work = run_dir.path().join("work").display().to_string();
         let kept = std::fs::canonicalize(&work).unwrap().display().to_string();
-        let paths = format!(
-            r#""{work}"="write","{kept}/.forge"="write","{kept}/.forge/secrets.env"="deny""#
-        );
+        let forge = format!("{kept}/.forge");
+        let paths = format!(r#""{work}"="write","{forge}"="write","{forge}/secrets.env"="deny""#);
         assert_resume_argv(
             &resume_parts(run_dir.path()),
             &format!(r#"permissions.brokkr={{filesystem={{":root"="read",{paths}}}}}"#),

@@ -544,8 +544,8 @@ fn each_codex_door_refusal_keeps_its_text() {
     assert_eq!(
         Unlaunchable::Unpinnable.to_string(),
         "refusing to invoke the agent CLI: this sealed Codex launch of the workspace-write class \
-         keeps the secrets store inside its workspace root, and on macOS Codex's sandbox matches \
-         paths, so no mount pins the store's folder and a command could move it and read the \
+         keeps the secrets store inside its workspace root, or where its paths cannot place it \
+         outside, and on macOS Codex's sandbox matches paths, so no mount pins the store's folder and a command could move it and read the \
          store at its new path; such a launch is refused on macOS, where the move is unmeasured \
          (decision 0065 slice two, U8i; SI2)"
     );
@@ -815,7 +815,8 @@ fn a_root_spelled_through_a_link_pins_the_folder_of_its_canonical_store() {
 /// 45.11 (operator ruling 5 of 2026-10-24): where Codex's sandbox matches
 /// paths, as on macOS, a sealed workspace-write launch whose store lies
 /// inside its root (a root spelled through a link included, and a store
-/// directly in it) refuses at the driver's door before any provider work,
+/// directly in it), or that its paths cannot place outside it (a `..`),
+/// refuses at the driver's door before any provider work,
 /// its version probe included; the read-only class, a store outside the
 /// root, a class not written, a launch not sealed, and every launch where
 /// the sandbox mounts, pass the door. The sandboxing is injected, so this
@@ -838,9 +839,14 @@ fn a_sealed_workspace_write_launch_with_an_inside_store_refuses_where_paths_are_
     let door = codex::Unlaunched::Door(codex::Unlaunchable::Unpinnable);
     assert_eq!(launched.err(), Some(door));
     assert!(!ran.exists(), "no provider work");
-    let direct = format!("{root}/secrets.env");
-    let (_, directly) = stored_at(base.clone(), work, &local, &direct);
-    assert_eq!(codex::pinnable(&directly, &extra, &root, Paths), unpinnable);
+    for held in [
+        format!("{root}/secrets.env"),
+        format!("{root}/../secrets.env"),
+    ] {
+        let (_, held_input) = stored_at(base.clone(), work, &local, &held);
+        let refused = codex::pinnable(&held_input, &extra, &root, Paths);
+        assert_eq!(refused, unpinnable, "{held}");
+    }
     let (read_extra, read) = stored_at(base.clone(), gate, &gated, &store);
     assert_eq!(codex::pinnable(&read, &read_extra, &root, Paths), Ok(()));
     let (_, outside) = stored_at(base, work, &local, STORE);
