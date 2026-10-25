@@ -3,6 +3,7 @@
 //! under the dispatcher, the claim re-checks what its pass read, one entry
 //! launches at a time, and every refusal is typed and writes nothing.
 
+use std::num::NonZeroU32;
 use std::path::Path;
 
 use brokkr_core::EventType;
@@ -125,9 +126,13 @@ const ONE: Generation = Generation(1);
 /// The generation [`claim_of`] claims as.
 const SEVEN: Generation = Generation(7);
 
-/// Claim `entry` as the store reads it now, as generation 7 admitting a
-/// bundle of `digest`, judging nothing.
+/// A bound on counted refusals that no test here reaches.
+const UNREACHED: NonZeroU32 = NonZeroU32::MAX;
+
+/// Claim `entry` as the store reads it now, as generation 7, its holder
+/// planted, admitting a bundle of `digest`, judging nothing.
 fn claim_of(store: &mut Store, entry: EntryId, digest: &str) -> Claim {
+    crate::test_support::holding(store, SEVEN);
     let read = store.queue_entry(entry).unwrap();
     let judged = store.queue_claim_with(&read, 0, digest, SEVEN, "admitted", |_, _, _| {
         Ok::<(), ()>(())
@@ -158,7 +163,7 @@ fn each_step_is_journaled_by_the_dispatcher_and_the_claim_records_its_generation
     store.queue_spawn(first, SEVEN, "driving run-a").unwrap();
     let second = claim_of(&mut store, ids[1], "digest-2");
     store
-        .queue_reclaim(second, SEVEN, None, "its start wrote no run")
+        .queue_reclaim(second, SEVEN, None, UNREACHED, "its start wrote no run")
         .unwrap();
     let again = claim_of(&mut store, ids[1], "digest-2");
     drop(store);
@@ -222,7 +227,9 @@ fn a_claim_is_refused_in_flight_while_another_entry_stands_launching() {
     let second = claimed_now(&mut store, ids[1]).unwrap().unwrap();
     let refused = refusal(claimed_now(&mut store, ids[2]));
     refused_as(refused, QueueRefusal::InFlight(ids[1]), &text(2));
-    store.queue_reclaim(second, ONE, None, "r").unwrap();
+    store
+        .queue_reclaim(second, ONE, None, UNREACHED, "r")
+        .unwrap();
     claimed_now(&mut store, ids[2]).unwrap().unwrap();
 }
 
@@ -298,7 +305,7 @@ fn every_command_on_a_launching_entry_is_refused_until_the_dispatcher_settles_it
 fn a_step_under_a_claim_that_does_not_stand_for_it_is_refused_and_writes_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let (mut store, ids, old) = two_runs_and_a_claim(dir.path());
-    store.queue_reclaim(old, ONE, None, "r").unwrap();
+    store.queue_reclaim(old, ONE, None, UNREACHED, "r").unwrap();
     let standing = claimed_now(&mut store, ids[0]).unwrap().unwrap();
     let elsewhere = Claim {
         entry: ids[1],
@@ -317,7 +324,7 @@ fn a_step_under_a_claim_that_does_not_stand_for_it_is_refused_and_writes_nothing
         for refused in [
             refusal(store.queue_link(claim, ONE, "run-a", "r")),
             refusal(store.queue_spawn(claim, ONE, "r")),
-            refusal(store.queue_reclaim(claim, ONE, None, "r")),
+            refusal(store.queue_reclaim(claim, ONE, None, UNREACHED, "r")),
         ] {
             refused_as(refused, variant.clone(), &text);
         }
@@ -335,7 +342,7 @@ fn a_step_under_a_claim_that_does_not_stand_for_it_is_refused_and_writes_nothing
         &text,
     );
     refused_as(
-        refusal(store.queue_reclaim(standing, ONE, None, "r")),
+        refusal(store.queue_reclaim(standing, ONE, None, UNREACHED, "r")),
         variant.clone(),
         &text,
     );
@@ -367,6 +374,7 @@ fn a_step_under_a_claim_that_does_not_stand_for_it_is_refused_and_writes_nothing
 fn the_claim_hands_its_judge_each_run_past_the_high_water_and_its_refusal_writes_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    crate::test_support::holding(&store, ONE);
     assert_eq!(store.high_water().unwrap(), 0);
     let entry = queue(&mut store, 1)[0];
     let append = |store: &mut Store, run: &str, event: EventType| {
@@ -476,7 +484,7 @@ fn a_step_under_another_generation_than_its_claims_is_refused_and_writes_nothing
     let before = (rows(&store), commands(&store.conn), claims(&store.conn));
     for refused in [
         refusal(store.queue_link(claim, other, "run-a", "r")),
-        refusal(store.queue_reclaim(claim, other, None, "r")),
+        refusal(store.queue_reclaim(claim, other, None, UNREACHED, "r")),
     ] {
         refused_as(refused, fenced.clone(), text);
     }
@@ -556,7 +564,9 @@ fn a_counted_refusal_is_written_with_its_reclaim_and_counted_since_the_latest_re
     let entry = queue(&mut store, 2)[0];
     let reclaimed = |store: &mut Store, refused: Option<StartRefusal>| {
         let claim = claimed_now(store, entry).unwrap().unwrap();
-        let count = store.queue_reclaim(claim, ONE, refused, "r").unwrap();
+        let count = store
+            .queue_reclaim(claim, ONE, refused, UNREACHED, "r")
+            .unwrap();
         (claim.seq + 1, count)
     };
     let compile = reclaimed(&mut store, Some(StartRefusal::Compile));
@@ -587,7 +597,9 @@ fn a_counted_refusal_is_written_with_its_reclaim_and_counted_since_the_latest_re
     let planted = "INSERT INTO queue_refusals (seq, entry_id, refusal) VALUES (?1, 1, 'drifted')";
     store.conn.execute(planted, [claim.seq]).unwrap();
     let before = (rows(&store), commands(&store.conn));
-    let error = store.queue_reclaim(claim, ONE, None, "r").unwrap_err();
+    let error = store
+        .queue_reclaim(claim, ONE, None, UNREACHED, "r")
+        .unwrap_err();
     let StoreError::Sqlite(rusqlite::Error::FromSqlConversionFailure(_, _, source)) = &error else {
         panic!("not a conversion failure: {error:?}");
     };

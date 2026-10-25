@@ -52,8 +52,9 @@ pub(super) fn wait_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Wait> {
 /// queue stored in a version this binary does not know. Version 2 adds
 /// the realm-drift holds admission latches on an entry and the pins an
 /// operator releases one with (#430's realm-drift ruling). Version 3 adds
-/// the `launching` state, the dispatcher's claims and the refusals counted
-/// against an entry (decision 0095 ruling 1).
+/// the `launching` state, the dispatcher's claims, the refusals counted
+/// against an entry, the journal's dispatchers and its dispatch settings
+/// (decision 0095 rulings 1, 2 and 7).
 pub(crate) const QUEUE_SCHEMA: u32 = 3;
 
 /// The first queue storage, which held no pins: still read as it stands,
@@ -184,7 +185,17 @@ CREATE TRIGGER IF NOT EXISTS queue_pins_append_only_delete
 /// the claim is linked to one, written once. An entry's run is written
 /// only while it stands `launching`, under a claim. A refusal: one row per
 /// refused start counted against its entry, keyed by the `reclaim` or
-/// `hold` command that disposed of it.
+/// `hold` command that disposed of it. A holder: one row per dispatcher
+/// that took the journal's lock (ruling 2), its generation rising with
+/// each, since none is ever deleted. A setting: one row per command that
+/// set the journal's bound on counted refusals (ruling 7), keyed by its
+/// seq, the latest in force, and none holding anything but a whole number
+/// of at least 1 and at most `u32::MAX`.
+///
+/// Slice 3a's build wrote version 3 without the holders and the settings,
+/// and each slice lands alone, so a journal may record version 3 and hold
+/// neither: [`queue_intact`] finds it unguarded, and this batch, run
+/// again under the write lock, adds both, `IF NOT EXISTS` keeping the rest.
 const MIGRATION_QUEUE_V3: &str = r#"
 CREATE TABLE IF NOT EXISTS queue_claims (
     seq INTEGER PRIMARY KEY REFERENCES queue_commands(seq),
@@ -218,11 +229,37 @@ CREATE TRIGGER IF NOT EXISTS queue_refusals_append_only_update
 CREATE TRIGGER IF NOT EXISTS queue_refusals_append_only_delete
     BEFORE DELETE ON queue_refusals
     BEGIN SELECT RAISE(ABORT, 'queue refusals are append-only'); END;
+CREATE TABLE IF NOT EXISTS dispatch_holders (
+    generation INTEGER PRIMARY KEY,
+    host TEXT,
+    pid INTEGER NOT NULL,
+    started_at TEXT NOT NULL
+);
+CREATE TRIGGER IF NOT EXISTS dispatch_holders_append_only_update
+    BEFORE UPDATE ON dispatch_holders
+    BEGIN SELECT RAISE(ABORT, 'dispatch holders are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS dispatch_holders_append_only_delete
+    BEFORE DELETE ON dispatch_holders
+    BEGIN SELECT RAISE(ABORT, 'dispatch holders are append-only'); END;
+CREATE TABLE IF NOT EXISTS dispatch_settings (
+    seq INTEGER PRIMARY KEY,
+    bound INTEGER NOT NULL
+        CHECK (typeof(bound) = 'integer' AND bound BETWEEN 1 AND 4294967295),
+    operator TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    recorded_at TEXT NOT NULL
+);
+CREATE TRIGGER IF NOT EXISTS dispatch_settings_append_only_update
+    BEFORE UPDATE ON dispatch_settings
+    BEGIN SELECT RAISE(ABORT, 'dispatch settings are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS dispatch_settings_append_only_delete
+    BEFORE DELETE ON dispatch_settings
+    BEGIN SELECT RAISE(ABORT, 'dispatch settings are append-only'); END;
 "#;
 
 /// The guards the migrations install, by name, so an open can ask
 /// whether a journal still carries every one.
-const QUEUE_TRIGGERS: [&str; 17] = [
+const QUEUE_TRIGGERS: [&str; 21] = [
     "queue_entries_fixed",
     "queue_entries_run_once",
     "queue_entries_kept",
@@ -240,12 +277,16 @@ const QUEUE_TRIGGERS: [&str; 17] = [
     "queue_entries_run_while_launching",
     "queue_refusals_append_only_update",
     "queue_refusals_append_only_delete",
+    "dispatch_holders_append_only_update",
+    "dispatch_holders_append_only_delete",
+    "dispatch_settings_append_only_update",
+    "dispatch_settings_append_only_delete",
 ];
 
 /// The queue's tables, in the order the migrations create them: version
-/// 1's three, then version 2's latches and pins, then version 3's claims
-/// and refusals.
-const QUEUE_TABLES: [&str; 7] = [
+/// 1's three, then version 2's latches and pins, then version 3's claims,
+/// refusals, holders and settings.
+const QUEUE_TABLES: [&str; 9] = [
     "queue_entries",
     "queue_waits",
     "queue_commands",
@@ -253,7 +294,13 @@ const QUEUE_TABLES: [&str; 7] = [
     "queue_pins",
     "queue_claims",
     "queue_refusals",
+    "dispatch_holders",
+    "dispatch_settings",
 ];
+
+/// How many of [`QUEUE_TABLES`] version 3 held as slice 3a's build wrote
+/// it: all but the holders and the settings (decision 0095 slice 3b).
+const QUEUE_TABLES_UNHELD: usize = 7;
 
 /// Is the queue whole: stored in this binary's version and every guard
 /// in place? Pure reads, so the steady-state open takes no write lock.
@@ -266,7 +313,10 @@ const QUEUE_TABLES: [&str; 7] = [
 /// before its claims; each is migrated. One that records a queue whose
 /// table is gone has lost what the queue held (SQLite drops a table's
 /// guards with it), and is refused rather than recreated empty; so only a
-/// guard missing from a table that is still there is ever repaired.
+/// guard missing from a table that is still there is ever repaired. The
+/// one exception is version 3 as slice 3a wrote it, holding neither the
+/// holders nor the settings: it gains both, empty, as it never held a row
+/// of either; one of the two without the other was lost, and is refused.
 pub(crate) fn queue_intact(conn: &Connection) -> Result<bool, StoreError> {
     let Some(found) = queue_schema(conn)? else {
         return Ok(false);
@@ -274,7 +324,6 @@ pub(crate) fn queue_intact(conn: &Connection) -> Result<bool, StoreError> {
     let Some(stored) = Stored::of(found) else {
         return Ok(true);
     };
-    let tables = &QUEUE_TABLES[..stored.tables()];
     let named = |kind: &str| -> Result<Vec<String>, StoreError> {
         Ok(conn
             .prepare("SELECT name FROM sqlite_master WHERE type = ?1")?
@@ -282,6 +331,16 @@ pub(crate) fn queue_intact(conn: &Connection) -> Result<bool, StoreError> {
             .collect::<Result<_, _>>()?)
     };
     let present = named("table")?;
+    let held = QUEUE_TABLES[QUEUE_TABLES_UNHELD..]
+        .iter()
+        .any(|table| present.iter().any(|name| name == table));
+    let tables = &QUEUE_TABLES[..stored.tables()];
+    // Holding neither, it holds none of their guards either, so the
+    // version 3 batch runs again.
+    let tables = match held {
+        true => tables,
+        false => &tables[..tables.len().min(QUEUE_TABLES_UNHELD)],
+    };
     if let Some(table) = tables
         .iter()
         .copied()

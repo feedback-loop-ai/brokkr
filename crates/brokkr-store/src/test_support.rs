@@ -330,10 +330,21 @@ pub fn drop_seq_guard(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch("DROP TRIGGER IF EXISTS events_seq_is_a_position")
 }
 
+/// Plant a holder row of `generation` among the journal's dispatchers
+/// (decision 0095 ruling 2), unless one stands at it: the dispatcher a
+/// test's steps are taken by, the latest while none above it stands.
+pub fn holding(store: &Store, generation: crate::Generation) {
+    let plant = "INSERT OR IGNORE INTO dispatch_holders (generation, host, pid, started_at)
+        VALUES (?1, NULL, 1, 'then')";
+    store.conn.execute(plant, [generation.0]).unwrap();
+}
+
 /// Link queued `entry` to `run`, which the journal holds, through the
 /// dispatcher's own claim and link (decision 0095 ruling 1), as
-/// generation 1 claiming a bundle of digest `test`, judging no run.
+/// generation 1, its holder planted, claiming a bundle of digest `test`,
+/// judging no run.
 pub fn linked(store: &mut Store, entry: crate::EntryId, run: &str) {
+    holding(store, crate::Generation(1));
     let read = store.queue_entry(entry).unwrap();
     let claimed = store.queue_claim_with(
         &read,

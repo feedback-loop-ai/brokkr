@@ -54,8 +54,12 @@ impl Fixture {
                    "tool_permissions": "unsupported", "mcp": "unsupported",
                    "native_capabilities": {"known": {}}})
         };
+        let mut store = Store::open(&root.join("forge.db")).unwrap();
+        // The dispatcher its rooms claim as: generation 1 (decision 0095
+        // ruling 2).
+        store.dispatch_hold(1).unwrap();
         let fixture = Fixture {
-            store: Store::open(&root.join("forge.db")).unwrap(),
+            store,
             _dir: dir,
             root,
         };
