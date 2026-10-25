@@ -59,7 +59,8 @@ fn rows_naming_a_request_the_trail_does_not_ask_compose_no_view() {
             seats: account.seats(),
             page: &events,
             causes: &causes,
-            head: (3, at),
+            head_seq: 3,
+            last_at: at,
         };
         composed_view(&parts, None).map(|view| view.participants.len())
     };

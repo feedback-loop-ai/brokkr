@@ -40,18 +40,20 @@ pub struct Parts<'a> {
     pub page: &'a [EventEnvelope],
     /// The seq of the event each of the page's causation ids names.
     pub causes: &'a BTreeMap<String, u64>,
-    /// The head: its seq, which counts the run's events from 1, and its
-    /// stamp.
-    pub head: (u64, &'a str),
+    /// The head's seq, which counts the run's events from 1.
+    pub head_seq: u64,
+    /// The head's stamp.
+    pub last_at: &'a str,
 }
 
 /// The run view of the run `parts` read, `state` its fold at the head:
 /// what [`run_view`](crate::run_view) shows of the run read whole, but its
 /// participants' checkpoints and its journal's other pages. `None` where a
 /// seat row names a request the trail does not ask, which no writer keeps,
-/// so the reader reads the run whole.
+/// or where two participants' effects and members name one node, which
+/// only a hand-built journal's effect ids can, so the reader reads the run
+/// whole.
 pub fn composed_view(parts: &Parts<'_>, state: Option<&RunState>) -> Option<RunView> {
-    let (count, last_at) = parts.head;
     let scan = scanned(parts.trail, parts.seats)?;
     let mut buckets = bucket(parts.trail);
     for (effect_id, _) in buckets.newest.values() {
@@ -65,8 +67,8 @@ pub fn composed_view(parts: &Parts<'_>, state: Option<&RunState>) -> Option<RunV
     let read = Read {
         live: lines.map(|(label, turn)| live_line(label, turn)).collect(),
         journal: journal_rows(parts.page, &scan, &buckets, &marks, cause),
-        event_count: usize::try_from(count).unwrap_or(usize::MAX),
-        dashboard: dashboard::kept(parts.trail, parts.seats, last_at),
+        event_count: usize::try_from(parts.head_seq).unwrap_or(usize::MAX),
+        dashboard: dashboard::kept(parts.trail, parts.seats, parts.last_at),
     };
     Some(viewed(parts.trail, &scan, &buckets, &marks, read, state))
 }
@@ -137,7 +139,7 @@ fn owned(rows: &[SeatRow]) -> Vec<Own> {
 /// The participants `rows` keep, in their order, each under the request
 /// of the trail it was first seen under, with its plan's provenance as the
 /// trail's starts state it: `None` where a row names a request the trail
-/// does not ask.
+/// does not ask, or where a participant's key is another's.
 fn scanned(trail: &[EventEnvelope], rows: &[SeatRow]) -> Option<Scan> {
     let read = scan_participants(trail);
     let mut scan = Scan {
@@ -158,7 +160,14 @@ fn scanned(trail: &[EventEnvelope], rows: &[SeatRow]) -> Option<Scan> {
             Member::Seat => None,
             Member::Named(member) => Some(member.as_str()),
         };
+        // Each participant the rows keep is its own, so it adds a node; one
+        // that finds another's, an effect named `e:m` beside effect `e`'s
+        // member `m`, is a key the whole read collapses too.
+        let fresh = scan.parts.len();
         let at = ensure(&mut scan, slot, &facts.effect_id, member);
+        if at != fresh {
+            return None;
+        }
         let planned = read.by_key.get(&scan.parts[at].key);
         let planned = planned.and_then(|index| read.parts[*index].provenance.clone());
         kept(&mut scan.parts[at], facts, own, planned);

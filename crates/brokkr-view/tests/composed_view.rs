@@ -11,6 +11,7 @@
 use std::collections::BTreeMap;
 
 use brokkr_core::fold::fold;
+use brokkr_core::seat::row::{facts, Member};
 use brokkr_core::summary::Account;
 use brokkr_core::{EventEnvelope, EventType};
 use brokkr_view::{composed_view, run_view, Parts, RunView};
@@ -53,7 +54,8 @@ fn composed_pages(
             seats: rows,
             page,
             causes: &causes,
-            head: (head.seq, &head.recorded_at),
+            head_seq: head.seq,
+            last_at: &head.recorded_at,
         };
         composed_view(&parts, state.as_ref()).unwrap()
     };
@@ -157,4 +159,64 @@ fn a_seat_s_members_model_and_a_member_s_unpinned_finish_compose_as_read_whole()
     let (found, compared) = compared([("joined", joined()), ("unpinned", unpinned())]);
     assert_eq!(found, Vec::<String>::new());
     assert_eq!(compared, 2);
+}
+
+/// An effect whose id is `e:m`, hired solo, beside effect `e`'s member
+/// `m`: two participants the seat rows keep apart, whose node keys are one,
+/// so the whole read draws them as one.
+fn colliding() -> Vec<EventEnvelope> {
+    let member = json!({"member": "m", "step": "panel-member-finished", "outcome": "passed"});
+    journals::journal(vec![
+        (EventType::PhaseEntered, json!({"phase": "review"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "e:m", "seat": "solo", "phase": "review"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "e:m", "attempt_id": "a1"}),
+        ),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "e", "seat": "panel", "phase": "review"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "e", "attempt_id": "a2"}),
+        ),
+        journals::checkpoint("e", "a2", member),
+    ])
+}
+
+#[test]
+fn two_participants_whose_node_keys_are_one_are_not_composed() {
+    let events = colliding();
+    let account = Account::whole("colliding", &events);
+    assert!(account.seats_kept());
+    let keys: Vec<(String, Member)> = facts(account.seats())
+        .into_iter()
+        .map(|seat| (seat.effect_id, seat.member))
+        .collect();
+    let (solo, panel) = ("e:m".to_string(), "e".to_string());
+    let named = Member::Named("m".to_string());
+    assert_eq!(
+        keys,
+        [
+            (solo, Member::Seat),
+            (panel.clone(), Member::Seat),
+            (panel, named)
+        ]
+    );
+    let trail = events.clone();
+    let parts = Parts {
+        trail: &trail,
+        seats: account.seats(),
+        page: &events,
+        causes: &BTreeMap::new(),
+        head_seq: 6,
+        last_at: "2026-01-01T00:00:06Z",
+    };
+    let state = fold(&events).ok();
+    let composed = composed_view(&parts, state.as_ref());
+    assert_eq!(composed.map(|view| view.event_count), None);
 }

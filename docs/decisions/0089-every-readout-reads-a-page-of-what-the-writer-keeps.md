@@ -989,6 +989,32 @@ model the writer keeps in the journal's own file and transaction.
    stretch with escaped text too, and their stories measure their
    bounds. SQLite's share is unchanged.
 
+   *Proposed amendment, 2026-10-25 (asked of the operator on #753,
+   unruled):* the run view's first screen holds a park's reason three
+   times, not once: in the trail's envelope as parsed, in the fold of the
+   trail (`RunState`'s park reason, which brokkr-core's fold copies from
+   the payload), and in the view's `Summary`, which brokkr-view copies
+   from the fold. So with the
+   grown run parked at its head and its park's reason a mebibyte, the
+   first screen's peak grows over the same run parked unstretched by
+   3,144,126 B when the reason is plain and 3,144,119 B when it carries
+   escapes (248,757 B unstretched), against 3,145,728 B for three
+   mebibytes; the escaped reason costs no more, since the trail's
+   envelopes parse from the text SQLite holds and the parser's scratch
+   copy is dropped before the fold's and the summary's are made.
+   SQLite's high-water grows by 1,045,840 B, within the envelope. The
+   peaks stay bounded by the run's control envelopes, never by the
+   journal. Recommended: the run view row's Brokkr share is 256 KiB and
+   the run's control envelopes as parsed, plus two copies of its park's
+   reason, and `heap_run_view.rs` holds the stretched growth over the
+   unstretched peak to at most three reasons and past one, within its
+   budget (`run-view-stretched`, the measured peak plus a tenth,
+   3,732,172 B). Or: the screen holds the reason once, which moves
+   brokkr-core's fold to borrow it from the envelope and
+   `brokkr_view::Summary` to share it, a change of their public API that
+   slice 2b's story does not make. Until the operator rules, slice 2's
+   acceptance of ruling 9's run view budget is pending on this bound.
+
    **The aggregates are the one exception, and it is put to the
    operator.** Each answers a question about every run in a window: what
    the fleet cost, which models ran, which crossings Muninn's queue holds.

@@ -33,7 +33,8 @@ pub(crate) fn page(
         seats: &seats,
         page: &page,
         causes: &causes,
-        head: (opened.seq, &last_at),
+        head_seq: opened.seq,
+        last_at: &last_at,
     };
     let view = composed_view(&parts, state.as_deref()).expect("rows a writer keeps compose");
     let ends = page.last().map_or(opened.seq, |event| event.seq);

@@ -502,7 +502,8 @@ impl brokkr_view::Participant
 pub fn brokkr_view::Participant::legacy_provenance(&self) -> brokkr_view::transcript::LegacyProvenance
 pub struct brokkr_view::Parts<'a>
 pub brokkr_view::Parts::causes: &'a alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
-pub brokkr_view::Parts::head: (u64, &'a str)
+pub brokkr_view::Parts::head_seq: u64
+pub brokkr_view::Parts::last_at: &'a str
 pub brokkr_view::Parts::page: &'a [brokkr_core::envelope::EventEnvelope]
 pub brokkr_view::Parts::seats: &'a [brokkr_core::seat::row::SeatRow]
 pub brokkr_view::Parts::trail: &'a [brokkr_core::envelope::EventEnvelope]
