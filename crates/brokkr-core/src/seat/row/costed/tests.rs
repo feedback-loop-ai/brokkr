@@ -80,6 +80,34 @@ fn an_effect_asked_again_is_counted_whole_under_the_last_seat_named() {
     assert_eq!(attempts(&rows), counted);
 }
 
+/// The seat-record contract bounds a turn count below and never above, so
+/// an effect's checkpoints may report turns past `u64::MAX`: the writer
+/// folds them to the saturated count, its row keeps it, and the rows and
+/// the journal read it alike, never a panic or a wrapped count.
+#[test]
+fn turns_past_the_largest_count_saturate_where_the_writer_folds_them() {
+    let asked = (
+        EventType::EffectRequested,
+        json!({"effect_id": "e", "seat": "implement"}),
+    );
+    let started = (
+        EventType::EffectStarted,
+        json!({"effect_id": "e", "attempt_id": "a"}),
+    );
+    let turns = |turns: u64| journals::checkpoint("e", "a", json!({"num_turns": turns}));
+    let events = journal(vec![asked, started, turns(u64::MAX), turns(1)]);
+    let rows = Account::whole("run", &events).seats().to_vec();
+    let read = SeatRow::of_data(rows[0].data()).unwrap();
+    let (seats, total) = costs(&[read]);
+    assert_eq!(
+        serde_json::to_value(&seats).unwrap(),
+        json!({"implement": {"attempts": 1, "turns": u64::MAX, "cost_usd": 0.0,
+                             "model": "not reported", "boundary": "not recorded",
+                             "effort": "not reported"}})
+    );
+    assert_eq!((seats, total), seat_costs(&events));
+}
+
 /// A result pricing at -0.0 an effect its records priced nothing moves
 /// the request's own row, whose cost was 0.0, so the writer writes it
 /// again: a cost is the same by its bits alone.

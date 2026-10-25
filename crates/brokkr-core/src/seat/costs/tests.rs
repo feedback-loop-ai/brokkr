@@ -223,6 +223,21 @@ fn seat_costs_read_partial_usage_untracked_results_and_a_second_cost_report() {
     assert_eq!(total, 0.5);
 }
 
+/// A seat's effects sum their starts and turns to the largest count and
+/// no further: two effects each at it read as it, never a panic or a
+/// wrapped count.
+#[test]
+fn a_seat_s_counts_saturate_where_its_effects_are_summed() {
+    let largest = EffectAccounting {
+        attempts: u64::MAX,
+        turns: u64::MAX,
+        ..EffectAccounting::default()
+    };
+    let (seats, _) = summed([("implement", &largest), ("implement", &largest)].into_iter());
+    let seat = &seats["implement"];
+    assert_eq!((seat.attempts, seat.turns), (u64::MAX, u64::MAX));
+}
+
 /// The seat-costs record carries `boundary` beside `model`, reduced the
 /// same way: one word, a joined list where the seat's records disagree,
 /// and `not recorded` — an explicit absence — where no record that names

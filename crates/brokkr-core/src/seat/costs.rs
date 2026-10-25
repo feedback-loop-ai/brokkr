@@ -182,10 +182,15 @@ impl EffectAccounting {
     }
 
     fn add_checkpoint(&mut self, checkpoint: &Value) {
-        self.turns += checkpoint
-            .get("num_turns")
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
+        // The contract bounds a count below and never above, so a sum
+        // past `u64::MAX` saturates as the token counts do: a sealed
+        // journal folds, never panics or wraps (decision 0071 ruling 8).
+        self.turns = self.turns.saturating_add(
+            checkpoint
+                .get("num_turns")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+        );
         // Every attempt's report is summed: the rule the
         // view states once, and reads as its `cost` (#376).
         self.cost.0 += reported_cost(checkpoint).unwrap_or(0.0);
@@ -251,8 +256,8 @@ struct SeatAccounting {
 
 impl SeatAccounting {
     fn add(&mut self, effect: &EffectAccounting) {
-        self.attempts += effect.attempts;
-        self.turns += effect.turns;
+        self.attempts = self.attempts.saturating_add(effect.attempts);
+        self.turns = self.turns.saturating_add(effect.turns);
         self.cost += effect.cost.0;
         self.models.extend(effect.models.iter().cloned());
         self.efforts.extend(effect.efforts.iter().cloned());
