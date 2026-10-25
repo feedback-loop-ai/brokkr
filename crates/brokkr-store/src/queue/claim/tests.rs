@@ -786,3 +786,145 @@ fn a_start_whose_claim_does_not_stand_refuses_by_variant_and_writes_no_run() {
     );
     refused_as(error, QueueRefusal::OtherGeneration(claim, eight), &other);
 }
+
+/// A run, `run`, whose manifest is `manifest` as the journal holds it,
+/// planted by SQL, as no writer here writes one that is not JSON.
+fn run_carrying(store: &Store, run: &str, manifest: &str) {
+    let plant = "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at)
+        VALUES (?1, 'feature', 'self', ?2, 'then')";
+    store.conn.execute(plant, params![run, manifest]).unwrap();
+}
+
+/// The manifest of a run started under `claim`, pinning it as its
+/// `queue_entry`.
+fn pinning(claim: Claim) -> String {
+    let (entry, seq) = claim.parts();
+    json!({"schema": "run-manifest/v14", "queue_entry": {"entry": entry.0, "claim": seq}})
+        .to_string()
+}
+
+/// Reconciliation's query (decision 0095 ruling 3) names an entry left
+/// launching under its standing claim with the one run whose manifest
+/// carries that claim, read as `engine` is: a manifest that is not JSON,
+/// or that pins no `queue_entry`, another claim, the claim's seq as text,
+/// the claim's object as a string, or the claim under a `queue_entry` key
+/// a later one overrides, carries none. A linked entry with no `spawn` row is named with its run,
+/// and one with a `spawn` row is settled. Under a generation that is not
+/// the latest holder, the query is refused.
+#[test]
+fn reconciliation_reads_what_was_left_unsettled_and_the_run_that_carries_a_claim() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let ids = queue(&mut store, 3);
+    started(&mut store, "run-a");
+    started(&mut store, "run-b");
+    let spawned = claimed_now(&mut store, ids[0]).unwrap().unwrap();
+    store.queue_link(spawned, ONE, "run-a", "r").unwrap();
+    store.queue_spawn(spawned, ONE, "r").unwrap();
+    let linked = claimed_now(&mut store, ids[1]).unwrap().unwrap();
+    store.queue_link(linked, ONE, "run-b", "r").unwrap();
+    let launching = claimed_now(&mut store, ids[2]).unwrap().unwrap();
+    let (entry, seq) = (launching.entry.0, launching.seq);
+    let pin = json!({"entry": entry, "claim": seq});
+    for (run, manifest) in [
+        ("not-json", "{\"queue_entry\": ".to_string()),
+        (
+            "unpinned",
+            json!({"schema": "run-manifest/v14"}).to_string(),
+        ),
+        (
+            "another",
+            json!({"queue_entry": {"entry": entry, "claim": seq + 1}}).to_string(),
+        ),
+        (
+            "as-text",
+            json!({"queue_entry": {"entry": entry, "claim": seq.to_string()}}).to_string(),
+        ),
+        (
+            "as-string",
+            json!({"queue_entry": pin.to_string()}).to_string(),
+        ),
+        (
+            "overridden",
+            format!("{{\"queue_entry\": {pin}, \"queue_entry\": {{}}}}"),
+        ),
+    ] {
+        run_carrying(&store, run, &manifest);
+    }
+    let unsettled = |store: &mut Store| store.queue_unsettled(ONE).unwrap();
+    let linked = vec![(linked, "run-b".to_string())];
+    assert_eq!(
+        unsettled(&mut store),
+        (vec![(launching, None)], linked.clone())
+    );
+
+    let overriding = format!("{{\"queue_entry\": {{}}, \"queue_entry\": {pin}}}");
+    run_carrying(&store, "carrier", &overriding);
+    let carried = vec![(launching, Some("carrier".to_string()))];
+    assert_eq!(unsettled(&mut store), (carried, linked));
+
+    let nine = Generation(9);
+    let text = "dispatcher generation 9 is not the journal's latest holder; it writes nothing";
+    let refused = refusal(store.queue_unsettled(nine));
+    refused_as(refused, QueueRefusal::Superseded(nine), text);
+}
+
+/// Runs that carry one claim, more than one, are no dispatcher's writing:
+/// the query is refused, naming each, rather than choosing one.
+#[test]
+fn two_runs_that_carry_one_claim_are_refused_and_neither_is_adopted() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let entry = queue(&mut store, 1)[0];
+    let claim = claimed_now(&mut store, entry).unwrap().unwrap();
+    let runs = ["carrier-a", "carrier-b"];
+    for run in runs {
+        run_carrying(&store, run, &pinning(claim));
+    }
+    let carried = QueueRefusal::Carried(claim, runs.map(String::from).to_vec());
+    let text = "queue entry 1's claim 2 is carried by runs 'carrier-a', 'carrier-b', and a claim \
+                starts one run; none is adopted";
+    refused_as(refusal(store.queue_unsettled(ONE)), carried, text);
+}
+
+/// The journal's latest holder takes a link, a spawn or a reclaim of a
+/// claim an older generation took (decision 0095 ruling 3), and links it
+/// only to the run that carries it, refused otherwise as the older
+/// generation's claim; and no reclaim, by the generation that took the
+/// claim or its successor, ends a claim a run carries, refused as that
+/// run's. Each refusal writes nothing.
+#[test]
+fn a_successor_links_an_older_claim_only_to_its_carrier_and_no_reclaim_ends_a_carried_claim() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let entry = queue(&mut store, 1)[0];
+    let claim = claimed_now(&mut store, entry).unwrap().unwrap();
+    started(&mut store, "run-a");
+    run_carrying(&store, "carrier", &pinning(claim));
+    let two = Generation(2);
+    let before = (rows(&store), commands(&store.conn), claims(&store.conn));
+    let taken = QueueRefusal::RunTaken {
+        run: "carrier".into(),
+        entry,
+    };
+    let text = "run 'carrier' already started queue entry 1";
+    let reclaimed = refusal(store.queue_reclaim(claim, ONE, None, UNREACHED, "r"));
+    refused_as(reclaimed, taken.clone(), text);
+    crate::test_support::holding(&store, two);
+    let reclaimed = refusal(store.queue_reclaim(claim, two, None, UNREACHED, "r"));
+    refused_as(reclaimed, taken, text);
+    let linked = refusal(store.queue_link(claim, two, "run-a", "r"));
+    let other = "queue entry 1's claim 2 was not taken by generation 2";
+    refused_as(linked, QueueRefusal::OtherGeneration(claim, two), other);
+    let now = (rows(&store), commands(&store.conn), claims(&store.conn));
+    assert_eq!(now, before);
+
+    store.queue_link(claim, two, "carrier", "adopted").unwrap();
+    store.queue_spawn(claim, two, "spawned").unwrap();
+    let steps = commands(&store.conn).split_off(2);
+    let step = |word: &str, reason: &str| (1, word.into(), None, "dispatch".into(), reason.into());
+    assert_eq!(
+        steps,
+        vec![step("link", "adopted"), step("spawn", "spawned")]
+    );
+}

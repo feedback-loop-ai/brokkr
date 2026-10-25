@@ -1,9 +1,9 @@
 //! The dispatcher (decision 0068, as decision 0095 amends it): the one
 //! process a journal admits to start its queue's entries. Built so far:
 //! how it takes the journal (ruling 2), by its lock and its holder row,
-//! whose generation every step it takes is fenced by in the store. Its
-//! reconciliation, its pass and the `brokkr dispatch` verb that runs them
-//! are #430's later slices.
+//! whose generation every step it takes is fenced by in the store, and its
+//! reconciliation of what a dispatcher left mid-start (ruling 3). Its pass
+//! and the `brokkr dispatch` verb that runs them are #430's later slices.
 
 use std::path::PathBuf;
 
@@ -11,8 +11,10 @@ use brokkr_store::Generation;
 use thiserror::Error;
 
 mod lock;
+mod reconcile;
 
 pub use lock::{take_dispatch, Dispatcher};
+pub use reconcile::{reconcile, Settled};
 
 /// Why this process could not take a journal as its dispatcher. Nothing
 /// was recorded, and the lock is not held.

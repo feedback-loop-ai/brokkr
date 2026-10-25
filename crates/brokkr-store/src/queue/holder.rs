@@ -55,12 +55,17 @@ pub(crate) struct UnreadBound;
 /// Refuse a step taken under `generation` unless it is the journal's
 /// latest holder, as `tx` reads it.
 pub(super) fn latest(tx: &Transaction<'_>, generation: Generation) -> Result<(), StoreError> {
-    let query = "SELECT MAX(generation) FROM dispatch_holders";
-    let latest: Option<i64> = tx.query_row(query, [], |row| row.get(0))?;
-    match latest == Some(generation.0) {
+    match holds(tx, generation)? {
         true => Ok(()),
         false => Err(QueueRefusal::Superseded(generation).into()),
     }
+}
+
+/// Is `generation` the journal's latest holder, as `tx` reads it?
+pub(super) fn holds(tx: &Transaction<'_>, generation: Generation) -> Result<bool, StoreError> {
+    let query = "SELECT MAX(generation) FROM dispatch_holders";
+    let latest: Option<i64> = tx.query_row(query, [], |row| row.get(0))?;
+    Ok(latest == Some(generation.0))
 }
 
 fn hold_in(tx: &Transaction<'_>, host: Option<&str>, pid: u32) -> Result<Generation, StoreError> {

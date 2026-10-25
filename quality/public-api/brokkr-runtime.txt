@@ -1788,6 +1788,9 @@ pub fn brokkr_runtime::bundle::SeatBody::selected_is_gate(&self, core::option::O
 pub enum brokkr_runtime::SeatClass
 pub brokkr_runtime::SeatClass::Gate
 pub brokkr_runtime::SeatClass::Work
+pub enum brokkr_runtime::Settled
+pub brokkr_runtime::Settled::Reclaimed(brokkr_store::queue::claim::Claim)
+pub brokkr_runtime::Settled::ToSpawn(brokkr_store::queue::claim::Claim, alloc::string::String)
 pub enum brokkr_runtime::StepBody
 pub brokkr_runtime::StepBody::Dialect
 pub brokkr_runtime::StepBody::Dialect::execution: brokkr_runtime::bundle::DialectExecution
@@ -1992,6 +1995,7 @@ pub fn brokkr_runtime::operator_command(&mut brokkr_store::Store, &str, brokkr_c
 pub fn brokkr_runtime::operator_supersede(&mut brokkr_store::Store, &brokkr_store::Store, &str, &brokkr_runtime::Supersede<'_>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::plant_keep_refs(&brokkr_store::Store, &std::path::Path, &str) -> core::result::Result<brokkr_runtime::keep_refs::Planted, brokkr_runtime::keep_refs::KeepRefsError>
 pub fn brokkr_runtime::plant_or_report(&brokkr_store::Store, &std::path::Path, &str) -> core::option::Option<alloc::string::String>
+pub fn brokkr_runtime::reconcile(&mut brokkr_store::Store, &brokkr_runtime::Dispatcher) -> core::result::Result<alloc::vec::Vec<brokkr_runtime::Settled>, brokkr_store::StoreError>
 pub fn brokkr_runtime::report_agent(&brokkr_runtime::Library, &brokkr_runtime::Adapters, &brokkr_runtime::agents::Availability, &str) -> core::result::Result<brokkr_runtime::agents::Report, brokkr_runtime::agents::ResolveError>
 pub fn brokkr_runtime::resolve_agent(&brokkr_runtime::Library, &brokkr_runtime::Adapters, &brokkr_runtime::agents::Availability, &str) -> core::result::Result<brokkr_runtime::agents::Resolution, brokkr_runtime::agents::ResolveError>
 pub fn brokkr_runtime::resolve_route<'a>(&brokkr_runtime::agents::Adapter, &'a str) -> (core::option::Option<&'a str>, brokkr_runtime::agents::EgressClass)

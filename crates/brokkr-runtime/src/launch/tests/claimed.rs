@@ -15,13 +15,13 @@ use crate::dispatch::{take_dispatch, Dispatcher};
 /// One entry claimed: the dispatcher that took its journal, holding the
 /// lock, and its generation; the entry and its claim; and the request and
 /// run the entry rebuilds as, the claim set on that run.
-struct Claimed {
-    _dispatcher: Dispatcher,
-    generation: Generation,
-    entry: EntryId,
-    claim: Claim,
-    request: LaunchRequest,
-    run: NewRun,
+pub(crate) struct Claimed {
+    pub(crate) _dispatcher: Dispatcher,
+    pub(crate) generation: Generation,
+    pub(crate) entry: EntryId,
+    pub(crate) claim: Claim,
+    pub(crate) request: LaunchRequest,
+    pub(crate) run: NewRun,
 }
 
 /// A journal at `root` holding one entry, the unmapped launch of
@@ -29,7 +29,7 @@ struct Claimed {
 /// bundle of manifest digest `measured`, else the one the entry compiles,
 /// as a pass measures it; the entry rebuilt, which gives no claim, and the
 /// claim set on the run it rebuilds as.
-fn claimed(root: &Path, measured: Option<&str>) -> Claimed {
+pub(crate) fn claimed(root: &Path, measured: Option<&str>) -> Claimed {
     let asked = request(root, &bundle_at(root, false), root, root);
     let queued = QueuedLaunch::of(&asked, &new_run(None)).unwrap();
     let mut store = Store::open(&asked.journal).unwrap();
