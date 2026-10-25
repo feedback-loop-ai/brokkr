@@ -61,9 +61,17 @@ fn beside(journal: &Path) -> PathBuf {
 /// naming the one the journal's latest holder row records, or where the
 /// lock file is not this user's own single file.
 pub fn take_dispatch(store: &mut Store) -> Result<Result<Dispatcher, DispatcherError>, StoreError> {
+    take_dispatch_with(store, |path| lock_file::opened(CWD, path))
+}
+
+/// [`take_dispatch`], opening its lock file by `open`.
+pub(super) fn take_dispatch_with(
+    store: &mut Store,
+    open: impl FnOnce(&Path) -> Option<OwnedFd>,
+) -> Result<Result<Dispatcher, DispatcherError>, StoreError> {
     let journal = store.path().to_path_buf();
     let path = beside(&journal);
-    let Some(held) = lock_file::opened(CWD, &path) else {
+    let Some(held) = open(&path) else {
         return Ok(Err(DispatcherError::Lock(path)));
     };
     // A lock that cannot be taken now, for whatever reason, is another's.
@@ -71,9 +79,12 @@ pub fn take_dispatch(store: &mut Store) -> Result<Result<Dispatcher, DispatcherE
         let holder = store.dispatch_holder()?;
         return Ok(Err(DispatcherError::Dispatched(journal, holder)));
     }
+    // Held from here, so a holder row the journal does not record lets
+    // the lock go as surely as a dispatcher dropped.
+    let held = Held(held);
     let generation = store.dispatch_hold(std::process::id())?;
     Ok(Ok(Dispatcher {
         generation,
-        _held: Held(held),
+        _held: held,
     }))
 }

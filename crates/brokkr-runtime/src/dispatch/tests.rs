@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use brokkr_store::{Attribution, Generation, NewEntry, QueueRefusal, Store, StoreError};
 use rustix::fs::{flock, FlockOperation, CWD};
 
+use super::lock::take_dispatch_with;
 use super::*;
 use crate::lock_file;
 
@@ -88,6 +89,39 @@ fn a_second_dispatcher_is_refused_naming_the_one_that_holds_the_journal() {
     let named = "a dispatcher that has not recorded itself yet";
     assert_eq!(refused.to_string(), dispatched(&path, named));
     assert_eq!(holders(&path), 0);
+}
+
+/// A dispatcher whose holder row the journal refuses to record lets its
+/// lock go as it fails, though a copy of the lock's descriptor, as a
+/// process forked while it was held keeps one until it execs, outlives
+/// it: the next takes the journal as its first generation.
+#[test]
+fn a_holder_row_not_recorded_lets_the_lock_go() {
+    let dir = tempfile::tempdir().unwrap();
+    let (path, mut first) = journal(dir.path());
+    let refuse = "CREATE TRIGGER refused BEFORE INSERT ON dispatch_holders \
+                  BEGIN SELECT RAISE(ABORT, 'refused'); END";
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    conn.execute_batch(refuse).unwrap();
+    let mut forked = None;
+    let failed = take_dispatch_with(&mut first, |at| {
+        let lock = lock_file::opened(CWD, at)?;
+        forked = Some(lock.try_clone().unwrap());
+        Some(lock)
+    });
+    assert!(
+        matches!(
+            &failed,
+            Err(StoreError::Sqlite(rusqlite::Error::SqliteFailure(_, Some(m)))) if m == "refused"
+        ),
+        "{failed:?}"
+    );
+    assert_eq!(first.dispatch_holder().unwrap(), None);
+    conn.execute_batch("DROP TRIGGER refused").unwrap();
+    let mut second = Store::open(&path).unwrap();
+    let next = take_dispatch(&mut second).unwrap().unwrap();
+    assert_eq!(next.generation, Generation(1));
+    drop((next, forked));
 }
 
 /// The dispatch lock of the journal at `path`, by the name it is given.
