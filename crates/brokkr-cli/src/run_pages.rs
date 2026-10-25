@@ -3,20 +3,21 @@
 //! read. The run is opened first, its chain read whole and verified, and
 //! refused there in the store's words as `Store::load` refuses it (ruling
 //! 5); then it is read at the head its opening verified and composed from
-//! its trail, its seat rows and its journal pages (ruling 7). A read the
-//! store says is kept, a run whose summary row records the fold's refusal,
-//! and a view the rows do not compose read the run whole, as today
-//! (ruling 8).
+//! its trail and its seat rows (ruling 7). A read the store says is kept,
+//! a run whose summary row records the fold's refusal, and a view the
+//! rows do not compose read the run whole, as today (ruling 8).
 //!
 //! What each reader shows decides what it reads ([`Shows`]): a readout that
-//! prints every row and every checkpoint reads every journal page and
-//! every participant's checkpoint pages, older page by older page, bounded
-//! by the run as its opening is; a terminal frame reads one read's trail,
-//! the rows it shows, and no journal page or checkpoint.
+//! prints every row and every checkpoint keeps every event its opening
+//! verifies, bounded by the run, and composes the view once from them, one
+//! read's trail and its seat rows, each participant's checkpoints made
+//! from the events kept; a terminal frame reads one read's trail, the rows
+//! it shows, and no journal page or checkpoint.
 
 use brokkr_core::fold::{fold, FoldError, RunState};
-use brokkr_store::{Opened, RunRead, SeatRead, Store, StoreError};
-use brokkr_view::{composed_view, page_rows, CheckpointRow, Participant, Parts, RunView};
+use brokkr_core::EventEnvelope;
+use brokkr_store::{Opened, RunRead, Store, StoreError};
+use brokkr_view::{composed_view, composed_whole, Parts, RunView};
 
 /// What a reader shows of a run, and so what it reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,18 +53,16 @@ pub(crate) struct Viewed {
 }
 
 /// `run`'s view in `store` as a reader that `shows` it reads it: opened,
-/// then read at the head its opening verified, or read whole where that
-/// read is kept.
+/// keeping what the opening verifies where it shows everything, then read
+/// at the head its opening verified, or read whole where that read is
+/// kept.
 pub(crate) fn viewed(store: &Store, run: &str, shows: Shows) -> Result<Viewed, StoreError> {
-    let opened = store.open_run(run)?;
-    // A frame asks for its page past the head, so the read holds no
-    // journal row beside the trail, a checkpoint of the run's first seqs
-    // least of all (ruling 9).
     let paged = match shows {
-        Shows::Everything => everything(store, run, &opened)?,
-        Shows::Frame => {
-            composed(store, run, &opened, opened.seq, Shows::Frame)?.map(|(viewed, _)| viewed)
+        Shows::Everything => {
+            let (opened, journal) = store.open_kept(run)?;
+            composed(store, run, &opened, Some(&journal))?
         }
+        Shows::Frame => composed(store, run, &store.open_run(run)?, None)?,
     };
     match paged {
         Some(viewed) => Ok(viewed),
@@ -79,122 +78,48 @@ fn whole(store: &Store, run: &str) -> Result<Viewed, StoreError> {
     Ok(Viewed { view, folded })
 }
 
-/// `run`'s view composed from one read at `opened`, its journal page past
-/// seq `after`, and the seq that page ends at; for a frame, its journal is
-/// the trail's rows instead, none naming its cause: its page, asked past
-/// the head, is empty, and so are the causes read with it. `None` where
-/// the read is kept, its summary row records the fold's refusal or the
-/// rows do not compose.
+/// `run`'s view composed once from one read at `opened`, its trail, its
+/// seat rows and its summary row, asked past the head so the read holds
+/// no journal row beside the trail, a checkpoint of the run's first seqs
+/// least of all (ruling 9). With `journal`, every event the opening kept,
+/// it is the view whole, each participant's checkpoints made from it;
+/// without, a frame's, its journal the trail's rows, none naming its
+/// cause: the page asked past the head is empty, and so are the causes
+/// read with it. `None` where the read is kept, its summary row records
+/// the fold's refusal or the rows do not compose.
 fn composed(
     store: &Store,
     run: &str,
     opened: &Opened,
-    after: u64,
-    shows: Shows,
-) -> Result<Option<(Viewed, u64)>, StoreError> {
+    journal: Option<&[EventEnvelope]>,
+) -> Result<Option<Viewed>, StoreError> {
     let RunRead::Current {
         trail,
         seats,
-        page,
         causes,
         state: Some(state),
         last_at,
-    } = store.run_read(run, opened, after)?
+        ..
+    } = store.run_read(run, opened, opened.seq)?
     else {
         return Ok(None);
     };
-    let shown = match shows {
-        Shows::Everything => &page,
-        Shows::Frame => &trail,
+    let view = match journal {
+        Some(journal) => composed_whole(&trail, &seats, journal, &last_at, Some(&state)),
+        None => {
+            let parts = Parts {
+                trail: &trail,
+                seats: &seats,
+                page: &trail,
+                causes: &causes,
+                head_seq: opened.seq,
+                last_at: &last_at,
+            };
+            composed_view(&parts, Some(&state))
+        }
     };
-    let parts = Parts {
-        trail: &trail,
-        seats: &seats,
-        page: shown,
-        causes: &causes,
-        head_seq: opened.seq,
-        last_at: &last_at,
-    };
-    let ends = page.last().map_or(opened.seq, |event| event.seq);
-    let view = composed_view(&parts, Some(&state));
     let folded = Ok(*state);
-    Ok(view.map(|view| (Viewed { view, folded }, ends)))
-}
-
-/// `run`'s view with every journal page and every participant's
-/// checkpoints, read at `opened`: `None` where any read is kept.
-fn everything(store: &Store, run: &str, opened: &Opened) -> Result<Option<Viewed>, StoreError> {
-    let Some(mut viewed) = journal(store, run, opened)? else {
-        return Ok(None);
-    };
-    let participants = viewed.view.participants.iter();
-    let read = participants.map(|participant| checkpoints(store, run, opened, participant));
-    let read: Vec<Option<Vec<CheckpointRow>>> = read.collect::<Result<_, _>>()?;
-    let read: Option<Vec<Vec<CheckpointRow>>> = read.into_iter().collect();
-    Ok(read.map(|read| {
-        let participants = viewed.view.participants.iter_mut();
-        for (participant, rows) in participants.zip(read) {
-            participant.checkpoints = rows;
-        }
-        viewed
-    }))
-}
-
-/// `run`'s view composed at `opened` from its first journal page, its
-/// journal every page's rows in seq order, each page asked past the last:
-/// `None` where a page's read is kept.
-fn journal(store: &Store, run: &str, opened: &Opened) -> Result<Option<Viewed>, StoreError> {
-    let (mut viewed, mut after) = (None::<Viewed>, 0);
-    loop {
-        let Some((page, ends)) = composed(store, run, opened, after, Shows::Everything)? else {
-            return Ok(None);
-        };
-        let joined = match viewed.take() {
-            None => page,
-            Some(mut first) => {
-                first.view.journal.extend(page.view.journal);
-                first
-            }
-        };
-        if ends == opened.seq {
-            return Ok(Some(joined));
-        }
-        (viewed, after) = (Some(joined), ends);
-    }
-}
-
-/// `participant`'s checkpoints, oldest first as the view shows them, read
-/// at `opened` a page of 50 at a time from the newest, each page asked
-/// before the last: `None` where its key names no seat, a page is kept or
-/// a page names a checkpoint no row can be made of.
-fn checkpoints(
-    store: &Store,
-    run: &str,
-    opened: &Opened,
-    participant: &Participant,
-) -> Result<Option<Vec<CheckpointRow>>, StoreError> {
-    let Some(seat) = participant.seat() else {
-        return Ok(None);
-    };
-    let (mut rows, mut before) = (Vec::new(), None);
-    loop {
-        let read = match store.seat_read(run, opened, seat, before, page_rows)? {
-            SeatRead::Current(page, next) => {
-                let page: Option<Vec<CheckpointRow>> = page.into_iter().collect();
-                page.map(|page| (page, next))
-            }
-            SeatRead::Kept => None,
-        };
-        let Some((page, next)) = read else {
-            return Ok(None);
-        };
-        rows.extend(page);
-        let Some(next) = next else {
-            rows.reverse();
-            return Ok(Some(rows));
-        };
-        before = Some(next);
-    }
+    Ok(view.map(|view| Viewed { view, folded }))
 }
 
 #[cfg(test)]

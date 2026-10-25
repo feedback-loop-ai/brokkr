@@ -361,16 +361,28 @@ pub fn stream_plan(
 /// seat view's heap test holds a page's work to (decision 0089 ruling 9).
 #[cfg(feature = "test-support")]
 pub fn statements_begun<T>(store: &mut Store, read: impl FnOnce(&Store) -> T) -> (T, usize) {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    static BEGUN: AtomicUsize = AtomicUsize::new(0);
-    fn begun(_: &str) {
-        BEGUN.fetch_add(1, Ordering::SeqCst);
+    let (read, begun) = statements_traced(store, read);
+    (read, begun.len())
+}
+
+/// The statements SQLite began on `store`'s connection while `read` ran,
+/// in the order they began, each as its trace writes it, its bound values
+/// in place: what the run view's whole read holds its statements to
+/// (decision 0089 ruling 7).
+#[cfg(feature = "test-support")]
+pub fn statements_traced<T>(store: &mut Store, read: impl FnOnce(&Store) -> T) -> (T, Vec<String>) {
+    use std::sync::{Mutex, PoisonError};
+    static BEGUN: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    fn begun(sql: &str) {
+        let mut begun = BEGUN.lock().unwrap_or_else(PoisonError::into_inner);
+        begun.push(sql.to_string());
     }
-    BEGUN.store(0, Ordering::SeqCst);
+    BEGUN.lock().unwrap_or_else(PoisonError::into_inner).clear();
     store.conn.trace(Some(begun));
     let read = read(store);
     store.conn.trace(None);
-    (read, BEGUN.load(Ordering::SeqCst))
+    let begun = std::mem::take(&mut *BEGUN.lock().unwrap_or_else(PoisonError::into_inner));
+    (read, begun)
 }
 
 /// Take the seq guard (#354) off a journal, leaving it as a journal

@@ -13,7 +13,8 @@ use std::path::Path;
 
 use brokkr_core::fold::fold;
 use brokkr_store::test_support::{
-    import_fixtures, plant_older_writer, plant_summary_writer, unindex, unmigrate,
+    import_fixtures, plant_older_writer, plant_summary_writer, statements_traced, unindex,
+    unmigrate,
 };
 use brokkr_view::{lens_for, Scope};
 
@@ -22,6 +23,8 @@ use crate::render::{self, Style};
 use crate::tests::envelope_builder;
 use planted::{chained, committed_at, planted};
 
+#[path = "../../tests/heap/grown.rs"]
+mod grown;
 #[path = "../../../../tests/support/seat_rows.rs"]
 mod journals;
 #[path = "../../../../tests/support/planted.rs"]
@@ -95,10 +98,10 @@ struct Read {
 /// Whether `run` reads through its pages at its opening: for every row and
 /// checkpoint, and for the frame.
 fn through_pages(store: &Store, run: &str) -> (bool, bool) {
-    let opened = store.open_run(run).unwrap();
-    let everything = everything(store, run, &opened).unwrap().is_some();
-    let frame = composed(store, run, &opened, 0, Shows::Frame).unwrap();
-    (everything, frame.is_some())
+    let (opened, journal) = store.open_kept(run).unwrap();
+    let everything = composed(store, run, &opened, Some(&journal)).unwrap();
+    let frame = composed(store, run, &opened, None).unwrap();
+    (everything.is_some(), frame.is_some())
 }
 
 /// What `run` printed otherwise than today, read from `store` as each
@@ -270,30 +273,24 @@ fn a_stale_run_an_unindexed_journal_and_one_without_projections_read_the_kept_wa
     }
 }
 
-/// A participant whose key does not end with the member it names is no
-/// participant the view keys, and a run whose head moved past its opening
-/// is no longer read there, so either's checkpoints are read the kept way.
+/// A run whose head moved past its opening is no longer read there, so
+/// its view whole, composed from the events its opening kept, and its
+/// frame are read the kept way.
 #[test]
-fn a_member_its_key_does_not_name_and_a_run_past_its_opening_are_read_the_kept_way() {
+fn a_run_past_its_opening_is_read_the_kept_way() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("forge.db");
     let runs = imported(&path);
     let store = Store::open_read_only(&path).unwrap();
-    let opened = store.open_run(&runs[0]).unwrap();
-    let view = viewed(&store, &runs[0], Shows::Everything).unwrap().view;
-    let participants = view.participants.into_iter();
-    let mut participant = participants.max_by_key(|participant| participant.checkpoints.len());
-    let participant = participant.as_mut().expect("the run seats a participant");
-    let read = |participant: &Participant| {
-        let rows = checkpoints(&store, &runs[0], &opened, participant).unwrap();
-        rows.map(|rows| rows.len())
+    let (opened, journal) = store.open_kept(&runs[0]).unwrap();
+    let read = |journal| {
+        let read = composed(&store, &runs[0], &opened, journal).unwrap();
+        read.map(|read| read.view.participants.len())
     };
-    assert_eq!(read(participant), Some(participant.checkpoints.len()));
-    assert_eq!(participant.member, None);
-    participant.member = Some("unkeyed".to_string());
-    assert_eq!(read(participant), None);
-    participant.member = None;
-    let head = store.load(&runs[0]).unwrap().pop().unwrap();
+    let seated = read(Some(&journal)).expect("the run is read at its opening");
+    assert!(seated > 0, "the run seats a participant");
+    assert_eq!(read(None), Some(seated));
+    let head = journal.last().unwrap().clone();
     let moved = brokkr_core::EventEnvelope {
         seq: head.seq + 1,
         event_id: format!("{}-moved", head.event_id),
@@ -301,5 +298,54 @@ fn a_member_its_key_does_not_name_and_a_run_past_its_opening_are_read_the_kept_w
         ..head
     };
     plant_summary_writer(&Store::open(&path).unwrap(), &runs[0], &[moved.sealed()]);
-    assert_eq!(read(participant), None);
+    assert_eq!([read(Some(&journal)), read(None)], [None, None]);
+}
+
+/// The statements a read at the opening's head makes of the projections:
+/// that the event index, the run summary and the seat summary are read
+/// and current, the run's head, its seat rows, its summary row and its
+/// trail's seqs. None of them reads an envelope.
+const PROJECTIONS: usize = 23;
+
+/// The view whole reads its run once (ruling 7): on the grown run, 7,510
+/// events and 151 journal pages, the read `inspect --json`, `seats --json`
+/// and `/api/view` make begins the opening, which verifies and keeps every
+/// event, first; then the projections' statements; and one envelope read
+/// for each event of the trail, its 17 events but the checkpoints, by its
+/// seq, and no other: no journal page and no participant's checkpoint
+/// page, so its statements grow with the run's trail and never with its
+/// journal.
+#[test]
+fn the_view_whole_reads_its_opening_its_trail_its_summary_and_its_seat_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("grown.db");
+    drop(Store::open(&db).unwrap());
+    let run = grown::chained(grown::journal());
+    grown::planted(&db, &run);
+    drop(Store::open(&db).unwrap());
+    let mut store = Store::open_read_only(&db).unwrap();
+    let (read, begun) = statements_traced(&mut store, |store| {
+        viewed(store, grown::RUN, Shows::Everything).unwrap()
+    });
+    assert_eq!(read.view.journal.len(), grown::EVENTS);
+    let words = |sql: &String| sql.split_whitespace().collect::<Vec<_>>().join(" ");
+    let begun: Vec<String> = begun.iter().map(words).collect();
+    let keyed = format!(
+        "SELECT envelope FROM events WHERE run_id = '{}'",
+        grown::RUN
+    );
+    let at = format!("{keyed} AND seq = ");
+    let envelopes = begun.iter().filter(|sql| sql.starts_with(&keyed));
+    let envelopes: Vec<Option<u64>> = envelopes
+        .map(|sql| sql.strip_prefix(&at).and_then(|seq| seq.parse().ok()))
+        .collect();
+    let checkpoint = brokkr_core::EventType::EffectCheckpointed;
+    let trail = run.iter().filter(|event| event.event_type != checkpoint);
+    let trail: Vec<Option<u64>> = trail.map(|event| Some(event.seq)).collect();
+    assert_eq!(
+        (begun[0].clone(), trail.len()),
+        (format!("{keyed} ORDER BY seq"), 17)
+    );
+    assert_eq!(envelopes[1..], trail);
+    assert_eq!(begun.len(), 1 + PROJECTIONS + trail.len());
 }

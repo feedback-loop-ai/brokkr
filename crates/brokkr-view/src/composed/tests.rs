@@ -74,21 +74,25 @@ fn facts_pair_with_their_own_rows_by_effect_and_member() {
     assert_eq!(homes(listed), None);
 }
 
+/// The stamp every event of a run built here is recorded at.
+const AT: &str = "2026-01-01T00:00:00Z";
+
+/// A run started, asking for effect `e` and starting its attempt `a`, the
+/// start's payload `started`.
+fn begun(started: serde_json::Value) -> Vec<EventEnvelope> {
+    vec![
+        ev(1, EventType::RunStarted, json!({"manifest": {}}), AT),
+        ev(2, EventType::EffectRequested, json!({"effect_id": "e"}), AT),
+        ev(3, EventType::EffectStarted, started, AT),
+    ]
+}
+
 /// Seat rows naming a request the trail does not ask are no writer's, so
 /// no run view is composed of them, and the reader reads the run whole.
 #[test]
 fn rows_naming_a_request_the_trail_does_not_ask_compose_no_view() {
-    let at = "2026-01-01T00:00:00Z";
-    let events = [
-        ev(1, EventType::RunStarted, json!({"manifest": {}}), at),
-        ev(2, EventType::EffectRequested, json!({"effect_id": "e"}), at),
-        ev(
-            3,
-            EventType::EffectStarted,
-            json!({"effect_id": "e", "attempt_id": "a"}),
-            at,
-        ),
-    ];
+    let at = AT;
+    let events = begun(json!({"effect_id": "e", "attempt_id": "a"}));
     let (account, causes) = (Account::whole("r", &events), BTreeMap::new());
     let composed = |trail| {
         let parts = Parts {
@@ -103,4 +107,78 @@ fn rows_naming_a_request_the_trail_does_not_ask_compose_no_view() {
     };
     assert_eq!(composed(&events), Some(1));
     assert_eq!(composed(&[events[0].clone(), events[2].clone()]), None);
+}
+
+/// A run composed whole from its trail, its seat rows and every event its
+/// opening kept is its run view read whole, byte for byte: each journal
+/// row names its cause, and each participant, the seat's own and its
+/// member's, shows its own checkpoints within its attempt's boundary, and
+/// no other's; a checkpoint naming no effect, or effect `e:x`, which the
+/// run never asks for, is no participant's. No view is composed, so the
+/// reader reads the run whole, where the trail and the seat rows compose
+/// none, among them a run that asks for effect `e:x`, whose seat's key is
+/// `e`'s member's, or where a checkpoint its participant is keyed by names
+/// no attempt, as the seat view's page makes no row of it.
+#[test]
+fn a_run_composed_whole_is_its_run_view() {
+    let at = AT;
+    let checkpoint = |seq, effect: &str, member: Option<&str>| {
+        let mut checkpoint = json!({"step": format!("s{seq}"), "model": "m"});
+        if let Some(member) = member {
+            checkpoint["member"] = json!(member);
+        }
+        let payload = json!({"effect_id": effect, "attempt_id": "a", "checkpoint": checkpoint});
+        ev(seq, EventType::EffectCheckpointed, payload, at)
+    };
+    let entries = json!([{"member": null, "boundary": "harness"},
+                         {"member": "x", "boundary": "open"}]);
+    let started = json!({"effect_id": "e", "attempt_id": "a", "boundary": entries});
+    let mut events = begun(started);
+    events.extend([
+        checkpoint(4, "e", None),
+        checkpoint(5, "e", Some("x")),
+        checkpoint(6, "e", None),
+        ev(
+            7,
+            EventType::EffectCheckpointed,
+            json!({"checkpoint": {}}),
+            at,
+        ),
+    ]);
+    events[3].causation_id = Some("ev3".to_string());
+    let trail_of = |events: &[EventEnvelope]| -> Vec<EventEnvelope> {
+        let trail = events.iter();
+        let trail = trail.filter(|event| event.event_type != EventType::EffectCheckpointed);
+        trail.cloned().collect()
+    };
+    let whole = |events: &[EventEnvelope], trail: &[EventEnvelope]| {
+        let account = Account::whole("r", events);
+        let view = composed_whole(trail, account.seats(), events, at, None);
+        view.map(|view| serde_json::to_string(&view).unwrap())
+    };
+    events.push(checkpoint(8, "e:x", None));
+    let today = serde_json::to_string(&crate::run_view(&events, None)).unwrap();
+    assert_eq!(whole(&events, &trail_of(&events)), Some(today));
+    let unasked = [events[0].clone(), events[2].clone()];
+    assert_eq!(whole(&events, &unasked), None);
+    let mut keyed_twice = events.clone();
+    let asked = json!({"effect_id": "e:x"});
+    keyed_twice.insert(2, ev(9, EventType::EffectRequested, asked, at));
+    assert_eq!(whole(&keyed_twice, &trail_of(&keyed_twice)), None);
+    let view = crate::run_view(&events, None);
+    let shown = view.participants.iter();
+    let shown: Vec<(&str, Vec<&str>)> = shown
+        .map(|part| {
+            let rows = part.checkpoints.iter();
+            let words = rows.map(|row| row.served.boundary.text.as_str());
+            (part.key.as_str(), words.collect())
+        })
+        .collect();
+    assert_eq!(
+        shown,
+        [("e", vec!["harness", "harness"]), ("e:x", vec!["open"])]
+    );
+    assert_eq!(view.journal[3].causation_seq, Some(3));
+    events[5].payload["attempt_id"] = json!(null);
+    assert_eq!(whole(&events, &trail_of(&events)), None);
 }

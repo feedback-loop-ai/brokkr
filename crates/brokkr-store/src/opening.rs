@@ -1,7 +1,9 @@
 //! Opening one run (decision 0089 ruling 5): its whole chain read in seq
 //! order and verified as it streams, so every readout of one run refuses a
 //! corrupt run as [`Store::load`] does while holding one envelope of it at
-//! a time, never the run (ruling 9).
+//! a time, never the run (ruling 9); a reader that shows the run whole
+//! keeps what the opening verifies ([`Store::open_kept`]), bounded by the
+//! run (ruling 7).
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::{verify_chain_after, ChainError, EventEnvelope};
@@ -28,7 +30,7 @@ struct Verified {
 
 /// Verify `event` as the continuation of `chain`, or as a chain's first
 /// event when nothing is verified yet, and carry the head forward to it.
-fn extend(chain: &mut Option<Verified>, event: EventEnvelope) -> Result<(), ChainError> {
+fn extend(chain: &mut Option<Verified>, event: &EventEnvelope) -> Result<(), ChainError> {
     let (run_id, seq, hash) = match chain {
         Some(verified) => (
             verified.run_id.as_str(),
@@ -37,16 +39,21 @@ fn extend(chain: &mut Option<Verified>, event: EventEnvelope) -> Result<(), Chai
         ),
         None => (event.run_id.as_str(), 0, ZERO_HASH),
     };
-    verify_chain_after(run_id, seq, hash, std::slice::from_ref(&event))?;
-    let head = Opened {
-        seq: event.seq,
-        hash: event.event_hash,
-    };
+    verify_chain_after(run_id, seq, hash, std::slice::from_ref(event))?;
     match chain {
-        Some(verified) => verified.head = head,
+        // The head's hash is overwritten in place, so following the chain
+        // allocates nothing per event.
+        Some(verified) => {
+            verified.head.seq = event.seq;
+            verified.head.hash.clone_from(&event.event_hash);
+        }
         None => {
+            let head = Opened {
+                seq: event.seq,
+                hash: event.event_hash.clone(),
+            };
             *chain = Some(Verified {
-                run_id: event.run_id,
+                run_id: event.run_id.clone(),
                 head,
             })
         }
@@ -68,10 +75,29 @@ impl Store {
     /// contention is named `load`'s, so a readout that moves from `load`
     /// to this opening refuses in the same words.
     pub fn open_run(&self, run_id: &str) -> Result<Opened, StoreError> {
-        patiently("load", self.patience, || self.open_once(run_id))
+        patiently("load", self.patience, || self.open_once(run_id, drop))
     }
 
-    fn open_once(&self, run_id: &str) -> Result<Opened, StoreError> {
+    /// [`Store::open_run`], keeping every envelope it verifies: the head
+    /// verified and the run's events in seq order, as [`Store::load`]
+    /// reads them, from the one pass that verifies them, for a reader that
+    /// shows the run whole and so holds it, bounded by the run (decision
+    /// 0089 ruling 7). Its refusals, their order and their words are the
+    /// opening's, and it keeps nothing of a run it refuses.
+    pub fn open_kept(&self, run_id: &str) -> Result<(Opened, Vec<EventEnvelope>), StoreError> {
+        patiently("load", self.patience, || {
+            let mut kept = Vec::new();
+            let opened = self.open_once(run_id, |event| kept.push(event))?;
+            Ok((opened, kept))
+        })
+    }
+
+    /// The opening, each event it verifies handed to `keep`.
+    fn open_once(
+        &self,
+        run_id: &str,
+        mut keep: impl FnMut(EventEnvelope),
+    ) -> Result<Opened, StoreError> {
         let mut statement = self
             .conn
             .prepare("SELECT envelope FROM events WHERE run_id = ?1 ORDER BY seq")?;
@@ -89,9 +115,10 @@ impl Store {
             }
             match serde_json::from_str::<EventEnvelope>(text) {
                 Err(unparsed) => defect = Some(unparsed.into()),
-                Ok(event) if defect.is_none() => {
-                    defect = extend(&mut chain, event).err().map(StoreError::from);
-                }
+                Ok(event) if defect.is_none() => match extend(&mut chain, &event) {
+                    Ok(()) => keep(event),
+                    Err(broken) => defect = Some(broken.into()),
+                },
                 Ok(_) => {}
             }
         }

@@ -38,8 +38,8 @@ pub(crate) fn visits(events: &[EventEnvelope]) -> Vec<Option<u64>> {
 }
 
 /// A participant's key: its effect's id, and `:` and its member's name
-/// where it is a member's. The one home of the form, which
-/// [`Participant::seat`] reads back.
+/// where it is a member's. The one home of the form, which a checkpoint
+/// is keyed to its participant by where the run is composed whole.
 pub(crate) fn key_of(effect_id: &str, member: Option<&str>) -> String {
     match member {
         Some(member) => format!("{effect_id}:{member}"),
@@ -48,18 +48,6 @@ pub(crate) fn key_of(effect_id: &str, member: Option<&str>) -> String {
 }
 
 impl Participant {
-    /// The seat this participant is, its effect's id and its member, as
-    /// its key names them, the effect's id and `:` and the member's name
-    /// for a member's: `None` where the key does not end in its member.
-    pub fn seat(&self) -> Option<(&str, Option<&str>)> {
-        let member = self.member.as_deref();
-        let effect = match member {
-            Some(member) => self.key.strip_suffix(member)?.strip_suffix(':')?,
-            None => self.key.as_str(),
-        };
-        Some((effect, member))
-    }
-
     /// The legacy-synthesis rule this participant's provenance admits:
     /// only Claude, LaneTally and an inline seat with no provenance may
     /// fall back to a local Claude id. Codex and DSH provenance refuses

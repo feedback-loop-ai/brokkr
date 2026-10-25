@@ -69,7 +69,7 @@ pub use compare::{
     first_divergence, resolution_divergence, resolutions, seat_costs, FirstDivergence, Resolution,
     SeatCost, Sides,
 };
-pub use composed::{composed_view, Parts};
+pub use composed::{composed_view, composed_whole, Parts};
 use dashboard::dashboard;
 pub use dashboard::{working_checkpoints, Concluded, Dashboard, Decision, Outcome, Ruled, Visit};
 pub use fleet::{

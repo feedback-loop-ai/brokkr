@@ -4,7 +4,10 @@
 //! snapshot at the head the opening verified, make the run view
 //! [`run_view`](crate::run_view) makes of the run read whole, all but two
 //! fields: each participant's checkpoints, which the seat view pages, and
-//! the journal, of which it holds the page it was read with.
+//! the journal, of which it holds the page it was read with. A reader that
+//! shows the run whole composes it once with every event its opening kept
+//! ([`composed_whole`]), each participant's checkpoints made from them by
+//! the seat view's row maker.
 //!
 //! The participants are the ones the seat rows keep, in their order, each
 //! under the request it was first seen under, as the participant scan
@@ -23,10 +26,12 @@ use brokkr_core::seat::row::{facts, inner, live, Datum, Member, Outcome, SeatFac
 use brokkr_core::{EventEnvelope, EventType};
 use serde_json::Value;
 
+use crate::participant::key_of;
 use crate::started::CarriedEntry;
 use crate::{
-    bucket, dashboard, ensure, field, journal_rows, live_line, scan_participants, supersedes,
-    viewed, Build, Read, RunView, Scan, Told, CARRIED, FAILED, INDETERMINATE, SUCCEEDED, WORKING,
+    bucket, dashboard, ensure, field, ids, journal_rows, live_line, page_rows, scan_participants,
+    supersedes, viewed, Build, Participant, Read, RunView, Scan, Told, CARRIED, FAILED,
+    INDETERMINATE, SUCCEEDED, WORKING,
 };
 
 /// What one run's view is composed from, read at the head its opening
@@ -55,6 +60,99 @@ pub struct Parts<'a> {
 /// only a hand-built journal's effect ids can, so the reader reads the run
 /// whole.
 pub fn composed_view(parts: &Parts<'_>, state: Option<&RunState>) -> Option<RunView> {
+    composed(parts, |id| parts.causes.get(id).copied(), state)
+}
+
+/// The run view of the run whose every event `journal` holds, in seq
+/// order, as its opening verified and kept them, composed once with its
+/// `trail`, its `seats` rows and its head's stamp `last_at`, read at that
+/// head, `state` its fold there: what [`run_view`](crate::run_view) shows
+/// of the run read whole, every journal row naming its cause by the
+/// journal's own ids, and each participant's checkpoints made from the
+/// journal. `None` where [`composed_view`] gives none, or where a
+/// checkpoint its participant is keyed by names no attempt, as the seat
+/// view's page gives none, so the reader reads the run whole.
+pub fn composed_whole(
+    trail: &[EventEnvelope],
+    seats: &[SeatRow],
+    journal: &[EventEnvelope],
+    last_at: &str,
+    state: Option<&RunState>,
+) -> Option<RunView> {
+    let by_id = ids(journal);
+    let parts = Parts {
+        trail,
+        seats,
+        page: journal,
+        // Named by the journal's own ids instead.
+        causes: &BTreeMap::new(),
+        head_seq: u64::try_from(journal.len()).unwrap_or(u64::MAX),
+        last_at,
+    };
+    let mut view = composed(&parts, |id| by_id.get(id).copied(), state)?;
+    checkpointed(&mut view.participants, trail, journal)?;
+    Some(view)
+}
+
+/// Each of `participants`' checkpoints, oldest first, made from the
+/// checkpoints of `journal` its key names ([`key_of`] of each one's effect
+/// and member), each row by the seat view's row maker ([`page_rows`]) of
+/// the starts of `trail` that name its effect: `None` where a checkpoint
+/// a participant is keyed by names no attempt or another member. A
+/// checkpoint of an effect the trail does not ask for is no participant's,
+/// as the participant scan reads it, nor is one whose key names none, as
+/// no seat's page reads it.
+fn checkpointed(
+    participants: &mut [Participant],
+    trail: &[EventEnvelope],
+    journal: &[EventEnvelope],
+) -> Option<()> {
+    type Seat<'a> = (&'a str, Option<&'a str>);
+    let asked = trail.iter();
+    let asked = asked.filter(|event| event.event_type == EventType::EffectRequested);
+    let asked: Vec<&str> = asked
+        .filter_map(|event| field(&event.payload, "effect_id"))
+        .collect();
+    let mut seats: BTreeMap<Seat<'_>, Vec<&EventEnvelope>> = BTreeMap::new();
+    let checkpoints = journal.iter();
+    let checkpoints = checkpoints.filter(|event| event.event_type == EventType::EffectCheckpointed);
+    for event in checkpoints {
+        let effect_id = field(&event.payload, "effect_id");
+        let Some(effect_id) = effect_id.filter(|effect_id| asked.contains(effect_id)) else {
+            continue;
+        };
+        let checkpoint = event.payload.get("checkpoint");
+        let member = checkpoint.and_then(|checkpoint| field(checkpoint, "member"));
+        seats.entry((effect_id, member)).or_default().push(event);
+    }
+    // No two seats asked for make one key here: their seat rows make two
+    // participants of one key, which `composed` composes no view of
+    // (`a_run_composed_whole_is_its_run_view`, its effect `e:x` asked for).
+    let seats = seats.into_iter();
+    let mut keyed: BTreeMap<String, (&str, Vec<&EventEnvelope>)> = seats
+        .map(|((effect_id, member), events)| (key_of(effect_id, member), (effect_id, events)))
+        .collect();
+    for participant in participants {
+        let Some((effect_id, events)) = keyed.remove(&participant.key) else {
+            continue;
+        };
+        let starts = trail.iter().filter(|event| {
+            event.event_type == EventType::EffectStarted
+                && field(&event.payload, "effect_id") == Some(effect_id)
+        });
+        let row = page_rows(participant.member.as_deref(), &mut starts.cloned());
+        participant.checkpoints = events.into_iter().map(row).collect::<Option<_>>()?;
+    }
+    Some(())
+}
+
+/// The run view of the run `parts` read, `state` its fold at the head,
+/// each journal row's cause the seq `cause` names for its causation id.
+fn composed(
+    parts: &Parts<'_>,
+    cause: impl Fn(&str) -> Option<u64>,
+    state: Option<&RunState>,
+) -> Option<RunView> {
     let scan = scanned(parts.trail, parts.seats)?;
     let mut buckets = bucket(parts.trail);
     for (effect_id, _) in buckets.newest.values() {
@@ -63,7 +161,6 @@ pub fn composed_view(parts: &Parts<'_>, state: Option<&RunState>) -> Option<RunV
             .insert(effect_id, inner(parts.seats, effect_id));
     }
     let marks = supersedes(parts.trail);
-    let cause = |id: &str| parts.causes.get(id).copied();
     let lines = live(parts.seats).into_iter();
     let read = Read {
         live: lines.map(|(label, turn)| live_line(label, turn)).collect(),

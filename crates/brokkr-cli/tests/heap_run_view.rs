@@ -268,6 +268,15 @@ fn readout(db: &Path, whole: bool) -> String {
     brokkr_cli::run_readout_for_budget(db, grown::RUN, whole).unwrap()
 }
 
+/// What `inspect --json` printed of the grown run in the journal at `db`
+/// before the pages: the run loaded, folded and viewed whole.
+fn read_whole(db: &Path) -> String {
+    let events = Store::open_read_only(db).unwrap().load(grown::RUN).unwrap();
+    let state = brokkr_core::fold::fold(&events).unwrap();
+    let view = brokkr_view::run_view(&events, Some(&state)).with_scopes();
+    serde_json::to_string_pretty(&view).unwrap()
+}
+
 /// The grown run with every checkpoint among its first 50 events, the
 /// first journal page, a mebibyte of plain text: what a frame that read
 /// that page would hold at once.
@@ -306,8 +315,9 @@ fn framed(db: &Path, shown: &str) -> Screen {
 /// a mebibyte, the frame is the same and its peak within the budget and
 /// the one checkpoint the opening verifies at a time: the frame reads no
 /// journal page. The frame's wall time is reported against ruling 9's
-/// 50 ms, and the whole read `inspect --json` makes, every journal page
-/// and checkpoint page, beside it; neither is gated.
+/// 50 ms, and the whole read `inspect --json` makes, the events its
+/// opening kept composed once, beside it and today's read of the run
+/// whole, whose bytes it prints; none is gated.
 #[test]
 fn the_run_s_terminal_frame_holds_its_trail_and_no_checkpoint() {
     let _one = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
@@ -324,8 +334,10 @@ fn the_run_s_terminal_frame_holds_its_trail_and_no_checkpoint() {
     println!("heap\trun-frame\t{}", small.brokkr.max(large.brokkr));
     let frame = median_micros(|| assert_eq!(readout(&small_db, false), shown));
     println!("wall\trun-frame\t{frame}");
+    assert_eq!(readout(&small_db, true), read_whole(&small_db));
     let whole = median_micros(|| drop(readout(&small_db, true)));
-    eprintln!("the whole read, every page, median of 11: {whole} us");
+    let today = median_micros(|| drop(read_whole(&small_db)));
+    eprintln!("the whole read, its opening kept, median of 11: {whole} us; read whole, as before the pages: {today} us");
     assert_eq!(
         large.brokkr, small.brokkr,
         "1,000,000 events against 10,000"
