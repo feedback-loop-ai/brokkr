@@ -3,6 +3,16 @@ use brokkr_core::EventType;
 
 const FOREIGN_ATTEMPT: &str = "foreign-attempt-correlation-marker";
 
+/// The shell that rewrites, in the driver messages piped to it, the
+/// attempt `attempt_id` a scripted driver was composed with to the one
+/// its start message, `$line`, carried: a conforming driver echoes the
+/// pair it was told, and the transport refuses any other (decision 0096
+/// ruling 1).
+pub(super) fn echo_attempt(attempt_id: &str) -> String {
+    let rewrite = r#"{ aid=${line#*\"attempt_id\":\"}; aid=${aid%%\"*}; sed "s/\"attempt_id\":\"ATTEMPT\"/\"attempt_id\":\"$aid\"/"; }"#;
+    rewrite.replace("ATTEMPT", attempt_id)
+}
+
 fn driver_script(result: &str, foreign_attempt: bool) -> String {
     let wrong_attempt = if foreign_attempt {
         "reported_attempt='foreign-attempt-correlation-marker'"

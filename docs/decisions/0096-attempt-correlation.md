@@ -3,7 +3,7 @@
 Status: proposed
 - **Status:** proposed
 Date: 2026-10-24
-Built: not built
+Built: built
 
 ## Context
 

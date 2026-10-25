@@ -603,7 +603,12 @@ impl DriverProcess {
         self.end(ended, account)
     }
 
-    /// Admit current-invocation driver evidence after Start; checkpoints remain journaled.
+    /// Read the driver's account of the attempt to its end. Each message
+    /// is admitted as this invocation's by `refuse_foreign` before
+    /// anything of it is kept. Each checkpoint is kept within the limits
+    /// before `on_checkpoint` journals it, so a checkpoint past them is
+    /// neither. `start` has been sent, so a violation here is `Unread`,
+    /// whichever read found it.
     fn converse(
         &self,
         effect_id: &str,
@@ -611,6 +616,7 @@ impl DriverProcess {
         account: &mut Account,
         on_checkpoint: &mut impl FnMut(&Value),
     ) -> Ended {
+        let current = (effect_id, attempt_id);
         loop {
             let (message, bytes) = match self.recv() {
                 Ok(received) => received,
@@ -623,14 +629,9 @@ impl DriverProcess {
                     attempt_id: aid,
                     session_ref,
                 } => {
-                    if let Some(ended) = refuse_foreign(
-                        (
-                            "driver accepted a different effect",
-                            "driver accepted a different attempt",
-                        ),
-                        (effect_id, attempt_id),
-                        (&eid, &aid),
-                    ) {
+                    if let Some(ended) =
+                        refuse_foreign("driver accepted a different", current, (&eid, &aid))
+                    {
                         return ended;
                     }
                     account.accepted = true;
@@ -641,14 +642,9 @@ impl DriverProcess {
                     effect_id: eid,
                     attempt_id: aid,
                 } => {
-                    if let Some(ended) = refuse_foreign(
-                        (
-                            "checkpoint for foreign effect",
-                            "checkpoint for foreign attempt",
-                        ),
-                        (effect_id, attempt_id),
-                        (&eid, &aid),
-                    ) {
+                    if let Some(ended) =
+                        refuse_foreign("checkpoint for foreign", current, (&eid, &aid))
+                    {
                         return ended;
                     }
                     match account.retained.keep(data, bytes, &self.limits) {
@@ -663,11 +659,8 @@ impl DriverProcess {
                     result,
                     error,
                 } => {
-                    if let Some(ended) = refuse_foreign(
-                        ("result for foreign effect", "result for foreign attempt"),
-                        (effect_id, attempt_id),
-                        (&eid, &aid),
-                    ) {
+                    if let Some(ended) = refuse_foreign("result for foreign", current, (&eid, &aid))
+                    {
                         return ended;
                     }
                     return Ended::Reached(reached(status, result, error));
@@ -711,17 +704,23 @@ impl DriverProcess {
     }
 }
 
-fn refuse_foreign(
-    reasons: (&str, &str),
-    current: (&str, &str),
-    received: (&str, &str),
-) -> Option<Ended> {
-    let (said, name, held, want) = match (received.0 == current.0, received.1 == current.1) {
-        (false, false) | (false, true) => (reasons.0, "effect_id", received.0, current.0),
-        (true, false) => (reasons.1, "attempt_id", received.1, current.1),
+/// The end of a message after `start` that is not this invocation's:
+/// `said` of a foreign effect, or, the effect being this one, of a
+/// foreign attempt (decision 0096 rulings 1 and 3). `current` is the
+/// pair `start` carried, local to the invocation: a session a driver
+/// resumed grants its earlier attempt nothing. The effect is judged
+/// first, so a message foreign in both reads as it always did, and the
+/// foreign bytes are described, never quoted. `None` admits a message
+/// that is the current attempt's in both.
+fn refuse_foreign(said: &str, current: (&str, &str), received: (&str, &str)) -> Option<Ended> {
+    let (identity, held, want) = match (received.0 == current.0, received.1 == current.1) {
+        (false, false) | (false, true) => ("effect", received.0, current.0),
+        (true, false) => ("attempt", received.1, current.1),
         (true, true) => return None,
     };
-    Some(Ended::Unread(evidence::mismatch(said, name, held, want)))
+    let said = format!("{said} {identity}");
+    let field = format!("{identity}_id");
+    Some(Ended::Unread(evidence::mismatch(&said, &field, held, want)))
 }
 
 /// An end after `start` that read no result: whatever the driver said

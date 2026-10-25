@@ -48,16 +48,28 @@ fn result_message(
     })
 }
 
-fn run_messages(lines: &[String]) -> (AttemptReport, Vec<Value>) {
+/// The report of a driver that answers `start` with `lines`, and the
+/// checkpoints it was called back with. Offered a session, the driver
+/// declares `resume` and reads the offer before `start`.
+fn run_driver(lines: &[String], offered: Option<&str>) -> (AttemptReport, Vec<Value>) {
+    let capabilities = wire(Body::Capabilities {
+        driver: "test".into(),
+        version: "1".into(),
+        supports: offered.map(|_| "resume".to_owned()).into_iter().collect(),
+    });
+    let resume = if offered.is_some() {
+        "read -r resume; "
+    } else {
+        ""
+    };
     let frames = lines
         .iter()
         .map(|line| format!("printf '%s\\n' '{line}'"))
         .collect::<Vec<_>>()
         .join("; ");
     let script = format!(
-        "read -r hello; printf '%s\\n' '{}'; read -r start; {}; read -r done",
-        capabilities(),
-        frames
+        "read -r hello; printf '%s\\n' '{capabilities}'; {resume}read -r start; {frames}; \
+         read -r done"
     );
     let mut callbacks = Vec::new();
     let report = DriverProcess::spawn(
@@ -67,10 +79,35 @@ fn run_messages(lines: &[String]) -> (AttemptReport, Vec<Value>) {
         &SpawnEnv::Inherit,
     )
     .unwrap()
-    .run_attempt("test", "effect", "attempt", "seat", json!({}), |value| {
-        callbacks.push(value.clone())
-    });
+    .run_attempt_resuming(
+        "test",
+        "effect",
+        "attempt",
+        "seat",
+        json!({}),
+        offered.map(str::to_owned),
+        |value| callbacks.push(value.clone()),
+    );
     (report, callbacks)
+}
+
+fn run_messages(lines: &[String]) -> (AttemptReport, Vec<Value>) {
+    run_driver(lines, None)
+}
+
+fn succeeded_with(result: Value) -> AttemptOutcome {
+    AttemptOutcome::Succeeded { result }
+}
+
+/// The current attempt's successful result, carrying `payload`.
+fn current_result(payload: &str) -> String {
+    result_message(
+        "effect",
+        "attempt",
+        ResultStatus::Succeeded,
+        Some(json!({"result": payload})),
+        None,
+    )
 }
 
 fn report_record(report: &AttemptReport) -> Value {
@@ -82,38 +119,32 @@ fn report_record(report: &AttemptReport) -> Value {
     })
 }
 
+/// Nothing of the driver's was kept: no acceptance, session or
+/// checkpoint, and no checkpoint was called back.
+fn nothing_kept(report: &AttemptReport, callbacks: &[Value]) {
+    assert!(!report.accepted);
+    assert_eq!(report.session_ref, None);
+    assert_eq!(report.checkpoints, Vec::<Value>::new());
+    assert_eq!(callbacks, Vec::<Value>::new());
+}
+
 #[test]
 fn a_foreign_attempt_acceptance_cannot_set_acceptance_or_session() {
     let (report, callbacks) = run_messages(&[
         accepted_message("effect", FOREIGN_ATTEMPT, Some("foreign-session")),
-        result_message(
-            "effect",
-            "attempt",
-            ResultStatus::Succeeded,
-            Some(json!({"result":"complete"})),
-            None,
-        ),
+        current_result("complete"),
     ]);
     assert_eq!(
         report.outcome,
         refusal("driver accepted a different attempt", FOREIGN_EVIDENCE)
     );
-    assert!(!report.accepted);
-    assert_eq!(report.session_ref, None);
-    assert_eq!(report.checkpoints, Vec::<Value>::new());
-    assert_eq!(callbacks, Vec::<Value>::new());
+    nothing_kept(&report, &callbacks);
     assert!(!report_record(&report).to_string().contains(FOREIGN_ATTEMPT));
 
     let (prior_acceptance, _) = run_messages(&[
         accepted_message("effect", "attempt", Some("legitimate-session")),
         accepted_message("effect", FOREIGN_ATTEMPT, Some("foreign-session")),
-        result_message(
-            "effect",
-            "attempt",
-            ResultStatus::Succeeded,
-            Some(json!({"result":"complete"})),
-            None,
-        ),
+        current_result("complete"),
     ]);
     assert_eq!(
         prior_acceptance.outcome,
@@ -131,21 +162,13 @@ fn a_foreign_attempt_checkpoint_is_neither_retained_nor_delivered() {
             FOREIGN_ATTEMPT,
             json!({"step":"foreign-checkpoint"}),
         ),
-        result_message(
-            "effect",
-            "attempt",
-            ResultStatus::Succeeded,
-            Some(json!({"result":"complete"})),
-            None,
-        ),
+        current_result("complete"),
     ]);
     assert_eq!(
         report.outcome,
         refusal("checkpoint for foreign attempt", FOREIGN_EVIDENCE)
     );
-    assert!(!report.accepted);
-    assert_eq!(report.checkpoints, Vec::<Value>::new());
-    assert_eq!(callbacks, Vec::<Value>::new());
+    nothing_kept(&report, &callbacks);
     assert!(!report_record(&report).to_string().contains(FOREIGN_ATTEMPT));
 
     let legitimate = json!({"step":"legitimate"});
@@ -157,13 +180,7 @@ fn a_foreign_attempt_checkpoint_is_neither_retained_nor_delivered() {
             FOREIGN_ATTEMPT,
             json!({"step":"foreign-checkpoint"}),
         ),
-        result_message(
-            "effect",
-            "attempt",
-            ResultStatus::Succeeded,
-            Some(json!({"result":"complete"})),
-            None,
-        ),
+        current_result("complete"),
     ]);
     assert_eq!(
         prior_checkpoint.outcome,
@@ -253,59 +270,58 @@ fn matching_attempt_evidence_keeps_existing_success_and_checkpoint_behavior() {
     let (report, callbacks) = run_messages(&[
         accepted_message("effect", "attempt", Some("current-session")),
         checkpoint_message("effect", "attempt", checkpoint.clone()),
-        result_message(
-            "effect",
-            "attempt",
-            ResultStatus::Succeeded,
-            Some(json!({"result":"complete"})),
-            None,
-        ),
+        current_result("complete"),
     ]);
-    assert_eq!(
-        report.outcome,
-        AttemptOutcome::Succeeded {
-            result: json!({"result":"complete"})
-        }
-    );
+    assert_eq!(report.outcome, succeeded_with(json!({"result":"complete"})));
     assert!(report.accepted);
     assert_eq!(report.session_ref.as_deref(), Some("current-session"));
     assert_eq!(report.checkpoints, vec![checkpoint.clone()]);
     assert_eq!(callbacks, vec![checkpoint]);
 }
 
+/// Correlation adds no order: a result the driver sends without having
+/// accepted first is admitted as it always was (decision 0096's
+/// specification, AC4).
 #[test]
-fn a_resumed_session_does_not_admit_its_prior_attempt() {
-    let capabilities = wire(Body::Capabilities {
-        driver: "test".into(),
-        version: "1".into(),
-        supports: vec!["resume".into()],
-    });
-    let accepted = accepted_message("effect", "previous-attempt", Some("old-session"));
-    let script = format!(
-        "read -r hello; printf '%s\\n' '{}'; read -r resume; read -r start; \
-         printf '%s\\n' '{}'; read -r done",
-        capabilities, accepted
-    );
-    let report = DriverProcess::spawn(
-        &command(&script),
-        std::path::Path::new("."),
-        None,
-        &SpawnEnv::Inherit,
-    )
-    .unwrap()
-    .run_attempt_resuming(
-        "test",
-        "effect",
-        "attempt",
-        "seat",
-        json!({}),
-        Some("old-session".into()),
-        |_| {},
-    );
+fn a_matching_result_without_acceptance_still_succeeds() {
+    let (report, callbacks) = run_messages(&[current_result("unaccepted")]);
     assert_eq!(
         report.outcome,
+        succeeded_with(json!({"result":"unaccepted"}))
+    );
+    nothing_kept(&report, &callbacks);
+}
+
+/// A resumed invocation's pair is the one its own `start` carried: a
+/// driver echoing it is admitted in full, and the session it was offered
+/// grants the attempt that opened it nothing.
+#[test]
+fn a_resumed_invocation_admits_its_fresh_pair_and_not_its_prior_attempt() {
+    let checkpoint = json!({"step":"resumed"});
+    let (fresh, callbacks) = run_driver(
+        &[
+            accepted_message("effect", "attempt", Some("fresh-session")),
+            checkpoint_message("effect", "attempt", checkpoint.clone()),
+            current_result("resumed"),
+        ],
+        Some("old-session"),
+    );
+    assert_eq!(fresh.outcome, succeeded_with(json!({"result":"resumed"})));
+    assert!(fresh.accepted);
+    assert_eq!(fresh.session_ref.as_deref(), Some("fresh-session"));
+    assert_eq!(fresh.checkpoints, vec![checkpoint.clone()]);
+    assert_eq!(callbacks, vec![checkpoint]);
+
+    let (prior, callbacks) = run_driver(
+        &[
+            accepted_message("effect", "previous-attempt", Some("old-session")),
+            current_result("resumed"),
+        ],
+        Some("old-session"),
+    );
+    assert_eq!(
+        prior.outcome,
         refusal("driver accepted a different attempt", PREVIOUS_EVIDENCE)
     );
-    assert!(!report.accepted);
-    assert_eq!(report.session_ref, None);
+    nothing_kept(&prior, &callbacks);
 }
