@@ -333,6 +333,9 @@ impl QueuedLaunch {
             feature: self.feature,
             map,
             dispatch: self.dispatch.map(at),
+            // The payload holds no claim: the dispatcher sets the one it
+            // took on the run it rebuilds (decision 0095 ruling 8).
+            claim: None,
         };
         Ok((request, run))
     }

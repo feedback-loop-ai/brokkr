@@ -286,7 +286,7 @@ such as `deepseek-flash` on `deepseek-official`, so a host that runs dsh
 on it declares that route); under any other driver an id with no `/` has
 no route. The id is the one the adapter maps an agent's model to, or an
 inline seat's own `--model` and `--fallback-model`. Each run's manifest
-carries those ids and routes (`run-manifest/v13`), so a running run
+carries those ids and routes (`run-manifest/v14`), so a running run
 counts once against each provider
 and route its own compile seated, whatever another workspace's adapters
 say now; a running run whose manifest carries none, one started before

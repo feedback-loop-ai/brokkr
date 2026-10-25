@@ -7,7 +7,7 @@
 //! running run's, as the journal pinned it. A seat is each candidate the
 //! manifest's capability records name, fallbacks included, since any of
 //! them may be seated: its provider, and the route its compile pinned for
-//! each concrete model id it may be served (`run-manifest/v13`): the one
+//! each concrete model id it may be served (`run-manifest/v14`): the one
 //! its driver serves the id on, the id's own prefix before the first `/`
 //! (decision 0036 ruling 2) or the driver's default route, as dsh serves a
 //! bare id on `deepseek-official`. Nothing is resolved again through

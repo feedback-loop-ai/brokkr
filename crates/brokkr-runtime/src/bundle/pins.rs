@@ -1,4 +1,4 @@
-//! What each compiled site's candidates are served on (`run-manifest/v13`,
+//! What each compiled site's candidates are served on (`run-manifest/v14`,
 //! #430): the concrete model ids, read where the compile reads them, each
 //! with the route its driver serves it on, and pinned beside the
 //! candidate's capability record, so admission counts a

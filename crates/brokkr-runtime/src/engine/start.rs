@@ -1,19 +1,26 @@
 //! A start's door (#288): the run id [`Engine::start_in_world`] names, and
 //! every fence it runs before `create_run`, in the order it runs them.
 //! What [`door`] returns is what the start journals; a refusal here
-//! journals nothing and spawns no seat.
+//! journals nothing and spawns no seat. Each start journals its run's row
+//! and `run/started` in the store's one start transaction (decision 0095
+//! ruling 4): [`journaled`] a new run's, fenced and pinned by a
+//! dispatcher's queue claim where it starts one (ruling 5), and
+//! [`dispatched`] a Looper-bound run's.
 //!
 //! [`Engine::start_in_world`]: super::Engine::start_in_world
 
 use std::path::{Path, PathBuf};
 
+use brokkr_core::dispatch::{build_run_manifest_v2, DispatchEnvelopeV2};
 use brokkr_core::entry::RunEntry;
 use brokkr_core::realms::Boundary;
+use brokkr_store::{claim_stands, Claim, Generation, Store};
 use serde_json::{json, Map, Value};
 use uuid::Uuid;
 
 use super::{
-    moved_capability_input, operated_repo, refuse_moved_charter, refuse_unbuilt, EngineError,
+    moved_capability_input, operated_repo, refuse_moved_charter, refuse_unbuilt,
+    verify_dispatch_bundle_bounds, EngineError,
 };
 use crate::bundle::Bundle;
 use crate::realms::World;
@@ -71,6 +78,55 @@ pub(super) fn door(
         charters,
         manifest,
     })
+}
+
+/// A new run's start: its [`door`], then its row and its `run/started` in
+/// the store's one start transaction. A dispatcher's start under `claim`
+/// pins it into the manifest as `queue_entry`, beside the realms pin
+/// (run-manifest/v14), and is fenced by the queue's [`claim_stands`],
+/// held to the digest of the bundle started, so a claim that no longer
+/// stands writes no run; a direct start pins none and runs no fence.
+pub(super) fn journaled(
+    store: &mut Store,
+    bundle: &Bundle,
+    feature: &str,
+    repo: Option<PathBuf>,
+    (world, entry): (Option<&World>, Option<&RunEntry>),
+    claim: Option<(Claim, Generation)>,
+) -> Result<Admitted, EngineError> {
+    let mut admitted = door(bundle, feature, repo, world, entry)?;
+    if let Some((claim, _)) = claim {
+        let (queued, seq) = claim.parts();
+        admitted.manifest["queue_entry"] = json!({"entry": queued.0, "claim": seq});
+    }
+    let charters = std::mem::take(&mut admitted.charters);
+    let started = bundle.run_started(feature, &admitted.manifest, charters, entry);
+    let digest = bundle.manifest_digest();
+    let mut fence = claim.map(|(claim, generation)| claim_stands(claim, generation, &digest));
+    let fence = fence.as_mut().map(|fence| fence as _);
+    let (run_id, manifest) = (&admitted.run_id, &admitted.manifest);
+    store.start_run(run_id, feature, &bundle.name, manifest, started, fence)?;
+    Ok(admitted)
+}
+
+/// A Looper-bound run's start under the envelope's own run id: the
+/// bundle verified against the envelope, then a run-manifest/v2 row and
+/// its `run/started` in the store's one start transaction, unfenced.
+pub(super) fn dispatched(
+    store: &mut Store,
+    bundle: &Bundle,
+    feature: &str,
+    dispatch: DispatchEnvelopeV2,
+) -> Result<String, EngineError> {
+    let run_id = dispatch.forge_run_id.clone();
+    refuse_unbuilt(bundle)?;
+    dispatch.verify(time::OffsetDateTime::now_utc(), &bundle.manifest_digest())?;
+    verify_dispatch_bundle_bounds(&dispatch, bundle)?;
+    let charters = refuse_moved_charter(bundle)?;
+    let manifest = build_run_manifest_v2(&bundle.manifest, dispatch)?;
+    let started = bundle.run_started(feature, &manifest, charters, None);
+    store.start_run(&run_id, feature, &bundle.name, &manifest, started, None)?;
+    Ok(run_id)
 }
 
 /// The feature's slug — lowercased, every run of non-alphanumerics one

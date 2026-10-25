@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 
 use brokkr_core::dispatch::{DispatchEnvelopeV2, DispatchError};
 use brokkr_core::realms::{Boundary, Realm};
-use brokkr_store::{Store, StoreError};
+use brokkr_store::{Claim, Generation, Store, StoreError};
 use serde_json::Value;
 use thiserror::Error;
 
@@ -136,6 +136,11 @@ pub struct NewRun {
     pub map: RunMap,
     /// A Looper dispatch envelope to start the run under.
     pub dispatch: Option<PathBuf>,
+    /// The queue claim a dispatcher starts this run under, with the
+    /// generation that took it (decision 0095 rulings 4, 5 and 8): the
+    /// start is fenced by it and the run's manifest pins it. A direct
+    /// `brokkr run` and [`QueuedLaunch::rebuild`] give none.
+    pub claim: Option<(Claim, Generation)>,
 }
 
 /// A requested run entry, with selectors already resolved to canonical ids.
@@ -150,6 +155,14 @@ pub struct EntryRequest {
 pub enum LaunchError {
     #[error("--dispatch and --enter cannot be combined: a Looper-bound run takes no entry")]
     EntryWithDispatch,
+    /// A queue claim beside a Looper dispatch, whose run-manifest/v2
+    /// carries no `queue_entry` and whose start runs no claim's fence.
+    #[error(
+        "a queue claim cannot start a run with --dispatch: its run-manifest/v2 carries no \
+         queue_entry, so the queue holds such an entry (decision 0095 ruling 4); nothing was \
+         started"
+    )]
+    ClaimWithDispatch,
     #[error(transparent)]
     Entry(#[from] crate::bundle::entry::EntryError),
     #[error(transparent)]
@@ -322,9 +335,10 @@ pub fn start(
         .map(|request| continued_entry(&store, request))
         .transpose()?;
     let (feature, repo) = (&run.feature, request.repo);
+    let begun = (run.map.into_world(), entry);
     let mut engine = match envelope {
         Some(envelope) => Engine::start_with_dispatch(store, bundle, feature, repo, envelope)?,
-        None => Engine::start_in_world(store, bundle, feature, repo, run.map.into_world(), entry)?,
+        None => Engine::start_claimed(store, bundle, feature, repo, begun, run.claim)?,
     };
     engine.secrets_file = request.secrets;
     engine.state = state;
@@ -403,11 +417,15 @@ pub fn rerun(
     Ok(engine)
 }
 
-/// A named map beside a Looper dispatch: refused by `start`, and by a
-/// queued launch before it is written, so no entry holds one.
+/// A named map, an entry or a queue claim beside a Looper dispatch:
+/// refused by `start`, and by a queued launch before it is written, so no
+/// entry holds one.
 fn refuse_realms_with_dispatch(run: &NewRun) -> Result<(), LaunchError> {
     if run.entry.is_some() && run.dispatch.is_some() {
         return Err(LaunchError::EntryWithDispatch);
+    }
+    if run.claim.is_some() && run.dispatch.is_some() {
+        return Err(LaunchError::ClaimWithDispatch);
     }
     match matches!(run.map, RunMap::Named(_)) && run.dispatch.is_some() {
         true => Err(LaunchError::RealmsWithDispatch),

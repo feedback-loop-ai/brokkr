@@ -184,6 +184,8 @@ pub struct brokkr_store::Chain
 pub brokkr_store::Chain::appended: alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>
 pub brokkr_store::Chain::refused: core::option::Option<brokkr_store::SeatRecordError>
 pub struct brokkr_store::Claim
+impl brokkr_store::Claim
+pub fn brokkr_store::Claim::parts(self) -> (brokkr_store::EntryId, i64)
 pub struct brokkr_store::EntryId(pub i64)
 impl core::fmt::Display for brokkr_store::EntryId
 pub fn brokkr_store::EntryId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result

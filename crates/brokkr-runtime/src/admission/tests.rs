@@ -93,6 +93,7 @@ fn launch_under(ws: &Path, map: RunMap, repo: Option<&str>) -> String {
         feature: "f".into(),
         map,
         dispatch: None,
+        claim: None,
     };
     QueuedLaunch::of(&request, &run).unwrap().encode().unwrap()
 }

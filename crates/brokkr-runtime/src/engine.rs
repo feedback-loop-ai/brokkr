@@ -8,9 +8,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use brokkr_core::dispatch::{
-    build_run_manifest_v2, bundle_manifest_from_run, DispatchEnvelopeV2, DispatchError,
-};
+use brokkr_core::dispatch::{bundle_manifest_from_run, DispatchEnvelopeV2, DispatchError};
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{Cursor, Run, RunState};
 use brokkr_core::gate_moved_head::{self, MovedHead};
@@ -506,22 +504,31 @@ impl Engine {
     /// later became of the file. With no map the manifest is byte-for-
     /// byte the one this engine has always written.
     pub fn start_in_world(
-        mut store: Store,
+        store: Store,
         bundle: Bundle,
         feature: &str,
         repo: Option<PathBuf>,
         world: Option<crate::realms::World>,
         entry: Option<brokkr_core::entry::RunEntry>,
     ) -> Result<Engine, EngineError> {
-        let admitted = start::door(&bundle, feature, repo, world.as_ref(), entry.as_ref())?;
-        let started = bundle.run_started(
-            feature,
-            &admitted.manifest,
-            admitted.charters,
-            entry.as_ref(),
-        );
-        let (run_id, manifest) = (&admitted.run_id, &admitted.manifest);
-        store.start_run(run_id, feature, &bundle.name, manifest, started, None)?;
+        Engine::start_claimed(store, bundle, feature, repo, (world, entry), None)
+    }
+
+    /// [`Engine::start_in_world`], a dispatcher's start under the queue
+    /// claim it took, which [`start::journaled`] fences and pins.
+    pub(crate) fn start_claimed(
+        mut store: Store,
+        bundle: Bundle,
+        feature: &str,
+        repo: Option<PathBuf>,
+        (world, entry): (
+            Option<crate::realms::World>,
+            Option<brokkr_core::entry::RunEntry>,
+        ),
+        claim: Option<(brokkr_store::Claim, brokkr_store::Generation)>,
+    ) -> Result<Engine, EngineError> {
+        let begun = (world.as_ref(), entry.as_ref());
+        let admitted = start::journaled(&mut store, &bundle, feature, repo, begun, claim)?;
         Ok(Engine {
             entry,
             store,
@@ -555,14 +562,7 @@ impl Engine {
         repo: Option<PathBuf>,
         dispatch: DispatchEnvelopeV2,
     ) -> Result<Engine, EngineError> {
-        let run_id = dispatch.forge_run_id.clone();
-        refuse_unbuilt(&bundle)?;
-        dispatch.verify(time::OffsetDateTime::now_utc(), &bundle.manifest_digest())?;
-        verify_dispatch_bundle_bounds(&dispatch, &bundle)?;
-        let charters = refuse_moved_charter(&bundle)?;
-        let manifest = build_run_manifest_v2(&bundle.manifest, dispatch)?;
-        let started = bundle.run_started(feature, &manifest, charters, None);
-        store.start_run(&run_id, feature, &bundle.name, &manifest, started, None)?;
+        let run_id = start::dispatched(&mut store, &bundle, feature, dispatch)?;
         Ok(Engine {
             entry: None,
             store,

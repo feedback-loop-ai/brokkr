@@ -885,3 +885,25 @@ unreadable one, cannot be measured, and the entry waits naming it. The key
 stays BUNDLE identity, so every compiled bundle's digest moved once with
 this version, and a run pinned under v12 meets the existing resume
 refusal rather than being rewritten.
+
+Decision 0095 ruling 5 (#430's dispatcher, accepted 2026-10-23) adds one
+file and changes none of the bytes above — `run-manifest.v13`'s included,
+which is now pinned by digest beside the frozen files:
+
+| Contract | File | Consumers |
+|---|---|---|
+| Run manifest with the queue claim a dispatched run was started under | `run-manifest.v14.schema.json` | brokkr-runtime (`engine/start.rs` writes at start), brokkr-store export/resume |
+
+`run-manifest.v14` is `v13` with one OPTIONAL property, `queue_entry`,
+and no other clause moved. It is `{"entry": <id>, "claim": <seq>}`, the
+queue entry's id and the seq of the `claim` command its dispatcher took,
+each an integer from 1 as the journal's queue stores it, and closed over
+those two. It is written only into the manifest of a run the dispatcher
+starts, which 0068 ruling 1 asks ("a run started from the queue carries
+its entry id in its manifest"), and the claim makes the run a
+reconciliation adopts unambiguous across a reclaim. A direct `brokkr run`
+writes none, so every manifest it writes is a v13 one as before. The
+claim is pinned at start beside `realms` and `crossings`, never compiled
+into a bundle: it moves no bundle digest, and resume drops it before its
+manifest comparison as it drops those two, so a dispatched run resumes
+with no drift.
