@@ -165,21 +165,7 @@ impl Fixture {
     /// A running run whose compile pinned each `(provider, model id)`, on
     /// the id's own route, boxed or not, written as the compile writes it.
     fn seating(&mut self, name: &str, seats: &[(&str, &str)], boxed: bool) {
-        let candidates: Vec<Value> = (seats.iter())
-            .map(|(provider, id)| {
-                let route = crate::capabilities::manifest::route(id).map(str::to_string);
-                let served = crate::capabilities::manifest::Served {
-                    id: id.to_string(),
-                    route,
-                };
-                json!({"provider": provider, "model_pins": {"read": [served]}})
-            })
-            .collect();
-        let mut manifest = json!({"capabilities": {"sites": {"work": {"candidates": candidates}}}});
-        if boxed {
-            manifest["boundary"] = json!({"work": "namespace"});
-        }
-        self.running(name, &manifest);
+        self.running(name, &seated(seats, boxed));
     }
 
     /// The host configuration this fixture declares, written.
@@ -198,7 +184,7 @@ impl Fixture {
             temp: TEMP.as_ref(),
             free: &probe,
         };
-        verdicts(pass_within(&self.store, &host).unwrap())
+        verdicts(pass_within(&self.store, &host).unwrap().0)
     }
 
     /// The one entry's first unmet capacity check, or `None` when the
@@ -210,6 +196,26 @@ impl Fixture {
             other => panic!("not a capacity reason: {other}"),
         })
     }
+}
+
+/// The manifest a compile that pinned each `(provider, model id)`, on the
+/// id's own route, boxed or not, writes.
+fn seated(seats: &[(&str, &str)], boxed: bool) -> Value {
+    let candidates: Vec<Value> = (seats.iter())
+        .map(|(provider, id)| {
+            let route = crate::capabilities::manifest::route(id).map(str::to_string);
+            let served = crate::capabilities::manifest::Served {
+                id: id.to_string(),
+                route,
+            };
+            json!({"provider": provider, "model_pins": {"read": [served]}})
+        })
+        .collect();
+    let mut manifest = json!({"capabilities": {"sites": {"work": {"candidates": candidates}}}});
+    if boxed {
+        manifest["boundary"] = json!({"work": "namespace"});
+    }
+    manifest
 }
 
 const PLENTY: u64 = 1 << 40;
@@ -231,6 +237,11 @@ fn enqueue(store: &mut Store, launch: &QueuedLaunch) -> EntryId {
 /// A plenty-free host reading the configuration at `file`, and the
 /// verdict of `pass_within` over `store` on it.
 fn passed(store: &Store, file: &Path) -> Result<Vec<Judged>, AdmissionError> {
+    passed_naming(store, file).map(|(judged, _)| judged)
+}
+
+/// [`passed`], with the unstarted runs the pass names beside the queue.
+fn passed_naming(store: &Store, file: &Path) -> Result<(Vec<Judged>, Vec<Reason>), AdmissionError> {
     let probe = |_: &Path| Ok(PLENTY);
     let host = Host {
         file,
@@ -520,12 +531,25 @@ fn provider_and_cloud_route_concurrency_waits_at_each_ceiling_and_admits_below_i
     );
 }
 
-#[test]
-fn a_run_that_is_not_running_counts_against_no_ceiling() {
+/// One entry queued that seats alpha's one lane, under a host that gives
+/// alpha one place: the fixture, and its host configuration.
+fn alpha_at_one() -> (Fixture, PathBuf) {
     let mut fixture = Fixture::new();
     fixture.seat("one", "cloudy");
     fixture.queue();
     let file = fixture.declare(&ceilings(1, 3, json!({"cloud": route(3, "cloud")})));
+    (fixture, file)
+}
+
+/// The control: run `name`, running on alpha's lane, fills its one place.
+fn filled_by(fixture: &mut Fixture, file: &Path, name: &str) {
+    fixture.seating(name, &[("alpha", "a-1")], false);
+    assert_eq!(fixture.room(file), full("alpha", 1, 1));
+}
+
+#[test]
+fn a_run_that_is_not_running_counts_against_no_ceiling() {
+    let (mut fixture, file) = alpha_at_one();
     // Parked, completed and stopped, each seated alpha's one lane: none of
     // them is running now, so none takes alpha's one place.
     let ends = [
@@ -540,9 +564,38 @@ fn a_run_that_is_not_running_counts_against_no_ceiling() {
             .unwrap();
     }
     assert_eq!(fixture.room(&file), None);
-    // The control: one run that is running fills it.
-    fixture.seating("r4", &[("alpha", "a-1")], false);
-    assert_eq!(fixture.room(&file), full("alpha", 1, 1));
+    filled_by(&mut fixture, &file, "r4");
+}
+
+/// A run an older brokkr left with a row and no events, planted by SQL, is
+/// an unstarted run (decision 0095 ruling 4): its manifest seats alpha's
+/// one lane, yet it spawned nothing, so it counts against no ceiling, and
+/// the pass completes and judges the entry beside it. No entry waits on
+/// it, and the pass names it beside the queue all the same, a pass that
+/// measures no entry included.
+#[test]
+fn an_unstarted_run_counts_against_no_ceiling_and_the_pass_judges_every_entry() {
+    let (mut fixture, file) = alpha_at_one();
+    let conn = rusqlite::Connection::open(fixture.root.join("forge.db")).unwrap();
+    let manifest = seated(&[("alpha", "a-1")], false).to_string();
+    brokkr_store::test_support::plant_run(&conn, "r0", &manifest).unwrap();
+    assert_eq!(fixture.room(&file), None);
+    let named = |fixture: &Fixture| passed_naming(&fixture.store, &file).unwrap().1;
+    let unstarted = vec![Reason::UnstartedRun {
+        wait: None,
+        run: "r0".into(),
+    }];
+    assert_eq!(named(&fixture), unstarted);
+    filled_by(&mut fixture, &file, "r1");
+    assert_eq!(named(&fixture), unstarted);
+    (fixture.store)
+        .queue_command(EntryId(1), QueueCommand::Hold, BY)
+        .unwrap();
+    assert_eq!(
+        verdicts(passed(&fixture.store, &file).unwrap()),
+        [[Reason::OperatorHold]]
+    );
+    assert_eq!(named(&fixture), unstarted);
 }
 
 #[test]
@@ -634,7 +687,7 @@ fn measured(
         temp: TEMP.as_ref(),
         free: &probe,
     };
-    let reasons = verdicts(pass_within(&fixture.store, &host).unwrap()).remove(0);
+    let reasons = verdicts(pass_within(&fixture.store, &host).unwrap().0).remove(0);
     (reasons, asked.into_inner())
 }
 
@@ -767,7 +820,7 @@ fn a_floor_path_through_a_dangling_link_is_unmeasured_and_never_measured_on_its_
             temp: TEMP.as_ref(),
             free: &host::free_bytes,
         };
-        let mut reasons = verdicts(pass_within(&fixture.store, &host).unwrap()).remove(0);
+        let mut reasons = verdicts(pass_within(&fixture.store, &host).unwrap().0).remove(0);
         let reason = reasons.pop().unwrap();
         (reason.to_string(), reason)
     };
@@ -896,6 +949,12 @@ fn a_running_run_that_does_not_fold_refuses_the_measure() {
     let file = fixture.declare(&ceilings(9, 9, json!({})));
     let manifest = json!({"schema": "run-manifest/v1"});
     fixture.store.create_run("r0", "f", "b", &manifest).unwrap();
+    // Its first event is not `run/started`.
+    let completed = EventType::RunCompleted;
+    (fixture
+        .store
+        .append_next("r0", completed, json!({}), None, None))
+    .unwrap();
     let error = passed(&fixture.store, &file).unwrap_err();
     assert!(matches!(&error, AdmissionError::Fold { run, .. } if run == "r0"));
     assert_eq!(error.to_string(), "folding run 'r0'");
@@ -912,7 +971,7 @@ fn the_writing_pass_judges_the_machine_after_it_latches() {
         temp: TEMP.as_ref(),
         free: &probe,
     };
-    let judged = verdicts(judge_within(&mut fixture.store, &host, BY).unwrap());
+    let judged = verdicts(judge_within(&mut fixture.store, &host, BY).unwrap().0);
     let undeclared = Reason::Capacity(Capacity::Undeclared(file.clone()));
     assert_eq!(judged, vec![vec![undeclared]]);
     assert_eq!(verdicts(pass(&fixture.store).unwrap()), vec![vec![]]);

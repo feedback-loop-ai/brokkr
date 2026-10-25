@@ -51,6 +51,7 @@ pub brokkr_store::QueueCommand::Move::to: u32
 pub brokkr_store::QueueCommand::Release
 pub enum brokkr_store::QueueRefusal
 pub brokkr_store::QueueRefusal::AlreadyHeld(brokkr_store::EntryId)
+pub brokkr_store::QueueRefusal::BundleMoved(brokkr_store::Claim, alloc::string::String)
 pub brokkr_store::QueueRefusal::Claimed
 pub brokkr_store::QueueRefusal::Claimed::entry: brokkr_store::EntryId
 pub brokkr_store::QueueRefusal::Claimed::run: alloc::string::String
@@ -283,6 +284,8 @@ pub fn brokkr_store::Store::queue_list(&self) -> core::result::Result<alloc::vec
 pub fn brokkr_store::Store::queue_repin(&mut self, brokkr_store::EntryId, &str, brokkr_store::Seen, brokkr_store::Attribution<'_>) -> core::result::Result<(), brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::seat_rows(&self, &str) -> core::result::Result<brokkr_store::SeatRows, brokkr_store::StoreError>
+impl brokkr_store::Store
+pub fn brokkr_store::Store::start_run(&mut self, &str, &str, &str, &serde_json::value::Value, serde_json::value::Value, core::option::Option<&'_ mut dyn core::ops::function::FnMut(&rusqlite::transaction::Transaction<'_>) -> core::result::Result<(), brokkr_store::StoreError>>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
 pub struct brokkr_store::Unread
 pub brokkr_store::Unread::order_at: i64
 pub brokkr_store::Unread::run_id: alloc::string::String
@@ -297,6 +300,7 @@ pub type brokkr_store::Wait::Err = brokkr_store::NotAWait
 pub fn brokkr_store::Wait::from_str(&str) -> core::result::Result<Self, Self::Err>
 pub const brokkr_store::DATABASE_SCHEMA: u32
 pub const brokkr_store::RUN_ID_MAX: usize
+pub fn brokkr_store::claim_stands(brokkr_store::Claim, brokkr_store::Generation, &str) -> impl core::ops::function::FnMut(&rusqlite::transaction::Transaction<'_>) -> core::result::Result<(), brokkr_store::StoreError> + '_
 pub fn brokkr_store::keyed(i64, alloc::string::String) -> brokkr_store::Keyed
 pub fn brokkr_store::place_of(&brokkr_store::Paged) -> (i64, &str)
 pub fn brokkr_store::redact_export(&str) -> core::result::Result<alloc::string::String, serde_json::error::Error>

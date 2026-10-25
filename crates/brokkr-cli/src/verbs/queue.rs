@@ -11,7 +11,7 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use anyhow::Result;
-use brokkr_runtime::admission::{self, Host, Judged, Verdict};
+use brokkr_runtime::admission::{self, Host, Judged, Reason, Verdict};
 use brokkr_runtime::launch::{BundleSource, QueuedLaunch};
 use brokkr_store::{Attribution, NewEntry, QueueCommand, Wait};
 use serde::Serialize;
@@ -120,8 +120,8 @@ fn repin(
 /// shown, and not latched.
 fn list(workspace: &Path, QueueListArgs { journal, json }: QueueListArgs) -> Result<ExitCode> {
     let store = open_journal(&journal.journal(workspace)?, Access::Read)?;
-    let entries = on_this_host(|host| Ok(admission::pass_within(&store, host)?))?;
-    show(&entries, json)
+    let (entries, unstarted) = on_this_host(|host| Ok(admission::pass_within(&store, host)?))?;
+    show(&entries, &unstarted, json)
 }
 
 /// `brokkr queue judge`: admission's writing pass ([`admission::judge`]),
@@ -135,12 +135,12 @@ fn judge(
     }: QueueJudgeArgs,
 ) -> Result<ExitCode> {
     let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
-    let entries = on_this_host(|host| {
+    let (entries, unstarted) = on_this_host(|host| {
         attributed(&reason, |by| {
             admission::judge_within(&mut store, host, by).map_err(anyhow::Error::from)
         })
     })?;
-    show(&entries, json)
+    show(&entries, &unstarted, json)
 }
 
 /// Do `act` on this machine as admission measures it (decision 0068
@@ -173,8 +173,10 @@ fn on_the_host_at<T>(
     })
 }
 
-/// Print the judged queue, as a table or as `--json`.
-fn show(entries: &[Judged], json: bool) -> Result<ExitCode> {
+/// Print the judged queue, as a table or as `--json`, once each unstarted
+/// run the pass named beside it is named on stderr.
+fn show(entries: &[Judged], unstarted: &[Reason], json: bool) -> Result<ExitCode> {
+    eprint!("{}", named(unstarted));
     let rows = rows(entries);
     match json {
         true => println!("{}", serde_json::to_string_pretty(&rows)?),
@@ -259,6 +261,14 @@ fn each_wait<S: serde::Serializer>(waits: &&[Wait], to: S) -> Result<S::Ok, S::E
         entry: wait.entry.0,
         on: wait.on.word(),
     }))
+}
+
+/// Each unstarted run the pass named beside the queue (decision 0095
+/// ruling 4), a line each, its kind first as scripts read it.
+fn named(unstarted: &[Reason]) -> String {
+    (unstarted.iter())
+        .map(|reason| format!("{}: {reason}\n", reason.kind()))
+        .collect()
 }
 
 fn rows(entries: &[Judged]) -> Vec<Row<'_>> {

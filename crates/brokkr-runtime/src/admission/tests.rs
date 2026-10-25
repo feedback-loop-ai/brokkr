@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use brokkr_core::realms::Boundary;
 use brokkr_core::EventType;
 use brokkr_store::test_support::linked;
-use brokkr_store::{Attribution, NewEntry, QueueCommand};
+use brokkr_store::{Attribution, NewEntry, QueueCommand, WaitOn};
 use serde_json::{json, Value};
 
 use super::*;
@@ -1212,6 +1212,59 @@ fn a_wait_clears_when_its_condition_holds_and_holds_the_entry_when_it_never_can(
     );
 }
 
+/// A run an older brokkr left with a row and no `run/started`, planted by
+/// SQL, is an unstarted run (decision 0095 ruling 4): the pass completes,
+/// holds the entry that waits on it, naming it, and judges every other.
+#[test]
+fn an_entry_waiting_on_an_unstarted_run_is_held_and_the_pass_judges_every_other() {
+    let ws = workspace();
+    let path = ws.path().join("forge.db");
+    let mut store = Store::open(&path).unwrap();
+    let unmapped = launch(ws.path(), false);
+    let awaited = add(&mut store, &unmapped, &[]);
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    let manifest = json!({"schema": "run-manifest/v1"}).to_string();
+    brokkr_store::test_support::plant_run(&conn, "r0", &manifest).unwrap();
+    linked(&mut store, awaited, "r0");
+    let wait = Wait {
+        entry: awaited,
+        on: WaitOn::Completed,
+    };
+    add(&mut store, &unmapped, &[wait]);
+    add(&mut store, &unmapped, &[]);
+    let unstarted = Reason::UnstartedRun {
+        wait: Some(wait),
+        run: "r0".into(),
+    };
+    assert_eq!(
+        verdicts(&store),
+        vec![
+            (2, Standing::Held, vec![unstarted]),
+            (3, Standing::Admissible, vec![])
+        ]
+    );
+}
+
+/// An entry queued with `--dispatch` is held (decision 0095 ruling 4):
+/// its run would be a run-manifest/v2, which carries no queue entry.
+#[test]
+fn an_entry_queued_with_a_dispatch_envelope_is_held() {
+    let ws = workspace();
+    let mut store = Store::open(&ws.path().join("forge.db")).unwrap();
+    let unmapped = launch(ws.path(), false);
+    let mut dispatched = QueuedLaunch::decode(&unmapped).unwrap();
+    dispatched.dispatch = Some(ws.path().join("dispatch.json"));
+    add(&mut store, &dispatched.encode().unwrap(), &[]);
+    add(&mut store, &unmapped, &[]);
+    assert_eq!(
+        verdicts(&store),
+        vec![
+            (1, Standing::Held, vec![Reason::DispatchEnvelope]),
+            (2, Standing::Admissible, vec![])
+        ]
+    );
+}
+
 #[test]
 fn every_reason_and_standing_has_its_word() {
     let wait = |entry, on| Wait {
@@ -1237,6 +1290,15 @@ fn every_reason_and_standing_has_its_word() {
             moved: false,
         },
         Reason::MapUnreadable("x".into()),
+        Reason::UnstartedRun {
+            wait: Some(wait(7, WaitOn::Ended)),
+            run: "r7".into(),
+        },
+        Reason::UnstartedRun {
+            wait: None,
+            run: "r8".into(),
+        },
+        Reason::DispatchEnvelope,
     ];
     let said = reasons.map(|reason| (reason.to_string(), reason.kind(), reason.holds()));
     let never = "which can never hold";
@@ -1272,6 +1334,24 @@ fn every_reason_and_standing_has_its_word() {
         (
             "the realms map it was queued under cannot be read now: x",
             "map_unreadable",
+            true,
+        ),
+        (
+            "waits on 7:ended: its run 'r7' was never started, a row an older brokkr left with \
+             no run/started",
+            "unstarted_run",
+            true,
+        ),
+        (
+            "run 'r8' was never started, a row an older brokkr left with no run/started: it \
+             spawned nothing, and counts against no ceiling",
+            "unstarted_run",
+            true,
+        ),
+        (
+            "queued with --dispatch: its run would be a run-manifest/v2, which carries no queue \
+             entry, so the dispatcher never starts it",
+            "dispatch_envelope",
             true,
         ),
     ];
@@ -1337,12 +1417,14 @@ fn a_queue_the_pass_cannot_read_admits_nothing_and_says_why() {
         .queue_command(latched, QueueCommand::Drop, BY)
         .unwrap();
 
-    // An awaited run whose journal does not fold.
+    // An awaited run whose journal does not fold: its first event is not
+    // `run/started`.
     let unmapped = launch(ws.path(), false);
     let awaited = add(&mut store, &unmapped, &[]);
     store
         .create_run("r0", "f", "b", &json!({"schema": "run-manifest/v1"}))
         .unwrap();
+    (store.append_next("r0", EventType::RunCompleted, json!({}), None, None)).unwrap();
     linked(&mut store, awaited, "r0");
     let wait = Wait {
         entry: awaited,

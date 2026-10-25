@@ -164,6 +164,15 @@ fn the_queue_keeps_order_holds_and_runs_across_invocations() {
     for json in [&["list"][..], &["list", "--json"]] {
         assert_eq!(queue_in(ws, &db, json).unwrap(), completed());
     }
+    // run-3 holds no event, so the pass names it beside the queue, and
+    // `list` says it on stderr.
+    let store = Store::open(&db).unwrap();
+    let (_, unstarted) = on_this_host(|host| Ok(admission::pass_within(&store, host)?)).unwrap();
+    assert_eq!(
+        named(&unstarted),
+        "unstarted_run: run 'run-3' was never started, a row an older brokkr left with no \
+         run/started: it spawned nothing, and counts against no ceiling\n"
+    );
 }
 
 #[test]

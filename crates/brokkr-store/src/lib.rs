@@ -84,6 +84,7 @@ mod redact;
 mod schema;
 mod seat_record;
 mod seat_summary;
+mod start;
 mod summary;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
@@ -95,8 +96,8 @@ pub use import::{verified_events, verify_export, Adoption, Arrival, ImportError,
 pub use opening::Opened;
 pub use page::{keyed, place_of, Keyed, Paged, RowRefusal, Unread};
 pub use queue::{
-    Attribution, Claim, EntryId, EntryState, Generation, Latch, NewEntry, NotAWait, QueueCommand,
-    QueueEntry, QueueRefusal, Seen, StartRefusal, Wait, WaitOn,
+    claim_stands, Attribution, Claim, EntryId, EntryState, Generation, Latch, NewEntry, NotAWait,
+    QueueCommand, QueueEntry, QueueRefusal, Seen, StartRefusal, Wait, WaitOn,
 };
 pub use redact::{redact_export, Redactor};
 pub use schema::DATABASE_SCHEMA;
@@ -104,10 +105,11 @@ pub use seat_record::{validate_seat_record, SeatRecordError, SeatRecordVersion};
 pub use seat_summary::SeatRows;
 pub use summary::Disagreement;
 
-use brokkr_core::summary::{Account, Summary};
+use brokkr_core::summary::Account;
 use chain::{fence, seal_and_insert};
 pub use import::RUN_ID_MAX;
 use schema::{ensure_wal, schema_supported, RECORDED_SCHEMA};
+use start::Row;
 
 /// How long any statement waits for a peer's write lock before giving
 /// up. Every connection sets this as its FIRST act, so no statement in
@@ -274,26 +276,9 @@ fn head_of(conn: &Connection, run_id: &str) -> Result<(u64, String), StoreError>
 /// attempt that ends busy has left the journal exactly as it found it.
 /// The origin arrives already computed: nothing is asked of the machine
 /// while the write lock is held.
-fn create_run_once(
-    conn: &mut Connection,
-    run_id: &str,
-    feature: &str,
-    bundle_name: &str,
-    manifest: &str,
-    origin: Option<&str>,
-) -> Result<summary::Listed, StoreError> {
+fn create_run_once(conn: &mut Connection, row: &Row<'_>) -> Result<summary::Listed, StoreError> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    refuse_existing(&tx, run_id)?;
-    let listed = summary::Listed::new(feature, &now_rfc3339());
-    let created_at = listed.listing().created_at;
-    tx.execute(
-        "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at, origin_host)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![run_id, feature, bundle_name, manifest, created_at, origin],
-    )?;
-    let empty = Account::empty(run_id);
-    summary::write(&tx, run_id, &Summary::of(&empty, listed.listing()))?;
-    seat_summary::write(&tx, &empty, None)?;
+    let listed = start::insert_run(&tx, row)?;
     tx.commit()?;
     Ok(listed)
 }
@@ -491,17 +476,15 @@ impl Store {
         import::recordable(run_id)?;
         let manifest = serde_json::to_string(manifest)?;
         let origin = origin();
+        let row = Row {
+            run_id,
+            feature,
+            bundle_name,
+            manifest: &manifest,
+            origin: origin.as_deref(),
+        };
         let conn = &mut self.conn;
-        let listed = patiently("create_run", self.patience, || {
-            create_run_once(
-                conn,
-                run_id,
-                feature,
-                bundle_name,
-                &manifest,
-                origin.as_deref(),
-            )
-        })?;
+        let listed = patiently("create_run", self.patience, || create_run_once(conn, &row))?;
         // Whoever creates a run holds its fold: the run with no event.
         self.carried = Some(summary::Carried {
             account: Account::empty(run_id),

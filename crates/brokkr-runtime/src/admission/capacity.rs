@@ -48,8 +48,10 @@ use super::host::{self, At, HostConfig, Hosting, Place, Provider, Route, RouteCl
 use super::{awaiting, came_to, AdmissionError, Judged, Reason};
 use crate::capabilities::manifest::ModelPins;
 use crate::launch::{LaunchError, QueuedLaunch};
+use census::{census, unstarted};
 use journal::Journal;
 
+mod census;
 mod journal;
 
 /// The machine an admission pass measures, its effects injected: where
@@ -255,12 +257,13 @@ impl fmt::Display for Capacity {
 /// Judge the machine's room for each entry in `queue` that nothing else
 /// stops, recording the first unmet check as its reason. The host
 /// configuration is read, and the running runs counted, once, and only
-/// when some entry is judged.
+/// when some entry is judged; the unstarted runs are named on every pass.
 pub(super) fn sized(
     store: &Store,
     host: &Host<'_>,
     mut queue: Vec<Judged>,
-) -> Result<Vec<Judged>, AdmissionError> {
+) -> Result<(Vec<Judged>, Vec<Reason>), AdmissionError> {
+    let unstarted = unstarted(store)?;
     let unstopped = |judged: &&mut Judged| {
         judged
             .verdict
@@ -268,7 +271,7 @@ pub(super) fn sized(
             .is_some_and(|verdict| verdict.reasons.is_empty())
     };
     if !queue.iter_mut().any(|judged| unstopped(&judged)) {
-        return Ok(queue);
+        return Ok((queue, unstarted));
     }
     let measure = Measure::take(store, host)?;
     for judged in queue.iter_mut().filter(unstopped) {
@@ -280,7 +283,7 @@ pub(super) fn sized(
             (_, room) => judged.room = room.ok(),
         }
     }
-    Ok(queue)
+    Ok((queue, unstarted))
 }
 
 /// What one pass measured of the machine.
@@ -625,25 +628,6 @@ struct Lane {
 struct Live {
     run: String,
     seats: Result<Seats, Unmeasurable>,
-}
-
-/// The runs the journal holds running now.
-fn census(store: &Store) -> Result<Vec<Live>, AdmissionError> {
-    let mut live = Vec::new();
-    for (run, ..) in store.list_runs()? {
-        let status = fold(&store.load(&run)?)
-            .map_err(|source| AdmissionError::Fold {
-                run: run.clone(),
-                source,
-            })?
-            .run
-            .status();
-        if status == Status::Running {
-            let seats = Seats::of(store.manifest(&run)?);
-            live.push(Live { run, seats });
-        }
-    }
-    Ok(live)
 }
 
 /// The entry as admission measures it: the lanes its compiled bundle
