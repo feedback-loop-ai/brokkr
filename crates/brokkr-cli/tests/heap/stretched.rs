@@ -16,6 +16,13 @@ const NOW: &str = "2026-10-20T00:00:00Z";
 /// How long a stretched envelope's text is: a mebibyte.
 pub(crate) const STRETCH: usize = 1 << 20;
 
+/// What SQLite's high-water may grow past the stretched envelope itself:
+/// its allocator and page cache around one large row, within ruling 9's
+/// "the page cache, its statements and the largest envelope". CI's macOS
+/// leg measured the envelope plus 13,296 B (1,061,872 B); Linux measures
+/// within the envelope.
+pub(crate) const SQLITE_SLACK: u64 = 64 * 1024;
+
 /// The generated runs that bring a journal holding the grown run to
 /// `events` events: the fleet's 2,000, the remainder on the first.
 fn beside(events: usize) -> Vec<Generated> {

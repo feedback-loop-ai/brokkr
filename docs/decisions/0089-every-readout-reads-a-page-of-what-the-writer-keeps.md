@@ -1002,8 +1002,11 @@ model the writer keeps in the journal's own file and transaction.
    mebibytes; the escaped reason costs no more, since the trail's
    envelopes parse from the text SQLite holds and the parser's scratch
    copy is dropped before the fold's and the summary's are made.
-   SQLite's high-water grows by 1,045,840 B, within the envelope. The
-   peaks stay bounded by the run's control envelopes, never by the
+   SQLite's high-water grows by 1,045,840 B on Linux, within the
+   envelope, and `heap_run_view.rs` holds it to the envelope and 64 KiB
+   of slack, the allocator and page cache around the row, which CI's
+   macOS leg measured past the envelope by 13,296 B in opening a run
+   (1,061,872 B). The peaks stay bounded by the run's control envelopes, never by the
    journal. So the run view row's Brokkr share is 256 KiB and the run's
    control envelopes as parsed, plus two copies of its park's reason,
    and `heap_run_view.rs` holds the stretched growth over the

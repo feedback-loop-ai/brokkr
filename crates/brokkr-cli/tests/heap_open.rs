@@ -21,14 +21,7 @@ use std::path::{Path, PathBuf};
 use brokkr_core::envelope::EventEnvelope;
 use brokkr_store::Store;
 use measure::{peak_of, sqlite_memory};
-use stretched::{median_micros, Stretch, STRETCH};
-
-/// What SQLite's high-water may grow past the stretched envelope itself:
-/// its allocator and page cache around one large row, within ruling 9's
-/// "the page cache, its statements and the largest envelope". CI's macOS
-/// leg measured the envelope plus 13,296 B (1,061,872 B); Linux measures
-/// within the envelope.
-const SQLITE_SLACK: u64 = 64 * 1024;
+use stretched::{median_micros, Stretch, SQLITE_SLACK, STRETCH};
 
 /// The seq of the envelope stretched: the run's middle.
 const STRETCHED: usize = grown::EVENTS / 2;
