@@ -565,22 +565,7 @@ fn an_offered_session_reaches_only_a_driver_that_declared_resume() {
              printf '%s\\n' '{succeeded}'; read -r line",
             log = log.display().to_string().replace('\\', "/")
         );
-        let report = DriverProcess::spawn(
-            &command(&script),
-            std::path::Path::new("."),
-            None,
-            &SpawnEnv::Inherit,
-        )
-        .unwrap()
-        .run_attempt_resuming(
-            "test",
-            "effect",
-            "attempt",
-            "seat",
-            json!({}),
-            offered.map(str::to_string),
-            |_| {},
-        );
+        let report = attempt_correlation::run_resuming(&script, offered, |_| {});
         assert!(
             matches!(report.outcome, AttemptOutcome::Succeeded { .. }),
             "{case}"

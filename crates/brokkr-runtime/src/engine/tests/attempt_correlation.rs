@@ -50,12 +50,34 @@ fn configured_engine(foreign_review: bool) -> (tempfile::TempDir, Engine) {
     (dir, engine)
 }
 
+fn is_request_for(event: &EventEnvelope, seat: &str) -> bool {
+    event.event_type == EventType::EffectRequested && event.payload["seat"] == seat
+}
+
+/// Whether any effect was requested of `seat`.
+fn seat_requested(events: &[EventEnvelope], seat: &str) -> bool {
+    events.iter().any(|event| is_request_for(event, seat))
+}
+
+/// Whether review's transition was decided to hand the run to ship.
+fn review_handed_to_ship(events: &[EventEnvelope]) -> bool {
+    events.iter().any(|event| {
+        event.event_type == EventType::TransitionDecided
+            && event.payload["from"] == "review"
+            && event.payload["next"] == "ship"
+    })
+}
+
+fn run_completed(events: &[EventEnvelope]) -> bool {
+    events
+        .iter()
+        .any(|event| event.event_type == EventType::RunCompleted)
+}
+
 fn effect_for_seat(events: &[EventEnvelope], seat: &str) -> String {
     events
         .iter()
-        .find(|event| {
-            event.event_type == EventType::EffectRequested && event.payload["seat"] == seat
-        })
+        .find(|event| is_request_for(event, seat))
         .unwrap_or_else(|| panic!("no request for {seat}: {events:#?}"))
         .payload["effect_id"]
         .as_str()
@@ -129,17 +151,9 @@ fn foreign_clean_review_result_parks_and_replays_without_ship_authority() {
     assert!(!terminal_for_effect(&events, &review_effect)
         .iter()
         .any(|event| event.event_type == EventType::EffectSucceeded));
-    assert!(!events.iter().any(|event| {
-        event.event_type == EventType::TransitionDecided
-            && event.payload["from"] == "review"
-            && event.payload["next"] == "ship"
-    }));
-    assert!(!events.iter().any(|event| {
-        event.event_type == EventType::EffectRequested && event.payload["seat"] == "ship"
-    }));
-    assert!(!events
-        .iter()
-        .any(|event| event.event_type == EventType::RunCompleted));
+    assert!(!review_handed_to_ship(&events));
+    assert!(!seat_requested(&events, "ship"));
+    assert!(!run_completed(&events));
 
     let checkpoint = checkpoint_for_effect(&events, &review_effect)
         .payload
@@ -167,12 +181,8 @@ fn foreign_clean_review_result_parks_and_replays_without_ship_authority() {
         checkpoint_for_effect(&replayed, &review_effect).payload,
         checkpoint
     );
-    assert!(!replayed.iter().any(|event| {
-        event.event_type == EventType::EffectRequested && event.payload["seat"] == "ship"
-    }));
-    assert!(!replayed
-        .iter()
-        .any(|event| event.event_type == EventType::RunCompleted));
+    assert!(!seat_requested(&replayed, "ship"));
+    assert!(!run_completed(&replayed));
     assert!(!serde_json::to_string(&replayed)
         .unwrap()
         .contains(FOREIGN_ATTEMPT));
@@ -188,15 +198,7 @@ fn matching_review_result_reaches_ship_and_completes() {
     let review_terminal = terminal_for_effect(&events, &review_effect);
     assert_eq!(review_terminal.len(), 1);
     assert_eq!(review_terminal[0].event_type, EventType::EffectSucceeded);
-    assert!(events.iter().any(|event| {
-        event.event_type == EventType::EffectRequested && event.payload["seat"] == "ship"
-    }));
-    assert!(events.iter().any(|event| {
-        event.event_type == EventType::TransitionDecided
-            && event.payload["from"] == "review"
-            && event.payload["next"] == "ship"
-    }));
-    assert!(events
-        .iter()
-        .any(|event| event.event_type == EventType::RunCompleted));
+    assert!(seat_requested(&events, "ship"));
+    assert!(review_handed_to_ship(&events));
+    assert!(run_completed(&events));
 }

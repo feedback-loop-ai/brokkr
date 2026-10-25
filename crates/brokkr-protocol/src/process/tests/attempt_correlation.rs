@@ -48,6 +48,32 @@ fn result_message(
     })
 }
 
+/// The report of `script`'s driver, spawned in the current directory
+/// and run on the resuming path with the test pair and `offered`,
+/// calling `on_checkpoint` back with each checkpoint it is handed.
+pub(super) fn run_resuming(
+    script: &str,
+    offered: Option<&str>,
+    on_checkpoint: impl FnMut(&Value),
+) -> AttemptReport {
+    DriverProcess::spawn(
+        &command(script),
+        std::path::Path::new("."),
+        None,
+        &SpawnEnv::Inherit,
+    )
+    .unwrap()
+    .run_attempt_resuming(
+        "test",
+        "effect",
+        "attempt",
+        "seat",
+        json!({}),
+        offered.map(str::to_owned),
+        on_checkpoint,
+    )
+}
+
 /// The report of a driver that answers `start` with `lines`, and the
 /// checkpoints it was called back with. Offered a session, the driver
 /// declares `resume` and reads the offer before `start`.
@@ -72,22 +98,7 @@ fn run_driver(lines: &[String], offered: Option<&str>) -> (AttemptReport, Vec<Va
          read -r done"
     );
     let mut callbacks = Vec::new();
-    let report = DriverProcess::spawn(
-        &command(&script),
-        std::path::Path::new("."),
-        None,
-        &SpawnEnv::Inherit,
-    )
-    .unwrap()
-    .run_attempt_resuming(
-        "test",
-        "effect",
-        "attempt",
-        "seat",
-        json!({}),
-        offered.map(str::to_owned),
-        |value| callbacks.push(value.clone()),
-    );
+    let report = run_resuming(&script, offered, |value| callbacks.push(value.clone()));
     (report, callbacks)
 }
 
