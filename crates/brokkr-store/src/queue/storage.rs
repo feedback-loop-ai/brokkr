@@ -192,9 +192,10 @@ CREATE TRIGGER IF NOT EXISTS queue_pins_append_only_delete
 /// seq, the latest in force, and none holding anything but a whole number
 /// of at least 1 and at most `u32::MAX`.
 ///
-/// No build that wrote version 3 without the holders and the settings was
-/// ever released: slice 3a's version 3 was never merged, so they join
-/// version 3's own migration rather than a repair of it.
+/// Slice 3a's build wrote version 3 without the holders and the settings,
+/// and each slice lands alone, so a journal may record version 3 and hold
+/// neither: [`queue_intact`] finds it unguarded, and this batch, run
+/// again under the write lock, adds both, `IF NOT EXISTS` keeping the rest.
 const MIGRATION_QUEUE_V3: &str = r#"
 CREATE TABLE IF NOT EXISTS queue_claims (
     seq INTEGER PRIMARY KEY REFERENCES queue_commands(seq),
@@ -297,6 +298,10 @@ const QUEUE_TABLES: [&str; 9] = [
     "dispatch_settings",
 ];
 
+/// How many of [`QUEUE_TABLES`] version 3 held as slice 3a's build wrote
+/// it: all but the holders and the settings (decision 0095 slice 3b).
+const QUEUE_TABLES_UNHELD: usize = 7;
+
 /// Is the queue whole: stored in this binary's version and every guard
 /// in place? Pure reads, so the steady-state open takes no write lock.
 ///
@@ -308,7 +313,10 @@ const QUEUE_TABLES: [&str; 9] = [
 /// before its claims; each is migrated. One that records a queue whose
 /// table is gone has lost what the queue held (SQLite drops a table's
 /// guards with it), and is refused rather than recreated empty; so only a
-/// guard missing from a table that is still there is ever repaired.
+/// guard missing from a table that is still there is ever repaired. The
+/// one exception is version 3 as slice 3a wrote it, holding neither the
+/// holders nor the settings: it gains both, empty, as it never held a row
+/// of either; one of the two without the other was lost, and is refused.
 pub(crate) fn queue_intact(conn: &Connection) -> Result<bool, StoreError> {
     let Some(found) = queue_schema(conn)? else {
         return Ok(false);
@@ -316,7 +324,6 @@ pub(crate) fn queue_intact(conn: &Connection) -> Result<bool, StoreError> {
     let Some(stored) = Stored::of(found) else {
         return Ok(true);
     };
-    let tables = &QUEUE_TABLES[..stored.tables()];
     let named = |kind: &str| -> Result<Vec<String>, StoreError> {
         Ok(conn
             .prepare("SELECT name FROM sqlite_master WHERE type = ?1")?
@@ -324,6 +331,16 @@ pub(crate) fn queue_intact(conn: &Connection) -> Result<bool, StoreError> {
             .collect::<Result<_, _>>()?)
     };
     let present = named("table")?;
+    let held = QUEUE_TABLES[QUEUE_TABLES_UNHELD..]
+        .iter()
+        .any(|table| present.iter().any(|name| name == table));
+    let tables = &QUEUE_TABLES[..stored.tables()];
+    // Holding neither, it holds none of their guards either, so the
+    // version 3 batch runs again.
+    let tables = match held {
+        true => tables,
+        false => &tables[..tables.len().min(QUEUE_TABLES_UNHELD)],
+    };
     if let Some(table) = tables
         .iter()
         .copied()

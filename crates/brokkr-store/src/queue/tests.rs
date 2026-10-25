@@ -283,6 +283,8 @@ fn a_journal_that_lost_a_queue_table_is_refused_on_open_not_recreated_empty() {
         ("DROP TABLE queue_pins", "queue_pins"),
         ("DROP TABLE queue_claims", "queue_claims"),
         ("DROP TABLE queue_refusals", "queue_refusals"),
+        ("DROP TABLE dispatch_holders", "dispatch_holders"),
+        ("DROP TABLE dispatch_settings", "dispatch_settings"),
     ] {
         let path = dir.path().join(format!("{table}.db"));
         let mut store = Store::open(&path).unwrap();
@@ -314,6 +316,53 @@ fn a_journal_that_lost_a_queue_table_is_refused_on_open_not_recreated_empty() {
         assert_eq!(tables(&conn), left);
         assert_eq!(queue_schema(&conn).unwrap(), Some(QUEUE_SCHEMA));
     }
+}
+
+/// A journal at version 3 as slice 3a's build wrote it, holding neither
+/// the dispatchers nor the dispatch settings (decision 0095 slice 3b),
+/// gains both at its next writable open, guards and all, and keeps its
+/// entries and its claim.
+#[test]
+fn a_version_3_journal_from_before_its_dispatchers_gains_them_and_keeps_its_queue() {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, _) = every_standing(dir.path());
+    let dispatch = |conn: &Connection| -> Vec<String> {
+        let query = "SELECT name FROM sqlite_master WHERE name LIKE 'dispatch_%' ORDER BY name";
+        let mut names = conn.prepare(query).unwrap();
+        (names.query_map([], |row| row.get(0)).unwrap())
+            .collect::<Result<_, _>>()
+            .unwrap()
+    };
+    let claims = |conn: &Connection| -> Vec<(i64, i64, String)> {
+        let query = "SELECT entry_id, generation, run_id FROM queue_claims ORDER BY seq";
+        let mut statement = conn.prepare(query).unwrap();
+        let read = |row: &rusqlite::Row<'_>| Ok((row.get(0)?, row.get(1)?, row.get(2)?));
+        let claims = statement.query_map([], read).unwrap();
+        claims.collect::<Result<_, _>>().unwrap()
+    };
+    let (queued, claimed) = (rows(&store), claims(&store.conn));
+    let unheld = "DROP TABLE dispatch_holders; DROP TABLE dispatch_settings;";
+    store.conn.execute_batch(unheld).unwrap();
+    assert_eq!(dispatch(&store.conn), Vec::<String>::new());
+    assert_eq!(queue_schema(&store.conn).unwrap(), Some(QUEUE_SCHEMA));
+    drop(store);
+
+    let store = opened_whole(&dir.path().join("forge.db"));
+    assert_eq!(
+        dispatch(&store.conn),
+        [
+            "dispatch_holders",
+            "dispatch_holders_append_only_delete",
+            "dispatch_holders_append_only_update",
+            "dispatch_settings",
+            "dispatch_settings_append_only_delete",
+            "dispatch_settings_append_only_update",
+        ]
+    );
+    assert_eq!(claimed, [(4, 1, "run-b".to_string())]);
+    assert_eq!((rows(&store), claims(&store.conn)), (queued, claimed));
+    assert_eq!(store.dispatch_holder().unwrap(), None);
+    assert_eq!(store.dispatch_bound().unwrap(), NonZeroU32::new(3).unwrap());
 }
 
 /// A queue with an entry in every standing: 1 queued, 2 held, 3 dropped
