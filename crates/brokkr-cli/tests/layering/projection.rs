@@ -1,7 +1,7 @@
 //! Decision 0089 ruling 1: the engine decides on its own fold, never on a
 //! summary row, an event index row or a seat row. The read model's readers
-//! are every public function of the store's summary, event index and seat
-//! summary modules but the writer's hand-over, read from those modules'
+//! are every public function of the store's summary, event index, seat
+//! summary and run read modules but the writer's hand-over, read from those modules'
 //! sources so a reader added later is held here without an edit, and the
 //! tables themselves by name;
 //! no `brokkr-runtime` production source names one. A test source may,
@@ -76,7 +76,7 @@ fn naming(root: &Path, names: &[String]) -> Vec<String> {
 fn readers() -> Vec<String> {
     let tables = ["run_summary", "event_index", "seat_summary", "seat_head"];
     let mut readers: Vec<String> = tables.iter().map(|table| table.to_string()).collect();
-    for module in ["summary", "event_index", "seat_summary"] {
+    for module in ["summary", "event_index", "seat_summary", "run_read"] {
         let source = read(&format!("crates/brokkr-store/src/{module}.rs"));
         readers.extend(
             summary_functions(&source)
@@ -105,6 +105,7 @@ fn no_runtime_decision_names_a_projection_s_reader() {
             "index_causes(",
             "envelopes_at(",
             "seat_rows(",
+            "run_read(",
         ]
     );
     let named = naming(&workspace().join("crates/brokkr-runtime/src"), &readers);

@@ -38,6 +38,7 @@ mod budget_frame;
 mod capability_artifacts;
 mod capability_broker;
 mod capability_verbs;
+mod composed_view;
 mod contributing;
 mod decisions_index;
 mod delivered_by_brokkr;

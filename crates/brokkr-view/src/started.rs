@@ -7,6 +7,16 @@ pub(super) struct CarriedEntry {
     attempt_id: String,
 }
 
+impl CarriedEntry {
+    /// The entry a start records of `member`, carried from `attempt_id`.
+    pub(super) fn of(member: &str, attempt_id: &str) -> CarriedEntry {
+        CarriedEntry {
+            member: member.to_string(),
+            attempt_id: attempt_id.to_string(),
+        }
+    }
+}
+
 /// The attempt where a carried verdict settled, and its place among the phase's attempts.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CarriedFrom {
@@ -61,7 +71,7 @@ fn carried_entries(payload: &Value) -> Vec<CarriedEntry> {
 
 pub(super) fn status_of(part: &Build, effect: &EffectFacts) -> (&'static str, &'static str) {
     if part.carried.is_some() {
-        return ("carried", "completed");
+        return CARRIED;
     }
     let mut derived = if effect.open.is_some() {
         WORKING

@@ -323,6 +323,16 @@ pub fn unname(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch("DELETE FROM meta WHERE key = 'journal_id'")
 }
 
+/// The plan SQLite takes for `run_id`'s trail read (decision 0089 ruling
+/// 9), each step's detail in order: what a heap test asserts of the
+/// journal it measures.
+pub fn trail_plan(store: &Store, run_id: &str) -> rusqlite::Result<Vec<String>> {
+    let sql = format!("EXPLAIN QUERY PLAN {}", *crate::event_index::TRAIL);
+    let mut statement = store.conn.prepare(&sql)?;
+    let steps = statement.query_map([run_id], |row| row.get(3))?;
+    steps.collect()
+}
+
 /// Take the seq guard (#354) off a journal, leaving it as a journal
 /// written before the guard existed: one that may hold a row at a seq
 /// that is not a position. Opening the journal read-write restores it.

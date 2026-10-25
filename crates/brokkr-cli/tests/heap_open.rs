@@ -13,98 +13,30 @@ mod budgets;
 mod grown;
 #[path = "heap/measure.rs"]
 mod measure;
+#[path = "heap/stretched.rs"]
+mod stretched;
 
 use std::path::{Path, PathBuf};
 
 use brokkr_core::envelope::EventEnvelope;
-use brokkr_store::test_support::{self, Generated, Width};
 use brokkr_store::Store;
 use measure::{peak_of, sqlite_memory};
-
-/// The clock the generated runs beside the opened one are stamped by.
-const NOW: &str = "2026-10-20T00:00:00Z";
-
-/// How long the stretched envelope's text is: a mebibyte.
-const STRETCH: usize = 1 << 20;
-
-/// What SQLite's high-water may grow past the stretched envelope itself:
-/// its allocator and page cache around one large row, within ruling 9's
-/// "the page cache, its statements and the largest envelope". CI's macOS
-/// leg measured the envelope plus 13,296 B (1,061,872 B); Linux measures
-/// within the envelope.
-const SQLITE_SLACK: u64 = 64 * 1024;
+use stretched::{median_micros, Stretch, SQLITE_SLACK, STRETCH};
 
 /// The seq of the envelope stretched: the run's middle.
 const STRETCHED: usize = grown::EVENTS / 2;
 
-/// The generated runs that bring a journal holding the grown run to
-/// `events` events: the fleet's 2,000, the remainder on the first.
-fn beside(events: usize) -> Vec<Generated> {
-    let others = events - grown::EVENTS;
-    let mut runs = test_support::fleet(NOW, (others / 2_000) as u64, Width::Narrow);
-    runs[0].events += (others % 2_000) as u64;
-    runs
-}
-
-/// How the grown run's middle envelope is stretched, if it is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Stretch {
-    /// As the grown run holds it.
-    Unstretched,
-    /// A run of `s`, which JSON writes as it stands, so the parser copies
-    /// it once, into the string it keeps.
-    Plain,
-    /// A quote and a backslash, a run of `s`, and a newline, the three
-    /// written as escapes, so the parser copies the text through its
-    /// scratch buffer before the string it keeps. The shape costs the
-    /// parser most: the run lands in the buffer whole and the newline
-    /// after it grows the buffer past the text, where many short escapes
-    /// grow it a little at a time.
-    Escaped,
-}
-
-impl Stretch {
-    /// Text that JSON writes in exactly `room` bytes between its quotes.
-    fn text(self, room: usize) -> String {
-        match self {
-            Stretch::Unstretched => String::new(),
-            Stretch::Plain => "s".repeat(room),
-            // The quote and the backslash are written in four bytes, the
-            // newline in two.
-            Stretch::Escaped => format!("\"\\{}\n", "s".repeat(room - 6)),
-        }
-    }
-}
-
 /// The grown run, chained, its middle envelope's text stretched to
 /// exactly [`STRETCH`] bytes unless it is unstretched.
 fn opened_run(stretch: Stretch) -> Vec<EventEnvelope> {
-    let stretched = stretch != Stretch::Unstretched;
-    let mut events = grown::journal();
-    if stretched {
-        let event = &mut events[STRETCHED - 1];
-        event.payload["stretch"] = "".into();
-        let text = serde_json::to_string(event).unwrap().len();
-        event.payload["stretch"] = stretch.text(STRETCH - text).into();
-    }
-    let events = grown::chained(events);
-    let text = serde_json::to_string(&events[STRETCHED - 1]).unwrap().len();
-    assert_eq!(text == STRETCH, stretched, "the stretched envelope's text");
-    events
+    stretched::run_stretched(grown::journal(), STRETCHED, "stretch", stretch)
 }
 
 /// A journal under `dir` named `name` of `events` events: the grown run,
 /// stretched as `stretch` says, and the generated runs beside it, written
 /// in seconds.
 fn journal(dir: &Path, name: &str, events: usize, stretch: Stretch) -> PathBuf {
-    let db = dir.join(name);
-    let started = std::time::Instant::now();
-    let store = Store::open(&db).unwrap();
-    test_support::generate(&store, &beside(events)).unwrap();
-    drop(store);
-    grown::planted(&db, &opened_run(stretch));
-    eprintln!("{name}: {events} events in {:?}", started.elapsed());
-    db
+    stretched::journal(dir, name, events, &opened_run(stretch))
 }
 
 /// What opening the grown run cost, from its read-only open to its
@@ -130,19 +62,6 @@ fn opened(db: &Path) -> Cost {
         brokkr,
         sqlite: u64::try_from(high - base).unwrap(),
     }
-}
-
-/// The median of eleven timed reads, in microseconds.
-fn median_micros(mut read: impl FnMut()) -> u128 {
-    let mut times: Vec<u128> = (0..11)
-        .map(|_| {
-            let started = std::time::Instant::now();
-            read();
-            started.elapsed().as_micros()
-        })
-        .collect();
-    times.sort_unstable();
-    times[times.len() / 2]
 }
 
 /// Ruling 9 on opening a run: Brokkr's peak to open the grown run of
@@ -201,6 +120,11 @@ fn opening_a_run_holds_one_envelope_at_a_time() {
     assert!(
         brokkr <= 256 * 1024,
         "the budget {brokkr} is past ruling 9's 256 KiB"
+    );
+    assert_eq!(
+        sqlite,
+        measure::SQLITE_CAP,
+        "SQLite's budget is the fleet's cap on every host"
     );
     assert!(
         brokkr <= run_bytes / 10,

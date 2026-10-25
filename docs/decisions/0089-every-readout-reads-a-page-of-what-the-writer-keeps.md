@@ -938,7 +938,7 @@ model the writer keeps in the journal's own file and transaction.
 
    | Readout | Time | Live heap | Bound by | Binding |
    |---|---|---|---|---|
-   | The run view, its first screen | 50 ms, its opening included | Brokkr's: 256 KiB and the run's control envelopes as parsed (24,885 B for 25, measured), after an opening that holds one envelope at a time. SQLite's: the page cache, its statements and the largest of its control envelopes, its summary row's whole last columns and its acknowledgement's whole pair, each read by key (ruling 2) | its opening's events, then the run's control events | `heap_run_view.rs`: the same run in a 10,000- and a 1,000,000-event journal, peaks equal to the byte, and with one park's reason stretched to 1 MiB; the trail's plan on the partial index |
+   | The run view, its first screen | 50 ms, its opening included | Brokkr's: 256 KiB and the run's control envelopes as parsed (24,885 B for 25, measured), plus two copies of a park's reason, the fold's and the view's summary's (amended below), after an opening that holds one envelope at a time. SQLite's: the page cache, its statements and the largest of its control envelopes, its summary row's whole last columns and its acknowledgement's whole pair, each read by key (ruling 2) | its opening's events, then the run's control events | `heap_run_view.rs`: the same run in a 10,000- and a 1,000,000-event journal, peaks equal to the byte, and with one park's reason stretched to 1 MiB; the trail's plan on the partial index |
    | The seat view, a page of 50 checkpoints | 50 ms, its opening included | Brokkr's: 256 KiB and the largest checkpoint body on the page, each parsed into its row and dropped, after its opening. SQLite's: the page cache, its statements and the largest checkpoint envelope on the page | its opening's events, then the page's checkpoints | `heap_seat_view.rs`, the same two journals, peaks equal, and with one checkpoint on the page stretched to 1 MiB; the stream index's plan |
    | `costs`, `compare` | 50 ms, their openings included | Brokkr's: 256 KiB for two runs of 100 seat rows each, about 200 B a row estimated, after their openings. SQLite's: their openings' | their openings' events, then the runs' seats | `heap_costs.rs`, the same two journals, peaks equal |
    | Opening a run, chain verified | about 2.5 µs an event | Brokkr's: one envelope at a time, at most 256 KiB and the largest envelope when it is one or a few long strings, or about three times it when their text carries escapes; an envelope of many short strings costs its parsed size besides (amended below). SQLite's: the page cache, its statements and the largest envelope | the run's events | `heap_open.rs`: a 7,510-event run, peaks equal in both journals, and with one envelope stretched to 1 MiB of plain text, and of escaped text in both journals, peaks equal |
@@ -988,6 +988,34 @@ model the writer keeps in the journal's own file and transaction.
    the seat view parse their envelopes the same way, so their heap tests
    stretch with escaped text too, and their stories measure their
    bounds. SQLite's share is unchanged.
+
+   *Amended, 2026-10-25 (operator, recorded on #753):* the run view's
+   first screen holds a park's reason three
+   times, not once: in the trail's envelope as parsed, in the fold of the
+   trail (`RunState`'s park reason, which brokkr-core's fold copies from
+   the payload), and in the view's `Summary`, which brokkr-view copies
+   from the fold. So with the
+   grown run parked at its head and its park's reason a mebibyte, the
+   first screen's peak grows over the same run parked unstretched by
+   3,144,126 B when the reason is plain and 3,144,119 B when it carries
+   escapes (248,757 B unstretched), against 3,145,728 B for three
+   mebibytes; the escaped reason costs no more, since the trail's
+   envelopes parse from the text SQLite holds and the parser's scratch
+   copy is dropped before the fold's and the summary's are made.
+   SQLite's high-water grows by 1,045,840 B on Linux, within the
+   envelope, and `heap_run_view.rs` holds it to the envelope and 64 KiB
+   of slack, the allocator and page cache around the row, which CI's
+   macOS leg measured past the envelope by 13,296 B in opening a run
+   (1,061,872 B). The peaks stay bounded by the run's control envelopes, never by the
+   journal. So the run view row's Brokkr share is 256 KiB and the run's
+   control envelopes as parsed, plus two copies of its park's reason,
+   and `heap_run_view.rs` holds the stretched growth over the
+   unstretched peak to at most three reasons and past one, within its
+   budget (`run-view-stretched`, the measured peak plus a tenth,
+   3,732,172 B).
+   Holding the reason once would move brokkr-core's fold to borrow it
+   from the envelope and `brokkr_view::Summary` to share it, a change of
+   their public API that slice 2b's story does not make.
 
    **The aggregates are the one exception, and it is put to the
    operator.** Each answers a question about every run in a window: what

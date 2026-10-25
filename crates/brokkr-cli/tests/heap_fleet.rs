@@ -255,7 +255,7 @@ fn a_fleet_page_costs_the_same_heap_at_every_journal_size() {
     for (name, cap) in [
         ("fleet-page", 256 * 1024),
         ("fleet-page-at-every-bound", 640 * 1024),
-        ("fleet-page-sqlite", 500 * 1024),
+        ("fleet-page-sqlite", measure::SQLITE_CAP),
     ] {
         let budget = budgets::budget_named(name);
         assert!(

@@ -6,6 +6,13 @@
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
+/// SQLite's budget on every host, 500 KiB: the fleet's by the operator's
+/// ruling of 2026-10-21 on #753, the cap itself and not a measured peak
+/// plus a tenth, since CI's macOS leg measures SQLite's high-water about a
+/// tenth above Linux. Opening a run and the run view's first screen hold
+/// SQLite's budget to it too.
+pub(crate) const SQLITE_CAP: u64 = 500 * 1024;
+
 /// SQLite's memory now, and its high-water since the last reset, which
 /// `reset` starts again from now.
 pub(crate) fn sqlite_memory(reset: bool) -> (i64, i64) {

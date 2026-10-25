@@ -9,6 +9,7 @@
 use std::collections::BTreeMap;
 
 use brokkr_core::policy::{RuleSeverity, Severity};
+use brokkr_core::seat::row::{models, SeatRow};
 use brokkr_core::{EventEnvelope, EventType};
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -139,6 +140,8 @@ pub struct Concluded {
 
 /// A visit under construction.
 struct Entered {
+    /// The seq of its `phase/entered`.
+    seq: u64,
     phase: String,
     entered_at: String,
     last_at: String,
@@ -160,26 +163,53 @@ struct Reading<'a> {
 
 /// The dashboard of the run `events` journal: [`RunView`]'s, built with it.
 pub(crate) fn dashboard(events: &[EventEnvelope]) -> Dashboard {
-    let mut reading = Reading::default();
-    for event in events {
-        reading.read(event);
+    Reading::of(events).read_out(events)
+}
+
+/// The dashboard of a run read by its `trail` and its seat `rows` (#753;
+/// decision 0089 slice 2b): each visit's models the ones its requests'
+/// rows list, from its entry to the next, and its last visit ending at
+/// `last_at`, the stamp of the run's head.
+pub(crate) fn kept(trail: &[EventEnvelope], rows: &[SeatRow], last_at: &str) -> Dashboard {
+    let mut reading = Reading::of(trail);
+    let entered = reading.visits.iter().map(|visit| visit.seq);
+    let ends: Vec<u64> = entered.skip(1).chain([u64::MAX]).collect();
+    for (visit, to) in reading.visits.iter_mut().zip(ends) {
+        visit.models = models(rows, visit.seq, to).into_iter().collect();
     }
-    let path = reading.visits.into_iter().map(|visit| Visit {
-        residual: visit.decision.as_ref().and_then(|ruling| ruling.residual),
-        rule: visit.decision.map(|ruling| ruling.rule),
-        model: joined(visit.models.iter().map(String::as_str).collect()),
-        duration: fmt_dur(&visit.entered_at, &visit.last_at),
-        phase: visit.phase,
-        ruled: visit.ruled,
-    });
-    Dashboard {
-        run_id: events.first().map(|event| event.run_id.clone()),
-        path: path.collect(),
-        ..reading.dashboard
+    if let Some(visit) = reading.visits.last_mut() {
+        last_at.clone_into(&mut visit.last_at);
     }
+    reading.read_out(trail)
 }
 
 impl<'a> Reading<'a> {
+    /// The one walk over `events`.
+    fn of(events: &'a [EventEnvelope]) -> Reading<'a> {
+        let mut reading = Reading::default();
+        for event in events {
+            reading.read(event);
+        }
+        reading
+    }
+
+    /// The dashboard this walk read of the run `events` journal.
+    fn read_out(self, events: &[EventEnvelope]) -> Dashboard {
+        let path = self.visits.into_iter().map(|visit| Visit {
+            residual: visit.decision.as_ref().and_then(|ruling| ruling.residual),
+            rule: visit.decision.map(|ruling| ruling.rule),
+            model: joined(visit.models.iter().map(String::as_str).collect()),
+            duration: fmt_dur(&visit.entered_at, &visit.last_at),
+            phase: visit.phase,
+            ruled: visit.ruled,
+        });
+        Dashboard {
+            run_id: events.first().map(|event| event.run_id.clone()),
+            path: path.collect(),
+            ..self.dashboard
+        }
+    }
+
     fn read(&mut self, event: &'a EventEnvelope) {
         if let Some(visit) = self.visits.last_mut() {
             visit.last_at.clone_from(&event.recorded_at);
@@ -216,6 +246,7 @@ impl<'a> Reading<'a> {
     fn enter(&mut self, event: &EventEnvelope) {
         let phase = display_or_mark(event.payload.get("phase"));
         self.visits.push(Entered {
+            seq: event.seq,
             phase,
             entered_at: event.recorded_at.clone(),
             last_at: event.recorded_at.clone(),

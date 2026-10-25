@@ -50,7 +50,7 @@ pub use tokens::TokenCells;
 pub use analytics::Range;
 pub use analytics::{analytics, Analytics, AnalyticsError, AnalyticsHearth, AnalyticsRun, Query};
 pub use brokkr_core::policy::RuleSeverity;
-use brokkr_core::seat::meter::{self, sum_usage, Meter, Metering};
+use brokkr_core::seat::meter;
 use brokkr_core::seat::{
     add_token, boundary_entries, count_item, finish_usage, stamp_of, token_usage, transcript_of,
     BoundaryEntry,
@@ -61,11 +61,15 @@ use clarify::{clarify, recipe, worktree};
 use commands::{commands, unavailable};
 pub use commands::{member_retry_refusal, operator_commands, operator_refusal};
 mod started;
+mod told;
+use told::{Finish, Told};
+mod composed;
 pub use commands::{Admission, Command, CommandRefusal, Disabled, Offered, Unavailable};
 pub use compare::{
     first_divergence, resolution_divergence, resolutions, seat_costs, FirstDivergence, Resolution,
     SeatCost, Sides,
 };
+pub use composed::{composed_view, Parts};
 use dashboard::dashboard;
 pub use dashboard::{working_checkpoints, Concluded, Dashboard, Decision, Outcome, Ruled, Visit};
 pub use fleet::{
@@ -634,14 +638,19 @@ fn type_tail(type_str: &str) -> &str {
 /// always has a class, so no surface needs an unreachable fallback.
 fn terminal_status(event_type: EventType) -> Option<(&'static str, &'static str)> {
     match event_type {
-        EventType::EffectSucceeded => Some(("succeeded", "completed")),
-        EventType::EffectFailed => Some(("failed", "stopped")),
-        EventType::EffectIndeterminate => Some(("indeterminate", "awaiting_operator")),
+        EventType::EffectSucceeded => Some(SUCCEEDED),
+        EventType::EffectFailed => Some(FAILED),
+        EventType::EffectIndeterminate => Some(INDETERMINATE),
         _ => None,
     }
 }
 
 const WORKING: (&str, &str) = ("working", "running");
+const SUCCEEDED: (&str, &str) = ("succeeded", "completed");
+const FAILED: (&str, &str) = ("failed", "stopped");
+const INDETERMINATE: (&str, &str) = ("indeterminate", "awaiting_operator");
+/// A member its effect's last start carries (decision 0093).
+const CARRIED: (&str, &str) = ("carried", "completed");
 
 /// The allowlist a panel member's own outcome must pass to override the
 /// effect's terminal status. `working` is in it, so a member really can
@@ -649,9 +658,9 @@ const WORKING: (&str, &str) = ("working", "running");
 fn outcome_status(outcome: &str) -> Option<(&'static str, &'static str)> {
     match outcome {
         "working" => Some(WORKING),
-        "succeeded" => Some(("succeeded", "completed")),
-        "failed" => Some(("failed", "stopped")),
-        "indeterminate" => Some(("indeterminate", "awaiting_operator")),
+        "succeeded" => Some(SUCCEEDED),
+        "failed" => Some(FAILED),
+        "indeterminate" => Some(INDETERMINATE),
         _ => None,
     }
 }
@@ -983,6 +992,8 @@ struct Build {
     member_outcome: Option<Value>,
     member_finished_at: Option<String>,
     checkpoints: Vec<(Value, String, Option<String>)>,
+    /// What its records told, typed once the scan has read them all.
+    told: Told,
     status: &'static str,
     status_class: &'static str,
 }
@@ -1026,6 +1037,7 @@ fn ensure(scan: &mut Scan, slot: usize, effect_id: &str, member: Option<&str>) -
         member_outcome: None,
         member_finished_at: None,
         checkpoints: Vec::new(),
+        told: Told::default(),
         status: WORKING.0,
         status_class: WORKING.1,
     });
@@ -1193,6 +1205,7 @@ fn scan_participants(events: &[EventEnvelope]) -> Scan {
     for part in &mut scan.parts {
         let effect = &scan.effects[part.effect_index];
         (part.status, part.status_class) = started::status_of(part, effect);
+        part.told = Told::scanned(part);
     }
     scan
 }
@@ -1366,17 +1379,17 @@ fn activity_for(
     // also what created it, so there is always one — and the seat's at
     // the effect's first attempt.
     let start_at: Option<&str> = if part.member.is_some() {
-        part.checkpoints.first().map(|(_, at, _)| at.as_str())
+        part.told.first_at.as_deref()
     } else {
         effect.started_at.as_deref()
     };
     // A member with no panel-member-finished (a sequence's final or exec
     // step) ends at its last checkpoint once the effect is done.
     let end_at: Option<&str> = if part.member.is_some() {
-        match part.member_finished_at.as_deref() {
-            Some(at) => Some(at),
-            None => match part.checkpoints.last() {
-                Some((_, at, _)) if effect.open.is_none() && effect.terminal.is_some() => Some(at),
+        match &part.told.finish {
+            Some(finish) => Some(finish.at.as_str()),
+            None => match part.told.last_at.as_deref() {
+                Some(at) if effect.open.is_none() && effect.terminal.is_some() => Some(at),
                 _ => None,
             },
         }
@@ -1400,26 +1413,21 @@ fn activity_for(
         }
     }
     let live = if part.status == WORKING.0 {
-        part.last_turn.as_ref()
+        part.told.turn.as_ref()
     } else {
         None
     };
-    if let Some(checkpoint) = live {
-        let tool = js::to_display(checkpoint.get("tool"));
-        let target = match checkpoint.get("target") {
-            Some(Value::String(target)) if !target.is_empty() => Some(target.as_str()),
-            _ => None,
-        };
-        let (short, full) = target_cells(target);
+    if let Some(turn) = live {
+        let (short, full) = target_cells(turn.target.as_deref());
         let text = match &short {
-            Some(short) => format!("{tool} · {short}"),
-            None => tool.clone(),
+            Some(short) => format!("{} · {short}", turn.tool),
+            None => turn.tool.clone(),
         };
         return Activity {
             text,
             absent: false,
             note: None,
-            tool: Some(tool),
+            tool: Some(turn.tool.clone()),
             target_short: short,
             target_full: full,
         };
@@ -1517,16 +1525,15 @@ fn checkpoint_rows(part: &Build) -> Vec<CheckpointRow> {
 fn terminal_line(events: &[EventEnvelope], scan: &Scan, part: &Build) -> Cell {
     let effect = &scan.effects[part.effect_index];
     if part.member.is_some() {
-        if let Some(finished_at) = &part.member_finished_at {
-            if !matches!(part.member_outcome, Some(Value::Null)) {
-                return cell_of(
-                    Some(format!(
-                        "panel-member-finished · {} · {finished_at}",
-                        js::to_display(part.member_outcome.as_ref())
-                    )),
-                    None,
-                );
-            }
+        if let Some(Finish {
+            at,
+            outcome: Some(outcome),
+        }) = &part.told.finish
+        {
+            return cell_of(
+                Some(format!("panel-member-finished · {outcome} · {at}")),
+                None,
+            );
         }
     }
     match effect.terminal_index {
@@ -1546,23 +1553,6 @@ fn terminal_line(events: &[EventEnvelope], scan: &Scan, part: &Build) -> Cell {
     }
 }
 
-/// Every attempt's reported cost, summed in journal order.
-fn spent(part: &Build) -> Option<f64> {
-    let mut total = None;
-    for (checkpoint, _, _) in &part.checkpoints {
-        if let Some(cost) = reported_cost(checkpoint) {
-            total = Some(total.unwrap_or(0.0) + cost);
-        }
-    }
-    total
-}
-
-/// The last attempt's finishing cost alone: what a retry's own session
-/// reported, labelled apart from the sum so neither is read as the other.
-fn last_attempt_cost(part: &Build) -> Option<f64> {
-    part.session.as_ref().and_then(reported_cost)
-}
-
 /// A seat's own figure, or — when it has none — the Σ of its members'
 /// in participant insertion order: `f64` addition is not associative
 /// and the console sums in map order. The flag says which it is.
@@ -1576,18 +1566,6 @@ fn own_or_members(own: Option<f64>, members: &[Option<f64>]) -> (Option<f64>, bo
         total += value;
     }
     (Some(total), true)
-}
-
-fn session_usage(part: &Build) -> Option<TokenUsage> {
-    let checkpoints = part.checkpoints.iter();
-    let mut meters: Vec<Meter> = checkpoints
-        .map(|(checkpoint, _, _)| Meter::of(checkpoint))
-        .collect();
-    meter::once(&mut meters);
-    let session = part.session.as_ref().map(Meter::of);
-    let by = Metering::of(&meters, session.as_ref());
-    let turns = meters.iter().filter_map(|meter| meter.counted(by, false));
-    sum_usage(turns.chain(session.and_then(|session| session.counted(by, true))))
 }
 
 fn usage_text(usage: &TokenUsage, prefix: &str) -> String {
@@ -1654,25 +1632,28 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
                 .collect()
         };
         let (cost, cost_aggregated) = own_or_members(
-            spent(part),
-            &members.iter().map(|other| spent(other)).collect::<Vec<_>>(),
-        );
-        let (last_cost, _) = own_or_members(
-            last_attempt_cost(part),
+            part.told.spent,
             &members
                 .iter()
-                .map(|other| last_attempt_cost(other))
+                .map(|other| other.told.spent)
+                .collect::<Vec<_>>(),
+        );
+        let (last_cost, _) = own_or_members(
+            part.told.last_cost,
+            &members
+                .iter()
+                .map(|other| other.told.last_cost)
                 .collect::<Vec<_>>(),
         );
         let attempts = scan.effects[part.effect_index].attempts;
-        let mut usage = session_usage(part);
+        let mut usage = part.told.usage.clone();
         let mut turns = part.turns;
         let mut usage_aggregated = false;
         let mut turns_aggregated = false;
         if !members.is_empty() {
             let member_usage: Vec<TokenUsage> = members
                 .iter()
-                .filter_map(|other| session_usage(other))
+                .filter_map(|other| other.told.usage.clone())
                 .collect();
             let member_turns: Vec<u64> = members.iter().filter_map(|other| other.turns).collect();
             if usage.is_none() && !member_usage.is_empty() {
@@ -1754,13 +1735,7 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
             .filter(|transcript| transcript.kind == "claude-session")
             .map(|transcript| transcript.locator.clone())
             .filter(|locator| !locator.is_empty())
-            .or_else(|| {
-                part.session
-                    .as_ref()
-                    .and_then(|session| session.get("session_id"))
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-            });
+            .or_else(|| part.told.session_id.clone());
         let (usage_cell, tokens) = usage_cells(usage.as_ref(), usage_prefix);
         let carried_from = started::carried_from(events, scan, part);
         let activity = started::activity(events, scan, part, members.len(), carried_from.as_ref());
@@ -1976,22 +1951,23 @@ fn live_lines(events: &[EventEnvelope]) -> Vec<LiveLine> {
     if rows.is_empty() {
         rows.push((seat, None));
     }
-    rows.iter()
-        .map(|(label, checkpoint)| {
-            let text = match checkpoint {
-                Some(checkpoint) => format!(
-                    "{label} · turn {} · {}",
-                    js::to_display(checkpoint.get("turn")),
-                    js::to_display(checkpoint.get("tool"))
-                ),
-                None => format!("{label} · working"),
-            };
-            LiveLine {
-                label: label.clone(),
-                text,
-            }
-        })
+    let shown = |checkpoint: Value| {
+        let shown = |key: &str| js::to_display(checkpoint.get(key));
+        (shown("turn"), shown("tool"))
+    };
+    rows.into_iter()
+        .map(|(label, checkpoint)| live_line(label, checkpoint.map(shown)))
         .collect()
+}
+
+/// A live line as the trail paints it: `label`, and its last `seat-turn`'s
+/// turn and tool as shown, or `working` while it has none.
+fn live_line(label: String, turn: Option<(String, String)>) -> LiveLine {
+    let text = match turn {
+        Some((turn, tool)) => format!("{label} · turn {turn} · {tool}"),
+        None => format!("{label} · working"),
+    };
+    LiveLine { label, text }
 }
 
 // ------------------------------------------------------- inner topology
@@ -2005,16 +1981,30 @@ struct Buckets<'a> {
     /// lookup total — a participant always exists for a requested effect,
     /// so a "no participant" fallback would be an uncoverable branch.
     newest: BTreeMap<&'a str, (&'a str, &'a str)>,
-    /// Effect id -> its `effect/checkpointed` events, in journal order.
-    checkpoints: BTreeMap<&'a str, Vec<&'a Value>>,
+    /// Effect id -> the sequence steps its checkpoints finished and the
+    /// member tags they carry, each once, in first order.
+    listed: BTreeMap<&'a str, (Vec<String>, Vec<String>)>,
     /// Effect id -> every phase it was requested in (scope membership).
     effect_phases: BTreeMap<&'a str, Vec<String>>,
+}
+
+/// A checkpoint's `payload` as its effect's lists read it: a finished
+/// step's name, or else the member it tags, each listed once.
+fn listed((finished, tags): &mut (Vec<String>, Vec<String>), payload: &Value) {
+    let checkpoint = payload.get("checkpoint").unwrap_or(&Value::Null);
+    let (list, name) = match field(checkpoint, "step") {
+        Some("sequence-step-finished") => (finished, field(checkpoint, "step_name")),
+        _ => (tags, field(checkpoint, "member")),
+    };
+    if let Some(name) = name.filter(|name| !list.iter().any(|known| known == name)) {
+        list.push(name.to_string());
+    }
 }
 
 fn bucket(events: &[EventEnvelope]) -> Buckets<'_> {
     let mut buckets = Buckets {
         newest: BTreeMap::new(),
-        checkpoints: BTreeMap::new(),
+        listed: BTreeMap::new(),
         effect_phases: BTreeMap::new(),
     };
     for event in events {
@@ -2034,11 +2024,7 @@ fn bucket(events: &[EventEnvelope]) -> Buckets<'_> {
             }
             EventType::EffectCheckpointed => {
                 if let Some(effect_id) = field(payload, "effect_id") {
-                    buckets
-                        .checkpoints
-                        .entry(effect_id)
-                        .or_default()
-                        .push(payload);
+                    listed(buckets.listed.entry(effect_id).or_default(), payload);
                 }
             }
             _ => {}
@@ -2052,9 +2038,7 @@ fn bucket(events: &[EventEnvelope]) -> Buckets<'_> {
 /// effect's terminal status; otherwise the effect's terminal decides,
 /// else the node is active — checkpoints arriving with no terminal yet.
 fn node_state(part: Option<&Build>, step_done: bool) -> (&'static str, &'static str) {
-    let outcome = part
-        .and_then(|part| part.member_outcome.as_ref())
-        .and_then(Value::as_str);
+    let outcome = part.and_then(|part| part.told.word.as_deref());
     if let Some(state) = outcome.and_then(outcome_state) {
         return state;
     }
@@ -2097,37 +2081,17 @@ fn make_node(scan: &Scan, effect_id: &str, label: &str, tag: Option<&str>, done:
 /// Inner topology for one phase, from its NEWEST observed effect. Only
 /// observed events count: declared-but-unstarted topology is never
 /// invented. An empty result means the phase has no observed effect.
-#[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
 fn inner_columns(scan: &Scan, buckets: &Buckets, phase: &str) -> Vec<Column> {
     let Some((effect_id, seat)) = buckets.newest.get(phase).copied() else {
         return Vec::new();
     };
-    let mut finished: Vec<String> = Vec::new();
-    let mut tags: Vec<String> = Vec::new();
-    if let Some(payloads) = buckets.checkpoints.get(effect_id) {
-        for payload in payloads {
-            let checkpoint = match payload.get("checkpoint") {
-                Some(checkpoint) => checkpoint,
-                None => &Value::Null,
-            };
-            if checkpoint.get("step").and_then(Value::as_str) == Some("sequence-step-finished") {
-                if let Some(name) = checkpoint.get("step_name").and_then(Value::as_str) {
-                    if !finished.iter().any(|step| step == name) {
-                        finished.push(name.to_string());
-                    }
-                }
-            } else if let Some(member) = checkpoint.get("member").and_then(Value::as_str) {
-                if !tags.iter().any(|tag| tag == member) {
-                    tags.push(member.to_string());
-                }
-            }
-        }
-    }
+    let unlisted = (Vec::new(), Vec::new());
+    let (finished, tags) = buckets.listed.get(effect_id).unwrap_or(&unlisted);
     let mut columns: Vec<Column> = Vec::new();
     if !finished.is_empty() {
         let mut steps: Vec<String> = finished.clone();
         let mut step_tags: Vec<(String, Vec<String>)> = Vec::new();
-        for tag in &tags {
+        for tag in tags {
             let (step, tagged) = match tag.find(':') {
                 Some(cut) => (tag[..cut].to_string(), true),
                 None => (tag.clone(), false),
@@ -2317,20 +2281,28 @@ fn label_of(event: &EventEnvelope) -> Cell {
     cell_of(token.map(str::to_string), None)
 }
 
+/// Each event's seq by its id, the last where an id repeats: what names a
+/// row's cause. `verify_chain` pins `seq == i + 1`, so seq 0 is
+/// unrepresentable in a loaded journal and the console's truthiness check
+/// on the looked-up seq has nothing to guard. A total map is the whole rule.
+fn ids(events: &[EventEnvelope]) -> BTreeMap<&str, u64> {
+    let mut by_id: BTreeMap<&str, u64> = BTreeMap::new();
+    for event in events {
+        by_id.insert(event.event_id.as_str(), event.seq);
+    }
+    by_id
+}
+
+/// The journal's rows for `events`, each caused by the seq `cause` names
+/// for its causation id.
 #[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
 fn journal_rows(
     events: &[EventEnvelope],
     scan: &Scan,
     buckets: &Buckets,
     marks: &BTreeMap<u64, Superseded>,
+    cause: impl Fn(&str) -> Option<u64>,
 ) -> Vec<JournalRow> {
-    // `verify_chain` pins `seq == i + 1`, so seq 0 is unrepresentable in
-    // a loaded journal and the console's truthiness check on the looked-up
-    // seq has nothing to guard. A total map is the whole rule.
-    let mut by_id: BTreeMap<&str, u64> = BTreeMap::new();
-    for event in events {
-        by_id.insert(event.event_id.as_str(), event.seq);
-    }
     events
         .iter()
         .map(|event| {
@@ -2376,10 +2348,7 @@ fn journal_rows(
             }
             JournalRow {
                 seq: event.seq,
-                causation_seq: event
-                    .causation_id
-                    .as_deref()
-                    .and_then(|id| by_id.get(id).copied()),
+                causation_seq: event.causation_id.as_deref().and_then(&cause),
                 event_type: event.event_type.as_str().to_string(),
                 recorded_at: event.recorded_at.clone(),
                 in_trail: !TRAIL_SKIP.contains(&event.event_type),
@@ -2465,11 +2434,42 @@ fn ruling_of(decision: Option<&Decided>, superseded: Option<Superseded>) -> Opti
 pub fn run_view(events: &[EventEnvelope], state: Option<&RunState>) -> RunView {
     let scan = scan_participants(events);
     let buckets = bucket(events);
+    let marks = supersedes(events);
+    let by_id = ids(events);
+    let cause = |id: &str| by_id.get(id).copied();
+    let read = Read {
+        live: live_lines(events),
+        journal: journal_rows(events, &scan, &buckets, &marks, cause),
+        event_count: events.len(),
+        dashboard: dashboard(events),
+    };
+    viewed(events, &scan, &buckets, &marks, read, state)
+}
+
+/// What a run view reads beside its trail: the live block, the journal's
+/// rows, the event count and the dashboard, read whole or by a page.
+pub(crate) struct Read {
+    pub(crate) live: Vec<LiveLine>,
+    pub(crate) journal: Vec<JournalRow>,
+    pub(crate) event_count: usize,
+    pub(crate) dashboard: Dashboard,
+}
+
+/// The run view of the run whose trail `events` holds: its participants
+/// as `scan` read them, its effects as `buckets` holds them, its
+/// supersedes as `marks`, and the rest as `read`.
+fn viewed(
+    events: &[EventEnvelope],
+    scan: &Scan,
+    buckets: &Buckets,
+    marks: &BTreeMap<u64, Superseded>,
+    read: Read,
+    state: Option<&RunState>,
+) -> RunView {
     // The ruling the summary carries is the LAST one ruled, so that is
     // the seq an annotation must name for the header line to be marked
     // (decision 0047 ruling 3). Every other ruling's mark reaches the
     // reader through the trail row it was ruled on.
-    let marks = supersedes(events);
     let last_ruled = events
         .iter()
         .rev()
@@ -2484,14 +2484,14 @@ pub fn run_view(events: &[EventEnvelope], state: Option<&RunState>) -> RunView {
             state.and_then(|state| state.last_decision.as_ref()),
             last_ruled,
         ),
-        participants: participants(events, &scan),
-        live: live_lines(events),
-        phases: rail::phase_rail(events, &scan, &buckets, state),
+        participants: participants(events, scan),
+        live: read.live,
+        phases: rail::phase_rail(events, scan, buckets, state),
         notices: run_notices(events),
         boundary: run_boundary(events),
-        journal: journal_rows(events, &scan, &buckets, &marks),
-        event_count: events.len(),
-        dashboard: dashboard(events),
+        journal: read.journal,
+        event_count: read.event_count,
+        dashboard: read.dashboard,
         scopes: None,
         commands: state.map_or_else(Vec::new, commands),
         unavailable: state.map_or_else(Vec::new, |state| {

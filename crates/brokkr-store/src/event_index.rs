@@ -257,7 +257,7 @@ fn index_once(conn: &mut Connection, rows: &[Vec<Value>]) -> Result<(), StoreErr
 /// planner would take the primary key's range and filter the checkpoints
 /// out one by one, and a journal that lost the index refuses the read
 /// rather than reading it so.
-static TRAIL: LazyLock<String> = LazyLock::new(|| {
+pub(crate) static TRAIL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT seq FROM event_index INDEXED BY event_index_trail
          WHERE run_id = ?1 AND type <> '{CHECKPOINTED}' ORDER BY seq"
@@ -529,9 +529,13 @@ impl Store {
             let mut statement = self.conn.prepare_cached(ENVELOPE)?;
             seqs.iter()
                 .map(|seq| {
-                    let text: String =
-                        statement.query_row(params![run_id, *seq as i64], |row| row.get(0))?;
-                    Ok(serde_json::from_str(&text)?)
+                    // The row's text as SQLite holds it, borrowed, so the
+                    // parse is the one copy of the envelope, as the
+                    // opening's is.
+                    let parsed = statement.query_row(params![run_id, *seq as i64], |row| {
+                        Ok(serde_json::from_str(row.get_ref(0)?.as_str()?))
+                    })?;
+                    Ok(parsed?)
                 })
                 .collect()
         })
