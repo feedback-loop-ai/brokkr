@@ -204,8 +204,8 @@ pub(super) fn report_folder(
 /// engine-only home does not read and a launch that home refuses fail the
 /// report with their remedies; and a key only the operator's home gives, a
 /// source that cannot be told, a route whose variable nothing names, the
-/// served-home caveat and a workdir `.env` beside an unmodelled folder
-/// warn. No line holds a value.
+/// seats whose launch can't be read, the served-home caveat and a workdir
+/// `.env` beside an unmodelled folder warn. No line holds a value.
 fn report_keys(report: &mut Report, lines: &[Line]) {
     for line in lines {
         let (what, detail) = (line.what(), line.detail());
@@ -231,6 +231,7 @@ fn report_keys(report: &mut Report, lines: &[Line]) {
                 | Reach::Untold { .. }
                 | Reach::Undeclared { .. },
             )
+            | Line::Unmodelled(_)
             | Line::Served { .. }
             | Line::Workdir(_) => report.warn(&what, detail),
         }

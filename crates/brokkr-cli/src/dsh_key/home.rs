@@ -4,7 +4,9 @@
 //! the engine's isolation intent, read by the predicate dispatch seals it
 //! by ([`sealed_fence`]), the route its `--model` is served on and whether
 //! it carries a `--patch` route overlay. The seats are grouped by route and
-//! home, and each group is answered for the sources that home reads.
+//! home, and each group is answered for the sources that home reads. A
+//! seat whose launch the compile does not carry is named by its site, and
+//! leaves every other seat's answer standing.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -15,7 +17,7 @@ use brokkr_runtime::agents::Adapter;
 use brokkr_runtime::bundle::Bundle;
 use brokkr_runtime::engine::sealed_fence;
 
-use super::{keyed, reach, Line, Reach, Source, Sources};
+use super::{keyed, reach, reaches, with_caveats, Line, Reach, Source, Sources};
 use crate::render::Safe;
 
 /// The provider every dsh seat is hired from.
@@ -50,9 +52,7 @@ pub(crate) enum Home {
 impl Home {
     /// The home line's words for `seats`.
     pub(super) fn words(&self, seats: &[String]) -> String {
-        let seats = Safe::new(&format!("seats [{}]", seats.join(", ")))
-            .as_str()
-            .to_string();
+        let seats = named(seats);
         let engine = "its own engine-only home (decision 0065)";
         match self {
             Home::Operator => format!(
@@ -77,25 +77,37 @@ impl Home {
     }
 }
 
+/// The dsh seats of a compiled folder: each whose launch is read, and the
+/// sites of each whose launch can't be read so.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct Seats {
+    pub(crate) read: Vec<Seat>,
+    pub(crate) unread: BTreeSet<String>,
+}
+
 /// Each dsh seat of `compiled`, one per site and candidate its chain hires
-/// from dsh, read from the candidate's argv as the launch reads it. None
-/// where a dsh seat's launch can't be read so: an inline dsh site, whose
-/// argv the compile does not carry, or a candidate that pins no `--model`.
-pub(crate) fn seats(compiled: &Bundle) -> Option<Vec<Seat>> {
-    let mut seats = Vec::new();
+/// from dsh, read from the candidate's argv as the launch reads it. A dsh
+/// seat whose launch can't be read so, an inline dsh site, whose argv the
+/// compile does not carry, or a candidate that pins no `--model`, is
+/// named by its site alone, and every other seat is still read.
+pub(crate) fn seats(compiled: &Bundle) -> Seats {
+    let mut seats = Seats::default();
     for (label, facts) in &compiled.sites {
         let serves = facts
             .capabilities
             .as_ref()
             .map_or(&[][..], |site| &site.outcomes);
         if facts.chain.is_empty() && serves.iter().any(|outcome| outcome.provider == DSH) {
-            return None;
+            seats.unread.insert(label.clone());
         }
         for candidate in facts.chain.iter().filter(|link| link.provider == DSH) {
             let argv = &candidate.argv;
             let pinned = argv.iter().position(|part| part == "--model");
-            let model = pinned.and_then(|at| argv.get(at + 1))?;
-            seats.push(Seat {
+            let Some(model) = pinned.and_then(|at| argv.get(at + 1)) else {
+                seats.unread.insert(label.clone());
+                continue;
+            };
+            seats.read.push(Seat {
                 label: label.clone(),
                 model: model.clone(),
                 routed: argv.iter().any(|part| part == "--patch"),
@@ -103,7 +115,46 @@ pub(crate) fn seats(compiled: &Bundle) -> Option<Vec<Seat>> {
             });
         }
     }
-    Some(seats)
+    seats
+}
+
+/// The read seats' lines ([`homed`]), then, where any seat's launch can't
+/// be read, the line naming those seats' sites and, with its caveats
+/// ([`with_caveats`]), each route the adapter pins that no read seat rides.
+pub(super) fn modelled(adapter: &Adapter, seats: &Seats, sources: &Sources<'_>) -> Vec<Line> {
+    let mut lines = homed(adapter, &seats.read, sources);
+    if seats.unread.is_empty() {
+        return lines;
+    }
+    lines.push(Line::Unmodelled(seats.unread.iter().cloned().collect()));
+    let ridden: BTreeSet<&str> = seats
+        .read
+        .iter()
+        .map(|seat| keyed(adapter, &seat.model).0)
+        .collect();
+    let mut answers = reaches(adapter, sources);
+    answers.retain(|(reach, _)| !ridden.contains(reach.route()));
+    lines.extend(with_caveats(answers, sources.repo));
+    lines
+}
+
+/// The words of the line naming `seats`, the sites whose dsh launch can't
+/// be read from the compile.
+pub(super) fn unmodelled(seats: &[String]) -> String {
+    format!(
+        "Brokkr can't yet tell which home serves {}, since the compile carries no argv for \
+         an inline dsh site's launch and no model for a candidate that pins no --model; each \
+         route no other seat rides is asked of every source the operator's home reads, with its \
+         caveat",
+        named(seats)
+    )
+}
+
+/// `seats`, as a line names them.
+fn named(seats: &[String]) -> String {
+    Safe::new(&format!("seats [{}]", seats.join(", ")))
+        .as_str()
+        .to_string()
 }
 
 /// Seats by the route they ride and the home that serves them: their

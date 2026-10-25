@@ -47,13 +47,16 @@
 //! `brokkr_protocol::holds_dotenv`). A seat the decision refuses is named
 //! with its refusal.
 //!
-//! Where the folder did not compile, or holds an inline dsh site whose
-//! argv the compile does not carry, no seat is modelled: every route the
+//! Where the folder did not compile, no seat is modelled: every route the
 //! adapter pins carries [`Line::Served`], which says what that route's
 //! check asked ([`Asked`]; nothing, for a route that names no variable)
 //! and that the serving home can't be told; a key only the operator's home
 //! gives warns rather than reads ok, and a `<repo>/.env` beside the
-//! folder's dsh seats warns as [`Line::Workdir`].
+//! folder's dsh seats warns as [`Line::Workdir`]. A seat whose launch the
+//! compile does not carry (an inline dsh site, or a candidate pinning no
+//! `--model`) is named by its site in [`Line::Unmodelled`], every other
+//! seat keeps its home, and each route no read seat rides is checked as
+//! an unmodelled folder's is, with its caveat.
 //!
 //! [`patch`]'s second, narrower reader stays, the bend of decision 0071
 //! ruling 5 the operator accepted on 2026-10-25, until brokkr-protocol's
@@ -214,9 +217,12 @@ pub(crate) enum Line {
         seats: Vec<String>,
         home: Home,
     },
+    /// The sites of the folder's dsh seats whose launch can't be read from
+    /// its compile, so the home that serves them can't be told.
+    Unmodelled(Vec<String>),
     /// Whether the route's seats are served from the operator's home, or
-    /// from an engine-only one, can't be told, because no seat of the
-    /// folder was modelled; `asked` is what the route's check asked, none
+    /// from an engine-only one, can't be told, because no seat riding it
+    /// was modelled; `asked` is what the route's check asked, none
     /// where the route names no variable.
     Served {
         route: String,
@@ -279,6 +285,7 @@ impl Line {
             Line::Home { route, .. } | Line::Served { route, .. } => {
                 format!("dsh home {}", Safe::new(route).as_str())
             }
+            Line::Unmodelled(_) => "dsh home".to_string(),
             Line::Workdir(_) => "dsh workdir".to_string(),
         }
     }
@@ -288,6 +295,7 @@ impl Line {
         match self {
             Line::Key(reach) => reach.detail(),
             Line::Home { seats, home, .. } => home.words(seats),
+            Line::Unmodelled(seats) => home::unmodelled(seats),
             Line::Served { asked, .. } => served(asked.as_ref()),
             Line::Workdir(file) => format!(
                 "{} is present, unread: if Brokkr serves a dsh seat from its own engine-only home \
@@ -313,7 +321,8 @@ impl Source {
 
 /// The served-home caveat's words: only what the route's check `asked`,
 /// or that nothing was where the route names no variable, and that the
-/// home serving the route can't yet be told, where no seat was modelled.
+/// home serving the route can't yet be told, where no seat riding it was
+/// modelled.
 fn served(asked: Option<&Asked>) -> String {
     let unknown = "Brokkr can't yet tell whether it serves this route from its own engine-only \
                    home (decision 0065), which reads neither patch nor the home's .env";
@@ -421,15 +430,15 @@ impl<'a> Sources<'a> {
 
 /// The folder's dsh key check, for `repo` and the dsh home dsh's own seam
 /// resolves: each dsh seat of `compiled`, the folder's compile, grouped by
-/// the route it rides and the home that serves it ([`home::homed`]); where
-/// no seat can be modelled, each route the folder's dsh adapter under
-/// `adapters` pins with its caveats ([`with_caveats`]). None where the
-/// folder hires no dsh, or its adapters do not load (doctor's adapters
-/// line already says so).
+/// the route it rides and the home that serves it, beside those whose
+/// launch can't be read ([`home::modelled`]); where the folder did not
+/// compile, each route the folder's dsh adapter under `adapters` pins with
+/// its caveats ([`with_caveats`]). None where the folder hires no dsh, or
+/// its adapters do not load (doctor's adapters line already says so).
 pub(crate) fn of_folder(adapters: &Path, repo: &Path, compiled: Option<&Bundle>) -> Vec<Line> {
     let sources = Sources::served(repo, DshSeams::resolve());
-    match compiled.and_then(home::seats) {
-        Some(seats) => with_dsh(adapters, |dsh| home::homed(dsh, &seats, &sources)),
+    match compiled.map(home::seats) {
+        Some(seats) => with_dsh(adapters, |dsh| home::modelled(dsh, &seats, &sources)),
         None => with_caveats(in_folder(adapters, &sources), repo),
     }
 }

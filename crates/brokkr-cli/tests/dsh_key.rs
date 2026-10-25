@@ -12,7 +12,7 @@
 #![cfg(unix)]
 
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::brokkr_folder::{Ran, Repo};
 
@@ -92,7 +92,7 @@ impl DshHost {
     fn doctor(&self, key: Option<&str>) -> (Vec<String>, Option<i32>) {
         let doctor = self.brokkr(&["doctor"], key);
         let lines = doctor.stdout.lines().filter(|line| {
-            ["dsh key ", "dsh home ", "dsh workdir:"]
+            ["dsh key ", "dsh home ", "dsh home:", "dsh workdir:"]
                 .iter()
                 .any(|name| line.contains(name))
         });
@@ -127,6 +127,18 @@ fn engine(route: &str, seats: &str) -> String {
         "dsh home {route}: Brokkr serves seats [{seats}] on this route from its own engine-only \
          home (decision 0065), where dsh reads a key from the launching environment alone, never \
          the operator's .env or patch layers"
+    )
+}
+
+/// The failing home line of `seats` on dsh's default route, whose
+/// engine-only launch the `.env` at `in_repo` refuses.
+fn refused(seats: &str, in_repo: &Path) -> String {
+    format!(
+        "MISSING  dsh home deepseek-official: Brokkr serves seats [{seats}] on this route from \
+         its own engine-only home (decision 0065), and refuses each launch while {} is present, \
+         unread, since dsh would read it for a key; export the key where brokkr runs and remove \
+         the file",
+        in_repo.display()
     )
 }
 
@@ -168,14 +180,44 @@ fn a_workdir_dotenv_refuses_every_engine_only_launch_and_is_never_read() {
     assert_eq!(host.init(Some(PLANTED)), [REACHED.to_string(), served]);
     let in_repo = host.repo.path(".env");
     host.unreadable(&in_repo, &format!("DEEPSEEK_API_KEY={PLANTED}\n"));
-    let refused = format!(
-        "MISSING  dsh home deepseek-official: Brokkr serves seats [implement, intake] on this \
-         route from its own engine-only home (decision 0065), and refuses each launch while {} is \
-         present, unread, since dsh would read it for a key; export the key where brokkr runs and \
-         remove the file",
-        in_repo.display()
-    );
+    let refused = refused("implement, intake", &in_repo);
     assert_eq!(host.doctor(Some(PLANTED)), (vec![refused], Some(1)));
+}
+
+/// An inline dsh seat, whose launch the compile carries no argv for, is
+/// named by its site alone, and leaves the agent seat beside it served from
+/// its engine-only home: a key only the operator's home gives still fails
+/// the report, and a repository `.env` still refuses that seat's launch.
+#[test]
+fn an_inline_dsh_seat_leaves_the_agent_seats_home_standing() {
+    let host = DshHost::new();
+    host.init(Some(PLANTED));
+    let bundle = host.repo.path(".brokkr/bundle.json");
+    let seats = std::fs::read_to_string(&bundle).unwrap();
+    let agent = r#""intake": {
+      "agent": "intake","#;
+    assert!(seats.contains(agent), "{seats}");
+    let inline = r#""intake": {
+      "role": "intake.md",
+      "driver": {"command": ["{brokkr}", "driver", "dsh", "--", "--model", "deepseek-flash", "--effort", "high"]},"#;
+    std::fs::write(&bundle, seats.replace(agent, inline)).unwrap();
+    std::fs::write(host.repo.path(".brokkr/intake.md"), "Frame the request.\n").unwrap();
+    let unmodelled = "warn     dsh home: Brokkr can't yet tell which home serves seats [intake], \
+                      since the compile carries no argv for an inline dsh site's launch and no \
+                      model for a candidate that pins no --model; each route no other seat rides \
+                      is asked of every source the operator's home reads, with its caveat";
+    let served = format!("ok       {}", engine("deepseek-official", "implement"));
+    let missing = vec![format!("MISSING  {UNSET}"), served, unmodelled.to_string()];
+    // The key the operator's home alone gives is no key for `implement`.
+    host.unreadable(
+        &host.home.join(".env"),
+        &format!("DEEPSEEK_API_KEY={PLANTED}\n"),
+    );
+    assert_eq!(host.doctor(None), (missing, Some(1)));
+    let in_repo = host.repo.path(".env");
+    host.unreadable(&in_repo, &format!("DEEPSEEK_API_KEY={PLANTED}\n"));
+    let beside = vec![refused("implement", &in_repo), unmodelled.to_string()];
+    assert_eq!(host.doctor(Some(PLANTED)), (beside, Some(1)));
 }
 
 /// A seat whose model rides a route no engine-only home was measured on is
@@ -238,13 +280,7 @@ fn a_seat_on_an_unmeasured_route_is_served_from_the_operators_home() {
          it",
         in_repo.display()
     );
-    let refused = format!(
-        "MISSING  dsh home deepseek-official: Brokkr serves seats [implement] on this route from \
-         its own engine-only home (decision 0065), and refuses each launch while {} is present, \
-         unread, since dsh would read it for a key; export the key where brokkr runs and remove \
-         the file",
-        in_repo.display()
-    );
+    let refused = refused("implement", &in_repo);
     assert_eq!(
         host.doctor(Some(PLANTED)).0,
         [vec![refused], spark(untold).to_vec()].concat()

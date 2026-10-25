@@ -100,6 +100,20 @@ impl Planted {
         let (adapters, repo, home) = (self.adapters.clone(), self.repo.clone(), self.home.clone());
         within_bound(move || with_caveats(asked(&adapters, &repo, Ok(home), set), &repo))
     }
+
+    /// The lines of a compile's `seats`, `set` the environment's,
+    /// [`within_bound`].
+    fn modelled_within_bound(&self, seats: home::Seats, set: fn(&str) -> bool) -> Vec<Line> {
+        let (adapters, repo, home) = (self.adapters.clone(), self.repo.clone(), self.home.clone());
+        within_bound(move || {
+            let sources = Sources {
+                set,
+                repo: &repo,
+                home: Ok(home),
+            };
+            with_dsh(&adapters, |dsh| home::modelled(dsh, &seats, &sources))
+        })
+    }
 }
 
 /// `check` on a thread of its own, refused past a bound: a check that
@@ -953,22 +967,25 @@ fn seat(label: &str, model: &str, routed: bool, fence: Option<SealedFence>) -> S
 
 /// Each dsh seat of a compile is read from its candidate's argv as the
 /// launch reads it, with the fence the predicate dispatch seals by gives;
-/// a compile holding a dsh seat whose launch can't be read so, an inline
-/// dsh site or a candidate pinning no `--model`, models no seat.
+/// a dsh seat whose launch can't be read so, an inline dsh site or a
+/// candidate pinning no `--model`, is named by its site, and every other
+/// seat is still read.
 #[test]
 fn each_dsh_seat_of_a_compile_is_read_from_its_candidates_argv() {
     let (_dir, mut compiled) = scaffolded();
     let standing = Some(SealedFence::Standing);
     let (flash, pro) = ("deepseek-flash", "deepseek-v4-pro");
-    assert_eq!(
-        home::seats(&compiled),
-        Some(vec![
-            seat("implement", pro, false, standing),
-            seat("implement", flash, false, standing),
-            seat("intake", flash, false, standing),
-            seat("intake", pro, false, standing),
-        ])
-    );
+    let scaffold = vec![
+        seat("implement", pro, false, standing),
+        seat("implement", flash, false, standing),
+        seat("intake", flash, false, standing),
+        seat("intake", pro, false, standing),
+    ];
+    let read = |read: &[Seat], unread: &[&str]| home::Seats {
+        read: read.to_vec(),
+        unread: unread.iter().map(|site| site.to_string()).collect(),
+    };
+    assert_eq!(home::seats(&compiled), read(&scaffold, &[]));
     // A `--patch` is a route overlay, and a site whose plan holds no
     // outcome launches with no intent.
     let implement = compiled.sites.get_mut("implement").unwrap();
@@ -982,21 +999,20 @@ fn each_dsh_seat_of_a_compile_is_read_from_its_candidates_argv() {
     inline.chain.clear();
     compiled.sites.insert("inline".into(), inline);
     compiled.sites.insert("planless".into(), Default::default());
-    assert_eq!(
-        home::seats(&compiled).unwrap()[..2],
-        [
-            seat("implement", pro, true, None),
-            seat("implement", flash, false, None)
-        ]
-    );
+    let rerouted = [
+        seat("implement", pro, true, None),
+        seat("implement", flash, false, None),
+    ];
+    let mut seats = [&rerouted[..], &scaffold[2..]].concat();
+    assert_eq!(home::seats(&compiled), read(&seats, &[]));
     let mut inline = compiled.sites["intake"].clone();
     inline.chain.clear();
     compiled.sites.insert("inline".into(), inline);
-    assert_eq!(home::seats(&compiled), None);
-    compiled.sites.remove("inline");
+    assert_eq!(home::seats(&compiled), read(&seats, &["inline"]));
     let intake = compiled.sites.get_mut("intake").unwrap();
     intake.chain[1].argv.retain(|part| part != "--model");
-    assert_eq!(home::seats(&compiled), None);
+    seats.pop();
+    assert_eq!(home::seats(&compiled), read(&seats, &["inline", "intake"]));
 }
 
 /// Six seats, one for each way the served-home decision rules, and the
@@ -1174,4 +1190,86 @@ fn a_compiled_folder_is_answered_by_the_homes_of_its_seats() {
             }
         )
     );
+}
+
+/// A seat whose launch can't be read is named by its site and leaves every
+/// read seat's home standing: an engine-only seat whose key the launching
+/// environment does not give still reads MISSING, and beside a repository
+/// `.env` still reads as its launch's refusal, while only the routes no
+/// read seat rides are checked as an unmodelled folder's, with the caveat.
+#[test]
+fn an_unread_seat_leaves_every_read_seats_home_standing() {
+    let models = json!({
+        "a": "deepseek-flash",
+        "b": "dashscope/glm-5.2",
+        "c": "meta/meta/muse-spark-1.3",
+    });
+    let planted = Planted::new(models, json!({"dashscope": "DASHSCOPE_API_KEY"}));
+    let seats = || home::Seats {
+        read: vec![seat(
+            "s",
+            "deepseek-flash",
+            false,
+            Some(SealedFence::Standing),
+        )],
+        unread: ["inline".to_string()].into(),
+    };
+    let dashscope = |name: &str| name == "DASHSCOPE_API_KEY";
+    let unread = || Line::Unmodelled(vec!["inline".into()]);
+    let unmodelled = || {
+        let variable = String::from("DASHSCOPE_API_KEY");
+        vec![
+            unread(),
+            Line::Key(Reach::Reached {
+                route: "dashscope".into(),
+                variable: variable.clone(),
+                source: Source::Environment,
+            }),
+            Line::Served {
+                route: "dashscope".into(),
+                asked: Some(Asked {
+                    variable,
+                    files: Vec::new(),
+                    patches: Vec::new(),
+                }),
+            },
+            undeclared("meta"),
+            Line::Served {
+                route: "meta".into(),
+                asked: None,
+            },
+        ]
+    };
+    let unset_key = Line::Key(Reach::Unset {
+        route: "deepseek-official".into(),
+        variable: "DEEPSEEK_API_KEY".into(),
+    });
+    let engine = group("deepseek-official", &["s"], Home::Engine);
+    let lines = planted.modelled_within_bound(seats(), dashscope);
+    let expected: Vec<Line> = [unset_key, engine]
+        .into_iter()
+        .chain(unmodelled())
+        .collect();
+    assert_eq!(lines, expected);
+    assert_eq!(
+        format!("{}: {}", lines[2].what(), lines[2].detail()),
+        "dsh home: Brokkr can't yet tell which home serves seats [inline], since the compile \
+         carries no argv for an inline dsh site's launch and no model for a candidate that pins \
+         no --model; each route no other seat rides is asked of every source the operator's home \
+         reads, with its caveat"
+    );
+    let in_repo = planted.repo.join(".env");
+    fifo(&in_repo);
+    let refused = group("deepseek-official", &["s"], Home::Workdir(in_repo.clone()));
+    let beside = [vec![refused], unmodelled(), vec![Line::Workdir(in_repo)]];
+    let beside: Vec<Line> = beside.into_iter().flatten().collect();
+    assert_eq!(planted.modelled_within_bound(seats(), dashscope), beside);
+    // Where every route the adapter pins is ridden by a read seat, the
+    // unread seats' line stands alone.
+    let scaffold = Planted::scaffold();
+    let operator = group("deepseek-official", &["s"], Home::Operator);
+    let mut alone = seats();
+    alone.read[0].fence = None;
+    let lines = scaffold.modelled_within_bound(alone, |_| true);
+    assert_eq!(&lines[1..], [operator, unread()]);
 }

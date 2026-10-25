@@ -459,8 +459,9 @@ fn each_personal_recipe_is_a_line_that_never_fails_the_report() {
 /// Each dsh key line (#717) in its status column: ok only for a key the
 /// launching environment gives, a failure of the report for an unreached
 /// one, and a warning for a key only the operator's home gives, an untold
-/// source, an undeclared route, the served-home caveat and a workdir
-/// `.env`, after what the report already held.
+/// source, an undeclared route, the served-home caveat, the seats whose
+/// launch can't be read and a workdir `.env`, after what the report
+/// already held.
 #[test]
 fn each_dsh_key_answer_takes_its_status_column() {
     use crate::dsh_key::{Asked, Line, Off, Reach, Source, Untold};
@@ -495,6 +496,7 @@ fn each_dsh_key_answer_takes_its_status_column() {
             route: route.clone(),
             asked: None,
         },
+        Line::Unmodelled(vec!["s".into()]),
         Line::Workdir(PathBuf::from("/repo/.env")),
         Line::Key(Reach::Unreached {
             route,
@@ -504,9 +506,9 @@ fn each_dsh_key_answer_takes_its_status_column() {
         }),
     ];
     let mut report = report();
-    report_keys(&mut report, &answers[..7]);
+    report_keys(&mut report, &answers[..8]);
     assert!(report.healthy);
-    report_keys(&mut report, &answers[7..]);
+    report_keys(&mut report, &answers[8..]);
     let status: Vec<&str> = report.lines.iter().map(|line| &line[..20]).collect();
     assert_eq!(
         (status, report.healthy),
@@ -519,6 +521,7 @@ fn each_dsh_key_answer_takes_its_status_column() {
                 "warn     dsh key r: ",
                 "warn     dsh home r:",
                 "warn     dsh home r:",
+                "warn     dsh home: B",
                 "warn     dsh workdir",
                 "MISSING  dsh key r: "
             ],
