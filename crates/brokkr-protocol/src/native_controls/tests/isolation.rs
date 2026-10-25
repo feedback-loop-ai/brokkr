@@ -412,6 +412,164 @@ fn a_profile_binds_its_write_to_the_workdir_and_its_deny_to_the_store() {
     refuses_bound(moved, vec![(profile(READ_ONLY), 0, Unisolated::Unstored)]);
 }
 
+/// 45.11 (U8i; operator ruling 4 of 2026-10-24): bound to a store two
+/// folders inside the root, the workspace-write class renders both folders
+/// written, from the root outwards, and reads back only with both: one
+/// missing either refuses with its own cause, a read-only profile writing
+/// them or a write of any other folder refuses as any other written path
+/// does, and a folder named twice renders no class. The read-only class
+/// renders none.
+#[test]
+fn a_profile_reads_as_workspace_write_only_with_every_folder_to_an_inside_store_written() {
+    let profile = |entries: &str| paired(&definition(entries));
+    let deep = Bound {
+        workdir: "/w",
+        store: Some("/w/a/b/store"),
+    };
+    let (root, deny) = (r#"":root"="read","/w"="write""#, r#""/w/a/b/store"="deny""#);
+    let (outer, inner) = (r#""/w/a"="write""#, r#""/w/a/b"="write""#);
+    let pinned = format!("{root},{outer},{inner},{deny}");
+    let rendered = grammar::rendered("workspace-write", deep);
+    assert_eq!(rendered, Some(profile(&pinned)));
+    let read_only = format!(r#"":root"="read",{deny}"#);
+    assert_eq!(
+        grammar::rendered("read-only", deep),
+        Some(profile(&read_only))
+    );
+    for (entries, class) in [
+        (&pinned, SandboxIntent::WorkspaceWrite),
+        (
+            &format!("{root},{inner},{outer},{deny}"),
+            SandboxIntent::WorkspaceWrite,
+        ),
+        (&read_only, SandboxIntent::ReadOnly),
+    ] {
+        for (command, _) in shapes(&profile(entries)) {
+            assert_eq!(grammar::profile(&placed(&command), deep), Ok(Some(class)));
+        }
+    }
+    let other = r#""/w/a/c"="write""#;
+    refuses_bound(
+        deep,
+        vec![
+            (profile(&format!("{root},{deny}")), 0, Unisolated::Unpinned),
+            (
+                profile(&format!("{root},{inner},{deny}")),
+                0,
+                Unisolated::Unpinned,
+            ),
+            (
+                profile(&format!("{root},{outer},{deny}")),
+                0,
+                Unisolated::Unpinned,
+            ),
+            (
+                profile(&format!(r#"":root"="read",{outer},{inner},{deny}"#)),
+                0,
+                Unisolated::Unrooted,
+            ),
+            (
+                profile(&format!("{root},{outer},{inner},{other},{deny}")),
+                0,
+                Unisolated::Unrooted,
+            ),
+            (
+                profile(&format!("{root},{outer},{outer},{inner},{deny}")),
+                0,
+                Unisolated::Classless,
+            ),
+        ],
+    );
+}
+
+/// 45.11: only a store strictly inside the root pins a folder, and only one
+/// its paths place, inside or outside, renders a workspace-write class. A
+/// store directly in the root and one in a folder whose name only begins
+/// with the root's render the root alone and read back with it alone. A
+/// store the paths cannot place, one through a `..`, through a doubled
+/// separator or relative, or beside a root that is relative or spelled
+/// with a trailing separator, renders the root alone and is refused, never
+/// taken to lie outside; the store that is the root names one path twice.
+/// The read-only class reads back beside each.
+#[test]
+fn a_store_outside_the_root_pins_nothing_and_one_its_paths_cannot_place_refuses() {
+    let write = Ok(Some(SandboxIntent::WorkspaceWrite));
+    let unplaced = Err(Unisolated::Unpinned(5));
+    for (workdir, store, read) in [
+        ("/w", "/w/store", write),
+        ("/w", "/w2/a/store", write),
+        ("/w", "/w/../a/store", unplaced),
+        ("/w", "/w//a/store", unplaced),
+        ("/w", "w/a/store", unplaced),
+        ("w", "w/a/store", unplaced),
+        ("/w/", "/w/a/store", unplaced),
+        ("/w", "/w", Err(Unisolated::Classless(5))),
+    ] {
+        let bound = Bound {
+            workdir,
+            store: Some(store),
+        };
+        let entries = format!(r#"":root"="read","{workdir}"="write","{store}"="deny""#);
+        let alone = paired(&definition(&entries));
+        let rendered = grammar::rendered("workspace-write", bound);
+        assert_eq!(rendered.as_ref(), Some(&alone), "{workdir} {store}");
+        let [(command, _), _] = shapes(&alone);
+        assert_eq!(grammar::profile(&placed(&command), bound), read, "{store}");
+        let read_only = grammar::rendered("read-only", bound).unwrap();
+        let [(command, _), _] = shapes(&read_only);
+        let class = grammar::profile(&placed(&command), bound);
+        assert_eq!(
+            class,
+            Ok(Some(SandboxIntent::ReadOnly)),
+            "{workdir} {store}"
+        );
+    }
+}
+
+/// 45.11 (U8h's canonical store, the macOS shape on Linux): a root spelled
+/// through a link in a canonical temporary folder holds the store kept at
+/// its canonical place, so the folder between them is rendered at the
+/// store's spelling and required; the root as spelled holds a store spelled
+/// through it the same way. A store that is the root's canonical form
+/// cannot be placed, and refuses.
+#[test]
+fn a_root_spelled_through_a_link_pins_the_folder_of_the_canonical_store_inside_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let canonical = std::fs::canonicalize(dir.path()).unwrap();
+    std::fs::create_dir(canonical.join("real")).unwrap();
+    std::os::unix::fs::symlink(canonical.join("real"), canonical.join("link")).unwrap();
+    let text = |path: std::path::PathBuf| path.display().to_string();
+    let root = text(canonical.join("link"));
+    for folder in [
+        text(canonical.join("real/.forge")),
+        format!("{root}/.forge"),
+    ] {
+        let store = format!("{folder}/store");
+        let bound = Bound {
+            workdir: &root,
+            store: Some(&store),
+        };
+        let written = format!(r#"":root"="read","{root}"="write""#);
+        let (pin, deny) = (
+            format!(r#""{folder}"="write""#),
+            format!(r#""{store}"="deny""#),
+        );
+        let pinned = paired(&definition(&format!("{written},{pin},{deny}")));
+        assert_eq!(grammar::rendered("workspace-write", bound), Some(pinned));
+        let unpinned = paired(&definition(&format!("{written},{deny}")));
+        refuses_bound(bound, vec![(unpinned, 0, Unisolated::Unpinned)]);
+    }
+    // A store that is the root's canonical form is no store inside it.
+    let real = text(canonical.join("real"));
+    let bound = Bound {
+        workdir: &root,
+        store: Some(&real),
+    };
+    let entries = format!(r#"":root"="read","{root}"="write","{real}"="deny""#);
+    let alone = paired(&definition(&entries));
+    refuses_bound(bound, vec![(alone, 0, Unisolated::Unpinned)]);
+}
+
 /// 45.3: any `--enable`, `--disable` of another feature, a dotted profile
 /// key, any other permissions value, an access outside the measured three,
 /// a profile that renders no class and one that does not deny the store
@@ -602,6 +760,12 @@ fn each_isolation_fault_reads_in_its_own_words() {
             Unisolated::Unrooted(3),
             "carries '--config' (argument 3), a permission profile that writes a path other than \
              the seat's workspace root",
+        ),
+        (
+            Unisolated::Unpinned(3),
+            "carries '--config' (argument 3), a permission profile writing the workspace root \
+             without every folder to the secrets store inside it, or beside a store it cannot \
+             place",
         ),
         (
             Unisolated::Unstored(3),
