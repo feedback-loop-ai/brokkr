@@ -35,6 +35,22 @@ fn chain_verifies_and_detects_tamper() {
     );
 }
 
+/// The hash streams the envelope's own members in canonical order, the
+/// same bytes as the canonical `Value` of the envelope without its
+/// `event_hash`, with an attempt and without one, which is not written.
+#[test]
+fn the_streamed_hash_is_the_canonical_values() {
+    let attempted = EnvelopeBuilder::new(EventType::EffectStarted, json!({"b": 1, "a": [null]}))
+        .caused_by("e1")
+        .attempt(Some("a1"))
+        .sealed();
+    for event in [envelope(1, ZERO_HASH), attempted] {
+        let mut value = serde_json::to_value(&event).unwrap();
+        value.as_object_mut().unwrap().remove("event_hash");
+        assert_eq!(event.compute_hash(), crate::canonical::sha256_hex(&value));
+    }
+}
+
 /// `as_str` is the name serde writes and reads, for every listed type.
 /// The table is listed by hand; the match below has no wildcard, so a
 /// new type stops this test compiling and points its author at the table.

@@ -75,6 +75,7 @@ mod acknowledgement;
 mod chain;
 mod event_index;
 mod import;
+mod opening;
 mod origin;
 mod page;
 mod queue;
@@ -91,6 +92,7 @@ pub use acknowledgement::Acknowledgement;
 pub use chain::{Chain, Rows};
 pub use event_index::IndexFault;
 pub use import::{verified_events, verify_export, Adoption, Arrival, ImportError, VerifyError};
+pub use opening::Opened;
 pub use page::{keyed, place_of, Keyed, Paged, RowRefusal, Unread};
 pub use queue::{
     Attribution, Claim, EntryId, EntryState, Generation, Latch, NewEntry, NotAWait, QueueCommand,

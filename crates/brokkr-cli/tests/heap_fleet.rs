@@ -11,15 +11,15 @@
 
 #[path = "heap/budgets.rs"]
 mod budgets;
+#[path = "heap/measure.rs"]
+mod measure;
 
 use std::path::{Path, PathBuf};
 
 use brokkr_cli::{fleet_window_for_budget, FleetScroll};
 use brokkr_store::test_support::{fleet, generate, Generated, Width};
 use brokkr_store::Store;
-
-#[global_allocator]
-static ALLOC: dhat::Alloc = dhat::Alloc;
+use measure::{peak_of, sqlite_memory};
 
 /// The clock the page is read at.
 const NOW: &str = "2026-10-20T00:00:00Z";
@@ -40,25 +40,6 @@ fn journal(dir: &Path, name: &str, runs: &[Generated]) -> PathBuf {
     let store = Store::open(&db).unwrap();
     generate(&store, runs).unwrap();
     db
-}
-
-/// SQLite's memory now, and its high-water since the last reset, which
-/// `reset` starts again from now.
-fn sqlite_memory(reset: bool) -> (i64, i64) {
-    let (mut current, mut high) = (0i64, 0i64);
-    // SAFETY: sqlite3_status64 writes the two counters through the two
-    // pointers it is handed, each a live i64 on this stack, and reads
-    // nothing else.
-    let status = unsafe {
-        rusqlite::ffi::sqlite3_status64(
-            rusqlite::ffi::SQLITE_STATUS_MEMORY_USED,
-            &mut current,
-            &mut high,
-            i32::from(reset),
-        )
-    };
-    assert_eq!(status, rusqlite::ffi::SQLITE_OK);
-    (current, high)
 }
 
 /// What reading `db`'s fleet cost: Brokkr's peak heap under dhat to read
@@ -101,15 +82,6 @@ const SOLVER_SPREAD: u64 = 16 * 1024;
 /// process, and counts every thread's allocations, so no two measure at
 /// once.
 static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-/// Brokkr's peak heap while `read` runs, under dhat.
-fn peak_of(read: impl FnOnce()) -> u64 {
-    let profiler = dhat::Profiler::builder().testing().build();
-    read();
-    let peak = dhat::HeapStats::get().max_bytes as u64;
-    drop(profiler);
-    peak
-}
 
 /// The console's list over `db` scrolled `pages` pages down a frame at a
 /// time, each by the key past its window's first page, `a` pressed or not.
