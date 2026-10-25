@@ -5613,7 +5613,7 @@ fn a_model_seats_hands_are_expanded_by_the_checks_one_encoder() {
     assert_eq!(Some(argv.clone()), transport.expand(&fragment));
     assert_eq!(
         argv[5],
-        r#"mcp_servers.brokkr.args=["hands","serve","--workdir","/w\\\"\t\n\u0001\u007F\b\f\r","--artifacts","/a","--reach","{\"home\":\"\",\"worktree\":{\"path\":\"\",\"identity\":null},\"git\":null,\"binds\":[]}","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#
+        r#"mcp_servers.brokkr.args=["hands","serve","--workdir","/w\\\"\t\n\u0001\u007F\b\f\r","--artifacts","/a","--reach","{\"home\":\"\",\"worktree\":{\"path\":\"\",\"identity\":null},\"git\":null,\"binds\":[],\"store\":null}","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#
     );
     assert_eq!(
         argv[3],

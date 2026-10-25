@@ -97,7 +97,7 @@ fn accepted_args_and_secret_store_drift_park_before_a_member_spawns() {
         let (dir, mut runtime) = parked(body(), true);
         let command_seq = accept(&mut runtime, args.clone());
         if args == json!({"members":["b"]}) {
-            runtime.secrets_file = Some(dir.path().join("other.env"));
+            relaunched_with(&mut runtime, Some(dir.path().join("other.env")));
         }
         let reason = refused_at_drive(&mut runtime);
         if args == json!({"members":["b"]}) {

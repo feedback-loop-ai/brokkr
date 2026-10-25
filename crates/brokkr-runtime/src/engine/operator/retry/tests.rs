@@ -11,14 +11,14 @@ fn member_admission_keeps_order_checks_secret_inputs_and_writes_nothing_on_refus
     let (dir, mut runtime) = parked(body(), true);
     let before = events(&runtime).len();
     for store in [None, Some(dir.path().join("other.env"))] {
-        runtime.secrets_file = store;
+        relaunched_with(&mut runtime, store);
         assert!(
             matches!(retry(&mut runtime, &["b"]), MemberRetryOutcome::CarryRefused(CarryRefusal(Refusal::InputMoved { effects }))
             if effects == events(&runtime).iter().find(|e| e.event_type == EventType::EffectRequested).unwrap().payload["effect_id"].as_str().unwrap())
         );
         assert_eq!(events(&runtime).len(), before);
     }
-    runtime.secrets_file = Some(dir.path().join("ops.env"));
+    relaunched_with(&mut runtime, Some(dir.path().join("ops.env")));
     assert!(matches!(
         retry(&mut runtime, &["b", "a"]),
         MemberRetryOutcome::Disposed(FencedCommandOutcome::Accepted { .. })

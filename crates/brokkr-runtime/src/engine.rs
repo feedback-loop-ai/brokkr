@@ -47,7 +47,7 @@ use serde::Serialize;
 pub mod artifacts;
 mod boxed;
 mod broker;
-use boxed::{artifact_root, boxed_spawn, make_root};
+use boxed::{artifact_root, boxed_spawn};
 // The test modules compare a box's argv through `use super::*`.
 #[cfg(test)]
 use boxed::hands_command;
@@ -371,6 +371,9 @@ pub struct Engine {
     /// are resolved by the exec driver at spawn time; no store read
     /// exists anywhere in brokkr-runtime.
     pub secrets_file: Option<PathBuf>,
+    /// The store's place, resolved from its configured spelling once and
+    /// kept for the run (U8h, ruling 18): [`Self::kept_store`].
+    store_place: std::sync::OnceLock<boxed::KeptStore>,
     /// The folder's `state/` the run's results, scratch and secrets stand
     /// in (decision 0083), handed by the launch; `None` is `<workdir>/.forge`.
     pub(crate) state: Option<PathBuf>,
@@ -533,6 +536,7 @@ impl Engine {
             feature: feature.to_string(),
             repo: admitted.operated,
             reach: Default::default(),
+            store_place: Default::default(),
             world,
             current_cause: None,
             secrets_file: None,
@@ -583,6 +587,7 @@ impl Engine {
             // counterpart system reads; the map's pin belongs to the
             // v1→v5 local lineage. The CLI refuses the combination
             // rather than dropping a world silently.
+            store_place: Default::default(),
             world: None,
             current_cause: None,
             secrets_file: None,
@@ -660,6 +665,7 @@ impl Engine {
             // a disk that may have moved on. Without this a resumed run
             // would silently stop keying its facts by realm, changing
             // fact-shape mid-run depending on which verb was typed.
+            store_place: Default::default(),
             world,
             current_cause: None,
             secrets_file: None,
@@ -940,14 +946,6 @@ impl Engine {
     /// written, which is what the driver would have received anyway.
     fn workdir(&self) -> PathBuf {
         std::path::absolute(&self.repo).unwrap_or_else(|_| self.repo.clone())
-    }
-
-    /// The operator-side store path threaded to drivers: the CLI
-    /// override, or `secrets.env` in the run-local directory.
-    fn secrets_store_path(&self) -> PathBuf {
-        self.secrets_file
-            .clone()
-            .unwrap_or_else(|| self.run_local().join(crate::places::SECRETS))
     }
 
     /// The directory a run's results, scratch and secrets stand in
@@ -1316,11 +1314,11 @@ impl Engine {
             SeatClass::Work
         };
         let facts = label.and_then(|label| self.bundle.sites.get(label));
-        // U8a (CR2): a box is handed the run's artifact root, made here
-        // before launch; one that cannot be made refuses the spawn.
+        // U8a (CR2), U8h: a box is handed the run's artifact root and its
+        // store, made here before launch; either unmade refuses the spawn.
         let artifacts = artifact_root(&self.run_local());
         let boxed = boundary == BuiltBoundary::Namespace;
-        let unrooted = boxed.then(|| make_root(&artifacts).err()).flatten();
+        let unrooted = self.prepared(&artifacts, hands.filter(|_| boxed));
         // U8a2c: and the reach its admission sealed for these hands.
         let sealed = hands.and_then(|spec| self.reach.sealed(spec));
         let mut spawn = SiteSpawn {

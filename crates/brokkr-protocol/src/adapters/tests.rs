@@ -16469,7 +16469,7 @@ fn claude_admits_only_held_native_tools_beside_its_hands() {
     // transport's own expansion (NC6): only the test's executable, the
     // canonical fixture value `{brokkr}` binds, is substituted.
     let exe = String::from(std::env::current_exe().unwrap().to_str().unwrap());
-    let serve = r#"["hands","serve","--workdir","/w","--artifacts","/a","--reach","{\"home\":\"/h\",\"worktree\":{\"path\":\"/w\",\"identity\":null},\"git\":null,\"binds\":[]}","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#;
+    let serve = r#"["hands","serve","--workdir","/w","--artifacts","/a","--reach","{\"home\":\"/h\",\"worktree\":{\"path\":\"/w\",\"identity\":null},\"git\":null,\"binds\":[],\"store\":null}","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#;
     let document = format!(r#"{{"mcpServers":{{"brokkr":{{"args":{serve},"command":"{exe}"}}}}}}"#);
     let document = document.as_str();
     let head = s(&[

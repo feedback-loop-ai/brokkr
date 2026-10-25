@@ -32,7 +32,7 @@ pub(super) fn transport() -> Transport<'static> {
 pub(super) const MCP_DOCUMENT: &str = "{\"mcpServers\":{\"brokkr\":{\"args\":[\"hands\",\
     \"serve\",\"--workdir\",\"/w\",\"--artifacts\",\"/a\",\"--reach\",\
     \"{\\\"home\\\":\\\"\\\",\\\"worktree\\\":{\\\"path\\\":\\\"\\\",\\\"identity\\\":null},\
-    \\\"git\\\":null,\\\"binds\\\":[]}\",\"--spec\",\"{\\\"binds\\\":[],\\\"kind\\\":\
+    \\\"git\\\":null,\\\"binds\\\":[],\\\"store\\\":null}\",\"--spec\",\"{\\\"binds\\\":[],\\\"kind\\\":\
     \\\"workspace\\\",\\\"network\\\":false}\"],\"command\":\"/bin/brokkr\"}}}";
 
 /// The server's arguments [`transport`] binds, as the TOML array Codex is
@@ -40,7 +40,7 @@ pub(super) const MCP_DOCUMENT: &str = "{\"mcpServers\":{\"brokkr\":{\"args\":[\"
 pub(super) const SERVER_ARGUMENTS: &str = "[\"hands\",\"serve\",\"--workdir\",\"/w\",\
     \"--artifacts\",\"/a\",\"--reach\",\
     \"{\\\"home\\\":\\\"\\\",\\\"worktree\\\":{\\\"path\\\":\\\"\\\",\\\"identity\\\":null},\
-    \\\"git\\\":null,\\\"binds\\\":[]}\",\"--spec\",\
+    \\\"git\\\":null,\\\"binds\\\":[],\\\"store\\\":null}\",\"--spec\",\
     \"{\\\"binds\\\":[],\\\"kind\\\":\\\"workspace\\\",\\\"network\\\":false}\"]";
 
 /// A transport whose executable and workdir hold what a TOML basic string
@@ -61,5 +61,5 @@ pub(super) const ESCAPED_COMMAND: &str = "mcp_servers.brokkr.command=\"/opt/a\\\
 pub(super) const ESCAPED_ARGUMENTS: &str = "[\"hands\",\"serve\",\"--workdir\",\
     \"/w/a\\\"b\\\\c\",\"--artifacts\",\"/a\",\"--reach\",\
     \"{\\\"home\\\":\\\"\\\",\\\"worktree\\\":{\\\"path\\\":\\\"\\\",\\\"identity\\\":null},\
-    \\\"git\\\":null,\\\"binds\\\":[]}\",\"--spec\",\
+    \\\"git\\\":null,\\\"binds\\\":[],\\\"store\\\":null}\",\"--spec\",\
     \"{\\\"binds\\\":[],\\\"kind\\\":\\\"workspace\\\",\\\"network\\\":false}\"]";

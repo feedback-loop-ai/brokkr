@@ -336,7 +336,8 @@ fn dispatched(claude: &mut Claude, case: &str, (spec, attack): (&HandsSpec, &str
     let exec = ["brokkr", "driver", "exec", "--", "/bin/sh", "-c", attack].map(String::from);
     // Its reach sealed as its admission seals it, under the fixture's HOME.
     let git = brokkr_protocol::hands::git_facts(&work);
-    let reach = brokkr_protocol::hands::seal(spec, &claude.fixture.root.join("home"), &work, &git);
+    let home = claude.fixture.root.join("home");
+    let reach = brokkr_protocol::hands::seal(spec, &home, &work, &git, None);
     let boxed = (
         &*crate::argv::tests::ENGINE,
         artifacts.as_path(),

@@ -47,7 +47,7 @@ pub use git::{git_facts, GitFacts};
 #[rustfmt::skip] pub use namespace::{entry::ServerEntry, namespace_join, server_environment, ServerBox, ServerProfile, ServerProgram};
 use namespace::{namespace_path, Mount, Namespace, Profile};
 pub use overlay::{overlay_supported_with, OverlayWrites};
-pub use sealed::{drifted, seal, Sealed, SEALED_REACH};
+pub use sealed::{drifted, seal, sealed_store, store_place, Sealed, SEALED_REACH, UNHIDDEN_STORE};
 pub use session::{reap_dead_sessions, Reaped, Session, SessionError};
 
 /// The boxed tool Brokkr serves. Claude Code names it `mcp__brokkr__workspace`.
@@ -421,12 +421,12 @@ pub fn box_argv(
         let config = namespace_path(&seen.join("config"));
         namespace.mount(Mount::RoBindTry, &common.join("config"), &config);
     }
-    // U8a: each directory between the worktree and an artifact root it
-    // holds is a mount of its own, so no write in the box renames it.
-    for ancestor in protected.ancestors() {
-        namespace.mount_in_place(Mount::Bind, ancestor);
-    }
-    sealed::mount_binds(&mut namespace, &mut protected, spec, sealed, writes)?;
+    // U8a, U8h: each directory between the worktree and an artifact root
+    // or a secrets store it holds is a mount of its own, so no write in the
+    // box renames it, both chains pinned together, outermost first; the
+    // binds follow, and the store is hidden after every writable mount.
+    let seen = (workdir.as_path(), bundle_root);
+    let store = sealed::mount_binds(&mut namespace, &mut protected, spec, sealed, seen, writes)?;
     // U8a: a root the worktree holds read-only, after every writable
     // mount; one outside every writable mount is never mounted at all.
     if let Some(root) = protected.held() {
@@ -439,9 +439,9 @@ pub fn box_argv(
         namespace.setenv(key, value);
     }
     // U8a (L1), U8a2c: what was observed is observed again as the argv is
-    // final, the evidence and the sealed reach alike.
+    // final, the evidence, the sealed reach and its hidden store alike (U8h).
     protected.confirm()?;
-    sealed.confirm(spec, workdir)?;
+    store.confirm(sealed, spec, workdir)?;
     Ok(namespace.enter(workdir, command))
 }
 

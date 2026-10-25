@@ -179,7 +179,7 @@ fn a_transport_path_that_is_not_utf8_binds_no_hands() {
         std::path::Path::new("/w"),
         crate::hands::GitFacts::default(),
     );
-    let lossy = crate::hands::seal(&SPEC, unrepresentable, work, &none);
+    let lossy = crate::hands::seal(&SPEC, unrepresentable, work, &none, None);
     for bound in [
         Transport {
             brokkr: unrepresentable,

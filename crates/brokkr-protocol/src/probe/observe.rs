@@ -166,7 +166,7 @@ impl Scratch {
         ];
         spellings.retain(|spelling| !spelling.is_empty());
         spellings.sort_by_key(|spelling| std::cmp::Reverse(spelling.len()));
-        let sealed = seal(&HandsSpec::default(), &home, &repo, &git_facts(&repo));
+        let sealed = seal(&HandsSpec::default(), &home, &repo, &git_facts(&repo), None);
         Ok(Scratch {
             _root: root,
             home,

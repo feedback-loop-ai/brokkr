@@ -105,7 +105,7 @@ fn a_fragment_expanded_beside_brokers_carries_the_whole_set() {
     let fragment = ["--mcp-config".to_string(), "{hands_mcp_json}".to_string()];
     let served = "{\"command\":\"/bin/brokkr\",\"args\":[\"hands\",\"serve\",\"--workdir\",\"/w\",\
                   \"--artifacts\",\"/a\",\"--reach\",\"{\\\"home\\\":\\\"\\\",\\\"worktree\\\":\
-                  {\\\"path\\\":\\\"\\\",\\\"identity\\\":null},\\\"git\\\":null,\\\"binds\\\":[]}\",\
+                  {\\\"path\\\":\\\"\\\",\\\"identity\\\":null},\\\"git\\\":null,\\\"binds\\\":[],\\\"store\\\":null}\",\
                   \"--spec\",\"{\\\"binds\\\":[],\\\"kind\\\":\\\"workspace\\\",\\\"network\\\":\
                   false}\"]}";
     let docs = format!(
@@ -152,7 +152,7 @@ fn the_hands_entry_is_read_with_its_artifact_root() {
     let path = std::path::Path::new;
     let (brokkr, workdir, artifacts) = (path("/bin/brokkr"), path("/w"), path("/a"));
     let spec = &crate::hands::HandsSpec::default();
-    let sealed = &crate::hands::seal(spec, path("/h"), workdir, &Default::default());
+    let sealed = &crate::hands::seal(spec, path("/h"), workdir, &Default::default(), None);
     let owed = Owed::Hands(Transport {
         brokkr,
         workdir,
@@ -171,7 +171,7 @@ fn the_hands_entry_is_read_with_its_artifact_root() {
     let rootless = [&args[..4], &args[6..]].concat();
     // U8a2c: and with the reach sealed for it, read as its type; another
     // reach, one that does not read, or none, is not the engine's hands.
-    let other = crate::hands::seal(spec, path("/elsewhere"), workdir, &Default::default());
+    let other = crate::hands::seal(spec, path("/elsewhere"), workdir, &Default::default(), None);
     let (mut resealed, mut unread) = (args.clone(), args.clone());
     resealed[7] = serde_json::to_string(&other).unwrap();
     unread[7] = "{".into();

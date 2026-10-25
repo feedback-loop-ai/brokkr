@@ -1945,7 +1945,7 @@ fn the_check_verdict_does_not_depend_on_hands_spec_home_or_git_facts() {
             &spec,
             &work,
             &work.join("artifacts"),
-            &seal(&spec, &home, &work, &git),
+            &seal(&spec, &home, &work, &git, None),
             &scratch,
             OverlayWrites::Session(&session),
             &git.identity,

@@ -32,7 +32,7 @@ fn artifact_root(dir: &Path) -> PathBuf {
 /// `--reach` carries it to both verbs (U8a2c).
 fn reach_of(spec: &brokkr_protocol::hands::HandsSpec, home: &Path, work: &Path) -> String {
     use brokkr_protocol::hands::{git_facts, seal};
-    serde_json::to_string(&seal(spec, home, work, &git_facts(work))).unwrap()
+    serde_json::to_string(&seal(spec, home, work, &git_facts(work), None)).unwrap()
 }
 
 /// [`reach_of`] the default box, its HOME beside the worktree.

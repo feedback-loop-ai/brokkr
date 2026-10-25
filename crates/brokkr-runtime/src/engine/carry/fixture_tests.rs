@@ -94,6 +94,15 @@ pub(crate) fn parked(body: SeatBody, secrets: bool) -> (tempfile::TempDir, Engin
     parked_record(body, secrets, |_| {})
 }
 
+/// `runtime` with its secrets store configured at `store`, as a later
+/// command's process is launched with it: one engine keeps the place it
+/// resolved for its run, and a new process resolves afresh (U8h, rulings 18
+/// and 19).
+pub(crate) fn relaunched_with(runtime: &mut Engine, store: Option<std::path::PathBuf>) {
+    runtime.secrets_file = store;
+    runtime.store_place = Default::default();
+}
+
 pub(crate) fn parked_record(
     body: SeatBody,
     secrets: bool,

@@ -79,7 +79,14 @@ fn a_seats_box_is_built_from_the_reach_its_admission_sealed() {
         }
         std::fs::create_dir(&pad).unwrap();
         let work = worktree(&engine);
-        let now = hands::seal(&spec, &host.home, &work, &hands::git_facts(&work));
+        let store = engine.kept_store().clone();
+        let now = hands::seal(
+            &spec,
+            &host.home,
+            &work,
+            &hands::git_facts(&work),
+            Some(store.sealed()),
+        );
         assert_ne!(now, held, "a reach sealed now differs");
         let spawn = engine.compose_at(
             Some("work"),
@@ -101,6 +108,39 @@ fn a_seats_box_is_built_from_the_reach_its_admission_sealed() {
             Some(pad.clone()),
             "{leased}"
         );
+    }
+}
+
+/// U8h (operator ruling 1 of 2026-10-23): admission seals the engine's
+/// secrets store in each boxed writer's reach, by its canonical place
+/// beside its configured spelling (ruling 17), and a reservation sealed
+/// before it was, its reach without the store or with the store's path
+/// alone, no longer reads: amending it refuses with MB3's identity cause,
+/// never a box that hides nothing.
+#[test]
+fn a_reservation_sealed_without_the_store_no_longer_reads() {
+    for older in [None, Some("/sealed/before/ruling-17/secrets.env")] {
+        let host = Host::new();
+        let (_dir, mut engine, _, _) = boxed_seat();
+        let root = || Some(opened(&host.home));
+        assert!(admitted(&mut engine, (host.home.clone(), &root)));
+        let at = host.reservation(&worktree(&engine), &engine.run_id);
+        let mut read: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&at).unwrap()).unwrap();
+        let sealed = &mut read["attempts"]["attempt"]["writers"][0]["reach"]["boxed"]["sealed"];
+        let (place, spelling) = (engine.secrets_store_path(), engine.secrets_store_spelling());
+        assert_eq!(
+            sealed["store"],
+            json!({"place": place, "spelling": spelling})
+        );
+        match older {
+            None => drop(sealed.as_object_mut().unwrap().remove("store")),
+            Some(path) => sealed["store"] = json!(path),
+        }
+        std::fs::write(&at, serde_json::to_vec(&read).unwrap()).unwrap();
+        let held = engine.held.clone().expect("a lease");
+        let refused = release(&held, soon());
+        assert_eq!(refused, Err(Unadmitted::Identity(Unknown::Participant(at))));
     }
 }
 
@@ -136,6 +176,34 @@ fn a_box_whose_hands_were_sealed_nothing_refuses_its_spawn() {
         "",
     );
     assert_eq!(spawn.refusal.as_deref(), Some(text), "another hands' reach");
+}
+
+/// Run 6's L3 and I2 (U8h ruling 18): admission resolves the run's kept
+/// store only for a boxed writer, so an attempt with no box never resolves
+/// the store, and the reach it seals for a boxed one names the very place
+/// the run keeps, as the seat's input does.
+#[test]
+fn only_a_boxed_writer_resolves_the_kept_store_and_seals_that_place() {
+    let (_dir, mut engine, spec, _) = boxed_seat();
+    let body = single_body(exec_seat());
+    let (body, _) = body.selected(None).unwrap();
+    let (home, work) = (Path::new("/home/fixture"), worktree(&engine));
+    engine.boundary = Boundary::Open;
+    let (writers, boxes) = engine.writers(home, &work, "work", body);
+    assert_eq!(
+        (writers[0].reach.clone(), boxes.len()),
+        (Reach::Unbounded, 0)
+    );
+    assert_eq!(engine.store_place.get(), None, "nothing resolved the store");
+    engine.boundary = Boundary::Namespace;
+    let (_, boxes) = engine.writers(home, &work, "work", body);
+    let Reach::Boxed { sealed, .. } = &boxes[0].1 else {
+        panic!("a boxed writer of {spec:?}")
+    };
+    let kept = engine.store_place.get().map(|kept| kept.place.clone());
+    let place = hands::sealed_store(sealed).map(Path::to_path_buf);
+    let named = engine.secrets_store_path();
+    assert_eq!((kept, place), (Some(Ok(named.clone())), Some(named)));
 }
 
 /// A panel member or a step of the ship phase is composed from its site's

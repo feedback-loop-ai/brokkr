@@ -882,7 +882,7 @@ fn a_compiled_links_origins_reach_its_sealed_record_and_copied_bytes_stay_author
 
 /// The box's `hands serve` arguments at `/w` for a workspace hands with no
 /// binds and no network, as the fixtures declare it.
-const HANDS_SERVE: &str = r#"["hands","serve","--workdir","/w","--artifacts","/a","--reach","{\"home\":\"\",\"worktree\":{\"path\":\"\",\"identity\":null},\"git\":null,\"binds\":[]}","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#;
+const HANDS_SERVE: &str = r#"["hands","serve","--workdir","/w","--artifacts","/a","--reach","{\"home\":\"\",\"worktree\":{\"path\":\"\",\"identity\":null},\"git\":null,\"binds\":[],\"store\":null}","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#;
 
 /// The shipped Codex adapter's `hands.workspace` fragment as the box serves
 /// it at `/w`: an independent literal, never production's own expansion

@@ -15,6 +15,8 @@ mod sealed;
 mod server;
 #[cfg(target_os = "linux")]
 mod sources;
+#[cfg(target_os = "linux")]
+mod store;
 
 fn spec_of(raw: Value) -> HandsSpec {
     HandsSpec::parse(&raw).unwrap()
@@ -36,7 +38,7 @@ fn artifact_root(dir: &Path) -> PathBuf {
 /// `home` as admission seals it, Git asked where its directories are
 /// (U8a2c).
 fn sealed(spec: &HandsSpec, work: &Path, home: &Path) -> Sealed {
-    seal(spec, home, work, &git_facts(work))
+    seal(spec, home, work, &git_facts(work), None)
 }
 
 /// A canonical temporary root holding an existing worktree, `work`.
@@ -913,7 +915,7 @@ fn transport_errors_surface_instead_of_being_swallowed() {
 fn the_harness_config_names_this_binary_and_the_spec() {
     let spec = spec_of(json!({"kind": "workspace", "network": true}));
     let (work, artifacts) = (Path::new("/work"), Path::new("/state/artifacts"));
-    let reach = seal(&spec, Path::new("/home"), work, &GitFacts::default());
+    let reach = seal(&spec, Path::new("/home"), work, &GitFacts::default(), None);
     let brokkr = Path::new("/usr/local/bin/brokkr");
     let config = mcp_config(brokkr, work, artifacts, &reach, &spec);
     assert_eq!(

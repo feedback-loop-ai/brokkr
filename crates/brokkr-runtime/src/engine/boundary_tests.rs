@@ -419,7 +419,7 @@ fn every_boundary_arm_carries_the_links_segments_and_labels_its_own_as_hands() {
                     "--sandbox",
                     "read-only",
                     "-c",
-                    r#"mcp_servers.brokkr.args=["hands","serve","--workdir","/work","--artifacts","/a","--reach","{\"home\":\"\",\"worktree\":{\"path\":\"\",\"identity\":null},\"git\":null,\"binds\":[]}","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#,
+                    r#"mcp_servers.brokkr.args=["hands","serve","--workdir","/work","--artifacts","/a","--reach","{\"home\":\"\",\"worktree\":{\"path\":\"\",\"identity\":null},\"git\":null,\"binds\":[],\"store\":null}","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#,
                 ])
             ),
         ]
