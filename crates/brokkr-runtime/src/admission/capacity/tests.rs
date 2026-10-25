@@ -132,6 +132,7 @@ impl Fixture {
             feature: "f".into(),
             map: RunMap::Unmapped,
             dispatch: None,
+            claim: None,
         };
         QueuedLaunch::of(&request, &run).unwrap()
     }

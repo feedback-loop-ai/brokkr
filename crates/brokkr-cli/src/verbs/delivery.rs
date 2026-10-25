@@ -72,6 +72,7 @@ pub(super) fn new_run(workspace: &Path, args: LaunchArgs) -> Result<(LaunchReque
         feature: args.feature,
         map: run_map(world, named),
         dispatch: args.dispatch.map(|path| layout.typed(path)),
+        claim: None,
     };
     Ok((request, new))
 }

@@ -24,10 +24,17 @@ fn digest(relative: &str) -> String {
 /// Recorded from this tree before the agent library existed, plus the
 /// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
 /// beside it, so "beside, never inside" is machine-checked.
-const FROZEN: [(&str, &str); 28] = [
+const FROZEN: [(&str, &str); 29] = [
     (
         "contracts/panel-carry.v1.schema.json",
         "fcea11f339351bea684de3f83a4b658ac6ec3cc31b9b3e2bfd1a6fe185098fce",
+    ),
+    // Decision 0095 ruling 5 lands `run-manifest.v14` beside v13, which
+    // was the new file when #430's capacity slice landed and is frozen
+    // from here.
+    (
+        "contracts/run-manifest.v13.schema.json",
+        "e2ec31dab39c459a4f223a65c19a39575de1e1ba8b417cd7cd67e1530beb7d41",
     ),
     // #430's capacity slice lands `run-manifest.v13` beside v12, which was
     // the new file when decision 0065 slice two landed and is frozen from
@@ -1165,6 +1172,57 @@ fn the_v13_manifest_schema_adds_only_each_candidates_model_pins() {
         json!({"route": "spark-glm"}),
     ] {
         assert!(!v13.is_valid(&pinned(refused.clone())), "{refused}");
+    }
+}
+
+/// Decision 0095 ruling 5: `run-manifest/v14` is v13 with one OPTIONAL
+/// `queue_entry`, the entry's id and its claim's seq, closed over those two
+/// and nothing else moved. A v13 manifest is a v14 one, so a direct run's
+/// reads as before; one carrying the claim is not a v13 manifest.
+#[test]
+fn the_v14_manifest_schema_adds_only_an_optional_queue_entry() {
+    use serde_json::json;
+    assert_eq!(
+        titled("contracts/run-manifest.v14.schema.json"),
+        "Forge run manifest v14"
+    );
+    let [schema, v13] = published(["run-manifest.v14", "run-manifest.v13"]);
+    let mut carried = schema.clone();
+    let properties = carried["properties"].as_object_mut().unwrap();
+    assert!(properties.remove("queue_entry").is_some());
+    for key in ["$id", "title", "description"] {
+        carried[key] = v13[key].clone();
+    }
+    assert_eq!(carried, v13, "v14 moved a clause v13 defines");
+
+    let (v14, v13) = (contract("contracts/run-manifest.v14.schema.json"), v13);
+    let v13 = jsonschema::draft7::new(&v13).unwrap();
+    let mut direct = v12_manifest(json!({}));
+    let candidate = &mut direct["capabilities"]["sites"]["research"]["candidates"][0];
+    candidate["model_pins"] = json!({"read": [{"id": "opus-5"}]});
+    assert!(v13.is_valid(&direct) && v14.is_valid(&direct), "{direct}");
+    let claimed = |queue_entry: serde_json::Value| {
+        let mut manifest = direct.clone();
+        manifest["queue_entry"] = queue_entry;
+        manifest
+    };
+    let admitted = claimed(json!({"entry": 1, "claim": 7}));
+    assert!(
+        v14.is_valid(&admitted) && !v13.is_valid(&admitted),
+        "{admitted}"
+    );
+    for refused in [
+        json!(null),
+        json!(1),
+        json!({"entry": 1}),
+        json!({"claim": 7}),
+        json!({"entry": 0, "claim": 7}),
+        json!({"entry": 1, "claim": 0}),
+        json!({"entry": "1", "claim": 7}),
+        json!({"entry": 1, "claim": 7.5}),
+        json!({"entry": 1, "claim": 7, "generation": 2}),
+    ] {
+        assert!(!v14.is_valid(&claimed(refused.clone())), "{refused}");
     }
 }
 

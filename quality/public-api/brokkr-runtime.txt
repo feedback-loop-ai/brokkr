@@ -1351,6 +1351,7 @@ pub fn brokkr_runtime::launch::BundleSource::resolve(&self) -> core::result::Res
 pub enum brokkr_runtime::launch::Encoding
 pub brokkr_runtime::launch::Encoding::V1
 pub enum brokkr_runtime::launch::LaunchError
+pub brokkr_runtime::launch::LaunchError::ClaimWithDispatch
 pub brokkr_runtime::launch::LaunchError::Compile(brokkr_runtime::bundle::CompileError)
 pub brokkr_runtime::launch::LaunchError::ContinuedLooperBound
 pub brokkr_runtime::launch::LaunchError::ContinuedLooperBound::run_id: alloc::string::String
@@ -1420,6 +1421,7 @@ pub brokkr_runtime::launch::LaunchRequest::secrets: core::option::Option<std::pa
 pub brokkr_runtime::launch::LaunchRequest::shelf: core::option::Option<std::path::PathBuf>
 pub brokkr_runtime::launch::LaunchRequest::workspace: std::path::PathBuf
 pub struct brokkr_runtime::launch::NewRun
+pub brokkr_runtime::launch::NewRun::claim: core::option::Option<(brokkr_store::queue::claim::Claim, brokkr_store::queue::claim::Generation)>
 pub brokkr_runtime::launch::NewRun::dispatch: core::option::Option<std::path::PathBuf>
 pub brokkr_runtime::launch::NewRun::entry: core::option::Option<brokkr_runtime::launch::EntryRequest>
 pub brokkr_runtime::launch::NewRun::feature: alloc::string::String

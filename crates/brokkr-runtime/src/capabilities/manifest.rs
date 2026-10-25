@@ -1,4 +1,4 @@
-//! The capability section of `run-manifest/v13` (decision 0065 slice two,
+//! The capability section of `run-manifest/v14` (decision 0065 slice two,
 //! SC3, and #430's model pins): projections of the sealed authority and of each site's sealed
 //! outcomes, never a second resolution. A held record keeps every v11
 //! field and adds what implements the capability and what it retains (CR1).
@@ -164,7 +164,7 @@ impl Outcome {
 }
 
 /// The concrete model ids one candidate is served on, as the compile read
-/// them (`run-manifest/v13`): what admission counts a run against, read
+/// them (`run-manifest/v14`): what admission counts a run against, read
 /// from the run's own manifest and never resolved again through anyone's
 /// adapters (#430). An agent candidate's is the id its adapter maps its
 /// model to; an inline built-in model driver's, its `--model` pin and any
@@ -234,7 +234,7 @@ impl SiteCapabilities {
         self.record(self.outcomes.iter().map(Outcome::manifest).collect())
     }
 
-    /// The per-site record of `run-manifest/v13`, the one a compile
+    /// The per-site record of `run-manifest/v14`, the one a compile
     /// writes: each candidate's v12 record beside the model `pins` the
     /// compile read for it, in candidate order.
     pub(crate) fn pinned(&self, pins: &[ModelPins]) -> Value {

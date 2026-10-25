@@ -10,6 +10,8 @@ use serde_json::json;
 use super::*;
 use crate::realms::tests::{crossing_map, published_by_alpha, two_repositories};
 
+mod claimed;
+
 /// The repository root: its `agents/` and `adapters/` are what a compile
 /// reads, as any workspace's are.
 fn workspace() -> PathBuf {

@@ -511,6 +511,26 @@ fn a_pinned_crossing_is_dropped_with_the_map_and_moves_no_bundle_digest() {
     assert_eq!(bundle_manifest_from_run(&bundle).unwrap(), bundle);
 }
 
+/// Decision 0095 ruling 5 (run-manifest/v14): the queue claim a dispatched
+/// run was started under is pinned beside the map at start and never
+/// compiled into a bundle, so it is dropped before the resume comparison
+/// as the map and the crossings are, alone or beside them, and moves no
+/// bundle digest.
+#[test]
+fn a_pinned_queue_claim_is_dropped_with_the_map_and_moves_no_bundle_digest() {
+    let bundle = bundle();
+    let mut claimed = bundle.clone();
+    claimed["queue_entry"] = json!({"entry": 3, "claim": 9});
+    assert_eq!(bundle_manifest_from_run(&claimed).unwrap(), bundle);
+    claimed["realms"] = json!({"source": "realms.json", "sha256": "b".repeat(64), "map": {}});
+    claimed["crossings"] = json!({});
+    assert_eq!(
+        canonical::sha256_hex(&bundle_manifest_from_run(&claimed).unwrap()),
+        canonical::sha256_hex(&bundle),
+        "pinning a queue claim moves no bundle digest",
+    );
+}
+
 /// The Looper-bound lineage is unharmed, and stays unharmed on purpose.
 /// A v2 manifest never carries `crossings` — `brokkr run` refuses
 /// `--dispatch` together with a map — and its round-trip is byte-identical

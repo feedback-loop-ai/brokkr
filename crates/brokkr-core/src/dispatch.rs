@@ -483,12 +483,18 @@ pub fn bundle_manifest_from_run(manifest: &Value) -> Result<Value, DispatchError
         // run started with a map, or with a contract pinned across two of
         // its realms, must still resume against the same bundle, so the
         // pins are dropped here rather than compared against a bundle
-        // that never carried them. One removal for both, so there is no
-        // half-stripped shape a manifest carrying only one could take.
-        if manifest.get("realms").is_some() || manifest.get("crossings").is_some() {
+        // that never carried them. So is the queue claim a dispatched run
+        // was started under (run-manifest/v14, decision 0095 ruling 5),
+        // pinned beside them at start. One removal for all three, so there
+        // is no half-stripped shape a manifest carrying only one could take.
+        if manifest.get("realms").is_some()
+            || manifest.get("crossings").is_some()
+            || manifest.get("queue_entry").is_some()
+        {
             let mut fields = manifest.as_object().cloned().unwrap_or_default();
             fields.remove("realms");
             fields.remove("crossings");
+            fields.remove("queue_entry");
             return Ok(Value::Object(fields));
         }
         return Ok(manifest.clone());

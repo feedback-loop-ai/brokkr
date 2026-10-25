@@ -53,6 +53,7 @@ fn queued_named(dir: &Path) -> (World, String) {
         feature: "queue it".into(),
         map: RunMap::Named(world(dir)),
         dispatch: None,
+        claim: None,
     };
     let text = QueuedLaunch::of(&request(recipe()), &run)
         .unwrap()
@@ -156,6 +157,7 @@ fn a_queued_launch_keeps_every_fact_its_request_is_rebuilt_from() {
             feature: "queue it".into(),
             map,
             dispatch,
+            claim: None,
         };
         let text = QueuedLaunch::of(&asked, &run).unwrap().encode().unwrap();
         let rebuilt = QueuedLaunch::decode(&text).unwrap();
@@ -203,6 +205,7 @@ fn a_queued_world_is_the_one_it_was_queued_with_whatever_its_file_holds_later() 
             feature: "queue it".into(),
             map,
             dispatch: None,
+            claim: None,
         };
         let text = QueuedLaunch::of(&asked, &run).unwrap().encode().unwrap();
         // What the entry holds is the run manifest's pin, realm and all.
@@ -272,6 +275,7 @@ fn a_queued_launch_is_admitted_in_its_own_workspace_wherever_it_is_rebuilt() {
         feature: "queue it".into(),
         map: RunMap::Named(World::load(&workspace.join("map.json")).unwrap()),
         dispatch: None,
+        claim: None,
     };
     let text = QueuedLaunch::of(&asked, &run).unwrap().encode().unwrap();
     let mut queued = QueuedLaunch::decode(&text).unwrap();
@@ -358,6 +362,7 @@ fn a_launch_start_would_refuse_unread_is_not_queued() {
         feature: "queue it".into(),
         map: RunMap::Named(world(dir.path())),
         dispatch: Some(PathBuf::from("d.json")),
+        claim: None,
     };
     let error = QueuedLaunch::of(&request(recipe()), &beside_a_dispatch).unwrap_err();
     assert!(matches!(error, LaunchError::RealmsWithDispatch));
@@ -379,6 +384,7 @@ fn a_launch_start_would_refuse_unread_is_not_queued() {
         feature: "queue it".into(),
         map: RunMap::Ambient(World::load(&dir.path().join("map.json")).unwrap()),
         dispatch: None,
+        claim: None,
     };
     let asked = LaunchRequest {
         workspace: dir.path().to_path_buf(),

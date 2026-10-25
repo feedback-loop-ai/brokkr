@@ -315,7 +315,7 @@ fn a_drift_reports_every_moved_witness_in_one_table() {
 /// something carry both keys over the same site labels.
 ///
 /// Since #430 the contract a compiled manifest claims is
-/// run-manifest/v13: v9's `hands`/`boundary` clauses carried forward
+/// run-manifest/v14: v9's `hands`/`boundary` clauses carried forward
 /// unchanged, plus the REQUIRED `capabilities` section every compile now
 /// writes. The test keeps its name and its boundary assertions; the file
 /// it validates against is the version the manifests actually are.
@@ -323,7 +323,7 @@ fn a_drift_reports_every_moved_witness_in_one_table() {
 fn every_witness_manifest_satisfies_the_v9_contract_it_claims() {
     let root = workspace();
     let schema: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(root.join("contracts/run-manifest.v13.schema.json")).unwrap(),
+        &std::fs::read(root.join("contracts/run-manifest.v14.schema.json")).unwrap(),
     )
     .unwrap();
     let validator = jsonschema::draft7::new(&schema).unwrap();
@@ -336,7 +336,7 @@ fn every_witness_manifest_satisfies_the_v9_contract_it_claims() {
         .unwrap();
         assert!(
             validator.is_valid(&bundle.manifest),
-            "{relative} emits a manifest outside run-manifest/v13"
+            "{relative} emits a manifest outside run-manifest/v14"
         );
         let hands = bundle.manifest.get("hands").and_then(|v| v.as_object());
         let boundary = bundle.manifest.get("boundary").and_then(|v| v.as_object());

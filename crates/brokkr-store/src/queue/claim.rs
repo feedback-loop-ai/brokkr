@@ -69,6 +69,15 @@ pub struct Claim {
     pub(crate) seq: i64,
 }
 
+impl Claim {
+    /// The entry this claim stands on, and the seq of the `claim` command
+    /// that took it: what a run the dispatcher starts under it pins as its
+    /// `queue_entry` (run-manifest/v14, decision 0095 ruling 5).
+    pub fn parts(self) -> (EntryId, i64) {
+        (self.entry, self.seq)
+    }
+}
+
 /// The dispatcher a claim is taken by, as its generation (decision 0095
 /// ruling 2), recorded on the claim: the holder row it appended when it
 /// took the journal's lock.

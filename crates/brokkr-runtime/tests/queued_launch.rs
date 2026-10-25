@@ -163,6 +163,7 @@ impl Fleet {
             feature: "queued".into(),
             map,
             dispatch: None,
+            claim: None,
         };
         let mut queued = QueuedLaunch::of(&request, &run).unwrap();
         assert_eq!(queued.encoding, Encoding::V1);
