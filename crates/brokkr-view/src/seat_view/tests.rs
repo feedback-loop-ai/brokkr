@@ -30,8 +30,7 @@ fn a_page_s_checkpoint_is_the_row_the_scan_makes_of_it() {
         checkpoint(5, turn),
         checkpoint(6, json!({"member": "m", "step": "panel-member-finished"})),
     ];
-    let starts = &events[2..4];
-    let rows = page_rows(starts);
+    let rows = page_rows(&mut events[2..4].iter().cloned());
     let row = |at: usize| rows(&events[at]).unwrap();
     let (seat, member) = (row(4), row(5));
     assert_eq!(seat.served.boundary.text, "harness");

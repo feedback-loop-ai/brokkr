@@ -106,16 +106,16 @@ impl Store {
     /// below `before` where a page resumes, in one read transaction, with
     /// the run view's read's checks (the seat view's read, `seat_read.rs`).
     /// `rows` is handed, once a page, the start each attempt on the page
-    /// last names, and makes of them what makes a checkpoint's row; each
-    /// checkpoint's envelope is then parsed and not verified, made into its
-    /// row, and dropped.
+    /// last names, one at a time in seq order, each dropped once `rows` has
+    /// made of it what makes a checkpoint's row; each checkpoint's envelope
+    /// is then parsed and not verified, made into its row, and dropped.
     pub fn seat_read<T, R: FnMut(&EventEnvelope) -> T>(
         &self,
         run_id: &str,
         opened: &Opened,
         seat: Seat<'_>,
         before: Option<u64>,
-        mut rows: impl FnMut(&[EventEnvelope]) -> R,
+        mut rows: impl FnMut(&mut dyn Iterator<Item = EventEnvelope>) -> R,
     ) -> Result<SeatRead<T>, StoreError> {
         patiently("load", self.patience, || {
             let _snapshot = self.conn.unchecked_transaction()?;

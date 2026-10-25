@@ -356,6 +356,23 @@ pub fn stream_plan(
     plan(store, &crate::event_index::STREAM, bound)
 }
 
+/// The statements SQLite began on `store`'s connection while `read` ran,
+/// counted by its trace, which it calls as each statement begins: what the
+/// seat view's heap test holds a page's work to (decision 0089 ruling 9).
+#[cfg(feature = "test-support")]
+pub fn statements_begun<T>(store: &mut Store, read: impl FnOnce(&Store) -> T) -> (T, usize) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static BEGUN: AtomicUsize = AtomicUsize::new(0);
+    fn begun(_: &str) {
+        BEGUN.fetch_add(1, Ordering::SeqCst);
+    }
+    BEGUN.store(0, Ordering::SeqCst);
+    store.conn.trace(Some(begun));
+    let read = read(store);
+    store.conn.trace(None);
+    (read, BEGUN.load(Ordering::SeqCst))
+}
+
 /// Take the seq guard (#354) off a journal, leaving it as a journal
 /// written before the guard existed: one that may hold a row at a seq
 /// that is not a position. Opening the journal read-write restores it.

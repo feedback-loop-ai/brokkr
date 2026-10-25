@@ -9,11 +9,11 @@ use brokkr_core::seat::row::SeatRow;
 use rusqlite::params;
 use serde_json::{json, Value};
 
-use super::{reaches, Stream, ATTEMPT, FIRST, LAST, LEAST, MEMBER, NEXT, SINCE};
+use super::{reaches, Stream, ATTEMPT, FIRST, LAST, LEAST, MEMBER, NEXT, SINCE, STREAMS};
 use crate::event_index::STREAM;
 use crate::test_support::plan;
 use crate::tests::store;
-use crate::{Opened, SeatRead, Store};
+use crate::{Opened, SeatRead, Store, StoreError};
 
 /// An event of run `r`: its type and its payload.
 type Event = (EventType, Value);
@@ -131,7 +131,7 @@ fn starts_of(
     before: Option<u64>,
 ) -> SeatRead<(u64, Vec<u64>)> {
     let read = store.seat_read("r", opened, seat, before, |starts| {
-        let starts: Vec<u64> = starts.iter().map(|start| start.seq).collect();
+        let starts: Vec<u64> = starts.map(|start| start.seq).collect();
         move |event: &EventEnvelope| (event.seq, starts.clone())
     });
     read.unwrap()
@@ -158,15 +158,70 @@ fn each_page_is_handed_over_the_start_each_of_its_attempts_last_names() {
     assert_eq!(page[0], (75, vec![65]));
     let below = starts_of(&store, &opened, ("fx", None), Some(6));
     assert_eq!(below, SeatRead::Current(vec![(5, vec![127])], None));
-    // A page across both attempts is handed both starts, each once.
+    // A page across both attempts is handed both starts, each once, in
+    // seq order.
     let across = starts_of(&store, &opened, ("fx", None), Some(86));
     let SeatRead::Current(across, Some(_)) = across else {
         panic!("r's seat read as kept");
     };
-    assert_eq!(across[0], (85, vec![127, 65]));
+    assert_eq!(across[0], (85, vec![65, 127]));
     // A page of an attempt whose rows keep no start reads the kept way.
     let unstarted = vec![asked("fx"), turn("fx", "a", None, 1)];
     assert_eq!(kept(unstarted, ("fx", None)), SeatRead::Kept);
+}
+
+/// `attempts` attempts of a seat, each started and its first turn taken,
+/// then each one's second turn, so every attempt's stream reaches the
+/// newest checkpoints and none can be dropped.
+fn interleaved(attempts: usize) -> Vec<Event> {
+    let named: Vec<String> = (0..attempts).map(|at| format!("a{at}")).collect();
+    let mut events = vec![asked("fx")];
+    for attempt in &named {
+        events.extend([started("fx", attempt), turn("fx", attempt, None, 1)]);
+    }
+    events.extend(named.iter().map(|attempt| turn("fx", attempt, None, 2)));
+    events
+}
+
+/// A page keeps at most `STREAMS` streams that can reach it: one more
+/// reads the kept way, and as many reads the page at its head.
+#[test]
+fn a_page_reached_by_more_than_its_streams_reads_the_kept_way() {
+    let read = [STREAMS, STREAMS + 1].map(|attempts| {
+        let (_dir, mut store) = store();
+        let opened = opened(&mut store, interleaved(attempts));
+        page(&store, &opened, ("fx", None), None)
+    });
+    // Seq 3 asks the seat; each attempt's start and first turn follow, then
+    // each one's second turn, the newest at 3 + 3 a stream.
+    let newest: Vec<u64> = (0..50).map(|at| 3 + 3 * STREAMS as u64 - at).collect();
+    let next = Some(newest[49]);
+    assert_eq!(read, [SeatRead::Current(newest, next), SeatRead::Kept]);
+}
+
+/// A start the page cannot read is the read's refusal, never a page
+/// without it.
+#[test]
+fn a_start_the_page_cannot_read_is_refused() {
+    let (dir, mut store) = store();
+    let opened = opened(&mut store, retried());
+    let conn = rusqlite::Connection::open(dir.path().join("forge.db")).unwrap();
+    conn.execute_batch("DROP TRIGGER events_append_only_delete")
+        .unwrap();
+    let gone = "DELETE FROM events WHERE run_id = 'r' AND seq = 65";
+    assert_eq!(conn.execute(gone, []).unwrap(), 1);
+    let read = store.seat_read("r", &opened, ("fx", None), None, |starts| {
+        let starts: Vec<u64> = starts.map(|start| start.seq).collect();
+        move |_: &EventEnvelope| starts.clone()
+    });
+    assert!(
+        matches!(
+            read,
+            Err(StoreError::Sqlite(rusqlite::Error::QueryReturnedNoRows))
+        ),
+        "{read:?}"
+    );
+    crate::test_support::lags(&mut store, &["r"]);
 }
 
 /// The read is the run view's at the head its opening verified: a run that
@@ -324,7 +379,6 @@ fn a_stream_is_its_row_s_where_it_begins_and_ends_at_the_row_s_checkpoints() {
         attempt: "a".to_string(),
         first: 3,
         last,
-        since: None,
     };
     // A page and one more, cut above the row's first checkpoint.
     let cut: Vec<u64> = (10..=60).rev().collect();

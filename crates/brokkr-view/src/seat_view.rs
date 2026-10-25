@@ -22,16 +22,19 @@ pub(crate) type Boundaries = BTreeMap<(String, String), Vec<BoundaryEntry>>;
 
 /// The boundary entries every start among `events` records.
 pub(crate) fn boundaries_of(events: &[EventEnvelope]) -> Boundaries {
-    let started = events
-        .iter()
-        .filter(|event| event.event_type == EventType::EffectStarted);
-    let entries = started.filter_map(|event| {
-        let effect_id = field(&event.payload, "effect_id")?;
-        let attempt_id = field(&event.payload, "attempt_id")?;
-        let key = (effect_id.to_string(), attempt_id.to_string());
-        Some((key, boundary_entries(&event.payload)))
-    });
-    entries.collect()
+    events.iter().filter_map(boundary_of).collect()
+}
+
+/// The boundary entries `event` records, by its effect and its attempt,
+/// where it is a start naming both.
+fn boundary_of(event: &EventEnvelope) -> Option<((String, String), Vec<BoundaryEntry>)> {
+    if event.event_type != EventType::EffectStarted {
+        return None;
+    }
+    let effect_id = field(&event.payload, "effect_id")?;
+    let attempt_id = field(&event.payload, "attempt_id")?;
+    let key = (effect_id.to_string(), attempt_id.to_string());
+    Some((key, boundary_entries(&event.payload)))
 }
 
 /// The boundary the row of a record carrying `payload` shows, where it
@@ -120,13 +123,16 @@ pub(crate) fn row_of(
 }
 
 /// What makes the rows the seat view shows of a page's checkpoints, its
-/// read having handed over `starts`, the start each attempt on the page
-/// last names: their boundary entries are read once, and each checkpoint
-/// is made into the row the participant scan makes of it. `None` where a
-/// checkpoint names no effect or no attempt, which no page holds, so the
-/// reader reads the run whole.
-pub fn page_rows(starts: &[EventEnvelope]) -> impl Fn(&EventEnvelope) -> Option<CheckpointRow> {
-    let boundaries = boundaries_of(starts);
+/// read handing over `starts`, the start each attempt on the page last
+/// names, one at a time: each start's boundary entries are read and the
+/// start dropped before the next is read, and each checkpoint is made into
+/// the row the participant scan makes of it. `None` where a checkpoint
+/// names no effect or no attempt, which no page holds, so the reader reads
+/// the run whole.
+pub fn page_rows(
+    starts: &mut dyn Iterator<Item = EventEnvelope>,
+) -> impl Fn(&EventEnvelope) -> Option<CheckpointRow> {
+    let boundaries: Boundaries = starts.filter_map(|start| boundary_of(&start)).collect();
     move |event| {
         let boundary = attempt_boundary(&boundaries, &event.payload)?;
         let checkpoint = event.payload.get("checkpoint").unwrap_or(&Value::Null);

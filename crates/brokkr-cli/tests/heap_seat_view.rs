@@ -5,7 +5,10 @@
 //! the run and however many seats the run holds beside the page's, a small
 //! part of what the run holds, and grows with one wide checkpoint on the
 //! page, or a wide start of its attempt, by the copies of it the read holds
-//! at once, and with no member's checkpoint, which it reads no body of. A
+//! at once, with the wide starts of many attempts on the page by one
+//! start's copies, never their sum, with no member's checkpoint, which it
+//! reads no body of, and with none of its seat's earlier attempts, its
+//! statements the same however many there are. A
 //! readout's live heap is two shares, Brokkr's under dhat and SQLite's
 //! from its own high-water. The budgets live in `quality/heap-bytes.json`;
 //! dhat allows one profiler per process, so this is a binary of its own.
@@ -25,10 +28,10 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
-use brokkr_store::test_support::stream_plan;
+use brokkr_store::test_support::{statements_begun, stream_plan};
 use brokkr_store::Store;
 use measure::{peak_of, sqlite_memory};
-use stretched::{median_micros, Stretch, STRETCH};
+use stretched::{median_micros, Stretch, SQLITE_SLACK, STRETCH};
 
 /// The checkpoints one page holds (ruling 7).
 const PAGE: usize = 50;
@@ -123,8 +126,8 @@ fn measured(db: &Path, seat: seat_read::Seat<'_>) -> Cost {
 /// each within its budget, the plain within ruling 9's 256 KiB and the
 /// checkpoint, the escaped past the plain by more than the checkpoint, so
 /// the parser's scratch copy is the one measured; and SQLite's grows by no
-/// more than the checkpoint. The page's wall time is reported against
-/// ruling 9's 50 ms, not gated.
+/// more than the checkpoint and [`SQLITE_SLACK`]. The page's wall time is
+/// reported against ruling 9's 50 ms, not gated.
 #[test]
 fn the_seat_view_s_page_holds_its_checkpoints_one_at_a_time() {
     let dir = tempfile::tempdir().unwrap();
@@ -222,6 +225,8 @@ fn the_seat_view_s_page_holds_its_checkpoints_one_at_a_time() {
     the_started_page_holds(dir.path(), &longest, small);
     the_page_holds_none_of_its_seat_s_history(dir.path(), &longest);
     the_page_reads_no_member_s_body(dir.path(), &longest);
+    the_page_holds_none_of_its_seat_s_attempts(dir.path(), &longest);
+    the_spread_page_holds_one_start_at_a_time(dir.path(), &longest);
 }
 
 /// Where the grown run's first event of `longest`'s effect of `event_type`
@@ -347,9 +352,7 @@ fn caught_up(dir: &Path, name: &str, run: Vec<EventEnvelope>) -> PathBuf {
 /// and no other, and its own effect's seat rows alone: with a mebibyte
 /// start of the seat's older attempt, whose checkpoints are not on the
 /// page, and of another seat, and beside 300 other seats each started
-/// twice, Brokkr's peak is the page's without them to the byte; and with
-/// its seat's attempt split in 40, the page holds no more of each than
-/// [`PER_ATTEMPT`], none of their checkpoints.
+/// twice, Brokkr's peak is the page's without them to the byte.
 fn the_page_holds_none_of_its_seat_s_history(dir: &Path, longest: &Longest) {
     let [unstretched, stretched] = [Stretch::Unstretched, Stretch::Plain].map(|stretch| {
         let run = split(longest, stretch);
@@ -366,20 +369,126 @@ fn the_page_holds_none_of_its_seat_s_history(dir: &Path, longest: &Longest) {
     );
     let grown = caught_up(dir, "grown.db", grown::journal());
     let beside = caught_up(dir, "beside.db", beside_seats(longest, 300));
-    let split = caught_up(dir, "split-40.db", split_in(longest, 40));
-    let [grown, beside, split] =
-        [grown, beside, split].map(|db| page_after_opening(&db, longest.seat()));
-    eprintln!("after its opening: {grown} bytes; beside 300 seats {beside}; split in 40 {split}");
+    let [grown, beside] = [grown, beside].map(|db| page_after_opening(&db, longest.seat()));
+    eprintln!("after its opening: {grown} bytes; beside 300 seats {beside}");
     assert_eq!(beside, grown, "a page grew with the run's other seats");
-    assert!(
-        split <= grown + 40 * PER_ATTEMPT,
-        "a page of a seat split in 40 attempts holds {split} bytes, past {grown} and {PER_ATTEMPT} an attempt"
+}
+
+/// The grown run with `attempts` small attempts of its longest seat before
+/// its own, each started as the seat's attempt is and checkpointed once,
+/// as its first checkpoint is: attempts none of whose checkpoints are on
+/// the page.
+fn after_attempts(longest: &Longest, attempts: usize) -> Vec<EventEnvelope> {
+    let mut events = grown::journal();
+    let start = ours(&events, longest, EventType::EffectStarted);
+    let shape = [&events[start], &events[start + 1]];
+    let mut prior = Vec::with_capacity(2 * attempts);
+    for attempt in 0..attempts {
+        for event in shape {
+            let mut event = event.clone();
+            event.payload["attempt_id"] = format!("prior-{attempt}").into();
+            prior.push(event);
+        }
+    }
+    events.splice(start..start, prior);
+    renumbered(events)
+}
+
+/// What `db`'s first page of `seat` holds and does after its opening:
+/// Brokkr's peak, read once unmeasured, and the statements SQLite began,
+/// holding that it holds a page and leaves more.
+fn page_and_statements(db: &Path, seat: seat_read::Seat<'_>) -> (u64, usize) {
+    let brokkr = page_after_opening(db, seat);
+    let mut store = Store::open_read_only(db).unwrap();
+    let opened = store.open_run(grown::RUN).unwrap();
+    let (read, begun) = statements_begun(&mut store, |store| {
+        seat_read::page(store, grown::RUN, &opened, seat, None).unwrap()
+    });
+    let shown = read.map(|(rows, next)| (rows.len(), next.is_some()));
+    assert_eq!(shown, Some((PAGE, true)), "the first page");
+    (brokkr, begun)
+}
+
+/// A page costs the page, never its seat's history: the same newest 50
+/// checkpoints read after 10, 1,000 and 5,000 earlier small attempts of
+/// their seat hold the same Brokkr peak to the byte, after the run's
+/// opening, and begin the same statements.
+fn the_page_holds_none_of_its_seat_s_attempts(dir: &Path, longest: &Longest) {
+    let read = [10, 1_000, 5_000].map(|attempts| {
+        let run = grown::chained(after_attempts(longest, attempts));
+        let db = stretched::journal(dir, &format!("after-{attempts}.db"), 20_000, &run);
+        drop(Store::open(&db).unwrap());
+        page_and_statements(&db, longest.seat())
+    });
+    eprintln!("after 10, 1,000 and 5,000 attempts, a page's peak and statements: {read:?}");
+    assert_eq!(
+        read.map(|(brokkr, _)| brokkr),
+        [read[0].0; 3],
+        "a page's peak grew with its seat's attempts"
+    );
+    assert_eq!(
+        read.map(|(_, begun)| begun),
+        [read[0].1; 3],
+        "a page's statements grew with its seat's attempts"
     );
 }
 
-/// What a page holds of each attempt of its seat beside the ones on it:
-/// the attempt's stream, its row's bounds and its last start's seq.
-const PER_ATTEMPT: u64 = 128;
+/// The grown run with its longest seat's newest `attempts` checkpoints
+/// each under an attempt of its own, started just before it, the newest
+/// the seat's own attempt started again, every such start stretched as
+/// `stretch` stretches the seat's first start.
+fn spread(longest: &Longest, attempts: usize, stretch: Stretch) -> Vec<EventEnvelope> {
+    let mut events = grown::journal();
+    let start = ours(&events, longest, EventType::EffectStarted);
+    let succeeded = ours(&events, longest, EventType::EffectSucceeded);
+    let restart = stretched::run_stretched(vec![events[start].clone()], 1, "stretch", stretch);
+    let from = succeeded - attempts;
+    let tail: Vec<EventEnvelope> = events.drain(from..succeeded).collect();
+    let mut spread = Vec::with_capacity(2 * attempts);
+    for (at, mut checkpoint) in tail.into_iter().enumerate() {
+        let mut started = restart[0].clone();
+        if at + 1 < attempts {
+            let attempt = format!("spread-{at}");
+            started.payload["attempt_id"] = attempt.clone().into();
+            checkpoint.payload["attempt_id"] = attempt.into();
+        }
+        spread.extend([started, checkpoint]);
+    }
+    events.splice(from..from, spread);
+    renumbered(events)
+}
+
+/// A page holds one start at a time: its 50 checkpoints each of an attempt
+/// of its own, each attempt's start a mebibyte, grow its peak after the
+/// run's opening over the same page with small starts by no more than the
+/// copies of one start the read holds at once ([`PLAIN`], [`ESCAPED`]),
+/// never their sum; and SQLite's high-water by no more than one start and
+/// [`SQLITE_SLACK`].
+fn the_spread_page_holds_one_start_at_a_time(dir: &Path, longest: &Longest) {
+    let stretch = STRETCH as u64;
+    let [small, plain, escaped] =
+        [Stretch::Unstretched, Stretch::Plain, Stretch::Escaped].map(|wide| {
+            let run = spread(longest, PAGE + 1, wide);
+            let db = caught_up(dir, &format!("spread-{wide:?}.db"), run);
+            after_opening(&db, longest.seat());
+            let (cost, shown) = after_opening(&db, longest.seat());
+            assert_eq!(shown, Some((PAGE, true)), "{wide:?}: the first page");
+            cost
+        });
+    eprintln!("a page across 50 attempts: {small:?}; their starts a mebibyte: plain {plain:?}, escaped {escaped:?}");
+    for (name, cost, copies) in [("plain", plain, PLAIN), ("escaped", escaped, ESCAPED)] {
+        let growth = cost.brokkr - small.brokkr;
+        assert!(
+            growth <= copies * stretch,
+            "50 mebibyte {name} starts grew the page's peak by {growth} bytes, past {copies} starts"
+        );
+        let held = cost.sqlite - small.sqlite;
+        assert!(
+            held <= stretch + SQLITE_SLACK,
+            "50 mebibyte {name} starts grew SQLite's high-water by {held} bytes, past one and the slack"
+        );
+    }
+}
 
 /// After its opening, a page of the seat's own reads no member's body: a
 /// member's mebibyte checkpoint of the seat's attempt within the page's
@@ -414,7 +523,7 @@ fn the_page_reads_no_member_s_body(dir: &Path, longest: &Longest) {
 /// over the `unstretched` page's by no more than the copies of it the read
 /// holds at once, `plain` within ruling 9's 256 KiB and the checkpoint and
 /// `escaped` past it by more than the checkpoint, each within its budget,
-/// and SQLite's by no more than the checkpoint.
+/// and SQLite's by no more than the checkpoint and [`SQLITE_SLACK`].
 fn the_stretched_page_holds(unstretched: Cost, plain: Cost, escaped: Cost) {
     let stretch = STRETCH as u64;
     assert!(
@@ -446,8 +555,8 @@ fn the_stretched_page_holds(unstretched: Cost, plain: Cost, escaped: Cost) {
         );
         let held = cost.sqlite - unstretched.sqlite;
         assert!(
-            held <= stretch,
-            "a mebibyte {name} checkpoint grew SQLite's high-water by {held} bytes"
+            held <= stretch + SQLITE_SLACK,
+            "a mebibyte {name} checkpoint grew SQLite's high-water by {held} bytes, past it and the slack"
         );
     }
 }
@@ -456,7 +565,8 @@ fn the_stretched_page_holds(unstretched: Cost, plain: Cost, escaped: Cost) {
 /// peak, its opening included, grows over the `unstretched` page's by no
 /// more than the copies of it the read holds at once, [`PLAIN`] and
 /// [`ESCAPED`] as a checkpoint's, each within its budget, and SQLite's by
-/// no more than the start; the page alone, after its opening, holds the
+/// no more than the start and [`SQLITE_SLACK`]; the page alone, after its
+/// opening, holds the
 /// start as it holds a checkpoint, once where its text is plain.
 fn the_started_page_holds(dir: &Path, longest: &Longest, unstretched: Cost) {
     let stretch = STRETCH as u64;
@@ -497,8 +607,8 @@ fn the_started_page_holds(dir: &Path, longest: &Longest, unstretched: Cost) {
         );
         let held = cost.sqlite - unstretched.sqlite;
         assert!(
-            held <= stretch,
-            "a mebibyte {name} start grew SQLite's high-water by {held} bytes"
+            held <= stretch + SQLITE_SLACK,
+            "a mebibyte {name} start grew SQLite's high-water by {held} bytes, past it and the slack"
         );
     }
 }
