@@ -23,11 +23,12 @@ use crate::{world_and_hearths, AgentsCmd, Exit, MuninnCmd, RecipesCmd, SecretsCm
 /// `dir`, read for its own manifests so the implement and verify seats
 /// are told commands that would actually run there (decision 0083 ruling
 /// 5; the operator's ruling 2 of 2026-10-13: one path).
-pub(crate) fn init(InitArgs { dir }: InitArgs) -> Result<ExitCode> {
+pub(crate) fn init(InitArgs { dir, cli }: InitArgs) -> Result<ExitCode> {
     let path = std::env::var_os("PATH").unwrap_or_default();
     let root = crate::folder::admit::root(&dir)?;
     let home = std::env::var_os("HOME").unwrap_or_default();
-    let scaffold = init::init(&root, &path, std::env::consts::OS, Path::new(&home))?;
+    let os = std::env::consts::OS;
+    let scaffold = init::init(&root, &path, os, Path::new(&home), cli)?;
     let folder = root.join(FOLDER);
     eprintln!(
         "initialized {} (digest {}), writing:",

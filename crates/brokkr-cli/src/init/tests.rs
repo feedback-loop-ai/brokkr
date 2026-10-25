@@ -440,7 +440,7 @@ fn every_host_arm_says_its_claims_and_no_other() {
         let repo = root.path().join(arm);
         std::fs::create_dir(&repo).unwrap();
         std::fs::write(repo.join("Cargo.toml"), "[workspace]\n").unwrap();
-        let scaffold = super::init(&repo, bins.as_os_str(), os, root.path()).unwrap();
+        let scaffold = super::init(&repo, bins.as_os_str(), os, root.path(), None).unwrap();
         if super::claims::claims(cli, boundary) != claims {
             wrong.push(format!("{arm}: claims() hands this host another set"));
         }
@@ -505,7 +505,7 @@ fn the_host_picks_the_cli_on_path_and_the_boundary_the_os_can_build() {
     let none = dir("none", &[]);
 
     let picked = |path: &std::ffi::OsString, os| {
-        let host = host(path, os);
+        let host = host(path, os, None);
         (host.cli, host.boundary)
     };
     assert_eq!(picked(&all, "linux"), (Cli::Claude, None));
@@ -523,10 +523,10 @@ fn the_host_picks_the_cli_on_path_and_the_boundary_the_os_can_build() {
     assert_eq!(picked(&none, "linux"), (Cli::Claude, None));
 
     assert_eq!(
-        host(&all, "linux").notes,
+        host(&all, "linux", None).notes,
         ["Scaffolded for `claude`, the first of claude, codex and dsh found on PATH."]
     );
-    let fallback = host(&none, "macos").notes;
+    let fallback = host(&none, "macos", None).notes;
     assert_eq!(fallback.len(), 2, "{fallback:?}");
     assert!(
         fallback[0].starts_with("No agent CLI (claude, codex or dsh) was found on PATH"),
@@ -536,18 +536,67 @@ fn the_host_picks_the_cli_on_path_and_the_boundary_the_os_can_build() {
         fallback[1].contains("bubblewrap 0.11 or newer, which is Linux-only"),
         "{fallback:?}"
     );
-    let dsh_notes = host(&dsh, "linux").notes;
+    let dsh_notes = host(&dsh, "linux", None).notes;
     assert_eq!(dsh_notes.len(), 3, "{dsh_notes:?}");
     assert!(
         dsh_notes[2].starts_with("The review gate cannot be held by dsh"),
         "{dsh_notes:?}"
     );
-    assert_eq!(host(&codex, "linux").notes.len(), 2);
-    let codex_notes = host(&codex, "macos").notes;
+    assert_eq!(host(&codex, "linux", None).notes.len(), 2);
+    let codex_notes = host(&codex, "macos", None).notes;
     assert_eq!(codex_notes.len(), 3, "{codex_notes:?}");
     assert!(
         codex_notes[2].contains("codex holds each seat's hands under its own sandbox"),
         "{codex_notes:?}"
+    );
+}
+
+/// `--cli` chooses in place of PATH's order (#717). Named and found, the
+/// note says `--cli` chose; a named dsh beside claude says the gate's
+/// claude is there. Named and absent, the scaffold is still written for
+/// it, its note naming the binary to install, and nothing is run.
+#[test]
+fn a_named_cli_is_chosen_over_path_order_and_said_so() {
+    let bins = tempfile::tempdir().unwrap();
+    let (all, none) = (bins.path().join("all"), bins.path().join("none"));
+    for dir in [&all, &none] {
+        std::fs::create_dir(dir).unwrap();
+    }
+    for binary in ["claude", "codex", "dsh"] {
+        std::fs::write(all.join(binary), "").unwrap();
+    }
+    let named = host(all.as_os_str(), "linux", Some(Cli::Dsh));
+    assert_eq!((named.cli, named.boundary), (Cli::Dsh, None));
+    assert_eq!(
+        named.notes,
+        [
+            "Scaffolded for `dsh`, as --cli named.",
+            "`dsh` cannot express a tool name, so no `dsh`-hired agent carries a tool \
+             allowance; where this README speaks of tool grants, it speaks of the \
+             claude-hired seats only.",
+            "The review gate cannot be held by dsh: its adapter is untrusted and names no \
+             judges, and a gate seat judges only on a trusted adapter's judge (decision \
+             0021). So intake and implement are hired from dsh and `agents/reviewer.json` \
+             is hired from claude.",
+        ]
+    );
+    let codex = host(all.as_os_str(), "linux", Some(Cli::Codex));
+    assert_eq!((codex.cli, codex.boundary), (Cli::Codex, None));
+    assert_eq!(codex.notes[0], "Scaffolded for `codex`, as --cli named.");
+    let missing = host(none.as_os_str(), "linux", Some(Cli::Dsh));
+    assert_eq!((missing.cli, missing.notes.len()), (Cli::Dsh, 3));
+    assert_eq!(
+        missing.notes[0],
+        "Scaffolded for `dsh`, as --cli named, but no `dsh` was found on PATH. \
+         Install `dsh` before the first run."
+    );
+    assert!(
+        missing.notes[2].ends_with(
+            "hired from claude, which is not on PATH — install claude before a run \
+             reaches review."
+        ),
+        "{:?}",
+        missing.notes
     );
 }
 
@@ -576,6 +625,19 @@ fn shape(argv: &[String]) -> (String, Vec<String>, Vec<String>) {
 /// which keeps `.git` read-only; verify and ship run in Brokkr's box.
 #[test]
 fn a_codex_scaffold_on_linux_seats_codex_on_brokkrs_hands_and_boxes_its_scripts() {
+    codex_seats_on_linux(&["codex"], None);
+}
+
+/// The same scaffold when `--cli codex` names it on a PATH that holds
+/// claude, codex and dsh, whose own order would choose claude (#717).
+#[test]
+fn a_named_codex_beside_claude_seats_codex_on_brokkrs_hands_on_linux() {
+    codex_seats_on_linux(&["claude", "codex", "dsh"], Some(Cli::Codex));
+}
+
+/// `init` on Linux under a PATH holding `present`, with `named` from
+/// `--cli`, composes every seat as a codex scaffold under `namespace`.
+fn codex_seats_on_linux(present: &[&str], named: Option<Cli>) {
     use brokkr_runtime::engine::{compose_site, BuiltBoundary};
     use brokkr_runtime::{argv::Executable, Invocation, SeatBody};
     let root = tempfile::tempdir().unwrap();
@@ -583,8 +645,10 @@ fn a_codex_scaffold_on_linux_seats_codex_on_brokkrs_hands_and_boxes_its_scripts(
     for dir in [&bins, &repo] {
         std::fs::create_dir(dir).unwrap();
     }
-    std::fs::write(bins.join("codex"), "").unwrap();
-    let scaffold = super::init(&repo, bins.as_os_str(), "linux", &home).unwrap();
+    for binary in present {
+        std::fs::write(bins.join(binary), "").unwrap();
+    }
+    let scaffold = super::init(&repo, bins.as_os_str(), "linux", &home, named).unwrap();
     let folder = repo.join(super::FOLDER);
     let map = std::fs::read(folder.join("realms.json")).unwrap();
     let map: serde_json::Value = serde_json::from_slice(&map).unwrap();

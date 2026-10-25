@@ -54,6 +54,7 @@ mod hands;
 mod harness_probe;
 mod hosts;
 mod house_prose;
+mod init_cli;
 mod init_doctor;
 mod init_stacks;
 #[path = "layering/main.rs"]

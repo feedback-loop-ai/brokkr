@@ -71,12 +71,13 @@ Every `brokkr` verb and argument with its default, and every exit code, as the b
 Scaffold a minimal reviewable bundle and prove it compiles
 
 ```text
-Usage: brokkr init <DIR>
+Usage: brokkr init [OPTIONS] <DIR>
 ```
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
 | `<DIR>` |  |  | The repository root whose .brokkr/ folder is written; a folder that already holds more than moved state is refused, never overwritten |
+| `--cli <CLI>` |  |  | The agent CLI the seats are hired from (default: the first of claude, codex and dsh on PATH); scaffolded for even where PATH lacks it |
 
 ## brokkr costs
 
