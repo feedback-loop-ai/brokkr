@@ -9,7 +9,10 @@
 //! start's copies, never their sum, wide in a field or in a member's
 //! label, with no member's checkpoint, which it reads no body of, with
 //! none of its seat's earlier attempts, its statements the same however
-//! many there are, and with none of its effect's rows' lists. A
+//! many there are, and with none of its effect's rows' lists, which
+//! SQLite's share holds beside the fleet's cap as the effect's widest seat
+//! row, read whole for its digest (ruling 9's seat view row as amended on
+//! 2026-10-25). A
 //! readout's live heap is two shares, Brokkr's under dhat and SQLite's
 //! from its own high-water. The budgets live in `quality/heap-bytes.json`;
 //! dhat allows one profiler per process, so this is a binary of its own.
@@ -454,14 +457,46 @@ fn after_models(longest: &Longest, checkpoints: usize) -> Vec<EventEnvelope> {
     renumbered(events)
 }
 
+/// The stored bytes of the widest of `db`'s grown run's seat rows of
+/// `effect`, the row SQLite holds whole while the read checks its digest:
+/// each value's bytes, a text's and a blob's by their length and an
+/// integer or a real by its eight.
+fn widest_row(db: &Path, effect: &str) -> u64 {
+    let conn =
+        rusqlite::Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap();
+    let mut names = conn
+        .prepare("SELECT name FROM pragma_table_info('seat_summary')")
+        .unwrap();
+    let names = names.query_map([], |row| row.get::<_, String>(0)).unwrap();
+    let stored: Vec<String> = names
+        .map(|name| {
+            let name = name.unwrap();
+            format!(
+                "CASE typeof(\"{name}\") WHEN 'null' THEN 0 WHEN 'integer' THEN 8 \
+                 WHEN 'real' THEN 8 ELSE length(CAST(\"{name}\" AS BLOB)) END"
+            )
+        })
+        .collect();
+    let widest = format!(
+        "SELECT max({}) FROM seat_summary WHERE run_id = ?1 AND effect_id = ?2",
+        stored.join(" + ")
+    );
+    let bytes: i64 = conn
+        .query_row(&widest, [grown::RUN, effect], |row| row.get(0))
+        .unwrap();
+    u64::try_from(bytes).unwrap()
+}
+
 /// A page holds none of its effect's rows' lists: beside an earlier
 /// attempt of its seat whose row lists 6,000 models, Brokkr's peak after
 /// the run's opening is the page's beside the same attempt with no
 /// checkpoint, to the byte, as each row's digest is checked a value at a
 /// time and only the columns a stream is read by are kept. SQLite holds
-/// the row whole while the read checks its digest; its share is reported,
-/// not gated, until the operator rules how a page is held against a wide
-/// row (#753).
+/// the row whole while the read checks its digest, so its high-water
+/// beside each attempt is within the fleet's cap and the effect's widest
+/// seat row, by its stored bytes ([`widest_row`]), ruling 9's seat view
+/// row as amended on 2026-10-25.
 fn the_page_holds_none_of_its_effect_s_lists(dir: &Path, longest: &Longest) {
     let [none, listed] = [0, 6_000].map(|checkpoints| {
         let db = caught_up(
@@ -472,13 +507,20 @@ fn the_page_holds_none_of_its_effect_s_lists(dir: &Path, longest: &Longest) {
         after_opening(&db, longest.seat());
         let (cost, shown) = after_opening(&db, longest.seat());
         assert_eq!(shown, Some((PAGE, true)), "{checkpoints}: the first page");
-        cost
+        (checkpoints, cost, widest_row(&db, &longest.effect))
     });
     eprintln!("beside an attempt listing no model: {none:?}; listing 6,000: {listed:?}");
     assert_eq!(
-        listed.brokkr, none.brokkr,
+        listed.1.brokkr, none.1.brokkr,
         "a page grew with an earlier attempt's listed models"
     );
+    for (checkpoints, cost, widest) in [none, listed] {
+        assert!(
+            cost.sqlite <= measure::SQLITE_CAP + widest,
+            "beside an attempt listing {checkpoints} models, SQLite's high-water is {} bytes, past the cap and the effect's widest seat row, {widest} bytes",
+            cost.sqlite
+        );
+    }
 }
 
 /// The grown run with its longest seat's newest `attempts` checkpoints
@@ -527,7 +569,10 @@ fn widely_membered(mut start: EventEnvelope) -> EventEnvelope {
 /// never their sum, whether the start is wide in a field no row reads or
 /// in a boundary entry's member label, which none of the page's rows
 /// reads; and SQLite's high-water by no more than one start and
-/// [`SQLITE_SLACK`].
+/// [`SQLITE_SLACK`], and where the label opens a seat row of the page's
+/// effect, keyed by it, which SQLite holds whole while the read checks its
+/// digest, that row ([`widest_row`]) besides, ruling 9's seat view row as
+/// amended on 2026-10-25.
 fn the_spread_page_holds_one_start_at_a_time(dir: &Path, longest: &Longest) {
     let stretch = STRETCH as u64;
     let stretched =
@@ -545,30 +590,28 @@ fn the_spread_page_holds_one_start_at_a_time(dir: &Path, longest: &Longest) {
         after_opening(&db, longest.seat());
         let (cost, shown) = after_opening(&db, longest.seat());
         assert_eq!(shown, Some((PAGE, true)), "{name}: the first page");
-        cost
+        (cost, widest_row(&db, &longest.effect))
     });
-    eprintln!("a page across 50 attempts: {small:?}; their starts a mebibyte: plain {plain:?}, escaped {escaped:?}, by a member's label {membered:?}");
-    for (name, cost, copies) in [
-        ("plain", plain, PLAIN),
-        ("escaped", escaped, ESCAPED),
-        ("membered", membered, PLAIN),
+    let (small, plain, escaped) = (small.0, plain.0, escaped.0);
+    let (membered, labelled) = membered;
+    eprintln!("a page across 50 attempts: {small:?}; their starts a mebibyte: plain {plain:?}, escaped {escaped:?}, by a member's label {membered:?}, its row {labelled} bytes");
+    // The plain and escaped starts open no row of their own, so SQLite's
+    // growth is held to one start and the slack; the member's label opens
+    // a row keyed by it, which SQLite holds whole for its digest.
+    for (name, cost, copies, row) in [
+        ("plain", plain, PLAIN, 0),
+        ("escaped", escaped, ESCAPED, 0),
+        ("membered", membered, PLAIN, labelled),
     ] {
         let growth = cost.brokkr - small.brokkr;
         assert!(
             growth <= copies * stretch,
             "50 mebibyte {name} starts grew the page's peak by {growth} bytes, past {copies} starts"
         );
-        // A member's label opens a seat row of its own, keyed by it, which
-        // SQLite holds whole while the read checks its digest: SQLite's
-        // share of a wide row is reported here, not gated, until the
-        // operator rules how a page is held against one (#753).
-        if name == "membered" {
-            continue;
-        }
         let held = cost.sqlite - small.sqlite;
         assert!(
-            held <= stretch + SQLITE_SLACK,
-            "50 mebibyte {name} starts grew SQLite's high-water by {held} bytes, past one and the slack"
+            held <= stretch + row + SQLITE_SLACK,
+            "50 mebibyte {name} starts grew SQLite's high-water by {held} bytes, past one, the effect's widest seat row of {row} bytes and the slack"
         );
     }
 }
@@ -703,7 +746,6 @@ const PLAIN: u64 = 1;
 /// The copies of a wide checkpoint the page holds at once when its text
 /// carries escapes: the parser's scratch buffer, which grows past the text,
 /// and the string it keeps, as the opening's escaped bound was amended to
-/// three envelopes on 2026-10-24. The seat view's row of ruling 9 says one
-/// checkpoint body; its amendment to three, in the opening's form, is
-/// proposed to the operator (#753).
+/// three envelopes on 2026-10-24, and the seat view's, a checkpoint's and
+/// a start's, to three on 2026-10-25 (#753).
 const ESCAPED: u64 = 3;

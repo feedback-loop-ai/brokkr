@@ -638,6 +638,44 @@ fn rows_out_of_the_order_the_projection_opens_read_as_stale() {
     }
 }
 
+/// `run_id`'s folded rows planted by SQL at the places `order` gives, the
+/// row at each place the folded row `order` names there, each sealed at
+/// its place as a writer seals it ([`written`]).
+fn resealed(store: &Store, run_id: &str, order: &[usize]) {
+    let rows = folded_rows(store, run_id);
+    let mut insert = store.conn.prepare(&INSERT).unwrap();
+    for (opened, from) in order.iter().enumerate() {
+        let key = [
+            Value::Text(run_id.to_string()),
+            Value::Integer(opened as i64),
+        ];
+        let values = written(run_id, opened, &rows[*from]);
+        let values = values.into_iter().map(|(_, value)| value);
+        insert
+            .execute(params_from_iter(key.into_iter().chain(values)))
+            .unwrap();
+    }
+}
+
+/// Rows each sealed at its place, so only the order the projection opens
+/// tells them from a writer's, read as current in that order and as stale
+/// out of it: an attempt's row before its request's own, and an attempt's
+/// row of a request asked before the request that stands before it.
+#[test]
+fn sealed_rows_out_of_the_order_the_projection_opens_read_as_stale() {
+    let (_kept, mut kept) = store();
+    interleaved(&mut kept, "r");
+    resealed(&kept, "r", &[0, 1, 2, 3, 4]);
+    assert_eq!(read(&kept, "r"), folded_rows(&kept, "r"));
+    for order in [[1, 0, 2, 3, 4], [2, 1, 0, 3, 4]] {
+        let (_dir, mut store) = store();
+        interleaved(&mut store, "r");
+        resealed(&store, "r", &order);
+        assert_eq!(store.seat_rows("r").unwrap(), SeatRows::Stale, "{order:?}");
+        lags(&mut store, &["r"]);
+    }
+}
+
 /// A journal that lost one table of the seat summary, or the rows'
 /// digest an unreleased build of it made them without, loses both
 /// tables at a writable open, so no seat head that survived vouches for
