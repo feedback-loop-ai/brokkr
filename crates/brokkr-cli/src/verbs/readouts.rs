@@ -15,6 +15,7 @@ use serde_json::json;
 
 use crate::cli_args::{CompareArgs, CostsArgs, InspectArgs, LedgerArgs, RealmsArgs};
 use crate::cli_args::{ReplayArgs, RunsArgs, SeatsArgs, TuiArgs, UiArgs, WatchArgs};
+use crate::run_pages::{self, Shows};
 use crate::{compare, fleet, ledger, realms, render, run_view, selector, tui};
 use crate::{hearths_of, journal_of, now_rfc3339, open_journal, resolve_in_hearths};
 use crate::{summarize, ui_journal, watch_loop, Access, Exit, Invocation};
@@ -89,19 +90,21 @@ pub(crate) fn tui(
 }
 
 /// The view `inspect` derives and `seats` paints a block of: the run the
-/// selector names, in the journal the world names, folded once.
+/// selector names, in the journal the world names, read as a reader that
+/// `shows` it reads it, and refused where it does not fold.
 fn run_view_of(
     workspace: &Path,
     realms: Option<PathBuf>,
     db: Option<PathBuf>,
     run: &str,
+    shows: Shows,
 ) -> Result<brokkr_view::RunView> {
     let db = journal_of(workspace, realms, db)?;
     let store = open_journal(&db, Access::Read)?;
     let run = selector::resolve_run(&store, run)?;
-    let events = store.load(&run)?;
-    let state = fold(&events)?;
-    Ok(brokkr_view::run_view(&events, Some(&state)))
+    let read = run_pages::viewed(&store, &run, shows)?;
+    read.folded?;
+    Ok(read.view)
 }
 
 /// `inspect --json`'s bytes, which `seats --json` prints too: the view as
@@ -126,7 +129,8 @@ pub(crate) fn inspect(
         repo,
     }: InspectArgs,
 ) -> Result<ExitCode> {
-    let view = run_view_of(workspace, realms, db, &run)?;
+    let whole = json || capability_call.is_some();
+    let view = run_view_of(workspace, realms, db, &run, Shows::of(whole))?;
     if let Some(call_id) = capability_call {
         let repo = repo.as_deref().unwrap_or(workspace);
         return print_call(repo, &view, &call_id, json);
@@ -268,7 +272,7 @@ pub(crate) fn seats(
     // seats block of `inspect`'s readout or `inspect --json`'s
     // own bytes. Nothing is derived here and no wire object is
     // versioned for the verb.
-    let view = run_view_of(workspace, realms, db, &run)?;
+    let view = run_view_of(workspace, realms, db, &run, Shows::of(json))?;
     if json {
         return print_served(view);
     }

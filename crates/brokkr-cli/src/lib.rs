@@ -29,6 +29,7 @@ mod muninn;
 mod realms;
 mod recipes;
 mod render;
+mod run_pages;
 mod run_view;
 mod selector;
 mod tui;
@@ -43,8 +44,8 @@ mod verbs;
 #[doc(hidden)]
 pub use crate::budget_frame::{
     fleet_frame_for_budget, fleet_listing_for_budget, fleet_page_for_budget,
-    fleet_window_for_budget, fleet_world_listing_for_budget, run_frame_for_budget, FleetScroll,
-    FleetWindow,
+    fleet_window_for_budget, fleet_world_listing_for_budget, run_frame_for_budget,
+    run_readout_for_budget, FleetScroll, FleetWindow,
 };
 #[doc(hidden)]
 pub use crate::tui::transcript_surfaces_for_test;
@@ -601,9 +602,8 @@ fn watch_loop(
                 failures = 0;
                 if last.as_ref() != Some(&head) {
                     last = Some(head);
-                    let events = store.load(run)?;
-                    let state = fold(&events).ok();
-                    let view = brokkr_view::run_view(&events, state.as_ref());
+                    let read = run_pages::viewed(&store, run, run_pages::Shows::Frame)?;
+                    let (view, state) = (read.view, read.folded.ok());
                     let frame = render::inspect(&view, None, false, style);
                     write_frame(out, &frame, is_tty, clock)?;
                     // A park admits no further events until a human acts,

@@ -1008,10 +1008,7 @@ struct Scan {
 }
 
 fn ensure(scan: &mut Scan, slot: usize, effect_id: &str, member: Option<&str>) -> usize {
-    let key = match member {
-        Some(member) => format!("{effect_id}:{member}"),
-        None => effect_id.to_string(),
-    };
+    let key = participant::key_of(effect_id, member);
     if let Some(index) = scan.by_key.get(&key) {
         return *index;
     }
@@ -1249,10 +1246,7 @@ fn row_boundary(event: &EventEnvelope, scan: &Scan) -> Option<String> {
     let effect_id = field(payload, "effect_id")?;
     let record = payload.get("checkpoint").or_else(|| payload.get("result"));
     let member = record.and_then(|record| field(record, "member"));
-    let key = match member {
-        Some(member) => format!("{effect_id}:{member}"),
-        None => effect_id.to_string(),
-    };
+    let key = participant::key_of(effect_id, member);
     site_boundary(scan, &scan.parts[*scan.by_key.get(&key)?])
 }
 
@@ -1978,10 +1972,7 @@ fn node_state(part: Option<&Build>, step_done: bool) -> (&'static str, &'static 
 }
 
 fn make_node(scan: &Scan, effect_id: &str, label: &str, tag: Option<&str>, done: bool) -> Node {
-    let key = match tag {
-        Some(tag) => format!("{effect_id}:{tag}"),
-        None => effect_id.to_string(),
-    };
+    let key = participant::key_of(effect_id, tag);
     let part = scan.by_key.get(&key).map(|index| &scan.parts[*index]);
     let (state, state_class) = node_state(part, done);
     Node {

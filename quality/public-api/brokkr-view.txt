@@ -500,6 +500,7 @@ pub brokkr_view::Participant::visit: core::option::Option<u64>
 pub brokkr_view::Participant::working: bool
 impl brokkr_view::Participant
 pub fn brokkr_view::Participant::legacy_provenance(&self) -> brokkr_view::transcript::LegacyProvenance
+pub fn brokkr_view::Participant::seat(&self) -> core::option::Option<(&str, core::option::Option<&str>)>
 pub struct brokkr_view::Parts<'a>
 pub brokkr_view::Parts::causes: &'a alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
 pub brokkr_view::Parts::head_seq: u64
