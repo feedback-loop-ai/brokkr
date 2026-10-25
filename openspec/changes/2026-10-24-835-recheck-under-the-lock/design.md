@@ -8,7 +8,8 @@ the council's two positions reconciled. A decision is stated once here and
 cited from there. Where this design reversed a record of the proposal (S1,
 S5, S8, and the proof S10 named) the proposal now says so at that record
 and points here; everything else of it stands. Every line number is this
-tree's (`c6e557cf`), re-verified by this seat.
+tree's (`c6e557cf`; the code is unchanged through `e6623cbf`), re-verified
+by this seat.
 
 ## Context
 
@@ -132,16 +133,17 @@ assertions exact (D8). Commit the fix first, then measure within the budget
 (D8). M2, the seal steps and `amend` untouched.
 
 **Adopted from simplicity alone.** The lock take as a block inside
-`recheck`, five lines for two, and no `recheck_by` (D1, D2; ruling 6). Nothing
-moves: `root.rs` and `settlement.rs` are untouched, `admission.rs` ends at
-799 (D9). The tests in `admission/tests.rs` beside the door's existing
-tests, no `door.rs` (D9; ruling 5). The binding test models a seal in flight
-by its two invariants, the lock held and the record as a descheduled reader
-composes it, which `standing` refuses: the race's own refusal before the
-fix, deterministically, and admission after (D6). The budgeted stress is
-not a suite test (D7). The `Expired`-at-the-door scenarios go: `Expired` is
-`locked`'s refusal, proven with the lock held at admission, and reaches the
-door by the one conversion the lock-file test proves there (D3).
+`recheck`, six lines for two, and no `recheck_by` (D1, D2; ruling 6).
+Nothing moves: `root.rs` and `settlement.rs` are untouched, `admission.rs`
+ends at 800, its ceiling (D9). The tests in `admission/tests.rs` beside the
+door's existing tests, no `door.rs` (D9; ruling 5). The binding test models
+a seal in flight by its two invariants, the lock held and the record as a
+descheduled reader composes it, which `standing` refuses: the race's own
+refusal before the fix, deterministically, and admission after (D6). The
+budgeted stress is not a suite test (D7). The `Expired`-at-the-door
+scenarios go: `Expired` is `locked`'s refusal, proven with the lock held at
+admission, and reaches the door by the one conversion the lock-file test
+proves there (D3).
 
 **Adopted from robustness alone.** Its invariants become the implementer's
 checklist and the tests' shape: the guard is bound as `let _lock`, never
@@ -201,12 +203,13 @@ scenarios are amended to match, in the same commit as this design.
 
 ### D1. The fix: the read under the lock, in one block, in `admission.rs` alone
 
-`recheck` keeps its signature and its place; two of its lines become five:
+`recheck` keeps its signature and its place; two of its lines become six:
 
 ```rust
 pub(in crate::engine) fn recheck(held: &Held) -> Result<(), Unadmitted> {
     let standing: Reservation = {
-        let _lock = locked(held.coordination.dir(), startup(Instant::now(), Duration::MAX))?;
+        let deadline = startup(Instant::now(), Duration::MAX);
+        let _lock = locked(held.coordination.dir(), deadline)?;
         let (run, at) = reserved_at(held)?;
         read(&run, RESERVATION, &at).or(Err(Unknown::Lost))?
     };
@@ -224,8 +227,18 @@ pub(in crate::engine) fn recheck(held: &Held) -> Result<(), Unadmitted> {
   and before `spawning` takes its own lock (D4).
 - The lock is the one `amend` takes, on the one root,
   `held.coordination.dir()`, with the one deadline
-  (`startup(Instant::now(), Duration::MAX)`; D2). The clock is read in the
-  effect crate, which ruling 1 allows.
+  (`startup(Instant::now(), Duration::MAX)`; D2), bound on its own line as
+  every broker caller binds it (`settlement.rs:242`, `:386`, `:425`, `:457`;
+  `attestation.rs:42`) save `witnessed` (`:336`), whose call fits. With the
+  deadline inside the call the arguments are 63 columns, and the tree is
+  formatted to rustfmt's defaults (no `rustfmt.toml`): a call whose
+  arguments pass `fn_call_width`'s 60 is laid one argument per line, as
+  `fold/tests.rs:1006-1010` (62 columns) and
+  `admission/tests/sealing.rs:123-127` (66) are, while one of exactly 60
+  keeps its line (`admission/tests.rs:760`). So the inline form would be
+  four lines, the block eight and the file 802, which the files gate refuses
+  (the clarify of `e6623cbf`, finding 1). The clock is read in the effect
+  crate, which ruling 1 allows.
 - `?` on `locked` and on `reserved_at` converts `Unknown` to
   `Unadmitted::Identity` through the one `From` impl, as `amend`'s do; only
   the read's failure is mapped to `Lost`, as today (D3).
@@ -244,9 +257,11 @@ pub(in crate::engine) fn recheck(held: &Held) -> Result<(), Unadmitted> {
 
   The reach's long form ("every path each boxed writer's box is built
   from") stays in `redirected`'s doc (`:720-724`), its home.
-- `admission.rs`: 796 + 3 = 799 lines (D9). `recheck`'s cyclomatic
-  complexity gains one `?`; the ratchet's allowance is the higher of 15 and
-  its baseline, and the gate is the authority.
+- `admission.rs`: 796 + 4 = 800 lines, its ceiling, which the files gate
+  admits (D9). `cargo fmt --all -- --check` is run on the block before the
+  count is read, so the count the gate reads is the formatted one.
+  `recheck`'s cyclomatic complexity gains one `?`; the ratchet's allowance
+  is the higher of 15 and its baseline, and the gate is the authority.
 
 Alternatives. A shared helper for the three lines `amend` and `recheck` now
 both have (lock, `reserved_at`, `read`): refused, because `amend` must keep
@@ -263,7 +278,8 @@ The proposal's S1 made `recheck` a wrapper computing the deadline and
 `recheck_by(held, deadline)` the operation, after `witnessed` /
 `witnessed_by`, so a test could spend the deadline and prove `Expired` at
 the door, `Expired` over `Redirected` and `Expired` over `Lost`. This
-design computes the deadline inline and adds no second entry (ruling 6):
+design computes the deadline in `recheck`'s own block, bound on its own
+line (D1), and adds no second entry (ruling 6):
 
 - `Expired` is `locked`'s refusal, and a proof of it must hold the lock
   (`locked` tries the flock before it reads the deadline). It is proven that
@@ -422,7 +438,11 @@ fn the_door_waits_for_a_seal_in_flight() {
             let _ = door.send(recheck(&held));
         });
         let early = answered.recv_timeout(HOLD);
-        assert_eq!(early, Err(mpsc::RecvTimeoutError::Timeout), "read through the held lock");
+        assert_eq!(
+            early,
+            Err(mpsc::RecvTimeoutError::Timeout),
+            "read through the held lock"
+        );
         std::fs::remove_file(&mid_seal).unwrap();
         drop(holder);
         assert_eq!(answered.recv().unwrap(), Ok(()));
@@ -489,10 +509,12 @@ them on the unfixed tree and records the two failures (the first with
 `Lost` at `early`, the second with `Ok(())` at the `Lock` assertion), then
 lands D1 and runs them again, then commits before any measuring (D8). Both
 tests reuse `Host`, `open`, `taken` and `LOCK`; the shared prologue is
-three lines, under jscpd's floor. About 45 lines in all, `tests.rs` at
-about 1,865 of 2,000 (D9). The existing `recheck` tests, the redirected
-tests and every `sealing.rs` and `coordination.rs` test stay green and
-unchanged. `resume_tests.rs` is not touched beyond `efa9af75`.
+three lines, under jscpd's floor. About 55 lines in all as rustfmt lays
+them (the `early` assertion's three arguments are 74 columns, so they stand
+one per line), `tests.rs` at about 1,875 of 2,000 (D9). The existing
+`recheck` tests, the redirected tests and every `sealing.rs` and
+`coordination.rs` test stay green and unchanged. `resume_tests.rs` is not
+touched beyond `efa9af75`.
 
 What these tests do not prove, said plainly: that the guard is dropped
 before `redirected` (an efficiency rule of U8a2a, read on the page; a wider
@@ -535,40 +557,63 @@ scenario is replaced by the seal-in-flight scenario D6 proves.
 
 No sleep, retry or widened timeout is the fix; `recheck` waits on the lock
 only, to its deadline, then refuses. The implementer commits as soon as the
-fix builds and D6's tests pass, before any measuring. Then, in 45 minutes at
-most: up to 20 runs of the two resume tests alone, filtered in one
-invocation (`cargo test -p brokkr-runtime --lib --
-engine::resume_tests::a_sequence_offers
-engine::resume_tests::a_fresh_process_derives`), and up to 3 in-suite runs
-(`cargo test -p brokkr-runtime --lib`), with the before side from
-`.forge/scratch/` (alone 100/100 each; in-suite 30 runs of 1,378 tests, 0
-failed). The counts in hand when the budget ends go in the report and an
-amended commit message; the fix is never reverted to measure. The commit
-message carries: the reader audit (D5), the mutations and the tests each
-fails (D6), the two recorded failures on the unfixed tree, and the counts.
-The workspace run splits around the seat's 20-minute command limit. A
-tempdir test failing with `root: "/tmp"` is another sandbox's `/tmp/.git`,
-reported by signature; other timing tests that fail under load and pass
-alone and in-suite are #857's, reported and not fixed.
+fix builds and D6's tests pass, before the workspace validation and before
+any measuring: the attempt is killed at two hours, and the earlier attempts'
+workspace runs on this host took about 1,700 s and 1,500 s of test time
+before build time (`.forge/scratch/workspace-full.txt`,
+`workspace-rest.txt`). Only `cargo fmt --all -- --check` runs before that
+commit, because it compiles nothing and the files gate reads the formatted
+count (D1, D9). Clippy, `cargo test --workspace` split by crate around the
+seat's 20-minute command limit, both bundles and the ratchets run after the
+commit and amend it with their results, unsigned (the clarify of
+`e6623cbf`, finding 2). Then, in 45 minutes at most: up to 20 runs of each
+resume test alone, filtered to itself as its before side was
+(`before-alone-seq.txt` and `before-alone-fresh.txt` each read `running 1
+test … 1377 filtered out`, 100 runs each): `cargo test -p brokkr-runtime
+--lib -- engine::resume_tests::a_sequence_offers`, then the same for
+`engine::resume_tests::a_fresh_process_derives`, 40 invocations at most,
+each test's count set beside its own before side; and up to 3 in-suite runs
+(`cargo test -p brokkr-runtime --lib`), beside the before side's 30 runs of
+1,378 tests, 0 failed (`suite-a.txt` to `suite-c.txt`). The commission's
+budget names one test and #835 has two, so each test has the budget of one,
+and the one 45 minutes bounds both alone loops and the in-suite runs
+together (finding 3). The counts in hand when the budget ends go in the
+report and an amended commit message; the fix is never reverted to measure.
+The commit message carries: the reader audit (D5), the mutations and the
+tests each fails (D6), the two recorded failures on the unfixed tree, the
+gates' results and the counts. A tempdir test failing with `root: "/tmp"`
+is another sandbox's `/tmp/.git`, reported by signature; other timing tests
+that fail under load and pass alone and in-suite are #857's, reported and
+not fixed.
 
-### D9. Ceilings: `admission.rs` ends at 799, and nothing moves (S8 reversed)
+### D9. Ceilings: `admission.rs` ends at 800, its ceiling, and nothing moves (S8 reversed)
 
-D1 adds three lines to a file of 796 against a ceiling of 800, and the doc
+D1 adds four lines to a file of 796 against a ceiling of 800, and the doc
 comment is reworded within its six lines (D1). `quality/ratchet.sh files`
-lets a file grow to its ceiling, so 799 passes with one line to spare. S8's
-move of `identity` into `root.rs`, with its `MetadataExt` and `Unrooted`
-imports and the import edit in `settlement.rs`, existed to make room for
-`recheck_by` (D2) and is not made: a third file in a fenced change for no
-behaviour, and `settlement.rs` is outside the operator's lift. `root.rs` is
-untouched, which honours ruling 1 of the operator's by the plainest reading.
+lets a file grow to its ceiling or its baseline, whichever is higher, and
+refuses only a count above it (`if ($1 > allowed)`, `ratchet.sh:196`); the
+count is `wc -l`'s (`rs_lines`, `quality/lib.sh:122`, which `file_lines` at
+`:123` runs over every Rust file `git ls-files` names). So 800 passes, with
+no line to spare, and the count the implementer reads with `wc -l` is the
+gate's. S8's move of `identity` into `root.rs`, with its `MetadataExt` and
+`Unrooted` imports and the import edit in `settlement.rs`, existed to make
+room for `recheck_by` (D2) and is not made: a third file in a fenced change
+for no behaviour, and `settlement.rs` is outside the operator's lift.
+`root.rs` is untouched, which honours ruling 1 of the operator's by the
+plainest reading.
 
-Fallback, only if the gate's own count disagrees with this arithmetic: the
-`identity` move exactly as S8 described it, the fence lift covering
-`root.rs` and the two-line import edit in `settlement.rs` being the move's
-mechanical consequence; never a second helper or an alias. The next change
-that grows `admission.rs` pays for its room then, when it has a consumer.
+No fallback stands (the clarify of `e6623cbf`, finding 1). The earlier
+records kept S8's move as the one fallback "if the gate's own count
+disagrees with this arithmetic"; the gate's rule and count are read above,
+so no disagreement is possible, and the move's import edit reaches
+`settlement.rs`, which the lift does not name, so it is not a move this
+change may make, and the tasks' file check would refuse the commit that
+made it. Should the files gate refuse 800 even so, the implementer stops
+and reports the count as a finding, moving nothing. The next change that
+grows `admission.rs` pays for its room first, by that move or another,
+under its own scope.
 
-`admission/tests.rs` grows by about 45 lines to about 1,865 of its 2,000; no
+`admission/tests.rs` grows by about 55 lines to about 1,875 of its 2,000; no
 new test module (ruling 5: the door's tests have one home, beside
 `recheck`'s existing tests). `dispatch.rs`, `panel.rs`, `root.rs`,
 `settlement.rs`: unchanged.
@@ -614,8 +659,9 @@ API; a dispatch-level test holding the lock against `spawn_site`; the
 - **The lock's scope has no binding test.** A guard held across
   `redirected` changes no result, only contention; code review owns it, and
   the block makes it visible (D4).
-- **`admission.rs` at 799 of 800.** The next change that grows it moves
-  something out; the fallback is S8's move (D9).
+- **`admission.rs` at 800 of 800.** The next change that grows it moves
+  something out first, under its own scope; this change keeps no fallback
+  move, and a gate refusal of 800 is reported, not moved around (D9).
 - **Every door now waits on a sibling's seal**, a few milliseconds on disk
   under load, and takes the lock twice per door. U8a2a accepted the
   serialization at admission; the door's two takes are each short.
