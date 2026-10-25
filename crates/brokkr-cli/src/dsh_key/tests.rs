@@ -131,13 +131,15 @@ fn unset(_: &str) -> bool {
     false
 }
 
-/// A FIFO at `path`, which an open for reading waits on.
+/// A FIFO at `path`, which an open for reading waits on, made by
+/// `mkfifo(1)` because rustix offers `mknodat` on Linux alone.
 fn fifo(path: &Path) {
-    let (fifo, mode) = (
-        rustix::fs::FileType::Fifo,
-        rustix::fs::Mode::from_raw_mode(0o600),
-    );
-    rustix::fs::mknodat(rustix::fs::CWD, path, fifo, mode, 0).unwrap();
+    let made = std::process::Command::new("mkfifo")
+        .args(["-m", "600"])
+        .arg(path)
+        .status()
+        .unwrap();
+    assert_eq!(made.code(), Some(0), "mkfifo {}", path.display());
 }
 
 fn reached(source: Source) -> Vec<Reach> {
