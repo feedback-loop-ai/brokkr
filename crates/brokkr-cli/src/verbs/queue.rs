@@ -7,6 +7,7 @@
 //! starts a run.
 
 use std::ffi::OsString;
+use std::io::Write;
 use std::path::Path;
 use std::process::ExitCode;
 
@@ -25,8 +26,8 @@ use crate::{open_journal, Access, Exit};
 pub(crate) fn queue(workspace: &Path, command: QueueCmd) -> Result<ExitCode> {
     match command {
         QueueCmd::Add(args) => add(workspace, args),
-        QueueCmd::List(args) => list(workspace, args),
-        QueueCmd::Judge(args) => judge(workspace, args),
+        QueueCmd::List(args) => list(workspace, args, &mut std::io::stderr()),
+        QueueCmd::Judge(args) => judge(workspace, args, &mut std::io::stderr()),
         QueueCmd::Move(args) => change(workspace, args.entry, QueueCommand::Move { to: args.to }),
         QueueCmd::Hold(args) => change(workspace, args, QueueCommand::Hold),
         QueueCmd::Release(args) => change(workspace, args, QueueCommand::Release),
@@ -117,11 +118,15 @@ fn repin(
 /// `brokkr queue list`: a look, so the journal is opened read-only. Each
 /// waiting entry carries admission's verdict, judged as the journal, the
 /// maps and this machine stand now; a drift no latch records yet is
-/// shown, and not latched.
-fn list(workspace: &Path, QueueListArgs { journal, json }: QueueListArgs) -> Result<ExitCode> {
+/// shown, and not latched. Each unstarted run is named on `stderr`.
+fn list(
+    workspace: &Path,
+    QueueListArgs { journal, json }: QueueListArgs,
+    stderr: &mut impl Write,
+) -> Result<ExitCode> {
     let store = open_journal(&journal.journal(workspace)?, Access::Read)?;
     let (entries, unstarted) = on_this_host(|host| Ok(admission::pass_within(&store, host)?))?;
-    show(&entries, &unstarted, json)
+    show(&entries, &unstarted, json, stderr)
 }
 
 /// `brokkr queue judge`: admission's writing pass ([`admission::judge`]),
@@ -133,6 +138,7 @@ fn judge(
         reason,
         list: QueueListArgs { journal, json },
     }: QueueJudgeArgs,
+    stderr: &mut impl Write,
 ) -> Result<ExitCode> {
     let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
     let (entries, unstarted) = on_this_host(|host| {
@@ -140,7 +146,7 @@ fn judge(
             admission::judge_within(&mut store, host, by).map_err(anyhow::Error::from)
         })
     })?;
-    show(&entries, &unstarted, json)
+    show(&entries, &unstarted, json, stderr)
 }
 
 /// Do `act` on this machine as admission measures it (decision 0068
@@ -174,9 +180,15 @@ fn on_the_host_at<T>(
 }
 
 /// Print the judged queue, as a table or as `--json`, once each unstarted
-/// run the pass named beside it is named on stderr.
-fn show(entries: &[Judged], unstarted: &[Reason], json: bool) -> Result<ExitCode> {
-    eprint!("{}", named(unstarted));
+/// run the pass named beside it is named on `stderr`: the seam a test
+/// reads to pin what the binary prints there.
+fn show(
+    entries: &[Judged],
+    unstarted: &[Reason],
+    json: bool,
+    stderr: &mut impl Write,
+) -> Result<ExitCode> {
+    write!(stderr, "{}", named(unstarted))?;
     let rows = rows(entries);
     match json {
         true => println!("{}", serde_json::to_string_pretty(&rows)?),
@@ -264,10 +276,15 @@ fn each_wait<S: serde::Serializer>(waits: &&[Wait], to: S) -> Result<S::Ok, S::E
 }
 
 /// Each unstarted run the pass named beside the queue (decision 0095
-/// ruling 4), a line each, its kind first as scripts read it.
+/// ruling 4), a line each, its kind first as scripts read it. The run id
+/// is the journal's, so the line passes through [`Safe`] as the table's
+/// cells do.
 fn named(unstarted: &[Reason]) -> String {
     (unstarted.iter())
-        .map(|reason| format!("{}: {reason}\n", reason.kind()))
+        .map(|reason| {
+            let says = Safe::new(&reason.to_string());
+            format!("{}: {}\n", reason.kind(), says.as_str())
+        })
         .collect()
 }
 

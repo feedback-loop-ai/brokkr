@@ -40,14 +40,32 @@ fn library(dir: &tempfile::TempDir) -> (&Path, std::path::PathBuf) {
     (dir.path(), dir.path().join("forge.db"))
 }
 
-/// Parse `brokkr queue <words>` against `db` and run it in `workspace`.
-fn queue_in(workspace: &Path, db: &Path, words: &[&str]) -> Result<ExitCode> {
+/// `brokkr queue <words>` against `db`, parsed.
+fn parsed(db: &Path, words: &[&str]) -> QueueCmd {
     let tail = ["--db", db.to_str().unwrap()];
     let argv = ["brokkr", "queue"].iter().chain(words).chain(&tail);
     let Cmd::Queue { command } = Cli::try_parse_from(argv).unwrap().command else {
         unreachable!("parsed as a queue command")
     };
-    queue(workspace, command)
+    command
+}
+
+/// Parse `brokkr queue <words>` against `db` and run it in `workspace`.
+fn queue_in(workspace: &Path, db: &Path, words: &[&str]) -> Result<ExitCode> {
+    queue(workspace, parsed(db, words))
+}
+
+/// What `brokkr queue list` or `judge`, run in `workspace` against `db`,
+/// prints on stderr.
+fn stderr_of(workspace: &Path, db: &Path, words: &[&str]) -> String {
+    let mut stderr = Vec::new();
+    let exit = match parsed(db, words) {
+        QueueCmd::List(args) => list(workspace, args, &mut stderr),
+        QueueCmd::Judge(args) => judge(workspace, args, &mut stderr),
+        _ => unreachable!("only list and judge name unstarted runs"),
+    };
+    assert_eq!(exit.unwrap(), completed());
+    String::from_utf8(stderr).unwrap()
 }
 
 /// How `brokkr queue <words>`, refused, leaves: its failure line and exit.
@@ -173,6 +191,36 @@ fn the_queue_keeps_order_holds_and_runs_across_invocations() {
         "unstarted_run: run 'run-3' was never started, a row an older brokkr left with no \
          run/started: it spawned nothing, and counts against no ceiling\n"
     );
+}
+
+/// An unstarted run's id is the journal's, and an older brokkr let
+/// control and reordering characters into it: `list` and `judge` name
+/// the run on stderr with them out, as the table's cells are
+/// (`render::Safe`), whether or not an entry waits on it.
+#[test]
+fn an_unstarted_run_is_named_on_stderr_with_its_id_made_safe() {
+    let _host = own_host();
+    let dir = tempfile::tempdir().unwrap();
+    let (ws, db) = library(&dir);
+    Store::open(&db).unwrap();
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let manifest = json!({"schema": "run-manifest/v1"}).to_string();
+    let reorder = char::from_u32(0x202E).unwrap();
+    for run in [
+        "legacy-\x1b[2J\rhidden".to_string(),
+        format!("legacy-{reorder}123"),
+    ] {
+        brokkr_store::test_support::plant_run(&conn, &run, &manifest).unwrap();
+    }
+    let said = |run: &str| {
+        format!(
+            "unstarted_run: run '{run}' was never started, a row an older brokkr left with no \
+             run/started: it spawned nothing, and counts against no ceiling\n"
+        )
+    };
+    let named = [said("legacy-[2Jhidden"), said("legacy-123")].concat();
+    assert_eq!(stderr_of(ws, &db, &["list"]), named);
+    assert_eq!(stderr_of(ws, &db, &["judge", "--reason", "r"]), named);
 }
 
 #[test]
