@@ -93,8 +93,11 @@ impl core::convert::From<rusqlite::error::Error> for brokkr_store::RowRefusal
 pub fn brokkr_store::RowRefusal::from(rusqlite::error::Error) -> brokkr_store::RowRefusal
 pub enum brokkr_store::RunRead
 pub brokkr_store::RunRead::Current
+pub brokkr_store::RunRead::Current::causes: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
+pub brokkr_store::RunRead::Current::last_at: alloc::string::String
 pub brokkr_store::RunRead::Current::page: alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>
 pub brokkr_store::RunRead::Current::seats: alloc::vec::Vec<brokkr_core::seat::row::SeatRow>
+pub brokkr_store::RunRead::Current::state: core::option::Option<alloc::boxed::Box<brokkr_core::fold::RunState>>
 pub brokkr_store::RunRead::Current::trail: alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>
 pub brokkr_store::RunRead::Kept
 pub enum brokkr_store::SeatRecordVersion

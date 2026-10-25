@@ -16,6 +16,9 @@ use crate::tests::running_store;
 use crate::tui_read::tui_views;
 use crate::{run, tui, Cli};
 
+#[path = "../../../tests/support/composed_read.rs"]
+mod composed_read;
+
 /// The store's refusal of a run whose first event was edited.
 const EDITED: &str = "chain: event 1: event_hash does not match canonical content";
 
@@ -193,15 +196,16 @@ fn the_opening_refuses_it(db: &Path) {
 }
 
 /// The run view's read (#753) is made at the head its opening verified,
-/// so it refuses the run as the opening does, in the store's variant and
-/// words, though the run's index and seat rows stand at its head.
+/// so the view composed from it refuses the run as the opening does, in
+/// the store's variant and words, though the run's index and seat rows
+/// stand at its head; the run beside it composes.
 fn the_run_views_read_refuses_it(db: &Path) {
     let store = Store::open_read_only(db).unwrap();
-    let read = store
-        .open_run("r1")
-        .and_then(|opened| store.run_read("r1", &opened, 0));
+    let pages = |run| composed_read::pages(&store, run).map(|pages| pages.map(|pages| pages.len()));
+    let read = pages("r1");
     assert!(is_the_edit(read.as_ref().err()), "{read:?}");
     assert_eq!(read.unwrap_err().to_string(), EDITED);
+    assert_eq!(pages("r2").unwrap(), Some(1));
 }
 
 /// The binding ruling 5 names: a journal with one event below a run's

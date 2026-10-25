@@ -148,6 +148,11 @@ name = "heap_fleet"
 [[test]]
 name = "heap_open"
 
+# The run view's first screen (decision 0089 ruling 9): dhat's peak beside
+# SQLite's own high-water, for one long run's view in two journal sizes.
+[[test]]
+name = "heap_run_view"
+
 # The CPU budgets (#342). Library benches measure the fold, the run view,
 # a compile of recipes/self and one TUI frame; binary benches measure the
 # shipped binary's startup and `inspect`.

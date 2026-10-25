@@ -500,6 +500,12 @@ pub brokkr_view::Participant::visit: core::option::Option<u64>
 pub brokkr_view::Participant::working: bool
 impl brokkr_view::Participant
 pub fn brokkr_view::Participant::legacy_provenance(&self) -> brokkr_view::transcript::LegacyProvenance
+pub struct brokkr_view::Parts<'a>
+pub brokkr_view::Parts::causes: &'a alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
+pub brokkr_view::Parts::head: (u64, &'a str)
+pub brokkr_view::Parts::page: &'a [brokkr_core::envelope::EventEnvelope]
+pub brokkr_view::Parts::seats: &'a [brokkr_core::seat::row::SeatRow]
+pub brokkr_view::Parts::trail: &'a [brokkr_core::envelope::EventEnvelope]
 pub struct brokkr_view::Phase
 pub brokkr_view::Phase::columns: alloc::vec::Vec<brokkr_view::Column>
 pub brokkr_view::Phase::current: bool
@@ -695,6 +701,7 @@ pub fn brokkr_view::at_work<'a>(&'a brokkr_view::RunRow, &str) -> core::option::
 pub fn brokkr_view::behind_line(u64) -> core::option::Option<alloc::string::String>
 pub fn brokkr_view::cited(&brokkr_view::SupersededBy) -> alloc::string::String
 pub fn brokkr_view::clamp(&str, usize) -> alloc::string::String
+pub fn brokkr_view::composed_view(&brokkr_view::Parts<'_>, core::option::Option<&brokkr_core::fold::RunState>) -> core::option::Option<brokkr_view::RunView>
 pub fn brokkr_view::entry_sentence(&brokkr_core::entry::RunEntry) -> alloc::string::String
 pub fn brokkr_view::first_divergence(&[alloc::string::String], &[alloc::string::String]) -> core::option::Option<brokkr_view::FirstDivergence>
 pub fn brokkr_view::fleet_rows(&[brokkr_view::HearthEntries<'_>]) -> brokkr_view::FleetView

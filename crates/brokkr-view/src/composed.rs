@@ -1,0 +1,156 @@
+//! The run view composed from what the writer keeps (#753; decision 0089
+//! ruling 7, slice 2b). After a run's opening, its trail (every event but
+//! its checkpoints), its seat rows and a page of its journal, read in one
+//! snapshot at the head the opening verified, make the run view
+//! [`run_view`](crate::run_view) makes of the run read whole, all but two
+//! fields: each participant's checkpoints, which the seat view pages, and
+//! the journal, of which it holds the page it was read with.
+//!
+//! The participants are the ones the seat rows keep, in their order, each
+//! under the request it was first seen under, as the participant scan
+//! keys them. What their records told is the facts the rows group into
+//! ([`Told::kept`]), and what the trail states stands as the scan reads it
+//! there: their requests, starts and terminals, and their plans'
+//! provenance. A phase's inner columns read the steps and tags its newest
+//! effect's rows list, a visit's models the ones its requests' rows list,
+//! the live block the rows of the run's last start, and the last visit
+//! ends at the head's stamp.
+
+use std::collections::BTreeMap;
+
+use brokkr_core::fold::RunState;
+use brokkr_core::seat::row::{facts, inner, live, Datum, Member, Outcome, SeatFacts, SeatRow};
+use brokkr_core::{EventEnvelope, EventType};
+use serde_json::Value;
+
+use crate::started::CarriedEntry;
+use crate::{
+    bucket, dashboard, ensure, field, journal_rows, live_line, scan_participants, supersedes,
+    viewed, Build, Read, RunView, Scan, Told, CARRIED, FAILED, INDETERMINATE, SUCCEEDED, WORKING,
+};
+
+/// What one run's view is composed from, read at the head its opening
+/// verified (ruling 7).
+pub struct Parts<'a> {
+    /// Every event of the run but its checkpoints, in seq order.
+    pub trail: &'a [EventEnvelope],
+    /// The run's seat rows, in the order they were opened.
+    pub seats: &'a [SeatRow],
+    /// A page of the journal, checkpoints included, in seq order.
+    pub page: &'a [EventEnvelope],
+    /// The seq of the event each of the page's causation ids names.
+    pub causes: &'a BTreeMap<String, u64>,
+    /// The head: its seq, which counts the run's events from 1, and its
+    /// stamp.
+    pub head: (u64, &'a str),
+}
+
+/// The run view of the run `parts` read, `state` its fold at the head:
+/// what [`run_view`](crate::run_view) shows of the run read whole, but its
+/// participants' checkpoints and its journal's other pages. `None` where a
+/// seat row names a request the trail does not ask, which no writer keeps,
+/// so the reader reads the run whole.
+pub fn composed_view(parts: &Parts<'_>, state: Option<&RunState>) -> Option<RunView> {
+    let (count, last_at) = parts.head;
+    let scan = scanned(parts.trail, parts.seats)?;
+    let mut buckets = bucket(parts.trail);
+    for (effect_id, _) in buckets.newest.values() {
+        buckets
+            .listed
+            .insert(effect_id, inner(parts.seats, effect_id));
+    }
+    let marks = supersedes(parts.trail);
+    let cause = |id: &str| parts.causes.get(id).copied();
+    let lines = live(parts.seats).into_iter();
+    let read = Read {
+        live: lines.map(|(label, turn)| live_line(label, turn)).collect(),
+        journal: journal_rows(parts.page, &scan, &buckets, &marks, cause),
+        event_count: usize::try_from(count).unwrap_or(usize::MAX),
+        dashboard: dashboard::kept(parts.trail, parts.seats, last_at),
+    };
+    Some(viewed(parts.trail, &scan, &buckets, &marks, read, state))
+}
+
+/// The columns a row's participant is read by (`SeatRow::COLUMNS`): the
+/// request it was opened under, its effect and its member.
+const ASKED: usize = 0;
+const EFFECT: usize = 1;
+const MEMBER: usize = 3;
+
+/// The request each participant of `rows` was first seen under, in the
+/// order [`facts`] lists them: its first row's.
+fn homes(rows: &[SeatRow]) -> Vec<Datum> {
+    let mut seen = Vec::new();
+    let mut homes = Vec::new();
+    for row in rows {
+        let data = row.data();
+        let participant = (data[EFFECT].clone(), data[MEMBER].clone());
+        if !seen.contains(&participant) {
+            seen.push(participant);
+            homes.push(data[ASKED].clone());
+        }
+    }
+    homes
+}
+
+/// The participants `rows` keep, in their order, each under the request
+/// of the trail it was first seen under, with its plan's provenance as the
+/// trail's starts state it: `None` where a row names a request the trail
+/// does not ask.
+fn scanned(trail: &[EventEnvelope], rows: &[SeatRow]) -> Option<Scan> {
+    let read = scan_participants(trail);
+    let mut scan = Scan {
+        effects: read.effects,
+        parts: Vec::new(),
+        by_key: BTreeMap::new(),
+        boundaries: read.boundaries,
+    };
+    let asked: Vec<Datum> = trail
+        .iter()
+        .filter(|event| event.event_type == EventType::EffectRequested)
+        .filter(|event| field(&event.payload, "effect_id").is_some())
+        .map(|event| Datum::Integer(event.seq as i64))
+        .collect();
+    for (facts, home) in facts(rows).iter().zip(homes(rows)) {
+        let slot = asked.iter().position(|asked| *asked == home)?;
+        let member = match &facts.member {
+            Member::Seat => None,
+            Member::Named(member) => Some(member.as_str()),
+        };
+        let at = ensure(&mut scan, slot, &facts.effect_id, member);
+        let planned = read.by_key.get(&scan.parts[at].key);
+        let planned = planned.and_then(|index| read.parts[*index].provenance.clone());
+        kept(&mut scan.parts[at], facts, planned);
+    }
+    Some(scan)
+}
+
+/// `part` as `facts` keep it, `provenance` its plan's.
+fn kept(part: &mut Build, facts: &SeatFacts, provenance: Option<Value>) {
+    let member = part.member.as_deref().unwrap_or_default();
+    let carried = facts.carried_from.as_ref();
+    part.carried = carried.map(|from| CarriedEntry::of(member, &from.attempt_id));
+    part.provenance = provenance;
+    part.model.clone_from(&facts.model);
+    part.effort.clone_from(&facts.effort);
+    part.boundary.clone_from(&facts.boundary);
+    part.transcript.clone_from(&facts.transcript);
+    part.turns = facts.turns.filter(|_| !facts.turns_aggregated);
+    part.items = facts.items;
+    part.told = Told::kept(facts);
+    (part.status, part.status_class) = status(facts.outcome);
+}
+
+/// The status and its class a participant's outcome shows.
+fn status(outcome: Outcome) -> (&'static str, &'static str) {
+    match outcome {
+        Outcome::Working => WORKING,
+        Outcome::Succeeded => SUCCEEDED,
+        Outcome::Failed => FAILED,
+        Outcome::Indeterminate => INDETERMINATE,
+        Outcome::Carried => CARRIED,
+    }
+}
+
+#[cfg(test)]
+mod tests;

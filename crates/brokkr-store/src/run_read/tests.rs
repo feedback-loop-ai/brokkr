@@ -1,10 +1,16 @@
 //! The run view's read (decision 0089 ruling 7): at the head the run's
 //! opening verified, its trail, its seat rows and its journal a page at a
-//! time, every page together the run as `load` reads it; a run that moved
-//! past that head, a journal whose index is not read and a run whose seat
-//! rows lag are each said so; and the read is one snapshot.
+//! time, every page together the run as `load` reads it, with what caused
+//! each page's rows, the fold at the head and the head's stamp; a run that
+//! moved past that head, a journal whose index or summary is not read, a
+//! run whose seat rows or summary row lag, a run with no event and an
+//! index row naming no cause are each said so; and the read is one
+//! snapshot.
+
+use std::collections::BTreeMap;
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
+use brokkr_core::fold::{fold, RunState};
 use brokkr_core::seat::row::SeatRow;
 use serde_json::{json, Value};
 
@@ -53,26 +59,56 @@ fn keys(events: &[EventEnvelope]) -> Vec<(u64, String)> {
     events.iter().map(key).collect()
 }
 
-/// A read, comparable: its events by their keys, or why it read none.
+/// A fold, comparable: its seq, its hash and where the run stands.
+type Stands = (u64, String, String);
+
+fn stands(state: &RunState) -> Stands {
+    (state.seq, state.last_hash.clone(), state.run.to_string())
+}
+
+/// A read, comparable: its events by their keys, its fold by where it
+/// stands, or why it read none.
 #[derive(Debug, PartialEq)]
 enum Read {
     Current {
         trail: Vec<(u64, String)>,
         seats: Vec<SeatRow>,
         page: Vec<(u64, String)>,
+        causes: BTreeMap<String, u64>,
+        state: Option<Stands>,
+        last_at: String,
     },
     Kept,
 }
 
 fn read(found: Result<RunRead, StoreError>) -> Read {
     match found.unwrap() {
-        RunRead::Current { trail, seats, page } => Read::Current {
+        RunRead::Current {
+            trail,
+            seats,
+            page,
+            causes,
+            state,
+            last_at,
+        } => Read::Current {
             trail: keys(&trail),
             seats,
             page: keys(&page),
+            causes,
+            state: state.as_deref().map(stands),
+            last_at,
         },
         RunRead::Kept => Read::Kept,
     }
+}
+
+/// `r` read whole: its events, its fold where it stands, and its last
+/// event's stamp.
+fn whole(store: &Store) -> (Vec<EventEnvelope>, Option<Stands>, String) {
+    let whole = store.load("r").unwrap();
+    let state = stands(&fold(&whole).unwrap());
+    let last_at = whole.last().unwrap().recorded_at.clone();
+    (whole, Some(state), last_at)
 }
 
 /// `r`'s seat rows, read as current.
@@ -97,13 +133,19 @@ fn a_run_is_read_at_the_head_its_opening_verified_a_page_at_a_time() {
     worked(&mut store, 70);
     let opened = store.open_run("r").unwrap();
     assert_eq!(opened.seq, 74);
-    let whole = store.load("r").unwrap();
+    let (whole, state, last_at) = whole(&store);
+    // The trail folds to the run's state, the head's seq and hash its own.
+    let trail = fold(&whole[..4]).unwrap();
+    assert_ne!(Some(stands(&trail)), state);
     assert_eq!(
         read(store.run_read("r", &opened, 0)),
         Read::Current {
             trail: keys(&whole[..4]),
             seats: seats(&store),
             page: keys(&whole[..50]),
+            causes: BTreeMap::new(),
+            state,
+            last_at,
         }
     );
     // Each page is asked past the last row of the one before it, until a
@@ -156,7 +198,7 @@ fn the_read_is_one_snapshot() {
     let (_dir, mut store) = store();
     worked(&mut store, 2);
     let opened = store.open_run("r").unwrap();
-    let whole = store.load("r").unwrap();
+    let (whole, state, last_at) = whole(&store);
     let before = seats(&store);
     let mut peer = Store::open(store.path()).unwrap();
     let found = store.run_read_with("r", &opened, 5, || {
@@ -168,6 +210,112 @@ fn the_read_is_one_snapshot() {
         trail: keys(&whole[..4]),
         seats: before,
         page: keys(&whole[5..]),
+        causes: BTreeMap::new(),
+        state,
+        last_at,
     };
     assert_eq!(read(found), at_the_head);
+}
+
+/// Each page's rows are read with what caused them, the seq of the event
+/// each causation id names wherever it stands in the run, and none for an
+/// id no event of it carries.
+#[test]
+fn a_page_is_read_with_what_caused_its_rows() {
+    let (_dir, mut store) = store();
+    worked(&mut store, 60);
+    let started = store.load("r").unwrap()[3].event_id.clone();
+    for cause in [started.as_str(), "no event's"] {
+        let more = (EventType::EffectCheckpointed, turn(61));
+        let cause = Some(cause.to_string());
+        store.append_next("r", more.0, more.1, cause, None).unwrap();
+    }
+    let opened = store.open_run("r").unwrap();
+    let Read::Current { causes, .. } = read(store.run_read("r", &opened, 50)) else {
+        panic!("r read as kept");
+    };
+    assert_eq!(causes, BTreeMap::from([(started, 4)]));
+}
+
+/// A run whose fold refuses a checkpoint, which only checks the effect it
+/// names is open, reads no state at its head, though its trail folds: its
+/// summary row records the refusal there.
+#[test]
+fn a_run_whose_fold_refuses_a_checkpoint_reads_no_state() {
+    let (_dir, mut store) = store();
+    worked(&mut store, 1);
+    let mut elsewhere = turn(2);
+    elsewhere["effect_id"] = json!("elsewhere");
+    let refused = (EventType::EffectCheckpointed, elsewhere);
+    store
+        .append_next("r", refused.0, refused.1, None, None)
+        .unwrap();
+    let opened = store.open_run("r").unwrap();
+    let whole = store.load("r").unwrap();
+    let refusal = "event 6: EffectCheckpointed is impossible at cursor EffectInFlight { \
+         effect_id: \"fx\", attempt_id: \"a\", seat: \"worker\", failed_attempts: 0 }";
+    assert_eq!(fold(&whole).unwrap_err().to_string(), refusal);
+    assert_eq!(fold(&whole[..4]).unwrap().seq, 4);
+    let Read::Current { state, .. } = read(store.run_read("r", &opened, 0)) else {
+        panic!("r read as kept");
+    };
+    assert_eq!(state, None);
+}
+
+/// A run with no event, a journal whose summary's backfill has not
+/// finished, a summary row behind the head and an index row naming no
+/// cause each read the kept way.
+#[test]
+fn a_run_its_summary_or_its_causes_do_not_stand_for_is_read_the_kept_way() {
+    let (dir, mut store) = store();
+    store
+        .create_run("empty", "none yet", "self", &json!({}))
+        .unwrap();
+    let opened = store.open_run("empty").unwrap();
+    assert_eq!(read(store.run_read("empty", &opened, 0)), Read::Kept);
+    worked(&mut store, 2);
+    let whole = store.load("r").unwrap();
+    let (first, started) = (whole[0].event_id.clone(), whole[3].event_id.clone());
+    let more = (EventType::EffectCheckpointed, turn(3));
+    store
+        .append_next("r", more.0, more.1, Some(started), None)
+        .unwrap();
+    let opened = store.open_run("r").unwrap();
+    assert!(matches!(
+        read(store.run_read("r", &opened, 0)),
+        Read::Current { .. }
+    ));
+    let conn = rusqlite::Connection::open(dir.path().join("forge.db")).unwrap();
+    let finished: String = conn
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'run_summary_backfill'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let kept = |edit: &str, undo: &str| {
+        conn.execute_batch(edit).unwrap();
+        let found = read(store.run_read("r", &opened, 0));
+        conn.execute_batch(undo).unwrap();
+        found
+    };
+    let unfinished = kept(
+        "DELETE FROM meta WHERE key = 'run_summary_backfill'",
+        &format!("INSERT INTO meta (key, value) VALUES ('run_summary_backfill', '{finished}')"),
+    );
+    assert_eq!(unfinished, Read::Kept);
+    let behind = kept(
+        "UPDATE run_summary SET folded_seq = folded_seq - 1 WHERE run_id = 'r'",
+        "UPDATE run_summary SET folded_seq = folded_seq + 1 WHERE run_id = 'r'",
+    );
+    assert_eq!(behind, Read::Kept);
+    let idless = kept(
+        "UPDATE event_index SET event_id = NULL WHERE run_id = 'r' AND seq = 1",
+        &format!("UPDATE event_index SET event_id = '{first}' WHERE run_id = 'r' AND seq = 1"),
+    );
+    assert_eq!(idless, Read::Kept);
+    assert!(matches!(
+        read(store.run_read("r", &opened, 0)),
+        Read::Current { .. }
+    ));
 }

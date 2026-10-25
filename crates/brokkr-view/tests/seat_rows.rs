@@ -10,12 +10,8 @@
 use brokkr_core::summary::Account;
 use brokkr_core::EventEnvelope;
 
-use crate::envelope_builder;
+use crate::{committed_journals, journals};
 
-#[path = "../../brokkr-core/tests/committed_journals.rs"]
-mod committed_journals;
-#[path = "../../../tests/support/seat_rows.rs"]
-mod journals;
 #[path = "../../../tests/support/seat_facts.rs"]
 mod seat_facts;
 

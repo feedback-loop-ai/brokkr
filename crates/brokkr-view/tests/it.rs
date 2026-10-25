@@ -6,5 +6,12 @@
 #[path = "../../../tests/support/envelope.rs"]
 mod envelope_builder;
 
+// The journals several files hold the run view to, declared once.
+#[path = "../../brokkr-core/tests/committed_journals.rs"]
+mod committed_journals;
+#[path = "../../../tests/support/seat_rows.rs"]
+mod journals;
+
+mod composed_view;
 mod seat_items;
 mod seat_rows;
