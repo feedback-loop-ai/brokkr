@@ -6,24 +6,42 @@
 //! semantics (`recorded_at` is evidence only). The per-seat accounting and
 //! both divergences are `brokkr-view`'s derivations; this module reads
 //! the journal and prints them.
+//!
+//! `brokkr costs` opens the run first, its chain verified, then reads its
+//! seat rows at the head the opening verified (decision 0089 rulings 5
+//! and 7). A run the store says is kept is read whole, as before (ruling
+//! 8): either way it prints the same bytes.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
 use anyhow::{Context, Result};
 use brokkr_core::fold::{fold, ParkReason};
+use brokkr_core::seat::row;
 use brokkr_core::EventType;
-use brokkr_store::Store;
+use brokkr_store::{Opened, SeatRows, Store};
 use brokkr_view::{first_divergence, resolution_divergence, resolutions, seat_costs, Resolution};
 use serde::Serialize;
 use serde_json::{json, Value};
 
 /// `brokkr costs`: the run's per-seat report under the id `--run`
 /// resolved to — a full id, a unique prefix or `latest` (decision 0015).
-/// These bytes are LaneTally's join surface.
+/// These bytes are LaneTally's join surface. The run is opened, then its
+/// seat rows read at the head the opening verified, or the run read whole
+/// where they do not stand there.
 pub(crate) fn costs(store: &Store, requested: &str) -> Result<Costs> {
     let run = crate::selector::resolve_run(store, requested)?;
-    let (report, total) = seat_costs(&store.load(&run)?);
+    let opened = store.open_run(&run)?;
+    costs_at(store, run, &opened)
+}
+
+/// `brokkr costs`' document of `run`, which its opening verified to
+/// `opened` (what ruling 9 bounds after the opening).
+pub(crate) fn costs_at(store: &Store, run: String, opened: &Opened) -> Result<Costs> {
+    let (report, total) = match store.seat_rows_at(&run, opened)? {
+        SeatRows::Current(rows) => row::costs(&rows),
+        SeatRows::Stale => seat_costs(&store.load(&run)?),
+    };
     Ok(Costs {
         run_id: run,
         seats: json!(report),

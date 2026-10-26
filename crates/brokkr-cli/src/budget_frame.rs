@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use brokkr_core::envelope::EventEnvelope;
-use brokkr_store::{Store, StoreError};
+use brokkr_store::{Opened, Store, StoreError};
 use brokkr_view::{Cursor, RunsView};
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
@@ -129,6 +129,14 @@ pub fn fleet_listing_for_budget(
     let store = Store::open_read_only(db)?;
     let journal = (Journal::at(db), now);
     crate::fleet::list_hearth(&store, journal, true, |lister| lister.every_json(out))
+}
+
+/// `brokkr costs --run <run>` of `run` in `store` after its opening, which
+/// verified it to `opened`: what decision 0089 ruling 9 bounds after the
+/// opening, to the bytes it prints.
+pub fn costs_for_budget(store: &Store, run: &str, opened: &Opened) -> anyhow::Result<String> {
+    let costs = crate::compare::costs_at(store, run.to_string(), opened)?;
+    Ok(serde_json::to_string_pretty(&costs)?)
 }
 
 /// `brokkr runs --json` with no other flag over a many-hearth world of

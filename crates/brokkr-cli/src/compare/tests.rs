@@ -160,6 +160,38 @@ fn costs_print_these_bytes() {
     );
 }
 
+/// The journal `forge.db` under `dir` copied beside it and unmigrated, as
+/// a binary from before the projections left it, opened read-only.
+fn unmigrated(dir: &std::path::Path) -> Store {
+    let kept = dir.join("kept.db");
+    let conn = rusqlite::Connection::open(dir.join("forge.db")).unwrap();
+    conn.execute("VACUUM INTO ?1", [kept.to_str().unwrap()])
+        .unwrap();
+    brokkr_store::test_support::unmigrate(&rusqlite::Connection::open(&kept).unwrap()).unwrap();
+    Store::open_read_only(&kept).unwrap()
+}
+
+/// `costs` reads a writer's run from its seat rows at the head its
+/// opening verified (#753), and a journal without the rows whole, as
+/// before them: the same bytes either way.
+#[test]
+fn costs_reads_the_rows_or_the_run_whole_alike() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let completed = (EventType::RunCompleted, json!({}));
+    one_seat_run(&mut store, "run", 0.25, json!("WORK-OK"), completed);
+    let opened = store.open_run("run").unwrap();
+    let seats = |store: &Store| match store.seat_rows_at("run", &opened).unwrap() {
+        SeatRows::Current(rows) => Some(row::costs(&rows).1),
+        SeatRows::Stale => None,
+    };
+    assert_eq!(seats(&store), Some(0.25));
+    let whole = unmigrated(dir.path());
+    assert_eq!(seats(&whole), None);
+    let printed = |store: &Store| serde_json::to_string_pretty(&costs(store, "run").unwrap());
+    assert_eq!(printed(&store).unwrap(), printed(&whole).unwrap());
+}
+
 /// A run of one `work` seat that cost `cost` and whose result `rule`
 /// decided, ended by `ending`.
 fn one_seat_run(store: &mut Store, run: &str, cost: f64, rule: Value, ending: (EventType, Value)) {

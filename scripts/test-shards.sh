@@ -66,7 +66,7 @@ shard 'the heap measurements' test:heap_claude test:heap_codex test:heap_dsh
 shard 'the other own-process binaries' bin:brokkr test:driver_conformance test:transcript_surfaces \
   test:hands_exits test:secret_drop test:capability_launch test:operated_repo test:queued_launch \
   test:seatbelt_lifetime_probe test:summary_heap test:heap_fleet test:heap_open test:heap_run_view \
-  test:heap_seat_view
+  test:heap_seat_view test:heap_costs
 shard 'the doctests' doc
 shard 'capability_broker, alone' test:it only:capability_broker::
 

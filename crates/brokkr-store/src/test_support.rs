@@ -385,6 +385,28 @@ pub fn statements_traced<T>(store: &mut Store, read: impl FnOnce(&Store) -> T) -
     (read, begun)
 }
 
+/// The plan SQLite takes for each statement begun on `store`'s connection
+/// while `read` ran, each step's detail in the order begun, each statement
+/// as its trace gives it, its parameters written in, but for the comment
+/// it gives for a pragma, which plans nothing: what the `costs` heap test
+/// asserts of the reads it measures (decision 0089 ruling 9).
+#[cfg(feature = "test-support")]
+pub fn plans_begun<T>(store: &mut Store, read: impl FnOnce(&Store) -> T) -> (T, Vec<String>) {
+    use std::sync::Mutex;
+    static BEGUN: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    fn begun(sql: &str) {
+        BEGUN.lock().unwrap().push(sql.to_string());
+    }
+    BEGUN.lock().unwrap().clear();
+    store.conn.trace(Some(begun));
+    let read = read(store);
+    store.conn.trace(None);
+    let begun = std::mem::take(&mut *BEGUN.lock().unwrap());
+    let planned = begun.iter().filter(|sql| !sql.starts_with("--"));
+    let plans = planned.map(|sql| plan(store, sql, []).unwrap());
+    (read, plans.flatten().collect())
+}
+
 /// Take the seq guard (#354) off a journal, leaving it as a journal
 /// written before the guard existed: one that may hold a row at a seq
 /// that is not a position. Opening the journal read-write restores it.

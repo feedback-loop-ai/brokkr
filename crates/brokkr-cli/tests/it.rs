@@ -40,6 +40,7 @@ mod capability_broker;
 mod capability_verbs;
 mod composed_view;
 mod contributing;
+mod costs_read;
 mod decisions_index;
 mod delivered_by_brokkr;
 mod diagrams;
