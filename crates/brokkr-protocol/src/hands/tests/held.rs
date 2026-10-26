@@ -418,3 +418,37 @@ fn refusing_close_range(errno: i32) {
     };
     assert!(installed, "{}", std::io::Error::last_os_error());
 }
+
+/// The retired public `box_argv` (U8k, decision 0071 ruling 6) refuses every
+/// call with its exact cause, never returning an argv that names
+/// descriptors already closed.
+#[test]
+#[expect(
+    deprecated,
+    reason = "the retired function is called to pin its refusal"
+)]
+fn the_retired_box_argv_refuses_every_call_with_its_exact_cause() {
+    let (dir, root, work) = fixture();
+    let spec = spec_of(json!({"kind": "workspace", "binds": []}));
+    let reach = sealed(&spec, &work, &root.join("home"));
+    let command = ["true".to_string()];
+    let artifacts = artifact_root(dir.path());
+    let refused = super::super::box_argv(
+        &spec,
+        &work,
+        &artifacts,
+        &reach,
+        dir.path(),
+        OverlayWrites::Ram,
+        &[],
+        None,
+        &command,
+    )
+    .unwrap_err();
+    let said = "hands::box_argv is retired: its argv would name descriptors closed as it \
+                returns; launch the box through `execute` or `run_boxed`, which hold them";
+    assert_eq!(
+        (refused.kind(), refused.to_string()),
+        (std::io::ErrorKind::Unsupported, said.to_string())
+    );
+}

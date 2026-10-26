@@ -45,9 +45,9 @@ use git::{git_dirs, git_identity};
 pub use git::{git_facts, GitFacts};
 #[rustfmt::skip] pub use namespace::{entry::ServerEntry, namespace_join, server_environment, ServerBox, ServerProfile, ServerProgram};
 use namespace::namespace_path;
-use namespace::workspace::{Boxed, Workspace};
+use namespace::workspace::Workspace;
 #[cfg(test)]
-use namespace::{Namespace, Profile};
+use namespace::{workspace::Boxed, Namespace, Profile};
 pub use overlay::{overlay_supported_with, OverlayWrites};
 pub use sealed::{drifted, seal, sealed_store, store_place, Sealed, SEALED_REACH, UNHIDDEN_STORE};
 pub use session::{reap_dead_sessions, Reaped, Session, SessionError};
@@ -325,9 +325,9 @@ pub const HOST_TOOLCHAIN_BINDS: &[&str] = &[
 /// The bubblewrap argv for one boxed command: the namespace, the binds,
 /// the environment, then `--` and the command, each input as the private
 /// `Workspace` names it. Retired (U8k, decision 0071 ruling 6): each sealed
-/// source is mounted by a descriptor, which closes as this returns, so the
-/// argv names every mount and can enter none. [`execute`] and
-/// [`run_boxed`] launch the box they build holding its handles.
+/// source is mounted by a descriptor, which would close as this returned, so
+/// it refuses every call with [`std::io::ErrorKind::Unsupported`] and its
+/// exact cause. [`execute`] and [`run_boxed`] launch the box holding them.
 #[deprecated(
     since = "0.12.0",
     note = "its argv names descriptors closed as it returns; launch the box through \
@@ -335,28 +335,25 @@ pub const HOST_TOOLCHAIN_BINDS: &[&str] = &[
 )]
 #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 pub fn box_argv(
-    spec: &HandsSpec,
-    workdir: &Path,
-    artifacts: &Path,
-    sealed: &Sealed,
-    scratch: &Path,
-    writes: OverlayWrites<'_>,
-    identity: &[(String, String)],
-    bundle_root: Option<&Path>,
-    command: &[String],
+    _spec: &HandsSpec,
+    _workdir: &Path,
+    _artifacts: &Path,
+    _sealed: &Sealed,
+    _scratch: &Path,
+    _writes: OverlayWrites<'_>,
+    _identity: &[(String, String)],
+    _bundle_root: Option<&Path>,
+    _command: &[String],
 ) -> std::io::Result<Vec<String>> {
-    let workspace = Workspace {
-        spec,
-        workdir,
-        artifacts,
-        sealed,
-        scratch,
-        writes,
-        identity,
-        bundle_root,
-    };
-    workspace.boxed(command).map(Boxed::into_argv)
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        RETIRED_BOX_ARGV,
+    ))
 }
+
+/// Why the retired [`box_argv`] refuses every call (U8k, ruling 6).
+const RETIRED_BOX_ARGV: &str = "hands::box_argv is retired: its argv would name descriptors \
+     closed as it returns; launch the box through `execute` or `run_boxed`, which hold them";
 
 /// The engine's own uid and gid: what the box maps to `runner`, and what
 /// the unboxed network prefix maps root back to (decision 0046 ruling 4).

@@ -188,6 +188,7 @@ fn git(
 impl Boxed {
     /// The argv alone. Its descriptors close with the box's handles, so it
     /// names every mount the box makes and can enter none of them.
+    #[cfg(test)]
     pub(in crate::hands) fn into_argv(self) -> Vec<String> {
         self.argv
     }
