@@ -221,6 +221,7 @@ fn the_seat_view_s_page_holds_its_checkpoints_one_at_a_time() {
         "SQLite's budget is the fleet's cap on every host"
     );
     for (name, cost) in [("10,000", small), ("1,000,000", large)] {
+        measure::report_headroom(name, cost.sqlite);
         let within = (cost.brokkr <= brokkr, cost.sqlite <= sqlite);
         let budgets = format!("the budgets are {brokkr} and SQLite's {sqlite}");
         assert_eq!(within, (true, true), "{name}: {cost:?}; {budgets}");

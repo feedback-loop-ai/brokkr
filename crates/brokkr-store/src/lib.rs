@@ -145,6 +145,11 @@ use schema::{ensure_wal, schema_supported, RECORDED_SCHEMA};
 /// the pathological case, not the price of the ordinary one.
 const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// A reader's page cache in KiB, a negative `cache_size`: 128 holds SQLite's
+/// share within the 512,000-byte cap on every host, macOS measuring about 12%
+/// above Linux (decision 0089 ruling 9, amended 2026-10-25 on #753).
+const READER_CACHE_KIB: i64 = 128;
+
 #[derive(Debug, Error)]
 pub enum StoreError {
     #[error("sqlite: {0}")]
@@ -432,10 +437,7 @@ impl Store {
     pub fn open_read_only(path: &Path) -> Result<Store, StoreError> {
         let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         conn.busy_timeout(BUSY_TIMEOUT)?;
-        // A reader's page cache holds at most 256 KiB, so a page of the
-        // fleet costs SQLite the same memory at every journal size
-        // (decision 0089 ruling 9); a whole read streams past it.
-        conn.pragma_update(None, "cache_size", -256)?;
+        conn.pragma_update(None, "cache_size", -READER_CACHE_KIB)?;
         let found: String = patiently("open_read_only", BUSY_TIMEOUT, || {
             Ok(conn.query_row(RECORDED_SCHEMA, [], |row| row.get(0))?)
         })?;

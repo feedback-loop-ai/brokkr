@@ -861,6 +861,18 @@ model the writer keeps in the journal's own file and transaction.
      SQLite reads at open (slice 2's `event_index` took Linux to 405,064
      B), so the cap is set to hold slice 2 on both hosts. Brokkr's own
      shares, and every other cap here, are unchanged.
+
+     *Amended, 2026-10-25 (operator, recorded on #753):* a reader's page
+     cache holds 128 KiB (`PRAGMA cache_size = -128`), not 256, so that
+     SQLite's share stays within the 512,000 B cap on every host, and the
+     cap does not rise. At 256 KiB, CI's `test (macos-latest)` leg read
+     the seat view's page at 528,032 B and the run view's first screen at
+     513,232 B, against 471,640 B and 458,032 B on Linux. At 128 KiB, on
+     Linux, SQLite's share is 301,456 B for the fleet's page, 269,216 B
+     for opening a run, 322,624 B for the run view's first screen and
+     336,232 B for the seat view's page, each at least 12% under the cap
+     (at most 457,000 B), which is about how much higher macOS measures.
+     Each readout's wall time stays within ruling 9's.
    - **A page at every bound.** The 256 KiB is a page of ordinary rows.
      A page whose every row fills every bound holds about 330 KiB of row
      text before it is derived and painted (ruling 2), so it has a budget

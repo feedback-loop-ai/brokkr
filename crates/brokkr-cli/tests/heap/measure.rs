@@ -13,6 +13,20 @@ static ALLOC: dhat::Alloc = dhat::Alloc;
 /// SQLite's budget to it too.
 pub(crate) const SQLITE_CAP: u64 = 500 * 1024;
 
+/// Reports SQLite's share `held` of the readout `name` and its headroom
+/// under [`SQLITE_CAP`], in bytes, and the share of the cap it holds. CI's
+/// macOS leg measures SQLite about 12% above Linux (#753), so a Linux
+/// figure under about 457,000 bytes is one the macOS leg holds too.
+pub(crate) fn report_headroom(name: &str, held: u64) {
+    let headroom = i128::from(SQLITE_CAP) - i128::from(held);
+    let permille = held * 1000 / SQLITE_CAP;
+    eprintln!(
+        "{name}: SQLite's {held} bytes, {}.{}% of the cap of {SQLITE_CAP}; {headroom} under it",
+        permille / 10,
+        permille % 10
+    );
+}
+
 /// SQLite's memory now, and its high-water since the last reset, which
 /// `reset` starts again from now.
 pub(crate) fn sqlite_memory(reset: bool) -> (i64, i64) {

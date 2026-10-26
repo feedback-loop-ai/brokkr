@@ -131,6 +131,7 @@ fn opening_a_run_holds_one_envelope_at_a_time() {
         "the budget {brokkr} is past a tenth of the run's {run_bytes} bytes"
     );
     for (name, cost) in [("10,000", small), ("1,000,000", large)] {
+        measure::report_headroom(name, cost.sqlite);
         assert!(
             cost.brokkr <= brokkr,
             "{name}: {} bytes; the budget is {brokkr}",
