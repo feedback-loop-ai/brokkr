@@ -6,10 +6,13 @@
 //! the BUILT binary under a PATH holding only a dsh stand-in, a dsh home of
 //! the test's own, and each documented source planted in turn. The
 //! scaffold's seats ride a measured route, so where their cold shape was
-//! measured on the host an engine-only home serves them; a seat on a route
-//! no engine-only home was measured on is served from the operator's home
-//! while the fence stands. A planted value is never printed, and a planted
-//! `.env` is told present but unread.
+//! measured on the host an engine-only home serves their cold launch, and,
+//! while the fence stands, the operator's home serves their resumed one,
+//! whose replacement shape the shipped adapter does not measure; one
+//! engine-only home serves both where the adapter measures both. A seat on
+//! a route no engine-only home was measured on is served from the
+//! operator's home while the fence stands. A planted value is never
+//! printed, and a planted `.env` is told present but unread.
 #![cfg(unix)]
 
 use std::os::unix::fs::PermissionsExt;
@@ -100,9 +103,9 @@ impl DshHost {
 
     /// What `brokkr init` prints of the scaffold's seats on this host, `key`
     /// the launching environment's: the shipped dsh adapter's one cold
-    /// shape was measured on Linux, so there an engine-only home serves
-    /// them, and on macOS, where it qualifies nothing, the operator's home
-    /// does (#717).
+    /// shape was measured on Linux, so there an engine-only home serves a
+    /// cold launch and the operator's home a resumed one, and on macOS,
+    /// where it qualifies nothing, the operator's home serves both (#717).
     fn initialised(&self, key: Option<&str>) -> [String; 2] {
         let (route, seats) = ("deepseek-official", "implement, intake");
         let macos = cfg!(target_os = "macos");
@@ -113,8 +116,21 @@ impl DshHost {
         };
         match macos {
             true => [reach, operator(route, seats)],
-            false => [reach, engine(route, seats)],
+            false => [reach, two_state(seats)],
         }
+    }
+
+    /// The scaffold's dsh adapter declaring, beside its one cold shape, the
+    /// replacement shape a rejoin offer launches, measured as the cold one.
+    fn measure_replacement(&self) {
+        let adapter = self.repo.path(".brokkr/adapters/dsh.json");
+        let text = std::fs::read_to_string(&adapter).unwrap();
+        let mut dsh: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let shapes = dsh["mcp"]["shapes"].as_array_mut().unwrap();
+        let mut replacement = shapes[0].clone();
+        replacement["invocation"] = "replacement".into();
+        shapes.push(replacement);
+        std::fs::write(&adapter, dsh.to_string()).unwrap();
     }
 
     /// `brokkr doctor`'s dsh key check lines, and its exit code.
@@ -167,26 +183,46 @@ fn operator(route: &str, seats: &str) -> String {
     )
 }
 
+/// The resumed launch's clause of a scaffold seat's two-state line: the
+/// shipped adapter measures no replacement shape, so while the fence stands
+/// the operator's home serves it.
+const RESUMED: &str = "and serves a resumed launch from the operator's own dsh home, which reads \
+                       every source this check asks, while the driver does not admit its \
+                       replacement shape";
+
+/// The home line of `seats` on dsh's default route, whose cold launch an
+/// engine-only home serves and whose resumed launch the operator's does.
+fn two_state(seats: &str) -> String {
+    format!(
+        "dsh home deepseek-official: Brokkr serves a cold launch of seats [{seats}] on this route \
+         from its own engine-only home (decision 0065), where dsh reads a key from the launching \
+         environment alone, never the operator's .env or patch layers, {RESUMED}"
+    )
+}
+
 /// The failing home line of `seats` on dsh's default route, whose
-/// engine-only launch the `.env` at `in_repo` refuses.
+/// engine-only cold launch the `.env` at `in_repo` refuses and whose
+/// resumed launch the operator's home serves.
 fn refused(seats: &str, in_repo: &Path) -> String {
     format!(
-        "MISSING  dsh home deepseek-official: Brokkr serves seats [{seats}] on this route from \
-         its own engine-only home (decision 0065), and refuses each launch while {} is present, \
-         unread, since dsh would read it for a key; export the key where brokkr runs and remove \
-         the file",
+        "MISSING  dsh home deepseek-official: Brokkr refuses a cold launch of seats [{seats}] on \
+         this route from its own engine-only home (decision 0065) while {} is present, unread, \
+         since dsh would read it for a key (export the key where brokkr runs and remove the \
+         file), {RESUMED}",
         in_repo.display()
     )
 }
 
-/// The scaffold's seats, served from an engine-only home, read a key from
-/// the launching environment alone: one only the operator's home gives,
-/// through its `.env` or a patch re-enabling dsh's credentials service, is
-/// no key there, and fails the report.
+/// The scaffold's seats, whose cold launch an engine-only home serves and
+/// whose resumed one the operator's home does, are answered for the
+/// engine-only home, fail-closed, which reads a key from the launching
+/// environment alone: one only the operator's home gives, through its
+/// `.env` or a patch re-enabling dsh's credentials service, is no key
+/// there, and fails the report.
 #[test]
 fn an_engine_only_seat_reads_its_key_from_the_launching_environment_alone() {
     let host = DshHost::new();
-    let served = engine("deepseek-official", "implement, intake");
+    let served = two_state("implement, intake");
     assert_eq!(host.init(None), host.initialised(None));
     let missing = (
         vec![format!("MISSING  {UNSET}"), format!("ok       {served}")],
@@ -206,6 +242,19 @@ fn an_engine_only_seat_reads_its_key_from_the_launching_environment_alone() {
         &format!("DEEPSEEK_API_KEY={PLANTED}\n"),
     );
     assert_eq!(host.doctor(None), missing);
+}
+
+/// Where the scaffold's dsh adapter measures its replacement shape beside
+/// its cold one, one engine-only home serves both the seats' launches, and
+/// their home line says that home alone.
+#[test]
+fn a_seat_whose_both_shapes_are_measured_has_one_engine_only_home() {
+    let host = DshHost::new();
+    host.init(None);
+    host.measure_replacement();
+    let served = engine("deepseek-official", "implement, intake");
+    let missing = vec![format!("MISSING  {UNSET}"), format!("ok       {served}")];
+    assert_eq!(host.doctor(None), (missing, Some(1)));
 }
 
 /// A `.env` in the repository the scaffold's seats run in refuses each
@@ -243,7 +292,7 @@ fn an_inline_dsh_seat_leaves_the_agent_seats_home_standing() {
                       since the compile carries no argv for an inline dsh site's launch and no \
                       model for a candidate that pins no --model; each route no other seat rides \
                       is asked of every source the operator's home reads, with its caveat";
-    let served = format!("ok       {}", engine("deepseek-official", "implement"));
+    let served = format!("ok       {}", two_state("implement"));
     let missing = vec![format!("MISSING  {UNSET}"), served, unmodelled.to_string()];
     // The key the operator's home alone gives is no key for `implement`.
     host.unreadable(
@@ -284,7 +333,7 @@ fn a_seat_on_an_unmeasured_route_is_served_from_the_operators_home() {
     let operator = format!("ok       {}", operator("spark", "intake"));
     let implement = [
         format!("ok       {REACHED}"),
-        format!("ok       {}", engine("deepseek-official", "implement")),
+        format!("ok       {}", two_state("implement")),
     ];
     let spark = |key: String| [key, operator.clone()];
     let unreached = format!(

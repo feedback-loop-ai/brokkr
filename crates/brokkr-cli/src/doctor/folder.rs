@@ -15,7 +15,7 @@ use brokkr_runtime::places::{self, Kind, Old, FOLDER};
 use brokkr_runtime::realms::{World, WorldError};
 
 use super::{Report, Seats};
-use crate::dsh_key::{Home, Line, Reach, Source};
+use crate::dsh_key::{Line, Reach, Source};
 use crate::folder::{DoctorDefaults, FolderError, Found, Opening};
 use crate::recipes::personal::{Origin, ShelfPath};
 
@@ -199,13 +199,14 @@ pub(super) fn report_folder(
 }
 
 /// The lines of the found folder's dsh key check (#717): a key the
-/// launching environment gives, which every dsh home reads, and the home
-/// that serves a route's seats, are ok; a key dsh cannot reach, one an
-/// engine-only home does not read and a launch that home refuses fail the
-/// report with their remedies; and a key only the operator's home gives, a
-/// source that cannot be told, a route whose variable nothing names, the
-/// seats whose launch can't be read, the served-home caveat and a workdir
-/// `.env` beside an unmodelled folder warn. No line holds a value.
+/// launching environment gives, which every dsh home reads, and the homes
+/// that serve a route's seats, are ok; a key dsh cannot reach, one an
+/// engine-only home does not read and seats either of whose launches is
+/// refused fail the report with their remedies; and a key only the
+/// operator's home gives, a source that cannot be told, a route whose
+/// variable nothing names, the seats whose launch can't be read, the
+/// served-home caveat and a workdir `.env` beside an unmodelled folder
+/// warn. No line holds a value.
 fn report_keys(report: &mut Report, lines: &[Line]) {
     for line in lines {
         let (what, detail) = (line.what(), line.detail());
@@ -213,16 +214,13 @@ fn report_keys(report: &mut Report, lines: &[Line]) {
             Line::Key(Reach::Reached {
                 source: Source::Environment,
                 ..
-            })
-            | Line::Home {
-                home: Home::Operator | Home::Engine,
-                ..
-            } => report.ok(&what, detail),
-            Line::Key(Reach::Unreached { .. } | Reach::Unset { .. })
-            | Line::Home {
-                home: Home::Workdir(_) | Home::Refused(_),
-                ..
-            } => report.missing(&what, detail),
+            }) => report.ok(&what, detail),
+            Line::Home { cold, resumed, .. } if !cold.refuses() && !resumed.refuses() => {
+                report.ok(&what, detail)
+            }
+            Line::Key(Reach::Unreached { .. } | Reach::Unset { .. }) | Line::Home { .. } => {
+                report.missing(&what, detail)
+            }
             Line::Key(
                 Reach::Reached {
                     source: Source::Service(_),

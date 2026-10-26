@@ -531,31 +531,38 @@ fn each_dsh_key_answer_takes_its_status_column() {
 }
 
 /// Each line of a modelled seat's home (#717) in its status column: the
-/// home that serves a route's seats is ok, and a key an engine-only home
-/// does not read, a launch refused for a repository `.env` and one the
-/// served-home decision refuses each fail the report.
+/// homes that serve a route's seats, at a cold launch and a resumed one,
+/// are ok, and a key an engine-only home does not read, a launch refused
+/// for a repository `.env` and one the served-home decision refuses each
+/// fail the report, whichever launch is refused.
 #[test]
 fn each_served_home_line_takes_its_status_column() {
     use crate::dsh_key::{Home, Line, Reach};
-    let home = |home| Line::Home {
+    let homes = |cold, resumed| Line::Home {
         route: "r".into(),
         seats: vec!["s".into()],
-        home,
+        cold,
+        resumed,
     };
+    let home = |home: Home| homes(home.clone(), home);
+    let workdir = || Home::Workdir(PathBuf::from("/repo/.env"));
     let answers = [
         home(Home::Operator),
         home(Home::Engine),
+        homes(Home::Engine, Home::Operator),
         Line::Key(Reach::Unset {
             route: "r".into(),
             variable: "V".into(),
         }),
-        home(Home::Workdir(PathBuf::from("/repo/.env"))),
+        home(workdir()),
         home(Home::Refused("refused".into())),
+        homes(workdir(), Home::Operator),
+        homes(Home::Engine, Home::Refused("refused".into())),
     ];
     let mut report = report();
-    report_keys(&mut report, &answers[..2]);
+    report_keys(&mut report, &answers[..3]);
     assert!(report.healthy);
-    for answer in &answers[2..] {
+    for answer in &answers[3..] {
         let mut failed = Report {
             healthy: true,
             lines: Vec::new(),
@@ -571,7 +578,10 @@ fn each_served_home_line_takes_its_status_column() {
             "ok       later: line",
             "ok       dsh home r:",
             "ok       dsh home r:",
+            "ok       dsh home r:",
             "MISSING  dsh key r: ",
+            "MISSING  dsh home r:",
+            "MISSING  dsh home r:",
             "MISSING  dsh home r:",
             "MISSING  dsh home r:",
         ]

@@ -210,12 +210,15 @@ impl Reach {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Line {
     Key(Reach),
-    /// The home `seats`, by site, are served from on `route`, as the
-    /// protocol's served-home decision rules it for each ([`home`]).
+    /// The homes `seats`, by site, are served from on `route`, as the
+    /// protocol's served-home decision rules it for each ([`home`]): `cold`
+    /// at a cold launch, offered no rejoin, and `resumed` at a resumed one,
+    /// the replacement a rejoin offer launches.
     Home {
         route: String,
         seats: Vec<String>,
-        home: Home,
+        cold: Home,
+        resumed: Home,
     },
     /// The sites of the folder's dsh seats whose launch can't be read from
     /// its compile, so the home that serves them can't be told.
@@ -294,7 +297,12 @@ impl Line {
     pub(crate) fn detail(&self) -> String {
         match self {
             Line::Key(reach) => reach.detail(),
-            Line::Home { seats, home, .. } => home.words(seats),
+            Line::Home {
+                seats,
+                cold,
+                resumed,
+                ..
+            } => cold.words(resumed, seats),
             Line::Unmodelled(seats) => home::unmodelled(seats),
             Line::Served { asked, .. } => served(asked.as_ref()),
             Line::Workdir(file) => format!(

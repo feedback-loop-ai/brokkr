@@ -959,7 +959,14 @@ fn host_name(here: bool) -> &'static str {
 /// makes of the shipped adapter, whose one cold shape was measured there,
 /// on Linux and macOS alike.
 fn scaffolded() -> (tempfile::TempDir, Bundle) {
-    scaffolded_on(host_name(true))
+    scaffolded_on(host_name(true), false)
+}
+
+/// [`scaffolded`] with its dsh adapter declaring, beside its one cold
+/// shape, the replacement shape a rejoin offer launches, both measured on
+/// the host this test runs on.
+fn scaffolded_measuring_both() -> (tempfile::TempDir, Bundle) {
+    scaffolded_on(host_name(true), true)
 }
 
 /// [`scaffolded`] with its dsh adapter's one cold shape measured on the
@@ -967,12 +974,13 @@ fn scaffolded() -> (tempfile::TempDir, Bundle) {
 /// shipped adapter, since a result from one host qualifies nothing on the
 /// other.
 fn scaffolded_elsewhere() -> (tempfile::TempDir, Bundle) {
-    scaffolded_on(host_name(false))
+    scaffolded_on(host_name(false), false)
 }
 
 /// A dsh scaffold whose adapter's one cold shape, which the shipped
-/// adapter measured on Linux, is measured on `on`, and its compile.
-fn scaffolded_on(on: &str) -> (tempfile::TempDir, Bundle) {
+/// adapter measured on Linux, is measured on `on`, and, where `replacement`
+/// holds, a copy of it declared as the replacement shape, and its compile.
+fn scaffolded_on(on: &str, replacement: bool) -> (tempfile::TempDir, Bundle) {
     let dir = tempfile::tempdir().unwrap();
     let (root, path) = (dir.path(), std::ffi::OsStr::new(""));
     let dsh = Some(crate::init::Cli::Dsh);
@@ -984,6 +992,12 @@ fn scaffolded_on(on: &str) -> (tempfile::TempDir, Bundle) {
     let host = &mut dsh["mcp"]["shapes"][0]["measured_on"]["host"];
     assert_eq!(*host, json!("linux"));
     *host = json!(on);
+    let shapes = dsh["mcp"]["shapes"].as_array_mut().unwrap();
+    if replacement {
+        let mut shape = shapes[0].clone();
+        shape["invocation"] = json!("replacement");
+        shapes.push(shape);
+    }
     std::fs::write(&path, dsh.to_string()).unwrap();
     let (agents, adapters) = (folder.join("agents"), folder.join("adapters"));
     let boundary = brokkr_core::realms::Boundary::Namespace;
@@ -991,19 +1005,20 @@ fn scaffolded_on(on: &str) -> (tempfile::TempDir, Bundle) {
     (dir, compiled)
 }
 
-/// The intent of an empty set under `fence` whose cold shape is `cold` and
-/// every other unmeasured: the shipped dsh adapter's on the host its one
-/// cold shape was measured on, where `cold` is measured.
-fn intent(fence: SealedFence, cold: SealedAssessment) -> SealedIsolation {
+/// The intent of an empty set under `fence` whose cold and replacement
+/// shapes are both `assessed`, so each seat's cold and resumed launches
+/// are served from one home, and every resume shape unmeasured.
+fn intent(fence: SealedFence, assessed: SealedAssessment) -> SealedIsolation {
     SealedIsolation {
-        cold,
+        cold: assessed.clone(),
+        replacement: assessed,
         fence,
         ..SealedIsolation::default()
     }
 }
 
 /// A seat at `label` pinning `model`, its launch carrying an intent under
-/// `fence` whose cold shape is measured.
+/// `fence` whose cold and replacement shapes are measured.
 fn seat(label: &str, model: &str, routed: bool, fence: Option<SealedFence>) -> Seat {
     let isolation = fence.map(|fence| intent(fence, SealedAssessment::Measured));
     Seat {
@@ -1021,7 +1036,7 @@ fn seat(label: &str, model: &str, routed: bool, fence: Option<SealedFence>) -> S
 /// seat is still read.
 #[test]
 fn each_dsh_seat_of_a_compile_is_read_from_its_candidates_argv() {
-    let (_dir, mut compiled) = scaffolded();
+    let (_dir, mut compiled) = scaffolded_measuring_both();
     let standing = Some(SealedFence::Standing);
     let (flash, pro) = ("deepseek-flash", "deepseek-v4-pro");
     let scaffold = vec![
@@ -1109,12 +1124,20 @@ impl Served {
     }
 }
 
-/// The home line of `seats` on `route`.
+/// The home line of `seats` on `route`, both of whose launches `home`
+/// serves.
 fn group(route: &str, seats: &[&str], home: Home) -> Line {
+    split(route, seats, home.clone(), home)
+}
+
+/// The home line of `seats` on `route`, whose cold launch `cold` serves and
+/// whose resumed one `resumed` does.
+fn split(route: &str, seats: &[&str], cold: Home, resumed: Home) -> Line {
     Line::Home {
         route: route.into(),
         seats: seats.iter().map(|seat| seat.to_string()).collect(),
-        home,
+        cold,
+        resumed,
     }
 }
 
@@ -1219,26 +1242,101 @@ fn an_engine_only_launch_beside_a_repository_dotenv_is_refused_keyless() {
     );
 }
 
-/// The folder's check models a compiled folder's seats: the scaffold's
-/// ride dsh's default route and, their cold shape measured on this host,
-/// an engine-only home serves them, whatever the environment running the
-/// test gives.
+/// The folder's check models a compiled folder's seats at both their
+/// launches, whatever the environment running the test gives: the
+/// scaffold's ride dsh's default route with their cold shape measured on
+/// this host and their replacement shape unmeasured, so an engine-only home
+/// serves a cold launch and, while the fence stands, the operator's home a
+/// resumed one; where the adapter measures both shapes, one engine-only
+/// home serves both.
 #[test]
 fn a_compiled_folder_is_answered_by_the_homes_of_its_seats() {
-    let (dir, compiled) = scaffolded();
-    let adapters = dir.path().join(".brokkr/adapters");
-    let lines = of_folder(&adapters, dir.path(), Some(&compiled));
-    let seats = vec!["implement".to_string(), "intake".to_string()];
+    let homed = |(dir, compiled): (tempfile::TempDir, Bundle)| {
+        let adapters = dir.path().join(".brokkr/adapters");
+        let mut lines = of_folder(&adapters, dir.path(), Some(&compiled));
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        lines.remove(1)
+    };
+    let (route, seats) = ("deepseek-official", &["implement", "intake"][..]);
+    let line = homed(scaffolded());
+    assert_eq!(line, split(route, seats, Home::Engine, Home::Operator));
     assert_eq!(
-        (lines.len(), &lines[1]),
-        (
-            2,
-            &Line::Home {
-                route: "deepseek-official".into(),
-                seats,
-                home: Home::Engine,
-            }
-        )
+        format!("{}: {}", line.what(), line.detail()),
+        "dsh home deepseek-official: Brokkr serves a cold launch of seats [implement, intake] on \
+         this route from its own engine-only home (decision 0065), where dsh reads a key from the \
+         launching environment alone, never the operator's .env or patch layers, and serves a \
+         resumed launch from the operator's own dsh home, which reads every source this check \
+         asks, while the driver does not admit its replacement shape"
+    );
+    let line = homed(scaffolded_measuring_both());
+    assert_eq!(line, group(route, seats, Home::Engine));
+    assert_eq!(
+        format!("{}: {}", line.what(), line.detail()),
+        "dsh home deepseek-official: Brokkr serves seats [implement, intake] on this route from \
+         its own engine-only home (decision 0065), where dsh reads a key from the launching \
+         environment alone, never the operator's .env or patch layers"
+    );
+}
+
+/// A seat whose cold shape the driver admits and whose replacement shape
+/// it does not is served from two homes (#717), and its key line stays the
+/// engine-only home's, fail-closed: under the standing fence a resumed
+/// launch is served from the operator's home, and past the lifted fence it
+/// is refused in the admission's words. A seat admitted the other way
+/// round is answered for its resumed launch's engine-only home.
+#[test]
+fn a_resumed_launch_the_admission_does_not_admit_is_named_beside_the_cold_one() {
+    let planted = Planted::scaffold();
+    let at = |label: &str, fence, cold, replacement| Seat {
+        isolation: Some(SealedIsolation {
+            cold,
+            replacement,
+            fence,
+            ..SealedIsolation::default()
+        }),
+        ..seat(label, "deepseek-flash", false, None)
+    };
+    let (standing, lifted) = (SealedFence::Standing, SealedFence::Lifted);
+    let (measured, unmeasured) = (
+        || SealedAssessment::Measured,
+        || SealedAssessment::Unmeasured,
+    );
+    let seats = home::Seats {
+        read: vec![
+            at("s", standing, measured(), unmeasured()),
+            at("l", lifted, measured(), unmeasured()),
+            at("r", standing, unmeasured(), measured()),
+        ],
+        unread: Default::default(),
+    };
+    let unset_key = || {
+        Line::Key(Reach::Unset {
+            route: "deepseek-official".into(),
+            variable: "DEEPSEEK_API_KEY".into(),
+        })
+    };
+    let refused = "provider 'dsh' has no measured strict MCP configuration for 'replacement'";
+    let expected = vec![
+        unset_key(),
+        split("deepseek-official", &["r"], Home::Operator, Home::Engine),
+        unset_key(),
+        split("deepseek-official", &["s"], Home::Engine, Home::Operator),
+        unset_key(),
+        split(
+            "deepseek-official",
+            &["l"],
+            Home::Engine,
+            Home::Refused(refused.into()),
+        ),
+    ];
+    let lines = planted.modelled_within_bound(seats, unset);
+    assert_eq!(lines, expected);
+    assert_eq!(
+        format!("{}: {}", lines[5].what(), lines[5].detail()),
+        "dsh home deepseek-official: Brokkr serves a cold launch of seats [l] on this route from \
+         its own engine-only home (decision 0065), where dsh reads a key from the launching \
+         environment alone, never the operator's .env or patch layers, and refuses a resumed \
+         launch (provider 'dsh' has no measured strict MCP configuration for 'replacement')"
     );
 }
 

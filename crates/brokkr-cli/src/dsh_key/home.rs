@@ -2,10 +2,12 @@
 //! dsh seat of a folder's compile is served from the home brokkr-protocol's
 //! own decision rules for it ([`dsh_served`]), by the isolation intent its
 //! launch carries, the one dispatch seals beside it ([`sealed_isolation`]),
-//! read through the admission the driver applies to a cold launch, the
-//! route its `--model` is served on and whether it carries a `--patch`
-//! route overlay. The seats are grouped by route and
-//! home, and each group is answered for the sources that home reads. A
+//! read through the admission the driver applies to its cold launch and to
+//! its resumed one, the replacement a rejoin offer launches, the route its
+//! `--model` is served on and whether it carries a `--patch` route overlay.
+//! The seats are grouped by route and the homes of both launches, and each
+//! group is answered for the sources its engine-only home reads where
+//! either launch has one, fail-closed, and its one home's otherwise. A
 //! seat whose launch the compile does not carry is named by its site, and
 //! leaves every other seat's answer standing.
 
@@ -49,22 +51,36 @@ pub(crate) enum Home {
     Refused(String),
 }
 
+/// The engine-only home, as a line names it.
+const ENGINE: &str = "its own engine-only home (decision 0065)";
+
+/// Where the operator's home serves a launch from, as a line says it.
+const FROM_OPERATOR: &str =
+    "from the operator's own dsh home, which reads every source this check asks";
+
+/// What an engine-only home reads, as a line says it after [`ENGINE`].
+const ENVIRONMENT_ALONE: &str = "where dsh reads a key from the launching environment alone, \
+                                 never the operator's .env or patch layers";
+
 impl Home {
-    /// The home line's words for `seats`.
-    pub(super) fn words(&self, seats: &[String]) -> String {
+    /// The home line's words for `seats`, whose cold launch `self` serves
+    /// and whose resumed launch `resumed` does: one sentence where both
+    /// launches are served from one home, and where they are not, what
+    /// Brokkr does with each ([`Home::clause`]).
+    pub(super) fn words(&self, resumed: &Home, seats: &[String]) -> String {
         let seats = named(seats);
-        let engine = "its own engine-only home (decision 0065)";
+        if self != resumed {
+            let cold = self.clause(&format!("a cold launch of {seats} on this route"), "cold");
+            let resumed = resumed.clause("a resumed launch", "replacement");
+            return format!("Brokkr {cold}, and {resumed}");
+        }
         match self {
-            Home::Operator => format!(
-                "Brokkr serves {seats} on this route from the operator's own dsh home, which reads \
-                 every source this check asks"
-            ),
-            Home::Engine => format!(
-                "Brokkr serves {seats} on this route from {engine}, where dsh reads a key from the \
-                 launching environment alone, never the operator's .env or patch layers"
-            ),
+            Home::Operator => format!("Brokkr serves {seats} on this route {FROM_OPERATOR}"),
+            Home::Engine => {
+                format!("Brokkr serves {seats} on this route from {ENGINE}, {ENVIRONMENT_ALONE}")
+            }
             Home::Workdir(file) => format!(
-                "Brokkr serves {seats} on this route from {engine}, and refuses each launch while \
+                "Brokkr serves {seats} on this route from {ENGINE}, and refuses each launch while \
                  {} is present, unread, since dsh would read it for a key; export the key where \
                  brokkr runs and remove the file",
                 file.display()
@@ -74,6 +90,38 @@ impl Home {
                 Safe::new(refusal).as_str()
             ),
         }
+    }
+
+    /// Whether this home refuses the launches it is asked to serve.
+    pub(crate) fn refuses(&self) -> bool {
+        matches!(self, Home::Workdir(_) | Home::Refused(_))
+    }
+
+    /// What Brokkr does with `launch`, one offer state of seats whose other
+    /// state another home serves, its invocation `shape`: a launch served
+    /// from the operator's home is so served because the driver does not
+    /// admit that shape while the fence stands ([`dsh_served`]).
+    fn clause(&self, launch: &str, shape: &str) -> String {
+        match self {
+            Home::Operator => format!(
+                "serves {launch} {FROM_OPERATOR}, while the driver does not admit its {shape} shape"
+            ),
+            Home::Engine => format!("serves {launch} from {ENGINE}, {ENVIRONMENT_ALONE}"),
+            Home::Workdir(file) => format!(
+                "refuses {launch} from {ENGINE} while {} is present, unread, since dsh would \
+                 read it for a key (export the key where brokkr runs and remove the file)",
+                file.display()
+            ),
+            Home::Refused(refusal) => {
+                format!("refuses {launch} ({})", Safe::new(refusal).as_str())
+            }
+        }
+    }
+
+    /// Whether this home is an engine-only one, which reads a key from the
+    /// launching environment alone or refuses its launch beside a `.env`.
+    fn engine_only(&self) -> bool {
+        matches!(self, Home::Engine | Home::Workdir(_))
     }
 }
 
@@ -157,35 +205,51 @@ fn named(seats: &[String]) -> String {
         .to_string()
 }
 
-/// Seats by the route they ride and the home that serves them: their
-/// sites, and the variable the route reads, where one is named.
-type Groups<'s> = BTreeMap<(&'s str, Home), (BTreeSet<&'s str>, Option<&'s str>)>;
+/// Seats by the route they ride and the homes that serve their cold and
+/// resumed launches: their sites, and the variable the route reads, where
+/// one is named.
+type Groups<'s> = BTreeMap<(&'s str, Home, Home), (BTreeSet<&'s str>, Option<&'s str>)>;
 
-/// `seats` grouped by the route each rides and the home that serves it,
-/// in that order, each group's key answered for the sources its home reads
-/// against `sources`, then its home line. A refused launch has no key line.
+/// `seats` grouped by the route each rides and the homes that serve it, in
+/// that order: its cold launch, offered no rejoin, and its resumed one, the
+/// cold replacement a rejoin offer launches, each as the one served-home
+/// decision rules it. Each group's key is answered against `sources` for
+/// the sources the engine-only home of either launch reads, which is
+/// fail-closed, and otherwise its cold launch's home, then its home line. A
+/// refused launch has no key line.
 pub(super) fn homed(adapter: &Adapter, seats: &[Seat], sources: &Sources<'_>) -> Vec<Line> {
     let workdir = holds_dotenv(sources.repo).then(|| sources.repo.join(".env"));
     let mut groups: Groups<'_> = BTreeMap::new();
     for seat in seats {
         let (route, variable) = keyed(adapter, &seat.model);
-        // Each seat is modelled as its cold launch, offered no rejoin.
-        let isolation = seat.isolation.as_ref();
-        let home = match dsh_served(isolation, false, Some(route), seat.routed) {
-            Ok(DshServed::Operator) => Home::Operator,
-            Ok(DshServed::Engine) => workdir.clone().map_or(Home::Engine, Home::Workdir),
-            Err(refusal) => Home::Refused(refusal.to_string()),
+        let served = |offered| {
+            let isolation = seat.isolation.as_ref();
+            match dsh_served(isolation, offered, Some(route), seat.routed) {
+                Ok(DshServed::Operator) => Home::Operator,
+                Ok(DshServed::Engine) => workdir.clone().map_or(Home::Engine, Home::Workdir),
+                Err(refusal) => Home::Refused(refusal.to_string()),
+            }
         };
-        let (labels, read) = groups.entry((route, home)).or_default();
+        let entry = groups.entry((route, served(false), served(true)));
+        let (labels, read) = entry.or_default();
         labels.insert(&seat.label);
         *read = read.or(variable);
     }
     let mut lines = Vec::new();
-    for ((route, home), (labels, variable)) in groups {
+    for ((route, cold, resumed), (labels, variable)) in groups {
         let route = route.to_string();
-        lines.extend(answer(&route, &home, variable, sources).map(Line::Key));
+        let keyed = match resumed.engine_only() && !cold.engine_only() {
+            true => &resumed,
+            false => &cold,
+        };
+        lines.extend(answer(&route, keyed, variable, sources).map(Line::Key));
         let seats = labels.into_iter().map(str::to_string).collect();
-        lines.push(Line::Home { route, seats, home });
+        lines.push(Line::Home {
+            route,
+            seats,
+            cold,
+            resumed,
+        });
     }
     lines
 }
