@@ -2,7 +2,8 @@
 //! ruling 9): each run opened, then its seat rows read at the head the
 //! opening verified, and compare's trails, so the verbs hold the same live
 //! heap however many events the journal holds beside the two runs they
-//! read, each of 100 seat rows. A readout's live heap is two shares,
+//! read, each of 100 seat rows, and however many checkpoints no row reads
+//! the runs hold. A readout's live heap is two shares,
 //! Brokkr's under dhat and SQLite's from its own high-water. The budgets
 //! live in `quality/heap-bytes.json`; dhat allows one profiler per process,
 //! so this is a binary of its own.
@@ -27,9 +28,15 @@ const NOW: &str = "2026-10-20T00:00:00Z";
 /// The two runs the verbs read.
 const RUNS: [&str; 2] = ["costs-a", "costs-b"];
 
-/// Each run's events, so the two and the fleet's 2,000 generated runs
-/// beside them bring a journal to 10,000 events or to 1,000,000.
+/// Each run's events in the journal of 10,000, so the two and the fleet's
+/// generated runs beside them bring it to 10,000 events.
 const EVENTS: usize = 4_000;
+
+/// Each run's events in the journal of 1,000,000: its last effect's
+/// history grows by checkpoints no seat row, trail or printed figure
+/// reads, its seqs as wide as in the journal of 10,000, so its seat rows
+/// and trail hold to the byte while every event of the run grows.
+const LONG: usize = 5_000;
 
 /// The effects each run asks for, each started once: its request's own
 /// row and its attempt's, 100 seat rows a run.
@@ -43,8 +50,10 @@ const EACH: usize = 6;
 /// The events and their payloads of run `run`: started, then each effect
 /// in its phase, asked of one of ten seats, started, its turns and its
 /// session's cost checkpointed, succeeded and decided, then completed:
-/// [`EVENTS`] events, mostly checkpoints, as a long run's journal is.
-fn asked(run: &str) -> Vec<(EventType, Option<String>, Value)> {
+/// `length` events, mostly checkpoints, as a long run's journal is. Past
+/// [`EVENTS`], each is a progress checkpoint of the last effect's attempt
+/// before its session's finish.
+fn asked(run: &str, length: usize) -> Vec<(EventType, Option<String>, Value)> {
     let turns = EVENTS - 2 - EACH * EFFECTS;
     let mut events = vec![(EventType::RunStarted, None, json!({"feature": run}))];
     for effect in 0..EFFECTS {
@@ -66,6 +75,11 @@ fn asked(run: &str) -> Vec<(EventType, Option<String>, Value)> {
                               "tool": "Read", "target": "crates/brokkr-cli/src/compare.rs"});
             events.push(checkpoint(said));
         }
+        if effect + 1 == EFFECTS {
+            for _ in EVENTS..length {
+                events.push(checkpoint(json!({"step": "seat-progress"})));
+            }
+        }
         let cost = 0.01 * (effect + 1) as f64;
         events.push(checkpoint(json!({"step": "claude-session-finished",
             "total_cost_usd": cost, "model": "claude-opus-5-5", "num_turns": own})));
@@ -86,17 +100,17 @@ fn asked(run: &str) -> Vec<(EventType, Option<String>, Value)> {
 }
 
 /// A journal under `dir` named `name` of `events` events: the fleet's
-/// generated runs, then the two runs appended by the store's writer, which
-/// keeps their projections as it appends.
-fn journal(dir: &Path, name: &str, events: usize) -> PathBuf {
+/// generated runs, then the two runs of `each` events appended by the
+/// store's writer, which keeps their projections as it appends.
+fn journal(dir: &Path, name: &str, events: usize, each: usize) -> PathBuf {
     let db = dir.join(name);
     let started = std::time::Instant::now();
     let mut store = Store::open(&db).unwrap();
-    let beside = (events - RUNS.len() * EVENTS) / 2_000;
+    let beside = (events - RUNS.len() * each) / 2_000;
     generate(&store, &fleet(NOW, beside as u64, Width::Narrow)).unwrap();
     for run in RUNS {
         store.create_run(run, run, "bundle", &json!({})).unwrap();
-        for (event_type, attempt, payload) in asked(run) {
+        for (event_type, attempt, payload) in asked(run, each) {
             store
                 .append_next(run, event_type, payload, None, attempt)
                 .unwrap();
@@ -208,7 +222,9 @@ const PLANS: [&str; 11] = [
 /// Ruling 9 on `costs` and `compare`: after their openings, Brokkr's peak
 /// for `costs` of each of two runs of 100 seat rows, to the bytes each
 /// prints, is the same to the byte in a journal of 10,000 events and one
-/// of 1,000,000, and within its budget and ruling 9's 256 KiB; `compare`'s
+/// of 1,000,000, whose two runs each hold 1,000 checkpoints more that no
+/// seat row, trail or printed figure reads, and within its budget and
+/// ruling 9's 256 KiB; `compare`'s
 /// of the two is the same in both journals and within its own budget,
 /// ruling 9's row as amended on 2026-10-26: the runs' seat rows as read,
 /// their trails and the views composed of them, bounded by the runs'
@@ -219,9 +235,11 @@ const PLANS: [&str; 11] = [
 #[test]
 fn costs_and_compare_hold_their_openings_and_the_runs_seats() {
     let dir = tempfile::tempdir().unwrap();
-    assert_eq!(asked(RUNS[0]).len(), EVENTS);
-    let small_db = journal(dir.path(), "small.db", 10_000);
-    let large_db = journal(dir.path(), "large.db", 1_000_000);
+    for each in [EVENTS, LONG] {
+        assert_eq!(asked(RUNS[0], each).len(), each);
+    }
+    let small_db = journal(dir.path(), "small.db", 10_000, EVENTS);
+    let large_db = journal(dir.path(), "large.db", 1_000_000, LONG);
     for (db, events) in [(&small_db, 10_000), (&large_db, 1_000_000)] {
         let conn = rusqlite::Connection::open(db).unwrap();
         let count = "SELECT count(*) FROM events";

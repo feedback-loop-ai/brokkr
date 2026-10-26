@@ -1166,14 +1166,17 @@ model the writer keeps in the journal's own file and transaction.
    measured for two runs of 100 seat rows, about 760 KB, within its
    budget (`compare`, the measured peak plus a tenth, 832,985 B). Both
    peaks are equal to the byte in a journal of 10,000 events and one of
-   1,000,000, bounded by the runs' seats and never by the journal;
-   `compare` read from every event again, as before the rows, peaks at
-   17,743,683 B and 17,740,971 B in the two. SQLite's share stays at the
-   512,000 B cap (`costs-sqlite` and `compare-sqlite`; 476,440 B and
-   485,184 B measured on Linux, the openings included). `heap_costs.rs`
-   binds both, and times each, its openings included, in both journals
-   against the row's 50 ms: 17,159 and 16,999 µs for `costs`, 19,381 and
-   19,187 µs for `compare` (release, median of 11).
+   1,000,000, whose two runs each hold 1,000 more checkpoints that no
+   seat row, trail or printed figure reads (5,000 events a run against
+   4,000), bounded by the runs' seats and never by the journal or the
+   runs' events; `compare` read from every event again, as before the
+   rows, peaks at 17,741,067 B in the first and 22,869,931 B in the
+   second. SQLite's share stays at the 512,000 B cap (`costs-sqlite` and
+   `compare-sqlite`; 476,440 B and 485,184 B measured on Linux, the
+   openings included). `heap_costs.rs` binds both, and times each, its
+   openings included, in both journals against the row's 50 ms: 16,497
+   and 19,530 µs for `costs`, 18,850 and 22,695 µs for `compare`
+   (release, median of 11).
 
    **The aggregates are the one exception, and it is put to the
    operator.** Each answers a question about every run in a window: what
