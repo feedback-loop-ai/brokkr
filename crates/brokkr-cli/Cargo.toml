@@ -159,7 +159,7 @@ name = "heap_run_view"
 [[test]]
 name = "heap_seat_view"
 
-# `costs`' (decision 0089 ruling 9): dhat's peak beside
+# `costs`' and `compare`'s (decision 0089 ruling 9): dhat's peak beside
 # SQLite's own high-water, for two runs' seat rows in two journal sizes.
 [[test]]
 name = "heap_costs"

@@ -139,6 +139,13 @@ pub fn costs_for_budget(store: &Store, run: &str, opened: &Opened) -> anyhow::Re
     Ok(serde_json::to_string_pretty(&costs)?)
 }
 
+/// `brokkr compare` of the two runs `runs` names in `store` after their
+/// openings, which verified each to the head beside it: what decision
+/// 0089 ruling 9 bounds after the openings, to the bytes it prints.
+pub fn compare_for_budget(store: &Store, runs: [(&str, &Opened); 2]) -> anyhow::Result<String> {
+    crate::compare::compared_at(store, runs)
+}
+
 /// `brokkr runs --json` with no other flag over a many-hearth world of
 /// the journals `journals`, each its own realm, at `now`: a hearth at a
 /// time, each a page at a time, written to `out` (decision 0089 ruling 6).

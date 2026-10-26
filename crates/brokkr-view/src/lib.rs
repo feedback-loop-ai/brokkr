@@ -66,7 +66,8 @@ mod composed;
 mod seat_view;
 pub use commands::{Admission, Command, CommandRefusal, Disabled, Offered, Unavailable};
 pub use compare::{
-    first_divergence, resolution_divergence, resolutions, FirstDivergence, Resolution, Sides,
+    first_divergence, resolution_divergence, resolutions, resolved, FirstDivergence, Resolution,
+    Sides,
 };
 pub use composed::{composed_view, composed_whole, Parts};
 use dashboard::dashboard;

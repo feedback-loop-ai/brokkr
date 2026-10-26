@@ -952,7 +952,7 @@ model the writer keeps in the journal's own file and transaction.
    |---|---|---|---|---|
    | The run view, its first screen | 50 ms, its opening included | Brokkr's: 256 KiB and the run's control envelopes as parsed (24,885 B for 25, measured), plus two copies of a park's reason, the fold's and the view's summary's (amended below), after an opening that holds one envelope at a time. SQLite's: the page cache, its statements and the largest of its control envelopes, its summary row's whole last columns and its acknowledgement's whole pair, each read by key (ruling 2) | its opening's events, then the run's control events | `heap_run_view.rs`: the same run in a 10,000- and a 1,000,000-event journal, peaks equal to the byte, and with one park's reason stretched to 1 MiB; the trail's plan on the partial index |
    | The seat view, a page of 50 checkpoints | 50 ms, its opening included | Brokkr's: 256 KiB and the larger of the largest checkpoint body on the page and one start of its attempts, never their sum, each parsed into its row and dropped, after its opening, either about three times when its text carries escapes (amended below). SQLite's: the page cache, its statements, the larger of the largest checkpoint envelope on the page and one start, the page's effect's widest seat row and its own row, each read whole for its digest (amended below) | its opening's events, then the page's checkpoints | `heap_seat_view.rs`, the same two journals, peaks equal, and with one checkpoint on the page stretched to 1 MiB, its attempt's start stretched to 1 MiB, and beside a wide seat row of its effect; the stream index's plan |
-   | `costs`, `compare` | 50 ms, their openings included | Brokkr's: 256 KiB for two runs of 100 seat rows each, about 200 B a row estimated, after their openings. SQLite's: their openings' | their openings' events, then the runs' seats | `heap_costs.rs`, the same two journals, peaks equal |
+   | `costs`, `compare` | 50 ms, their openings included | Brokkr's: 256 KiB for two runs of 100 seat rows each, about 200 B a row estimated, after their openings; `compare`'s is the runs' seat rows, trails and composed views (amended below). SQLite's: their openings' | their openings' events, then the runs' seats | `heap_costs.rs`, the same two journals, peaks equal |
    | Opening a run, chain verified | about 2.5 µs an event | Brokkr's: one envelope at a time, at most 256 KiB and the largest envelope when it is one or a few long strings, or about three times it when their text carries escapes; an envelope of many short strings costs its parsed size besides (amended below). SQLite's: the page cache, its statements and the largest envelope | the run's events | `heap_open.rs`: a 7,510-event run, peaks equal in both journals, and with one envelope stretched to 1 MiB of plain text, and of escaped text in both journals, peaks equal |
    | The aggregates: `analytics`, Muninn's dossier | 250 ms for a window of 20,000 runs, 240,000 seat rows and 240,000 checkpoints: the streamed scans measured 4.7 and 57 ms for the first two; the checkpoints, the parks' 64 ranges and the medians' passes are unmeasured, and slice 4 measures them before the number is final | Brokkr's 256 KiB: the accumulators of at most 64 groups a figure, each key at its bound, and the medians' histograms, 64 KiB at most (732 B and 2,769 B measured for the scans at both sizes). SQLite's about 1.5 MiB: the 256 KiB page cache and `GROUP BY`'s sorter, 1,050,320 to 1,273,184 B measured (Context); proposed, and slice 4 fixes it on its own measurement | the window's runs, seats and dated facts, the parks that overlap it or ended within their own length of its start, and the preceding window's finished runs, counted | `heap_aggregates.rs` at 2,000 and 20,000 runs, Brokkr's peaks equal to the byte and SQLite's within its share, over a distribution of 2,000 and of 9,000 distinct models, phases and realms in the window (each past 64 and the same number of digits in its "N more"), and over one whose every group key is 1 MiB beside one whose keys are cut to their bounds, Brokkr's peaks equal to the byte, its removal control a figure grouped by the whole phase, whose peak grows by the megabyte; `a_window_visits_only_the_parks_near_it`, in `brokkr-store`: one window held fixed while a year of later parks, and a year of older ones each shorter than half its distance from the window, are added, its park ranges' VM-step counts equal to the step, and then k parks added inside ruling 7's band, each ended before `from` within its own length, which grow the count by exactly k times what one adds, so the band is every earlier park the window visits, and then 10,000 parks of class 0 at `from - 1` and inside the window, zero-length and ended a year before they started, which leave the count equal to the step; its removal controls the one range on `COALESCE(ended_ms, 9223372036854775807) >= from`, whose count grows with the later parks, and a class-0 range on `at_ms >= from - 1`, whose count grows with the class-0 parks; a `fleet_aggregate` Callgrind bench over two journals whose windows hold the same facts and one of which adds a year of runs older than the preceding window, instruction counts equal; and `every_figure_is_its_whole_read` |
 
@@ -1152,6 +1152,28 @@ model the writer keeps in the journal's own file and transaction.
    seat row and its own row, each read whole for its digest: bounded by
    the effect, never by the seat's history or the journal.
    `heap_seat_view.rs` holds it by both rows' stored bytes.
+
+   *Amended, 2026-10-26 (operator, recorded on #753):* the `costs` and
+   `compare` row's Brokkr share is what is measured. A seat row carries
+   its cost projections (the 2026-10-25 ruling), so it is several KB as
+   read, not the row's estimated 200 B: `costs` of each of two runs of
+   100 seat rows, read at the head its opening verified and summed by
+   `brokkr_core::seat::row::costs`, peaks at 237,751 B after the
+   openings, and keeps ruling 9's 256 KiB (`costs`, the measured peak
+   plus a tenth, 261,527 B). `compare`'s share is the two runs' seat rows
+   as read, their trails and the views composed of them (each run's
+   trail, rows and view held while its facts are read): 757,259 B
+   measured for two runs of 100 seat rows, about 760 KB, within its
+   budget (`compare`, the measured peak plus a tenth, 832,985 B). Both
+   peaks are equal to the byte in a journal of 10,000 events and one of
+   1,000,000, bounded by the runs' seats and never by the journal;
+   `compare` read from every event again, as before the rows, peaks at
+   17,743,683 B and 17,740,971 B in the two. SQLite's share stays at the
+   512,000 B cap (`costs-sqlite` and `compare-sqlite`; 476,440 B and
+   485,184 B measured on Linux, the openings included). `heap_costs.rs`
+   binds both, and times each, its openings included, in both journals
+   against the row's 50 ms: 17,159 and 16,999 µs for `costs`, 19,381 and
+   19,187 µs for `compare` (release, median of 11).
 
    **The aggregates are the one exception, and it is put to the
    operator.** Each answers a question about every run in a window: what

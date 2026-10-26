@@ -171,25 +171,84 @@ fn unmigrated(dir: &std::path::Path) -> Store {
     Store::open_read_only(&kept).unwrap()
 }
 
-/// `costs` reads a writer's run from its seat rows at the head its
-/// opening verified (#753), and a journal without the rows whole, as
-/// before them: the same bytes either way.
+/// `costs` and `compare` read a writer's run from its seat rows and its
+/// trail at the head its opening verified (#753), and a journal without
+/// the rows whole, as before them: the same bytes either way.
 #[test]
-fn costs_reads_the_rows_or_the_run_whole_alike() {
+fn costs_and_compare_read_the_rows_or_the_run_whole_alike() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
     let completed = (EventType::RunCompleted, json!({}));
     one_seat_run(&mut store, "run", 0.25, json!("WORK-OK"), completed);
     let opened = store.open_run("run").unwrap();
     let seats = |store: &Store| match store.seat_rows_at("run", &opened).unwrap() {
-        SeatRows::Current(rows) => Some(row::costs(&rows).1),
+        SeatRows::Current(rows) => Some(brokkr_core::seat::row::costs(&rows).1),
         SeatRows::Stale => None,
     };
+    let read = current(&store, "run", &opened).unwrap();
+    assert_eq!(
+        read.map(|read| (read.events, read.seats.1)),
+        Some((8, 0.25))
+    );
     assert_eq!(seats(&store), Some(0.25));
     let whole = unmigrated(dir.path());
     assert_eq!(seats(&whole), None);
-    let printed = |store: &Store| serde_json::to_string_pretty(&costs(store, "run").unwrap());
-    assert_eq!(printed(&store).unwrap(), printed(&whole).unwrap());
+    let read = current(&whole, "run", &opened).unwrap();
+    assert_eq!(read.map(|read| read.events), None);
+    let printed = |store: &Store| {
+        let costs = serde_json::to_string_pretty(&costs(store, "run").unwrap());
+        let (a, b) = (run_facts(store, "run"), run_facts(store, "run"));
+        let compared = document("run", a.unwrap(), "b", b.unwrap());
+        (
+            costs.unwrap(),
+            serde_json::to_string_pretty(&compared).unwrap(),
+        )
+    };
+    assert_eq!(printed(&store), printed(&whole));
+}
+
+/// A run whose rows compose no view, an effect named `e:m` beside effect
+/// `e`'s member `m`, which only a hand-built journal's ids can, is read
+/// whole, and `compare` resolves its sites as the whole read does.
+#[test]
+fn a_run_whose_rows_compose_no_view_is_compared_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    store.create_run("run", "a", "b", &json!({})).unwrap();
+    let ids = |effect: &str, attempt: &str| json!({"effect_id": effect, "attempt_id": attempt});
+    let asked = |effect: &str, seat: &str| json!({"effect_id": effect, "seat": seat, "phase": "w"});
+    let (mut done, mut turn) = (ids("e:m", "a1"), ids("e", "a2"));
+    done["result"] = json!({"result": "done"});
+    turn["checkpoint"] = json!({"member": "m", "step": "seat-turn", "turn": 1});
+    let decided = json!({"from": "w", "result": "done", "rule_id": "AGAIN", "next": "w",
+                         "severity": null, "inputs": {}, "problem": null});
+    let entered = json!({"phase": "w"});
+    let events = [
+        (EventType::RunStarted, json!({"feature": "a"})),
+        (EventType::PhaseEntered, entered.clone()),
+        (EventType::EffectRequested, asked("e:m", "other")),
+        (EventType::EffectStarted, ids("e:m", "a1")),
+        (EventType::EffectSucceeded, done),
+        (EventType::TransitionDecided, decided),
+        (EventType::PhaseEntered, entered),
+        (EventType::EffectRequested, asked("e", "work")),
+        (EventType::EffectStarted, ids("e", "a2")),
+        (EventType::EffectCheckpointed, turn),
+    ];
+    for (event_type, payload) in events {
+        let appended = store.append_next("run", event_type, payload, None, None);
+        appended.unwrap();
+    }
+    let opened = store.open_run("run").unwrap();
+    let rows = store.run_read("run", &opened, opened.seq).unwrap();
+    let folded = matches!(rows, RunRead::Current { state: Some(_), .. });
+    assert!(folded, "the run is read from its rows and folds");
+    let read = current(&store, "run", &opened).unwrap();
+    assert_eq!(read.map(|read| read.events), None);
+    let facts = run_facts(&store, "run").unwrap();
+    let whole = resolutions(&store.load("run").unwrap());
+    assert_eq!(value(&facts.summary)["resolution"], printed(&whole));
+    assert_eq!(value(&facts.summary)["events"], 10);
 }
 
 /// A run of one `work` seat that cost `cost` and whose result `rule`
