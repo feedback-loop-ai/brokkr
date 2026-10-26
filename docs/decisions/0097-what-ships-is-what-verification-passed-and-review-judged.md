@@ -59,11 +59,20 @@ at review and at ship as drift from the candidate.
    bound.
 2. **A clean verdict carries no residual.** A review result whose word is
    `clean` and whose inputs name `has_security_residual: true` or a
-   `max_residual_severity` above `none` is malformed. A panel folds it to
-   the member-schema refusal; the engine refuses it at the protected
-   phase's decision boundary, singleton and panel alike, as a schema
-   failure parked with the raw evidence (0001). No other result word is
-   checked: the table rules on `residual` and `clean-unverified`.
+   `max_residual_severity` above `none` is malformed. So is a clean
+   verdict whose inputs name `has_security_residual` as anything but a
+   boolean, or `max_residual_severity` as anything but a word of the
+   severity vocabulary, `null` included: a clean word over a safety fact
+   the engine cannot read is refused, never read as the absence that
+   would admit it. A fact the inputs do not name is absent, and a clean
+   verdict needs neither. A panel whose every member is clean folds any
+   member's malformed verdict to the member-schema refusal, naming the
+   member and the problem; a hold or a residual beside such a member
+   dominates and keeps the table's own stop, as it did. The engine
+   refuses a malformed clean verdict at the protected phase's decision
+   boundary, singleton and panel alike, as a schema failure parked with
+   the raw evidence (0001). No other result word is checked: the table
+   rules on `residual` and `clean-unverified`.
 3. **A passing verification binds the candidate; the judge and the ship
    are held to it.** `verified_candidate` is an engine-owned record input
    (`{head, tree}`) a seat can neither declare nor supply. When a bundle
@@ -89,6 +98,34 @@ at review and at ship as drift from the candidate.
    run whose journal holds no verify ruling is the table's to route, as
    it was. A ruling that already takes no transition, or a hard one,
    admits nothing and keeps its own words.
+
+   **The limit of the reading.** The candidate is what the host's git
+   answers over the run's own worktree: `rev-parse` and `status` read
+   the worktree's git directory and the common directory, which a seat
+   writes so that it can commit at all. The hands box binds both
+   writable but for `hooks`, hidden, and `config`, read-only (decision
+   [0043](0043-the-hands-are-one-tool.md) ruling 6; the write set is the
+   one decision [0054](0054-the-dsh-harness-sandbox-reaches-a-linked-worktree-s-git-metadata.md)'s
+   consequences record), and the dsh sandbox serves the per-worktree
+   directory, index and `HEAD` among it, as the seat's own over a private
+   common directory (0054). So a seat cannot make the engine's git run a
+   program, and nothing holds the index or, in the hands box, the exclude
+   file. A seat that sets a tracked path's `assume-unchanged` or
+   `skip-worktree` bit in the index, or lists an untracked path in the
+   common directory's `info/exclude` where that directory is the shared
+   one, holds a modification or a file out of the status the engine
+   reads, and a status read clean then binds a HEAD and tree the
+   worktree's bytes do not match. The hold therefore proves what git
+   says of the worktree at verify and again at the judge and the ship,
+   and that nothing was committed between; it does not prove the
+   worktree's bytes against the seat-writable index. The engine holds no
+   copy of the repository a seat cannot write, so no reading in this
+   decision comes from such state. Closing the limit
+   takes an engine-owned reading that consults no seat-writable index or
+   exclude file, such as a fresh index written over the worktree and
+   compared to `HEAD^{tree}` with excludes read from the committed
+   `.gitignore` alone, or the dsh sandbox's reclaimed store for every
+   adapter; that is a follow-up, not this decision.
 4. **Observations stay in one home.** The status and `rev-parse` readers
    under `engine/worktree.rs` serve the carry, ship and candidate
    decisions alike; the candidate's reading differs from the ship gate's
@@ -113,8 +150,27 @@ at review and at ship as drift from the candidate.
   value it always did from judges that do not report fixes; a judge that
   reports `true` is no longer overwritten. A member's malformed
   `has_security_residual` or `max_residual_severity` now leaves the
-  panel's fact `null`, which stops a residual at the table's fail-closed
-  rule where it once lent the panel `false`.
+  panel's fact `null` where it once lent the panel `false`; what a
+  `null` does to a `residual` is the table's. Under `fast`, `landing`
+  over it, `verify` and `preflight`, every residual route is earned by
+  a value (`max_residual_severity_above: none`, and in `verify` and
+  `preflight` `has_security_residual: false`), so a `null` matches no
+  residual rule and the pair parks unmatched under 0004's strict
+  evaluation. The frozen production table's `REVIEW-RESIDUAL-OK` carries
+  no `when`: a `residual` whose facts are `null` passes its two stops,
+  which only a witnessed `true` or a ranked severity above medium match,
+  and proceeds to regression as flagged debt, exactly as it did when the
+  facts read `false`. The production table is frozen and does not
+  change here: under it the word `residual` alone reaches the
+  tracked-debt route, and only a witnessed `true` or a ranked severity
+  above medium stops it, so the join's `null` neither lends nor
+  withholds anything there.
+- A clean verdict's safety facts are read or refused (ruling 2): a
+  singleton or an all-clean panel that writes `has_security_residual:
+  "true"`, `1` or `null`, or a `max_residual_severity` outside the
+  vocabulary, parks as a schema failure with the raw evidence where it
+  once reached the table's clean route as if the facts were absent. A
+  clean verdict that names neither fact is unchanged.
 - A journal resumed across this change whose verify ruled before it
   parks at review or ship with the witness missing; `--resume --from
   verify` writes one.

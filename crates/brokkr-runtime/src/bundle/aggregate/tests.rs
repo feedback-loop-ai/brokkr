@@ -344,6 +344,9 @@ fn absent_or_unreadable_inputs_witness_no_scope_but_leave_safety_unknown() {
     }
 }
 
+/// A clean verdict carries no residual (decision 0097 ruling 2): a
+/// witnessed one, or a safety fact present but unreadable, is malformed,
+/// alone and as any member of an all-clean panel. Absent facts are not.
 #[test]
 fn shared_clean_validation_rejects_witnessed_findings_without_requiring_optional_fields() {
     assert_eq!(Aggregate::review_problem(&json!({"result":"clean"})), None);
@@ -355,17 +358,35 @@ fn shared_clean_validation_rejects_witnessed_findings_without_requiring_optional
         )),
         None
     );
-    for (field, value) in [
-        ("has_security_residual", json!(true)),
-        ("max_residual_severity", json!("info")),
-        ("max_residual_severity", json!("low")),
-        ("max_residual_severity", json!("medium")),
-        ("max_residual_severity", json!("high")),
-        ("max_residual_severity", json!("critical")),
+    let security = "clean review reports a security residual";
+    let above = "clean review reports a residual severity above none";
+    let not_a_flag = "clean review's has_security_residual is not a boolean";
+    let unranked = "clean review's max_residual_severity is outside the severity vocabulary";
+    for (field, value, problem) in [
+        ("has_security_residual", json!(true), security),
+        ("has_security_residual", json!("true"), not_a_flag),
+        ("has_security_residual", json!("false"), not_a_flag),
+        ("has_security_residual", json!(1), not_a_flag),
+        ("has_security_residual", json!(0), not_a_flag),
+        ("has_security_residual", Value::Null, not_a_flag),
+        ("max_residual_severity", json!("info"), above),
+        ("max_residual_severity", json!("low"), above),
+        ("max_residual_severity", json!("medium"), above),
+        ("max_residual_severity", json!("high"), above),
+        ("max_residual_severity", json!("critical"), above),
+        ("max_residual_severity", json!("severe"), unranked),
+        ("max_residual_severity", json!("NONE"), unranked),
+        ("max_residual_severity", json!(0), unranked),
+        ("max_residual_severity", json!(false), unranked),
+        ("max_residual_severity", Value::Null, unranked),
     ] {
         let mut member = scope_member("clean", Some(json!(false)), Some(json!(false)));
         member["inputs"][field] = value;
-        assert!(Aggregate::review_problem(&member).is_some(), "{member}");
+        assert_eq!(
+            Aggregate::review_problem(&member).as_deref(),
+            Some(problem),
+            "{member}"
+        );
         for count in [1, 2, 4] {
             for position in 0..count {
                 let mut members =
@@ -373,7 +394,12 @@ fn shared_clean_validation_rejects_witnessed_findings_without_requiring_optional
                 members[position] = member.clone();
                 let review = reviewed(members);
                 assert_eq!(review["result"], "__member-schema-invalid__", "{review}");
-                assert!(review["notes"]["problem"].is_string());
+                assert_eq!(review["notes"]["problem"], problem, "{review}");
+                assert_eq!(review["notes"]["member"], format!("member-{position}"));
+                assert_eq!(
+                    review["notes"]["verdicts"][format!("member-{position}")],
+                    "clean"
+                );
             }
         }
     }

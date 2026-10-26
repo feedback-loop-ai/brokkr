@@ -42,25 +42,40 @@ impl Aggregate {
         Aggregate::ALL.map(Aggregate::word).join(", ")
     }
 
-    /// A clean verdict cannot carry a witnessed residual finding. This
-    /// shared check also runs at the protected phase's decision boundary,
-    /// where singleton reviews reach it without panel aggregation.
+    /// A clean verdict cannot carry a witnessed residual finding, nor a
+    /// safety fact it names but the engine cannot read (decision 0097
+    /// ruling 2): a word over an unreadable fact is refused, never read as
+    /// the absence that would admit it. This shared check runs over each
+    /// member of an all-clean panel and at the protected phase's decision
+    /// boundary, where singleton reviews reach it without aggregation.
     pub(crate) fn review_problem(payload: &Value) -> Option<String> {
         if payload.get("result").and_then(Value::as_str) != Some("clean") {
             return None;
         }
         let inputs = payload.get("inputs").and_then(Value::as_object)?;
-        if inputs.get("has_security_residual").and_then(Value::as_bool) == Some(true) {
-            return Some("clean review reports a security residual".into());
+        match inputs.get("has_security_residual").map(Value::as_bool) {
+            Some(Some(true)) => return Some("clean review reports a security residual".into()),
+            Some(None) => {
+                return Some("clean review's has_security_residual is not a boolean".into())
+            }
+            Some(Some(false)) | None => {}
         }
         let severity = inputs
             .get("max_residual_severity")
-            .and_then(Value::as_str)
-            .and_then(Severity::named);
-        if severity.is_some_and(|severity| severity > Severity::None) {
-            return Some("clean review reports a residual severity above none".into());
+            .map(|severity| severity.as_str().and_then(Severity::named));
+        match severity {
+            Some(Some(
+                Severity::Info
+                | Severity::Low
+                | Severity::Medium
+                | Severity::High
+                | Severity::Critical,
+            )) => Some("clean review reports a residual severity above none".into()),
+            Some(None) => Some(
+                "clean review's max_residual_severity is outside the severity vocabulary".into(),
+            ),
+            Some(Some(Severity::None)) | None => None,
         }
-        None
     }
 
     pub(super) fn required_results(&self) -> &'static [&'static str] {
@@ -145,7 +160,9 @@ fn unanimous_pass(parsed: &[(&str, &str, &Value)], meta: Value) -> Value {
 
 /// [`Aggregate::ReviewPanel`]: the worst member's result wins, over
 /// clean < residual < security-hold, with the members' residual inputs
-/// joined beside it.
+/// joined beside it. A panel whose every member is clean is refused when
+/// any member's clean verdict is malformed (decision 0097 ruling 2); a
+/// hold or a residual beside it dominates and keeps the table's stop.
 fn review_panel(parsed: &[(&str, &str, &Value)], meta: Value) -> Value {
     let rank = |r: &str| match r {
         "clean" => 0,
@@ -157,6 +174,16 @@ fn review_panel(parsed: &[(&str, &str, &Value)], meta: Value) -> Value {
         .iter()
         .max_by_key(|(_, r, _)| rank(r))
         .expect("panels have members");
+    if worst.1 == "clean" {
+        if let Some((member, problem)) = parsed.iter().find_map(|(name, _, payload)| {
+            Aggregate::review_problem(payload).map(|problem| (*name, problem))
+        }) {
+            let mut notes = meta;
+            notes["problem"] = Value::String(problem);
+            notes["member"] = Value::String(member.into());
+            return json!({"result": "__member-schema-invalid__", "notes": notes});
+        }
+    }
     let joined = ReviewInputs::join(parsed);
     let mut inputs = Map::new();
     // Judges never fix (decision 0041 ruling 5), and a judge that committed
@@ -174,14 +201,7 @@ fn review_panel(parsed: &[(&str, &str, &Value)], meta: Value) -> Value {
         inputs.insert("max_residual_severity".into(), json!(joined.severity()));
         inputs.insert("has_security_residual".into(), json!(joined.has_security));
     }
-    let review = json!({"result": worst.1, "inputs": inputs, "notes": meta});
-    match Aggregate::review_problem(&review) {
-        Some(problem) => json!({
-            "result": "__member-schema-invalid__",
-            "notes": {"problem": problem, "aggregate": review},
-        }),
-        None => review,
-    }
+    json!({"result": worst.1, "inputs": inputs, "notes": meta})
 }
 
 /// What a review panel's members report in their own `inputs`, joined:
