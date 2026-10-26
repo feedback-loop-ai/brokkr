@@ -17,6 +17,7 @@ use super::{ids, Session, HANDS_BOX_ENV, HOST_TOOLCHAIN_BINDS, SANDBOX_HOME};
 use crate::broker::{Network, Reach, Refusal, Sources, Tree};
 
 pub(super) mod entry;
+mod isolation;
 mod provision;
 #[cfg(target_os = "linux")]
 pub(super) mod sources;
@@ -114,7 +115,8 @@ struct Bind {
 }
 
 impl Namespace {
-    /// The isolation every box opens with, the empty root's skeleton, and
+    /// The [`isolation::ISOLATION`] every box opens with, nested user
+    /// namespaces forbidden (U8j), the empty root's skeleton, and
     /// the profile's system set read-only where it exists (`-try`: an
     /// absent source is skipped, never an error and never replaced by a
     /// broader one — /lib64 is a Debian fact, not a law). The network is
@@ -126,18 +128,10 @@ impl Namespace {
             Profile::Workspace => Some("--new-session"),
             Profile::Server => None,
         };
-        let isolation = [
-            "--unshare-pid",
-            "--unshare-ipc",
-            "--unshare-uts",
-            "--unshare-cgroup-try",
-            "--cap-drop",
-            "ALL",
-        ];
         let mut argv: Vec<String> = ["bwrap", "--die-with-parent"]
             .into_iter()
             .chain(session)
-            .chain(isolation)
+            .chain(isolation::ISOLATION)
             .map(String::from)
             .collect();
         if !network {

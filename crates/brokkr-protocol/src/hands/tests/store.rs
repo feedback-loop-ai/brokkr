@@ -8,7 +8,8 @@
 //! or others, shown in reach by another mount, under an overlay, holding
 //! the Git directory in its folders or replaced between the box's two
 //! observations refuses with the one cause before the command runs. A store renamed over while one box runs is
-//! shown to do what operator ruling 3 of 2026-10-23 records.
+//! shown to do what operator ruling 3 of 2026-10-23 records. A box that
+//! hides it makes no nested user namespace (U8j).
 
 use super::super::evidence::CONFIRMING;
 use super::super::sealed::{Unhidden, TABLE};
@@ -1140,4 +1141,41 @@ fn a_store_renamed_over_during_one_box_shows_that_box_the_new_store() {
     let ran = stored.call(&format!("cat {path}")).unwrap();
     assert_eq!(ran.exit_code, 1);
     denied(&stored.store, &ran.stderr);
+}
+
+/// U8j (SI1, MB4): a workspace call's box and an exec's make no further
+/// user namespace, each attempt meeting the box's own limit
+/// ([`NESTED`]), not the host's; the box still writes and commits, as the
+/// operator, and the store stays denied in its pinned folder.
+#[test]
+fn a_workspace_box_makes_no_nested_user_namespace_and_still_writes_commits_and_hides() {
+    let mut stored = Stored::at("work/.forge/secrets.env", &[]);
+    committed(&stored.work);
+    for (key, value) in [
+        ("user.name", "Host Operator"),
+        ("user.email", "host@example.invalid"),
+    ] {
+        git(&stored.work, &["config", key, value]);
+    }
+    stored.reseal(stored.store.clone());
+    if !boxes() {
+        return;
+    }
+    for (command, said) in NESTED {
+        let ran = stored.call(command).unwrap();
+        let call = (ran.stderr.as_str(), ran.exit_code);
+        assert_eq!((command, call), (command, (said, 1)), "the call");
+        assert_eq!(stored.exec(&format!("exec 2>seen; exec {command}")), Ok(1));
+        let seen = std::fs::read_to_string(stored.work.join("seen")).unwrap();
+        assert_eq!((command, seen.as_str()), (command, said), "the exec");
+    }
+    let commit = "echo made > made.txt && git add made.txt && git commit -q -m boxed \
+                  && git log -1 --format='%s %an'";
+    let ran = stored.call(commit).unwrap();
+    let logged = (ran.stdout.as_str(), ran.exit_code);
+    assert_eq!(logged, ("boxed Host Operator\n", 0), "{}", ran.render());
+    let made = std::fs::metadata(stored.work.join("made.txt")).unwrap();
+    assert_eq!(std::os::unix::fs::MetadataExt::uid(&made), ids().0);
+    stored.busy(".forge", "moved");
+    stored.denies(&stored.store);
 }

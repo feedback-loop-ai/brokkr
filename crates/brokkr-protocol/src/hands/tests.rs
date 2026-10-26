@@ -151,6 +151,22 @@ fn can_create_namespace() -> bool {
         .is_ok_and(|status| status.success())
 }
 
+/// Each further user namespace a boxed command tries to make, and what it
+/// says failing (U8j): the box's own limit, ENOSPC, in util-linux's words
+/// and bubblewrap's, where a host restricting them itself says EPERM.
+#[cfg(target_os = "linux")]
+const NESTED: [(&str, &str); 2] = [
+    (
+        "unshare -Ur true",
+        "unshare: unshare failed: No space left on device\n",
+    ),
+    (
+        "bwrap --ro-bind / / true",
+        "bwrap: Creating new namespace failed: nesting depth or \
+         /proc/sys/user/max_*_namespaces exceeded (ENOSPC)\n",
+    ),
+];
+
 #[test]
 fn the_spec_vocabulary_is_closed_and_the_string_is_the_default() {
     assert_eq!(spec_of(json!("workspace")), HandsSpec::default());
@@ -477,7 +493,8 @@ fn the_workspace_and_exec_argv_keep_their_exact_order_and_identity() {
     let expected =
         |scratch: &Path, net: &str, bundle: &str, overlay: String, exec: &str, run: &str| {
             let mut argv: Vec<String> = format!(
-                "bwrap --die-with-parent --new-session --unshare-pid --unshare-ipc --unshare-uts \
+                "bwrap --die-with-parent --new-session --unshare-user --disable-userns \
+             --assert-userns-disabled --unshare-pid --unshare-ipc --unshare-uts \
              --unshare-cgroup-try --cap-drop ALL {net} --clearenv \
              --setenv {HANDS_BOX_ENV} 1 --proc /proc --dev /dev --dir /runtime --dir /etc \
              --dir /home --dir /root --dir /run --dir /usr"
