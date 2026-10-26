@@ -159,9 +159,12 @@ fn review_panel(parsed: &[(&str, &str, &Value)], meta: Value) -> Value {
         .expect("panels have members");
     let joined = ReviewInputs::join(parsed);
     let mut inputs = Map::new();
-    // A read-only charter is not evidence that a particular member
-    // supplied false: missing and malformed observations remain unknown.
-    // Preserve a witnessed true flag even beside an unknown member.
+    // Judges never fix (decision 0041 ruling 5), and a judge that committed
+    // anyway is parked at its own ruling by the verified candidate (decision
+    // 0097 ruling 3): the scope flags read false unless a member witnessed
+    // true, which the frozen tables' no-fixes shortcut and the design
+    // return read. The safety facts below never default: unknown stays
+    // unknown there.
     inputs.insert("fixes_applied".into(), json!(joined.fixes_applied));
     inputs.insert("spec_defect".into(), json!(joined.spec_defect));
     if worst.1 == "residual"
@@ -183,15 +186,16 @@ fn review_panel(parsed: &[(&str, &str, &Value)], meta: Value) -> Value {
 
 /// What a review panel's members report in their own `inputs`, joined:
 /// the highest residual severity any names, whether any names a security
-/// residual, and whether any reports a spec defect. A residual member must
-/// supply readable safety facts: unknowns stay unknown beside otherwise
-/// safe members, never becoming permission to ship.
+/// residual, and whether any witnesses fixes or a spec defect. A residual
+/// member must supply readable safety facts: unknowns stay unknown beside
+/// otherwise safe members, never becoming permission to ship. The scope
+/// flags are witnessed or false.
 struct ReviewInputs {
     max_severity: Severity,
     severity_known: bool,
     has_security: Option<bool>,
-    fixes_applied: Option<bool>,
-    spec_defect: Option<bool>,
+    fixes_applied: bool,
+    spec_defect: bool,
 }
 
 impl ReviewInputs {
@@ -200,8 +204,8 @@ impl ReviewInputs {
             max_severity: Severity::None,
             severity_known: true,
             has_security: Some(false),
-            fixes_applied: Some(false),
-            spec_defect: Some(false),
+            fixes_applied: false,
+            spec_defect: false,
         };
         for (_, result, payload) in parsed {
             let inputs = payload.get("inputs").and_then(Value::as_object);
@@ -221,14 +225,14 @@ impl ReviewInputs {
             if let Some(severity) = severity {
                 joined.max_severity = joined.max_severity.max(severity);
             }
-            let fixes = inputs
-                .and_then(|inputs| inputs.get("fixes_applied"))
-                .and_then(Value::as_bool);
-            let scope = inputs
-                .and_then(|inputs| inputs.get("spec_defect"))
-                .and_then(Value::as_bool);
-            joined.fixes_applied = joined_flag(joined.fixes_applied, fixes);
-            joined.spec_defect = joined_flag(joined.spec_defect, scope);
+            let witnessed = |flag: &str| {
+                inputs
+                    .and_then(|inputs| inputs.get(flag))
+                    .and_then(Value::as_bool)
+                    == Some(true)
+            };
+            joined.fixes_applied |= witnessed("fixes_applied");
+            joined.spec_defect |= witnessed("spec_defect");
         }
         joined
     }
@@ -246,8 +250,8 @@ impl ReviewInputs {
 }
 
 /// A witnessed true flag dominates; otherwise both observations must be
-/// readable before the joined flag can assert false. The same rule applies
-/// to security, changed-code and scope evidence.
+/// readable before the joined flag can assert false: the security
+/// residual's rule.
 fn joined_flag(current: Option<bool>, incoming: Option<bool>) -> Option<bool> {
     if current == Some(true) || incoming == Some(true) {
         Some(true)

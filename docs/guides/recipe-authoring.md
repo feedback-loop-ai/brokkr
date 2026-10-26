@@ -312,7 +312,9 @@ measured live, and what it has not, is in
 [provider-adapters.md](provider-adapters.md#what-the-five-shipped-adapters-say-today).
 
 **Engine-owned inputs are never seat-declarable.** `strategy`,
-`drift_detected`, `dirty_worktrees`, `reviewed_heads`, `realm_facts`,
+`drift_detected`, `dirty_worktrees`, `reviewed_heads`, `verified_candidate`
+(the HEAD and tree a passing verification bound, which the protected
+phase and ship are held to), `realm_facts`,
 `fixes_docs_only`
 (decision 0039: whether every commit the review itself added lies in the
 docs class of the repository's `.github/delivery-classes.json` as it was

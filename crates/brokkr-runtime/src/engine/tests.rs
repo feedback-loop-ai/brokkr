@@ -1955,7 +1955,7 @@ fn panel_sequence_and_aggregation_cover_all_terminal_shapes() {
     assert_eq!(review["result"], "invented");
     assert_eq!(review["inputs"]["max_residual_severity"], "high");
     assert_eq!(review["inputs"]["has_security_residual"], true);
-    assert_eq!(review["inputs"]["fixes_applied"], Value::Null);
+    assert_eq!(review["inputs"]["fixes_applied"], false);
     assert_eq!(review["inputs"]["spec_defect"], true);
     let unknown_severity = Aggregate::ReviewPanel.aggregate_results(&[(
         "residual".into(),
@@ -5088,7 +5088,7 @@ fn git(repo: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
-fn commit_file(repo: &Path, path: &str, contents: &str, message: &str) -> String {
+pub(super) fn commit_file(repo: &Path, path: &str, contents: &str, message: &str) -> String {
     let file = repo.join(path);
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
     std::fs::write(file, contents).unwrap();
@@ -5097,9 +5097,9 @@ fn commit_file(repo: &Path, path: &str, contents: &str, message: &str) -> String
     git_head(repo).unwrap()
 }
 
-const CLASSES: &str = ".github/delivery-classes.json";
+pub(super) const CLASSES: &str = ".github/delivery-classes.json";
 
-const DOCS_CLASS: &str = r#"{"schema":"forge.delivery-classes/v1","classes":{"docs":{"paths":["(^|/)[^/]+\\.md$","^docs/","^assets/"]}}}"#;
+pub(super) const DOCS_CLASS: &str = r#"{"schema":"forge.delivery-classes/v1","classes":{"docs":{"paths":["(^|/)[^/]+\\.md$","^docs/","^assets/"]}}}"#;
 
 /// A class whose one pattern matches every path — what a phase would
 /// commit if it could choose the class its own fixes are judged by.

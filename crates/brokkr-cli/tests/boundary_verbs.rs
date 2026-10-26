@@ -331,10 +331,17 @@ fn init_in_the_realm_runs_unboxed_gates_after_journal_results_and_source_writes(
         std::fs::create_dir_all(ws.path().join("src")).unwrap();
         std::fs::write(ws.path().join("src/implementation.txt"), "before\n").unwrap();
         std::fs::write(folder.join("scripts/gate.sh"), GATE).unwrap();
+        // The implement seat commits what it wrote, as every implementer
+        // charter requires: verify binds the committed candidate (decision
+        // 0097 ruling 3), and an uncommitted tree parks it.
         std::fs::write(
             folder.join("scripts/implement.sh"),
             format!(
-                "printf 'after\\n' > src/implementation.txt\nprintf 'new\\n' > src/new.txt\n{GATE}"
+                "printf 'after\\n' > src/implementation.txt\nprintf 'new\\n' > src/new.txt\n\
+                 git -c user.name=Boundary -c user.email=b@example.invalid \
+                 -c commit.gpgsign=false add src\n\
+                 git -c user.name=Boundary -c user.email=b@example.invalid \
+                 -c commit.gpgsign=false commit -qm implemented\n{GATE}"
             ),
         )
         .unwrap();

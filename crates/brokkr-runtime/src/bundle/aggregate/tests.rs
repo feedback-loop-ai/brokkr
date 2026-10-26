@@ -194,7 +194,7 @@ fn security_holds_dominate_unknowns_and_valid_clean_results_stay_clean() {
     assert_eq!(review["result"], "clean");
     assert_eq!(
         review["inputs"],
-        json!({"fixes_applied":null,"spec_defect":null})
+        json!({"fixes_applied":false,"spec_defect":false})
     );
     assert_eq!(admission(&review), ("CLEAN".into(), "ship".into()));
 }
@@ -248,8 +248,11 @@ fn scope_member(result: &str, fixes: Option<Value>, scope: Option<Value>) -> Val
     json!({"result":result, "inputs":inputs})
 }
 
+/// The scope flags are witnessed or false (decision 0097 ruling 1): only a
+/// member's readable `true` moves them, whatever shape another member
+/// wrote, and the table's scope, fixes and safe routes follow.
 #[test]
-fn review_scope_and_fixes_preserve_unknown_true_and_false_for_one_two_four_members() {
+fn review_scope_and_fixes_are_witnessed_or_false_for_one_two_four_members() {
     let machine = strict_scope_machine();
     let values = [
         None,
@@ -273,15 +276,15 @@ fn review_scope_and_fixes_preserve_unknown_true_and_false_for_one_two_four_membe
                         vec![scope_member("clean", Some(json!(false)), Some(json!(false))); count];
                     members[position] = member;
                     let review = reviewed(members);
-                    let fixes = fixes.as_ref().and_then(Value::as_bool);
-                    let scope = scope.as_ref().and_then(Value::as_bool);
+                    let fixes = fixes.as_ref().and_then(Value::as_bool) == Some(true);
+                    let scope = scope.as_ref().and_then(Value::as_bool) == Some(true);
                     assert_eq!(review["inputs"]["fixes_applied"], json!(fixes), "{review}");
                     assert_eq!(review["inputs"]["spec_defect"], json!(scope), "{review}");
                     let destination = strict_destination(&machine, &review);
                     let expected = match (result, fixes, scope) {
-                        (_, Some(false), Some(false)) => "ship",
-                        (_, Some(false), Some(true)) => "triage",
-                        ("clean", Some(true), Some(false)) => "verify",
+                        (_, false, false) => "ship",
+                        (_, false, true) => "triage",
+                        ("clean", true, false) => "verify",
                         _ => "stop",
                     };
                     assert_eq!(destination, expected, "count={count}: {review}");
@@ -311,8 +314,11 @@ fn witnessed_true_flags_survive_unknown_members_in_every_order() {
     }
 }
 
+/// A member with no readable inputs witnesses no fixes and no defect, so
+/// a clean panel still takes the safe route; the same member's missing
+/// safety facts keep a residual panel from it.
 #[test]
-fn absent_or_unreadable_inputs_never_become_false_scope_or_fixes() {
+fn absent_or_unreadable_inputs_witness_no_scope_but_leave_safety_unknown() {
     for result in ["clean", "residual"] {
         for payload in [
             json!({"result":result}),
@@ -325,9 +331,14 @@ fn absent_or_unreadable_inputs_never_become_false_scope_or_fixes() {
                     vec![scope_member("clean", Some(json!(false)), Some(json!(false))); count];
                 members[0] = payload.clone();
                 let review = reviewed(members);
-                assert_eq!(review["inputs"]["fixes_applied"], Value::Null, "{review}");
-                assert_eq!(review["inputs"]["spec_defect"], Value::Null, "{review}");
-                assert_ne!(strict_destination(&strict_scope_machine(), &review), "ship");
+                assert_eq!(review["inputs"]["fixes_applied"], false, "{review}");
+                assert_eq!(review["inputs"]["spec_defect"], false, "{review}");
+                let expected = if result == "clean" { "ship" } else { "stop" };
+                assert_eq!(
+                    strict_destination(&strict_scope_machine(), &review),
+                    expected,
+                    "{review}"
+                );
             }
         }
     }
