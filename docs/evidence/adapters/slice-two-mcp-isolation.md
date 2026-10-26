@@ -953,7 +953,7 @@ merged as 020de8bd (#883) on 2026-10-26.
 | Hands, passes 1 to 3 | the installed engine `~/.cache/forge-fires/bin/brokkr-main-ac54b857` ("brokkr 0.12.0", sha256 f25fc6b2…), whose `hands serve` predates `--reach` |
 | Hands, pass 5 | `~/.cache/forge-fires/bin/brokkr-main-b8e2caff-u0b` ("brokkr 0.12.0", sha256 85eb17d6…), built from b8e2caff with U8h; the sealed reach printed by a throwaway tool calling `hands::seal` as the engine does (sha256 ac06996a…) |
 | Hands, R16b | `~/.cache/forge-fires/bin/brokkr-u8j-probe` (sha256 8bbe9c75…), b8e2caff with three options added to `Namespace::open` in a scratch tree, reverted afterwards |
-| Spark | `http://spark:8888`, model GLM-5.3-Flash-EXL3, reporting `tensorfold:` metrics; 0 to 2 requests running and 0 waiting at each check through pass 5. At 2026-10-25 about 17:15Z its port refused connections while the host answered |
+| Spark | the shared local Spark server behind the `spark-glm` route, model GLM-5.3-Flash-EXL3, reporting `tensorfold:` metrics; 0 to 2 requests running and 0 waiting at each check through pass 5. At 2026-10-25 about 17:15Z its port refused connections while the host answered |
 | Host config | neither `/etc/claude-code` nor `/etc/codex` exists on this host; both were planted only inside `with-etc.sh`'s bubblewrap namespace |
 
 ### Method

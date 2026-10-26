@@ -3041,7 +3041,7 @@
         "pass_5": "brokkr-main-b8e2caff-u0b (brokkr 0.12.0, sha256 85eb17d6..., U8h); reach tool sha256 ac06996a...",
         "r16b": "brokkr-u8j-probe (sha256 8bbe9c75..., b8e2caff plus three Namespace::open options, scratch)"
       },
-      "spark": "http://spark:8888, GLM-5.3-Flash-EXL3; refused connections at 2026-10-25T17:15Z"
+      "spark": "the shared local Spark server behind the spark-glm route, GLM-5.3-Flash-EXL3; refused connections at 2026-10-25T17:15Z"
     },
     "method": {
       "replacement": "A (priming attempt, the cold argv) then B (the same argv in the same HOME and workdir; for dsh a fresh engine-only home); the verdict is read from B; A's delta recorded",
