@@ -17,6 +17,7 @@ use brokkr_core::summary::{Aggregate, Bounded, Ending, NAME_BYTES};
 use rusqlite::types::Value;
 use rusqlite::Connection;
 
+use super::BACKFILLED;
 use crate::StoreError;
 
 /// The columns, in the row's order, and their types.
@@ -64,8 +65,12 @@ pub(super) fn migration() -> String {
 /// A table without them, which a build from before them made, is made
 /// anew: every row is derived, so it is dropped, reseeded behind and
 /// refolded by the open's backfill, which is marked unfinished.
-pub(super) const REBUILD: &str = "DROP TABLE IF EXISTS run_summary;
-     DELETE FROM meta WHERE key = 'run_summary_backfill';";
+pub(super) fn rebuild() -> String {
+    format!(
+        "DROP TABLE IF EXISTS run_summary;
+        DELETE FROM meta WHERE key = '{BACKFILLED}';"
+    )
+}
 
 /// Does the table hold every column? A pure read.
 pub(super) fn shaped(conn: &Connection) -> Result<bool, StoreError> {

@@ -223,7 +223,7 @@ pub(crate) fn summary_intact(conn: &Connection) -> Result<bool, StoreError> {
 /// lock: the fifth additive repair.
 pub(crate) fn migrate_summary(conn: &Connection) -> Result<(), StoreError> {
     if !aggregate::shaped(conn)? {
-        conn.execute_batch(aggregate::REBUILD)?;
+        conn.execute_batch(&aggregate::rebuild())?;
     }
     conn.execute_batch(&migration())?;
     Ok(conn.execute_batch(&seed())?)

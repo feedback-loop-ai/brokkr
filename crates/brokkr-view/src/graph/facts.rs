@@ -136,7 +136,7 @@ impl Scoped {
                             .feature
                             .as_deref()
                             .map_or_else(|| first.run_id.clone(), title),
-                        started: at(first),
+                        started: read.started_ms,
                         finished,
                         open,
                         state: state.phase.clone(),

@@ -9,7 +9,7 @@ use rusqlite::types::Value;
 use serde_json::{json, Value as Json};
 
 use super::COLUMNS;
-use crate::summary::summary_intact;
+use crate::summary::{migrate_summary, summary_intact};
 use crate::test_support::{every_run_reads_as_its_fold, lags, lane, plant_envelope};
 use crate::tests::envelope_builder::EnvelopeBuilder;
 use crate::tests::store;
@@ -230,7 +230,8 @@ fn a_writer_from_before_the_aggregates_sends_its_row_behind() {
 
 /// A journal whose summary a build from before the aggregates made reads
 /// whole until a writer opens it, which makes the table anew and refolds
-/// every run into it (ruling 8).
+/// every run into it; the table made anew is not paged until that refold
+/// has finished (ruling 8).
 #[test]
 fn a_summary_from_before_the_aggregates_is_made_anew_and_refolded() {
     let (_dir, mut store) = store();
@@ -247,6 +248,11 @@ fn a_summary_from_before_the_aggregates_is_made_anew_and_refolded() {
     assert!(!summary_intact(&reader.conn).unwrap());
     assert!(!reader.pages().unwrap());
     drop(reader);
+    migrate_summary(&rusqlite::Connection::open(&path).unwrap()).unwrap();
+    let remade = Store::open_read_only(&path).unwrap();
+    assert!(summary_intact(&remade.conn).unwrap());
+    assert!(!remade.pages().unwrap());
+    drop(remade);
     let store = Store::open(&path).unwrap();
     assert!(summary_intact(&store.conn).unwrap());
     assert!(store.pages().unwrap());
