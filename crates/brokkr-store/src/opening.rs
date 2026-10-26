@@ -28,6 +28,29 @@ struct Verified {
     head: Opened,
 }
 
+/// One row's envelope `text` into an opening: parsed and its chain
+/// extended while no defect stands, each event it verifies handed to
+/// `keep`. The first defect stands, and past an unparsed row nothing more
+/// is parsed.
+fn admit(
+    text: &str,
+    chain: &mut Option<Verified>,
+    defect: &mut Option<StoreError>,
+    keep: &mut impl FnMut(EventEnvelope),
+) {
+    if matches!(defect, Some(StoreError::Json(_))) {
+        return;
+    }
+    match serde_json::from_str::<EventEnvelope>(text) {
+        Err(unparsed) => *defect = Some(unparsed.into()),
+        Ok(event) if defect.is_none() => match extend(chain, &event) {
+            Ok(()) => keep(event),
+            Err(broken) => *defect = Some(broken.into()),
+        },
+        Ok(_) => {}
+    }
+}
+
 /// Verify `event` as the continuation of `chain`, or as a chain's first
 /// event when nothing is verified yet, and carry the head forward to it.
 fn extend(chain: &mut Option<Verified>, event: &EventEnvelope) -> Result<(), ChainError> {
@@ -110,17 +133,7 @@ impl Store {
             let Ok(text) = row.get_ref(0)?.as_str() else {
                 return Err(row.get::<_, String>(0).expect_err("unborrowed").into());
             };
-            if matches!(defect, Some(StoreError::Json(_))) {
-                continue;
-            }
-            match serde_json::from_str::<EventEnvelope>(text) {
-                Err(unparsed) => defect = Some(unparsed.into()),
-                Ok(event) if defect.is_none() => match extend(&mut chain, &event) {
-                    Ok(()) => keep(event),
-                    Err(broken) => defect = Some(broken.into()),
-                },
-                Ok(_) => {}
-            }
+            admit(text, &mut chain, &mut defect, &mut keep);
         }
         if let Some(defect) = defect {
             return Err(defect);
