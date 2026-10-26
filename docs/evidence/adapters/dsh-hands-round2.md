@@ -10,7 +10,10 @@ them. The raw files are in this directory under `dsh-hands-round2/`.
 
 - `dump-stdio.txt` is `dsh --profile headless --patch overlay-stdio.yml
   --dump-config`: 99 rows (ids and package names), the operator's default
-  home included, 0.06–0.07 s and about 64 MB per call, no model call.
+  home included, 0.06–0.07 s and about 64 MB per call, no model call. Two
+  route `baseURL`s in the copy named a private single-label host, so they
+  read `spark.invalid` here (#532: a route is named by its route name); the
+  99 row ids and package names, which are the allowlist, are unchanged.
 - `overlay-branch.yml` is the branch's row as first written: ten disabled
   tool rows, the sandbox row, and a `dsh-mcp-client` insert with
   `serverName`, `command` and `args` and **no `transport`**. Its server

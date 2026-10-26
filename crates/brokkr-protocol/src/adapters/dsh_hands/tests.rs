@@ -452,8 +452,14 @@ fn the_dsh_startup_report_fails_closed_and_carries_partial() {
 #[test]
 fn the_composed_tree_is_the_measured_dump_and_refuses_an_ambient_row() {
     use super::composition::{judge, rows, Composition, MEASURED_COMPOSITION};
-    let measured =
-        include_str!("../../../../../docs/evidence/adapters/dsh-hands-round2/dump-stdio.txt");
+    // Read at run time, not `include_str!`: the measured dump has one home
+    // in `docs/evidence/`, and a crate must not include a file above itself
+    // (the published tarball would not carry it).
+    let measured = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/evidence/adapters/dsh-hands-round2/dump-stdio.txt"),
+    )
+    .expect("the controller's measured dump is in the workspace");
     let parsed = rows(measured.as_bytes()).unwrap();
     let mut found: Vec<(&str, &str)> = parsed
         .iter()

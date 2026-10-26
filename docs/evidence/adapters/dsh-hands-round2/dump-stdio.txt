@@ -108,7 +108,7 @@
         displayName: DGX Spark (SGLang)
         apiKeyEnv: SPARK_API_KEY
         api: openai-completions
-        baseURL: http://spark:30000/v1
+        baseURL: http://spark.invalid:30000/v1
         compat:
           thinkingFormat: deepseek
         models:
@@ -119,7 +119,7 @@
         displayName: DGX Spark vLLM (GLM)
         apiKeyEnv: SPARK_API_KEY
         api: openai-completions
-        baseURL: http://spark:8888/v1
+        baseURL: http://spark.invalid:8888/v1
         models:
           - id: GLM-5.3-Flash-EXL3
             contextWindow: 200000
