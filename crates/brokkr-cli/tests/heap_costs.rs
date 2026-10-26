@@ -300,6 +300,7 @@ fn costs_and_compare_hold_their_openings_and_the_runs_seats() {
             "{name}: SQLite's budget is the fleet's cap on every host"
         );
         for (size, cost) in [("10,000", small), ("1,000,000", large)] {
+            measure::report_headroom(&format!("{name}, {size}"), cost.sqlite);
             let within = cost.brokkr <= brokkr && cost.sqlite <= sqlite;
             assert!(
                 within,

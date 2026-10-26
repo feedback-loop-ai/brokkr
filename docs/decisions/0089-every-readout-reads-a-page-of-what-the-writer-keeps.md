@@ -1158,9 +1158,9 @@ model the writer keeps in the journal's own file and transaction.
    its cost projections (the 2026-10-25 ruling), so it is several KB as
    read, not the row's estimated 200 B: `costs` of each of two runs of
    100 seat rows, read at the head its opening verified and summed by
-   `brokkr_core::seat::row::costs`, peaks at 237,751 B after the
+   `brokkr_core::seat::row::costs`, peaks at 236,283 B after the
    openings, and keeps ruling 9's 256 KiB (`costs`, the measured peak
-   plus a tenth, 261,527 B). `compare`'s share is the two runs' seat rows
+   plus a tenth, 259,912 B). `compare`'s share is the two runs' seat rows
    as read, their trails and the views composed of them (each run's
    trail, rows and view held while its facts are read): 757,259 B
    measured for two runs of 100 seat rows, about 760 KB, within its
@@ -1172,10 +1172,10 @@ model the writer keeps in the journal's own file and transaction.
    runs' events; `compare` read from every event again, as before the
    rows, peaks at 17,741,067 B in the first and 22,869,931 B in the
    second. SQLite's share stays at the 512,000 B cap (`costs-sqlite` and
-   `compare-sqlite`; 476,440 B and 485,184 B measured on Linux, the
+   `compare-sqlite`; 341,032 B and 349,776 B measured on Linux, the
    openings included). `heap_costs.rs` binds both, and times each, its
-   openings included, in both journals against the row's 50 ms: 16,497
-   and 19,530 µs for `costs`, 18,850 and 22,695 µs for `compare`
+   openings included, in both journals against the row's 50 ms: 17,218
+   and 21,140 µs for `costs`, 19,631 and 23,031 µs for `compare`
    (release, median of 11).
 
    **The aggregates are the one exception, and it is put to the

@@ -24,10 +24,10 @@
     "seat-view-escaped": 3182343,
     "seat-view-started": 1055833,
     "seat-view-started-escaped": 3149480,
-    "costs": 237751,
-    "costs-sqlite": 476440,
+    "costs": 236283,
+    "costs-sqlite": 341032,
     "compare": 757259,
-    "compare-sqlite": 485184
+    "compare-sqlite": 349776
   },
   "budgets": {
     "claude-session": 2212560,
@@ -52,7 +52,7 @@
     "seat-view-escaped": 3500578,
     "seat-view-started": 1161417,
     "seat-view-started-escaped": 3464428,
-    "costs": 261527,
+    "costs": 259912,
     "costs-sqlite": 512000,
     "compare": 832985,
     "compare-sqlite": 512000
