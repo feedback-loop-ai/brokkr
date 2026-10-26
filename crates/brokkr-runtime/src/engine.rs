@@ -61,7 +61,7 @@ mod input;
 mod isolation;
 use capability_calls::Calls;
 use checkpoints::Checkpoints;
-pub use isolation::serving_inputs;
+pub use isolation::{sealed_isolation, serving_inputs};
 mod marks;
 #[doc(hidden)]
 pub use marks::SiteMarks;
@@ -1036,11 +1036,7 @@ impl Engine {
         input: &mut Value,
     ) {
         let facts = self.bundle.sites.get(label);
-        let outcome = facts
-            .and_then(|facts| facts.capabilities.as_ref())
-            .and_then(|site| {
-                site.serving(link.map(|link| (link.provider.as_str(), link.model.as_str())))
-            });
+        let outcome = marks::outcome_at(facts, link);
         self.marks().capabilities(label, link, input);
         let Some(spawn) = spawn else {
             input["launch_arguments"] = Value::Null;

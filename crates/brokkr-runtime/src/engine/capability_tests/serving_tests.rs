@@ -314,6 +314,31 @@ fn the_serving_inputs_are_sealed_beside_the_record_and_admitted_only_as_sealed()
     );
 }
 
+/// #717: the isolation intent doctor models a launch's home from is the one
+/// dispatch seals beside the selected link's launch, its assessments and
+/// fence among it, and none where the site's plan holds no outcome for that
+/// link, beside which dispatch seals nothing.
+#[test]
+fn the_sealed_isolation_is_the_one_dispatch_seals_and_none_without_an_outcome() {
+    use brokkr_protocol::native_controls::{SealedFence, SealedIsolation};
+    let (_dir, engine) = two_candidate_engine();
+    let (link, facts) = (dsh_fallback(), engine.bundle.sites.get("work"));
+    let (_, sealed) = marked(&engine, &link, json!({}));
+    let dispatched: SealedIsolation =
+        serde_json::from_value(sealed[SERVING_INPUTS]["isolation"].clone()).unwrap();
+    let modelled = crate::engine::sealed_isolation(Some(&link), facts);
+    assert_eq!(modelled.as_ref(), Some(&dispatched));
+    assert_eq!(dispatched.fence, SealedFence::Standing);
+    let pro = Candidate {
+        model: "pro".into(),
+        ..dsh_fallback()
+    };
+    let (_, unserved) = marked(&engine, &pro, json!({}));
+    assert_eq!(unserved.get(SERVING_INPUTS), None);
+    assert_eq!(crate::engine::sealed_isolation(Some(&pro), facts), None);
+    assert_eq!(crate::engine::sealed_isolation(Some(&link), None), None);
+}
+
 /// U1g2: an inline site whose MCP server set the compile never recorded
 /// seals nothing and refuses its spawn; the set is never derived again from
 /// its argv, and the same site with its set recorded seals the empty one.
@@ -409,6 +434,13 @@ fn each_serving_seals_its_own_isolation_intent_under_the_fence() {
                "resume": {"work-site": "unmeasured", "headless": "measured"},
                "fence": "standing"})
     );
+    // #717: doctor models a seat's home from this same intent, each
+    // shape's assessment among it.
+    let facts = engine.bundle.sites.get("work");
+    for link in [codex_primary(), dsh_fallback()] {
+        let modelled = crate::engine::sealed_isolation(Some(&link), facts);
+        assert_eq!(serde_json::to_value(modelled).unwrap(), intent(link));
+    }
     let _lifted = crate::capabilities::McpFence::lift();
     assert_eq!(intent(dsh_fallback())["fence"], json!("lifted"));
 }

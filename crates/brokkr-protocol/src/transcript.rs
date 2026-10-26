@@ -286,9 +286,8 @@ impl DshHome {
 
     fn stage_under(user: Option<PathBuf>, workdir: &str) -> Result<DshHome, DshHomeError> {
         // An empty workdir is the child's `.`, which a relative `.env` names.
-        match std::fs::symlink_metadata(Path::new(workdir).join(".env")) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            _ => return Err(DshHomeError::WorkdirCredentials),
+        if crate::holds_dotenv(Path::new(workdir)) {
+            return Err(DshHomeError::WorkdirCredentials);
         }
         let base = user.ok_or(DshHomeError::Homeless)?;
         let base = base.join(ENGINE_HOMES.iter().collect::<PathBuf>());

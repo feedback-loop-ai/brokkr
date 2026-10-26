@@ -1,20 +1,37 @@
-//! A dsh folder says whether dsh reaches a key for its route (#717; the
-//! operator's ruling of 2026-10-22, item 2): `brokkr init` ends with the
-//! check's lines and `brokkr doctor` carries them in its status column,
-//! proved against the BUILT binary under a PATH holding only a dsh
-//! stand-in, a dsh home of the test's own, and each documented source
-//! planted in turn. Each route carries the served-home caveat (the
-//! operator's ruling of 2026-10-24 on fix round 717d2's block). A planted
-//! value is never printed, and a planted `.env` is told present but unread.
+//! A dsh folder says, for its dsh seats, which home serves them and
+//! whether that home reaches the key their route reads (#717; the
+//! operator's ruling of 2026-10-22, item 2, and the served-home model the
+//! ruling of 2026-10-24 named): `brokkr init` ends with the check's lines
+//! and `brokkr doctor` carries them in its status column, proved against
+//! the BUILT binary under a PATH holding only a dsh stand-in, a dsh home of
+//! the test's own, and each documented source planted in turn. The
+//! scaffold's seats ride a measured route, so where their cold shape was
+//! measured on the host an engine-only home serves their cold launch, and,
+//! while the fence stands, the operator's home serves their resumed one,
+//! whose replacement shape the shipped adapter does not measure; one
+//! engine-only home serves both where the adapter measures both. A seat on
+//! a route no engine-only home was measured on is served from the
+//! operator's home while the fence stands. A planted value is never
+//! printed, and a planted `.env` is told present but unread.
 #![cfg(unix)]
 
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::brokkr_folder::{Ran, Repo};
 
 /// What every planted key holds: output carrying it is a leak.
 const PLANTED: &str = "planted-value-717";
+
+/// The scaffold's key line where the launching environment gives it.
+const REACHED: &str =
+    "dsh key deepseek-official: dsh reaches DEEPSEEK_API_KEY through the launching environment";
+
+/// The scaffold's key line where the launching environment does not.
+const UNSET: &str = "dsh key deepseek-official: dsh reaches no DEEPSEEK_API_KEY: Brokkr serves \
+                     this route from its own engine-only home (decision 0065), which reads a key \
+                     from the launching environment alone, and DEEPSEEK_API_KEY is not set there; \
+                     export DEEPSEEK_API_KEY where brokkr runs";
 
 /// A repository, a PATH holding only an executable dsh stand-in, and an
 /// empty dsh home, every one the test's own.
@@ -56,7 +73,7 @@ impl DshHost {
         command
             .env_remove("BROKKR_DSH_BIN")
             .env_remove("DEEPSEEK_API_KEY")
-            .env_remove("DASHSCOPE_API_KEY");
+            .env_remove("SPARK_API_KEY");
         command.envs(key.map(|key| ("DEEPSEEK_API_KEY", key)));
         let ran = Ran::of(command.output().unwrap());
         let printed = format!("{}{}", ran.stdout, ran.stderr);
@@ -64,10 +81,19 @@ impl DshHost {
         ran
     }
 
-    /// `brokkr init .`, and the check's lines it printed last.
+    /// `brokkr init .`, and the check's lines it printed last; then the
+    /// scaffold's dsh adapter's one cold shape, which the shipped adapter
+    /// measured on Linux, measured on this host, so every later check
+    /// reads the home a Linux host serves, on Linux and macOS alike.
     fn init(&self, key: Option<&str>) -> Vec<String> {
         let init = self.brokkr(&["init", "."], key);
         assert_eq!(init.code, Some(0), "{}", init.stderr);
+        let adapter = self.repo.path(".brokkr/adapters/dsh.json");
+        let scaffold = std::fs::read_to_string(&adapter).unwrap();
+        let linux = r#""host": "linux""#;
+        assert_eq!(scaffold.matches(linux).count(), 1, "{scaffold}");
+        let here = format!(r#""host": "{}""#, std::env::consts::OS);
+        std::fs::write(&adapter, scaffold.replace(linux, &here)).unwrap();
         let lines = init
             .stderr
             .lines()
@@ -75,18 +101,51 @@ impl DshHost {
         lines.map(str::to_string).collect()
     }
 
+    /// What `brokkr init` prints of the scaffold's seats on this host, `key`
+    /// the launching environment's: the shipped dsh adapter's one cold
+    /// shape was measured on Linux, so there an engine-only home serves a
+    /// cold launch and the operator's home a resumed one, and on macOS,
+    /// where it qualifies nothing, the operator's home serves both (#717).
+    fn initialised(&self, key: Option<&str>) -> [String; 2] {
+        let (route, seats) = ("deepseek-official", "implement, intake");
+        let macos = cfg!(target_os = "macos");
+        let reach = match (key, macos) {
+            (Some(_), _) => REACHED.to_string(),
+            (None, false) => UNSET.to_string(),
+            (None, true) => format!("dsh key {route}: {}", self.unreached("DEEPSEEK_API_KEY")),
+        };
+        match macos {
+            true => [reach, operator(route, seats)],
+            false => [reach, two_state(seats)],
+        }
+    }
+
+    /// The scaffold's dsh adapter declaring, beside its one cold shape, the
+    /// replacement shape a rejoin offer launches, measured as the cold one.
+    fn measure_replacement(&self) {
+        let adapter = self.repo.path(".brokkr/adapters/dsh.json");
+        let text = std::fs::read_to_string(&adapter).unwrap();
+        let mut dsh: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let shapes = dsh["mcp"]["shapes"].as_array_mut().unwrap();
+        let mut replacement = shapes[0].clone();
+        replacement["invocation"] = "replacement".into();
+        shapes.push(replacement);
+        std::fs::write(&adapter, dsh.to_string()).unwrap();
+    }
+
     /// `brokkr doctor`'s dsh key check lines, and its exit code.
     fn doctor(&self, key: Option<&str>) -> (Vec<String>, Option<i32>) {
         let doctor = self.brokkr(&["doctor"], key);
         let lines = doctor.stdout.lines().filter(|line| {
-            ["dsh key ", "dsh home ", "dsh workdir:"]
+            ["dsh key ", "dsh home ", "dsh home:", "dsh workdir:"]
                 .iter()
                 .any(|name| line.contains(name))
         });
         (lines.map(str::to_string).collect(), doctor.code)
     }
 
-    /// The words of a route whose `variable` no source gives.
+    /// The words of a route whose `variable` no source the operator's home
+    /// reads gives.
     fn unreached(&self, variable: &str) -> String {
         let (root, home) = (self.repo.root.display(), self.home.display());
         format!(
@@ -99,204 +158,216 @@ impl DshHost {
         )
     }
 
-    /// What a check asks past the environment where no source answers,
-    /// `read` whether the profile's patch and the home's are there to read.
-    fn everything(&self, read: [bool; 2]) -> String {
-        let (root, home) = (self.repo.root.display(), self.home.display());
-        let layers = ["profiles/headless/cordis.patch.yml", "cordis.patch.yml"];
-        let did: Vec<String> = layers
-            .iter()
-            .zip(read)
-            .map(|(layer, read)| match read {
-                true => format!("read {home}/{layer} for dsh's credentials row"),
-                false => format!("found no {home}/{layer}"),
-            })
-            .collect();
-        format!(
-            "then looked up {root}/.env and {home}/.env by name, unread, then {}",
-            did.join(", then ")
-        )
+    /// Plant `text` at `path` under the home or the repository, readable by
+    /// no one, so a check that opened it would fail.
+    fn unreadable(&self, path: &PathBuf, text: &str) {
+        std::fs::write(path, text).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000)).unwrap();
     }
 }
 
-/// The served-home caveat of a `route` reading `variable`, as printed:
-/// `past` what its check asked after the environment, none where the
-/// environment gave the key.
-fn caveat(route: &str, variable: &str, past: Option<&str>) -> String {
-    let unknown = "Brokkr can't yet tell whether it serves this route from its own engine-only \
-                   home (decision 0065), which reads neither patch nor the home's .env";
-    match past {
-        None => format!(
-            "dsh home {route}: this check asked only whether {variable} is set where brokkr runs, \
-             and nothing of the operator's dsh home; {unknown}"
-        ),
-        Some(past) => format!(
-            "dsh home {route}: this check asked whether {variable} is set where brokkr runs, \
-             {past}; {unknown}, so past the environment this check can't confirm the key reaches \
-             a seat served there"
-        ),
-    }
+/// The home line of `seats` on `route` served from an engine-only home.
+fn engine(route: &str, seats: &str) -> String {
+    format!(
+        "dsh home {route}: Brokkr serves seats [{seats}] on this route from its own engine-only \
+         home (decision 0065), where dsh reads a key from the launching environment alone, never \
+         the operator's .env or patch layers"
+    )
 }
 
+/// The home line of `seats` on `route` served from the operator's home.
+fn operator(route: &str, seats: &str) -> String {
+    format!(
+        "dsh home {route}: Brokkr serves seats [{seats}] on this route from the operator's own \
+         dsh home, which reads every source this check asks"
+    )
+}
+
+/// The resumed launch's clause of a scaffold seat's two-state line: the
+/// shipped adapter measures no replacement shape, so while the fence stands
+/// the operator's home serves it.
+const RESUMED: &str = "and serves a resumed launch from the operator's own dsh home, which reads \
+                       every source this check asks, while the driver does not admit its \
+                       replacement shape";
+
+/// The home line of `seats` on dsh's default route, whose cold launch an
+/// engine-only home serves and whose resumed launch the operator's does.
+fn two_state(seats: &str) -> String {
+    format!(
+        "dsh home deepseek-official: Brokkr serves a cold launch of seats [{seats}] on this route \
+         from its own engine-only home (decision 0065), where dsh reads a key from the launching \
+         environment alone, never the operator's .env or patch layers, {RESUMED}"
+    )
+}
+
+/// The failing home line of `seats` on dsh's default route, whose
+/// engine-only cold launch the `.env` at `in_repo` refuses and whose
+/// resumed launch the operator's home serves.
+fn refused(seats: &str, in_repo: &Path) -> String {
+    format!(
+        "MISSING  dsh home deepseek-official: Brokkr refuses a cold launch of seats [{seats}] on \
+         this route from its own engine-only home (decision 0065) while {} is present, unread, \
+         since dsh would read it for a key (export the key where brokkr runs and remove the \
+         file), {RESUMED}",
+        in_repo.display()
+    )
+}
+
+/// The scaffold's seats, whose cold launch an engine-only home serves and
+/// whose resumed one the operator's home does, are answered for the
+/// engine-only home, fail-closed, which reads a key from the launching
+/// environment alone: one only the operator's home gives, through its
+/// `.env` or a patch re-enabling dsh's credentials service, is no key
+/// there, and fails the report.
 #[test]
-fn init_and_doctor_name_an_unreached_key_with_both_remedies() {
+fn an_engine_only_seat_reads_its_key_from_the_launching_environment_alone() {
     let host = DshHost::new();
-    let detail = host.unreached("DEEPSEEK_API_KEY");
-    let everything = host.everything([false, false]);
-    let served = caveat("deepseek-official", "DEEPSEEK_API_KEY", Some(&everything));
-    assert_eq!(
-        host.init(None),
-        [
-            format!("dsh key deepseek-official: {detail}"),
-            served.clone()
-        ]
-    );
+    let served = two_state("implement, intake");
+    assert_eq!(host.init(None), host.initialised(None));
     let missing = (
-        vec![
-            format!("MISSING  dsh key deepseek-official: {detail}"),
-            format!("warn     {served}"),
-        ],
+        vec![format!("MISSING  {UNSET}"), format!("ok       {served}")],
         Some(1),
     );
     assert_eq!(host.doctor(None), missing);
     // A variable set to nothing is no key.
     assert_eq!(host.doctor(Some("")), missing);
-}
-
-#[test]
-fn a_key_each_source_names_is_reached_and_its_value_never_printed() {
-    let host = DshHost::new();
-    let reached = |through: &str| {
-        format!("dsh key deepseek-official: dsh reaches DEEPSEEK_API_KEY {through}")
-    };
-    let served = |past: Option<&str>| caveat("deepseek-official", "DEEPSEEK_API_KEY", past);
-    let environment = reached("through the launching environment");
-    assert_eq!(
-        host.init(Some(PLANTED)),
-        [environment.clone(), served(None)]
-    );
     assert_eq!(
         host.doctor(Some(PLANTED)).0,
-        [
-            format!("ok       {environment}"),
-            format!("warn     {}", served(None))
-        ]
+        [format!("ok       {REACHED}"), format!("ok       {served}")]
     );
-    let warned = |read| format!("warn     {}", served(Some(&host.everything(read))));
-    // A key only the operator's home gives depends on the home that serves
-    // the seat, so it warns and is never ok.
     let patch = host.home.join("profiles/headless/cordis.patch.yml");
     std::fs::write(&patch, "- id: credentials\n  disabled: false\n").unwrap();
-    let service = format!(
-        "through dsh's credentials service, which {} re-enables; its store is dsh's to answer \
-         for and is not read",
-        patch.display()
+    host.unreadable(
+        &host.home.join(".env"),
+        &format!("DEEPSEEK_API_KEY={PLANTED}\n"),
     );
-    assert_eq!(
-        host.doctor(None).0,
-        [
-            format!("warn     {}", reached(&service)),
-            warned([true, false])
-        ]
-    );
-    // A home patch composes after the profile's, and disables it again.
-    let last = host.home.join("cordis.patch.yml");
-    std::fs::write(&last, "- id: credentials\n  disabled: true\n").unwrap();
-    let (lines, code) = host.doctor(None);
-    let disables = format!("and {} disables dsh's credentials service;", last.display());
-    assert_eq!(
-        (
-            lines[0].starts_with("MISSING  "),
-            lines[0].contains(&disables),
-            &lines[1],
-            code
-        ),
-        (true, true, &warned([true, true]), Some(1))
-    );
-    // A `.env` dsh reads is present but never read, so it is told as such,
-    // and one in the repository a dsh seat runs in warns of the refusal an
-    // engine-only home gives it, even where no one may read it.
-    let in_repo = host.repo.path(".env");
-    for env in [host.home.join(".env"), in_repo.clone()] {
-        std::fs::write(&env, format!("DEEPSEEK_API_KEY={PLANTED}\n")).unwrap();
-        std::fs::set_permissions(&env, std::fs::Permissions::from_mode(0o000)).unwrap();
-        let mut untold = vec![
-            format!(
-                "warn     dsh key deepseek-official: DEEPSEEK_API_KEY is not set in the \
-                 launching environment, and {} is present but unread: Brokkr does not read it, so \
-                 it can't confirm DEEPSEEK_API_KEY is in it",
-                env.display()
-            ),
-            // The check stops at the first `.env` present, before any patch.
-            format!(
-                "warn     {}",
-                served(Some(&match env == in_repo {
-                    true => format!("then looked up {} by name, unread", env.display()),
-                    false => format!(
-                        "then looked up {} and {} by name, unread",
-                        in_repo.display(),
-                        env.display()
-                    ),
-                }))
-            ),
-        ];
-        untold.extend((env == in_repo).then(|| {
-            format!(
-                "warn     dsh workdir: {} is present, unread: if Brokkr serves a dsh seat from its \
-                 own engine-only home (decision 0065), it refuses that launch, since dsh would \
-                 read the file for a key",
-                in_repo.display()
-            )
-        }));
-        assert_eq!(host.doctor(None).0, untold);
-    }
+    assert_eq!(host.doctor(None), missing);
 }
 
-/// Every route carries the caveat, one that names no variable too.
+/// Where the scaffold's dsh adapter measures its replacement shape beside
+/// its cold one, one engine-only home serves both the seats' launches, and
+/// their home line says that home alone.
 #[test]
-fn every_route_carries_the_served_home_caveat() {
+fn a_seat_whose_both_shapes_are_measured_has_one_engine_only_home() {
+    let host = DshHost::new();
+    host.init(None);
+    host.measure_replacement();
+    let served = engine("deepseek-official", "implement, intake");
+    let missing = vec![format!("MISSING  {UNSET}"), format!("ok       {served}")];
+    assert_eq!(host.doctor(None), (missing, Some(1)));
+}
+
+/// A `.env` in the repository the scaffold's seats run in refuses each
+/// engine-only launch, whatever the environment gives, and is never read.
+#[test]
+fn a_workdir_dotenv_refuses_every_engine_only_launch_and_is_never_read() {
+    let host = DshHost::new();
+    let initialised = host.initialised(Some(PLANTED));
+    assert_eq!(host.init(Some(PLANTED)), initialised);
+    let in_repo = host.repo.path(".env");
+    host.unreadable(&in_repo, &format!("DEEPSEEK_API_KEY={PLANTED}\n"));
+    let refused = refused("implement, intake", &in_repo);
+    assert_eq!(host.doctor(Some(PLANTED)), (vec![refused], Some(1)));
+}
+
+/// An inline dsh seat, whose launch the compile carries no argv for, is
+/// named by its site alone, and leaves the agent seat beside it served from
+/// its engine-only home: a key only the operator's home gives still fails
+/// the report, and a repository `.env` still refuses that seat's launch.
+#[test]
+fn an_inline_dsh_seat_leaves_the_agent_seats_home_standing() {
+    let host = DshHost::new();
+    host.init(Some(PLANTED));
+    let bundle = host.repo.path(".brokkr/bundle.json");
+    let seats = std::fs::read_to_string(&bundle).unwrap();
+    let agent = r#""intake": {
+      "agent": "intake","#;
+    assert!(seats.contains(agent), "{seats}");
+    let inline = r#""intake": {
+      "role": "intake.md",
+      "driver": {"command": ["{brokkr}", "driver", "dsh", "--", "--model", "deepseek-flash", "--effort", "high"]},"#;
+    std::fs::write(&bundle, seats.replace(agent, inline)).unwrap();
+    std::fs::write(host.repo.path(".brokkr/intake.md"), "Frame the request.\n").unwrap();
+    let unmodelled = "warn     dsh home: Brokkr can't yet tell which home serves seats [intake], \
+                      since the compile carries no argv for an inline dsh site's launch and no \
+                      model for a candidate that pins no --model; each route no other seat rides \
+                      is asked of every source the operator's home reads, with its caveat";
+    let served = format!("ok       {}", two_state("implement"));
+    let missing = vec![format!("MISSING  {UNSET}"), served, unmodelled.to_string()];
+    // The key the operator's home alone gives is no key for `implement`.
+    host.unreadable(
+        &host.home.join(".env"),
+        &format!("DEEPSEEK_API_KEY={PLANTED}\n"),
+    );
+    assert_eq!(host.doctor(None), (missing, Some(1)));
+    let in_repo = host.repo.path(".env");
+    host.unreadable(&in_repo, &format!("DEEPSEEK_API_KEY={PLANTED}\n"));
+    let beside = vec![refused("implement", &in_repo), unmodelled.to_string()];
+    assert_eq!(host.doctor(Some(PLANTED)), (beside, Some(1)));
+}
+
+/// A seat whose model rides a route no engine-only home was measured on is
+/// served from the operator's home while the fence stands, so every layer
+/// that home reads is asked, in dsh's order, beside the seats an
+/// engine-only home serves.
+#[test]
+fn a_seat_on_an_unmeasured_route_is_served_from_the_operators_home() {
     let host = DshHost::new();
     host.init(Some(PLANTED));
     let adapter = host.repo.path(".brokkr/adapters/dsh.json");
     let scaffold = std::fs::read_to_string(&adapter).unwrap();
     let pinned = "\"pro\": \"deepseek-v4-pro\"\n  },";
     assert!(scaffold.contains(pinned), "{scaffold}");
-    let three = "\"pro\": \"deepseek-v4-pro\",\n    \"glm\": \"dashscope/glm-5.2\",\n    \
-                 \"spark\": \"meta/meta/muse-spark-1.3\"\n  },\n  \
-                 \"credentials\": {\"dashscope\": \"DASHSCOPE_API_KEY\"},";
-    std::fs::write(&adapter, scaffold.replace(pinned, three)).unwrap();
-    let detail = host.unreached("DASHSCOPE_API_KEY");
+    let spark = "\"pro\": \"deepseek-v4-pro\",\n    \"spark\": \"spark/qwen3.8-flash\"\n  },\n  \
+                 \"credentials\": {\"spark\": \"SPARK_API_KEY\"},";
+    std::fs::write(&adapter, scaffold.replace(pinned, spark)).unwrap();
+    let intake = host.repo.path(".brokkr/agents/intake.json");
+    let hired = std::fs::read_to_string(&intake).unwrap();
+    let (efforts, models) = (
+        "\"flash\": \"high\",\n    \"pro\": \"high\"",
+        "\"flash\",\n    \"pro\"",
+    );
+    assert!(hired.contains(efforts) && hired.contains(models), "{hired}");
+    let hired = hired.replace(efforts, "\"spark\": \"high\"");
+    std::fs::write(&intake, hired.replace(models, "\"spark\"")).unwrap();
+    let operator = format!("ok       {}", operator("spark", "intake"));
+    let implement = [
+        format!("ok       {REACHED}"),
+        format!("ok       {}", two_state("implement")),
+    ];
+    let spark = |key: String| [key, operator.clone()];
+    let unreached = format!(
+        "MISSING  dsh key spark: {}",
+        host.unreached("SPARK_API_KEY")
+    );
     assert_eq!(
         host.doctor(Some(PLANTED)),
-        (
-            vec![
-                format!("MISSING  dsh key dashscope: {detail}"),
-                format!(
-                    "warn     {}",
-                    caveat(
-                        "dashscope",
-                        "DASHSCOPE_API_KEY",
-                        Some(&host.everything([false, false]))
-                    )
-                ),
-                "ok       dsh key deepseek-official: dsh reaches DEEPSEEK_API_KEY through the \
-                 launching environment"
-                    .to_string(),
-                format!(
-                    "warn     {}",
-                    caveat("deepseek-official", "DEEPSEEK_API_KEY", None)
-                ),
-                "warn     dsh key meta: the dsh adapter names no credential variable for this \
-                 route, so whether dsh reaches a key for it is unknown; declare one under the \
-                 adapter's `credentials`"
-                    .to_string(),
-                "warn     dsh home meta: this check asked nothing of the operator's dsh home, \
-                 since no variable is named for this route; Brokkr can't yet tell whether it \
-                 serves this route from its own engine-only home (decision 0065), which reads \
-                 neither patch nor the home's .env"
-                    .to_string(),
-            ],
-            Some(1)
-        )
+        ([implement.clone(), spark(unreached)].concat(), Some(1))
+    );
+    let patch = host.home.join("profiles/headless/cordis.patch.yml");
+    std::fs::write(&patch, "- id: credentials\n  disabled: false\n").unwrap();
+    let service = format!(
+        "warn     dsh key spark: dsh reaches SPARK_API_KEY through dsh's credentials service, \
+         which {} re-enables; its store is dsh's to answer for and is not read",
+        patch.display()
+    );
+    assert_eq!(
+        host.doctor(Some(PLANTED)).0,
+        [implement, spark(service)].concat()
+    );
+    // The repository's `.env` is told present but unread for the
+    // operator's home, and refuses the engine-only one's launch.
+    let in_repo = host.repo.path(".env");
+    host.unreadable(&in_repo, &format!("SPARK_API_KEY={PLANTED}\n"));
+    let untold = format!(
+        "warn     dsh key spark: SPARK_API_KEY is not set in the launching environment, and {} \
+         is present but unread: Brokkr does not read it, so it can't confirm SPARK_API_KEY is in \
+         it",
+        in_repo.display()
+    );
+    let refused = refused("implement", &in_repo);
+    assert_eq!(
+        host.doctor(Some(PLANTED)).0,
+        [vec![refused], spark(untold).to_vec()].concat()
     );
 }

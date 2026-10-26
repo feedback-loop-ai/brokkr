@@ -1172,6 +1172,9 @@ pub enum brokkr_protocol::Cleanup
 pub brokkr_protocol::Cleanup::Settled
 pub brokkr_protocol::Cleanup::Unresolved
 pub brokkr_protocol::Cleanup::Unresolved::reason: brokkr_protocol::process::Unsettled
+pub enum brokkr_protocol::DshServed
+pub brokkr_protocol::DshServed::Engine
+pub brokkr_protocol::DshServed::Operator
 pub enum brokkr_protocol::ResultStatus
 pub brokkr_protocol::ResultStatus::Failed
 pub brokkr_protocol::ResultStatus::Succeeded
@@ -1188,6 +1191,7 @@ impl brokkr_protocol::AttemptReport
 pub fn brokkr_protocol::AttemptReport::cleanup_evidence(&self) -> core::option::Option<brokkr_protocol::CleanupEvidence>
 pub fn brokkr_protocol::AttemptReport::settled_outcome(&self) -> brokkr_protocol::AttemptOutcome
 pub struct brokkr_protocol::CleanupEvidence
+pub struct brokkr_protocol::DshRefusal(_)
 pub struct brokkr_protocol::Message
 pub brokkr_protocol::Message::body: brokkr_protocol::Body
 pub brokkr_protocol::Message::msg_id: alloc::string::String
@@ -1195,3 +1199,5 @@ pub brokkr_protocol::Message::proto: alloc::string::String
 impl brokkr_protocol::Message
 pub fn brokkr_protocol::Message::new(brokkr_protocol::Body) -> brokkr_protocol::Message
 pub const brokkr_protocol::PROTO: &str
+pub fn brokkr_protocol::dsh_served(core::option::Option<&brokkr_protocol::native_controls::SealedIsolation>, bool, core::option::Option<&str>, bool) -> core::result::Result<brokkr_protocol::DshServed, brokkr_protocol::DshRefusal>
+pub fn brokkr_protocol::holds_dotenv(&std::path::Path) -> bool

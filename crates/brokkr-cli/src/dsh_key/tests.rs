@@ -7,8 +7,10 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use brokkr_protocol::native_controls::{SealedAssessment, SealedFence, SealedIsolation};
 use serde_json::json;
 
+use super::home::Seat;
 use super::patch::{layer, opened, writes, Kind, Layer, Unread, Write};
 use super::*;
 
@@ -97,6 +99,20 @@ impl Planted {
     fn lines_within_bound(&self, set: fn(&str) -> bool) -> Vec<Line> {
         let (adapters, repo, home) = (self.adapters.clone(), self.repo.clone(), self.home.clone());
         within_bound(move || with_caveats(asked(&adapters, &repo, Ok(home), set), &repo))
+    }
+
+    /// The lines of a compile's `seats`, `set` the environment's,
+    /// [`within_bound`].
+    fn modelled_within_bound(&self, seats: home::Seats, set: fn(&str) -> bool) -> Vec<Line> {
+        let (adapters, repo, home) = (self.adapters.clone(), self.repo.clone(), self.home.clone());
+        within_bound(move || {
+            let sources = Sources {
+                set,
+                repo: &repo,
+                home: Ok(home),
+            };
+            with_dsh(&adapters, |dsh| home::modelled(dsh, &seats, &sources))
+        })
     }
 }
 
@@ -899,8 +915,11 @@ fn a_folder_that_hires_no_dsh_or_whose_adapters_do_not_load_has_no_line() {
     planted.write(&planted.repo.join(".env"), "");
     std::fs::remove_file(planted.adapters.join("dsh.json")).unwrap();
     assert_eq!(planted.reaches(unset), []);
-    assert_eq!(of_folder(&planted.adapters, &planted.repo), []);
-    assert_eq!(of_folder(&planted.repo.join("absent"), &planted.repo), []);
+    assert_eq!(of_folder(&planted.adapters, &planted.repo, None), []);
+    assert_eq!(
+        of_folder(&planted.repo.join("absent"), &planted.repo, None),
+        []
+    );
 }
 
 #[test]
@@ -923,4 +942,568 @@ fn the_default_key_is_the_shipped_adapters_deepseek_official_credential() {
         dsh.credentials.get("deepseek-official").map(String::as_str),
         Some(DEFAULT_KEY)
     );
+}
+
+/// The name of the host this test runs on, or of the other supported one
+/// (decision 0063).
+fn host_name(here: bool) -> &'static str {
+    match cfg!(target_os = "macos") == here {
+        true => "macos",
+        false => "linux",
+    }
+}
+
+/// A dsh scaffold written by `brokkr init --cli dsh` under a directory of
+/// its own, recompiled with its dsh adapter's one cold shape measured on
+/// the host this test runs on, and that compile: the compile a Linux host
+/// makes of the shipped adapter, whose one cold shape was measured there,
+/// on Linux and macOS alike.
+fn scaffolded() -> (tempfile::TempDir, Bundle) {
+    scaffolded_on(host_name(true), false)
+}
+
+/// [`scaffolded`] with its dsh adapter declaring, beside its one cold
+/// shape, the replacement shape a rejoin offer launches, both measured on
+/// the host this test runs on.
+fn scaffolded_measuring_both() -> (tempfile::TempDir, Bundle) {
+    scaffolded_on(host_name(true), true)
+}
+
+/// [`scaffolded`] with its dsh adapter's one cold shape measured on the
+/// host this test does not run on: the compile a macOS host makes of the
+/// shipped adapter, since a result from one host qualifies nothing on the
+/// other.
+fn scaffolded_elsewhere() -> (tempfile::TempDir, Bundle) {
+    scaffolded_on(host_name(false), false)
+}
+
+/// A dsh scaffold whose adapter's one cold shape, which the shipped
+/// adapter measured on Linux, is measured on `on`, and, where `replacement`
+/// holds, a copy of it declared as the replacement shape, and its compile.
+fn scaffolded_on(on: &str, replacement: bool) -> (tempfile::TempDir, Bundle) {
+    let dir = tempfile::tempdir().unwrap();
+    let (root, path) = (dir.path(), std::ffi::OsStr::new(""));
+    let dsh = Some(crate::init::Cli::Dsh);
+    crate::init::init(root, path, "linux", root, dsh).unwrap();
+    let folder = dir.path().join(".brokkr");
+    let path = folder.join("adapters/dsh.json");
+    let mut dsh: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let host = &mut dsh["mcp"]["shapes"][0]["measured_on"]["host"];
+    assert_eq!(*host, json!("linux"));
+    *host = json!(on);
+    let shapes = dsh["mcp"]["shapes"].as_array_mut().unwrap();
+    if replacement {
+        let mut shape = shapes[0].clone();
+        shape["invocation"] = json!("replacement");
+        shapes.push(shape);
+    }
+    std::fs::write(&path, dsh.to_string()).unwrap();
+    let (agents, adapters) = (folder.join("agents"), folder.join("adapters"));
+    let boundary = brokkr_core::realms::Boundary::Namespace;
+    let compiled = Bundle::compile_under(&folder, &agents, &adapters, boundary).unwrap();
+    (dir, compiled)
+}
+
+/// The intent of an empty set under `fence` whose cold and replacement
+/// shapes are both `assessed`, so each seat's cold and resumed launches
+/// are served from one home, and every resume shape unmeasured.
+fn intent(fence: SealedFence, assessed: SealedAssessment) -> SealedIsolation {
+    SealedIsolation {
+        cold: assessed.clone(),
+        replacement: assessed,
+        fence,
+        ..SealedIsolation::default()
+    }
+}
+
+/// A seat at `label` pinning `model`, its launch carrying an intent under
+/// `fence` whose cold and replacement shapes are measured.
+fn seat(label: &str, model: &str, routed: bool, fence: Option<SealedFence>) -> Seat {
+    let isolation = fence.map(|fence| intent(fence, SealedAssessment::Measured));
+    Seat {
+        label: label.into(),
+        model: model.into(),
+        routed,
+        isolation,
+    }
+}
+
+/// Each dsh seat of a compile is read from its candidate's argv as the
+/// launch reads it, with the fence the predicate dispatch seals by gives;
+/// a dsh seat whose launch can't be read so, an inline dsh site or a
+/// candidate pinning no `--model`, is named by its site, and every other
+/// seat is still read.
+#[test]
+fn each_dsh_seat_of_a_compile_is_read_from_its_candidates_argv() {
+    let (_dir, mut compiled) = scaffolded_measuring_both();
+    let standing = Some(SealedFence::Standing);
+    let (flash, pro) = ("deepseek-flash", "deepseek-v4-pro");
+    let scaffold = vec![
+        seat("implement", pro, false, standing),
+        seat("implement", flash, false, standing),
+        seat("intake", flash, false, standing),
+        seat("intake", pro, false, standing),
+    ];
+    let read = |read: &[Seat], unread: &[&str]| home::Seats {
+        read: read.to_vec(),
+        unread: unread.iter().map(|site| site.to_string()).collect(),
+    };
+    assert_eq!(home::seats(&compiled), read(&scaffold, &[]));
+    // A `--patch` is a route overlay, and a site whose plan holds no
+    // outcome launches with no intent.
+    let implement = compiled.sites.get_mut("implement").unwrap();
+    implement.chain[0]
+        .argv
+        .extend(["--patch", "route.yml"].map(String::from));
+    implement.capabilities = None;
+    // An inline site that dsh does not serve, or that holds no plan, is
+    // no dsh seat.
+    let mut inline = compiled.sites["review"].clone();
+    inline.chain.clear();
+    compiled.sites.insert("inline".into(), inline);
+    compiled.sites.insert("planless".into(), Default::default());
+    let rerouted = [
+        seat("implement", pro, true, None),
+        seat("implement", flash, false, None),
+    ];
+    let mut seats = [&rerouted[..], &scaffold[2..]].concat();
+    assert_eq!(home::seats(&compiled), read(&seats, &[]));
+    let mut inline = compiled.sites["intake"].clone();
+    inline.chain.clear();
+    compiled.sites.insert("inline".into(), inline);
+    assert_eq!(home::seats(&compiled), read(&seats, &["inline"]));
+    let intake = compiled.sites.get_mut("intake").unwrap();
+    intake.chain[1].argv.retain(|part| part != "--model");
+    seats.pop();
+    assert_eq!(home::seats(&compiled), read(&seats, &["inline", "intake"]));
+}
+
+/// Six seats, one for each way the served-home decision rules, and the
+/// folder they are answered in: `a` and `b` on dsh's default route, which
+/// an engine-only home was measured on with no overlay, under the standing
+/// fence; `c` with no intent on a measured route; `d` past the lifted fence
+/// on a measured route with its overlay, its route naming no variable; `e`
+/// past the lifted fence on a route no home was measured on; and `f` with
+/// no intent on an unmeasured route that names no variable.
+struct Served {
+    planted: Planted,
+    seats: [Seat; 6],
+}
+
+impl Served {
+    fn new() -> Served {
+        let (standing, lifted) = (Some(SealedFence::Standing), Some(SealedFence::Lifted));
+        Served {
+            planted: Planted::new(json!({}), json!({"dashscope": "DASHSCOPE_API_KEY"})),
+            seats: [
+                seat("b", "deepseek-v4-pro", false, standing),
+                seat("a", "deepseek-flash", false, standing),
+                seat("c", "dashscope/glm-5.2", false, None),
+                seat("d", "meta/meta/muse-spark-1.3", true, lifted),
+                seat("e", "openai/gpt-6", false, lifted),
+                seat("f", "spark/qwen3.8-flash", true, None),
+            ],
+        }
+    }
+
+    /// The seats' lines, `set` the environment's, [`within_bound`].
+    fn homed(&self, set: fn(&str) -> bool) -> Vec<Line> {
+        let planted = &self.planted;
+        let (dir, repo) = (planted.adapters.clone(), planted.repo.clone());
+        let (dsh_home, seats) = (planted.home.clone(), self.seats.to_vec());
+        within_bound(move || {
+            let adapters = Adapters::load(&dir).unwrap();
+            let sources = Sources {
+                set,
+                repo: &repo,
+                home: Ok(dsh_home),
+            };
+            home::homed(adapters.adapter("dsh").unwrap(), &seats, &sources)
+        })
+    }
+}
+
+/// The home line of `seats` on `route`, both of whose launches `home`
+/// serves.
+fn group(route: &str, seats: &[&str], home: Home) -> Line {
+    split(route, seats, home.clone(), home)
+}
+
+/// The home line of `seats` on `route`, whose cold launch `cold` serves and
+/// whose resumed one `resumed` does.
+fn split(route: &str, seats: &[&str], cold: Home, resumed: Home) -> Line {
+    Line::Home {
+        route: route.into(),
+        seats: seats.iter().map(|seat| seat.to_string()).collect(),
+        cold,
+        resumed,
+    }
+}
+
+fn undeclared(route: &str) -> Line {
+    Line::Key(Reach::Undeclared {
+        route: route.into(),
+    })
+}
+
+/// `e`'s refusal, in the driver's words.
+const OPENAI: &str = "provider 'dsh' has no measured strict MCP configuration on route 'openai'";
+
+/// Each seat is answered for the home brokkr-protocol's decision serves
+/// it from, grouped by route and home: the operator's home asked of every
+/// source, an engine-only home of the launching environment alone, and a
+/// refused launch named with its refusal and no key.
+#[test]
+fn each_seat_is_answered_for_the_home_that_serves_it() {
+    let served = Served::new();
+    let planted = &served.planted;
+    let deepseek = || (String::from("deepseek-official"), "DEEPSEEK_API_KEY".into());
+    let (route, variable) = deepseek();
+    let unreached = Reach::Unreached {
+        route: "dashscope".into(),
+        variable: "DASHSCOPE_API_KEY".into(),
+        files: vec![planted.repo.join(".env"), planted.home.join(".env")],
+        off: Ok(Off::Shipped(planted.profile())),
+    };
+    let mut expected = vec![
+        Line::Key(unreached),
+        group("dashscope", &["c"], Home::Operator),
+        Line::Key(Reach::Reached {
+            route,
+            variable,
+            source: Source::Environment,
+        }),
+        group("deepseek-official", &["a", "b"], Home::Engine),
+        undeclared("meta"),
+        group("meta", &["d"], Home::Engine),
+        group("openai", &["e"], Home::Refused(OPENAI.into())),
+        undeclared("spark"),
+        group("spark", &["f"], Home::Operator),
+    ];
+    assert_eq!(served.homed(|name| name == "DEEPSEEK_API_KEY"), expected);
+    let (route, variable) = deepseek();
+    expected[2] = Line::Key(Reach::Unset { route, variable });
+    let keyless = served.homed(unset);
+    assert_eq!(keyless, expected);
+    let printed = [&keyless[1], &keyless[2], &keyless[3], &keyless[6]]
+        .map(|line| format!("{}: {}", line.what(), line.detail()));
+    assert_eq!(
+        printed,
+        [
+            "dsh home dashscope: Brokkr serves seats [c] on this route from the operator's own dsh \
+             home, which reads every source this check asks",
+            "dsh key deepseek-official: dsh reaches no DEEPSEEK_API_KEY: Brokkr serves this route \
+             from its own engine-only home (decision 0065), which reads a key from the launching \
+             environment alone, and DEEPSEEK_API_KEY is not set there; export DEEPSEEK_API_KEY \
+             where brokkr runs",
+            "dsh home deepseek-official: Brokkr serves seats [a, b] on this route from its own \
+             engine-only home (decision 0065), where dsh reads a key from the launching \
+             environment alone, never the operator's .env or patch layers",
+            "dsh home openai: Brokkr refuses to launch seats [e] on this route: provider 'dsh' has \
+             no measured strict MCP configuration on route 'openai'",
+        ]
+    );
+}
+
+/// Beside a repository `.env`, which is never opened, every engine-only
+/// launch is refused and keyless, while the operator's home tells the file
+/// present but unread.
+#[test]
+fn an_engine_only_launch_beside_a_repository_dotenv_is_refused_keyless() {
+    let served = Served::new();
+    let in_repo = served.planted.repo.join(".env");
+    fifo(&in_repo);
+    let workdir = Home::Workdir(in_repo.clone());
+    let beside = vec![
+        Line::Key(Reach::Untold {
+            route: "dashscope".into(),
+            variable: "DASHSCOPE_API_KEY".into(),
+            why: Untold::Dotenv(in_repo.clone()),
+        }),
+        group("dashscope", &["c"], Home::Operator),
+        group("deepseek-official", &["a", "b"], workdir.clone()),
+        group("meta", &["d"], workdir),
+        group("openai", &["e"], Home::Refused(OPENAI.into())),
+        undeclared("spark"),
+        group("spark", &["f"], Home::Operator),
+    ];
+    let lines = served.homed(unset);
+    assert_eq!(lines, beside);
+    assert_eq!(
+        [format!("{}: {}", lines[2].what(), lines[2].detail())],
+        [format!(
+            "dsh home deepseek-official: Brokkr serves seats [a, b] on this route from its own \
+                 engine-only home (decision 0065), and refuses each launch while {} is present, \
+                 unread, since dsh would read it for a key; export the key where brokkr runs and \
+                 remove the file",
+            in_repo.display()
+        ),]
+    );
+}
+
+/// The folder's check models a compiled folder's seats at both their
+/// launches, whatever the environment running the test gives: the
+/// scaffold's ride dsh's default route with their cold shape measured on
+/// this host and their replacement shape unmeasured, so an engine-only home
+/// serves a cold launch and, while the fence stands, the operator's home a
+/// resumed one; where the adapter measures both shapes, one engine-only
+/// home serves both.
+#[test]
+fn a_compiled_folder_is_answered_by_the_homes_of_its_seats() {
+    let homed = |(dir, compiled): (tempfile::TempDir, Bundle)| {
+        let adapters = dir.path().join(".brokkr/adapters");
+        let mut lines = of_folder(&adapters, dir.path(), Some(&compiled));
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        lines.remove(1)
+    };
+    let (route, seats) = ("deepseek-official", &["implement", "intake"][..]);
+    let line = homed(scaffolded());
+    assert_eq!(line, split(route, seats, Home::Engine, Home::Operator));
+    assert_eq!(
+        format!("{}: {}", line.what(), line.detail()),
+        "dsh home deepseek-official: Brokkr serves a cold launch of seats [implement, intake] on \
+         this route from its own engine-only home (decision 0065), where dsh reads a key from the \
+         launching environment alone, never the operator's .env or patch layers, and serves a \
+         resumed launch from the operator's own dsh home, which reads every source this check \
+         asks, while the driver does not admit its replacement shape"
+    );
+    let line = homed(scaffolded_measuring_both());
+    assert_eq!(line, group(route, seats, Home::Engine));
+    assert_eq!(
+        format!("{}: {}", line.what(), line.detail()),
+        "dsh home deepseek-official: Brokkr serves seats [implement, intake] on this route from \
+         its own engine-only home (decision 0065), where dsh reads a key from the launching \
+         environment alone, never the operator's .env or patch layers"
+    );
+}
+
+/// A seat whose cold shape the driver admits and whose replacement shape
+/// it does not is served from two homes (#717), and its key line stays the
+/// engine-only home's, fail-closed: under the standing fence a resumed
+/// launch is served from the operator's home, and past the lifted fence it
+/// is refused in the admission's words. A seat admitted the other way
+/// round is answered for its resumed launch's engine-only home.
+#[test]
+fn a_resumed_launch_the_admission_does_not_admit_is_named_beside_the_cold_one() {
+    let planted = Planted::scaffold();
+    let at = |label: &str, fence, cold, replacement| Seat {
+        isolation: Some(SealedIsolation {
+            cold,
+            replacement,
+            fence,
+            ..SealedIsolation::default()
+        }),
+        ..seat(label, "deepseek-flash", false, None)
+    };
+    let (standing, lifted) = (SealedFence::Standing, SealedFence::Lifted);
+    let (measured, unmeasured) = (
+        || SealedAssessment::Measured,
+        || SealedAssessment::Unmeasured,
+    );
+    let seats = home::Seats {
+        read: vec![
+            at("s", standing, measured(), unmeasured()),
+            at("l", lifted, measured(), unmeasured()),
+            at("r", standing, unmeasured(), measured()),
+        ],
+        unread: Default::default(),
+    };
+    let unset_key = || {
+        Line::Key(Reach::Unset {
+            route: "deepseek-official".into(),
+            variable: "DEEPSEEK_API_KEY".into(),
+        })
+    };
+    let refused = "provider 'dsh' has no measured strict MCP configuration for 'replacement'";
+    let expected = vec![
+        unset_key(),
+        split("deepseek-official", &["r"], Home::Operator, Home::Engine),
+        unset_key(),
+        split("deepseek-official", &["s"], Home::Engine, Home::Operator),
+        unset_key(),
+        split(
+            "deepseek-official",
+            &["l"],
+            Home::Engine,
+            Home::Refused(refused.into()),
+        ),
+    ];
+    let lines = planted.modelled_within_bound(seats, unset);
+    assert_eq!(lines, expected);
+    assert_eq!(
+        format!("{}: {}", lines[5].what(), lines[5].detail()),
+        "dsh home deepseek-official: Brokkr serves a cold launch of seats [l] on this route from \
+         its own engine-only home (decision 0065), where dsh reads a key from the launching \
+         environment alone, never the operator's .env or patch layers, and refuses a resumed \
+         launch (provider 'dsh' has no measured strict MCP configuration for 'replacement')"
+    );
+}
+
+/// The driver's admission rules each seat's home (#717): under the
+/// standing fence a seat whose cold shape is unsupported or unmeasured is
+/// served from the operator's home, as its launch is, and asked of every
+/// source that home reads, beside a measured seat an engine-only home
+/// serves; past the lifted fence the same shape is refused in the
+/// admission's words.
+#[test]
+fn a_shape_the_admission_does_not_admit_is_served_as_its_launch_is() {
+    let planted = Planted::scaffold();
+    let (standing, lifted) = (SealedFence::Standing, SealedFence::Lifted);
+    let unsupported = SealedAssessment::Unsupported("the test's".into());
+    let at = |label: &str, isolation| Seat {
+        isolation: Some(isolation),
+        ..seat(label, "deepseek-flash", false, None)
+    };
+    let seats = home::Seats {
+        read: vec![
+            at("m", intent(standing, SealedAssessment::Measured)),
+            at("s", intent(standing, unsupported.clone())),
+            at("u", intent(standing, SealedAssessment::Unmeasured)),
+            at("l", intent(lifted, unsupported)),
+        ],
+        unread: Default::default(),
+    };
+    let (route, variable) = (
+        || "deepseek-official".to_string(),
+        || "DEEPSEEK_API_KEY".to_string(),
+    );
+    let refused = "provider 'dsh' cannot exclude ambient MCP configuration (the test's)";
+    let expected = vec![
+        Line::Key(Reach::Unreached {
+            route: route(),
+            variable: variable(),
+            files: vec![planted.repo.join(".env"), planted.home.join(".env")],
+            off: Ok(Off::Shipped(planted.profile())),
+        }),
+        group("deepseek-official", &["s", "u"], Home::Operator),
+        Line::Key(Reach::Unset {
+            route: route(),
+            variable: variable(),
+        }),
+        group("deepseek-official", &["m"], Home::Engine),
+        group("deepseek-official", &["l"], Home::Refused(refused.into())),
+    ];
+    assert_eq!(planted.modelled_within_bound(seats, unset), expected);
+}
+
+/// The macOS case (#717): the shipped dsh adapter's one cold shape was
+/// measured on Linux and qualifies nothing on macOS, so each seat of a
+/// scaffold compiled there carries an unmeasured cold shape and is served
+/// from the operator's home, as its launch is; its key line asks every
+/// layer that home reads, and none reads as an engine-only home's.
+#[test]
+fn a_scaffold_compiled_on_macos_is_served_from_the_operators_home() {
+    let (_dir, compiled) = scaffolded_elsewhere();
+    let seats = home::seats(&compiled);
+    let cold: Vec<_> = (seats.read.iter())
+        .map(|seat| seat.isolation.as_ref().map(|isolation| &isolation.cold))
+        .collect();
+    assert_eq!(cold, [Some(&SealedAssessment::Unmeasured); 4]);
+    let planted = Planted::scaffold();
+    let lines = planted.modelled_within_bound(seats, unset);
+    let printed = lines
+        .iter()
+        .map(|line| format!("{}: {}", line.what(), line.detail()));
+    let (repo, home) = (planted.repo.join(".env"), planted.home.join(".env"));
+    assert_eq!(
+        printed.collect::<Vec<_>>(),
+        [
+            format!(
+                "dsh key deepseek-official: dsh reaches no DEEPSEEK_API_KEY: it is not set in the \
+                 launching environment, no .env file is present at {} or {}, and dsh's shipped \
+                 headless bundle leaves its credentials service disabled; export DEEPSEEK_API_KEY \
+                 where brokkr runs, or write the row `- id: credentials` with `  disabled: false` \
+                 in {} and store DEEPSEEK_API_KEY through dsh's credentials service",
+                repo.display(),
+                home.display(),
+                planted.profile().display()
+            ),
+            "dsh home deepseek-official: Brokkr serves seats [implement, intake] on this route \
+             from the operator's own dsh home, which reads every source this check asks"
+                .to_string(),
+        ]
+    );
+}
+
+/// A seat whose launch can't be read is named by its site and leaves every
+/// read seat's home standing: an engine-only seat whose key the launching
+/// environment does not give still reads MISSING, and beside a repository
+/// `.env` still reads as its launch's refusal, while only the routes no
+/// read seat rides are checked as an unmodelled folder's, with the caveat.
+#[test]
+fn an_unread_seat_leaves_every_read_seats_home_standing() {
+    let models = json!({
+        "a": "deepseek-flash",
+        "b": "dashscope/glm-5.2",
+        "c": "meta/meta/muse-spark-1.3",
+    });
+    let planted = Planted::new(models, json!({"dashscope": "DASHSCOPE_API_KEY"}));
+    let seats = || home::Seats {
+        read: vec![seat(
+            "s",
+            "deepseek-flash",
+            false,
+            Some(SealedFence::Standing),
+        )],
+        unread: ["inline".to_string()].into(),
+    };
+    let dashscope = |name: &str| name == "DASHSCOPE_API_KEY";
+    let unread = || Line::Unmodelled(vec!["inline".into()]);
+    let unmodelled = || {
+        let variable = String::from("DASHSCOPE_API_KEY");
+        vec![
+            unread(),
+            Line::Key(Reach::Reached {
+                route: "dashscope".into(),
+                variable: variable.clone(),
+                source: Source::Environment,
+            }),
+            Line::Served {
+                route: "dashscope".into(),
+                asked: Some(Asked {
+                    variable,
+                    files: Vec::new(),
+                    patches: Vec::new(),
+                }),
+            },
+            undeclared("meta"),
+            Line::Served {
+                route: "meta".into(),
+                asked: None,
+            },
+        ]
+    };
+    let unset_key = Line::Key(Reach::Unset {
+        route: "deepseek-official".into(),
+        variable: "DEEPSEEK_API_KEY".into(),
+    });
+    let engine = group("deepseek-official", &["s"], Home::Engine);
+    let lines = planted.modelled_within_bound(seats(), dashscope);
+    let expected: Vec<Line> = [unset_key, engine]
+        .into_iter()
+        .chain(unmodelled())
+        .collect();
+    assert_eq!(lines, expected);
+    assert_eq!(
+        format!("{}: {}", lines[2].what(), lines[2].detail()),
+        "dsh home: Brokkr can't yet tell which home serves seats [inline], since the compile \
+         carries no argv for an inline dsh site's launch and no model for a candidate that pins \
+         no --model; each route no other seat rides is asked of every source the operator's home \
+         reads, with its caveat"
+    );
+    let in_repo = planted.repo.join(".env");
+    fifo(&in_repo);
+    let refused = group("deepseek-official", &["s"], Home::Workdir(in_repo.clone()));
+    let beside = [vec![refused], unmodelled(), vec![Line::Workdir(in_repo)]];
+    let beside: Vec<Line> = beside.into_iter().flatten().collect();
+    assert_eq!(planted.modelled_within_bound(seats(), dashscope), beside);
+    // Where every route the adapter pins is ridden by a read seat, the
+    // unread seats' line stands alone.
+    let scaffold = Planted::scaffold();
+    let operator = group("deepseek-official", &["s"], Home::Operator);
+    let mut alone = seats();
+    alone.read[0].isolation = None;
+    let lines = scaffold.modelled_within_bound(alone, |_| true);
+    assert_eq!(&lines[1..], [operator, unread()]);
 }

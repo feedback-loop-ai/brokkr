@@ -77,6 +77,29 @@ pub(super) fn served(
     Ok(serving)
 }
 
+/// The isolation intent dispatch seals beside a launch at the site `facts`
+/// describe, for the serving `link` selects, with no broker provisioned:
+/// `None` where it seals none, the site's capability plan holding no
+/// outcome for that serving (`outcome_at`), so the launch is served as a
+/// driver run by hand is, or where it refuses to seal one. Doctor models a
+/// dsh seat's home from it through the driver's own admission (#717).
+pub fn sealed_isolation(
+    link: Option<&Candidate>,
+    facts: Option<&SiteFacts>,
+) -> Option<SealedIsolation> {
+    outcome_at(facts, link)?;
+    isolation_intent(link, facts, &[]).ok()
+}
+
+/// The MCP fence this engine stands under, as an intent seals it.
+fn fence() -> SealedFence {
+    match crate::capabilities::McpFence::current() {
+        crate::capabilities::McpFence::Standing => SealedFence::Standing,
+        #[cfg(test)]
+        crate::capabilities::McpFence::Lifted => SealedFence::Lifted,
+    }
+}
+
 /// [`serving_inputs`] with the brokers the attempt's provisioning sealed
 /// for this site, `provisioned` (U7d2).
 fn serving_with(
@@ -226,14 +249,9 @@ fn isolation_intent(
         let at = (site.outcomes.iter()).position(|each| std::ptr::eq(each, outcome))?;
         site.strict.get(at)
     });
-    let fence = match crate::capabilities::McpFence::current() {
-        crate::capabilities::McpFence::Standing => SealedFence::Standing,
-        #[cfg(test)]
-        crate::capabilities::McpFence::Lifted => SealedFence::Lifted,
-    };
     let mut sealed = SealedIsolation {
         servers,
-        fence,
+        fence: fence(),
         ..SealedIsolation::default()
     };
     for (shape, axis) in record.into_iter().flatten() {

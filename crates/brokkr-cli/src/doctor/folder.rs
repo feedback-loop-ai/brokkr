@@ -103,9 +103,9 @@ impl Inspected {
     /// The folder line's outcome when the folder was the report's bundle,
     /// for [`report_folder`]: the map's refusal, else the compile's; else
     /// none, and the folder line compiles its own.
-    pub(super) fn folder(self) -> Option<anyhow::Result<()>> {
+    pub(super) fn folder(self) -> Option<anyhow::Result<Bundle>> {
         match self {
-            Inspected::Folder { compiled, map, .. } => Some(map.and(compiled.map(drop))),
+            Inspected::Folder { compiled, map, .. } => Some(map.and(compiled)),
             Inspected::Given(..) | Inspected::Neither => None,
         }
     }
@@ -173,17 +173,19 @@ fn compile_folder(workspace: &Path, dir: &Path, realms: Option<&Path>) -> anyhow
 /// Put the folder line first in `report`: the found folder compiled by
 /// [`compile_folder`], unless `compiled` already holds that compile's
 /// outcome, because the folder was the report's bundle ([`bundle`]); and
-/// where that folder hires dsh, its key lines last ([`report_keys`]).
+/// where that folder hires dsh, its key lines last ([`report_keys`]), each
+/// seat's home modelled from that compile where it compiled.
 pub(super) fn report_folder(
     report: &mut Report,
     defaults: &DoctorDefaults,
     realms: Option<&Path>,
-    compiled: Option<anyhow::Result<()>>,
+    compiled: Option<anyhow::Result<Bundle>>,
 ) {
     let workspace = &defaults.workspace;
-    let compile = |dir: &Path| match compiled {
-        Some(outcome) => outcome,
-        None => compile_folder(workspace, dir, realms).map(drop),
+    let mut kept = None;
+    let compile = |dir: &Path| {
+        let compiled = compiled.unwrap_or_else(|| compile_folder(workspace, dir, realms));
+        compiled.map(|bundle| kept = Some(bundle))
     };
     let shelved = |dir: &Path| {
         compile_folder(workspace, dir, realms).map(|bundle| bundle.manifest_digest()[..12].into())
@@ -191,16 +193,19 @@ pub(super) fn report_folder(
     let personal = defaults.personal.as_ref();
     report_folder_with(report, &defaults.found, personal, compile, shelved);
     if default_folder(&defaults.found).is_some() {
-        let lines = crate::dsh_key::of_folder(&defaults.adapters, workspace);
+        let lines = crate::dsh_key::of_folder(&defaults.adapters, workspace, kept.as_ref());
         report_keys(report, &lines);
     }
 }
 
 /// The lines of the found folder's dsh key check (#717): a key the
-/// launching environment gives, which every dsh home reads, is ok; one dsh
-/// cannot reach fails the report with its remedies; and one only the
+/// launching environment gives, which every dsh home reads, and the homes
+/// that serve a route's seats, are ok; a key dsh cannot reach, one an
+/// engine-only home does not read and seats either of whose launches is
+/// refused fail the report with their remedies; and a key only the
 /// operator's home gives, a source that cannot be told, a route whose
-/// variable nothing names, the served-home caveat and a workdir `.env`
+/// variable nothing names, the seats whose launch can't be read, the
+/// served-home caveat and a workdir `.env` beside an unmodelled folder
 /// warn. No line holds a value.
 fn report_keys(report: &mut Report, lines: &[Line]) {
     for line in lines {
@@ -210,7 +215,12 @@ fn report_keys(report: &mut Report, lines: &[Line]) {
                 source: Source::Environment,
                 ..
             }) => report.ok(&what, detail),
-            Line::Key(Reach::Unreached { .. }) => report.missing(&what, detail),
+            Line::Home { cold, resumed, .. } if !cold.refuses() && !resumed.refuses() => {
+                report.ok(&what, detail)
+            }
+            Line::Key(Reach::Unreached { .. } | Reach::Unset { .. }) | Line::Home { .. } => {
+                report.missing(&what, detail)
+            }
             Line::Key(
                 Reach::Reached {
                     source: Source::Service(_),
@@ -219,6 +229,7 @@ fn report_keys(report: &mut Report, lines: &[Line]) {
                 | Reach::Untold { .. }
                 | Reach::Undeclared { .. },
             )
+            | Line::Unmodelled(_)
             | Line::Served { .. }
             | Line::Workdir(_) => report.warn(&what, detail),
         }
