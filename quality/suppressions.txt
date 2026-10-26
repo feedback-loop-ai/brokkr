@@ -17,3 +17,4 @@
   245 expect clippy::too_many_lines
     1 expect clippy::type_complexity
     1 expect dead_code
+    1 expect deprecated
