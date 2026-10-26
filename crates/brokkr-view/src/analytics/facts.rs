@@ -1,20 +1,20 @@
 //! What one run's journal and folded state say, read once into the facts
 //! every figure is aggregated from, and the runs a query's realm keeps.
+//! What the writer keeps of a run for them, brokkr-core reads
+//! ([`aggregate`]), so the readout and the run's summary row read it one
+//! way (decision 0089 ruling 7).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
-use brokkr_core::fold::RunState;
-use brokkr_core::residual::ResidualPhase;
+use brokkr_core::fold::{concluded, RunState};
+use brokkr_core::summary::aggregate;
 use brokkr_core::{EventEnvelope, EventType};
 
 use super::{AnalyticsRun, QuarantinedHearth, Query};
 use crate::attempts::{attempts, Attempts, Site};
-use crate::clarify::{pinned_realm, recipe};
-use crate::fleet::{last_rule, standing_of, STOP_PHASE};
-use crate::{field, Standing};
+use crate::field;
 
-/// The phase whose visits count a run's rework.
-const IMPLEMENT_PHASE: &str = "implement";
+pub(crate) use brokkr_core::summary::Ending;
 
 /// A half-open span of time: its first moment held, its last not.
 #[derive(Clone, Copy)]
@@ -33,27 +33,19 @@ impl Window {
     }
 }
 
-/// How a finished run ended.
-#[derive(Clone, PartialEq, Eq)]
-pub(crate) enum Ending {
-    Shipped,
-    ByRule(Option<String>),
-    ByOperator,
-}
-
-/// Where a review ruling sent the run.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum Route {
-    Back,
-    On,
-    Held,
-}
-
 pub(super) struct Park {
     pub(super) phase: Option<String>,
     pub(super) at: i64,
     pub(super) answered: i64,
     pub(super) ended: i64,
+}
+
+/// Where a run's review rulings sent it: whether its first sent it back,
+/// whether its second routed it on, and whether any sent it back.
+pub(super) struct Reviews {
+    pub(super) first: bool,
+    pub(super) second: bool,
+    pub(super) back: bool,
 }
 
 pub(super) struct RunFacts {
@@ -67,7 +59,7 @@ pub(super) struct RunFacts {
     pub(super) finished: Option<(i64, Ending)>,
     pub(super) parks: Vec<Park>,
     pub(super) implement_visits: u64,
-    pub(super) reviews: Vec<Route>,
+    pub(super) reviews: Reviews,
     pub(super) costs: Vec<(i64, f64)>,
     pub(super) sites: Vec<Site>,
 }
@@ -83,36 +75,10 @@ fn at(event: &EventEnvelope) -> Option<i64> {
     brokkr_core::stamp::parse_millis(&event.recorded_at)
 }
 
-fn ending(state: &RunState) -> Option<Ending> {
-    match standing_of(state) {
-        Standing::Shipped => Some(Ending::Shipped),
-        Standing::Stopped => Some(Ending::ByRule(
-            last_rule(state).map(|(rule, _)| rule.to_string()),
-        )),
-        Standing::OperatorStopped => Some(Ending::ByOperator),
-        Standing::Running | Standing::Parked | Standing::Quarantined => None,
-    }
-}
-
-/// Whether the run is still running or parked: it has not ended.
+/// Whether the run is still running or parked: its fold has not
+/// concluded it.
 pub(crate) fn is_open(state: &RunState) -> bool {
-    ending(state).is_none()
-}
-
-/// When the run finished and how: its terminal event's time, read beside
-/// the fold's standing.
-pub(crate) fn finished(
-    events: &[EventEnvelope],
-    state: Option<&RunState>,
-) -> Option<(i64, Ending)> {
-    let ending = state.and_then(ending)?;
-    let terminal = events.iter().rev().find(|event| {
-        matches!(
-            event.event_type,
-            EventType::RunCompleted | EventType::RunStopped
-        )
-    })?;
-    Some((at(terminal)?, ending))
+    concluded(state).is_none()
 }
 
 fn is_operator(event_type: EventType) -> bool {
@@ -162,46 +128,23 @@ fn parks(events: &[EventEnvelope], now: i64) -> Vec<Park> {
     parks
 }
 
-/// Where each review ruling sent the run, in journal order: back to a
-/// phase it had entered, on to one it had not, or held by a park or the
-/// hard stop.
-fn reviews(events: &[EventEnvelope]) -> Vec<Route> {
-    let review = ResidualPhase::Review.as_str();
-    let mut entered: BTreeSet<&str> = BTreeSet::new();
-    let mut routes = Vec::new();
-    for event in events {
-        if event.event_type == EventType::PhaseEntered {
-            entered.extend(field(&event.payload, "phase"));
-        }
-        if event.event_type != EventType::TransitionDecided
-            || field(&event.payload, "from") != Some(review)
-        {
-            continue;
-        }
-        routes.push(match field(&event.payload, "next") {
-            None | Some(STOP_PHASE) => Route::Held,
-            Some(next) if entered.contains(next) => Route::Back,
-            Some(_) => Route::On,
-        });
-    }
-    routes
-}
-
 fn facts(run: &AnalyticsRun, label: &str, now: i64) -> RunFacts {
     let Attempts { costs, sites } = attempts(run.events);
+    let read = aggregate(run.events, run.state);
     RunFacts {
-        realm: pinned_realm(run.events).unwrap_or_else(|| label.to_string()),
-        recipe: recipe(run.events),
+        realm: read.realm.unwrap_or_else(|| label.to_string()),
+        recipe: read.recipe,
         readable: run.state.is_some(),
         open: run.state.is_some_and(is_open),
-        started: run.events.first().and_then(at),
-        finished: finished(run.events, run.state),
+        started: read.started_ms,
+        finished: read.finished,
         parks: parks(run.events, now),
-        implement_visits: run
-            .state
-            .and_then(|state| state.visits.get(IMPLEMENT_PHASE).copied())
-            .unwrap_or(0),
-        reviews: reviews(run.events),
+        implement_visits: read.implement_visits,
+        reviews: Reviews {
+            first: read.review_first,
+            second: read.review_second,
+            back: read.review_back,
+        },
         costs: costs.iter().map(|spend| (spend.at, spend.usd)).collect(),
         sites,
     }

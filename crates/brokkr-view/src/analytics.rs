@@ -17,7 +17,7 @@ mod figures;
 mod recipes;
 mod words;
 
-pub(crate) use facts::{finished, in_range, is_open, Ending, Window};
+pub(crate) use facts::{in_range, is_open, Ending, Window};
 pub use figures::analytics;
 pub(crate) use figures::{cost_figure, middle, span, total};
 pub(crate) use words::{listed, stamp};

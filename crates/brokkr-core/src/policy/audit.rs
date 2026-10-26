@@ -27,7 +27,7 @@ use super::{
 pub const SWEEP_BUDGET: usize = 65_536;
 
 /// The terminal a hard rule rules. Reaching it is not going on.
-const STOP: &str = "stop";
+pub(crate) const STOP: &str = "stop";
 
 /// What the audit found in one table.
 #[derive(Debug, Clone, PartialEq, Eq)]

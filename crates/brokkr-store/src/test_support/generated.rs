@@ -209,6 +209,7 @@ fn summary_of(run: &Generated) -> Summary {
         head_hash: hash,
         last_recorded_at: Some(Bounded::within(&run.last_at, STAMP_BYTES)),
         feature,
+        aggregate: brokkr_core::summary::aggregate(&[], None),
     }
 }
 

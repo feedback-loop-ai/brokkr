@@ -980,6 +980,10 @@ pub fn brokkr_core::seat::transcript_of(&serde_json::value::Value) -> core::opti
 pub mod brokkr_core::stamp
 pub fn brokkr_core::stamp::parse_millis(&str) -> core::option::Option<i64>
 pub mod brokkr_core::summary
+pub enum brokkr_core::summary::Ending
+pub brokkr_core::summary::Ending::ByOperator
+pub brokkr_core::summary::Ending::ByRule(core::option::Option<alloc::string::String>)
+pub brokkr_core::summary::Ending::Shipped
 pub struct brokkr_core::summary::Account
 impl brokkr_core::summary::Account
 pub fn brokkr_core::summary::Account::empty(&str) -> brokkr_core::summary::Account
@@ -990,6 +994,15 @@ pub fn brokkr_core::summary::Account::seats(&self) -> &[brokkr_core::seat::row::
 pub fn brokkr_core::summary::Account::seats_kept(&self) -> bool
 pub fn brokkr_core::summary::Account::state(&self) -> core::result::Result<&brokkr_core::fold::RunState, &brokkr_core::fold::FoldError>
 pub fn brokkr_core::summary::Account::whole(&str, &[brokkr_core::envelope::EventEnvelope]) -> brokkr_core::summary::Account
+pub struct brokkr_core::summary::Aggregate
+pub brokkr_core::summary::Aggregate::finished: core::option::Option<(i64, brokkr_core::summary::Ending)>
+pub brokkr_core::summary::Aggregate::implement_visits: u64
+pub brokkr_core::summary::Aggregate::realm: core::option::Option<alloc::string::String>
+pub brokkr_core::summary::Aggregate::recipe: core::option::Option<alloc::string::String>
+pub brokkr_core::summary::Aggregate::review_back: bool
+pub brokkr_core::summary::Aggregate::review_first: bool
+pub brokkr_core::summary::Aggregate::review_second: bool
+pub brokkr_core::summary::Aggregate::started_ms: core::option::Option<i64>
 pub struct brokkr_core::summary::Bounded
 pub brokkr_core::summary::Bounded::cut: alloc::string::String
 pub brokkr_core::summary::Bounded::whole: core::option::Option<alloc::string::String>
@@ -1021,6 +1034,7 @@ pub fn brokkr_core::summary::Stated::serialize<S: serde_core::ser::Serializer>(&
 impl<'de> serde_core::de::Deserialize<'de> for brokkr_core::summary::Stated
 pub fn brokkr_core::summary::Stated::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<brokkr_core::summary::Stated, <D as serde_core::de::Deserializer>::Error>
 pub struct brokkr_core::summary::Summary
+pub brokkr_core::summary::Summary::aggregate: brokkr_core::summary::Aggregate
 pub brokkr_core::summary::Summary::created_at: brokkr_core::summary::Bounded
 pub brokkr_core::summary::Summary::feature: alloc::string::String
 pub brokkr_core::summary::Summary::feature_line: alloc::string::String
@@ -1049,6 +1063,7 @@ pub const brokkr_core::summary::NAME_BYTES: usize
 pub const brokkr_core::summary::PARK_REASON_BYTES: usize
 pub const brokkr_core::summary::REFUSAL_BYTES: usize
 pub const brokkr_core::summary::STAMP_BYTES: usize
+pub fn brokkr_core::summary::aggregate(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> brokkr_core::summary::Aggregate
 pub fn brokkr_core::summary::feature_line(&str) -> &str
 pub enum brokkr_core::Cursor
 pub brokkr_core::Cursor::Decide

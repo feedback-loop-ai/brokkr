@@ -29,7 +29,7 @@ use rusqlite::types::Value;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::acknowledgement::standing;
-use crate::event_index::{finished, first_unindexed, place, runless, IndexFault};
+use crate::event_index::{finished, first_unindexed, runless};
 use crate::schema::all_present;
 use crate::{head_of, patiently, seat_summary, Acknowledgement, Store, StoreError};
 
@@ -49,13 +49,19 @@ const BACKFILLED: &str = "run_summary_backfill";
 /// A row's place in the page index's order: its `order_at` and run id.
 type Place = (i64, String);
 
+mod aggregate;
+mod disagreement;
+
+pub use disagreement::Disagreement;
+
 const TABLE: [&str; 1] = ["run_summary"];
-const INDEX: [&str; 1] = ["run_summary_page"];
-const TRIGGERS: [&str; 4] = [
+const INDEX: [&str; 2] = ["run_summary_page", aggregate::INDEX];
+const TRIGGERS: [&str; 5] = [
     "run_summary_of_a_run",
     "run_summary_of_an_event",
     "run_summary_of_an_acknowledgement",
     "run_summary_stamp_bounded",
+    aggregate::TRIGGER,
 ];
 
 /// The stamp an envelope's text carries, NULL where it carries none as
@@ -144,7 +150,7 @@ fn migration() -> String {
             lane TEXT GENERATED ALWAYS AS ({LANE}) VIRTUAL,
             order_at INTEGER GENERATED ALWAYS AS
                 (COALESCE(last_at_ms, 9223372036854775807)) VIRTUAL,
-            feature TEXT, residuals TEXT, created_at_whole TEXT,
+            {aggregated}, feature TEXT, residuals TEXT, created_at_whole TEXT,
             last_recorded_at_whole TEXT, phase_whole TEXT, park_reason_whole TEXT,
             rule_id_whole TEXT, rule_from_whole TEXT, hire_seat_whole TEXT,
             refusal_words_whole TEXT
@@ -171,7 +177,9 @@ fn migration() -> String {
             UPDATE run_summary SET last_recorded_at_whole = NEW.last_recorded_at,
                 last_recorded_at = {cut}
                 WHERE run_id = NEW.run_id;
-        END;",
+        END; {indexed}",
+        aggregated = aggregate::defined(),
+        indexed = aggregate::migration(),
         moved = moved_to("NEW"),
         cut = cut_stamp("NEW.last_recorded_at"),
         acknowledged = acknowledged_by("NEW"),
@@ -200,17 +208,23 @@ fn seed() -> String {
     )
 }
 
-/// Does this journal carry the table, its index and all four triggers?
-/// Pure reads of `sqlite_master`, so the steady-state open writes nothing.
+/// Does this journal carry the table with every column, its two indexes
+/// and all five triggers? Pure reads, so the steady-state open writes
+/// nothing.
 pub(crate) fn summary_intact(conn: &Connection) -> Result<bool, StoreError> {
     Ok(all_present(conn, "table", &TABLE)?
+        && aggregate::shaped(conn)?
         && all_present(conn, "index", &INDEX)?
         && all_present(conn, "trigger", &TRIGGERS)?)
 }
 
-/// Create the summary and seed a row for every run already here, on a
-/// connection holding the write lock: the fifth additive repair.
+/// Create the summary, anew where its table lacks a column, and seed a
+/// row for every run already here, on a connection holding the write
+/// lock: the fifth additive repair.
 pub(crate) fn migrate_summary(conn: &Connection) -> Result<(), StoreError> {
+    if !aggregate::shaped(conn)? {
+        conn.execute_batch(aggregate::REBUILD)?;
+    }
     conn.execute_batch(&migration())?;
     Ok(conn.execute_batch(&seed())?)
 }
@@ -293,6 +307,9 @@ fn written(summary: &Summary) -> Vec<(&'static str, Value)> {
         ("hire_seat_whole", hire_seat_whole),
         ("refusal_words_whole", refusal_words_whole),
     ]
+    .into_iter()
+    .chain(aggregate::written(&summary.aggregate, summary.folded_seq))
+    .collect()
 }
 
 /// The columns the triggers keep, as `summary` and the acknowledgement
@@ -462,42 +479,6 @@ pub(crate) fn refold_once(conn: &mut Connection, account: &Account) -> Result<()
     Ok(())
 }
 
-/// How a row stands against its run's fold (ruling 4): a row that stands
-/// at its head is a judgement of that head, so one that is not its fold's
-/// is a bug or an edit, never a lag.
-#[derive(Debug)]
-pub enum Disagreement {
-    /// The run has no summary row at all.
-    Missing { run_id: String },
-    /// The row stands at its head, and `column` is the first that is not
-    /// what the run's fold gives it.
-    Column {
-        run_id: String,
-        column: &'static str,
-    },
-    /// The run does not load, so no fold stands behind its row, whether
-    /// the row stands at its head or behind it.
-    Unread { run_id: String, error: StoreError },
-    /// The event index is not what the run's events project to, first at
-    /// `seq`: a trigger's row never lags, so wherever the summary row
-    /// stands, this is a bug or an edit.
-    Indexed {
-        run_id: String,
-        seq: u64,
-        fault: IndexFault,
-    },
-    /// The run's seat rows stand at its head, and are not its fold's,
-    /// first at the place `row`, where the projection opened it.
-    Seated {
-        run_id: String,
-        row: u64,
-        fault: IndexFault,
-    },
-    /// The seat summary holds a seat head of a run the journal does not
-    /// hold.
-    SeatHead { run_id: String },
-}
-
 /// How one run's row stands against its fold: the doctor keeps only what
 /// disagrees, and the tests' binding names a row behind its head too.
 #[derive(Debug)]
@@ -510,43 +491,6 @@ pub(crate) enum Compared {
     /// lag too.
     SeatsBehind,
     Disagrees(Disagreement),
-}
-
-/// The words `brokkr doctor` names a disagreement by.
-impl std::fmt::Display for Disagreement {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Disagreement::Missing { run_id } => write!(f, "run '{run_id}' has no summary row"),
-            Disagreement::Column { run_id, column } => write!(
-                f,
-                "run '{run_id}': its summary row stands at its head, and its {column} is not \
-                 its fold's"
-            ),
-            Disagreement::Unread { run_id, error } => {
-                write!(f, "run '{run_id}' does not load: {error}")
-            }
-            Disagreement::Indexed { run_id, seq, fault } => match fault {
-                IndexFault::Missing => {
-                    write!(f, "run '{run_id}': its event {seq} has no event index row")
-                }
-                IndexFault::Column(column) => write!(
-                    f,
-                    "run '{run_id}': the event index row of its event {seq} is not the event's \
-                     in its {column}"
-                ),
-                IndexFault::Stray => write!(
-                    f,
-                    "run '{run_id}': the event index holds a row at {}, where the run holds \
-                     no event",
-                    place(*seq)
-                ),
-            },
-            Disagreement::Seated { run_id, row, fault } => {
-                seat_summary::named(f, run_id, *row, *fault)
-            }
-            Disagreement::SeatHead { run_id } => seat_summary::headless(f, run_id),
-        }
-    }
 }
 
 impl Store {

@@ -6,13 +6,14 @@
 use std::collections::BTreeSet;
 
 use brokkr_core::decision::Decision;
+use brokkr_core::summary::aggregate;
 use brokkr_core::{EventEnvelope, EventType};
 use serde::Deserialize;
 
 use super::GraphQuery;
-use crate::analytics::{finished, in_range, is_open, Ending, Window};
+use crate::analytics::{in_range, is_open, Ending, Window};
 use crate::attempts::{attempts, Attempts};
-use crate::clarify::{pinned_realm, pins, recipe, Pins};
+use crate::clarify::{pins, Pins};
 use crate::{field, title, RuleSeverity};
 
 /// One stay in a state: when the run entered it, and when it entered the
@@ -120,11 +121,12 @@ impl Scoped {
                 let (Some(state), Some(first)) = (run.state, run.events.first()) else {
                     continue;
                 };
-                let realm = pinned_realm(run.events).unwrap_or_else(|| hearth.label.to_string());
-                let Some(carried) = recipe(run.events).filter(|_| realm == query.realm) else {
+                let read = aggregate(run.events, Some(state));
+                let realm = read.realm.unwrap_or_else(|| hearth.label.to_string());
+                let Some(carried) = read.recipe.filter(|_| realm == query.realm) else {
                     continue;
                 };
-                let finished = finished(run.events, Some(state));
+                let finished = read.finished;
                 let open = is_open(state);
                 let ended = finished.as_ref().map(|(at, _)| *at);
                 if carried == query.recipe && in_range(ended, open, window) {
