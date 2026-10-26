@@ -22,8 +22,6 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 
-use brokkr_core::fold::fold;
-use brokkr_core::EventEnvelope;
 use brokkr_protocol::overrides::{self, Override, OverrideError};
 use brokkr_store::{Store, StoreError};
 use brokkr_view::transcript::{Selection, ValidReference};
@@ -345,24 +343,17 @@ impl RouteRefusal {
     }
 }
 
-/// Run `run_id`'s events, its chain read whole and verified: missing when
-/// the journal holds no such run, and the store's refusal otherwise.
-fn opened(store: &Store, run_id: &str) -> Result<Vec<EventEnvelope>, RouteRefusal> {
-    store.load(run_id).map_err(RouteRefusal::of)
-}
-
 /// The participant a `<run>/<key>` route names, the three participant
-/// routes' one lookup. No path or home override is accepted.
+/// routes' one lookup, as the seat readers read it through the pages
+/// ([`run_pages::participants`]). No path or home override is accepted.
 fn route_participant(
     store: &Store,
     rest: &str,
 ) -> Result<(String, brokkr_view::Participant), RouteRefusal> {
     let (run_id, participant_key) = route_components(rest).ok_or(RouteRefusal::Missing)?;
-    let events = opened(store, &run_id)?;
-    let state = fold(&events).map_err(RouteRefusal::Unfoldable)?;
-    let view = brokkr_view::run_view(&events, Some(&state));
-    let participant = view
-        .participants
+    let participants = run_pages::participants(store, &run_id).map_err(RouteRefusal::of)?;
+    let participant = participants
+        .map_err(RouteRefusal::Unfoldable)?
         .into_iter()
         .find(|participant| participant.key == participant_key)
         .ok_or(RouteRefusal::Missing)?;

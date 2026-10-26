@@ -1,6 +1,7 @@
 //! The run view of one run as its pages read it (#753; decision 0089 slice
 //! 3): the one home of `inspect`, `seats`, `watch` and `/api/view/<run>`'s
-//! read. The run is opened first, its chain read whole and verified, and
+//! read, and of the seat readers' participants ([`participants`]). The run
+//! is opened first, its chain read whole and verified, and
 //! refused there in the store's words as `Store::load` refuses it (ruling
 //! 5); then it is read at the head its opening verified and composed from
 //! its trail and its seat rows (ruling 7). A read the store says is kept,
@@ -12,12 +13,13 @@
 //! verifies, bounded by the run, and composes the view once from them, one
 //! read's trail and its seat rows, each participant's checkpoints made
 //! from the events kept; a terminal frame reads one read's trail, the rows
-//! it shows, and no journal page or checkpoint.
+//! it shows, and no journal page or checkpoint, and so does a seat reader,
+//! which shows a participant's row and none of its checkpoints.
 
 use brokkr_core::fold::{fold, FoldError, RunState};
 use brokkr_core::EventEnvelope;
 use brokkr_store::{Opened, RunRead, Store, StoreError};
-use brokkr_view::{composed_view, composed_whole, Parts, RunView};
+use brokkr_view::{composed_view, composed_whole, Participant, Parts, RunView};
 
 /// What a reader shows of a run, and so what it reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,7 +32,7 @@ pub(crate) enum Shows {
     /// the trail's journal rows (`in_trail`, every one an event of the
     /// trail) and no participant's checkpoints. Its journal holds the
     /// trail's rows, none of them naming its cause, and its participants
-    /// no checkpoint.
+    /// no checkpoint. The seat readers' read ([`participants`]).
     Frame,
 }
 
@@ -68,6 +70,23 @@ pub(crate) fn viewed(store: &Store, run: &str, shows: Shows) -> Result<Viewed, S
         Some(viewed) => Ok(viewed),
         None => whole(store, run),
     }
+}
+
+/// `run`'s participants as a seat reader reads them: `brokkr transcript`,
+/// `/api/presentation/<run>/<key>`, `/api/transcript/<run>/<key>` and
+/// `/sse/transcript/<run>/<key>`, which each show one participant's row,
+/// its key, label, transcript reference, provenance, legacy id and whether
+/// it works, and none of its checkpoints. Each is its row as the frame's
+/// read composes it (ruling 7), with no checkpoint, which none of them
+/// prints; read whole where that read is kept (ruling 8). The store's
+/// refusal of the run, or the fold's where it opens and does not fold, as
+/// each refused it reading the run whole.
+pub(crate) fn participants(
+    store: &Store,
+    run: &str,
+) -> Result<Result<Vec<Participant>, FoldError>, StoreError> {
+    let Viewed { view, folded } = viewed(store, run, Shows::Frame)?;
+    Ok(folded.map(|_| view.participants))
 }
 
 /// `run` read whole and folded, as every reader read it before its pages.

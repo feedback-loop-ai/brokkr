@@ -5,7 +5,9 @@
 //! `seats --json` and `/api/view` print it, and each terminal frame
 //! `inspect`, `seats` and `watch` paint, whole and through every phase and
 //! seat lens, equals today's of the run read whole, byte for byte, and
-//! its fold or the fold's refusal is today's. A run refused at its opening
+//! its fold or the fold's refusal is today's; so is each participant the
+//! seat readers read, every field but its checkpoints, which none of them
+//! prints, or the refusal they read instead. A run refused at its opening
 //! is refused in the store's words; a stale run, an unindexed journal and
 //! a journal without the projections take the kept read.
 
@@ -104,8 +106,20 @@ fn through_pages(store: &Store, run: &str) -> (bool, bool) {
     (everything.is_some(), frame.is_some())
 }
 
+/// Each of `participants` as a seat reader reads it, every field but its
+/// checkpoints, which none of them prints.
+fn seated(participants: &[Participant]) -> Vec<serde_json::Value> {
+    let seated = participants.iter().map(|participant| {
+        let mut seated = serde_json::to_value(participant).unwrap();
+        seated.as_object_mut().unwrap().remove("checkpoints");
+        seated
+    });
+    seated.collect()
+}
+
 /// What `run` printed otherwise than today, read from `store` as each
-/// readout reads it, `events` the run read whole.
+/// readout reads it, `events` the run read whole: the seat readers'
+/// participants, or the fold's refusal of the run, among them.
 fn found(store: &Store, run: &str, events: &[brokkr_core::EventEnvelope]) -> Vec<String> {
     let folded = fold(events);
     let today = brokkr_view::run_view(events, folded.as_ref().ok());
@@ -114,6 +128,12 @@ fn found(store: &Store, run: &str, events: &[brokkr_core::EventEnvelope]) -> Vec
     let mut found = Vec::new();
     if painted(&frame.view) != painted(&today) {
         found.push(format!("{run}: the frame"));
+    }
+    let seats = participants(store, run).unwrap();
+    let seats = seats.as_deref().map(seated).map_err(ToString::to_string);
+    let expected = folded.as_ref().map(|_| seated(&today.participants));
+    if seats != expected.map_err(ToString::to_string) {
+        found.push(format!("{run}: the participants"));
     }
     let refusal =
         |folded: &Result<RunState, FoldError>| folded.as_ref().err().map(ToString::to_string);
@@ -136,6 +156,10 @@ fn read_one(store: &Store, mut read: Read, run: &str) -> Read {
                 let refusal = refusal.map(|error| error.to_string());
                 assert_eq!(refusal, Some(refused.to_string()), "{run}: {shows:?}");
             }
+            let seated = participants(store, run)
+                .err()
+                .map(|error| error.to_string());
+            assert_eq!(seated, Some(refused.to_string()), "{run}: its participants");
             read.refused.push(format!("{run}: {refused}"));
             return read;
         }

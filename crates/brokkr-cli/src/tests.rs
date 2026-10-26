@@ -4,7 +4,7 @@ use crate::tui_read::{tui_source, tui_views, SourceStamp};
 use brokkr_bridge::BridgeError;
 use brokkr_core::canonical::{sha256_hex, ZERO_HASH};
 use brokkr_core::dispatch::{build_run_manifest_v2, DispatchEnvelopeV2};
-use brokkr_core::fold::{Cursor, Run, Status};
+use brokkr_core::fold::{fold, Cursor, Run, Status};
 use brokkr_core::EventType;
 use brokkr_store::test_support::plant_broken_link;
 use std::io::{Read, Write};

@@ -601,3 +601,66 @@ fn the_browser_reads_codex_and_dsh_transcripts_over_http() {
         );
     }
 }
+
+/// A participant whose seat a Codex plan started, recording the legacy
+/// Claude session `abcd-1234`, which `projects` holds; then the event
+/// index keying the seat's start as a checkpoint. The run read whole reads
+/// the start's provenance, and its Codex plan selects no reference; the
+/// pages' trail is the index's, so they read no provenance, and the legacy
+/// id selects the session on this machine.
+fn started_off_its_trail(projects: &Path) -> (tempfile::TempDir, PathBuf, String) {
+    let said = "{\"type\":\"assistant\",\"message\":{\"content\":\"the pages say\"}}\n";
+    std::fs::write(projects.join("seat/abcd-1234.jsonl"), said).unwrap();
+    let (dir, db, key) = participant_fixture(None, Some("codex"), Some("abcd-1234"));
+    let journal = rusqlite::Connection::open(&db).unwrap();
+    let keyed =
+        "UPDATE event_index SET type = 'effect/checkpointed' WHERE run_id = 'r1' AND seq = 4";
+    assert_eq!(journal.execute(keyed, []).unwrap(), 1);
+    (dir, db, key)
+}
+
+/// Each participant route reads its participant through the pages
+/// (decision 0089 slice 3), by its own entry point: the presentation, the
+/// transcript's body and its watch are the pages' participant's, which
+/// selects the session the run read whole selects no reference for.
+#[test]
+fn every_participant_route_reads_its_participant_through_the_pages() {
+    let mut env = EnvGuard::lock();
+    let (home, projects) = claude_projects_home();
+    env.set("HOME", home.path());
+    let (_dir, db, key) = started_off_its_trail(&projects);
+    let store = Store::open_read_only(&db).unwrap();
+    let paged = run_pages::participants(&store, "r1").unwrap().unwrap();
+    let events = store.load("r1").unwrap();
+    let folded = brokkr_core::fold::fold(&events);
+    let whole = brokkr_view::run_view(&events, folded.as_ref().ok());
+    let [paged, whole] = [&paged[0], &whole.participants[0]];
+    assert_eq!([&paged.key, &whole.key], [&key, &key]);
+    let presented = |part| presentation_payload(part).to_string();
+    let route = format!("r1/{}", percent_encode(&key));
+    let served = handle(&db, &format!("/api/presentation/{route}"));
+    assert_eq!((served.status, served.body), ("200 OK", presented(paged)));
+    let reasons = [paged, whole].map(|part| presentation_payload(part)["reason"].clone());
+    assert_eq!(reasons, [Value::Null, json!("no-reference")]);
+    let read = |part| {
+        let subject = brokkr_view::Subject::of(0, None, "r1".to_string(), part);
+        let read = local_transcript::read_local(&subject, crate::local_projects_home().as_deref());
+        let read = local_transcript::mask_secrets(read, &local_transcript::store_beside(&db));
+        (
+            read.unavailable,
+            crate::transcript_document("r1", &key, &read, None),
+        )
+    };
+    let (_, document) = read(paged);
+    let served = transcript_route(&db, &key);
+    assert_eq!((served.status, served.body), ("200 OK", document));
+    let unread = read(whole).0;
+    assert_eq!(
+        unread,
+        Some(brokkr_view::transcript::Unavailable::NoReference)
+    );
+    let selected = |part| drillable(&participant_selection(part)).cloned();
+    let watched = watched_reference(&db, &route).ok();
+    assert_eq!([watched.clone(), selected(whole)], [selected(paged), None]);
+    assert!(watched.is_some(), "the pages' participant is watched");
+}

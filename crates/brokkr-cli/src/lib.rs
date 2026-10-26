@@ -58,7 +58,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Result;
-use brokkr_core::fold::{fold, RunState};
+use brokkr_core::fold::RunState;
 use brokkr_runtime::realms::{Hearth, World, WorldError};
 use brokkr_runtime::{Bundle, DriveEnd, EngineError};
 use brokkr_store::Store;
@@ -964,14 +964,13 @@ fn run(cli: Cli) -> Result<ExitCode> {
 /// when unique. Prefixes and fuzzy labels never match, and an ambiguous
 /// label names every matching key so the operator can choose.
 fn select_transcript_participant<'a>(
-    view: &'a brokkr_view::RunView,
+    participants: &'a [brokkr_view::Participant],
     seat: &str,
 ) -> Result<&'a brokkr_view::Participant> {
-    if let Some(exact) = view.participants.iter().find(|part| part.key == seat) {
+    if let Some(exact) = participants.iter().find(|part| part.key == seat) {
         return Ok(exact);
     }
-    let matched: Vec<&brokkr_view::Participant> = view
-        .participants
+    let matched: Vec<&brokkr_view::Participant> = participants
         .iter()
         .filter(|part| part.label == seat)
         .collect();
@@ -1076,10 +1075,8 @@ fn transcript_command(
     // read-write, even when `--db` names a sole hearth.
     let (hearth, run) = resolve_in_hearths(&hearths, run)?;
     let store = Store::open_read_only(&hearths[hearth].journal)?;
-    let events = store.load(&run)?;
-    let state = fold(&events)?;
-    let view = brokkr_view::run_view(&events, Some(&state));
-    let participant = select_transcript_participant(&view, &seat)?;
+    let participants = run_pages::participants(&store, &run)??;
+    let participant = select_transcript_participant(&participants, &seat)?;
     // Only the subject's reference, provenance and legacy id reach the
     // reader; the hearth index keeps it the console's shape.
     let subject = brokkr_view::Subject::of(hearth, None, run.clone(), participant);
