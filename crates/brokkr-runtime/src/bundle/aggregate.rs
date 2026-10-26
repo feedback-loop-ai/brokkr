@@ -2,7 +2,7 @@
 //! it, its parse and closed vocabulary, the results it can emit, and the
 //! aggregation the engine runs over the members' results.
 
-use brokkr_core::policy::SEVERITY_ORDER;
+use brokkr_core::policy::Severity;
 use serde_json::{json, Map, Value};
 
 /// Deterministic, order-independent aggregation rules — a closed
@@ -143,57 +143,80 @@ fn review_panel(parsed: &[(&str, &str, &Value)], meta: Value) -> Value {
     // tables no longer declare or read it and therefore drop it.
     inputs.insert("fixes_applied".into(), Value::Bool(false));
     inputs.insert("spec_defect".into(), Value::Bool(joined.spec_defect));
-    if worst.1 == "residual" || joined.severity_rank > 0 {
-        inputs.insert(
-            "max_residual_severity".into(),
-            Value::String(SEVERITY_ORDER[joined.severity_rank].to_string()),
-        );
-        inputs.insert(
-            "has_security_residual".into(),
-            Value::Bool(joined.has_security),
-        );
+    if worst.1 == "residual" || joined.max_severity > Severity::None {
+        inputs.insert("max_residual_severity".into(), json!(joined.severity()));
+        inputs.insert("has_security_residual".into(), json!(joined.has_security));
     }
     json!({"result": worst.1, "inputs": inputs, "notes": meta})
 }
 
 /// What a review panel's members report in their own `inputs`, joined:
-/// the highest residual severity any names (one outside
-/// [`SEVERITY_ORDER`] counts as none), and whether any names a security
-/// residual or a spec defect.
+/// the highest residual severity any names, whether any names a security
+/// residual, and whether any reports a spec defect. A residual member must
+/// supply readable safety facts: unknowns stay unknown beside otherwise
+/// safe members, never becoming permission to ship.
 struct ReviewInputs {
-    severity_rank: usize,
-    has_security: bool,
+    max_severity: Severity,
+    severity_known: bool,
+    has_security: Option<bool>,
     spec_defect: bool,
 }
 
 impl ReviewInputs {
     fn join(parsed: &[(&str, &str, &Value)]) -> Self {
-        let mut severity_rank = 0usize;
-        let mut has_security = false;
-        let mut spec_defect = false;
-        for (_, _, payload) in parsed {
-            let Some(inputs) = payload.get("inputs").and_then(Value::as_object) else {
-                continue;
-            };
-            if let Some(s) = inputs.get("max_residual_severity").and_then(Value::as_str) {
-                if let Some(i) = SEVERITY_ORDER.iter().position(|x| *x == s) {
-                    severity_rank = severity_rank.max(i);
-                }
+        let mut joined = Self {
+            max_severity: Severity::None,
+            severity_known: true,
+            has_security: Some(false),
+            spec_defect: false,
+        };
+        for (_, result, payload) in parsed {
+            let inputs = payload.get("inputs").and_then(Value::as_object);
+            let security = inputs
+                .and_then(|inputs| inputs.get("has_security_residual"))
+                .and_then(Value::as_bool);
+            let severity = inputs
+                .and_then(|inputs| inputs.get("max_residual_severity"))
+                .and_then(Value::as_str)
+                .and_then(Severity::named);
+            if *result == "residual" {
+                joined.severity_known &= severity.is_some();
+                joined.has_security = joined_security(joined.has_security, security);
+            } else if security == Some(true) {
+                joined.has_security = Some(true);
             }
-            has_security |= inputs
-                .get("has_security_residual")
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
-            spec_defect |= inputs
-                .get("spec_defect")
+            if let Some(severity) = severity {
+                joined.max_severity = joined.max_severity.max(severity);
+            }
+            joined.spec_defect |= inputs
+                .and_then(|inputs| inputs.get("spec_defect"))
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
         }
-        ReviewInputs {
-            severity_rank,
-            has_security,
-            spec_defect,
+        joined
+    }
+
+    /// A witnessed above-medium finding already requires a stop, even if
+    /// another member omitted its severity. Keep that stronger evidence so
+    /// the table's above-medium stop retains first-match precedence.
+    fn severity(&self) -> Option<Severity> {
+        if self.severity_known || self.max_severity > Severity::Medium {
+            Some(self.max_severity)
+        } else {
+            None
         }
+    }
+}
+
+/// A witnessed security finding dominates; otherwise both observations
+/// must be readable before the joined flag can assert false.
+fn joined_security(current: Option<bool>, incoming: Option<bool>) -> Option<bool> {
+    if current == Some(true) || incoming == Some(true) {
+        Some(true)
+    } else if current.is_none() || incoming.is_none() {
+        None
+    } else {
+        Some(false)
     }
 }
 
