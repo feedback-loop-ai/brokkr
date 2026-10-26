@@ -5,10 +5,11 @@
 //! and `brokkr doctor` carries them in its status column, proved against
 //! the BUILT binary under a PATH holding only a dsh stand-in, a dsh home of
 //! the test's own, and each documented source planted in turn. The
-//! scaffold's seats ride a measured route, so an engine-only home serves
-//! them; a seat on a route no engine-only home was measured on is served
-//! from the operator's home while the fence stands. A planted value is
-//! never printed, and a planted `.env` is told present but unread.
+//! scaffold's seats ride a measured route, so where their cold shape was
+//! measured on the host an engine-only home serves them; a seat on a route
+//! no engine-only home was measured on is served from the operator's home
+//! while the fence stands. A planted value is never printed, and a planted
+//! `.env` is told present but unread.
 #![cfg(unix)]
 
 use std::os::unix::fs::PermissionsExt;
@@ -77,15 +78,43 @@ impl DshHost {
         ran
     }
 
-    /// `brokkr init .`, and the check's lines it printed last.
+    /// `brokkr init .`, and the check's lines it printed last; then the
+    /// scaffold's dsh adapter's one cold shape, which the shipped adapter
+    /// measured on Linux, measured on this host, so every later check
+    /// reads the home a Linux host serves, on Linux and macOS alike.
     fn init(&self, key: Option<&str>) -> Vec<String> {
         let init = self.brokkr(&["init", "."], key);
         assert_eq!(init.code, Some(0), "{}", init.stderr);
+        let adapter = self.repo.path(".brokkr/adapters/dsh.json");
+        let scaffold = std::fs::read_to_string(&adapter).unwrap();
+        let linux = r#""host": "linux""#;
+        assert_eq!(scaffold.matches(linux).count(), 1, "{scaffold}");
+        let here = format!(r#""host": "{}""#, std::env::consts::OS);
+        std::fs::write(&adapter, scaffold.replace(linux, &here)).unwrap();
         let lines = init
             .stderr
             .lines()
             .skip_while(|line| !line.starts_with("dsh "));
         lines.map(str::to_string).collect()
+    }
+
+    /// What `brokkr init` prints of the scaffold's seats on this host, `key`
+    /// the launching environment's: the shipped dsh adapter's one cold
+    /// shape was measured on Linux, so there an engine-only home serves
+    /// them, and on macOS, where it qualifies nothing, the operator's home
+    /// does (#717).
+    fn initialised(&self, key: Option<&str>) -> [String; 2] {
+        let (route, seats) = ("deepseek-official", "implement, intake");
+        let macos = cfg!(target_os = "macos");
+        let reach = match (key, macos) {
+            (Some(_), _) => REACHED.to_string(),
+            (None, false) => UNSET.to_string(),
+            (None, true) => format!("dsh key {route}: {}", self.unreached("DEEPSEEK_API_KEY")),
+        };
+        match macos {
+            true => [reach, operator(route, seats)],
+            false => [reach, engine(route, seats)],
+        }
     }
 
     /// `brokkr doctor`'s dsh key check lines, and its exit code.
@@ -130,6 +159,14 @@ fn engine(route: &str, seats: &str) -> String {
     )
 }
 
+/// The home line of `seats` on `route` served from the operator's home.
+fn operator(route: &str, seats: &str) -> String {
+    format!(
+        "dsh home {route}: Brokkr serves seats [{seats}] on this route from the operator's own \
+         dsh home, which reads every source this check asks"
+    )
+}
+
 /// The failing home line of `seats` on dsh's default route, whose
 /// engine-only launch the `.env` at `in_repo` refuses.
 fn refused(seats: &str, in_repo: &Path) -> String {
@@ -150,7 +187,7 @@ fn refused(seats: &str, in_repo: &Path) -> String {
 fn an_engine_only_seat_reads_its_key_from_the_launching_environment_alone() {
     let host = DshHost::new();
     let served = engine("deepseek-official", "implement, intake");
-    assert_eq!(host.init(None), [UNSET.to_string(), served.clone()]);
+    assert_eq!(host.init(None), host.initialised(None));
     let missing = (
         vec![format!("MISSING  {UNSET}"), format!("ok       {served}")],
         Some(1),
@@ -176,8 +213,8 @@ fn an_engine_only_seat_reads_its_key_from_the_launching_environment_alone() {
 #[test]
 fn a_workdir_dotenv_refuses_every_engine_only_launch_and_is_never_read() {
     let host = DshHost::new();
-    let served = engine("deepseek-official", "implement, intake");
-    assert_eq!(host.init(Some(PLANTED)), [REACHED.to_string(), served]);
+    let initialised = host.initialised(Some(PLANTED));
+    assert_eq!(host.init(Some(PLANTED)), initialised);
     let in_repo = host.repo.path(".env");
     host.unreadable(&in_repo, &format!("DEEPSEEK_API_KEY={PLANTED}\n"));
     let refused = refused("implement, intake", &in_repo);
@@ -244,13 +281,12 @@ fn a_seat_on_an_unmeasured_route_is_served_from_the_operators_home() {
     assert!(hired.contains(efforts) && hired.contains(models), "{hired}");
     let hired = hired.replace(efforts, "\"spark\": \"high\"");
     std::fs::write(&intake, hired.replace(models, "\"spark\"")).unwrap();
-    let operator = "ok       dsh home spark: Brokkr serves seats [intake] on this route from the \
-                    operator's own dsh home, which reads every source this check asks";
+    let operator = format!("ok       {}", operator("spark", "intake"));
     let implement = [
         format!("ok       {REACHED}"),
         format!("ok       {}", engine("deepseek-official", "implement")),
     ];
-    let spark = |key: String| [key, operator.to_string()];
+    let spark = |key: String| [key, operator.clone()];
     let unreached = format!(
         "MISSING  dsh key spark: {}",
         host.unreached("SPARK_API_KEY")

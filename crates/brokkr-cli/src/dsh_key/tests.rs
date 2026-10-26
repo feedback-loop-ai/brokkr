@@ -944,33 +944,46 @@ fn the_default_key_is_the_shipped_adapters_deepseek_official_credential() {
     );
 }
 
-/// A dsh scaffold written and compiled by `brokkr init --cli dsh` under a
-/// directory of its own, and that compile.
+/// The name of the host this test runs on, or of the other supported one
+/// (decision 0063).
+fn host_name(here: bool) -> &'static str {
+    match cfg!(target_os = "macos") == here {
+        true => "macos",
+        false => "linux",
+    }
+}
+
+/// A dsh scaffold written by `brokkr init --cli dsh` under a directory of
+/// its own, recompiled with its dsh adapter's one cold shape measured on
+/// the host this test runs on, and that compile: the compile a Linux host
+/// makes of the shipped adapter, whose one cold shape was measured there,
+/// on Linux and macOS alike.
 fn scaffolded() -> (tempfile::TempDir, Bundle) {
+    scaffolded_on(host_name(true))
+}
+
+/// [`scaffolded`] with its dsh adapter's one cold shape measured on the
+/// host this test does not run on: the compile a macOS host makes of the
+/// shipped adapter, since a result from one host qualifies nothing on the
+/// other.
+fn scaffolded_elsewhere() -> (tempfile::TempDir, Bundle) {
+    scaffolded_on(host_name(false))
+}
+
+/// A dsh scaffold whose adapter's one cold shape, which the shipped
+/// adapter measured on Linux, is measured on `on`, and its compile.
+fn scaffolded_on(on: &str) -> (tempfile::TempDir, Bundle) {
     let dir = tempfile::tempdir().unwrap();
     let (root, path) = (dir.path(), std::ffi::OsStr::new(""));
     let dsh = Some(crate::init::Cli::Dsh);
-    let scaffold = crate::init::init(root, path, "linux", root, dsh).unwrap();
-    (dir, scaffold.bundle)
-}
-
-/// [`scaffolded`] recompiled with its dsh adapter's one cold shape, which
-/// the shipped adapter measured on Linux, measured on the host this test
-/// does not run on: the compile a macOS host makes of the shipped adapter,
-/// since a result from one host qualifies nothing on the other.
-fn scaffolded_elsewhere() -> (tempfile::TempDir, Bundle) {
-    let (dir, _) = scaffolded();
+    crate::init::init(root, path, "linux", root, dsh).unwrap();
     let folder = dir.path().join(".brokkr");
     let path = folder.join("adapters/dsh.json");
     let mut dsh: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     let host = &mut dsh["mcp"]["shapes"][0]["measured_on"]["host"];
     assert_eq!(*host, json!("linux"));
-    *host = json!(if cfg!(target_os = "linux") {
-        "macos"
-    } else {
-        "linux"
-    });
+    *host = json!(on);
     std::fs::write(&path, dsh.to_string()).unwrap();
     let (agents, adapters) = (folder.join("agents"), folder.join("adapters"));
     let boundary = brokkr_core::realms::Boundary::Namespace;
@@ -1207,8 +1220,9 @@ fn an_engine_only_launch_beside_a_repository_dotenv_is_refused_keyless() {
 }
 
 /// The folder's check models a compiled folder's seats: the scaffold's
-/// ride dsh's default route and an engine-only home serves them, whatever
-/// the environment running the test gives.
+/// ride dsh's default route and, their cold shape measured on this host,
+/// an engine-only home serves them, whatever the environment running the
+/// test gives.
 #[test]
 fn a_compiled_folder_is_answered_by_the_homes_of_its_seats() {
     let (dir, compiled) = scaffolded();
