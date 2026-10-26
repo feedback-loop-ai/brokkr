@@ -165,11 +165,8 @@ fn inspect_with(
     };
     let lens = brokkr_view::lens_for(&view, scope.as_ref())
         .map_err(|error| anyhow::Error::msg(render::scope_refusal(&error)))?;
-    write!(
-        out,
-        "{}",
-        render::inspect(&view, lens.as_ref(), true, &render::Style::detect())
-    )?;
+    let frame = render::inspect(&view, lens.as_ref(), true, &render::Style::detect());
+    write!(out, "{frame}")?;
     Ok(Exit::Completed.into())
 }
 
