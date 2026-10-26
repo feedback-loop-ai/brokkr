@@ -84,16 +84,22 @@ impl DshHost {
     /// `brokkr init .`, and the check's lines it printed last; then the
     /// scaffold's dsh adapter's one cold shape, which the shipped adapter
     /// measured on Linux, measured on this host, so every later check
-    /// reads the home a Linux host serves, on Linux and macOS alike.
+    /// reads the home a Linux host serves, on Linux and macOS alike. Its
+    /// replacement shape, declared unmeasured (U1d3), stays as written.
     fn init(&self, key: Option<&str>) -> Vec<String> {
         let init = self.brokkr(&["init", "."], key);
         assert_eq!(init.code, Some(0), "{}", init.stderr);
         let adapter = self.repo.path(".brokkr/adapters/dsh.json");
         let scaffold = std::fs::read_to_string(&adapter).unwrap();
         let linux = r#""host": "linux""#;
-        assert_eq!(scaffold.matches(linux).count(), 1, "{scaffold}");
         let here = format!(r#""host": "{}""#, std::env::consts::OS);
-        std::fs::write(&adapter, scaffold.replace(linux, &here)).unwrap();
+        let moved = scaffold.replacen(linux, &here, 1);
+        let dsh: serde_json::Value = serde_json::from_str(&moved).unwrap();
+        let cold = &dsh["mcp"]["shapes"][0];
+        let read = (&cold["invocation"], &cold["measured_on"]["host"]);
+        let os = std::env::consts::OS.into();
+        assert_eq!(read, (&"cold".into(), &os), "{scaffold}");
+        std::fs::write(&adapter, moved).unwrap();
         let lines = init
             .stderr
             .lines()
@@ -121,7 +127,8 @@ impl DshHost {
     }
 
     /// The scaffold's dsh adapter declaring, beside its one cold shape, the
-    /// replacement shape a rejoin offer launches, measured as the cold one.
+    /// replacement shape a rejoin offer launches, measured as the cold one,
+    /// in place of the scaffold's unmeasured replacement (U1d3).
     fn measure_replacement(&self) {
         let adapter = self.repo.path(".brokkr/adapters/dsh.json");
         let text = std::fs::read_to_string(&adapter).unwrap();
@@ -129,6 +136,7 @@ impl DshHost {
         let shapes = dsh["mcp"]["shapes"].as_array_mut().unwrap();
         let mut replacement = shapes[0].clone();
         replacement["invocation"] = "replacement".into();
+        shapes.retain(|declared| declared["invocation"] != "replacement");
         shapes.push(replacement);
         std::fs::write(&adapter, dsh.to_string()).unwrap();
     }

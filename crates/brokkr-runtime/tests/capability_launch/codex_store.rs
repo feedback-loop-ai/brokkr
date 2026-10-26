@@ -67,6 +67,25 @@ pub(super) fn profiled_rejoin(program: &str, off: bool) -> Vec<String> {
     argv
 }
 
+/// What an unboxed `workspace-write` Codex seat with harness hands is
+/// served when offered [`profiled_rejoin`]'s thread, web search switched
+/// off where `off`. On Linux, its cold replacement: U1d3 recorded that
+/// replacement as U0b measured it (X17, X24), so the launch is isolated,
+/// and the rejoin declines, because U0b measured no rejoin with hands (X20)
+/// and no `work-site` shape is declared under them. On macOS no shape is
+/// measured, the standing fence serves the launch as before, and the
+/// rejoin is the actual `exec resume`.
+pub(super) fn harnessed_rejoin(program: &str, off: bool) -> Vec<String> {
+    if cfg!(target_os = "macos") {
+        return profiled_rejoin(program, off);
+    }
+    let mut argv = profiled_cold(program, ASTRA, "workspace-write", &[]);
+    if !off {
+        argv.truncate(argv.len() - OFF.len());
+    }
+    argv
+}
+
 /// `codex_command` over `input` handed [`STORE`], as the engine hands every
 /// Codex seat its store.
 pub(super) fn codex_served(

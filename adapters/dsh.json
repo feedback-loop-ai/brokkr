@@ -83,6 +83,28 @@
         "process_read": {
           "measured": "U0 D04: dsh's native shell ran in a private pid namespace of 4 pids and found no process canary in /proc"
         }
+      },
+      {
+        "invocation": "replacement",
+        "hands": "none",
+        "measured_on": {
+          "harness": "dsh",
+          "binary": "dsh",
+          "version": "0.2.1-rc.2",
+          "host": "linux"
+        },
+        "ambient": {
+          "unmeasured": "U0b D06 (keyless spark-glm) passed: after D05's positive control, the replacement in a fresh engine-only DSH_HOME started no home or profile sentinel while the engine answered, and --dump-config composed one dsh-mcp-client, serverName engine; a shape carries no route scope and dsh admits keyed routes U0b never ran, so route-scoped qualification is a carried follow-up"
+        },
+        "native_write": {
+          "unmeasured": "U0b D07 (keyless spark-glm): dsh's workspace-write sandbox refused a native write outside the workdir (Read-only file system); a shape carries no route scope, so one route's result qualifies none"
+        },
+        "store_read": {
+          "unmeasured": "U0b D07 (keyless spark-glm): dsh's native bash read the 0600 store canary at its production path in the workdir, and D10-p5's still did after U8h, which masks the hands box alone; a shape carries no route scope, so this shape is recorded unmeasured"
+        },
+        "process_read": {
+          "unmeasured": "U0b D07 (keyless spark-glm): dsh's native bash found no process canary in /proc, in its private pid namespace; a shape carries no route scope, so one route's result qualifies none"
+        }
       }
     ]
   },

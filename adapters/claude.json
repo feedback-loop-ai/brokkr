@@ -9,10 +9,22 @@
       "ANTHROPIC_AWS_API_KEY",
       "ANTHROPIC_FOUNDRY_API_KEY",
       "ANTHROPIC_FOUNDRY_AUTH_TOKEN",
+      "AWS_ACCESS_KEY_ID",
       "AWS_BEARER_TOKEN_BEDROCK",
-      "CLAUDE_CODE_OAUTH_TOKEN"
+      "AWS_PROFILE",
+      "AWS_SECRET_ACCESS_KEY",
+      "AWS_SESSION_TOKEN",
+      "AZURE_CLIENT_CERTIFICATE_PASSWORD",
+      "AZURE_CLIENT_CERTIFICATE_PATH",
+      "AZURE_CLIENT_ID",
+      "AZURE_CLIENT_SECRET",
+      "AZURE_PASSWORD",
+      "AZURE_TENANT_ID",
+      "AZURE_USERNAME",
+      "CLAUDE_CODE_OAUTH_TOKEN",
+      "GOOGLE_APPLICATION_CREDENTIALS"
     ],
-    "measured": "Claude Code 2.1.299 (Linux, 2026-10-17; claude --version reads '2.1.299 (Claude Code)'): strings -n 8 of the installed binary holds one array literal of its provider credential variables, these seven, defined beside its CLAUDE_CODE_SKIP_*_AUTH switches and its provider endpoint table; the cloud SDK credential chains (AWS_ACCESS_KEY_ID, GOOGLE_APPLICATION_CREDENTIALS, AZURE_*) are read by the provider SDKs, not by that list, and are not declared"
+    "measured": "Claude Code 2.1.299 (Linux, 2026-10-17; claude --version reads '2.1.299 (Claude Code)'): strings -n 8 of the installed binary holds one array literal of its provider credential variables, the seven ANTHROPIC_*, AWS_BEARER_TOKEN_BEDROCK and CLAUDE_CODE_OAUTH_TOKEN names here, defined beside its CLAUDE_CODE_SKIP_*_AUTH switches and its provider endpoint table. The twelve AWS, GCP and Azure credential-chain names are read by the provider SDKs, not by that list: they are declared on the operator's ruling of 2026-10-18 (U9b1's ruling 5), so MB4's collision check refuses a binding of them, and no cloud route was exercised to measure them"
   },
   "binary": "claude",
   "driver": [
@@ -110,6 +122,50 @@
         },
         "process_read": {
           "unmeasured": "U0 C09b: no mechanism excludes it; Claude's permission check blocked the one Bash probe of /proc/<pid>/environ, and native Read on /proc was not probed"
+        }
+      },
+      {
+        "invocation": "replacement",
+        "hands": "boxed",
+        "measured_on": {
+          "harness": "claude",
+          "binary": "claude",
+          "version": "2.1.308",
+          "host": "linux"
+        },
+        "ambient": {
+          "measured": "U0b C14 and C15 (A then B, the cold argv in the same HOME and workdir), after C11's positive control answered user, project and plugin: under the inline hands fragment no planted sentinel started while hands returned HANDS-OK and the engine answered; C16: with /etc/claude-code/managed-mcp.json planted claude refused before any start"
+        },
+        "native_write": {
+          "measured": "U0b C14: under --tools '' the brokkr server was the only tool source; C17 (2.1.308): a hands write outside the workdir printed OK in the box and left no file on the host, as C17-p5 repeated on 2.1.310"
+        },
+        "store_read": {
+          "unmeasured": "U0b C17 (2.1.308, before U8h) read the 0600 store at its production path in the workdir through the hands box; after U8h (b8e2caff) C17-p5 was denied it (the /dev/null mask, the host store unchanged) on claude 2.1.310, not this shape's 2.1.308; U8h's recorded rename-over, update-window, configured-link and cross-run limits stand"
+        },
+        "process_read": {
+          "measured": "U0b C17 (2.1.308): the hands box held 4 numeric /proc entries and none carried the engine sentinel's process canary, as C17-p5 repeated on 2.1.310"
+        }
+      },
+      {
+        "invocation": "replacement",
+        "hands": "none",
+        "measured_on": {
+          "harness": "claude",
+          "binary": "claude",
+          "version": "2.1.308",
+          "host": "linux"
+        },
+        "ambient": {
+          "measured": "U0b C12 (the production empty set, inline) and C13 (strict, engine, inline), A then B in the same HOME and workdir, after C11's positive control answered user, project and plugin: no planted sentinel started while the engine answered, and C13's native OFF held; C07r (cold) and C16: a managed MCP file refuses before any start"
+        },
+        "native_write": {
+          "unmeasured": "U0b C18: native Write outside the workdir was not granted under acceptEdits, Claude's permission check, which is not an isolation mechanism; U0 C09b on 2.1.287 allowed it, and no confinement was measured"
+        },
+        "store_read": {
+          "unsupported": "U0b C18: native Read read the 0600 store canary at its production path in the workdir"
+        },
+        "process_read": {
+          "unmeasured": "U0b C18: not probed; Claude's permission check blocked the Bash probe, and that check is not an isolation mechanism"
         }
       }
     ]

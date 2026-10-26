@@ -129,9 +129,10 @@ pub(crate) fn strict_records(compiled: &brokkr_runtime::Bundle) -> Vec<(String, 
             McpHands::NoHands => "none",
         };
         let verdict = match ambient {
-            McpAxis::Measured { .. } => "measured",
-            McpAxis::Unsupported { .. } => "unsupported",
             McpAxis::Unmeasured(McpUnmeasured::Absent) => "absent",
+            McpAxis::Measured { .. } => "measured",
+            McpAxis::Unmeasured(McpUnmeasured::Declared(_)) => "unmeasured",
+            McpAxis::Unsupported { .. } => "unsupported",
             other => panic!("a scaffold declares no other fact: {other:?}"),
         };
         format!("{invocation} {hands} {verdict}")
@@ -150,11 +151,12 @@ pub(crate) fn strict_records(compiled: &brokkr_runtime::Bundle) -> Vec<(String, 
     records
 }
 
-/// What a scaffold's adapters measured on this host: U0 measured on Linux
-/// alone, so on macOS every shape a scaffold declares is absent.
+/// What a scaffold's adapters measured on this host: U0 and U0b measured
+/// on Linux alone, so on macOS every shape a scaffold declares is absent.
 pub(crate) fn on_this_host(linux: &str) -> String {
     match cfg!(target_os = "macos") {
         true => linux
+            .replace("unmeasured", "absent")
             .replace("measured", "absent")
             .replace("unsupported", "absent"),
         false => linux.to_string(),
@@ -197,15 +199,24 @@ fn the_guides_transcribe_the_scaffolds_mcp_instruction() {
     }
 }
 
-/// The cold shapes each scaffolded model declaration can admit, by the
-/// hands it declares: the scaffold gives claude no hands, codex declares
-/// boxed and harness hands and no `resume`, and dsh holds none. So
-/// Claude's boxed shape and Codex's resumed one stay with the shipped
-/// adapters.
-const APPLICABLE: [(&str, &[&str]); 3] = [
-    ("claude", &["none"]),
-    ("codex", &["boxed", "harness"]),
-    ("dsh", &["none"]),
+/// The shapes each scaffolded model declaration can admit, by invocation
+/// and the hands it declares: the scaffold gives claude no hands, codex
+/// declares boxed and harness hands and no `resume`, and dsh holds none.
+/// So Claude's boxed shapes and Codex's resumed one stay with the shipped
+/// adapters, and each replacement U0b recorded rides beside its cold
+/// shape (U1d3).
+const APPLICABLE: [(&str, &[(&str, &str)]); 3] = [
+    ("claude", &[("cold", "none"), ("replacement", "none")]),
+    (
+        "codex",
+        &[
+            ("cold", "boxed"),
+            ("cold", "harness"),
+            ("replacement", "boxed"),
+            ("replacement", "harness"),
+        ],
+    ),
+    ("dsh", &[("cold", "none"), ("replacement", "none")]),
 ];
 
 /// SI2's generated parity: a scaffolded model declaration carries its
@@ -218,7 +229,7 @@ pub(crate) fn assert_shipped_mcp_facts(bundle: &std::path::Path, provider: &str)
         &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join(format!("../../adapters/{provider}.json")),
     );
-    let Some((_, hands)) = APPLICABLE.iter().find(|(name, _)| *name == provider) else {
+    let Some((_, applicable)) = APPLICABLE.iter().find(|(name, _)| *name == provider) else {
         assert_eq!(provider, "exec");
         assert_eq!(generated["mcp"], shipped["mcp"]);
         assert!(shipped["mcp"]["inapplicable"].is_string(), "{shipped}");
@@ -229,10 +240,11 @@ pub(crate) fn assert_shipped_mcp_facts(bundle: &std::path::Path, provider: &str)
         .unwrap()
         .iter()
         .filter(|shape| {
-            shape["invocation"] == "cold" && hands.contains(&shape["hands"].as_str().unwrap())
+            let key = (shape["invocation"].as_str(), shape["hands"].as_str());
+            (applicable.iter()).any(|(invocation, hands)| key == (Some(*invocation), Some(*hands)))
         })
         .collect();
-    assert_eq!(shapes.len(), hands.len(), "{provider}: {shipped}");
+    assert_eq!(shapes.len(), applicable.len(), "{provider}: {shipped}");
     assert_eq!(
         generated["mcp"],
         serde_json::json!({"carriage": shipped["mcp"]["carriage"], "shapes": shapes}),
@@ -245,13 +257,18 @@ pub(crate) fn assert_shipped_mcp_facts(bundle: &std::path::Path, provider: &str)
 }
 
 /// A hands-less work seat's SI2 record: judged cold and as its replacement,
-/// which U0 never measured; no generated declaration names a hands-less
-/// resume shape. A gate, never offered a session, is judged cold alone.
-const BARE_WORK: &[&str] = &["cold none measured", "replacement none absent"];
+/// which U0b measured for Claude; no generated declaration names a
+/// hands-less resume shape. A gate, never offered a session, is judged
+/// cold alone.
+const BARE_WORK: &[&str] = &["cold none measured", "replacement none measured"];
+/// A dsh work seat's: its replacement is declared unmeasured, because a
+/// shape carries no route scope and U0b ran one route (U1d3).
+const DSH_WORK: &[&str] = &["cold none measured", "replacement none unmeasured"];
 const BARE_GATE: &[&str] = &["cold none measured"];
-/// A Codex seat's, boxed: Codex cannot exclude ambient MCP (U0).
-const BOXED_WORK: &[&str] = &["cold boxed unsupported", "replacement boxed absent"];
-const BOXED_GATE: &[&str] = &["cold boxed unsupported"];
+/// A Codex seat's, boxed: U0b measured U9c2's cold launch and ran no boxed
+/// replacement, which the declaration says is unmeasured.
+const BOXED_WORK: &[&str] = &["cold boxed measured", "replacement boxed unmeasured"];
+const BOXED_GATE: &[&str] = &["cold boxed measured"];
 /// Exec serves no model and records no shape.
 const EXEC: &[&str] = &[];
 
@@ -280,10 +297,10 @@ const CODEX_RECORDS: [(&str, &[&str]); 7] = [
 
 /// A dsh roster's, its review gate hired from Claude.
 const DSH_RECORDS: [(&str, &[&str]); 8] = [
-    ("implement dsh", BARE_WORK),
-    ("implement dsh", BARE_WORK),
-    ("intake dsh", BARE_WORK),
-    ("intake dsh", BARE_WORK),
+    ("implement dsh", DSH_WORK),
+    ("implement dsh", DSH_WORK),
+    ("intake dsh", DSH_WORK),
+    ("intake dsh", DSH_WORK),
     ("review claude", BARE_GATE),
     ("review claude", BARE_GATE),
     ("ship exec", EXEC),
@@ -296,9 +313,9 @@ const DSH_RECORDS: [(&str, &[&str]); 8] = [
 /// them with nothing granted and every native power still OFF — dsh's
 /// review gate on claude included. This certifies no strictness. With the
 /// fence standing (U1g1) each compile keeps every site's SI2 record, the
-/// shapes a lifted fence would refuse included: Codex's measured
-/// unsupported exclusion, and every replacement and resume shape U0 never
-/// measured; exec records no shape.
+/// shapes a lifted fence would refuse included: Codex's boxed replacement,
+/// which U0b declares unmeasured, and dsh's replacement, declared
+/// unmeasured for want of a route scope; exec records no shape.
 #[test]
 fn each_rosters_declarations_carry_their_shipped_mcp_facts_and_still_compile() {
     for (present, written, reviewer, records) in [

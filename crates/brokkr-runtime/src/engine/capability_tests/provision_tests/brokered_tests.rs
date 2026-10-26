@@ -154,6 +154,7 @@ impl Claude {
             let outcome = &mut site.capabilities.as_mut().unwrap().outcomes[0];
             outcome.held.insert("library-docs".into(), docs.clone());
         }
+        measured_rejoin(&mut bundle);
         fixture.engine.bundle = bundle;
         Claude { fixture }
     }
@@ -387,6 +388,31 @@ fn shim(dir: &Path) -> String {
     std::fs::write(&source, "#!/bin/sh\nprintf '2.1.266 (Claude Code)\\n'\n").unwrap();
     let installed = super::survey_tests::installed(dir, "claude", &source);
     installed.to_str().unwrap().to_string()
+}
+
+/// Each site of `bundle` records its `boxed-workspace` rejoin as its
+/// replacement is recorded, as the `supported` assessment [`offered`]
+/// stipulates: the shipped Claude adapter has measured its boxed
+/// replacement since U1d3 but no MCP record of that rejoin, and a launch
+/// whose replacement is measured declines a rejoin whose shape is not.
+fn measured_rejoin(bundle: &mut Bundle) {
+    use crate::agents::{McpInvocation, McpShape};
+    let sites = bundle.sites.values_mut();
+    for record in sites.flat_map(|site| site.capabilities.iter_mut().flat_map(|c| &mut c.strict)) {
+        let replacement =
+            (record.iter()).find(|(shape, _)| shape.invocation == McpInvocation::Replacement);
+        let rejoin = replacement.map(|(shape, ambient)| {
+            let invocation = McpInvocation::Resume("boxed-workspace".into());
+            (
+                McpShape {
+                    invocation,
+                    ..shape.clone()
+                },
+                ambient.clone(),
+            )
+        });
+        record.extend(rejoin);
+    }
 }
 
 /// `input` offered `session` under the boxed workspace's markers, its

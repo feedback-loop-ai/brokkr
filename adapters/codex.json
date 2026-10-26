@@ -52,20 +52,20 @@
         "measured_on": {
           "harness": "codex",
           "binary": "codex",
-          "version": "0.160.0",
+          "version": "0.164.0",
           "host": "linux"
         },
         "ambient": {
-          "unsupported": "project, system and managed MCP configuration cannot be excluded; U0 X06 listed the project server beside the hands server, X12c the /etc system and managed servers, and X07's whole-table override loaded every planted source"
+          "measured": "U0b X16 (U9c2's cold argv with the hands fragment), after X13's positive control: no user, project or plugin server started, only brokkr and engine; the /etc/codex system and managed servers still start (X21-legacyiso, a stand-in), so U9c2 refuses such a host; Codex's enterprise cloud configuration layer cannot be observed locally and is never measured"
         },
         "native_write": {
-          "measured": "U0 X06: a hands write outside the worktree failed; X09: codex's own read-only sandbox, run without a model, denied native writes outside the workspace"
+          "measured": "U0b X22, under the read-only class this shape passes and U9c2's brokkr profile: codex's native shell met Read-only file system inside and outside the workdir, as X22-nomodel did without a model; X26: the hands tool wrote inside the workdir"
         },
         "store_read": {
-          "unsupported": "U0 X09: codex's native shell under the read-only sandbox this shape passes read the 0600 store canary; the hands tool excluded it in X06, where the model declined the native probe (X06n, X06n2)"
+          "measured": "U0b X22 and X22-nomodel: the brokkr profile denied the store at its production path in the workdir to codex's native shell; through the hands tool X26 read it before U8h and X26-p5 was denied after U8h (b8e2caff), the host store unchanged; U8h's recorded rename-over, update-window, configured-link and cross-run limits stand"
         },
         "process_read": {
-          "measured": "U0 X06: the hands tool excluded the process canary; X08 and X09: codex's native shell ran in a private pid namespace of 4 pids with no canary"
+          "measured": "U0b X22: codex's native shell found no process canary in its private pid namespace of 4 /proc entries; X26 and X26-p5: the hands tool found none"
         }
       },
       {
@@ -74,20 +74,64 @@
         "measured_on": {
           "harness": "codex",
           "binary": "codex",
-          "version": "0.160.0",
+          "version": "0.164.0",
           "host": "linux"
         },
         "ambient": {
-          "unsupported": "project, system and managed MCP configuration cannot be excluded; U0 X12 and X02b loaded the project server once codex wrote trust for the workdir into the engine-owned config, X02 the /etc system and managed servers, and X03's whole-table override every source"
+          "measured": "U0b X14 (read-only) and X15 (workspace-write), U9c2's cold argv, after X13's positive control, and XA3 on the operator's ChatGPT login: no user, project, plugin or codex_apps server started while the engine answered; /etc/codex system and managed servers still start (X21-legacyiso, a stand-in), so U9c2 refuses such a host; the enterprise cloud layer is never measured"
         },
         "native_write": {
-          "measured": "U0 X08 and X09: codex's sandbox denied native writes outside the workspace under both read-only and workspace-write; the workspace is writable only under workspace-write"
+          "measured": "U0b X22 (read-only): Read-only file system inside and outside the workdir; X23 (workspace-write): written inside, Read-only file system outside; X28: writes into .git and .codex met Read-only file system"
         },
         "store_read": {
-          "unsupported": "U0 X08 and X09: codex's native shell read the 0600 store canary under both read-only and workspace-write"
+          "measured": "U0b X22, X22-nomodel and X23: the brokkr profile denied the store at its production path in the workdir to codex's native shell in both classes; X29's workspace-write move of its folder read it before U8i; X29b, without a model (ruling 5(a)), under U8i's profile: the move failed EBUSY and the store was denied; the model-driven X29b is pending"
         },
         "process_read": {
-          "measured": "U0 X08 and X09: codex's native shell ran in a private pid namespace of 4 pids with no process canary"
+          "measured": "U0b X22 and X23: codex's native shell found no process canary in its private pid namespace of 4 /proc entries"
+        }
+      },
+      {
+        "invocation": "replacement",
+        "hands": "boxed",
+        "measured_on": {
+          "harness": "codex",
+          "binary": "codex",
+          "version": "0.164.0",
+          "host": "linux"
+        },
+        "ambient": {
+          "unmeasured": "U0b recorded no replacement under the hands fragment: X16 ran it cold, and the replacement cells X17, X18 and X24 ran the harness classes"
+        },
+        "native_write": {
+          "unmeasured": "no write probe of U0b's names a boxed replacement; X26 and X26-p5 name the hands tool alone"
+        },
+        "store_read": {
+          "unmeasured": "no store canary of U0b's names a boxed replacement; X26 read the store and X26-p5 was denied it, through the hands tool alone"
+        },
+        "process_read": {
+          "unmeasured": "no process canary of U0b's names a boxed replacement; its one replacement canary, X24, ran workspace-write"
+        }
+      },
+      {
+        "invocation": "replacement",
+        "hands": "harness",
+        "measured_on": {
+          "harness": "codex",
+          "binary": "codex",
+          "version": "0.164.0",
+          "host": "linux"
+        },
+        "ambient": {
+          "measured": "U0b X17 (X15's workspace-write shape, then the replacement in the same home, which trusts the project) and X18 (a failed rejoin, then the cold argv), after X13's positive control: no user, project or plugin server started while the engine answered; /etc/codex servers still start (X21-legacyiso), so U9c2 refuses such a host; the enterprise cloud layer is never measured"
+        },
+        "native_write": {
+          "measured": "U0b X24 (the workspace-write replacement): written inside the workdir, Read-only file system outside, as X23"
+        },
+        "store_read": {
+          "measured": "U0b X24: the brokkr profile denied the store at its production path in the workdir to codex's native shell; the folder move X29 found is closed by U8i, measured without a model (X29b, ruling 5(a)); the model-driven X29b is pending"
+        },
+        "process_read": {
+          "measured": "U0b X24: codex's native shell found no process canary in its private pid namespace"
         }
       },
       {
@@ -98,20 +142,20 @@
         "measured_on": {
           "harness": "codex",
           "binary": "codex",
-          "version": "0.160.0",
+          "version": "0.164.0",
           "host": "linux"
         },
         "ambient": {
-          "unsupported": "project MCP configuration cannot be excluded; U0 X04's exec resume under a private CODEX_HOME listed the project server, and X05's whole-table override listed the user, project and plugin servers; /etc sources were not planted on this shape"
+          "measured": "U0b X30 (U9c2's rejoin argv) after X30-ctl's positive control, X19 and XA4 (the operator's login): no user, project, plugin or codex_apps server started while the engine answered; X30-plug and X30-user isolate two options; /etc sources were not planted on a rejoin and the enterprise cloud layer is never measured; X20, a rejoin with hands, was not measured"
         },
         "native_write": {
-          "unmeasured": "U0 probed codex's sandbox cold only (X08, X09); no write probe ran on exec resume"
+          "unmeasured": "U0b measured no workspace-write rejoin, the class this work shape is served: every U0b rejoin (X19, X25, X30, XA4) ran read-only; on those, X25 saw the read-only class re-imposed and X19's second turn context the brokkr profile re-imposed"
         },
         "store_read": {
-          "unmeasured": "U0 probed codex's sandbox cold only (X08, X09); no store canary was read on exec resume"
+          "unmeasured": "U0b measured no workspace-write rejoin, the class this work shape is served: on the read-only rejoin X25 the re-imposed brokkr profile denied the store at its production path in the workdir, and XA4's turn contexts show the store deny on both turns"
         },
         "process_read": {
-          "unmeasured": "U0 probed codex's sandbox cold only (X08, X09); no process canary was probed on exec resume"
+          "unmeasured": "U0b measured no workspace-write rejoin, the class this work shape is served: on the read-only rejoin X25 codex's native shell found no process canary"
         }
       }
     ]

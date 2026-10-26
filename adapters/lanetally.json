@@ -7,10 +7,22 @@
       "ANTHROPIC_AWS_API_KEY",
       "ANTHROPIC_FOUNDRY_API_KEY",
       "ANTHROPIC_FOUNDRY_AUTH_TOKEN",
+      "AWS_ACCESS_KEY_ID",
       "AWS_BEARER_TOKEN_BEDROCK",
-      "CLAUDE_CODE_OAUTH_TOKEN"
+      "AWS_PROFILE",
+      "AWS_SECRET_ACCESS_KEY",
+      "AWS_SESSION_TOKEN",
+      "AZURE_CLIENT_CERTIFICATE_PASSWORD",
+      "AZURE_CLIENT_CERTIFICATE_PATH",
+      "AZURE_CLIENT_ID",
+      "AZURE_CLIENT_SECRET",
+      "AZURE_PASSWORD",
+      "AZURE_TENANT_ID",
+      "AZURE_USERNAME",
+      "CLAUDE_CODE_OAUTH_TOKEN",
+      "GOOGLE_APPLICATION_CREDENTIALS"
     ],
-    "measured": "claude-lanetally (Linux, 2026-10-17) is a three-line script that execs LaneTally's rollout/session-wrapper.sh -- claude; the wrapper reads no authentication variable and exports only LANETALLY_RUN_ID and ANTHROPIC_CUSTOM_HEADERS (request headers, not credentials), then runs the same Claude Code 2.1.299, so these are claude's seven names as adapters/claude.json measures them"
+    "measured": "claude-lanetally (Linux, 2026-10-17) is a three-line script that execs LaneTally's rollout/session-wrapper.sh -- claude; the wrapper reads no authentication variable and exports only LANETALLY_RUN_ID and ANTHROPIC_CUSTOM_HEADERS (request headers, not credentials), then runs the same Claude Code 2.1.299, so these are claude's names as adapters/claude.json declares them: its seven measured names, and the twelve AWS, GCP and Azure credential-chain names declared on the operator's ruling of 2026-10-18 (U9b1's ruling 5), which no cloud route measured"
   },
   "binary": "claude-lanetally",
   "hint": "LaneTally's session-capture wrapper, expected at ~/.local/bin/claude-lanetally; set BROKKR_LANETALLY_BIN to an absolute path if ~/.local/bin is not on PATH",
@@ -82,6 +94,28 @@
         },
         "process_read": {
           "unmeasured": "U0 LT11: no mechanism excludes it; the wrapped claude's permission check blocked the one Bash probe of /proc/<pid>/environ, and native Read on /proc was not probed"
+        }
+      },
+      {
+        "invocation": "replacement",
+        "hands": "none",
+        "measured_on": {
+          "harness": "lanetally",
+          "binary": "claude-lanetally",
+          "version": "unpublished: launcher sha256 b886c95ab275956bfef3ba0d9e6c617ec0878abdbddbd7369d2fe27903205dfb running session-wrapper.sh 4614bb7 sha256 ecac09b98a39eeb618812e4d5838c35f0b9ed48482d345befed4f198fbc325d7 over claude 2.1.308",
+          "host": "linux"
+        },
+        "ambient": {
+          "measured": "U0b LT14 (the production empty set) and LT15 (strict, engine), A then B through the wrapper in the same HOME and workdir, after LT13's positive control answered user, project and plugin: no planted sentinel started while the engine answered; LT18: a managed MCP file refuses before any start; the LaneTally proxy route was not exercised"
+        },
+        "native_write": {
+          "unmeasured": "U0b LT20: native Write through the wrapper outside the workdir was not granted under acceptEdits, the wrapped claude's permission check, which is not an isolation mechanism; U0 LT11 on 2.1.287 allowed it"
+        },
+        "store_read": {
+          "unsupported": "U0b LT20: native Read through the wrapper read the 0600 store canary at its production path in the workdir"
+        },
+        "process_read": {
+          "unmeasured": "U0b LT20: not probed; the wrapped claude's permission check blocked the Bash probe, and that check is not an isolation mechanism"
         }
       }
     ]

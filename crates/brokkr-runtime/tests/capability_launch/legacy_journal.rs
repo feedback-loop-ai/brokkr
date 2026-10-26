@@ -183,7 +183,9 @@ const FORGED: &str = concat!(
 /// The shipped Claude adapter served through the `agent` wrapper, with a
 /// model whose launch never starts, and a supported assessment for the
 /// one Claude shape at this unboxed site: the shipped one is unmeasured,
-/// so an eligible rejoin is reached only by declaring one.
+/// so an eligible rejoin is reached only by declaring one, and its MCP
+/// shape measured as the hands-less replacement is since U1d3, which a
+/// launch with that replacement measured otherwise declines.
 fn adapters(root: &Path) {
     let shipped = workspace().join("adapters/claude.json");
     let mut claude: Value = serde_json::from_slice(&std::fs::read(shipped).unwrap()).unwrap();
@@ -194,6 +196,12 @@ fn adapters(root: &Path) {
         "classes": ["work"], "boundaries": ["not applicable"], "hands": "none",
         "evidence": {"interface": "fixture", "restrictions": "fixture",
                      "root": "fixture", "accounting": "fixture"}}});
+    let shapes = claude["mcp"]["shapes"].as_array_mut().unwrap();
+    let replacement =
+        |shape: &&Value| shape["invocation"] == "replacement" && shape["hands"] == "none";
+    let mut rejoin = shapes.iter().find(replacement).unwrap().clone();
+    rejoin["invocation"] = json!({"resume": "boxed-workspace"});
+    shapes.push(rejoin);
     write(root, "adapters/claude.json", &claude);
 }
 
@@ -541,8 +549,9 @@ fn wanted_launches() -> BTreeMap<String, Vec<String>> {
              {after}--allowedTools WebSearch --disallowedTools WebFetch"
         )
     };
-    // U1g2: every cold launch is served the measured empty set, and the
-    // actual rejoin, whose replacement shape is unmeasured, as before.
+    // U1g2: every cold launch is served the measured empty set, and since
+    // U1d3 the actual rejoin too, its replacement and the fixture's resume
+    // shape measured ([`adapters`]).
     let cold = |line: String| [&[line.as_str()][..], crate::ISOLATED].concat().join(" ");
     let agent = cold(line("--permission-mode acceptEdits ", OPUS, ""));
     let inline = line("", OPUS, "");
@@ -562,7 +571,7 @@ fn wanted_launches() -> BTreeMap<String, Vec<String>> {
             "resumed",
             vec![
                 cold(inline.clone()),
-                format!("{inline} --resume resumed-root-0"),
+                format!("{} --resume resumed-root-0", cold(inline.clone())),
             ],
         ),
         ("replaced", vec![unpersisted.clone(), unpersisted]),
