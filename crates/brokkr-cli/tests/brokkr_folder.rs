@@ -113,6 +113,13 @@ impl Repo {
     }
 
     /// `brokkr <args>` from `dir`, relative to the root, with `stdin`.
+    ///
+    /// A `brokkr` that refuses before it reads, as `secrets set` does with
+    /// no folder, ends without taking its input: when the host runs it to
+    /// its end ahead of this write, the pipe is already closed, and the
+    /// broken pipe says only that, which the code and stderr of the
+    /// [`Ran`] judge. Any other failure to deliver the input is the
+    /// test's.
     fn brokkr_with(&self, dir: &str, args: &[&str], stdin: &str) -> Ran {
         let mut child = self
             .command(dir)
@@ -122,12 +129,10 @@ impl Repo {
             .stderr(Stdio::piped())
             .spawn()
             .unwrap();
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(stdin.as_bytes())
-            .unwrap();
+        let given = child.stdin.take().unwrap().write_all(stdin.as_bytes());
+        if let Err(error) = given {
+            assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe, "{error}");
+        }
         Ran::of(child.wait_with_output().unwrap())
     }
 
