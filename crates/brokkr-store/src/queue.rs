@@ -423,6 +423,16 @@ pub enum QueueRefusal {
         .1
     )]
     BundleMoved(Claim, String),
+    /// Runs whose manifests carry one claim, more than one, which no
+    /// dispatcher writes (decision 0095 ruling 3): none is adopted.
+    #[error(
+        "queue entry {}'s claim {} is carried by runs '{}', and a claim starts one run; none is \
+         adopted",
+        .0.entry,
+        .0.seq,
+        .1.join("', '")
+    )]
+    Carried(Claim, Vec<String>),
 }
 
 /// The standing of one entry, read inside the transaction that acts on it.

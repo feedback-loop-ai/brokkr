@@ -32,7 +32,7 @@ pub use bundle::{
     Aggregate, Bundle, CompileError, Invocation, PanelMember, Seat, SeatBody, SeatClass,
     SequenceStep, StepBody, ENGINE_VERSION,
 };
-pub use dispatch::{take_dispatch, Dispatcher, DispatcherError};
+pub use dispatch::{reconcile, take_dispatch, Dispatcher, DispatcherError, Settled};
 pub use engine::{
     apply_fenced_operator_command, conclude, git_head, operator_command, operator_supersede,
     CarryRefusal, CommandWord, ConcludeRefusal, DriveEnd, Engine, EngineError, FencedCommand,

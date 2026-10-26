@@ -42,6 +42,14 @@
 //! at the start of the pass, holds the entry for the operator by the
 //! dispatcher's own `hold`, in the reclaim's place and in its transaction,
 //! the refusal's row keyed by the `hold`.
+//!
+//! A dispatcher that dies, or is fenced out, mid-start leaves its entry
+//! launching or linked with no `spawn` row, for the next to reconcile
+//! (ruling 3). The run a claim started is found by its manifest, which
+//! carries the claim; the journal's latest holder may link, spawn or
+//! reclaim a claim an older generation took, linking it only to the run
+//! that carries it; and no reclaim, by any generation, ends a claim a run
+//! carries.
 
 use std::num::NonZeroU32;
 
@@ -51,7 +59,7 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use uuid::Uuid;
 
 use super::beside::standing_now;
-use super::holder::latest;
+use super::holder::{holds, latest};
 use super::storage::{queue_stored, wait_row, WAITS};
 use super::{
     exists, leave_order, read_word, record, set_standing, standing, Attribution, EntryId,
@@ -324,13 +332,68 @@ fn claimed_by(claim: Claim, recorded: i64, generation: Generation) -> Result<(),
     }
 }
 
-/// Refuse a step unless its entry stands launching under `claim`, its
-/// latest claim, taken by `generation`.
-fn launching_under(
+/// Who a link, a spawn or a reclaim is taken by, as its check of its
+/// token read the claim: the generation that took it, or the journal's
+/// latest holder settling a claim an older generation took and left, which
+/// is dead or fenced out (decision 0095 ruling 3).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Taker {
+    Own,
+    Successor,
+}
+
+/// [`claimed_by`], or the successor to the generation `recorded`: refused
+/// unless `generation` took the claim, or is newer and the journal's latest
+/// holder.
+fn taken_by(
     tx: &Transaction<'_>,
     claim: Claim,
+    recorded: i64,
     generation: Generation,
-) -> Result<(), StoreError> {
+) -> Result<Taker, StoreError> {
+    if recorded < generation.0 && holds(tx, generation)? {
+        return Ok(Taker::Successor);
+    }
+    claimed_by(claim, recorded, generation).map(|()| Taker::Own)
+}
+
+/// Which runs carry a claim: each whose manifest's `queue_entry` holds the
+/// claim's entry as `entry` and its seq as `claim` (run-manifest/v14,
+/// decision 0095 ruling 5), read as [`crate::ENGINE_OF_RUN`] reads
+/// `engine`: a manifest that is not JSON carries none, `CASE` keeping
+/// `json_each` from it, and of two keys the last answers, as serde reads
+/// them, at each level: the last `queue_entry`, and its last `entry` and
+/// last `claim`, each then read only as an integer, so a later key of
+/// another type overrides an earlier integer. The outer `json_each` is
+/// named, since an inner one's argument would otherwise read its own
+/// `value`.
+const CARRYING: &str = "SELECT run_id FROM runs WHERE CASE WHEN json_valid(manifest) THEN
+         (SELECT CASE pin.type WHEN 'object' THEN
+             (SELECT CASE type WHEN 'integer' THEN atom END FROM json_each(pin.value)
+              WHERE key = 'entry' ORDER BY id DESC LIMIT 1) = ?1
+             AND (SELECT CASE type WHEN 'integer' THEN atom END FROM json_each(pin.value)
+              WHERE key = 'claim' ORDER BY id DESC LIMIT 1) = ?2
+          END FROM json_each(manifest) AS pin WHERE pin.key = 'queue_entry'
+          ORDER BY pin.id DESC LIMIT 1)
+     END ORDER BY run_id";
+
+/// The run whose manifest carries `claim`, or `None` where none does
+/// (decision 0095 ruling 3). Two that carry one claim are no dispatcher's
+/// writing, since a start is fenced by its claim standing launching, so
+/// they are refused rather than one chosen.
+fn carried(tx: &Transaction<'_>, claim: Claim) -> Result<Option<String>, StoreError> {
+    let mut runs: Vec<String> = (tx.prepare(CARRYING)?)
+        .query_map(params![claim.entry.0, claim.seq], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    match runs.len() {
+        0 | 1 => Ok(runs.pop()),
+        _ => Err(QueueRefusal::Carried(claim, runs).into()),
+    }
+}
+
+/// Refuse a step unless its entry stands launching under `claim`, its
+/// latest claim, and say the generation that took it.
+fn launching_under(tx: &Transaction<'_>, claim: Claim) -> Result<i64, StoreError> {
     let state = standing(tx, claim.entry)?;
     let latest: Option<(i64, i64)> = tx
         .query_row(
@@ -342,7 +405,7 @@ fn launching_under(
         .optional()?;
     let under = latest.filter(|&(seq, _)| state == EntryState::Launching && seq == claim.seq);
     match under {
-        Some((_, recorded)) => claimed_by(claim, recorded, generation),
+        Some((_, recorded)) => Ok(recorded),
         None => Err(QueueRefusal::Stale(claim).into()),
     }
 }
@@ -362,9 +425,13 @@ fn link_in(tx: &Transaction<'_>, under: Under<'_>, run: &str) -> Result<(), Stor
         generation,
         reason,
     } = under;
-    launching_under(tx, claim, generation)?;
+    let taker = taken_by(tx, claim, launching_under(tx, claim)?, generation)?;
     if !exists(tx, "SELECT 1 FROM runs WHERE run_id = ?1", &run)? {
         return Err(StoreError::RunNotFound(run.to_string()));
+    }
+    // A successor adopts only the run that carries the claim (ruling 3).
+    if taker == Taker::Successor && carried(tx, claim)?.as_deref() != Some(run) {
+        return Err(QueueRefusal::OtherGeneration(claim, generation).into());
     }
     let taken: Option<i64> = tx
         .query_row(
@@ -406,9 +473,9 @@ fn spawn_in(tx: &Transaction<'_>, under: Under<'_>) -> Result<(), StoreError> {
         )
         .optional()?;
     match unspawned {
-        Some(recorded) => claimed_by(claim, recorded, generation)?,
+        Some(recorded) => taken_by(tx, claim, recorded, generation)?,
         None => return Err(QueueRefusal::Stale(claim).into()),
-    }
+    };
     journal(tx, claim.entry, Step::Spawn, generation, reason).map(drop)
 }
 
@@ -426,7 +493,7 @@ pub fn claim_stands(
     move |tx| {
         queue_stored(tx)?;
         latest(tx, generation)?;
-        launching_under(tx, claim, generation)?;
+        claimed_by(claim, launching_under(tx, claim)?, generation)?;
         let query = "SELECT digest FROM queue_claims WHERE seq = ?1";
         let claimed: String = tx.query_row(query, [claim.seq], |row| row.get(0))?;
         match claimed == digest {
@@ -464,7 +531,12 @@ fn reclaim_in(
         generation,
         reason,
     } = under;
-    launching_under(tx, claim, generation)?;
+    taken_by(tx, claim, launching_under(tx, claim)?, generation)?;
+    // No reclaim ends a claim whose run exists (decision 0095 ruling 3).
+    if let Some(run) = carried(tx, claim)? {
+        let entry = claim.entry;
+        return Err(QueueRefusal::RunTaken { run, entry }.into());
+    }
     let count = counted(tx, claim.entry)?.len() as u32 + u32::from(refused.is_some());
     let (standing, step) = match refused.is_some() && count >= bound.get() {
         true => (Standing::Held, Step::Hold),
@@ -479,6 +551,47 @@ fn reclaim_in(
         )?;
     }
     Ok(count)
+}
+
+/// What a dispatcher left unsettled (decision 0095 ruling 3): each entry
+/// left launching, under its standing claim, with the run whose manifest
+/// carries that claim, if any; and each entry linked with no `spawn` row,
+/// under its claim, with its run.
+type Unsettled = (Vec<(Claim, Option<String>)>, Vec<(Claim, String)>);
+
+/// Each entry in state `?1` with no command `?2`, under its latest claim,
+/// with its run, by entry. [`standing_row`] reads a row.
+const STANDING: &str = "SELECT e.entry_id, c.seq, e.run_id FROM queue_entries e
+        JOIN queue_claims c ON c.seq = (SELECT MAX(seq) FROM queue_claims WHERE entry_id = e.entry_id)
+        WHERE e.state = ?1
+        AND NOT EXISTS (SELECT 1 FROM queue_commands WHERE entry_id = e.entry_id AND command = ?2)
+        ORDER BY e.entry_id";
+
+fn standing_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(Claim, Option<String>)> {
+    let (entry, seq) = (EntryId(row.get(0)?), row.get(1)?);
+    Ok((Claim { entry, seq }, row.get(2)?))
+}
+
+fn unsettled_in<R>(
+    tx: &Transaction<'_>,
+    generation: Generation,
+    judge: &mut impl FnMut(Option<Uuid>) -> Result<(), R>,
+) -> Result<Result<Unsettled, R>, StoreError> {
+    if let Err(refused) = judge(journal_id(tx)?) {
+        return Ok(Err(refused));
+    }
+    latest(tx, generation)?;
+    let words = params![Standing::Launching.word(), Step::Spawn.word()];
+    let standing: Vec<(Claim, Option<String>)> =
+        (tx.prepare(STANDING)?.query_map(words, standing_row)?).collect::<Result<_, _>>()?;
+    let (mut launching, mut linked) = (Vec::new(), Vec::new());
+    for (claim, run) in standing {
+        match run {
+            Some(run) => linked.push((claim, run)),
+            None => launching.push((claim, carried(tx, claim)?)),
+        }
+    }
+    Ok(Ok((launching, linked)))
 }
 
 impl Store {
@@ -603,6 +716,31 @@ impl Store {
         let conn = &mut self.conn;
         patiently("queue_reclaim", self.patience, || {
             in_step(conn, |tx| reclaim_in(tx, under, refused, bound))
+        })
+    }
+
+    /// What the journal's dispatchers left unsettled, for the dispatcher
+    /// of `generation` to reconcile before its pass (decision 0095 ruling
+    /// 3): each entry left launching, under its standing claim, with the
+    /// run whose manifest carries that claim, if any, by one query over
+    /// `runs.manifest`; and each entry linked with no `spawn` row, under
+    /// its claim, with its run. An entry with a `spawn` row is settled.
+    /// `judge` is handed first, inside the query's transaction and before
+    /// anything of the queue is read, the id the journal names itself by,
+    /// as [`Store::journal`] reads it: its refusal is returned as the
+    /// query's, with nothing read past it. Refused unless `generation` is
+    /// the journal's latest holder, and where two runs carry one claim. A
+    /// link, a spawn or a reclaim of a claim an older generation took is
+    /// that latest holder's to take, a link only to the run that carries
+    /// it.
+    pub fn queue_unsettled_with<R>(
+        &mut self,
+        generation: Generation,
+        mut judge: impl FnMut(Option<Uuid>) -> Result<(), R>,
+    ) -> Result<Result<Unsettled, R>, StoreError> {
+        let conn = &mut self.conn;
+        patiently("queue_unsettled", self.patience, || {
+            in_step(conn, |tx| unsettled_in(tx, generation, &mut judge))
         })
     }
 }
