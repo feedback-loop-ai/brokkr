@@ -118,13 +118,13 @@
           "host": "linux"
         },
         "ambient": {
-          "unmeasured": "U0b D09 (keyless spark-glm): with brokkr hands serve inserted as a dsh-mcp-client row in an engine-only DSH_HOME, no home or profile sentinel started and mcp__brokkr__workspace answered; a shape carries no route scope and dsh admits keyed routes U0b never ran, so route-scoped qualification is a carried follow-up"
+          "unmeasured": "U0b D09 and #896 round 2 (2026-10-26, dsh 0.2.1-rc.2): with transport: stdio the hands row started and the model listed mcp__brokkr__ping; without it the server never started and dsh exited 0, and failOnStartupError refused nothing. Every launch composes --dump-config and refuses rows outside the measured 99 and entry-did-not-activate lines (docs/evidence/adapters/dsh-hands-round2)"
         },
         "native_write": {
-          "measured": "#896 (2026-10-26, dsh 0.2.1-rc.2 and rc.3): with the ten hands rows disabled the model's tool list fell from 25 to 9, each row disabled: true in --dump-config; tool rows are profile rows, composed whatever the route; the 9 kept are bookkeeping, writing only session state (goals, todo, plan mode), steering no spawnable agent or reporting the cwd (docs/evidence/adapters/slice-two-dsh-hands.md)"
+          "measured": "#896 round 2 (2026-10-26, dsh 0.2.1-rc.2/rc.3): the ten hands rows disabled left 12 bookkeeping tools, the nine plus mcp-resources' three, which reach only the one MCP server in scope; each disabled row read disabled: true in --dump-config, and sandbox-policy is set from the office's access (docs/evidence/adapters/dsh-hands-round2)"
         },
         "store_read": {
-          "measured": "U0b D10-p5 with #896 (dsh 0.2.1-rc.2): the hands box, Brokkr's whatever the route, masks the 0600 store at its production path behind /dev/null (Permission denied) after U8h, and the hands rows compose no native read, search or shell tool (docs/evidence/adapters/slice-two-dsh-hands.md)"
+          "measured": "U0b D10-p5 with #896 round 2 (dsh 0.2.1-rc.2): the hands box, Brokkr's whatever the route, masks the 0600 store at its production path behind /dev/null (Permission denied) after U8h, and the hands rows compose no native read, search or shell tool; mcp-resources reaches only the seat's one MCP server (docs/evidence/adapters/dsh-hands-round2)"
         },
         "process_read": {
           "measured": "U0b D10-p5 with #896 (dsh 0.2.1-rc.2): the hands box, Brokkr's whatever the route, found no process canary in /proc in its private pid namespace, and the hands rows compose no native shell (docs/evidence/adapters/slice-two-dsh-hands.md)"

@@ -26,6 +26,7 @@ mod composite;
 mod discovery;
 mod dsh_effort;
 mod dsh_hands;
+mod dsh_launch;
 mod dsh_stderr;
 mod lost;
 mod mcp;
@@ -40,7 +41,7 @@ pub use composite::{
     dsh_composite, dsh_composite_prepared, CompositeError, DshComposite, DshInvocation, DshNode,
     DshPrepared, DshSeams, DshSelection, DshUnprepared, DshUnselected,
 };
-pub use dsh_hands::SEAT_CLASS;
+pub use dsh_hands::ACCESS;
 pub use mcp::{harness_auth, HarnessAuthError, StrictCause};
 pub use served_route::split_route;
 
@@ -3734,8 +3735,16 @@ fn invoke_dsh(
     let wait = |child: &mut std::process::Child| {
         child.try_wait().map(|status| status.map(lost::exit_code))
     };
-    invoke_dsh_launch_observed(launch, command, workdir, bindings, emit, wait, &mut |_| {})
-        .map(|invocation| dsh_stderr::name_the_pin(invocation, pinned.extra))
+    dsh_launch::invoke_dsh_launch_observed(
+        launch,
+        command,
+        workdir,
+        bindings,
+        emit,
+        wait,
+        &mut |_| {},
+    )
+    .map(|invocation| dsh_stderr::name_the_pin(invocation, pinned.extra))
 }
 
 /// The DSH plugin's own value-taking selectors and the launcher's control
@@ -4190,6 +4199,10 @@ struct DshLaunch {
     staged: Option<(String, dsh_sandbox::GitScope, dsh_sandbox::SeatGitStore)>,
     /// The one home the plan read and the child is served from (U1c2).
     home: crate::transcript::DshHome,
+    /// Whether this seat's office declares boxed hands, so its one overlay
+    /// carries the hands rows: the composed-tree check and the startup
+    /// report are held to such a seat alone (#896 round 2).
+    hands: bool,
 }
 
 impl DshLaunch {
@@ -4490,6 +4503,7 @@ fn dsh_launch_with(
         facts,
         staged,
         home: served,
+        hands: rows.is_some(),
     })
 }
 
@@ -4699,113 +4713,15 @@ fn invoke_dsh_launch(
 ) -> Result<Invocation, String> {
     let mut command = launch.command.clone();
     command.push(prompt.to_string());
-    invoke_dsh_launch_observed(launch, command, workdir, bindings, emit, wait, &mut |_| {})
-}
-
-/// `invoke_dsh_launch` with this ONE invocation's observer of the
-/// confirmation's completed observations, spawning exactly `command`.
-/// Production watches nothing; a test reads here exactly what the watcher
-/// consumed — never a second walk of its own — and only once the watcher
-/// has ruled on it.
-fn invoke_dsh_launch_observed(
-    mut launch: DshLaunch,
-    command: Vec<String>,
-    workdir: &str,
-    bindings: &[secret::BoundSecret],
-    emit: &mut impl FnMut(&Value),
-    wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
-    observer: &mut impl FnMut(&DshObservation),
-) -> Result<Invocation, String> {
-    // Before any row names the home, a binding over its fixed env refuses.
-    let declared = bindings.iter().map(secret::BoundSecret::name);
-    launch.home.serve(&dsh_child_env(&launch), declared)?;
-    let transcript = Transcript::dsh(&launch.home);
-    let staged = launch.staged.take();
-    let mut session_meta = Map::new();
-    // Decision 0035 addendum 2026-09-11: a dsh seat with no `--effort`
-    // pin compiles only on an effortless route, so the absence IS the
-    // standing — no level to forward, none for any header to echo. It
-    // is seeded so every fold row and the finishing record read `not
-    // applicable` from the first row; a header that echoes a real level
-    // overwrites the seed, which is the applied configuration ruling 3
-    // asks the fold to read.
-    if launch.effortless {
-        session_meta.insert(
-            "effort".into(),
-            Value::String(EFFORT_NOT_APPLICABLE.to_string()),
-        );
-    }
-    // The store is censused BEFORE anything spawns, so a session the
-    // plugin opens instead of rejoining the offered one is visible as a
-    // session that was not there (task 8.8(d), Pass C).
-    let mut watch = DshRootWatch::new(&launch, transcript);
-    let mut hold = LaunchHold::new("deepseek", launch.plan());
-    // The retained locator is published before anything spawns, exactly as
-    // before; `run_seat` holds it until a turn begins (decision 0053). A
-    // REJOIN holds it instead: an attempt that never confirms the offered
-    // root publishes no locator either, because the row would address a
-    // session this driver cannot say it was in (design D7).
-    if !watch.confirming() {
-        watch.record_locator(&mut hold, &mut session_meta, emit);
-    }
-    // The shipped cold route confirms nothing, so its one launch row is
-    // published before the spawn — exactly where it always was, and the
-    // only reason a spawn failure still flushes the held rows. The
-    // stream-json route waits for the init event instead.
-    if !launch.stream_json {
-        hold.finish(emit);
-    }
-    // Everything the seat committed lives in the private store and
-    // nowhere else until the promotion below moves it. Returning early
-    // would drop the store — and the seat's work with it — behind an
-    // error naming neither (decision 0054 ruling 5).
-    let attempt = if launch.stream_json {
-        invoke_dsh_stream_json(
-            &command,
-            &launch,
-            workdir,
-            bindings,
-            &mut watch,
-            &mut hold,
-            &mut session_meta,
-            emit,
-            observer,
-        )
-    } else {
-        invoke_dsh_shipped(
-            &command,
-            workdir,
-            &launch,
-            bindings,
-            wait,
-            &mut session_meta,
-            emit,
-        )
-    };
-    let mut invocation = match attempt {
-        Ok(invocation) => invocation,
-        Err(problem) => return Err(dsh_failure_before_promotion(problem, staged)),
-    };
-    // The seat wrote its objects and moved its branch inside the private
-    // common directory the driver staged; the shared repository was
-    // read-only to it throughout. This is where the ONE ref the worktree
-    // owns crosses over, outside every box (decision 0054 ruling 5). A
-    // promotion that cannot happen is a driver failure with the store's
-    // path in it, never a silent loss of the seat's commits.
-    if let Some((_, scope, store)) = staged {
-        if let Some(promotion) = dsh_sandbox::promote_seat_commits(store, &scope)? {
-            invocation.stderr.push_str(&promotion.summary());
-            invocation.stderr.push('\n');
-        }
-    }
-    // The qualified route's launch row was held until the harness named
-    // its root, or until the invocation ended without one (`finish` is a
-    // no-op once a confirmation has already published).
-    if launch.stream_json {
-        hold.finish(emit);
-    }
-    invocation.launch = hold.terminal();
-    Ok(invocation)
+    dsh_launch::invoke_dsh_launch_observed(
+        launch,
+        command,
+        workdir,
+        bindings,
+        emit,
+        wait,
+        &mut |_| {},
+    )
 }
 
 /// Spawn one dsh child with the given stdout disposition, and drain its

@@ -124,12 +124,10 @@ pub enum CompileError {
     #[error("bundle: {0}")]
     Folder(compose::FolderSeatRefusal),
 }
-
 /// How [`CompileError::Capability`] renders.
 fn capability_line(reason: &str) -> String {
     brokkr_protocol::native_controls::bounded_line(&format!("bundle: {reason}"))
 }
-
 /// The engine-owned inputs live with the policy that reads them, because
 /// the loader's presence refusal (decision 0050, ruling 1) exempts them.
 pub use brokkr_core::policy::{is_engine_owned, ENGINE_OWNED_INPUTS, REALM_FACTS};
@@ -147,7 +145,6 @@ pub(crate) fn dialect_results(phase: &str) -> [&'static str; 2] {
         }
     }
 }
-
 #[derive(Debug, Clone)]
 pub struct Seat {
     /// True when every invocation site in this seat is a gate. The runtime
@@ -170,7 +167,6 @@ pub struct Seat {
     pub secrets: Vec<String>,
     pub body: SeatBody,
 }
-
 /// One agent session, a parallel panel joined by a declared
 /// deterministic rule, or a serial sequence of named steps (decision
 /// 0002's sanctioned forms: composition INSIDE the executor — one
@@ -197,7 +193,6 @@ pub enum SeatBody {
         default: Option<Box<SeatBody>>,
     },
 }
-
 #[derive(Clone, Copy)]
 pub enum ExecutableBody<'a> {
     Invocation(&'a Invocation),
@@ -401,6 +396,8 @@ pub struct SiteFacts {
     /// that declared nothing. Containers never own one. Private compile
     /// data: not a manifest field and not a grant.
     pub local: Option<crate::agents::LocalTools>,
+    /// #896 round 2: the office's declared hands access; `None` inline.
+    pub access: Option<brokkr_protocol::native_controls::Access>,
     /// Rebuild unit 5b (design D5.3, D5.7): an inline Claude or LaneTally
     /// site's typed allow, lowered by the engine onto its adapter's tool
     /// permissions. The engine appends it behind the authored command as
@@ -1260,6 +1257,7 @@ fn resolve_reference(
     )
     .map_err(|e| CompileError::Invalid(format!("seat '{what}': {e}")))?;
     let effective = report.agent.local();
+    let access = report.agent.access;
     let at = ReferenceAt {
         engine,
         dir,
@@ -1285,6 +1283,8 @@ fn resolve_reference(
     // The effective local declaration, beside the site's other facts
     // (design D5.2): a checked value even where nothing was declared.
     site_facts(sites, what).local = Some(effective);
+    // #896 round 2: the office's access travels with its hands.
+    site_facts(sites, what).access = Some(access);
     Ok(ResolvedSeat {
         role_path: resolution.charter.clone(),
         command: candidates[0].argv.clone(),

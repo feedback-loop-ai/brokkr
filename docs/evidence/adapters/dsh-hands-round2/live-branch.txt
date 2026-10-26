@@ -1,0 +1,8 @@
+# dsh 0.2.1-rc.2, headless, deepseek-official/deepseek-flash, 2026-10-26, overlay-branch.yml
+## stdout
+create_goal, exit_plan_mode, get_goal, interrupt_agent, list_agents, list_mcp_resource_templates, list_mcp_resources, read_mcp_resource, send_message, todo_write, update_goal, working_directory
+exit=0
+## stderr
+dsh: reasoning:
+We need answer exact tool names comma-separated nothing else. Need list all tools available: create_goal, exit_plan_mode, get_goal, interrupt_agent, list_agents, list_mcp_resource_templates, list_mcp_resources, read_mcp_resource, send_message, todo_write, update_goal, working_directory. Ensure exact names.
+## server starts: 0

@@ -5833,5 +5833,5 @@ fn notice_and_evidence_bytes_each_move_the_adapter_digest() {
         json!({"version": "1.2.3", "applies_to": "1.2.3"})
     );
 }
-
+mod access;
 mod harness_auth;

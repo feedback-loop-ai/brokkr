@@ -39,7 +39,7 @@ use std::path::PathBuf;
 
 use brokkr_core::canonical::sha256_hex;
 use brokkr_protocol::native_controls::{
-    flatten, AllowIntent, Application, HandsIntent, ListFlag, LocalExpectation, Origin,
+    flatten, Access, AllowIntent, Application, HandsIntent, ListFlag, LocalExpectation, Origin,
     SandboxIntent, Segment, TemplateExpectation,
 };
 use serde_json::{json, Value};
@@ -65,7 +65,6 @@ pub enum Presence {
     Unavailable,
     Unknown,
 }
-
 /// Provider → presence. `unspecified()` carries no facts, so resolution
 /// performs no availability filtering at all.
 #[derive(Debug, Clone)]
@@ -76,13 +75,11 @@ impl Availability {
     pub fn unspecified() -> Availability {
         Availability(BTreeMap::new())
     }
-
     /// Record one probed fact. `brokkr doctor` is the real consumer of
     /// the non-`Unknown` arms.
     pub fn record(&mut self, provider: &str, presence: Presence) {
         self.0.insert(provider.to_string(), presence);
     }
-
     pub fn presence(&self, provider: &str) -> Presence {
         self.0.get(provider).copied().unwrap_or(Presence::Unknown)
     }
@@ -121,6 +118,9 @@ pub struct Agent {
     /// restriction under the realm's boundary authority — never a
     /// boundary, never a capability grant.
     pub sandbox: Option<Sandbox>,
+    /// What its boxed hands may do (#896 round 2): `read-only` or `writes`,
+    /// declared as data; absent is `writes`, today's behaviour.
+    pub access: Access,
     /// Decision 0065 ruling 1: the capabilities this office asks for, by
     /// abstract name, each `requires` or `wants`. A request, never a
     /// grant: it names no dialect, server, provider or tool.

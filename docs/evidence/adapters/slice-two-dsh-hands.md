@@ -4,7 +4,10 @@ Issue #896, beside slice two's
 [MCP isolation record](slice-two-mcp-isolation.md). This record backs the
 `cold` shape with `"hands": "boxed"` in `adapters/dsh.json` and the hands
 rows `brokkr driver dsh` writes into a seat's one `--patch` overlay
-(`crates/brokkr-protocol/src/adapters/dsh_hands.rs`).
+(`crates/brokkr-protocol/src/adapters/dsh_hands.rs`). Its row shape and
+its pending list are superseded in part by
+[round 2](dsh-hands-round2.md), which added the measured `transport`, the
+composed-tree check, the activation refusal and the access carrier.
 
 ## Provenance
 

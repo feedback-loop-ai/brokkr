@@ -33,3 +33,26 @@ fn a_boxed_office_is_hired_from_the_shipped_dsh_adapter() {
         assert_eq!(dsh.argv[1..], pinned, "{models:?}");
     }
 }
+
+/// #896 round 2, D2: the access comes from the office, not the class. A
+/// read-only office hired at work class still carries `read-only`, so its
+/// dsh sandbox is read-only rather than workspace-write.
+#[test]
+fn a_read_only_office_hired_at_work_class_carries_read_only_access() {
+    use brokkr_protocol::native_controls::Access;
+    let fixture = Fixture::new();
+    fixture.write_agent_file("review-adversarial", &["glm-flash"], None, true);
+    let path = fixture.agents().join("review-adversarial.json");
+    let mut body: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    body["access"] = json!("read-only");
+    std::fs::write(&path, serde_json::to_string(&body).unwrap()).unwrap();
+    let (agents, adapters) = (fixture.agents(), shipped_adapters());
+    let seat = boxed_seat("review-adversarial", "work");
+    let bundle = fixture
+        .compile_roots(seat, &agents, &adapters, Boundary::Namespace)
+        .expect("the read-only office compiles at work class");
+    assert_eq!(
+        bundle.sites.get("work").unwrap().access,
+        Some(Access::ReadOnly)
+    );
+}

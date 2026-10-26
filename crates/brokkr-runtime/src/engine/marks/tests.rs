@@ -1,27 +1,29 @@
-//! The seat-class mark a boxed site's hands carry (#896).
+//! The hands-access mark a boxed site carries (#896 round 2).
 
 use brokkr_core::realms::{Boundary, BOUNDARIES};
-use brokkr_protocol::adapters::SEAT_CLASS;
+use brokkr_protocol::adapters::ACCESS;
 use brokkr_protocol::hands::HandsSpec;
+use brokkr_protocol::native_controls::Access;
 use serde_json::{json, Value};
 
 use super::super::tests::{engine, set_site_hands, single_body};
 use super::super::Engine;
 use crate::bundle::{HandsState, SiteFacts};
 
-/// The class `engine` marks site `work` with for a `gate` or not, over an
+/// The access `engine` marks site `work` with for a `gate` or not, over an
 /// input that carried a stale one.
 fn mark(engine: &Engine, gate: bool) -> Option<Value> {
-    let mut input = json!({SEAT_CLASS: "stale", "context": {}});
-    engine.marks().class("work", gate, &mut input);
-    input.get(SEAT_CLASS).cloned()
+    let mut input = json!({ACCESS: "stale", "context": {}});
+    engine.marks().access("work", gate, &mut input);
+    input.get(ACCESS).cloned()
 }
 
-/// A boxed site with hands is marked `gate` or `work`; a site without
+/// A boxed site with hands is marked from the access its office declared,
+/// or from the gate class where no office declared one; a site without
 /// hands, unknown or unregistered, or one Brokkr does not box, carries no
-/// class, and the stale carrier is gone.
+/// access, and the stale carrier is gone.
 #[test]
-fn only_a_boxed_site_with_hands_carries_its_seat_class() {
+fn only_a_boxed_site_with_hands_carries_its_access() {
     let (_dir, mut engine) = engine(single_body(vec!["d".into()]));
     let mut rows = Vec::new();
     for facts in [None, Some(HandsState::Unknown), Some(HandsState::NoHands)] {
@@ -49,16 +51,22 @@ fn only_a_boxed_site_with_hands_carries_its_seat_class() {
         engine.boundary = boundary;
         let expected = match boundary {
             Boundary::Namespace | Boundary::Seatbelt | Boundary::Container => {
-                [Some(json!("gate")), Some(json!("work"))]
+                [Some(json!("read-only")), Some(json!("writes"))]
             }
             Boundary::Harness | Boundary::Open => [None, None],
         };
         let marked = [mark(&engine, true), mark(&engine, false)];
         assert_eq!(marked, expected, "{boundary}");
     }
-    // Every model site's spawn-time marks carry it.
+    // Every model site's spawn-time marks carry the office's own access,
+    // not the class: a read-only office hired at work class is read-only.
     engine.boundary = Boundary::Namespace;
+    engine.bundle.sites.get_mut("work").unwrap().access = Some(Access::ReadOnly);
+    let mut input = json!({"context": {}});
+    engine.marks().site("work", false, None, &mut input);
+    assert_eq!(input[ACCESS], json!("read-only"));
+    engine.bundle.sites.get_mut("work").unwrap().access = Some(Access::Writes);
     let mut input = json!({"context": {}});
     engine.marks().site("work", true, None, &mut input);
-    assert_eq!(input[SEAT_CLASS], json!("gate"));
+    assert_eq!(input[ACCESS], json!("writes"));
 }

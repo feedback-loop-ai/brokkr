@@ -1,0 +1,33 @@
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-jobs
+  disabled: true
+- id: tool-fs
+  disabled: true
+- id: tool-fs-search
+  disabled: true
+- id: tool-skill
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: tool-web
+  disabled: true
+- id: sandbox-policy
+  config:
+    mode: read-only
+- insert:
+    - id: brokkr-hands
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: probe
+        command: '/usr/bin/python3'
+        args:
+          - '-I'
+          - '$FACTS/probe_mcp.py'
+          - '$FACTS/started-branch.txt'

@@ -14,10 +14,20 @@
 //! refused before it starts rather than served a tool row nobody measured.
 //!
 //! Beside them the overlay sets dsh's own sandbox, defence in depth under
-//! the box: `read-only` for a gate, `workspace-write` for a work seat,
-//! from the seat class the engine marks ([`SEAT_CLASS`]). And it inserts
+//! the box: `read-only` for an office that reviews and writes no worktree
+//! file, `workspace-write` for one that writes, from the access the office
+//! declares ([`ACCESS`], [`crate::native_controls::Access`]). And it inserts
 //! Brokkr's workspace server, `brokkr hands serve` bound as the final
 //! check binds it, as the engine's `dsh-mcp-client` row (U0 D03, U0b D09).
+//!
+//! The row carries `transport: stdio` and `failOnStartupError: true`: on
+//! 0.2.1-rc.2 a row without `transport` never started its server and dsh
+//! exited 0 with no warning at all, and `failOnStartupError` alone does not
+//! refuse a failed server either (docs/evidence/adapters/dsh-hands-round2).
+//! So the driver also reads the startup it ran: a hand that did not
+//! activate fails the seat closed ([`report`]), and every launch first
+//! composes the seat's own tree with `--dump-config` and refuses any row
+//! outside the measured 99 ([`composition`]).
 
 use serde_json::Value;
 use thiserror::Error;
@@ -27,11 +37,16 @@ use super::route_overlay::{self, Refused};
 use super::{dsh_sandbox_row_for, observed_version};
 use crate::dsh_sandbox::{self, GitScope, SeatGitStore};
 use crate::hands::{GitFacts, SERVER_NAME};
+use crate::native_controls::Access;
 
-/// The driver-input key the engine marks a boxed site's seat class under,
-/// `gate` or `work`, beside its `hands` marker: a spawn-time fact of the
-/// site, written by the engine alone (#896).
-pub const SEAT_CLASS: &str = "seat_class";
+mod composition;
+mod report;
+
+/// The driver-input key the engine marks a boxed site's hands access under,
+/// `read-only` or `writes`, beside its `hands` marker: a spawn-time fact of
+/// the site, written by the engine alone from the office's declaration
+/// (#896 round 2).
+pub const ACCESS: &str = "seat_access";
 
 /// The dsh releases the hands rows were measured on (2026-10-26).
 const MEASURED_VERSIONS: [&str; 2] = ["0.2.1-rc.2", "0.2.1-rc.3"];
@@ -88,14 +103,20 @@ impl Mode {
             .find(|mode| mode.word() == word)
     }
 
-    /// The mode the engine's seat class selects: a gate's office reviews
-    /// and writes no worktree file, so it runs read-only; a work seat
-    /// writes. A class the input does not name is refused, never guessed.
+    /// The mode the office's declared access selects: an office that
+    /// reviews and writes no worktree file runs read-only, one that writes
+    /// runs workspace-write. The typed carrier is decoded here, once, at
+    /// the driver edge; a missing or unknown value is refused, never
+    /// guessed from the seat's gate class (decision 0071 rulings 2 and 3).
     fn of(input: &Value) -> Result<Mode, Refusal> {
-        match input.get(SEAT_CLASS).and_then(Value::as_str) {
-            Some("gate") => Ok(Mode::ReadOnly),
-            Some("work") => Ok(Mode::WorkspaceWrite),
-            _ => Err(Refusal::NoClass),
+        let access: Access = input
+            .get(ACCESS)
+            .cloned()
+            .ok_or(Refusal::NoAccess)
+            .and_then(|value| serde_json::from_value(value).map_err(|_| Refusal::NoAccess))?;
+        match access {
+            Access::ReadOnly => Ok(Mode::ReadOnly),
+            Access::Writes => Ok(Mode::WorkspaceWrite),
         }
     }
 }
@@ -105,10 +126,10 @@ impl Mode {
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub(super) enum Refusal {
     #[error(
-        "refusing to invoke the dsh driver: the engine names no seat class for a seat whose \
+        "refusing to invoke the dsh driver: the engine names no hands access for a seat whose \
          office declares hands, so dsh's own sandbox mode cannot be chosen (#896)"
     )]
-    NoClass,
+    NoAccess,
     #[error(
         "refusing to invoke the dsh driver: {observed} is not a dsh release its hands rows were \
          measured on ({}), and a tool row nobody measured could stay enabled beside the box, so \
@@ -202,6 +223,8 @@ fn hands_rows(mode: Mode, command: &str, args: &[String]) -> Result<String, Refu
          \x20     name: '{MCP_CLIENT}'\n\
          \x20     config:\n\
          \x20       serverName: {SERVER_NAME}\n\
+         \x20       transport: stdio\n\
+         \x20       failOnStartupError: true\n\
          \x20       command: '{}'\n\
          \x20       args:\n",
         scalar(command)?
@@ -220,3 +243,30 @@ fn scalar(value: &str) -> Result<String, Refusal> {
 
 #[cfg(test)]
 mod tests;
+
+/// The composed-tree check as the launch states it, before any child
+/// spawns (#896 round 2, D1).
+pub(crate) fn composition_gate(
+    bin: &str,
+    overlay: &std::path::Path,
+    env: &[(&str, &str)],
+) -> Result<(), String> {
+    composition::composed(bin, overlay, env).map_err(String::from)
+}
+
+/// The startup dsh reported, read after its session (#896 round 2, D0 and
+/// D4): a failed hand or an unavailable sandbox refuses, and partial
+/// enforcement lands on the row the operator reads.
+pub(crate) fn startup_gate(
+    stderr: &str,
+    meta: &mut serde_json::Map<String, Value>,
+) -> Result<(), String> {
+    match report::checked(stderr) {
+        Ok(report::Enforcement::Partial) => {
+            meta.insert("sandbox".into(), Value::String("partial".into()));
+            Ok(())
+        }
+        Ok(report::Enforcement::Full) => Ok(()),
+        Err(refusal) => Err(refusal.to_string()),
+    }
+}

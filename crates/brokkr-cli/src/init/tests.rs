@@ -188,6 +188,7 @@ fn an_agents_allowance_follows_its_seats_class() {
         models: &[("opus", Effort::High)],
         codex: &[("sol", Effort::Medium)],
         dsh: Some(&[("pro", Effort::High)]),
+        access: None,
         max_attempts: 2,
         timeout_seconds: 5400,
     };
@@ -198,6 +199,7 @@ fn an_agents_allowance_follows_its_seats_class() {
         models: &[("sonnet", Effort::High)],
         codex: &[("sol", Effort::Medium)],
         dsh: None,
+        access: None,
         max_attempts: 2,
         timeout_seconds: 3600,
     };

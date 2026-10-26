@@ -1,5 +1,5 @@
 //! A dsh seat's hands rows (#896): the measured set exactly, the bounded
-//! reader's one shape for them, the version they bind to, the seat class
+//! reader's one shape for them, the version they bind to, the hands access
 //! their sandbox mode follows, and a seat with no hands served as before.
 
 use std::path::Path;
@@ -51,7 +51,8 @@ fn server_row(command: &str, args: &[String]) -> String {
     let quoted = |value: &str| value.replace('\'', "''");
     let mut row = format!(
         "- insert:\n    - id: brokkr-hands\n      name: '@deepseek-ai/dsh-mcp-client'\n      \
-         config:\n        serverName: brokkr\n        command: '{}'\n        args:\n",
+         config:\n        serverName: brokkr\n        transport: stdio\n        \
+         failOnStartupError: true\n        command: '{}'\n        args:\n",
         quoted(command)
     );
     for arg in args {
@@ -65,8 +66,8 @@ fn s(parts: &[&str]) -> Vec<String> {
 }
 
 /// A driver input as dispatch seals it for an office whose hands stand
-/// under `stands`, the seat class marked `class` where one is.
-fn sealed(stands: SealedBoundary, class: Option<&str>) -> Value {
+/// under `stands`, the hands access marked `access` where one is.
+fn sealed(stands: SealedBoundary, access: Option<&str>) -> Value {
     let dialect = SealedDialect {
         stands: Some(stands),
         ..Default::default()
@@ -74,8 +75,8 @@ fn sealed(stands: SealedBoundary, class: Option<&str>) -> Value {
     let inputs = dispatched(dialect, Vec::new(), Some(HandsSpec::default()));
     let mut input = json!({"workdir": "/w", ARTIFACT_ROOT: "/a", SERVING_INPUTS: inputs});
     input[SEALED_REACH] = serde_json::to_value(reach()).unwrap();
-    if let Some(class) = class {
-        input[SEAT_CLASS] = json!(class);
+    if let Some(access) = access {
+        input[ACCESS] = json!(access);
     }
     input
 }
@@ -238,20 +239,20 @@ fn only_a_measured_release_is_served_the_hands_rows() {
     );
 }
 
-/// A gate runs dsh's sandbox read-only and a work seat workspace-write;
-/// a class the input does not name is refused.
+/// A read-only office runs dsh's sandbox read-only and a writing office
+/// workspace-write; an access the input does not name is refused.
 #[test]
-fn the_seat_class_selects_the_sandbox_mode() {
-    let class = |value: Value| Mode::of(&json!({SEAT_CLASS: value}));
-    assert_eq!(class(json!("gate")), Ok(Mode::ReadOnly));
-    assert_eq!(class(json!("work")), Ok(Mode::WorkspaceWrite));
-    for other in [json!("review"), json!(1), Value::Null] {
-        assert_eq!(class(other), Err(Refusal::NoClass));
+fn the_offices_access_selects_the_sandbox_mode() {
+    let access = |value: Value| Mode::of(&json!({ACCESS: value}));
+    assert_eq!(access(json!("read-only")), Ok(Mode::ReadOnly));
+    assert_eq!(access(json!("writes")), Ok(Mode::WorkspaceWrite));
+    for other in [json!("gate"), json!("work"), json!(1), Value::Null] {
+        assert_eq!(access(other), Err(Refusal::NoAccess));
     }
-    assert_eq!(Mode::of(&json!({})), Err(Refusal::NoClass));
+    assert_eq!(Mode::of(&json!({})), Err(Refusal::NoAccess));
     assert_eq!(
-        Refusal::NoClass.to_string(),
-        "refusing to invoke the dsh driver: the engine names no seat class for a seat whose \
+        Refusal::NoAccess.to_string(),
+        "refusing to invoke the dsh driver: the engine names no hands access for a seat whose \
          office declares hands, so dsh's own sandbox mode cannot be chosen (#896)"
     );
     assert_eq!(Mode::named("danger-full-access"), None);
@@ -270,18 +271,18 @@ fn a_boxed_seat_is_served_the_hands_rows_and_any_other_as_before() {
     let dsh = dsh.to_str().unwrap();
     let brokkr = std::env::current_exe().unwrap();
     let brokkr = brokkr.to_str().unwrap();
-    for (class, word) in [("gate", "read-only"), ("work", "workspace-write")] {
-        let input = sealed(SealedBoundary::Namespace, Some(class));
+    for (access, word) in [("read-only", "read-only"), ("writes", "workspace-write")] {
+        let input = sealed(SealedBoundary::Namespace, Some(access));
         let (staged, rows) = sandbox(dsh, workdir, &facts, &input).unwrap();
-        assert!(staged.is_none(), "{class}");
+        assert!(staged.is_none(), "{access}");
         let server = server_row(brokkr, &bound(workdir));
         assert_eq!(rows, Some(format!("{MEASURED_HEAD}{word}\n{server}")));
     }
     let unprobed = "/nonexistent/dsh";
     for input in [
         json!({"workdir": workdir}),
-        sealed(SealedBoundary::Harness, Some("gate")),
-        sealed(SealedBoundary::Open, Some("work")),
+        sealed(SealedBoundary::Harness, Some("read-only")),
+        sealed(SealedBoundary::Open, Some("writes")),
         json!({SERVING_INPUTS: dispatched(SealedDialect::default(), Vec::new(), None)}),
     ] {
         let (staged, rows) = sandbox(unprobed, workdir, &facts, &input).unwrap();
@@ -290,7 +291,7 @@ fn a_boxed_seat_is_served_the_hands_rows_and_any_other_as_before() {
 }
 
 /// A boxed seat is refused on an unmeasured release, without a seat
-/// class, or with sealed inputs that cannot be read, before any row is
+/// access, or with sealed inputs that cannot be read, before any row is
 /// written.
 #[cfg(unix)]
 #[test]
@@ -299,7 +300,7 @@ fn a_boxed_seat_is_refused_before_its_rows_are_written() {
     let workdir = dir.path().to_str().unwrap();
     let facts = GitFacts::default();
     let newer = dsh_version_shim(dir.path(), "newer", "0.2.2");
-    let boxed = sealed(SealedBoundary::Seatbelt, Some("gate"));
+    let boxed = sealed(SealedBoundary::Seatbelt, Some("read-only"));
     let refused = |bin: &str, input: &Value| sandbox(bin, workdir, &facts, input).err();
     assert_eq!(
         refused(newer.to_str().unwrap(), &boxed),
@@ -311,10 +312,10 @@ fn a_boxed_seat_is_refused_before_its_rows_are_written() {
     let measured = measured.to_str().unwrap();
     let spanning = sandbox(measured, "/w\nx", &facts, &boxed).err();
     assert_eq!(spanning, Some(Refusal::Multiline));
-    let classless = sealed(SealedBoundary::Container, None);
+    let accessless = sealed(SealedBoundary::Container, None);
     assert_eq!(
-        refused("/nonexistent/dsh", &classless),
-        Some(Refusal::NoClass)
+        refused("/nonexistent/dsh", &accessless),
+        Some(Refusal::NoAccess)
     );
     let unreadable = json!({SERVING_INPUTS: "garbage"});
     let refusal = refused("/nonexistent/dsh", &unreadable).unwrap();
@@ -324,7 +325,10 @@ fn a_boxed_seat_is_refused_before_its_rows_are_written() {
         "refusing to invoke the agent CLI: the engine's MCP isolation intent cannot be read, so \
          no strict MCP configuration is built"
     );
-    assert_eq!(String::from(Refusal::NoClass), Refusal::NoClass.to_string());
+    assert_eq!(
+        String::from(Refusal::NoAccess),
+        Refusal::NoAccess.to_string()
+    );
 }
 
 /// The launch itself: a boxed seat's one overlay is its transcript row
@@ -345,7 +349,7 @@ fn a_dsh_launch_carries_the_hands_rows_only_where_its_office_declares_them() {
     };
     let brokkr = std::env::current_exe().unwrap();
     let server = server_row(&brokkr.to_string_lossy(), &bound(workdir));
-    let boxed = launch(&sealed(SealedBoundary::Namespace, Some("gate"))).unwrap();
+    let boxed = launch(&sealed(SealedBoundary::Namespace, Some("read-only"))).unwrap();
     assert!(boxed.staged.is_none());
     assert_eq!(
         std::fs::read_to_string(boxed.overlay.path()).unwrap(),
@@ -365,7 +369,7 @@ fn a_dsh_launch_carries_the_hands_rows_only_where_its_office_declares_them() {
         &[],
         workdir,
         None,
-        &sealed(SealedBoundary::Namespace, Some("work")),
+        &sealed(SealedBoundary::Namespace, Some("writes")),
         |_| panic!("refused before any composite"),
     )
     .err()
@@ -374,4 +378,167 @@ fn a_dsh_launch_carries_the_hands_rows_only_where_its_office_declares_them() {
         observed: "dsh '0.1.5-rc.1'".into(),
     };
     assert_eq!(refused, unmeasured.to_string());
+}
+
+/// The row the driver writes is the measured stdio row: a server without
+/// `transport` never started on 0.2.1-rc.2 and dsh said nothing.
+#[test]
+fn the_workspace_server_row_carries_the_measured_transport_and_startup_policy() {
+    let rows = hands_rows(Mode::ReadOnly, "/bin/brokkr", &s(&["hands"])).unwrap();
+    let server = rows
+        .split("- insert:")
+        .nth(1)
+        .expect("the insert row is written");
+    assert!(server.contains("transport: stdio"), "{server}");
+    assert!(server.contains("failOnStartupError: true"), "{server}");
+}
+
+/// dsh's measured startup report: an entry that did not activate, or a
+/// sandbox that cannot confine, fails the seat closed; the launcher's
+/// partial line is carried, and a clean start adds nothing.
+#[test]
+fn the_dsh_startup_report_fails_closed_and_carries_partial() {
+    use super::report::{checked, Enforcement, ReportRefusal};
+    let warning = "dsh: warning: 1 entry did not activate\n\
+                   brokkr-hands (@deepseek-ai/dsh-mcp-client): Error: mcp-client(probe): initial \
+                   connection or tool synchronization failed\n";
+    assert_eq!(checked(warning), Err(ReportRefusal::NotActivated));
+    assert_eq!(
+        checked(
+            "brokkr-hands (@deepseek-ai/dsh-mcp-client): Error: mcp-client(probe): initial \
+                 connection or tool synchronization failed\n"
+        ),
+        Err(ReportRefusal::NotActivated)
+    );
+    assert_eq!(
+        checked(
+            "Error: sandbox mode \"read-only\" is requested but no sandbox backend is usable \
+                 on this host; refusing to run the command unconfined.\n"
+        ),
+        Err(ReportRefusal::SandboxUnavailable)
+    );
+    assert_eq!(
+        checked("HarnessError: SANDBOX_UNAVAILABLE\n"),
+        Err(ReportRefusal::SandboxUnavailable)
+    );
+    assert_eq!(
+        checked("landlock-run: partial enforcement (older Landlock ABI)\n"),
+        Ok(Enforcement::Partial)
+    );
+    let mut meta = serde_json::Map::new();
+    assert_eq!(
+        startup_gate(
+            "landlock-run: partial enforcement (older Landlock ABI)\n",
+            &mut meta
+        ),
+        Ok(())
+    );
+    assert_eq!(meta["sandbox"], json!("partial"));
+    assert!(startup_gate(warning, &mut serde_json::Map::new()).is_err());
+    assert_eq!(checked("dsh: done\n"), Ok(Enforcement::Full));
+    assert_eq!(
+        checked("dsh: warning: 0 entries did not activate\n"),
+        Ok(Enforcement::Full)
+    );
+    assert_eq!(
+        ReportRefusal::NotActivated.to_string(),
+        "refusing the dsh seat: the hands row 'brokkr-hands' did not activate, so the seat's one \
+         effectful tool was never served; dsh ran the session anyway (#896 D0)"
+    );
+}
+
+/// The composed-tree allowlist is the controller's measured dump, row for
+/// row, and an extra row refuses by its id and package.
+#[test]
+fn the_composed_tree_is_the_measured_dump_and_refuses_an_ambient_row() {
+    use super::composition::{judge, rows, Composition, MEASURED_COMPOSITION};
+    let measured =
+        include_str!("../../../../../docs/evidence/adapters/dsh-hands-round2/dump-stdio.txt");
+    let parsed = rows(measured.as_bytes()).unwrap();
+    let mut found: Vec<(&str, &str)> = parsed
+        .iter()
+        .map(|row| (row.id.as_str(), row.name.as_str()))
+        .collect();
+    let mut expected = MEASURED_COMPOSITION.to_vec();
+    found.sort_unstable();
+    expected.sort_unstable();
+    assert_eq!(found, expected);
+    assert_eq!(parsed.len(), 99);
+
+    let base = "- id: brokkr-hands\n  name: '@deepseek-ai/dsh-mcp-client'\n";
+    let cases = [
+        (
+            format!("{base}- id: ambient-tool\n  name: '@deepseek-ai/dsh-tool-bash'\n"),
+            Some(Composition::Unmeasured {
+                id: "ambient-tool".into(),
+                name: "@deepseek-ai/dsh-tool-bash".into(),
+            }),
+        ),
+        (
+            format!("{base}- id: ambient-hands\n  name: '@deepseek-ai/dsh-mcp-client'\n"),
+            Some(Composition::SecondClient {
+                id: "ambient-hands".into(),
+            }),
+        ),
+        (
+            format!("{base}- id: tool-web\n  name: '@deepseek-ai/dsh-tool-web'\n"),
+            Some(Composition::Enabled {
+                id: "tool-web".into(),
+            }),
+        ),
+        (base.to_string(), None),
+        (
+            format!("{base}{base}"),
+            Some(Composition::Repeated {
+                id: "brokkr-hands".into(),
+            }),
+        ),
+    ];
+    for (dump, expected) in cases {
+        assert_eq!(
+            judge(&rows(dump.as_bytes()).unwrap()).err(),
+            expected,
+            "{dump}"
+        );
+    }
+    assert_eq!(rows(b"not a dump\n").err(), Some(Composition::Unreadable));
+}
+
+/// The check runs `dsh --dump-config` under the seat's own environment,
+/// and an ambient row there is the refusal.
+#[cfg(unix)]
+#[test]
+fn a_launch_composes_the_seats_own_tree_and_refuses_an_ambient_row() {
+    use super::composition::{composed, Composition};
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let overlay = dir.path().join("overlay.yml");
+    std::fs::write(&overlay, "- id: x\n").unwrap();
+    let dsh = dir.path().join("dsh");
+    std::fs::write(
+        &dsh,
+        "#!/bin/sh\n\
+         [ \"$BROKKR_TEST_LAUNCH_ENV\" = wanted ] || { echo '- id: ambient'; \
+         echo \"  name: '@deepseek-ai/dsh-ambient'\"; exit 0; }\n\
+         echo '- id: brokkr-hands'\n\
+         echo \"  name: '@deepseek-ai/dsh-mcp-client'\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&dsh, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let bin = dsh.to_str().unwrap();
+    assert_eq!(
+        composed(bin, &overlay, &[("BROKKR_TEST_LAUNCH_ENV", "wanted")]),
+        Ok(())
+    );
+    assert_eq!(
+        composed(bin, &overlay, &[]),
+        Err(Composition::Unmeasured {
+            id: "ambient".into(),
+            name: "@deepseek-ai/dsh-ambient".into(),
+        })
+    );
+    assert_eq!(
+        composed("/nonexistent/dsh", &overlay, &[]),
+        Err(Composition::Unreadable)
+    );
 }
