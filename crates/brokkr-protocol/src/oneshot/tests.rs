@@ -3,9 +3,11 @@ use serde_json::json;
 
 use crate::{Body, Message, ResultStatus};
 
-/// The literal the scripted driver rewrites with the effect id the
-/// transport actually chose — the transport refuses a foreign one.
+/// The literals the scripted driver rewrites with the effect and attempt
+/// ids the transport actually chose — the transport refuses a foreign one
+/// of either (decision 0096).
 const EID: &str = "__EID__";
+const AID: &str = "__AID__";
 
 fn wire(body: Body) -> String {
     serde_json::to_string(&Message::new(body)).unwrap()
@@ -29,13 +31,13 @@ impl Scripted {
         });
         let mut bodies = vec![wire(Body::Accepted {
             effect_id: EID.into(),
-            attempt_id: "a".into(),
+            attempt_id: AID.into(),
             session_ref: None,
         })];
         for data in checkpoints {
             bodies.push(wire(Body::Checkpoint {
                 effect_id: EID.into(),
-                attempt_id: "a".into(),
+                attempt_id: AID.into(),
                 data,
             }));
         }
@@ -49,7 +51,8 @@ impl Scripted {
                 "cat \"$1/capabilities\"\n",
                 "read -r start\n",
                 "id=$(printf '%s' \"$start\" | sed 's/.*\"effect_id\":\"\\([^\"]*\\)\".*/\\1/')\n",
-                "sed \"s/__EID__/$id/\" \"$1/bodies\"\n",
+                "aid=$(printf '%s' \"$start\" | sed 's/.*\"attempt_id\":\"\\([^\"]*\\)\".*/\\1/')\n",
+                "sed \"s/__EID__/$id/; s/__AID__/$aid/\" \"$1/bodies\"\n",
                 "echo 'a word of stderr' >&2\n",
                 "read -r bye\n",
             ),
@@ -70,7 +73,7 @@ impl Scripted {
 fn concluded(status: ResultStatus, result: Option<Value>, error: Option<String>) -> Body {
     Body::Result {
         effect_id: EID.into(),
-        attempt_id: "a".into(),
+        attempt_id: AID.into(),
         status,
         result,
         error,

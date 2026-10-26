@@ -187,7 +187,7 @@ impl Workspace {
         });
         let mut bodies = vec![json!({
             "proto": "forge-driver/v1", "msg_id": "m2", "type": "accepted",
-            "effect_id": "__EID__", "attempt_id": "a",
+            "effect_id": "__EID__", "attempt_id": "__AID__",
         })
         .to_string()];
         bodies.push(conclusion.to_string());
@@ -210,7 +210,8 @@ impl Workspace {
              ls -a > \"$1/listing.txt\"\n\
              {extra}\n\
              id=$(printf '%s' \"$start\" | sed 's/.*\"effect_id\":\"\\([^\"]*\\)\".*/\\1/')\n\
-             sed \"s/__EID__/$id/\" \"$1/bodies\"\n\
+             aid=$(printf '%s' \"$start\" | sed 's/.*\"attempt_id\":\"\\([^\"]*\\)\".*/\\1/')\n\
+             sed \"s/__EID__/$id/; s/__AID__/$aid/\" \"$1/bodies\"\n\
              read -r bye\n"
         );
         std::fs::write(self.path().join("driver.sh"), script).unwrap();
@@ -221,7 +222,7 @@ impl Workspace {
         self.script_driver(
             json!({
                 "proto": "forge-driver/v1", "msg_id": "m3", "type": "result",
-                "effect_id": "__EID__", "attempt_id": "a", "status": "succeeded",
+                "effect_id": "__EID__", "attempt_id": "__AID__", "status": "succeeded",
                 "result": {"result": "proposed", "inputs": inputs,
                            "notes": "read the fleet"},
             }),
@@ -1201,7 +1202,7 @@ fn a_refused_invocation_records_nothing_and_exits_nonzero() {
     ws.script_driver(
         json!({
             "proto": "forge-driver/v1", "msg_id": "m3", "type": "result",
-            "effect_id": "__EID__", "attempt_id": "a", "status": "failed",
+            "effect_id": "__EID__", "attempt_id": "__AID__", "status": "failed",
             "error": "the harness refused",
         }),
         "true",
@@ -1228,7 +1229,7 @@ fn a_refused_invocation_records_nothing_and_exits_nonzero() {
     ws.script_driver(
         json!({
             "proto": "forge-driver/v1", "msg_id": "m3", "type": "result",
-            "effect_id": "__EID__", "attempt_id": "a", "status": "succeeded",
+            "effect_id": "__EID__", "attempt_id": "__AID__", "status": "succeeded",
             "result": {"result": "proposed", "inputs": {
                 "fleet_summary": "too late", "parked_runs": [], "work_queue": []}},
         }),

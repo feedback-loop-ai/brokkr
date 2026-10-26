@@ -54,11 +54,12 @@ pub(crate) fn panel_after_chief() -> SeatBody {
 
 pub(crate) fn command(result: AttemptOutcome) -> Vec<String> {
     let mut argv = driver_command("EFFECT", "ATTEMPT", result);
-    let parse = r#"; read -r line; effect_id=$(printf '%s' "$line" | sed -n 's/.*"effect_id":"\([^"]*\)".*/\1/p'); attempt_id=$(printf '%s' "$line" | sed -n 's/.*"attempt_id":"\([^"]*\)".*/\1/p'); printf"#;
+    // The attempt the driver echoes is already the start's own (decision
+    // 0096): `driver_command` rewrites it, so only the effect is read here.
+    let parse = r#"; read -r line; effect_id=$(printf '%s' "$line" | sed -n 's/.*"effect_id":"\([^"]*\)".*/\1/p'); printf"#;
     argv[2] = argv[2]
         .replacen("; read -r line; printf", parse, 1)
-        .replace("EFFECT", "'\"$effect_id\"'")
-        .replace("ATTEMPT", "'\"$attempt_id\"'");
+        .replace("EFFECT", "'\"$effect_id\"'");
     argv
 }
 

@@ -89,12 +89,17 @@ fn offered(to: &mut PipeWriter, mut bytes: &[u8], until: Instant) -> bool {
 }
 
 /// What a fake server does once it has read a frame: reads on, holds its
-/// input unread, or closes it.
-#[derive(Clone, Copy)]
+/// input unread, closes it, or is gone: closes its input before it says
+/// `answer`, so that no scheduling lets a forwarding in by this reader,
+/// and ends its output half a second after, since a child another test
+/// has forked and not yet exec'd holds every pipe's read end until it
+/// does: a forwarding that pipe took is then ended, well within its bound.
+#[derive(Clone)]
 enum Then {
     Read,
     Hold,
     Close,
+    Gone(Value),
 }
 
 /// A fake server's way with each frame it reads, given its output, which
@@ -128,6 +133,12 @@ fn fake(mut script: Script) -> (PipeWriter, PipeReader, JoinHandle<Faked>) {
                 Then::Read => {}
                 Then::Hold => break,
                 Then::Close => stdin = None,
+                Then::Gone(answer) => {
+                    stdin = None;
+                    say(&mut stdout, &answer);
+                    std::thread::sleep(Duration::from_millis(500));
+                    stdout = None;
+                }
             }
         }
         (frames, stdin, stdout)
@@ -1471,7 +1482,7 @@ fn listing_then(then: Then) -> Script {
     mcp_but(move |frame, output| {
         (frame["method"] == "tools/list").then(|| {
             say(output, &answer(frame).unwrap());
-            then
+            then.clone()
         })
     })
 }
@@ -1488,11 +1499,12 @@ fn large() -> Value {
 
 #[test]
 fn a_server_that_takes_no_call_ends_it() {
-    // Its input closed once it has listed: the forwarding fails.
-    let ran = conversed(
-        listing_then(Then::Close),
-        ended_with("MCP server protocol is invalid"),
-    );
+    // Its input closed before it has listed, its output ended after: the
+    // forwarding fails, or, taken by a pipe anyway, is ended ([`Then::Gone`]).
+    let gone = mcp_but(|frame, _| {
+        (frame["method"] == "tools/list").then(|| Then::Gone(answer(frame).unwrap()))
+    });
+    let ran = conversed(gone, ended_with("MCP server protocol is invalid"));
     lookup_failed("closing", ran, Failure::Protocol);
     // Its input held unread once it has listed: a call larger than its
     // pipe holds is not taken by the attempt's deadline.

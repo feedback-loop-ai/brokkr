@@ -1,3 +1,4 @@
+mod attempt_correlation;
 mod entry;
 use super::boundary_tests::sealed_tests::{boxed, boxed_a, REACH_ARG};
 use super::conclude_tests::invariant;
@@ -10,8 +11,7 @@ use crate::envelope_builder::EnvelopeBuilder;
 use crate::run_state::run_state;
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::decision::{Decision, PhaseResult, ReviewedHeads};
-use brokkr_core::fold::Status;
-use brokkr_core::policy::Machine;
+use brokkr_core::{fold::Status, policy::Machine};
 use entry::fixture_seat;
 // A test whose sites get real hands plays in an engine of its own (#403),
 // so no other test's orphan reads as a stray of its attempt.
@@ -973,28 +973,27 @@ pub(super) fn driver_command(
         data: json!({"step":"live"}),
     });
     let terminal = match outcome {
-        AttemptOutcome::Succeeded { result } => Some(wire(Body::Result {
-            effect_id: effect_id.into(),
-            attempt_id: attempt_id.into(),
-            status: ResultStatus::Succeeded,
-            result: Some(result),
-            error: None,
-        })),
-        AttemptOutcome::Failed { error } => Some(wire(Body::Result {
-            effect_id: effect_id.into(),
-            attempt_id: attempt_id.into(),
-            status: ResultStatus::Failed,
-            result: None,
-            error: Some(error),
-        })),
+        AttemptOutcome::Succeeded { result } => Some((ResultStatus::Succeeded, Some(result), None)),
+        AttemptOutcome::Failed { error } => Some((ResultStatus::Failed, None, Some(error))),
         AttemptOutcome::Indeterminate { .. } => None,
-    };
-    let mut script = format!(
-        "read -r line; printf '%s\\n' '{capabilities}'; read -r line; printf '%s\\n' '{accepted}'; printf '%s\\n' '{checkpoint}'"
-    );
-    if let Some(terminal) = terminal {
-        script.push_str(&format!("; printf '%s\\n' '{terminal}'; read -r line"));
     }
+    .map(|(status, result, error)| {
+        wire(Body::Result {
+            effect_id: effect_id.into(),
+            attempt_id: attempt_id.into(),
+            status,
+            result,
+            error,
+        })
+    });
+    let (terminal, wait) = match terminal {
+        Some(terminal) => (format!(" '{terminal}'"), "; read -r line"),
+        None => (String::new(), ""),
+    };
+    let script = format!(
+        "read -r line; printf '%s\\n' '{capabilities}'; read -r line; printf '%s\\n' '{accepted}' '{checkpoint}'{terminal} | {}{wait}",
+        attempt_correlation::echo_attempt(attempt_id)
+    );
     vec!["sh".into(), "-c".into(), script]
 }
 
@@ -3432,15 +3431,11 @@ pub(super) fn two_checkpoint_command(effect_id: &str, attempt_id: &str) -> Vec<S
         result: Some(json!({"result":"complete"})),
         error: None,
     });
-    vec![
-        "sh".into(),
-        "-c".into(),
-        format!(
-            "read -r line; printf '%s\\n' '{capabilities}'; read -r line; printf '%s\\n' \
-             '{accepted}'; printf '%s\\n' '{first}'; printf '%s\\n' '{second}'; \
-             printf '%s\\n' '{terminal}'; read -r line"
-        ),
-    ]
+    let script = format!(
+        "read -r line; printf '%s\\n' '{capabilities}'; read -r line; printf '%s\\n' '{accepted}' '{first}' '{second}' '{terminal}' | {}; read -r line",
+        attempt_correlation::echo_attempt(attempt_id)
+    );
+    vec!["sh".into(), "-c".into(), script]
 }
 
 #[test]
@@ -4544,15 +4539,11 @@ pub(super) fn capturing_driver_command(
         error: None,
     });
     let path = capture.display();
-    vec![
-        "sh".into(),
-        "-c".into(),
-        format!(
-            "read -r hello; printf '%s\\n' '{capabilities}'; read -r start; \
-             printf '%s' \"$start\" > '{path}'; printf '%s\\n' '{accepted}'; \
-             printf '%s\\n' '{terminal}'; read -r line"
-        ),
-    ]
+    let script = format!(
+        "read -r hello; printf '%s\\n' '{capabilities}'; read -r line; printf '%s' \"$line\" > '{path}'; printf '%s\\n' '{accepted}' '{terminal}' | {}; read -r line",
+        attempt_correlation::echo_attempt(attempt_id)
+    );
+    vec!["sh".into(), "-c".into(), script]
 }
 
 #[test]
