@@ -187,12 +187,14 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ fromJSON(matrix.os == 'ubuntu-latest' && vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-engine"]' || format('["{0}"]', matrix.os)) }}
-    # 45, not the usual 20 (operator rulings 2026-10-09 and 2026-10-15):
-    # decision 0065 slice two's broker boundary proofs grew the Linux run to
-    # 18-20 minutes, then to 26-27, and a run with every test passed was
-    # cancelled at 30 (#701), as a merge group's had dropped #598 from the
-    # queue.
-    timeout-minutes: 45
+    # 75, not the usual 20 (operator rulings 2026-10-09, 2026-10-15 and
+    # 2026-10-26): decision 0065 slice two's broker boundary proofs grew the
+    # Linux run to 18-20 minutes, then to 26-27, and a run with every test
+    # passed was cancelled at 30 (#701), as a merge group's had dropped #598
+    # from the queue. The merge queue's hosted runs then took 26-42 minutes,
+    # and decision 0089's heap tests carried #888's past 45, which dropped it
+    # from the queue three times; 75 matches the exact coverage gate's (#887).
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
