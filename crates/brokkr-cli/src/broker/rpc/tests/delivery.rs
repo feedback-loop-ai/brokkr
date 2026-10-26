@@ -544,6 +544,14 @@ fn a_turn_that_writes_part_of_an_answer_never_waits() {
     // Take exactly one piece per turn, then report WouldBlock. The empty
     // pipe supplies a pollable descriptor; writes are recorded in memory
     // so reader scheduling cannot decide whether a turn makes progress.
+    // Each wait the session takes records how much of the answer the
+    // harness had been given by then: a wait with any of it still to give
+    // is a wait between pieces, which is the failure; one with the answer
+    // whole is idle, and expected, since the harness's input ends only
+    // once the last piece is written, and a child another test has forked
+    // and not yet exec'd holds a copy of that pipe's write end until it
+    // does, so its end can reach the session a wait or more later, however
+    // the two are scheduled.
     struct Taking {
         pipe: std::io::PipeWriter,
         input: Option<std::io::PipeWriter>,
@@ -597,10 +605,13 @@ fn a_turn_that_writes_part_of_an_answer_never_waits() {
         bindings: &[],
         stderr: &mut stderr,
     };
+    let waited = RefCell::new(Vec::new());
+    let wait = |pause| {
+        waited.borrow_mut().push(bytes.borrow().len());
+        std::thread::sleep(pause);
+    };
     let ended = served_within(
-        (Duration::from_secs(120), |_| {
-            panic!("slept after delivering a piece")
-        }),
+        (Duration::from_secs(120), wait),
         started,
         &plan,
         &mut ledger,
@@ -613,6 +624,17 @@ fn a_turn_that_writes_part_of_an_answer_never_waits() {
     server.join().unwrap();
     assert!(writes.get() > 1, "the answer must span multiple turns");
     let bytes = bytes.borrow();
+    let between: Vec<usize> = waited
+        .take()
+        .into_iter()
+        .filter(|given| *given < bytes.len())
+        .collect();
+    assert_eq!(
+        between,
+        Vec::<usize>::new(),
+        "waited with that much of {} given",
+        bytes.len()
+    );
     let (frame, end) = bytes.split_at(bytes.len() - 1);
     let answer: Value = serde_json::from_slice(frame).unwrap();
     assert_eq!((answer, end), (result(&id, json!({})), &b"\n"[..]));
