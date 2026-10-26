@@ -31,7 +31,11 @@ impl Engine {
         // Result schema (decision 0001): an object with a declared result
         // string. Violations park with the raw evidence attached — never
         // repaired, coerced, or handed to a model to fix.
-        if let Some(problem) = schema_problem(seat, &raw_result) {
+        if let Some(problem) = schema_problem(seat, &raw_result).or_else(|| {
+            (phase == self.bundle.protected_phase)
+                .then(|| crate::bundle::Aggregate::review_problem(&raw_result))
+                .flatten()
+        }) {
             self.append(
                 EventType::TransitionDecided,
                 json!({
@@ -54,9 +58,49 @@ impl Engine {
             .expect("checked above")
             .to_string();
         let inputs = self.decision_inputs(state, &phase, seat, object, &result);
-        let payload = self.ruling(&phase, &result, &inputs, object);
+        let mut payload = self.ruling(&phase, &result, &inputs, object);
+        self.bind_verified_candidate(state, &phase, &mut payload);
         self.append(EventType::TransitionDecided, payload, None)?;
         Ok(())
+    }
+
+    /// A successful verification binds the immutable Git candidate in the
+    /// journal, not a seat-writable sidecar. The normal policy determines
+    /// success: no particular verifier result word is assumed.
+    fn bind_verified_candidate(&self, state: &RunState, phase: &str, payload: &mut Value) {
+        if !self.bundle.seats.contains_key(phase_name::VERIFY) {
+            return;
+        }
+        let verifying = phase == phase_name::VERIFY
+            && payload["next"].as_str() == Some(self.bundle.protected_phase.as_str());
+        let judging = phase == self.bundle.protected_phase || phase == phase_name::SHIP;
+        if (!verifying && !judging) || payload["severity"] == "hard" {
+            return;
+        }
+        let candidate = verified_candidate(&self.repo);
+        let expected = state
+            .phase_results
+            .get(phase_name::VERIFY)
+            .and_then(|result| result.inputs.as_ref())
+            .and_then(|inputs| inputs.get("verified_candidate"));
+        let problem = if verifying {
+            candidate
+                .is_none()
+                .then_some("verification candidate is dirty or unreadable")
+        } else if expected.is_none() {
+            Some("verified candidate witness is missing")
+        } else if candidate.as_ref() != expected {
+            Some("candidate differs from the journaled verified HEAD/tree or is dirty")
+        } else {
+            None
+        };
+        if let Some(problem) = problem {
+            payload["next"] = Value::Null;
+            payload["severity"] = Value::Null;
+            payload["problem"] = Value::String(problem.into());
+        } else if verifying {
+            payload["inputs"]["verified_candidate"] = candidate.unwrap();
+        }
     }
 
     /// The inputs the table rules on: the seat's declared inputs, and
@@ -304,3 +348,36 @@ fn ship_inputs(
         inputs.insert(REALM_FACTS.into(), json!({ realm: Value::Object(facts) }));
     }
 }
+
+/// HEAD identifies its immutable tree; recording both makes the candidate
+/// receipt explicit. Every Git refusal fails closed, including status errors.
+fn verified_candidate(repo: &Path) -> Option<Value> {
+    fn clean(repo: &Path) -> bool {
+        std::process::Command::new("git")
+            .args(["status", "--porcelain", "--untracked-files=all"])
+            .current_dir(repo)
+            .output()
+            .is_ok_and(|out| out.status.success() && out.stdout.is_empty())
+    }
+    if !clean(repo) {
+        return None;
+    }
+    let head = git_head(repo)?;
+    let out = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD^{tree}"])
+        .current_dir(repo)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let tree = String::from_utf8(out.stdout).ok()?.trim().to_owned();
+    if tree.is_empty() || git_head(repo).as_deref() != Some(head.as_str()) || !clean(repo) {
+        return None;
+    }
+    Some(json!({"head": head, "tree": tree}))
+}
+
+#[cfg(test)]
+#[path = "candidate_binding_tests.rs"]
+mod candidate_binding_tests;
