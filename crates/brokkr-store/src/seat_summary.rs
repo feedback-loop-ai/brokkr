@@ -54,12 +54,15 @@ use brokkr_core::seat::row::{Datum, SeatRow};
 use brokkr_core::summary::Account;
 use rusqlite::types::{Value, ValueRef};
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Row};
-use sha2::{Digest, Sha256};
 
 use crate::event_index::{finished, first_parted, mark_finished, place, IndexFault};
 use crate::schema::all_present;
 use crate::summary::{refold_once, Compared};
 use crate::{head_of, patiently, Disagreement, Store, StoreError};
+
+mod seal;
+
+use seal::{digest, value, Cell, Seal};
 
 /// The meta key that records the backfill finished (ruling 8): its own,
 /// so keeping seat rows sends no run's summary behind (#753 ruling 4a).
@@ -236,102 +239,6 @@ fn lagging(after: &str) -> String {
          WHERE {after} {LAGS}
          ORDER BY s.run_id LIMIT 1"
     )
-}
-
-fn value(datum: Datum) -> Value {
-    match datum {
-        Datum::Null => Value::Null,
-        Datum::Integer(value) => Value::Integer(value),
-        Datum::Text(value) => Value::Text(value),
-    }
-}
-
-/// A value a row holds, borrowed where it stands, a datum's or SQLite's.
-#[derive(Clone, Copy)]
-enum Cell<'a> {
-    Null,
-    Integer(i64),
-    Text(&'a str),
-}
-
-impl<'a> Cell<'a> {
-    /// The value a column holds, read as its bytes: `None` for a real, a
-    /// blob or a text that is not UTF-8, which no row writes.
-    fn of(value: ValueRef<'a>) -> Option<Cell<'a>> {
-        match value {
-            ValueRef::Null => Some(Cell::Null),
-            ValueRef::Integer(value) => Some(Cell::Integer(value)),
-            ValueRef::Text(text) => std::str::from_utf8(text).ok().map(Cell::Text),
-            ValueRef::Real(_) | ValueRef::Blob(_) => None,
-        }
-    }
-
-    fn held(datum: &'a Datum) -> Cell<'a> {
-        match datum {
-            Datum::Null => Cell::Null,
-            Datum::Integer(value) => Cell::Integer(*value),
-            Datum::Text(value) => Cell::Text(value),
-        }
-    }
-
-    /// The row's datum this value is, copied.
-    fn datum(self) -> Datum {
-        match self {
-            Cell::Null => Datum::Null,
-            Cell::Integer(value) => Datum::Integer(value),
-            Cell::Text(value) => Datum::Text(value.to_string()),
-        }
-    }
-}
-
-/// The digest of a row as its writer writes it: a SHA-256 over its run,
-/// its place and each of its values in [`SeatRow::COLUMNS`]' order, each
-/// tagged by its type, an integer by its eight bytes and a text by its
-/// length and then its bytes, so no two rows encode alike. The one home
-/// of the encoding ([`Seal`]): every writer writes the digest [`written`]
-/// gives, and [`sealed_at`] recomputes it from the values it reads, a
-/// value at a time.
-fn digest(run_id: &str, opened: i64, data: &[Datum]) -> String {
-    let mut seal = Seal::of(run_id, opened);
-    for datum in data {
-        seal.put(Cell::held(datum));
-    }
-    seal.hex()
-}
-
-/// A row's digest ([`digest`]) as its values are fed to it, so a reader
-/// checks a row without holding the values it does not keep.
-struct Seal(Sha256);
-
-impl Seal {
-    /// The digest of the row at the place `opened` of `run_id`'s rows,
-    /// before its values.
-    fn of(run_id: &str, opened: i64) -> Seal {
-        let mut seal = Seal(Sha256::new());
-        seal.put(Cell::Text(run_id));
-        seal.put(Cell::Integer(opened));
-        seal
-    }
-
-    fn put(&mut self, cell: Cell<'_>) {
-        match cell {
-            Cell::Null => self.0.update(b"N"),
-            Cell::Integer(value) => {
-                self.0.update(b"I");
-                self.0.update(value.to_be_bytes());
-            }
-            Cell::Text(value) => {
-                self.0.update(b"T");
-                self.0.update((value.len() as u64).to_be_bytes());
-                self.0.update(value.as_bytes());
-            }
-        }
-    }
-
-    /// The digest, written as every digest of this realm is.
-    fn hex(self) -> String {
-        hex::encode(self.0.finalize())
-    }
 }
 
 /// The columns `row` is written as at the place `opened` of `run_id`'s
