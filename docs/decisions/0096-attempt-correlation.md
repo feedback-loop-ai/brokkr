@@ -1,7 +1,7 @@
 # 0096 — Driver evidence belongs to the current effect and attempt
 
-Status: proposed
-- **Status:** proposed
+Status: accepted — operator ruled 2026-10-26 (PR #881), every ruling as proposed
+- **Status:** accepted — operator ruled 2026-10-26 (PR #881)
 Date: 2026-10-24
 Built: built
 
