@@ -25,6 +25,7 @@ mod codex;
 mod composite;
 mod discovery;
 mod dsh_effort;
+mod dsh_hands;
 mod dsh_stderr;
 mod lost;
 mod mcp;
@@ -39,6 +40,7 @@ pub use composite::{
     dsh_composite, dsh_composite_prepared, CompositeError, DshComposite, DshInvocation, DshNode,
     DshPrepared, DshSeams, DshSelection, DshUnprepared, DshUnselected,
 };
+pub use dsh_hands::SEAT_CLASS;
 pub use mcp::{harness_auth, HarnessAuthError, StrictCause};
 pub use served_route::split_route;
 
@@ -4343,11 +4345,7 @@ fn dsh_argv(extra: &[String], input: &Value, offered: bool) -> Result<DshArgv, S
 
 /// `dsh_launch` over an injected composite producer, so every drift and
 /// mismatch case is a plain test over synthetic homes.
-#[expect(
-    clippy::excessive_nesting,
-    clippy::too_many_lines,
-    reason = "baseline 2026-09, #288"
-)]
+#[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
 fn dsh_launch_with(
     bin: &str,
     extra: &[String],
@@ -4460,14 +4458,14 @@ fn dsh_launch_with(
     } else {
         crate::hands::git_facts(Path::new(workdir))
     };
-    let mode = std::env::var("DSH_PERMISSION_MODE").unwrap_or_default();
     // The private git store is named in every command's runner argv, so
     // it is held for the seat's whole life and handed to the promotion,
     // which is the only way anything the seat committed reaches the
-    // shared repository.
-    let staged = dsh_sandbox_row_for(workdir, &facts, &mode)?;
-    let sandbox = staged.as_ref().map(|(row, _, _)| row.as_str());
-    let overlay = dsh_seat_overlay_with(model, effort, &root, route.as_deref(), sandbox)?;
+    // shared repository. A seat whose office declares boxed hands runs no
+    // native command: its rows are the hands rows, and it stages no store
+    // (#896).
+    let (staged, rows) = dsh_hands::sandbox(bin, workdir, &facts, input)?;
+    let overlay = dsh_seat_overlay_with(model, effort, &root, route.as_deref(), rows.as_deref())?;
     let command = dsh_command(
         bin,
         &overlay.path().to_string_lossy(),
@@ -6108,9 +6106,9 @@ fn dsh_runner_program() -> Result<String, OverrideError> {
     ))
 }
 
-/// The seat overlay with the scoped sandbox row a linked-worktree seat
-/// needs (decision 0054). It is one patch file because `--patch` is the
-/// launcher's only override channel.
+/// The seat overlay with Brokkr's sandbox rows: a linked worktree's scoped
+/// runner (decision 0054) or a boxed seat's hands rows (#896). It is one
+/// patch file because `--patch` is the launcher's only override channel.
 fn dsh_seat_overlay_with(
     model: Option<&str>,
     effort: Option<&str>,
@@ -6191,9 +6189,9 @@ fn dsh_seat_overlay_in(
         }
         _ => None,
     };
-    // The scoped sandbox row a linked-worktree seat needs (decision 0054)
-    // rides with Brokkr's own rows, after the route's and before the
-    // write: the route may not reach the provider the sandbox names.
+    // Brokkr's sandbox rows, a linked worktree's scoped runner (decision
+    // 0054) or a boxed seat's hands rows (#896), ride with its own rows,
+    // after the route's: the route may not reach what they name.
     if let Some(sandbox) = sandbox {
         rows.push_str(sandbox);
     }

@@ -52,6 +52,7 @@ pub(in crate::adapters) enum Part {
     RouteEntry,
     ProviderMapping,
     ModelItem,
+    HandsRow,
     Named(Field),
 }
 
@@ -61,6 +62,7 @@ impl fmt::Display for Part {
             Part::RouteEntry => "the route entry",
             Part::ProviderMapping => "the provider mapping",
             Part::ModelItem => "the model item",
+            Part::HandsRow => "a hands row",
             Part::Named(field) => field.spelling(),
         })
     }
@@ -194,4 +196,10 @@ pub(in crate::adapters) enum Overlay {
     NonMapping { part: Part, field: Field },
     #[error("{0} carries a field outside the closed set")]
     OutsideClosedSet(Part),
+    #[error("the hands rows carry row '{0}' in a shape the measured hands set does not name")]
+    HandsRow(String),
+    #[error("the hands rows name row '{0}' twice")]
+    HandsRowRepeated(String),
+    #[error("the hands rows carry no row '{0}', which the measured hands set names")]
+    HandsRowMissing(&'static str),
 }

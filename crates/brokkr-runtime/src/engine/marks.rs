@@ -6,7 +6,7 @@
 //! ruling 5).
 
 use brokkr_core::realms::Boundary;
-use brokkr_protocol::adapters::HandsNotice;
+use brokkr_protocol::adapters::{HandsNotice, SEAT_CLASS};
 use serde_json::{json, Value};
 
 use crate::agents::{Candidate, ResultDoor};
@@ -38,11 +38,12 @@ pub struct SiteMarks<'a> {
 
 impl<'a> SiteMarks<'a> {
     /// Every spawn-time mark of one model site, in the engine's order:
-    /// hands, then the result door, then the discovery notice, then what
-    /// the serving candidate holds (decision 0065), then the MCP servers
-    /// it is given.
+    /// hands and the seat class they serve, then the result door, then the
+    /// discovery notice, then what the serving candidate holds (decision
+    /// 0065), then the MCP servers it is given.
     pub fn site(&self, label: &str, gate: bool, link: Option<&Candidate>, input: &mut Value) {
         self.hands(label, input);
+        self.class(label, gate, input);
         self.door(label, gate, link, input);
         self.notice(label, link, input);
         self.capabilities(label, link, input);
@@ -144,6 +145,22 @@ impl<'a> SiteMarks<'a> {
                 input["boundary"] = Value::Null;
                 input["hands"] = Value::Null;
             }
+        }
+    }
+
+    /// The seat class a boxed site's hands serve (#896): `gate`, whose
+    /// office reviews and writes no worktree file, or `work`, for a harness
+    /// that runs a sandbox of its own under the box to choose its mode from
+    /// (dsh's `sandbox-policy`). Cleared first, as `notice` clears its
+    /// carrier, and written only where this label resolves hands and
+    /// Brokkr boxes them; a spawn-time fact, outside the requested digest.
+    pub(super) fn class(&self, label: &str, gate: bool, input: &mut Value) {
+        // Every driver input the engine composes is an object.
+        let _ = input
+            .as_object_mut()
+            .map(|object| object.remove(SEAT_CLASS));
+        if self.has_hands(label) && self.boundary.is_boxed() {
+            input[SEAT_CLASS] = json!(if gate { "gate" } else { "work" });
         }
     }
 
@@ -296,3 +313,6 @@ pub(super) fn brokered_at<'a>(
     };
     servers.into_iter().filter_map(held).collect()
 }
+
+#[cfg(test)]
+mod tests;

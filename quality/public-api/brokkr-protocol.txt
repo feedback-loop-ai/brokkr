@@ -110,6 +110,7 @@ pub const brokkr_protocol::adapters::EFFORT_NOT_APPLICABLE: &str
 pub const brokkr_protocol::adapters::EFFORT_NOT_REPORTED: &str
 pub const brokkr_protocol::adapters::MODEL_NOT_APPLICABLE: &str
 pub const brokkr_protocol::adapters::MODEL_NOT_REPORTED: &str
+pub const brokkr_protocol::adapters::SEAT_CLASS: &str
 pub const brokkr_protocol::adapters::TOOL_IDENTIFIER_LIMIT: usize
 pub fn brokkr_protocol::adapters::claude_command(&str, &[alloc::string::String], core::option::Option<&str>, &serde_json::value::Value) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, alloc::string::String>
 pub fn brokkr_protocol::adapters::codex_command(&str, &[alloc::string::String], &str, core::option::Option<&str>, &serde_json::value::Value) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, alloc::string::String>

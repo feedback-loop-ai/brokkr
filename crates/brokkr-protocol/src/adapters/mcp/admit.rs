@@ -9,11 +9,12 @@ use crate::native_controls::{SealedAssessment, SealedIsolation, SealedServers};
 impl SealedIsolation {
     /// Whether `provider` may be served its launch's shape: cold, or where
     /// it is `offered` a rejoin, that rejoin's cold replacement
-    /// ([`SealedIsolation::admit`]), with the set this intent seals. dsh
-    /// holds no hands (its adapter's measured fact), so a set beside the
-    /// empty one is never measured for it. The one admission a launch's
-    /// isolated configuration is built under ([`super::isolated`]) and a dsh
-    /// launch's home is decided by ([`crate::dsh_served`], #717).
+    /// ([`SealedIsolation::admit`]), with the set this intent seals. dsh's
+    /// hands ride its overlay (#896), beside which no engine-only home is
+    /// measured, so a set beside the empty one is never admitted for it.
+    /// The one admission a launch's isolated configuration is built under
+    /// ([`super::isolated`]) and a dsh launch's home is decided by
+    /// ([`crate::dsh_served`], #717).
     pub(crate) fn admits(&self, provider: &'static str, offered: bool) -> Result<(), StrictCause> {
         let invocation = match offered {
             true => Invocation::Replacement,

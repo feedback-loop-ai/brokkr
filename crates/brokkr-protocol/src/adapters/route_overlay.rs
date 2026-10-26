@@ -27,7 +27,9 @@ use sha2::{Digest, Sha256};
 
 mod refusal;
 
-use refusal::{Field, Overlay, Part, Refused};
+use super::dsh_hands::{Mode, DISABLED_ROWS, SANDBOX_POLICY};
+pub(super) use refusal::Refused;
+use refusal::{Field, Overlay, Part};
 
 /// A route overlay is a handful of block lines; a larger file is not the
 /// shipped shape and is refused before it is parsed.
@@ -260,6 +262,55 @@ pub(super) fn validate(bytes: &[u8], model: &str) -> Result<(), Refused> {
         Part::Named(Field::ReasoningEfforts),
     )?;
     Ok(())
+}
+
+/// Validate a dsh seat's hands rows (#896) against the one shape they may
+/// take, read by the same bounded reader: each effectful tool row of the
+/// measured release `disabled: true`, once, and the `sandbox-policy` row's
+/// `mode`, `read-only` or `workspace-write`, once, and nothing else. A row
+/// in any other shape, a row named twice and a measured row left out are
+/// refused, each naming the row: these rows are the engine's own, never a
+/// recipe's, so naming them hands a seat nothing it did not write.
+pub(super) fn hands(bytes: &[u8]) -> Result<(), Refused> {
+    let text = std::str::from_utf8(bytes).map_err(|_| Overlay::NotUtf8)?;
+    let Node::Sequence(items) = parse(&lex(text)?)? else {
+        return Err(Overlay::NotASequence.into());
+    };
+    let mut seen: Vec<&str> = Vec::with_capacity(items.len());
+    for item in &items {
+        let row = hands_row(mapping(item, Part::HandsRow)?)?;
+        if seen.contains(&row) {
+            return Err(Overlay::HandsRowRepeated(row.to_string()).into());
+        }
+        seen.push(row);
+    }
+    let mut owed = DISABLED_ROWS.into_iter().chain([SANDBOX_POLICY]);
+    match owed.find(|row| !seen.contains(row)) {
+        Some(missing) => Err(Overlay::HandsRowMissing(missing).into()),
+        None => Ok(()),
+    }
+}
+
+/// One hands row's id, where the row is in the one shape its id may take.
+fn hands_row(pairs: &[(String, Node)]) -> Result<&str, Overlay> {
+    let id = scalar_field(pairs, Field::Id, Part::HandsRow)?;
+    let rest: Vec<(&str, &Node)> = (pairs.iter())
+        .filter(|(key, _)| key != Field::Id.spelling())
+        .map(|(key, value)| (key.as_str(), value))
+        .collect();
+    let shaped = match rest[..] {
+        [("disabled", Node::Scalar(flag))] => DISABLED_ROWS.contains(&id) && flag == "true",
+        [("config", Node::Mapping(config))] => {
+            id == SANDBOX_POLICY
+                && matches!(&config[..], [(key, Node::Scalar(mode))]
+                    if key == "mode" && Mode::named(mode).is_some())
+        }
+        _ => false,
+    };
+    match shaped {
+        true => Ok(id),
+        false => Err(Overlay::HandsRow(id.to_string())),
+    }
 }
 
 fn lex(text: &str) -> Result<Vec<Line>, Overlay> {

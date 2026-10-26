@@ -1467,7 +1467,7 @@ pub fn sandbox_row(
 /// A single-quoted YAML scalar with its quotes doubled. A path that
 /// spans a line is refused rather than written, the same discipline the
 /// transcript and settings rows use.
-fn yaml_scalar(value: &str) -> Result<String, RowRefusal> {
+pub(crate) fn yaml_scalar(value: &str) -> Result<String, RowRefusal> {
     if value.contains('\n') || value.contains('\r') {
         return Err(RowRefusal::Multiline(value.to_string()));
     }
