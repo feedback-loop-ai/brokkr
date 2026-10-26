@@ -191,6 +191,7 @@ fn the_run_view_s_first_screen_holds_its_control_events_and_a_page() {
         "the budget {brokkr} is past ruling 9's 256 KiB and the {control_bytes} bytes of the run's control envelopes"
     );
     for (name, screen) in [("10,000", small), ("1,000,000", large)] {
+        measure::report_headroom(name, screen.sqlite);
         assert!(
             screen.brokkr <= brokkr,
             "{name}: {} bytes; the budget is {brokkr}",

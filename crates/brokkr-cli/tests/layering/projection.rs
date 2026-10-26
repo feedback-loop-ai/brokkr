@@ -106,6 +106,7 @@ fn no_runtime_decision_names_a_projection_s_reader() {
             "envelopes_at(",
             "seat_rows(",
             "run_read(",
+            "seat_read(",
         ]
     );
     let named = naming(&workspace().join("crates/brokkr-runtime/src"), &readers);

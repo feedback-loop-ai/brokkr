@@ -242,6 +242,9 @@ fn a_fleet_page_costs_the_same_heap_at_every_journal_size() {
             "{name}: {held} bytes; the budget is {budget}"
         );
     };
+    for (name, cost) in measures {
+        measure::report_headroom(name, cost.sqlite);
+    }
     for cost in [small, large, bound] {
         within("fleet-page", cost.read());
         within("fleet-painted-frame", cost.frame);

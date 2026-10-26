@@ -52,7 +52,7 @@ const TRIGGERS: [&str; 2] = ["event_index_of_an_event", "event_index_stamp_bound
 pub(crate) const CHECKPOINT_PAGE: usize = 50;
 
 /// The one type a run's trail skips and a seat's stream reads.
-const CHECKPOINTED: &str = EventType::EffectCheckpointed.as_str();
+pub(crate) const CHECKPOINTED: &str = EventType::EffectCheckpointed.as_str();
 
 /// A row's columns, in the order [`projected`] gives them.
 const COLUMNS: &str = "run_id, seq, type, attempt_id, member, recorded_at, event_id";
@@ -264,14 +264,16 @@ pub(crate) static TRAIL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// A page of a seat's checkpoints, newest first, below a seq, read
-/// through the stream index.
-static STREAM: LazyLock<String> = LazyLock::new(|| {
+/// A seat's checkpoints under an attempt and a member, newest first,
+/// between two seqs, both held, read through the stream index, as many as
+/// the last bound: a page, or the seat view's page and one more
+/// (`seat_read.rs`).
+pub(crate) static STREAM: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT seq FROM event_index INDEXED BY event_index_stream
-         WHERE run_id = ?1 AND attempt_id = ?2 AND member IS ?3 AND seq < ?4
+         WHERE run_id = ?1 AND attempt_id = ?2 AND member IS ?3 AND seq >= ?4 AND seq <= ?5
            AND type = '{CHECKPOINTED}'
-         ORDER BY seq DESC LIMIT {CHECKPOINT_PAGE}"
+         ORDER BY seq DESC LIMIT ?6"
     )
 });
 
@@ -292,7 +294,11 @@ const CAUSE: &str = "SELECT
           WHERE run_id = ?1 AND event_id IS NULL)";
 
 /// The seqs `sql` selects with `bound`.
-fn seqs(conn: &Connection, sql: &str, bound: impl Params) -> Result<Vec<u64>, StoreError> {
+pub(crate) fn seqs(
+    conn: &Connection,
+    sql: &str,
+    bound: impl Params,
+) -> Result<Vec<u64>, StoreError> {
     let mut statement = conn.prepare_cached(sql)?;
     let found = statement.query_map(bound, |row| row.get(0))?;
     Ok(found.collect::<Result<_, _>>()?)
@@ -475,12 +481,13 @@ impl Store {
         member: Option<&str>,
         before: Option<u64>,
     ) -> Result<Vec<u64>, StoreError> {
-        let before = before.map_or(i64::MAX, |seq| seq.min(i64::MAX as u64) as i64);
+        let below = before.map_or(i64::MAX, |seq| seq.min(i64::MAX as u64) as i64) - 1;
+        let page = CHECKPOINT_PAGE as i64;
         patiently("index", self.patience, || {
             seqs(
                 &self.conn,
                 &STREAM,
-                params![run_id, attempt_id, member, before],
+                params![run_id, attempt_id, member, i64::MIN, below, page],
             )
         })
     }

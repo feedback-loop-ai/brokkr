@@ -43,11 +43,11 @@
 use std::collections::BTreeSet;
 use std::sync::LazyLock;
 
-use brokkr_core::canonical::sha256_bytes;
 use brokkr_core::seat::row::{Datum, SeatRow};
 use brokkr_core::summary::Account;
 use rusqlite::types::{Value, ValueRef};
-use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Row};
+use sha2::{Digest, Sha256};
 
 use crate::event_index::{finished, first_parted, mark_finished, place, IndexFault};
 use crate::schema::all_present;
@@ -155,18 +155,28 @@ static KEPT: LazyLock<String> = LazyLock::new(|| {
 /// A run's rows read only where the journal holds the run and its seat
 /// head is the head named: none for a head that lags or a run the journal
 /// does not hold, and one empty row for a run with no rows, so one
-/// statement reads the head and the rows as one snapshot.
+/// statement reads the head and the rows as one snapshot. Where `?4`
+/// names an effect, only that effect's rows, read by the run's key, so no
+/// other effect's row leaves SQLite.
 static CURRENT: LazyLock<String> = LazyLock::new(|| {
     let columns: Vec<String> = kept().map(|name| format!("s.{name}")).collect();
     format!(
         "SELECT s.opened, {} FROM runs AS r
              JOIN seat_head AS h ON h.run_id = r.run_id
              LEFT JOIN seat_summary AS s ON s.run_id = h.run_id
+                 AND (?4 IS NULL OR s.effect_id = ?4)
          WHERE r.run_id = ?1 AND h.folded_seq = ?2 AND h.folded_hash = ?3
          ORDER BY s.opened",
         columns.join(", ")
     )
 });
+
+/// Whether a run's rows stand at the places their writer gives, `0, 1,
+/// 2, …`, each an integer: none before the first, past a gap, or not a
+/// number. Read in SQLite, so no row leaves it.
+const PLACED: &str = "SELECT count(*) = coalesce(max(opened) + 1, 0)
+         AND coalesce(min(opened), 0) = 0 AND count(*) = total(typeof(opened) = 'integer')
+     FROM seat_summary WHERE run_id = ?1";
 
 const HEAD: &str =
     "INSERT OR REPLACE INTO seat_head (run_id, folded_seq, folded_hash) VALUES (?1, ?2, ?3)";
@@ -195,16 +205,41 @@ fn value(datum: Datum) -> Value {
     }
 }
 
-/// The value a column holds as a row's datum, read as its bytes: `None`
-/// for a real, a blob or a text that is not UTF-8, which no row writes.
-fn datum(value: ValueRef<'_>) -> Option<Datum> {
-    match value {
-        ValueRef::Null => Some(Datum::Null),
-        ValueRef::Integer(value) => Some(Datum::Integer(value)),
-        ValueRef::Text(text) => std::str::from_utf8(text)
-            .ok()
-            .map(|text| Datum::Text(text.into())),
-        ValueRef::Real(_) | ValueRef::Blob(_) => None,
+/// A value a row holds, borrowed where it stands, a datum's or SQLite's.
+#[derive(Clone, Copy)]
+enum Cell<'a> {
+    Null,
+    Integer(i64),
+    Text(&'a str),
+}
+
+impl<'a> Cell<'a> {
+    /// The value a column holds, read as its bytes: `None` for a real, a
+    /// blob or a text that is not UTF-8, which no row writes.
+    fn of(value: ValueRef<'a>) -> Option<Cell<'a>> {
+        match value {
+            ValueRef::Null => Some(Cell::Null),
+            ValueRef::Integer(value) => Some(Cell::Integer(value)),
+            ValueRef::Text(text) => std::str::from_utf8(text).ok().map(Cell::Text),
+            ValueRef::Real(_) | ValueRef::Blob(_) => None,
+        }
+    }
+
+    fn held(datum: &'a Datum) -> Cell<'a> {
+        match datum {
+            Datum::Null => Cell::Null,
+            Datum::Integer(value) => Cell::Integer(*value),
+            Datum::Text(value) => Cell::Text(value),
+        }
+    }
+
+    /// The row's datum this value is, copied.
+    fn datum(self) -> Datum {
+        match self {
+            Cell::Null => Datum::Null,
+            Cell::Integer(value) => Datum::Integer(value),
+            Cell::Text(value) => Datum::Text(value.to_string()),
+        }
     }
 }
 
@@ -212,31 +247,50 @@ fn datum(value: ValueRef<'_>) -> Option<Datum> {
 /// its place and each of its values in [`SeatRow::COLUMNS`]' order, each
 /// tagged by its type, an integer by its eight bytes and a text by its
 /// length and then its bytes, so no two rows encode alike. The one home
-/// of the encoding: every writer writes the digest [`written`] gives, and
-/// [`current`] recomputes it from the values it reads.
+/// of the encoding ([`Seal`]): every writer writes the digest [`written`]
+/// gives, and [`sealed_at`] recomputes it from the values it reads, a
+/// value at a time.
 fn digest(run_id: &str, opened: i64, data: &[Datum]) -> String {
-    let mut bytes = Vec::new();
-    put_text(&mut bytes, run_id);
-    put_integer(&mut bytes, opened);
+    let mut seal = Seal::of(run_id, opened);
     for datum in data {
-        match datum {
-            Datum::Null => bytes.push(b'N'),
-            Datum::Integer(value) => put_integer(&mut bytes, *value),
-            Datum::Text(value) => put_text(&mut bytes, value),
+        seal.put(Cell::held(datum));
+    }
+    seal.hex()
+}
+
+/// A row's digest ([`digest`]) as its values are fed to it, so a reader
+/// checks a row without holding the values it does not keep.
+struct Seal(Sha256);
+
+impl Seal {
+    /// The digest of the row at the place `opened` of `run_id`'s rows,
+    /// before its values.
+    fn of(run_id: &str, opened: i64) -> Seal {
+        let mut seal = Seal(Sha256::new());
+        seal.put(Cell::Text(run_id));
+        seal.put(Cell::Integer(opened));
+        seal
+    }
+
+    fn put(&mut self, cell: Cell<'_>) {
+        match cell {
+            Cell::Null => self.0.update(b"N"),
+            Cell::Integer(value) => {
+                self.0.update(b"I");
+                self.0.update(value.to_be_bytes());
+            }
+            Cell::Text(value) => {
+                self.0.update(b"T");
+                self.0.update((value.len() as u64).to_be_bytes());
+                self.0.update(value.as_bytes());
+            }
         }
     }
-    sha256_bytes(&bytes)
-}
 
-fn put_integer(bytes: &mut Vec<u8>, value: i64) {
-    bytes.push(b'I');
-    bytes.extend(value.to_be_bytes());
-}
-
-fn put_text(bytes: &mut Vec<u8>, value: &str) {
-    bytes.push(b'T');
-    bytes.extend((value.len() as u64).to_be_bytes());
-    bytes.extend(value.as_bytes());
+    /// The digest, written as every digest of this realm is.
+    fn hex(self) -> String {
+        hex::encode(self.0.finalize())
+    }
 }
 
 /// The columns `row` is written as at the place `opened` of `run_id`'s
@@ -380,41 +434,85 @@ impl Opened {
 
 /// `run_id`'s rows, where its seat head is `head`; stale where it is
 /// not, or where a row holds what no writer writes: a value, a place
-/// other than the next of `0, 1, 2, …`, the places its writer gives, a
-/// key out of the order [`Opened`] admits, or anything its digest is not
-/// of, the backstop for every shape the guards before it do not name.
+/// other than the places its writer gives ([`PLACED`]), a key out of the
+/// order [`Opened`] admits, or anything its digest is not of, the
+/// backstop for every shape the guards before it do not name.
 fn current(conn: &Connection, run_id: &str, head: (u64, &str)) -> Result<SeatRows, StoreError> {
-    let mut statement = conn.prepare_cached(&CURRENT)?;
-    let mut found = statement.query(params![run_id, head.0 as i64, head.1])?;
     let mut rows = Vec::new();
     let mut opened = Opened::default();
-    let mut at_head = false;
-    while let Some(row) = found.next()? {
-        at_head = true;
-        match row.get_ref(0)? {
-            ValueRef::Null => continue,
-            ValueRef::Integer(opened) if opened == rows.len() as i64 => {}
-            ValueRef::Integer(_) | ValueRef::Real(_) | ValueRef::Text(_) | ValueRef::Blob(_) => {
-                return Ok(SeatRows::Stale)
-            }
-        }
-        let data: Option<Vec<Datum>> = (1..=SeatRow::COLUMNS.len())
-            .map(|at| row.get_ref(at).map(datum))
-            .collect::<Result<_, _>>()?;
-        let sealed = row.get_ref(SeatRow::COLUMNS.len() + 1)?;
-        let place = rows.len() as i64;
-        let data = data.filter(|data| {
-            opened.admits(data) && sealed == ValueRef::Text(digest(run_id, place, data).as_bytes())
-        });
-        match data.and_then(SeatRow::of_data) {
-            Some(seat) => rows.push(seat),
-            None => return Ok(SeatRows::Stale),
-        }
-    }
-    Ok(match at_head {
+    let whole = (None, SeatRow::COLUMNS.len());
+    let read = sealed_at(conn, run_id, head, whole, |data| {
+        let seat = Some(data).filter(|data| opened.admits(data));
+        seat.and_then(SeatRow::of_data).map(|seat| rows.push(seat))
+    })?;
+    Ok(match read {
         true => SeatRows::Current(rows),
         false => SeatRows::Stale,
     })
+}
+
+/// Each row of `run_id` at `head`, or of its effect `effect` alone where
+/// one is named ([`CURRENT`]), handed to `each` as its first `held`
+/// values, where the run's places are its writer's ([`PLACED`]) and the
+/// row's digest is of its run, its place and its values: false where they
+/// are not, where a row holds a value no row writes or one `each` refuses
+/// (`None`), or where the seat head is not `head`.
+fn sealed_at(
+    conn: &Connection,
+    run_id: &str,
+    head: (u64, &str),
+    (effect, held): (Option<&str>, usize),
+    mut each: impl FnMut(Vec<Datum>) -> Option<()>,
+) -> Result<bool, StoreError> {
+    let placed: bool = conn
+        .prepare_cached(PLACED)?
+        .query_row([run_id], |row| row.get(0))?;
+    if !placed {
+        return Ok(false);
+    }
+    let mut statement = conn.prepare_cached(&CURRENT)?;
+    let mut found = statement.query(params![run_id, head.0 as i64, head.1, effect])?;
+    let mut at_head = false;
+    while let Some(row) = found.next()? {
+        at_head = true;
+        let Some(place) = row.get::<_, Option<i64>>(0)? else {
+            continue;
+        };
+        if unsealed(row, run_id, place, held)?
+            .and_then(&mut each)
+            .is_none()
+        {
+            return Ok(false);
+        }
+    }
+    Ok(at_head)
+}
+
+/// The first `held` values of `row`, the row at `place` of `run_id`'s,
+/// where its digest is of its run, its place and its values: each value
+/// is fed to the digest as SQLite holds it ([`Seal`]) and only those
+/// `held` are copied, so a row's values past them never reach the heap.
+/// `None` where a value is one no row writes or the digest is not the
+/// row's.
+fn unsealed(
+    row: &Row<'_>,
+    run_id: &str,
+    place: i64,
+    held: usize,
+) -> Result<Option<Vec<Datum>>, StoreError> {
+    let mut seal = Seal::of(run_id, place);
+    let mut data = Vec::with_capacity(held);
+    for at in 1..=SeatRow::COLUMNS.len() {
+        let Some(cell) = Cell::of(row.get_ref(at)?) else {
+            return Ok(None);
+        };
+        seal.put(cell);
+        if at <= held {
+            data.push(cell.datum());
+        }
+    }
+    let sealed = row.get_ref(SeatRow::COLUMNS.len() + 1)?;
+    Ok((sealed == ValueRef::Text(seal.hex().as_bytes())).then_some(data))
 }
 
 /// How `account`'s seat rows stand in the table (ruling 4): behind where
@@ -618,10 +716,40 @@ pub(crate) fn rows_at(
     run_id: &str,
     head: (u64, &str),
 ) -> Result<SeatRows, StoreError> {
-    if !(seats_intact(conn)? && finished(conn, BACKFILLED)?) {
+    if !kept_whole(conn)? {
         return Ok(SeatRows::Stale);
     }
     current(conn, run_id, head)
+}
+
+/// `run_id`'s rows of the effect `effect_id` standing at `head`, read as
+/// [`rows_at`] reads the run's and each handed to `each` as its first
+/// `held` values once its digest is checked, so the reader holds one row's
+/// values it reads at a time, never a row's lists, and no other effect's
+/// row: false where the run's rows would read stale for it, a table, the
+/// backfill, the seat head, a place or a digest (the seat view's read,
+/// [`Store::seat_read`]). The order [`Opened`] admits is the run's, which
+/// a reader of one effect's rows does not see; the digest holds every row
+/// it reads to its writer's.
+pub(crate) fn effect_rows_at(
+    conn: &Connection,
+    run_id: &str,
+    head: (u64, &str),
+    (effect_id, held): (&str, usize),
+    mut each: impl FnMut(&[Datum]),
+) -> Result<bool, StoreError> {
+    if !kept_whole(conn)? {
+        return Ok(false);
+    }
+    sealed_at(conn, run_id, head, (Some(effect_id), held), |data| {
+        each(&data);
+        Some(())
+    })
+}
+
+/// Does this journal carry the tables and has their backfill finished?
+fn kept_whole(conn: &Connection) -> Result<bool, StoreError> {
+    Ok(seats_intact(conn)? && finished(conn, BACKFILLED)?)
 }
 
 #[cfg(test)]

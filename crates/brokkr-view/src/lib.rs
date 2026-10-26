@@ -52,8 +52,7 @@ pub use analytics::{analytics, Analytics, AnalyticsError, AnalyticsHearth, Analy
 pub use brokkr_core::policy::RuleSeverity;
 use brokkr_core::seat::meter;
 use brokkr_core::seat::{
-    add_token, boundary_entries, count_item, finish_usage, stamp_of, token_usage, transcript_of,
-    BoundaryEntry,
+    add_token, boundary_entries, count_item, finish_usage, stamp_of, transcript_of,
 };
 pub use brokkr_core::seat::{reported_cost, TokenUsage, Transcript};
 pub use clarify::Clarify;
@@ -64,6 +63,7 @@ mod started;
 mod told;
 use told::{Finish, Told};
 mod composed;
+mod seat_view;
 pub use commands::{Admission, Command, CommandRefusal, Disabled, Offered, Unavailable};
 pub use compare::{
     first_divergence, resolution_divergence, resolutions, seat_costs, FirstDivergence, Resolution,
@@ -87,6 +87,8 @@ pub use scope::{
     keeps_participant, keeps_phase, keeps_row, lens_for, Lens, Membership, Scope, ScopeError,
     Scopes,
 };
+pub use seat_view::page_rows;
+use seat_view::{attempt_boundary, boundaries_of, row_of, Boundaries};
 pub use started::CarriedFrom;
 
 use std::collections::BTreeMap;
@@ -1002,7 +1004,7 @@ struct Scan {
     effects: Vec<EffectFacts>,
     parts: Vec<Build>,
     by_key: BTreeMap<String, usize>,
-    boundaries: BTreeMap<(String, String), Vec<BoundaryEntry>>,
+    boundaries: Boundaries,
 }
 
 fn ensure(scan: &mut Scan, slot: usize, effect_id: &str, member: Option<&str>) -> usize {
@@ -1052,19 +1054,7 @@ fn scan_participants(events: &[EventEnvelope]) -> Scan {
         effects: Vec::new(),
         parts: Vec::new(),
         by_key: BTreeMap::new(),
-        boundaries: events
-            .iter()
-            .filter(|event| event.event_type == EventType::EffectStarted)
-            .filter_map(|event| {
-                Some((
-                    (
-                        field(&event.payload, "effect_id")?.to_string(),
-                        field(&event.payload, "attempt_id")?.to_string(),
-                    ),
-                    boundary_entries(&event.payload),
-                ))
-            })
-            .collect(),
+        boundaries: boundaries_of(events),
     };
     let mut by_effect_id: BTreeMap<String, usize> = BTreeMap::new();
     for (index, event) in events.iter().enumerate() {
@@ -1253,28 +1243,12 @@ fn site_boundary(scan: &Scan, part: &Build) -> Option<String> {
 /// an attempt that recorded no entry never borrows a later attempt's word.
 fn row_boundary(event: &EventEnvelope, scan: &Scan) -> Option<String> {
     let payload = &event.payload;
+    if let Some(boundary) = attempt_boundary(&scan.boundaries, payload) {
+        return boundary;
+    }
     let effect_id = field(payload, "effect_id")?;
     let record = payload.get("checkpoint").or_else(|| payload.get("result"));
     let member = record.and_then(|record| field(record, "member"));
-    if let Some(attempt) = field(payload, "attempt_id") {
-        let entries = scan
-            .boundaries
-            .get(&(effect_id.to_string(), attempt.to_string()));
-        let entry = entries.and_then(|entries| {
-            entries
-                .iter()
-                .find(|entry| entry.member.as_deref() == member)
-        });
-        return entry
-            .map(|entry| entry.word.clone())
-            .or_else(|| record.and_then(stamp_of))
-            .or_else(|| {
-                if member.is_some() {
-                    return None;
-                }
-                joined(entries?.iter().map(|entry| entry.word.as_str()).collect())
-            });
-    }
     let key = match member {
         Some(member) => format!("{effect_id}:{member}"),
         None => effect_id.to_string(),
@@ -1463,59 +1437,11 @@ fn activity_for(
 }
 
 fn checkpoint_rows(part: &Build) -> Vec<CheckpointRow> {
-    let mut rows = Vec::new();
-    for (checkpoint, recorded_at, boundary) in &part.checkpoints {
-        let target = match checkpoint.get("target") {
-            Some(Value::String(target)) if !target.is_empty() => Some(target.as_str()),
-            _ => None,
-        };
-        let (short, full) = target_cells(target);
-        let step = match checkpoint.get("step").and_then(Value::as_str) {
-            Some("seat-turn") => js::to_display(checkpoint.get("tool")),
-            _ => js::to_display(checkpoint.get("step")),
-        };
-        rows.push(CheckpointRow {
-            turn: cell_of(
-                checkpoint
-                    .get("turn")
-                    .and_then(Value::as_u64)
-                    .map(|turn| turn.to_string()),
-                Some("not a numbered turn"),
-            ),
-            step,
-            served: ModelAtBoundary {
-                model: cell_of(
-                    checkpoint
-                        .get("model")
-                        .and_then(Value::as_str)
-                        .map(str::to_string),
-                    Some("no served model recorded for this checkpoint"),
-                ),
-                boundary: cell_of(boundary.clone(), Some(NO_BOUNDARY)),
-            },
-            effort: cell_of(
-                checkpoint
-                    .get("effort")
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
-                Some("no applied effort recorded for this checkpoint"),
-            ),
-            usage: cell_of(
-                token_usage(std::iter::once(checkpoint))
-                    .as_ref()
-                    .map(|usage| usage_text(usage, "")),
-                Some("no token usage recorded for this checkpoint"),
-            ),
-            target: cell_of(
-                short,
-                Some("no target recorded — the journal carries file targets only"),
-            ),
-            target_full: full,
-            capability_call: capability_calls::call_evidence(checkpoint),
-            recorded_at: recorded_at.clone(),
-        });
-    }
-    rows
+    let rows = part.checkpoints.iter();
+    let row = |(checkpoint, at, boundary): &(Value, String, Option<String>)| {
+        row_of(checkpoint, at, boundary.clone())
+    };
+    rows.map(row).collect()
 }
 
 /// Members conclude on their own `panel-member-finished` outcome; the
