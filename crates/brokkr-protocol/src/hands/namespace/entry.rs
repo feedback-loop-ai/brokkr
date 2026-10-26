@@ -46,7 +46,7 @@ use crate::secret::handoff::close_on_exec_above_stdio;
 
 /// The flag that mounts a source from a descriptor; the number after it is
 /// the observer's, so the entry names the handle instead.
-const DESCRIPTOR_MOUNT: &str = "--ro-bind-fd";
+const DESCRIPTOR_MOUNT: &str = super::Mount::RoBind.descriptor();
 
 /// What enters the bootstrap: the system set's `env`, unsetting `PWD`.
 /// bubblewrap sets `PWD` to the directory it entered after clearing the

@@ -59,9 +59,9 @@ fn tools_bound(root: &Path) -> (PathBuf, HandsSpec) {
 }
 
 /// Whether the box argv `text` binds the Git common directory `common`
-/// read-write at its own path.
+/// read-write at its own path, from its handle (U8k).
 fn binds_in_place(text: &str, common: &Path) -> bool {
-    text.contains(&format!("--bind {c} {c}", c = common.display()))
+    text.contains(&format!("--bind-fd {c} {c}", c = common.display()))
 }
 
 /// A spec binding each `(path, mode)` as authored.
@@ -90,26 +90,25 @@ fn every_bind_is_mounted_from_its_sealed_source_at_its_authored_spelling() {
     let text = built(&spec, &work, &reach, dir.path()).unwrap().join(" ");
     let (r, l) = (real.display(), link.display());
     assert!(
-        text.contains(&format!("--ro-bind-try {r}/ro {l}/ro")),
+        text.contains(&format!("--ro-bind-fd {r}/ro {l}/ro")),
         "{text}"
     );
-    assert!(
-        text.contains(&format!("--bind-try {r}/rw {l}/rw")),
-        "{text}"
-    );
+    assert!(text.contains(&format!("--bind-fd {r}/rw {l}/rw")), "{text}");
     let upper = dir.path().join("session/overlay/2");
     let layers = format!("--overlay {u}/upper {u}/work", u = upper.display());
-    let overlaid = format!("--overlay-src {r}/overlay {layers} {l}/overlay");
+    let lower = format!("--ro-bind-fd {r}/overlay {l}/overlay --overlay-src {r}/overlay");
+    let overlaid = format!("{lower} {layers} {l}/overlay");
     assert!(text.contains(&overlaid), "{text}");
     assert!(
-        text.contains(&format!("--bind {w} {w}", w = work.display())),
+        text.contains(&format!("--bind-fd {w} {w}", w = work.display())),
         "{text}"
     );
 }
 
 /// The Git directories a box binds are the sealed reach's: a linked
 /// worktree's common directory outside it is mounted from the path sealed,
-/// its hooks hidden and its config read-only.
+/// its hooks hidden and its config read-only from the handle opened beneath
+/// the common directory's own (U8k).
 #[test]
 fn the_git_directories_a_box_binds_are_those_sealed() {
     let (dir, root, _) = fixture();
@@ -124,7 +123,7 @@ fn the_git_directories_a_box_binds_are_those_sealed() {
         text.contains(&format!("--tmpfs {}/hooks", common.display())),
         "{text}"
     );
-    let config = format!("--ro-bind-try {c}/config {c}/config", c = common.display());
+    let config = format!("--ro-bind-fd {c}/config {c}/config", c = common.display());
     assert!(text.contains(&config), "{text}");
 }
 

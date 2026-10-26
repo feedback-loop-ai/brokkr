@@ -112,7 +112,7 @@
  112 crates/brokkr-protocol/src/dsh_sandbox/tests.rs:180 the_runner_adds_the_scoped_git_binds_and_nothing_wider
  134 crates/brokkr-protocol/src/dsh_sandbox/tests.rs:472 every_known_bubblewrap_option_is_stepped_over_by_its_own_arity
  354 crates/brokkr-protocol/src/dsh_sandbox/tests.rs:2577 a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds
- 145 crates/brokkr-protocol/src/hands/tests.rs:163 the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names
+ 142 crates/brokkr-protocol/src/hands/tests.rs:296 the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names
  117 crates/brokkr-protocol/src/hands/tests.rs:1031 git_works_in_the_box_and_cannot_plant_a_hook
  107 crates/brokkr-protocol/src/hands/tests.rs:1259 the_unboxed_environment_hands_nothing_of_the_engines_over
  132 crates/brokkr-protocol/src/hands/tests.rs:1448 the_unboxed_environment_has_exact_keys_on_both_platforms

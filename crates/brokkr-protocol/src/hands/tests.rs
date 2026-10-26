@@ -1,5 +1,6 @@
 use super::*;
 use std::io::Cursor;
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::PermissionsExt;
 
 #[cfg(target_os = "linux")]
@@ -7,6 +8,7 @@ mod checked;
 #[cfg(target_os = "linux")]
 mod entry;
 mod evidence;
+mod held;
 #[cfg(target_os = "linux")]
 mod launcher;
 #[cfg(target_os = "linux")]
@@ -52,7 +54,7 @@ fn fixture() -> (tempfile::TempDir, PathBuf, PathBuf) {
 
 /// The argv of a workspace box of `spec` over `work`, handed `artifacts`
 /// and built from `reach`, its private tree and its session under `dir`
-/// (`box_argv` makes them), no git identity and no bundle (U8a2c).
+/// (the box makes them), no git identity and no bundle (U8a2c).
 fn boxed_from(
     spec: &HandsSpec,
     work: &Path,
@@ -60,22 +62,55 @@ fn boxed_from(
     reach: &Sealed,
     dir: &Path,
 ) -> std::io::Result<Vec<String>> {
+    held_from(spec, work, artifacts, reach, dir).map(described)
+}
+
+/// [`boxed_from`]'s box itself, holding the handles it mounts (U8k).
+fn held_from(
+    spec: &HandsSpec,
+    work: &Path,
+    artifacts: &Path,
+    reach: &Sealed,
+    dir: &Path,
+) -> std::io::Result<Boxed> {
     // Bound first: Rust 1.88, the MSRV, does not extend a temporary's life
     // into a struct literal.
     let session = dir.join("session");
     let writes = OverlayWrites::Session(&session);
     let scratch = dir.join("scratch");
-    box_argv(
+    let workspace = Workspace {
         spec,
-        work,
+        workdir: work,
         artifacts,
-        reach,
-        &scratch,
+        sealed: reach,
+        scratch: &scratch,
         writes,
-        &[],
-        None,
-        &one("true"),
-    )
+        identity: &[],
+        bundle_root: None,
+    };
+    workspace.boxed(&one("true"))
+}
+
+/// A box's argv, each descriptor it mounts, or reads an overlay's lower
+/// layer through, named by the host path its handle was opened at (U8k):
+/// what an argv pin reads.
+fn described(boxed: Boxed) -> Vec<String> {
+    let numbers: Vec<(String, String)> = (boxed.held().iter())
+        .map(|(path, fd)| (fd.as_raw_fd().to_string(), path.display().to_string()))
+        .collect();
+    let mut argv = boxed.into_argv();
+    for at in 1..argv.len() {
+        let held = match argv[at - 1].as_str() {
+            "--bind-fd" | "--ro-bind-fd" => Some(argv[at].as_str()),
+            "--overlay-src" => argv[at].strip_prefix("/proc/self/fd/"),
+            _ => None,
+        };
+        let named = (numbers.iter()).find(|(number, _)| held == Some(number.as_str()));
+        if let Some((_, path)) = named {
+            argv[at] = path.clone();
+        }
+    }
+    argv
 }
 
 /// The argv of a workspace box over `dir`: its workdir at `work`, its
@@ -261,17 +296,13 @@ fn home_expands_only_the_tilde_prefix() {
 fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
-    let cargo = home.join(".cargo");
-    let npm = home.join(".npm");
-    std::fs::create_dir_all(&cargo).unwrap();
-    std::fs::create_dir_all(&npm).unwrap();
+    let (cargo, npm) = (home.join(".cargo"), home.join(".npm"));
+    let (workdir, bundle) = (dir.path().join("work"), dir.path().join("bundle"));
+    for made in [&cargo, &npm, &workdir, &bundle] {
+        std::fs::create_dir_all(made).unwrap();
+    }
     std::fs::write(cargo.join("credentials.toml"), "secret").unwrap();
-    let workdir = dir.path().join("work");
-    std::fs::create_dir_all(&workdir).unwrap();
-    let bundle = dir.path().join("bundle");
-    std::fs::create_dir_all(&bundle).unwrap();
-    let scratch = dir.path().join("scratch");
-    let session = dir.path().join("session");
+    let (scratch, session) = (dir.path().join("scratch"), dir.path().join("session"));
     let artifacts = artifact_root(dir.path());
     let spec = spec_of(json!({
         "kind": "workspace",
@@ -285,19 +316,20 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     let none: &[(String, String)] = &[];
     // A box beside the engine's artifact root, its overlays in the session,
     // built from the reach sealed for it in its workdir as it stands.
-    let build = |spec, workdir: &Path, scratch: &Path, git, bundle: Option<&Path>| {
-        let writes = OverlayWrites::Session(&session);
-        box_argv(
+    let build = |spec, workdir: &Path, scratch: &Path, identity, bundle_root: Option<&Path>| {
+        let (writes, artifacts) = (OverlayWrites::Session(&session), &artifacts);
+        let sealed = &sealed(spec, workdir, &home);
+        let workspace = Workspace {
             spec,
             workdir,
-            &artifacts,
-            &sealed(spec, workdir, &home),
+            artifacts,
+            sealed,
             scratch,
             writes,
-            git,
-            bundle,
-            &one("true"),
-        )
+            identity,
+            bundle_root,
+        };
+        workspace.boxed(&one("true")).map(described)
     };
     let argv = build(&spec, &workdir, &scratch, none, Some(&bundle)).unwrap();
     let text = argv.join(" ");
@@ -306,13 +338,13 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     assert!(text.contains("--clearenv"));
     assert!(text.contains("--setenv BROKKR_HANDS_BOX 1"));
     assert!(!text.contains("--bind / /"), "never the host root");
-    // Each source is bound from the path sealed for it (U8a2c), canonical,
-    // at the path the box names it by: they differ where the temporary
-    // directory lies behind a link, as macOS's /var does.
+    // Each source is bound from the handle on the path sealed for it
+    // (U8a2c, U8k), canonical, at the path the box names it by: they differ
+    // where the temporary directory lies behind a link, as macOS's /var does.
     let real = |path: &Path| std::fs::canonicalize(path).unwrap();
     let w = workdir.display();
     assert!(
-        text.contains(&format!("--bind {} {w}", real(&workdir).display())),
+        text.contains(&format!("--bind-fd {} {w}", real(&workdir).display())),
         "{text}"
     );
     assert!(text.contains(&format!("--ro-bind {} {SANDBOX_BUNDLE}", bundle.display())));
@@ -320,7 +352,7 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     let work = session.join("overlay/0/work");
     assert!(
         text.contains(&format!(
-            "--overlay-src {s} --overlay {u} {k} {c}",
+            "--ro-bind-fd {s} {c} --overlay-src {s} --overlay {u} {k} {c}",
             s = real(&cargo).display(),
             c = cargo.display(),
             u = upper.display(),
@@ -340,16 +372,15 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
         !text.contains("absent.toml"),
         "a mask over nothing binds nothing"
     );
-    // An absent source is bound as spelled, sealed with no identity.
-    assert!(text.contains(&format!(
-        "--ro-bind-try {r} {r}",
-        r = home.join(".rustup").display()
-    )));
+    // A source sealed absent, with no identity, has no handle and is not
+    // mounted at all (U8k), read-only or writable.
+    let rustup = home.join(".rustup");
+    assert!(!text.contains(&format!("{r} {r}", r = rustup.display())));
     assert!(
         text.contains("--ro-bind-try /usr/include /usr/include"),
         "the libc headers are toolchain, or a boxed gate cannot compile C"
     );
-    assert!(text.contains("--bind-try /opt/scratchpad /opt/scratchpad"));
+    assert!(!text.contains("/opt/scratchpad /opt/scratchpad"));
     assert!(text.contains(&format!("--setenv NPM_CONFIG_CACHE {}", npm.display())));
     assert!(
         text.contains("--setenv GIT_CONFIG_KEY_0 commit.gpgsign --setenv GIT_CONFIG_VALUE_0 false")
@@ -366,13 +397,10 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     let identity = [("GIT_AUTHOR_NAME".to_string(), "Seat".to_string())];
     let argv = build(&spec, &primary, &scratch, &identity, None).unwrap();
     let text = argv.join(" ");
-    assert!(!text.contains(&format!(
-        "--bind {g} {g}",
-        g = primary.join(".git").display()
-    )));
+    assert!(!text.contains(&format!("{g} {g}", g = primary.join(".git").display())));
     assert!(text.contains(&format!("--tmpfs {}", primary.join(".git/hooks").display())));
     assert!(text.contains(&format!(
-        "--ro-bind-try {s} {c}",
+        "--ro-bind-fd {s} {c}",
         s = real(&primary).join(".git/config").display(),
         c = primary.join(".git/config").display()
     )));
@@ -386,7 +414,7 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     let common = real(&second.join(".git"));
     let argv = build(&spec, &linked, &scratch, none, None).unwrap();
     let text = argv.join(" ");
-    assert!(text.contains(&format!("--bind {g} {g}", g = common.display())));
+    assert!(text.contains(&format!("--bind-fd {g} {g}", g = common.display())));
     assert!(text.contains(&format!("--tmpfs {}", common.join("hooks").display())));
 
     let open = spec_of(json!({"kind": "workspace", "network": true}));
@@ -403,7 +431,7 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     let here = namespace_path(&here);
     let relative_text = relative.join(" ");
     assert!(
-        relative_text.contains(&format!("--bind {here} {here}")),
+        relative_text.contains(&format!("--bind-fd {here} {here}")),
         "{relative_text}"
     );
     assert!(relative_text.contains(&format!("--chdir {here} --")));
@@ -417,18 +445,21 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     assert!(build(&open, &workdir, &blocked.join("etc"), none, None).is_err());
     let overlay_only =
         spec_of(json!({"kind": "workspace", "binds": [{"path": "/opt/x", "mode": "overlay"}]}));
-    assert!(box_argv(
-        &overlay_only,
-        &workdir,
-        &artifacts,
-        &sealed(&overlay_only, &workdir, &home),
-        &scratch,
-        OverlayWrites::Session(&blocked.join("session")),
-        none,
-        None,
-        &one("true")
-    )
-    .is_err());
+    let (reach, session) = (
+        sealed(&overlay_only, &workdir, &home),
+        blocked.join("session"),
+    );
+    let workspace = Workspace {
+        spec: &overlay_only,
+        workdir: &workdir,
+        artifacts: &artifacts,
+        sealed: &reach,
+        scratch: &scratch,
+        writes: OverlayWrites::Session(&session),
+        identity: none,
+        bundle_root: None,
+    };
+    assert!(workspace.boxed(&one("true")).is_err());
 }
 
 /// A stand-in `bwrap` in `dir` that records the argv its caller hands it,
@@ -460,6 +491,22 @@ fn recorded(record: &Path) -> Vec<String> {
         .collect()
 }
 
+/// `argv` with the number each descriptor mount names read as `<fd>`: it
+/// is the launching process's own (U8k).
+#[cfg(unix)]
+fn unnumbered(mut argv: Vec<String>) -> Vec<String> {
+    for at in 1..argv.len() {
+        match argv[at - 1].as_str() {
+            "--bind-fd" | "--ro-bind-fd" => argv[at] = "<fd>".to_string(),
+            "--overlay-src" if argv[at].starts_with("/proc/self/fd/") => {
+                argv[at] = "/proc/self/fd/<fd>".to_string();
+            }
+            _ => {}
+        }
+    }
+    argv
+}
+
 /// The whole argv, flag by flag and mount by mount, that the workspace
 /// box's caller `execute_in` and the exec box's caller `run_boxed_in`
 /// each hand bubblewrap: the namespace builder's prefix, toolchain and
@@ -476,6 +523,9 @@ fn the_workspace_and_exec_argv_keep_their_exact_order_and_identity() {
     let cargo = home.join(".cargo");
     std::fs::create_dir_all(&cargo).unwrap();
     std::fs::write(cargo.join("credentials.toml"), "secret").unwrap();
+    for bound in ["tools", "pad"] {
+        std::fs::create_dir(home.join(bound)).unwrap();
+    }
     let (work, bundle) = (root.join("work"), root.join("bundle"));
     // A linked worktree, its Git common directory outside it.
     let (main, common) = (root.join("main"), root.join("main/.git"));
@@ -485,8 +535,8 @@ fn the_workspace_and_exec_argv_keep_their_exact_order_and_identity() {
     let git = [("GIT_AUTHOR_NAME".to_string(), "Seat".to_string())];
     let spec = spec_of(json!({"kind": "workspace", "binds": [
         {"path": "~/.cargo", "mode": "overlay", "mask": ["credentials.toml"]},
-        {"path": "/opt/tools", "mode": "ro"},
-        {"path": "/opt/pad", "mode": "rw"}
+        {"path": "~/tools", "mode": "ro"},
+        {"path": "~/pad", "mode": "rw"}
     ]}));
     let reach = sealed(&spec, &work, &home);
     let (bwrap, record) = recording_bwrap(&root);
@@ -505,23 +555,19 @@ fn the_workspace_and_exec_argv_keep_their_exact_order_and_identity() {
             for host in HOST_TOOLCHAIN_BINDS {
                 argv.extend(["--ro-bind-try", host, host].map(String::from));
             }
-            let (s, w, c, k) = (
-                scratch.display(),
-                work.display(),
-                common.display(),
-                cargo.display(),
-            );
+            let (s, w, c) = (scratch.display(), work.display(), common.display());
+            let (k, h) = (cargo.display(), home.display());
             argv.extend(
                 format!(
                     "--ro-bind {s}/etc/passwd /etc/passwd --ro-bind {s}/etc/group /etc/group \
                  --ro-bind {s}/etc/hosts /etc/hosts \
                  --ro-bind {s}/etc/nsswitch.conf /etc/nsswitch.conf \
-                 --bind {s}/home {SANDBOX_HOME} --bind {s}/tmp /tmp --bind {w} {w} \
-                 {bundle} --bind {c} {c} --tmpfs {c}/hooks \
-                 --ro-bind-try {c}/config {c}/config --bind {w}/.forge {w}/.forge {overlay} \
-                 --ro-bind /dev/null {k}/credentials.toml --ro-bind-try /opt/tools /opt/tools \
-                 --bind-try /opt/pad /opt/pad {exec} \
-                 --ro-bind {w}/.forge/artifacts {w}/.forge/artifacts --setenv HOME {SANDBOX_HOME} \
+                 --bind {s}/home {SANDBOX_HOME} --bind {s}/tmp /tmp --bind-fd <fd> {w} \
+                 {bundle} --bind-fd <fd> {c} --tmpfs {c}/hooks \
+                 --ro-bind-fd <fd> {c}/config --bind-fd <fd> {w}/.forge {overlay} \
+                 --ro-bind /dev/null {k}/credentials.toml --ro-bind-fd <fd> {h}/tools \
+                 --bind-fd <fd> {h}/pad {exec} \
+                 --ro-bind-fd <fd> {w}/.forge/artifacts --setenv HOME {SANDBOX_HOME} \
                  --setenv USER runner --setenv LOGNAME runner --setenv TMPDIR /tmp \
                  --setenv PATH /runtime:{k}/bin:/usr/local/bin:/usr/bin:/bin \
                  --setenv LANG C.UTF-8 --setenv LC_ALL C.UTF-8 --setenv CI true \
@@ -537,8 +583,9 @@ fn the_workspace_and_exec_argv_keep_their_exact_order_and_identity() {
         };
     let k = cargo.display();
     let layer = session.join("overlay/0");
+    let lower = format!("--ro-bind-fd <fd> {k} --overlay-src /proc/self/fd/<fd>");
     let workspace = format!(
-        "--overlay-src {k} --overlay {u} {v} {k}",
+        "{lower} --overlay {u} {v} {k}",
         u = layer.join("upper").display(),
         v = layer.join("work").display()
     );
@@ -550,7 +597,7 @@ fn the_workspace_and_exec_argv_keep_their_exact_order_and_identity() {
     assert_eq!(called.unwrap().exit_code, 0);
     let run = "/bin/bash -lc true";
     let workspace_argv = expected(&scratch, "--unshare-net", "", workspace, "", run);
-    assert_eq!(recorded(&record), workspace_argv);
+    assert_eq!(unnumbered(recorded(&record)), workspace_argv);
 
     // The exec box: networked here, its overlays in RAM, the bundle, and
     // this binary bound read-only after the declared binds by the caller.
@@ -568,12 +615,12 @@ fn the_workspace_and_exec_argv_keep_their_exact_order_and_identity() {
         &one("true"),
     );
     assert_eq!(boxed, Ok(0));
-    let ram = format!("--overlay-src {k} --tmp-overlay {k}");
+    let ram = format!("{lower} --tmp-overlay {k}");
     let bundled = format!("--ro-bind {} {SANDBOX_BUNDLE}", bundle.display());
     let exe = std::env::current_exe().unwrap();
-    let exec = format!("--ro-bind-try {e} {e}", e = exe.display());
+    let exec = format!("--ro-bind-fd <fd> {e}", e = exe.display());
     let exec_argv = expected(&session.join("call"), "", &bundled, ram, &exec, "true");
-    assert_eq!(recorded(&record), exec_argv);
+    assert_eq!(unnumbered(recorded(&record)), exec_argv);
 }
 
 /// The identity the namespace builder generates for every box: the
@@ -1096,29 +1143,36 @@ fn an_exec_box_writes_its_overlays_to_ram() {
     let (home, none) = (dir.path().join("home"), &[]);
     let (scratch, artifacts) = (dir.path().join("scratch"), artifact_root(dir.path()));
     let reach = sealed(&spec, &workdir, &home);
-    let built = box_argv(
-        &spec,
-        &workdir,
-        &artifacts,
-        &reach,
-        &scratch,
-        OverlayWrites::Ram,
-        none,
-        None,
-        &one("true"),
-    );
-    let argv = built.unwrap();
+    let workspace = Workspace {
+        spec: &spec,
+        workdir: &workdir,
+        artifacts: &artifacts,
+        sealed: &reach,
+        scratch: &scratch,
+        writes: OverlayWrites::Ram,
+        identity: none,
+        bundle_root: None,
+    };
+    let boxed = workspace.boxed(&one("true")).unwrap();
+    let argv = boxed.argv();
     let at = argv
         .iter()
         .position(|part| part == "--overlay-src")
         .unwrap();
-    // The overlay's source is the path sealed for it (U8a2c), canonical; it
-    // lands where the spec names it.
-    let source = std::fs::canonicalize(&tool).unwrap();
-    let source = source.to_string_lossy();
+    // The overlay's lower layer is read through the handle it is mounted
+    // from beneath it (U8k); it lands where the spec names it.
+    let (fd, held) = (&argv[at - 2], format!("/proc/self/fd/{}", argv[at - 2]));
     assert_eq!(
-        argv[at..at + 4],
-        ["--overlay-src", &*source, "--tmp-overlay", &path]
+        argv[at - 3..at + 4],
+        [
+            "--ro-bind-fd",
+            fd,
+            &path,
+            "--overlay-src",
+            &held,
+            "--tmp-overlay",
+            &path
+        ]
     );
     if !can_create_namespace() {
         skip_boundary_proof(

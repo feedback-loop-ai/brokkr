@@ -148,26 +148,29 @@
   1478 crates/brokkr-protocol/src/dsh_sandbox.rs
    347 crates/brokkr-protocol/src/dsh_sandbox/errors.rs
    218 crates/brokkr-protocol/src/fake.rs
-  1094 crates/brokkr-protocol/src/hands.rs
+  1010 crates/brokkr-protocol/src/hands.rs
     63 crates/brokkr-protocol/src/hands/environment.rs
    484 crates/brokkr-protocol/src/hands/evidence.rs
    150 crates/brokkr-protocol/src/hands/evidence/observed.rs
    144 crates/brokkr-protocol/src/hands/evidence/options.rs
    197 crates/brokkr-protocol/src/hands/evidence/verdict.rs
    107 crates/brokkr-protocol/src/hands/git.rs
-   793 crates/brokkr-protocol/src/hands/namespace.rs
+   783 crates/brokkr-protocol/src/hands/namespace.rs
    508 crates/brokkr-protocol/src/hands/namespace/entry.rs
+   157 crates/brokkr-protocol/src/hands/namespace/held.rs
     23 crates/brokkr-protocol/src/hands/namespace/isolation.rs
     37 crates/brokkr-protocol/src/hands/namespace/provision.rs
    800 crates/brokkr-protocol/src/hands/namespace/sources.rs
    800 crates/brokkr-protocol/src/hands/namespace/sources/host.rs
    717 crates/brokkr-protocol/src/hands/namespace/sources/launcher.rs
    167 crates/brokkr-protocol/src/hands/namespace/sources/store.rs
+   231 crates/brokkr-protocol/src/hands/namespace/workspace.rs
     64 crates/brokkr-protocol/src/hands/overlay.rs
-   291 crates/brokkr-protocol/src/hands/sealed.rs
-   498 crates/brokkr-protocol/src/hands/sealed/hidden.rs
+   339 crates/brokkr-protocol/src/hands/sealed.rs
+   547 crates/brokkr-protocol/src/hands/sealed/hidden.rs
    130 crates/brokkr-protocol/src/hands/sealed/hidden/place.rs
     83 crates/brokkr-protocol/src/hands/sealed/hidden/table.rs
+   158 crates/brokkr-protocol/src/hands/sealed/opened.rs
    442 crates/brokkr-protocol/src/hands/session.rs
    222 crates/brokkr-protocol/src/lib.rs
   3977 crates/brokkr-protocol/src/native_controls.rs
@@ -587,16 +590,17 @@
   3119 crates/brokkr-protocol/src/dsh_sandbox/tests.rs
    153 crates/brokkr-protocol/src/fake/tests.rs
    625 crates/brokkr-protocol/src/hands/session/tests.rs
-  1863 crates/brokkr-protocol/src/hands/tests.rs
+  1917 crates/brokkr-protocol/src/hands/tests.rs
    527 crates/brokkr-protocol/src/hands/tests/checked.rs
    428 crates/brokkr-protocol/src/hands/tests/entry.rs
-  1705 crates/brokkr-protocol/src/hands/tests/evidence.rs
+  1690 crates/brokkr-protocol/src/hands/tests/evidence.rs
+   420 crates/brokkr-protocol/src/hands/tests/held.rs
   1467 crates/brokkr-protocol/src/hands/tests/launcher.rs
    176 crates/brokkr-protocol/src/hands/tests/provision.rs
-   519 crates/brokkr-protocol/src/hands/tests/sealed.rs
+   518 crates/brokkr-protocol/src/hands/tests/sealed.rs
   1134 crates/brokkr-protocol/src/hands/tests/server.rs
   1900 crates/brokkr-protocol/src/hands/tests/sources.rs
-  1181 crates/brokkr-protocol/src/hands/tests/store.rs
+  1267 crates/brokkr-protocol/src/hands/tests/store.rs
    182 crates/brokkr-protocol/src/native_controls/mcp/tests.rs
  12555 crates/brokkr-protocol/src/native_controls/tests.rs
    993 crates/brokkr-protocol/src/native_controls/tests/isolation.rs
@@ -693,7 +697,7 @@
    352 crates/brokkr-runtime/src/engine/broker/fold/tests/routes.rs
   1881 crates/brokkr-runtime/src/engine/capability_tests.rs
    448 crates/brokkr-runtime/src/engine/capability_tests/call_tests.rs
-  1150 crates/brokkr-runtime/src/engine/capability_tests/provision_tests.rs
+  1156 crates/brokkr-runtime/src/engine/capability_tests/provision_tests.rs
    911 crates/brokkr-runtime/src/engine/capability_tests/provision_tests/brokered_tests.rs
   1532 crates/brokkr-runtime/src/engine/capability_tests/provision_tests/brokered_tests/writers_tests.rs
     70 crates/brokkr-runtime/src/engine/capability_tests/provision_tests/discovery_tests.rs
@@ -774,7 +778,7 @@
   2146 crates/brokkr-seatbelt-probe/tests/seatbelt_probe/ledger.rs
   1908 crates/brokkr-seatbelt-probe/tests/seatbelt_probe/mod.rs
   2854 crates/brokkr-seatbelt-probe/tests/seatbelt_probe/native.rs
-  2559 crates/brokkr-seatbelt-probe/tests/seatbelt_probe/tests.rs
+  2556 crates/brokkr-seatbelt-probe/tests/seatbelt_probe/tests.rs
    213 crates/brokkr-store/src/acknowledgement/tests.rs
    171 crates/brokkr-store/src/chain/tests.rs
    641 crates/brokkr-store/src/event_index/tests.rs

@@ -41,7 +41,11 @@
 //! included, would shadow where it is to be hidden (ruling 13). Once the
 //! argv is final the store and the description are observed again, and
 //! either changed refuses. Every refusal carries one cause,
-//! [`UNHIDDEN_STORE`], before the command runs.
+//! [`UNHIDDEN_STORE`], before the command runs. Each pin, and the artifact
+//! root the box holds read-only, is observed by device and inode with the
+//! description, and mounted from a handle opened beneath the sealed source
+//! that holds it, which refuses unless it is that object ([`Hidden::beneath`],
+//! U8k): what the box pins is what was observed, never a path resolved again.
 //!
 //! What this cannot close (operator rulings 3 and 14): a store renamed over
 //! by `brokkr secrets set` or `rm` while one box runs detaches that box's
@@ -51,11 +55,12 @@
 //! reach: MB4's refusal of an MCP plan whose store lies in reach stands
 //! (ruling 5).
 
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 use super::super::namespace::{namespace_path, Mount, Namespace};
 use super::super::{expand_home, BindMode, HandsSpec, HOST_TOOLCHAIN_BINDS, SANDBOX_BUNDLE};
-use super::Sealed;
+use super::{Beneath, Expected, Sealed};
 
 /// The store's one place, as sealed and as the box checks it still holds.
 mod place;
@@ -184,21 +189,25 @@ pub(in crate::hands) struct Mounted {
 }
 
 /// What one observation of a box saw: the store where one is to be hidden,
-/// and every mount the box makes, in order, its generated pins among them.
+/// every mount the box makes, in order, its generated pins among them, and
+/// the device and inode of each pin, then of the artifact root the box
+/// holds read-only, where each stands (U8k).
 #[derive(Debug, PartialEq, Eq)]
 struct Observed {
     seen: Option<Seen>,
     mounts: Vec<Mounted>,
+    held: Vec<Option<(u64, u64)>>,
 }
 
 /// The store as a box's first observation saw and hid it, none where the
 /// reach seals none or where it is absent outside every mount, beside the
-/// mounts the box makes. The bundle root and the artifact root's chain the
-/// box mounts are kept for the second observation.
+/// mounts the box makes. The bundle root, and the artifact root and its
+/// chain where the box mounts them, are kept for the second observation.
 #[derive(Debug)]
 pub(in crate::hands) struct Hidden {
     observed: Observed,
     bundle: Option<PathBuf>,
+    root: Option<PathBuf>,
     chain: Vec<PathBuf>,
 }
 
@@ -222,7 +231,7 @@ impl Hidden {
         (workdir, bundle): (&Path, Option<&Path>),
         (held, chain): (Option<&Path>, &[PathBuf]),
     ) -> Result<Hidden, Unhidden> {
-        let observed = observe(spec, sealed, (workdir, bundle), chain)?;
+        let observed = observe(spec, sealed, (workdir, bundle), (held, chain))?;
         if let Some((seen, root)) = observed.seen.as_ref().zip(held) {
             let spelled = namespace_path(root);
             let mut targets = seen.targets.iter();
@@ -234,6 +243,7 @@ impl Hidden {
         Ok(Hidden {
             observed,
             bundle,
+            root: held.map(Path::to_path_buf),
             chain,
         })
     }
@@ -288,24 +298,47 @@ impl Hidden {
         workdir: &Path,
     ) -> std::io::Result<()> {
         sealed.confirm(spec, workdir)?;
-        let again = observe(spec, sealed, (workdir, self.bundle.as_deref()), &self.chain)?;
+        let artifacts = (self.root.as_deref(), self.chain.as_slice());
+        let again = observe(spec, sealed, (workdir, self.bundle.as_deref()), artifacts)?;
         let place = sealed.store().unwrap_or(Path::new(""));
         (again == self.observed)
             .then_some(())
             .ok_or_else(|| Unhidden::Changed(place.to_path_buf()).into())
     }
+
+    /// Each folder the box pins, and the artifact root it holds read-only,
+    /// as a source beneath the sealed one it lies in, the worktree seen at
+    /// `workdir` or a bind's, held to what the observations saw (U8k).
+    pub(in crate::hands) fn beneath(&self, sealed: &Sealed, workdir: &Path) -> Vec<Beneath> {
+        let worktree = sealed.worktree();
+        let pins = (self.observed.mounts.iter()).filter(|pin| pin.held == Held::Pinned);
+        let pins = pins.map(|pin| {
+            let within = pin.bind.map_or(worktree, |bind| &sealed.binds[bind].path);
+            (&pin.host, within, pin.host.strip_prefix(within))
+        });
+        let root = (self.root.iter()).map(|root| (root, worktree, root.strip_prefix(workdir)));
+        let held = pins.chain(root).zip(&self.observed.held);
+        let beneath = held.map(|((host, within, rest), seen)| Beneath {
+            host: host.clone(),
+            within: within.to_path_buf(),
+            rest: rest.unwrap_or(host).to_path_buf(),
+            expected: Expected::Seen(*seen),
+        });
+        beneath.collect()
+    }
 }
 
 /// The store `sealed` seals, observed now for a box of `spec` seen at
 /// `workdir` and handed `bundle`, beside the box's mounts with the folders
-/// of the artifact root's `chain` pinned among them: no store where none is
-/// sealed or where it is absent outside every mount; refused where it is
-/// not as [`present`], [`judged`], [`pinned`] or [`placed`] needs.
+/// of the artifact root's `chain` pinned among them, and each pin and the
+/// artifact `root` by what stands there: no store where none is sealed or
+/// where it is absent outside every mount; refused where it is not as
+/// [`present`], [`judged`], [`pinned`] or [`placed`] needs.
 fn observe(
     spec: &HandsSpec,
     sealed: &Sealed,
     seen: (&Path, Option<&Path>),
-    chain: &[PathBuf],
+    (root, chain): (Option<&Path>, &[PathBuf]),
 ) -> Result<Observed, Unhidden> {
     let mounts = mounted(spec, sealed, seen);
     let worktree = sealed.worktree();
@@ -318,7 +351,12 @@ fn observe(
     let mut pins: Vec<Mounted> = chained.collect();
     let Some(place) = present(sealed.store.as_ref(), &mounts)? else {
         let mounts = assembled(mounts, pins);
-        return Ok(Observed { seen: None, mounts });
+        let held = standing(&mounts, root);
+        return Ok(Observed {
+            seen: None,
+            mounts,
+            held,
+        });
     };
     let facts = judged(place, &mounts)?;
     pins.extend(pinned(place, &mounts, sealed.common())?);
@@ -330,7 +368,18 @@ fn observe(
         facts,
         targets,
     });
-    Ok(Observed { seen, mounts })
+    let held = standing(&mounts, root);
+    Ok(Observed { seen, mounts, held })
+}
+
+/// The device and inode of each folder `mounts` pins, then of the artifact
+/// `root`, none where nothing stands, read without following a link.
+fn standing(mounts: &[Mounted], root: Option<&Path>) -> Vec<Option<(u64, u64)>> {
+    let pins = mounts.iter().filter(|pin| pin.held == Held::Pinned);
+    let held = pins.map(|pin| pin.host.as_path()).chain(root);
+    let found = held.map(|at| std::fs::symlink_metadata(at).ok());
+    let found = found.map(|found| found.map(|found| (found.dev(), found.ino())));
+    found.collect()
 }
 
 /// The sealed `store`'s place where a box must hide it, refused where it is

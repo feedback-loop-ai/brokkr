@@ -16,9 +16,10 @@
 //! identity cause before anything spawns, so nothing a writer changes inside
 //! its reach after admission changes what a later box of its own mounts. A
 //! reach that seals no worktree, or not each bind the box declares, refuses
-//! the same way: nothing derives it again. bubblewrap resolves each source
-//! once more as it mounts it, a window the second observation narrows and
-//! cannot close.
+//! the same way: nothing derives it again. At that second observation each
+//! source is opened once and its handle held to its sealed identity, and
+//! the box mounts it from that handle ([`Sealed::opened`], U8k), so
+//! bubblewrap never resolves its path again.
 //!
 //! The reach seals the operator's secrets store by its canonical path, each
 //! symbolic link on the way the engine spells it at resolved once for the
@@ -47,6 +48,12 @@ use hidden::Store;
 #[cfg(all(test, target_os = "linux"))]
 pub(super) use hidden::{placed, Held, Mounted, Unhidden, TABLE};
 pub use hidden::{store_place, UNHIDDEN_STORE};
+/// Each source opened at the box's last observation, to mount (U8k).
+mod opened;
+use opened::Expected;
+#[cfg(test)]
+pub(super) use opened::OPENED;
+pub(super) use opened::{beneath, Beneath};
 
 /// The driver-input key the box's sealed reach rides under, beside the
 /// artifact root and written with it (U8a2c): the final check binds the
@@ -102,6 +109,19 @@ pub(super) enum Drifted {
         .0.display()
     )]
     Moved(PathBuf),
+    #[error(
+        "{}: '{}', which the box is built from, cannot be opened to be mounted: {}",
+        Refusal::Identity,
+        .0.display(),
+        .1
+    )]
+    Unopened(PathBuf, std::io::ErrorKind),
+    #[error(
+        "{}: '{}', which the box holds read-only, is not one regular file",
+        Refusal::Identity,
+        .0.display()
+    )]
+    Unheld(PathBuf),
 }
 
 #[cfg(test)]
@@ -206,6 +226,31 @@ impl Sealed {
         self.git.as_ref().map(|git| git.common.path.as_path())
     }
 
+    /// What the box holds of the Git common directory it retains (decision
+    /// 0043 ruling 6, U8k): its `config`, opened beneath that directory's
+    /// own handle and one regular file; and, where the worktree holds the
+    /// directory, the directory beneath the worktree's handle, the very one
+    /// sealed, so the hooks and config the box hides there are its own.
+    pub(super) fn retained(&self) -> Vec<Beneath> {
+        let Some(Git { common, .. }) = &self.git else {
+            return Vec::new();
+        };
+        let config = Beneath {
+            host: common.path.join("config"),
+            within: common.path.clone(),
+            rest: PathBuf::from("config"),
+            expected: Expected::File,
+        };
+        let inside = common.path.strip_prefix(&self.worktree.path).ok();
+        let inside = inside.map(|rest| Beneath {
+            host: common.path.clone(),
+            within: self.worktree.path.clone(),
+            rest: rest.to_path_buf(),
+            expected: Expected::Seen(common.identity),
+        });
+        std::iter::once(config).chain(inside).collect()
+    }
+
     /// The canonical place of the secrets store its boxes hide, where one
     /// is sealed (U8h).
     fn store(&self) -> Option<&Path> {
@@ -278,7 +323,10 @@ pub(super) fn mount_binds(
         match bind.mode {
             BindMode::Ro => namespace.mount(Mount::RoBindTry, from, &target),
             BindMode::Rw => namespace.mount(Mount::BindTry, from, &target),
-            BindMode::Overlay => namespace.overlay(overlay_argv(from, &host, index, writes)?),
+            BindMode::Overlay => {
+                let argv = overlay_argv(from, &host, index, writes)?;
+                namespace.overlay(from, &target, argv);
+            }
         }
         store.pin(namespace, index);
         for name in bind.mask.iter().filter(|name| from.join(name).exists()) {

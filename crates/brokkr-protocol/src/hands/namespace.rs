@@ -3,12 +3,13 @@
 //! root's skeleton, the host system set read-only, the generated identity,
 //! and the environment and command that close the argv. What a box mounts
 //! beyond that is its profile's: the workspace's workdir, git and declared
-//! binds stay with `box_argv`; one MCP server's program tree, bootstrap and
-//! private directories are [`ServerBox`]'s, every source mounted from the
-//! handle its observer checked (U6c5a).
+//! binds are [`workspace`]'s, each sealed source mounted from the handle
+//! opened at its last observation (U8k); one MCP server's program tree,
+//! bootstrap and private directories are [`ServerBox`]'s, every source
+//! mounted from the handle its observer checked (U6c5a).
 
 use std::ffi::OsStr;
-use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::fd::OwnedFd;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
@@ -17,10 +18,12 @@ use super::{ids, Session, HANDS_BOX_ENV, HOST_TOOLCHAIN_BINDS, SANDBOX_HOME};
 use crate::broker::{Network, Reach, Refusal, Sources, Tree};
 
 pub(super) mod entry;
+mod held;
 mod isolation;
 mod provision;
 #[cfg(target_os = "linux")]
 pub(super) mod sources;
+pub(super) mod workspace;
 
 /// Render a host path as a path inside the box. Paths inside the namespace
 /// are POSIX paths, never host paths.
@@ -97,8 +100,8 @@ pub(super) enum Resolver {
 /// Every host source and box destination a mount names is kept beside it,
 /// so what a profile checks is exactly what it mounts, and every path the
 /// box sets up, mounted or made, so nothing later lands over one. Each
-/// mount's place in the argv is kept too, so a server box can mount its
-/// sources from their checked handles instead.
+/// mount's place in the argv and its kind are kept too, so a box can mount
+/// its sources from their checked handles instead.
 #[derive(Debug)]
 pub(super) struct Namespace {
     argv: Vec<String>,
@@ -107,11 +110,22 @@ pub(super) struct Namespace {
     binds: Vec<Bind>,
 }
 
-/// One host mount: where its flag lies in the argv, and its host source.
+/// One host source: where its flag lies in the argv, the source, where the
+/// box shows it, and how it is mounted there.
 #[derive(Debug)]
 struct Bind {
     at: usize,
     host: PathBuf,
+    target: String,
+    layer: Layer,
+}
+
+/// What a recorded source is to the box: mounted by itself, or the lower
+/// layer of the overlay at its target (U8k).
+#[derive(Debug, Clone, Copy)]
+enum Layer {
+    Mounted(Mount),
+    Lower,
 }
 
 impl Namespace {
@@ -207,10 +221,11 @@ impl Namespace {
         self.paths
             .extend([host.to_path_buf(), PathBuf::from(target)]);
         self.targets.push(PathBuf::from(target));
-        let at = self.argv.len();
         self.binds.push(Bind {
-            at,
+            at: self.argv.len(),
             host: host.to_path_buf(),
+            target: target.to_string(),
+            layer: Layer::Mounted(mount),
         });
         self.argv.extend([
             mount.flag().to_string(),
@@ -236,41 +251,16 @@ impl Namespace {
         self.tmpfs(target);
     }
 
-    /// Mount every host source from its observed handle (`--ro-bind-fd`),
-    /// not its name, dropping an optional source with none: the box holds
-    /// the object observed, whatever its path names later (MB3). bubblewrap
-    /// closes each descriptor it mounts, so a source mounted twice (a
-    /// system source and its alias) gets a duplicate, returned for the box
-    /// to hold; one that cannot be made leaves identity unprotected.
-    pub(super) fn backed(
-        &mut self,
-        handles: &[(PathBuf, OwnedFd)],
-    ) -> Result<Vec<(PathBuf, OwnedFd)>, Refusal> {
-        let mut argv = Vec::with_capacity(self.argv.len());
-        let (mut from, mut used, mut duplicates) = (0, Vec::new(), Vec::new());
-        for bind in std::mem::take(&mut self.binds) {
-            argv.extend_from_slice(&self.argv[from..bind.at]);
-            let held = handles.iter().find(|(host, _)| *host == bind.host);
-            if let Some((_, fd)) = held {
-                let mut number = fd.as_raw_fd();
-                if used.contains(&number) {
-                    let duplicate = fd.try_clone().map_err(|_| Refusal::Identity)?;
-                    number = duplicate.as_raw_fd();
-                    duplicates.push((bind.host.clone(), duplicate));
-                }
-                used.push(number);
-                let target = self.argv[bind.at + 2].clone();
-                argv.extend(["--ro-bind-fd".to_string(), number.to_string(), target]);
-            }
-            from = bind.at + 3;
-        }
-        argv.extend_from_slice(&self.argv[from..]);
-        self.argv = argv;
-        Ok(duplicates)
-    }
-
-    /// An overlay mount, as `overlay_argv` serialized it for its writes.
-    pub(super) fn overlay(&mut self, argv: Vec<String>) {
+    /// An overlay mount at `target` over the host source `lower`, as
+    /// `overlay_argv` serialized it for its writes, the source recorded as
+    /// its lower layer (U8k).
+    pub(super) fn overlay(&mut self, lower: &Path, target: &str, argv: Vec<String>) {
+        self.binds.push(Bind {
+            at: self.argv.len(),
+            host: lower.to_path_buf(),
+            target: target.to_string(),
+            layer: Layer::Lower,
+        });
         self.argv.extend(argv);
     }
 

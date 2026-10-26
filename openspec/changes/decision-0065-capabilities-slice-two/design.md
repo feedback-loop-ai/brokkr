@@ -1413,8 +1413,9 @@ witness/compose pins accompany only rows that change their inputs.
 | U8h | U9c2 | Hide the secrets store in every workspace box; 45.9–45.10 | `crates/brokkr-protocol/src/hands/sealed.rs`; `crates/brokkr-runtime/src/engine/boxed.rs`; `crates/brokkr-runtime/src/engine/broker/admission.rs`; `crates/brokkr-runtime/src/engine.rs` |
 | U8i | U8h | Pin the store's folder in a Codex seat's profile; 45.11–45.12 | `crates/brokkr-protocol/src/native_controls/grammar/config.rs`; `crates/brokkr-protocol/src/adapters/codex.rs` |
 | U8j | U8h | Forbid nested user namespaces in every box; 45.13–45.14 | `crates/brokkr-protocol/src/hands/namespace.rs` |
+| U8k | U8j | Mount the workspace box's sealed sources by descriptor; 45.15–45.16 | `crates/brokkr-protocol/src/hands.rs`; `crates/brokkr-protocol/src/hands/sealed.rs`; `crates/brokkr-protocol/src/hands/sealed/hidden.rs`; `crates/brokkr-protocol/src/hands/namespace.rs` |
 | U1d3 | U0b | Record U0b's shapes; 5.3–5.4 | `adapters/claude.json`; `adapters/codex.json`; `adapters/dsh.json`; `adapters/lanetally.json`; `crates/brokkr-cli/src/init/adapters.rs` |
-| U9b1 | U1d3, U8e3, U8h, U8i, U8j | Enable the proved namespace path; 42.2, 46.1–46.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
+| U9b1 | U1d3, U8e3, U8h, U8i, U8j, U8k | Enable the proved namespace path; 42.2, 46.1–46.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
 | U9b2 | U9b1 | Publish implemented scope and contract guidance; 47.1–47.2 | None |
 | U10a | U9b2 | Audit removals and run final candidate gates; 48.1–49.2 | None |
 | U10b | U10a | Fold the change and hand off; 49.3 | None |
@@ -2264,6 +2265,21 @@ Closes tasks 45.13 and 45.14; requirements [SI1](specs/strict-mcp-isolation/spec
 Proof: A real namespace box of each profile refuses `unshare -Ur` and a nested bubblewrap with the box's own ENOSPC cause while the workspace still writes, commits and hides the store; the exact argv pins carry the three options in their place; and an independent compiling removal of `--disable-userns` fails its own test (on this host the nested attempt then fails with the host's EPERM instead, which the test distinguishes).
 
 Operator ruling 2026-10-25 (in chat, "go with recommended", after U0b's R16): every box blocks nested user namespaces itself, before U9b1, in this one unit, measured first (R16b); no public API rise; any file outside this row comes back to the operator.
+
+Owning tests: `crates/brokkr-protocol/src/hands/tests.rs` and its child modules.
+
+### U8k — Mount the sealed sources of the workspace box by descriptor
+
+U8a2c's review left a race open (carried to U9b1): `hands::box_argv` confirms each sealed source's identity and the store once the argv is final (`protected.confirm()` and `store.confirm`, crates/brokkr-protocol/src/hands.rs ~:443-445), but the argv still names each source by its path, so bubblewrap resolves the path again after the last observation, and a concurrent replacement in that window is mounted instead of what was confirmed. U8h narrowed it (the store's folders are pinned inside boxes) without closing it. The server box already mounts its sources from the handles it observed (`Namespace::backed`, hands/namespace.rs ~:239-268, `--ro-bind-fd`), so the object observed is the object mounted. U8k makes the workspace box do the same: each sealed source is opened once at its last observation, read-only sources mount with `--ro-bind-fd` and writable ones with `--bind-fd`, and a source that cannot be opened or whose handle no longer matches what was confirmed refuses before the command runs. The store's mask, the folder pins, the artifact root and U8j's isolation are unchanged.
+
+Files: `crates/brokkr-protocol/src/hands.rs` (frozen; size-neutral only), `crates/brokkr-protocol/src/hands/sealed.rs`, `crates/brokkr-protocol/src/hands/sealed/hidden.rs` and `crates/brokkr-protocol/src/hands/namespace.rs`, with new private children under `hands/sealed/` and `hands/namespace/` as the standing child-module rule allows. Four production files, above the three-file rule, by the operator's ruling.
+
+Closes tasks 45.15 and 45.16; requirements [SI1](specs/strict-mcp-isolation/spec.md), [MB3](specs/mcp-capability-broker/spec.md).
+Proof: A real namespace workspace box's argv mounts every sealed source by descriptor, never by path; a source replaced between the box's last observation and its launch is not the object mounted (the box holds the observed one, or refuses with its exact cause); git, writes, the store's denial and the folder pins work as before; and an independent compiling removal of the descriptor mount fails its own test.
+
+Operator ruling 2026-10-26 (in chat, standing ruling "go with recommended for all findings next 7 hours", applied to the controller's audit of U9b1's carried items, option B1): U8a2c's race is closed in this small unit before U9b1, with the four files above and no public API rise; any other file comes back to the operator.
+
+Operator rulings 2026-10-26 on U8k's first run (in chat, "1.a 2.a"; run 0065-slice-two-unit-u8k-see-the--03dd3c9d stopped REVIEW-SECURITY-HOLD): U8k is repaired in a second run that replays the first, and no risk is accepted. (2) Git's config protection (decision 0043 ruling 6) is bound to the worktree or common directory object the box retains by descriptor, never to a path resolved again, and a box that cannot establish it refuses before the command runs; the folder pins, the artifact root and the overlay's lower layer are each shown, in a real namespace, to mount the object observed or refuse, together with the store. The kernel prerequisite of the descriptor hand-off (`close_range` with `CLOSE_RANGE_CLOEXEC`, Linux 5.11) is recorded beside bubblewrap's, with its exact diagnostic. (3) The public `hands::box_argv`, whose argv can no longer carry the descriptors it names, is retired: deprecated now, with callers pointed to the launch that holds them, and removed in brokkr 0.13.0 (decision 0071 ruling 6); no public API rise.
 
 Owning tests: `crates/brokkr-protocol/src/hands/tests.rs` and its child modules.
 
