@@ -42,6 +42,27 @@ impl Aggregate {
         Aggregate::ALL.map(Aggregate::word).join(", ")
     }
 
+    /// A clean verdict cannot carry a witnessed residual finding. This
+    /// shared check also runs at the protected phase's decision boundary,
+    /// where singleton reviews reach it without panel aggregation.
+    pub(crate) fn review_problem(payload: &Value) -> Option<String> {
+        if payload.get("result").and_then(Value::as_str) != Some("clean") {
+            return None;
+        }
+        let inputs = payload.get("inputs").and_then(Value::as_object)?;
+        if inputs.get("has_security_residual").and_then(Value::as_bool) == Some(true) {
+            return Some("clean review reports a security residual".into());
+        }
+        let severity = inputs
+            .get("max_residual_severity")
+            .and_then(Value::as_str)
+            .and_then(Severity::named);
+        if severity.is_some_and(|severity| severity > Severity::None) {
+            return Some("clean review reports a residual severity above none".into());
+        }
+        None
+    }
+
     pub(super) fn required_results(&self) -> &'static [&'static str] {
         match self {
             Aggregate::UnanimousPass => &["pass", "fail"],
@@ -138,16 +159,26 @@ fn review_panel(parsed: &[(&str, &str, &Value)], meta: Value) -> Value {
         .expect("panels have members");
     let joined = ReviewInputs::join(parsed);
     let mut inputs = Map::new();
-    // Backward-compatible evidence for frozen/third-party tables:
-    // judges never fix, so the only lawful value is false. Shipped
-    // tables no longer declare or read it and therefore drop it.
-    inputs.insert("fixes_applied".into(), Value::Bool(false));
-    inputs.insert("spec_defect".into(), Value::Bool(joined.spec_defect));
-    if worst.1 == "residual" || joined.max_severity > Severity::None {
+    // A read-only charter is not evidence that a particular member
+    // supplied false: missing and malformed observations remain unknown.
+    // Preserve a witnessed true flag even beside an unknown member.
+    inputs.insert("fixes_applied".into(), json!(joined.fixes_applied));
+    inputs.insert("spec_defect".into(), json!(joined.spec_defect));
+    if worst.1 == "residual"
+        || joined.max_severity > Severity::None
+        || joined.has_security == Some(true)
+    {
         inputs.insert("max_residual_severity".into(), json!(joined.severity()));
         inputs.insert("has_security_residual".into(), json!(joined.has_security));
     }
-    json!({"result": worst.1, "inputs": inputs, "notes": meta})
+    let review = json!({"result": worst.1, "inputs": inputs, "notes": meta});
+    match Aggregate::review_problem(&review) {
+        Some(problem) => json!({
+            "result": "__member-schema-invalid__",
+            "notes": {"problem": problem, "aggregate": review},
+        }),
+        None => review,
+    }
 }
 
 /// What a review panel's members report in their own `inputs`, joined:
@@ -159,7 +190,8 @@ struct ReviewInputs {
     max_severity: Severity,
     severity_known: bool,
     has_security: Option<bool>,
-    spec_defect: bool,
+    fixes_applied: Option<bool>,
+    spec_defect: Option<bool>,
 }
 
 impl ReviewInputs {
@@ -168,7 +200,8 @@ impl ReviewInputs {
             max_severity: Severity::None,
             severity_known: true,
             has_security: Some(false),
-            spec_defect: false,
+            fixes_applied: Some(false),
+            spec_defect: Some(false),
         };
         for (_, result, payload) in parsed {
             let inputs = payload.get("inputs").and_then(Value::as_object);
@@ -181,17 +214,21 @@ impl ReviewInputs {
                 .and_then(Severity::named);
             if *result == "residual" {
                 joined.severity_known &= severity.is_some();
-                joined.has_security = joined_security(joined.has_security, security);
+                joined.has_security = joined_flag(joined.has_security, security);
             } else if security == Some(true) {
                 joined.has_security = Some(true);
             }
             if let Some(severity) = severity {
                 joined.max_severity = joined.max_severity.max(severity);
             }
-            joined.spec_defect |= inputs
+            let fixes = inputs
+                .and_then(|inputs| inputs.get("fixes_applied"))
+                .and_then(Value::as_bool);
+            let scope = inputs
                 .and_then(|inputs| inputs.get("spec_defect"))
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
+                .and_then(Value::as_bool);
+            joined.fixes_applied = joined_flag(joined.fixes_applied, fixes);
+            joined.spec_defect = joined_flag(joined.spec_defect, scope);
         }
         joined
     }
@@ -208,9 +245,10 @@ impl ReviewInputs {
     }
 }
 
-/// A witnessed security finding dominates; otherwise both observations
-/// must be readable before the joined flag can assert false.
-fn joined_security(current: Option<bool>, incoming: Option<bool>) -> Option<bool> {
+/// A witnessed true flag dominates; otherwise both observations must be
+/// readable before the joined flag can assert false. The same rule applies
+/// to security, changed-code and scope evidence.
+fn joined_flag(current: Option<bool>, incoming: Option<bool>) -> Option<bool> {
     if current == Some(true) || incoming == Some(true) {
         Some(true)
     } else if current.is_none() || incoming.is_none() {

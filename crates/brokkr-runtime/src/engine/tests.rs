@@ -1955,7 +1955,7 @@ fn panel_sequence_and_aggregation_cover_all_terminal_shapes() {
     assert_eq!(review["result"], "invented");
     assert_eq!(review["inputs"]["max_residual_severity"], "high");
     assert_eq!(review["inputs"]["has_security_residual"], true);
-    assert_eq!(review["inputs"]["fixes_applied"], false);
+    assert_eq!(review["inputs"]["fixes_applied"], Value::Null);
     assert_eq!(review["inputs"]["spec_defect"], true);
     let unknown_severity = Aggregate::ReviewPanel.aggregate_results(&[(
         "residual".into(),
