@@ -29,7 +29,6 @@ use super::{composed, Selection, SiteSpawn};
 use crate::agents::{Candidate, McpAxis, McpInvocation};
 use crate::argv::Executable;
 use crate::bundle::{HandsState, McpIntent, SeatClass, SiteFacts};
-use crate::capabilities::Outcome;
 
 impl Selection {
     /// The brokers this attempt's provisioning sealed for the site at
@@ -78,26 +77,18 @@ pub(super) fn served(
     Ok(serving)
 }
 
-/// The outcome that serves a launch at the site `facts` describe, for the
-/// serving `link` selects: the one dispatch seals the launch's record and
-/// serving inputs from, its isolation intent among them (U1g2). `None`
-/// where the site's capability plan holds none, and the launch is sealed
-/// nothing beside.
-pub(super) fn serving_outcome<'f>(
-    facts: Option<&'f SiteFacts>,
+/// The isolation intent dispatch seals beside a launch at the site `facts`
+/// describe, for the serving `link` selects, with no broker provisioned:
+/// `None` where it seals none, the site's capability plan holding no
+/// outcome for that serving (`outcome_at`), so the launch is served as a
+/// driver run by hand is, or where it refuses to seal one. Doctor models a
+/// dsh seat's home from it through the driver's own admission (#717).
+pub fn sealed_isolation(
     link: Option<&Candidate>,
-) -> Option<&'f Outcome> {
-    let site = facts?.capabilities.as_ref()?;
-    site.serving(link.map(|link| (link.provider.as_str(), link.model.as_str())))
-}
-
-/// The fence of the isolation intent dispatch seals beside a launch at the
-/// site `facts` describe, for the serving `link` selects
-/// (`serving_outcome`): `None` where it seals none, so the launch is
-/// served as a driver run by hand is. Doctor models a dsh seat's home from
-/// it (#717).
-pub fn sealed_fence(link: Option<&Candidate>, facts: Option<&SiteFacts>) -> Option<SealedFence> {
-    serving_outcome(facts, link).map(|_| fence())
+    facts: Option<&SiteFacts>,
+) -> Option<SealedIsolation> {
+    outcome_at(facts, link)?;
+    isolation_intent(link, facts, &[]).ok()
 }
 
 /// The MCP fence this engine stands under, as an intent seals it.

@@ -40,7 +40,7 @@ use crate::native_controls::{
     SealedAssessment, SealedBoundary, SealedBroker, SealedFence, SealedIsolation, SealedServers,
     SealedServing, Transport, ARTIFACT_ROOT, SERVING_INPUTS,
 };
-use crate::served_home::{dsh_served, DshServed, RouteRefusal};
+use crate::served_home::{dsh_served, DshCause, DshRefusal, DshServed, RouteRefusal};
 use crate::transcript::{DshHome, DshHomeError};
 
 mod admit;
@@ -334,6 +334,17 @@ pub(super) enum McpRefusal {
     Route(#[from] RouteRefusal),
 }
 
+impl From<DshRefusal> for McpRefusal {
+    /// The served-home decision's refusal as the driver states it: the
+    /// admission's cause or the route's, each in its own words.
+    fn from(DshRefusal(refused): DshRefusal) -> McpRefusal {
+        match refused {
+            DshCause::Admission(cause) => McpRefusal::Strict(cause),
+            DshCause::Route(refusal) => McpRefusal::Route(refusal),
+        }
+    }
+}
+
 impl McpRefusal {
     /// The refusal as a driver states it, before any provider work.
     pub(super) fn at_launch(&self) -> String {
@@ -342,12 +353,14 @@ impl McpRefusal {
 }
 
 /// A launch's composed arguments with its isolated configuration in them,
-/// and the intent they were built from, `None` where the input carried none
-/// or the standing fence serves its shape as before.
+/// the intent they were built from, `None` where the input carried none
+/// or the standing fence serves its shape as before, and whether the
+/// launch was offered a rejoin.
 #[derive(Debug)]
 pub(super) struct Isolated {
     pub(super) argv: Vec<String>,
     isolation: Option<SealedIsolation>,
+    offered: bool,
 }
 
 impl Isolated {
@@ -437,8 +450,8 @@ impl Isolated {
         route: Option<&str>,
         routed: bool,
     ) -> Result<DshIsolation, McpRefusal> {
-        let fence = self.isolation.as_ref().map(|isolation| isolation.fence);
-        match dsh_served(fence, route, routed).map_err(|refused| refused.0)? {
+        let isolation = self.isolation.as_ref();
+        match dsh_served(isolation, self.offered, route, routed)? {
             DshServed::Operator => Ok(DshIsolation::Operator),
             DshServed::Engine => Ok(DshIsolation::Engine {
                 rejoins: self.resumes("dsh", super::DSH_SHAPE),
@@ -579,9 +592,9 @@ fn with_empty_set(
 /// whichever way the fence stands, never served without the brokers it
 /// seals. A launch offered no rejoin is admitted cold; one
 /// `offered` a rejoin can always end as its cold replacement, so that shape
-/// is admitted for it, and the rejoin itself separately
-/// ([`Isolated::resumes`]). A shape not admitted refuses past the fence and,
-/// while it stands, is served as before.
+/// is admitted for it ([`SealedIsolation::admits`]), and the rejoin itself
+/// separately ([`Isolated::resumes`]). A shape not admitted refuses past the
+/// fence and, while it stands, is served as before.
 pub(super) fn isolated(
     provider: &'static str,
     edge: &Edge<'_>,
@@ -593,6 +606,7 @@ pub(super) fn isolated(
     let unbuilt = Isolated {
         argv: [extra, &isolating].concat(),
         isolation: None,
+        offered,
     };
     let Some((sealed, isolation)) = intent(edge)? else {
         return Ok(unbuilt);
@@ -616,21 +630,8 @@ pub(super) fn isolated(
     if empty && configured {
         return Err(not_sealed);
     }
-    let invocation = match offered {
-        true => Invocation::Replacement,
-        false => Invocation::Cold,
-    };
-    let admitted = isolation.admit(provider, invocation).and_then(|()| {
-        match hands && shape == Some(ServingShape::Dsh) {
-            true => Err(McpRefusal::Strict(StrictCause::Unmeasured {
-                provider: provider.into(),
-                shape: "hands".into(),
-            })),
-            false => Ok(()),
-        }
-    });
-    if let Err(refusal) = admitted {
-        isolation.fence.refuses(refusal)?;
+    if let Err(refusal) = isolation.admits(provider, offered) {
+        isolation.fence.refuses(refusal.into())?;
         edge.built.get_or_init(|| isolating);
         return Ok(unbuilt);
     }
@@ -642,6 +643,7 @@ pub(super) fn isolated(
     Ok(Isolated {
         argv,
         isolation: Some(isolation.clone()),
+        offered,
     })
 }
 

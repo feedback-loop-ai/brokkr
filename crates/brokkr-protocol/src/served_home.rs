@@ -2,14 +2,16 @@
 //! in one place for the driver that serves the launch and for doctor, which
 //! models each dsh seat's home from its capability plan (#717): the
 //! operator's own home where the launch carries no isolation intent, an
-//! engine-only home on a route U0 or U0c measured one on, and past the
-//! lifted fence a refusal of any other. Beside it, the one check of a
+//! engine-only home where the driver's admission admits the launch's shape
+//! on a route U0 or U0c measured one on, and past the lifted fence a
+//! refusal of any other. Beside it, the one check of a
 //! working directory's `.env` an engine-only home refuses a launch on. Both
 //! read no file but the `.env`'s name, and stage nothing.
 
 use std::path::Path;
 
-use crate::native_controls::SealedFence;
+use crate::adapters::StrictCause;
+use crate::native_controls::{SealedFence, SealedIsolation};
 
 /// How a qualified dsh route reached its engine-only home when U0 or U0c
 /// measured it: on `dsh-base`'s shipped row alone, or with its validated
@@ -81,25 +83,43 @@ pub enum DshServed {
 /// claimed or home staged; its text is the driver's cause.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error(transparent)]
-pub struct DshRefusal(pub(crate) RouteRefusal);
+pub struct DshRefusal(pub(crate) DshCause);
 
-/// The home a dsh launch is served from, by `fence`, the fence of the
-/// isolation intent its launch carries, none where it carries none; the
-/// route its model pin is served on, none where the seat pins none; and
-/// whether it carries a route overlay. A launch with no intent is served
-/// from the operator's home. One with an intent is served from an
-/// engine-only home on a route `DSH_ROUTES` measured with that overlay;
-/// any other refuses past the lifted fence, and while the fence stands is
-/// served from the operator's home.
+/// What refuses a dsh launch past the lifted fence: the admission of its
+/// shape ([`SealedIsolation::admits`]) or its route, each in its own words.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum DshCause {
+    #[error(transparent)]
+    Admission(StrictCause),
+    #[error(transparent)]
+    Route(RouteRefusal),
+}
+
+/// The home a dsh launch is served from, by `isolation`, the isolation
+/// intent its launch carries, none where it carries none; whether it was
+/// `offered` a rejoin; the route its model pin is served on, none where the
+/// seat pins none; and whether it carries a route overlay. A launch with no
+/// intent is served from the operator's home. One with an intent is served
+/// from an engine-only home where the driver's one admission admits its
+/// shape, its cold launch or an offer's cold replacement
+/// (`SealedIsolation::admits`), on a route `DSH_ROUTES` measured with that
+/// overlay; any other refuses past the lifted fence, and while the fence
+/// stands is served from the operator's home, as the driver serves a shape
+/// it does not admit.
 pub fn dsh_served(
-    fence: Option<SealedFence>,
+    isolation: Option<&SealedIsolation>,
+    offered: bool,
     route: Option<&str>,
     routed: bool,
 ) -> Result<DshServed, DshRefusal> {
-    let Some(fence) = fence else {
+    let Some(isolation) = isolation else {
         return Ok(DshServed::Operator);
     };
-    match (measured(route, routed), fence) {
+    let admitted = isolation
+        .admits("dsh", offered)
+        .map_err(DshCause::Admission);
+    let served = admitted.and_then(|()| measured(route, routed).map_err(DshCause::Route));
+    match (served, isolation.fence) {
         (Ok(()), _) => Ok(DshServed::Engine),
         (Err(_), SealedFence::Standing) => Ok(DshServed::Operator),
         (Err(refusal), SealedFence::Lifted) => Err(DshRefusal(refusal)),

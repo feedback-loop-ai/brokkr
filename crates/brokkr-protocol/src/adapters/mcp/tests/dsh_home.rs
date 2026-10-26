@@ -585,49 +585,74 @@ fn dsh_is_admitted_only_on_a_route_u0_or_u0c_measured() {
     );
 }
 
+/// The intents [`the_public_served_home_decision_is_the_one_a_launch_is_served_by`]
+/// asks under, each named: none, and under each fence the cold and
+/// replacement shapes measured, then each in turn unsupported and
+/// unmeasured beside the other measured, no resume shape measured.
+fn served_home_intents(base: &Value) -> Vec<(String, Value)> {
+    let (measured, unmeasured) = (json!("measured"), json!("unmeasured"));
+    let unsupported = json!({"unsupported": "the test's"});
+    let shapes = [
+        ("measured", measured.clone(), measured.clone()),
+        ("unsupported cold", unsupported.clone(), measured.clone()),
+        ("unmeasured cold", unmeasured.clone(), measured.clone()),
+        ("unsupported replacement", measured.clone(), unsupported),
+        ("unmeasured replacement", measured, unmeasured.clone()),
+    ];
+    let mut intents = vec![("no intent".to_string(), base.clone())];
+    for fence in ["standing", "lifted"] {
+        for (name, cold, replacement) in &shapes {
+            let assessed = [cold.clone(), replacement.clone(), unmeasured.clone()];
+            let input = fenced(base.clone(), "empty", assessed, fence);
+            intents.push((format!("{fence} {name}"), input));
+        }
+    }
+    intents
+}
+
 /// The public served-home decision is the one a launch is served by (#717;
 /// decision 0071 ruling 5): for each measured route with and without an
-/// overlay, an unmeasured route and a seat that pins none, under no intent,
-/// the standing fence and the lifted one, [`crate::dsh_served`] answers
-/// what the launch's argv is judged to, its refusal in the driver's words.
+/// overlay, an unmeasured route and a seat that pins none, cold and offered
+/// a rejoin, under each of [`served_home_intents`], [`crate::dsh_served`]
+/// answers what the launch's argv is judged to, its refusal in the driver's
+/// words. A shape the driver's admission does not admit, unsupported or
+/// unmeasured, is served from the operator's home while the fence stands,
+/// as the launch serves it, and refuses past the lifted fence.
 #[test]
 fn the_public_served_home_decision_is_the_one_a_launch_is_served_by() {
     use crate::adapters::AdapterKind;
     use crate::{dsh_served, DshServed};
-    let base = json!({"workdir": "/w"});
-    let measured = || [json!("measured"), json!("measured"), json!("unmeasured")];
-    let intents = [
-        (None, base.clone()),
-        (
-            Some(SealedFence::Standing),
-            fenced(base.clone(), "empty", measured(), "standing"),
-        ),
-        (
-            Some(SealedFence::Lifted),
-            fenced(base, "empty", measured(), "lifted"),
-        ),
-    ];
     let pins = ROUTES.map(|(_, pinned, _)| Some(pinned));
-    let mut answers = Vec::new();
-    for (fence, input) in &intents {
-        for pinned in pins.into_iter().chain([Some("openai/gpt-6"), None]) {
+    let (mut answers, mut unequal) = (Vec::new(), std::collections::BTreeSet::new());
+    for (name, input) in served_home_intents(&json!({"workdir": "/w"})) {
+        let isolation: Option<SealedIsolation> = (input.get(SERVING_INPUTS))
+            .map(|sealed| serde_json::from_value(sealed["isolation"].clone()).unwrap());
+        for (offered, pinned) in [false, true].into_iter().flat_map(|offered| {
+            (pins.into_iter().chain([Some("openai/gpt-6"), None])).map(move |at| (offered, at))
+        }) {
             for routed in [false, true] {
                 let mut extra = pinned.map_or_else(Vec::new, |pinned| vec!["--model", pinned]);
                 extra.extend(["--patch", "route.yml"].iter().filter(|_| routed));
-                let launch = dsh_argv(&s(&extra), input, false).map(|argv| argv.isolation);
+                let launch = dsh_argv(&s(&extra), &input, offered).map(|argv| argv.isolation);
                 let route = pinned.and_then(|pinned| AdapterKind::Dsh.served_route(pinned));
-                let decided = match dsh_served(*fence, route, routed) {
+                let decided = match dsh_served(isolation.as_ref(), offered, route, routed) {
                     Ok(DshServed::Operator) => Ok(DshIsolation::Operator),
                     Ok(DshServed::Engine) => Ok(DshIsolation::Engine { rejoins: false }),
-                    Err(refusal) => Err(format!("refusing to invoke the agent CLI: {refusal}")),
+                    Err(refusal) => Err(McpRefusal::from(refusal).at_launch()),
                 };
-                assert_eq!(launch, decided, "{fence:?} {extra:?}");
+                if launch != decided {
+                    unequal.insert(format!("{name}, offered {offered}"));
+                }
                 answers.push(decided.map_err(|_| ()));
             }
         }
     }
-    // Every case is asked: 2 x 7 per intent, five routes measured once each
-    // under each fence, and the other nine refused past the lifted fence.
+    assert_eq!(unequal, std::collections::BTreeSet::<String>::new());
+    // Every case is asked: 2 x 7 per intent and offer. Under each fence the
+    // five routes are served from an engine-only home where the shape served
+    // is admitted, three intents of five both cold and offered; the other
+    // cases are served from the operator's home while the fence stands, and
+    // refused past the lifted one.
     let count = |answer| answers.iter().filter(|each| **each == answer).count();
     let (operator, engine) = (
         Ok(DshIsolation::Operator),
@@ -635,7 +660,7 @@ fn the_public_served_home_decision_is_the_one_a_launch_is_served_by() {
     );
     assert_eq!(
         (count(operator), count(engine), count(Err(()))),
-        (23, 10, 9)
+        (28 + 110, 60, 110)
     );
 }
 

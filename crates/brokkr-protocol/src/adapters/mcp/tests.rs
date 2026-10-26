@@ -1061,7 +1061,9 @@ fn a_measured_shape_of_a_harness_with_no_mechanism_refuses_as_unmeasured() {
         (Invocation::Replacement, "replacement"),
         (Invocation::Resume("exec-resume"), "exec-resume"),
     ] {
-        let refused = isolation.admit("exec", invocation);
+        let refused = isolation
+            .admit("exec", invocation)
+            .map_err(McpRefusal::from);
         assert_eq!(refused, Err(unmeasured_cause("exec", shape)), "{shape}");
         assert_eq!(isolation.admit("codex", invocation), Ok(()), "{shape}");
     }

@@ -1199,5 +1199,5 @@ pub brokkr_protocol::Message::proto: alloc::string::String
 impl brokkr_protocol::Message
 pub fn brokkr_protocol::Message::new(brokkr_protocol::Body) -> brokkr_protocol::Message
 pub const brokkr_protocol::PROTO: &str
-pub fn brokkr_protocol::dsh_served(core::option::Option<brokkr_protocol::native_controls::SealedFence>, core::option::Option<&str>, bool) -> core::result::Result<brokkr_protocol::DshServed, brokkr_protocol::DshRefusal>
+pub fn brokkr_protocol::dsh_served(core::option::Option<&brokkr_protocol::native_controls::SealedIsolation>, bool, core::option::Option<&str>, bool) -> core::result::Result<brokkr_protocol::DshServed, brokkr_protocol::DshRefusal>
 pub fn brokkr_protocol::holds_dotenv(&std::path::Path) -> bool

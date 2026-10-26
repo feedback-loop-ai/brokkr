@@ -33,11 +33,11 @@
 //! the variable and never its value.
 //!
 //! Which home serves each dsh seat is modelled from the folder's compile
-//! ([`home`]; the served-home model, #717's ruled follow-up): whether the
-//! seat's launch carries the engine's isolation intent, read by the
-//! predicate dispatch seals it by (`brokkr_runtime::engine::sealed_fence`),
-//! and then brokkr-protocol's own served-home decision
-//! (`brokkr_protocol::dsh_served`), which the launch is served by. A seat
+//! ([`home`]; the served-home model, #717's ruled follow-up): the isolation
+//! intent the seat's launch carries, the one dispatch seals beside it
+//! (`brokkr_runtime::engine::sealed_isolation`), and then brokkr-protocol's
+//! own served-home decision (`brokkr_protocol::dsh_served`), which the
+//! launch is served by, through the admission the driver applies. A seat
 //! served from the operator's own dsh home, the one `DshSeams::resolve`
 //! resolves, is asked of every source above. One served from an
 //! engine-only home (decision 0065 slice two) reads a key from the

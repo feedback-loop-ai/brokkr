@@ -7,7 +7,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use brokkr_protocol::native_controls::SealedFence;
+use brokkr_protocol::native_controls::{SealedAssessment, SealedFence, SealedIsolation};
 use serde_json::json;
 
 use super::home::Seat;
@@ -954,14 +954,50 @@ fn scaffolded() -> (tempfile::TempDir, Bundle) {
     (dir, scaffold.bundle)
 }
 
+/// [`scaffolded`] recompiled with its dsh adapter's one cold shape, which
+/// the shipped adapter measured on Linux, measured on the host this test
+/// does not run on: the compile a macOS host makes of the shipped adapter,
+/// since a result from one host qualifies nothing on the other.
+fn scaffolded_elsewhere() -> (tempfile::TempDir, Bundle) {
+    let (dir, _) = scaffolded();
+    let folder = dir.path().join(".brokkr");
+    let path = folder.join("adapters/dsh.json");
+    let mut dsh: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let host = &mut dsh["mcp"]["shapes"][0]["measured_on"]["host"];
+    assert_eq!(*host, json!("linux"));
+    *host = json!(if cfg!(target_os = "linux") {
+        "macos"
+    } else {
+        "linux"
+    });
+    std::fs::write(&path, dsh.to_string()).unwrap();
+    let (agents, adapters) = (folder.join("agents"), folder.join("adapters"));
+    let boundary = brokkr_core::realms::Boundary::Namespace;
+    let compiled = Bundle::compile_under(&folder, &agents, &adapters, boundary).unwrap();
+    (dir, compiled)
+}
+
+/// The intent of an empty set under `fence` whose cold shape is `cold` and
+/// every other unmeasured: the shipped dsh adapter's on the host its one
+/// cold shape was measured on, where `cold` is measured.
+fn intent(fence: SealedFence, cold: SealedAssessment) -> SealedIsolation {
+    SealedIsolation {
+        cold,
+        fence,
+        ..SealedIsolation::default()
+    }
+}
+
 /// A seat at `label` pinning `model`, its launch carrying an intent under
-/// `fence`.
+/// `fence` whose cold shape is measured.
 fn seat(label: &str, model: &str, routed: bool, fence: Option<SealedFence>) -> Seat {
+    let isolation = fence.map(|fence| intent(fence, SealedAssessment::Measured));
     Seat {
         label: label.into(),
         model: model.into(),
         routed,
-        fence,
+        isolation,
     }
 }
 
@@ -1192,6 +1228,92 @@ fn a_compiled_folder_is_answered_by_the_homes_of_its_seats() {
     );
 }
 
+/// The driver's admission rules each seat's home (#717): under the
+/// standing fence a seat whose cold shape is unsupported or unmeasured is
+/// served from the operator's home, as its launch is, and asked of every
+/// source that home reads, beside a measured seat an engine-only home
+/// serves; past the lifted fence the same shape is refused in the
+/// admission's words.
+#[test]
+fn a_shape_the_admission_does_not_admit_is_served_as_its_launch_is() {
+    let planted = Planted::scaffold();
+    let (standing, lifted) = (SealedFence::Standing, SealedFence::Lifted);
+    let unsupported = SealedAssessment::Unsupported("the test's".into());
+    let at = |label: &str, isolation| Seat {
+        isolation: Some(isolation),
+        ..seat(label, "deepseek-flash", false, None)
+    };
+    let seats = home::Seats {
+        read: vec![
+            at("m", intent(standing, SealedAssessment::Measured)),
+            at("s", intent(standing, unsupported.clone())),
+            at("u", intent(standing, SealedAssessment::Unmeasured)),
+            at("l", intent(lifted, unsupported)),
+        ],
+        unread: Default::default(),
+    };
+    let (route, variable) = (
+        || "deepseek-official".to_string(),
+        || "DEEPSEEK_API_KEY".to_string(),
+    );
+    let refused = "provider 'dsh' cannot exclude ambient MCP configuration (the test's)";
+    let expected = vec![
+        Line::Key(Reach::Unreached {
+            route: route(),
+            variable: variable(),
+            files: vec![planted.repo.join(".env"), planted.home.join(".env")],
+            off: Ok(Off::Shipped(planted.profile())),
+        }),
+        group("deepseek-official", &["s", "u"], Home::Operator),
+        Line::Key(Reach::Unset {
+            route: route(),
+            variable: variable(),
+        }),
+        group("deepseek-official", &["m"], Home::Engine),
+        group("deepseek-official", &["l"], Home::Refused(refused.into())),
+    ];
+    assert_eq!(planted.modelled_within_bound(seats, unset), expected);
+}
+
+/// The macOS case (#717): the shipped dsh adapter's one cold shape was
+/// measured on Linux and qualifies nothing on macOS, so each seat of a
+/// scaffold compiled there carries an unmeasured cold shape and is served
+/// from the operator's home, as its launch is; its key line asks every
+/// layer that home reads, and none reads as an engine-only home's.
+#[test]
+fn a_scaffold_compiled_on_macos_is_served_from_the_operators_home() {
+    let (_dir, compiled) = scaffolded_elsewhere();
+    let seats = home::seats(&compiled);
+    let cold: Vec<_> = (seats.read.iter())
+        .map(|seat| seat.isolation.as_ref().map(|isolation| &isolation.cold))
+        .collect();
+    assert_eq!(cold, [Some(&SealedAssessment::Unmeasured); 4]);
+    let planted = Planted::scaffold();
+    let lines = planted.modelled_within_bound(seats, unset);
+    let printed = lines
+        .iter()
+        .map(|line| format!("{}: {}", line.what(), line.detail()));
+    let (repo, home) = (planted.repo.join(".env"), planted.home.join(".env"));
+    assert_eq!(
+        printed.collect::<Vec<_>>(),
+        [
+            format!(
+                "dsh key deepseek-official: dsh reaches no DEEPSEEK_API_KEY: it is not set in the \
+                 launching environment, no .env file is present at {} or {}, and dsh's shipped \
+                 headless bundle leaves its credentials service disabled; export DEEPSEEK_API_KEY \
+                 where brokkr runs, or write the row `- id: credentials` with `  disabled: false` \
+                 in {} and store DEEPSEEK_API_KEY through dsh's credentials service",
+                repo.display(),
+                home.display(),
+                planted.profile().display()
+            ),
+            "dsh home deepseek-official: Brokkr serves seats [implement, intake] on this route \
+             from the operator's own dsh home, which reads every source this check asks"
+                .to_string(),
+        ]
+    );
+}
+
 /// A seat whose launch can't be read is named by its site and leaves every
 /// read seat's home standing: an engine-only seat whose key the launching
 /// environment does not give still reads MISSING, and beside a repository
@@ -1269,7 +1391,7 @@ fn an_unread_seat_leaves_every_read_seats_home_standing() {
     let scaffold = Planted::scaffold();
     let operator = group("deepseek-official", &["s"], Home::Operator);
     let mut alone = seats();
-    alone.read[0].fence = None;
+    alone.read[0].isolation = None;
     let lines = scaffold.modelled_within_bound(alone, |_| true);
     assert_eq!(&lines[1..], [operator, unread()]);
 }

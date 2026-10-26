@@ -1,9 +1,10 @@
 //! The served-home model (#717, the dsh key check's ruled follow-up): each
 //! dsh seat of a folder's compile is served from the home brokkr-protocol's
-//! own decision rules for it ([`dsh_served`]), by whether its launch carries
-//! the engine's isolation intent, read by the predicate dispatch seals it
-//! by ([`sealed_fence`]), the route its `--model` is served on and whether
-//! it carries a `--patch` route overlay. The seats are grouped by route and
+//! own decision rules for it ([`dsh_served`]), by the isolation intent its
+//! launch carries, the one dispatch seals beside it ([`sealed_isolation`]),
+//! read through the admission the driver applies to a cold launch, the
+//! route its `--model` is served on and whether it carries a `--patch`
+//! route overlay. The seats are grouped by route and
 //! home, and each group is answered for the sources that home reads. A
 //! seat whose launch the compile does not carry is named by its site, and
 //! leaves every other seat's answer standing.
@@ -11,11 +12,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use brokkr_protocol::native_controls::SealedFence;
+use brokkr_protocol::native_controls::SealedIsolation;
 use brokkr_protocol::{dsh_served, holds_dotenv, DshServed};
 use brokkr_runtime::agents::Adapter;
 use brokkr_runtime::bundle::Bundle;
-use brokkr_runtime::engine::sealed_fence;
+use brokkr_runtime::engine::sealed_isolation;
 
 use super::{keyed, reach, reaches, with_caveats, Line, Reach, Source, Sources};
 use crate::render::Safe;
@@ -25,14 +26,13 @@ const DSH: &str = "dsh";
 
 /// One dsh seat of a compiled folder, as its launch is served: the site it
 /// runs at, the model its `--model` pins, whether it carries a `--patch`,
-/// and the fence of the isolation intent its launch carries, none where it
-/// carries none.
+/// and the isolation intent its launch carries, none where it carries none.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Seat {
     pub(crate) label: String,
     pub(crate) model: String,
     pub(crate) routed: bool,
-    pub(crate) fence: Option<SealedFence>,
+    pub(crate) isolation: Option<SealedIsolation>,
 }
 
 /// The home a group of seats is served from on one route.
@@ -111,7 +111,7 @@ pub(crate) fn seats(compiled: &Bundle) -> Seats {
                 label: label.clone(),
                 model: model.clone(),
                 routed: argv.iter().any(|part| part == "--patch"),
-                fence: sealed_fence(Some(candidate), Some(facts)),
+                isolation: sealed_isolation(Some(candidate), Some(facts)),
             });
         }
     }
@@ -169,7 +169,9 @@ pub(super) fn homed(adapter: &Adapter, seats: &[Seat], sources: &Sources<'_>) ->
     let mut groups: Groups<'_> = BTreeMap::new();
     for seat in seats {
         let (route, variable) = keyed(adapter, &seat.model);
-        let home = match dsh_served(seat.fence, Some(route), seat.routed) {
+        // Each seat is modelled as its cold launch, offered no rejoin.
+        let isolation = seat.isolation.as_ref();
+        let home = match dsh_served(isolation, false, Some(route), seat.routed) {
             Ok(DshServed::Operator) => Home::Operator,
             Ok(DshServed::Engine) => workdir.clone().map_or(Home::Engine, Home::Workdir),
             Err(refusal) => Home::Refused(refusal.to_string()),
