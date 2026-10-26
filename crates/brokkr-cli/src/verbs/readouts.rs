@@ -9,7 +9,7 @@ use std::process::ExitCode;
 use anyhow::Result;
 use brokkr_core::fold::fold;
 use brokkr_runtime::realms::Hearth;
-use brokkr_store::Store;
+use brokkr_store::{Store, StoreError};
 use brokkr_view::capability_calls::{CallEvidence, CapabilityCall, NO_RETAINED};
 use serde_json::json;
 
@@ -89,20 +89,26 @@ pub(crate) fn tui(
     Ok(Exit::Completed.into())
 }
 
+/// How `inspect` and `seats` read their run for what they show it as:
+/// [`run_pages::viewed`], or a test's look at which read a verb asks for,
+/// which then reads it so (decision 0071 ruling 2's closure seam).
+type Reads<'r> = &'r dyn Fn(&Store, &str, Shows) -> Result<run_pages::Viewed, StoreError>;
+
 /// The view `inspect` derives and `seats` paints a block of: the run the
-/// selector names, in the journal the world names, read as a reader that
-/// `shows` it reads it, and refused where it does not fold.
+/// selector names, in the journal the world names, read by `read` as a
+/// reader that `shows` it reads it, and refused where it does not fold.
 fn run_view_of(
     workspace: &Path,
     realms: Option<PathBuf>,
     db: Option<PathBuf>,
     run: &str,
     shows: Shows,
+    read: Reads<'_>,
 ) -> Result<brokkr_view::RunView> {
     let db = journal_of(workspace, realms, db)?;
     let store = open_journal(&db, Access::Read)?;
     let run = selector::resolve_run(&store, run)?;
-    let read = run_pages::viewed(&store, &run, shows)?;
+    let read = read(&store, &run, shows)?;
     read.folded?;
     Ok(read.view)
 }
@@ -110,13 +116,24 @@ fn run_view_of(
 /// `inspect --json`'s bytes, which `seats --json` prints too: the view as
 /// the browser is served it, every scope decided (#351). The readouts a
 /// terminal prints never decide them (#624).
-fn print_served(view: brokkr_view::RunView) -> Result<ExitCode> {
-    println!("{}", serde_json::to_string_pretty(&view.with_scopes())?);
+fn print_served(view: brokkr_view::RunView, out: &mut dyn Write) -> Result<ExitCode> {
+    let served = serde_json::to_string_pretty(&view.with_scopes())?;
+    writeln!(out, "{served}")?;
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr inspect`: explain a run, whole or scoped to a phase or a seat.
+/// `brokkr inspect`: explain a run, whole or scoped to a phase or a seat,
+/// on `out`.
 pub(crate) fn inspect(
+    workspace: &Path,
+    args: InspectArgs,
+    out: &mut dyn Write,
+) -> Result<ExitCode> {
+    inspect_with(workspace, args, out, &run_pages::viewed)
+}
+
+/// [`inspect`], its run read by `read`.
+fn inspect_with(
     workspace: &Path,
     InspectArgs {
         run,
@@ -128,15 +145,17 @@ pub(crate) fn inspect(
         capability_call,
         repo,
     }: InspectArgs,
+    out: &mut dyn Write,
+    read: Reads<'_>,
 ) -> Result<ExitCode> {
     let whole = json || capability_call.is_some();
-    let view = run_view_of(workspace, realms, db, &run, Shows::of(whole))?;
+    let view = run_view_of(workspace, realms, db, &run, Shows::of(whole), read)?;
     if let Some(call_id) = capability_call {
         let repo = repo.as_deref().unwrap_or(workspace);
-        return print_call(repo, &view, &call_id, json);
+        return print_call(repo, &view, &call_id, json, out);
     }
     if json {
-        return print_served(view);
+        return print_served(view, out);
     }
     // clap's ArgGroup already rules the two mutually exclusive.
     let scope = match (phase, seat) {
@@ -146,10 +165,11 @@ pub(crate) fn inspect(
     };
     let lens = brokkr_view::lens_for(&view, scope.as_ref())
         .map_err(|error| anyhow::Error::msg(render::scope_refusal(&error)))?;
-    print!(
+    write!(
+        out,
         "{}",
         render::inspect(&view, lens.as_ref(), true, &render::Style::detect())
-    );
+    )?;
     Ok(Exit::Completed.into())
 }
 
@@ -223,12 +243,14 @@ fn shown(bytes: &[u8], terminal: bool) -> std::borrow::Cow<'_, [u8]> {
 /// as `ledger --repo` resolves it (operator ruling 2026-10-22), by the
 /// runtime's one reader. With `json`, the view's call and the response's
 /// own bytes, unparsed, in one envelope. No artifact path is taken from
-/// the operator, nothing is fetched and nothing is written (CR5).
+/// the operator, nothing is fetched, and nothing is written but to `out`
+/// (CR5).
 fn print_call(
     repo: &Path,
     view: &brokkr_view::RunView,
     call_id: &str,
     json: bool,
+    out: &mut dyn Write,
 ) -> Result<ExitCode> {
     let (call, evidence) = call_of(view, call_id)?;
     let sha256 = call.response_sha256.as_deref();
@@ -236,7 +258,6 @@ fn print_call(
     let run_local = crate::folder::run_local(repo)?;
     let bytes = brokkr_runtime::engine::artifacts::retained(&run_local, sha256)?;
     let response = shown(&bytes, std::io::stdout().is_terminal());
-    let mut out = std::io::stdout().lock();
     if json {
         let parsed = serde_json::from_slice::<serde::de::IgnoredAny>(&bytes);
         parsed.map_err(|_| CallRefused::NotJson)?;
@@ -257,8 +278,13 @@ fn print_call(
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr seats`: the seats block of `inspect`'s readout.
-pub(crate) fn seats(
+/// `brokkr seats`: the seats block of `inspect`'s readout, on `out`.
+pub(crate) fn seats(workspace: &Path, args: SeatsArgs, out: &mut dyn Write) -> Result<ExitCode> {
+    seats_with(workspace, args, out, &run_pages::viewed)
+}
+
+/// [`seats`], its run read by `read`.
+fn seats_with(
     workspace: &Path,
     SeatsArgs {
         run,
@@ -266,17 +292,19 @@ pub(crate) fn seats(
         db,
         json,
     }: SeatsArgs,
+    out: &mut dyn Write,
+    read: Reads<'_>,
 ) -> Result<ExitCode> {
     // A thin verb (design DD11): the journal `inspect` would
     // open, the view `inspect` would derive, and either the
     // seats block of `inspect`'s readout or `inspect --json`'s
     // own bytes. Nothing is derived here and no wire object is
     // versioned for the verb.
-    let view = run_view_of(workspace, realms, db, &run, Shows::of(json))?;
+    let view = run_view_of(workspace, realms, db, &run, Shows::of(json), read)?;
     if json {
-        return print_served(view);
+        return print_served(view, out);
     }
-    print!("{}", render::seats(&view, &render::Style::detect()));
+    write!(out, "{}", render::seats(&view, &render::Style::detect()))?;
     Ok(Exit::Completed.into())
 }
 

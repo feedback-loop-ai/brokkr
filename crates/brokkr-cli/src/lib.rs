@@ -1496,7 +1496,7 @@ fn run_with(
         Cmd::Conclude(args) => delivery::conclude(workspace, args),
         Cmd::Operator(args) => delivery::operator(workspace, args),
         Cmd::Queue { command } => queue::queue(workspace, command),
-        Cmd::Inspect(args) => readouts::inspect(workspace, args),
+        Cmd::Inspect(args) => readouts::inspect(workspace, args, &mut std::io::stdout()),
         Cmd::Transcript(TranscriptArgs {
             run,
             seat,
@@ -1505,7 +1505,7 @@ fn run_with(
             realms,
             db,
         }) => transcript_command(workspace, realms, db, run, seat, turn, json),
-        Cmd::Seats(args) => readouts::seats(workspace, args),
+        Cmd::Seats(args) => readouts::seats(workspace, args, &mut std::io::stdout()),
         Cmd::Watch(args) => readouts::watch(
             workspace,
             args,
