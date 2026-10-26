@@ -124,8 +124,8 @@ Dependencies: U1c. Files and scope: [design.md](design.md#slice-two-units).
 
 Dependencies: U0b. Files and scope: [design.md](design.md#u1d3--record-u0bs-shapes) (operator rulings 2026-10-18).
 
-- [ ] 5.3 (U1d3; [SI1](specs/strict-mcp-isolation/spec.md), [SI2](specs/strict-mcp-isolation/spec.md)) Record U0b's measured shapes in the shipped adapters and the init scaffold's copies, unqualified shapes as unsupported or unmeasured; Codex's enterprise cloud layer as a limitation; Claude's harness authentication with the cloud credential-chain names. Verify: Each verdict matches U0b's record; scaffold parity; moved witnesses listed.
-- [ ] 5.4 (U1d3; [SI1](specs/strict-mcp-isolation/spec.md), [SI2](specs/strict-mcp-isolation/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record exact assertions and the re-blessed witness rows. Apply the shared verification duty above.
+- [x] 5.3 (U1d3; [SI1](specs/strict-mcp-isolation/spec.md), [SI2](specs/strict-mcp-isolation/spec.md)) Record U0b's measured shapes in the shipped adapters and the init scaffold's copies, unqualified shapes as unsupported or unmeasured; Codex's enterprise cloud layer as a limitation; Claude's harness authentication with the cloud credential-chain names. Verify: Each verdict matches U0b's record; scaffold parity; moved witnesses listed.
+- [x] 5.4 (U1d3; [SI1](specs/strict-mcp-isolation/spec.md), [SI2](specs/strict-mcp-isolation/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record exact assertions and the re-blessed witness rows. Apply the shared verification duty above.
 
 ## 6. U1e — Record dsh and exec declarations
 

@@ -979,7 +979,8 @@ fn scaffolded_elsewhere() -> (tempfile::TempDir, Bundle) {
 
 /// A dsh scaffold whose adapter's one cold shape, which the shipped
 /// adapter measured on Linux, is measured on `on`, and, where `replacement`
-/// holds, a copy of it declared as the replacement shape, and its compile.
+/// holds, a copy of it declared as the replacement shape in place of the
+/// scaffold's unmeasured one (U1d3), and its compile.
 fn scaffolded_on(on: &str, replacement: bool) -> (tempfile::TempDir, Bundle) {
     let dir = tempfile::tempdir().unwrap();
     let (root, path) = (dir.path(), std::ffi::OsStr::new(""));
@@ -996,6 +997,7 @@ fn scaffolded_on(on: &str, replacement: bool) -> (tempfile::TempDir, Bundle) {
     if replacement {
         let mut shape = shapes[0].clone();
         shape["invocation"] = json!("replacement");
+        shapes.retain(|declared| declared["invocation"] != "replacement");
         shapes.push(shape);
     }
     std::fs::write(&path, dsh.to_string()).unwrap();

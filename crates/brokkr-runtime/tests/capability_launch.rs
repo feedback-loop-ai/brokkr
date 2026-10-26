@@ -22,13 +22,16 @@ mod charters;
 #[path = "capability_launch/codex_store.rs"]
 mod codex_store;
 use codex_store::{
-    codex_served, cold_served, owned, profile, profiled_cold, profiled_rejoin, ASTRA, ISOLATING,
-    STORE,
+    codex_served, cold_served, harnessed_rejoin, owned, profile, profiled_cold, profiled_rejoin,
+    ASTRA, ISOLATING, STORE,
 };
 #[path = "capability_launch/legacy_journal.rs"]
 mod legacy_journal;
 #[path = "capability_launch/redrive.rs"]
 mod redrive;
+#[path = "capability_launch/rejoins.rs"]
+mod rejoins;
+use rejoins::{claude_rejoined, claude_rejoined_at, measured_rejoin, rejoin_isolated};
 #[path = "capability_launch/servers.rs"]
 mod servers;
 
@@ -4358,7 +4361,10 @@ fn typed_allow(operator: &Operator, allow: Value) {
 /// exactly when the seat does not hold search, placed before the two
 /// positionals. A cold fallback would have no `resume` in it and fails
 /// here; it is never counted as this proof. The assessment is the shipped
-/// adapter's, so the eligibility being exercised is production's.
+/// adapter's, so the eligibility being exercised is production's: since
+/// U1d3 the agent-backed seat, with harness hands, declines on Linux and is
+/// served its isolated cold replacement, with the OFF just the same, and
+/// on macOS still rejoins ([`harnessed_rejoin`]).
 ///
 /// Composition evidence only: whether a RESUMED codex session honours the
 /// switch is unmeasured and owed to the controller.
@@ -4390,7 +4396,8 @@ fn an_eligible_rejoin_of_a_compiled_codex_seat_carries_the_control_either_way_ro
             .unwrap();
         for label in ["inline", "agent"] {
             let argv = rejoin(&bundle, label, &shim);
-            let expected = profiled_rejoin(&shim_path, denied);
+            let served = [profiled_rejoin, harnessed_rejoin][usize::from(label == "agent")];
+            let expected = served(&shim_path, denied);
             assert_eq!(argv, expected, "{case} {label}: the whole resumed argv");
             assert_eq!(off_pairs(&argv), usize::from(denied), "{case} {label}");
         }
@@ -4425,8 +4432,9 @@ fn claude_reporting(dir: &Path, version: &str) -> PathBuf {
 
 /// [`tampered_launch`] offered `session`: the site's spawn sealed as
 /// dispatch seals it and the input the door admits, with the site's
-/// confinement markers and a resume `assessment` beside it, changed by
-/// `tamper` and handed to its provider's driver run as `bin`.
+/// confinement markers and a resume `assessment` beside it (a Claude one
+/// sealed measured, [`measured_rejoin`]), changed by `tamper` and handed to
+/// its provider's driver run as `bin`.
 #[cfg(unix)]
 #[expect(clippy::too_many_arguments, reason = "decision 0065 slice one, #288")]
 fn sealed_rejoin(
@@ -4457,6 +4465,9 @@ fn sealed_rejoin(
     input["boundary"] = json!(markers[0]);
     input["hands"] = json!(markers[1]);
     input["resume_context"] = json!({"assessment": assessment});
+    if outcome.provider == "claude" {
+        measured_rejoin(&mut input);
+    }
     tamper(&mut input);
     let argv = &spawn.argv;
     let extra = &argv[argv.iter().position(|part| part == "--").unwrap() + 1..];
@@ -4470,10 +4481,15 @@ fn sealed_rejoin(
 /// Rebuild unit 15 (tasks 15.1 and 15.2): a compiled, sealed launch offered
 /// its session is served only as the final check returns it, checked with
 /// the session it rejoins, and written out here independently of any
-/// composer. An eligible Codex rejoin, inline and agent-backed, is an actual
-/// `exec resume` that carries the OFF exactly where search is not held; an
-/// eligible Claude rejoin, unboxed and boxed, is its cold command then
-/// `--resume <id>`, the prompt staying on stdin. The selected fallback, a
+/// composer. An eligible inline Codex rejoin is an actual `exec resume`
+/// that carries the OFF exactly where search is not held, and the
+/// agent-backed one, whose harness hands have no measured rejoin since
+/// U1d3, is declined on Linux and served its isolated cold command with
+/// the same OFF, and rejoined on macOS, where nothing is measured
+/// ([`harnessed_rejoin`]); an eligible Claude rejoin, unboxed and boxed, is
+/// its cold command (unboxed, the measured empty set on Linux) then
+/// `--resume <id>`, the prompt
+/// staying on stdin. The selected fallback, a
 /// boxed Codex lane its shipped assessment does not admit, is declined and
 /// served its checked cold command with its OFF, which is no resume. A
 /// dropped OFF, an unreadable sealed input, a record missing beside its
@@ -4581,17 +4597,16 @@ fn a_compiled_rejoin_is_served_only_as_its_final_check_returns_it() {
                 .map(String::from)
                 .to_vec(),
             hands.to_vec(),
-            [
-                "--disallowedTools",
-                "WebFetch,WebSearch",
-                "--resume",
-                session,
-            ]
-            .map(String::from)
-            .to_vec(),
+            owned(&["--disallowedTools", "WebFetch,WebSearch"]),
+            // Without hands, the measured empty set's strict pair (U1d3).
+            match hands.is_empty() {
+                true => owned(&rejoin_isolated(session)),
+                false => owned(&["--resume", session]),
+            },
         ]
         .concat())
     };
+    let declined = |off: bool| Ok(harnessed_rejoin(codex.to_str().unwrap(), off));
     let mode = ["--permission-mode", "acceptEdits"];
 
     // A record that no longer reassembles the arguments the driver was
@@ -4640,7 +4655,7 @@ fn a_compiled_rejoin_is_served_only_as_its_final_check_returns_it() {
             0,
             ["harness", "none"],
             untouched(),
-            resumed(true),
+            declined(true),
         ),
         (
             "codex inline, held",
@@ -4658,7 +4673,7 @@ fn a_compiled_rejoin_is_served_only_as_its_final_check_returns_it() {
             0,
             ["harness", "none"],
             untouched(),
-            resumed(false),
+            declined(false),
         ),
         (
             "codex agent, the OFF dropped",
@@ -8318,7 +8333,8 @@ const ISOLATED: &[&str] = &[];
 
 /// `argv`, a cold seat of `provider`, with what it is served behind it
 /// (U1g2): a Claude-grammar seat the measured empty set, any other nothing.
-/// An offered seat's unmeasured replacement is served as before.
+/// An offered seat's replacement is served the same where U0b measured it
+/// (U1d3), and as before where it is unmeasured.
 fn served_cold(provider: &str, argv: Vec<String>) -> Vec<String> {
     let isolated: &[&str] = match provider {
         "claude" | "lanetally" => ISOLATED,
@@ -9006,12 +9022,14 @@ fn dsh_prompt(charter: &str, phase: &str, workdir: &str) -> String {
 /// is named by shape, and its bytes are read: the layer's route where one
 /// is authored, and none of it elsewhere.
 ///
-/// Only two shipped rejoins are supported: a Codex work site under its
-/// typed `workspace-write` class and a Codex site with hands under
-/// `harness`, each an actual `exec resume`. Every other offer — a Codex
-/// link without hands (`sandbox-unavailable`), and every Claude, LaneTally
-/// and DSH shape, whose shipped resume is unmeasured — is declined and
-/// served its cold command. A gate is offered no session.
+/// One shipped rejoin is supported: a Codex work site under its typed
+/// `workspace-write` class, an actual `exec resume`. Every other offer is
+/// declined and served its cold command: a Codex link without hands
+/// (`sandbox-unavailable`), a Codex site with hands under `harness` on
+/// Linux, whose measured replacement has no measured `work-site` shape
+/// (U1d3), and every Claude, LaneTally and DSH shape. On macOS, where no
+/// shape is measured, the Codex site with hands still rejoins. A gate is
+/// offered no session.
 ///
 /// The typed LaneTally allow is the one full refusal, and it is the
 /// compile's (operator ruling of 2026-09-29, R5; D5.3): seated inline or
@@ -9200,17 +9218,18 @@ fn every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside
                 _ => "codex",
             });
             let served: Result<Vec<String>, String> = Ok(served_cold(provider, plain.clone()));
-            // A Codex work site under its typed class, or with hands under
-            // `harness`, is rejoined; every other work site is declined and
-            // served cold on the binary it was offered on.
+            // A Codex work site under its typed class is rejoined, and on
+            // macOS, where nothing is measured, one with hands under
+            // `harness` too; every other work site is declined and served
+            // cold on the binary it was offered on, isolated where U0b
+            // measured its replacement (U1d3).
+            let harnessed = *carrier == "boxed" && cfg!(target_os = "macos");
             let offered = match (class, *provider) {
                 (Gate, _) => None,
-                (_, "codex") if label == "codex" || *carrier == "boxed" => {
-                    Some(Ok(rejoined.clone()))
-                }
+                (_, "codex") if label == "codex" || harnessed => Some(Ok(rejoined.clone())),
                 (_, "codex") => Some(Ok(cold_on(codex_shim))),
-                (_, "claude") => Some(Ok(cold_on(claude_shim))),
-                _ => Some(Ok(plain)),
+                (_, "claude") => Some(Ok(served_cold("claude", cold_on(claude_shim)))),
+                _ => Some(served.clone()),
             };
             rows.push((
                 label.clone(),
@@ -9672,44 +9691,6 @@ fn charter_of(
     )
 }
 
-/// Rebuild unit 21: a compiled Claude site dispatched as the engine
-/// dispatches it ([`dispatched`]) and offered `session` under a SUPPORTED
-/// assessment qualified for the markers dispatch wrote. The shipped Claude
-/// assessment is unmeasured and declines every offer, so an actual rejoin
-/// is handed one, as rebuild unit 15's Claude rows are. The final command
-/// the driver would spawn, or its whole refusal.
-#[cfg(unix)]
-fn claude_rejoined(
-    bundle: &Bundle,
-    label: &str,
-    bin: &Path,
-    session: &str,
-) -> Result<Vec<String>, String> {
-    claude_rejoined_at(bundle, label, 0, bin, session)
-}
-
-/// [`claude_rejoined`] for the site's candidate `candidate`, a primary or
-/// a selected fallback (rebuild unit 21-fix-b).
-#[cfg(unix)]
-fn claude_rejoined_at(
-    bundle: &Bundle,
-    label: &str,
-    candidate: usize,
-    bin: &Path,
-    session: &str,
-) -> Result<Vec<String>, String> {
-    let work = brokkr_runtime::SeatClass::Work;
-    let (extra, mut input) = dispatched(bundle, label, candidate, work, "/w")?;
-    input["resume_context"] = json!({"assessment": {"boxed-workspace": {
-        "status": "supported",
-        "identity": {"version": "2.1.266", "applies_to": "2.1.266"},
-        "classes": ["work"], "boundaries": [input["boundary"].clone()],
-        "hands": input["hands"].clone(),
-        "evidence": {"interface": "i", "restrictions": "r", "root": "o", "accounting": "a"},
-        "limitations": [], "reason": null}}});
-    brokkr_protocol::adapters::claude_command(bin.to_str().unwrap(), &extra, Some(session), &input)
-}
-
 /// The per-site manifest record with each candidate's native declaration
 /// digest taken out, and the digests beside it: the digest identifies the
 /// adapter bytes a test edited, so it is compared across rows rather than
@@ -9960,8 +9941,8 @@ fn a_managed_read_or_empty_limit_is_served_whole_cold_and_on_an_actual_eligible_
                                        "deny": {"flag": "--disallowedTools", "separator": ","},
                                        "include": {"flag": "--tools", "separator": ","}}}},
                 "cold": format!("{:?}", Ok::<_, String>(command("claude", ISOLATED))),
-                "rejoined": format!("{:?}", Ok::<_, String>(command(shim, &["--resume", session]))),
-                "declined": format!("{:?}", Ok::<_, String>(command(shim, &[]))),
+                "rejoined": format!("{:?}", Ok::<_, String>(command(shim, &rejoin_isolated(session)))),
+                "declined": format!("{:?}", Ok::<_, String>(command(shim, ISOLATED))),
             });
             if observed != expected {
                 failures.push(format!(
@@ -10077,7 +10058,7 @@ fn a_managed_read_limit_keeps_prompt_values_authored_lists_and_lanetallys_invent
         ),
         format!("{:?}", Ok::<_, String>(command("claude", ISOLATED))),
     );
-    let rejoined = Ok::<_, String>(command(claude.to_str().unwrap(), &["--resume", session]));
+    let rejoined = Ok::<_, String>(command(claude.to_str().unwrap(), &rejoin_isolated(session)));
     check(
         "the joined prompt value, rejoined",
         format!("{:?}", claude_rejoined(&bundle, "work", &claude, session)),
@@ -10274,7 +10255,9 @@ fn hosts_grant(operator: &Operator, offices: &[String]) -> (Value, CapabilityCon
 /// or plan carries the restriction. Each served outcome's cold command
 /// and ACTUAL eligible rejoin (`exec resume`, the offered thread, under
 /// the assessment the bundle compiled from the shipped adapter) is a whole
-/// literal beside the site's charter. Where the adapter declares a
+/// literal beside the site's charter; since U1d3 the agent-backed seat's
+/// harness hands decline it on Linux for the isolated cold replacement
+/// ([`harnessed_rejoin`]). Where the adapter declares a
 /// restriction transport, the same restricted requires refuses and the want
 /// drops, each naming the deferral, an unused grant stays pinned and
 /// inactive as above, and an unrestricted grant is held with the empty
@@ -10367,7 +10350,9 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_cold_and_on_an_actual_eligible_
         let argv = profiled_cold("codex", ASTRA, "workspace-write", &[]);
         argv[..argv.len() - usize::from(!off) * OFF.len()].to_vec()
     };
-    let resumed = |off: bool| profiled_rejoin(shim.to_str().unwrap(), off);
+    let rejoined = [profiled_rejoin, harnessed_rejoin];
+    let resumed =
+        |label: &str, off| rejoined[usize::from(label == "agent")](shim.to_str().unwrap(), off);
     let recipe = operator.root().join("bundle");
     let library = operator.root().join("agents");
     let charter = |label: &str| match label {
@@ -10542,7 +10527,7 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_cold_and_on_an_actual_eligible_
                          "subtracted": subtracted_names},
                 "prompt": {"held": tools, "not_held": not_held},
                 "cold": format!("{:?}", Ok::<_, String>(command(off))),
-                "rejoined": format!("{:?}", Ok::<_, String>(resumed(off))),
+                "rejoined": format!("{:?}", Ok::<_, String>(resumed(label, off))),
             });
             if observed != expected {
                 failures.push(format!(
@@ -10861,8 +10846,8 @@ fn a_managed_read_or_empty_limit_reaches_every_compiled_claude_site_shape() {
                                        "deny": {"flag": "--disallowedTools", "separator": ","},
                                        "include": {"flag": "--tools", "separator": ","}}}},
                 "cold": format!("{:?}", served("claude", ISOLATED)),
-                "rejoined": offered.then(|| format!("{:?}", served(shim, &["--resume", session]))),
-                "declined": offered.then(|| format!("{:?}", served(shim, &[]))),
+                "rejoined": offered.then(|| format!("{:?}", served(shim, &rejoin_isolated(session)))),
+                "declined": offered.then(|| format!("{:?}", served(shim, ISOLATED))),
             });
             if observed != expected {
                 failures.push(format!(
@@ -10959,8 +10944,10 @@ fn a_managed_read_or_empty_limit_reaches_every_compiled_claude_site_shape() {
 /// not-held reason and its one notice naming the site and office), its
 /// prompt, and whole commands that carry the measured OFF: cold, and at a
 /// work site the offered session under the assessment the bundle compiled
-/// — an ACTUAL `exec resume` for the typed work seat and the boxed office,
-/// declined and served cold for every other shape. The grant is pinned as
+/// — an ACTUAL `exec resume` for the typed work seat, declined and served
+/// cold for every other shape, the office `boxed` included on Linux since
+/// U1d3 measured its harness-hands replacement and no rejoin (on macOS,
+/// where nothing is measured, it still rejoins). The grant is pinned as
 /// written and no site's record carries its host. Requires refuses the same
 /// matrix whole, at the first site it resolves. The office `boxed` is not
 /// boxed here: `harness` is no boxed boundary. The boxed rows, under
@@ -11083,7 +11070,9 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_at_every_compiled_codex_site_sh
         };
         let offered = match class {
             Gate => None,
-            Work if label == "codex" || boxed => Some(profiled_rejoin(shim, true)),
+            Work if label == "codex" || (boxed && cfg!(target_os = "macos")) => {
+                Some(profiled_rejoin(shim, true))
+            }
             Work => Some(cold(shim)),
         };
         let mut record = json!({"held": {}, "not_held": {"web-search": dropped},

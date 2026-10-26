@@ -662,98 +662,206 @@ fn resume(name: &str) -> McpInvocation {
     McpInvocation::Resume(name.to_string())
 }
 
-/// U1d (SI1, SI2): the shipped Claude, Codex and LaneTally declarations
-/// load through the real loader with exactly the shapes, versions and
-/// results U0 observed, each line citing its U0 cell, and Codex's ambient
-/// causes are the measured SI2 reasons.
+/// U1d and U1d3 (SI1, SI2): the shipped Claude, Codex and LaneTally
+/// declarations load through the real loader with exactly the shapes,
+/// versions and results U0 and U0b observed, each line citing its U0 or
+/// U0b cell. U0b re-measured Codex's three shapes as U9c2 launches them on
+/// 0.164.0, so no Codex ambient line is an unsupported cause any longer,
+/// and its boxed replacement, which U0b never ran, is declared unmeasured.
+/// Each verdict rests on its own shape and version (operator ruling
+/// 2026-10-26): Codex's `work-site` rejoin, served workspace-write, keeps
+/// write, store and process unmeasured, U0b having rejoined read-only alone,
+/// and Claude's boxed replacement on 2.1.308 keeps its store unmeasured,
+/// its after-U8h denial (C17-p5) being 2.1.310's.
 #[test]
-fn the_shipped_declarations_pin_only_what_u0_observed() {
+fn the_shipped_declarations_pin_only_what_u0_and_u0b_observed() {
     let [claude, codex, lanetally] = shipped_support();
-    let wrapper = "unpublished: launcher sha256 \
-        b886c95ab275956bfef3ba0d9e6c617ec0878abdbddbd7369d2fe27903205dfb running \
-        session-wrapper.sh 4614bb7 sha256 \
-        ecac09b98a39eeb618812e4d5838c35f0b9ed48482d345befed4f198fbc325d7 over claude 2.1.287";
+    let wrapper = |claude: &str| {
+        format!(
+            "unpublished: launcher sha256 \
+             b886c95ab275956bfef3ba0d9e6c617ec0878abdbddbd7369d2fe27903205dfb running \
+             session-wrapper.sh 4614bb7 sha256 \
+             ecac09b98a39eeb618812e4d5838c35f0b9ed48482d345befed4f198fbc325d7 over claude {claude}"
+        )
+    };
     let (m, u, d) = ("measured", "unsupported", "unmeasured");
+    let row = |invocation, hands, version: &str, axes: [&'static str; 4]| {
+        (shape(invocation, hands), version.to_string(), axes)
+    };
+    use McpHands::{Boxed, Harness, NoHands};
+    use McpInvocation::{Cold, Replacement};
     assert_eq!(
         [&claude, &codex, &lanetally].map(declaration),
         [
             (
                 m,
                 vec![
-                    (
-                        shape(McpInvocation::Cold, McpHands::Boxed),
-                        "2.1.287".into(),
-                        [m, m, m, m]
-                    ),
-                    (
-                        shape(McpInvocation::Cold, McpHands::NoHands),
-                        "2.1.287".into(),
-                        [m, u, u, d]
-                    ),
+                    row(Cold, Boxed, "2.1.287", [m, m, m, m]),
+                    row(Cold, NoHands, "2.1.287", [m, u, u, d]),
+                    row(Replacement, Boxed, "2.1.308", [m, m, d, m]),
+                    row(Replacement, NoHands, "2.1.308", [m, d, u, d]),
                 ]
             ),
             (
                 m,
                 vec![
-                    (
-                        shape(McpInvocation::Cold, McpHands::Boxed),
-                        "0.160.0".into(),
-                        [u, m, u, m]
-                    ),
-                    (
-                        shape(McpInvocation::Cold, McpHands::Harness),
-                        "0.160.0".into(),
-                        [u, m, u, m]
-                    ),
-                    (
-                        shape(resume("work-site"), McpHands::NoHands),
-                        "0.160.0".into(),
-                        [u, d, d, d]
-                    ),
+                    row(Cold, Boxed, "0.164.0", [m, m, m, m]),
+                    row(Cold, Harness, "0.164.0", [m, m, m, m]),
+                    row(Replacement, Boxed, "0.164.0", [d, d, d, d]),
+                    row(Replacement, Harness, "0.164.0", [m, m, m, m]),
+                    row(resume("work-site"), NoHands, "0.164.0", [m, d, d, d]),
                 ]
             ),
             (
                 m,
-                vec![(
-                    shape(McpInvocation::Cold, McpHands::NoHands),
-                    wrapper.into(),
-                    [m, u, u, d]
-                )]
+                vec![
+                    row(Cold, NoHands, &wrapper("2.1.287"), [m, u, u, d]),
+                    row(Replacement, NoHands, &wrapper("2.1.308"), [m, d, u, d]),
+                ]
             ),
-        ]
-    );
-    // The cause an SI2 refusal quotes, ahead of the cells it was read from.
-    let McpSupport::Declared { shapes, .. } = &codex else {
-        unreachable!("pinned above");
-    };
-    let causes: Vec<&str> = shapes
-        .values()
-        .map(|measurement| match &measurement.isolation.ambient {
-            McpAxis::Unsupported { reason } => reason.split_once("; U0 ").unwrap().0,
-            other => panic!("codex excludes no ambient source: {other:?}"),
-        })
-        .collect();
-    assert_eq!(
-        causes,
-        [
-            "project, system and managed MCP configuration cannot be excluded",
-            "project, system and managed MCP configuration cannot be excluded",
-            "project MCP configuration cannot be excluded",
         ]
     );
     for support in [&claude, &codex, &lanetally] {
         let uncited: Vec<&str> = lines(support)
             .into_iter()
-            .filter(|line| !line.contains("U0 "))
+            .filter(|line| !line.contains("U0 ") && !line.contains("U0b"))
             .collect();
-        assert_eq!(uncited, Vec::<&str>::new(), "every line cites its U0 cell");
+        assert_eq!(uncited, Vec::<&str>::new(), "every line cites its cell");
     }
 }
 
-/// U1d (SI1): every shape U0 did not measure — a replacement, a declared
-/// resume shape, macOS, the wrapper's boxed cells its adapter has no hands
-/// for — reads absent, and a shipped file cannot be made to claim the
-/// wrapper's boxed cells or a Claude resume from a no-hands telemetry cell.
+/// The line `axis` of `support`'s `shape` writes, measured or declared
+/// unmeasured; the declaration table pins each verdict.
+fn axis_line(support: &McpSupport, shape: McpShape, axis: fn(&McpIsolation) -> &McpAxis) -> String {
+    match axis(&support.isolation(&shape)) {
+        McpAxis::Measured { evidence: line }
+        | McpAxis::Unmeasured(McpUnmeasured::Declared(line)) => line.clone(),
+        other => panic!("{shape} writes a line: {other:?}"),
+    }
+}
+
+fn ambient(isolation: &McpIsolation) -> &McpAxis {
+    &isolation.ambient
+}
+
+fn write(isolation: &McpIsolation) -> &McpAxis {
+    &isolation.native_write
+}
+
+fn store(isolation: &McpIsolation) -> &McpAxis {
+    &isolation.store_read
+}
+
+fn process(isolation: &McpIsolation) -> &McpAxis {
+    &isolation.process_read
+}
+
+/// U1d3 (SI1): U0b's scopes and limitations ride in the verdicts they
+/// qualify, word for word: every Codex ambient line U0b measured names the
+/// enterprise cloud layer as never measured, and each cold or replacement
+/// one the /etc/codex refusal; the rejoin names X20, and each of its
+/// unmeasured write, store and process lines that U0b rejoined read-only
+/// alone, quoting what that rejoin saw; the store lines that rest on X29b
+/// say it ran without a model and that the model-driven run is pending;
+/// Claude's boxed store line quotes C17's read and C17-p5's 2.1.310 denial
+/// with U8h's recorded limits; and nothing claims macOS.
+#[test]
+fn u0b_scopes_and_limitations_ride_in_the_verdicts_they_qualify() {
+    let [claude, codex, lanetally] = shipped_support();
+    use McpHands::{Boxed, Harness, NoHands};
+    use McpInvocation::{Cold, Replacement};
+    let text = axis_line;
+    let cloud = "the enterprise cloud";
+    let etc = "so U9c2 refuses such a host";
+    let x29b = "without a model (ruling 5(a))";
+    let pending = "the model-driven X29b is pending";
+    let read_only = "U0b measured no workspace-write rejoin, the class this work shape is served";
+    let rejoin = || shape(resume("work-site"), NoHands);
+    let required = [
+        (text(&codex, shape(Cold, Boxed), ambient), vec![etc]),
+        (
+            text(&codex, shape(Cold, Harness), ambient),
+            vec![cloud, etc],
+        ),
+        (
+            text(&codex, shape(Replacement, Harness), ambient),
+            vec![cloud, etc],
+        ),
+        (
+            text(&codex, rejoin(), ambient),
+            vec![cloud, "X20, a rejoin with hands, was not measured"],
+        ),
+        (
+            text(&codex, rejoin(), write),
+            vec![read_only, "X25 saw the read-only class re-imposed"],
+        ),
+        (
+            text(&codex, rejoin(), store),
+            vec![
+                read_only,
+                "X25 the re-imposed brokkr profile denied the store",
+            ],
+        ),
+        (
+            text(&codex, rejoin(), process),
+            vec![
+                read_only,
+                "X25 codex's native shell found no process canary",
+            ],
+        ),
+        (
+            text(&codex, shape(Cold, Harness), store),
+            vec![x29b, pending],
+        ),
+        (
+            text(&codex, shape(Replacement, Harness), store),
+            vec![pending],
+        ),
+        (
+            text(&claude, shape(Replacement, Boxed), store),
+            vec![
+                "C17 (2.1.308, before U8h) read the 0600 store",
+                "on claude 2.1.310, not this shape's 2.1.308",
+                "cross-run limits stand",
+            ],
+        ),
+        (
+            text(&lanetally, shape(Replacement, NoHands), ambient),
+            vec!["the LaneTally proxy route was not exercised"],
+        ),
+    ];
+    let missing: Vec<(String, &str)> = required
+        .iter()
+        .flat_map(|(line, phrases)| {
+            (phrases.iter())
+                .filter(|phrase| !line.contains(**phrase))
+                .map(|phrase| (line.clone(), *phrase))
+        })
+        .collect();
+    assert_eq!(missing, Vec::<(String, &str)>::new());
+    let enterprise = text(&codex, shape(Cold, Boxed), ambient);
+    assert!(
+        enterprise.ends_with(
+            "Codex's enterprise cloud configuration layer cannot be observed locally and is \
+             never measured"
+        ),
+        "{enterprise}"
+    );
+    let on_macos: Vec<&str> = [&claude, &codex, &lanetally]
+        .into_iter()
+        .flat_map(lines)
+        .filter(|line| line.contains("macOS") || line.contains("macos"))
+        .collect();
+    assert_eq!(on_macos, Vec::<&str>::new());
+}
+
+/// U1d and U1d3 (SI1): every shape neither U0 nor U0b measured — a
+/// declared resume shape, macOS, Codex without hands cold or replaced, the
+/// wrapper's boxed cells its adapter has no hands for — reads absent; the
+/// one U0b never ran beside its measured ones, Codex's boxed replacement,
+/// reads its declared reason on every axis; and a shipped file cannot be
+/// made to claim the wrapper's boxed cells, a Codex rejoin with hands
+/// (X20) or a Claude resume from a no-hands telemetry cell.
 #[test]
 fn an_unmeasured_shape_stays_absent_and_cannot_be_claimed() {
     let [claude, codex, lanetally] = shipped_support();
@@ -763,19 +871,44 @@ fn an_unmeasured_shape_stays_absent_and_cannot_be_claimed() {
         ..shape(invocation, hands)
     };
     let unmeasured = [
-        claude.isolation(&shape(McpInvocation::Replacement, McpHands::Boxed)),
         claude.isolation(&shape(resume("boxed-workspace"), McpHands::Boxed)),
         claude.isolation(&macos(McpInvocation::Cold, McpHands::Boxed)),
+        claude.isolation(&macos(McpInvocation::Replacement, McpHands::Boxed)),
         codex.isolation(&shape(McpInvocation::Cold, McpHands::NoHands)),
-        codex.isolation(&shape(McpInvocation::Replacement, McpHands::Harness)),
+        codex.isolation(&shape(McpInvocation::Replacement, McpHands::NoHands)),
         codex.isolation(&macos(McpInvocation::Cold, McpHands::Harness)),
+        codex.isolation(&macos(McpInvocation::Replacement, McpHands::Harness)),
         lanetally.isolation(&shape(McpInvocation::Cold, McpHands::Boxed)),
+        lanetally.isolation(&shape(McpInvocation::Replacement, McpHands::Boxed)),
         lanetally.isolation(&shape(resume("wrapper-work-site"), McpHands::NoHands)),
     ];
-    assert_eq!(unmeasured, [(); 8].map(|()| absent.clone()));
+    assert_eq!(unmeasured, [(); 10].map(|()| absent.clone()));
+    let declared = |reason: &str| McpAxis::Unmeasured(McpUnmeasured::Declared(reason.into()));
+    assert_eq!(
+        codex.isolation(&shape(McpInvocation::Replacement, McpHands::Boxed)),
+        McpIsolation {
+            ambient: declared(
+                "U0b recorded no replacement under the hands fragment: X16 ran it cold, and the \
+                 replacement cells X17, X18 and X24 ran the harness classes"
+            ),
+            native_write: declared(
+                "no write probe of U0b's names a boxed replacement; X26 and X26-p5 name the hands \
+                 tool alone"
+            ),
+            store_read: declared(
+                "no store canary of U0b's names a boxed replacement; X26 read the store and \
+                 X26-p5 was denied it, through the hands tool alone"
+            ),
+            process_read: declared(
+                "no process canary of U0b's names a boxed replacement; its one replacement \
+                 canary, X24, ran workspace-write"
+            ),
+        }
+    );
 
-    // LT10/LT12's boxed cells are the wrapper's, but its adapter declares
-    // no hands; C08 resumed without hands, but Claude's resume is boxed.
+    // LT10/LT12's and LT16/LT17's boxed cells are the wrapper's, but its
+    // adapter declares no hands; C08 resumed without hands, but Claude's
+    // resume is boxed; Codex's work-site rejoin declares no hands (X20).
     let read = |provider: &str| -> Value {
         serde_json::from_slice(&std::fs::read(shipped().join(format!("{provider}.json"))).unwrap())
             .unwrap()
@@ -792,13 +925,20 @@ fn an_unmeasured_shape_stays_absent_and_cannot_be_claimed() {
     assert_eq!(
         [
             with("lanetally", json!("cold"), "boxed"),
+            with("lanetally", json!("replacement"), "boxed"),
             with("claude", json!({"resume": "boxed-workspace"}), "none"),
+            with("codex", json!({"resume": "work-site"}), "boxed"),
         ],
         [
             McpError::UndeclaredHands(shape(McpInvocation::Cold, McpHands::Boxed)),
+            McpError::UndeclaredHands(shape(McpInvocation::Replacement, McpHands::Boxed)),
             McpError::ResumeHands {
                 shape: shape(resume("boxed-workspace"), McpHands::NoHands),
                 declared: "boxed".to_string(),
+            },
+            McpError::ResumeHands {
+                shape: shape(resume("work-site"), McpHands::Boxed),
+                declared: "none".to_string(),
             },
         ]
     );
@@ -906,25 +1046,52 @@ fn shipped_with(provider: &str, edit: impl FnOnce(&mut Value)) -> McpError {
     problem(&body)
 }
 
-/// U1e (SI1): dsh declares its own cold, no-hands Linux shape exactly as
-/// U0 and U0c measured it, each line citing its cells and the ambient line
-/// naming every route qualified; no other shape, no Claude result and no
-/// hands follow from it.
+/// U1e and U1d3 (SI1): dsh declares its own no-hands Linux shapes exactly
+/// as U0, U0c and U0b measured them: cold on 0.1.5-rc.1, its ambient line
+/// naming every route qualified, and the replacement on 0.2.1-rc.2
+/// unmeasured on every axis, because a shape carries no route scope and
+/// U0b ran keyless spark-glm alone (operator ruling 2026-10-26): its lines
+/// quote D06's pass and D07's canaries, and none borrows D10's candidate
+/// hands row. Each line cites its cells, and no other shape, no Claude
+/// result and no hands follow from them.
 #[test]
-fn dsh_declares_only_its_own_cold_shape_and_inherits_nothing() {
+fn dsh_declares_only_its_own_cold_and_replacement_shapes_and_inherits_nothing() {
     let adapters = Adapters::load(&shipped()).expect("the shipped adapters load");
     let dsh = adapters.adapter("dsh").unwrap();
     let (m, u, d) = ("measured", "unsupported", "unmeasured");
     let cold = shape(McpInvocation::Cold, McpHands::NoHands);
+    let replacement = shape(McpInvocation::Replacement, McpHands::NoHands);
     assert_eq!(
         declaration(&dsh.mcp),
-        (m, vec![(cold.clone(), "0.1.5-rc.1".into(), [m, d, u, m])])
+        (
+            m,
+            vec![
+                (cold.clone(), "0.1.5-rc.1".into(), [m, d, u, m]),
+                (replacement.clone(), "0.2.1-rc.2".into(), [d, d, d, d]),
+            ]
+        )
     );
     let uncited: Vec<&str> = lines(&dsh.mcp)
         .into_iter()
-        .filter(|line| !line.starts_with("U0 "))
+        .filter(|line| !line.starts_with("U0 ") && !line.starts_with("U0b "))
         .collect();
-    assert_eq!(uncited, Vec::<&str>::new(), "every line cites its U0 cell");
+    assert_eq!(uncited, Vec::<&str>::new(), "every line cites its cell");
+    let McpIsolation {
+        ambient,
+        native_write,
+        store_read,
+        process_read,
+    } = dsh.mcp.isolation(&replacement);
+    let quoted = [ambient, native_write, store_read, process_read].map(|axis| match axis {
+        McpAxis::Unmeasured(McpUnmeasured::Declared(line)) => [
+            line.starts_with("U0b D06 (keyless spark-glm) passed")
+                || line.starts_with("U0b D07 (keyless spark-glm)"),
+            line.contains("a shape carries no route scope"),
+            !line.contains("D10 "),
+        ],
+        other => unreachable!("pinned above: {other:?}"),
+    });
+    assert_eq!(quoted, [[true; 3]; 4]);
     let McpAxis::Measured { evidence } = dsh.mcp.isolation(&cold).ambient else {
         unreachable!("pinned above");
     };
@@ -948,13 +1115,17 @@ fn dsh_declares_only_its_own_cold_shape_and_inherits_nothing() {
     let absent = [
         shape(McpInvocation::Cold, McpHands::Boxed),
         shape(McpInvocation::Cold, McpHands::Harness),
-        shape(McpInvocation::Replacement, McpHands::NoHands),
+        shape(McpInvocation::Replacement, McpHands::Boxed),
         shape(resume("headless-work"), McpHands::NoHands),
         macos,
+        McpShape {
+            host: McpHost::Macos,
+            ..replacement
+        },
     ]
     .map(|shape| dsh.mcp.isolation(&shape));
     let none = every(&McpAxis::Unmeasured(McpUnmeasured::Absent));
-    assert_eq!(absent, [(); 5].map(|()| none.clone()));
+    assert_eq!(absent, [(); 6].map(|()| none.clone()));
     let headless = dsh.resume.shape("headless-work").unwrap();
     assert_eq!(
         (dsh.hands.as_ref(), headless.status),

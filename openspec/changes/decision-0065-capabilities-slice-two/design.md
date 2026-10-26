@@ -2341,6 +2341,8 @@ Proof: Each declaration's verdict matches U0b's record, cell by cell; the init s
 
 Operator rulings 2026-10-18 on U9b1's owed items (in chat: "1a, 2a, 3 ok 4 a, 5 add them 6 yes"; then "2 A" after the controller's Codex measurement, and "yes, add U0b"): this row names five files, four of them adapter declarations, above the three-file rule. The operator accepted that as one data row ("yes, the exception is fine"), so U0b's record lands in one place.
 
+Operator ruling 2026-10-26 on U1d3's first run (in chat, standing ruling "go with recommended for all findings next 7 hours"; run 0065-slice-two-unit-u1d3-see-the-7fffd106 stopped REVIEW-SECURITY-HOLD): U1d3 is repaired in a second run that replays the first, and no risk is accepted. A declaration records only what its own shape was measured as: Codex's work-site rejoin, served workspace-write, keeps native write, store read and process read unmeasured with the read-only rejoin observations quoted, since U0b measured no workspace-write rejoin. dsh's replacement is recorded unmeasured, with D06's spark-glm pass as its observation, because a shape carries no route scope and the dsh qualification accepts routes U0b did not measure; route-scoped qualification is a carried follow-up, never granted here. Each shape's version scope matches the measurement its verdict rests on, and test expectations stay host-specific.
+
 Owning tests: `crates/brokkr-cli/tests/init_doctor.rs`, `crates/brokkr-runtime/tests/witness_digests.rs`.
 
 ### U9b1 — Enable the proved namespace path

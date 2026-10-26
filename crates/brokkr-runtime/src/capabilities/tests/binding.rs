@@ -481,15 +481,29 @@ const SHIPPED: [(&str, &[&str]); 5] = [
     ("lanetally", &CLAUDE_AUTH),
 ];
 
-/// Claude Code 2.1.299's provider credential variables.
-const CLAUDE_AUTH: [&str; 7] = [
+/// Claude Code 2.1.299's seven provider credential variables, and the
+/// twelve AWS, GCP and Azure credential-chain names U9b1's operator ruling
+/// 5 adds (U1d3).
+const CLAUDE_AUTH: [&str; 19] = [
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
     "ANTHROPIC_AWS_API_KEY",
     "ANTHROPIC_FOUNDRY_API_KEY",
     "ANTHROPIC_FOUNDRY_AUTH_TOKEN",
+    "AWS_ACCESS_KEY_ID",
     "AWS_BEARER_TOKEN_BEDROCK",
+    "AWS_PROFILE",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "AZURE_CLIENT_CERTIFICATE_PASSWORD",
+    "AZURE_CLIENT_CERTIFICATE_PATH",
+    "AZURE_CLIENT_ID",
+    "AZURE_CLIENT_SECRET",
+    "AZURE_PASSWORD",
+    "AZURE_TENANT_ID",
+    "AZURE_USERNAME",
     "CLAUDE_CODE_OAUTH_TOKEN",
+    "GOOGLE_APPLICATION_CREDENTIALS",
 ];
 
 /// The shipped adapters, loaded as a compile loads them.

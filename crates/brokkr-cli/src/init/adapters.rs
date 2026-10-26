@@ -2,13 +2,14 @@
 //! `adapters/`: one per agent CLI a seat is hired from, then exec's.
 //!
 //! Each model declaration carries its shipped adapter's MCP facts as U0
-//! measured them (decision 0065 slice two, SI1 and SI2): the carriage
-//! verdict and every measured shape the generated declaration can admit.
-//! A shape is admitted only under hands and a resume shape the declaration
-//! itself declares, so the scaffold's claude, which declares no hands,
-//! carries Claude's cold shape without hands and not its boxed one, and the
-//! scaffold's codex, which declares no `resume`, carries Codex's two cold
-//! shapes and not its resumed one. Generation grants nothing and qualifies
+//! and U0b measured them (decision 0065 slice two, SI1 and SI2; U1d3): the
+//! carriage verdict and every recorded shape the generated declaration can
+//! admit. A shape is admitted only under hands and a resume shape the
+//! declaration itself declares, so the scaffold's claude, which declares no
+//! hands, carries Claude's cold and replacement shapes without hands and
+//! not its boxed ones, and the scaffold's codex, which declares no
+//! `resume`, carries Codex's cold and replacement shapes, boxed and
+//! harness, and not its resumed one. Generation grants nothing and qualifies
 //! nothing: the facts are copies, and `init_doctor` and `init_stacks` hold
 //! each one equal to `adapters/*.json`. Exec serves no model, so it carries
 //! the shipped declaration that it has no model MCP surface, never a
@@ -114,8 +115,8 @@ fn claude_native_capabilities() -> Value {
 }
 
 /// Claude's MCP facts that the scaffold's claude can admit: carriage, and
-/// the cold shape without hands, because the scaffold gives no claude seat
-/// hands.
+/// the cold and replacement shapes without hands, because the scaffold
+/// gives no claude seat hands.
 const CLAUDE_MCP: &str = r#"{
   "carriage": {
     "measured": "U0 C05 and C06 (claude 2.1.287, Linux, 2026-10-03): an engine-written --mcp-config under --strict-mcp-config started the engine sentinel, listed it in system/init and answered its tools/call, without and with the hands server (docs/evidence/adapters/slice-two-mcp-isolation.md)"
@@ -132,6 +133,23 @@ const CLAUDE_MCP: &str = r#"{
       "store_read": {"unsupported": "U0 C09b: native Read read the 0600 store canary"},
       "process_read": {
         "unmeasured": "U0 C09b: no mechanism excludes it; Claude's permission check blocked the one Bash probe of /proc/<pid>/environ, and native Read on /proc was not probed"
+      }
+    },
+    {
+      "invocation": "replacement",
+      "hands": "none",
+      "measured_on": {"harness": "claude", "binary": "claude", "version": "2.1.308", "host": "linux"},
+      "ambient": {
+        "measured": "U0b C12 (the production empty set, inline) and C13 (strict, engine, inline), A then B in the same HOME and workdir, after C11's positive control answered user, project and plugin: no planted sentinel started while the engine answered, and C13's native OFF held; C07r (cold) and C16: a managed MCP file refuses before any start"
+      },
+      "native_write": {
+        "unmeasured": "U0b C18: native Write outside the workdir was not granted under acceptEdits, Claude's permission check, which is not an isolation mechanism; U0 C09b on 2.1.287 allowed it, and no confinement was measured"
+      },
+      "store_read": {
+        "unsupported": "U0b C18: native Read read the 0600 store canary at its production path in the workdir"
+      },
+      "process_read": {
+        "unmeasured": "U0b C18: not probed; Claude's permission check blocked the Bash probe, and that check is not an isolation mechanism"
       }
     }
   ]
@@ -213,8 +231,9 @@ fn claude(grants: &Grants) -> String {
 /// `workspace` fragment serves them through Brokkr's workspace tool; under
 /// the `harness` boundary (macOS) the class fragments below are what hold
 /// them — read-only for the gate, workspace-write for the work seats. Its
-/// MCP facts are Codex's two cold shapes, the boxed and the harness hands
-/// it declares.
+/// MCP facts are Codex's cold and replacement shapes under the boxed and
+/// the harness hands it declares; the boxed replacement is recorded as U0b
+/// left it, unmeasured.
 const CODEX: &str = r#"{
   "provider": "codex",
   "trust_tier": "trusted",
@@ -241,35 +260,69 @@ const CODEX: &str = r#"{
       {
         "invocation": "cold",
         "hands": "boxed",
-        "measured_on": {"harness": "codex", "binary": "codex", "version": "0.160.0", "host": "linux"},
+        "measured_on": {"harness": "codex", "binary": "codex", "version": "0.164.0", "host": "linux"},
         "ambient": {
-          "unsupported": "project, system and managed MCP configuration cannot be excluded; U0 X06 listed the project server beside the hands server, X12c the /etc system and managed servers, and X07's whole-table override loaded every planted source"
+          "measured": "U0b X16 (U9c2's cold argv with the hands fragment), after X13's positive control: no user, project or plugin server started, only brokkr and engine; the /etc/codex system and managed servers still start (X21-legacyiso, a stand-in), so U9c2 refuses such a host; Codex's enterprise cloud configuration layer cannot be observed locally and is never measured"
         },
         "native_write": {
-          "measured": "U0 X06: a hands write outside the worktree failed; X09: codex's own read-only sandbox, run without a model, denied native writes outside the workspace"
+          "measured": "U0b X22, under the read-only class this shape passes and U9c2's brokkr profile: codex's native shell met Read-only file system inside and outside the workdir, as X22-nomodel did without a model; X26: the hands tool wrote inside the workdir"
         },
         "store_read": {
-          "unsupported": "U0 X09: codex's native shell under the read-only sandbox this shape passes read the 0600 store canary; the hands tool excluded it in X06, where the model declined the native probe (X06n, X06n2)"
+          "measured": "U0b X22 and X22-nomodel: the brokkr profile denied the store at its production path in the workdir to codex's native shell; through the hands tool X26 read it before U8h and X26-p5 was denied after U8h (b8e2caff), the host store unchanged; U8h's recorded rename-over, update-window, configured-link and cross-run limits stand"
         },
         "process_read": {
-          "measured": "U0 X06: the hands tool excluded the process canary; X08 and X09: codex's native shell ran in a private pid namespace of 4 pids with no canary"
+          "measured": "U0b X22: codex's native shell found no process canary in its private pid namespace of 4 /proc entries; X26 and X26-p5: the hands tool found none"
         }
       },
       {
         "invocation": "cold",
         "hands": "harness",
-        "measured_on": {"harness": "codex", "binary": "codex", "version": "0.160.0", "host": "linux"},
+        "measured_on": {"harness": "codex", "binary": "codex", "version": "0.164.0", "host": "linux"},
         "ambient": {
-          "unsupported": "project, system and managed MCP configuration cannot be excluded; U0 X12 and X02b loaded the project server once codex wrote trust for the workdir into the engine-owned config, X02 the /etc system and managed servers, and X03's whole-table override every source"
+          "measured": "U0b X14 (read-only) and X15 (workspace-write), U9c2's cold argv, after X13's positive control, and XA3 on the operator's ChatGPT login: no user, project, plugin or codex_apps server started while the engine answered; /etc/codex system and managed servers still start (X21-legacyiso, a stand-in), so U9c2 refuses such a host; the enterprise cloud layer is never measured"
         },
         "native_write": {
-          "measured": "U0 X08 and X09: codex's sandbox denied native writes outside the workspace under both read-only and workspace-write; the workspace is writable only under workspace-write"
+          "measured": "U0b X22 (read-only): Read-only file system inside and outside the workdir; X23 (workspace-write): written inside, Read-only file system outside; X28: writes into .git and .codex met Read-only file system"
         },
         "store_read": {
-          "unsupported": "U0 X08 and X09: codex's native shell read the 0600 store canary under both read-only and workspace-write"
+          "measured": "U0b X22, X22-nomodel and X23: the brokkr profile denied the store at its production path in the workdir to codex's native shell in both classes; X29's workspace-write move of its folder read it before U8i; X29b, without a model (ruling 5(a)), under U8i's profile: the move failed EBUSY and the store was denied; the model-driven X29b is pending"
         },
         "process_read": {
-          "measured": "U0 X08 and X09: codex's native shell ran in a private pid namespace of 4 pids with no process canary"
+          "measured": "U0b X22 and X23: codex's native shell found no process canary in its private pid namespace of 4 /proc entries"
+        }
+      },
+      {
+        "invocation": "replacement",
+        "hands": "boxed",
+        "measured_on": {"harness": "codex", "binary": "codex", "version": "0.164.0", "host": "linux"},
+        "ambient": {
+          "unmeasured": "U0b recorded no replacement under the hands fragment: X16 ran it cold, and the replacement cells X17, X18 and X24 ran the harness classes"
+        },
+        "native_write": {
+          "unmeasured": "no write probe of U0b's names a boxed replacement; X26 and X26-p5 name the hands tool alone"
+        },
+        "store_read": {
+          "unmeasured": "no store canary of U0b's names a boxed replacement; X26 read the store and X26-p5 was denied it, through the hands tool alone"
+        },
+        "process_read": {
+          "unmeasured": "no process canary of U0b's names a boxed replacement; its one replacement canary, X24, ran workspace-write"
+        }
+      },
+      {
+        "invocation": "replacement",
+        "hands": "harness",
+        "measured_on": {"harness": "codex", "binary": "codex", "version": "0.164.0", "host": "linux"},
+        "ambient": {
+          "measured": "U0b X17 (X15's workspace-write shape, then the replacement in the same home, which trusts the project) and X18 (a failed rejoin, then the cold argv), after X13's positive control: no user, project or plugin server started while the engine answered; /etc/codex servers still start (X21-legacyiso), so U9c2 refuses such a host; the enterprise cloud layer is never measured"
+        },
+        "native_write": {
+          "measured": "U0b X24 (the workspace-write replacement): written inside the workdir, Read-only file system outside, as X23"
+        },
+        "store_read": {
+          "measured": "U0b X24: the brokkr profile denied the store at its production path in the workdir to codex's native shell; the folder move X29 found is closed by U8i, measured without a model (X29b, ruling 5(a)); the model-driven X29b is pending"
+        },
+        "process_read": {
+          "measured": "U0b X24: codex's native shell found no process canary in its private pid namespace"
         }
       }
     ]
@@ -369,7 +422,7 @@ const CODEX: &str = r#"{
 /// The scaffold's dsh adapter: untrusted and judging nothing, so it holds
 /// the work seats and never the review gate. It can restrict neither its
 /// tools nor its hands from the command line, and says so. Its MCP facts
-/// are dsh's one measured shape, cold without hands.
+/// are dsh's two measured shapes, cold and replacement, without hands.
 const DSH: &str = r#"{
   "provider": "dsh",
   "trust_tier": "untrusted",
@@ -405,6 +458,23 @@ const DSH: &str = r#"{
         },
         "process_read": {
           "measured": "U0 D04: dsh's native shell ran in a private pid namespace of 4 pids and found no process canary in /proc"
+        }
+      },
+      {
+        "invocation": "replacement",
+        "hands": "none",
+        "measured_on": {"harness": "dsh", "binary": "dsh", "version": "0.2.1-rc.2", "host": "linux"},
+        "ambient": {
+          "unmeasured": "U0b D06 (keyless spark-glm) passed: after D05's positive control, the replacement in a fresh engine-only DSH_HOME started no home or profile sentinel while the engine answered, and --dump-config composed one dsh-mcp-client, serverName engine; a shape carries no route scope and dsh admits keyed routes U0b never ran, so route-scoped qualification is a carried follow-up"
+        },
+        "native_write": {
+          "unmeasured": "U0b D07 (keyless spark-glm): dsh's workspace-write sandbox refused a native write outside the workdir (Read-only file system); a shape carries no route scope, so one route's result qualifies none"
+        },
+        "store_read": {
+          "unmeasured": "U0b D07 (keyless spark-glm): dsh's native bash read the 0600 store canary at its production path in the workdir, and D10-p5's still did after U8h, which masks the hands box alone; a shape carries no route scope, so this shape is recorded unmeasured"
+        },
+        "process_read": {
+          "unmeasured": "U0b D07 (keyless spark-glm): dsh's native bash found no process canary in /proc, in its private pid namespace; a shape carries no route scope, so one route's result qualifies none"
         }
       }
     ]
