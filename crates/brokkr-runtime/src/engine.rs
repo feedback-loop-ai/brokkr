@@ -3170,17 +3170,27 @@ impl Engine {
         if entered == head {
             return None;
         }
-        let class = docs_class(repo, entered)?;
-        let paths = crate::anchor::changed_paths(repo, entered, head)?;
-        if paths.is_empty() {
-            return None;
-        }
-        Some(
-            paths
-                .iter()
-                .all(|path| class.iter().any(|pattern| pattern.is_match(path))),
-        )
+        docs_only_between(repo, entered, head)
     }
+}
+
+/// Whether every path the tree at `to` differs from the tree at `from` in
+/// lies in the docs class the repository declared at `from` (decision 0039
+/// ruling 3): the one classification the smith's docs return and the
+/// verified candidate's hold (decision 0097 ruling 3) both read. `None`
+/// when the question has no honest answer: no class at `from`, a diff git
+/// cannot take, or an empty one.
+fn docs_only_between(repo: &std::path::Path, from: &str, to: &str) -> Option<bool> {
+    let class = docs_class(repo, from)?;
+    let paths = crate::anchor::changed_paths(repo, from, to)?;
+    if paths.is_empty() {
+        return None;
+    }
+    Some(
+        paths
+            .iter()
+            .all(|path| class.iter().any(|pattern| pattern.is_match(path))),
+    )
 }
 
 /// The shape `contracts/phase-entered-head.v1.schema.json` promises:

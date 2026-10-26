@@ -131,7 +131,7 @@ completed run.
 ```mermaid
 flowchart LR
   result["typed result<br/>from the seat"] --> inputs
-  engine["engine-owned inputs<br/>consecutive_failures · drift_detected · dirty_worktrees · reviewed_heads<br/>strategy · fixes_docs_only · realm_facts · visits_‹phase›"] --> inputs
+  engine["engine-owned inputs<br/>consecutive_failures · drift_detected · dirty_worktrees · reviewed_heads<br/>strategy · fixes_docs_only · verified_candidate · realm_facts · visits_‹phase›"] --> inputs
   declared["inputs the seat declared"] --> inputs
   other["anything else"] -- "dropped before the table or the record" --> bin["nothing"]
   inputs["evaluation inputs"] --> table{{"policy.json<br/>first match wins · closed vocabulary"}}

@@ -646,7 +646,7 @@ pub const brokkr_core::policy::BOOLEAN_INPUTS: [&str; 8]
 pub const brokkr_core::policy::CONSECUTIVE_FAILURES: &str
 pub const brokkr_core::policy::COUNTER_INPUTS: [&str; 1]
 pub const brokkr_core::policy::DRIFT_PHASES: [&str; 3]
-pub const brokkr_core::policy::ENGINE_OWNED_INPUTS: [&str; 7]
+pub const brokkr_core::policy::ENGINE_OWNED_INPUTS: [&str; 8]
 pub const brokkr_core::policy::IDENTIFIER_INPUTS: [&str; 1]
 pub const brokkr_core::policy::REALM_FACTS: &str
 pub const brokkr_core::policy::RULING_SEVERITIES: [&str; 3]

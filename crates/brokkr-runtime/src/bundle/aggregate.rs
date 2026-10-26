@@ -2,7 +2,7 @@
 //! it, its parse and closed vocabulary, the results it can emit, and the
 //! aggregation the engine runs over the members' results.
 
-use brokkr_core::policy::SEVERITY_ORDER;
+use brokkr_core::policy::Severity;
 use serde_json::{json, Map, Value};
 
 /// Deterministic, order-independent aggregation rules — a closed
@@ -40,6 +40,42 @@ impl Aggregate {
     /// The closed vocabulary, as a refusal names it.
     pub(super) fn known() -> String {
         Aggregate::ALL.map(Aggregate::word).join(", ")
+    }
+
+    /// A clean verdict cannot carry a witnessed residual finding, nor a
+    /// safety fact it names but the engine cannot read (decision 0097
+    /// ruling 2): a word over an unreadable fact is refused, never read as
+    /// the absence that would admit it. This shared check runs over each
+    /// member of an all-clean panel and at the protected phase's decision
+    /// boundary, where singleton reviews reach it without aggregation.
+    pub(crate) fn review_problem(payload: &Value) -> Option<String> {
+        if payload.get("result").and_then(Value::as_str) != Some("clean") {
+            return None;
+        }
+        let inputs = payload.get("inputs").and_then(Value::as_object)?;
+        match inputs.get("has_security_residual").map(Value::as_bool) {
+            Some(Some(true)) => return Some("clean review reports a security residual".into()),
+            Some(None) => {
+                return Some("clean review's has_security_residual is not a boolean".into())
+            }
+            Some(Some(false)) | None => {}
+        }
+        let severity = inputs
+            .get("max_residual_severity")
+            .map(|severity| severity.as_str().and_then(Severity::named));
+        match severity {
+            Some(Some(
+                Severity::Info
+                | Severity::Low
+                | Severity::Medium
+                | Severity::High
+                | Severity::Critical,
+            )) => Some("clean review reports a residual severity above none".into()),
+            Some(None) => Some(
+                "clean review's max_residual_severity is outside the severity vocabulary".into(),
+            ),
+            Some(Some(Severity::None)) | None => None,
+        }
     }
 
     pub(super) fn required_results(&self) -> &'static [&'static str] {
@@ -124,7 +160,9 @@ fn unanimous_pass(parsed: &[(&str, &str, &Value)], meta: Value) -> Value {
 
 /// [`Aggregate::ReviewPanel`]: the worst member's result wins, over
 /// clean < residual < security-hold, with the members' residual inputs
-/// joined beside it.
+/// joined beside it. A panel whose every member is clean is refused when
+/// any member's clean verdict is malformed (decision 0097 ruling 2); a
+/// hold or a residual beside it dominates and keeps the table's stop.
 fn review_panel(parsed: &[(&str, &str, &Value)], meta: Value) -> Value {
     let rank = |r: &str| match r {
         "clean" => 0,
@@ -136,64 +174,111 @@ fn review_panel(parsed: &[(&str, &str, &Value)], meta: Value) -> Value {
         .iter()
         .max_by_key(|(_, r, _)| rank(r))
         .expect("panels have members");
+    if worst.1 == "clean" {
+        if let Some((member, problem)) = parsed.iter().find_map(|(name, _, payload)| {
+            Aggregate::review_problem(payload).map(|problem| (*name, problem))
+        }) {
+            let mut notes = meta;
+            notes["problem"] = Value::String(problem);
+            notes["member"] = Value::String(member.into());
+            return json!({"result": "__member-schema-invalid__", "notes": notes});
+        }
+    }
     let joined = ReviewInputs::join(parsed);
     let mut inputs = Map::new();
-    // Backward-compatible evidence for frozen/third-party tables:
-    // judges never fix, so the only lawful value is false. Shipped
-    // tables no longer declare or read it and therefore drop it.
-    inputs.insert("fixes_applied".into(), Value::Bool(false));
-    inputs.insert("spec_defect".into(), Value::Bool(joined.spec_defect));
-    if worst.1 == "residual" || joined.severity_rank > 0 {
-        inputs.insert(
-            "max_residual_severity".into(),
-            Value::String(SEVERITY_ORDER[joined.severity_rank].to_string()),
-        );
-        inputs.insert(
-            "has_security_residual".into(),
-            Value::Bool(joined.has_security),
-        );
+    // Judges never fix (decision 0041 ruling 5), and a judge that committed
+    // anyway is parked at its own ruling by the verified candidate (decision
+    // 0097 ruling 3): the scope flags read false unless a member witnessed
+    // true, which the frozen tables' no-fixes shortcut and the design
+    // return read. The safety facts below never default: unknown stays
+    // unknown there.
+    inputs.insert("fixes_applied".into(), json!(joined.fixes_applied));
+    inputs.insert("spec_defect".into(), json!(joined.spec_defect));
+    if worst.1 == "residual"
+        || joined.max_severity > Severity::None
+        || joined.has_security == Some(true)
+    {
+        inputs.insert("max_residual_severity".into(), json!(joined.severity()));
+        inputs.insert("has_security_residual".into(), json!(joined.has_security));
     }
     json!({"result": worst.1, "inputs": inputs, "notes": meta})
 }
 
 /// What a review panel's members report in their own `inputs`, joined:
-/// the highest residual severity any names (one outside
-/// [`SEVERITY_ORDER`] counts as none), and whether any names a security
-/// residual or a spec defect.
+/// the highest residual severity any names, whether any names a security
+/// residual, and whether any witnesses fixes or a spec defect. A residual
+/// member must supply readable safety facts: unknowns stay unknown beside
+/// otherwise safe members, never becoming permission to ship. The scope
+/// flags are witnessed or false.
 struct ReviewInputs {
-    severity_rank: usize,
-    has_security: bool,
+    max_severity: Severity,
+    severity_known: bool,
+    has_security: Option<bool>,
+    fixes_applied: bool,
     spec_defect: bool,
 }
 
 impl ReviewInputs {
     fn join(parsed: &[(&str, &str, &Value)]) -> Self {
-        let mut severity_rank = 0usize;
-        let mut has_security = false;
-        let mut spec_defect = false;
-        for (_, _, payload) in parsed {
-            let Some(inputs) = payload.get("inputs").and_then(Value::as_object) else {
-                continue;
-            };
-            if let Some(s) = inputs.get("max_residual_severity").and_then(Value::as_str) {
-                if let Some(i) = SEVERITY_ORDER.iter().position(|x| *x == s) {
-                    severity_rank = severity_rank.max(i);
-                }
+        let mut joined = Self {
+            max_severity: Severity::None,
+            severity_known: true,
+            has_security: Some(false),
+            fixes_applied: false,
+            spec_defect: false,
+        };
+        for (_, result, payload) in parsed {
+            let inputs = payload.get("inputs").and_then(Value::as_object);
+            let security = inputs
+                .and_then(|inputs| inputs.get("has_security_residual"))
+                .and_then(Value::as_bool);
+            let severity = inputs
+                .and_then(|inputs| inputs.get("max_residual_severity"))
+                .and_then(Value::as_str)
+                .and_then(Severity::named);
+            if *result == "residual" {
+                joined.severity_known &= severity.is_some();
+                joined.has_security = joined_flag(joined.has_security, security);
+            } else if security == Some(true) {
+                joined.has_security = Some(true);
             }
-            has_security |= inputs
-                .get("has_security_residual")
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
-            spec_defect |= inputs
-                .get("spec_defect")
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
+            if let Some(severity) = severity {
+                joined.max_severity = joined.max_severity.max(severity);
+            }
+            let witnessed = |flag: &str| {
+                inputs
+                    .and_then(|inputs| inputs.get(flag))
+                    .and_then(Value::as_bool)
+                    == Some(true)
+            };
+            joined.fixes_applied |= witnessed("fixes_applied");
+            joined.spec_defect |= witnessed("spec_defect");
         }
-        ReviewInputs {
-            severity_rank,
-            has_security,
-            spec_defect,
+        joined
+    }
+
+    /// A witnessed above-medium finding already requires a stop, even if
+    /// another member omitted its severity. Keep that stronger evidence so
+    /// the table's above-medium stop retains first-match precedence.
+    fn severity(&self) -> Option<Severity> {
+        if self.severity_known || self.max_severity > Severity::Medium {
+            Some(self.max_severity)
+        } else {
+            None
         }
+    }
+}
+
+/// A witnessed true flag dominates; otherwise both observations must be
+/// readable before the joined flag can assert false: the security
+/// residual's rule.
+fn joined_flag(current: Option<bool>, incoming: Option<bool>) -> Option<bool> {
+    if current == Some(true) || incoming == Some(true) {
+        Some(true)
+    } else if current.is_none() || incoming.is_none() {
+        None
+    } else {
+        Some(false)
     }
 }
 

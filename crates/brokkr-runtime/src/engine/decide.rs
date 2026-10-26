@@ -2,8 +2,10 @@
 //! inputs joined to the facts the journal and the repository supply, and
 //! the policy table's ruling journaled as the one transition (#288).
 //!
-//! [`Engine::decide`] parks a result that fails [`schema_problem`], and
-//! otherwise journals [`Engine::ruling`] over [`Engine::decision_inputs`].
+//! [`Engine::decide`] parks a result that fails [`schema_problem`], or a
+//! clean review that reports a residual at the protected phase, and
+//! otherwise journals [`Engine::ruling`] over [`Engine::decision_inputs`],
+//! held to the [`VerifiedCandidate`] a passing verification bound.
 
 use std::path::Path;
 
@@ -11,13 +13,53 @@ use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{computed_inputs, RunState};
 use brokkr_core::policy::{Outcome, CONSECUTIVE_FAILURES, VISIT_PREFIX};
 use brokkr_core::realms::LEGACY_REALM_KEY;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
+use super::worktree::{git_candidate, read_tree_counting, TreeReading, Untracked};
 use super::{
-    artifact_failures, artifact_problem, git_dirty, git_head, phase_of, Engine, EngineError,
+    artifact_failures, artifact_problem, docs_only_between, git_dirty, git_head, phase_of, Engine,
+    EngineError,
 };
 use crate::bundle::{Seat, REALM_FACTS};
 use crate::phase_name;
+
+/// The engine-owned record a passing verification writes into its
+/// decision's inputs, which the protected phase and ship are held to
+/// (decision 0097 ruling 3): the name core's input table owns, as
+/// `reviewed_heads` is read above by the name the fold owns.
+const VERIFIED_CANDIDATE: &str = "verified_candidate";
+
+/// The immutable Git candidate a verification passed: HEAD and the tree
+/// it identifies, read from a worktree with nothing uncommitted.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VerifiedCandidate {
+    head: String,
+    tree: String,
+}
+
+/// What a ruling owes the verified candidate: a passing verification
+/// binds it, the protected phase and ship are held to it, and any other
+/// ruling owes nothing.
+#[derive(Debug, Clone, Copy)]
+enum CandidateDuty {
+    Bind,
+    Hold,
+    None,
+}
+
+/// What the worktree answers for a candidate: one verification can bind,
+/// a tree with something uncommitted, or no commit to name at all (no
+/// repository, an empty one, or no git), which binds nothing and is held
+/// to nothing, as `reviewed_heads` is recorded only where a repository
+/// answers.
+#[derive(Debug)]
+enum CandidateReading {
+    Verified(VerifiedCandidate),
+    Unclean,
+    NoCommit,
+}
 
 impl Engine {
     pub(super) fn decide(
@@ -31,7 +73,11 @@ impl Engine {
         // Result schema (decision 0001): an object with a declared result
         // string. Violations park with the raw evidence attached — never
         // repaired, coerced, or handed to a model to fix.
-        if let Some(problem) = schema_problem(seat, &raw_result) {
+        if let Some(problem) = schema_problem(seat, &raw_result).or_else(|| {
+            (phase == self.bundle.protected_phase)
+                .then(|| crate::bundle::Aggregate::review_problem(&raw_result))
+                .flatten()
+        }) {
             self.append(
                 EventType::TransitionDecided,
                 json!({
@@ -54,9 +100,88 @@ impl Engine {
             .expect("checked above")
             .to_string();
         let inputs = self.decision_inputs(state, &phase, seat, object, &result);
-        let payload = self.ruling(&phase, &result, &inputs, object);
+        let mut payload = self.ruling(&phase, &result, &inputs, object);
+        self.bind_verified_candidate(state, &phase, &mut payload);
         self.append(EventType::TransitionDecided, payload, None)?;
         Ok(())
+    }
+
+    /// A passing verification binds the immutable Git candidate in the
+    /// journal, not a seat-writable sidecar, and the protected phase and
+    /// ship are held to it (decision 0097 ruling 3). The table determines
+    /// what passes: no verifier result word is assumed.
+    fn bind_verified_candidate(&self, state: &RunState, phase: &str, payload: &mut Value) {
+        match self.candidate_duty(phase, payload) {
+            CandidateDuty::Bind => match candidate_reading(&self.repo) {
+                CandidateReading::Verified(candidate) => {
+                    payload["inputs"][VERIFIED_CANDIDATE] = json!(candidate);
+                }
+                CandidateReading::Unclean => park(payload, "verification candidate is dirty"),
+                CandidateReading::NoCommit => {}
+            },
+            CandidateDuty::Hold => self.hold_to_verified_candidate(state, payload),
+            CandidateDuty::None => {}
+        }
+    }
+
+    /// A ruling that takes no transition, or a hard one, admits nothing,
+    /// so it binds and is held to nothing. Verify binds when it hands the
+    /// candidate to the protected phase, or advances at all where it is
+    /// itself the protected phase. A bundle with no verify seat has no
+    /// verification to bind.
+    fn candidate_duty(&self, phase: &str, payload: &Value) -> CandidateDuty {
+        if !self.bundle.seats.contains_key(phase_name::VERIFY)
+            || payload["next"].is_null()
+            || payload["severity"] == "hard"
+        {
+            return CandidateDuty::None;
+        }
+        let protected = self.bundle.protected_phase.as_str();
+        if phase == phase_name::VERIFY {
+            if payload["next"] == protected || phase == protected {
+                CandidateDuty::Bind
+            } else {
+                CandidateDuty::None
+            }
+        } else if phase == protected || phase == phase_name::SHIP {
+            CandidateDuty::Hold
+        } else {
+            CandidateDuty::None
+        }
+    }
+
+    /// What is judged or shipped is what verification passed, byte for
+    /// byte, or that candidate under a delta the engine itself classifies
+    /// as the repository's docs class at the verified head: the smith's
+    /// docs return re-enters the protected phase without verify (decision
+    /// 0041 ruling 5e) on the same classification. A run the table routed
+    /// past verify is the table's to route, and so is one whose worktree
+    /// names no commit; one verify ruled on in a repository carries a
+    /// readable witness, or it parks.
+    fn hold_to_verified_candidate(&self, state: &RunState, payload: &mut Value) {
+        let Some(verified) = state.phase_results.get(phase_name::VERIFY) else {
+            return;
+        };
+        let expected = verified
+            .inputs
+            .as_ref()
+            .and_then(|inputs| inputs.get(VERIFIED_CANDIDATE))
+            .and_then(|witness| serde_json::from_value::<VerifiedCandidate>(witness.clone()).ok());
+        match (expected, candidate_reading(&self.repo)) {
+            (None, CandidateReading::NoCommit) => {}
+            (None, _) => park(
+                payload,
+                "verified candidate witness is missing or unreadable",
+            ),
+            (Some(expected), CandidateReading::Verified(found))
+                if found == expected
+                    || docs_only_between(&self.repo, &expected.head, &found.head) == Some(true) => {
+            }
+            (Some(_), _) => park(
+                payload,
+                "candidate differs from the journaled verified HEAD/tree or is dirty",
+            ),
+        }
     }
 
     /// The inputs the table rules on: the seat's declared inputs, and
@@ -304,3 +429,32 @@ fn ship_inputs(
         inputs.insert(REALM_FACTS.into(), json!({ realm: Value::Object(facts) }));
     }
 }
+
+/// The candidate the worktree holds: HEAD and its tree where a commit
+/// answers, verified only if git reads the tree clean counting every
+/// untracked file whatever the repository's own status setting hides. A
+/// status git refuses or cannot run is unclean. The two reads are one
+/// pass; a writer racing them produces a pair no later clean pass
+/// reproduces, which parks, never admits.
+fn candidate_reading(repo: &Path) -> CandidateReading {
+    let Some((head, tree)) = git_candidate(repo) else {
+        return CandidateReading::NoCommit;
+    };
+    if read_tree_counting(repo, Untracked::All) == TreeReading::Clean {
+        CandidateReading::Verified(VerifiedCandidate { head, tree })
+    } else {
+        CandidateReading::Unclean
+    }
+}
+
+/// The candidate's refusal: the ruling keeps its rule, takes no
+/// transition, and says why, the shape a blocked artifact gate writes.
+fn park(payload: &mut Value, problem: &str) {
+    payload["next"] = Value::Null;
+    payload["severity"] = Value::Null;
+    payload["problem"] = Value::String(problem.into());
+}
+
+#[cfg(test)]
+#[path = "candidate_binding_tests.rs"]
+mod candidate_binding_tests;
