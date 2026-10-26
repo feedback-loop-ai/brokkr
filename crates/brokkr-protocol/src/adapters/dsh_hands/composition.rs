@@ -85,18 +85,36 @@ pub(crate) struct Row {
 /// Compose `bin`'s tree for `overlay` under `env` and judge it: the seat's
 /// own home and environment are the ones passed, never a second home.
 pub(crate) fn composed(bin: &str, overlay: &Path, env: &[(&str, &str)]) -> Result<(), Composition> {
-    let output = Command::new(bin)
+    composed_with(dump_command(bin, overlay, env), |command| command.output())
+}
+
+/// The `--dump-config` command, under the seat's own environment: one
+/// builder, so the check and its test name the same argv and env.
+pub(super) fn dump_command(bin: &str, overlay: &Path, env: &[(&str, &str)]) -> Command {
+    let mut command = Command::new(bin);
+    command
         .arg("--profile")
         .arg("headless")
         .arg("--patch")
         .arg(overlay)
         .arg("--dump-config")
-        .envs(env.iter().copied())
+        .envs(env.iter().copied());
+    command
+}
+
+/// Judge what `run` makes of `command`. `run` is the one substitutable
+/// function — a closure seam (decision 0071 ruling 10) — so a test reads
+/// the exact argv and environment the seat's tree is composed under, and
+/// feeds rows to judge, without spawning anything.
+pub(super) fn composed_with(
+    mut command: Command,
+    run: impl FnOnce(&mut Command) -> std::io::Result<std::process::Output>,
+) -> Result<(), Composition> {
+    command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|_| Composition::Unreadable)?;
+        .stderr(Stdio::piped());
+    let output = run(&mut command).map_err(|_| Composition::Unreadable)?;
     if !output.status.success() {
         return Err(Composition::DumpFailed {
             status: output

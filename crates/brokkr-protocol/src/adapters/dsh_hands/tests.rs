@@ -510,41 +510,64 @@ fn the_composed_tree_is_the_measured_dump_and_refuses_an_ambient_row() {
     assert_eq!(rows(b"not a dump\n").err(), Some(Composition::Unreadable));
 }
 
-/// The check runs `dsh --dump-config` under the seat's own environment,
-/// and an ambient row there is the refusal.
+/// The check runs `dsh --profile headless --patch <overlay> --dump-config`
+/// under the seat's own environment, and an ambient row there is the
+/// refusal. The spawn is the one substituted step, so the argv and env are
+/// read exactly and no generated script has to be executable in a temp
+/// directory the box may mount `noexec`.
 #[cfg(unix)]
 #[test]
 fn a_launch_composes_the_seats_own_tree_and_refuses_an_ambient_row() {
-    use super::composition::{composed, Composition};
-    use std::os::unix::fs::PermissionsExt;
-    let dir = tempfile::tempdir().unwrap();
-    let overlay = dir.path().join("overlay.yml");
-    std::fs::write(&overlay, "- id: x\n").unwrap();
-    let dsh = dir.path().join("dsh");
-    std::fs::write(
-        &dsh,
-        "#!/bin/sh\n\
-         [ \"$BROKKR_TEST_LAUNCH_ENV\" = wanted ] || { echo '- id: ambient'; \
-         echo \"  name: '@deepseek-ai/dsh-ambient'\"; exit 0; }\n\
-         echo '- id: brokkr-hands'\n\
-         echo \"  name: '@deepseek-ai/dsh-mcp-client'\"\n",
-    )
-    .unwrap();
-    std::fs::set_permissions(&dsh, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let bin = dsh.to_str().unwrap();
+    use super::composition::{composed, composed_with, dump_command, Composition};
+    use std::ffi::OsStr;
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::{ExitStatus, Output};
+    let overlay = Path::new("/seat/overlay.yml");
+    let hands = "- id: brokkr-hands\n  name: '@deepseek-ai/dsh-mcp-client'\n";
+    let ambient = "- id: ambient\n  name: '@deepseek-ai/dsh-ambient'\n";
+    let output = |stdout| Output {
+        status: ExitStatus::from_raw(0),
+        stdout,
+        stderr: Vec::new(),
+    };
     assert_eq!(
-        composed(bin, &overlay, &[("BROKKR_TEST_LAUNCH_ENV", "wanted")]),
+        composed_with(
+            dump_command("/seat/dsh", overlay, &[("DSH_HOME", "/seat/home")]),
+            |command| {
+                assert_eq!(command.get_program(), OsStr::new("/seat/dsh"));
+                assert_eq!(
+                    command
+                        .get_args()
+                        .map(|arg| arg.to_str().unwrap())
+                        .collect::<Vec<_>>(),
+                    [
+                        "--profile",
+                        "headless",
+                        "--patch",
+                        "/seat/overlay.yml",
+                        "--dump-config"
+                    ]
+                );
+                assert_eq!(
+                    command.get_envs().collect::<Vec<_>>(),
+                    [(OsStr::new("DSH_HOME"), Some(OsStr::new("/seat/home")))]
+                );
+                Ok(output(hands.as_bytes().to_vec()))
+            }
+        ),
         Ok(())
     );
     assert_eq!(
-        composed(bin, &overlay, &[]),
+        composed_with(dump_command("/seat/dsh", overlay, &[]), |_| Ok(output(
+            ambient.as_bytes().to_vec()
+        ))),
         Err(Composition::Unmeasured {
             id: "ambient".into(),
             name: "@deepseek-ai/dsh-ambient".into(),
         })
     );
     assert_eq!(
-        composed("/nonexistent/dsh", &overlay, &[]),
+        composed("/nonexistent/dsh", overlay, &[]),
         Err(Composition::Unreadable)
     );
 }
