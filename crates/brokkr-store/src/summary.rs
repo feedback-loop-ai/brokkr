@@ -33,15 +33,22 @@ use crate::event_index::{finished, first_unindexed, runless};
 use crate::schema::all_present;
 use crate::{head_of, patiently, seat_summary, Acknowledgement, Store, StoreError};
 
-/// The lane a row's range is read from (ruling 6), exactly as ruled.
-const LANE: &str = "CASE
-      WHEN folded_seq IS NULL OR folded_seq <> head_seq THEN 'behind'
+/// The lane a row's range is read from (ruling 6), exactly as ruled: a row
+/// whose fold, or whose aggregates, are not its head's reads behind and
+/// whole, so no reader trusts aggregates older than the head it stands at.
+fn lane() -> String {
+    format!(
+        "CASE
+      WHEN folded_seq IS NULL OR folded_seq <> head_seq OR {stale} THEN 'behind'
       WHEN refusal_words IS NOT NULL AND acknowledged = 0 THEN 'refused'
       WHEN refusal_words IS NOT NULL THEN 'acknowledged'
       WHEN status = 'awaiting_operator' THEN 'parked'
       WHEN status = 'running' THEN 'running'
       ELSE 'finished'
-    END";
+    END",
+        stale = aggregate::stale("")
+    )
+}
 
 /// The meta key that records the backfill finished (ruling 8).
 const BACKFILLED: &str = "run_summary_backfill";
@@ -147,7 +154,7 @@ fn migration() -> String {
             last_at_ms INTEGER,
             acknowledged INTEGER NOT NULL DEFAULT 0,
             ack_operator TEXT, ack_reason TEXT, ack_at TEXT,
-            lane TEXT GENERATED ALWAYS AS ({LANE}) VIRTUAL,
+            lane TEXT GENERATED ALWAYS AS ({lane}) VIRTUAL,
             order_at INTEGER GENERATED ALWAYS AS
                 (COALESCE(last_at_ms, 9223372036854775807)) VIRTUAL,
             {aggregated}, feature TEXT, residuals TEXT, created_at_whole TEXT,
@@ -178,6 +185,7 @@ fn migration() -> String {
                 last_recorded_at = {cut}
                 WHERE run_id = NEW.run_id;
         END; {indexed}",
+        lane = lane(),
         aggregated = aggregate::defined(),
         indexed = aggregate::migration(),
         moved = moved_to("NEW"),
@@ -208,6 +216,19 @@ fn seed() -> String {
     )
 }
 
+/// Send behind every row whose aggregates are not its folded head's, as
+/// the trigger sends one: the repair recreates the trigger, and a writer
+/// from before the aggregates may have folded while it was gone, so its
+/// columns must not stand at the head the run now has. The backfill that
+/// follows the open refolds the rows this sends behind (rulings 4 and 8).
+fn send_stale_behind() -> String {
+    format!(
+        "UPDATE run_summary SET folded_seq = NULL, folded_hash = NULL
+         WHERE {stale}",
+        stale = aggregate::stale("")
+    )
+}
+
 /// Does this journal carry the table with every column, its two indexes
 /// and all five triggers? Pure reads, so the steady-state open writes
 /// nothing.
@@ -218,15 +239,17 @@ pub(crate) fn summary_intact(conn: &Connection) -> Result<bool, StoreError> {
         && all_present(conn, "trigger", &TRIGGERS)?)
 }
 
-/// Create the summary, anew where its table lacks a column, and seed a
-/// row for every run already here, on a connection holding the write
-/// lock: the fifth additive repair.
+/// Create the summary, anew where its table lacks a column, seed a row for
+/// every run already here, and send behind the aggregates of any row whose
+/// folded head the repair did not see written, on a connection holding the
+/// write lock: the fifth additive repair.
 pub(crate) fn migrate_summary(conn: &Connection) -> Result<(), StoreError> {
     if !aggregate::shaped(conn)? {
         conn.execute_batch(&aggregate::rebuild())?;
     }
     conn.execute_batch(&migration())?;
-    Ok(conn.execute_batch(&seed())?)
+    conn.execute_batch(&seed())?;
+    Ok(conn.execute_batch(&send_stale_behind())?)
 }
 
 /// Record that the backfill finished; a journal created with the summary

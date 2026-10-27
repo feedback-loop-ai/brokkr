@@ -8,7 +8,7 @@ use brokkr_core::stamp::parse_millis;
 use rusqlite::types::Value;
 use serde_json::{json, Value as Json};
 
-use super::COLUMNS;
+use super::{COLUMNS, TRIGGER};
 use crate::summary::{migrate_summary, summary_intact};
 use crate::test_support::{every_run_reads_as_its_fold, lags, lane, plant_envelope};
 use crate::tests::envelope_builder::EnvelopeBuilder;
@@ -225,6 +225,73 @@ fn a_writer_from_before_the_aggregates_sends_its_row_behind() {
     let stamped = "UPDATE run_summary SET folded_hash = head_hash, aggregated_seq = head_seq";
     store.conn.execute(stamped, []).unwrap();
     assert_eq!(lane(&store, "r").as_deref(), Some("running"));
+    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+}
+
+/// A repair that restores the aggregate trigger must also send behind the
+/// heads it missed: a writer from before the aggregates, folding a new head
+/// while the trigger was gone, writes the folded columns and not their
+/// stamp, so the row would stand at its head with the earlier head's
+/// aggregates. The writable open refolds it rather than reading them
+/// (rulings 4 and 8).
+#[test]
+fn a_repairing_aggregate_trigger_refolds_the_heads_it_missed() {
+    let (_dir, mut store) = store();
+    let (started, _) = driven(&mut store, "r", &turn("implement", "i1", "R", "review"));
+    let (head, previous) = store.head_hash("r").unwrap();
+    store
+        .conn
+        .execute_batch(&format!("DROP TRIGGER {TRIGGER}"))
+        .unwrap();
+    let stopped = EnvelopeBuilder::new(EventType::RunStopped, json!({}))
+        .run("r")
+        .seq(head + 1)
+        .event_id("r-stopped")
+        .at("2026-01-01T00:00:09Z")
+        .previous(previous)
+        .sealed();
+    plant_envelope(&store.conn, &stopped).unwrap();
+    // The writer from before the aggregates folds the new head: the folded
+    // columns and hash, none of the aggregate columns.
+    let older = "UPDATE run_summary SET folded_seq = head_seq, folded_hash = head_hash";
+    store.conn.execute(older, []).unwrap();
+    // The same writer keeps the seat head, so the seat walk has nothing to
+    // refold either, as a binary from before the aggregates does.
+    store
+        .conn
+        .execute_batch(
+            "UPDATE seat_head SET
+                 folded_seq = (SELECT head_seq FROM run_summary WHERE run_id = 'r'),
+                 folded_hash = (SELECT head_hash FROM run_summary WHERE run_id = 'r')
+             WHERE run_id = 'r'",
+        )
+        .unwrap();
+    assert_eq!(kept(&store, "r")[10], Value::Integer(head as i64));
+    lags(&mut store, &["r"]);
+    let path = store.path().to_path_buf();
+    // A read that does not repair sees the row behind rather than at its
+    // head: no read trusts aggregates older than that head.
+    let reader = Store::open_read_only(&path).unwrap();
+    assert_eq!(lane(&reader, "r").as_deref(), Some("behind"));
+    drop(reader);
+    drop(store);
+    let store = Store::open(&path).unwrap();
+    assert_eq!(
+        kept(&store, "r"),
+        [
+            text("alpha"),
+            text("self"),
+            Value::Integer(started),
+            Value::Integer(1767225609000),
+            text("by_operator"),
+            Value::Null,
+            Value::Integer(1),
+            Value::Integer(0),
+            Value::Integer(0),
+            Value::Integer(0),
+            Value::Integer(head as i64 + 1),
+        ]
+    );
     assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
 }
 

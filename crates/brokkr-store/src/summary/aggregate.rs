@@ -11,7 +11,9 @@
 //! them writes the folded columns and not these, so a trigger sends a row
 //! whose stamp is not its folded seq behind its head: it reads whole and
 //! the next writable open refolds it (ruling 8), and no row stands at its
-//! head with aggregates of an earlier one.
+//! head with aggregates of an earlier one. A trigger can be gone, so the
+//! open's repair sends such a row behind on the same test, whether or not
+//! the trigger was there when it was written.
 
 use brokkr_core::summary::{Aggregate, Bounded, Ending, NAME_BYTES};
 use rusqlite::types::Value;
@@ -47,6 +49,16 @@ pub(super) fn defined() -> String {
     typed.join(", ")
 }
 
+/// The row's own test that its aggregates are not the ones its folded head
+/// states: `aggregated_seq` is written in the same statement as
+/// `folded_seq`, so they differ only for a row a writer from before them
+/// folded while the trigger was absent. `prefix` names the row in the
+/// statement that asks, `NEW.` in the trigger and nothing on the row the
+/// lane and the repair read, so the ruling has one home in each.
+pub(super) fn stale(prefix: &str) -> String {
+    format!("{prefix}aggregated_seq IS NOT {prefix}folded_seq")
+}
+
 /// The index and the trigger, `IF NOT EXISTS` as the table's own are. The
 /// trigger fires when an update names `folded_hash`, as every writer's
 /// does, and its own update does not fire it again, as SQLite fires no
@@ -55,10 +67,11 @@ pub(super) fn migration() -> String {
     format!(
         "CREATE INDEX IF NOT EXISTS {INDEX} ON run_summary (finished_ms);
         CREATE TRIGGER IF NOT EXISTS {TRIGGER} AFTER UPDATE OF folded_hash ON run_summary
-            WHEN NEW.aggregated_seq IS NOT NEW.folded_seq BEGIN
+            WHEN {stale} BEGIN
             UPDATE run_summary SET folded_seq = NULL, folded_hash = NULL
                 WHERE run_id = NEW.run_id;
-        END;"
+        END;",
+        stale = stale("NEW.")
     )
 }
 
