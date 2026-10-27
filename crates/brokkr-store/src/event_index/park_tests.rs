@@ -97,13 +97,10 @@ fn planted_move(store: &Store, run_id: &str, event_id: &str) {
     plant_envelope(&store.conn, &moved).unwrap();
 }
 
-/// `events` planted and the projections a writer from before the parks
-/// keeps written at their head: its summary row and its seat rows, so only
-/// the parks' own backfill can refold them.
-fn plant_before_parks(store: &Store, run_id: &str, events: &[EventEnvelope]) {
-    for event in events {
-        plant_envelope(&store.conn, event).unwrap();
-    }
+/// `run_id`'s summary row and seat rows written at its current head, over
+/// events already planted: what a writer from before the parks leaves, so
+/// only the parks' own backfill can refold them.
+fn kept_before_parks(store: &Store, run_id: &str) {
     let whole = store.load(run_id).unwrap();
     let account = Account::whole(run_id, &whole);
     let listed = crate::summary::Listed::of(&store.conn, run_id).unwrap();
@@ -114,6 +111,16 @@ fn plant_before_parks(store: &Store, run_id: &str, events: &[EventEnvelope]) {
     )
     .unwrap();
     crate::seat_summary::write(&store.conn, &account, None).unwrap();
+}
+
+/// `events` planted and the projections a writer from before the parks
+/// keeps written at their head: its summary row and its seat rows, so only
+/// the parks' own backfill can refold them.
+fn plant_before_parks(store: &Store, run_id: &str, events: &[EventEnvelope]) {
+    for event in events {
+        plant_envelope(&store.conn, event).unwrap();
+    }
+    kept_before_parks(store, run_id);
 }
 
 /// `store`'s journal opened again read-write, which repairs its parks.
@@ -138,18 +145,21 @@ fn parked_and_moved(store: &mut Store) {
     );
 }
 
+/// What the doctor's sweep names, as words: empty where every run reads as
+/// its fold.
+fn disagreements(store: &Store) -> Vec<String> {
+    store
+        .summary_disagreements()
+        .unwrap()
+        .iter()
+        .map(ToString::to_string)
+        .collect()
+}
+
 /// `run_id` is a lag the doctor passes, never a disagreement, and the next
 /// writable open refolds it.
 fn refolded_lag(mut store: Store, run_id: &str) -> Store {
-    assert_eq!(
-        store
-            .summary_disagreements()
-            .unwrap()
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>(),
-        Vec::<String>::new()
-    );
+    assert_eq!(disagreements(&store), Vec::<String>::new());
     assert!(matches!(
         store.compared(run_id, || {}).unwrap(),
         Compared::Behind
@@ -351,6 +361,113 @@ fn an_unwritten_park_is_refolded_at_the_next_open() {
     assert_eq!(store.park_after(None).unwrap(), None);
     assert_eq!(kept(&store, "r", 3), held);
     assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+}
+
+/// A `run/parked` whose stamp does not parse opens no park, so its row
+/// keeps no dated facts; the writer still records it processed at the
+/// head, so the parks' backfill does not read and refold the run at every
+/// later open, and ruling 4's comparison reads the row as its fold's.
+#[test]
+fn an_ignored_park_is_processed_once_and_reads_as_its_fold() {
+    let (_dir, mut store) = store();
+    let run_id = "r";
+    let stamped = |seq: u64, event_type, payload, at: &str, previous: &str| {
+        EnvelopeBuilder::new(event_type, payload)
+            .run(run_id)
+            .seq(seq)
+            .event_id(format!("r-{seq}"))
+            .at(at)
+            .previous(previous)
+            .sealed()
+    };
+    let started = stamped(
+        1,
+        EventType::RunStarted,
+        json!({"feature": "f", "manifest": {}}),
+        "2026-01-01T00:00:01Z",
+        brokkr_core::canonical::ZERO_HASH,
+    );
+    let entered = stamped(
+        2,
+        EventType::PhaseEntered,
+        json!({"phase": "implement"}),
+        "2026-01-01T00:00:02Z",
+        &started.event_hash,
+    );
+    let ignored = stamped(
+        3,
+        EventType::RunParked,
+        json!({"reason": "waiting"}),
+        "not a stamp",
+        &entered.event_hash,
+    );
+    let moved = stamped(
+        4,
+        EventType::PhaseEntered,
+        json!({"phase": "review"}),
+        "2026-01-01T00:00:09Z",
+        &ignored.event_hash,
+    );
+    plant_older_writer(&store, run_id, &[started, entered, ignored, moved]);
+    kept_before_parks(&store, run_id);
+    // An append carried by the writer records the ignored row processed at
+    // the head the append covers, as it does every park row.
+    store.carry(Account::whole(run_id, &store.load(run_id).unwrap()));
+    let next = append(
+        &mut store,
+        run_id,
+        EventType::PhaseEntered,
+        json!({"phase": "review"}),
+    );
+    let processed_at = Value::Integer(next.seq as i64);
+    assert_eq!(
+        kept(&store, run_id, 3),
+        [
+            Value::Null,
+            Value::Null,
+            Value::Null,
+            Value::Null,
+            Value::Null,
+            processed_at.clone(),
+        ]
+    );
+    // A writer from before the parks leaves the row unwritten; the parks'
+    // backfill records it processed at the head, once.
+    store
+        .conn
+        .execute(
+            "UPDATE event_index SET facts_seq = NULL WHERE run_id = ?1 AND seq = 3",
+            params![run_id],
+        )
+        .unwrap();
+    assert_eq!(store.park_after(None).unwrap().as_deref(), Some(run_id));
+    let mut visited = 0;
+    store.park_behind_with(|_| visited += 1).unwrap();
+    assert_eq!(visited, 1);
+    assert_eq!(
+        kept(&store, run_id, 3),
+        [
+            Value::Null,
+            Value::Null,
+            Value::Null,
+            Value::Null,
+            Value::Null,
+            processed_at,
+        ]
+    );
+    assert_eq!(store.park_after(None).unwrap(), None);
+    assert!(matches!(
+        store.compared(run_id, || {}).unwrap(),
+        Compared::Agrees
+    ));
+    assert_eq!(disagreements(&store), Vec::<String>::new());
+    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+    // A later open finds the row processed: it reads and refolds no run.
+    let mut store = refolded(store);
+    let mut visited = 0;
+    store.park_behind_with(|_| visited += 1).unwrap();
+    assert_eq!(visited, 0);
+    assert_eq!(store.park_after(None).unwrap(), None);
 }
 
 /// A table from before the parks is not read by its index and refuses its

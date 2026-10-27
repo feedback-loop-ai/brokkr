@@ -3,7 +3,7 @@
 //! not its event's, and the park facts left for the refold that writes
 //! them.
 
-use brokkr_core::envelope::EventEnvelope;
+use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::event_index::Indexed;
 use brokkr_core::summary::{Bounded, Park, NAME_BYTES};
 use rusqlite::types::{Value, ValueRef};
@@ -14,7 +14,10 @@ use crate::StoreError;
 /// The columns `event` projects to after its key, by name: the event's
 /// own, and the dated facts a park's row keeps, which the `run/parked`
 /// event itself does not state, so `park` is the whole run's reading of
-/// it and `head` the seq that reading covers.
+/// it and `head` the seq that reading covers. A `run/parked` event core
+/// read no park for is one whose stamp did not parse: its row keeps no
+/// dated facts, but it is still processed at `head`, so its `facts_seq`
+/// is the head rather than NULL.
 pub(super) fn projects(
     event: &EventEnvelope,
     park: Option<&Park>,
@@ -53,10 +56,19 @@ pub(super) fn projects(
             ("answered_ms", Value::Null),
             ("ended_ms", Value::Null),
             ("span_class", Value::Null),
-            ("facts_seq", Value::Null),
+            ("facts_seq", processed(event, head)),
         ],
     });
     columns
+}
+
+/// The stamp a `run/parked` row was processed at, `head`; NULL for an
+/// event that keeps no dated facts at all.
+fn processed(event: &EventEnvelope, head: u64) -> Value {
+    match event.event_type {
+        EventType::RunParked => Value::Integer(head as i64),
+        _ => Value::Null,
+    }
 }
 
 /// The first key where `rows`, each its key and then its columns, part

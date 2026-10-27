@@ -122,6 +122,27 @@ fn a_park_whose_stamp_does_not_parse_opens_nothing() {
     assert_eq!(parks(&events), Vec::<Park>::new());
 }
 
+/// The writer's account names every `run/parked` row, an ignored one
+/// included, so the row is recorded processed even though it keeps no
+/// dated facts: the park reading itself still omits it.
+#[test]
+fn an_account_names_the_park_rows_it_reads_no_park_of() {
+    use crate::summary::Account;
+
+    let events = journal(&[
+        (EventType::RunParked, json!({}), "not a stamp"),
+        (
+            EventType::RunParked,
+            json!({"reason": "waiting"}),
+            "2026-01-01T00:00:01Z",
+        ),
+    ]);
+    let account = Account::whole("run", &events);
+    assert_eq!(account.parks(), parks(&events));
+    assert_eq!(account.parks().len(), 1);
+    assert_eq!(account.park_rows(), [1, 2]);
+}
+
 #[test]
 fn a_park_s_span_class_is_its_reach_s_bit_length() {
     let at = 1_000;

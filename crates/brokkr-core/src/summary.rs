@@ -291,6 +291,13 @@ impl Account {
     pub fn parks(&self) -> Vec<Park> {
         self.parks.parks()
     }
+
+    /// The seq of every `run/parked` event of the run, in order, including
+    /// one whose stamp did not parse and so opened no park: the writer
+    /// records its row processed, with no dated facts.
+    pub fn park_rows(&self) -> &[u64] {
+        self.parks.rows()
+    }
 }
 
 /// What the run's `runs` row states: its feature and when it was created.

@@ -992,6 +992,7 @@ impl brokkr_core::summary::Account
 pub fn brokkr_core::summary::Account::empty(&str) -> brokkr_core::summary::Account
 pub fn brokkr_core::summary::Account::head(&self) -> (u64, &str)
 pub fn brokkr_core::summary::Account::onto(self, &[brokkr_core::envelope::EventEnvelope]) -> brokkr_core::summary::Account
+pub fn brokkr_core::summary::Account::park_rows(&self) -> &[u64]
 pub fn brokkr_core::summary::Account::parks(&self) -> alloc::vec::Vec<brokkr_core::summary::Park>
 pub fn brokkr_core::summary::Account::run_id(&self) -> &str
 pub fn brokkr_core::summary::Account::seats(&self) -> &[brokkr_core::seat::row::SeatRow]

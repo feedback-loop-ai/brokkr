@@ -68,11 +68,18 @@ pub(crate) struct Parking {
     phase: Option<String>,
     open: Option<Park>,
     done: Vec<Park>,
+    /// The seq of every `run/parked` event read, an ignored one included:
+    /// its stamp not parsing opens no park, but its row was still read and
+    /// the writer records it processed.
+    rows: Vec<u64>,
 }
 
 impl Parking {
     /// The reading carried over `event`, the run's next.
     pub(crate) fn note(&mut self, event: &EventEnvelope) {
+        if event.event_type == EventType::RunParked {
+            self.rows.push(event.seq);
+        }
         let Some(at) = parse_millis(&event.recorded_at) else {
             return;
         };
@@ -114,6 +121,12 @@ impl Parking {
         let mut parks = self.done.clone();
         parks.extend(self.open.clone());
         parks
+    }
+
+    /// The seq of every `run/parked` event read so far, in order, an
+    /// ignored one included.
+    pub(crate) fn rows(&self) -> &[u64] {
+        &self.rows
     }
 }
 

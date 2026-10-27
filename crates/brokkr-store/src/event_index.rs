@@ -488,29 +488,38 @@ const WRITE_PARK: &str = "UPDATE event_index SET phase = ?3, at_ms = ?4, answere
          ended_ms = ?6, span_class = ?7, facts_seq = ?8
      WHERE run_id = ?1 AND seq = ?2";
 
-/// Write every park of `account`'s run, at the head the account covers
+/// Write every park row of `account`'s run, at the head the account covers
 /// (decision 0089 ruling 7), inside the caller's transaction. A phase is
 /// a group key, cut where it is stored; the moments stay absent while
 /// they have not happened, and the class is written with the end, or 64
-/// while the park is open. `facts_seq` says the facts cover that head, so
-/// a row a writer from before them leaves is off its run's head and read
-/// whole until the next writable open refolds it.
+/// while the park is open. A `run/parked` row core read no park for is one
+/// whose stamp did not parse: it keeps no dated facts, but its `facts_seq`
+/// is still the head, so the partial index of rows still to write records
+/// that it was processed and no later open reads the run for it again.
+/// `facts_seq` otherwise says the facts cover that head, so a row a writer
+/// from before them leaves is off its run's head and read whole until the
+/// next writable open refolds it.
 pub(crate) fn write_parks(tx: &Connection, account: &Account) -> Result<(), StoreError> {
     let head = account.head().0 as i64;
+    let parks: BTreeMap<u64, Park> = account
+        .parks()
+        .into_iter()
+        .map(|park| (park.seq, park))
+        .collect();
     let mut statement = tx.prepare_cached(WRITE_PARK)?;
-    for park in account.parks() {
+    for seq in account.park_rows() {
+        let park = parks.get(seq);
         let phase = park
-            .phase
-            .as_deref()
+            .and_then(|park| park.phase.as_deref())
             .map(|phase| Bounded::within(phase, NAME_BYTES).cut);
         statement.execute(params![
             account.run_id(),
-            park.seq as i64,
+            *seq as i64,
             phase,
-            park.at,
-            park.answered,
-            park.ended,
-            i64::from(park.span_class()),
+            park.map(|park| park.at),
+            park.and_then(|park| park.answered),
+            park.and_then(|park| park.ended),
+            park.map(|park| i64::from(park.span_class())),
             head,
         ])?;
     }
