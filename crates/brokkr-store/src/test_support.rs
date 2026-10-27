@@ -13,8 +13,9 @@
 use std::collections::BTreeSet;
 
 use brokkr_core::canonical::ZERO_HASH;
-use brokkr_core::envelope::EventEnvelope;
+use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::summary::{Account, Summary};
+use rusqlite::types::Value;
 use rusqlite::{params, Connection, ToSql};
 
 use crate::import::INSERT_EVENT;
@@ -148,6 +149,24 @@ impl Drop for Store {
             "a summary row disagrees with its run's fold: {disagreeing:?}"
         );
     }
+}
+
+/// `event_type` with `payload` appended by this store to `run_id`, as the
+/// writer's own append: the call every test that drives a run makes.
+pub fn append(
+    store: &mut Store,
+    run_id: &str,
+    event_type: EventType,
+    payload: serde_json::Value,
+) -> EventEnvelope {
+    store
+        .append_next(run_id, event_type, payload, None, None)
+        .unwrap()
+}
+
+/// `value` as SQLite holds text.
+pub fn text(value: &str) -> Value {
+    Value::Text(value.to_string())
 }
 
 /// Plant a `runs` row carrying this manifest text verbatim, valid JSON or

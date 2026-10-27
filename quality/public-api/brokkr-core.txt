@@ -992,6 +992,7 @@ impl brokkr_core::summary::Account
 pub fn brokkr_core::summary::Account::empty(&str) -> brokkr_core::summary::Account
 pub fn brokkr_core::summary::Account::head(&self) -> (u64, &str)
 pub fn brokkr_core::summary::Account::onto(self, &[brokkr_core::envelope::EventEnvelope]) -> brokkr_core::summary::Account
+pub fn brokkr_core::summary::Account::parks(&self) -> alloc::vec::Vec<brokkr_core::summary::Park>
 pub fn brokkr_core::summary::Account::run_id(&self) -> &str
 pub fn brokkr_core::summary::Account::seats(&self) -> &[brokkr_core::seat::row::SeatRow]
 pub fn brokkr_core::summary::Account::seats_kept(&self) -> bool
@@ -1017,6 +1018,14 @@ pub brokkr_core::summary::Hired::seat: brokkr_core::summary::Bounded
 pub struct brokkr_core::summary::Listing<'a>
 pub brokkr_core::summary::Listing::created_at: &'a str
 pub brokkr_core::summary::Listing::feature: &'a str
+pub struct brokkr_core::summary::Park
+pub brokkr_core::summary::Park::answered: core::option::Option<i64>
+pub brokkr_core::summary::Park::at: i64
+pub brokkr_core::summary::Park::ended: core::option::Option<i64>
+pub brokkr_core::summary::Park::phase: core::option::Option<alloc::string::String>
+pub brokkr_core::summary::Park::seq: u64
+impl brokkr_core::summary::Park
+pub fn brokkr_core::summary::Park::span_class(&self) -> u8
 pub struct brokkr_core::summary::Refused
 pub brokkr_core::summary::Refused::seq: u64
 pub brokkr_core::summary::Refused::words: brokkr_core::summary::Bounded
@@ -1068,6 +1077,7 @@ pub const brokkr_core::summary::REFUSAL_BYTES: usize
 pub const brokkr_core::summary::STAMP_BYTES: usize
 pub fn brokkr_core::summary::aggregate(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> brokkr_core::summary::Aggregate
 pub fn brokkr_core::summary::feature_line(&str) -> &str
+pub fn brokkr_core::summary::parks(&[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_core::summary::Park>
 pub enum brokkr_core::Cursor
 pub brokkr_core::Cursor::Decide
 pub brokkr_core::Cursor::Decide::effect_id: alloc::string::String

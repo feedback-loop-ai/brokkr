@@ -29,7 +29,7 @@ use rusqlite::types::Value;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::acknowledgement::standing;
-use crate::event_index::{finished, first_unindexed, runless};
+use crate::event_index::{finished, first_unindexed, runless, write_parks, IndexReading};
 use crate::schema::all_present;
 use crate::{head_of, patiently, seat_summary, Acknowledgement, Store, StoreError};
 
@@ -477,6 +477,7 @@ pub(crate) fn judge(
     };
     write(tx, &first.run_id, &Summary::of(&account, listed.listing()))?;
     seat_summary::write(tx, &account, Some(&carried.account))?;
+    write_parks(tx, &account)?;
     Ok(Settled::Carried(Box::new(Carried {
         account,
         listed: Some(listed),
@@ -497,6 +498,7 @@ pub(crate) fn refold_once(conn: &mut Connection, account: &Account) -> Result<()
             &Summary::of(account, listed.listing()),
         )?;
         seat_summary::write(&tx, account, None)?;
+        write_parks(&tx, account)?;
     }
     tx.commit()?;
     Ok(())
@@ -558,6 +560,7 @@ impl Store {
     pub(crate) fn catch_up(&mut self) -> Result<(), StoreError> {
         self.quietly(|store| store.refold_behind_with(|_| {}))?;
         self.quietly(|store| store.index_behind_with(|_| {}))?;
+        self.quietly(|store| store.park_behind_with(|_| {}))?;
         self.quietly(|store| store.seat_behind_with(|_| {}))
     }
 
@@ -708,13 +711,17 @@ impl Store {
             Ok(events) => events,
             Err(error) => return Ok(Compared::Disagrees(Disagreement::Unread { run_id, error })),
         };
-        if let Some((seq, fault)) = first_unindexed(&self.conn, &run_id, &events)? {
-            return Ok(Compared::Disagrees(Disagreement::Indexed {
-                run_id,
-                seq,
-                fault,
-            }));
-        }
+        let stale = match first_unindexed(&self.conn, &run_id, &events)? {
+            IndexReading::Parted(seq, fault) => {
+                return Ok(Compared::Disagrees(Disagreement::Indexed {
+                    run_id,
+                    seq,
+                    fault,
+                }));
+            }
+            IndexReading::Behind => true,
+            IndexReading::Agrees => false,
+        };
         let account = Account::whole(&run_id, &events);
         let seats = seat_summary::compared(&self.conn, &account)?;
         if let Compared::Disagrees(_) = seats {
@@ -731,6 +738,7 @@ impl Store {
         expected.extend(kept(&summary, standing.as_ref()));
         Ok(match self.first_difference(&run_id, &expected)? {
             Some(column) => Compared::Disagrees(Disagreement::Column { run_id, column }),
+            None if stale => Compared::Behind,
             None => seats,
         })
     }

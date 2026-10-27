@@ -26,27 +26,38 @@ use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
-use brokkr_core::event_index::Indexed;
-use rusqlite::types::{Value, ValueRef};
+use brokkr_core::summary::{parks, Account, Bounded, Park, NAME_BYTES};
+use rusqlite::types::Value;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Params};
 
 use crate::schema::all_present;
 use brokkr_core::summary::STAMP_BYTES;
 
 use crate::summary::{cut_stamp, stamp_of, text_at};
-use crate::{patiently, Disagreement, Store, StoreError};
+use crate::{head_of, patiently, Disagreement, Store, StoreError};
 
 /// The meta key that records the backfill finished (ruling 8): its own,
 /// so indexing an older journal sends no run's summary behind.
 const BACKFILLED: &str = "event_index_backfill";
 
 const TABLE: [&str; 1] = ["event_index"];
-const INDEXES: [&str; 3] = [
+const INDEXES: [&str; 6] = [
     "event_index_stream",
     "event_index_trail",
     "event_index_cause",
+    "event_index_park",
+    "event_index_park_stale",
+    "event_index_park_facts",
 ];
-const TRIGGERS: [&str; 2] = ["event_index_of_an_event", "event_index_stamp_bounded"];
+const TRIGGERS: [&str; 3] = [
+    "event_index_of_an_event",
+    "event_index_stamp_bounded",
+    "event_index_park_moved",
+];
+
+mod compare;
+
+pub(crate) use compare::{first_parted, place};
 
 /// The checkpoints one page of a seat's stream holds (ruling 7).
 pub(crate) const CHECKPOINT_PAGE: usize = 50;
@@ -54,8 +65,24 @@ pub(crate) const CHECKPOINT_PAGE: usize = 50;
 /// The one type a run's trail skips and a seat's stream reads.
 pub(crate) const CHECKPOINTED: &str = EventType::EffectCheckpointed.as_str();
 
+/// The type a park's row is (decision 0089 ruling 7).
+const PARKED: &str = EventType::RunParked.as_str();
+
 /// A row's columns, in the order [`projected`] gives them.
 const COLUMNS: &str = "run_id, seq, type, attempt_id, member, recorded_at, event_id";
+
+/// The dated facts a park's row keeps (decision 0089 ruling 7), and the
+/// stamp that says they were computed through its run's head: a writer
+/// from before them, or one that lost them, leaves `facts_seq` NULL and
+/// the row is read whole until the next writable open refolds it.
+const PARK_COLUMNS: [&str; 6] = [
+    "phase",
+    "at_ms",
+    "answered_ms",
+    "ended_ms",
+    "span_class",
+    "facts_seq",
+];
 
 /// The row an `events` row named `event` projects to, in [`COLUMNS`]'
 /// order, read from its envelope's text as brokkr-core's [`Indexed::of`]
@@ -98,20 +125,27 @@ fn last_text(entries: &str, key: &str) -> String {
     )
 }
 
-/// The table, its three indexes and its two triggers, `IF NOT EXISTS`
-/// throughout so racing openers agree, and the backfill marked
+/// The table and its six indexes, `IF NOT EXISTS` throughout so racing
+/// openers agree; the park trigger is dropped and made anew, so a copy
+/// from before the facts index is replaced, and the backfill is marked
 /// unfinished, so a journal that lost an object is walked again once it
 /// is restored. The stream index keys a seat's checkpoints, `(run_id,
 /// attempt_id, member, seq)`; the trail index holds every event but a
 /// checkpoint; the cause index keys an event by its id, `(run_id,
-/// event_id)`. A stamp past its bound is cut by a trigger of its own,
-/// which fires only then, after the event's trigger or the backfill
-/// inserted the row, so the event's trigger reads the stamp once.
+/// event_id)`; the park index keys a window's parks, `(span_class,
+/// at_ms)`; and the facts index holds the park rows whose dated facts
+/// are written, so a later event sends those facts behind by searching
+/// the park rows alone ([`park_moved`]), never the run's every event. A
+/// stamp past its bound is cut by a trigger of its own, which fires only
+/// then, after the event's trigger or the backfill inserted the row, so
+/// the event's trigger reads the stamp once.
 fn migration() -> String {
     format!(
         "CREATE TABLE IF NOT EXISTS event_index (
             run_id TEXT NOT NULL, seq INTEGER NOT NULL,
             type TEXT, attempt_id TEXT, member TEXT, recorded_at TEXT, event_id TEXT,
+            phase TEXT, at_ms INTEGER, answered_ms INTEGER, ended_ms INTEGER,
+            span_class INTEGER, facts_seq INTEGER,
             PRIMARY KEY (run_id, seq)
         ) WITHOUT ROWID;
         CREATE INDEX IF NOT EXISTS event_index_stream
@@ -119,6 +153,16 @@ fn migration() -> String {
         CREATE INDEX IF NOT EXISTS event_index_trail
             ON event_index (run_id, seq) WHERE type <> '{CHECKPOINTED}';
         CREATE INDEX IF NOT EXISTS event_index_cause ON event_index (run_id, event_id);
+        CREATE INDEX IF NOT EXISTS event_index_park
+            ON event_index (span_class, at_ms) WHERE type = '{PARKED}';
+        CREATE INDEX IF NOT EXISTS event_index_park_stale
+            ON event_index (run_id) WHERE type = '{PARKED}' AND facts_seq IS NULL;
+        CREATE INDEX IF NOT EXISTS event_index_park_facts
+            ON event_index (run_id, seq) WHERE type = '{PARKED}' AND facts_seq IS NOT NULL;
+        DROP TRIGGER IF EXISTS event_index_park_moved;
+        CREATE TRIGGER event_index_park_moved AFTER INSERT ON events BEGIN
+            {moved};
+        END;
         CREATE TRIGGER IF NOT EXISTS event_index_of_an_event AFTER INSERT ON events BEGIN
             INSERT OR IGNORE INTO event_index ({COLUMNS}) SELECT {projected};
         END;
@@ -128,8 +172,28 @@ fn migration() -> String {
                 WHERE run_id = NEW.run_id AND seq = NEW.seq;
         END;
         DELETE FROM meta WHERE key = '{BACKFILLED}';",
+        moved = park_moved("NEW"),
         projected = projected("NEW"),
         cut = cut_stamp("NEW.recorded_at"),
+    )
+}
+
+/// The statement that sends every park of the event's run behind its new
+/// head, inside the event's own transaction (decision 0089 ruling 7):
+/// `event` names the trigger's new row, `NEW`. Its `IN` selects the seqs
+/// of the park rows whose facts are written, through
+/// `event_index_park_facts`, so a checkpoint costs the park rows before
+/// it, never the run's every event; the outer update then names each row
+/// by the primary key. The facts are recomputed at the head the append
+/// covers, which [`write_parks`] writes; a park the statement leaves NULL
+/// is a lag the next writable open refolds.
+fn park_moved(event: &str) -> String {
+    format!(
+        "UPDATE event_index SET facts_seq = NULL
+                WHERE run_id = {event}.run_id AND seq IN (
+                    SELECT seq FROM event_index INDEXED BY event_index_park_facts
+                    WHERE run_id = {event}.run_id AND seq < {event}.seq
+                      AND type = '{PARKED}' AND facts_seq IS NOT NULL)"
     )
 }
 
@@ -157,6 +221,18 @@ fn keyed(conn: &Connection) -> Result<bool, StoreError> {
     holds(conn, "event_id")
 }
 
+/// Does the table hold a park's dated facts? A table without them is the
+/// shape a build before decision 0089 slice 4 made, which
+/// [`migrate_index`] rebuilds.
+fn parked(conn: &Connection) -> Result<bool, StoreError> {
+    for column in PARK_COLUMNS {
+        if !holds(conn, column)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 /// Does this journal carry the table, with its time and its ids, its three
 /// indexes and both triggers? Pure reads, so the steady-state open writes
 /// nothing.
@@ -164,8 +240,24 @@ pub(crate) fn index_intact(conn: &Connection) -> Result<bool, StoreError> {
     Ok(all_present(conn, "table", &TABLE)?
         && timed(conn)?
         && keyed(conn)?
+        && parked(conn)?
         && all_present(conn, "index", &INDEXES)?
         && all_present(conn, "trigger", &TRIGGERS)?)
+}
+
+/// Send behind every park whose facts are not its run's head's, as the
+/// trigger sends one: the repair recreates the trigger, and a writer
+/// whose copy was missing may have moved a park while it was gone, so a
+/// stamp the trigger did not write must not stand at the head the run now
+/// has. The walk that follows the open refolds the rows this sends behind
+/// (rulings 4 and 8).
+fn send_parks_behind() -> String {
+    format!(
+        "UPDATE event_index SET facts_seq = NULL
+         WHERE type = '{PARKED}' AND facts_seq IS NOT NULL
+           AND facts_seq IS NOT (SELECT max(seq) FROM events
+                                  WHERE events.run_id = event_index.run_id)"
+    )
 }
 
 /// Create the index, on a connection holding the write lock: the sixth
@@ -173,14 +265,16 @@ pub(crate) fn index_intact(conn: &Connection) -> Result<bool, StoreError> {
 /// that wrote it, are dropped first, since every row is derived. Its rows
 /// come from the backfill that follows the open, outside this lock.
 pub(crate) fn migrate_index(conn: &Connection) -> Result<(), StoreError> {
-    if !(timed(conn)? && keyed(conn)?) {
+    if !(timed(conn)? && keyed(conn)? && parked(conn)?) {
         let dropped = conn.execute_batch(
             "DROP TRIGGER IF EXISTS event_index_of_an_event;
+             DROP TRIGGER IF EXISTS event_index_park_moved;
              DROP TABLE IF EXISTS event_index;",
         );
         dropped?;
     }
-    Ok(conn.execute_batch(&migration())?)
+    conn.execute_batch(&migration())?;
+    Ok(conn.execute_batch(&send_parks_behind())?)
 }
 
 /// Record that the backfill `key` names finished.
@@ -281,8 +375,9 @@ pub(crate) static STREAM: LazyLock<String> = LazyLock::new(|| {
 const ENVELOPE: &str = "SELECT envelope FROM events WHERE run_id = ?1 AND seq = ?2";
 
 /// A run's index rows in seq order, by its key: what ruling 4 compares.
-const ROWS: &str = "SELECT seq, type, attempt_id, member, recorded_at, event_id FROM event_index
-     WHERE run_id = ?1 ORDER BY seq";
+const ROWS: &str = "SELECT seq, type, attempt_id, member, recorded_at, event_id,
+     phase, at_ms, answered_ms, ended_ms, span_class, facts_seq
+     FROM event_index WHERE run_id = ?1 ORDER BY seq";
 
 /// The last seq of a run's events that `event_id` names, NULL where none
 /// does, and whether a row of the run holds no id, each read through the
@@ -340,88 +435,98 @@ pub(crate) fn runless(conn: &Connection) -> Result<Vec<Disagreement>, StoreError
     Ok(found.collect::<Result<_, _>>()?)
 }
 
+/// How a run's rows stand against its events (ruling 4): the first seq
+/// where a row is not its event's, a park whose dated facts are not its
+/// head's (a lag the next writable open refolds, never a disagreement),
+/// or every row its event's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IndexReading {
+    Agrees,
+    Behind,
+    Parted(u64, IndexFault),
+}
+
 /// The first seq where `run_id`'s index rows are not what `events`, the
 /// run read whole, project to, and how: the rows streamed beside the
-/// events, so the comparison holds the run and one row.
+/// events, so the comparison holds the run and one row. A park whose
+/// facts are not written at the run's head is a lag: its immutable
+/// columns are still compared, and its dated facts are left for the
+/// refold that writes them.
 pub(crate) fn first_unindexed(
     conn: &Connection,
     run_id: &str,
     events: &[EventEnvelope],
-) -> Result<Option<(u64, IndexFault)>, StoreError> {
+) -> Result<IndexReading, StoreError> {
     let mut statement = conn.prepare_cached(ROWS)?;
     let rows = statement.query([run_id])?;
-    first_parted(
+    let parks: BTreeMap<u64, Park> = parks(events)
+        .into_iter()
+        .map(|park| (park.seq, park))
+        .collect();
+    let head = events.last().map_or(0, |event| event.seq);
+    let mut stale = false;
+    let parted = compare::first_parted_at(
         rows,
-        events.iter().map(|event| (event.seq, projects(event))),
-    )
+        events.iter().map(|event| {
+            (
+                event.seq,
+                compare::projects(event, parks.get(&event.seq), head),
+            )
+        }),
+        &mut stale,
+    )?;
+    Ok(match parted {
+        Some((seq, fault)) => IndexReading::Parted(seq, fault),
+        None if stale => IndexReading::Behind,
+        None => IndexReading::Agrees,
+    })
 }
 
-/// The columns `event` projects to after its key, by name.
-fn projects(event: &EventEnvelope) -> Vec<(&'static str, Value)> {
-    let indexed = Indexed::of(event);
-    let text = |text: Option<&str>| text.map_or(Value::Null, |text| Value::Text(text.into()));
-    vec![
-        ("type", text(Some(indexed.event_type.as_str()))),
-        ("attempt_id", text(indexed.attempt_id)),
-        ("member", text(indexed.member)),
-        ("recorded_at", text(Some(indexed.recorded_at))),
-        ("event_id", text(Some(&event.event_id))),
-    ]
-}
+/// The statement that writes one park's dated facts, by the seq its run
+/// head covers.
+const WRITE_PARK: &str = "UPDATE event_index SET phase = ?3, at_ms = ?4, answered_ms = ?5,
+         ended_ms = ?6, span_class = ?7, facts_seq = ?8
+     WHERE run_id = ?1 AND seq = ?2";
 
-/// The first key where `rows`, each its key and then its columns, part
-/// from `expected`, each a key and the columns its row should hold, both
-/// in key order, and how: the rows streamed beside what is expected, so a
-/// comparison holds one row at a time.
-pub(crate) fn first_parted(
-    mut rows: rusqlite::Rows<'_>,
-    mut expected: impl Iterator<Item = (u64, Vec<(&'static str, Value)>)>,
-) -> Result<Option<(u64, IndexFault)>, StoreError> {
-    loop {
-        let found = match (expected.next(), rows.next()?) {
-            (None, None) => return Ok(None),
-            (Some((key, _)), None) => Some((key, IndexFault::Missing)),
-            (None, Some(row)) => Some((row.get::<_, i64>(0)? as u64, IndexFault::Stray)),
-            (Some((key, columns)), Some(row)) => parted(key, &columns, row)?,
-        };
-        if found.is_some() {
-            return Ok(found);
-        }
+/// Write every park of `account`'s run, at the head the account covers
+/// (decision 0089 ruling 7), inside the caller's transaction. A phase is
+/// a group key, cut where it is stored; the moments stay absent while
+/// they have not happened, and the class is written with the end, or 64
+/// while the park is open. `facts_seq` says the facts cover that head, so
+/// a row a writer from before them leaves is off its run's head and read
+/// whole until the next writable open refolds it.
+pub(crate) fn write_parks(tx: &Connection, account: &Account) -> Result<(), StoreError> {
+    let head = account.head().0 as i64;
+    let mut statement = tx.prepare_cached(WRITE_PARK)?;
+    for park in account.parks() {
+        let phase = park
+            .phase
+            .as_deref()
+            .map(|phase| Bounded::within(phase, NAME_BYTES).cut);
+        statement.execute(params![
+            account.run_id(),
+            park.seq as i64,
+            phase,
+            park.at,
+            park.answered,
+            park.ended,
+            i64::from(park.span_class()),
+            head,
+        ])?;
     }
+    Ok(())
 }
 
-/// Where `row` parts from the row expected at `key`, each the next of
-/// its kind in key order. A row's key is SQLite's integer: one below
-/// zero, which no writer gives, stands before every key and is a stray,
-/// carried in its bits ([`place`] reads it back), as [`first_parted`]
-/// carries one past every expected key. A column is compared as its
-/// bytes, so a text that is not UTF-8 parts there as the column it is.
-fn parted(
-    key: u64,
-    expected: &[(&'static str, Value)],
-    row: &rusqlite::Row<'_>,
-) -> Result<Option<(u64, IndexFault)>, StoreError> {
-    let found: i64 = row.get(0)?;
-    if found != place(key) {
-        return Ok(Some(if found > place(key) {
-            (key, IndexFault::Missing)
-        } else {
-            (found as u64, IndexFault::Stray)
-        }));
+/// One run of the parks' backfill, in its own transaction, written only
+/// while the head is still the one `account` was read at.
+fn park_once(conn: &mut Connection, account: &Account) -> Result<(), StoreError> {
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let (seq, hash) = head_of(&tx, account.run_id())?;
+    if account.head() == (seq, hash.as_str()) {
+        write_parks(&tx, account)?;
     }
-    for (at, (column, value)) in expected.iter().enumerate() {
-        if row.get_ref(at + 1)? != ValueRef::from(value) {
-            return Ok(Some((key, IndexFault::Column(column))));
-        }
-    }
-    Ok(None)
-}
-
-/// A seq or a place as SQLite holds it, an integer: a key [`parted`]
-/// carried in its bits reads back as the value its row holds, a stray
-/// below zero included.
-pub(crate) fn place(key: u64) -> i64 {
-    key as i64
+    tx.commit()?;
+    Ok(())
 }
 
 impl Store {
@@ -453,6 +558,58 @@ impl Store {
         }
         let conn = &self.conn;
         patiently("index", self.patience, || mark_indexed(conn))
+    }
+
+    /// The first run past `after` whose park rows do not have their dated
+    /// facts, read through the partial index of the rows still to write,
+    /// or the first such run.
+    fn park_after(&self, after: Option<&str>) -> Result<Option<String>, StoreError> {
+        let next = match after {
+            None => self.conn.query_row(
+                &format!(
+                    "SELECT run_id FROM event_index INDEXED BY event_index_park_stale
+                     WHERE type = '{PARKED}' AND facts_seq IS NULL ORDER BY run_id LIMIT 1"
+                ),
+                [],
+                |row| row.get(0),
+            ),
+            Some(after) => self.conn.query_row(
+                &format!(
+                    "SELECT run_id FROM event_index INDEXED BY event_index_park_stale
+                     WHERE type = '{PARKED}' AND facts_seq IS NULL AND run_id > ?1
+                     ORDER BY run_id LIMIT 1"
+                ),
+                [after],
+                |row| row.get(0),
+            ),
+        };
+        Ok(next.optional()?)
+    }
+
+    /// Write every park's dated facts that a writer from before them left
+    /// unwritten, one run per transaction (decision 0089 ruling 8), and
+    /// let a run that does not load stay for a reader to read whole and
+    /// the doctor to name. Every writable open makes it; the partial
+    /// index holds only the rows still to write, so a journal whose parks
+    /// are all kept reads it as empty. `between` runs on this connection
+    /// after a run is read and before its transaction, the instant the
+    /// tests stage a peer's lock at. The runs are read by their key one
+    /// at a time, so the memory is the largest run's.
+    pub(crate) fn park_behind_with(
+        &mut self,
+        mut between: impl FnMut(&Connection),
+    ) -> Result<(), StoreError> {
+        let mut after: Option<String> = None;
+        while let Some(run_id) = self.park_after(after.as_deref())? {
+            if let Ok(events) = self.load(&run_id) {
+                let account = Account::whole(&run_id, &events);
+                between(&self.conn);
+                let conn = &mut self.conn;
+                patiently("parks", self.patience, || park_once(conn, &account))?;
+            }
+            after = Some(run_id);
+        }
+        Ok(())
     }
 
     /// Whether this journal's event index is read (ruling 8): it carries
@@ -549,5 +706,7 @@ impl Store {
     }
 }
 
+#[cfg(test)]
+mod park_tests;
 #[cfg(test)]
 mod tests;
