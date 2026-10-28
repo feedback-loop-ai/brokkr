@@ -195,8 +195,9 @@ fn journal(db: &Path) -> Vec<EventEnvelope> {
 /// UTF-8, which outranks a chain defect
 /// before it as `load`'s order has it — and every journal `load` reads,
 /// the opening stands at the head it read to: the run's last event, or
-/// the empty head for a run with no event. Read-only, as every readout
-/// opens a run (decision 0014).
+/// the empty head for a run with no event. The opening that keeps what it
+/// verifies gives the same verdicts and keeps the events `load` reads.
+/// Read-only, as every readout opens a run (decision 0014).
 #[test]
 fn a_run_is_opened_as_the_whole_read_reads_it() {
     let dir = tempfile::tempdir().unwrap();
@@ -268,6 +269,13 @@ fn a_run_is_opened_as_the_whole_read_reads_it() {
         let opened = verdict(store.open_run(run_id));
         assert_eq!(opened, verdict_of, "{run_id}");
         assert_eq!(opened, loaded(&store, run_id), "{run_id} against load");
+        let kept = store.open_kept(run_id).map(|(opened, kept)| {
+            let text = |events: &[EventEnvelope]| serde_json::to_string(events).unwrap();
+            let loaded = store.load(run_id).unwrap();
+            assert_eq!(text(&kept), text(&loaded), "{run_id} kept");
+            opened
+        });
+        assert_eq!(verdict(kept), verdict_of, "{run_id} kept");
     }
     assert_eq!(
         store.head_hash("whole").unwrap(),
@@ -309,6 +317,7 @@ fn the_opening_contends_as_load_does() {
     holder.execute_batch("BEGIN EXCLUSIVE").unwrap();
     let words = ("load", "load; nothing was written".to_string());
     assert_eq!(contention(reader.open_run("whole")), words);
+    assert_eq!(contention(reader.open_kept("whole")), words);
     assert_eq!(contention(reader.load("whole")), words);
     drop(holder);
     assert_eq!(reader.open_run("whole").unwrap().seq, 4);

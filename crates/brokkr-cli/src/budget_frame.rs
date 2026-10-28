@@ -11,6 +11,7 @@ use ratatui::buffer::Buffer;
 use ratatui::Terminal;
 
 use crate::fleet::Journal;
+use crate::run_pages::{viewed, Shows};
 use crate::tui::{asked_window, draw, Scrolled, Tui, Views};
 use crate::tui_read::{fleet_page, Kept};
 
@@ -172,4 +173,21 @@ pub fn fleet_frame_for_budget(
     let terminal = painted(&tui, &views, (width, height));
     let cells = terminal.backend().buffer().content().iter();
     Ok(cells.map(|cell| cell.symbol()).collect())
+}
+
+/// What `brokkr watch --once` paints of `run` in the journal at `db`, its
+/// terminal frame, or with `whole` what `inspect --json` prints of it:
+/// from its read-only open, the run opened and read as those readouts
+/// read it (decision 0089 slice 3), at 80 columns and no colour.
+pub fn run_readout_for_budget(db: &Path, run: &str, whole: bool) -> Result<String, StoreError> {
+    let store = Store::open_read_only(db)?;
+    let view = viewed(&store, run, Shows::of(whole))?.view;
+    let style = crate::render::Style {
+        color: false,
+        width: 80,
+    };
+    Ok(match whole {
+        true => serde_json::to_string_pretty(&view.with_scopes()).expect("the run view serializes"),
+        false => crate::render::inspect(&view, None, false, &style),
+    })
 }

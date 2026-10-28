@@ -14,19 +14,20 @@
 
 use std::path::Path;
 
-use brokkr_core::canonical::ZERO_HASH;
-use brokkr_core::envelope::EventEnvelope;
 use brokkr_core::fold::fold;
-use brokkr_store::test_support::{plant_older_writer, plant_summary_writer, unindex};
+use brokkr_store::test_support::{plant_summary_writer, unindex};
 use brokkr_store::Store;
 use brokkr_view::{run_view, CheckpointRow, RunView};
 
 use crate::composed_view::{composed_read, imported, next, BROKEN};
+use planted::{chained, committed_at, planted};
 
 #[path = "../../../tests/support/envelope.rs"]
 mod envelope_builder;
 #[path = "../../../tests/support/seat_rows.rs"]
 mod journals;
+#[path = "../../../tests/support/planted.rs"]
+mod planted;
 #[path = "../../../tests/support/seat_read.rs"]
 mod seat_read;
 
@@ -102,61 +103,6 @@ fn fixtures(path: &Path) -> Vec<String> {
     imported(path).1
 }
 
-/// `journals` planted into a fresh journal at `path` as an older writer
-/// leaves them, each run under its own id, and caught up by a writable
-/// open: their run ids.
-fn planted(path: &Path, journals: Vec<(String, Vec<EventEnvelope>)>) -> Vec<String> {
-    let store = Store::open(path).unwrap();
-    let mut runs = Vec::new();
-    for (run, events) in journals {
-        plant_older_writer(&store, &run, &events);
-        runs.push(run);
-    }
-    drop(store);
-    drop(Store::open(path).unwrap());
-    runs
-}
-
-/// A journal's events as run `run`'s, each with an id of its own, sealed
-/// into one chain, as a writer's run verifies.
-fn chained(run: &str, events: Vec<EventEnvelope>) -> Vec<EventEnvelope> {
-    let mut previous = ZERO_HASH.to_string();
-    let seal = |event: EventEnvelope| {
-        let sealed = EventEnvelope {
-            run_id: run.to_string(),
-            correlation_id: run.to_string(),
-            event_id: format!("{run}-{}", event.seq),
-            previous_hash: previous.clone(),
-            ..event
-        }
-        .sealed();
-        previous.clone_from(&sealed.event_hash);
-        sealed
-    };
-    events.into_iter().map(seal).collect()
-}
-
-/// Every committed journal, the fixtures and the evidence, each by its
-/// file's name and the events its lines hold.
-fn committed() -> Vec<(String, Vec<EventEnvelope>)> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let listed = ["fixtures/journals", "docs/evidence"].map(|dir| root.join(dir).read_dir());
-    let mut paths: Vec<_> = listed.into_iter().flat_map(Result::unwrap).collect();
-    paths.sort_by_key(|entry| entry.as_ref().unwrap().path());
-    let mut journals = Vec::new();
-    for path in paths.into_iter().map(|entry| entry.unwrap().path()) {
-        let name = path.file_name().unwrap().to_str().unwrap();
-        let Some(name) = name.strip_suffix(".ndjson") else {
-            continue;
-        };
-        let text = std::fs::read_to_string(&path).unwrap();
-        let lines = text.lines().filter(|line| !line.trim().is_empty());
-        let events = lines.map(|line| serde_json::from_str(line).unwrap());
-        journals.push((name.to_string(), events.collect()));
-    }
-    journals
-}
-
 #[test]
 fn every_fixture_s_seat_view_read_a_page_at_a_time_is_its_checkpoints() {
     let dir = tempfile::tempdir().unwrap();
@@ -172,10 +118,8 @@ fn every_fixture_s_seat_view_read_a_page_at_a_time_is_its_checkpoints() {
 #[test]
 fn every_committed_and_hand_built_journal_s_seat_view_is_its_checkpoints() {
     let dir = tempfile::tempdir().unwrap();
-    let committed = committed().into_iter();
-    let committed = committed.map(|(name, events)| (name.clone(), chained(&name, events)));
     let path = dir.path().join("committed.db");
-    let committed = read(&path, &planted(&path, committed.collect()));
+    let committed = read(&path, &committed_at(&path));
     let expected = Read {
         compared: 72,
         ..Read::default()

@@ -31,6 +31,7 @@ use serde_json::{json, Value};
 
 use crate::fleet::PageRefused;
 use crate::local_transcript::{self, Discovery};
+use crate::run_pages;
 use limits::{Deadline, Exceeded, Limits, Slots, Unread};
 
 const PAGE: &str = include_str!("ui.html");
@@ -179,12 +180,11 @@ pub fn handle(db: &Path, path: &str) -> Response {
         return runs(db, &store, query.strip_prefix('?'));
     }
     if let Some(run_id) = path.strip_prefix("/api/view/") {
-        let events = match opened(&store, run_id) {
-            Ok(events) => events,
+        let read = run_pages::viewed(&store, run_id, run_pages::Shows::Everything);
+        let view = match read.map_err(RouteRefusal::of) {
+            Ok(read) => read.view.with_scopes(),
             Err(refusal) => return refusal.response(run_id),
         };
-        let state = fold(&events).ok();
-        let view = brokkr_view::run_view(&events, state.as_ref()).with_scopes();
         return ok(
             "application/json",
             serde_json::to_string(&view).expect("the run view serializes"),
@@ -326,6 +326,15 @@ enum RouteRefusal {
 }
 
 impl RouteRefusal {
+    /// The store's refusal of a run a route reads: missing when the
+    /// journal holds no such run.
+    fn of(error: StoreError) -> Self {
+        match error {
+            StoreError::RunNotFound(_) => RouteRefusal::Missing,
+            refused => RouteRefusal::Unopened(refused),
+        }
+    }
+
     /// The response a route gives, naming `missing` when nothing is there.
     fn response(self, missing: &str) -> Response {
         match self {
@@ -339,10 +348,7 @@ impl RouteRefusal {
 /// Run `run_id`'s events, its chain read whole and verified: missing when
 /// the journal holds no such run, and the store's refusal otherwise.
 fn opened(store: &Store, run_id: &str) -> Result<Vec<EventEnvelope>, RouteRefusal> {
-    store.load(run_id).map_err(|error| match error {
-        StoreError::RunNotFound(_) => RouteRefusal::Missing,
-        refused => RouteRefusal::Unopened(refused),
-    })
+    store.load(run_id).map_err(RouteRefusal::of)
 }
 
 /// The participant a `<run>/<key>` route names, the three participant

@@ -21,6 +21,7 @@ mod measure;
 mod stretched;
 
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, PoisonError};
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_store::test_support::trail_plan;
@@ -69,6 +70,19 @@ fn journal(dir: &Path, name: &str, events: usize, run: &[EventEnvelope]) -> Path
     db
 }
 
+/// The grown run, chained, and two journals under `dir` holding it beside
+/// the generated runs, one of 10,000 events and one of 1,000,000.
+fn grown_journals(dir: &Path) -> (Vec<EventEnvelope>, [PathBuf; 2]) {
+    let run = grown::chained(grown::journal());
+    let small = journal(dir, "small.db", 10_000, &run);
+    let large = journal(dir, "large.db", 1_000_000, &run);
+    (run, [small, large])
+}
+
+/// dhat allows one profiler per process, so this binary's measurements
+/// are made one at a time.
+static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
 /// What the first screen cost, from its read-only open to its composed
 /// view: Brokkr's peak heap under dhat, and SQLite's high-water above
 /// where it stood before the open.
@@ -76,6 +90,20 @@ fn journal(dir: &Path, name: &str, events: usize, run: &[EventEnvelope]) -> Path
 struct Screen {
     brokkr: u64,
     sqlite: u64,
+}
+
+/// The bytes of `run`'s envelopes that `keep` keeps, as JSON text.
+fn envelope_bytes(run: &[EventEnvelope], keep: impl Fn(&EventEnvelope) -> bool) -> u64 {
+    let kept = run.iter().filter(|event| keep(event));
+    kept.map(|event| serde_json::to_string(event).unwrap().len() as u64)
+        .sum()
+}
+
+/// The bytes of `run`'s control envelopes, every one but a checkpoint.
+fn control_bytes(run: &[EventEnvelope]) -> u64 {
+    envelope_bytes(run, |event| {
+        event.event_type != EventType::EffectCheckpointed
+    })
 }
 
 /// What a first screen shows: its event count, how many journal rows it
@@ -131,10 +159,9 @@ fn measured(db: &Path, shows: Shown) -> Screen {
 /// gated.
 #[test]
 fn the_run_view_s_first_screen_holds_its_control_events_and_a_page() {
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
     let dir = tempfile::tempdir().unwrap();
-    let run = grown::chained(grown::journal());
-    let small_db = journal(dir.path(), "small.db", 10_000, &run);
-    let large_db = journal(dir.path(), "large.db", 1_000_000, &run);
+    let (run, [small_db, large_db]) = grown_journals(dir.path());
     let parks = [Stretch::Unstretched, Stretch::Plain, Stretch::Escaped].map(|stretch| {
         let parked = parked_run(stretch);
         let name = format!("parked-{stretch:?}.db");
@@ -147,12 +174,7 @@ fn the_run_view_s_first_screen_holds_its_control_events_and_a_page() {
     let (small, large) = (measured(&small_db, grown), measured(&large_db, grown));
     let [parked, plain, escaped] = parks.map(|(db, shown)| measured(&db, shown));
     eprintln!("small: {small:?}; large: {large:?}; parked: {parked:?}; plain: {plain:?}; escaped: {escaped:?}");
-    let bytes = |event: &&EventEnvelope| serde_json::to_string(event).unwrap().len() as u64;
-    let run_bytes: u64 = run.iter().map(|event| bytes(&event)).sum();
-    let control = run
-        .iter()
-        .filter(|event| event.event_type != EventType::EffectCheckpointed);
-    let control_bytes: u64 = control.map(|event| bytes(&event)).sum();
+    let (run_bytes, control_bytes) = (envelope_bytes(&run, |_| true), control_bytes(&run));
     eprintln!("the run's envelopes: {run_bytes} bytes, its control envelopes {control_bytes}");
     // The records scripts/measure-budgets.sh reads, each a budget.
     println!("heap\trun-view\t{}", small.brokkr.max(large.brokkr));
@@ -238,3 +260,115 @@ fn the_run_view_s_first_screen_holds_its_control_events_and_a_page() {
 /// the trail's envelopes parse from the text SQLite holds, so the parser's
 /// scratch copy is gone before the fold's and the view's are made.
 const HELD: u64 = 3;
+
+/// What `brokkr watch --once` paints of the grown run in the journal at
+/// `db`, with `whole` what `inspect --json` prints of it, each read as the
+/// readout reads it (decision 0089 slice 3).
+fn readout(db: &Path, whole: bool) -> String {
+    brokkr_cli::run_readout_for_budget(db, grown::RUN, whole).unwrap()
+}
+
+/// What `inspect --json` printed of the grown run in the journal at `db`
+/// before the pages: the run loaded, folded and viewed whole.
+fn read_whole(db: &Path) -> String {
+    let events = Store::open_read_only(db).unwrap().load(grown::RUN).unwrap();
+    let state = brokkr_core::fold::fold(&events).unwrap();
+    let view = brokkr_view::run_view(&events, Some(&state)).with_scopes();
+    serde_json::to_string_pretty(&view).unwrap()
+}
+
+/// The grown run with every checkpoint among its first 50 events, the
+/// first journal page, a mebibyte of plain text: what a frame that read
+/// that page would hold at once.
+fn first_page_stretched() -> Vec<EventEnvelope> {
+    let mut events = grown::journal();
+    for event in events.iter_mut().take(50) {
+        if event.event_type == EventType::EffectCheckpointed {
+            let one = vec![event.clone()];
+            *event = stretched::run_stretched(one, 1, "stretch", Stretch::Plain).remove(0);
+        }
+    }
+    grown::chained(events)
+}
+
+/// What `db`'s terminal frame cost, from its read-only open to its painted
+/// text, holding that it paints `shown`.
+fn framed(db: &Path, shown: &str) -> Screen {
+    let (base, _) = sqlite_memory(true);
+    let mut painted = None;
+    let brokkr = peak_of(|| painted = Some(readout(db, false)));
+    let (_, high) = sqlite_memory(false);
+    assert_eq!(painted.as_deref(), Some(shown), "the frame of {db:?}");
+    Screen {
+        brokkr,
+        sqlite: u64::try_from(high - base).unwrap(),
+    }
+}
+
+/// Ruling 9 on the run view, for the terminal frame `inspect`, `seats` and
+/// `watch` paint (decision 0089 slice 3): from its read-only open to its
+/// painted text, the run opened and one read's trail composed, Brokkr's
+/// peak is the same to the byte in a journal of 10,000 events and one of
+/// 1,000,000 and within its budget, itself within ruling 9's 256 KiB and
+/// the run's control envelopes; SQLite's within the fleet's cap; the two
+/// frames are one. With every checkpoint of the run's first journal page
+/// a mebibyte, the frame is the same and its peak within the budget and
+/// the one checkpoint the opening verifies at a time: the frame reads no
+/// journal page. The frame's wall time is reported against ruling 9's
+/// 50 ms, and the whole read `inspect --json` makes, the events its
+/// opening kept composed once, beside it and today's read of the run
+/// whole, whose bytes it prints; none is gated.
+#[test]
+fn the_run_s_terminal_frame_holds_its_trail_and_no_checkpoint() {
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
+    let dir = tempfile::tempdir().unwrap();
+    let (run, [small_db, large_db]) = grown_journals(dir.path());
+    // Painted once unmeasured, so what a process allocates once and keeps
+    // is allocated before any frame is measured.
+    let shown = readout(&small_db, false);
+    let (small, large) = (framed(&small_db, &shown), framed(&large_db, &shown));
+    let wide = first_page_stretched();
+    let wide_db = journal(dir.path(), "first-page-stretched.db", 10_000, &wide);
+    let paged = framed(&wide_db, &shown);
+    eprintln!("the frame: small {small:?}; large {large:?}; its first page stretched {paged:?}");
+    println!("heap\trun-frame\t{}", small.brokkr.max(large.brokkr));
+    let frame = median_micros(|| assert_eq!(readout(&small_db, false), shown));
+    println!("wall\trun-frame\t{frame}");
+    assert_eq!(readout(&small_db, true), read_whole(&small_db));
+    let whole = median_micros(|| drop(readout(&small_db, true)));
+    let today = median_micros(|| drop(read_whole(&small_db)));
+    eprintln!("the whole read, its opening kept, median of 11: {whole} us; read whole, as before the pages: {today} us");
+    assert_eq!(
+        large.brokkr, small.brokkr,
+        "1,000,000 events against 10,000"
+    );
+    let (brokkr, sqlite) = (
+        budgets::budget_named("run-frame"),
+        budgets::budget_named("run-view-sqlite"),
+    );
+    let control = control_bytes(&run);
+    assert!(
+        brokkr <= 256 * 1024 + control,
+        "the budget {brokkr} is past ruling 9's 256 KiB and the {control} bytes of the run's control envelopes"
+    );
+    for (name, frame) in [("10,000", small), ("1,000,000", large)] {
+        assert!(
+            frame.brokkr <= brokkr,
+            "{name}: {} bytes; the budget is {brokkr}",
+            frame.brokkr
+        );
+        assert!(
+            frame.sqlite <= sqlite,
+            "{name}: SQLite's {} bytes; the budget is {sqlite}",
+            frame.sqlite
+        );
+    }
+    let first = wide[..50].iter();
+    let checkpoints = first.filter(|event| event.event_type == EventType::EffectCheckpointed);
+    assert!(
+        paged.brokkr <= brokkr + STRETCH as u64,
+        "{} bytes with {} checkpoints of a mebibyte among the first 50 events, past the budget {brokkr} and the one checkpoint the opening verifies at a time: the frame holds a journal page it does not paint",
+        paged.brokkr,
+        checkpoints.count()
+    );
+}

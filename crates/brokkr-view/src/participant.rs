@@ -37,6 +37,16 @@ pub(crate) fn visits(events: &[EventEnvelope]) -> Vec<Option<u64>> {
     out
 }
 
+/// A participant's key: its effect's id, and `:` and its member's name
+/// where it is a member's. The one home of the form, which a checkpoint
+/// is keyed to its participant by where the run is composed whole.
+pub(crate) fn key_of(effect_id: &str, member: Option<&str>) -> String {
+    match member {
+        Some(member) => format!("{effect_id}:{member}"),
+        None => effect_id.to_string(),
+    }
+}
+
 impl Participant {
     /// The legacy-synthesis rule this participant's provenance admits:
     /// only Claude, LaneTally and an inline seat with no provenance may
