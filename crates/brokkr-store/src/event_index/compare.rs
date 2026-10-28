@@ -8,7 +8,7 @@ use brokkr_core::event_index::Indexed;
 use brokkr_core::summary::{Bounded, Park, NAME_BYTES};
 use rusqlite::types::{Value, ValueRef};
 
-use super::IndexFault;
+use super::{IndexFault, PARK_COLUMNS};
 use crate::StoreError;
 
 /// The columns `event` projects to after its key, by name: the event's
@@ -103,13 +103,10 @@ pub(super) fn first_parted_at(
     }
 }
 
-/// The dated columns a park's row keeps, which a stale stamp leaves for
-/// the refold.
+/// The dated columns a park's row keeps, [`PARK_COLUMNS`], which a stale
+/// stamp leaves for the refold.
 fn dated(column: &str) -> bool {
-    matches!(
-        column,
-        "phase" | "at_ms" | "answered_ms" | "ended_ms" | "span_class" | "facts_seq"
-    )
+    PARK_COLUMNS.contains(&column)
 }
 
 /// Where `row` parts from the row expected at `key`, each the next of

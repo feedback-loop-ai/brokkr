@@ -363,6 +363,39 @@ fn an_unwritten_park_is_refolded_at_the_next_open() {
     assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
 }
 
+/// Two runs whose park facts nothing wrote are both refolded at the next
+/// writable open: the parks' backfill walks past the run it has just
+/// written to the next one, and ends when no run is left.
+#[test]
+fn two_unwritten_park_runs_are_both_refolded_at_the_next_open() {
+    let (_dir, mut store) = store();
+    let mut held = Vec::new();
+    for run_id in ["a", "b"] {
+        opened(
+            &mut store,
+            run_id,
+            "implement",
+            &[(EventType::RunParked, json!({"reason": "waiting"}))],
+        );
+        held.push((run_id, kept(&store, run_id, 3)));
+    }
+    store
+        .conn
+        .execute(
+            "UPDATE event_index SET facts_seq = NULL WHERE type = 'run/parked'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(store.park_after(None).unwrap().as_deref(), Some("a"));
+    lags(&mut store, &["a", "b"]);
+    let store = refolded(store);
+    assert_eq!(store.park_after(None).unwrap(), None);
+    for (run_id, row) in held {
+        assert_eq!(kept(&store, run_id, 3), row, "run {run_id}");
+    }
+    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+}
+
 /// A `run/parked` whose stamp does not parse opens no park, so its row
 /// keeps no dated facts; the writer still records it processed at the
 /// head, so the parks' backfill does not read and refold the run at every

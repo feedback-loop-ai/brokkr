@@ -474,7 +474,8 @@ pub(crate) fn first_unindexed(
             )
         }),
         &mut stale,
-    )?;
+    );
+    let parted = parted?;
     Ok(match parted {
         Some((seq, fault)) => IndexReading::Parted(seq, fault),
         None if stale => IndexReading::Behind,
@@ -512,7 +513,7 @@ pub(crate) fn write_parks(tx: &Connection, account: &Account) -> Result<(), Stor
         let phase = park
             .and_then(|park| park.phase.as_deref())
             .map(|phase| Bounded::within(phase, NAME_BYTES).cut);
-        statement.execute(params![
+        let written = statement.execute(params![
             account.run_id(),
             *seq as i64,
             phase,
@@ -521,7 +522,8 @@ pub(crate) fn write_parks(tx: &Connection, account: &Account) -> Result<(), Stor
             park.and_then(|park| park.ended),
             park.map(|park| i64::from(park.span_class())),
             head,
-        ])?;
+        ]);
+        written?;
     }
     Ok(())
 }
