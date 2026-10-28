@@ -671,10 +671,12 @@ fn a_launch_fails_closed_when_the_measured_activation_warning_arrives() {
 }
 
 /// A native writing seat in a linked worktree is a runner seat, never a
-/// hands seat: its one overlay is the transcript row alone, exactly as
-/// main wrote it, on both the shipped and the stream-json launch (#896
-/// round 3). A stand-in bwrap whose one probe succeeds keeps the test off
-/// this box's unusable bubblewrap branch.
+/// hands seat: its one overlay carries the transcript row followed by the
+/// scoped runner's staged row, exactly as main wrote it, on both the
+/// shipped and the stream-json launch (#896 round 4). Hands stay selected
+/// only by [`Selection::Hands`], so neither the composition probe nor the
+/// startup gate runs for it. A stand-in bwrap whose one probe succeeds
+/// keeps the test off this box's unusable bubblewrap branch.
 #[cfg(target_os = "linux")]
 #[test]
 fn a_linked_worktree_runner_is_not_a_hands_launch() {
@@ -697,19 +699,33 @@ fn a_linked_worktree_runner_is_not_a_hands_launch() {
     let dsh = dsh_version_shim(dir.path(), "dsh", "0.1.5-rc.1");
     let dsh = dsh.to_str().unwrap();
     let assert_runner = |launch: super::super::DshLaunch, stream: bool| {
-        assert!(
-            launch.staged.is_some(),
-            "the linked worktree stages a scoped runner"
-        );
+        let (row, _, store) = launch
+            .staged
+            .as_ref()
+            .expect("the linked worktree stages a scoped runner");
         assert_eq!(
             launch.mode, None,
             "a runner's overlay row is not a hands selection"
         );
         assert_eq!(launch.stream_json, stream);
+        let mut expected = super::super::dsh_transcript_row(&launch.root).unwrap();
+        expected.push_str(row);
+        let overlay = std::fs::read_to_string(launch.overlay.path()).unwrap();
         assert_eq!(
-            std::fs::read_to_string(launch.overlay.path()).unwrap(),
-            super::super::dsh_transcript_row(&launch.root).unwrap()
+            overlay, expected,
+            "the runner overlay is main's: the transcript row then the scoped-runner row"
         );
+        assert!(
+            row.contains("runnerCommand:"),
+            "the staged row names the runner command: {row}"
+        );
+        for binding in [store.store_path(), store.trusted_path()] {
+            let binding = binding.to_str().unwrap();
+            assert!(
+                overlay.contains(binding),
+                "the overlay binds the private store path {binding}: {overlay}"
+            );
+        }
     };
     let cold = super::super::dsh_launch_with(
         dsh,

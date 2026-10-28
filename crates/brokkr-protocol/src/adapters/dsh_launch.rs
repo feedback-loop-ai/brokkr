@@ -129,7 +129,7 @@ fn probe_command(
     launch: &DshLaunch,
     workdir: &str,
     bindings: &[secret::BoundSecret],
-) -> Result<std::process::Command, String> {
+) -> Result<std::process::Command, HarnessCommandRefusal> {
     let mut command = launch.command.clone();
     command.push("--dump-config".to_string());
     harness_command(&command, workdir, &dsh_child_env(launch), bindings)
@@ -176,5 +176,30 @@ mod tests {
         .err()
         .expect("the unreadable composed tree refuses");
         assert_eq!(problem, dsh_hands::Composition::Unreadable.to_string());
+    }
+
+    /// The one harness spawn builder's refusals are typed, carry the
+    /// injector's own error, and print exactly the words both existing text
+    /// boundaries printed before (#896 round 4; decision 0071 ruling 8).
+    #[test]
+    fn harness_command_refusals_are_typed_and_keep_their_words() {
+        let empty = harness_command(&[], "", &[], &[]).unwrap_err();
+        match &empty {
+            HarnessCommandRefusal::Empty => {}
+            HarnessCommandRefusal::Secret(_) => panic!("no argv is the empty refusal"),
+        }
+        assert_eq!(empty.to_string(), "empty command");
+
+        let store = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(store.path(), b"TOKEN=abcd\xff\n").unwrap();
+        let invalid = secret::resolve_bindings(store.path(), &["TOKEN".into()]).unwrap();
+        let refused = harness_command(&["true".into()], "", &[], &invalid).unwrap_err();
+        match &refused {
+            HarnessCommandRefusal::Empty => panic!("a present argv is not the empty refusal"),
+            HarnessCommandRefusal::Secret(secret::BindError::NotUtf8(name)) => {
+                assert_eq!(name, "TOKEN")
+            }
+        }
+        assert_eq!(refused.to_string(), "secret 'TOKEN' is not valid UTF-8");
     }
 }

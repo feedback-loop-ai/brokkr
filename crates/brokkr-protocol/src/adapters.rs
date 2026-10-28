@@ -717,28 +717,46 @@ fn drain_stderr(child: &mut std::process::Child) -> std::thread::JoinHandle<Vec<
     })
 }
 
+/// Why the one harness spawn builder could not build a command: an argv
+/// with no program, or the secret injector's own refusal, carried rather
+/// than stringified (#896 round 4; decision 0071 ruling 8).
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub(super) enum HarnessCommandRefusal {
+    #[error("empty command")]
+    Empty,
+    #[error(transparent)]
+    Secret(#[from] secret::BindError),
+}
+
+/// The composition probe's `Result<Invocation, String>` and every harness
+/// spawn's existing text boundary print this typed refusal in one place,
+/// so neither helper carries text of its own.
+impl From<HarnessCommandRefusal> for String {
+    fn from(refusal: HarnessCommandRefusal) -> Self {
+        refusal.to_string()
+    }
+}
+
 /// The one builder every harness spawn and the dsh composition probe
 /// share (#896 round 3): argv, working directory and extra environment,
-/// then the one secret injector, its typed refusal mapped to text once,
-/// and last the removals of the attempt it serves (U7d; MB4). A spawn
-/// adds its stdio and spawns; the probe adds `--dump-config` to the argv
-/// and reads the output, so probe and session cannot disagree about the
-/// effective environment.
+/// then the one secret injector, its typed refusal carried, and last the
+/// removals of the attempt it serves (U7d; MB4). A spawn adds its stdio
+/// and spawns; the probe adds `--dump-config` to the argv and reads the
+/// output, so probe and session cannot disagree about the effective
+/// environment.
 pub(super) fn harness_command(
     command: &[String],
     workdir: &str,
     env: &[(&str, &str)],
     bindings: &[secret::BoundSecret],
-) -> Result<Command, String> {
-    let (program, args) = command
-        .split_first()
-        .ok_or_else(|| "empty command".to_string())?;
+) -> Result<Command, HarnessCommandRefusal> {
+    let (program, args) = command.split_first().ok_or(HarnessCommandRefusal::Empty)?;
     let mut builder = Command::new(program);
     builder
         .args(args)
         .current_dir(if workdir.is_empty() { "." } else { workdir })
         .envs(env.iter().copied());
-    secret::bind_environment(&mut builder, bindings).map_err(|error| error.to_string())?;
+    secret::bind_environment(&mut builder, bindings)?;
     mcp::unbind(&mut builder);
     Ok(builder)
 }

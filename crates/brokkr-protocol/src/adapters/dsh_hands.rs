@@ -175,11 +175,14 @@ pub(super) enum Selection {
 }
 
 impl Selection {
-    /// The rows the seat's one overlay carries, `None` for a runner seat.
+    /// The rows the seat's one overlay carries: the hands rows for a hands
+    /// seat, the scoped runner's staged row for a runner seat, and `None`
+    /// only for a runner seat whose git metadata already sits inside the
+    /// workspace, exactly as main wrote it (#896 round 4).
     pub(super) fn rows(&self) -> Option<&str> {
         match self {
             Selection::Hands { rows, .. } => Some(rows),
-            Selection::Runner(_) => None,
+            Selection::Runner(staged) => staged.as_ref().map(|staged| staged.0.as_str()),
         }
     }
 
