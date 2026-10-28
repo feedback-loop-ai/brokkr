@@ -1014,8 +1014,15 @@ window.__ModuleLoader__.load({
     /** One run, as the D board lays it out: the graph across the width, why it waits beside the reader, every seat beneath. */
     function Run({ hearth, row, run, see, picked, pick }) {
       const [word, tone] = STANDING[row.verdict.standing]
-      const view = run?.realm === hearth.realm && run?.run_id === row.run_id ? run.view : null
+      const current = run?.realm === hearth.realm && run?.run_id === row.run_id ? run : null
+      const view = current?.view ?? null
       const label = labelsOf(hearth.runs).get(row.run_id)
+      if (view === null && current?.refused !== undefined) {
+        return h('main', { className: 'bk-main' },
+          h('h1', { className: 'bk-title' }, label),
+          h('div', { className: 'bk-error' }, current.refused),
+          h('div', { className: 'bk-note' }, `Read it outside the console: brokkr inspect --run ${row.run_id}`))
+      }
       if (view === null) return h('main', { className: 'bk-main' }, h('h1', { className: 'bk-title' }, label), h('div', { className: 'bk-note' }, 'Reading the run…'))
       const focus = focusOf(view, picked)
       const why = h(WhyItWaits, { view, row, pick })
@@ -1036,6 +1043,7 @@ window.__ModuleLoader__.load({
       const hearth = state.fleet.hearths.find((each) => each.realm === realm)
       if (hearth === undefined) return h('main', { className: 'bk-main' }, h('div', { className: 'bk-note' }, `Brokkr no longer lists ${realm}.`))
       const row = hearth.runs.find((each) => each.run_id === runId) ?? null
+      const unlisted = row === null && state.run?.realm === realm && state.run?.run_id === runId && state.run.listed === false
       const runView = row !== null && state.run?.realm === hearth.realm && state.run?.run_id === row.run_id ? state.run.view : null
       const needs = hearth.runs.filter(needsYou).length
       const label = row === null ? null : labelsOf(hearth.runs).get(row.run_id)
@@ -1058,7 +1066,9 @@ window.__ModuleLoader__.load({
           h('span', { style: { fontSize: 17, fontWeight: 600 } }, row === null ? hearth.realm : label),
           h('span', { className: 'bk-note' }, `${runningIn(hearth.runs)} running${row === null ? '' : ` in ${hearth.realm}`}`), needs > 0 ? chip(`${needs} need${needs === 1 ? 's' : ''} you`, 'bk-park') : null),
         row === null
-          ? h('main', { className: 'bk-main' }, h(RunList, { hearth, selected: runId, select }))
+          ? h('main', { className: 'bk-main' }, unlisted
+              ? h('div', { className: 'bk-note' }, 'Brokkr no longer lists this run.')
+              : h(RunList, { hearth, selected: runId, select }))
           : h(Run, { hearth, row, run: state.run, see, picked, pick }),
         state.ask ? h(AskBar, { context, about, dir: row === null ? (folder ?? state.workspace) : (runView?.worktree ?? folder ?? state.workspace), sessionId }) : null)
     }
