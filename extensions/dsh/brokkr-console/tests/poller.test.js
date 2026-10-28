@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import { brokkrOf } from '../lib/host/brokkr.js'
 import { configFrom } from '../lib/host/config.js'
 import { pollerOf } from '../lib/host/poller.js'
-import { fleetOf } from '../lib/host/readouts.js'
+import { fleetOf, ONE_HEARTH } from '../lib/host/readouts.js'
 import { buttons, findAll, mountClient, textOf } from './support/client.js'
 import { analyticsDoc, fleetDoc, json, row, runViewDoc, stubBrokkr } from './support/world.js'
 
@@ -114,25 +114,27 @@ async function attached(poller, watch) {
 }
 
 /** The browser half opened on the parked run, painting the host's `run` message. */
-function openedPage(fleetView, run) {
+function openedPage(fleetView, run, realm = 'brokkr') {
   const page = mountClient('main')
   page.push({ type: 'snapshot', fleet: fleetView, overview: null, run: null })
-  buttons(page.tree()).find((button) => textOf(button).startsWith('brokkr')).props.onClick()
+  buttons(page.tree()).find((button) => textOf(button).startsWith(realm)).props.onClick()
   buttons(page.tree()).find((button) => textOf(button).startsWith('Encrypt the token store')).props.onClick()
   page.push({ type: 'run', run })
   return page
 }
 
-test('a refused read reaches the open client as Brokkr’s words, in the snapshot and after the head moves', async () => {
+test('a refused read reaches the open client as Brokkr’s words and the command the console ran, in the snapshot and after the head moves', async () => {
   const words = 'brokkr inspect was refused: the journal moved beneath the read'
+  const hint = `brokkr inspect --run=${RUN} --db=/hearths/brokkr/forge.db`
   const brokkr = stubBrokkr([
     { match: ['runs'], responses: [fleetAt(12), fleetAt(13)] },
     { match: ['inspect'], responses: [{ stderr: words, code: 1 }] },
   ])
   const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
   const client = await attached(poller, { view: 'realm', run: { realm: 'brokkr', run_id: RUN } })
-  const refused = { realm: 'brokkr', run_id: RUN, view: null, refused: words }
+  const refused = { realm: 'brokkr', run_id: RUN, view: null, refused: words, hint }
   assert.deepEqual(client.sent[0].run, refused)
+  assert.deepEqual(brokkr.calls().find((argv) => argv[0] === 'inspect'), ['inspect', `--run=${RUN}`, '--db=/hearths/brokkr/forge.db', '--json'])
 
   client.sent.length = 0
   await poller.tick()
@@ -160,8 +162,9 @@ test('a run absent from the fleet reaches the open client as not listed, in the 
   assert.deepEqual(again.sent[0].run, { realm: 'brokkr', run_id: RUN, view: null, listed: false })
 })
 
-test('the runner’s own output bound reaches the run page as Brokkr’s refusal, not a hand-made error', async () => {
+test('the runner’s own output bound reaches the run page as Brokkr’s refusal and the command that reads that journal', async () => {
   const words = 'brokkr inspect printed more than the console reads'
+  const hint = `brokkr inspect --run=${RUN} --db=/hearths/brokkr/forge.db`
   const brokkr = stubBrokkr([
     { match: ['runs'], responses: [fleetAt(12)] },
     { match: ['inspect'], responses: [{ bytes: 8193 }] },
@@ -169,9 +172,27 @@ test('the runner’s own output bound reaches the run page as Brokkr’s refusal
   const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
   const client = await attached(poller, { view: 'realm', run: { realm: 'brokkr', run_id: RUN } })
   const run = client.sent[0].run
-  assert.deepEqual([run.view, run.refused], [null, words])
+  assert.deepEqual([run.view, run.refused, run.hint], [null, words, hint])
 
   const page = openedPage(fleetOf(fleetDoc([['brokkr', [row({ seq: 12 })]]])), run)
   assert.deepEqual(findAll(page.tree(), (node) => node.props.className === 'bk-error').map(textOf), [words])
-  assert.ok(textOf(page.tree()).includes(`brokkr inspect --run ${RUN}`))
+  assert.deepEqual(findAll(page.tree(), (node) => node.props.className === 'bk-note' && textOf(node) === hint).map(textOf), [hint])
+})
+
+test('a one-hearth world’s refusal paints the command without a journal the console did not read', async () => {
+  const words = 'brokkr inspect was refused: the journal could not be read'
+  const hint = `brokkr inspect --run=${RUN}`
+  const oneHearth = { view_version: 27, runs: [row({ seq: 12 })], count: 1 }
+  const brokkr = stubBrokkr([
+    { match: ['runs'], responses: [json(oneHearth)] },
+    { match: ['inspect'], responses: [{ stderr: words, code: 1 }] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const client = await attached(poller, { view: 'realm', run: { realm: ONE_HEARTH, run_id: RUN } })
+  const run = client.sent[0].run
+  assert.deepEqual(run, { realm: ONE_HEARTH, run_id: RUN, view: null, refused: words, hint })
+  assert.deepEqual(brokkr.calls().find((argv) => argv[0] === 'inspect'), ['inspect', `--run=${RUN}`, '--json'])
+
+  const page = openedPage(fleetOf(oneHearth), run, ONE_HEARTH)
+  assert.deepEqual(findAll(page.tree(), (node) => node.props.className === 'bk-note' && textOf(node) === hint).map(textOf), [hint])
 })

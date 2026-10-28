@@ -316,21 +316,23 @@ test('the run header paints the entry sentence and an unreadable entry as text',
   }
 })
 
-test('a refused read paints the run’s title and Brokkr’s words, never reading forever, and a later read paints the run', () => {
+test('a refused read paints the run’s title, Brokkr’s words and the host’s hint, never reading forever, and a later read paints the run', () => {
   const words = 'brokkr inspect printed more than the console reads'
+  const hint = `brokkr inspect --run=${RUN} --db=/hearths/brokkr/forge.db`
   const client = openedRun()
   assert.equal(findAll(client.tree(), (node) => textOf(node) === 'Reading the run…').length, 1)
 
-  client.push({ type: 'run', run: { realm: 'brokkr', run_id: RUN, view: null, refused: words } })
+  client.push({ type: 'run', run: { realm: 'brokkr', run_id: RUN, view: null, refused: words, hint } })
   assert.deepEqual(findAll(client.tree(), (node) => node.type === 'h1').map(textOf), ['Encrypt the token store'])
   assert.deepEqual(findAll(client.tree(), (node) => node.props.className === 'bk-error').map(textOf), [words])
-  assert.ok(textOf(client.tree()).includes(`brokkr inspect --run ${RUN}`))
+  assert.deepEqual(findAll(client.tree(), (node) => node.props.className === 'bk-note' && textOf(node) === hint).map(textOf), [hint])
   assert.equal(textOf(client.tree()).includes('Reading the run…'), false)
 
   client.push({ type: 'run', run: { realm: 'brokkr', run_id: RUN, view: runViewOf(runViewDoc()) } })
   assert.equal(findAll(client.tree(), (node) => node.props['aria-label'] === 'Graph').length, 1)
   assert.equal(findAll(client.tree(), (node) => node.props.className === 'bk-error').length, 0)
   assert.equal(textOf(client.tree()).includes(words), false)
+  assert.equal(textOf(client.tree()).includes(hint), false)
 })
 
 test('a run the fleet no longer lists says so, not that it is being read', () => {
