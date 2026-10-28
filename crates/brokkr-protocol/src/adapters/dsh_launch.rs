@@ -18,12 +18,7 @@ pub(super) fn invoke_dsh_launch_observed(
     wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
     observer: &mut impl FnMut(&DshObservation),
 ) -> Result<Invocation, String> {
-    // Before any row names the home, a binding over its fixed env refuses.
-    let declared = bindings.iter().map(secret::BoundSecret::name);
-    launch.home.serve(&dsh_child_env(&launch), declared)?;
-    if launch.mode.is_some() {
-        dsh_hands::composition_gate(probe_command(&launch, workdir, bindings)?)?;
-    }
+    refused_before_spawn(&launch, workdir, bindings)?;
     let transcript = Transcript::dsh(&launch.home);
     let staged = launch.staged.take();
     let mut session_meta = Map::new();
@@ -118,6 +113,22 @@ pub(super) fn invoke_dsh_launch_observed(
     }
     invocation.launch = hold.terminal();
     Ok(invocation)
+}
+
+/// The refusals a launch meets before any row names its home or any child
+/// spawns: a binding over the home's fixed env, then, for a hands seat, a
+/// composed tree that does not hold (#896).
+fn refused_before_spawn(
+    launch: &DshLaunch,
+    workdir: &str,
+    bindings: &[secret::BoundSecret],
+) -> Result<(), String> {
+    let declared = bindings.iter().map(secret::BoundSecret::name);
+    launch.home.serve(&dsh_child_env(launch), declared)?;
+    if launch.mode.is_some() {
+        dsh_hands::composition_gate(probe_command(launch, workdir, bindings)?)?;
+    }
+    Ok(())
 }
 
 /// The composition probe's argv: the session's own argv prefix with
