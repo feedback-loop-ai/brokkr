@@ -50,44 +50,17 @@ impl Workspace<'_> {
         let Workspace {
             spec,
             sealed,
-            scratch,
             bundle_root,
             ..
         } = *self;
-        // The workdir is bound at its own path, and that path must be
-        // absolute: `--repo .` is the common spelling, and a relative
-        // destination is resolved by bwrap against the box's root, so the
-        // worktree lands over `/` and shadows `/runtime` before the bundle
-        // mounts there — the first weekly research sweep parked on exactly
-        // that, "Can't mkdir parents for /runtime/bundle". Symlinks stay as
-        // the host spells them; only the relative prefix is resolved.
-        let workdir = &std::path::absolute(self.workdir)?;
-        let private_home = scratch.join("home");
-        let private_tmp = scratch.join("tmp");
-        let mut namespace = Namespace::open(Profile::Workspace, spec.network);
-        namespace.identity(&scratch.join("etc"))?;
-        session::private_dir(&private_home)?;
-        session::private_dir(&private_tmp)?;
-        // U8a: the engine's own facts of the evidence, observed before any
-        // mount and never authored; no writable mount may alias it.
-        let mut protected = evidence::Protected::observe(self.artifacts, workdir)?;
-        // U8a2c: the reach sealed for the box, observed again before any mount.
-        sealed.confirm(spec, workdir)?;
-        for private in [&private_home, &private_tmp] {
-            protected.exclude(private)?;
-        }
-        // The private home and tmp go in BEFORE the worktree, so a worktree
-        // that itself lives under /tmp is mounted on top of the private /tmp
-        // rather than hidden beneath it.
-        namespace.mount(Mount::Bind, &private_home, SANDBOX_HOME);
-        namespace.mount(Mount::Bind, &private_tmp, "/tmp");
+        let (workdir, mut namespace, mut protected) = self.opened()?;
         let worktree = sealed.worktree();
-        namespace.mount(Mount::Bind, worktree, &namespace_path(workdir));
+        namespace.mount(Mount::Bind, worktree, &namespace_path(&workdir));
         if let Some(bundle_root) = bundle_root {
             let target = namespace_path(Path::new(SANDBOX_BUNDLE));
             namespace.mount(Mount::RoBind, bundle_root, &target);
         }
-        git(&mut namespace, &mut protected, sealed, workdir)?;
+        git(&mut namespace, &mut protected, sealed, &workdir)?;
         // U8a, U8h: each directory between the worktree and an artifact root
         // or a secrets store it holds is a mount of its own, so no write in the
         // box renames it, both chains pinned together, outermost first; the
@@ -107,14 +80,67 @@ impl Workspace<'_> {
         for (key, value) in self.identity {
             namespace.setenv(key, value);
         }
-        // U8a (L1), U8a2c: what was observed is observed again as the argv is
-        // final, the evidence, the sealed reach and its hidden store alike (U8h).
+        self.finished(namespace, &protected, &store, &workdir, command)
+    }
+
+    /// The box as it opens: its workdir as an absolute path, its namespace
+    /// with the identity and the private home and tmp mounted first, and the
+    /// evidence it protects observed before any other mount (U8a, U8a2c).
+    fn opened(&self) -> std::io::Result<(PathBuf, Namespace, evidence::Protected)> {
+        let Workspace {
+            spec,
+            sealed,
+            scratch,
+            ..
+        } = *self;
+        // The workdir is bound at its own path, and that path must be
+        // absolute: `--repo .` is the common spelling, and a relative
+        // destination is resolved by bwrap against the box's root, so the
+        // worktree lands over `/` and shadows `/runtime` before the bundle
+        // mounts there — the first weekly research sweep parked on exactly
+        // that, "Can't mkdir parents for /runtime/bundle". Symlinks stay as
+        // the host spells them; only the relative prefix is resolved.
+        let workdir = std::path::absolute(self.workdir)?;
+        let private_home = scratch.join("home");
+        let private_tmp = scratch.join("tmp");
+        let mut namespace = Namespace::open(Profile::Workspace, spec.network);
+        namespace.identity(&scratch.join("etc"))?;
+        session::private_dir(&private_home)?;
+        session::private_dir(&private_tmp)?;
+        // U8a: the engine's own facts of the evidence, observed before any
+        // mount and never authored; no writable mount may alias it.
+        let mut protected = evidence::Protected::observe(self.artifacts, &workdir)?;
+        // U8a2c: the reach sealed for the box, observed again before any mount.
+        sealed.confirm(spec, &workdir)?;
+        for private in [&private_home, &private_tmp] {
+            protected.exclude(private)?;
+        }
+        // The private home and tmp go in BEFORE the worktree, so a worktree
+        // that itself lives under /tmp is mounted on top of the private /tmp
+        // rather than hidden beneath it.
+        namespace.mount(Mount::Bind, &private_home, SANDBOX_HOME);
+        namespace.mount(Mount::Bind, &private_tmp, "/tmp");
+        Ok((workdir, namespace, protected))
+    }
+
+    /// The box made final: what was observed is observed again as the argv
+    /// is, the evidence, the sealed reach and its hidden store alike (U8a
+    /// L1, U8a2c, U8h); then each sealed source is opened once, at that last
+    /// observation, and mounted from its handle, so bubblewrap never names it
+    /// again, and what the box mounts from inside one, Git's config, the pins
+    /// and the artifact root, opened beneath that handle as it was observed
+    /// (U8k).
+    fn finished(
+        &self,
+        mut namespace: Namespace,
+        protected: &evidence::Protected,
+        store: &sealed::Hidden,
+        workdir: &Path,
+        command: &[String],
+    ) -> std::io::Result<Boxed> {
+        let Workspace { spec, sealed, .. } = *self;
         protected.confirm()?;
         store.confirm(sealed, spec, workdir)?;
-        // U8k: each sealed source opened once, at that last observation, and
-        // mounted from its handle, so bubblewrap never names it again; and
-        // what the box mounts from inside one, Git's config, the pins and
-        // the artifact root, opened beneath that handle as it was observed.
         let mut opened = sealed.opened()?;
         let inner = sealed.retained().into_iter();
         let inner = inner.chain(store.beneath(sealed, workdir)).collect();
