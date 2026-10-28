@@ -731,8 +731,21 @@ impl Store {
             return Ok(Compared::Behind);
         }
         between();
+        self.columns_compared(run_id, &account, stale, seats)
+    }
+
+    /// `run_id`'s summary row against `account`'s fold, column by column:
+    /// the first column that differs, else behind where the index lags its
+    /// events (`stale`), else what its seat rows read as (`seats`).
+    fn columns_compared(
+        &self,
+        run_id: String,
+        account: &Account,
+        stale: bool,
+        seats: Compared,
+    ) -> Result<Compared, StoreError> {
         let listed = Listed::of(&self.conn, &run_id)?;
-        let summary = Summary::of(&account, listed.listing());
+        let summary = Summary::of(account, listed.listing());
         let standing = standing(&self.conn, &run_id)?;
         let mut expected = written(&summary);
         expected.extend(kept(&summary, standing.as_ref()));
