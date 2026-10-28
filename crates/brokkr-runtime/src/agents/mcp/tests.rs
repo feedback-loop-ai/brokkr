@@ -662,13 +662,12 @@ fn resume(name: &str) -> McpInvocation {
     McpInvocation::Resume(name.to_string())
 }
 
-/// U1d, U1d3 and U1d4 (SI1, SI2): the shipped Claude, Codex and LaneTally
-/// declarations load through the real loader with exactly the shapes,
-/// versions and results U0 and U0b observed, each line citing its U0 or
-/// U0b cell. U0b re-measured Codex as U9c2 launches it on 0.164.0, hands
+/// U1d, U1d3, U1d4 and U1d5 (SI1, SI2): the shipped Claude, Codex and
+/// LaneTally declarations load through the real loader with exactly the
+/// shapes, versions and results U0 and U0b observed, each line citing its U0
+/// or U0b cell. U0b re-measured Codex as U9c2 launches it on 0.164.0, hands
 /// boxed, harness and none, so no Codex ambient line is an unsupported
-/// cause, and its boxed replacement, which U0b never ran, is declared
-/// unmeasured. Each verdict rests on its own shape and version (operator
+/// cause, and its pass 7 the boxed replacement. Each verdict rests on its own shape and version (operator
 /// ruling 2026-10-26): Codex's `work-site` rejoin, served workspace-write,
 /// keeps write, store and process unmeasured, U0b having rejoined read-only
 /// alone, and Claude's boxed replacement on 2.1.308 keeps its store
@@ -708,7 +707,7 @@ fn the_shipped_declarations_pin_only_what_u0_and_u0b_observed() {
                     row(Cold, Boxed, "0.164.0", [m, m, m, m]),
                     row(Cold, Harness, "0.164.0", [m, m, m, m]),
                     row(Cold, NoHands, "0.164.0", [m, m, m, m]),
-                    row(Replacement, Boxed, "0.164.0", [d, d, d, d]),
+                    row(Replacement, Boxed, "0.164.0", [m, m, m, m]),
                     row(Replacement, Harness, "0.164.0", [m, m, m, m]),
                     row(Replacement, NoHands, "0.164.0", [m, m, m, m]),
                     row(resume("work-site"), NoHands, "0.164.0", [m, d, d, d]),
@@ -790,6 +789,17 @@ fn u0b_scopes_and_limitations_ride_in_the_verdicts_they_qualify() {
             vec![cloud, etc],
         ),
         (
+            text(&codex, shape(Replacement, Boxed), ambient),
+            vec![cloud, etc],
+        ),
+        (
+            text(&codex, shape(Replacement, Boxed), store),
+            vec![
+                "X35: the hands tool was denied it",
+                "cross-run limits stand",
+            ],
+        ),
+        (
             text(&codex, rejoin(), ambient),
             vec![cloud, "X20, a rejoin with hands, was not measured"],
         ),
@@ -857,10 +867,9 @@ fn u0b_scopes_and_limitations_ride_in_the_verdicts_they_qualify() {
     assert_eq!(on_macos, Vec::<&str>::new());
 }
 
-/// U1d, U1d3 and U1d4 (SI1): every shape neither U0 nor U0b measured — a
-/// declared resume shape, macOS, the wrapper's boxed cells — reads absent;
-/// Codex's boxed replacement, which U0b never ran, reads its declared
-/// reason on every axis; and a shipped file cannot be made to claim the
+/// U1d, U1d3, U1d4 and U1d5 (SI1): every shape neither U0 nor U0b measured
+/// — a declared resume shape, macOS, the wrapper's boxed cells — reads
+/// absent; and a shipped file cannot be made to claim the
 /// wrapper's boxed cells, a Codex rejoin with hands (X20) or a Claude
 /// resume from a no-hands telemetry cell.
 #[test]
@@ -878,33 +887,12 @@ fn an_unmeasured_shape_stays_absent_and_cannot_be_claimed() {
         codex.isolation(&macos(McpInvocation::Cold, McpHands::NoHands)),
         codex.isolation(&macos(McpInvocation::Cold, McpHands::Harness)),
         codex.isolation(&macos(McpInvocation::Replacement, McpHands::Harness)),
+        codex.isolation(&macos(McpInvocation::Replacement, McpHands::Boxed)),
         lanetally.isolation(&shape(McpInvocation::Cold, McpHands::Boxed)),
         lanetally.isolation(&shape(McpInvocation::Replacement, McpHands::Boxed)),
         lanetally.isolation(&shape(resume("wrapper-work-site"), McpHands::NoHands)),
     ];
-    assert_eq!(unmeasured, [(); 9].map(|()| absent.clone()));
-    let declared = |reason: &str| McpAxis::Unmeasured(McpUnmeasured::Declared(reason.into()));
-    assert_eq!(
-        codex.isolation(&shape(McpInvocation::Replacement, McpHands::Boxed)),
-        McpIsolation {
-            ambient: declared(
-                "U0b recorded no replacement under the hands fragment: X16 ran it cold, and the \
-                 replacement cells X17, X18 and X24 ran the harness classes"
-            ),
-            native_write: declared(
-                "no write probe of U0b's names a boxed replacement; X26 and X26-p5 name the hands \
-                 tool alone"
-            ),
-            store_read: declared(
-                "no store canary of U0b's names a boxed replacement; X26 read the store and \
-                 X26-p5 was denied it, through the hands tool alone"
-            ),
-            process_read: declared(
-                "no process canary of U0b's names a boxed replacement; its one replacement \
-                 canary, X24, ran workspace-write"
-            ),
-        }
-    );
+    assert_eq!(unmeasured, [(); 10].map(|()| absent.clone()));
 
     // LT10/LT12's and LT16/LT17's boxed cells are the wrapper's, but its
     // adapter declares no hands; C08 resumed without hands, but Claude's

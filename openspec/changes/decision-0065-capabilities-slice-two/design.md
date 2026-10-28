@@ -1416,7 +1416,8 @@ witness/compose pins accompany only rows that change their inputs.
 | U8k | U8j | Mount the workspace box's sealed sources by descriptor; 45.15–45.16 | `crates/brokkr-protocol/src/hands.rs`; `crates/brokkr-protocol/src/hands/sealed.rs`; `crates/brokkr-protocol/src/hands/sealed/hidden.rs`; `crates/brokkr-protocol/src/hands/namespace.rs` |
 | U1d3 | U0b | Record U0b's shapes; 5.3–5.4 | `adapters/claude.json`; `adapters/codex.json`; `adapters/dsh.json`; `adapters/lanetally.json`; `crates/brokkr-cli/src/init/adapters.rs` |
 | U1d4 | U1d3 | Record Codex's shapes without hands; 5.5–5.6 | `adapters/codex.json`; `crates/brokkr-cli/src/init/adapters.rs` |
-| U9b1 | U1d3, U8e3, U8h, U8i, U8j, U8k, U1d4 | Enable the proved namespace path; 42.2, 46.1–46.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
+| U1d5 | U1d4 | Record Codex's boxed replacement; 5.7–5.8 | `adapters/codex.json`; `crates/brokkr-cli/src/init/adapters.rs` |
+| U9b1 | U1d3, U8e3, U8h, U8i, U8j, U8k, U1d4, U1d5 | Enable the proved namespace path; 42.2, 46.1–46.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
 | U9b2 | U9b1 | Publish implemented scope and contract guidance; 47.1–47.2 | None |
 | U8m | U8h | Redact doctor's server words and refuse a storeless boxed writer; 47.3–47.4 | `crates/brokkr-cli/src/doctor/capabilities/mcp.rs`; `crates/brokkr-runtime/src/engine/boxed.rs` |
 | U10a | U9b2, U8m | Audit removals and run final candidate gates; 48.1–49.2 | None |
@@ -1497,6 +1498,19 @@ Closes tasks 5.5 and 5.6; requirements [SI1](specs/strict-mcp-isolation/spec.md)
 Proof: each new shape's axes match U0b's cells; the init scaffold's copy matches the shipped adapter (`init_doctor` parity); the moved witness row is listed; the four recipes compile their Codex seats' strict shapes as measured.
 
 Operator ruling 2026-10-28 (in chat, "go with recommended", on U9b1's first run's block): U1d4 records Codex's cold and replacement shapes with hands none before U9b1, from U0b's existing cells; no public API rise; any other file comes back to the operator.
+
+Owning tests: `crates/brokkr-cli/tests/init_doctor.rs`, `crates/brokkr-runtime/tests/witness_digests.rs`.
+
+### U1d5 — Record Codex's boxed replacement
+
+U9b1's second run found that, past the lifted fence, Linux refuses the shipped triage, night-shift and release recipes at compile with SI2's unmeasured cause: `agents/chief-architect.json` and `agents/release-manager.json` hire sol with workspace hands, so a Codex work seat is served as its replacement with hands boxed, and `adapters/codex.json` records that shape as unmeasured on every axis. U0b pass 7 measured it on codex-cli 0.164.0 (Linux, the Spark route) with the hands fragment as main 16d0987a renders it, its hands server main's binary: the replacement after a first invocation in a home that trusts the project X32 and after a failed rejoin X33 (no planted user, project or plugin server started; only `brokkr` and the engine), codex's native shell X34 (the store denied, no process canary in a private pid namespace, "Read-only file system" inside and outside the workdir) and the hands tool X35 (the store denied by the box's mask, no process canary, a write inside the workdir). U1d5 records the shape from that evidence, each axis cited by its cells, in the shipped declaration and the init scaffold's copy, and re-blesses the witness digest that moves.
+
+Files: `adapters/codex.json`, `crates/brokkr-cli/src/init/adapters.rs`, `tests/witnesses.json`.
+
+Closes tasks 5.7 and 5.8; requirements [SI1](specs/strict-mcp-isolation/spec.md), [SI2](specs/strict-mcp-isolation/spec.md).
+Proof: the new shape's axes match pass 7's cells; the init scaffold's copy matches the shipped adapter (`init_doctor` parity); the moved witness row is listed; the Codex seats of triage, night-shift and release compile their boxed replacement as measured.
+
+Operator ruling 2026-10-29 (in chat, "go with recommended", on U9b1's second run's block, option A): Codex's boxed replacement is measured (U0b pass 7) and recorded by U1d5 before U9b1; no public API rise; any other file comes back to the operator.
 
 Owning tests: `crates/brokkr-cli/tests/init_doctor.rs`, `crates/brokkr-runtime/tests/witness_digests.rs`.
 

@@ -268,9 +268,9 @@ const BARE_WORK: &[&str] = &["cold none measured", "replacement none measured"];
 /// shape carries no route scope and U0b ran one route (U1d3).
 const DSH_WORK: &[&str] = &["cold none measured", "replacement none unmeasured"];
 const BARE_GATE: &[&str] = &["cold none measured"];
-/// A Codex seat's, boxed: U0b measured U9c2's cold launch and ran no boxed
-/// replacement, which the declaration says is unmeasured.
-const BOXED_WORK: &[&str] = &["cold boxed measured", "replacement boxed unmeasured"];
+/// A Codex seat's, boxed: U0b measured U9c2's cold launch, and its pass 7
+/// the boxed replacement (U1d5).
+const BOXED_WORK: &[&str] = &["cold boxed measured", "replacement boxed measured"];
 const BOXED_GATE: &[&str] = &["cold boxed measured"];
 /// Exec serves no model and records no shape.
 const EXEC: &[&str] = &[];
@@ -316,8 +316,7 @@ const DSH_RECORDS: [(&str, &[&str]); 8] = [
 /// them with nothing granted and every native power still OFF — dsh's
 /// review gate on claude included. This certifies no strictness. With the
 /// fence standing (U1g1) each compile keeps every site's SI2 record, the
-/// shapes a lifted fence would refuse included: Codex's boxed replacement,
-/// which U0b declares unmeasured, and dsh's replacement, declared
+/// shapes a lifted fence would refuse included: dsh's replacement, declared
 /// unmeasured for want of a route scope; exec records no shape.
 #[test]
 fn each_rosters_declarations_carry_their_shipped_mcp_facts_and_still_compile() {
@@ -422,18 +421,21 @@ fn cells(text: &str) -> Vec<&str> {
 /// A shape's four axes, each with the U0b cells its line cites.
 type AxisCells = [(&'static str, &'static [&'static str]); 4];
 
-/// Codex's two hands-less shapes (U1d4) as the shipped adapter records
-/// them, which the scaffold's copy carries by parity: codex-cli 0.164.0 on
-/// Linux, every axis measured, each citing U0b's own cells for it, so a
-/// wrong claim the two copies repeated still fails here.
+/// Codex's two hands-less shapes (U1d4) and its boxed replacement (U1d5)
+/// as the shipped adapter records them, which the scaffold's copy carries
+/// by parity: codex-cli 0.164.0 on Linux, every axis measured, each citing
+/// U0b's own cells for it, pass 7's for the boxed replacement, so a wrong
+/// claim the two copies repeated still fails here.
 #[test]
-fn codexs_hands_less_shapes_cite_u0bs_cells_on_every_axis() {
+fn codexs_hands_less_shapes_and_boxed_replacement_cite_u0bs_cells_on_every_axis() {
     let shipped = json_at(
         &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../adapters/codex.json"),
     );
-    let expected: [(&str, AxisCells); 2] = [
+    let pass_7: &[&str] = &["X34", "X35"];
+    let expected: [(&str, &str, AxisCells); 3] = [
         (
             "cold",
+            "none",
             [
                 ("ambient", &["X14", "X15", "X13", "X21-legacyiso"]),
                 ("native_write", &["X22", "X23", "X28"]),
@@ -443,6 +445,7 @@ fn codexs_hands_less_shapes_cite_u0bs_cells_on_every_axis() {
         ),
         (
             "replacement",
+            "none",
             [
                 (
                     "ambient",
@@ -453,35 +456,48 @@ fn codexs_hands_less_shapes_cite_u0bs_cells_on_every_axis() {
                 ("process_read", &["X24"]),
             ],
         ),
+        (
+            "replacement",
+            "boxed",
+            [
+                (
+                    "ambient",
+                    &["X32", "X32-A", "X33", "X33-rejoin", "X13", "X21-legacyiso"],
+                ),
+                ("native_write", pass_7),
+                ("store_read", pass_7),
+                ("process_read", pass_7),
+            ],
+        ),
     ];
-    for (invocation, axes) in expected {
+    for (invocation, hands, axes) in expected {
         let all = shipped["mcp"]["shapes"].as_array().unwrap().iter();
         let shape: Vec<&serde_json::Value> = all
-            .filter(|s| s["invocation"] == invocation && s["hands"] == "none")
+            .filter(|s| s["invocation"] == invocation && s["hands"] == hands)
             .collect();
-        assert_eq!(shape.len(), 1, "{invocation}");
+        assert_eq!(shape.len(), 1, "{invocation} {hands}");
         let shape = shape[0].as_object().unwrap();
         let keys: Vec<&str> = shape.keys().map(String::as_str).collect();
         let mut expected_keys = vec!["invocation", "hands", "measured_on"];
         expected_keys.extend(axes.iter().map(|(axis, _)| *axis));
         expected_keys.sort_unstable();
-        assert_eq!(keys, expected_keys, "{invocation}");
+        assert_eq!(keys, expected_keys, "{invocation} {hands}");
         assert_eq!(
             shape["measured_on"],
             serde_json::json!({"harness": "codex", "binary": "codex", "version": "0.164.0", "host": "linux"}),
-            "{invocation}"
+            "{invocation} {hands}"
         );
         for (axis, cited) in axes {
             let fact = shape[axis].as_object().unwrap();
             assert_eq!(
                 fact.keys().collect::<Vec<_>>(),
                 ["measured"],
-                "{invocation} {axis}"
+                "{invocation} {hands} {axis}"
             );
             assert_eq!(
                 cells(fact["measured"].as_str().unwrap()),
                 cited,
-                "{invocation} {axis}"
+                "{invocation} {hands} {axis}"
             );
         }
     }
@@ -495,7 +511,6 @@ fn codexs_hands_less_shapes_cite_u0bs_cells_on_every_axis() {
 /// for U0b measured Linux alone.
 #[test]
 fn the_shipped_hands_less_codex_seats_read_measured_where_u0b_measured_them() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let gate: &[&str] = &["cold none measured"];
     let work: &[&str] = &[
         "cold none measured",
@@ -516,18 +531,50 @@ fn the_shipped_hands_less_codex_seats_read_measured_where_u0b_measured_them() {
         ),
         ("recipes/wager-harness", &[("implement codex", work)][..]),
     ] {
-        let compiled = brokkr_runtime::Bundle::compile_with(
-            &root.join(recipe),
-            &root.join("agents"),
-            &root.join("adapters"),
-        )
-        .unwrap_or_else(|e| panic!("{recipe} must compile: {e}"));
-        let codex: Vec<(String, Vec<String>)> = strict_records(&compiled)
-            .into_iter()
-            .filter(|(site, shapes)| {
-                site.ends_with(" codex") && shapes.iter().any(|shape| shape.contains(" none "))
-            })
-            .collect();
+        let codex = shipped_codex_records(recipe, " none ");
+        assert_eq!(codex, expected_records(rows), "{recipe}");
+    }
+}
+
+/// The SI2 records of the shipped `recipe`'s Codex sites, compiled against
+/// the in-tree agents and adapters, that are served a shape `served`
+/// matches.
+fn shipped_codex_records(recipe: &str, served: &str) -> Vec<(String, Vec<String>)> {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let compiled = brokkr_runtime::Bundle::compile_with(
+        &root.join(recipe),
+        &root.join("agents"),
+        &root.join("adapters"),
+    )
+    .unwrap_or_else(|e| panic!("{recipe} must compile: {e}"));
+    (strict_records(&compiled).into_iter())
+        .filter(|(site, shapes)| {
+            site.ends_with(" codex") && shapes.iter().any(|shape| shape.contains(served))
+        })
+        .collect()
+}
+
+/// The shipped recipes whose Codex work seats are served with hands boxed
+/// — chief-architect's and release-manager's sol, hired with workspace
+/// hands, and triage's and night-shift's other boxed Codex work seats —
+/// and each such seat's SI2 record as each compile keeps it under
+/// the standing fence: cold and replacement measured on Linux since U1d5,
+/// where U9b1's second run found the replacement unmeasured; on macOS all
+/// absent, for U0b measured Linux alone.
+#[test]
+fn the_shipped_boxed_codex_work_seats_read_their_replacement_measured() {
+    let chief = ("design:chief codex", BOXED_WORK);
+    let author = ("specify:author codex", BOXED_WORK);
+    let engine = ("implement:engine codex", BOXED_WORK);
+    for (recipe, rows) in [
+        (
+            "recipes/triage",
+            &[chief, chief, engine, author, author][..],
+        ),
+        ("recipes/night-shift", &[chief, chief, author, author][..]),
+        ("recipes/release", &[("implement codex", BOXED_WORK)][..]),
+    ] {
+        let codex = shipped_codex_records(recipe, "replacement boxed ");
         assert_eq!(codex, expected_records(rows), "{recipe}");
     }
 }

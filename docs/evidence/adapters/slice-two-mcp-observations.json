@@ -3007,7 +3007,7 @@
     "record": "decision 0065 slice two, unit U0b: every shape a seat can be served as (replacement, Codex isolation options and profile, hands box, store at the production path)",
     "change": "openspec/changes/decision-0065-capabilities-slice-two",
     "narrative": "docs/evidence/adapters/slice-two-mcp-isolation.md, section U0b",
-    "ruled": "operator, in chat, 2026-10-23 (1(a), 2 option M, 3(a), 4(a), 5(a), 6(a)); 2026-10-24 (XA3/XA4 now; X29 closed by protecting the store's folder); 2026-10-25 (U8j)",
+    "ruled": "operator, in chat, 2026-10-23 (1(a), 2 option M, 3(a), 4(a), 5(a), 6(a)); 2026-10-24 (XA3/XA4 now; X29 closed by protecting the store's folder); 2026-10-25 (U8j); 2026-10-29 (pass 7: Codex's boxed replacement, U1d5)",
     "measured": {
       "pass_1": "2026-10-23T12:58Z to 13:33Z",
       "pass_2": "2026-10-23T13:37Z to 13:53Z",
@@ -3016,7 +3016,8 @@
       "x31": "2026-10-24T15:00Z (about)",
       "pass_5": "2026-10-25T15:50Z to 16:30Z (about)",
       "r16b": "2026-10-25T16:20Z (about)",
-      "x29b": "2026-10-25T17:15Z (about)"
+      "x29b": "2026-10-25T17:15Z (about)",
+      "pass_7": "2026-10-28T22:39Z to 22:42Z"
     },
     "host": {
       "os": "Ubuntu 25.10",
@@ -3039,7 +3040,8 @@
       "hands": {
         "passes_1_3": "brokkr-main-ac54b857 (brokkr 0.12.0, sha256 f25fc6b2..., pre---reach)",
         "pass_5": "brokkr-main-b8e2caff-u0b (brokkr 0.12.0, sha256 85eb17d6..., U8h); reach tool sha256 ac06996a...",
-        "r16b": "brokkr-u8j-probe (sha256 8bbe9c75..., b8e2caff plus three Namespace::open options, scratch)"
+        "r16b": "brokkr-u8j-probe (sha256 8bbe9c75..., b8e2caff plus three Namespace::open options, scratch)",
+        "pass_7": "brokkr-main-16d0987a-u0b (brokkr 0.12.0, sha256 1e467457..., main after U8k and U8m); reach tool rebuilt on main"
       },
       "spark": "the shared local Spark server behind the spark-glm route, GLM-5.3-Flash-EXL3; refused connections at 2026-10-25T17:15Z"
     },
@@ -3910,6 +3912,74 @@
         "engine_sentinel": "answered",
         "outcome": "passes; profile brokkr with the store deny on both turns; config.toml unchanged",
         "note": null
+      },
+      {
+        "id": "X32-A",
+        "harness": "codex-cli 0.164.0 on Spark",
+        "pass": 7,
+        "shape": "cold with the hands fragment, home B7 (the first invocation)",
+        "candidate": "U9c2 cold argv plus the hands fragment, main 16d0987a hands server",
+        "ambient_sentinels": {
+          "user": "not_started",
+          "project": "not_started",
+          "plugin": "not_started",
+          "system": "-",
+          "managed": "-"
+        },
+        "engine_sentinel": "answered",
+        "outcome": "HANDS-OK",
+        "note": null
+      },
+      {
+        "id": "X32",
+        "harness": "codex-cli 0.164.0 on Spark",
+        "pass": 7,
+        "shape": "X32-A's argv again in home B7 (the replacement), the home trusting the project",
+        "candidate": "U9c2 cold argv plus the hands fragment, main 16d0987a hands server",
+        "ambient_sentinels": {
+          "user": "not_started",
+          "project": "not_started",
+          "plugin": "not_started",
+          "system": "-",
+          "managed": "-"
+        },
+        "engine_sentinel": "answered",
+        "outcome": "passes; brokkr and engine only; HANDS-OK",
+        "note": null
+      },
+      {
+        "id": "X33-rejoin",
+        "harness": "codex-cli 0.164.0 on Spark",
+        "pass": 7,
+        "shape": "ruling 8: a rejoin of a nonexistent thread, home R7",
+        "candidate": "U9c2 rejoin argv",
+        "ambient_sentinels": {
+          "user": "not_started",
+          "project": "not_started",
+          "plugin": "not_started",
+          "system": "-",
+          "managed": "-"
+        },
+        "engine_sentinel": "not_started",
+        "outcome": "exit 1 (no rollout found, code -32600), empty stream, no provider request",
+        "note": null
+      },
+      {
+        "id": "X33",
+        "harness": "codex-cli 0.164.0 on Spark",
+        "pass": 7,
+        "shape": "the cold argv with the hands fragment after X33-rejoin (the replacement), home R7",
+        "candidate": "U9c2 cold argv plus the hands fragment, main 16d0987a hands server",
+        "ambient_sentinels": {
+          "user": "not_started",
+          "project": "not_started",
+          "plugin": "not_started",
+          "system": "-",
+          "managed": "-"
+        },
+        "engine_sentinel": "answered",
+        "outcome": "passes; brokkr and engine only; HANDS-OK",
+        "note": null
       }
     ],
     "canaries": [
@@ -4060,6 +4130,24 @@
         "store": "denied",
         "process": "not_found",
         "writes": "outside: printed OK, no file on the host",
+        "host_store": "unchanged"
+      },
+      {
+        "cell": "X34",
+        "pass": 7,
+        "path": "codex boxed replacement, native shell (read-only class)",
+        "store": "denied",
+        "process": "not_found",
+        "writes": "inside and outside: Read-only file system",
+        "host_store": "unchanged"
+      },
+      {
+        "cell": "X35",
+        "pass": 7,
+        "path": "codex boxed replacement, hands tool, main 16d0987a box",
+        "store": "denied",
+        "process": "not_found",
+        "writes": "inside: on the host",
         "host_store": "unchanged"
       }
     ],
