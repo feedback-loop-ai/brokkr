@@ -74,7 +74,9 @@ const COLUMNS: &str = "run_id, seq, type, attempt_id, member, recorded_at, event
 /// The dated facts a park's row keeps (decision 0089 ruling 7), and the
 /// stamp that says they were computed through its run's head: a writer
 /// from before them, or one that lost them, leaves `facts_seq` NULL and
-/// the row is read whole until the next writable open refolds it.
+/// the row is read whole until the next writable open refolds it. A stamp
+/// the head does not name is off the head too, whether NULL or a value a
+/// missing trigger left, and the same open refolds it.
 const PARK_COLUMNS: [&str; 6] = [
     "phase",
     "at_ms",
@@ -83,6 +85,38 @@ const PARK_COLUMNS: [&str; 6] = [
     "span_class",
     "facts_seq",
 ];
+
+/// A park's dated facts in [`PARK_COLUMNS`]' order, at the head they
+/// cover: the phase cut where it is stored, the moments as they happened,
+/// the class written with the end, and the stamp. `None` is a
+/// `run/parked` row core read no park for, whose stamp did not parse: it
+/// keeps no facts, but it is still processed at the head. The writer's
+/// positional row and the comparison's named row take both from here, so
+/// the cut has one home.
+fn park_facts(park: Option<&Park>, head: u64) -> [Value; PARK_COLUMNS.len()] {
+    let Some(park) = park else {
+        return [
+            Value::Null,
+            Value::Null,
+            Value::Null,
+            Value::Null,
+            Value::Null,
+            Value::Integer(head as i64),
+        ];
+    };
+    let phase = park
+        .phase
+        .as_deref()
+        .map(|phase| Bounded::within(phase, NAME_BYTES).cut);
+    [
+        phase.map_or(Value::Null, Value::Text),
+        Value::Integer(park.at),
+        park.answered.map_or(Value::Null, Value::Integer),
+        park.ended.map_or(Value::Null, Value::Integer),
+        Value::Integer(i64::from(park.span_class())),
+        Value::Integer(head as i64),
+    ]
+}
 
 /// The row an `events` row named `event` projects to, in [`COLUMNS`]'
 /// order, read from its envelope's text as brokkr-core's [`Indexed::of`]
@@ -501,7 +535,7 @@ const WRITE_PARK: &str = "UPDATE event_index SET phase = ?3, at_ms = ?4, answere
 /// from before them leaves is off its run's head and read whole until the
 /// next writable open refolds it.
 pub(crate) fn write_parks(tx: &Connection, account: &Account) -> Result<(), StoreError> {
-    let head = account.head().0 as i64;
+    let head = account.head().0;
     let parks: BTreeMap<u64, Park> = account
         .parks()
         .into_iter()
@@ -509,21 +543,17 @@ pub(crate) fn write_parks(tx: &Connection, account: &Account) -> Result<(), Stor
         .collect();
     let mut statement = tx.prepare_cached(WRITE_PARK)?;
     for seq in account.park_rows() {
-        let park = parks.get(seq);
-        let phase = park
-            .and_then(|park| park.phase.as_deref())
-            .map(|phase| Bounded::within(phase, NAME_BYTES).cut);
-        let written = statement.execute(params![
+        let [phase, at, answered, ended, span, stamp] = park_facts(parks.get(seq), head);
+        statement.execute(params![
             account.run_id(),
             *seq as i64,
             phase,
-            park.map(|park| park.at),
-            park.and_then(|park| park.answered),
-            park.and_then(|park| park.ended),
-            park.map(|park| i64::from(park.span_class())),
-            head,
-        ]);
-        written?;
+            at,
+            answered,
+            ended,
+            span,
+            stamp,
+        ])?;
     }
     Ok(())
 }
@@ -571,41 +601,45 @@ impl Store {
         patiently("index", self.patience, || mark_indexed(conn))
     }
 
-    /// The first run past `after` whose park rows do not have their dated
-    /// facts, read through the partial index of the rows still to write,
-    /// or the first such run.
+    /// The first run past `after` whose park rows do not stand at its
+    /// head: their dated facts unwritten (`facts_seq` NULL), or a stamp
+    /// the head does not name that a missing trigger left off it. The
+    /// unwritten rows are read through the partial index of rows still to
+    /// write, the off-head ones through the facts index, and the least
+    /// run id of the two is returned, or the first such run.
     fn park_after(&self, after: Option<&str>) -> Result<Option<String>, StoreError> {
-        let next = match after {
-            None => self.conn.query_row(
-                &format!(
-                    "SELECT run_id FROM event_index INDEXED BY event_index_park_stale
-                     WHERE type = '{PARKED}' AND facts_seq IS NULL ORDER BY run_id LIMIT 1"
-                ),
-                [],
-                |row| row.get(0),
-            ),
-            Some(after) => self.conn.query_row(
-                &format!(
-                    "SELECT run_id FROM event_index INDEXED BY event_index_park_stale
-                     WHERE type = '{PARKED}' AND facts_seq IS NULL AND run_id > ?1
-                     ORDER BY run_id LIMIT 1"
-                ),
-                [after],
-                |row| row.get(0),
-            ),
+        let first = |sql: String| -> Result<Option<String>, StoreError> {
+            let next = self.conn.query_row(&sql, [after], |row| row.get(0));
+            Ok(next.optional()?)
         };
-        Ok(next.optional()?)
+        let unwritten = first(format!(
+            "SELECT run_id FROM event_index INDEXED BY event_index_park_stale
+             WHERE type = '{PARKED}' AND facts_seq IS NULL
+               AND (?1 IS NULL OR run_id > ?1) ORDER BY run_id LIMIT 1"
+        ))?;
+        let off = first(format!(
+            "SELECT run_id FROM event_index INDEXED BY event_index_park_facts
+             WHERE type = '{PARKED}' AND facts_seq IS NOT NULL
+               AND facts_seq IS NOT (SELECT max(seq) FROM events
+                                      WHERE events.run_id = event_index.run_id)
+               AND (?1 IS NULL OR run_id > ?1) ORDER BY run_id LIMIT 1"
+        ))?;
+        Ok(match (unwritten, off) {
+            (Some(left), Some(right)) => Some(left.min(right)),
+            (left, right) => left.or(right),
+        })
     }
 
     /// Write every park's dated facts that a writer from before them left
-    /// unwritten, one run per transaction (decision 0089 ruling 8), and
-    /// let a run that does not load stay for a reader to read whole and
-    /// the doctor to name. Every writable open makes it; the partial
-    /// index holds only the rows still to write, so a journal whose parks
-    /// are all kept reads it as empty. `between` runs on this connection
-    /// after a run is read and before its transaction, the instant the
-    /// tests stage a peer's lock at. The runs are read by their key one
-    /// at a time, so the memory is the largest run's.
+    /// unwritten, or that a missing trigger left off its run's head, one
+    /// run per transaction (decision 0089 ruling 8), and let a run that
+    /// does not load stay for a reader to read whole and the doctor to
+    /// name. Every writable open makes it; the parks' partial indexes
+    /// hold only park rows, so a journal whose parks all stand at their
+    /// heads finds none. `between` runs on this connection after a run is
+    /// read and before its transaction, the instant the tests stage a
+    /// peer's lock at. The runs are read by their key one at a time, so
+    /// the memory is the largest run's.
     pub(crate) fn park_behind_with(
         &mut self,
         mut between: impl FnMut(&Connection),

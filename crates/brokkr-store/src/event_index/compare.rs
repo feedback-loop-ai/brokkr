@@ -5,10 +5,10 @@
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::event_index::Indexed;
-use brokkr_core::summary::{Bounded, Park, NAME_BYTES};
+use brokkr_core::summary::Park;
 use rusqlite::types::{Value, ValueRef};
 
-use super::{IndexFault, PARK_COLUMNS};
+use super::{park_facts, IndexFault, PARK_COLUMNS};
 use crate::StoreError;
 
 /// The columns `event` projects to after its key, by name: the event's
@@ -25,7 +25,6 @@ pub(super) fn projects(
 ) -> Vec<(&'static str, Value)> {
     let indexed = Indexed::of(event);
     let text = |text: Option<&str>| text.map_or(Value::Null, |text| Value::Text(text.into()));
-    let integer = |value: Option<i64>| value.map_or(Value::Null, Value::Integer);
     let mut columns = vec![
         ("type", text(Some(indexed.event_type.as_str()))),
         ("attempt_id", text(indexed.attempt_id)),
@@ -33,42 +32,12 @@ pub(super) fn projects(
         ("recorded_at", text(Some(indexed.recorded_at))),
         ("event_id", text(Some(&event.event_id))),
     ];
-    columns.extend(match park {
-        Some(park) => vec![
-            (
-                "phase",
-                text(
-                    park.phase
-                        .as_deref()
-                        .map(|phase| Bounded::within(phase, NAME_BYTES).cut)
-                        .as_deref(),
-                ),
-            ),
-            ("at_ms", Value::Integer(park.at)),
-            ("answered_ms", integer(park.answered)),
-            ("ended_ms", integer(park.ended)),
-            ("span_class", Value::Integer(i64::from(park.span_class()))),
-            ("facts_seq", Value::Integer(head as i64)),
-        ],
-        None => vec![
-            ("phase", Value::Null),
-            ("at_ms", Value::Null),
-            ("answered_ms", Value::Null),
-            ("ended_ms", Value::Null),
-            ("span_class", Value::Null),
-            ("facts_seq", processed(event, head)),
-        ],
-    });
+    columns.extend(PARK_COLUMNS.iter().copied().zip(match park {
+        Some(park) => park_facts(Some(park), head),
+        None if event.event_type == EventType::RunParked => park_facts(None, head),
+        None => std::array::from_fn(|_| Value::Null),
+    }));
     columns
-}
-
-/// The stamp a `run/parked` row was processed at, `head`; NULL for an
-/// event that keeps no dated facts at all.
-fn processed(event: &EventEnvelope, head: u64) -> Value {
-    match event.event_type {
-        EventType::RunParked => Value::Integer(head as i64),
-        _ => Value::Null,
-    }
 }
 
 /// The first key where `rows`, each its key and then its columns, part

@@ -168,6 +168,16 @@ fn refolded_lag(mut store: Store, run_id: &str) -> Store {
     refolded(store)
 }
 
+/// `store`'s journal opened again with its park row at the head it now
+/// has: no row is left for the sweep, the park reads `held`, and every
+/// run reads as its fold.
+fn refolded_at_head(store: Store, held: &[Value]) {
+    let store = refolded(store);
+    assert_eq!(store.park_after(None).unwrap(), None);
+    assert_eq!(kept(&store, "r", 3), held);
+    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+}
+
 #[test]
 fn each_append_keeps_the_parks_its_fold_states() {
     let (_dir, mut store) = store();
@@ -308,6 +318,24 @@ fn each_park_column_that_is_not_its_fold_s_is_named() {
         .unwrap();
 }
 
+/// A phase past the name bound is written cut and reads as its fold's:
+/// the writer's row and the comparison's named row take the cut from one
+/// derivation, so a whole phase can stand on neither side of the check.
+#[test]
+fn a_phase_past_its_bound_is_cut_where_it_is_stored() {
+    let (_dir, mut store) = store();
+    let phase = "p".repeat(NAME_BYTES + 20);
+    opened(
+        &mut store,
+        "r",
+        &phase,
+        &[(EventType::RunParked, json!({"reason": "waiting"}))],
+    );
+    assert_eq!(kept(&store, "r", 3)[0], text(&"p".repeat(NAME_BYTES)));
+    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+    assert_eq!(disagreements(&store), Vec::<String>::new());
+}
+
 /// A writer from before the parks writes the next event and no park's
 /// dated facts, and the trigger sends the open park off its run's head, so
 /// no reader trusts it: the next writable open refolds the run and its
@@ -357,10 +385,75 @@ fn an_unwritten_park_is_refolded_at_the_next_open() {
         .unwrap();
     assert!(store.park_after(None).unwrap().is_some());
     lags(&mut store, &["r"]);
-    let store = refolded(store);
+    refolded_at_head(store, &held);
+}
+
+/// A park row whose stamp is non-NULL but names no head its run has is a
+/// lag too, not only the NULL a writer from before the parks leaves: the
+/// next writable open refolds it, so no reader trusts the facts behind a
+/// stamp the run has left.
+#[test]
+fn a_park_stamp_that_is_not_its_head_is_refolded_at_the_next_open() {
+    let (_dir, mut store) = store();
+    let held = parked_row(&mut store);
+    assert_eq!(held[5], Value::Integer(3));
+    store
+        .conn
+        .execute(
+            "UPDATE event_index SET facts_seq = 1 WHERE run_id = 'r' AND seq = 3",
+            [],
+        )
+        .unwrap();
+    // An intact table leaves the row for the next writable open, which
+    // refolds it at the head the run now has.
+    assert_eq!(store.park_after(None).unwrap().as_deref(), Some("r"));
+    assert_eq!(disagreements(&store), Vec::<String>::new());
+    assert!(matches!(
+        store.compared("r", || {}).unwrap(),
+        Compared::Behind
+    ));
+    lags(&mut store, &["r"]);
+    refolded_at_head(store, &held);
+}
+
+/// The sweep's two reads name different runs, and the least id is taken:
+/// an off-head park in `a` and an unwritten park in `b` are both refolded,
+/// in one walk, each at its own head.
+#[test]
+fn the_sweep_takes_the_least_run_of_its_two_reads() {
+    let (_dir, mut store) = store();
+    for run_id in ["a", "b"] {
+        opened(
+            &mut store,
+            run_id,
+            "implement",
+            &[(EventType::RunParked, json!({"reason": "waiting"}))],
+        );
+    }
+    let a = kept(&store, "a", 3);
+    let b = kept(&store, "b", 3);
+    store
+        .conn
+        .execute(
+            "UPDATE event_index SET facts_seq = 1 WHERE run_id = 'a' AND seq = 3",
+            [],
+        )
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "UPDATE event_index SET facts_seq = NULL WHERE run_id = 'b' AND seq = 3",
+            [],
+        )
+        .unwrap();
+    assert_eq!(store.park_after(None).unwrap().as_deref(), Some("a"));
+    lags(&mut store, &["a", "b"]);
+    let mut visited = 0;
+    store.park_behind_with(|_| visited += 1).unwrap();
+    assert_eq!(visited, 2);
+    assert_eq!(kept(&store, "a", 3), a);
+    assert_eq!(kept(&store, "b", 3), b);
     assert_eq!(store.park_after(None).unwrap(), None);
-    assert_eq!(kept(&store, "r", 3), held);
-    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
 }
 
 /// Two runs whose park facts nothing wrote are both refolded at the next
@@ -861,7 +954,9 @@ fn restoring_the_park_trigger_sends_the_facts_it_missed_behind() {
     // the summary and seat rows current at the new head.
     plant_before_parks(&store, "r", std::slice::from_ref(&answered));
     assert_eq!(kept(&store, "r", 3), held);
-    assert_eq!(store.park_after(None).unwrap(), None);
+    // The sweep finds the stamp the missing trigger left off the head, so
+    // the next writable open refolds it whether or not the repair runs.
+    assert_eq!(store.park_after(None).unwrap().as_deref(), Some("r"));
     let store = refolded_lag(store, "r");
     assert_eq!(store.park_after(None).unwrap(), None);
     assert_eq!(
