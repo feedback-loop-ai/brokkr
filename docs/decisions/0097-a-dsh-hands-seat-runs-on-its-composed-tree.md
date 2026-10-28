@@ -2,7 +2,7 @@
 
 Status: proposed
 Date: 2026-10-26
-Built: unbuilt (#896)
+Built: partial (#896) — the one hands overlay, the composed-tree check and its measured allowlist, the typed office access and its carrier, the activation refusal and the partial-enforcement report are built; the engine-only home (decision 0065 slice two's U9b1) and the read-only `HandsSpec` are unbuilt
 
 ## Context
 
@@ -51,7 +51,10 @@ production table (decision 0005).
 
 3. **An office's access is typed data, not its gate class.** An office may
    declare `access`, `read-only` or `writes`, beside its hands. Absent is
-   `writes`, the behaviour every office had before the key existed. The
+   `writes`. That default is a deliberate CHANGE for a legacy gate hire
+   that declares none: the old gate-class mapping made it read-only. All
+   eight shipped read-only offices declare `read-only`, so they keep their
+   charter's intent. The
    loader decodes the word once into `brokkr_protocol::native_controls::Access`
    (serde, matched exhaustively); the engine carries it to the site with the
    hands and writes the private `seat_access` carrier only for a site whose
@@ -70,10 +73,12 @@ production table (decision 0005).
    the seat closed with a typed refusal naming `brokkr-hands`; dsh's
    `SANDBOX_UNAVAILABLE` code or its "no sandbox backend is usable" message
    fails it closed too. The Landlock launcher's
-   `partial enforcement (older Landlock ABI)` line is recorded as
-   `sandbox: partial` on the seat's finished row, where the operator reads it.
-   The words are bound to the installed packages' own text in the evidence
-   directory.
+   `partial enforcement (older Landlock ABI)` line rides the seat's finished
+   row in `step_name`, the contract-admitted text, while `sandbox` keeps the
+   MODE the seat ran under (`read-only` or `workspace-write`) and never the
+   word `partial`. `SANDBOX_UNAVAILABLE` still fails the seat closed rather
+   than being recorded. The words are bound to the installed packages' own
+   text in the evidence directory.
 
 5. **What remains unmeasured.** No macOS launch is measured; macOS is a
    supported host (decision 0063) and this round proves the overlay and the
@@ -100,14 +105,19 @@ to its measured dump by a test.
 
 ## Compatibility, migration and status
 
-An office that declares no `access` keeps `writes`; every read-only office in
-the library now declares `read-only`, so a work-class review position keeps
-its charter's read-only intent. The private carrier replaces the `seat_class`
+An office that declares no `access` now gets `writes`. That is the one
+compatibility change: a legacy gate hire with no declared access used to
+be read-only by its gate class and now runs workspace-write. All eight
+shipped read-only offices declare `read-only`, so a work-class review
+position keeps its charter's read-only intent. The private carrier replaces
+the `seat_class`
 key this branch introduced; no contract, fixture, reference or production
 table changes. Public API grows by `Access` and `ACCESS` in brokkr-protocol
-and by `Agent::access` and `Resolution::access` in brokkr-runtime; brokkr-core,
+and by `Agent::access` and `SiteFacts::access` in brokkr-runtime; brokkr-core,
 brokkr-store and brokkr-view are unmoved. Adapter `dsh.json` and eight office
 definitions move their bundles' witness digests, re-pinned from the suite's
 reported values. Linux and macOS are the supported hosts; production remains
-Rust. This proposal grants no new capability and reports no implementation
-validation; the operator alone accepts it.
+Rust. The tree carries the overlay, the composed-tree check, the access
+carrier, the activation refusal and this record; the engine-only home
+(decision 0065 slice two's U9b1) and the read-only `HandsSpec` remain owed,
+so the status stays `proposed` and only the operator accepts it.

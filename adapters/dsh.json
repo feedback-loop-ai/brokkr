@@ -118,7 +118,7 @@
           "host": "linux"
         },
         "ambient": {
-          "unmeasured": "U0b D09 and #896 round 2 (2026-10-26, dsh 0.2.1-rc.2): with transport: stdio the hands row started and the model listed mcp__brokkr__ping; without it the server never started and dsh exited 0, and failOnStartupError refused nothing. Every launch composes --dump-config and refuses rows outside the measured 99 and entry-did-not-activate lines (docs/evidence/adapters/dsh-hands-round2)"
+          "unmeasured": "#896 round 2 (2026-10-26, dsh 0.2.1-rc.2): with transport: stdio the equivalent probe row started and the model listed mcp__probe__ping, not a live Brokkr call through this driver; without it the server never started and dsh exited 0, and failOnStartupError refused nothing. Each launch composes --dump-config against the measured 99 (docs/evidence/adapters/dsh-hands-round2)"
         },
         "native_write": {
           "measured": "#896 round 2 (2026-10-26, dsh 0.2.1-rc.2/rc.3): the ten hands rows disabled left 12 bookkeeping tools, the nine plus mcp-resources' three, which reach only the one MCP server in scope; each disabled row read disabled: true in --dump-config, and sandbox-policy is set from the office's access (docs/evidence/adapters/dsh-hands-round2)"

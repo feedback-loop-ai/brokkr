@@ -21,9 +21,8 @@ pub(super) fn invoke_dsh_launch_observed(
     // Before any row names the home, a binding over its fixed env refuses.
     let declared = bindings.iter().map(secret::BoundSecret::name);
     launch.home.serve(&dsh_child_env(&launch), declared)?;
-    if launch.hands {
-        let bin = launch.command.first().map_or("", String::as_str);
-        dsh_hands::composition_gate(bin, launch.overlay.path(), &dsh_child_env(&launch))?;
+    if launch.mode.is_some() {
+        dsh_hands::composition_gate(probe_command(&launch, workdir, bindings)?)?;
     }
     let transcript = Transcript::dsh(&launch.home);
     let staged = launch.staged.take();
@@ -92,11 +91,11 @@ pub(super) fn invoke_dsh_launch_observed(
         Ok(invocation) => invocation,
         Err(problem) => return Err(dsh_failure_before_promotion(problem, staged)),
     };
-    if launch.hands {
-        if let Err(problem) =
-            dsh_hands::startup_gate(&invocation.stderr, &mut invocation.session_meta)
+    if let Some(mode) = launch.mode {
+        if let Err(refusal) =
+            dsh_hands::startup_gate(&invocation.stderr, &mut invocation.session_meta, mode)
         {
-            return Err(dsh_failure_before_promotion(problem, staged));
+            return Err(dsh_failure_before_promotion(refusal.to_string(), staged));
         }
     }
     // The seat wrote its objects and moved its branch inside the private
@@ -119,6 +118,21 @@ pub(super) fn invoke_dsh_launch_observed(
     }
     invocation.launch = hold.terminal();
     Ok(invocation)
+}
+
+/// The composition probe's argv: the session's own argv prefix with
+/// `--dump-config` where the session carries its task, built by the ONE
+/// spawn builder under the seat's own working directory, environment,
+/// bindings and removals, so the probe and the session cannot disagree
+/// about the context they run in (#896 round 3).
+fn probe_command(
+    launch: &DshLaunch,
+    workdir: &str,
+    bindings: &[secret::BoundSecret],
+) -> Result<std::process::Command, String> {
+    let mut command = launch.command.clone();
+    command.push("--dump-config".to_string());
+    harness_command(&command, workdir, &dsh_child_env(launch), bindings)
 }
 
 #[cfg(all(test, unix))]
@@ -148,7 +162,7 @@ mod tests {
             facts: crate::hands::GitFacts::default(),
             staged: None,
             home: crate::transcript::DshHome::operator().unwrap(),
-            hands: true,
+            mode: Some(dsh_hands::Mode::ReadOnly),
         };
         let problem = invoke_dsh_launch_observed(
             launch,
@@ -161,6 +175,6 @@ mod tests {
         )
         .err()
         .expect("the unreadable composed tree refuses");
-        assert!(problem.contains("composed dsh tree"), "{problem}");
+        assert_eq!(problem, dsh_hands::Composition::Unreadable.to_string());
     }
 }

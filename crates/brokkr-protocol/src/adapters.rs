@@ -717,9 +717,34 @@ fn drain_stderr(child: &mut std::process::Child) -> std::thread::JoinHandle<Vec<
     })
 }
 
-/// Every harness spawns here: argv, workdir, stdio and extra environment,
+/// The one builder every harness spawn and the dsh composition probe
+/// share (#896 round 3): argv, working directory and extra environment,
 /// then the one secret injector, its typed refusal mapped to text once,
-/// and last the removals of the attempt it serves (U7d; MB4).
+/// and last the removals of the attempt it serves (U7d; MB4). A spawn
+/// adds its stdio and spawns; the probe adds `--dump-config` to the argv
+/// and reads the output, so probe and session cannot disagree about the
+/// effective environment.
+pub(super) fn harness_command(
+    command: &[String],
+    workdir: &str,
+    env: &[(&str, &str)],
+    bindings: &[secret::BoundSecret],
+) -> Result<Command, String> {
+    let (program, args) = command
+        .split_first()
+        .ok_or_else(|| "empty command".to_string())?;
+    let mut builder = Command::new(program);
+    builder
+        .args(args)
+        .current_dir(if workdir.is_empty() { "." } else { workdir })
+        .envs(env.iter().copied());
+    secret::bind_environment(&mut builder, bindings).map_err(|error| error.to_string())?;
+    mcp::unbind(&mut builder);
+    Ok(builder)
+}
+
+/// Every harness spawns here: the shared [`harness_command`], the child's
+/// stdio, and the one spawn fact every route reports.
 fn spawn_harness(
     command: &[String],
     workdir: &str,
@@ -728,19 +753,8 @@ fn spawn_harness(
     env: &[(&str, &str)],
     bindings: &[secret::BoundSecret],
 ) -> Result<std::process::Child, String> {
-    let (program, args) = command
-        .split_first()
-        .ok_or_else(|| "empty command".to_string())?;
-    let mut builder = Command::new(program);
-    builder
-        .args(args)
-        .current_dir(if workdir.is_empty() { "." } else { workdir })
-        .envs(env.iter().copied())
-        .stdin(stdin)
-        .stdout(stdout)
-        .stderr(Stdio::piped());
-    secret::bind_environment(&mut builder, bindings).map_err(|error| error.to_string())?;
-    mcp::unbind(&mut builder);
+    let mut builder = harness_command(command, workdir, env, bindings)?;
+    builder.stdin(stdin).stdout(stdout).stderr(Stdio::piped());
     let child = io_context(builder.spawn(), "could not invoke the agent CLI")?;
     lost::spawned();
     Ok(child)
@@ -4199,10 +4213,11 @@ struct DshLaunch {
     staged: Option<(String, dsh_sandbox::GitScope, dsh_sandbox::SeatGitStore)>,
     /// The one home the plan read and the child is served from (U1c2).
     home: crate::transcript::DshHome,
-    /// Whether this seat's office declares boxed hands, so its one overlay
-    /// carries the hands rows: the composed-tree check and the startup
-    /// report are held to such a seat alone (#896 round 2).
-    hands: bool,
+    /// The dsh sandbox mode a seat whose office declares boxed hands runs
+    /// under, and `None` for a seat with no hands. It is the ONE carrier
+    /// of "this seat has hands": a scoped runner's overlay row is not a
+    /// hands selection (#896 round 3).
+    mode: Option<dsh_hands::Mode>,
 }
 
 impl DshLaunch {
@@ -4476,18 +4491,16 @@ fn dsh_launch_with(
     // which is the only way anything the seat committed reaches the
     // shared repository. A seat whose office declares boxed hands runs no
     // native command: its rows are the hands rows, and it stages no store
-    // (#896).
-    let (staged, rows) = dsh_hands::sandbox(bin, workdir, &facts, input)?;
-    let overlay = dsh_seat_overlay_with(model, effort, &root, route.as_deref(), rows.as_deref())?;
-    let command = dsh_command(
-        bin,
-        &overlay.path().to_string_lossy(),
-        stream_json,
-        rejoining.as_deref(),
-    );
+    // (#896). The choice is typed, so a runner's overlay row is never
+    // read as hands.
+    let selection = dsh_hands::sandbox(bin, workdir, &facts, input)?;
+    let overlay = dsh_seat_overlay_with(model, effort, &root, route.as_deref(), selection.rows())?;
+    let overlay_path = overlay.path().to_string_lossy();
+    let command = dsh_command(bin, &overlay_path, stream_json, rejoining.as_deref());
     // Nothing of the seat's own argv follows: `dsh_control_conflict`
     // above refused every residual part, so the argv is exactly what the
     // engine composed.
+    let (staged, mode) = selection.into_parts();
     Ok(DshLaunch {
         command,
         rejoining,
@@ -4503,7 +4516,7 @@ fn dsh_launch_with(
         facts,
         staged,
         home: served,
-        hands: rows.is_some(),
+        mode,
     })
 }
 

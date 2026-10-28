@@ -28,8 +28,10 @@ const UNCONFINED: &str =
     "no sandbox backend is usable on this host; refusing to run the command unconfined";
 
 /// The Landlock launcher's line on an older ABI, as dsh-sandbox-local
-/// reports it at every confined run.
-const PARTIAL: &str = "landlock-run: partial enforcement (older Landlock ABI)";
+/// reports it at every confined run. It is carried on the finished row's
+/// `step_name`, the contract's admitted text, while `sandbox` keeps the
+/// mode (#896 round 3).
+pub(super) const PARTIAL: &str = "landlock-run: partial enforcement (older Landlock ABI)";
 
 /// How much of dsh's own sandbox dsh reported. `Partial` is recorded on the
 /// seat's finished row; `Full` adds nothing.

@@ -271,12 +271,20 @@ fn a_boxed_seat_is_served_the_hands_rows_and_any_other_as_before() {
     let dsh = dsh.to_str().unwrap();
     let brokkr = std::env::current_exe().unwrap();
     let brokkr = brokkr.to_str().unwrap();
-    for (access, word) in [("read-only", "read-only"), ("writes", "workspace-write")] {
+    for (access, mode, word) in [
+        ("read-only", Mode::ReadOnly, "read-only"),
+        ("writes", Mode::WorkspaceWrite, "workspace-write"),
+    ] {
         let input = sealed(SealedBoundary::Namespace, Some(access));
-        let (staged, rows) = sandbox(dsh, workdir, &facts, &input).unwrap();
-        assert!(staged.is_none(), "{access}");
+        let selection = sandbox(dsh, workdir, &facts, &input).unwrap();
         let server = server_row(brokkr, &bound(workdir));
-        assert_eq!(rows, Some(format!("{MEASURED_HEAD}{word}\n{server}")));
+        assert_eq!(
+            selection.rows(),
+            Some(format!("{MEASURED_HEAD}{word}\n{server}").as_str())
+        );
+        let (staged, selected) = selection.into_parts();
+        assert!(staged.is_none(), "{access}");
+        assert_eq!(selected, Some(mode), "{access}");
     }
     let unprobed = "/nonexistent/dsh";
     for input in [
@@ -285,8 +293,10 @@ fn a_boxed_seat_is_served_the_hands_rows_and_any_other_as_before() {
         sealed(SealedBoundary::Open, Some("writes")),
         json!({SERVING_INPUTS: dispatched(SealedDialect::default(), Vec::new(), None)}),
     ] {
-        let (staged, rows) = sandbox(unprobed, workdir, &facts, &input).unwrap();
-        assert!(staged.is_none() && rows.is_none(), "{input}");
+        let selection = sandbox(unprobed, workdir, &facts, &input).unwrap();
+        assert!(selection.rows().is_none(), "{input}");
+        let (staged, mode) = selection.into_parts();
+        assert!(staged.is_none() && mode.is_none(), "{input}");
     }
 }
 
@@ -429,12 +439,17 @@ fn the_dsh_startup_report_fails_closed_and_carries_partial() {
     assert_eq!(
         startup_gate(
             "landlock-run: partial enforcement (older Landlock ABI)\n",
-            &mut meta
+            &mut meta,
+            Mode::ReadOnly
         ),
         Ok(())
     );
-    assert_eq!(meta["sandbox"], json!("partial"));
-    assert!(startup_gate(warning, &mut serde_json::Map::new()).is_err());
+    assert_eq!(meta["sandbox"], json!("read-only"));
+    assert_eq!(meta["step_name"], json!(report::PARTIAL));
+    assert_eq!(
+        startup_gate(warning, &mut serde_json::Map::new(), Mode::WorkspaceWrite),
+        Err(ReportRefusal::NotActivated)
+    );
     assert_eq!(checked("dsh: done\n"), Ok(Enforcement::Full));
     assert_eq!(
         checked("dsh: warning: 0 entries did not activate\n"),
@@ -444,6 +459,11 @@ fn the_dsh_startup_report_fails_closed_and_carries_partial() {
         ReportRefusal::NotActivated.to_string(),
         "refusing the dsh seat: the hands row 'brokkr-hands' did not activate, so the seat's one \
          effectful tool was never served; dsh ran the session anyway (#896 D0)"
+    );
+    assert_eq!(
+        ReportRefusal::SandboxUnavailable.to_string(),
+        "refusing the dsh seat: dsh reported SANDBOX_UNAVAILABLE (no sandbox backend is usable on \
+         this host), so a call it could not confine is never admitted (#896 D4)"
     );
 }
 
@@ -510,64 +530,264 @@ fn the_composed_tree_is_the_measured_dump_and_refuses_an_ambient_row() {
     assert_eq!(rows(b"not a dump\n").err(), Some(Composition::Unreadable));
 }
 
-/// The check runs `dsh --profile headless --patch <overlay> --dump-config`
-/// under the seat's own environment, and an ambient row there is the
-/// refusal. The spawn is the one substituted step, so the argv and env are
-/// read exactly and no generated script has to be executable in a temp
-/// directory the box may mount `noexec`.
+/// A fake dsh that records the environment and directory it was handed,
+/// answers the drift probe, and composes a valid hands tree. The session
+/// (any invocation without `--dump-config`) exits cleanly.
+const RECORDING_DSH: &str = r#"#!/bin/sh
+case "$1" in
+  --version|-V|-v) printf '0.2.1-rc.2\n'; exit 0 ;;
+esac
+{
+  printf 'cwd=%s\n' "$(pwd)"
+  printf 'dsh_home=%s\n' "${DSH_HOME-<unset>}"
+  printf 'git_key=%s\n' "${GIT_CONFIG_KEY_0-<unset>}"
+  printf 'removed=%s\n' "${LIBRARY_DOCS_TOKEN-<unset>}"
+  printf '%s\n' '--'
+} >> "$BROKKR_TEST_DSH_OBSERVE"
+for a in "$@"; do
+  if [ "$a" = "--dump-config" ]; then
+    printf '%s\n' "- id: brokkr-hands" "  name: '@deepseek-ai/dsh-mcp-client'"
+    exit 0
+  fi
+done
+exit 0
+"#;
+
+/// A fake dsh whose session prints the measured activation warning after a
+/// valid composition.
+const WARNING_DSH: &str = r#"#!/bin/sh
+case "$1" in
+  --version|-V|-v) printf '0.2.1-rc.2\n'; exit 0 ;;
+esac
+for a in "$@"; do
+  if [ "$a" = "--dump-config" ]; then
+    printf '%s\n' "- id: brokkr-hands" "  name: '@deepseek-ai/dsh-mcp-client'"
+    exit 0
+  fi
+done
+printf '%s\n' 'dsh: warning: 1 entry did not activate' \
+  'brokkr-hands (@deepseek-ai/dsh-mcp-client): Error: mcp-client(probe): initial connection or tool synchronization failed' >&2
+exit 0
+"#;
+
+/// The one invocation the two launch-path tests drive: a hands seat under
+/// `input`, through `dsh`, its task appended last. Returns the home the
+/// launch served and the invocation's outcome.
+#[cfg(unix)]
+fn invoke_hands(
+    dsh: &str,
+    workdir: &str,
+    mut input: Value,
+) -> (Option<String>, Result<super::super::Invocation, String>) {
+    input["workdir"] = json!(workdir);
+    let launch = super::super::dsh_launch_with(dsh, &[], workdir, None, &input, |_| {
+        panic!("a cold seat recomputes no composite")
+    })
+    .unwrap();
+    let child_home = launch.home.child_home().map(str::to_string);
+    let mut command = launch.command.clone();
+    command.push("the task".to_string());
+    let result = super::super::dsh_launch::invoke_dsh_launch_observed(
+        launch,
+        command,
+        workdir,
+        &[],
+        &mut |_| {},
+        |child| child.wait().map(|status| Some(status.code().unwrap_or(0))),
+        &mut |_| {},
+    );
+    (child_home, result)
+}
+
+/// The launch's one builder gives the composition probe the session's
+/// working directory, environment and removals, so a probe can never read
+/// a different tree than the session runs in (#896 round 3).
 #[cfg(unix)]
 #[test]
-fn a_launch_composes_the_seats_own_tree_and_refuses_an_ambient_row() {
-    use super::composition::{composed, composed_with, dump_command, Composition};
-    use std::ffi::OsStr;
-    use std::os::unix::process::ExitStatusExt;
-    use std::process::{ExitStatus, Output};
-    let overlay = Path::new("/seat/overlay.yml");
-    let hands = "- id: brokkr-hands\n  name: '@deepseek-ai/dsh-mcp-client'\n";
-    let ambient = "- id: ambient\n  name: '@deepseek-ai/dsh-ambient'\n";
-    let output = |stdout| Output {
-        status: ExitStatus::from_raw(0),
-        stdout,
-        stderr: Vec::new(),
+fn a_launch_composes_under_the_sessions_own_environment_and_directory() {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    std::fs::create_dir(&home).unwrap();
+    let log = dir.path().join("observed");
+    env.set("DSH_HOME", &home);
+    env.set("BROKKR_TEST_DSH_OBSERVE", &log);
+    env.set("LIBRARY_DOCS_TOKEN", "exported");
+    let fake = super::super::tests::executable(dir.path(), "dsh", RECORDING_DSH);
+    let workdir = dir.path().to_str().unwrap();
+    let input = sealed(SealedBoundary::Namespace, Some("read-only"));
+    // An attempt's removal, in force exactly as the invocation holds it.
+    let mut removals = input.clone();
+    removals[SERVING_INPUTS]["isolation"]["servers"] = json!({"brokered": [{
+        "capability": "library-docs",
+        "plan": "/state/plans/library-docs.json",
+        "plan_digest": "a".repeat(64),
+        "removals": ["LIBRARY_DOCS_TOKEN"],
+    }]});
+    let _removing = super::super::mcp::Removing::attempt(&removals);
+    let (child_home, invocation) = invoke_hands(fake.to_str().unwrap(), workdir, input);
+    invocation.unwrap();
+    let expected_home = child_home.unwrap_or_else(|| home.to_string_lossy().into_owned());
+    let observed = std::fs::read_to_string(&log).unwrap();
+    let blocks = (observed.split("--\n"))
+        .filter(|block| !block.is_empty())
+        .collect::<Vec<_>>();
+    assert_eq!(blocks.len(), 2, "{observed}");
+    assert_eq!(
+        blocks[0], blocks[1],
+        "the probe and the session ran under the same effective context"
+    );
+    for block in blocks {
+        assert!(block.contains(&format!("cwd={workdir}\n")), "{block}");
+        assert!(
+            block.contains(&format!("dsh_home={expected_home}\n")),
+            "{block}"
+        );
+        assert!(block.contains("git_key=commit.gpgsign\n"), "{block}");
+        assert!(block.contains("removed=<unset>\n"), "{block}");
+    }
+}
+
+/// A launch whose composition succeeds but whose measured startup warning
+/// reports the hands row did not activate fails the INVOCATION, not only a
+/// helper (#896 round 3).
+#[cfg(unix)]
+#[test]
+fn a_launch_fails_closed_when_the_measured_activation_warning_arrives() {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    env.set("DSH_HOME", dir.path());
+    let fake = super::super::tests::executable(dir.path(), "dsh", WARNING_DSH);
+    let workdir = dir.path().to_str().unwrap();
+    let (_, invocation) = invoke_hands(
+        fake.to_str().unwrap(),
+        workdir,
+        sealed(SealedBoundary::Namespace, Some("read-only")),
+    );
+    let problem = invocation
+        .err()
+        .expect("the measured activation warning refuses the invocation");
+    assert_eq!(problem, ReportRefusal::NotActivated.to_string());
+}
+
+/// A native writing seat in a linked worktree is a runner seat, never a
+/// hands seat: its one overlay is the transcript row alone, exactly as
+/// main wrote it, on both the shipped and the stream-json launch (#896
+/// round 3). A stand-in bwrap whose one probe succeeds keeps the test off
+/// this box's unusable bubblewrap branch.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_linked_worktree_runner_is_not_a_hands_launch() {
+    use super::super::tests::{dsh_enabled_input, real_linked_worktree, synthetic_dsh_composite};
+    let mut env = EnvGuard::lock();
+    let (dir, worktree, _facts) = real_linked_worktree();
+    std::os::unix::fs::symlink("/bin/true", dir.path().join("bwrap")).unwrap();
+    let mut search = std::ffi::OsString::from(dir.path());
+    search.push(":");
+    search.push(std::env::var_os("PATH").unwrap_or_default());
+    env.set("PATH", &search);
+    // The seat process may inherit a broken `git -c` triple from the host;
+    // this test needs `git_facts` to read the real linked worktree.
+    env.set("GIT_CONFIG_COUNT", "1");
+    env.set("GIT_CONFIG_KEY_0", "commit.gpgsign");
+    env.set("GIT_CONFIG_VALUE_0", "false");
+    env.set("DSH_PERMISSION_MODE", "workspace-write");
+    env.set("DSH_HOME", dir.path());
+    let workdir = worktree.to_str().unwrap();
+    let dsh = dsh_version_shim(dir.path(), "dsh", "0.1.5-rc.1");
+    let dsh = dsh.to_str().unwrap();
+    let assert_runner = |launch: super::super::DshLaunch, stream: bool| {
+        assert!(
+            launch.staged.is_some(),
+            "the linked worktree stages a scoped runner"
+        );
+        assert_eq!(
+            launch.mode, None,
+            "a runner's overlay row is not a hands selection"
+        );
+        assert_eq!(launch.stream_json, stream);
+        assert_eq!(
+            std::fs::read_to_string(launch.overlay.path()).unwrap(),
+            super::super::dsh_transcript_row(&launch.root).unwrap()
+        );
     };
-    assert_eq!(
-        composed_with(
-            dump_command("/seat/dsh", overlay, &[("DSH_HOME", "/seat/home")]),
-            |command| {
-                assert_eq!(command.get_program(), OsStr::new("/seat/dsh"));
-                assert_eq!(
-                    command
-                        .get_args()
-                        .map(|arg| arg.to_str().unwrap())
-                        .collect::<Vec<_>>(),
-                    [
-                        "--profile",
-                        "headless",
-                        "--patch",
-                        "/seat/overlay.yml",
-                        "--dump-config"
-                    ]
-                );
-                assert_eq!(
-                    command.get_envs().collect::<Vec<_>>(),
-                    [(OsStr::new("DSH_HOME"), Some(OsStr::new("/seat/home")))]
-                );
-                Ok(output(hands.as_bytes().to_vec()))
-            }
+    let cold = super::super::dsh_launch_with(
+        dsh,
+        &[],
+        workdir,
+        None,
+        &json!({"workdir": workdir}),
+        |_| panic!("a cold seat recomputes no composite"),
+    )
+    .unwrap();
+    assert_runner(cold, false);
+    let digest = "b".repeat(64);
+    let input = dsh_enabled_input("0.1.5-rc.1", &digest, &worktree);
+    let warm = super::super::dsh_launch_with(dsh, &[], workdir, None, &input, |_| {
+        Ok(synthetic_dsh_composite(&digest))
+    })
+    .unwrap();
+    assert_runner(warm, true);
+}
+
+/// Every composed-tree refusal names itself in full, once (#896 round 3;
+/// decision 0071 ruling 8).
+#[test]
+fn every_composition_refusal_names_itself_in_full() {
+    use super::composition::Composition;
+    let cases = [
+        (
+            Composition::Unmeasured {
+                id: "ambient".into(),
+                name: "@deepseek-ai/dsh-ambient".into(),
+            },
+            "refusing to invoke the dsh driver: the composed dsh tree carries row 'ambient' of \
+             package '@deepseek-ai/dsh-ambient', which the measured hands composition (dsh \
+             0.2.1-rc.2) does not name, so a seat would be served a row nobody measured (#896 D1)",
         ),
-        Ok(())
-    );
-    assert_eq!(
-        composed_with(dump_command("/seat/dsh", overlay, &[]), |_| Ok(output(
-            ambient.as_bytes().to_vec()
-        ))),
-        Err(Composition::Unmeasured {
-            id: "ambient".into(),
-            name: "@deepseek-ai/dsh-ambient".into(),
-        })
-    );
-    assert_eq!(
-        composed("/nonexistent/dsh", overlay, &[]),
-        Err(Composition::Unreadable)
-    );
+        (
+            Composition::NoHands,
+            "refusing to invoke the dsh driver: the composed dsh tree carries no 'brokkr-hands' \
+             row, so the seat's one effectful tool would not be served (#896 D1)",
+        ),
+        (
+            Composition::SecondClient {
+                id: "ambient".into(),
+            },
+            "refusing to invoke the dsh driver: the composed dsh tree carries a second \
+             dsh-mcp-client row 'ambient', so the seat would be served a second effectful server \
+             beside Brokkr's (#896 D1)",
+        ),
+        (
+            Composition::Enabled {
+                id: "tool-web".into(),
+            },
+            "refusing to invoke the dsh driver: the composed dsh tree carries row 'tool-web' \
+             enabled, which the hands rows disable, so the seat would keep an effectful tool \
+             beside the box (#896 D1)",
+        ),
+        (
+            Composition::Repeated {
+                id: "brokkr-hands".into(),
+            },
+            "refusing to invoke the dsh driver: the composed dsh tree names row 'brokkr-hands' \
+             twice, so no row it reads can be trusted (#896 D1)",
+        ),
+        (
+            Composition::Unreadable,
+            "refusing to invoke the dsh driver: the composed dsh tree cannot be read as the one \
+             sequence of id and package rows dsh writes, so the seat is admitted on no measured \
+             composition (#896 D1)",
+        ),
+        (
+            Composition::DumpFailed {
+                status: "exit 2".into(),
+            },
+            "refusing to invoke the dsh driver: `dsh --dump-config` failed (exit 2), so the \
+             composed tree could not be read and the seat is not launched (#896 D1)",
+        ),
+    ];
+    for (refusal, text) in cases {
+        assert_eq!(refusal.to_string(), text);
+    }
 }

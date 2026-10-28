@@ -42,6 +42,9 @@ use crate::native_controls::Access;
 mod composition;
 mod report;
 
+pub(crate) use composition::Composition;
+pub(crate) use report::ReportRefusal;
+
 /// The driver-input key the engine marks a boxed site's hands access under,
 /// `read-only` or `writes`, beside its `hands` marker: a spawn-time fact of
 /// the site, written by the engine alone from the office's declaration
@@ -88,7 +91,8 @@ pub(super) enum Mode {
 }
 
 impl Mode {
-    /// The mode as dsh's `sandbox-policy` row spells it.
+    /// The mode as dsh's `sandbox-policy` row spells it, and as the seat
+    /// record's `sandbox` field admits it.
     fn word(self) -> &'static str {
         match self {
             Mode::ReadOnly => "read-only",
@@ -159,6 +163,36 @@ impl From<Refusal> for String {
     }
 }
 
+/// The sandbox rows one dsh seat runs under, and the runner it stages. A
+/// seat whose office declares boxed hands runs no native command, so it
+/// stages no runner; any other seat's rows are the scoped runner's. The
+/// two are exclusive and the choice is the enum's, so "has hands" is read
+/// from actual boxed hands and never from whether some overlay row exists
+/// (#896 round 3).
+pub(super) enum Selection {
+    Hands { rows: String, mode: Mode },
+    Runner(Option<Box<Staged>>),
+}
+
+impl Selection {
+    /// The rows the seat's one overlay carries, `None` for a runner seat.
+    pub(super) fn rows(&self) -> Option<&str> {
+        match self {
+            Selection::Hands { rows, .. } => Some(rows),
+            Selection::Runner(_) => None,
+        }
+    }
+
+    /// The private store a runner seat stages and the mode a hands seat
+    /// runs under; the two are never both present.
+    pub(super) fn into_parts(self) -> (Option<Staged>, Option<Mode>) {
+        match self {
+            Selection::Hands { mode, .. } => (None, Some(mode)),
+            Selection::Runner(staged) => (staged.map(|staged| *staged), None),
+        }
+    }
+}
+
 /// Brokkr's sandbox rows for one dsh seat and the runner they stage. A seat
 /// whose office declares boxed hands runs no native command, so it stages
 /// no runner and its rows are the hands rows ([`hands_rows`]), once the
@@ -170,19 +204,21 @@ pub(super) fn sandbox(
     workdir: &str,
     facts: &GitFacts,
     input: &Value,
-) -> Result<(Option<Staged>, Option<String>), Refusal> {
+) -> Result<Selection, Refusal> {
     let Some((command, args)) = mcp::dsh_hands(input, workdir).map_err(Refusal::Unbound)? else {
         let mode = std::env::var("DSH_PERMISSION_MODE").unwrap_or_default();
         let staged = dsh_sandbox_row_for(workdir, facts, &mode).map_err(Refusal::Runner)?;
-        let row = staged.as_ref().map(|(row, _, _)| row.clone());
-        return Ok((staged, row));
+        return Ok(Selection::Runner(staged.map(Box::new)));
     };
     let mode = Mode::of(input)?;
     measured(observed_version(&[
         bin.to_string(),
         "--version".to_string(),
     ]))?;
-    Ok((None, Some(hands_rows(mode, &command, &args)?)))
+    Ok(Selection::Hands {
+        rows: hands_rows(mode, &command, &args)?,
+        mode,
+    })
 }
 
 /// The version drift check: the observed release must be one the rows were
@@ -245,28 +281,29 @@ fn scalar(value: &str) -> Result<String, Refusal> {
 mod tests;
 
 /// The composed-tree check as the launch states it, before any child
-/// spawns (#896 round 2, D1).
-pub(crate) fn composition_gate(
-    bin: &str,
-    overlay: &std::path::Path,
-    env: &[(&str, &str)],
-) -> Result<(), String> {
-    composition::composed(bin, overlay, env).map_err(String::from)
+/// spawns (#896 round 2, D1). The command is the one
+/// [`harness_command`](super::harness_command) built from the launch's own
+/// argv, workdir, environment, bindings and removals.
+pub(crate) fn composition_gate(command: std::process::Command) -> Result<(), Composition> {
+    composition::composed_with(command, |command| command.output())
 }
 
 /// The startup dsh reported, read after its session (#896 round 2, D0 and
 /// D4): a failed hand or an unavailable sandbox refuses, and partial
-/// enforcement lands on the row the operator reads.
+/// enforcement lands on the row the operator reads. `sandbox` keeps the
+/// MODE the seat ran under, never the word `partial`; the launcher's exact
+/// line rides the contract-admitted `step_name` (#896 round 3).
 pub(crate) fn startup_gate(
     stderr: &str,
     meta: &mut serde_json::Map<String, Value>,
-) -> Result<(), String> {
-    match report::checked(stderr) {
-        Ok(report::Enforcement::Partial) => {
-            meta.insert("sandbox".into(), Value::String("partial".into()));
+    mode: Mode,
+) -> Result<(), ReportRefusal> {
+    match report::checked(stderr)? {
+        report::Enforcement::Partial => {
+            meta.insert("sandbox".into(), Value::String(mode.word().into()));
+            meta.insert("step_name".into(), Value::String(report::PARTIAL.into()));
             Ok(())
         }
-        Ok(report::Enforcement::Full) => Ok(()),
-        Err(refusal) => Err(refusal.to_string()),
+        report::Enforcement::Full => Ok(()),
     }
 }

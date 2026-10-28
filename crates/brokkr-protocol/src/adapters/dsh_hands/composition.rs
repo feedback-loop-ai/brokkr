@@ -12,7 +12,6 @@
 //! a dump that cannot be read. A hands seat is never served a composition
 //! nobody measured.
 
-use std::path::Path;
 use std::process::{Command, Stdio};
 
 use thiserror::Error;
@@ -82,30 +81,12 @@ pub(crate) struct Row {
     pub(crate) disabled: bool,
 }
 
-/// Compose `bin`'s tree for `overlay` under `env` and judge it: the seat's
-/// own home and environment are the ones passed, never a second home.
-pub(crate) fn composed(bin: &str, overlay: &Path, env: &[(&str, &str)]) -> Result<(), Composition> {
-    composed_with(dump_command(bin, overlay, env), |command| command.output())
-}
-
-/// The `--dump-config` command, under the seat's own environment: one
-/// builder, so the check and its test name the same argv and env.
-pub(super) fn dump_command(bin: &str, overlay: &Path, env: &[(&str, &str)]) -> Command {
-    let mut command = Command::new(bin);
-    command
-        .arg("--profile")
-        .arg("headless")
-        .arg("--patch")
-        .arg(overlay)
-        .arg("--dump-config")
-        .envs(env.iter().copied());
-    command
-}
-
 /// Judge what `run` makes of `command`. `run` is the one substitutable
 /// function — a closure seam (decision 0071 ruling 10) — so a test reads
 /// the exact argv and environment the seat's tree is composed under, and
-/// feeds rows to judge, without spawning anything.
+/// feeds rows to judge, without spawning anything. The command itself is
+/// built by the one spawn builder, so the probe and the session share
+/// their working directory, environment, secret bindings and removals.
 pub(super) fn composed_with(
     mut command: Command,
     run: impl FnOnce(&mut Command) -> std::io::Result<std::process::Output>,
