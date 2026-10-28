@@ -287,6 +287,34 @@ fn a_reach_sealed_at_another_place_than_the_kept_one_refuses() {
     unmade(&kept);
 }
 
+/// U8m: a boxed writer whose hands admission sealed no reach for, or a
+/// reach whose seal names no store, explicitly null, refuses with one cause
+/// before anything is made, its artifact root and its store alike, and no
+/// box is built from it.
+#[test]
+fn a_boxed_writer_whose_reach_seals_no_store_refuses_before_any_box() {
+    let (_dir, mut engine, command) = boxed_engine();
+    let (spec, store) = (HandsSpec::default(), engine.secrets_store_path());
+    let artifacts = crate::engine::boxed::artifact_root(&engine.run_local());
+    let storeless = Some(Unprepared::Storeless.to_string());
+    let spawned = |engine: &mut Engine| {
+        let command = command.clone();
+        let spawn = engine.compose_at(None, "attempt", false, command, Some(&spec), None, "r.json");
+        spawn.refusal
+    };
+    assert_eq!(spawned(&mut engine), storeless, "no reach was sealed");
+    engine.sealed_storeless(Path::new("/home/fixture"), &spec);
+    let sealed = engine.reach.sealed(&spec).map(sealed_store);
+    assert_eq!(sealed, Some(None), "a reach sealed with a null store");
+    assert_eq!(spawned(&mut engine), storeless, "its store null");
+    unmade(&artifacts);
+    unmade(&store);
+    let text = "dispatch refused: secrets store cannot be hidden from workspace hands: the box's \
+                reach sealed no store for these hands at admission, so no box of them is built \
+                (U8m)";
+    assert_eq!(Unprepared::Storeless.to_string(), text);
+}
+
 /// In a real namespace: an exec seat whose store lies in its worktree, and
 /// is missing at launch, is composed with the reach admission sealed for
 /// it, which names the store; the engine made the store empty and

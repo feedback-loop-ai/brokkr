@@ -1416,7 +1416,8 @@ witness/compose pins accompany only rows that change their inputs.
 | U1d3 | U0b | Record U0b's shapes; 5.3–5.4 | `adapters/claude.json`; `adapters/codex.json`; `adapters/dsh.json`; `adapters/lanetally.json`; `crates/brokkr-cli/src/init/adapters.rs` |
 | U9b1 | U1d3, U8e3, U8h, U8i, U8j | Enable the proved namespace path; 42.2, 46.1–46.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
 | U9b2 | U9b1 | Publish implemented scope and contract guidance; 47.1–47.2 | None |
-| U10a | U9b2 | Audit removals and run final candidate gates; 48.1–49.2 | None |
+| U8m | U8h | Redact doctor's server words and refuse a storeless boxed writer; 47.3–47.4 | `crates/brokkr-cli/src/doctor/capabilities/mcp.rs`; `crates/brokkr-runtime/src/engine/boxed.rs` |
+| U10a | U9b2, U8m | Audit removals and run final candidate gates; 48.1–49.2 | None |
 | U10b | U10a | Fold the change and hand off; 49.3 | None |
 
 ### U0 — Measure isolation and telemetry
@@ -2388,6 +2389,19 @@ Proof: Guides agree with actual compile/report/inspect evidence and explain quie
 Guide edits require coherence with the enabling proof, not behavior-mirroring tests.
 
 Documents/evidence: `docs/guides/agent-library.md`, `docs/guides/provider-adapters.md`, `docs/guides/recipe-authoring.md`, `docs/guides/secrets.md`, `docs/security-model.md`, `docs/status.md`, `docs/reference/cli.md`, `contracts/README.md`.
+
+### U8m — Redact doctor's server words and refuse a storeless boxed writer
+
+Two security LOWs carried to U10a close here. (1) `brokkr doctor` prints a declared MCP server's whole stdio argv and its URL verbatim (`server_words`, `crates/brokkr-cli/src/doctor/capabilities/mcp.rs` ~:118-123), so a credential an operator put in an argument or in a URL's user, query or fragment would reach doctor's output. Doctor names the program and how many arguments follow, and a URL by its scheme, host, port and path only, with an exact marker for what it withheld, and never prints an argument value or a URL's userinfo, query or fragment. (2) The engine's preparation of a boxed launch (`Engine::prepared`, `crates/brokkr-runtime/src/engine/boxed.rs` ~:113-133) compares the store a boxed writer's sealed reach names only when it names one, so a reach sealed with an explicit null store, or no reach sealed for the hands, passes; it now refuses with one exact cause before the box is built. Doctor's and the probe's own seals, which pass no store by design, are not boxed writers and are unchanged.
+
+Files: `crates/brokkr-cli/src/doctor/capabilities/mcp.rs` and `crates/brokkr-runtime/src/engine/boxed.rs`, with new private children as the standing child-module rule allows, and their tests. No public API rise.
+
+Closes tasks 47.3 and 47.4; requirements [MB4](specs/mcp-capability-broker/spec.md), [SI1](specs/strict-mcp-isolation/spec.md).
+Proof: doctor's report for a stdio server whose argument and a URL server whose userinfo, query and fragment carry a planted marker never contains the marker and shows the exact redacted words; a boxed writer whose sealed reach has no store refuses with the exact cause before any box; and independent compiling removals of the redaction and the refusal each fail their own test.
+
+Operator ruling 2026-10-28 (in chat, "go with recommended", R-B on the controller's audit of the items carried to U10a, C38 and C42): both close in this small unit before U10a, with the files above and no public API rise; any other file comes back to the operator.
+
+Owning tests: `crates/brokkr-cli/src/doctor/capability_tests.rs`, `crates/brokkr-runtime/src/engine/boundary_tests.rs` and its child modules.
 
 ### U10a — Audit removals and run final candidate gates
 

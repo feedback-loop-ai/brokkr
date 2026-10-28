@@ -114,12 +114,41 @@ pub(super) fn report_mcp(
     );
 }
 
-/// The server an `mcp` dialect connects to, as its declaration names it.
+/// The server an `mcp` dialect connects to, named without what a
+/// credential may sit in (U8m): a stdio server by its program, as declared,
+/// and how many arguments follow it, never their values; a URL by
+/// [`url_words`].
 fn server_words(server: &McpServer) -> String {
     match &server.connection {
-        Connection::Stdio(argv) => format!("'{}' (stdio)", argv.join(" ")),
-        Connection::Url(url) => format!("at URL '{url}'"),
+        Connection::Stdio(argv) => {
+            let program = argv.first().map_or("", String::as_str);
+            match argv.len().saturating_sub(1) {
+                0 => format!("'{program}' (stdio)"),
+                further => format!("'{program}' (stdio, {further} further argument(s) withheld)"),
+            }
+        }
+        Connection::Url(url) => url_words(url),
     }
+}
+
+/// What [`url_words`] says it withheld, where a URL carries a user, a query
+/// or a fragment: one marker, whichever of them it carried.
+const URL_WITHHELD: &str = " (user, query and fragment withheld)";
+
+/// A URL by its scheme, host, port and path only, as declared: never its
+/// userinfo, before the authority's last `@`, its query or its fragment,
+/// from the first `?` or `#` on, each withheld where present.
+fn url_words(url: &str) -> String {
+    let (kept, tail) = url.split_at(url.find(['?', '#']).unwrap_or(url.len()));
+    let start = kept.find("://").map_or(0, |at| at + "://".len());
+    let (scheme, rest) = kept.split_at(start);
+    let (authority, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+    let host = authority.rsplit('@').next().unwrap_or(authority);
+    let withheld = match !tail.is_empty() | (host.len() < authority.len()) {
+        true => URL_WITHHELD,
+        false => "",
+    };
+    format!("at URL '{scheme}{host}{path}'{withheld}")
 }
 
 /// MB4 as U5a2 judges it at compile: `dialect`'s egress against the
@@ -292,3 +321,6 @@ fn listed(items: impl Iterator<Item = String>) -> String {
         false => items.join(", "),
     }
 }
+
+#[cfg(test)]
+mod tests;
