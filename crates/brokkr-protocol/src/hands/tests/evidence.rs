@@ -91,9 +91,10 @@ fn mounted(argv: &[String], flag: &str, path: &Path) -> Option<usize> {
 }
 
 /// The flags that make a mount the box can write.
-const WRITABLE: [&str; 5] = [
+const WRITABLE: [&str; 6] = [
     "--bind",
     "--bind-try",
+    "--bind-fd",
     "--overlay",
     "--tmp-overlay",
     "--tmpfs",
@@ -117,17 +118,22 @@ fn a_root_the_worktree_holds_is_pinned_and_mounted_read_only_after_every_writabl
         let artifacts = made(&work, relative);
         let argv = boxed(&spec, &work, &artifacts, dir.path()).unwrap();
         assert!(!artifacts.join("sha256").exists(), "the box makes nothing");
-        let first = mounted(&argv, "--bind-try", &pad).unwrap();
+        let first = mounted(&argv, "--bind-fd", &pad).unwrap();
         for pin in pins {
-            let at = mounted(&argv, "--bind", &work.join(pin));
+            let at = mounted(&argv, "--bind-fd", &work.join(pin));
             assert!(at.unwrap() < first, "{pin} is pinned before the binds");
         }
-        let protected = mounted(&argv, "--ro-bind", &artifacts).unwrap();
+        let protected = mounted(&argv, "--ro-bind-fd", &artifacts).unwrap();
         let last = argv
             .iter()
             .rposition(|part| WRITABLE.contains(&part.as_str()));
         assert!(last.unwrap() < protected, "{argv:?}");
-        let mounts = ["--ro-bind", "--ro-bind-try", "--overlay-src"];
+        let mounts = [
+            "--ro-bind",
+            "--ro-bind-try",
+            "--ro-bind-fd",
+            "--overlay-src",
+        ];
         let after: Vec<&String> = (argv[protected + 3..].iter())
             .filter(|part| mounts.contains(&part.as_str()) || WRITABLE.contains(&part.as_str()))
             .collect();
@@ -184,34 +190,14 @@ fn a_writable_alias_of_the_artifact_root_refuses_the_box() {
     let (main, linked) = (root.join("main"), root.join("linked"));
     linked_worktree(&main, &linked);
     let held = made(&main, ".git/evidence");
-    let session = OverlayWrites::Session(&root);
-    let spec = HandsSpec::default();
-    let (home, scratch) = (root.join("home"), root.join("scratch"));
-    let built = box_argv(
-        &spec,
-        &linked,
-        &held,
-        &sealed(&spec, &linked, &home),
-        &scratch,
-        session,
-        &[],
-        None,
-        &one("true"),
-    );
+    let (spec, home) = (HandsSpec::default(), root.join("home"));
+    let built = boxed_from(&spec, &linked, &held, &sealed(&spec, &linked, &home), &root);
     assert_eq!(refused(built), Unprotected::Alias(main.join(".git")));
-    let inside = artifacts.join("scratch");
-    let built = box_argv(
-        &spec,
-        &work,
-        &artifacts,
-        &sealed(&spec, &work, &home),
-        &inside,
-        session,
-        &[],
-        None,
-        &one("true"),
-    );
-    assert_eq!(refused(built), Unprotected::Alias(inside.join("home")));
+    // Its private tree under `artifacts/scratch`.
+    let reach = sealed(&spec, &work, &home);
+    let built = boxed_from(&spec, &work, &artifacts, &reach, &artifacts);
+    let inside = artifacts.join("scratch/home");
+    assert_eq!(refused(built), Unprotected::Alias(inside));
 
     let plain = root.join("plain");
     std::fs::write(&plain, "").unwrap();
@@ -595,9 +581,10 @@ fn a_box_cannot_reach_a_root_outside_every_bind() {
     assert_eq!(names, [HEX]);
 }
 
-/// A protection mount bubblewrap cannot make refuses the box: the root
-/// gone between the build and the spawn fails the namespace, and the
-/// command never runs without it.
+/// A protection mount bubblewrap cannot make refuses the box: the root's
+/// place taken by a file between the build and the launch, which holds the
+/// root observed (U8k), fails the namespace, for no directory mounts over
+/// a file, and the command never runs without it.
 #[cfg(target_os = "linux")]
 #[test]
 fn a_protection_mount_that_cannot_be_made_refuses_the_command() {
@@ -618,25 +605,23 @@ fn a_protection_mount_that_cannot_be_made_refuses_the_command() {
     ];
     let spec = HandsSpec::default();
     let (home, scratch) = (dir.path().join("home"), dir.path().join("scratch"));
-    let built = box_argv(
-        &spec,
-        &work,
-        &artifacts,
-        &sealed(&spec, &work, &home),
-        &scratch,
-        OverlayWrites::Ram,
-        &[],
-        None,
-        &command,
-    );
-    let argv = built.unwrap();
+    let reach = sealed(&spec, &work, &home);
+    let workspace = Workspace {
+        spec: &spec,
+        workdir: &work,
+        artifacts: &artifacts,
+        sealed: &reach,
+        scratch: &scratch,
+        writes: OverlayWrites::Ram,
+        identity: &[],
+        bundle_root: None,
+    };
+    let boxed = workspace.boxed(&command).unwrap();
     std::fs::remove_dir_all(&artifacts).unwrap();
-    let status = Command::new(require_bwrap().unwrap())
-        .args(&argv[1..])
-        .stderr(Stdio::null())
-        .status()
-        .unwrap();
-    assert_eq!(status.code(), Some(1));
+    std::fs::write(&artifacts, "").unwrap();
+    let bwrap = require_bwrap().unwrap();
+    let status = boxed.launch(&bwrap, |bwrap| bwrap.stderr(Stdio::null()).status());
+    assert_eq!(status.unwrap().code(), Some(1));
     assert!(!ran.exists(), "the command ran without its protection");
 }
 
@@ -1685,7 +1670,7 @@ fn each_mount_verdict_states_the_managed_writer_refusal() {
     }
 }
 
-/// L1 through `box_argv` itself: a root replaced under its own name at the
+/// L1 through the box's build itself: a root replaced under its own name at the
 /// last step before the argv is final refuses the box by that name, which
 /// only the production call to `confirm` can see; untouched, it builds.
 #[test]

@@ -38,14 +38,16 @@ mod namespace;
 mod overlay;
 mod sealed;
 mod session;
-use environment::box_environment;
 pub use evidence::UNPROTECTED_EVIDENCE;
 #[cfg(test)]
 use git::parse_git_dirs;
 use git::{git_dirs, git_identity};
 pub use git::{git_facts, GitFacts};
 #[rustfmt::skip] pub use namespace::{entry::ServerEntry, namespace_join, server_environment, ServerBox, ServerProfile, ServerProgram};
-use namespace::{namespace_path, Mount, Namespace, Profile};
+use namespace::namespace_path;
+use namespace::workspace::Workspace;
+#[cfg(test)]
+use namespace::{workspace::Boxed, Namespace, Profile};
 pub use overlay::{overlay_supported_with, OverlayWrites};
 pub use sealed::{drifted, seal, sealed_store, store_place, Sealed, SEALED_REACH, UNHIDDEN_STORE};
 pub use session::{reap_dead_sessions, Reaped, Session, SessionError};
@@ -289,7 +291,7 @@ pub const SERVER_RESOLVER: &str = "/etc/resolv.conf";
 /// list, so a path added here is bound by bubblewrap and is in the ledger.
 ///
 /// It lists toolchain paths only. A declared `ro`, `rw` or `overlay` bind a
-/// `HandsSpec` names, and the git common `config`, are bound by `box_argv` too
+/// `HandsSpec` names, and the git common `config`, are bound by the box too
 /// but are never toolchain binds and never appear here.
 pub const HOST_TOOLCHAIN_BINDS: &[&str] = &[
     "/usr/bin",
@@ -321,129 +323,37 @@ pub const HOST_TOOLCHAIN_BINDS: &[&str] = &[
 ];
 
 /// The bubblewrap argv for one boxed command: the namespace, the binds,
-/// the environment, then `--` and the command. `artifacts` is the
-/// engine's run-local artifact root, which the box never writes (U8a).
-/// `scratch` holds this call's generated identity files and private home
-/// and tmp; `writes` says where the upper layers of overlay binds live: a
-/// session's are the seat's to remove when it ends. `sealed` is the reach
-/// the box is built from (U8a2c), its `~/` the sealed HOME; `identity` who
-/// the seat commits as. The namespace, its toolchain and its identity are
-/// `namespace::Namespace`'s; the workspace's own mounts and environment are
-/// ordered here.
+/// the environment, then `--` and the command, each input as the private
+/// `Workspace` names it. Retired (U8k, decision 0071 ruling 6): each sealed
+/// source is mounted by a descriptor, which would close as this returned, so
+/// it refuses every call with [`std::io::ErrorKind::Unsupported`] and its
+/// exact cause. [`execute`] and [`run_boxed`] launch the box holding them.
+#[deprecated(
+    since = "0.12.0",
+    note = "its argv names descriptors closed as it returns; launch the box through \
+            `execute` or `run_boxed`, which hold them; removed in 0.13.0"
+)]
 #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 pub fn box_argv(
-    spec: &HandsSpec,
-    workdir: &Path,
-    artifacts: &Path,
-    sealed: &Sealed,
-    scratch: &Path,
-    writes: OverlayWrites<'_>,
-    identity: &[(String, String)],
-    bundle_root: Option<&Path>,
-    command: &[String],
+    _spec: &HandsSpec,
+    _workdir: &Path,
+    _artifacts: &Path,
+    _sealed: &Sealed,
+    _scratch: &Path,
+    _writes: OverlayWrites<'_>,
+    _identity: &[(String, String)],
+    _bundle_root: Option<&Path>,
+    _command: &[String],
 ) -> std::io::Result<Vec<String>> {
-    // The workdir is bound at its own path, and that path must be
-    // absolute: `--repo .` is the common spelling, and a relative
-    // destination is resolved by bwrap against the box's root, so the
-    // worktree lands over `/` and shadows `/runtime` before the bundle
-    // mounts there — the first weekly research sweep parked on exactly
-    // that, "Can't mkdir parents for /runtime/bundle". Symlinks stay as
-    // the host spells them; only the relative prefix is resolved.
-    let workdir = &std::path::absolute(workdir)?;
-    let private_home = scratch.join("home");
-    let private_tmp = scratch.join("tmp");
-    let mut namespace = Namespace::open(Profile::Workspace, spec.network);
-    namespace.identity(&scratch.join("etc"))?;
-    session::private_dir(&private_home)?;
-    session::private_dir(&private_tmp)?;
-    // U8a: the engine's own facts of the evidence, observed before any
-    // mount and never authored; no writable mount may alias it.
-    let mut protected = evidence::Protected::observe(artifacts, workdir)?;
-    // U8a2c: the reach sealed for the box, observed again before any mount.
-    sealed.confirm(spec, workdir)?;
-    for private in [&private_home, &private_tmp] {
-        protected.exclude(private)?;
-    }
-    // The private home and tmp go in BEFORE the worktree, so a worktree
-    // that itself lives under /tmp is mounted on top of the private /tmp
-    // rather than hidden beneath it.
-    namespace.mount(Mount::Bind, &private_home, SANDBOX_HOME);
-    namespace.mount(Mount::Bind, &private_tmp, "/tmp");
-    let worktree = sealed.worktree();
-    namespace.mount(Mount::Bind, worktree, &namespace_path(workdir));
-    if let Some(bundle_root) = bundle_root {
-        let target = namespace_path(Path::new(SANDBOX_BUNDLE));
-        namespace.mount(Mount::RoBind, bundle_root, &target);
-    }
-    // Ruling 6: the git directory. A `git worktree`'s lives outside the
-    // worktree and is bound so git works at all; either way its `hooks`
-    // are hidden behind an empty tmpfs and its `config` is read-only, so
-    // nothing a boxed command writes can become a program the host runs
-    // on its next git invocation. The per-worktree directory lies under
-    // the shared one for a linked worktree, so binding the common
-    // directory covers both.
-    //
-    // KNOWN OPEN, and much wider than the harness runner beside it.
-    // Binding the whole common directory read-write leaves four things
-    // open that the dsh runner closes:
-    //
-    //   * every worktree's `config.worktree`, `commondir` and `gitdir`,
-    //     so in a repository carrying `extensions.worktreeConfig` a boxed
-    //     command can write `<common>/worktrees/<name>/config.worktree`
-    //     and the host's next `git` there honours a `core.hooksPath` the
-    //     box chose;
-    //   * the shared REF store — `refs`, `packed-refs`, `logs` — so a
-    //     boxed command can move a branch a sibling worktree has checked
-    //     out, at every spelling git uses;
-    //   * the shared OBJECT store, which a boxed command can destroy or
-    //     corrupt, and `objects/info/alternates`, which it can repoint;
-    //   * every sibling worktree's administrative directory.
-    //
-    // The dsh runner answers all four by giving the seat a PRIVATE common
-    // directory and promoting one ref afterwards (`dsh_sandbox`, decision
-    // 0054). Narrowing THIS write set the same way is a change under
-    // decision 0043 and takes its own number — see 0054's consequences,
-    // which record it rather than fixing it silently.
-    //
-    // U8a2c: both directories are the sealed reach's, never Git's answer
-    // now; one inside the worktree is where the box sees the worktree.
-    if let Some(common) = sealed.common() {
-        let inside = common
-            .strip_prefix(worktree)
-            .ok()
-            .map(|rest| workdir.join(rest));
-        if inside.is_none() {
-            protected.exclude(common)?;
-            namespace.mount_in_place(Mount::Bind, common);
-        }
-        let seen = inside.unwrap_or_else(|| common.to_path_buf());
-        namespace.tmpfs(&namespace_join(&namespace_path(&seen), Path::new("hooks")));
-        let config = namespace_path(&seen.join("config"));
-        namespace.mount(Mount::RoBindTry, &common.join("config"), &config);
-    }
-    // U8a, U8h: each directory between the worktree and an artifact root
-    // or a secrets store it holds is a mount of its own, so no write in the
-    // box renames it, both chains pinned together, outermost first; the
-    // binds follow, and the store is hidden after every writable mount.
-    let seen = (workdir.as_path(), bundle_root);
-    let store = sealed::mount_binds(&mut namespace, &mut protected, spec, sealed, seen, writes)?;
-    // U8a: a root the worktree holds read-only, after every writable
-    // mount; one outside every writable mount is never mounted at all.
-    if let Some(root) = protected.held() {
-        namespace.mount_in_place(Mount::RoBind, root);
-    }
-    for (key, value) in box_environment(spec, sealed.home()) {
-        namespace.setenv(key, &value);
-    }
-    for (key, value) in identity {
-        namespace.setenv(key, value);
-    }
-    // U8a (L1), U8a2c: what was observed is observed again as the argv is
-    // final, the evidence, the sealed reach and its hidden store alike (U8h).
-    protected.confirm()?;
-    store.confirm(sealed, spec, workdir)?;
-    Ok(namespace.enter(workdir, command))
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        RETIRED_BOX_ARGV,
+    ))
 }
+
+/// Why the retired [`box_argv`] refuses every call (U8k, ruling 6).
+const RETIRED_BOX_ARGV: &str = "hands::box_argv is retired: its argv would name descriptors \
+     closed as it returns; launch the box through `execute` or `run_boxed`, which hold them";
 
 /// The engine's own uid and gid: what the box maps to `runner`, and what
 /// the unboxed network prefix maps root back to (decision 0046 ruling 4).
@@ -770,19 +680,25 @@ pub fn execute_in(
         command.to_string(),
     ];
     let writes = OverlayWrites::Session(session);
-    let built = box_argv(
-        spec, workdir, artifacts, sealed, scratch, writes, identity, None, &inner,
-    );
-    let argv = io_context(built, "namespace")?;
-    let spawned = Command::new(bwrap)
-        .args(&argv[1..])
-        .current_dir("/")
-        .env_clear()
-        .env("PATH", "/usr/bin:/bin")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn();
+    let workspace = Workspace {
+        spec,
+        workdir,
+        artifacts,
+        sealed,
+        scratch,
+        writes,
+        identity,
+        bundle_root: None,
+    };
+    let boxed = io_context(workspace.boxed(&inner), "namespace")?;
+    let spawned = boxed.launch(bwrap, |bwrap| {
+        let bwrap = bwrap
+            .current_dir("/")
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin");
+        let bwrap = bwrap.stdin(Stdio::null()).stdout(Stdio::piped());
+        bwrap.stderr(Stdio::piped()).spawn()
+    });
     let mut child = io_context(spawned, "could not spawn bwrap")?;
     let stdout_pipe = child.stdout.take().expect("piped");
     let stderr_pipe = child.stderr.take().expect("piped");
@@ -868,24 +784,21 @@ pub fn run_boxed_in(
         mask: Vec::new(),
     }));
     let scratch = session.join("call");
-    let built = box_argv(
-        &with_self,
+    let workspace = Workspace {
+        spec: &with_self,
         workdir,
         artifacts,
-        &sealed,
-        &scratch,
-        OverlayWrites::Ram,
+        sealed: &sealed,
+        scratch: &scratch,
+        writes: OverlayWrites::Ram,
         identity,
         bundle_root,
-        command,
-    );
-    let argv = io_context(built, "namespace")?;
-    let ran = Command::new(bwrap)
-        .args(&argv[1..])
-        .current_dir("/")
-        .env_clear()
-        .env("PATH", "/usr/bin:/bin")
-        .status();
+    };
+    let boxed = io_context(workspace.boxed(command), "namespace")?;
+    let ran = boxed.launch(bwrap, |bwrap| {
+        let bwrap = bwrap.current_dir("/").env_clear();
+        bwrap.env("PATH", "/usr/bin:/bin").status()
+    });
     let status = io_context(ran, "could not spawn bwrap")?;
     Ok(status.code().unwrap_or(-1))
 }

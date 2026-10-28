@@ -16,7 +16,7 @@ use brokkr_protocol::broker::{
     Bootstrap, Clearance, Inventory, Network, Plan, Provisioned, Refusal, Sources, Survey, Tree,
     Unread,
 };
-use brokkr_protocol::hands::{Bind, BindMode, GitFacts, OverlayWrites, ServerProgram};
+use brokkr_protocol::hands::{Bind, BindMode, GitFacts, ServerProgram};
 
 use super::super::broker::{
     left, owned, reach, share, startup, stored, Attempt, Commit, Host, Surveyor, Unprovisioned,
@@ -917,18 +917,24 @@ fn the_sealed_reach_names_each_hands_root_where_the_hands_box_binds_it() {
     let artifacts = fixture.root.join("artifacts");
     std::fs::create_dir_all(&artifacts).unwrap();
     let observed = brokkr_protocol::hands::git_facts(&workdir);
-    let argv = brokkr_protocol::hands::box_argv(
+    let boxed = brokkr_protocol::hands::seal(&spec, &home, &workdir, &observed, None);
+    // The launch that holds the box's handles (U8k), `echo` standing in
+    // for bubblewrap: what it prints is the argv bubblewrap would read.
+    let (echo, session) = (Path::new("/bin/echo"), fixture.root.join("session"));
+    let echoed = brokkr_protocol::hands::execute_in(
+        echo,
         &spec,
         &workdir,
         &artifacts,
-        &brokkr_protocol::hands::seal(&spec, &home, &workdir, &observed, None),
+        &boxed,
         &scratch,
-        OverlayWrites::Ram,
+        &session,
         &git.identity,
-        None,
-        &command,
+        &command.join(" "),
+        Duration::from_secs(30),
     );
-    let argv = argv.unwrap();
+    let echoed = echoed.unwrap().stdout;
+    let argv: Vec<String> = echoed.split_whitespace().map(String::from).collect();
     let roots = sealed.writable.iter().chain(&sealed.readable);
     let roots: Vec<String> = roots.map(|root| root.display().to_string()).collect();
     assert_eq!(roots.len(), 4);

@@ -1892,8 +1892,7 @@ fn a_unit_that_covers_a_toolchain_spelling_or_control_target_fails() {
 
 #[test]
 fn the_check_verdict_does_not_depend_on_hands_spec_home_or_git_facts() {
-    use brokkr_protocol::hands::OverlayWrites;
-    use brokkr_protocol::hands::{box_argv, git_facts, seal, Bind, BindMode, HandsSpec};
+    use brokkr_protocol::hands::{execute_in, git_facts, seal, Bind, BindMode, HandsSpec};
     use std::path::PathBuf;
 
     let inputs = fixed_inputs();
@@ -1904,9 +1903,10 @@ fn the_check_verdict_does_not_depend_on_hands_spec_home_or_git_facts() {
     assert!(verdict(&STARTUP_RULE_LEDGER));
 
     let scratch = std::env::temp_dir().join(format!("brokkr-hands-test-{}", std::process::id()));
-    // The box observes an existing worktree and the artifact root in it (U8a).
-    let (session, work) = (scratch.join("session"), scratch.join("work"));
+    // The box observes an existing worktree, its artifact root (U8a) and an overlay's source (U8k).
+    let [session, work, cache] = ["session", "work", "cache"].map(|name| scratch.join(name));
     std::fs::create_dir_all(work.join("artifacts")).unwrap();
+    std::fs::create_dir_all(&cache).unwrap();
     // The second and third boxes stand in a repository, the reach each is
     // built from sealed as it stands (U8a2c).
     let varied: [(HandsSpec, PathBuf, bool); 3] = [
@@ -1927,7 +1927,7 @@ fn the_check_verdict_does_not_depend_on_hands_spec_home_or_git_facts() {
             HandsSpec {
                 network: true,
                 binds: vec![Bind {
-                    path: "/opt/cache".to_string(),
+                    path: cache.to_string_lossy().into_owned(),
                     mode: BindMode::Overlay,
                     mask: Vec::new(),
                 }],
@@ -1941,46 +1941,43 @@ fn the_check_verdict_does_not_depend_on_hands_spec_home_or_git_facts() {
         let init = init.args(["init", "-q"]).current_dir(&work);
         assert!(!repository || init.status().unwrap().success());
         let git = git_facts(&work);
-        let argv = box_argv(
+        // The launch that holds the box's handles (U8k), `echo` standing in
+        // for bubblewrap: what it prints is the argv bubblewrap would read.
+        let echoed = execute_in(
+            std::path::Path::new("/bin/echo"),
             &spec,
             &work,
             &work.join("artifacts"),
             &seal(&spec, &home, &work, &git, None),
             &scratch,
-            OverlayWrites::Session(&session),
+            &session,
             &git.identity,
-            None,
-            &["true".to_string()],
+            "true",
+            std::time::Duration::from_secs(30),
         )
         .expect("box argv");
+        let argv: Vec<&str> = echoed.stdout.split_whitespace().collect();
         let mut sources: Vec<String> = argv
             .windows(2)
             .filter(|pair| pair[0] == "--ro-bind-try")
-            .map(|pair| pair[1].clone())
+            .map(|pair| pair[1].to_string())
             .collect();
         let mut expected: Vec<String> = HOST_TOOLCHAIN_BINDS
             .iter()
             .map(|source| source.to_string())
             .collect();
-        if let Some(shared) = git.common_dir.and_then(|shared| shared.canonicalize().ok()) {
-            expected.push(shared.join("config").to_string_lossy().into_owned());
-        }
-        for bind in &spec.binds {
-            if bind.mode == BindMode::Ro {
-                let expanded = match bind.path.strip_prefix("~/") {
-                    Some(rest) => home.join(rest),
-                    None => PathBuf::from(&bind.path),
-                };
-                expected.push(expanded.to_string_lossy().into_owned());
-            }
-        }
         sources.sort();
         expected.sort();
+        // A declared bind and Git's config are mounted from their handles,
+        // never by `--ro-bind-try`, and one sealed absent not at all (U8k).
         assert_eq!(
             sources, expected,
-            "the --ro-bind-try sources must be exactly the host-toolchain set, the \
-             home-expanded declared ro binds and <common>/config"
+            "the --ro-bind-try sources must be exactly the host-toolchain set"
         );
+        // Git's config where the box shows the repository the worktree holds.
+        let config = work.join(".git/config").to_string_lossy().into_owned();
+        let held = |at: &[&str]| at[0] == "--ro-bind-fd" && at[2] == config;
+        assert_eq!(argv.windows(3).any(held), repository, "{argv:?}");
         assert!(
             verdict(&STARTUP_RULE_LEDGER),
             "the check is independent of hands facts"

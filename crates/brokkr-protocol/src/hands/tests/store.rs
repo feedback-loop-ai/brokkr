@@ -12,7 +12,8 @@
 //! hides it makes no nested user namespace (U8j).
 
 use super::super::evidence::CONFIRMING;
-use super::super::sealed::{Unhidden, TABLE};
+use super::super::sealed::{Drifted, Unhidden, OPENED, TABLE};
+use super::held::{decoyed, restored};
 use super::*;
 
 /// The fake value every planted store holds; no real store is read.
@@ -239,7 +240,7 @@ fn a_store_in_the_worktree_is_denied_to_a_workspace_call_or_an_exec() {
         );
         stored.denies(&held);
         let argv = stored.built().unwrap().join(" ");
-        let worked = position(&argv, pin(&stored.work));
+        let worked = position(&argv, fd(&stored.work));
         let pinned = position(&argv, pin(&stored.work.join(".forge")));
         let hidden = position(&argv, hide(&held));
         assert!((worked < pinned) & (pinned < hidden), "{argv}");
@@ -375,9 +376,9 @@ fn a_store_a_bind_holds_is_hidden_and_one_outside_every_mount_is_not_mounted() {
     stored.denies(&stored.store);
     let argv = stored.built().unwrap().join(" ");
     let tools = stored.root.join("tools");
-    let bind = format!("--ro-bind-try {t} {t}", t = tools.display());
+    let bind = format!("--ro-bind-fd {t} {t}", t = tools.display());
     let hide = format!("--ro-bind /dev/null {}", stored.store.display());
-    assert!(argv.find(&bind) < argv.find(&hide), "{argv}");
+    assert!(position(&argv, bind) < position(&argv, hide), "{argv}");
     let outside = Stored::at("outside/secrets.env", &[]);
     let argv = outside.built().unwrap().join(" ");
     assert!(!argv.contains("/dev/null"), "{argv}");
@@ -417,7 +418,7 @@ fn a_call_cannot_move_the_store_s_folders_and_the_next_box_still_hides_it() {
     bound.busy(&conf.display().to_string(), &moved.display().to_string());
     bound.denies(&bound.store);
     let argv = bound.built().unwrap().join(" ");
-    let mounted = position(&argv, format!("--bind-try {t} {t}", t = tools.display()));
+    let mounted = position(&argv, fd(&tools));
     assert!(mounted < position(&argv, pin(&conf)), "{argv}");
 }
 
@@ -488,7 +489,7 @@ fn a_generated_pin_that_would_shadow_a_hide_refuses() {
 /// Run 4's L1 and run 5's L2: the one description of every place a box
 /// mounts, which the store's pins and hides are planned from, is the box's
 /// own, and nothing else the box mounts can show the store. Every
-/// filesystem step `box_argv` emits, in order and by its exact flag, is the
+/// filesystem step the box emits, in order and by its exact flag, is the
 /// one this test names: `/proc`, `/dev` and the box's folders; the
 /// toolchain; the identity files, home and tmp under the box's scratch; the
 /// worktree, the bundle root and a linked worktree's Git common directory,
@@ -516,19 +517,17 @@ fn every_mount_the_box_makes_is_the_store_s_description_in_order() {
     std::fs::create_dir(&bundle).unwrap();
     let (scratch, session) = (dir.join("scratch"), dir.join("session"));
     let (spec, work, reach) = (&stored.spec, &stored.work, &stored.reach);
-    let writes = OverlayWrites::Session(&session);
-    let made = box_argv(
+    let workspace = Workspace {
         spec,
-        work,
-        &stored.artifacts,
-        reach,
-        &scratch,
-        writes,
-        &[],
-        Some(&bundle),
-        &one("true"),
-    );
-    let argv = made.unwrap();
+        workdir: work,
+        artifacts: &stored.artifacts,
+        sealed: reach,
+        scratch: &scratch,
+        writes: OverlayWrites::Session(&session),
+        identity: &[],
+        bundle_root: Some(&bundle),
+    };
+    let argv = workspace.boxed(&one("true")).map(described).unwrap();
     let common = main.join(".git");
     let planned = planned(&stored, (&scratch, &session), (&bundle, &common));
     let steps: Vec<&[String]> = planned.iter().map(|(step, _)| step.as_slice()).collect();
@@ -591,32 +590,35 @@ fn planned(
     planned.push((step(&["--bind", &home, "/runtime/home"]), None));
     planned.push((step(&["--bind", &tmp, "/tmp"]), None));
     let both = |flag: &str, path: &Path| step(&[flag, &at(path), &at(path)]);
-    planned.push((both("--bind", work), Some(Held::Writable)));
+    planned.push((both("--bind-fd", work), Some(Held::Writable)));
     let bundled = step(&["--ro-bind", &at(bundle), "/runtime/bundle"]);
     planned.push((bundled, Some(Held::ReadOnly)));
-    planned.push((both("--bind", common), Some(Held::Writable)));
+    planned.push((both("--bind-fd", common), Some(Held::Writable)));
     planned.push((step(&["--tmpfs", &at(&common.join("hooks"))]), None));
-    planned.push((both("--ro-bind-try", &common.join("config")), None));
-    planned.push((both("--bind", &work.join("s")), Some(Held::Pinned)));
-    planned.push((both("--bind", &work.join("s/run")), Some(Held::Pinned)));
+    planned.push((both("--ro-bind-fd", &common.join("config")), None));
+    planned.push((both("--bind-fd", &work.join("s")), Some(Held::Pinned)));
+    planned.push((both("--bind-fd", &work.join("s/run")), Some(Held::Pinned)));
     planned.push((
-        both("--ro-bind-try", &root.join("tools")),
+        both("--ro-bind-fd", &root.join("tools")),
         Some(Held::ReadOnly),
     ));
     let masked = at(&root.join("tools/masked"));
     planned.push((step(&["--ro-bind", "/dev/null", &masked]), None));
+    planned.push((both("--bind-fd", &root.join("cache")), Some(Held::Writable)));
     planned.push((
-        both("--bind-try", &root.join("cache")),
-        Some(Held::Writable),
+        both("--bind-fd", &root.join("cache/deep")),
+        Some(Held::Pinned),
     ));
-    planned.push((both("--bind", &root.join("cache/deep")), Some(Held::Pinned)));
     let (layer, layers) = (at(&root.join("layer")), session.join("overlay/2"));
     let (upper, lower) = (at(&layers.join("upper")), at(&layers.join("work")));
+    // U8k: the lower layer's handle, mounted beneath its overlay so that
+    // bubblewrap closes it, shows nothing the overlay does not.
+    planned.push((both("--ro-bind-fd", &root.join("layer")), None));
     let overlaid = step(&["--overlay-src", &layer, "--overlay", &upper, &lower, &layer]);
     planned.push((overlaid, Some(Held::Overlay)));
     let hide = step(&["--ro-bind", "/dev/null", &at(&stored.store)]);
     planned.push((hide, None));
-    planned.push((both("--ro-bind", &stored.artifacts), None));
+    planned.push((both("--ro-bind-fd", &stored.artifacts), None));
     planned
 }
 
@@ -629,7 +631,8 @@ fn emitted(argv: &[String]) -> Vec<&[String]> {
     while at < end {
         let taken = match argv[at].as_str() {
             "--proc" | "--dev" | "--dir" | "--tmpfs" => 2,
-            "--bind" | "--bind-try" | "--ro-bind" | "--ro-bind-try" => 3,
+            "--bind" | "--bind-try" | "--bind-fd" | "--ro-bind" | "--ro-bind-try" => 3,
+            "--ro-bind-fd" => 3,
             "--overlay-src" if argv[at + 2] == "--overlay" => 6,
             "--overlay-src" => 4,
             _ => {
@@ -648,9 +651,16 @@ fn position(argv: &str, part: String) -> usize {
     argv.find(&part).unwrap_or_else(|| panic!("{part}: {argv}"))
 }
 
-/// The argv's pin of the folder `at` onto itself.
+/// The argv's pin of the folder `at` onto itself, from the handle opened
+/// beneath the source that holds it (U8k).
 fn pin(at: &Path) -> String {
-    format!("--bind {a} {a}", a = at.display())
+    format!("--bind-fd {a} {a}", a = at.display())
+}
+
+/// The argv's writable mount of the sealed source `at` at its own path,
+/// from its handle (U8k).
+fn fd(at: &Path) -> String {
+    format!("--bind-fd {a} {a}", a = at.display())
 }
 
 /// The argv's hide of the store at `at`.
@@ -1178,4 +1188,80 @@ fn a_workspace_box_makes_no_nested_user_namespace_and_still_writes_commits_and_h
     assert_eq!(std::os::unix::fs::MetadataExt::uid(&made), ids().0);
     stored.busy(".forge", "moved");
     stored.denies(&stored.store);
+}
+
+/// U8k (operator ruling 2026-10-26 (2)): with the store, its folders' pins
+/// and an artifact root the worktree holds, each mounts the object the box
+/// observed or the box refuses. A pinned folder, or the artifact root,
+/// replaced inside the worktree once the box holds its handles refuses by
+/// its own path before any process starts. In real namespaces the whole
+/// worktree replaced at that moment is not what the box shows: a workspace
+/// call reads each pinned folder's and the root's own files, cannot write
+/// the root and is denied the store, and an exec reads them too; the decoy
+/// and the host's store are untouched.
+#[test]
+fn the_store_s_pins_and_the_artifact_root_mount_the_objects_observed_or_refuse() {
+    let mut stored = Stored::at("work/s/keys/secrets.env", &[]);
+    stored.artifacts = artifact_root(&stored.work.join("s/run"));
+    marked(&stored.work, "observed\n");
+    for inner in ["s", "s/keys", "s/run", "s/run/artifacts"].map(|at| stored.work.join(at)) {
+        let (moved, dir) = (
+            Drifted::Moved(inner.clone()),
+            stored.dir.path().join("refused"),
+        );
+        let text = format!("hands namespace: {moved}");
+        OPENED.set(Some(decoyed(vec![inner.clone()])));
+        let (spec, work, reach) = (&stored.spec, &stored.work, &stored.reach);
+        let built = boxed_from(spec, work, &stored.artifacts, reach, &dir).map(drop);
+        let built = built.map_err(|error| *error.into_inner().unwrap().downcast().unwrap());
+        assert_eq!(built, Err(moved));
+        restored(&inner);
+        if boxes() {
+            OPENED.set(Some(decoyed(vec![inner.clone()])));
+            assert_eq!(stored.call("touch ran").map(|ran| ran.exit_code), Err(text));
+            assert!(!stored.work.join("ran").exists(), "the command never ran");
+            restored(&inner);
+        }
+    }
+    if !boxes() {
+        return;
+    }
+    let work = stored.work.clone();
+    let decoy = move || {
+        decoyed(vec![work.clone()])();
+        marked(&work, "decoy\n");
+    };
+    let read = "cat s/keys/marker s/run/marker s/run/artifacts/evidence";
+    let write = "{ { echo x > s/run/artifacts/evidence; } 2>/dev/null || echo read-only; }";
+    let store = stored.store.display();
+    OPENED.set(Some(Box::new(decoy.clone())));
+    let ran = stored
+        .call(&format!("{read} && {write} && cat {store}"))
+        .unwrap();
+    let seen = (ran.stdout.as_str(), ran.exit_code);
+    let observed = "observed\nobserved\nobserved\nread-only\n";
+    assert_eq!(seen, (observed, 1), "{}", ran.render());
+    denied(&stored.store, &ran.stderr);
+    let (old, decoyed) = (stored.root.join("work.old"), &stored.work);
+    let evidence = |work: &Path| std::fs::read_to_string(work.join("s/run/artifacts/evidence"));
+    assert_eq!(evidence(&old).unwrap(), "observed\n");
+    assert_eq!(evidence(decoyed).unwrap(), "decoy\n");
+    let host = std::fs::read_to_string(old.join("s/keys/secrets.env")).unwrap();
+    assert_eq!(host, FAKE);
+    restored(&stored.work);
+    OPENED.set(Some(Box::new(decoy)));
+    let three = "printf 'observed\\nobserved\\nobserved'";
+    let exec = format!("test \"$({read})\" = \"$({three})\" && ! cat {store} 2>/dev/null");
+    assert_eq!(stored.exec(&exec), Ok(0));
+    restored(&stored.work);
+}
+
+/// One file holding `text` in each folder the proof above pins below
+/// `work`, and one in its artifact root.
+fn marked(work: &Path, text: &str) {
+    for at in ["s/keys/marker", "s/run/marker", "s/run/artifacts/evidence"] {
+        let at = work.join(at);
+        std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+        std::fs::write(at, text).unwrap();
+    }
 }
