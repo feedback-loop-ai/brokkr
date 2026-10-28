@@ -204,7 +204,8 @@ fn the_guides_transcribe_the_scaffolds_mcp_instruction() {
 /// declares boxed and harness hands and no `resume`, and dsh holds none.
 /// So Claude's boxed shapes and Codex's resumed one stay with the shipped
 /// adapters, and each replacement U0b recorded rides beside its cold
-/// shape (U1d3).
+/// shape (U1d3). Codex's hands-less shapes ride too, for an operator's
+/// own inline codex seat (U1d4).
 const APPLICABLE: [(&str, &[(&str, &str)]); 3] = [
     ("claude", &[("cold", "none"), ("replacement", "none")]),
     (
@@ -212,8 +213,10 @@ const APPLICABLE: [(&str, &[(&str, &str)]); 3] = [
         &[
             ("cold", "boxed"),
             ("cold", "harness"),
+            ("cold", "none"),
             ("replacement", "boxed"),
             ("replacement", "harness"),
+            ("replacement", "none"),
         ],
     ),
     ("dsh", &[("cold", "none"), ("replacement", "none")]),
@@ -400,6 +403,132 @@ fn each_rosters_declarations_carry_their_shipped_mcp_facts_and_still_compile() {
             expected_records(records),
             "{present}"
         );
+    }
+}
+
+/// The U0b cells a measurement's text cites, in order of first mention.
+fn cells(text: &str) -> Vec<&str> {
+    let mut cited: Vec<&str> = Vec::new();
+    let words = text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '-'));
+    for word in words {
+        let cell = word.starts_with('X') && word[1..].starts_with(|c: char| c.is_ascii_digit());
+        if cell && !cited.contains(&word) {
+            cited.push(word);
+        }
+    }
+    cited
+}
+
+/// A shape's four axes, each with the U0b cells its line cites.
+type AxisCells = [(&'static str, &'static [&'static str]); 4];
+
+/// Codex's two hands-less shapes (U1d4) as the shipped adapter records
+/// them, which the scaffold's copy carries by parity: codex-cli 0.164.0 on
+/// Linux, every axis measured, each citing U0b's own cells for it, so a
+/// wrong claim the two copies repeated still fails here.
+#[test]
+fn codexs_hands_less_shapes_cite_u0bs_cells_on_every_axis() {
+    let shipped = json_at(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../adapters/codex.json"),
+    );
+    let expected: [(&str, AxisCells); 2] = [
+        (
+            "cold",
+            [
+                ("ambient", &["X14", "X15", "X13", "X21-legacyiso"]),
+                ("native_write", &["X22", "X23", "X28"]),
+                ("store_read", &["X22", "X23", "X29", "X29b"]),
+                ("process_read", &["X22", "X23"]),
+            ],
+        ),
+        (
+            "replacement",
+            [
+                (
+                    "ambient",
+                    &["X17", "X15", "X18", "X14", "X13", "X21-legacyiso"],
+                ),
+                ("native_write", &["X24", "X23"]),
+                ("store_read", &["X24", "X29", "X29b"]),
+                ("process_read", &["X24"]),
+            ],
+        ),
+    ];
+    for (invocation, axes) in expected {
+        let all = shipped["mcp"]["shapes"].as_array().unwrap().iter();
+        let shape: Vec<&serde_json::Value> = all
+            .filter(|s| s["invocation"] == invocation && s["hands"] == "none")
+            .collect();
+        assert_eq!(shape.len(), 1, "{invocation}");
+        let shape = shape[0].as_object().unwrap();
+        let keys: Vec<&str> = shape.keys().map(String::as_str).collect();
+        let mut expected_keys = vec!["invocation", "hands", "measured_on"];
+        expected_keys.extend(axes.iter().map(|(axis, _)| *axis));
+        expected_keys.sort_unstable();
+        assert_eq!(keys, expected_keys, "{invocation}");
+        assert_eq!(
+            shape["measured_on"],
+            serde_json::json!({"harness": "codex", "binary": "codex", "version": "0.164.0", "host": "linux"}),
+            "{invocation}"
+        );
+        for (axis, cited) in axes {
+            let fact = shape[axis].as_object().unwrap();
+            assert_eq!(
+                fact.keys().collect::<Vec<_>>(),
+                ["measured"],
+                "{invocation} {axis}"
+            );
+            assert_eq!(
+                cells(fact["measured"].as_str().unwrap()),
+                cited,
+                "{invocation} {axis}"
+            );
+        }
+    }
+}
+
+/// The shipped recipes whose Codex seats are served without hands — a
+/// gate cold, a work seat cold, as its replacement and on its work-site
+/// resume — and every such seat's SI2 record as each compile keeps it
+/// under the standing fence: cold and replacement measured on Linux since
+/// U1d4, where U9b1's first run found them absent; on macOS all absent,
+/// for U0b measured Linux alone.
+#[test]
+fn the_shipped_hands_less_codex_seats_read_measured_where_u0b_measured_them() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let gate: &[&str] = &["cold none measured"];
+    let work: &[&str] = &[
+        "cold none measured",
+        "replacement none measured",
+        "work-site none measured",
+    ];
+    let positions = [
+        ("design:positions:robustness codex", work),
+        ("design:positions:simplicity codex", work),
+        ("triage codex", gate),
+    ];
+    for (recipe, rows) in [
+        ("recipes/triage", &positions[..]),
+        ("recipes/gpt-flash", &[positions[0], positions[2]][..]),
+        (
+            "recipes/standby",
+            &[("implement codex", work), ("review codex", gate)][..],
+        ),
+        ("recipes/wager-harness", &[("implement codex", work)][..]),
+    ] {
+        let compiled = brokkr_runtime::Bundle::compile_with(
+            &root.join(recipe),
+            &root.join("agents"),
+            &root.join("adapters"),
+        )
+        .unwrap_or_else(|e| panic!("{recipe} must compile: {e}"));
+        let codex: Vec<(String, Vec<String>)> = strict_records(&compiled)
+            .into_iter()
+            .filter(|(site, shapes)| {
+                site.ends_with(" codex") && shapes.iter().any(|shape| shape.contains(" none "))
+            })
+            .collect();
+        assert_eq!(codex, expected_records(rows), "{recipe}");
     }
 }
 

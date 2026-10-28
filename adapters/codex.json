@@ -91,6 +91,28 @@
         }
       },
       {
+        "invocation": "cold",
+        "hands": "none",
+        "measured_on": {
+          "harness": "codex",
+          "binary": "codex",
+          "version": "0.164.0",
+          "host": "linux"
+        },
+        "ambient": {
+          "measured": "U0b X14 (read-only) and X15 (workspace-write), U9c2's cold argv with no hands fragment, after X13's positive control: no planted user, project or plugin server started while the engine answered; the /etc/codex system and managed servers still start (X21-legacyiso, a stand-in), so U9c2 refuses such a host; the enterprise cloud layer is never measured"
+        },
+        "native_write": {
+          "measured": "U0b X22, the read-only class: codex's native shell met Read-only file system inside and outside the workdir; X23, workspace-write: written inside the workdir, Read-only file system outside; X28, workspace-write: writes into .git and .codex met Read-only file system while a plain workspace file was written"
+        },
+        "store_read": {
+          "measured": "U0b X22 (read-only) and X23 (workspace-write): the brokkr profile denied codex's native shell the store at its production path in the workdir; the folder move X29 found is closed by U8i, measured without a model (X29b, ruling 5(a)); the model-driven X29b is pending"
+        },
+        "process_read": {
+          "measured": "U0b X22 (read-only) and X23 (workspace-write): no process canary was found by codex's native shell in its private pid namespace of 4 /proc entries"
+        }
+      },
+      {
         "invocation": "replacement",
         "hands": "boxed",
         "measured_on": {
@@ -132,6 +154,28 @@
         },
         "process_read": {
           "measured": "U0b X24: codex's native shell found no process canary in its private pid namespace"
+        }
+      },
+      {
+        "invocation": "replacement",
+        "hands": "none",
+        "measured_on": {
+          "harness": "codex",
+          "binary": "codex",
+          "version": "0.164.0",
+          "host": "linux"
+        },
+        "ambient": {
+          "measured": "U0b X17 (X15's argv without hands, then the replacement in the same home, which trusts the project) and X18 (a failed rejoin, then the cold argv, as X14), after X13's positive control: no planted user, project or plugin server started while the engine answered; /etc/codex servers still start (X21-legacyiso), so U9c2 refuses such a host; the enterprise cloud layer is never measured"
+        },
+        "native_write": {
+          "measured": "U0b X24, the workspace-write replacement: codex's native shell wrote inside the workdir and met Read-only file system outside it, as X23"
+        },
+        "store_read": {
+          "measured": "U0b X24, the workspace-write replacement: the brokkr profile denied codex's native shell the store at its production path in the workdir; the folder move X29 found is closed by U8i, measured without a model (X29b, ruling 5(a)); the model-driven X29b is pending"
+        },
+        "process_read": {
+          "measured": "U0b X24, the workspace-write replacement: no process canary was found by codex's native shell in its private pid namespace"
         }
       },
       {
