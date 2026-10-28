@@ -11,6 +11,7 @@ use brokkr_core::summary::{parks, Bounded, NAME_BYTES};
 use rusqlite::params;
 use serde_json::{json, Value as Json};
 
+use super::park_walk::PARK_STALE;
 use super::{index_intact, parked, IndexFault, PARK_COLUMNS};
 use crate::summary::Compared;
 use crate::test_support::{
@@ -173,7 +174,7 @@ fn refolded_lag(mut store: Store, run_id: &str) -> Store {
 /// run reads as its fold.
 fn refolded_at_head(store: Store, held: &[Value]) {
     let store = refolded(store);
-    assert_eq!(store.park_after(None).unwrap(), None);
+    assert_eq!(store.park_after().unwrap(), None);
     assert_eq!(kept(&store, "r", 3), held);
     assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
 }
@@ -383,7 +384,7 @@ fn an_unwritten_park_is_refolded_at_the_next_open() {
             [],
         )
         .unwrap();
-    assert!(store.park_after(None).unwrap().is_some());
+    assert!(store.park_after().unwrap().is_some());
     lags(&mut store, &["r"]);
     refolded_at_head(store, &held);
 }
@@ -406,7 +407,7 @@ fn a_park_stamp_that_is_not_its_head_is_refolded_at_the_next_open() {
         .unwrap();
     // An intact table leaves the row for the next writable open, which
     // refolds it at the head the run now has.
-    assert_eq!(store.park_after(None).unwrap().as_deref(), Some("r"));
+    assert_eq!(store.park_after().unwrap().as_deref(), Some("r"));
     assert_eq!(disagreements(&store), Vec::<String>::new());
     assert!(matches!(
         store.compared("r", || {}).unwrap(),
@@ -446,14 +447,81 @@ fn the_sweep_takes_the_least_run_of_its_two_reads() {
             [],
         )
         .unwrap();
-    assert_eq!(store.park_after(None).unwrap().as_deref(), Some("a"));
+    assert_eq!(store.park_after().unwrap().as_deref(), Some("a"));
     lags(&mut store, &["a", "b"]);
     let mut visited = 0;
     store.park_behind_with(|_| visited += 1).unwrap();
     assert_eq!(visited, 2);
     assert_eq!(kept(&store, "a", 3), a);
     assert_eq!(kept(&store, "b", 3), b);
-    assert_eq!(store.park_after(None).unwrap(), None);
+    assert_eq!(store.park_after().unwrap(), None);
+}
+
+/// A journal of `prefix` one-event runs, the first `stale` of them parked
+/// with their facts sent behind, then `current` parked runs whose facts
+/// stand at head: the last sweep's selection steps, its off-head scan and
+/// its stale seeks apart. The prefix runs past `stale` carry no park row,
+/// so both journals have the same facts index and the same events.
+fn mixed_park_sweep(stale: usize, prefix: usize, current: usize) -> (i64, i64) {
+    let (_dir, mut store) = store();
+    for index in 0..prefix + current {
+        let run_id = format!("r{index:04}");
+        let no_park = index < prefix && index >= stale;
+        let event = if no_park {
+            EnvelopeBuilder::new(EventType::PhaseEntered, json!({"phase": "implement"}))
+        } else {
+            EnvelopeBuilder::new(EventType::RunParked, json!({"reason": "waiting"}))
+        }
+        .run(&run_id)
+        .seq(1)
+        .event_id(format!("{run_id}-1"))
+        .at("2026-01-01T00:00:01Z")
+        .sealed();
+        plant_older_writer(&store, &run_id, std::slice::from_ref(&event));
+        if !no_park {
+            kept_before_parks(&store, &run_id);
+        }
+    }
+    store.park_behind_with(|_| {}).unwrap();
+    for index in 0..stale {
+        store
+            .conn
+            .execute(
+                "UPDATE event_index SET facts_seq = NULL
+                 WHERE run_id = ?1 AND type = 'run/parked'",
+                params![format!("r{index:04}")],
+            )
+            .unwrap();
+    }
+    store.park_behind_with(|_| {}).unwrap();
+    store.park_steps.get()
+}
+
+/// A mixed journal's current suffix is read once, however many stale runs
+/// precede it: the off-head scan steps are the same for one stale run as
+/// for `prefix`, the stale seeks grow with the runs they visit, and each
+/// is a range search rather than a scan. Before the walk, every refold
+/// read that suffix again, so 64 stale runs cost 64 scans of it, and the
+/// cursor's optional-or predicate made the seek a scan too (decision 0071
+/// ruling 9).
+#[test]
+fn a_mixed_park_sweep_reads_the_current_suffix_once() {
+    let (_dir, empty) = store();
+    assert_eq!(
+        crate::test_support::plan(&empty, &PARK_STALE, [""]).unwrap(),
+        ["SEARCH event_index USING INDEX event_index_park_stale (run_id>?)"]
+    );
+    let one = mixed_park_sweep(1, 64, 64);
+    let many = mixed_park_sweep(64, 64, 64);
+    assert!(one.0 > 0, "the walk scans the facts index: {one:?}");
+    assert_eq!(
+        one.0, many.0,
+        "the current suffix is read once: {one:?} vs {many:?}"
+    );
+    assert!(
+        many.1 > one.1,
+        "the stale seeks grow with the stale runs: {one:?} vs {many:?}"
+    );
 }
 
 /// Two runs whose park facts nothing wrote are both refolded at the next
@@ -479,10 +547,10 @@ fn two_unwritten_park_runs_are_both_refolded_at_the_next_open() {
             [],
         )
         .unwrap();
-    assert_eq!(store.park_after(None).unwrap().as_deref(), Some("a"));
+    assert_eq!(store.park_after().unwrap().as_deref(), Some("a"));
     lags(&mut store, &["a", "b"]);
     let store = refolded(store);
-    assert_eq!(store.park_after(None).unwrap(), None);
+    assert_eq!(store.park_after().unwrap(), None);
     for (run_id, row) in held {
         assert_eq!(kept(&store, run_id, 3), row, "run {run_id}");
     }
@@ -566,7 +634,7 @@ fn an_ignored_park_is_processed_once_and_reads_as_its_fold() {
             params![run_id],
         )
         .unwrap();
-    assert_eq!(store.park_after(None).unwrap().as_deref(), Some(run_id));
+    assert_eq!(store.park_after().unwrap().as_deref(), Some(run_id));
     let mut visited = 0;
     store.park_behind_with(|_| visited += 1).unwrap();
     assert_eq!(visited, 1);
@@ -581,7 +649,7 @@ fn an_ignored_park_is_processed_once_and_reads_as_its_fold() {
             processed_at,
         ]
     );
-    assert_eq!(store.park_after(None).unwrap(), None);
+    assert_eq!(store.park_after().unwrap(), None);
     assert!(matches!(
         store.compared(run_id, || {}).unwrap(),
         Compared::Agrees
@@ -593,7 +661,7 @@ fn an_ignored_park_is_processed_once_and_reads_as_its_fold() {
     let mut visited = 0;
     store.park_behind_with(|_| visited += 1).unwrap();
     assert_eq!(visited, 0);
-    assert_eq!(store.park_after(None).unwrap(), None);
+    assert_eq!(store.park_after().unwrap(), None);
 }
 
 /// A table from before the parks is not read by its index and refuses its
@@ -811,9 +879,9 @@ fn a_run_that_does_not_load_keeps_its_parks_for_the_doctor() {
         refused.to_string(),
         "chain: event 2: previous_hash does not match event 1"
     );
-    assert_eq!(store.park_after(None).unwrap().as_deref(), Some(run_id));
+    assert_eq!(store.park_after().unwrap().as_deref(), Some(run_id));
     store.park_behind_with(|_| {}).unwrap();
-    assert_eq!(store.park_after(None).unwrap().as_deref(), Some(run_id));
+    assert_eq!(store.park_after().unwrap().as_deref(), Some(run_id));
     assert_eq!(kept(&store, run_id, 3), vec![Value::Null; 6]);
 }
 
@@ -956,9 +1024,9 @@ fn restoring_the_park_trigger_sends_the_facts_it_missed_behind() {
     assert_eq!(kept(&store, "r", 3), held);
     // The sweep finds the stamp the missing trigger left off the head, so
     // the next writable open refolds it whether or not the repair runs.
-    assert_eq!(store.park_after(None).unwrap().as_deref(), Some("r"));
+    assert_eq!(store.park_after().unwrap().as_deref(), Some("r"));
     let store = refolded_lag(store, "r");
-    assert_eq!(store.park_after(None).unwrap(), None);
+    assert_eq!(store.park_after().unwrap(), None);
     assert_eq!(
         kept(&store, "r", 3),
         [

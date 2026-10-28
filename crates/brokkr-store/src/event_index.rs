@@ -56,8 +56,10 @@ const TRIGGERS: [&str; 3] = [
 ];
 
 mod compare;
+mod park_walk;
 
 pub(crate) use compare::{first_parted, place};
+use park_walk::ParkWalk;
 
 /// The checkpoints one page of a seat's stream holds (ruling 7).
 pub(crate) const CHECKPOINT_PAGE: usize = 50;
@@ -85,6 +87,13 @@ const PARK_COLUMNS: [&str; 6] = [
     "span_class",
     "facts_seq",
 ];
+
+/// The predicate that names a park row whose written stamp is not its
+/// run's head, read through the facts index: the repair and the sweep's
+/// off-head read both ask it (decision 0089 ruling 7).
+pub(super) const OFF_HEAD: &str = "facts_seq IS NOT NULL
+           AND facts_seq IS NOT (SELECT max(seq) FROM events
+                                  WHERE events.run_id = event_index.run_id)";
 
 /// A park's dated facts in [`PARK_COLUMNS`]' order, at the head they
 /// cover: the phase cut where it is stored, the moments as they happened,
@@ -288,9 +297,7 @@ pub(crate) fn index_intact(conn: &Connection) -> Result<bool, StoreError> {
 fn send_parks_behind() -> String {
     format!(
         "UPDATE event_index SET facts_seq = NULL
-         WHERE type = '{PARKED}' AND facts_seq IS NOT NULL
-           AND facts_seq IS NOT (SELECT max(seq) FROM events
-                                  WHERE events.run_id = event_index.run_id)"
+         WHERE type = '{PARKED}' AND {OFF_HEAD}"
     )
 }
 
@@ -601,33 +608,11 @@ impl Store {
         patiently("index", self.patience, || mark_indexed(conn))
     }
 
-    /// The first run past `after` whose park rows do not stand at its
-    /// head: their dated facts unwritten (`facts_seq` NULL), or a stamp
-    /// the head does not name that a missing trigger left off it. The
-    /// unwritten rows are read through the partial index of rows still to
-    /// write, the off-head ones through the facts index, and the least
-    /// run id of the two is returned, or the first such run.
-    fn park_after(&self, after: Option<&str>) -> Result<Option<String>, StoreError> {
-        let first = |sql: String| -> Result<Option<String>, StoreError> {
-            let next = self.conn.query_row(&sql, [after], |row| row.get(0));
-            Ok(next.optional()?)
-        };
-        let unwritten = first(format!(
-            "SELECT run_id FROM event_index INDEXED BY event_index_park_stale
-             WHERE type = '{PARKED}' AND facts_seq IS NULL
-               AND (?1 IS NULL OR run_id > ?1) ORDER BY run_id LIMIT 1"
-        ))?;
-        let off = first(format!(
-            "SELECT run_id FROM event_index INDEXED BY event_index_park_facts
-             WHERE type = '{PARKED}' AND facts_seq IS NOT NULL
-               AND facts_seq IS NOT (SELECT max(seq) FROM events
-                                      WHERE events.run_id = event_index.run_id)
-               AND (?1 IS NULL OR run_id > ?1) ORDER BY run_id LIMIT 1"
-        ))?;
-        Ok(match (unwritten, off) {
-            (Some(left), Some(right)) => Some(left.min(right)),
-            (left, right) => left.or(right),
-        })
+    /// The first run a fresh walk names, for a test that checks its next
+    /// step.
+    #[cfg(test)]
+    fn park_after(&self) -> Result<Option<String>, StoreError> {
+        ParkWalk::new(&self.conn)?.next(&self.conn)
     }
 
     /// Write every park's dated facts that a writer from before them left
@@ -638,22 +623,25 @@ impl Store {
     /// hold only park rows, so a journal whose parks all stand at their
     /// heads finds none. `between` runs on this connection after a run is
     /// read and before its transaction, the instant the tests stage a
-    /// peer's lock at. The runs are read by their key one at a time, so
-    /// the memory is the largest run's.
+    /// peer's lock at. One [`ParkWalk`] reads the off-head rows once and
+    /// seeks each stale row past the last run it named, so the selection
+    /// is the journal's parks and not their product with the stale runs;
+    /// the memory is those off-head run ids and the largest run's events.
     pub(crate) fn park_behind_with(
         &mut self,
         mut between: impl FnMut(&Connection),
     ) -> Result<(), StoreError> {
-        let mut after: Option<String> = None;
-        while let Some(run_id) = self.park_after(after.as_deref())? {
+        let mut walk = ParkWalk::new(&self.conn)?;
+        while let Some(run_id) = walk.next(&self.conn)? {
             if let Ok(events) = self.load(&run_id) {
                 let account = Account::whole(&run_id, &events);
                 between(&self.conn);
                 let conn = &mut self.conn;
                 patiently("parks", self.patience, || park_once(conn, &account))?;
             }
-            after = Some(run_id);
         }
+        #[cfg(test)]
+        self.park_steps.set(walk.steps());
         Ok(())
     }
 
