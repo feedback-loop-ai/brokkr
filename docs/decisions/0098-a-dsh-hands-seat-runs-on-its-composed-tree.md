@@ -1,4 +1,4 @@
-# 0097 — A dsh hands seat runs on the composed tree it measured, fails closed without its tool, and takes its access from its office
+# 0098 — A dsh hands seat runs on the composed tree it measured, fails closed without its tool, and takes its access from its office
 
 Status: proposed
 Date: 2026-10-26

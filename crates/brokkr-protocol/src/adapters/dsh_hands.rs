@@ -177,8 +177,10 @@ pub(super) enum Selection {
 impl Selection {
     /// The rows the seat's one overlay carries: the hands rows for a hands
     /// seat, the scoped runner's staged row for a runner seat, and `None`
-    /// only for a runner seat whose git metadata already sits inside the
-    /// workspace, exactly as main wrote it (#896 round 4).
+    /// where no scoped runner is staged, exactly as main wrote it (#896
+    /// round 4). The conditions a runner is staged under are
+    /// [`super::dsh_git_runner_scope`]'s, its one home (decision 0071
+    /// ruling 5).
     pub(super) fn rows(&self) -> Option<&str> {
         match self {
             Selection::Hands { rows, .. } => Some(rows),

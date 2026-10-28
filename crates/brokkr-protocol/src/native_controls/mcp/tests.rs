@@ -217,3 +217,14 @@ fn dsh_carries_the_hands_alone_in_its_overlay() {
     assert!(!alone.carried("dsh", &option));
     assert!(!Servers::default().carried("dsh", &[]));
 }
+
+/// A harness whose grammar carries no MCP options reads no server table,
+/// as the reader's own contract says, so dsh's overlay-borne set never
+/// borrows Claude's or Codex's reading.
+#[test]
+fn a_harness_with_no_mcp_carrier_reads_no_servers() {
+    let document = vec!["{}".to_string()];
+    let controls = [("--mcp-config", &document)];
+    assert_eq!(read("dsh", &controls), None);
+    assert_eq!(read("exec", &controls), None);
+}

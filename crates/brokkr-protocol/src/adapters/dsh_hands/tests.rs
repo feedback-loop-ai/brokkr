@@ -14,6 +14,12 @@ use crate::env_guard::EnvGuard;
 use crate::hands::{HandsSpec, SEALED_REACH};
 use crate::native_controls::{SealedBoundary, SealedDialect, ARTIFACT_ROOT, SERVING_INPUTS};
 
+/// The full text an unreadable composed dsh tree prints.
+const UNREADABLE: &str =
+    "refusing to invoke the dsh driver: the composed dsh tree cannot be read as \
+                          the one sequence of id and package rows dsh writes, so the seat is \
+                          admitted on no measured composition (#896 D1)";
+
 /// The measured overlay of #896, as an independent literal: the ten tool
 /// rows the controller disabled on 0.2.1-rc.2 and rc.3, in its order, and
 /// the sandbox row up to its mode.
@@ -456,6 +462,11 @@ fn the_dsh_startup_report_fails_closed_and_carries_partial() {
         Ok(Enforcement::Full)
     );
     assert_eq!(
+        checked("dsh: warning: 1\n"),
+        Ok(Enforcement::Full),
+        "a warning with no space after its count is no activation refusal"
+    );
+    assert_eq!(
         ReportRefusal::NotActivated.to_string(),
         "refusing the dsh seat: the hands row 'brokkr-hands' did not activate, so the seat's one \
          effectful tool was never served; dsh ran the session anyway (#896 D0)"
@@ -490,6 +501,9 @@ fn the_composed_tree_is_the_measured_dump_and_refuses_an_ambient_row() {
     expected.sort_unstable();
     assert_eq!(found, expected);
     assert_eq!(parsed.len(), 99);
+    // The measured dump itself is admitted: every effectful row is disabled
+    // and the one MCP client is Brokkr's.
+    assert_eq!(judge(&parsed), Ok(()));
 
     let base = "- id: brokkr-hands\n  name: '@deepseek-ai/dsh-mcp-client'\n";
     let cases = [
@@ -746,13 +760,16 @@ fn a_linked_worktree_runner_is_not_a_hands_launch() {
     assert_runner(warm, true);
 }
 
-/// Every composed-tree refusal names itself in full, once (#896 round 3;
-/// decision 0071 ruling 8).
+/// The judge refuses each row a seat may not be served, driven from the
+/// dump text itself, and prints the operator's full words; a measured row
+/// left disabled is admitted.
 #[test]
-fn every_composition_refusal_names_itself_in_full() {
-    use super::composition::Composition;
+fn the_composed_tree_judge_refuses_by_its_full_words() {
+    use super::composition::{judge, rows, Composition};
+    let hands = "- id: brokkr-hands\n  name: '@deepseek-ai/dsh-mcp-client'\n";
     let cases = [
         (
+            format!("{hands}- id: ambient\n  name: '@deepseek-ai/dsh-ambient'\n"),
             Composition::Unmeasured {
                 id: "ambient".into(),
                 name: "@deepseek-ai/dsh-ambient".into(),
@@ -762,19 +779,22 @@ fn every_composition_refusal_names_itself_in_full() {
              0.2.1-rc.2) does not name, so a seat would be served a row nobody measured (#896 D1)",
         ),
         (
+            "- id: tool-bash\n  name: '@deepseek-ai/dsh-tool-bash'\n  disabled: true\n".to_string(),
             Composition::NoHands,
             "refusing to invoke the dsh driver: the composed dsh tree carries no 'brokkr-hands' \
              row, so the seat's one effectful tool would not be served (#896 D1)",
         ),
         (
+            format!("{hands}- id: ambient-hands\n  name: '@deepseek-ai/dsh-mcp-client'\n"),
             Composition::SecondClient {
-                id: "ambient".into(),
+                id: "ambient-hands".into(),
             },
             "refusing to invoke the dsh driver: the composed dsh tree carries a second \
-             dsh-mcp-client row 'ambient', so the seat would be served a second effectful server \
-             beside Brokkr's (#896 D1)",
+             dsh-mcp-client row 'ambient-hands', so the seat would be served a second effectful \
+             server beside Brokkr's (#896 D1)",
         ),
         (
+            format!("{hands}- id: tool-web\n  name: '@deepseek-ai/dsh-tool-web'\n"),
             Composition::Enabled {
                 id: "tool-web".into(),
             },
@@ -783,27 +803,97 @@ fn every_composition_refusal_names_itself_in_full() {
              beside the box (#896 D1)",
         ),
         (
+            "- id: brokkr-hands\n  name: '@deepseek-ai/dsh-mcp-client'\n  disabled: true\n"
+                .to_string(),
+            Composition::Enabled {
+                id: "brokkr-hands".into(),
+            },
+            "refusing to invoke the dsh driver: the composed dsh tree carries row 'brokkr-hands' \
+             enabled, which the hands rows disable, so the seat would keep an effectful tool \
+             beside the box (#896 D1)",
+        ),
+        (
+            format!("{hands}{hands}"),
             Composition::Repeated {
                 id: "brokkr-hands".into(),
             },
             "refusing to invoke the dsh driver: the composed dsh tree names row 'brokkr-hands' \
              twice, so no row it reads can be trusted (#896 D1)",
         ),
-        (
-            Composition::Unreadable,
-            "refusing to invoke the dsh driver: the composed dsh tree cannot be read as the one \
-             sequence of id and package rows dsh writes, so the seat is admitted on no measured \
-             composition (#896 D1)",
-        ),
-        (
-            Composition::DumpFailed {
-                status: "exit 2".into(),
-            },
-            "refusing to invoke the dsh driver: `dsh --dump-config` failed (exit 2), so the \
-             composed tree could not be read and the seat is not launched (#896 D1)",
-        ),
     ];
-    for (refusal, text) in cases {
-        assert_eq!(refusal.to_string(), text);
+    for (dump, expected, text) in cases {
+        let refusal = judge(&rows(dump.as_bytes()).unwrap()).unwrap_err();
+        assert_eq!(refusal, expected, "{dump}");
+        assert_eq!(refusal.to_string(), text, "{dump}");
     }
+    let admitted =
+        format!("{hands}- id: tool-bash\n  name: '@deepseek-ai/dsh-tool-bash'\n  disabled: true\n");
+    assert_eq!(judge(&rows(admitted.as_bytes()).unwrap()), Ok(()));
+}
+
+/// The reader refuses a row it cannot read as one id and one name, printing
+/// the refusal's full words.
+#[test]
+fn the_composed_tree_reader_refuses_a_row_that_is_not_one_id_and_name() {
+    use super::composition::{rows, Composition};
+    for dump in [
+        "- id: twice\n  name: first\n  name: second\n",
+        "- id: stray\n  name: '@deepseek-ai/dsh-tool-bash'\nnot a row\n",
+        "- id: nameless\n",
+    ] {
+        let refusal = rows(dump.as_bytes()).unwrap_err();
+        assert_eq!(refusal, Composition::Unreadable, "{dump}");
+        assert_eq!(refusal.to_string(), UNREADABLE, "{dump}");
+    }
+}
+
+/// The dump path refuses a failed dump by its exit code, a dump killed by
+/// a signal in its own words, and a dump over the bound as unreadable.
+#[cfg(unix)]
+#[test]
+fn the_composed_tree_check_refuses_a_failed_or_oversized_dump() {
+    use super::composition::{composed_with, Composition};
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::{Command, ExitStatus, Output};
+
+    let run = |status: ExitStatus, stdout: Vec<u8>| {
+        composed_with(Command::new("dsh"), |_| {
+            Ok(Output {
+                status,
+                stdout,
+                stderr: Vec::new(),
+            })
+        })
+    };
+    let exit = run(ExitStatus::from_raw(2 << 8), Vec::new()).unwrap_err();
+    assert_eq!(
+        exit,
+        Composition::DumpFailed {
+            status: "exit 2".into()
+        }
+    );
+    assert_eq!(
+        exit.to_string(),
+        "refusing to invoke the dsh driver: `dsh --dump-config` failed (exit 2), so the \
+         composed tree could not be read and the seat is not launched (#896 D1)"
+    );
+    let signal = run(ExitStatus::from_raw(9), Vec::new()).unwrap_err();
+    assert_eq!(
+        signal,
+        Composition::DumpFailed {
+            status: "by signal".into()
+        }
+    );
+    assert_eq!(
+        signal.to_string(),
+        "refusing to invoke the dsh driver: `dsh --dump-config` failed (by signal), so the \
+         composed tree could not be read and the seat is not launched (#896 D1)"
+    );
+    let oversized = run(ExitStatus::from_raw(0), vec![b'-'; (1 << 20) + 1]).unwrap_err();
+    assert_eq!(oversized, Composition::Unreadable);
+    assert_eq!(oversized.to_string(), UNREADABLE);
+    // A clean dump whose bytes are not rows is refused by the same reader.
+    let shapeless = run(ExitStatus::from_raw(0), b"not a dump\n".to_vec()).unwrap_err();
+    assert_eq!(shapeless, Composition::Unreadable);
+    assert_eq!(shapeless.to_string(), UNREADABLE);
 }

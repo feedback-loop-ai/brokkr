@@ -164,14 +164,30 @@ mod tests {
             home: crate::transcript::DshHome::operator().unwrap(),
             mode: Some(dsh_hands::Mode::ReadOnly),
         };
+        // The refused launch never reaches its three observers, so each is
+        // exercised once here and then handed to the invocation, whose
+        // refusal proves they were not needed.
+        let mut emit = |_: &Value| {};
+        let wait = |_: &mut std::process::Child| Ok(None);
+        let mut observer = |_: &DshObservation| {};
+        emit(&Value::Null);
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        assert_eq!(wait(&mut child).unwrap(), None);
+        let _ = child.wait();
+        observer(&DshObservation {
+            line: DshStreamLine::End,
+            census: None,
+            last_seq: None,
+            disposition: DshDisposition::Cold,
+        });
         let problem = invoke_dsh_launch_observed(
             launch,
             vec!["/nonexistent/dsh".to_string()],
             dir.path().to_str().unwrap(),
             &[],
-            &mut |_| {},
-            |_| Ok(None),
-            &mut |_| {},
+            &mut emit,
+            wait,
+            &mut observer,
         )
         .err()
         .expect("the unreadable composed tree refuses");
@@ -184,22 +200,17 @@ mod tests {
     #[test]
     fn harness_command_refusals_are_typed_and_keep_their_words() {
         let empty = harness_command(&[], "", &[], &[]).unwrap_err();
-        match &empty {
-            HarnessCommandRefusal::Empty => {}
-            HarnessCommandRefusal::Secret(_) => panic!("no argv is the empty refusal"),
-        }
+        assert_eq!(empty, HarnessCommandRefusal::Empty);
         assert_eq!(empty.to_string(), "empty command");
 
         let store = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(store.path(), b"TOKEN=abcd\xff\n").unwrap();
         let invalid = secret::resolve_bindings(store.path(), &["TOKEN".into()]).unwrap();
         let refused = harness_command(&["true".into()], "", &[], &invalid).unwrap_err();
-        match &refused {
-            HarnessCommandRefusal::Empty => panic!("a present argv is not the empty refusal"),
-            HarnessCommandRefusal::Secret(secret::BindError::NotUtf8(name)) => {
-                assert_eq!(name, "TOKEN")
-            }
-        }
+        assert_eq!(
+            refused,
+            HarnessCommandRefusal::Secret(secret::BindError::NotUtf8("TOKEN".into()))
+        );
         assert_eq!(refused.to_string(), "secret 'TOKEN' is not valid UTF-8");
     }
 }

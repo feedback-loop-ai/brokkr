@@ -56,12 +56,6 @@ pub(crate) enum ReportRefusal {
     SandboxUnavailable,
 }
 
-impl From<ReportRefusal> for String {
-    fn from(refusal: ReportRefusal) -> Self {
-        refusal.to_string()
-    }
-}
-
 /// Read dsh's startup stderr: an unavailable sandbox fails closed, a hands
 /// entry that did not activate fails closed, and partial enforcement is
 /// reported to the caller.
