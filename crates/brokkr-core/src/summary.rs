@@ -24,6 +24,11 @@ use crate::residual::{
 use crate::seat::row::{SeatRow, Seats};
 use crate::stamp::parse_millis;
 
+mod aggregate;
+
+use aggregate::Reading;
+pub use aggregate::{aggregate, Aggregate, Ending};
+
 /// The bound of a name a run's data states: a phase, a rule id, the phase
 /// that ruled, a seat (decision 0089 ruling 2).
 pub const NAME_BYTES: usize = 64;
@@ -190,6 +195,8 @@ pub struct Account {
     marks: BTreeMap<u64, Mark>,
     /// Its seats' rows (decision 0089 ruling 1).
     seats: Seats,
+    /// What the aggregate readouts read of it (ruling 7).
+    reading: Reading,
 }
 
 impl Account {
@@ -205,6 +212,7 @@ impl Account {
             findings: Vec::new(),
             marks: BTreeMap::new(),
             seats: Seats::default(),
+            reading: Reading::default(),
         }
     }
 
@@ -235,6 +243,7 @@ impl Account {
         for event in suffix {
             note_closing(&mut self.marks, event);
             self.seats.note(event);
+            self.reading.note(event);
         }
         self.head = (last.seq, last.event_hash.clone());
         self.last_recorded_at = Some(last.recorded_at.clone());
@@ -329,6 +338,8 @@ pub struct Summary {
     pub head_seq: u64,
     pub head_hash: String,
     pub last_recorded_at: Option<Bounded>,
+    /// What the aggregate readouts read of the run (ruling 7), whole.
+    pub aggregate: Aggregate,
 }
 
 impl Summary {
@@ -371,6 +382,7 @@ impl Summary {
             head_seq: account.head.0,
             head_hash: account.head.1.clone(),
             last_recorded_at: stamp.map(|stamp| Bounded::within(stamp, STAMP_BYTES)),
+            aggregate: account.reading.of(state),
         }
     }
 }

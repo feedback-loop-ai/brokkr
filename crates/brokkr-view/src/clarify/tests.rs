@@ -116,7 +116,8 @@ fn the_worktree_is_the_pinned_realms_path_resolved_against_the_map() {
     assert_eq!(worktree(&relative).as_deref(), Some("/work/repos/alpha"));
     let absolute = started(pin("/work/realms.json", Some("alpha"), "/srv/alpha"));
     assert_eq!(worktree(&absolute).as_deref(), Some("/srv/alpha"));
-    assert_eq!(pinned_realm(&relative).as_deref(), Some("alpha"));
+    let realm = brokkr_core::summary::aggregate(&relative, None).realm;
+    assert_eq!(realm.as_deref(), Some("alpha"));
 }
 
 #[test]
@@ -141,39 +142,4 @@ fn a_worktree_the_journal_does_not_name_is_absent() {
         started(pin("/work/realms.json", Some("alpha"), "a")).remove(0),
     ];
     assert_eq!(worktree(&second), None, "only the first event starts a run");
-}
-
-#[test]
-fn the_recipe_is_the_bundle_name_the_start_recorded() {
-    let named = vec![ev(
-        1,
-        EventType::RunStarted,
-        json!({"manifest": {"bundle_name": "triage"}}),
-        T,
-    )];
-    assert_eq!(recipe(&named).as_deref(), Some("triage"));
-    let unnamed = vec![ev(1, EventType::RunStarted, json!({"manifest": {}}), T)];
-    assert_eq!(recipe(&unnamed), None, "a start that names no recipe");
-    assert_eq!(recipe(&[]), None, "no run/started");
-    let second = vec![
-        ev(
-            1,
-            EventType::PhaseEntered,
-            json!({"manifest": {"bundle_name": "x"}}),
-            T,
-        ),
-        ev(
-            2,
-            EventType::RunStarted,
-            json!({"manifest": {"bundle_name": "y"}}),
-            T,
-        ),
-    ];
-    assert_eq!(
-        recipe(&second),
-        None,
-        "only a first event that starts the run"
-    );
-    let malformed = vec![ev(1, EventType::RunStarted, json!({"manifest": "nope"}), T)];
-    assert_eq!(recipe(&malformed), None, "a manifest that does not read");
 }

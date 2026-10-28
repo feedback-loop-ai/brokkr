@@ -10,7 +10,7 @@ const LISTING: Listing<'static> = Listing {
 
 /// A journal of `steps`, seq 1 onward, each stamped a second after the
 /// last and sealed.
-fn journal(steps: &[(EventType, Value)]) -> Vec<EventEnvelope> {
+pub(super) fn journal(steps: &[(EventType, Value)]) -> Vec<EventEnvelope> {
     steps
         .iter()
         .enumerate()
@@ -89,6 +89,21 @@ fn parked() -> Vec<EventEnvelope> {
     journal(&steps)
 }
 
+/// The aggregates of a run started at `started_ms` that names no realm or
+/// recipe, has not ended, and has no review that routed it.
+fn unread(started_ms: Option<i64>) -> Aggregate {
+    Aggregate {
+        realm: None,
+        recipe: None,
+        started_ms,
+        finished: None,
+        implement_visits: 0,
+        review_first: false,
+        review_second: false,
+        review_back: false,
+    }
+}
+
 fn bounded(text: &str) -> Bounded {
     Bounded {
         cut: text.to_string(),
@@ -163,6 +178,7 @@ fn a_run_with_no_event_reads_as_an_empty_journal_at_the_zero_head() {
             head_seq: 0,
             head_hash: ZERO_HASH.into(),
             last_recorded_at: None,
+            aggregate: unread(None),
         }
     );
 }
@@ -209,6 +225,7 @@ fn a_parked_run_reads_its_ruling_its_reason_and_its_open_residuals() {
             head_seq: 13,
             head_hash: head.event_hash.clone(),
             last_recorded_at: Some(bounded("2026-01-01T00:00:13Z")),
+            aggregate: unread(Some(1_767_225_601_000)),
         }
     );
 }

@@ -89,7 +89,10 @@ pub(crate) fn clarify(events: &[EventEnvelope], state: &RunState) -> Option<Clar
     Some(Clarify { seq, questions })
 }
 
-/// `run/started`'s world pin, as far as the working tree needs it.
+/// `run/started`'s world pin, as far as the working tree needs it. Its
+/// realm and recipe brokkr-core reads (`brokkr_core::summary::aggregate`),
+/// from the manifest typed as here, so a manifest that does not type here
+/// names neither there.
 #[derive(Deserialize)]
 struct Started {
     manifest: Manifest,
@@ -98,8 +101,8 @@ struct Started {
 #[derive(Deserialize)]
 struct Manifest {
     realms: Option<Pin>,
-    #[serde(default)]
-    bundle_name: Option<String>,
+    #[serde(default, rename = "bundle_name")]
+    _bundle_name: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -130,13 +133,6 @@ fn manifest(events: &[EventEnvelope]) -> Option<Manifest> {
 
 fn pin(events: &[EventEnvelope]) -> Option<Pin> {
     manifest(events)?.realms
-}
-
-/// The recipe the run started under: the `bundle_name` its `run/started`
-/// manifest recorded (#568 slice two, design D1). `None` when the first
-/// event is not a start or names none; never guessed from anything else.
-pub(crate) fn recipe(events: &[EventEnvelope]) -> Option<String> {
-    manifest(events)?.bundle_name
 }
 
 /// What a manifest pins that a recipe's graph reads (#568, the Library's
@@ -173,11 +169,6 @@ pub(crate) fn pins(events: &[EventEnvelope]) -> Pins {
     first
         .and_then(|event| event.payload.get("manifest"))
         .map_or_else(Pins::default, pins_of)
-}
-
-/// The realm the run was started in, as its world pin names it.
-pub(crate) fn pinned_realm(events: &[EventEnvelope]) -> Option<String> {
-    pin(events)?.realm
 }
 
 /// The working tree the run was started in, from its `run/started`

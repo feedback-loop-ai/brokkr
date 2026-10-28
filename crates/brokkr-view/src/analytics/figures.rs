@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::facts::{Ending, Route, RunFacts, Scoped, Window};
+use super::facts::{Ending, RunFacts, Scoped, Window};
 use super::recipes::recipe_rows;
 use super::words::{change_text, date, hours_text, listed, percent, span_text, stamp};
 use super::{Analytics, AnalyticsError, CostFigure, Day, Headline, ModelShare, Query, RealmRow};
@@ -245,18 +245,9 @@ fn rework(runs: &[&RunFacts], window: Window) -> Rework {
         .collect();
     let visits: u64 = finished.iter().map(|run| run.implement_visits).sum();
     let implement_visits = (!finished.is_empty()).then(|| visits as f64 / finished.len() as f64);
-    let sent_back = finished
-        .iter()
-        .filter(|run| run.reviews.contains(&Route::Back))
-        .count();
-    let first_back: Vec<&&RunFacts> = finished
-        .iter()
-        .filter(|run| run.reviews.first() == Some(&Route::Back))
-        .collect();
-    let passed = first_back
-        .iter()
-        .filter(|run| run.reviews.get(1) == Some(&Route::On))
-        .count();
+    let sent_back = finished.iter().filter(|run| run.reviews.back).count();
+    let first_back: Vec<&&RunFacts> = finished.iter().filter(|run| run.reviews.first).collect();
+    let passed = first_back.iter().filter(|run| run.reviews.second).count();
     let second_try_percent = percent(passed as i64, first_back.len() as i64);
     Rework {
         runs: finished.len(),

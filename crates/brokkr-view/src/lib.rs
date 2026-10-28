@@ -56,7 +56,7 @@ use brokkr_core::seat::{
 };
 pub use brokkr_core::seat::{reported_cost, TokenUsage, Transcript};
 pub use clarify::Clarify;
-use clarify::{clarify, recipe, worktree};
+use clarify::{clarify, worktree};
 use commands::{commands, unavailable};
 pub use commands::{member_retry_refusal, operator_commands, operator_refusal};
 mod started;
@@ -2426,7 +2426,7 @@ fn viewed(
         }),
         clarify,
         worktree: worktree(events),
-        recipe: recipe(events),
+        recipe: brokkr_core::summary::aggregate(events, None).recipe,
         entry: entry::of_events(events),
     }
 }

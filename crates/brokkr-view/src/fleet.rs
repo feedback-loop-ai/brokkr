@@ -652,10 +652,6 @@ pub(crate) fn verdict_of(facts: Option<Facts<'_>>, residual: Option<Severity>) -
     }
 }
 
-pub(crate) fn standing_of(state: &RunState) -> Standing {
-    Facts::of(state).standing()
-}
-
 /// The last ruling's rule id and the phase that ruled, when it names a
 /// rule at all.
 pub(crate) fn last_rule(state: &RunState) -> Option<(&str, Option<&str>)> {

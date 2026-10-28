@@ -7,9 +7,10 @@
 //! held to the same check by every writer store's drop (`test_support`).
 
 use brokkr_core::envelope::{ChainError, EventEnvelope, EventType};
+use brokkr_core::summary::{aggregate, Aggregate, Ending};
 
 use crate::test_support::{
-    fixture_journals as fixtures, import_fixtures, lane,
+    fixture_events, fixture_journals as fixtures, import_fixtures, lane,
     plant_older_writer as plant_as_older_writer,
 };
 use crate::{Disagreement, Store, StoreError};
@@ -55,6 +56,86 @@ fn every_run_reads_as_its_fold() {
         crate::test_support::every_run_reads_as_its_fold(&store),
         ["conclude-broken-chain-hand-built: does not load: chain: event 11: event_hash does not \
           match canonical content"]
+    );
+}
+
+/// What the aggregate readouts read of a run, by the column that keeps
+/// each, as this test words them, apart from the writer's own words.
+fn read_as_columns(read: &Aggregate) -> Vec<(&'static str, Option<String>)> {
+    let ending = read.finished.as_ref().map(|(_, ending)| ending);
+    let rule = match ending {
+        Some(Ending::ByRule(rule)) => rule.clone(),
+        Some(Ending::Shipped | Ending::ByOperator) | None => None,
+    };
+    let word = ending.map(|ending| match ending {
+        Ending::Shipped => "shipped".to_string(),
+        Ending::ByRule(_) => "by_rule".to_string(),
+        Ending::ByOperator => "by_operator".to_string(),
+    });
+    let shown = |value: Option<i64>| value.map(|value| value.to_string());
+    let flag = |set: bool| Some(u8::from(set).to_string());
+    vec![
+        ("realm", read.realm.clone()),
+        ("recipe", read.recipe.clone()),
+        ("started_ms", shown(read.started_ms)),
+        (
+            "finished_ms",
+            shown(read.finished.as_ref().map(|(at, _)| *at)),
+        ),
+        ("ending", word),
+        ("ending_rule", rule),
+        ("implement_visits", Some(read.implement_visits.to_string())),
+        ("review_first", flag(read.review_first)),
+        ("review_second", flag(read.review_second)),
+        ("review_back", flag(read.review_back)),
+    ]
+}
+
+/// Every fixture's row keeps, column for column, what the readouts read of
+/// its run read whole (`brokkr_core::summary::aggregate`, which
+/// `brokkr analytics` and the recipe's graph read): the parity of decision
+/// 0089 slice 4. The broken chain is read by no writer, so its row keeps
+/// nothing.
+#[test]
+fn every_fixture_keeps_what_the_aggregate_readouts_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("forge.db");
+    let mut store = Store::open(&path).unwrap();
+    import_fixtures(&mut store);
+    drop(store);
+    let store = Store::open(&path).unwrap();
+    let mut kept = Vec::new();
+    for (_, _, events) in fixture_events() {
+        let run_id = events[0].run_id.clone();
+        let read = aggregate(&events, brokkr_core::fold(&events).ok().as_ref());
+        for (column, expected) in read_as_columns(&read) {
+            let select =
+                format!("SELECT CAST({column} AS TEXT) FROM run_summary WHERE run_id = ?1");
+            let found: Option<String> = store
+                .conn
+                .query_row(&select, [&run_id], |row| row.get(0))
+                .unwrap();
+            if found != expected && !(run_id == BROKEN && found.is_none()) {
+                kept.push(format!("{run_id}: {column} {found:?}, read {expected:?}"));
+            }
+        }
+    }
+    assert_eq!(kept, Vec::<String>::new());
+    let read = |column: &str, run_id: &str| -> Option<String> {
+        let select = format!("SELECT CAST({column} AS TEXT) FROM run_summary WHERE run_id = ?1");
+        store
+            .conn
+            .query_row(&select, [run_id], |row| row.get(0))
+            .unwrap()
+    };
+    let reforged = "reforging-the-road-back-hand-built";
+    let words = ["ending", "implement_visits", "review_first", "review_back"];
+    let reforging: Vec<Option<String>> = words.iter().map(|word| read(word, reforged)).collect();
+    // Three `phase/entered` of implement, read by `grep -o` over its lines.
+    let shipped = |word: &str| Some(word.to_string());
+    assert_eq!(
+        reforging,
+        [shipped("shipped"), shipped("3"), shipped("1"), shipped("1")]
     );
 }
 
@@ -116,7 +197,8 @@ fn a_run_that_does_not_load_is_named_behind_its_head_and_at_it() {
     store
         .conn
         .execute(
-            "UPDATE run_summary SET folded_seq = head_seq, folded_hash = head_hash",
+            "UPDATE run_summary SET folded_seq = head_seq, folded_hash = head_hash,
+                 aggregated_seq = head_seq",
             [],
         )
         .unwrap();
