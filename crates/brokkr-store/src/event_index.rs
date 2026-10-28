@@ -612,7 +612,7 @@ impl Store {
     /// step.
     #[cfg(test)]
     fn park_after(&self) -> Result<Option<String>, StoreError> {
-        ParkWalk::new(&self.conn)?.next(&self.conn)
+        ParkWalk::new().next(&self.conn)
     }
 
     /// Write every park's dated facts that a writer from before them left
@@ -623,15 +623,16 @@ impl Store {
     /// hold only park rows, so a journal whose parks all stand at their
     /// heads finds none. `between` runs on this connection after a run is
     /// read and before its transaction, the instant the tests stage a
-    /// peer's lock at. One [`ParkWalk`] reads the off-head rows once and
-    /// seeks each stale row past the last run it named, so the selection
-    /// is the journal's parks and not their product with the stale runs;
-    /// the memory is those off-head run ids and the largest run's events.
+    /// peer's lock at. One [`ParkWalk`] seeks both reads past the last run
+    /// it named, so the selection is the journal's parks and not their
+    /// product with the stale runs; its off-head read keeps one lookahead
+    /// and stops once none is past the cursor, so the memory is its two
+    /// cursors and the largest run's events.
     pub(crate) fn park_behind_with(
         &mut self,
         mut between: impl FnMut(&Connection),
     ) -> Result<(), StoreError> {
-        let mut walk = ParkWalk::new(&self.conn)?;
+        let mut walk = ParkWalk::new();
         while let Some(run_id) = walk.next(&self.conn)? {
             if let Ok(events) = self.load(&run_id) {
                 let account = Account::whole(&run_id, &events);

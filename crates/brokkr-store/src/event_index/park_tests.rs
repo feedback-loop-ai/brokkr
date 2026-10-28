@@ -418,8 +418,9 @@ fn a_park_stamp_that_is_not_its_head_is_refolded_at_the_next_open() {
 }
 
 /// The sweep's two reads name different runs, and the least id is taken:
-/// an off-head park in `a` and an unwritten park in `b` are both refolded,
-/// in one walk, each at its own head.
+/// an unwritten park in `a` and an off-head park in `b` are both refolded,
+/// in one walk, each at its own head, and the off-head read's lookahead
+/// waits while the smaller run is written.
 #[test]
 fn the_sweep_takes_the_least_run_of_its_two_reads() {
     let (_dir, mut store) = store();
@@ -436,14 +437,14 @@ fn the_sweep_takes_the_least_run_of_its_two_reads() {
     store
         .conn
         .execute(
-            "UPDATE event_index SET facts_seq = 1 WHERE run_id = 'a' AND seq = 3",
+            "UPDATE event_index SET facts_seq = 1 WHERE run_id = 'b' AND seq = 3",
             [],
         )
         .unwrap();
     store
         .conn
         .execute(
-            "UPDATE event_index SET facts_seq = NULL WHERE run_id = 'b' AND seq = 3",
+            "UPDATE event_index SET facts_seq = NULL WHERE run_id = 'a' AND seq = 3",
             [],
         )
         .unwrap();
@@ -1059,4 +1060,89 @@ fn a_writer_from_before_the_parks_leaves_a_closed_park_behind_its_head() {
     assert_eq!(refolded_row[..5], closed[..5]);
     assert_eq!(refolded_row[5], Value::Integer(6));
     assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+}
+
+/// A journal planted under the legacy empty run id from the parked
+/// fixture, resealed from its six events, with its summary and seat rows
+/// current and its park row unwritten.
+fn empty_id_parked() -> (tempfile::TempDir, Store, Vec<EventEnvelope>) {
+    let (dir, store) = store();
+    let events = fixture_events()
+        .into_iter()
+        .find(|(_, _, events)| events[0].run_id == "conclude-parked-hand-built")
+        .map(|(_, _, events)| events)
+        .expect("the parked fixture is a journal");
+    let mut previous = brokkr_core::canonical::ZERO_HASH.to_string();
+    let resealed: Vec<EventEnvelope> = events
+        .iter()
+        .map(|event| {
+            let mut built = EnvelopeBuilder::new(event.event_type, event.payload.clone())
+                .run("")
+                .seq(event.seq)
+                .event_id(event.event_id.clone())
+                .at(event.recorded_at.clone())
+                .previous(previous.clone());
+            if let Some(causation) = &event.causation_id {
+                built = built.caused_by(causation);
+            }
+            if let Some(attempt) = &event.attempt_id {
+                built = built.attempt(Some(attempt));
+            }
+            let sealed = built.sealed();
+            previous = sealed.event_hash.clone();
+            sealed
+        })
+        .collect();
+    plant_older_writer(&store, "", &resealed);
+    kept_before_parks(&store, "");
+    (dir, store, resealed)
+}
+
+/// The empty run id is the sweep's first run, and the writable open that
+/// follows writes its facts at head 6 and leaves nothing for the sweep.
+fn refolded_empty_id(store: Store) -> Store {
+    assert_eq!(store.park_after().unwrap().as_deref(), Some(""));
+    let store = refolded(store);
+    assert_eq!(store.park_after().unwrap(), None);
+    assert_eq!(kept(&store, "", 6)[5], Value::Integer(6));
+    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+    store
+}
+
+/// #820/#753: a writer no longer admits the empty run id, but a journal
+/// that already holds one still refolds its parks. The walk's first step
+/// carries no cursor, so the empty id is not left behind `run_id > ''`
+/// (decision 0089 rulings 3 and 8).
+#[test]
+fn a_legacy_empty_run_id_refolds_its_parks() {
+    let (_dir, store, resealed) = empty_id_parked();
+    let store = refolded_empty_id(store);
+    assert_eq!(
+        kept(&store, "", 6),
+        [
+            text("implement"),
+            Value::Integer(at(&resealed[5])),
+            Value::Null,
+            Value::Null,
+            Value::Integer(64),
+            Value::Integer(6),
+        ]
+    );
+}
+
+/// The off-head read's first step carries no cursor either: an empty-id
+/// park whose stamp a missing trigger left below its head is refolded
+/// (decision 0089 rulings 3 and 8).
+#[test]
+fn a_legacy_empty_run_id_off_its_head_is_refolded() {
+    let (_dir, store, _) = empty_id_parked();
+    store
+        .conn
+        .execute(
+            "UPDATE event_index SET facts_seq = 1
+             WHERE run_id = '' AND type = 'run/parked'",
+            [],
+        )
+        .unwrap();
+    refolded_empty_id(store);
 }

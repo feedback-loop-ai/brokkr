@@ -208,13 +208,13 @@ fn behind_journal(db: &Path, runs: usize) {
     planting.commit().unwrap();
 }
 
-/// The most a writable open of a journal of `runs` behind runs holds
-/// while a peer holds the write lock, so its catch-up meets the lock at
-/// its first refold and stops.
-fn peak_of_opening_behind(runs: usize) -> isize {
+/// The most a writable open of a journal of `runs` runs, planted by
+/// `plant`, holds while a peer holds the write lock, so its catch-up meets
+/// the lock at its first refold and stops.
+fn peak_of_opening(runs: usize, plant: impl Fn(&Path, usize)) -> isize {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
-    behind_journal(&db, runs);
+    plant(&db, runs);
     let peer = rusqlite::Connection::open(&db).unwrap();
     peer.execute_batch("BEGIN IMMEDIATE").unwrap();
     let (peak, store) = peak_of(|| Store::open(&db).unwrap());
@@ -230,12 +230,74 @@ fn peak_of_opening_behind(runs: usize) -> isize {
 #[test]
 fn a_catch_up_holds_one_behind_run_at_a_time() {
     let _turn = turn();
-    let one = peak_of_opening_behind(1);
-    let many = peak_of_opening_behind(BEHIND_RUNS);
+    let one = peak_of_opening(1, behind_journal);
+    let many = peak_of_opening(BEHIND_RUNS, behind_journal);
     let bound = one + (BEHIND_RUNS * ID_BYTES / 8) as isize;
     assert!(
         many < bound,
         "opening {BEHIND_RUNS} behind runs held {many} bytes at its peak, and one {one}; \
+         the bound is {bound}"
+    );
+}
+
+/// Each fleet run's park, at the longest a run id may be.
+const OFF_HEAD_RUNS: usize = 64;
+
+/// A journal at `db` of `runs` three-event parked runs whose park stamps
+/// name seq 1 rather than their head, as a missing trigger leaves them;
+/// their summary and seat rows stand at their heads, so only the parks'
+/// sweep has work.
+fn off_head_park_journal(db: &Path, runs: usize) {
+    let mut store = Store::open(db).unwrap();
+    for run in 0..runs {
+        let run_id = format!("{run:0ID_BYTES$}");
+        store
+            .create_run(&run_id, "feat", "self", &json!({}))
+            .unwrap();
+        for (event, payload) in [
+            (
+                brokkr_core::EventType::RunStarted,
+                json!({"feature": "feat", "manifest": {}}),
+            ),
+            (
+                brokkr_core::EventType::PhaseEntered,
+                json!({"phase": "implement"}),
+            ),
+            (
+                brokkr_core::EventType::RunParked,
+                json!({"reason": "waiting"}),
+            ),
+        ] {
+            store
+                .append_next(&run_id, event, payload, None, None)
+                .unwrap();
+        }
+    }
+    drop(store);
+    rusqlite::Connection::open(db)
+        .unwrap()
+        .execute(
+            "UPDATE event_index SET facts_seq = 1
+             WHERE type = 'run/parked' AND facts_seq <> 1",
+            [],
+        )
+        .unwrap();
+}
+
+/// A writable open of `OFF_HEAD_RUNS` off-head parks peaks within a
+/// fraction of their ids' bytes of an open of one: a park walk that
+/// collected every off-head run's id before refolding the first would hold
+/// them all at once, however soon a peer's lock ended it (decision 0089
+/// rulings 3 and 8).
+#[test]
+fn a_park_sweep_holds_one_off_head_run_at_a_time() {
+    let _turn = turn();
+    let one = peak_of_opening(1, off_head_park_journal);
+    let many = peak_of_opening(OFF_HEAD_RUNS, off_head_park_journal);
+    let bound = one + (OFF_HEAD_RUNS * ID_BYTES / 8) as isize;
+    assert!(
+        many < bound,
+        "opening {OFF_HEAD_RUNS} off-head parks held {many} bytes at its peak, and one {one}; \
          the bound is {bound}"
     );
 }
