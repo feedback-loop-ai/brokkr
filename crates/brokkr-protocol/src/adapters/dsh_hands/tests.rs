@@ -889,7 +889,11 @@ fn the_composed_tree_check_refuses_a_failed_or_oversized_dump() {
         "refusing to invoke the dsh driver: `dsh --dump-config` failed (by signal), so the \
          composed tree could not be read and the seat is not launched (#896 D1)"
     );
-    let oversized = run(ExitStatus::from_raw(0), vec![b'-'; (1 << 20) + 1]).unwrap_err();
+    // An otherwise admissible dump padded past the bound with comments: the
+    // reader alone would admit it, so only the bound can refuse it.
+    let mut padded = String::from("- id: brokkr-hands\n  name: '@deepseek-ai/dsh-mcp-client'\n");
+    padded.push_str(&"#\n".repeat((1 << 20) / 2 + 1));
+    let oversized = run(ExitStatus::from_raw(0), padded.into_bytes()).unwrap_err();
     assert_eq!(oversized, Composition::Unreadable);
     assert_eq!(oversized.to_string(), UNREADABLE);
     // A clean dump whose bytes are not rows is refused by the same reader.
