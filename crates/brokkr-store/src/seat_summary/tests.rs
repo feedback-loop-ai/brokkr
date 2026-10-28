@@ -676,6 +676,20 @@ fn sealed_rows_out_of_the_order_the_projection_opens_read_as_stale() {
     }
 }
 
+/// A row whose key is another's reads as stale, though it is sealed at
+/// its own place as a writer seals a row: the projection opens each key
+/// once. The same rows sealed again at their places read as current.
+#[test]
+fn a_key_twice_sealed_at_its_own_place_reads_as_stale() {
+    let (_dir, mut store) = store();
+    interleaved(&mut store, "r");
+    resealed(&store, "r", &[0, 1, 2, 3, 4]);
+    assert_eq!(read(&store, "r"), folded_rows(&store, "r"));
+    resealed(&store, "r", &[0, 1, 2, 3, 4, 1]);
+    assert_eq!(store.seat_rows("r").unwrap(), SeatRows::Stale);
+    lags(&mut store, &["r"]);
+}
+
 /// A journal that lost one table of the seat summary, or the rows'
 /// digest an unreleased build of it made them without, loses both
 /// tables at a writable open, so no seat head that survived vouches for

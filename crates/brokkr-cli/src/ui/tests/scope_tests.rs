@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::render::{self, Style};
+use brokkr_core::fold::fold;
 use brokkr_view::{lens_for, Scope};
 
 /// The page's own fixture, entered at intake, then intake concluded and

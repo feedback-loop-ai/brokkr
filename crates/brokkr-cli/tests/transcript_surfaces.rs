@@ -121,6 +121,16 @@ fn make_world_named(kind: &str, locator: &str, body: &str, home_name: &str) -> W
 /// The one-participant run every world records at `db`, its seat's last
 /// checkpoint being `checkpoint`.
 fn journal(db: &Path, checkpoint: Value) {
+    journal_started(
+        db,
+        json!({"effect_id": "eff1", "attempt_id": "att0"}),
+        checkpoint,
+    );
+}
+
+/// The one-participant run at `db`, its seat started by `started` and its
+/// last checkpoint being `checkpoint`.
+fn journal_started(db: &Path, started: Value, checkpoint: Value) {
     let mut store = Store::open(db).unwrap();
     store
         .create_run("r222", "feat", "self", &json!({"files": {}}))
@@ -132,18 +142,14 @@ fn journal(db: &Path, checkpoint: Value) {
             EventType::EffectRequested,
             r#"{"effect_id":"eff1","seat":"review","phase":"intake"}"#,
         ),
-        (
-            EventType::EffectStarted,
-            r#"{"effect_id":"eff1","attempt_id":"att0"}"#,
-        ),
     ];
     let checkpointed = json!({"effect_id": "eff1", "attempt_id": "att0", "checkpoint": checkpoint});
     let opening =
         opening.map(|(event_type, payload)| (event_type, serde_json::from_str(payload).unwrap()));
-    for (event_type, payload) in opening
-        .into_iter()
-        .chain([(EventType::EffectCheckpointed, checkpointed)])
-    {
+    for (event_type, payload) in opening.into_iter().chain([
+        (EventType::EffectStarted, started),
+        (EventType::EffectCheckpointed, checkpointed),
+    ]) {
         store
             .append_next("r222", event_type, payload, None, None)
             .unwrap();
@@ -721,6 +727,49 @@ fn a_legacy_id_under_a_missing_projects_home_reads_the_same_bytes_in_the_browser
         (&json!(true), &json!("not-found"))
     );
     same_bytes_in_the_browser(&world, &whole, "404 Not Found");
+}
+
+/// `brokkr transcript` reads its participant through the pages (decision
+/// 0089 slice 3), and the browser serves the same bytes: a seat a Codex
+/// plan started, recording the legacy Claude session `abcd-1234`, selects
+/// no reference while the run read whole and its pages agree; once the
+/// event index keys its start as a checkpoint, the pages read no plan, and
+/// the legacy id selects the session on this machine.
+#[test]
+fn the_command_reads_its_participant_through_the_pages() {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let said = "{\"type\":\"assistant\",\"message\":{\"content\":\"the pages say\"}}\n";
+    let (reference, path) = source(&home, "claude-session", "abcd-1234", said);
+    let db = dir.path().join("forge.db");
+    let started = json!({"effect_id": "eff1", "attempt_id": "att0",
+        "provenance": [{"provider": "codex"}]});
+    let session = json!({"step": "session-started", "session_id": "abcd-1234"});
+    journal_started(&db, started, session);
+    let world = World {
+        dir,
+        db,
+        home,
+        reference,
+        path,
+    };
+    env.set("HOME", &world.home);
+    let agreed = command(&world, &["--json"]);
+    assert_eq!(agreed.status.code(), Some(1), "no reference is selected");
+    assert_eq!(parse(&agreed)["unavailable"], "no-reference");
+    let journal = rusqlite::Connection::open(&world.db).unwrap();
+    let keyed =
+        "UPDATE event_index SET type = 'effect/checkpointed' WHERE run_id = 'r222' AND seq = 4";
+    assert_eq!(journal.execute(keyed, []).unwrap(), 1);
+    let paged = command(&world, &["--json"]);
+    let document = parse(&paged);
+    assert_eq!(paged.status.code(), Some(0), "{document}");
+    let read = (&document["legacy"], &document["path"]);
+    assert_eq!(read, (&json!(true), &json!(world.path)));
+    let said = &document["turns"][0]["blocks"][0]["text"];
+    assert_eq!(said, "the pages say");
+    same_bytes_in_the_browser(&world, &paged, "200 OK");
 }
 
 /// A real packed DSH source reaches CLI text/JSON, the TUI pane and both
