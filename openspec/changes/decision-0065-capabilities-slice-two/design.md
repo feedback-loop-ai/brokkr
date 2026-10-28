@@ -1415,7 +1415,8 @@ witness/compose pins accompany only rows that change their inputs.
 | U8j | U8h | Forbid nested user namespaces in every box; 45.13–45.14 | `crates/brokkr-protocol/src/hands/namespace.rs` |
 | U8k | U8j | Mount the workspace box's sealed sources by descriptor; 45.15–45.16 | `crates/brokkr-protocol/src/hands.rs`; `crates/brokkr-protocol/src/hands/sealed.rs`; `crates/brokkr-protocol/src/hands/sealed/hidden.rs`; `crates/brokkr-protocol/src/hands/namespace.rs` |
 | U1d3 | U0b | Record U0b's shapes; 5.3–5.4 | `adapters/claude.json`; `adapters/codex.json`; `adapters/dsh.json`; `adapters/lanetally.json`; `crates/brokkr-cli/src/init/adapters.rs` |
-| U9b1 | U1d3, U8e3, U8h, U8i, U8j, U8k | Enable the proved namespace path; 42.2, 46.1–46.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
+| U1d4 | U1d3 | Record Codex's shapes without hands; 5.5–5.6 | `adapters/codex.json`; `crates/brokkr-cli/src/init/adapters.rs` |
+| U9b1 | U1d3, U8e3, U8h, U8i, U8j, U8k, U1d4 | Enable the proved namespace path; 42.2, 46.1–46.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
 | U9b2 | U9b1 | Publish implemented scope and contract guidance; 47.1–47.2 | None |
 | U8m | U8h | Redact doctor's server words and refuse a storeless boxed writer; 47.3–47.4 | `crates/brokkr-cli/src/doctor/capabilities/mcp.rs`; `crates/brokkr-runtime/src/engine/boxed.rs` |
 | U10a | U9b2, U8m | Audit removals and run final candidate gates; 48.1–49.2 | None |
@@ -1485,6 +1486,19 @@ Closes tasks 5.1 and 5.2; requirements [SI1](specs/strict-mcp-isolation/spec.md)
 Proof: Adapter-load and whole-file identity tests pin only observed facts.
 
 Owning tests: `crates/brokkr-runtime/src/agents/tests.rs`, `crates/brokkr-runtime/src/capabilities/tests.rs`, `crates/brokkr-runtime/src/bundle/agent_tests.rs`.
+
+### U1d4 — Record Codex's shapes without hands
+
+U9b1's first run found that lifting the fence makes Linux refuse the shipped triage, gpt-flash, standby and wager-harness recipes at compile with SI2's unmeasured cause: their Codex panel and inline implement seats are served cold, and a work seat also as its replacement, with hands none, and `adapters/codex.json` records cold and replacement only for hands boxed and harness. U0b measured both shapes on codex-cli 0.164.0 (Linux) under U9c2's isolation options and profile: cold read-only X14 and workspace-write X15 (no planted user, project or plugin server started, the engine answered), the replacement after a declined or failed rejoin X17 and X18, the store and process canaries X22, X23 and X24 (the store denied, the process canary excluded, writes outside the workspace denied) and X28 (writes into `.git` and `.codex` refused). U1d4 records the two shapes from that evidence, each axis cited by its cells, in the shipped declaration and the init scaffold's copy, and re-blesses the witness digest that moves.
+
+Files: `adapters/codex.json`, `crates/brokkr-cli/src/init/adapters.rs`, `tests/witnesses.json`.
+
+Closes tasks 5.5 and 5.6; requirements [SI1](specs/strict-mcp-isolation/spec.md), [SI2](specs/strict-mcp-isolation/spec.md).
+Proof: each new shape's axes match U0b's cells; the init scaffold's copy matches the shipped adapter (`init_doctor` parity); the moved witness row is listed; the four recipes compile their Codex seats' strict shapes as measured.
+
+Operator ruling 2026-10-28 (in chat, "go with recommended", on U9b1's first run's block): U1d4 records Codex's cold and replacement shapes with hands none before U9b1, from U0b's existing cells; no public API rise; any other file comes back to the operator.
+
+Owning tests: `crates/brokkr-cli/tests/init_doctor.rs`, `crates/brokkr-runtime/tests/witness_digests.rs`.
 
 ### U1e — Record dsh and exec declarations
 

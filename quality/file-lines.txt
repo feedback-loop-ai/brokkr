@@ -45,7 +45,7 @@
    251 crates/brokkr-cli/src/folder/tracked.rs
    128 crates/brokkr-cli/src/hands.rs
   1536 crates/brokkr-cli/src/init.rs
-   489 crates/brokkr-cli/src/init/adapters.rs
+   524 crates/brokkr-cli/src/init/adapters.rs
    106 crates/brokkr-cli/src/init/claims.rs
     24 crates/brokkr-cli/src/init/effort.rs
    180 crates/brokkr-cli/src/ledger.rs
@@ -489,7 +489,7 @@
    419 crates/brokkr-cli/tests/heap_fleet.rs
    461 crates/brokkr-cli/tests/hosts.rs
    511 crates/brokkr-cli/tests/house_prose.rs
-  1492 crates/brokkr-cli/tests/init_doctor.rs
+  1621 crates/brokkr-cli/tests/init_doctor.rs
   1446 crates/brokkr-cli/tests/init_stacks.rs
     88 crates/brokkr-cli/tests/it.rs
   1168 crates/brokkr-cli/tests/layering/main.rs
