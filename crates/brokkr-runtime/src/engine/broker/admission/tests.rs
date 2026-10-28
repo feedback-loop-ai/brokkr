@@ -498,6 +498,23 @@ impl Engine {
         let reach = boxed_reach(spec, home, &workdir, &git, store.sealed());
         self.reach.boxes.push((spec.clone(), reach));
     }
+
+    /// A reach for `spec`'s boxes whose seal names no store, explicitly
+    /// null, as doctor's and the probe's own seals do and no admission
+    /// seals a boxed writer's: what U8m's refusal stands against.
+    pub(in crate::engine) fn sealed_storeless(&mut self, home: &Path, spec: &HandsSpec) {
+        let workdir = std::fs::canonicalize(self.workdir()).unwrap();
+        let sealed = hands::seal(spec, home, &workdir, &hands::git_facts(&workdir), None);
+        let (writable, readable, sources) = (vec![workdir.clone()], Vec::new(), vec![workdir]);
+        let sealed = Box::new(sealed);
+        let reach = Reach::Boxed {
+            writable,
+            readable,
+            sources,
+            sealed,
+        };
+        self.reach.boxes.push((spec.clone(), reach));
+    }
 }
 
 /// The site `site`'s writer outside any box.

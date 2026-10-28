@@ -8,7 +8,7 @@ use brokkr_core::realms::Boundary;
 
 use super::*;
 use crate::bundle::{Aggregate, Invocation};
-use crate::engine::boxed::Unnamed;
+use crate::engine::boxed::{Unnamed, Unprepared};
 
 /// An exec seat's command, which `hands exec` boxes whole.
 fn exec_seat() -> Vec<String> {
@@ -145,8 +145,9 @@ fn a_reservation_sealed_without_the_store_no_longer_reads() {
 }
 
 /// A box whose hands its admission sealed no reach for, as no admitted
-/// attempt's are, refuses its spawn with MB3's identity cause: nothing
-/// derives a reach for it again.
+/// attempt's are, refuses its spawn: nothing derives a reach for it again.
+/// The engine refuses it before anything is made, as such a reach seals no
+/// store (U8m), ahead of MB3's identity cause its command refuses with.
 #[test]
 fn a_box_whose_hands_were_sealed_nothing_refuses_its_spawn() {
     let (_dir, mut engine, spec, _) = boxed_seat();
@@ -163,7 +164,8 @@ fn a_box_whose_hands_were_sealed_nothing_refuses_its_spawn() {
                 reach was not sealed at admission, or is not UTF-8, so no box of these hands is \
                 built from it (U8a2c)";
     assert_eq!(Unnamed::Unsealed.to_string(), text);
-    assert_eq!(spawn.refusal.as_deref(), Some(text));
+    let storeless = Some(Unprepared::Storeless.to_string());
+    assert_eq!(spawn.refusal, storeless);
     let other = hands(&[&worktree(&engine).join("other")]);
     engine.sealed_for(Path::new("/home/fixture"), &other);
     let spawn = engine.compose_at(
@@ -175,7 +177,7 @@ fn a_box_whose_hands_were_sealed_nothing_refuses_its_spawn() {
         None,
         "",
     );
-    assert_eq!(spawn.refusal.as_deref(), Some(text), "another hands' reach");
+    assert_eq!(spawn.refusal, storeless, "another hands' reach");
 }
 
 /// Run 6's L3 and I2 (U8h ruling 18): admission resolves the run's kept

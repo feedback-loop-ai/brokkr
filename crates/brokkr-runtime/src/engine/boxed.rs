@@ -103,13 +103,17 @@ impl super::Engine {
     /// the run's artifact root `artifacts` ([`make_root`]) and then the
     /// secrets store at the place this run keeps, where its configured
     /// spelling still leads ([`Self::led`]; [`make_store`]); either refused,
-    /// the spawn is, by the refusal this returns. Where admission sealed the
-    /// store at another place, the spawn refuses before anything is made
-    /// there (ruling 17). An unboxed spawn, `hands` none, makes nothing, but
-    /// once the run has resolved its kept place, as a seat's input names it
-    /// or a box seals or makes it, it refuses as a box would where the
-    /// spelling no longer leads there (ruling 18); a run that never used the
-    /// store resolves nothing, so its unboxed spawns are never judged by it.
+    /// the spawn is, by the refusal this returns. Where admission sealed no
+    /// reach for these hands, or one that names no store, the spawn refuses
+    /// before anything is made (U8m), and where it sealed the store at
+    /// another place, before anything is made there (ruling 17). Doctor's
+    /// and the probe's own seals, which name no store, are not boxed writers
+    /// and never pass through here. An unboxed spawn, `hands` none, makes
+    /// nothing, but once the run has resolved its kept place, as a seat's
+    /// input names it or a box seals or makes it, it refuses as a box would
+    /// where the spelling no longer leads there (ruling 18); a run that never
+    /// used the store resolves nothing, so its unboxed spawns are never
+    /// judged by it.
     pub(super) fn prepared(
         &self,
         artifacts: &Path,
@@ -122,10 +126,11 @@ impl super::Engine {
                     .get()
                     .map_or(Ok(()), |kept| self.led(kept).map(drop));
             };
+            let sealed = self.reach.sealed(spec).and_then(sealed_store);
+            let place = sealed.ok_or(Unprepared::Storeless)?;
             make_root(artifacts)?;
             let store = self.led(self.kept_store())?;
-            let sealed = self.reach.sealed(spec);
-            if let Some(place) = sealed.and_then(sealed_store).filter(|at| at != &store) {
+            if place != store {
                 let spelling = self.secrets_store_spelling();
                 return Err(Unprepared::Strayed(spelling, place.to_path_buf()));
             }
@@ -184,6 +189,14 @@ pub(super) enum Unprepared {
          place: {}", .0.display(), .1
     )]
     Unresolved(PathBuf, std::io::ErrorKind),
+    /// A boxed writer whose hands were sealed no reach at admission, or a
+    /// reach that names no store (U8m): its box would hide none, so none is
+    /// built from it.
+    #[error(
+        "dispatch refused: {UNHIDDEN_STORE}: the box's reach sealed no store for these hands at \
+         admission, so no box of them is built (U8m)"
+    )]
+    Storeless,
 }
 
 /// Why the engine cannot hand a box its artifact root, in the operator's

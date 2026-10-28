@@ -379,6 +379,57 @@ fn an_mcp_grant_reports_scope_retention_connection_and_eligibility_apart() {
     );
 }
 
+/// U8m: doctor names a declared server without what a credential may sit
+/// in. A stdio server whose arguments carry a planted marker is named by
+/// its program and how many arguments follow it; a URL whose query and
+/// fragment carry it by its scheme, host, port and path, with the one
+/// marker for what was withheld; and a URL whose userinfo carries it, which
+/// the dialect contract already refuses to load, reaches no line either.
+#[test]
+fn doctor_names_a_server_without_its_arguments_userinfo_query_or_fragment() {
+    const PLANTED: &str = "U8M-MARKER";
+    let docs = |dialect: &str| json!({"library-docs": {"dialect": dialect}});
+    let realms = ["argv", "query", "user"].map(|name| realm(name, Some(docs(name))));
+    let dir = workspace_with(Some(json!(realms)));
+    let root = dir.path();
+    docs_at(root, None);
+    let argv = json!({"argv": ["/nonexistent/docs-mcp", "--token", PLANTED]});
+    let query = json!({"url": format!("https://docs.example:8443/mcp?token={PLANTED}#{PLANTED}")});
+    let user = json!({"url": format!("https://{PLANTED}:{PLANTED}@docs.example/mcp")});
+    let declared = std::fs::read(root.join("dialects/tools/docs-mcp.json")).unwrap();
+    for (name, connection) in [("argv", argv), ("query", query), ("user", user)] {
+        let mut dialect: Value = serde_json::from_slice(&declared).unwrap();
+        (dialect["name"], dialect["connection"]) = (json!(name), connection);
+        write(root, &format!("dialects/tools/{name}.json"), &dialect);
+    }
+    let lines = read(root, &folder::Inspected::Neither);
+    let planted: Vec<&String> = lines.iter().filter(|line| line.contains(PLANTED)).collect();
+    assert_eq!(
+        planted,
+        Vec::<&String>::new(),
+        "the marker reached doctor's report"
+    );
+    let stdio = "'/nonexistent/docs-mcp' (stdio, 2 further argument(s) withheld)";
+    let url = "at URL 'https://docs.example:8443/mcp' (user, query and fragment withheld)";
+    let named = |realm: &str, server: &str| {
+        let facts = facts(realm, "all requesting offices", RETAINS_NOTHING);
+        let facts = facts.replace("'/nonexistent/docs-mcp' (stdio)", server);
+        [
+            facts.replace("'docs-mcp' (mcp)", &format!("'{realm}' (mcp)")),
+            host(realm, server),
+        ]
+    };
+    let [argv_facts, argv_host] = named("argv", stdio);
+    let [query_facts, query_host] = named("query", url);
+    assert_eq!((&lines[1], &lines[4]), (&argv_facts, &argv_host));
+    assert_eq!((&lines[6], &lines[9]), (&query_facts, &query_host));
+    let refused = "MISSING  capabilities user 'library-docs': realm 'user': capability \
+                   'library-docs': tool dialect 'dialects/tools/user.json' is outside \
+                   brokkr.tool-dialect/v1 at '/connection/url': it does not satisfy \
+                   '/properties/connection/properties/url/pattern'";
+    assert_eq!(lines[10..], [refused]);
+}
+
 /// SD3: what doctor reads past the fence opens no compile. Through the
 /// verb's own path, every grant shape doctor reports (every office, one,
 /// none) refuses the bundle whether its seat requires the capability,
