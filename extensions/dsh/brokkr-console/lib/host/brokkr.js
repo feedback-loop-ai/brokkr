@@ -31,9 +31,19 @@ function runOf(target) {
   return [flag('run', target.run_id), ...journal]
 }
 
+/** One argv word as a POSIX shell reads it: bare when it can be, else single-quoted. */
+function shellQuote(word) {
+  return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`
+}
+
+/** `inspect`'s own argv, without `--json`: the read and the pasted command share it. */
+function inspectArgv(target) {
+  return ['inspect', ...runOf(target)]
+}
+
 /** The command that reads `target` as the console does, as words the operator can paste. */
 function inspectHint(target) {
-  return ['brokkr', 'inspect', ...runOf(target)].join(' ')
+  return ['brokkr', ...inspectArgv(target)].map(shellQuote).join(' ')
 }
 
 /**
@@ -44,7 +54,7 @@ export function brokkrOf(config) {
   const read = async (argv, what, parse) => parse(jsonOf(await run(config, argv), what))
   return {
     fleet: () => read(['runs', '--json'], 'brokkr runs', fleetOf),
-    inspect: (target) => read(['inspect', ...runOf(target), '--json'], 'brokkr inspect', runViewOf),
+    inspect: (target) => read([...inspectArgv(target), '--json'], 'brokkr inspect', runViewOf),
     inspectHint,
     queue: () => read(['queue', 'list', '--json'], 'brokkr queue list', queueOf),
     muninn: () => read(['muninn', 'list', '--json'], 'brokkr muninn list', muninnOf),

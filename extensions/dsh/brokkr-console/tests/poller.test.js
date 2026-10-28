@@ -2,6 +2,7 @@
 // for the client that has it open; the overview's readouts go only to a
 // client on the Realms view; a client that reconnects gets a full snapshot.
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { test } from 'node:test'
 
 import { brokkrOf } from '../lib/host/brokkr.js'
@@ -113,6 +114,11 @@ async function attached(poller, watch) {
   return client
 }
 
+/** The argv a POSIX shell hands `brokkr` for a pasted hint: the function only prints them. */
+function pasted(hint) {
+  return execFileSync('bash', ['-c', `brokkr() { printf '%s\\n' "$@"; }; ${hint}`], { encoding: 'utf8' }).trimEnd().split('\n')
+}
+
 /** The browser half opened on the parked run, painting the host's `run` message. */
 function openedPage(fleetView, run, realm = 'brokkr') {
   const page = mountClient('main')
@@ -195,4 +201,23 @@ test('a one-hearth world’s refusal paints the command without a journal the co
 
   const page = openedPage(fleetOf(oneHearth), run, ONE_HEARTH)
   assert.deepEqual(findAll(page.tree(), (node) => node.props.className === 'bk-note' && textOf(node) === hint).map(textOf), [hint])
+})
+
+test('a refused-run hint keeps a journal path with a space as one pasteable argument', async () => {
+  const words = 'brokkr inspect was refused: the journal could not be read'
+  const journal = '/hearths/Project Alpha/forge.db'
+  const many = fleetDoc([['Project Alpha', [row({ seq: 12 })]], ['looper', [row({ run_id: OTHER, seq: 3, title: 'Lane detection v2' })]]])
+  const brokkr = stubBrokkr([
+    { match: ['runs'], responses: [json(many)] },
+    { match: ['inspect'], responses: [{ stderr: words, code: 1 }] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const client = await attached(poller, { view: 'realm', run: { realm: 'Project Alpha', run_id: RUN } })
+  const run = client.sent[0].run
+  assert.deepEqual(brokkr.calls().find((argv) => argv[0] === 'inspect'), ['inspect', `--run=${RUN}`, `--db=${journal}`, '--json'])
+
+  const page = openedPage(fleetOf(many), run, 'Project Alpha')
+  const painted = findAll(page.tree(), (node) => node.props.className === 'bk-note' && textOf(node) === run.hint).map(textOf)
+  assert.deepEqual(painted, [run.hint])
+  assert.deepEqual(pasted(run.hint), ['inspect', `--run=${RUN}`, `--db=${journal}`])
 })
