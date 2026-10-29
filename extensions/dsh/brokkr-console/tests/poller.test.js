@@ -3,14 +3,14 @@
 // client on the Realms view; a client that reconnects gets a full snapshot.
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { test } from 'node:test'
 
 import { brokkrOf } from '../lib/host/brokkr.js'
 import { configFrom } from '../lib/host/config.js'
 import { pollerOf } from '../lib/host/poller.js'
 import { fleetOf, ONE_HEARTH } from '../lib/host/readouts.js'
-import { buttons, findAll, mountClient, textOf } from './support/client.js'
+import { findAll, openedOn, textOf } from './support/client.js'
 import { analyticsDoc, fleetDoc, json, row, runViewDoc, stubBrokkr } from './support/world.js'
 
 const RUN = row().run_id
@@ -120,10 +120,7 @@ function pasted(hint) {
 
 /** The browser half opened on the parked run, painting the host's `run` message. */
 function openedPage(fleetView, run, realm = 'brokkr') {
-  const page = mountClient('main')
-  page.push({ type: 'snapshot', fleet: fleetView, overview: null, run: null })
-  buttons(page.tree()).find((button) => textOf(button).startsWith(realm)).props.onClick()
-  buttons(page.tree()).find((button) => textOf(button).startsWith('Encrypt the token store')).props.onClick()
+  const page = openedOn(fleetView, realm)
   page.push({ type: 'run', run })
   return page
 }
@@ -234,4 +231,32 @@ test('a refused-run hint keeps repeated spaces and a tab in its journal path, an
   const painted = findAll(page.tree(), (node) => String(node.props.className).includes('bk-hint') && textOf(node) === run.hint).map(textOf)
   assert.deepEqual(painted, [run.hint])
   assert.match(readFileSync(new URL('../lib/console.css', import.meta.url), 'utf8'), /\.bk-hint\{[^}]*white-space:pre-wrap/)
+})
+
+test('a refused-run hint keeps an apostrophe in its journal path as one pasteable argument', async () => {
+  const journal = "/hearths/val's/forge.db"
+  const { run, page, brokkr } = await refusedHint(journal)
+  assert.deepEqual(brokkr.calls().find((argv) => argv[0] === 'inspect'), ['inspect', `--run=${RUN}`, `--db=${journal}`, '--json'])
+  assert.deepEqual(pasted(run.hint), ['inspect', `--run=${RUN}`, `--db=${journal}`])
+  const painted = findAll(page.tree(), (node) => String(node.props.className).includes('bk-hint') && textOf(node) === run.hint).map(textOf)
+  assert.deepEqual(painted, [run.hint])
+})
+
+test('a refused-run hint keeps a Unicode journal path as one pasteable argument', async () => {
+  const journal = '/hearths/Ærø ☃/forge.db'
+  const { run, page, brokkr } = await refusedHint(journal)
+  assert.deepEqual(brokkr.calls().find((argv) => argv[0] === 'inspect'), ['inspect', `--run=${RUN}`, `--db=${journal}`, '--json'])
+  assert.deepEqual(pasted(run.hint), ['inspect', `--run=${RUN}`, `--db=${journal}`])
+  const painted = findAll(page.tree(), (node) => String(node.props.className).includes('bk-hint') && textOf(node) === run.hint).map(textOf)
+  assert.deepEqual(painted, [run.hint])
+})
+
+test('a refused-run hint keeps shell syntax in its journal path inert', async () => {
+  const journal = '/hearths/$(touch pwned)`; touch pwned`/forge.db'
+  const { run, page, brokkr } = await refusedHint(journal)
+  assert.deepEqual(brokkr.calls().find((argv) => argv[0] === 'inspect'), ['inspect', `--run=${RUN}`, `--db=${journal}`, '--json'])
+  assert.deepEqual(pasted(run.hint), ['inspect', `--run=${RUN}`, `--db=${journal}`])
+  assert.equal(existsSync('pwned'), false)
+  const painted = findAll(page.tree(), (node) => String(node.props.className).includes('bk-hint') && textOf(node) === run.hint).map(textOf)
+  assert.deepEqual(painted, [run.hint])
 })

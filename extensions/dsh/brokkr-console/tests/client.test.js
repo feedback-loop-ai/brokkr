@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { analyticsOf, fleetOf, runViewOf } from '../lib/host/readouts.js'
-import { NOW, buttons, findAll, mountClient, textOf } from './support/client.js'
+import { NOW, buttons, findAll, mountClient, openedOn, textOf } from './support/client.js'
 import { analyticsDoc, fleetDoc, journalRow, offered, row, runViewDoc } from './support/world.js'
 
 const RUN = row().run_id
@@ -23,11 +23,7 @@ const fleet = () =>
 
 /** The panel, opened on the parked run in `brokkr`, before any read of the run lands. */
 function openedRun(answers = {}, ask = false) {
-  const client = mountClient('main', {}, answers)
-  client.push({ type: 'snapshot', ask, fleet: fleet(), overview: null, run: null })
-  buttons(client.tree()).find((button) => textOf(button).startsWith('brokkr')).props.onClick()
-  buttons(client.tree()).find((button) => textOf(button).startsWith('Encrypt the token store')).props.onClick()
-  return client
+  return openedOn(fleet(), 'brokkr', answers, ask)
 }
 
 /** The panel, opened on the parked run in `brokkr`, with `view` as its run view. */
