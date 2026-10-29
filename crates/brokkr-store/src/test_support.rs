@@ -392,16 +392,7 @@ pub fn statements_traced<T>(store: &mut Store, read: impl FnOnce(&Store) -> T) -
 /// asserts of the reads it measures (decision 0089 ruling 9).
 #[cfg(feature = "test-support")]
 pub fn plans_begun<T>(store: &mut Store, read: impl FnOnce(&Store) -> T) -> (T, Vec<String>) {
-    use std::sync::Mutex;
-    static BEGUN: Mutex<Vec<String>> = Mutex::new(Vec::new());
-    fn begun(sql: &str) {
-        BEGUN.lock().unwrap().push(sql.to_string());
-    }
-    BEGUN.lock().unwrap().clear();
-    store.conn.trace(Some(begun));
-    let read = read(store);
-    store.conn.trace(None);
-    let begun = std::mem::take(&mut *BEGUN.lock().unwrap());
+    let (read, begun) = statements_traced(store, read);
     let planned = begun.iter().filter(|sql| !sql.starts_with("--"));
     let plans = planned.map(|sql| plan(store, sql, []).unwrap());
     (read, plans.flatten().collect())
