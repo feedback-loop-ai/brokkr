@@ -356,6 +356,10 @@ function summary(value, path) {
     run_id: text(value.run_id, `${path}.run_id`),
     seq: count(value.seq, `${path}.seq`),
     status: text(value.status, `${path}.status`),
+    // The shared standing and its why, as `inspect --json` carries them:
+    // a stopping run is not read as running here either (#909).
+    standing: word(value.standing, STANDINGS, `${path}.standing`),
+    detail: optText(value.detail, `${path}.detail`),
     phase: optText(value.phase, `${path}.phase`),
     park_reason: optText(value.park_reason, `${path}.park_reason`),
   }

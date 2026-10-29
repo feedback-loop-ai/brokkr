@@ -131,6 +131,8 @@ export function runViewDoc(over = {}) {
       run_id: 'encrypt-the-token-store-41d0a9c2',
       seq,
       status: 'awaiting_operator',
+      standing: 'parked',
+      detail: null,
       strategy: null,
     },
     ruling: { rule_id: 'REVIEW-SECURITY-RESIDUAL', severity_class: 'awaiting_operator', from: 'review', next: '', result: null, inputs: [], problem: null, superseded: null },

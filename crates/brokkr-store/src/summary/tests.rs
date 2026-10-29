@@ -859,6 +859,52 @@ fn a_comparison_that_cannot_read_panics_rather_than_passing() {
     every_run_reads_as_its_fold(&store);
 }
 
+/// A run that enters `verify`, asks effect `e1`, starts it, and has a
+/// `stop` accepted at seq 6 with no ending: the stopping fold the two
+/// migration tests below read.
+fn stopping_without_ending(store: &mut Store) {
+    started(store, "r");
+    append(
+        store,
+        "r",
+        EventType::PhaseEntered,
+        json!({"phase": "verify"}),
+    );
+    append(
+        store,
+        "r",
+        EventType::EffectRequested,
+        json!({"effect_id": "e1", "seat": "verify"}),
+    );
+    append(
+        store,
+        "r",
+        EventType::EffectStarted,
+        json!({"effect_id": "e1", "attempt_id": "a1"}),
+    );
+    append(
+        store,
+        "r",
+        EventType::OperatorCommanded,
+        json!({"command_id": "c1", "command": "stop"}),
+    );
+    append(
+        store,
+        "r",
+        EventType::OperatorAccepted,
+        json!({"command_id": "c1"}),
+    );
+}
+
+/// The refolded row reads as the stopping run it is, at seq 6, with both
+/// of the accepted stop's columns written.
+fn stopping_row(store: &Store) {
+    assert_eq!(lane(store, "r"), text("stopping"));
+    assert_eq!(row(store, "r", "stop_accepted_seq"), [Value::Integer(6)]);
+    assert_eq!(row(store, "r", "stop_folded_seq"), [Value::Integer(6)]);
+    assert_eq!(every_run_reads_as_its_fold(store), Vec::<String>::new());
+}
+
 /// A journal whose summary a build from before the accepted-stop column
 /// made is made anew at the next writable open, and the stopping run is
 /// refolded into the stopping lane: the column is additive, and
@@ -866,37 +912,7 @@ fn a_comparison_that_cannot_read_panics_rather_than_passing() {
 #[test]
 fn a_summary_from_before_the_accepted_stop_column_is_made_anew_and_refolded() {
     let (_dir, mut store) = store();
-    started(&mut store, "r");
-    append(
-        &mut store,
-        "r",
-        EventType::PhaseEntered,
-        json!({"phase": "verify"}),
-    );
-    append(
-        &mut store,
-        "r",
-        EventType::EffectRequested,
-        json!({"effect_id": "e1", "seat": "verify"}),
-    );
-    append(
-        &mut store,
-        "r",
-        EventType::EffectStarted,
-        json!({"effect_id": "e1", "attempt_id": "a1"}),
-    );
-    append(
-        &mut store,
-        "r",
-        EventType::OperatorCommanded,
-        json!({"command_id": "c1", "command": "stop"}),
-    );
-    append(
-        &mut store,
-        "r",
-        EventType::OperatorAccepted,
-        json!({"command_id": "c1"}),
-    );
+    stopping_without_ending(&mut store);
     assert_eq!(lane(&store, "r"), text("stopping"));
     assert_eq!(row(&store, "r", "stop_accepted_seq"), [Value::Integer(6)]);
     let path = store.path().to_path_buf();
@@ -909,7 +925,44 @@ fn a_summary_from_before_the_accepted_stop_column_is_made_anew_and_refolded() {
     let store = Store::open(&path).unwrap();
     assert!(summary_intact(&store.conn).unwrap());
     assert!(store.pages().unwrap());
+    stopping_row(&store);
+}
+
+/// A writer from before the accepted-stop columns may fold while their
+/// trigger is gone: its row stands at its head with the stop's columns
+/// unwritten, so the open's repair sends it behind on the stop's own stamp
+/// and the backfill refolds it. The stop's stamp proves the columns were
+/// written, not merely that the table carries them.
+#[test]
+fn a_row_an_older_writer_folds_without_the_stop_stamp_is_sent_behind_and_refolded() {
+    let (_dir, mut store) = store();
+    stopping_without_ending(&mut store);
     assert_eq!(lane(&store, "r"), text("stopping"));
-    assert_eq!(row(&store, "r", "stop_accepted_seq"), [Value::Integer(6)]);
-    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+    let path = store.path().to_path_buf();
+    // The older binary's trigger is gone, and it writes the folded head and
+    // the aggregates it knows while leaving the stop's columns alone.
+    store
+        .conn
+        .execute_batch("DROP TRIGGER run_summary_stopping")
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "UPDATE run_summary SET folded_seq = head_seq, folded_hash = head_hash,
+                 aggregated_seq = head_seq, stop_accepted_seq = NULL,
+                 stop_folded_seq = NULL
+             WHERE run_id = 'r'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(
+        row(&store, "r", "stop_accepted_seq, stop_folded_seq"),
+        [Value::Null, Value::Null]
+    );
+    // The row lags on purpose until the next writable open refolds it.
+    lags(&mut store, &["r"]);
+    drop(store);
+    let store = Store::open(&path).unwrap();
+    assert!(summary_intact(&store.conn).unwrap(), "the trigger is back");
+    stopping_row(&store);
 }

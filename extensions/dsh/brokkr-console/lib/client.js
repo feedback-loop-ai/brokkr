@@ -804,11 +804,14 @@ window.__ModuleLoader__.load({
     const pane = (title, label, className, ...body) => h('section', { className: `bk-pane${className === '' ? '' : ` ${className}`}`, 'aria-label': label },
       h('span', { className: 'bk-pane-title' }, title), ...body)
 
-    /** Why the run waits, in Brokkr's words: the park reason, the clarifier's questions, a quarantine or the rule that stopped it. */
+    /** Why the run waits, in Brokkr's words: the park reason, the clarifier's questions, a quarantine, the rule that stopped it, or a stopping run's accepted stop. */
     function WhyItWaits({ view, row, pick }) {
       const parked = view.summary?.park_reason ?? null
       const stopped = row.verdict.standing === 'stopped' && row.verdict.text !== '' ? row.verdict.text : null
-      if (parked === null && view.clarify === null && row.detail === null && stopped === null) return null
+      // The shared standing's detail, from the run view or the row; the
+      // quarantine's refusal still comes from the row's own detail.
+      const why = view.summary?.detail ?? row.verdict.detail ?? row.detail
+      if (parked === null && view.clarify === null && why === null && stopped === null) return null
       const where = view.ruling?.from ?? row.phase
       const seat = where === null ? null : view.participants.filter((each) => each.phase === where).at(-1) ?? null
       return pane('why it waits', 'Why it waits', 'bk-why',
@@ -819,7 +822,7 @@ window.__ModuleLoader__.load({
             seat === null ? null : [' · ', h('button', { key: 'r', type: 'button', className: 'bk-link', onClick: () => pick({ phase: where, key: seat.key }) }, `read the ${seat.label} seat`)])],
         view.clarify === null ? null : h(Clarify, { view }),
         stopped === null ? null : h('div', { className: 'bk-quote' }, `“${stopped}”`, h('div', { className: 'bk-d' }, row.verdict.rule === null ? 'how Brokkr stopped it' : `stopped by ${row.verdict.rule}`)),
-        row.detail === null ? null : h('div', { className: 'bk-error' }, row.detail))
+        why === null ? null : h('div', { className: 'bk-error' }, why))
     }
 
     /** A seat's tokens as Brokkr reads them apart: Σ total · ↑ in · ↓ out. */

@@ -242,7 +242,7 @@ test('a seat says what its plan selected in Brokkr’s own line, in the seats ta
 })
 
 test('a live step wears the pulse while the run is driven, and only then', () => {
-  const running = reviewed({ summary: { ...runViewDoc().summary, status: 'running', park_reason: null } })
+  const running = reviewed({ summary: { ...runViewDoc().summary, status: 'running', standing: 'running', park_reason: null } })
   running.phases[1].columns[0].nodes[1] = member('seat-security-1', 'security', 'in-active', 'active')
   const client = onRun(running)
   const dots = (tree) => findAll(rail(tree), (node) => node.type === 'circle' && String(node.props.className).startsWith('bk-dot')).map((dot) => dot.props.className)
@@ -253,7 +253,7 @@ test('a live step wears the pulse while the run is driven, and only then', () =>
 })
 
 test('a phase with no recorded steps is one dot, coloured as the TUI colours it', () => {
-  const plain = runViewDoc({ summary: { ...runViewDoc().summary, status: 'running' }, phases: [
+  const plain = runViewDoc({ summary: { ...runViewDoc().summary, status: 'running', standing: 'running' }, phases: [
     { name: 'intake', strategy: null, visits: 1, current: false, plain: true, columns: [], returns: [] },
     { name: 'design', strategy: null, visits: 1, current: true, plain: true, columns: [], returns: [] },
   ] })

@@ -198,7 +198,7 @@ fn a_run_that_does_not_load_is_named_behind_its_head_and_at_it() {
         .conn
         .execute(
             "UPDATE run_summary SET folded_seq = head_seq, folded_hash = head_hash,
-                 aggregated_seq = head_seq",
+                 aggregated_seq = head_seq, stop_folded_seq = head_seq",
             [],
         )
         .unwrap();

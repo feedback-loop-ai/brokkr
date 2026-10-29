@@ -46,6 +46,7 @@
   .run .dot.completed { background: var(--phosphor); }
   .run .dot.stopped { background: var(--halt); }
   .run .dot.awaiting_operator { background: var(--park); }
+  .run .dot.stopping { background: var(--park); }
   .run .dot.running { background: var(--violet); }
   .badge { display: inline-block; padding: 0 .5em; border-radius: 999px;
            border: 1px solid var(--line); font-size: .85em; color: var(--dim); }
@@ -219,6 +220,20 @@ function applyRunsPane() {
 const FAVICON_IDLE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 150 150'%3E%3Crect width='150' height='150' rx='30' fill='%2345e08c'/%3E%3Cpath d='M26 96h40l-13 26h44l-13-26h26V66H38l-10-24h94v24' fill='%2312101a'/%3E%3C/svg%3E";
 const FAVICON_FORGING = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 150 150'%3E%3Crect width='150' height='150' rx='30' fill='%237c5cff'/%3E%3Cpath d='M26 96h40l-13 26h44l-13-26h26V66H38l-10-24h94v24' fill='%2312101a'/%3E%3C/svg%3E";
 
+/* run-list:start */
+// A run's word and why: the fleet's one standing derivation when it names
+// a stopping run, the journal's own status otherwise (decision 0071
+// ruling 7). The page never decides that an accepted stop stands as
+// stopping; it paints the standing it was served, and the detail with it.
+function runWord(model) {
+  const standing = model.verdict ? model.verdict.standing : model.standing;
+  return standing === 'stopping' ? 'stopping' : (model.status ?? '?');
+}
+
+function runDetail(model) {
+  return (model.verdict && model.verdict.detail) ?? model.detail ?? null;
+}
+
 function setForging(forging) {
   document.body.classList.toggle('forging', forging);
   document.getElementById('favicon').href = forging ? FAVICON_FORGING : FAVICON_IDLE;
@@ -354,7 +369,7 @@ function decisionStrip(ruling) {
 async function loadRuns() {
   // Already newest first: ordering is a derivation rule.
   const runs = await (await fetch('/api/runs')).json();
-  setForging(runs.some((run) => run.status === 'running'));
+  setForging(runs.some((run) => runWord(run) === 'running'));
   const list = document.getElementById('runlist');
   list.replaceChildren();
   for (const run of runs) {
@@ -362,20 +377,21 @@ async function loadRuns() {
     // (status dot + id, details in the tooltip); only the active run
     // expands to its full card.
     const isActive = run.run_id === active;
+    const word = runWord(run);
     const item = el('div', 'run' + (isActive ? ' active' : ' row'));
     if (isActive) {
       item.appendChild(el('div', 'id', run.run_id));
-      item.appendChild(badge(run.status ?? '?', run.status_known ? run.status : ''));
+      item.appendChild(badge(word, word));
       item.appendChild(document.createTextNode(' '));
       item.appendChild(badge(run.phase ?? '-', ''));
       item.appendChild(document.createTextNode(' '));
       item.appendChild(badge('seq ' + (run.seq ?? 0), ''));
     } else {
-      const dot = el('span', 'dot' + (run.status_known ? ' ' + run.status : ''));
+      const dot = el('span', 'dot' + (run.status_known ? ' ' + word : ''));
       item.appendChild(dot);
       const idEl = el('span', 'id line', run.run_id);
       item.appendChild(idEl);
-      item.title = run.run_id + '\n' + (run.status ?? '?') +
+      item.title = run.run_id + '\n' + word +
         ' · phase ' + (run.phase ?? '-') + ' · seq ' + (run.seq ?? 0);
     }
     item.onclick = (ev) => {
@@ -387,6 +403,7 @@ async function loadRuns() {
     list.appendChild(item);
   }
 }
+/* run-list:end */
 
 function row(cells) {
   const tr = el('tr');
@@ -433,7 +450,8 @@ function renderLoops(detail, view, id) {
     selectedPhase = null;
   }
   const summary = view.summary ?? {};
-  const status = KNOWN_STATUS.includes(summary.status) ? summary.status : null;
+  const word = runWord(summary);
+  const status = KNOWN_STATUS.includes(word) ? word : null;
   const pulsing = status === 'running';
   const drillable = new Set(view.participants.map((part) => part.key));
   // The rail carries structure, not the leaf's facts: a node reads as
@@ -1225,8 +1243,8 @@ function renderDetail(id, view) {
   detail.replaceChildren();
   detail.appendChild(el('h1', null, s.run_id ?? id));
   const line = el('p');
-  line.appendChild(badge(s.status ?? '?',
-    KNOWN_STATUS.includes(s.status) ? s.status : ''));
+  const word = runWord(s);
+  line.appendChild(badge(word, word));
   line.appendChild(document.createTextNode(' '));
   line.appendChild(badge('phase ' + (s.phase ?? '-'), ''));
   // The run header's boundary (decision 0046 ruling 3): the model's
@@ -1247,6 +1265,8 @@ function renderDetail(id, view) {
   renderLoops(detail, view, id);
 
   if (s.park_reason) detail.appendChild(el('pre', null, s.park_reason));
+  const stop = runDetail(s);
+  if (stop !== null) detail.appendChild(el('p', 'problem', stop));
   detail.appendChild(decisionStrip(view.ruling));
 
   // One scope at a time — a selected phase or a drilled participant —

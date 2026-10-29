@@ -42,11 +42,7 @@ pub(super) const TRIGGER: &str = "run_summary_aggregated";
 
 /// The columns as the table's definition lists them.
 pub(super) fn defined() -> String {
-    let typed: Vec<String> = COLUMNS
-        .iter()
-        .map(|(name, kind)| format!("{name} {kind}"))
-        .collect();
-    typed.join(", ")
+    super::columns::typed(&COLUMNS)
 }
 
 /// The row's own test that its aggregates are not the ones its folded head
@@ -87,10 +83,7 @@ pub(super) fn rebuild() -> String {
 
 /// Does the table hold every column? A pure read.
 pub(super) fn shaped(conn: &Connection) -> Result<bool, StoreError> {
-    let found = super::columns(conn)?;
-    Ok(COLUMNS
-        .iter()
-        .all(|(column, _)| found.iter().any(|name| name == column)))
+    super::columns::has(conn, &COLUMNS)
 }
 
 /// How a run ended, as the `ending` column words it.

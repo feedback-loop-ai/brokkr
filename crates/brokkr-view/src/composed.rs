@@ -146,6 +146,20 @@ fn checkpointed(
     Some(())
 }
 
+/// The operator commands a read holds: those its page names, and those
+/// its trail names, which may be on another page. A disposition's own
+/// event can sit on one page while its `operator/commanded` sits on
+/// another, and the trail keeps every event but the checkpoints, so the
+/// command a row names is never dropped for being off the page.
+fn commands_of_the_read(
+    page: &[EventEnvelope],
+    trail: &[EventEnvelope],
+) -> BTreeMap<String, (String, u64)> {
+    let mut commands = commands_of(page);
+    commands.extend(commands_of(trail));
+    commands
+}
+
 /// The run view of the run `parts` read, `state` its fold at the head,
 /// each journal row's cause the seq `cause` names for its causation id.
 fn composed(
@@ -161,17 +175,11 @@ fn composed(
             .insert(effect_id, inner(parts.seats, effect_id));
     }
     let marks = supersedes(parts.trail);
+    let commands = commands_of_the_read(parts.page, parts.trail);
     let lines = live(parts.seats).into_iter();
     let read = Read {
         live: lines.map(|(label, turn)| live_line(label, turn)).collect(),
-        journal: journal_rows(
-            parts.page,
-            &scan,
-            &buckets,
-            &marks,
-            &commands_of(parts.page),
-            cause,
-        ),
+        journal: journal_rows(parts.page, &scan, &buckets, &marks, &commands, cause),
         event_count: usize::try_from(parts.head_seq).unwrap_or(usize::MAX),
         dashboard: dashboard::kept(parts.trail, parts.seats, parts.last_at),
     };

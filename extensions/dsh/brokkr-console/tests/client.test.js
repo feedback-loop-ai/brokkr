@@ -72,6 +72,22 @@ test('a run whose accepted stop has no ending needs you, and is not counted as r
   )
 })
 
+test('an opened stopping run shows the shared detail, not a live page (#909)', () => {
+  const detail = 'stop accepted at seq 93; no ending written. If no driver is running it, `brokkr conclude` closes it.'
+  const stopping = row({ verdict: { standing: 'stopping', rule: null, reason: null, text: '', detail } })
+  const doc = fleetDoc([['brokkr', [stopping]]])
+  const client = mountClient('main')
+  client.push({ type: 'snapshot', fleet: fleetOf(doc), overview: null, run: null })
+  buttons(client.tree()).find((button) => textOf(button).startsWith('brokkr')).props.onClick()
+  buttons(client.tree()).find((button) => textOf(button).startsWith('Encrypt the token store')).props.onClick()
+  const view = runViewDoc({ summary: { ...runViewDoc().summary, status: 'running', standing: 'stopping', detail, park_reason: null } })
+  client.push({ type: 'run', run: { realm: 'brokkr', run_id: stopping.run_id, view: runViewOf(view) } })
+  assert.match(textOf(client.tree()), /stopping · waiting for an ending/)
+  const panes = findAll(client.tree(), (node) => node.props['aria-label'] === 'Why it waits')
+  assert.equal(panes.length, 1)
+  assert.equal(textOf(panes[0]), `why it waits${detail}`)
+})
+
 test('an acknowledged quarantine is not counted as waiting on the operator (#511)', () => {
   const answered = { seq: 4, event_hash: 'ab12', operator: 'valentin', reason: 'history', recorded_at: '2026-10-14T08:00:00Z' }
   const quarantined = { standing: 'quarantined', rule: null, reason: null, text: 'does not fold' }
@@ -238,7 +254,7 @@ test('the park reason is shown word for word, with its rule, beside the reader',
 })
 
 test('a running run has nothing to wait on, and the reader takes the row', async () => {
-  const client = await onRun(runViewDoc({ summary: { ...runViewDoc().summary, status: 'running', park_reason: null } }))
+  const client = await onRun(runViewDoc({ summary: { ...runViewDoc().summary, status: 'running', standing: 'running', park_reason: null } }))
   const split = findAll(client.tree(), (node) => node.props.className === 'bk-split')[0]
   assert.deepEqual(split.children.map((child) => child.props['aria-label']), ['Reader'])
 })

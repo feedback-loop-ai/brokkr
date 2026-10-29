@@ -34,8 +34,9 @@ use crate::schema::all_present;
 use crate::{head_of, patiently, seat_summary, Acknowledgement, Store, StoreError};
 
 /// The lane a row's range is read from (ruling 6), exactly as ruled: a row
-/// whose fold, or whose aggregates, are not its head's reads behind and
-/// whole, so no reader trusts aggregates older than the head it stands at.
+/// whose fold, or whose aggregates or accepted stop, are not its head's
+/// reads behind and whole, so no reader trusts columns older than the head
+/// it stands at.
 fn lane() -> String {
     format!(
         "CASE
@@ -47,8 +48,14 @@ fn lane() -> String {
       WHEN status = 'running' THEN 'running'
       ELSE 'finished'
     END",
-        stale = aggregate::stale("")
+        stale = stale("")
     )
+}
+
+/// Both stamps: a row whose aggregates or accepted stop were not written
+/// at its folded head is sent behind, whichever writer folded it.
+fn stale(prefix: &str) -> String {
+    format!("{} OR {}", aggregate::stale(prefix), stop::stale(prefix))
 }
 
 /// The meta key that records the backfill finished (ruling 8).
@@ -58,17 +65,20 @@ const BACKFILLED: &str = "run_summary_backfill";
 type Place = (i64, String);
 
 mod aggregate;
+mod columns;
 mod disagreement;
+mod stop;
 
 pub use disagreement::Disagreement;
 
 const TABLE: [&str; 1] = ["run_summary"];
 const INDEX: [&str; 2] = ["run_summary_page", aggregate::INDEX];
-const TRIGGERS: [&str; 5] = [
+const TRIGGERS: [&str; 6] = [
     "run_summary_of_a_run",
     "run_summary_of_an_event",
     "run_summary_of_an_acknowledgement",
     "run_summary_stamp_bounded",
+    stop::TRIGGER,
     aggregate::TRIGGER,
 ];
 
@@ -134,18 +144,20 @@ fn acknowledged_by(acknowledgement: &str) -> String {
     )
 }
 
-/// The table, its page index and its four triggers, `IF NOT EXISTS`
+/// The table, its page index and its five triggers, `IF NOT EXISTS`
 /// throughout so racing openers agree. The whole values sit last in the
 /// row, so a page that selects none of them reads none of them. A stamp
 /// past its bound is cut by a trigger of its own, which fires only then,
 /// whichever statement wrote it, and keeps the stamp whole last in the
 /// row; its own update does not fire it again, as SQLite fires no trigger
-/// recursively unless asked, and leaves a stamp within its bound anyway.
+/// recursively unless asked, and leaves a stamp within its bound anyway. A
+/// writer from before the stopping columns leaves their stamp off its
+/// folded head, so a trigger sends its row behind, as the aggregates' does.
 fn migration() -> String {
     format!(
         "CREATE TABLE IF NOT EXISTS run_summary (
             run_id TEXT PRIMARY KEY,
-            feature_line TEXT, created_at TEXT, status TEXT, stop_accepted_seq INTEGER,
+            feature_line TEXT, created_at TEXT, status TEXT, {stopping},
             phase TEXT,
             park_reason TEXT, rule_id TEXT, rule_from TEXT, rule_routes INTEGER,
             hire_seat TEXT, hire_failed_attempts INTEGER,
@@ -186,13 +198,16 @@ fn migration() -> String {
             UPDATE run_summary SET last_recorded_at_whole = NEW.last_recorded_at,
                 last_recorded_at = {cut}
                 WHERE run_id = NEW.run_id;
-        END; {indexed}",
+        END;
+        {stopping_trigger} {indexed}",
         lane = lane(),
         aggregated = aggregate::defined(),
         indexed = aggregate::migration(),
         moved = moved_to("NEW"),
         cut = cut_stamp("NEW.last_recorded_at"),
         acknowledged = acknowledged_by("NEW"),
+        stopping = stop::defined(),
+        stopping_trigger = stop::migration(),
     )
 }
 
@@ -218,53 +233,37 @@ fn seed() -> String {
     )
 }
 
-/// Send behind every row whose aggregates are not its folded head's, as
-/// the trigger sends one: the repair recreates the trigger, and a writer
-/// from before the aggregates may have folded while it was gone, so its
-/// columns must not stand at the head the run now has. The backfill that
-/// follows the open refolds the rows this sends behind (rulings 4 and 8).
+/// Send behind every row whose aggregates or accepted stop are not its
+/// folded head's, as the triggers send one: the repair recreates them, and
+/// a writer from before either may have folded while they were gone, so
+/// its columns must not stand at the head the run now has. The backfill
+/// that follows the open refolds the rows this sends behind (rulings 4 and
+/// 8).
 fn send_stale_behind() -> String {
     format!(
         "UPDATE run_summary SET folded_seq = NULL, folded_hash = NULL
          WHERE {stale}",
-        stale = aggregate::stale("")
+        stale = stale("")
     )
 }
 
 /// Does this journal carry the table with every column, its two indexes
-/// and all five triggers? Pure reads, so the steady-state open writes
+/// and all six triggers? Pure reads, so the steady-state open writes
 /// nothing.
 pub(crate) fn summary_intact(conn: &Connection) -> Result<bool, StoreError> {
     Ok(all_present(conn, "table", &TABLE)?
         && aggregate::shaped(conn)?
-        && stopping_shaped(conn)?
+        && stop::shaped(conn)?
         && all_present(conn, "index", &INDEX)?
         && all_present(conn, "trigger", &TRIGGERS)?)
 }
 
-/// The table's columns, by name: the one read the shape checks share.
-pub(super) fn columns(conn: &Connection) -> Result<Vec<String>, StoreError> {
-    let mut statement = conn.prepare("SELECT name FROM pragma_table_info('run_summary')")?;
-    let found: Vec<String> = statement
-        .query_map([], |row| row.get(0))?
-        .collect::<Result<_, _>>()?;
-    Ok(found)
-}
-
-/// Does the table carry the accepted-stop column, which a journal from
-/// before it does not? A pure read.
-fn stopping_shaped(conn: &Connection) -> Result<bool, StoreError> {
-    Ok(columns(conn)?
-        .iter()
-        .any(|name| name == "stop_accepted_seq"))
-}
-
 /// Create the summary, anew where its table lacks a column, seed a row for
-/// every run already here, and send behind the aggregates of any row whose
-/// folded head the repair did not see written, on a connection holding the
-/// write lock: the fifth additive repair.
+/// every run already here, and send behind the aggregates and accepted
+/// stops of any row whose folded head the repair did not see written, on a
+/// connection holding the write lock: the fifth additive repair.
 pub(crate) fn migrate_summary(conn: &Connection) -> Result<(), StoreError> {
-    if !aggregate::shaped(conn)? || !stopping_shaped(conn)? {
+    if !aggregate::shaped(conn)? || !stop::shaped(conn)? {
         conn.execute_batch(&aggregate::rebuild())?;
     }
     conn.execute_batch(&migration())?;
@@ -315,6 +314,7 @@ fn written(summary: &Summary) -> Vec<(&'static str, Value)> {
         ("created_at", created_at),
         ("status", word(summary.status.map(|status| status.as_str()))),
         ("stop_accepted_seq", integer(summary.stop_accepted_seq)),
+        ("stop_folded_seq", integer(Some(summary.folded_seq))),
         ("phase", phase),
         ("park_reason", park_reason),
         ("rule_id", rule_id),

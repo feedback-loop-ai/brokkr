@@ -182,3 +182,54 @@ fn a_run_composed_whole_is_its_run_view() {
     events[5].payload["attempt_id"] = json!(null);
     assert_eq!(whole(&events, &trail_of(&events)), None);
 }
+
+/// A page holding only the acceptance still names the command the trail
+/// holds on another page: the command is read from the trail as from the
+/// page, so the composed view prints the words the whole run view prints,
+/// never a `?` for a command it had in hand.
+#[test]
+fn a_page_holding_the_acceptance_keeps_the_command_its_trail_holds() {
+    let at = AT;
+    let events = [
+        ev(1, EventType::RunStarted, json!({"manifest": {}}), at),
+        ev(2, EventType::PhaseEntered, json!({"phase": "verify"}), at),
+        ev(
+            3,
+            EventType::OperatorCommanded,
+            json!({"command_id": "c1", "command": "stop"}),
+            at,
+        ),
+        ev(
+            4,
+            EventType::OperatorAccepted,
+            json!({"command_id": "c1"}),
+            at,
+        ),
+    ];
+    let (account, causes) = (Account::whole("r", &events), BTreeMap::new());
+    let page = [events[3].clone()];
+    let parts = Parts {
+        trail: &events,
+        seats: account.seats(),
+        page: &page,
+        causes: &causes,
+        head_seq: 4,
+        last_at: at,
+    };
+    let composed = composed_view(&parts, None).unwrap();
+    let whole = crate::run_view(&events, None);
+    let accepted = |view: &RunView| {
+        view.journal
+            .iter()
+            .find(|row| row.seq == 4)
+            .unwrap()
+            .what
+            .text
+            .clone()
+    };
+    assert_eq!(
+        accepted(&composed),
+        "stop · accepted at seq 4 (command at seq 3)"
+    );
+    assert_eq!(accepted(&composed), accepted(&whole));
+}
