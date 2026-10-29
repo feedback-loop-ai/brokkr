@@ -154,6 +154,193 @@ fn proc_of(rows: &[(&str, Option<&str>)]) -> tempfile::TempDir {
     proc
 }
 
+/// A `/proc` of a tree: `root` and each `(pid, ppid)` in `tree` has a
+/// `stat` and a single task's `children` naming its direct children.
+/// `unrelated` further processes are on the host, outside the tree.
+#[cfg(target_os = "linux")]
+fn tree_proc(root: i32, tree: &[(i32, i32)], unrelated: usize) -> tempfile::TempDir {
+    let proc = tempfile::tempdir().unwrap();
+    let stat = |pid: i32, ppid: i32| {
+        format!(
+            "{pid} (row) S {ppid} {pid} {pid} 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 {} 0 0",
+            pid + 100
+        )
+    };
+    for (pid, ppid) in std::iter::once(&(root, 1)).chain(tree) {
+        let dir = proc.path().join(pid.to_string());
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::write(dir.join("stat"), stat(*pid, *ppid)).unwrap();
+        let task = dir.join("task").join(pid.to_string());
+        std::fs::create_dir_all(&task).unwrap();
+        let children: String = tree
+            .iter()
+            .filter(|(_, parent)| parent == pid)
+            .map(|(child, _)| format!("{child} "))
+            .collect();
+        std::fs::write(task.join("children"), children).unwrap();
+    }
+    for pid in 10_000..10_000 + i32::try_from(unrelated).unwrap() {
+        let dir = proc.path().join(pid.to_string());
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::write(dir.join("stat"), stat(pid, 1)).unwrap();
+    }
+    proc
+}
+
+/// A planted tree of `root` and `(501, 500)` whose `path` is a
+/// directory, so reading it fails with `EISDIR`.
+#[cfg(target_os = "linux")]
+fn unreadable(path: &str) -> tempfile::TempDir {
+    let proc = tree_proc(500, &[(501, 500)], 0);
+    std::fs::remove_file(proc.path().join(path)).unwrap();
+    std::fs::create_dir(proc.path().join(path)).unwrap();
+    proc
+}
+
+/// #918: the Linux tracker reads the engine's own subtree, so the stat
+/// files it opens do not grow with the host's unrelated processes. Ten
+/// and two thousand of them cost the same three reads, root included,
+/// and the rows are the tree's alone.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_engine_tree_read_does_not_grow_with_the_host() {
+    let tree = [(501, 500), (502, 501)];
+    let stat = |pid: i32, ppid: i32| {
+        format!(
+            "{pid} (row) S {ppid} {pid} {pid} 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 {} 0 0",
+            pid + 100
+        )
+    };
+    let expected: Vec<Entry> = std::iter::once((500, 1))
+        .chain(tree)
+        .map(|(pid, ppid)| parse_stat(pid, &stat(pid, ppid)).unwrap())
+        .collect();
+    let reads = [10, 2_000].map(|unrelated| {
+        let proc = tree_proc(500, &tree, unrelated);
+        clear_stat_reads();
+        let mut entries = own_tree_in(proc.path(), 500).unwrap();
+        entries.sort_by_key(|entry| entry.id.pid);
+        assert_eq!(entries, expected);
+        stat_reads()
+    });
+    assert_eq!(reads, [3, 3]);
+}
+
+/// #918: a process or task that exits between being named and its read
+/// is skipped; a row or task the walk cannot read fails it, as the
+/// snapshot fails on one, because it could be hiding the attempt's.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_tree_walk_skips_what_exited_and_fails_what_it_cannot_read() {
+    let tree = [(501, 500)];
+    let pids =
+        |entries: &[Entry]| -> Vec<i32> { entries.iter().map(|entry| entry.id.pid).collect() };
+    let row_error = |pid: i32, error: std::io::Error| {
+        format!("the row of process {pid} could not be read: {error}")
+    };
+
+    // A child that exited between being named and its own read is gone.
+    let proc = tree_proc(500, &tree, 0);
+    std::fs::remove_dir_all(proc.path().join("501")).unwrap();
+    assert_eq!(pids(&own_tree_in(proc.path(), 500).unwrap()), [500]);
+
+    // A task that exited after its process was listed is skipped.
+    let proc = tree_proc(500, &tree, 0);
+    std::fs::remove_dir_all(proc.path().join("501/task")).unwrap();
+    assert_eq!(pids(&own_tree_in(proc.path(), 500).unwrap()), [500, 501]);
+
+    // A task whose children file is gone is skipped: it exited.
+    let proc = tree_proc(500, &tree, 0);
+    std::fs::remove_file(proc.path().join("501/task/501/children")).unwrap();
+    assert_eq!(pids(&own_tree_in(proc.path(), 500).unwrap()), [500, 501]);
+
+    // A task list with no task in it names no children.
+    let proc = tree_proc(500, &tree, 0);
+    std::fs::remove_dir_all(proc.path().join("501/task")).unwrap();
+    std::fs::create_dir(proc.path().join("501/task")).unwrap();
+    assert_eq!(pids(&own_tree_in(proc.path(), 500).unwrap()), [500, 501]);
+
+    // A child named twice is followed once.
+    let proc = tree_proc(500, &tree, 0);
+    std::fs::write(proc.path().join("500/task/500/children"), "501 501").unwrap();
+    assert_eq!(pids(&own_tree_in(proc.path(), 500).unwrap()), [500, 501]);
+
+    // A child reparented after its parent named it keeps that edge: the
+    // row the kernel now shows names the engine, but the tree is still
+    // the attempt's to follow.
+    let proc = tree_proc(500, &[(501, 500), (502, 501)], 0);
+    let reparented = "502 (row) S 500 502 502 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 602 0 0";
+    std::fs::write(proc.path().join("502/stat"), reparented).unwrap();
+    let entries = own_tree_in(proc.path(), 500).unwrap();
+    let child = entries.iter().find(|entry| entry.id.pid == 502).unwrap();
+    assert_eq!(child.ppid, 501);
+
+    // A children file that cannot be read is no tree.
+    let proc = unreadable("501/task/501/children");
+    assert_eq!(
+        own_tree_in(proc.path(), 500).unwrap_err().to_string(),
+        row_error(501, std::io::Error::from_raw_os_error(libc::EISDIR))
+    );
+
+    // A task directory that cannot be listed is no tree.
+    let proc = tree_proc(500, &tree, 0);
+    std::fs::remove_dir_all(proc.path().join("501/task")).unwrap();
+    std::fs::write(proc.path().join("501/task"), "").unwrap();
+    assert_eq!(
+        own_tree_in(proc.path(), 500).unwrap_err().to_string(),
+        row_error(501, std::io::Error::from_raw_os_error(libc::ENOTDIR))
+    );
+
+    // A child's row that cannot be read is no tree.
+    let proc = unreadable("501/stat");
+    assert_eq!(
+        own_tree_in(proc.path(), 500).unwrap_err().to_string(),
+        row_error(501, std::io::Error::from_raw_os_error(libc::EISDIR))
+    );
+
+    // A children line that does not name a pid is no tree.
+    let proc = tree_proc(500, &tree, 0);
+    std::fs::write(proc.path().join("501/task/501/children"), "x").unwrap();
+    assert_eq!(
+        own_tree_in(proc.path(), 500).unwrap_err().to_string(),
+        row_error(
+            501,
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "unparsed child pid \"x\"")
+        )
+    );
+
+    // The engine's own row is required; one it cannot read is no tree.
+    let proc = tree_proc(500, &tree, 0);
+    std::fs::remove_file(proc.path().join("500/stat")).unwrap();
+    assert_eq!(
+        own_tree_in(proc.path(), 500).unwrap_err().to_string(),
+        "the table has no row for the engine itself (pid 500)"
+    );
+    std::fs::create_dir(proc.path().join("500/stat")).unwrap();
+    assert_eq!(
+        own_tree_in(proc.path(), 500).unwrap_err().to_string(),
+        row_error(500, std::io::Error::from_raw_os_error(libc::EISDIR))
+    );
+}
+
+/// #918: `Host::REAL.table` is the subtree walk on Linux, not the whole
+/// host table: the engine's parent is not its descendant and is not read.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_real_table_reads_the_engines_own_tree() {
+    let me = rustix::process::getpid().as_raw_pid();
+    let parent = rustix::process::getppid()
+        .expect("a test process has a parent")
+        .as_raw_pid();
+    let entries = (super::super::tree::Host::REAL.table)().unwrap();
+    let pids: std::collections::BTreeSet<i32> = entries.iter().map(|entry| entry.id.pid).collect();
+    assert!(pids.contains(&me), "the engine itself is not in its tree");
+    assert!(
+        !pids.contains(&parent),
+        "the table listed the engine's parent {parent}"
+    );
+}
+
 /// #403: a row that vanished between the listing and its read is gone,
 /// and the snapshot reads on; a row that cannot be read, or parsed, could
 /// be the attempt's, so it fails the snapshot rather than being dropped;
@@ -337,5 +524,58 @@ fn a_failed_or_unparsed_ps_is_no_table() {
     assert_eq!(
         listed(output(0, "7 1\n")).unwrap_err().to_string(),
         "the ps row \"7 1\" could not be read"
+    );
+}
+
+/// #918: an identity is read by its own row; a pid that now names
+/// another process, or names none, reads as gone, and a row that cannot
+/// be read is no proof either way.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_recorded_identity_is_read_by_its_own_row() {
+    let stub = Guard(Command::new("sleep").arg("30").spawn().unwrap());
+    let pid = i32::try_from(stub.0.id()).unwrap();
+    let id = row(pid).expect("the stub is in the table").id;
+    assert_eq!(row_of(&id).unwrap().map(|entry| entry.id), Some(id.clone()));
+    assert_eq!(
+        row_of(&Identity {
+            pid,
+            start: format!("{}0", id.start),
+        })
+        .unwrap(),
+        None
+    );
+    assert_eq!(
+        row_of(&Identity {
+            pid: 999_999_999,
+            start: "1".into(),
+        })
+        .unwrap(),
+        None
+    );
+
+    let stat = "7 (sh) S 1 7 7 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 12345 0 0";
+    let planted = proc_of(&[("7", Some(stat))]);
+    let planted_id = parse_stat(7, stat).unwrap().id;
+    assert_eq!(
+        row_in(planted.path(), &planted_id)
+            .unwrap()
+            .map(|entry| entry.id),
+        Some(planted_id.clone())
+    );
+    let reused = Identity {
+        pid: 7,
+        start: "54321".into(),
+    };
+    assert_eq!(row_in(planted.path(), &reused).unwrap(), None);
+    let unreadable = proc_of(&[("7", None)]);
+    assert_eq!(
+        row_in(unreadable.path(), &planted_id)
+            .unwrap_err()
+            .to_string(),
+        format!(
+            "the row of process 7 could not be read: {}",
+            std::io::Error::from_raw_os_error(libc::EISDIR)
+        )
     );
 }

@@ -3,6 +3,7 @@ use rustix::process::Pid;
 use serde_json::json;
 
 mod attempt_correlation;
+mod tracker_scope;
 
 pub(super) fn command(script: &str) -> Vec<String> {
     vec!["sh".into(), "-c".into(), script.into()]

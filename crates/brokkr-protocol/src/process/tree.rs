@@ -47,26 +47,20 @@
 //!
 //! Two Linux residuals remain, both accepted by the operator's rulings of
 //! 2026-09-28 and closed by construction only by per-attempt cgroup
-//! containment (#472). The first is the table-read race. A Linux read is a `/proc`
-//! listing followed by one stat read per pid. Suppose a failed driver's
-//! last live descendant forks a detached child after the listing and
-//! exits before its own row is read. That read shows nothing of the
-//! attempt running, and so sets the attempt's end. The next read, up to
-//! the tracker's 100 ms later, finds the child with the engine, born
-//! after that end, and files it as the engine's own. Cleanup can then be
-//! certified while the child runs. The same read has a second ordering.
-//! Once the pid counter has wrapped, a detached child can have a lower
-//! pid than its parent, so its row is read first, still naming that
-//! parent, and the parent exits before its own row is read. That read
-//! records the child neither as a descendant nor as a stray, and the same
-//! certification follows. A third ordering needs no wrap. A detached
-//! descendant born after one read is listed by the next, whose row for
-//! the driver is read first and shows it running. The descendant's parent
-//! and the driver then exit before the descendant's own row is read, so
-//! that row names the engine as its parent while the driver still reads
-//! as leading: no attempt could have left it, and it is filed, once, as
-//! the engine's own. A later read finds nothing of the attempt running,
-//! and the same certification follows.
+//! containment (#472). The first is the table-read race. A Linux read
+//! walks the engine's own subtree: each process's row is read after its
+//! parent's `children` file names it (#918). Suppose a failed driver's
+//! last live descendant forks a detached child after that descendant's
+//! `children` file was read, and exits before the next read. That read
+//! shows nothing of the attempt running, and so sets the attempt's end.
+//! The next read, up to the tracker's 100 ms later, finds the child with
+//! the engine, born after that end, and files it as the engine's own.
+//! Cleanup can then be certified while the child runs. A child the walk
+//! has already discovered keeps the parent that named it, so a parent
+//! that exits before the child's row is read is not this ordering: the
+//! next read sees the child's new parent. An identity the attempt has
+//! already recorded is read by its own row at a settlement read, so the
+//! walk's transient gap while it reparents is not read as gone.
 //!
 //! The second is the read-to-fork instant, a wrong kill rather than a
 //! missed one. No read is atomic with the fork, so an orphan of the
@@ -83,14 +77,14 @@
 //! Every read fails closed. A table that cannot be read, a row that
 //! cannot be read or parsed, a `ps` that exits nonzero and a snapshot
 //! without the engine's own row prove nothing; a row that vanished
-//! between the listing and its read is gone. A read before the spawn that
-//! fails refuses the spawn: without it, nothing tells the attempt's
-//! orphans from what ran before it. A kill the kernel refuses on a live
-//! identity leaves the cleanup unresolved. So does a kill it refuses on
-//! the group, with one exception: an EPERM on the group is read against
-//! the table. Darwin refuses a group with EPERM when its only members are
-//! zombies or exiting, so a group whose fresh, whole read shows no member
-//! running is gone. An EPERM group with a member running and any other
+//! between being named by its parent and its read is gone. A read before
+//! the spawn that fails refuses the spawn: without it, nothing tells the
+//! attempt's orphans from what ran before it. A kill the kernel refuses
+//! on a live identity leaves the cleanup unresolved. So does a kill it
+//! refuses on the group, with one exception: an EPERM on the group is
+//! read against the table. Darwin refuses a group with EPERM when its
+//! only members are zombies or exiting, so a group whose fresh, whole
+//! read shows no member running is gone. An EPERM group with a member running and any other
 //! refusal stay unresolved, reported ahead of an identity's refusal. One
 //! whose table cannot be read whole stays unresolved too, and the cleanup
 //! reports what the read shows: an identity's refusal first, otherwise
@@ -158,6 +152,11 @@ impl Host {
     pub(super) const REAL: Host = Host {
         kill_group,
         kill: table::kill,
+        // Linux reads the engine's own subtree; macOS, which has no
+        // subreaper, reads the whole table as before (#918).
+        #[cfg(target_os = "linux")]
+        table: table::own_tree,
+        #[cfg(not(target_os = "linux"))]
         table: table::snapshot,
         missing: attempts::missing,
     };

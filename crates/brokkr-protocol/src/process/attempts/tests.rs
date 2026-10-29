@@ -601,3 +601,56 @@ fn a_group_refused_with_eperm_is_gone_only_when_the_table_shows_it_gone() {
         })
     );
 }
+
+/// #918: the tree walk can miss a recorded identity while the kernel
+/// reparents it. `running` reads its own row, so a spared survivor parks
+/// the attempt rather than being read as gone. Without that row, the
+/// entries hold the engine alone and the attempt settles.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_recorded_identity_missing_from_the_walk_is_read_directly() {
+    let mut child = Command::new("sleep").arg("30").spawn().unwrap();
+    let pid = i32::try_from(child.id()).unwrap();
+    let id = table::snapshot()
+        .unwrap()
+        .into_iter()
+        .find(|entry| entry.id.pid == pid)
+        .expect("the stub is in the table")
+        .id;
+    let mut live = closed(GROUP, &[], &[]);
+    live.recorded.insert(id);
+    live.recorded.insert(Identity {
+        pid: 999_999_999,
+        start: "1".into(),
+    });
+    let outcome = live.running(&[row(me(), 1, me())], spared);
+    child.kill().unwrap();
+    child.wait().unwrap();
+    assert_eq!(outcome, Err(Unsettled::Descendants { pids: vec![pid] }));
+}
+
+/// #918: a recorded identity whose row cannot be read is no proof it is
+/// gone; the attempt parks with the read's failure.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_recorded_identity_whose_row_cannot_be_read_parks_the_attempt() {
+    let id = Identity {
+        pid: 999_999_999,
+        start: "1".into(),
+    };
+    let mut live = closed(GROUP, &[], &[]);
+    live.recorded.insert(id);
+    assert_eq!(
+        live.rows(&[row(me(), 1, me())], |_| {
+            Err(TableError::Row {
+                pid: 999_999_999,
+                error: std::io::Error::from_raw_os_error(libc::EACCES),
+            })
+        }),
+        Err(Unsettled::Table {
+            error:
+                "the row of process 999999999 could not be read: Permission denied (os error 13)"
+                    .into(),
+        })
+    );
+}

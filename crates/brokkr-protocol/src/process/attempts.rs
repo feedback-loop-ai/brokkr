@@ -388,6 +388,34 @@ impl Live {
             || self.doubted.contains(&entry.id)
     }
 
+    /// `entries` plus the own row of every recorded or doubted identity
+    /// the tree walk missed. A process is briefly absent from every
+    /// `children` file while the kernel reparents it, so a settlement
+    /// read could otherwise take a recorded survivor for gone (#918).
+    #[cfg(target_os = "linux")]
+    fn rows(
+        &self,
+        entries: &[Entry],
+        row: fn(&Identity) -> Result<Option<Entry>, TableError>,
+    ) -> Result<Vec<Entry>, Unsettled> {
+        let mut rows = entries.to_vec();
+        for id in self.recorded.iter().chain(&self.doubted) {
+            if rows.iter().any(|entry| entry.id == *id) {
+                continue;
+            }
+            match row(id) {
+                Ok(Some(entry)) => rows.push(entry),
+                Ok(None) => {}
+                Err(error) => {
+                    return Err(Unsettled::Table {
+                        error: error.to_string(),
+                    })
+                }
+            }
+        }
+        Ok(rows)
+    }
+
     /// What of the attempt `entries` shows running, in the order it is
     /// reported: its group, its recorded descendants, the orphans it
     /// doubts. Every identity still running is signalled again first,
@@ -397,6 +425,10 @@ impl Live {
         entries: &[Entry],
         kill: fn(&Identity) -> std::io::Result<()>,
     ) -> Result<(), Unsettled> {
+        #[cfg(target_os = "linux")]
+        let completed = self.rows(entries, table::row_of)?;
+        #[cfg(target_os = "linux")]
+        let entries = completed.as_slice();
         let running = || entries.iter().filter(|entry| !entry.zombie);
         let owned = |set: &BTreeSet<Identity>| -> Vec<&Identity> {
             running()

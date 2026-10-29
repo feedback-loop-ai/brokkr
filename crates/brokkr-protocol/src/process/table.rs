@@ -1,9 +1,16 @@
-//! The host's process table, as the attempt's tree is read from it (#403).
-//! Linux reads `/proc`; macOS reads `ps`. A process is named by its pid
-//! AND its start stamp, so a pid the kernel has since handed to another
-//! process never reads as the one recorded. A table that cannot be read
-//! whole is no table: a row the engine cannot read could be the
-//! attempt's, so it fails the read rather than reading as gone.
+//! The host's process tree, as the attempt's tree is read from it (#403,
+//! #918). Linux reads the engine's own subtree through `/proc`'s
+//! `children` files: everything settlement can attribute is a descendant
+//! of the engine, and a read that walked the whole host would pay for
+//! every process on it. macOS reads the whole table with `ps`, where
+//! there is no subreaper. A process is named by its pid AND its start
+//! stamp, so a pid the kernel has since handed to another process never
+//! reads as the one recorded. A table that cannot be read whole is no
+//! table: a row the engine cannot read could be the attempt's, so it
+//! fails the read rather than reading as gone.
+
+#[cfg(target_os = "linux")]
+use std::collections::BTreeSet;
 
 use rustix::process::{Pid, Signal};
 use thiserror::Error;
@@ -24,7 +31,7 @@ impl Identity {
     }
 }
 
-/// One row of a snapshot. A zombie has exited: it holds a pid until its
+/// One row of a table read. A zombie has exited: it holds a pid until its
 /// parent reaps it, and it runs nothing, so it counts as gone. An exiting
 /// process is one BSD `ps` flags `E`, trying to exit but not yet a
 /// zombie: Darwin's group signal skips it (`tree::group_refused`). Linux
@@ -38,10 +45,10 @@ pub(super) struct Entry {
     pub(super) exiting: bool,
 }
 
-/// Why the table could not be read whole.
+/// Why a table read failed.
 #[derive(Debug, Error)]
 pub(super) enum TableError {
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", test))]
     #[error("/proc could not be listed: {0}")]
     List(std::io::Error),
     #[cfg(target_os = "linux")]
@@ -63,8 +70,101 @@ pub(super) enum TableError {
 #[cfg(target_os = "linux")]
 const PROC: &str = "/proc";
 
-/// Every process the host lists.
+/// The engine's own tree: itself and every descendant, read through
+/// `/proc/<pid>/task/<tid>/children`. The engine is a child subreaper on
+/// Linux (`attempts`), so a descendant that leaves its attempt's group,
+/// or whose parent exits, is reparented to the engine and stays in this
+/// subtree; every process settlement must attribute is therefore here.
+///
+/// The walk reads the subtree, never the host: unrelated host processes
+/// are not visited, and one read costs the engine's own process count,
+/// not the host's.
 #[cfg(target_os = "linux")]
+pub(super) fn own_tree() -> Result<Vec<Entry>, TableError> {
+    own_tree_in(
+        std::path::Path::new(PROC),
+        rustix::process::getpid().as_raw_pid(),
+    )
+}
+
+/// The tree rooted at `root` in `proc`, root included, found by the
+/// `children` files of every thread of every process in it. A child that
+/// exits mid-walk is skipped, not an error: the next read finds what it
+/// left with the engine, as an orphan is found today. A child that exits
+/// before its own `children` are read leaves its children to be
+/// reparented to the engine, where the next read sees them.
+///
+/// A child keeps the parent whose `children` file named it, even when
+/// that parent exited before the child's own row was read and the kernel
+/// has already reparented it: the edge is what tells the tracker the
+/// child is the attempt's, and the next read sees its new parent. Without
+/// it, a row naming the engine while the parent still reads as leading
+/// would be filed as the engine's own.
+#[cfg(target_os = "linux")]
+fn own_tree_in(proc: &std::path::Path, root: i32) -> Result<Vec<Entry>, TableError> {
+    let entry = read(proc, root)
+        .map_err(|error| TableError::Row { pid: root, error })?
+        .ok_or(TableError::NoSelf { pid: root })?;
+    let mut seen = BTreeSet::from([root]);
+    let mut frontier = vec![root];
+    let mut entries = vec![entry];
+    while let Some(pid) = frontier.pop() {
+        for child in children(proc, pid).map_err(|error| TableError::Row { pid, error })? {
+            if !seen.insert(child) {
+                continue;
+            }
+            if let Some(mut entry) =
+                read(proc, child).map_err(|error| TableError::Row { pid: child, error })?
+            {
+                entry.ppid = pid;
+                entries.push(entry);
+                frontier.push(child);
+            }
+        }
+    }
+    Ok(entries)
+}
+
+/// The children of every thread of `pid`, from the `children` file each
+/// thread's `/proc/<pid>/task/<tid>` holds. A process or thread that
+/// exits while it is read is gone, and lists no children here.
+#[cfg(target_os = "linux")]
+fn children(proc: &std::path::Path, pid: i32) -> std::io::Result<Vec<i32>> {
+    let tasks = match std::fs::read_dir(proc.join(pid.to_string()).join("task")) {
+        Err(error) if gone(&error) => return Ok(Vec::new()),
+        tasks => tasks?,
+    };
+    let mut children = Vec::new();
+    for task in tasks {
+        let task = task?;
+        let text = match std::fs::read_to_string(task.path().join("children")) {
+            // A task that exited between the listing and its read took
+            // its children with it: what it forked was reparented, and
+            // the next read finds it with the engine.
+            Err(error) if gone(&error) => continue,
+            text => text?,
+        };
+        for child in text.split_whitespace() {
+            children.push(child.parse().map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("unparsed child pid {child:?}"),
+                )
+            })?);
+        }
+    }
+    Ok(children)
+}
+
+/// Is `error` a process or thread that exited while it was read?
+#[cfg(target_os = "linux")]
+fn gone(error: &std::io::Error) -> bool {
+    matches!(error.raw_os_error(), Some(libc::ENOENT | libc::ESRCH))
+}
+
+/// Every process the host lists, for the tests that plant a `/proc`
+/// tree and for the macOS table.
+#[cfg(all(target_os = "linux", test))]
 pub(super) fn snapshot() -> Result<Vec<Entry>, TableError> {
     snapshot_in(std::path::Path::new(PROC))
 }
@@ -72,7 +172,7 @@ pub(super) fn snapshot() -> Result<Vec<Entry>, TableError> {
 /// Every process `proc` lists. A process that exits between the listing
 /// and its read is gone, and is left out as gone; a row that cannot be
 /// read for any other reason, or read whole, fails the snapshot.
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", test))]
 fn snapshot_in(proc: &std::path::Path) -> Result<Vec<Entry>, TableError> {
     let mut entries = Vec::new();
     for dir in std::fs::read_dir(proc).map_err(TableError::List)? {
@@ -84,15 +184,38 @@ fn snapshot_in(proc: &std::path::Path) -> Result<Vec<Entry>, TableError> {
     Ok(entries)
 }
 
+#[cfg(all(target_os = "linux", test))]
+thread_local! {
+    /// How many stat rows this thread has read: a planted `/proc` counts
+    /// the files one tracker read opens.
+    static STAT_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(all(target_os = "linux", test))]
+fn count_stat() {
+    STAT_READS.with(|reads| reads.set(reads.get() + 1));
+}
+
+/// How many stat rows this thread has read since [`clear_stat_reads`].
+#[cfg(all(target_os = "linux", test))]
+fn stat_reads() -> usize {
+    STAT_READS.with(std::cell::Cell::get)
+}
+
+#[cfg(all(target_os = "linux", test))]
+fn clear_stat_reads() {
+    STAT_READS.with(|reads| reads.set(0));
+}
+
 /// The row of `pid`, or `None` when the process is gone: its directory
 /// went with it (`ENOENT`), or it exited while its `stat` was read
 /// (`ESRCH`).
 #[cfg(target_os = "linux")]
 fn read(proc: &std::path::Path, pid: i32) -> std::io::Result<Option<Entry>> {
+    #[cfg(test)]
+    count_stat();
     let stat = match std::fs::read_to_string(proc.join(pid.to_string()).join("stat")) {
-        Err(error) if matches!(error.raw_os_error(), Some(libc::ENOENT | libc::ESRCH)) => {
-            return Ok(None)
-        }
+        Err(error) if gone(&error) => return Ok(None),
         stat => stat?,
     };
     parse_stat(pid, &stat).map(Some).ok_or_else(|| {
@@ -101,6 +224,23 @@ fn read(proc: &std::path::Path, pid: i32) -> std::io::Result<Option<Entry>> {
             format!("unparsed stat {stat:?}"),
         )
     })
+}
+
+/// The row of `id`, or `None` when it is gone or its pid now names
+/// another process. The tree walk can miss a recorded process while it
+/// is reparented, so settlement reads that identity's own row too
+/// (`attempts::Live::rows`).
+#[cfg(target_os = "linux")]
+pub(super) fn row_of(id: &Identity) -> Result<Option<Entry>, TableError> {
+    row_in(std::path::Path::new(PROC), id)
+}
+
+/// [`row_of`] in `proc`, for the planted trees the tests read.
+#[cfg(target_os = "linux")]
+fn row_in(proc: &std::path::Path, id: &Identity) -> Result<Option<Entry>, TableError> {
+    let entry: Option<Entry> =
+        read(proc, id.pid).map_err(|error| TableError::Row { pid: id.pid, error })?;
+    Ok(entry.filter(|entry| entry.id == *id))
 }
 
 /// `/proc/<pid>/stat`: the command name is parenthesised and may hold any
