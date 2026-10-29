@@ -1,22 +1,8 @@
 use std::path::{Path, PathBuf};
 
-/// A real git repository at `dir`, for a fixture that marks a workspace
-/// root with `.git`: the walk asks git only when it can answer, so a bare
-/// marker directory is no longer the same fixture (#908).
-pub(crate) fn test_repository(dir: &Path) {
-    std::fs::create_dir_all(dir).unwrap();
-    let out = std::process::Command::new("git")
-        .args(["init", "-q"])
-        .current_dir(dir)
-        .output()
-        .expect("git init");
-    assert!(
-        out.status.success(),
-        "git init -q at {}: {}",
-        dir.display(),
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
+#[path = "../../tests/support/git.rs"]
+mod git;
+pub(crate) use git::test_repository;
 
 use super::{
     base_library, default_map, folder, library, run_local, state_of, unpinned_reason, Kind, Layout,
