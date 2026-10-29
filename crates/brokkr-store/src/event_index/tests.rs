@@ -73,7 +73,10 @@ fn row(seq: i64, kind: &str, attempt: Option<&str>, member: Option<&str>) -> Vec
 /// Where `run_id`'s rows part from its events, read whole.
 fn parted_at(store: &Store, run_id: &str) -> Option<(u64, IndexFault)> {
     let events = store.load(run_id).unwrap();
-    first_unindexed(&store.conn, run_id, &events).unwrap()
+    match first_unindexed(&store.conn, run_id, &events).unwrap() {
+        IndexReading::Parted(seq, fault) => Some((seq, fault)),
+        IndexReading::Agrees | IndexReading::Behind => None,
+    }
 }
 
 fn backfilled(store: &Store) -> bool {
@@ -520,18 +523,22 @@ fn rows_of_a_run_the_journal_does_not_hold_are_named_as_strays() {
 /// no load admits is held to it too.
 #[test]
 fn every_fixture_s_events_are_indexed_as_brokkr_core_projects_them() {
-    let (_dir, store) = store();
+    let (_dir, mut store) = store();
     let found: Vec<_> = crate::test_support::fixture_events()
         .into_iter()
         .map(|(_, _, events)| {
             let run_id = events[0].run_id.clone();
             crate::test_support::plant_older_writer(&store, &run_id, &events);
+            // A park's dated facts are the whole run's reading, not one
+            // event's, so the writer's backfill writes them; the trigger
+            // writes the event's own columns.
+            store.park_behind_with(|_| {}).unwrap();
             let parted = first_unindexed(&store.conn, &run_id, &events).unwrap();
             let indexed = rows(&store, &run_id).len();
             (run_id, indexed, parted)
         })
         .collect();
-    let run = |run: &str, rows| (run.to_string(), rows, None);
+    let run = |run: &str, rows| (run.to_string(), rows, IndexReading::Agrees);
     assert_eq!(
         found,
         [

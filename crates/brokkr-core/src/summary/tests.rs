@@ -45,7 +45,7 @@ fn opening() -> Vec<(EventType, Value)> {
 
 /// A run verified with two residuals, reviewed into a park by a ruling
 /// that carried a third, and its first ruling's findings superseded.
-fn parked() -> Vec<EventEnvelope> {
+pub(super) fn parked() -> Vec<EventEnvelope> {
     let mut steps = opening();
     steps.extend([
         (

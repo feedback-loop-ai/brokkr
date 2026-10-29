@@ -4,7 +4,9 @@
 //! every row that stands at its head reads as its fold.
 
 use super::*;
-use crate::test_support::{every_run_reads_as_its_fold, lags, plant_envelope, plant_run};
+use crate::test_support::{
+    append, every_run_reads_as_its_fold, lags, plant_envelope, plant_run, text,
+};
 use crate::tests::envelope_builder::EnvelopeBuilder;
 use crate::tests::{store, write_lock_on};
 use crate::{Attribution, Rows};
@@ -28,18 +30,8 @@ fn row(store: &Store, run_id: &str, columns: &str) -> Vec<Value> {
         .unwrap()
 }
 
-fn text(value: &str) -> Value {
-    Value::Text(value.to_string())
-}
-
 fn lane(store: &Store, run_id: &str) -> Value {
     row(store, run_id, "lane").remove(0)
-}
-
-fn append(store: &mut Store, run_id: &str, event_type: EventType, payload: Json) -> EventEnvelope {
-    store
-        .append_next(run_id, event_type, payload, None, None)
-        .unwrap()
 }
 
 /// `run_id` created and started by this store, which carries its account.

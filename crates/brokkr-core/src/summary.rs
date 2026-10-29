@@ -25,9 +25,11 @@ use crate::seat::row::{SeatRow, Seats};
 use crate::stamp::parse_millis;
 
 mod aggregate;
+mod park;
 
 use aggregate::Reading;
 pub use aggregate::{aggregate, Aggregate, Ending};
+pub use park::{parks, Park};
 
 /// The bound of a name a run's data states: a phase, a rule id, the phase
 /// that ruled, a seat (decision 0089 ruling 2).
@@ -197,6 +199,8 @@ pub struct Account {
     seats: Seats,
     /// What the aggregate readouts read of it (ruling 7).
     reading: Reading,
+    /// Its parks (ruling 7).
+    parks: park::Parking,
 }
 
 impl Account {
@@ -213,6 +217,7 @@ impl Account {
             marks: BTreeMap::new(),
             seats: Seats::default(),
             reading: Reading::default(),
+            parks: park::Parking::default(),
         }
     }
 
@@ -244,6 +249,7 @@ impl Account {
             note_closing(&mut self.marks, event);
             self.seats.note(event);
             self.reading.note(event);
+            self.parks.note(event);
         }
         self.head = (last.seq, last.event_hash.clone());
         self.last_recorded_at = Some(last.recorded_at.clone());
@@ -278,6 +284,19 @@ impl Account {
     /// (decision 0089 ruling 8).
     pub fn seats_kept(&self) -> bool {
         self.seats.keep_live()
+    }
+
+    /// Its parks, in the order they opened, each with the operator's answer
+    /// and the run's next move where they have happened (ruling 7).
+    pub fn parks(&self) -> Vec<Park> {
+        self.parks.parks()
+    }
+
+    /// The seq of every `run/parked` event of the run, in order, including
+    /// one whose stamp did not parse and so opened no park: the writer
+    /// records its row processed, with no dated facts.
+    pub fn park_rows(&self) -> &[u64] {
+        self.parks.rows()
     }
 }
 

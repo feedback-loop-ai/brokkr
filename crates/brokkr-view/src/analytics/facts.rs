@@ -7,12 +7,11 @@
 use std::collections::BTreeMap;
 
 use brokkr_core::fold::{concluded, RunState};
-use brokkr_core::summary::aggregate;
-use brokkr_core::{EventEnvelope, EventType};
+use brokkr_core::summary::{aggregate, parks as project_parks};
+use brokkr_core::EventEnvelope;
 
 use super::{AnalyticsRun, QuarantinedHearth, Query};
 use crate::attempts::{attempts, Attempts, Site};
-use crate::field;
 
 pub(crate) use brokkr_core::summary::Ending;
 
@@ -71,61 +70,25 @@ pub(crate) fn in_range(finished: Option<i64>, open: bool, window: Window) -> boo
     open || finished.is_some_and(|ended| window.holds(ended))
 }
 
-fn at(event: &EventEnvelope) -> Option<i64> {
-    brokkr_core::stamp::parse_millis(&event.recorded_at)
-}
-
 /// Whether the run is still running or parked: its fold has not
 /// concluded it.
 pub(crate) fn is_open(state: &RunState) -> bool {
     concluded(state).is_none()
 }
 
-fn is_operator(event_type: EventType) -> bool {
-    matches!(
-        event_type,
-        EventType::OperatorCommanded | EventType::OperatorAccepted | EventType::OperatorRejected
-    )
-}
-
-/// Every park: it waits on the operator until their next command, and
-/// stays parked until the run moves again, at `now` if it has not.
+/// Every park, its open moments read as `now`: it waits on the operator
+/// until their next command, and stays parked until the run moves again.
+/// Brokkr-core reads which moments those are (decision 0089 ruling 7).
 fn parks(events: &[EventEnvelope], now: i64) -> Vec<Park> {
-    let mut phase: Option<String> = None;
-    let mut open: Option<(Park, Option<i64>)> = None;
-    let mut parks = Vec::new();
-    for event in events {
-        let Some(time) = at(event) else { continue };
-        if let Some((park, answered)) = open.as_mut() {
-            if is_operator(event.event_type) {
-                if event.event_type == EventType::OperatorCommanded && answered.is_none() {
-                    *answered = Some(time);
-                }
-                continue;
-            }
-            park.ended = time;
-            park.answered = answered.unwrap_or(time);
-            parks.extend(open.take().map(|(park, _)| park));
-        }
-        match event.event_type {
-            EventType::PhaseEntered => phase = field(&event.payload, "phase").map(str::to_string),
-            EventType::RunParked => {
-                let park = Park {
-                    phase: phase.clone(),
-                    at: time,
-                    answered: now,
-                    ended: now,
-                };
-                open = Some((park, None));
-            }
-            _ => {}
-        }
-    }
-    parks.extend(open.map(|(mut park, answered)| {
-        park.answered = answered.unwrap_or(now);
-        park
-    }));
-    parks
+    project_parks(events)
+        .into_iter()
+        .map(|park| Park {
+            phase: park.phase,
+            at: park.at,
+            answered: park.answered.or(park.ended).unwrap_or(now),
+            ended: park.ended.unwrap_or(now),
+        })
+        .collect()
 }
 
 fn facts(run: &AnalyticsRun, label: &str, now: i64) -> RunFacts {

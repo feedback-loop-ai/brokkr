@@ -361,6 +361,21 @@ pub(crate) fn all_present(
         .all(|name| present.iter().any(|found| found == name)))
 }
 
+/// Does `table` declare every one of `columns`? A pure read of its
+/// columns in one statement, however many it asks after.
+pub(crate) fn holds<'a>(
+    conn: &Connection,
+    table: &str,
+    columns: impl IntoIterator<Item = &'a str>,
+) -> Result<bool, StoreError> {
+    let mut statement = conn.prepare("SELECT name FROM pragma_table_info(?1)")?;
+    let found: Vec<String> = statement
+        .query_map([table], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    let mut columns = columns.into_iter();
+    Ok(columns.all(|column| found.iter().any(|name| name == column)))
+}
+
 /// The schema a journal records, or `None` for a file that has never
 /// been migrated. A pure read: it asks `sqlite_master` whether `meta`
 /// exists rather than provoking a "no such table" error, so it is safe

@@ -56,7 +56,7 @@ use rusqlite::types::{Value, ValueRef};
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Row};
 
 use crate::event_index::{finished, first_parted, mark_finished, place, IndexFault};
-use crate::schema::all_present;
+use crate::schema::{all_present, holds};
 use crate::summary::{refold_once, Compared};
 use crate::{head_of, patiently, Disagreement, Store, StoreError};
 
@@ -117,20 +117,6 @@ pub(crate) fn seats_intact(conn: &Connection) -> Result<bool, StoreError> {
     Ok(all_present(conn, "table", &TABLES)?
         && holds(conn, "seat_summary", kept())?
         && holds(conn, "seat_head", [SHAPED])?)
-}
-
-/// Does `table` declare every one of `columns`?
-fn holds<'a>(
-    conn: &Connection,
-    table: &str,
-    columns: impl IntoIterator<Item = &'a str>,
-) -> Result<bool, StoreError> {
-    let mut statement = conn.prepare("SELECT name FROM pragma_table_info(?1)")?;
-    let found: Vec<String> = statement
-        .query_map([table], |row| row.get(0))?
-        .collect::<Result<_, _>>()?;
-    let mut columns = columns.into_iter();
-    Ok(columns.all(|column| found.iter().any(|name| name == column)))
 }
 
 const SHAPED: &str = "shape";

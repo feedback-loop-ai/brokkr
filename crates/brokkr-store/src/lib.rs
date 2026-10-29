@@ -248,6 +248,11 @@ pub struct Store {
     /// that binds their cost ([`run_select`]). Only a test reads it.
     #[cfg(test)]
     selector_steps: std::cell::Cell<i64>,
+    /// The VM instructions the last park sweep's selection read, its
+    /// off-head scan and its stale seeks apart: what the test that binds
+    /// its one-walk cost steps (decision 0071 ruling 9).
+    #[cfg(test)]
+    park_steps: std::cell::Cell<(i64, i64)>,
 }
 
 /// Refuse a run id the journal already carries, as
@@ -446,6 +451,8 @@ impl Store {
             binding: Default::default(),
             #[cfg(test)]
             selector_steps: std::cell::Cell::new(0),
+            #[cfg(test)]
+            park_steps: std::cell::Cell::new((0, 0)),
         }
     }
 
