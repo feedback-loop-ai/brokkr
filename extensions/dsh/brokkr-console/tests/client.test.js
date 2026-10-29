@@ -21,25 +21,21 @@ const fleet = () =>
     ]),
   )
 
-/** The panel, opened on the parked run in `brokkr`, with `view` as its run view. */
-async function onRun(view = runViewDoc(), answers = {}, ask = false) {
+/** The panel, opened on the parked run in `brokkr`, before any read of the run lands. */
+function openedRun(answers = {}, ask = false) {
   const client = mountClient('main', {}, answers)
   client.push({ type: 'snapshot', ask, fleet: fleet(), overview: null, run: null })
   buttons(client.tree()).find((button) => textOf(button).startsWith('brokkr')).props.onClick()
   buttons(client.tree()).find((button) => textOf(button).startsWith('Encrypt the token store')).props.onClick()
+  return client
+}
+
+/** The panel, opened on the parked run in `brokkr`, with `view` as its run view. */
+async function onRun(view = runViewDoc(), answers = {}, ask = false) {
+  const client = openedRun(answers, ask)
   client.push({ type: 'run', run: { realm: 'brokkr', run_id: RUN, view: runViewOf(view) } })
   return client
 }
-
-/** The panel, opened on the parked run in `brokkr`, before any read of the run lands. */
-function openedRun() {
-  const client = mountClient('main')
-  client.push({ type: 'snapshot', fleet: fleet(), overview: null, run: null })
-  buttons(client.tree()).find((button) => textOf(button).startsWith('brokkr')).props.onClick()
-  buttons(client.tree()).find((button) => textOf(button).startsWith('Encrypt the token store')).props.onClick()
-  return client
-}
-
 
 test('the panel-list icon counts the runs that need the operator across every hearth', () => {
   const client = mountClient('sidebar.panellist', { size: 16, active: false })
@@ -325,7 +321,7 @@ test('a refused read paints the run’s title, Brokkr’s words and the host’s
   client.push({ type: 'run', run: { realm: 'brokkr', run_id: RUN, view: null, refused: words, hint } })
   assert.deepEqual(findAll(client.tree(), (node) => node.type === 'h1').map(textOf), ['Encrypt the token store'])
   assert.deepEqual(findAll(client.tree(), (node) => node.props.className === 'bk-error').map(textOf), [words])
-  assert.deepEqual(findAll(client.tree(), (node) => node.props.className === 'bk-note' && textOf(node) === hint).map(textOf), [hint])
+  assert.deepEqual(findAll(client.tree(), (node) => String(node.props.className).includes('bk-hint') && textOf(node) === hint).map(textOf), [hint])
   assert.equal(textOf(client.tree()).includes('Reading the run…'), false)
 
   client.push({ type: 'run', run: { realm: 'brokkr', run_id: RUN, view: runViewOf(runViewDoc()) } })

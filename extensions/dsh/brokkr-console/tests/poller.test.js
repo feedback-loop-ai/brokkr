@@ -3,6 +3,7 @@
 // client on the Realms view; a client that reconnects gets a full snapshot.
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 
 import { brokkrOf } from '../lib/host/brokkr.js'
@@ -17,6 +18,15 @@ const OTHER = 'lane-detection-v2-77aa01bc'
 
 const fleetAt = (seq, other = 3) => json(fleetDoc([['brokkr', [row({ seq }), row({ run_id: OTHER, seq: other, title: 'Lane detection v2' })]]]))
 
+/** Wait until `client` has been sent its snapshot, then hand it back. */
+async function settle(client) {
+  for (let waited = 0; client.sent.length === 0; waited += 50) {
+    assert.ok(waited < 10_000, 'no snapshot within 10s')
+    await new Promise((wake) => setTimeout(wake, 50))
+  }
+  return client
+}
+
 function polled(fleets, ask = undefined) {
   const brokkr = stubBrokkr([
     { match: ['runs'], responses: fleets },
@@ -29,13 +39,6 @@ function polled(fleets, ask = undefined) {
   const peer = () => {
     const sent = []
     return { sent, send: (message) => sent.push(message), onClose: () => {} }
-  }
-  /** Wait until `client` has been sent its snapshot. */
-  const settle = async (client) => {
-    for (let waited = 0; client.sent.length === 0; waited += 50) {
-      assert.ok(waited < 10_000, 'no snapshot within 10s')
-      await new Promise((wake) => setTimeout(wake, 50))
-    }
   }
   return { poller, peer, settle, calls: () => brokkr.calls().map((argv) => argv[0]) }
 }
@@ -107,11 +110,7 @@ async function attached(poller, watch) {
   const sent = []
   const client = { sent, send: (message) => sent.push(message), onClose: () => {} }
   poller.attach(client)({ type: 'watch', ...watch })
-  for (let waited = 0; sent.length === 0; waited += 50) {
-    assert.ok(waited < 10_000, 'no snapshot within 10s')
-    await new Promise((wake) => setTimeout(wake, 50))
-  }
-  return client
+  return settle(client)
 }
 
 /** The argv a POSIX shell hands `brokkr` for a pasted hint: the function only prints them. */
@@ -182,7 +181,7 @@ test('the runner’s own output bound reaches the run page as Brokkr’s refusal
 
   const page = openedPage(fleetOf(fleetDoc([['brokkr', [row({ seq: 12 })]]])), run)
   assert.deepEqual(findAll(page.tree(), (node) => node.props.className === 'bk-error').map(textOf), [words])
-  assert.deepEqual(findAll(page.tree(), (node) => node.props.className === 'bk-note' && textOf(node) === hint).map(textOf), [hint])
+  assert.deepEqual(findAll(page.tree(), (node) => String(node.props.className).includes('bk-hint') && textOf(node) === hint).map(textOf), [hint])
 })
 
 test('a one-hearth world’s refusal paints the command without a journal the console did not read', async () => {
@@ -200,7 +199,7 @@ test('a one-hearth world’s refusal paints the command without a journal the co
   assert.deepEqual(brokkr.calls().find((argv) => argv[0] === 'inspect'), ['inspect', `--run=${RUN}`, '--json'])
 
   const page = openedPage(fleetOf(oneHearth), run, ONE_HEARTH)
-  assert.deepEqual(findAll(page.tree(), (node) => node.props.className === 'bk-note' && textOf(node) === hint).map(textOf), [hint])
+  assert.deepEqual(findAll(page.tree(), (node) => String(node.props.className).includes('bk-hint') && textOf(node) === hint).map(textOf), [hint])
 })
 
 test('a refused-run hint keeps a journal path with a space as one pasteable argument', async () => {
@@ -217,7 +216,28 @@ test('a refused-run hint keeps a journal path with a space as one pasteable argu
   assert.deepEqual(brokkr.calls().find((argv) => argv[0] === 'inspect'), ['inspect', `--run=${RUN}`, `--db=${journal}`, '--json'])
 
   const page = openedPage(fleetOf(many), run, 'Project Alpha')
-  const painted = findAll(page.tree(), (node) => node.props.className === 'bk-note' && textOf(node) === run.hint).map(textOf)
+  const painted = findAll(page.tree(), (node) => String(node.props.className).includes('bk-hint') && textOf(node) === run.hint).map(textOf)
   assert.deepEqual(painted, [run.hint])
   assert.deepEqual(pasted(run.hint), ['inspect', `--run=${RUN}`, `--db=${journal}`])
+})
+
+test('a refused-run hint keeps repeated spaces and a tab in its journal path, and the paint shows them', async () => {
+  const words = 'brokkr inspect was refused: the journal could not be read'
+  const journal = '/hearths/Project  \tAlpha/forge.db'
+  const many = fleetDoc([['Project Alpha', [row({ seq: 12 })]], ['looper', [row({ run_id: OTHER, seq: 3, title: 'Lane detection v2' })]]])
+  many.realms[0].journal = journal
+  const brokkr = stubBrokkr([
+    { match: ['runs'], responses: [json(many)] },
+    { match: ['inspect'], responses: [{ stderr: words, code: 1 }] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const client = await attached(poller, { view: 'realm', run: { realm: 'Project Alpha', run_id: RUN } })
+  const run = client.sent[0].run
+  assert.deepEqual(brokkr.calls().find((argv) => argv[0] === 'inspect'), ['inspect', `--run=${RUN}`, `--db=${journal}`, '--json'])
+  assert.deepEqual(pasted(run.hint), ['inspect', `--run=${RUN}`, `--db=${journal}`])
+
+  const page = openedPage(fleetOf(many), run, 'Project Alpha')
+  const painted = findAll(page.tree(), (node) => String(node.props.className).includes('bk-hint') && textOf(node) === run.hint).map(textOf)
+  assert.deepEqual(painted, [run.hint])
+  assert.match(readFileSync(new URL('../lib/console.css', import.meta.url), 'utf8'), /\.bk-hint\{[^}]*white-space:pre-wrap/)
 })

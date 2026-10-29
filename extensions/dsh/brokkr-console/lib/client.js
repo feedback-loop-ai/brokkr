@@ -1016,7 +1016,7 @@ window.__ModuleLoader__.load({
       const [word, tone] = STANDING[row.verdict.standing]
       const view = run?.realm === hearth.realm && run?.run_id === row.run_id ? run.view : null
       const label = labelsOf(hearth.runs).get(row.run_id)
-      if (view === null) return h('main', { className: 'bk-main' }, h('h1', { className: 'bk-title' }, label), run?.realm === hearth.realm && run?.run_id === row.run_id && run.refused !== undefined ? [h('div', { className: 'bk-error' }, run.refused), h('div', { className: 'bk-note' }, run.hint)] : h('div', { className: 'bk-note' }, 'Reading the run…'))
+      if (view === null) return h('main', { className: 'bk-main' }, h('h1', { className: 'bk-title' }, label), run?.realm === hearth.realm && run?.run_id === row.run_id && run.refused !== undefined ? [h('div', { className: 'bk-error' }, run.refused), h('div', { className: 'bk-note bk-hint' }, run.hint)] : h('div', { className: 'bk-note' }, 'Reading the run…'))
       const focus = focusOf(view, picked)
       const why = h(WhyItWaits, { view, row, pick })
       return h('main', { className: 'bk-main bk-runpage' },
