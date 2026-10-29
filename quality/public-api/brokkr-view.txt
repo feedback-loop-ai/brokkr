@@ -275,6 +275,7 @@ pub brokkr_view::Standing::Stopped
 pub brokkr_view::Standing::Stopping
 impl brokkr_view::Standing
 pub fn brokkr_view::Standing::label(self) -> &'static str
+pub fn brokkr_view::Standing::status_word(self, core::option::Option<&str>) -> &str
 pub enum brokkr_view::Table
 pub brokkr_view::Table::NotFound
 pub brokkr_view::Table::NotFound::text: alloc::string::String
@@ -659,6 +660,8 @@ pub brokkr_view::Summary::seq: u64
 pub brokkr_view::Summary::standing: brokkr_view::Standing
 pub brokkr_view::Summary::status: alloc::string::String
 pub brokkr_view::Summary::strategy: core::option::Option<alloc::string::String>
+impl brokkr_view::Summary
+pub fn brokkr_view::Summary::status_word(&self) -> &str
 pub struct brokkr_view::Superseded
 pub brokkr_view::Superseded::by: brokkr_view::SupersededBy
 pub brokkr_view::Superseded::operator: alloc::string::String

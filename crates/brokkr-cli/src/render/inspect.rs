@@ -2,7 +2,7 @@
 //! from the run's summary and its ruling (#288): each is a list of lines
 //! the readout prints in the order it always has.
 
-use brokkr_view::{Ruling, Standing, Summary};
+use brokkr_view::{Ruling, Summary};
 
 use super::{push_line, status_code, tint, Safe, Style};
 
@@ -19,10 +19,7 @@ pub(super) fn summary_lines(out: &mut String, summary: Option<&Summary>, style: 
                 Some(phase) => phase.clone(),
                 None => "-".to_string(),
             };
-            let status = match summary.standing {
-                Standing::Stopping => summary.standing.label(),
-                _ => summary.status.as_str(),
-            };
+            let status = summary.status_word();
             push_line(
                 out,
                 &format!(

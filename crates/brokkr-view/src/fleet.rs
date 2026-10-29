@@ -78,11 +78,7 @@ impl RunRow {
     /// except that a run whose accepted stop has no ending stands as
     /// stopping, not running.
     pub fn status_word(&self) -> &str {
-        match (&self.status, self.verdict.standing) {
-            (_, Standing::Stopping) => Standing::Stopping.label(),
-            (Some(status), _) => status,
-            (None, _) => "?",
-        }
+        self.verdict.standing.status_word(self.status.as_deref())
     }
 }
 
@@ -226,6 +222,22 @@ impl Standing {
             Standing::Stopping => "stopping",
             Standing::Shipped => "shipped",
             Standing::Stopped | Standing::OperatorStopped => "stopped",
+        }
+    }
+
+    /// The word a readout prints for a run whose fold status is `status`:
+    /// the fold's own word, except that an accepted stop with no ending
+    /// stands as stopping. One home for the rule every row and summary
+    /// paints (decision 0071 ruling 5).
+    pub fn status_word(self, status: Option<&str>) -> &str {
+        match self {
+            Standing::Stopping => self.label(),
+            Standing::Quarantined
+            | Standing::Parked
+            | Standing::Running
+            | Standing::Shipped
+            | Standing::Stopped
+            | Standing::OperatorStopped => status.unwrap_or("?"),
         }
     }
 }

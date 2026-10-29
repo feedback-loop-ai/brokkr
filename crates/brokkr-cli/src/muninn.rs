@@ -299,7 +299,7 @@ pub(crate) fn dossier_of(
                 .as_ref()
                 .expect("a folded state always summarizes");
             let admits = brokkr_view::operator_commands(&state);
-            *counts.entry(summary.status.clone()).or_default() += 1;
+            *counts.entry(summary.status_word().to_string()).or_default() += 1;
             facts.push((realm.clone(), run_id.clone(), summary.seq));
             // First hearth wins, matching [`Dossier::realm_of`]: where
             // two journals hold one run id, one answer is stated for it
@@ -336,7 +336,7 @@ pub(crate) fn dossier_of(
                 run_id,
                 seats,
                 seq: summary.seq,
-                status: summary.status.clone(),
+                status: summary.status_word().to_string(),
             }));
         }
     }

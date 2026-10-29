@@ -369,7 +369,11 @@ fn an_operator_stop_mid_flight_leaves_the_dossier_no_quarantine_to_report() {
     let derived = dossier(&store, NOW).unwrap();
 
     assert_eq!(derived.value["fleet"]["runs"], 2);
-    assert_eq!(derived.value["fleet"]["running"], 1);
+    assert_eq!(
+        derived.value["fleet"]["running"], 0,
+        "an accepted stop with no ending is not running: {}",
+        derived.value["fleet"]
+    );
     assert_eq!(
         derived.value["fleet"]["quarantined"], 0,
         "nothing to quarantine: {}",
@@ -380,7 +384,7 @@ fn an_operator_stop_mid_flight_leaves_the_dossier_no_quarantine_to_report() {
         .iter()
         .find(|run| run["run_id"] == "stopped-mid-flight")
         .expect("the run is listed");
-    assert_eq!(stopped["status"], "running");
+    assert_eq!(stopped["status"], "stopping");
     assert_eq!(stopped["seq"], 105);
     assert_eq!(stopped["phase"], "verify");
     assert_eq!(stopped["fold_error"], Value::Null);

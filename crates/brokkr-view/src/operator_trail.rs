@@ -8,31 +8,53 @@ use brokkr_core::{EventEnvelope, EventType};
 
 use crate::{field, What};
 
-/// Each operator command's word and the seq its `operator/commanded`
-/// states, by command id: what an acceptance or rejection names to show
-/// the command it disposed of.
-pub(crate) fn commands_of(events: &[EventEnvelope]) -> BTreeMap<String, (String, u64)> {
-    let mut commands = BTreeMap::new();
+/// The three operator events a trail row words, named so each disposition
+/// is matched explicitly rather than by its event type's fallthrough.
+#[derive(Clone, Copy)]
+pub(crate) enum OperatorKind {
+    Commanded,
+    Accepted,
+    Rejected,
+}
+
+/// Each operator disposition's command word and the seq of the
+/// `operator/commanded` that stood when it answered, by the disposition's
+/// own seq: a command id reused later never overwrites an earlier answer.
+pub(crate) fn commands_of(events: &[EventEnvelope]) -> BTreeMap<u64, (String, u64)> {
+    let mut commanded: BTreeMap<&str, (String, u64)> = BTreeMap::new();
+    let mut answered = BTreeMap::new();
     for event in events {
-        if event.event_type != EventType::OperatorCommanded {
+        if event.event_type == EventType::OperatorCommanded {
+            let (Some(id), Some(word)) = (
+                field(&event.payload, "command_id"),
+                field(&event.payload, "command"),
+            ) else {
+                continue;
+            };
+            commanded.insert(id, (word.to_string(), event.seq));
             continue;
         }
-        let (Some(id), Some(word)) = (
-            field(&event.payload, "command_id"),
-            field(&event.payload, "command"),
-        ) else {
+        if event.event_type != EventType::OperatorAccepted
+            && event.event_type != EventType::OperatorRejected
+        {
+            continue;
+        }
+        let Some(id) = field(&event.payload, "command_id") else {
             continue;
         };
-        commands.insert(id.to_string(), (word.to_string(), event.seq));
+        if let Some((word, seq)) = commanded.get(id) {
+            answered.insert(event.seq, (word.clone(), *seq));
+        }
     }
-    commands
+    answered
 }
 
 /// An operator event's trail row: its command, its own seq, and — on a
 /// disposition — the seq its `operator/commanded` stated.
 pub(crate) fn operator_what(
+    kind: OperatorKind,
     event: &EventEnvelope,
-    commands: &BTreeMap<String, (String, u64)>,
+    commands: &BTreeMap<u64, (String, u64)>,
 ) -> What {
     let payload = &event.payload;
     let empty = |text: String| What {
@@ -42,23 +64,31 @@ pub(crate) fn operator_what(
         arrow: None,
         problem: None,
     };
-    if event.event_type == EventType::OperatorCommanded {
-        let command = field(payload, "command").unwrap_or("?");
-        return empty(format!("{command} · commanded at seq {}", event.seq));
-    }
-    let known = field(payload, "command_id").and_then(|id| commands.get(id));
-    let (command, from) = match known {
-        Some((command, seq)) => (command.as_str(), format!(" (command at seq {seq})")),
-        None => ("?", String::new()),
-    };
-    match event.event_type {
-        EventType::OperatorAccepted => {
+    match kind {
+        OperatorKind::Commanded => {
+            let command = field(payload, "command").unwrap_or("?");
+            empty(format!("{command} · commanded at seq {}", event.seq))
+        }
+        OperatorKind::Accepted => {
+            let (command, from) = answered(commands, event.seq);
             empty(format!("{command} · accepted at seq {}{from}", event.seq))
         }
-        _ => empty(format!(
-            "{command} · rejected at seq {}: {}{from}",
-            event.seq,
-            field(payload, "reason").unwrap_or("?")
-        )),
+        OperatorKind::Rejected => {
+            let (command, from) = answered(commands, event.seq);
+            empty(format!(
+                "{command} · rejected at seq {}: {}{from}",
+                event.seq,
+                field(payload, "reason").unwrap_or("?")
+            ))
+        }
+    }
+}
+
+/// The command word a disposition at `seq` answers and the clause that
+/// names its seq, `?` and no clause where it answers none.
+fn answered(commands: &BTreeMap<u64, (String, u64)>, seq: u64) -> (&str, String) {
+    match commands.get(&seq) {
+        Some((command, at)) => (command.as_str(), format!(" (command at seq {at})")),
+        None => ("?", String::new()),
     }
 }

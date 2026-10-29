@@ -38,8 +38,9 @@ command or its seq.
    `stopping` and the same detail.
 2. **A stopping run needs the operator, and is never counted running.**
    It lists in the fleet's `needs you` section and in no running count,
-   in `brokkr runs`, the fleet's sections, the TUI's counts and the dsh
-   console. A live driver normally writes the ending within seconds.
+   in `brokkr runs`, the fleet's sections, the TUI's counts, the muninn
+   dossier and the dsh console. A live driver normally writes the ending
+   within seconds.
 3. **The summary row carries it, additively.** `run_summary` gains a
    nullable `stop_accepted_seq INTEGER`, set by the writer from the fold
    and refolded by the repair and backfill; the row's generated `lane`
@@ -53,8 +54,9 @@ command or its seq.
    `operator/accepted` row reads `<command> · accepted at seq N (command
    at seq M)`; an `operator/rejected` row reads `<command> · rejected at
    seq N: <reason> (command at seq M)`, resolving the command by its id
-   from the `operator/commanded` it disposes of. Every other trail row's
-   bytes are unchanged.
+   from the `operator/commanded` that stood when it answered, so a later
+   command reusing an id never re-labels an earlier disposition. Every
+   other trail row's bytes are unchanged.
 5. **The wire moves once.** `VIEW_VERSION` moves 27 to 28: a row's
    `verdict.standing` may now be `stopping`, a verdict carries its
    `detail`, and `inspect`'s summary carries `standing` and `detail`.

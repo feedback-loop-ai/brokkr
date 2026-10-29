@@ -233,3 +233,83 @@ fn a_page_holding_the_acceptance_keeps_the_command_its_trail_holds() {
     );
     assert_eq!(accepted(&composed), accepted(&whole));
 }
+
+/// A command id reused by a later command never re-labels an earlier
+/// disposition: the trail row says the command that stood when the event
+/// answered, in a whole read and in a read composed from a page, and a
+/// rejection is worded as a rejection.
+#[test]
+fn a_reused_command_id_keeps_each_disposition_at_its_own_time() {
+    let events = [
+        ev(1, EventType::RunStarted, json!({"manifest": {}}), AT),
+        ev(2, EventType::PhaseEntered, json!({"phase": "verify"}), AT),
+        ev(
+            3,
+            EventType::OperatorCommanded,
+            json!({"command_id": "c", "command": "stop"}),
+            AT,
+        ),
+        ev(
+            4,
+            EventType::OperatorAccepted,
+            json!({"command_id": "c"}),
+            AT,
+        ),
+        ev(
+            5,
+            EventType::OperatorCommanded,
+            json!({"command_id": "c", "command": "release"}),
+            AT,
+        ),
+        ev(
+            6,
+            EventType::OperatorAccepted,
+            json!({"command_id": "c"}),
+            AT,
+        ),
+        ev(
+            7,
+            EventType::OperatorCommanded,
+            json!({"command_id": "d", "command": "retry"}),
+            AT,
+        ),
+        ev(
+            8,
+            EventType::OperatorRejected,
+            json!({"command_id": "d", "reason": "the mock is not ready"}),
+            AT,
+        ),
+    ];
+    let (account, causes) = (Account::whole("r", &events), BTreeMap::new());
+    let page = &events[2..];
+    let parts = Parts {
+        trail: &events,
+        seats: account.seats(),
+        page,
+        causes: &causes,
+        head_seq: 8,
+        last_at: AT,
+    };
+    let composed = composed_view(&parts, None).unwrap();
+    let whole = crate::run_view(&events, None);
+    let text = |view: &RunView, seq: u64| {
+        view.journal
+            .iter()
+            .find(|row| row.seq == seq)
+            .unwrap()
+            .what
+            .text
+            .clone()
+    };
+    for view in [&composed, &whole] {
+        assert_eq!(text(view, 4), "stop · accepted at seq 4 (command at seq 3)");
+        assert_eq!(
+            text(view, 6),
+            "release · accepted at seq 6 (command at seq 5)"
+        );
+        assert_eq!(
+            text(view, 8),
+            "retry · rejected at seq 8: the mock is not ready (command at seq 7)"
+        );
+    }
+}

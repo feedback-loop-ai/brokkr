@@ -252,6 +252,28 @@ test('a live step wears the pulse while the run is driven, and only then', () =>
   assert.ok(dots(parked.tree()).every((name) => !name.includes('live') && !name.includes('halo')))
 })
 
+test('a stopping run wears no live pulse and no running now box', () => {
+  const stopping = reviewed({
+    summary: {
+      ...runViewDoc().summary,
+      status: 'running',
+      standing: 'stopping',
+      park_reason: null,
+      detail: 'stop accepted at seq 93; no ending written. If no driver is running it, `brokkr conclude` closes it.',
+    },
+    phases: [
+      { name: 'implement', strategy: null, visits: 1, current: false, plain: true, columns: [], returns: [] },
+      { name: 'verify', strategy: null, visits: 1, current: true, plain: true, columns: [], returns: [] },
+    ],
+    participants: [],
+    journal: [],
+  })
+  const client = onRun(stopping)
+  const dots = findAll(rail(client.tree()), (node) => node.type === 'circle' && String(node.props.className).startsWith('bk-dot')).map((node) => node.props.className)
+  assert.deepEqual(dots, ['bk-dot-fill visited', 'bk-dot-fill park'])
+  assert.deepEqual(findAll(rail(client.tree()), (node) => String(node.props.className).startsWith('bk-now')).map((node) => node.props.className), ['bk-now park', 'bk-now-label park'])
+})
+
 test('a phase with no recorded steps is one dot, coloured as the TUI colours it', () => {
   const plain = runViewDoc({ summary: { ...runViewDoc().summary, status: 'running', standing: 'running' }, phases: [
     { name: 'intake', strategy: null, visits: 1, current: false, plain: true, columns: [], returns: [] },

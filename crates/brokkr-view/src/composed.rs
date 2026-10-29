@@ -150,11 +150,13 @@ fn checkpointed(
 /// its trail names, which may be on another page. A disposition's own
 /// event can sit on one page while its `operator/commanded` sits on
 /// another, and the trail keeps every event but the checkpoints, so the
-/// command a row names is never dropped for being off the page.
+/// command a row names is never dropped for being off the page. Each
+/// disposition is keyed by its own seq, so the trail's event-time answer
+/// stands over a page that never saw the command.
 fn commands_of_the_read(
     page: &[EventEnvelope],
     trail: &[EventEnvelope],
-) -> BTreeMap<String, (String, u64)> {
+) -> BTreeMap<u64, (String, u64)> {
     let mut commands = commands_of(page);
     commands.extend(commands_of(trail));
     commands

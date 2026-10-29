@@ -49,7 +49,7 @@ pub mod transcript;
 use tokens::usage_cells;
 pub use tokens::TokenCells;
 
-use crate::operator_trail::{commands_of, operator_what};
+use crate::operator_trail::{commands_of, operator_what, OperatorKind};
 pub use analytics::Range;
 pub use analytics::{analytics, Analytics, AnalyticsError, AnalyticsHearth, AnalyticsRun, Query};
 pub use brokkr_core::policy::RuleSeverity;
@@ -2055,7 +2055,7 @@ fn what_of(
     scan: &Scan,
     event: &EventEnvelope,
     marks: &BTreeMap<u64, Superseded>,
-    commands: &BTreeMap<String, (String, u64)>,
+    commands: &BTreeMap<u64, (String, u64)>,
 ) -> What {
     let payload = &event.payload;
     match event.event_type {
@@ -2118,9 +2118,9 @@ fn what_of(
                     .map(|error| js::slice(error, 0, 160)),
             }
         }
-        EventType::OperatorCommanded
-        | EventType::OperatorAccepted
-        | EventType::OperatorRejected => operator_what(event, commands),
+        EventType::OperatorCommanded => operator_what(OperatorKind::Commanded, event, commands),
+        EventType::OperatorAccepted => operator_what(OperatorKind::Accepted, event, commands),
+        EventType::OperatorRejected => operator_what(OperatorKind::Rejected, event, commands),
         EventType::RunStarted => {
             let text = match field(payload, "feature") {
                 // The ellipsis is UNCONDITIONAL: a five-character
@@ -2217,7 +2217,7 @@ fn journal_rows(
     scan: &Scan,
     buckets: &Buckets,
     marks: &BTreeMap<u64, Superseded>,
-    commands: &BTreeMap<String, (String, u64)>,
+    commands: &BTreeMap<u64, (String, u64)>,
     cause: impl Fn(&str) -> Option<u64>,
 ) -> Vec<JournalRow> {
     events

@@ -32,6 +32,16 @@ pub struct Summary {
     pub strategy: Option<String>,
 }
 
+impl Summary {
+    /// The word a readout prints for the run's status: the fold's own
+    /// word, except that an accepted stop with no ending stands as
+    /// stopping. The rule is [`Standing`]'s, painted here (decision 0071
+    /// ruling 5).
+    pub fn status_word(&self) -> &str {
+        self.standing.status_word(Some(&self.status))
+    }
+}
+
 /// The run's folded state as every surface summarizes it.
 pub fn summary(state: &RunState) -> Summary {
     let facts = Facts::of(state);

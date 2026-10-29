@@ -459,9 +459,9 @@ window.__ModuleLoader__.load({
     /** The dot each node wears, by Brokkr's closed state-class set (the TUI's `class_for_node`). */
     const DOT = { 'on-phosphor': 'phosphor', 'on-halt': 'halt', 'on-park': 'park', 'in-active': 'violet' }
     /** A phase with no recorded steps, as the TUI's `class_for_phase` colours it: by the run's status when it is current. */
-    const PHASE_DOT = { running: 'phosphor', completed: 'phosphor', awaiting_operator: 'park', stopped: 'halt' }
+    const PHASE_DOT = { running: 'phosphor', completed: 'phosphor', awaiting_operator: 'park', stopped: 'halt', stopping: 'park' }
     /** The box the current phase wears, by the run's status. */
-    const NOW = { running: 'violet', completed: 'phosphor', awaiting_operator: 'park', stopped: 'halt' }
+    const NOW = { running: 'violet', completed: 'phosphor', awaiting_operator: 'park', stopped: 'halt', stopping: 'park' }
 
     /** The ruling that moved the run from `from` to `to`, the latest when it moved there more than once. */
     const rulingOf = (view, from, to) => view.journal.filter((row) => row.ruling !== null && row.ruling.from === from && row.ruling.next === to).at(-1) ?? null
@@ -523,7 +523,10 @@ window.__ModuleLoader__.load({
      * current phase boxed, and each road back beneath.
      */
     function railOf(view) {
-      const status = view.summary?.status ?? null
+      const standing = view.summary?.standing ?? null
+      // A stopping run is not driven: its rail reads the stopping tone and
+      // wears no live pulse, whatever the fold still words its status.
+      const status = standing === 'stopping' ? 'stopping' : (view.summary?.status ?? null)
       const ranks = []
       const spans = []
       for (const phase of view.phases) {
@@ -555,7 +558,7 @@ window.__ModuleLoader__.load({
       const roads = roadsOf(spans, placed, names, edge)
       const width = Math.max(edge + RAIL.pad, ...roads.map((road) => road.depart + RAIL.pad))
       const height = roads.length === 0 ? names + 14 : Math.max(...roads.map((road) => road.y)) + ROAD.hang + 8
-      return { status, placed, spans, roads, y, spread, names, width, height }
+      return { status, driven: (standing ?? status) === 'running', placed, spans, roads, y, spread, names, width, height }
     }
 
     /** What is picked: a phase `{phase}`, a step `{phase, key}`, or an arrow `{arrow: {from, to}}`. */
@@ -577,8 +580,7 @@ window.__ModuleLoader__.load({
 
     function Rail({ view, picked, pick }) {
       const rail = railOf(view)
-      const { status, placed, spans, roads, y, spread, names } = rail
-      const driven = status === 'running'
+      const { status, driven, placed, spans, roads, y, spread, names } = rail
       const toggle = (next) => pick(samePick(picked, next) ? null : next)
       const ink = []
       // The current phase, boxed as the TUI boxes it; a picked phase, outlined.
