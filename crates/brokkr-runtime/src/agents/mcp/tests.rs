@@ -1034,14 +1034,50 @@ fn shipped_with(provider: &str, edit: impl FnOnce(&mut Value)) -> McpError {
     problem(&body)
 }
 
-/// U1e and U1d3 (SI1): dsh declares its own no-hands Linux shapes exactly
-/// as U0, U0c and U0b measured them: cold on 0.1.5-rc.1, its ambient line
-/// naming every route qualified, and the replacement on 0.2.1-rc.2
-/// unmeasured on every axis, because a shape carries no route scope and
-/// U0b ran keyless spark-glm alone (operator ruling 2026-10-26): its lines
-/// quote D06's pass and D07's canaries, and none borrows D10's candidate
-/// hands row. Each line cites its cells, and no other shape, no Claude
-/// result and no hands follow from them.
+/// dsh's replacement as U1d6 records it: its ambient line quotes D06 and
+/// pass 8's four keyed cells and names spark unqualified; each other axis
+/// quotes D07 on keyless spark-glm, names the missing route scope and
+/// borrows nothing from D10.
+fn replacement_quotes_d06_pass_8_and_d07(isolation: McpIsolation) {
+    let McpIsolation {
+        ambient,
+        native_write,
+        store_read,
+        process_read,
+    } = isolation;
+    let quoted = [native_write, store_read, process_read].map(|axis| match axis {
+        McpAxis::Unmeasured(McpUnmeasured::Declared(line)) => [
+            line.starts_with("U0b D07 (keyless spark-glm)"),
+            line.contains("a shape carries no route scope"),
+            !line.contains("D10 "),
+        ],
+        other => unreachable!("pinned by the declaration: {other:?}"),
+    });
+    assert_eq!(quoted, [[true; 3]; 3]);
+    let McpAxis::Measured { evidence } = ambient else {
+        unreachable!("pinned by the declaration");
+    };
+    let keyed = "pass 8 (2026-10-29, keyed: P8-deepseek-B, P8-dashscope-B, P8-meta-B, P8-metac-B)";
+    assert_eq!(
+        [
+            evidence.starts_with("U0b D06 (spark-glm) and "),
+            evidence.contains(keyed),
+            evidence.ends_with("spark is not qualified (U0c S01 to S03)"),
+        ],
+        [true; 3],
+        "{evidence}"
+    );
+}
+
+/// U1e, U1d3 and U1d6 (SI1): dsh declares its own no-hands Linux shapes
+/// exactly as U0, U0c and U0b measured them: cold on 0.1.5-rc.1, its
+/// ambient line naming every route qualified, and the replacement on
+/// 0.2.1-rc.2 ambient-measured from D06 and pass 8's keyed cells, spark
+/// named unqualified, and unmeasured on its other axes, because a shape
+/// carries no route scope and D07 ran keyless spark-glm alone (operator
+/// ruling 2026-10-26): those lines quote D07's canaries, and none borrows
+/// D10's candidate hands row. Each line cites its cells, and no other
+/// shape, no Claude result and no hands follow from them.
 #[test]
 fn dsh_declares_only_its_own_cold_and_replacement_shapes_and_inherits_nothing() {
     let adapters = Adapters::load(&shipped()).expect("the shipped adapters load");
@@ -1055,7 +1091,7 @@ fn dsh_declares_only_its_own_cold_and_replacement_shapes_and_inherits_nothing() 
             m,
             vec![
                 (cold.clone(), "0.1.5-rc.1".into(), [m, d, u, m]),
-                (replacement.clone(), "0.2.1-rc.2".into(), [d, d, d, d]),
+                (replacement.clone(), "0.2.1-rc.2".into(), [m, d, d, d]),
             ]
         )
     );
@@ -1064,22 +1100,7 @@ fn dsh_declares_only_its_own_cold_and_replacement_shapes_and_inherits_nothing() 
         .filter(|line| !line.starts_with("U0 ") && !line.starts_with("U0b "))
         .collect();
     assert_eq!(uncited, Vec::<&str>::new(), "every line cites its cell");
-    let McpIsolation {
-        ambient,
-        native_write,
-        store_read,
-        process_read,
-    } = dsh.mcp.isolation(&replacement);
-    let quoted = [ambient, native_write, store_read, process_read].map(|axis| match axis {
-        McpAxis::Unmeasured(McpUnmeasured::Declared(line)) => [
-            line.starts_with("U0b D06 (keyless spark-glm) passed")
-                || line.starts_with("U0b D07 (keyless spark-glm)"),
-            line.contains("a shape carries no route scope"),
-            !line.contains("D10 "),
-        ],
-        other => unreachable!("pinned above: {other:?}"),
-    });
-    assert_eq!(quoted, [[true; 3]; 4]);
+    replacement_quotes_d06_pass_8_and_d07(dsh.mcp.isolation(&replacement));
     let McpAxis::Measured { evidence } = dsh.mcp.isolation(&cold).ambient else {
         unreachable!("pinned above");
     };

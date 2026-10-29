@@ -954,34 +954,27 @@ fn host_name(here: bool) -> &'static str {
 }
 
 /// A dsh scaffold written by `brokkr init --cli dsh` under a directory of
-/// its own, recompiled with its dsh adapter's one cold shape measured on
-/// the host this test runs on, and that compile: the compile a Linux host
-/// makes of the shipped adapter, whose one cold shape was measured there,
-/// on Linux and macOS alike.
+/// its own, recompiled with its dsh adapter's cold and replacement shapes
+/// measured on the host this test runs on, and that compile: the compile a
+/// Linux host makes of the shipped adapter, whose two shapes were measured
+/// there (U0, U0c, and U0b's D06 and pass 8, U1d6), on Linux and macOS
+/// alike.
 fn scaffolded() -> (tempfile::TempDir, Bundle) {
-    scaffolded_on(host_name(true), false)
+    scaffolded_on(host_name(true))
 }
 
-/// [`scaffolded`] with its dsh adapter declaring, beside its one cold
-/// shape, the replacement shape a rejoin offer launches, both measured on
-/// the host this test runs on.
-fn scaffolded_measuring_both() -> (tempfile::TempDir, Bundle) {
-    scaffolded_on(host_name(true), true)
-}
-
-/// [`scaffolded`] with its dsh adapter's one cold shape measured on the
-/// host this test does not run on: the compile a macOS host makes of the
+/// [`scaffolded`] with its dsh adapter's two shapes measured on the host
+/// this test does not run on: the compile a macOS host makes of the
 /// shipped adapter, since a result from one host qualifies nothing on the
 /// other.
 fn scaffolded_elsewhere() -> (tempfile::TempDir, Bundle) {
-    scaffolded_on(host_name(false), false)
+    scaffolded_on(host_name(false))
 }
 
-/// A dsh scaffold whose adapter's one cold shape, which the shipped
-/// adapter measured on Linux, is measured on `on`, and, where `replacement`
-/// holds, a copy of it declared as the replacement shape in place of the
-/// scaffold's unmeasured one (U1d3), and its compile.
-fn scaffolded_on(on: &str, replacement: bool) -> (tempfile::TempDir, Bundle) {
+/// A dsh scaffold whose adapter's cold and replacement shapes, which the
+/// shipped adapter measured on Linux, are measured on `on`, and its
+/// compile.
+fn scaffolded_on(on: &str) -> (tempfile::TempDir, Bundle) {
     let dir = tempfile::tempdir().unwrap();
     let (root, path) = (dir.path(), std::ffi::OsStr::new(""));
     let dsh = Some(crate::init::Cli::Dsh);
@@ -990,15 +983,10 @@ fn scaffolded_on(on: &str, replacement: bool) -> (tempfile::TempDir, Bundle) {
     let path = folder.join("adapters/dsh.json");
     let mut dsh: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    let host = &mut dsh["mcp"]["shapes"][0]["measured_on"]["host"];
-    assert_eq!(*host, json!("linux"));
-    *host = json!(on);
-    let shapes = dsh["mcp"]["shapes"].as_array_mut().unwrap();
-    if replacement {
-        let mut shape = shapes[0].clone();
-        shape["invocation"] = json!("replacement");
-        shapes.retain(|declared| declared["invocation"] != "replacement");
-        shapes.push(shape);
+    for shape in dsh["mcp"]["shapes"].as_array_mut().unwrap() {
+        let host = &mut shape["measured_on"]["host"];
+        assert_eq!(*host, json!("linux"));
+        *host = json!(on);
     }
     std::fs::write(&path, dsh.to_string()).unwrap();
     let (agents, adapters) = (folder.join("agents"), folder.join("adapters"));
@@ -1038,7 +1026,7 @@ fn seat(label: &str, model: &str, routed: bool, fence: Option<SealedFence>) -> S
 /// seat is still read.
 #[test]
 fn each_dsh_seat_of_a_compile_is_read_from_its_candidates_argv() {
-    let (_dir, mut compiled) = scaffolded_measuring_both();
+    let (_dir, mut compiled) = scaffolded();
     let standing = Some(SealedFence::Standing);
     let (flash, pro) = ("deepseek-flash", "deepseek-v4-pro");
     let scaffold = vec![
@@ -1246,31 +1234,17 @@ fn an_engine_only_launch_beside_a_repository_dotenv_is_refused_keyless() {
 
 /// The folder's check models a compiled folder's seats at both their
 /// launches, whatever the environment running the test gives: the
-/// scaffold's ride dsh's default route with their cold shape measured on
-/// this host and their replacement shape unmeasured, so an engine-only home
-/// serves a cold launch and, while the fence stands, the operator's home a
-/// resumed one; where the adapter measures both shapes, one engine-only
-/// home serves both.
+/// scaffold's ride dsh's default route with their cold and replacement
+/// shapes both measured on this host (U1d6), so one engine-only home serves
+/// a cold launch and a resumed one alike.
 #[test]
 fn a_compiled_folder_is_answered_by_the_homes_of_its_seats() {
-    let homed = |(dir, compiled): (tempfile::TempDir, Bundle)| {
-        let adapters = dir.path().join(".brokkr/adapters");
-        let mut lines = of_folder(&adapters, dir.path(), Some(&compiled));
-        assert_eq!(lines.len(), 2, "{lines:?}");
-        lines.remove(1)
-    };
+    let (dir, compiled) = scaffolded();
+    let adapters = dir.path().join(".brokkr/adapters");
+    let mut lines = of_folder(&adapters, dir.path(), Some(&compiled));
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    let line = lines.remove(1);
     let (route, seats) = ("deepseek-official", &["implement", "intake"][..]);
-    let line = homed(scaffolded());
-    assert_eq!(line, split(route, seats, Home::Engine, Home::Operator));
-    assert_eq!(
-        format!("{}: {}", line.what(), line.detail()),
-        "dsh home deepseek-official: Brokkr serves a cold launch of seats [implement, intake] on \
-         this route from its own engine-only home (decision 0065), where dsh reads a key from the \
-         launching environment alone, never the operator's .env or patch layers, and serves a \
-         resumed launch from the operator's own dsh home, which reads every source this check \
-         asks, while the driver does not admit its replacement shape"
-    );
-    let line = homed(scaffolded_measuring_both());
     assert_eq!(line, group(route, seats, Home::Engine));
     assert_eq!(
         format!("{}: {}", line.what(), line.detail()),
@@ -1389,19 +1363,23 @@ fn a_shape_the_admission_does_not_admit_is_served_as_its_launch_is() {
     assert_eq!(planted.modelled_within_bound(seats, unset), expected);
 }
 
-/// The macOS case (#717): the shipped dsh adapter's one cold shape was
-/// measured on Linux and qualifies nothing on macOS, so each seat of a
-/// scaffold compiled there carries an unmeasured cold shape and is served
-/// from the operator's home, as its launch is; its key line asks every
-/// layer that home reads, and none reads as an engine-only home's.
+/// The macOS case (#717): the shipped dsh adapter's cold and replacement
+/// shapes were measured on Linux and qualify nothing on macOS, so each seat
+/// of a scaffold compiled there carries both unmeasured and is served from
+/// the operator's home, as its launch is; its key line asks every layer
+/// that home reads, and none reads as an engine-only home's.
 #[test]
 fn a_scaffold_compiled_on_macos_is_served_from_the_operators_home() {
     let (_dir, compiled) = scaffolded_elsewhere();
     let seats = home::seats(&compiled);
-    let cold: Vec<_> = (seats.read.iter())
-        .map(|seat| seat.isolation.as_ref().map(|isolation| &isolation.cold))
+    let shapes: Vec<_> = (seats.read.iter())
+        .map(|seat| {
+            let isolation = seat.isolation.as_ref().unwrap();
+            (&isolation.cold, &isolation.replacement)
+        })
         .collect();
-    assert_eq!(cold, [Some(&SealedAssessment::Unmeasured); 4]);
+    let unmeasured = &SealedAssessment::Unmeasured;
+    assert_eq!(shapes, [(unmeasured, unmeasured); 4]);
     let planted = Planted::scaffold();
     let lines = planted.modelled_within_bound(seats, unset);
     let printed = lines

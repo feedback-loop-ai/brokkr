@@ -500,7 +500,7 @@ const DSH: &str = r#"{
         "hands": "none",
         "measured_on": {"harness": "dsh", "binary": "dsh", "version": "0.2.1-rc.2", "host": "linux"},
         "ambient": {
-          "unmeasured": "U0b D06 (keyless spark-glm) passed: after D05's positive control, the replacement in a fresh engine-only DSH_HOME started no home or profile sentinel while the engine answered, and --dump-config composed one dsh-mcp-client, serverName engine; a shape carries no route scope and dsh admits keyed routes U0b never ran, so route-scoped qualification is a carried follow-up"
+          "measured": "U0b D06 (spark-glm) and pass 8 (2026-10-29, keyed: P8-deepseek-B, P8-dashscope-B, P8-meta-B, P8-metac-B): after positive controls loaded both sentinels, the replacement in a fresh engine-only DSH_HOME, after a first run in the workdir, started neither, sent only the engine's tool and composed one engine dsh-mcp-client; dashscope's quota refused the call; spark is not qualified (U0c S01 to S03)"
         },
         "native_write": {
           "unmeasured": "U0b D07 (keyless spark-glm): dsh's workspace-write sandbox refused a native write outside the workdir (Read-only file system); a shape carries no route scope, so one route's result qualifies none"

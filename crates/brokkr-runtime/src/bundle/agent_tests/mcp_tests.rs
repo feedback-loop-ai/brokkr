@@ -1001,15 +1001,15 @@ fn scaffold_words(bundle: &Bundle, site: &str) -> Vec<Vec<String>> {
 /// SI2 over a whole fresh-scaffold-shaped compile in-crate, on the shipped
 /// facts: the standing fence compiles it and keeps each model site's
 /// record, exec's empty, while lifted it refuses the first dsh work site,
-/// because U0 measured dsh's hands-less cold shape on Linux alone, and its
-/// replacement is declared unmeasured there (U1d3: a shape carries no route
-/// scope, and U0b ran one route) and absent elsewhere, with no resume shape.
+/// because U0 measured dsh's hands-less cold shape and U0b its replacement
+/// (D06 and pass 8, U1d6) on Linux alone, absent elsewhere, and no cell
+/// measures its declared headless-work resume shape.
 #[test]
 fn a_fresh_scaffold_on_shipped_facts_compiles_standing_and_refuses_its_first_dsh_site_lifted() {
     let fixture = AgentFixture::new();
     let standing = scaffold_compile(&fixture, None, None, false).unwrap();
     let (cold, replacement) = match host().1 {
-        McpHost::Linux => ("cold measured", "replacement unmeasured"),
+        McpHost::Linux => ("cold measured", "replacement measured"),
         McpHost::Macos => ("cold absent", "replacement absent"),
     };
     let dsh_work = [cold, replacement, "headless-work absent"].map(String::from);
@@ -1029,7 +1029,7 @@ fn a_fresh_scaffold_on_shipped_facts_compiles_standing_and_refuses_its_first_dsh
     .collect();
     each_row(rows);
     let first = match host().1 {
-        McpHost::Linux => "replacement",
+        McpHost::Linux => "headless-work",
         McpHost::Macos => "cold",
     };
     assert_eq!(

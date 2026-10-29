@@ -1240,6 +1240,52 @@ value appears in any cell's output, proxy log or session. The `/etc/codex`
 limitation (X21-legacyiso) and the enterprise cloud layer's blind spot stand
 for this shape as for every Codex shape.
 
+### dsh's replacement on the keyed routes: pass 8 (2026-10-29)
+
+On the operator's ruling of 2026-10-29 (U9b1's third run's block, option B,
+keys approved), pass 8 measured dsh's replacement with hands none on the four
+keyed route families U0c qualified the cold shape on. Past the lifted fence
+every dsh work seat is also served as its replacement, and `adapters/dsh.json`
+recorded that shape's ambient axis as unmeasured: D06 passed on keyless
+`spark-glm` only, and a shape carries no route scope. dsh 0.2.1-rc.2, Linux,
+2026-10-29 06:42:03Z to 06:43:27Z. The kit is U0c's (`clean-exec.sh`, the same
+provider, model and env file per family, the provider entry byte-identical to
+U0c's verbatim copy of the operator's headless profile, which still names the
+same endpoints) with D06's replacement form. Per family: a disposable default
+HOME planting U0's home-level and profile-level sentinels, and a fresh git
+workdir. pc is the positive control in that home; A is the first invocation in
+a fresh, empty engine home at the production place
+(`<HOME>/.local/state/brokkr/dsh-homes/engine-home-*`) with the seat's overlay
+carrying the route entry where it rides (not for `deepseek-official`, which
+uses dsh-base's shipped row) and the engine's row; B, the replacement, is A's
+argv again in a second fresh engine home, the same workdir, followed by
+`--dump-config` with B's home and overlay and no key.
+
+| Cell | Route | Shape | home | profile | engine | Request tools (MCP) | Outcome |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| P8-deepseek-pc | `deepseek-official` | positive control | answered | answered | none | `amb_home`, `amb_profile` | **positive control met** |
+| P8-deepseek-A | `deepseek-official` | A | not started | not started | answered | `engine` only | passes |
+| P8-deepseek-B | `deepseek-official` | **the replacement** | not started | not started | answered | `engine` only | **passes**; one dsh-mcp-client, `serverName: engine` |
+| P8-dashscope-pc | `dashscope` | positive control | listed | listed | none | `amb_home`, `amb_profile` | **positive control met** at startup and request level; the provider refused the call: `QUOTA: 429` (the token-plan's monthly quota, reset 2026-11-22) |
+| P8-dashscope-A | `dashscope` | A | not started | not started | listed | `engine` only | the same 429 |
+| P8-dashscope-B | `dashscope` | **the replacement** | not started | not started | listed | `engine` only | **passes at the startup and request level**; one dsh-mcp-client, `serverName: engine`; the tool call not observed (the 429) |
+| P8-meta-pc | `meta` | positive control | answered | answered | none | `amb_home`, `amb_profile` | **positive control met** |
+| P8-meta-A | `meta` | A | not started | not started | answered | `engine` only | passes |
+| P8-meta-B | `meta` | **the replacement** | not started | not started | answered | `engine` only | **passes**; one dsh-mcp-client, `serverName: engine` |
+| P8-metac-pc | `meta-contributor` | positive control | answered | answered | none | `amb_home`, `amb_profile` | **positive control met** |
+| P8-metac-A | `meta-contributor` | A | not started | not started | answered | `engine` only | passes |
+| P8-metac-B | `meta-contributor` | **the replacement** | not started | not started | answered | `engine` only | **passes**; one dsh-mcp-client, `serverName: engine` |
+
+No cell changed its workdir outside `.git`. Each B's engine sentinel answered
+`SENTINEL-engine-ANSWERED` where the provider served the call. The operator's
+`~/.dsh` was not written by these cells (each cell's HOME was its family's
+disposable home); the only files written there in the window belong to another
+controller's live pipeline seat. With D06 on `spark-glm`, the replacement's
+ambient axis is measured on every route the cold shape is qualified on;
+`spark` stays unqualified (U0c S01 to S03). The native-write, store and
+process axes are not re-measured here; SI2's compile check reads the ambient
+axis alone.
+
 ### Operator rulings (in chat; the operator's, not the controller's)
 
 - 2026-10-23: (1(a)) re-run the cold cells at startup level on the installed versions; (2) option M: the operator mints a subscription setup-token, loaded only into the authenticated Claude and LaneTally children; (3(a)) XA3 and XA4 on the operator's ChatGPT login and real `CODEX_HOME`, only after the Spark Codex cells pass, config.toml hashed before and after; (4(a)) D09 and D10 run with a constructed hands row, labelled a candidate; (5(a)) where the model declines to attempt a read, the harness's own sandbox measured without a model is accepted, recorded as such; (6(a)) one by-hand evidence pull request after the Codex cells.
@@ -1247,13 +1293,14 @@ for this shape as for every Codex shape.
 - 2026-10-24: XA3 and XA4 run although X29 failed, since X14 to X17 passed and X29 concerns the store, not the operator's servers; X29 is closed by protecting the store's folder, measured first without a model (X31; U8h's box half, U8i's Codex half).
 - 2026-10-24, U8h ruling (16): the nested-namespace report is the controller's to measure after U8h lands (R16). 2026-10-25: every box forbids nested user namespaces itself (U8j), measured first (R16b).
 - 2026-10-29, U9b1's second run's block ("go with recommended", option A): Codex's replacement with hands boxed is measured (pass 7) and recorded by U1d5.
+- 2026-10-29, U9b1's third run's block ("b", then "keys approved", option B): dsh's replacement is measured on the keyed routes (pass 8, the operator's `deepseek.env`, `dashscope.env` and `openrouter.env` sourced only into the dsh child) and recorded by U1d6.
 
 ### Credential handling
 
 - **Claude and LaneTally (pass 2 and C17-p5).** The operator's setup-token, one `CLAUDE_CODE_OAUTH_TOKEN=` line in a 0600 file under `~/.config`, was sourced only into each authenticated child's environment by a copy of U0c's `clean-exec.sh`. Only the file's path is on any argv. It was never copied, printed, grepped or written, and the file was unchanged. A fake-value preflight showed Claude 2.1.308 does not pass the variable to its MCP server children, so it never reached a sentinel, the hands server or the box. Every init reports `apiKeySource: "none"`.
 - **Token scans** (`scan-token.py`, the value on stdin from the file, counts only): after pass 2, 6,478 files, 0 exact-value matches; after C17-p5, 18,126 files under `/var/tmp/s2-u0b` and the session scratch, 0 exact-value matches. The only token-shape hits are the scanner's own 10-character literal. No `.credentials.json` exists under `/var/tmp/s2-u0b`.
 - **Codex.** No credential on Spark: a plainly fake `U0B_FAKE_KEY`. XA3 and XA4 used the operator's own login in place; `auth.json` was not read by the controller, and nothing was copied.
-- **dsh.** The keyless `spark-glm` route with a fake `SPARK_API_KEY`.
+- **dsh.** The keyless `spark-glm` route with a fake `SPARK_API_KEY`. Pass 8 (operator approval 2026-10-29): the operator's existing `deepseek.env`, `dashscope.env` and `openrouter.env` were sourced only into the dsh child's scrubbed environment by U0c's `clean-exec.sh`; no value was copied, printed or put on argv, and each `argv.txt` holds only the env file's path. U0c's key-shape scan over pass 8's 390 files found no `sk-` string; its other matches are UUIDs, git object ids, provider-issued call and response ids, and identifiers.
 - The operator's `~/.claude*`, `~/.codex/config.toml`, `~/.dsh` and `~/.local/bin` were not modified; `/etc` sources existed only inside `with-etc.sh`.
 
 ### Limitations
@@ -1273,3 +1320,4 @@ for this shape as for every Codex shape.
 - **Claude and LaneTally:** 12 authenticated invocations in pass 2 (`--model haiku`, reported `claude-haiku-5-5`), `total_cost_usd` summing to $0.0199, and one in pass 5 (C17-p5, $0.00163). Every A cell and the preflight made no model call.
 - **Codex account:** 2 invocations on the operator's plan (`gpt-6-luna`): XA3 used 32,463 input, 28,544 cached and 105 output tokens; XA4 54,755, 49,920 and 291.
 - **Spark (local, keyless, unbilled):** the dsh cells D05, D06 and its A, D07 and its A, D08a, D08b, D09, D10 and D10-p5, and the Codex cells X13, X13b, X14 to X19 (X17 and its A), X21-legacyiso, X22 (and its declined first prompt), X23 to X30 with X30's three controls, X26-p5, and pass 7's X32-A, X32, X33, X34 and X35. Token counts are in each cell's raw log and are not summed here.
+- **dsh keyed routes (pass 8, the operator's keys):** P8-deepseek, P8-meta and P8-metac's pc, A and B, two agent steps and one session-title request each; the three dashscope cells were refused 429 (the token-plan quota) before any generation.
