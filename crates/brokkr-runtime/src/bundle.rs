@@ -72,8 +72,8 @@ pub(crate) use site_key::SiteKey;
 pub use survey::{survey, Survey};
 pub use tier::{ProvisionalRefusal, RealmLaw};
 use walk::{
-    refuse_oversized, refuse_unlisted_consumed, skipped_top_level, unpinned_active_input,
-    walk_digests, walk_keys, Walk,
+    refuse_oversized, refuse_unlisted_consumed, skipped_path, unpinned_active_input, walk_digests,
+    walk_keys, Walk,
 };
 
 #[cfg(test)]
@@ -2706,18 +2706,21 @@ fn pinned_key(dir: &Path, token: &str, relative: &str) -> Result<String, String>
              never `..`, `.`, empty, a `\\` or a drive"
         ));
     }
-    if let Some(skip) =
-        crate::places::unpinned_reason(dir, components[0]).map_err(|refused| refused.to_string())?
+    if let Some(skip) = crate::places::unpinned_reason(dir, Path::new(relative))
+        .map_err(|refused| refused.to_string())?
     {
         let holds = match skip {
             crate::places::Skip::Workspace
             | crate::places::Skip::State
             | crate::places::Skip::Shelf => "workspace data, never bundle bytes",
-            other => crate::places::unpinned_holds(other),
+            crate::places::Skip::GitMetadata => "git's own metadata, which no bundle pins",
+            crate::places::Skip::GitIgnored => {
+                "in a tree git ignores in the bundle's repository, whose bytes are not part of \
+                 the bundle's identity"
+            }
         };
         return Err(format!(
-            "'{token}' names a path the manifest walk does not pin ({} is {holds})",
-            components[0]
+            "'{token}' names a path the manifest walk does not pin ({relative} is {holds})"
         ));
     }
     let mut path = dir.to_path_buf();
@@ -3356,7 +3359,7 @@ fn bound_through(root: &Path, open: Opener<'_>, reference: &str) -> Result<Bound
     let reference = PathBuf::from(reference);
     let observed = observe(root, open, &reference)?;
     let target = root.join(&observed.binding.target_key);
-    if let Some(place) = skipped_top_level(root, &target).map_err(refused)? {
+    if let Some(place) = skipped_path(root, &target).map_err(refused)? {
         return Err(Place::of(FaultKind::Unbound, place));
     }
     let held = Held {

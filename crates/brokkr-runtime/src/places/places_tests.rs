@@ -1,14 +1,32 @@
 use std::path::{Path, PathBuf};
 
+/// A real git repository at `dir`, for a fixture that marks a workspace
+/// root with `.git`: the walk asks git only when it can answer, so a bare
+/// marker directory is no longer the same fixture (#908).
+pub(crate) fn test_repository(dir: &Path) {
+    std::fs::create_dir_all(dir).unwrap();
+    let out = std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(dir)
+        .output()
+        .expect("git init");
+    assert!(
+        out.status.success(),
+        "git init -q at {}: {}",
+        dir.display(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 use super::{
-    base_library, default_map, folder, library, run_local, state_of, unpinned_top_level, Kind,
-    Layout, Places, PlacesError,
+    base_library, default_map, folder, library, run_local, state_of, unpinned_reason, Kind, Layout,
+    Places, PlacesError,
 };
 
-/// [`unpinned_top_level`] for a fixture whose git questions are answered:
-/// these tests plant no repository, so git says the trees are pinned.
+/// [`unpinned_reason`] for a fixture whose git questions are answered:
+/// these tests plant no repository, so git says the paths are pinned.
 fn skips(dir: &Path, name: &str) -> bool {
-    unpinned_top_level(dir, name).unwrap()
+    unpinned_reason(dir, Path::new(name)).unwrap().is_some()
 }
 
 /// Mark `dir` as a recipe library (decision 0083 ruling 4), so a launch
@@ -62,7 +80,7 @@ fn folder_places(root: &Path) -> Places {
 fn places_are_the_root_folders_from_a_subdirectory() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    std::fs::create_dir_all(root.join(".git")).unwrap();
+    test_repository(&root);
     std::fs::create_dir_all(root.join(".brokkr")).unwrap();
     let deep = root.join("src/deep");
     std::fs::create_dir_all(&deep).unwrap();
@@ -96,7 +114,7 @@ fn places_are_the_root_folders_from_a_subdirectory() {
 fn a_linked_workspace_is_walked_from_its_real_directory() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    std::fs::create_dir_all(root.join(".git")).unwrap();
+    test_repository(&root);
     plant_library(&root);
     let (real, link) = (root.join("other/deep"), root.join("src"));
     std::fs::create_dir_all(&real).unwrap();
@@ -174,7 +192,7 @@ fn a_workspace_with_no_place_refuses_its_state() {
 
     // From below the repository's root, the walk reaches it as the CLI's
     // does, and a workspace that cannot be made absolute is unreadable.
-    std::fs::create_dir_all(root.join(".git")).unwrap();
+    test_repository(root);
     std::fs::create_dir_all(root.join("sub")).unwrap();
     assert_eq!(state_of(&root.join("sub")).unwrap(), None);
     let empty = state_of(Path::new("")).unwrap_err();
@@ -412,7 +430,7 @@ fn the_run_local_directory_is_the_state_handed_else_the_workdirs_forge() {
 fn folder_root() -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    std::fs::create_dir_all(root.join(".git")).unwrap();
+    test_repository(&root);
     std::fs::create_dir(root.join(".brokkr")).unwrap();
     (dir, root)
 }

@@ -71,19 +71,18 @@ impl<'a> Walk<'a> {
         // invoked. Its realm map and dialect library are workspace
         // declarations pinned into the RUN manifest, never bundle files:
         // changing either must not move the strategy's identity. Git's
-        // metadata and a tree git reports ignored are the same kind of
-        // answer for a bundle that is a repository's root (#908); asking
-        // git is refused by name when it cannot answer.
+        // metadata and a path git reports ignored are the same kind of
+        // answer for a bundle that is a repository's root (#908): the one
+        // full-relative-path decision is asked here, and a skipped tree's
+        // children inherit it, so asking git is refused by name when it
+        // cannot answer.
         let skipped = if in_skipped {
             true
-        } else if current == dir {
-            match name.to_str() {
-                Some(name) => crate::places::unpinned_top_level(dir, name)
-                    .map_err(|refused| CompileError::Invalid(refused.to_string()))?,
-                None => false,
-            }
         } else {
-            false
+            let rel = path.strip_prefix(dir).expect("an entry under the layer");
+            crate::places::unpinned_reason(dir, rel)
+                .map_err(|refused| CompileError::Invalid(refused.to_string()))?
+                .is_some()
         };
         if skipped && consumed.is_empty() {
             return Ok(());
@@ -288,7 +287,7 @@ pub(super) fn unpinned_active_input(
     }
     // The narrower question first, so a reference spelled into operator
     // configuration keeps naming the tree it reached.
-    if let Some(place) = skipped_top_level(root, &folded)? {
+    if let Some(place) = skipped_path(root, &folded)? {
         return Ok(Some(place));
     }
     Ok(Path::new(reference)
@@ -302,29 +301,50 @@ pub(super) fn unpinned_active_input(
         }))
 }
 
-/// The clause for a path standing under a top-level name the walk skips,
-/// judged relative to the declaring layer's canonical `root`.
-pub(super) fn skipped_top_level(
+/// The clause for `path`, under the declaring layer's canonical `root`,
+/// when the one full-relative-path skip decision ([`unpinned_reason`])
+/// skips it. A fixed top-level name names itself; a git-ignored path is
+/// named by its full relative path, so a file ignored under a tree at any
+/// depth reads as the place it is (#908).
+pub(super) fn skipped_path(
     root: &Path,
     path: &Path,
 ) -> Result<Option<String>, crate::places::SkipError> {
-    let Some(name) = top_level_name(root, path) else {
+    let Ok(rel) = path.strip_prefix(root) else {
         return Ok(None);
     };
-    let Some(skip) = crate::places::unpinned_reason(root, name)? else {
+    let Some(skip) = crate::places::unpinned_reason(root, rel)? else {
         return Ok(None);
     };
     let holds = crate::places::unpinned_holds(skip);
+    let (key, preposition, what) = match skip {
+        crate::places::Skip::Workspace
+        | crate::places::Skip::State
+        | crate::places::Skip::Shelf
+        | crate::places::Skip::GitMetadata => (first_component(rel), "under", "a top-level name"),
+        crate::places::Skip::GitIgnored => (relative_key(rel), "at", "a path"),
+    };
     Ok(Some(format!(
-        "which stands under '{name}' — a top-level name the bundle's file walk does not \
-         pin, because it holds {holds}"
+        "which stands {preposition} '{key}' — {what} the bundle's file walk does not pin, \
+         because it holds {holds}"
     )))
 }
 
-/// The first component `path` names under `root`, if it names one at all.
-pub(super) fn top_level_name<'a>(root: &Path, path: &'a Path) -> Option<&'a str> {
-    let first = path.strip_prefix(root).ok()?.components().next()?;
-    first.as_os_str().to_str()
+/// The first component of `rel`, as the name a fixed top-level skip is
+/// written by.
+fn first_component(rel: &Path) -> String {
+    rel.components()
+        .next()
+        .map(|part| part.as_os_str().to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// `rel` with each component joined by `/`, as the walk writes its keys.
+fn relative_key(rel: &Path) -> String {
+    rel.components()
+        .map(|part| part.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// Refuse a consumed key the walk lists no entry for, naming who consumed

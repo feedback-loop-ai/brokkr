@@ -1198,22 +1198,25 @@ build and fetch trees. The story's run started from such a root and its
 under `.cargo-home/`, 458 under `.git/`), so its identity moved on every
 build and every reader of the run carried the event.
 
-1. **The skip.** The manifest walk skips the top-level `.git`, as git's own
-   metadata, and each top-level tree git reports ignored for the bundle's
-   repository. Git answers by its own rules — `git check-ignore` for the
-   repository the bundle stands in, so `.gitignore`, `.git/info/exclude` and
-   a global exclude rule alike stay git's to interpret, never a copy of them.
-   A bundle outside any git work tree skips only `.git`, as it did before
-   this addendum. A bundle whose git answer cannot be read is refused by
-   name; it is never read as "pin everything" or "skip everything". The
-   walk, the pinned-script lookup and the skip reason ask one function, so
-   none can drift.
+1. **The skip.** The manifest walk skips `.git` at the bundle's top level, as
+   git's own metadata, and every path git reports ignored for the bundle's
+   repository, at any depth. Git answers by its own rules — `git check-ignore`
+   for the repository the bundle stands in, asked of the entry's full relative
+   path, so `.gitignore`, `.git/info/exclude` and a global exclude rule alike
+   stay git's to interpret, never a copy of them. A tree git reports ignored
+   is skipped whole, and everything under it inherits that one answer. A
+   bundle outside any git work tree skips only `.git`, as it did before this
+   addendum. A `.git` stands above the bundle but git cannot answer for it:
+   the bundle is refused by name with git's own stderr, never read as "pin
+   everything" or "skip everything" (a failed discovery is not "not
+   ignored"). The walk, the consumed inputs, the pinned-script lookup and the
+   skip reason ask one full-relative-path function, so none can drift.
 
    The skipped trees are still searched for the one-entry rule, exactly as
    the other unpinned trees are: a consumed file, or a second name for one,
-   inside an ignored tree is refused by name. "Pinning more never lets a file
-   change unseen" holds of every file the compile or a pinned-script lookup
-   reads.
+   inside an ignored tree at any depth is refused by name. "Pinning more never
+   lets a file change unseen" holds of every file the compile or a
+   pinned-script lookup reads.
 
 2. **The bound.** A bundle whose pinned walk is past **5,000 files** or
    **64 MiB** is refused by name before any run starts, in the compile's own
@@ -1224,7 +1227,7 @@ build and every reader of the run carried the event.
    only the operator may move them.
 
 3. **What identity covers.** This addendum amends ruling 1's account of what
-   a bundle pins: a repository root's build and fetch output is no longer
-   part of the bundle's identity. It changes no pinned file's bytes and no
-   shipped recipe's digest, because no shipped recipe holds a `.git` or a
-   git-ignored tree.
+   a bundle pins: a repository root's build and fetch output, top-level or
+   nested, is no longer part of the bundle's identity. It changes no pinned
+   file's bytes and no shipped recipe's digest, because no shipped recipe
+   holds a `.git` or a git-ignored tree.

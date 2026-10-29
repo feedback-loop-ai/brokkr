@@ -20,6 +20,16 @@ fn git(dir: &Path, args: &[&str]) {
     );
 }
 
+/// The one interface pin for [`crate::places::SkipError`]'s display: both
+/// the pinned-script lookup and the walk's own decision carry it.
+fn git_unreadable(bundle: &Path, detail: &str) -> String {
+    format!(
+        "asking git which trees the bundle at {} ignores failed ({detail}); a bundle's walk \
+         skips a git-ignored tree only when git says so, never by guessing",
+        bundle.display()
+    )
+}
+
 /// A fixture that is a git repository root whose `target/` is ignored.
 fn ignored_repository(fixture: &Fixture) {
     std::fs::write(fixture.root.join(".gitignore"), "target/\n").unwrap();
@@ -27,23 +37,45 @@ fn ignored_repository(fixture: &Fixture) {
     std::fs::create_dir(fixture.root.join("target")).unwrap();
 }
 
-#[test]
-fn a_repository_root_bundle_pins_neither_git_nor_an_ignored_tree() {
-    let fixture = Fixture::new();
-    ignored_repository(&fixture);
-    std::fs::write(fixture.root.join("target/artifact"), "one").unwrap();
+/// Compile `fixture` with `relative` holding `one`, then `two`: a path the
+/// walk skips must leave the digest where it was. Returns the first compile.
+fn stable_despite(fixture: &Fixture, relative: &str) -> Bundle {
+    std::fs::write(fixture.root.join(relative), "one").unwrap();
     let compiled = fixture
         .compile(&Fixture::config(), &Fixture::policy())
         .unwrap();
     let digest = compiled.manifest_digest();
-    std::fs::write(fixture.root.join("target/artifact"), "two").unwrap();
+    std::fs::write(fixture.root.join(relative), "two").unwrap();
     let again = fixture
         .compile(&Fixture::config(), &Fixture::policy())
         .unwrap();
-    assert_eq!(again.manifest_digest(), digest);
+    assert_eq!(
+        again.manifest_digest(),
+        digest,
+        "{relative} moved the digest"
+    );
+    compiled
+}
+
+#[test]
+fn a_repository_root_bundle_pins_neither_git_nor_an_ignored_tree() {
+    let fixture = Fixture::new();
+    ignored_repository(&fixture);
+    let compiled = stable_despite(&fixture, "target/artifact");
     let files = compiled.manifest["files"].as_object().unwrap();
     assert!(!files.keys().any(|key| key.starts_with(".git/")));
     assert!(!files.keys().any(|key| key.starts_with("target/")));
+    assert!(files.contains_key("roles/role.md"));
+}
+
+#[test]
+fn a_nested_tree_git_ignores_is_skipped_at_any_depth() {
+    let fixture = Fixture::new();
+    ignored_repository(&fixture);
+    std::fs::create_dir_all(fixture.root.join("nested/target")).unwrap();
+    let compiled = stable_despite(&fixture, "nested/target/artifact");
+    let files = compiled.manifest["files"].as_object().unwrap();
+    assert!(!files.keys().any(|key| key.starts_with("nested/target/")));
     assert!(files.contains_key("roles/role.md"));
 }
 
@@ -58,12 +90,35 @@ fn a_charter_inside_an_ignored_tree_is_refused_by_name() {
     assert_eq!(
         refused,
         format!(
-            "bundle: {}: seat 'work' names role 'target/role.md', which stands under 'target' — \
-             a top-level name the bundle's file walk does not pin, because it holds a tree git \
-             ignores in the bundle's repository, whose bytes are not part of the bundle's \
-             identity. A charter there could change what the seat is told without moving the \
-             bundle's identity, so it is refused; move it to a path the bundle pins, such as \
-             'roles/' (decision 0066 ruling 5)",
+            "bundle: {}: seat 'work' names role 'target/role.md', which stands at \
+             'target/role.md' — a path the bundle's file walk does not pin, because it holds a \
+             tree git ignores in the bundle's repository, whose bytes are not part of the \
+             bundle's identity. A charter there could change what the seat is told without \
+             moving the bundle's identity, so it is refused; move it to a path the bundle pins, \
+             such as 'roles/' (decision 0066 ruling 5)",
+            fixture.root.join("bundle.json").display()
+        )
+    );
+}
+
+#[test]
+fn a_charter_inside_a_nested_ignored_tree_is_refused_by_name() {
+    let fixture = Fixture::new();
+    ignored_repository(&fixture);
+    std::fs::create_dir_all(fixture.root.join("nested/target")).unwrap();
+    std::fs::write(fixture.root.join("nested/target/role.md"), "# role").unwrap();
+    let mut config = Fixture::config();
+    config["seats"]["work"]["role"] = json!("nested/target/role.md");
+    let refused = error(fixture.compile(&config, &Fixture::policy()));
+    assert_eq!(
+        refused,
+        format!(
+            "bundle: {}: seat 'work' names role 'nested/target/role.md', which stands at \
+             'nested/target/role.md' — a path the bundle's file walk does not pin, because it \
+             holds a tree git ignores in the bundle's repository, whose bytes are not part of \
+             the bundle's identity. A charter there could change what the seat is told without \
+             moving the bundle's identity, so it is refused; move it to a path the bundle pins, \
+             such as 'roles/' (decision 0066 ruling 5)",
             fixture.root.join("bundle.json").display()
         )
     );
@@ -71,21 +126,24 @@ fn a_charter_inside_an_ignored_tree_is_refused_by_name() {
 
 #[test]
 fn a_second_name_inside_an_ignored_tree_is_refused_by_name() {
-    let fixture = Fixture::new();
-    ignored_repository(&fixture);
-    std::fs::hard_link(
-        fixture.root.join("roles/role.md"),
-        fixture.root.join("target/role.md"),
-    )
-    .unwrap();
-    let refused = error(fixture.compile(&Fixture::config(), &Fixture::policy()));
-    assert_eq!(
-        refused,
-        "bundle: bundle file 'target/role.md' is another name for 'roles/role.md', the file a \
-         bound read consumed: a layer's identity names a consumed file by the entry it was read \
-         by, and a second name for it inside the layer is refused rather than walked as a file \
-         nothing consumed (decision 0065 slice one, design D7)"
-    );
+    for relative in ["target/role.md", "nested/target/role.md"] {
+        let fixture = Fixture::new();
+        ignored_repository(&fixture);
+        let second = fixture.root.join(relative);
+        std::fs::create_dir_all(second.parent().unwrap()).unwrap();
+        std::fs::hard_link(fixture.root.join("roles/role.md"), &second).unwrap();
+        let refused = error(fixture.compile(&Fixture::config(), &Fixture::policy()));
+        assert_eq!(
+            refused,
+            format!(
+                "bundle: bundle file '{relative}' is another name for 'roles/role.md', the file \
+                 a bound read consumed: a layer's identity names a consumed file by the entry \
+                 it was read by, and a second name for it inside the layer is refused rather \
+                 than walked as a file nothing consumed (decision 0065 slice one, design D7)"
+            ),
+            "{relative}"
+        );
+    }
 }
 
 /// A gate whose unboxed exec command names `script`, compiled under the
@@ -132,12 +190,7 @@ fn a_pinned_script_lookup_that_cannot_ask_git_refuses_by_name() {
     let refused = super::super::pinned_key(&not_a_directory, "./x/run.sh", "x/run.sh").unwrap_err();
     assert_eq!(
         refused,
-        format!(
-            "asking git which trees the bundle at {} ignores failed (Not a directory (os error \
-             20)); a bundle's walk skips a git-ignored tree only when git says so, never by \
-             guessing",
-            not_a_directory.display()
-        )
+        git_unreadable(&not_a_directory, "Not a directory (os error 20)")
     );
 }
 
@@ -145,32 +198,66 @@ fn a_pinned_script_lookup_that_cannot_ask_git_refuses_by_name() {
 fn a_pinned_script_inside_an_ignored_tree_is_refused_by_name() {
     let fixture = Fixture::new();
     ignored_repository(&fixture);
-    std::fs::write(fixture.root.join("target/run.sh"), "#!/bin/sh\ntrue\n").unwrap();
-    let refused = match exec_gate_on(&fixture, "./target/run.sh") {
-        Ok(_) => panic!("expected the ignored script to be refused"),
-        Err(refusal) => refusal.to_string(),
-    };
-    assert_eq!(
-        refused,
-        harness_refusal(
-            "'./target/run.sh' names a path the manifest walk does not pin (target is a tree \
-             git ignores in the bundle's repository, whose bytes are not part of the bundle's \
-             identity)"
-        )
-    );
+    for relative in ["target/run.sh", "nested/target/run.sh"] {
+        let script = fixture.root.join(relative);
+        std::fs::create_dir_all(script.parent().unwrap()).unwrap();
+        std::fs::write(&script, "#!/bin/sh\ntrue\n").unwrap();
+        let refused = match exec_gate_on(&fixture, &format!("./{relative}")) {
+            Ok(_) => panic!("expected the ignored script {relative} to be refused"),
+            Err(refusal) => refusal.to_string(),
+        };
+        assert_eq!(
+            refused,
+            harness_refusal(&format!(
+                "'./{relative}' names a path the manifest walk does not pin ({relative} is in a \
+                 tree git ignores in the bundle's repository, whose bytes are not part of the \
+                 bundle's identity)"
+            )),
+            "{relative}"
+        );
+    }
 }
 
 #[test]
 fn a_bundle_outside_a_work_tree_pins_as_before_minus_git() {
     let fixture = Fixture::new();
-    std::fs::create_dir(fixture.root.join(".git")).unwrap();
-    std::fs::write(fixture.root.join(".git/config"), "not a repository").unwrap();
+    // No `.git` anywhere above the bundle: git is asked nothing, and the
+    // walk skips only `.git` itself, as it did before #908.
     let compiled = fixture
         .compile(&Fixture::config(), &Fixture::policy())
         .unwrap();
     let files = compiled.manifest["files"].as_object().unwrap();
-    assert!(!files.contains_key(".git/config"));
     assert!(files.contains_key("roles/role.md"));
+}
+
+#[test]
+fn a_git_answer_that_cannot_be_read_refuses_the_bundle_by_name() {
+    let fixture = Fixture::new();
+    ignored_repository(&fixture);
+    let compiled = stable_despite(&fixture, "target/artifact");
+    assert!(!compiled.manifest["files"]
+        .as_object()
+        .unwrap()
+        .contains_key("target/artifact"));
+    // A repository git can no longer answer for must be refused by name,
+    // with git's own stderr, never read as "nothing is ignored".
+    std::fs::write(fixture.root.join(".git/config"), "[invalid\n").unwrap();
+    let refused = error(fixture.compile(&Fixture::config(), &Fixture::policy()));
+    let detail = format!(
+        "asking git which trees the bundle at {} ignores failed (git rev-parse answered exit \
+         status: 128: fatal: bad config line 1 in file .git/config)",
+        fixture.root.display()
+    );
+    assert_eq!(
+        refused,
+        format!(
+            "bundle: {}: the layer's declaring document, {detail}; a bundle's walk skips a \
+             git-ignored tree only when git says so, never by guessing. What a run is composed \
+             from must be what its identity names, so it is refused (decision 0065 slice one, \
+             design D7)",
+            fixture.root.join("bundle.json").display()
+        )
+    );
 }
 
 #[test]
@@ -200,14 +287,18 @@ fn a_bundle_inside_git_metadata_is_no_work_tree() {
     ignored_repository(&fixture);
     let inside = fixture.root.join(".git/bundle");
     std::fs::create_dir(&inside).unwrap();
-    assert!(!crate::places::unpinned_top_level(&inside, "roles").unwrap());
+    assert!(crate::places::unpinned_reason(&inside, Path::new("roles"))
+        .unwrap()
+        .is_none());
 }
 
 #[test]
 fn a_bundle_that_does_not_stand_answers_no_ignored_tree() {
     let holder = tempfile::tempdir().unwrap();
     let missing = holder.path().join("missing");
-    assert!(!crate::places::unpinned_top_level(&missing, "roles").unwrap());
+    assert!(crate::places::unpinned_reason(&missing, Path::new("roles"))
+        .unwrap()
+        .is_none());
 }
 
 #[test]
@@ -215,16 +306,11 @@ fn a_git_that_cannot_be_asked_refuses_by_name() {
     let holder = tempfile::tempdir().unwrap();
     let not_a_directory = holder.path().join("bundle");
     std::fs::write(&not_a_directory, "not a directory").unwrap();
-    let refused = crate::places::unpinned_top_level(&not_a_directory, "roles").unwrap_err();
+    let refused = crate::places::unpinned_reason(&not_a_directory, Path::new("roles")).unwrap_err();
     assert!(matches!(refused, crate::places::SkipError::Git { .. }));
     assert_eq!(
         refused.to_string(),
-        format!(
-            "asking git which trees the bundle at {} ignores failed (Not a directory (os error \
-             20)); a bundle's walk skips a git-ignored tree only when git says so, never by \
-             guessing",
-            not_a_directory.display()
-        )
+        git_unreadable(&not_a_directory, "Not a directory (os error 20)")
     );
 }
 
@@ -276,27 +362,19 @@ fn a_walk_that_cannot_ask_git_refuses_by_name() {
 }
 
 #[test]
-fn a_path_outside_the_layer_names_no_top_level() {
+fn a_path_outside_the_layer_names_no_skip() {
     let holder = tempfile::tempdir().unwrap();
     let root = holder.path().join("layer");
     std::fs::create_dir(&root).unwrap();
-    assert_eq!(
-        super::super::walk::top_level_name(&root, &holder.path().join("outside")),
-        None
-    );
-    assert_eq!(super::super::walk::top_level_name(&root, &root), None);
-    assert_eq!(
-        super::super::walk::top_level_name(&root, &root.join("roles")),
-        Some("roles")
-    );
+    let skipped = |path: &Path| super::super::walk::skipped_path(&root, path).unwrap();
+    assert_eq!(skipped(&holder.path().join("outside")), None);
+    assert_eq!(skipped(&root), None);
+    assert_eq!(skipped(&root.join("roles")), None);
     #[cfg(target_os = "linux")]
     {
         use std::os::unix::ffi::OsStrExt;
         let invalid = std::ffi::OsStr::from_bytes(b"\xff");
-        assert_eq!(
-            super::super::walk::top_level_name(&root, &root.join(invalid)),
-            None
-        );
+        assert_eq!(skipped(&root.join(invalid)), None);
     }
 }
 
