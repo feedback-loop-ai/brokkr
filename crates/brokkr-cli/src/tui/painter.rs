@@ -353,10 +353,13 @@ pub(super) fn graph_lines(
             tone_style("working"),
         ));
     }
+    // The pulse gate reads the shared standing's word, never the fold's raw
+    // status: an accepted stop with no ending stands as stopping, and a
+    // stopping run has nothing live to pulse (decision 0071 ruling 7).
     let status = view
         .summary
         .as_ref()
-        .map_or("", |summary| summary.status.as_str());
+        .map_or("", |summary| summary.status_word());
     let plan = plan(
         &view.phases,
         lens,

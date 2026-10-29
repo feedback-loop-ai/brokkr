@@ -92,3 +92,6 @@ fn answered(commands: &BTreeMap<u64, (String, u64)>, seq: u64) -> (&str, String)
         None => ("?", String::new()),
     }
 }
+
+#[cfg(test)]
+mod tests;

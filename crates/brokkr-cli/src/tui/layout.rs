@@ -9,8 +9,8 @@ pub(super) struct Mark {
     pub(super) x: usize,
     pub(super) row: usize,
     pub(super) class: Class,
-    /// The pulse gate, read from a model field — `summary.status` for a
-    /// phase's own node, `Node.state` for one inside it.
+    /// The pulse gate, read from a model field — `summary.status_word()`
+    /// for a phase's own node, `Node.state` for one inside it.
     pub(super) live: bool,
     pub(super) label: String,
     pub(super) selected: bool,

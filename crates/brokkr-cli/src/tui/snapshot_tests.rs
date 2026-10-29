@@ -530,3 +530,62 @@ fn the_graph_header_paints_the_shared_entry_text_and_counts_its_row() {
         assert!(!lines[0].to_string().contains('\n'));
     }
 }
+
+/// An accepted stop whose journal carries no ending stands as stopping
+/// (`Summary::status_word`), and the graph's pulse gate reads that shared
+/// standing, never the fold's raw status: the current phase draws the
+/// same frame at both pulse ticks (decision 0071 ruling 7).
+#[test]
+fn a_stopping_run_is_never_painted_live() {
+    use crate::tests::envelope_builder::EnvelopeBuilder;
+    use brokkr_core::EventType;
+    use serde_json::json;
+    let events = [
+        (1, EventType::RunStarted, json!({"manifest": {}})),
+        (2, EventType::PhaseEntered, json!({"phase": "verify"})),
+        (
+            3,
+            EventType::OperatorCommanded,
+            json!({"command_id": "c", "command": "stop"}),
+        ),
+        (4, EventType::OperatorAccepted, json!({"command_id": "c"})),
+    ]
+    .map(|(seq, event_type, payload)| {
+        EnvelopeBuilder::new(event_type, payload)
+            .run("run-7")
+            .correlation("corr")
+            .seq(seq)
+            .event_id(format!("ev{seq}"))
+            .at(T0)
+            .previous("")
+            .build()
+    });
+    let state = brokkr_core::fold::fold(&events).expect("the journal folds");
+    let view = brokkr_view::run_view(&events, Some(&state));
+    assert_eq!(
+        view.summary
+            .as_ref()
+            .expect("the fixture folds")
+            .status_word(),
+        "stopping"
+    );
+    let mut tui = at_run();
+    tui.animate = true;
+    let rail = painter::Rail {
+        phase: None,
+        node: None,
+    };
+    let frame = |tui: &mut Tui, tick: usize| {
+        tui.ticks = tick;
+        painter::graph_lines(tui, &view, None, &rail, (40, 8))
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let still = frame(&mut tui, 0);
+    assert_eq!(still, frame(&mut tui, 2), "a stopping run never pulses");
+    // The equality is the still phase node, not an empty picture.
+    assert!(still.contains('·'), "{still}");
+    assert!(!still.contains(['∙', '⏺']), "{still}");
+}
