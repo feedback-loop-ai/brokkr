@@ -102,6 +102,33 @@ fn a_park_reads_its_phase_start_answer_and_end() {
     );
 }
 
+/// A `phase/entered` the typed read refuses leaves the park without a
+/// phase, not carrying the phase before it.
+#[test]
+fn a_park_reads_no_phase_where_the_phase_does_not_read() {
+    for phase in [json!({}), json!({"phase": 3})] {
+        let case = phase.to_string();
+        let events = journal(&[
+            (
+                EventType::PhaseEntered,
+                json!({"phase": "implement"}),
+                "2026-01-01T00:00:00Z",
+            ),
+            (EventType::PhaseEntered, phase, "2026-01-01T00:00:01Z"),
+            (
+                EventType::RunParked,
+                json!({"reason": "waiting"}),
+                "2026-01-01T00:00:02Z",
+            ),
+        ]);
+        let phases: Vec<_> = parks(&events)
+            .iter()
+            .map(|park| park.phase.clone())
+            .collect();
+        assert_eq!(phases, [None], "{case}");
+    }
+}
+
 /// A `run/parked` whose own stamp does not parse opens no park, and the
 /// events after it do not close a park that was never opened.
 #[test]

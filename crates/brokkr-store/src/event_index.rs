@@ -270,9 +270,9 @@ fn parked(conn: &Connection) -> Result<bool, StoreError> {
     holds(conn, "event_index", PARK_COLUMNS)
 }
 
-/// Does this journal carry the table, with its time and its ids, its three
-/// indexes and both triggers? Pure reads, so the steady-state open writes
-/// nothing.
+/// Does this journal carry the table named by [`TABLE`], every column
+/// [`shaped`] asks, every index in [`INDEXES`] and every trigger in
+/// [`TRIGGERS`]? Pure reads, so the steady-state open writes nothing.
 pub(crate) fn index_intact(conn: &Connection) -> Result<bool, StoreError> {
     Ok(all_present(conn, "table", &TABLE)?
         && shaped(conn)?
@@ -294,8 +294,9 @@ fn send_parks_behind() -> String {
 }
 
 /// Create the index, on a connection holding the write lock: the sixth
-/// additive repair. A table without its time or its ids, and the trigger
-/// that wrote it, are dropped first, since every row is derived. Its rows
+/// additive repair. A table that does not hold every column [`shaped`]
+/// asks for — its time, each event's id and [`PARK_COLUMNS`] — is dropped
+/// with the triggers that wrote it, since every row is derived. Its rows
 /// come from the backfill that follows the open, outside this lock.
 pub(crate) fn migrate_index(conn: &Connection) -> Result<(), StoreError> {
     if !shaped(conn)? {
