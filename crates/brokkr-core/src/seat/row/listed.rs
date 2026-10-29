@@ -325,7 +325,7 @@ fn pairs(text: Option<&str>) -> Option<Vec<(u64, String)>> {
 
 /// `entries` kept in one column: each its length in bytes, a `:`, and
 /// itself; `None` for no entry.
-fn kept<'a>(entries: impl Iterator<Item = &'a str>) -> Option<String> {
+pub(super) fn kept<'a>(entries: impl Iterator<Item = &'a str>) -> Option<String> {
     let mut text = String::new();
     for entry in entries {
         text.push_str(&entry.len().to_string());
@@ -336,7 +336,7 @@ fn kept<'a>(entries: impl Iterator<Item = &'a str>) -> Option<String> {
 }
 
 /// The entries `text` keeps, or `None` where it cuts one short.
-fn entries(text: &str) -> Option<Vec<&str>> {
+pub(super) fn entries(text: &str) -> Option<Vec<&str>> {
     let mut rest = text;
     let mut found = Vec::new();
     while !rest.is_empty() {

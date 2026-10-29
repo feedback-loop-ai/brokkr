@@ -11,8 +11,9 @@
 //! none of its seat's earlier attempts, its statements the same however
 //! many there are, and with none of its effect's rows' lists, which
 //! SQLite's share holds beside the fleet's cap as the effect's widest seat
-//! row, read whole for its digest (ruling 9's seat view row as amended on
-//! 2026-10-25). A
+//! row and its own row, which keeps the effect's accounting sets, each read
+//! whole for its digest (ruling 9's seat view row as amended on 2026-10-25
+//! and 2026-10-26). A
 //! readout's live heap is two shares, Brokkr's under dhat and SQLite's
 //! from its own high-water. The budgets live in `quality/heap-bytes.json`;
 //! dhat allows one profiler per process, so this is a binary of its own.
@@ -463,6 +464,20 @@ fn after_models(longest: &Longest, checkpoints: usize) -> Vec<EventEnvelope> {
 /// each value's bytes, a text's and a blob's by their length and an
 /// integer or a real by its eight.
 fn widest_row(db: &Path, effect: &str) -> u64 {
+    widest_of(db, effect, "")
+}
+
+/// The stored bytes of `effect`'s own row, as [`widest_row`] counts them:
+/// its request's row with no attempt and no member, which keeps the
+/// effect's accounting sets (decision 0089 slice 3), the widest where the
+/// effect is asked more than once.
+fn own_row(db: &Path, effect: &str) -> u64 {
+    widest_of(db, effect, " AND attempt_id IS NULL AND member IS NULL")
+}
+
+/// The stored bytes of the widest of `db`'s grown run's seat rows of
+/// `effect` that `only` further admits, 0 where it admits none.
+fn widest_of(db: &Path, effect: &str, only: &str) -> u64 {
     let conn =
         rusqlite::Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
             .unwrap();
@@ -480,7 +495,7 @@ fn widest_row(db: &Path, effect: &str) -> u64 {
         })
         .collect();
     let widest = format!(
-        "SELECT max({}) FROM seat_summary WHERE run_id = ?1 AND effect_id = ?2",
+        "SELECT coalesce(max({}), 0) FROM seat_summary WHERE run_id = ?1 AND effect_id = ?2{only}",
         stored.join(" + ")
     );
     let bytes: i64 = conn
@@ -495,9 +510,10 @@ fn widest_row(db: &Path, effect: &str) -> u64 {
 /// checkpoint, to the byte, as each row's digest is checked a value at a
 /// time and only the columns a stream is read by are kept. SQLite holds
 /// the row whole while the read checks its digest, so its high-water
-/// beside each attempt is within the fleet's cap and the effect's widest
-/// seat row, by its stored bytes ([`widest_row`]), ruling 9's seat view
-/// row as amended on 2026-10-25.
+/// beside each attempt is within the fleet's cap, the effect's widest
+/// seat row and its own row, which keeps the effect's accounting sets, by
+/// their stored bytes ([`widest_row`], [`own_row`]), ruling 9's seat view
+/// row as amended on 2026-10-25 and 2026-10-26.
 fn the_page_holds_none_of_its_effect_s_lists(dir: &Path, longest: &Longest) {
     let [none, listed] = [0, 6_000].map(|checkpoints| {
         let db = caught_up(
@@ -508,17 +524,23 @@ fn the_page_holds_none_of_its_effect_s_lists(dir: &Path, longest: &Longest) {
         after_opening(&db, longest.seat());
         let (cost, shown) = after_opening(&db, longest.seat());
         assert_eq!(shown, Some((PAGE, true)), "{checkpoints}: the first page");
-        (checkpoints, cost, widest_row(&db, &longest.effect))
+        let effect = &longest.effect;
+        (
+            checkpoints,
+            cost,
+            widest_row(&db, effect),
+            own_row(&db, effect),
+        )
     });
     eprintln!("beside an attempt listing no model: {none:?}; listing 6,000: {listed:?}");
     assert_eq!(
         listed.1.brokkr, none.1.brokkr,
         "a page grew with an earlier attempt's listed models"
     );
-    for (checkpoints, cost, widest) in [none, listed] {
+    for (checkpoints, cost, widest, own) in [none, listed] {
         assert!(
-            cost.sqlite <= measure::SQLITE_CAP + widest,
-            "beside an attempt listing {checkpoints} models, SQLite's high-water is {} bytes, past the cap and the effect's widest seat row, {widest} bytes",
+            cost.sqlite <= measure::SQLITE_CAP + widest + own,
+            "beside an attempt listing {checkpoints} models, SQLite's high-water is {} bytes, past the cap, the effect's widest seat row, {widest} bytes, and its own row, {own} bytes",
             cost.sqlite
         );
     }

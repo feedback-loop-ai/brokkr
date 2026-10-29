@@ -3,9 +3,11 @@
 //! derive a seat's facts alike (decision 0089 ruling 3; decision 0071
 //! rulings 5 and 7). What a surface paints of them stays in `brokkr-view`.
 
+mod costs;
 pub mod meter;
 pub mod row;
 
+pub use costs::{seat_costs, SeatCost};
 use serde::Serialize;
 use serde_json::Value;
 

@@ -54,7 +54,7 @@ use brokkr_core::seat::meter;
 use brokkr_core::seat::{
     add_token, boundary_entries, count_item, finish_usage, stamp_of, transcript_of,
 };
-pub use brokkr_core::seat::{reported_cost, TokenUsage, Transcript};
+pub use brokkr_core::seat::{reported_cost, seat_costs, SeatCost, TokenUsage, Transcript};
 pub use clarify::Clarify;
 use clarify::{clarify, worktree};
 use commands::{commands, unavailable};
@@ -66,8 +66,7 @@ mod composed;
 mod seat_view;
 pub use commands::{Admission, Command, CommandRefusal, Disabled, Offered, Unavailable};
 pub use compare::{
-    first_divergence, resolution_divergence, resolutions, seat_costs, FirstDivergence, Resolution,
-    SeatCost, Sides,
+    first_divergence, resolution_divergence, resolutions, FirstDivergence, Resolution, Sides,
 };
 pub use composed::{composed_view, composed_whole, Parts};
 use dashboard::dashboard;

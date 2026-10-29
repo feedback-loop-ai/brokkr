@@ -73,7 +73,8 @@ fn read(store: &Store, run_id: &str) -> Vec<SeatRow> {
 
 /// `run_id`'s seat head as SQLite holds it.
 fn head(store: &Store, run_id: &str) -> Option<(u64, String)> {
-    folded(&store.conn, run_id).unwrap()
+    let folded = folded(&store.conn, run_id).unwrap();
+    folded.map(|(seq, hash, _)| (seq, hash))
 }
 
 fn sql(store: &Store, statements: &str) {
@@ -111,9 +112,11 @@ fn a_checkpoint_append_writes_the_rows_it_moved_and_the_seat_head() {
     seated(&mut store, "r");
     assert_eq!(read(&store, "r"), folded_rows(&store, "r"));
     assert_eq!(read(&store, "r").len(), 2);
+    // The seat's attempt row: a member's checkpoint moves the request's
+    // own row, which keeps the effect's accounting, and not this one.
     sql(
         &store,
-        "UPDATE seat_summary SET seat = 'edited' WHERE opened = 0",
+        "UPDATE seat_summary SET seat = 'edited' WHERE opened = 1",
     );
     append(
         &mut store,
@@ -126,11 +129,11 @@ fn a_checkpoint_append_writes_the_rows_it_moved_and_the_seat_head() {
     assert_eq!(store.seat_rows("r").unwrap(), SeatRows::Stale);
     assert_eq!(
         every_run_reads_as_its_fold(&store),
-        ["r: seat row 0 Column(\"seat\")"]
+        ["r: seat row 1 Column(\"seat\")"]
     );
     sql(
         &store,
-        "UPDATE seat_summary SET seat = 'worker' WHERE opened = 0",
+        "UPDATE seat_summary SET seat = 'worker' WHERE opened = 1",
     );
     assert_eq!(read(&store, "r"), folded_rows(&store, "r"));
     assert_eq!(read(&store, "r").len(), 3);
@@ -702,6 +705,7 @@ fn a_journal_that_lost_a_seat_table_reads_stale_until_a_writable_open_refolds_it
         "DROP TABLE seat_summary",
         "DROP TABLE seat_head",
         "ALTER TABLE seat_summary DROP COLUMN digest",
+        "ALTER TABLE seat_head DROP COLUMN shape",
     ] {
         let (_dir, mut store) = store();
         seated(&mut store, "r");
@@ -791,6 +795,144 @@ fn a_seat_table_without_a_column_slice_2b_keeps_is_rebuilt_at_a_writable_open() 
     }
 }
 
+/// A journal the seat view's build wrote, its rows' table without the
+/// columns an effect's accounting is kept in (decision 0089 slice 3),
+/// reads stale, refusing its reader nothing, and a writable open makes
+/// both tables anew and refolds every run, its accounting included: the
+/// rows read back cost as `seat_costs` gives the journal. A column of it
+/// edited past its writer is named by the doctor.
+#[test]
+fn a_seat_table_without_the_accounting_s_columns_gains_them_at_a_writable_open() {
+    let costs = SeatRow::COLUMNS.iter().map(|(name, _)| *name);
+    let costs = costs.filter(|name| name.starts_with("costs_"));
+    let unkept: String = costs
+        .map(|column| format!("ALTER TABLE seat_summary DROP COLUMN {column};"))
+        .collect();
+    let (_dir, mut store) = store();
+    seated(&mut store, "r");
+    let path = store.path().to_path_buf();
+    drop(store);
+    rusqlite::Connection::open(&path)
+        .and_then(|raw| raw.execute_batch(&unkept))
+        .unwrap();
+    let reader = Store::open_read_only(&path).unwrap();
+    let count = "SELECT count(*) FROM pragma_table_info('seat_summary')";
+    let columns: i64 = reader.conn.query_row(count, [], |row| row.get(0)).unwrap();
+    // Its run and place, the seat view's 69 columns and the digest.
+    assert_eq!(columns, 2 + 69 + 1);
+    assert!(!seats_intact(&reader.conn).unwrap());
+    assert_eq!(reader.seat_rows("r").unwrap(), SeatRows::Stale);
+    let mut store = Store::open(&path).unwrap();
+    let rows = read(&store, "r");
+    assert_eq!(rows, folded_rows(&store, "r"));
+    let (seats, total) = brokkr_core::seat::row::costs(&rows);
+    assert_eq!(
+        serde_json::to_value(&seats).unwrap(),
+        json!({"worker": {"attempts": 1, "turns": 0, "cost_usd": 0.0, "model": "opus",
+                          "boundary": "not recorded", "effort": "not reported",
+                          "input_tokens": 10, "output_tokens": 1}})
+    );
+    let events = store.load("r").unwrap();
+    assert_eq!((seats, total), brokkr_core::seat::seat_costs(&events));
+    sql(
+        &store,
+        "UPDATE seat_summary SET costs_attempts = 9 WHERE run_id = 'r' AND opened = 0",
+    );
+    let found: Vec<String> = store
+        .summary_disagreements()
+        .unwrap()
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert_eq!(
+        found,
+        [
+            "run 'r': its seat rows stand at its head, and the costs_attempts of its seat row 0 \
+          is not its fold's"
+        ]
+    );
+    lags(&mut store, &["r"]);
+}
+
+/// `run_id`'s rows and seat head at its head as the seat view's build
+/// writes them into a table that keeps the accounting's columns: its 69
+/// columns and a digest of them, the accounting's left NULL, and a head
+/// of the three columns it names.
+fn written_by_the_seat_view_s_build(store: &Store, run_id: &str) {
+    let columns = SeatRow::COLUMNS.iter().map(|(name, _)| *name);
+    let older: Vec<&str> = columns
+        .take_while(|name| !name.starts_with("costs_"))
+        .collect();
+    assert_eq!(older.len(), 69);
+    let bound: Vec<String> = (1..=older.len() + 3).map(|at| format!("?{at}")).collect();
+    let insert = format!(
+        "INSERT OR REPLACE INTO seat_summary (run_id, opened, {}, digest) VALUES ({})",
+        older.join(", "),
+        bound.join(", ")
+    );
+    for (opened, row) in folded_rows(store, run_id).iter().enumerate() {
+        let data = &row.data()[..older.len()];
+        let sealed = digest(run_id, opened as i64, data);
+        let key = [Value::Text(run_id.into()), Value::Integer(opened as i64)];
+        let values = data.iter().cloned().map(value).chain([Value::Text(sealed)]);
+        let all = params_from_iter(key.into_iter().chain(values));
+        store.conn.execute(&insert, all).unwrap();
+    }
+    let (seq, hash) = store.head_hash(run_id).unwrap();
+    store
+        .conn
+        .execute(
+            "INSERT OR REPLACE INTO seat_head (run_id, folded_seq, folded_hash) VALUES (?1, ?2, ?3)",
+            params![run_id, seq as i64, hash],
+        )
+        .unwrap();
+}
+
+/// Rows another build wrote at the run's head, the seat view's, which
+/// names none of the accounting's columns and no shape of its head, lag
+/// for this build as rows behind the head do: a shapeless head reads
+/// stale over any rows, the doctor names the run behind, this build's
+/// next append writes every row, and where the other build appended, the
+/// next writable open refolds the run whole, its accounting what
+/// `seat_costs` gives.
+#[test]
+fn rows_another_build_wrote_at_the_run_s_head_lag_until_this_build_writes_them() {
+    let (_dir, mut store) = store();
+    seated(&mut store, "r");
+    sql(&store, "UPDATE seat_head SET shape = NULL");
+    assert_eq!(store.seat_rows("r").unwrap(), SeatRows::Stale);
+    written_by_the_seat_view_s_build(&store, "r");
+    assert_eq!(store.seat_rows("r").unwrap(), SeatRows::Stale);
+    let behind = ["r: seat rows behind its head"];
+    assert_eq!(every_run_reads_as_its_fold(&store), behind);
+    // A member's turn, which moves the request's own row and not its
+    // attempt's: the append writes that one too.
+    let turn = checkpoint(Some("m"), 2);
+    append(&mut store, "r", EventType::EffectCheckpointed, turn);
+    assert_eq!(read(&store, "r"), folded_rows(&store, "r"));
+    let more = next(
+        &store,
+        "r",
+        EventType::EffectCheckpointed,
+        checkpoint(Some("m"), 3),
+    );
+    plant_summary_writer(&store, "r", &[more]);
+    written_by_the_seat_view_s_build(&store, "r");
+    let (seq, hash) = store.head_hash("r").unwrap();
+    assert_eq!(folded(&store.conn, "r").unwrap(), Some((seq, hash, false)));
+    assert_eq!(every_run_reads_as_its_fold(&store), behind);
+    let path = store.path().to_path_buf();
+    lags(&mut store, &["r"]);
+    drop(store);
+    let store = Store::open(&path).unwrap();
+    let rows = read(&store, "r");
+    assert_eq!(rows, folded_rows(&store, "r"));
+    let events = store.load("r").unwrap();
+    let costs = brokkr_core::seat::row::costs(&rows);
+    assert_eq!(costs, brokkr_core::seat::seat_costs(&events));
+    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+}
+
 /// Seat rows and a seat head of a run the journal does not hold read as
 /// stale, whatever head they claim, and the doctor's sweep names each as
 /// a stray; a run created under that id later reads none of them.
@@ -804,7 +946,8 @@ fn seat_rows_and_heads_of_no_run_read_stale_and_are_named_as_strays() {
             "CREATE TEMP TABLE copied AS SELECT * FROM seat_summary WHERE run_id = 'r';
              UPDATE copied SET run_id = 'ghost';
              INSERT INTO seat_summary SELECT * FROM copied;
-             INSERT INTO seat_head VALUES ('ghost', 0, '{ZERO}'), ('hollow', 0, '{ZERO}');"
+             INSERT INTO seat_head (run_id, folded_seq, folded_hash)
+                 VALUES ('ghost', 0, '{ZERO}'), ('hollow', 0, '{ZERO}');"
         ),
     );
     assert_eq!(store.seat_rows("ghost").unwrap(), SeatRows::Stale);

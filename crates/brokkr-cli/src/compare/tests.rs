@@ -1,4 +1,5 @@
 use super::*;
+use crate::tests::envelope_builder;
 
 #[path = "../../../../tests/support/seat_journal.rs"]
 mod seat_journal;

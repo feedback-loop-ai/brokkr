@@ -25,9 +25,9 @@ use planted::{chained, committed_at, planted};
 #[path = "../../../tests/support/envelope.rs"]
 mod envelope_builder;
 #[path = "../../../tests/support/seat_rows.rs"]
-mod journals;
+pub(crate) mod journals;
 #[path = "../../../tests/support/planted.rs"]
-mod planted;
+pub(crate) mod planted;
 #[path = "../../../tests/support/seat_read.rs"]
 mod seat_read;
 

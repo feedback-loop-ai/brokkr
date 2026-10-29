@@ -4,16 +4,19 @@
 //! field for field, a field that differs named with its run, and the live
 //! block with what the rows say of the attempt in flight, each phase's
 //! inner columns with the steps and tags they list, and each visit's
-//! models with the ones they list (slice 2b). brokkr-view holds every committed and hand-built journal to it,
+//! models with the ones they list (slice 2b), and each seat's accounting
+//! with what `seat_costs` gives of the journal (slice 3). brokkr-view holds every committed and hand-built journal to it,
 //! brokkr-runtime every engine scenario's carried account, and brokkr-cli
 //! every fixture's rows read from the store.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::seat::row::{
-    facts as facts_of, inner, live, models, Datum, Member, Outcome, Provider, SeatFacts, SeatRow,
+    costs, facts as facts_of, inner, live, models, Datum, Member, Outcome, Provider, SeatFacts,
+    SeatRow,
 };
+use brokkr_core::seat::{seat_costs, SeatCost};
 use brokkr_view::{fmt_dur, run_view, short_target, Cell, Participant, RunView};
 
 /// A cell's text, or `None` where the view marks it absent.
@@ -373,7 +376,8 @@ fn concluded(rows: &[SeatRow], facts: &SeatFacts) -> bool {
 /// key: field`, then the live block where `rows` show another and `kept`
 /// says they keep it ([`Account::seats_kept`]; a run whose rows do not
 /// reads stale, so its reader reads it whole), as `run: live`, then each
-/// phase and each visit whose lists differ, and how many participants,
+/// phase and each visit whose lists differ, then each seat whose
+/// accounting differs ([`costs_differ`]), and how many participants,
 /// phases and visits were compared.
 ///
 /// [`Account::seats_kept`]: brokkr_core::summary::Account::seats_kept
@@ -407,7 +411,44 @@ pub(crate) fn disagreements(
         found.push(format!("{run}: live"));
     }
     found.extend(lists);
+    found.extend(costs_differ(run, events, rows).0);
     (found, facts.len() + lists_compared)
+}
+
+/// The first field `a` and `b` print apart, by name, or `cost_usd` where
+/// they print alike: a cost that differs by its bits alone.
+fn parted(a: &SeatCost, b: &SeatCost) -> String {
+    let [a, b] = [a, b].map(|cost| serde_json::to_value(cost).unwrap());
+    let keys = a.as_object().unwrap().keys();
+    let keys: BTreeSet<&String> = keys.chain(b.as_object().unwrap().keys()).collect();
+    let field = keys.into_iter().find(|key| a.get(key) != b.get(key));
+    field.map_or_else(|| "cost_usd".to_string(), String::clone)
+}
+
+/// Each seat whose record the accounting `rows` keep is not what
+/// `seat_costs` gives of `events`, field for field and a cost by its bits,
+/// as `run: costs seat: field`, or `run: costs seat` where one side has no
+/// such seat, then `run: costs total` where the totals' bits differ; and
+/// how many seats were compared.
+pub(crate) fn costs_differ(
+    run: &str,
+    events: &[EventEnvelope],
+    rows: &[SeatRow],
+) -> (Vec<String>, usize) {
+    let ((journal, journal_total), (kept, kept_total)) = (seat_costs(events), costs(rows));
+    let seats: BTreeSet<&String> = journal.keys().chain(kept.keys()).collect();
+    let mut found = Vec::new();
+    for seat in &seats {
+        match (journal.get(*seat), kept.get(*seat)) {
+            (Some(a), Some(b)) if a == b => {}
+            (Some(a), Some(b)) => found.push(format!("{run}: costs {seat}: {}", parted(a, b))),
+            _ => found.push(format!("{run}: costs {seat}")),
+        }
+    }
+    if journal_total.to_bits() != kept_total.to_bits() {
+        found.push(format!("{run}: costs total"));
+    }
+    (found, seats.len())
 }
 
 /// Each phase and each visit of `view`, `run`'s run view, whose lists are

@@ -4,11 +4,15 @@
 //! `Store::seat_rows` and grouped by brokkr-core's `facts`, equals what
 //! `run_view` shows of each participant, field for field, a price by its
 //! bits, and of each phase's inner columns and each visit's models. The
-//! count is of the participants, phases and visits compared.
+//! count is of the participants, phases and visits compared. Every
+//! committed and hand-built journal's rows read back so keep its seats'
+//! accounting as `seat_costs` gives it (slice 3).
 
 use brokkr_store::test_support::import_fixtures;
 use brokkr_store::{SeatRows, Store};
 use brokkr_view::run_view;
+
+use crate::seat_view::planted::{chained, committed_at, planted};
 
 #[path = "../../../tests/support/seat_facts.rs"]
 mod seat_facts;
@@ -75,4 +79,36 @@ fn every_fixture_s_causes_read_by_the_index_as_the_run_view_names_them() {
     }
     assert_eq!(unread, ["conclude-broken-chain-hand-built"]);
     assert_eq!(caused, 205);
+}
+
+/// Every committed and hand-built journal, planted as an older writer
+/// leaves it and caught up by a writable open, its seat rows read back by
+/// `Store::seat_rows`, keeps each seat's accounting as `seat_costs` gives
+/// it of the journal, field for field and a cost by its bits (decision
+/// 0089 slice 3): every column the rows keep it in is read back from the
+/// store. The two runs whose rows keep no live block read stale. The
+/// count is of the seats compared.
+#[test]
+fn every_journal_s_seat_rows_read_from_the_store_keep_its_seat_costs() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("forge.db");
+    let hand_built = crate::seat_view::journals::journals().into_iter();
+    let hand_built = hand_built.map(|(name, events)| (name.to_string(), chained(name, events)));
+    let mut runs = committed_at(&path);
+    runs.extend(planted(&path, hand_built.collect()));
+    let store = Store::open_read_only(&path).unwrap();
+    let (mut found, mut compared, mut stale) = (Vec::new(), 0, Vec::new());
+    for run in &runs {
+        let SeatRows::Current(rows) = store.seat_rows(run).unwrap() else {
+            stale.push(run.as_str());
+            continue;
+        };
+        let events = store.load(run).unwrap();
+        let (differ, count) = seat_facts::costs_differ(run, &events, &rows);
+        found.extend(differ);
+        compared += count;
+    }
+    assert_eq!(found, Vec::<String>::new());
+    assert_eq!(stale, ["effectless", "never asked"]);
+    assert_eq!(compared, 74);
 }
