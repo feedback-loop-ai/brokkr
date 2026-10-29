@@ -30,7 +30,7 @@ use brokkr_core::summary::{parks, Account, Bounded, Park, NAME_BYTES};
 use rusqlite::types::Value;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Params};
 
-use crate::schema::all_present;
+use crate::schema::{all_present, holds};
 use brokkr_core::summary::STAMP_BYTES;
 
 use crate::summary::{cut_stamp, stamp_of, text_at};
@@ -240,40 +240,34 @@ fn park_moved(event: &str) -> String {
     )
 }
 
-/// Does the table hold `column`?
-fn holds(conn: &Connection, column: &str) -> Result<bool, StoreError> {
-    let found: rusqlite::Result<i64> = conn.query_row(
-        "SELECT count(*) FROM pragma_table_info('event_index') WHERE name = ?1",
-        [column],
-        |row| row.get(0),
-    );
-    Ok(found? == 1)
+/// Does the table hold its time, each event's id and a park's dated facts,
+/// its columns read once? A table without its time is the shape an
+/// unreleased build of slice 2 made; one without each event's id, the
+/// shape a build before slice 2b made, which a build that made it reads
+/// as its own, its trigger, which lives in the journal, writing the id
+/// for it; one without a park's facts, the shape a build before decision
+/// 0089 slice 4 made. [`migrate_index`] rebuilds each.
+fn shaped(conn: &Connection) -> Result<bool, StoreError> {
+    let columns = ["recorded_at", "event_id"].into_iter().chain(PARK_COLUMNS);
+    holds(conn, "event_index", columns)
 }
 
-/// Does the table hold its time? A table without it is the shape an
-/// unreleased build of this slice made, which [`migrate_index`] rebuilds.
+/// Does the table hold its time?
+#[cfg(test)]
 fn timed(conn: &Connection) -> Result<bool, StoreError> {
-    holds(conn, "recorded_at")
+    holds(conn, "event_index", ["recorded_at"])
 }
 
-/// Does the table hold each event's id? A table without it is the shape a
-/// build before slice 2b made, which [`migrate_index`] rebuilds; a build
-/// that made it reads this shape as its own, and its trigger, which lives
-/// in the journal, writes the id for it.
+/// Does the table hold each event's id?
+#[cfg(test)]
 fn keyed(conn: &Connection) -> Result<bool, StoreError> {
-    holds(conn, "event_id")
+    holds(conn, "event_index", ["event_id"])
 }
 
-/// Does the table hold a park's dated facts? A table without them is the
-/// shape a build before decision 0089 slice 4 made, which
-/// [`migrate_index`] rebuilds.
+/// Does the table hold a park's dated facts?
+#[cfg(test)]
 fn parked(conn: &Connection) -> Result<bool, StoreError> {
-    for column in PARK_COLUMNS {
-        if !holds(conn, column)? {
-            return Ok(false);
-        }
-    }
-    Ok(true)
+    holds(conn, "event_index", PARK_COLUMNS)
 }
 
 /// Does this journal carry the table, with its time and its ids, its three
@@ -281,9 +275,7 @@ fn parked(conn: &Connection) -> Result<bool, StoreError> {
 /// nothing.
 pub(crate) fn index_intact(conn: &Connection) -> Result<bool, StoreError> {
     Ok(all_present(conn, "table", &TABLE)?
-        && timed(conn)?
-        && keyed(conn)?
-        && parked(conn)?
+        && shaped(conn)?
         && all_present(conn, "index", &INDEXES)?
         && all_present(conn, "trigger", &TRIGGERS)?)
 }
@@ -306,7 +298,7 @@ fn send_parks_behind() -> String {
 /// that wrote it, are dropped first, since every row is derived. Its rows
 /// come from the backfill that follows the open, outside this lock.
 pub(crate) fn migrate_index(conn: &Connection) -> Result<(), StoreError> {
-    if !(timed(conn)? && keyed(conn)? && parked(conn)?) {
+    if !shaped(conn)? {
         let dropped = conn.execute_batch(
             "DROP TRIGGER IF EXISTS event_index_of_an_event;
              DROP TRIGGER IF EXISTS event_index_park_moved;
