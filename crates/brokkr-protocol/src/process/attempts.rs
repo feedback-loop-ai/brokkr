@@ -28,9 +28,10 @@ use signal_hook::iterator::Signals;
 use super::table::{self, Entry, Identity, TableError};
 use super::tree::{self, Bounds, GroupRefusal, Host, Unsettled};
 
-/// How often every live attempt's tree is read and recorded: the engine's
-/// own subtree on Linux, the full table on macOS. Admission and every kill
-/// read the full table instead (#918).
+/// How often every live attempt's tree is walked: the engine's own subtree
+/// on Linux, the full table on macOS. On Linux the walk only says whether
+/// the full table needs reading; admission, every kill and that snapshot
+/// read the full table (#918).
 const TRACK: Duration = Duration::from_millis(100);
 
 /// The engine's exit status when its stop could not prove every live
@@ -217,6 +218,48 @@ impl Registry {
             Some(latest) => Ok(latest.entries.clone()),
             None => self.read(table),
         }
+    }
+
+    /// One tick. On Linux the engine's own tree is walked only to ask
+    /// whether the registry already knows everything in it; when the walk
+    /// sees an identity it does not know, or could not complete, one full
+    /// snapshot is read and attributed by `observe`. The walk's rows are
+    /// never observed, so it can only cause an extra snapshot, never an
+    /// attribution. On macOS the full table itself is the tick, as main
+    /// reads it.
+    fn track(&mut self, host: Host) {
+        if self.attempts.is_empty() {
+            return;
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let changed = match (host.tick)() {
+                Ok(sighting) => sighting.unseen(|id| self.knows(id)),
+                Err(_) => true,
+            };
+            if changed {
+                drop(self.read(host.table));
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        drop(self.read(host.tick));
+    }
+
+    /// Does the registry already know `id`? Every attempt's `before`,
+    /// `recorded` and `doubted` identities, what the engine owns, the
+    /// engine itself, and each live driver. A live driver is known by its
+    /// bare pid: its group id is its pid, and the kernel does not reuse it
+    /// while the leader is unreaped.
+    #[cfg(target_os = "linux")]
+    fn knows(&self, id: &Identity) -> bool {
+        id.pid == getpid().as_raw_pid()
+            || self.unowned.contains(id)
+            || self.attempts.values().any(|live| {
+                live.before.contains(id)
+                    || live.recorded.contains(id)
+                    || live.doubted.contains(id)
+                    || (live.open && live.group.as_raw_pid() == id.pid)
+            })
     }
 
     /// Record what `entries` shows of every live attempt's tree, attribute
@@ -533,9 +576,7 @@ fn start(host: Host) {
     stop_on_signals(host);
     std::thread::spawn(move || loop {
         std::thread::sleep(TRACK);
-        let mut live = live();
-        let busy = !live.attempts.is_empty();
-        drop(busy.then(|| live.read(host.tick)));
+        live().track(host);
     });
 }
 

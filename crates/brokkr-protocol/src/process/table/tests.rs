@@ -198,9 +198,10 @@ fn unreadable(path: &str) -> tempfile::TempDir {
 }
 
 /// #918: the Linux tracker reads the engine's own subtree, so the stat
-/// files it opens do not grow with the host's unrelated processes. Ten
-/// and two thousand of them cost the same three reads, root included,
-/// and the rows are the tree's alone.
+/// files a quiet tick opens do not grow with the host's unrelated
+/// processes. Ten and two thousand of them cost the same three reads, root
+/// included, the rows are the tree's alone, and the sighting sees nothing
+/// new.
 #[cfg(target_os = "linux")]
 #[test]
 fn the_engine_tree_read_does_not_grow_with_the_host() {
@@ -215,10 +216,16 @@ fn the_engine_tree_read_does_not_grow_with_the_host() {
         .chain(tree)
         .map(|(pid, ppid)| parse_stat(pid, &stat(pid, ppid)).unwrap())
         .collect();
+    let known: Vec<Entry> = expected.clone();
     let reads = [10, 2_000].map(|unrelated| {
         let proc = tree_proc(500, &tree, unrelated);
         clear_stat_reads();
-        let mut entries = own_tree_in(proc.path(), 500).unwrap();
+        let sighting = sighting_in(proc.path(), 500).unwrap();
+        assert!(
+            !sighting.unseen(|id| known.iter().any(|entry| entry.id == *id)),
+            "a quiet tick saw a change"
+        );
+        let mut entries = sighting.entries;
         entries.sort_by_key(|entry| entry.id.pid);
         assert_eq!(entries, expected);
         stat_reads()
@@ -253,6 +260,10 @@ fn a_tree_walk_skips_what_exited_and_fails_what_it_cannot_read() {
     let proc = tree_proc(500, &tree, 0);
     std::fs::remove_dir_all(proc.path().join("501")).unwrap();
     assert_eq!(pids(&own_tree_in(proc.path(), 500).unwrap()), [500]);
+    assert!(
+        sighting_in(proc.path(), 500).unwrap().doubt,
+        "a vanished child is no complete walk"
+    );
 
     // A task that exited after its process was listed is skipped.
     let proc = tree_proc(500, &tree, 0);
@@ -334,6 +345,10 @@ fn a_reused_child_pid_is_not_walked_from_the_listing() {
     let stranger = "502 (u) S 900 502 502 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 602 0 0";
     std::fs::write(proc.path().join("502/stat"), stranger).unwrap();
     assert_eq!(pids(&own_tree_in(proc.path(), 500).unwrap()), [500, 501]);
+    assert!(
+        sighting_in(proc.path(), 500).unwrap().doubt,
+        "a reused child is no complete walk"
+    );
 
     // A process that truly moved to the engine is found there on the next
     // read, with the parent its own stat names.
@@ -383,16 +398,17 @@ fn the_real_host_reads_its_own_tree_at_the_tick_and_the_full_table_elsewhere() {
     let parent = rustix::process::getppid()
         .expect("a test process has a parent")
         .as_raw_pid();
-    let pids = |entries: Vec<Entry>| -> std::collections::BTreeSet<i32> {
-        entries.iter().map(|entry| entry.id.pid).collect()
-    };
-    let tick = pids((super::super::tree::Host::REAL.tick)().unwrap());
+    let tick = (super::super::tree::Host::REAL.tick)().unwrap().pids();
     assert!(tick.contains(&me), "the engine itself is not in its tree");
     assert!(
         !tick.contains(&parent),
         "the tick listed the engine's parent {parent}"
     );
-    let full = pids((super::super::tree::Host::REAL.table)().unwrap());
+    let full: std::collections::BTreeSet<i32> = (super::super::tree::Host::REAL.table)()
+        .unwrap()
+        .iter()
+        .map(|entry| entry.id.pid)
+        .collect();
     assert!(full.contains(&me), "the full table omits the engine");
     assert!(
         full.contains(&parent),

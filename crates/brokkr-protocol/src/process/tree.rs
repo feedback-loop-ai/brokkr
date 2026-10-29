@@ -45,27 +45,20 @@
 //! absent: a kill that saw any descendant then parks, naming the means
 //! that was missing.
 //!
-//! Two Linux residuals remain, both accepted by the operator's rulings of
+//! One Linux residual remains, accepted by the operator's rulings of
 //! 2026-09-28 and closed by construction only by per-attempt cgroup
-//! containment (#472). The first is the table-read race. A Linux tick
-//! walks the engine's own subtree: each process's row is read after its
-//! parent's `children` file names it (#918). Suppose a failed driver's
-//! last live descendant forks a detached child after that descendant's
-//! `children` file was read, and exits before the next read. That read
-//! shows nothing of the attempt running, and so sets the attempt's end.
-//! The next read, up to the tracker's 100 ms later, finds the child with
-//! the engine, born after that end, and files it as the engine's own.
-//! Cleanup can then be certified while the child runs. A child whose own
-//! row names another parent than the process whose `children` file listed
-//! it is dropped from that walk, so a pid reused by a stranger is never
-//! followed as the attempt's; a process that truly moved is found under
-//! its real parent on the next read. Admission and every kill read the
-//! full table, so a process that predates the attempt is in `before` even
-//! when a walk would miss it. An identity the attempt has already recorded
-//! is read by its own row at a settlement read (`Live::rows`), so a missed
-//! row is not read as gone.
+//! containment (#472). The table-read race the walk once had is closed
+//! (#918): on Linux a tick's walk of the engine's own subtree only asks
+//! whether the registry already knows every identity in it, and whether the
+//! walk could complete. A new identity, or any doubt, makes the tick take
+//! one full snapshot, and only that read attributes: the walk's own rows
+//! never enter `recorded`, `doubted` or a kill. Admission and every kill
+//! read the full table too, so a process that predates the attempt is in
+//! `before` even when a walk would miss it, and an identity the attempt has
+//! already recorded is read by its own row at a settlement read
+//! (`Live::rows`), so a missed row is not read as gone.
 //!
-//! The second is the read-to-fork instant, a wrong kill rather than a
+//! The residual is the read-to-fork instant, a wrong kill rather than a
 //! missed one. No read is atomic with the fork, so an orphan of the
 //! engine's own (git's detached maintenance, say) that the engine adopts
 //! between the fresh read before a spawn and the fork itself is absent
@@ -151,7 +144,12 @@ pub(super) struct Host {
     /// narrower tick can never add a process this read excluded (#918).
     pub table: fn() -> Result<Vec<Entry>, TableError>,
     /// The tracker's periodic read, once per 100 ms while an attempt is
-    /// live: on Linux the engine's own subtree, on macOS the full table.
+    /// live. On Linux it is a walk of the engine's own subtree that only
+    /// says whether the full table needs reading; on macOS it is the full
+    /// table itself, as main.
+    #[cfg(target_os = "linux")]
+    pub tick: fn() -> Result<table::Sighting, TableError>,
+    #[cfg(not(target_os = "linux"))]
     pub tick: fn() -> Result<Vec<Entry>, TableError>,
     /// The means this host refused the engine, if one (`attempts`).
     pub missing: fn() -> Option<Unsettled>,

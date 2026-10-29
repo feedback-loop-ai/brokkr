@@ -1,4 +1,8 @@
+#[cfg(target_os = "linux")]
+use super::table::Sighting;
 use super::*;
+#[cfg(target_os = "linux")]
+use std::sync::atomic::AtomicBool;
 
 use rustix::io::Errno;
 
@@ -242,10 +246,12 @@ fn an_orphan_born_after_the_last_read_and_before_a_spawn_is_not_the_attempts() {
 /// tracker's walk. D predates the attempt, but the walk can miss it while
 /// D's parent exits before its own row is read; the full read keeps D in
 /// `before`, so the tick that later finds D with the engine does not
-/// attribute it to the attempt or signal it.
+/// attribute it to the attempt or signal it. The walk is a sighting only:
+/// when it does see D, the tick still takes no snapshot, because `before`
+/// already knows it.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_pre_existing_orphan_the_walk_misses_is_not_the_attempts() {
-    use std::sync::atomic::AtomicBool;
     static REPARENTED: AtomicBool = AtomicBool::new(false);
     fn full() -> Result<Vec<Entry>, TableError> {
         // P and its detached child D both ran before admission; P exits
@@ -255,14 +261,21 @@ fn a_pre_existing_orphan_the_walk_misses_is_not_the_attempts() {
             row(STRANGER, me(), STRANGER),
         ]))
     }
-    fn walk() -> Result<Vec<Entry>, TableError> {
+    fn walk() -> Result<Sighting, TableError> {
         // Before the reparenting the walk names neither: P exited before
         // its row was read, so D is not under P. Afterwards it names D.
-        Ok(table(
-            REPARENTED
-                .load(Ordering::Relaxed)
-                .then(|| row(STRANGER, me(), STRANGER)),
+        Ok(Sighting::new(
+            table(
+                REPARENTED
+                    .load(Ordering::Relaxed)
+                    .then(|| row(STRANGER, me(), STRANGER)),
+            ),
+            false,
         ))
+    }
+    /// P has exited; D is the engine's orphan now.
+    fn later() -> Result<Vec<Entry>, TableError> {
+        Ok(table([row(STRANGER, me(), STRANGER)]))
     }
     let mut registry = registry([]);
     let host = Host {
@@ -275,8 +288,119 @@ fn a_pre_existing_orphan_the_walk_misses_is_not_the_attempts() {
     let (mut driver, key) = registry.admit(host, &mut Command::new("true")).unwrap();
     driver.wait().unwrap();
     REPARENTED.store(true, Ordering::Relaxed);
-    registry.read(walk).unwrap();
+    registry.track(host);
+    assert_eq!(
+        registry.attempts[&key].recorded,
+        BTreeSet::new(),
+        "the walk recorded D"
+    );
+    assert_eq!(
+        registry.attempts[&key].doubted,
+        BTreeSet::new(),
+        "the walk doubted D"
+    );
+    registry.read(later).unwrap();
     assert_kill_signals_nothing(&registry, key, host);
+}
+
+/// #918c: the walk records a descendant P, P exits and its numeric pid is
+/// reused by an unrelated U with a child V before P's children are read.
+/// The walk may notice a change, but the tracker never attributes from it:
+/// the one full snapshot reads U's own parent outside the attempt's tree,
+/// so V is never recorded, doubted or signalled.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_pid_reused_between_the_walk_and_the_snapshot_is_not_attributed() {
+    static SNAPSHOTS: AtomicU64 = AtomicU64::new(0);
+    fn walk() -> Result<Sighting, TableError> {
+        // P's old identity leads to V by P's numeric pid, as the stale
+        // walk would have it; U's own row is not what the walk saw.
+        Ok(Sighting::new(
+            vec![
+                row(me(), 1, me()),
+                row(RECORDED, me(), RECORDED),
+                row(STRANGER, RECORDED, STRANGER),
+            ],
+            false,
+        ))
+    }
+    fn full() -> Result<Vec<Entry>, TableError> {
+        SNAPSHOTS.fetch_add(1, Ordering::Relaxed);
+        // U reused P's numeric pid under a parent outside the tree; V is
+        // U's child.
+        Ok(table([
+            Entry {
+                id: Identity {
+                    pid: RECORDED,
+                    start: format!("{RECORDED}9"),
+                },
+                ppid: 900,
+                pgid: RECORDED,
+                zombie: false,
+                exiting: false,
+            },
+            row(STRANGER, RECORDED, STRANGER),
+        ]))
+    }
+    let p = row(RECORDED, me(), RECORDED);
+    let v = row(STRANGER, RECORDED, STRANGER);
+    let mut registry = registry([closed(GROUP, std::slice::from_ref(&p), &[])]);
+    let host = Host {
+        tick: walk,
+        table: full,
+        kill_group: |_| Ok(()),
+        kill: recorded,
+        ..Host::REAL
+    };
+    registry.track(host);
+    assert_eq!(SNAPSHOTS.load(Ordering::Relaxed), 1, "one snapshot");
+    assert_eq!(registry.attempts[&0].recorded, ids([&p]));
+    assert_eq!(registry.attempts[&0].doubted, BTreeSet::new());
+    assert_eq!(registry.unowned, BTreeSet::new());
+    SIGNALLED.with(|signalled| signalled.borrow_mut().clear());
+    assert_eq!(registry.attempts[&0].kill(host), Ok(()));
+    let signalled = SIGNALLED.with(|signalled| std::mem::take(&mut *signalled.borrow_mut()));
+    assert_eq!(signalled, vec![RECORDED], "V {} was signalled", v.id.pid);
+}
+
+/// #918c: a tick whose walk sees only identities the registry already
+/// knows takes no snapshot, however many ticks run; a walk that cannot
+/// complete takes exactly one. The count is held through the injectable
+/// `Host`.
+#[cfg(target_os = "linux")]
+#[test]
+fn quiet_ticks_take_no_snapshot_and_a_doubt_takes_one() {
+    static SNAPSHOTS: AtomicU64 = AtomicU64::new(0);
+    static DOUBT: AtomicBool = AtomicBool::new(false);
+    fn walk() -> Result<Sighting, TableError> {
+        Ok(Sighting::new(
+            vec![row(me(), 1, me()), row(GROUP, me(), GROUP)],
+            DOUBT.load(Ordering::Relaxed),
+        ))
+    }
+    fn full() -> Result<Vec<Entry>, TableError> {
+        SNAPSHOTS.fetch_add(1, Ordering::Relaxed);
+        Ok(table([]))
+    }
+    let live = Live {
+        open: true,
+        ..closed(GROUP, &[], &[])
+    };
+    let mut registry = registry([live]);
+    let host = Host {
+        tick: walk,
+        table: full,
+        ..Host::REAL
+    };
+    SNAPSHOTS.store(0, Ordering::Relaxed);
+    DOUBT.store(false, Ordering::Relaxed);
+    for _ in 0..10 {
+        registry.track(host);
+    }
+    assert_eq!(SNAPSHOTS.load(Ordering::Relaxed), 0, "a quiet tick read");
+    DOUBT.store(true, Ordering::Relaxed);
+    registry.track(host);
+    assert_eq!(SNAPSHOTS.load(Ordering::Relaxed), 1, "a doubt was trusted");
 }
 
 /// #403 finding 1: every running child of the engine outside its own
