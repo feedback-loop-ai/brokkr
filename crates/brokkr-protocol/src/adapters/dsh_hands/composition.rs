@@ -72,12 +72,6 @@ pub(crate) enum Composition {
     DumpFailed { status: String },
 }
 
-impl From<Composition> for String {
-    fn from(refusal: Composition) -> Self {
-        refusal.to_string()
-    }
-}
-
 /// One top-level row of the dump.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Row {

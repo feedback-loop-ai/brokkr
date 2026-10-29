@@ -266,9 +266,11 @@ mod tests {
             &[binding("DSH_HOME", "elsewhere")],
         )
         .unwrap_err();
+        // The variant here, the name in its words below: a guard on the
+        // name would be a branch no refusal takes.
         assert!(matches!(
             fixed,
-            PreSpawnRefusal::Home(DshHomeError::FixedBinding(ref name)) if name == "DSH_HOME"
+            PreSpawnRefusal::Home(DshHomeError::FixedBinding(_))
         ));
         assert_eq!(
             fixed.to_string(),
@@ -284,9 +286,7 @@ mod tests {
         .unwrap_err();
         assert!(matches!(
             refused,
-            PreSpawnRefusal::Command(HarnessCommandRefusal::Secret(
-                secret::BindError::NotUtf8(ref name)
-            )) if name == "TOKEN"
+            PreSpawnRefusal::Command(HarnessCommandRefusal::Secret(secret::BindError::NotUtf8(_)))
         ));
         assert_eq!(refused.to_string(), "secret 'TOKEN' is not valid UTF-8");
     }
