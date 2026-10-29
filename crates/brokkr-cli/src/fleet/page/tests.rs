@@ -127,9 +127,30 @@ pub(crate) fn plant(journal: &rusqlite::Connection, run_id: &str, shape: Shape, 
     }
 }
 
+/// Every proper prefix of `id`, at a character boundary: the selectors a
+/// run id answers to besides itself, for the selector's parity tests.
+pub(crate) fn prefixes(id: &str) -> impl Iterator<Item = &str> + '_ {
+    id.char_indices().skip(1).map(|(at, _)| &id[..at])
+}
+
+/// The selectors a journal's run ids answer to, plus `latest`, a blank
+/// and a missing one: the cases both parity tests compare whole.
+pub(crate) fn selector_cases(ids: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut selectors = vec![
+        crate::selector::LATEST.to_string(),
+        String::new(),
+        "nobody-at-all".to_string(),
+    ];
+    for run_id in ids {
+        selectors.push(run_id.clone());
+        selectors.extend(prefixes(&run_id).map(str::to_string));
+    }
+    selectors
+}
+
 /// Every fixture journal, imported where the import takes it and planted
 /// where it does not, as the store's own fixture test reads them.
-fn fixture_journal(db: &Path) {
+pub(crate) fn fixture_journal(db: &Path) {
     import_fixtures(&mut Store::open(db).unwrap());
 }
 
@@ -138,7 +159,7 @@ fn fixture_journal(db: &Path) {
 /// refusal, a run stamped `+02:00`, one whose stamp does not read, an
 /// acknowledged one active within the day, and runs either side of the
 /// day. Each run a clock is set by, and its last activity in milliseconds.
-fn generated(db: &Path) -> Vec<(&'static str, i64)> {
+pub(crate) fn generated(db: &Path) -> Vec<(&'static str, i64)> {
     let conn = rusqlite::Connection::open(db).unwrap();
     let at = |ago: i64| stamp(now() - ago);
     let keys = [

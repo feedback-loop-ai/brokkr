@@ -39,7 +39,7 @@ pub(super) fn ask(hearths: &[Hearth], run: &str) -> Answers {
         }
         let listed = Store::open_read_only(&hearth.journal)
             .map_err(anyhow::Error::from)
-            .and_then(|store| Ok(store.list_runs()?));
+            .and_then(|store| selector::candidates(&store, run));
         match listed {
             Ok(runs) => answers.record(index, &runs, run),
             Err(error) => {
@@ -52,10 +52,10 @@ pub(super) fn ask(hearths: &[Hearth], run: &str) -> Answers {
 
 impl Answers {
     /// What the hearth at `index`, holding `runs`, answered `run`.
-    fn record(&mut self, index: usize, runs: &[(String, String, String)], run: &str) {
+    fn record(&mut self, index: usize, runs: &[(String, String)], run: &str) {
         let refs: Vec<selector::RunRef<'_>> = runs
             .iter()
-            .map(|(run_id, _feature, created_at)| selector::RunRef { run_id, created_at })
+            .map(|(run_id, created_at)| selector::RunRef { run_id, created_at })
             .collect();
         match selector::resolve(&refs, run) {
             Ok(id) => {
@@ -132,3 +132,6 @@ fn several(hearths: &[Hearth], run: &str, answered: &[(usize, String, String)]) 
             .join(", ")
     )
 }
+
+#[cfg(test)]
+mod tests;

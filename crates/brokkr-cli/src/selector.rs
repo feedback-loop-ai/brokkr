@@ -5,8 +5,8 @@
 //! prefix and the literal `latest` as well as the full id. The rules
 //! live here once: `resolve` is a pure function over the run list plus
 //! the requested string, and `resolve_run` is the thin read-only lookup
-//! that hands it the workspace database's runs. Resolution reads the
-//! run table and never writes the journal.
+//! that hands it the few rows the rules need, read by key. Resolution
+//! reads the journal and never writes it.
 
 use anyhow::Result;
 use brokkr_store::Store;
@@ -131,13 +131,23 @@ fn refusal(kind: Refusal, message: String) -> anyhow::Error {
     anyhow::Error::new(RefusalError { kind, message })
 }
 
+/// The rows `resolve` needs for `requested`, read by key: one row for
+/// `latest`, the exact id by the primary key, or the prefix's range. The
+/// rules themselves stay in [`resolve`]; this only observes.
+pub(crate) fn candidates(store: &Store, requested: &str) -> Result<Vec<(String, String)>> {
+    if requested == LATEST {
+        return Ok(store.latest_run()?.into_iter().collect());
+    }
+    Ok(store.run_candidates(requested)?)
+}
+
 /// The store-facing form every command that takes `--run` calls: read
-/// the run table, apply the rules above. Read-only.
+/// the few run rows the rules need, apply the rules above. Read-only.
 pub(crate) fn resolve_run(store: &Store, requested: &str) -> Result<String> {
-    let runs = store.list_runs()?;
+    let runs = candidates(store, requested)?;
     let refs: Vec<RunRef<'_>> = runs
         .iter()
-        .map(|(run_id, _feature, created_at)| RunRef { run_id, created_at })
+        .map(|(run_id, created_at)| RunRef { run_id, created_at })
         .collect();
     resolve(&refs, requested)
 }

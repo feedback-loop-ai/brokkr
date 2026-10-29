@@ -8,6 +8,7 @@ use rusqlite::{Connection, OptionalExtension};
 use crate::acknowledgement::{acknowledgements_intact, migrate_acknowledgements};
 use crate::event_index::{index_intact, migrate_index};
 use crate::queue::{migrate_queue, queue_intact};
+use crate::run_select;
 use crate::seat_summary::{mark_seated, migrate_seats, seats_intact};
 use crate::summary::{mark_backfilled, migrate_summary, summary_intact};
 use crate::{patiently, Store, StoreError, BUSY_TIMEOUT};
@@ -167,7 +168,7 @@ impl Store {
 /// A journal that records a schema: supported, and whole.
 fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     schema_supported(found)?;
-    // Eight additive repairs, each a READ in the steady state — the
+    // Nine additive repairs, each a READ in the steady state — the
     // starvation measurement holds — and each taking the immediate
     // transaction only when something is actually missing, so racing
     // openers serialise on the lock instead of colliding on the DDL.
@@ -183,7 +184,12 @@ fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     let missing = journal_named(conn)?.is_none();
     repair_if(conn, missing, name_journal)?;
     let missing = !guards_intact(conn)?;
-    repair_if(conn, missing, |conn| Ok(conn.execute_batch(MIGRATION_V1)?))
+    repair_if(conn, missing, |conn| Ok(conn.execute_batch(MIGRATION_V1)?))?;
+    // Ninth: the run selector's `runs (created_at)` index (decision 0089
+    // slice 4). A journal read-only without it still resolves — SQLite
+    // scans — and the next writable open adds it.
+    let missing = !run_select::intact(conn)?;
+    repair_if(conn, missing, run_select::migrate)
 }
 
 /// The first, third and fourth of [`repair`]'s additive repairs, in its
@@ -249,19 +255,7 @@ fn repair_if(
 fn initialize(conn: &mut Connection) -> Result<(), StoreError> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     tx.execute_batch(MIGRATION_V1)?;
-    migrate_sidecar_columns(&tx)?;
-    migrate_queue(&tx)?;
-    migrate_acknowledgements(&tx)?;
-    migrate_summary(&tx)?;
-    mark_backfilled(&tx)?;
-    // No index backfill is marked here: a journal with no schema recorded
-    // may still carry events, and the open's walk, one read on an empty
-    // journal, records the mark once every event has its row.
-    migrate_index(&tx)?;
-    // A run without a seat head reads as stale whatever this key says, and
-    // the open's walk folds it, so a new journal is marked here.
-    migrate_seats(&tx)?;
-    mark_seated(&tx)?;
+    initialize_additions(&tx)?;
     name_journal(&tx)?;
     tx.execute(
         "INSERT OR IGNORE INTO meta (key, value) VALUES ('database_schema', ?1)",
@@ -270,6 +264,30 @@ fn initialize(conn: &mut Connection) -> Result<(), StoreError> {
     let found = schema_version(&tx)?.unwrap_or(0);
     tx.commit()?;
     schema_supported(found)
+}
+
+/// [`initialize`]'s additive pieces, in [`repair`]'s order: the sidecar
+/// columns, the queue, the acknowledgements, the run summary, the event
+/// index and the seat summary, with the summary and seat marks a fresh
+/// journal seeds.
+fn initialize_additions(conn: &Connection) -> Result<(), StoreError> {
+    migrate_sidecar_columns(conn)?;
+    migrate_queue(conn)?;
+    migrate_acknowledgements(conn)?;
+    migrate_summary(conn)?;
+    mark_backfilled(conn)?;
+    // The selector's index is additive like the ones above, so a fresh
+    // journal gets it here and an older one in `repair`.
+    run_select::migrate(conn)?;
+    // No index backfill is marked here: a journal with no schema recorded
+    // may still carry events, and the open's walk, one read on an empty
+    // journal, records the mark once every event has its row.
+    migrate_index(conn)?;
+    // A run without a seat head reads as stale whatever this key says, and
+    // the open's walk folds it, so a new journal is marked here.
+    migrate_seats(conn)?;
+    mark_seated(conn)?;
+    Ok(())
 }
 
 /// Put the journal in WAL, which is what lets readers and a writer share
