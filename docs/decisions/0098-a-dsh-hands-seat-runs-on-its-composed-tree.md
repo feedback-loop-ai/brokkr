@@ -1,6 +1,6 @@
 # 0098 — A dsh hands seat runs on the composed tree it measured, fails closed without its tool, and takes its access from its office
 
-Status: proposed
+Status: accepted — operator ruled 2026-10-29 (#896, https://github.com/feedback-loop-ai/brokkr/issues/896#issuecomment-6491164088), as written, with ruling 2's probe-to-spawn residual accepted until decision 0065 slice two's U9b1
 Date: 2026-10-26
 Built: partial (#896) — the one hands overlay, the composed-tree check and its measured allowlist, the typed office access and its carrier, the activation refusal and the partial-enforcement report are built; the engine-only home (decision 0065 slice two's U9b1) and the read-only `HandsSpec` are unbuilt
 
@@ -21,11 +21,11 @@ two's U9b1 is the engine-only home, not built here), and a review panel
 position hired at work class (decision 0021) receiving dsh's
 `workspace-write` even though its office's charter is strictly read-only.
 
-This proposal records the round-two semantics. Operator acceptance is
-required; only the operator accepts. It edits no frozen contract, corpus or
-production table (decision 0005).
+This decision records the round-two semantics; the operator accepted it on
+2026-10-29. It edits no frozen contract, corpus or production table
+(decision 0005).
 
-## Proposed rulings
+## Rulings
 
 1. **The hands overlay carries the transport it was measured with.** Brokkr's
    row carries `transport: stdio` and `failOnStartupError: true`, in the field
@@ -48,6 +48,16 @@ production table (decision 0005).
    known. The version pin stays beside the check. No engine-only `DSH_HOME`
    is built for hands seats in this round; that is decision 0065 slice two's
    U9b1, and the standing fence still serves the operator's home.
+
+   *Residual, accepted by the operator 2026-10-29 ([#896](https://github.com/feedback-loop-ai/brokkr/issues/896#issuecomment-6491164088)):* the
+   check and the session each read the operator's home, one after the
+   other, and the session keeps nothing of what the check admitted. A change
+   to that home between the probe and the spawn is therefore served without
+   being measured, and a healthy extra server prints none of the words
+   ruling 4 refuses. The home is the operator's own, and such a change is
+   outside the threat model of 2026-09-26. U9b1's engine-only home closes it
+   by construction: the probe and the session then read one home that
+   Brokkr made.
 
 3. **An office's access is typed data, not its gate class.** An office may
    declare `access`, `read-only` or `writes`, beside its hands. Absent is
@@ -120,4 +130,4 @@ reported values. Linux and macOS are the supported hosts; production remains
 Rust. The tree carries the overlay, the composed-tree check, the access
 carrier, the activation refusal and this record; the engine-only home
 (decision 0065 slice two's U9b1) and the read-only `HandsSpec` remain owed,
-so the status stays `proposed` and only the operator accepts it.
+so the decision is built in part. The operator accepted it on 2026-10-29.
