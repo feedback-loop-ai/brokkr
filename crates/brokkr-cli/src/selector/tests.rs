@@ -93,3 +93,93 @@ fn the_store_facing_form_resolves_from_the_run_table_without_writing() {
         assert!(store.load(run_id).unwrap().is_empty());
     }
 }
+
+/// What a selector settled on, or the kind and text it refused with, so
+/// two paths compare whole.
+fn outcome(result: Result<String>) -> Result<String, (Option<Refusal>, String)> {
+    result.map_err(|error| (refusal_kind(&error), error.to_string()))
+}
+
+/// Today's whole-table path: every run through `resolve`.
+fn over_list_runs(store: &Store, requested: &str) -> Result<String> {
+    let runs = store.list_runs()?;
+    let refs: Vec<RunRef<'_>> = runs
+        .iter()
+        .map(|(run_id, _feature, created_at)| RunRef { run_id, created_at })
+        .collect();
+    resolve(&refs, requested)
+}
+
+/// Every committed fixture journal and the hand-built journal the fleet's
+/// page tests plant: for every run id, every proper prefix of it,
+/// `latest`, a blank and a missing selector, the key-range path returns
+/// exactly what `resolve` over `list_runs` returns — the same id, or the
+/// same refusal kind and text.
+#[test]
+fn the_key_range_path_resolves_every_fixture_and_hand_built_selector_as_the_run_table_did() {
+    use crate::fleet::page::tests::{fixture_journal, generated, selector_cases};
+
+    let dir = tempfile::tempdir().unwrap();
+    let committed = dir.path().join("fixtures.db");
+    fixture_journal(&committed);
+    let hand_built = dir.path().join("hand-built.db");
+    let _ = Store::open(&hand_built).unwrap();
+    generated(&hand_built);
+
+    for db in [&committed, &hand_built] {
+        let store = Store::open_read_only(db).unwrap();
+        let ids = store
+            .list_runs()
+            .unwrap()
+            .into_iter()
+            .map(|(run_id, _feature, _created_at)| run_id);
+        for selector in selector_cases(ids) {
+            assert_eq!(
+                outcome(resolve_run(&store, &selector)),
+                outcome(over_list_runs(&store, &selector)),
+                "selector {selector:?} in {}",
+                db.display()
+            );
+        }
+    }
+}
+
+/// The refusals keep their exact words and kinds through the key reads:
+/// an empty journal's `latest`, a blank selector, and one nothing matches
+/// on an empty and on a populated journal.
+#[test]
+fn the_key_range_path_keeps_the_refusals_exact() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+
+    let empty = resolve_run(&store, LATEST).unwrap_err();
+    assert_eq!(refusal_kind(&empty), Some(Refusal::Empty));
+    assert_eq!(
+        empty.to_string(),
+        "no runs in this workspace database; 'latest' resolves to nothing"
+    );
+
+    let blank = resolve_run(&store, "").unwrap_err();
+    assert_eq!(refusal_kind(&blank), Some(Refusal::Blank));
+    assert_eq!(
+        blank.to_string(),
+        "an empty --run names no run; pass an id, a prefix or 'latest'"
+    );
+
+    let missing = resolve_run(&store, "nobody").unwrap_err();
+    assert_eq!(refusal_kind(&missing), Some(Refusal::Missing));
+    assert_eq!(
+        missing.to_string(),
+        "no run matching 'nobody' in this workspace database"
+    );
+
+    store
+        .create_run("run-alpha", "feature", "test", &json!({"files": {}}))
+        .unwrap();
+    let missing = resolve_run(&store, "run-b").unwrap_err();
+    assert_eq!(refusal_kind(&missing), Some(Refusal::Missing));
+    assert_eq!(
+        missing.to_string(),
+        "no run matching 'run-b' in this workspace database"
+    );
+}

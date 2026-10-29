@@ -20,7 +20,7 @@ mod kept;
 #[cfg(test)]
 pub(crate) mod kept_tests;
 mod listing;
-mod page;
+pub(crate) mod page;
 mod world;
 #[cfg(test)]
 mod world_tests;

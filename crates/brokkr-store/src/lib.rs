@@ -82,6 +82,7 @@ mod queue;
 mod read;
 mod redact;
 mod run_read;
+mod run_select;
 mod schema;
 mod seat_read;
 mod seat_record;
@@ -243,6 +244,10 @@ pub struct Store {
     /// What the tests' binding holds this store to when it drops.
     #[cfg(any(test, feature = "test-support"))]
     binding: test_support::Binding,
+    /// The virtual-machine steps the selector's reads took, for the test
+    /// that binds their cost ([`run_select`]). Only a test reads it.
+    #[cfg(test)]
+    selector_steps: std::cell::Cell<i64>,
 }
 
 /// Refuse a run id the journal already carries, as
@@ -439,6 +444,8 @@ impl Store {
             carried: None,
             #[cfg(any(test, feature = "test-support"))]
             binding: Default::default(),
+            #[cfg(test)]
+            selector_steps: std::cell::Cell::new(0),
         }
     }
 

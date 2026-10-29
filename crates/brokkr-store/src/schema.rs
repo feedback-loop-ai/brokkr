@@ -8,6 +8,7 @@ use rusqlite::{Connection, OptionalExtension};
 use crate::acknowledgement::{acknowledgements_intact, migrate_acknowledgements};
 use crate::event_index::{index_intact, migrate_index};
 use crate::queue::{migrate_queue, queue_intact};
+use crate::run_select;
 use crate::seat_summary::{mark_seated, migrate_seats, seats_intact};
 use crate::summary::{mark_backfilled, migrate_summary, summary_intact};
 use crate::{patiently, Store, StoreError, BUSY_TIMEOUT};
@@ -167,7 +168,7 @@ impl Store {
 /// A journal that records a schema: supported, and whole.
 fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     schema_supported(found)?;
-    // Eight additive repairs, each a READ in the steady state — the
+    // Nine additive repairs, each a READ in the steady state — the
     // starvation measurement holds — and each taking the immediate
     // transaction only when something is actually missing, so racing
     // openers serialise on the lock instead of colliding on the DDL.
@@ -183,7 +184,12 @@ fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     let missing = journal_named(conn)?.is_none();
     repair_if(conn, missing, name_journal)?;
     let missing = !guards_intact(conn)?;
-    repair_if(conn, missing, |conn| Ok(conn.execute_batch(MIGRATION_V1)?))
+    repair_if(conn, missing, |conn| Ok(conn.execute_batch(MIGRATION_V1)?))?;
+    // Ninth: the run selector's `runs (created_at)` index (decision 0089
+    // slice 4). A journal read-only without it still resolves — SQLite
+    // scans — and the next writable open adds it.
+    let missing = !run_select::intact(conn)?;
+    repair_if(conn, missing, run_select::migrate)
 }
 
 /// The first, third and fourth of [`repair`]'s additive repairs, in its
@@ -254,6 +260,9 @@ fn initialize(conn: &mut Connection) -> Result<(), StoreError> {
     migrate_acknowledgements(&tx)?;
     migrate_summary(&tx)?;
     mark_backfilled(&tx)?;
+    // The selector's index is additive like the ones above, so a fresh
+    // journal gets it here and an older one in `repair`.
+    run_select::migrate(&tx)?;
     // No index backfill is marked here: a journal with no schema recorded
     // may still carry events, and the open's walk, one read on an empty
     // journal, records the mark once every event has its row.

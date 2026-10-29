@@ -287,6 +287,9 @@ pub fn brokkr_store::Store::queue_reclaim(&mut self, brokkr_store::Claim, brokkr
 pub fn brokkr_store::Store::queue_spawn(&mut self, brokkr_store::Claim, brokkr_store::Generation, &str) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_unsettled_with<R>(&mut self, brokkr_store::Generation, impl core::ops::function::FnMut(core::option::Option<uuid::Uuid>) -> core::result::Result<(), R>) -> core::result::Result<core::result::Result<(alloc::vec::Vec<(brokkr_store::Claim, core::option::Option<alloc::string::String>)>, alloc::vec::Vec<(brokkr_store::Claim, alloc::string::String)>), R>, brokkr_store::StoreError>
 impl brokkr_store::Store
+pub fn brokkr_store::Store::latest_run(&self) -> core::result::Result<core::option::Option<(alloc::string::String, alloc::string::String)>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::run_candidates(&self, &str) -> core::result::Result<alloc::vec::Vec<(alloc::string::String, alloc::string::String)>, brokkr_store::StoreError>
+impl brokkr_store::Store
 pub fn brokkr_store::Store::load_after(&self, &str, u64, &str) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::rows_through(&self, &[(&str, u64)]) -> core::result::Result<alloc::vec::Vec<u64>, brokkr_store::StoreError>
 impl brokkr_store::Store
