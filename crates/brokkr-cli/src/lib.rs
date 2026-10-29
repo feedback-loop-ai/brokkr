@@ -40,12 +40,12 @@ mod verbs;
 // Test seams, hidden from documentation and outside the CLI's supported
 // surface: the renderers the binary serves, for 11.2's cross-surface proof,
 // and the TUI frames and listing #342's CPU budget and decision 0089's
-// fleet budgets read.
+// fleet budgets read, and the bytes its `costs` and `compare` budgets do.
 #[doc(hidden)]
 pub use crate::budget_frame::{
-    fleet_frame_for_budget, fleet_listing_for_budget, fleet_page_for_budget,
-    fleet_window_for_budget, fleet_world_listing_for_budget, run_frame_for_budget,
-    run_readout_for_budget, FleetScroll, FleetWindow,
+    compare_for_budget, costs_for_budget, fleet_frame_for_budget, fleet_listing_for_budget,
+    fleet_page_for_budget, fleet_window_for_budget, fleet_world_listing_for_budget,
+    run_frame_for_budget, run_readout_for_budget, FleetScroll, FleetWindow,
 };
 #[doc(hidden)]
 pub use crate::tui::transcript_surfaces_for_test;

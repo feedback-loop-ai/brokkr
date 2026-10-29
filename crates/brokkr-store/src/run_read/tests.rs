@@ -394,3 +394,25 @@ fn a_run_its_summary_or_its_causes_do_not_stand_for_is_read_the_kept_way() {
         Read::Current { .. }
     ));
 }
+
+/// `brokkr costs`'s read: a run's seat rows at the head its opening
+/// verified, with the run view's read's checks, so a run that moved past
+/// its opening or whose summary row is behind its head is said stale.
+#[test]
+fn a_run_s_seat_rows_are_read_at_its_opening_or_said_stale() {
+    let (dir, mut store) = store();
+    worked(&mut store, 2);
+    let opened = store.open_run("r").unwrap();
+    let current = SeatRows::Current(seats(&store));
+    assert_eq!(store.seat_rows_at("r", &opened).unwrap(), current);
+    let conn = rusqlite::Connection::open(dir.path().join("forge.db")).unwrap();
+    let behind = "UPDATE run_summary SET folded_seq = folded_seq - 1 WHERE run_id = 'r'";
+    conn.execute_batch(behind).unwrap();
+    assert_eq!(store.seat_rows_at("r", &opened).unwrap(), SeatRows::Stale);
+    let caught_up = "UPDATE run_summary SET folded_seq = folded_seq + 1 WHERE run_id = 'r'";
+    conn.execute_batch(caught_up).unwrap();
+    assert_eq!(store.seat_rows_at("r", &opened).unwrap(), current);
+    let more = (EventType::EffectCheckpointed, turn(3));
+    store.append_next("r", more.0, more.1, None, None).unwrap();
+    assert_eq!(store.seat_rows_at("r", &opened).unwrap(), SeatRows::Stale);
+}

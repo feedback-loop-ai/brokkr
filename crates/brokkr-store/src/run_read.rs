@@ -126,6 +126,24 @@ impl Store {
         })
     }
 
+    /// `run_id`'s seat rows read at `opened`, the head its opening
+    /// verified, in one read transaction, with the run view's read's
+    /// checks (`brokkr costs`, decision 0089 ruling 7): [`SeatRows::Stale`]
+    /// wherever that read is [`RunRead::Kept`] for its head, its seat rows
+    /// or its summary row, so the reader reads the run the kept way.
+    pub fn seat_rows_at(&self, run_id: &str, opened: &Opened) -> Result<SeatRows, StoreError> {
+        patiently("load", self.patience, || {
+            let _snapshot = self.conn.unchecked_transaction()?;
+            let Some(seats) = self.seated_at(run_id, opened, &mut || {})? else {
+                return Ok(SeatRows::Stale);
+            };
+            Ok(match self.refused_at(run_id, opened)? {
+                Some(_) => SeatRows::Current(seats),
+                None => SeatRows::Stale,
+            })
+        })
+    }
+
     /// [`Store::run_read`], `between` run after the run's head is read and
     /// before its seat rows, trail and page are: the instant a peer's
     /// append lands, which the tests stage.

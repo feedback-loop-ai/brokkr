@@ -107,6 +107,7 @@ fn no_runtime_decision_names_a_projection_s_reader() {
             "seat_rows(",
             "run_read(",
             "seat_read(",
+            "seat_rows_at(",
         ]
     );
     let named = naming(&workspace().join("crates/brokkr-runtime/src"), &readers);

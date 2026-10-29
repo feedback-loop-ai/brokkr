@@ -54,8 +54,14 @@ impl Resolution {
 /// off the run view's participants, so `compare` cannot describe a
 /// fallback differently from every other readout.
 pub fn resolutions(events: &[EventEnvelope]) -> BTreeMap<String, Resolution> {
-    run_view(events, None)
-        .participants
+    resolved(run_view(events, None).participants)
+}
+
+/// What a run view's `participants` resolved to, as [`resolutions`] reads
+/// them: the run view read whole or composed from the run's rows
+/// (`composed_view`), so `compare` reads both alike.
+pub fn resolved(participants: Vec<Participant>) -> BTreeMap<String, Resolution> {
+    participants
         .into_iter()
         .filter(|part| part.carried_from.is_none())
         .map(|part| (part.label.clone(), Resolution::of(part)))

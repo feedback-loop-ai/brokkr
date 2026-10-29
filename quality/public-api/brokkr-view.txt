@@ -725,6 +725,7 @@ pub fn brokkr_view::ranges(brokkr_view::Section, &str) -> alloc::vec::Vec<brokkr
 pub fn brokkr_view::residual_findings(&str, &[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_view::ResidualFinding>
 pub fn brokkr_view::resolution_divergence<T: core::clone::Clone + core::cmp::PartialEq>(&alloc::collections::btree::map::BTreeMap<alloc::string::String, T>, &alloc::collections::btree::map::BTreeMap<alloc::string::String, T>) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::Sides<T>>
 pub fn brokkr_view::resolutions(&[brokkr_core::envelope::EventEnvelope]) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::Resolution>
+pub fn brokkr_view::resolved(alloc::vec::Vec<brokkr_view::Participant>) -> alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::Resolution>
 pub fn brokkr_view::run_row(&brokkr_view::RunEntry<'_>) -> brokkr_view::RunRow
 pub fn brokkr_view::run_rows(&[brokkr_view::RunEntry<'_>]) -> brokkr_view::RunsView
 pub fn brokkr_view::run_view(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> brokkr_view::RunView
