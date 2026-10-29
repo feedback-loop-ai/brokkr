@@ -234,7 +234,7 @@ fn claude(grants: &Grants) -> String {
 /// MCP facts are Codex's cold and replacement shapes under the boxed and
 /// the harness hands it declares, and without hands, which an operator's
 /// own inline codex seat is served as (U1d4); the boxed replacement is
-/// recorded as U0b left it, unmeasured.
+/// recorded as U0b's pass 7 measured it (U1d5).
 const CODEX: &str = r#"{
   "provider": "codex",
   "trust_tier": "trusted",
@@ -314,16 +314,16 @@ const CODEX: &str = r#"{
         "hands": "boxed",
         "measured_on": {"harness": "codex", "binary": "codex", "version": "0.164.0", "host": "linux"},
         "ambient": {
-          "unmeasured": "U0b recorded no replacement under the hands fragment: X16 ran it cold, and the replacement cells X17, X18 and X24 ran the harness classes"
+          "measured": "U0b pass 7 X32 (X32-A's boxed argv, then the replacement in that home, which trusts the project) and X33 (X33-rejoin failed, then the boxed cold argv), after X13's positive control: no planted user, project or plugin server started, only brokkr and engine; /etc/codex system and managed servers still start (X21-legacyiso), so U9c2 refuses such a host; the enterprise cloud layer is never measured"
         },
         "native_write": {
-          "unmeasured": "no write probe of U0b's names a boxed replacement; X26 and X26-p5 name the hands tool alone"
+          "measured": "U0b pass 7 X34, under the read-only class the hands fragment passes and U9c2's brokkr profile: codex's native shell met Read-only file system inside and outside the workdir; X35: the hands tool wrote inside the workdir, the file on the host"
         },
         "store_read": {
-          "unmeasured": "no store canary of U0b's names a boxed replacement; X26 read the store and X26-p5 was denied it, through the hands tool alone"
+          "measured": "U0b pass 7 X34: the brokkr profile denied the store at its production path in the workdir to codex's native shell; X35: the hands tool was denied it (os error 13, the box's mask after U8h and U8k), the host store unchanged; U8h's recorded rename-over, update-window, configured-link and cross-run limits stand"
         },
         "process_read": {
-          "unmeasured": "no process canary of U0b's names a boxed replacement; its one replacement canary, X24, ran workspace-write"
+          "measured": "U0b pass 7 X34 and X35: neither codex's native shell nor the hands tool found a process canary in the private pid namespace of 4 /proc entries"
         }
       },
       {
