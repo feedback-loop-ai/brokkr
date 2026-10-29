@@ -26,6 +26,7 @@ pub(crate) fn run_state(run_id: &str, seq: u64, run: Run) -> RunState {
         last_decision: None,
         feature: None,
         pending_command: None,
+        stop_accepted_seq: None,
     }
 }
 

@@ -858,3 +858,58 @@ fn a_comparison_that_cannot_read_panics_rather_than_passing() {
     store.conn.execute_batch("DROP TABLE run_summary").unwrap();
     every_run_reads_as_its_fold(&store);
 }
+
+/// A journal whose summary a build from before the accepted-stop column
+/// made is made anew at the next writable open, and the stopping run is
+/// refolded into the stopping lane: the column is additive, and
+/// `DATABASE_SCHEMA` does not move for it.
+#[test]
+fn a_summary_from_before_the_accepted_stop_column_is_made_anew_and_refolded() {
+    let (_dir, mut store) = store();
+    started(&mut store, "r");
+    append(
+        &mut store,
+        "r",
+        EventType::PhaseEntered,
+        json!({"phase": "verify"}),
+    );
+    append(
+        &mut store,
+        "r",
+        EventType::EffectRequested,
+        json!({"effect_id": "e1", "seat": "verify"}),
+    );
+    append(
+        &mut store,
+        "r",
+        EventType::EffectStarted,
+        json!({"effect_id": "e1", "attempt_id": "a1"}),
+    );
+    append(
+        &mut store,
+        "r",
+        EventType::OperatorCommanded,
+        json!({"command_id": "c1", "command": "stop"}),
+    );
+    append(
+        &mut store,
+        "r",
+        EventType::OperatorAccepted,
+        json!({"command_id": "c1"}),
+    );
+    assert_eq!(lane(&store, "r"), text("stopping"));
+    assert_eq!(row(&store, "r", "stop_accepted_seq"), [Value::Integer(6)]);
+    let path = store.path().to_path_buf();
+    drop(store);
+    let older = rusqlite::Connection::open(&path).unwrap();
+    older.execute_batch("DROP TABLE run_summary;").unwrap();
+    assert!(!summary_intact(&older).unwrap(), "the table is gone");
+    migrate_summary(&older).unwrap();
+    drop(older);
+    let store = Store::open(&path).unwrap();
+    assert!(summary_intact(&store.conn).unwrap());
+    assert!(store.pages().unwrap());
+    assert_eq!(lane(&store, "r"), text("stopping"));
+    assert_eq!(row(&store, "r", "stop_accepted_seq"), [Value::Integer(6)]);
+    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+}

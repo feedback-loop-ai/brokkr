@@ -147,7 +147,7 @@ window.__ModuleLoader__.load({
     // ------------------------------------------------------------- painting
 
     // An acknowledged quarantine is answered until its journal moves (#511).
-    const needsYou = (row) => row.acknowledgement === null && (row.verdict.standing === 'parked' || row.verdict.standing === 'quarantined')
+    const needsYou = (row) => row.acknowledgement === null && (row.verdict.standing === 'parked' || row.verdict.standing === 'quarantined' || row.verdict.standing === 'stopping')
     // It lists under Older whatever its age, keeping its mark and refusal.
     const acknowledged = (row) => row.acknowledgement !== null
     const waiting = (fleet) => (fleet === null ? 0 : fleet.hearths.reduce((sum, hearth) => sum + hearth.runs.filter(needsYou).length, 0))
@@ -157,6 +157,7 @@ window.__ModuleLoader__.load({
       quarantined: ['quarantined', 'bk-bad'],
       parked: ['parked · waiting on you', 'bk-park'],
       running: ['running', 'bk-run'],
+      stopping: ['stopping · waiting for an ending', 'bk-park'],
       shipped: ['shipped', 'bk-ship'],
       stopped: ['stopped by a rule', 'bk-stop'],
       operator_stopped: ['stopped by you', 'bk-stop'],
@@ -196,7 +197,7 @@ window.__ModuleLoader__.load({
     }
 
     /** Why a row needs the operator, in Brokkr's words: the refusal, or the verdict. */
-    const shortReason = (row) => (row.verdict.standing === 'quarantined' ? row.detail ?? row.verdict.text : row.verdict.text)
+    const shortReason = (row) => (row.verdict.standing === 'quarantined' ? row.detail ?? row.verdict.text : row.verdict.detail ?? row.verdict.text)
 
     /** Each command's button, named for its effect, and what it does. */
     const COMMAND = {
@@ -410,7 +411,7 @@ window.__ModuleLoader__.load({
     // ------------------------------------------------------------ one realm
 
     /** A run's dot, as its realm row and the rail colour it: parked or quarantined amber or red, running violet and striking. */
-    const RUN_DOT = { parked: 'park', quarantined: 'halt', running: 'violet', shipped: 'phosphor', stopped: 'quiet', operator_stopped: 'quiet' }
+    const RUN_DOT = { parked: 'park', quarantined: 'halt', running: 'violet', stopping: 'park', shipped: 'phosphor', stopped: 'quiet', operator_stopped: 'quiet' }
     const runDot = (standing) => h('svg', { width: 12, height: 12, className: 'bk-realm-dot', 'aria-hidden': 'true' },
       standing === 'running' ? h('circle', { cx: 6, cy: 6, r: 4, className: 'bk-dot-halo violet' }) : null,
       h('circle', { cx: 6, cy: 6, r: 4, className: `bk-dot-fill ${RUN_DOT[standing] ?? 'quiet'}${standing === 'running' ? ' live' : ''}` }))

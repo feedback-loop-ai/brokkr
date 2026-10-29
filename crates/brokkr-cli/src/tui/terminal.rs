@@ -238,7 +238,7 @@ pub(super) fn has_ended(watched: &Watched, views: &Views) -> bool {
 /// the frames keep polling a journal that does not fold.
 fn settled(standing: Standing) -> bool {
     match standing {
-        Standing::Running | Standing::Quarantined => false,
+        Standing::Running | Standing::Stopping | Standing::Quarantined => false,
         Standing::Parked | Standing::Shipped | Standing::Stopped | Standing::OperatorStopped => {
             true
         }

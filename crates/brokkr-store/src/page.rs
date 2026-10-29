@@ -36,7 +36,8 @@ use crate::{head_of, Store, StoreError};
 const COLUMNS: &str = "run_id, order_at, feature_line, created_at,
     last_recorded_at, status, phase, park_reason, rule_id, rule_from, rule_routes,
     hire_seat, hire_failed_attempts, residual_open, refusal_seq, refusal_words,
-    folded_seq, folded_hash, acknowledged, ack_operator, ack_reason, ack_at";
+    folded_seq, folded_hash, acknowledged, ack_operator, ack_reason, ack_at,
+    stop_accepted_seq";
 
 /// Why a page cannot read a summary row as a run's account: a value no
 /// writer writes. The reader reads such a run whole instead, or, where
@@ -132,6 +133,7 @@ fn row_of(row: &rusqlite::Row<'_>, run_id: String, order_at: i64) -> Result<Row,
         created_at,
         last_recorded_at,
         status: status_of(row)?,
+        stop_accepted_seq: row.get::<_, Option<i64>>(22)?.map(|seq| seq as u64),
         phase: bounded(row, 6)?,
         park_reason: bounded(row, 7)?,
         ruled: ruled_of(row)?,

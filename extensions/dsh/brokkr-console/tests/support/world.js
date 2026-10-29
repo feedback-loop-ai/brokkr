@@ -40,7 +40,7 @@ export function row(over = {}) {
 /** A world's `FleetView`: `[[realm, rows], ...]`. */
 export function fleetDoc(realms, over = {}) {
   return {
-    view_version: 27,
+    view_version: 28,
     realms: realms.map(([realm, runs]) => ({ realm, journal: `/hearths/${realm}/forge.db`, runs, count: runs.length, detail: null })),
     count: realms.reduce((sum, [, runs]) => sum + runs.length, 0),
     ...over,
@@ -120,7 +120,7 @@ export function seat(over = {}) {
 export function runViewDoc(over = {}) {
   const { seq = 12, ...rest } = over
   return {
-    view_version: 27,
+    view_version: 28,
     summary: {
       consecutive_failures: {},
       cursor: 'park',
@@ -193,7 +193,7 @@ export function recipeRow(over = {}) {
 /** `brokkr analytics --json` for one realm whose seats reported no cost. */
 export function analyticsDoc(over = {}) {
   return {
-    view_version: 27,
+    view_version: 28,
     range: '7d',
     realm: null,
     from: '2026-10-06T09:00:00Z',

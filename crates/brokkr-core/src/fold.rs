@@ -203,6 +203,25 @@ pub struct RunState {
     pub feature: Option<String>,
     /// Last operator command awaiting disposition: (command_id, command).
     pub pending_command: Option<(String, String)>,
+    /// The seq of an operator stop accepted while no `run/stopped` has
+    /// been written yet: the run is stopping, not running.
+    pub stop_accepted_seq: Option<u64>,
+}
+
+impl RunState {
+    /// The seq of an accepted stop no ending has closed, while that is
+    /// what the cursor says: the run is stopping, not running. A stop
+    /// rides an in-flight effect to its boundary, so the cursor still
+    /// states the attempt; the accepted seq is kept beside it.
+    pub fn stopping_seq(&self) -> Option<u64> {
+        match &self.run {
+            Run::Running(Cursor::Stop) => self.stop_accepted_seq,
+            Run::Running(Cursor::EffectInFlight {
+                stop_rides: true, ..
+            }) => self.stop_accepted_seq,
+            Run::Running(_) | Run::AwaitingOperator { .. } | Run::Completed | Run::Stopped => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Error, PartialEq)]
@@ -439,6 +458,7 @@ pub fn fold(events: &[EventEnvelope]) -> Result<RunState, FoldError> {
         last_decision: None,
         feature: payload::RunStarted::read(first).feature.map(str::to_string),
         pending_command: None,
+        stop_accepted_seq: None,
     };
     fold_onto(state, events)
 }

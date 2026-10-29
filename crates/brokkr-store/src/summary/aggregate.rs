@@ -87,10 +87,7 @@ pub(super) fn rebuild() -> String {
 
 /// Does the table hold every column? A pure read.
 pub(super) fn shaped(conn: &Connection) -> Result<bool, StoreError> {
-    let mut statement = conn.prepare("SELECT name FROM pragma_table_info('run_summary')")?;
-    let found: Vec<String> = statement
-        .query_map([], |row| row.get(0))?
-        .collect::<Result<_, _>>()?;
+    let found = super::columns(conn)?;
     Ok(COLUMNS
         .iter()
         .all(|(column, _)| found.iter().any(|name| name == column)))

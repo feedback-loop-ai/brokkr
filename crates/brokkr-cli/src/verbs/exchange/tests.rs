@@ -61,12 +61,14 @@ fn verify_run_prints_the_chain_and_the_state_in_these_bytes() {
   "state": {
     "consecutive_failures": {},
     "cursor": "RequestEffect",
+    "detail": null,
     "feature": "feature",
     "last_decision": null,
     "park_reason": null,
     "phase": "work",
     "run_id": "run",
     "seq": 2,
+    "standing": "running",
     "status": "running",
     "strategy": null
   }

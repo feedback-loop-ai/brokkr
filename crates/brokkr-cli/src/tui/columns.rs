@@ -134,10 +134,14 @@ enum Third {
 fn third_of(row: &RunRow, now: &str) -> Third {
     match (row.verdict.standing, brokkr_view::need(row, now)) {
         (Standing::Running, None) => Third::Live,
-        (Standing::Running, Some(Need::Stale { .. } | Need::Parked | Need::Quarantined(_)))
+        (
+            Standing::Running,
+            Some(Need::Stale { .. } | Need::Parked | Need::Quarantined(_) | Need::Stopping { .. }),
+        )
         | (
             Standing::Quarantined
             | Standing::Parked
+            | Standing::Stopping
             | Standing::Shipped
             | Standing::Stopped
             | Standing::OperatorStopped,
@@ -294,7 +298,9 @@ fn standing_texts(row: &RunRow, need: Option<&Need>, now: &str, columns: usize) 
     let age = brokkr_view::age(&row.created_at, now).unwrap_or(absent());
     let stands = match need {
         Some(stale @ Need::Stale { .. }) => stale.label(),
-        Some(Need::Parked | Need::Quarantined(_)) | None => row.verdict.standing.label(),
+        Some(Need::Parked | Need::Quarantined(_)) | Some(Need::Stopping { .. }) | None => {
+            row.verdict.standing.label()
+        }
     };
     vec![
         (
@@ -312,7 +318,7 @@ fn standing_texts(row: &RunRow, need: Option<&Need>, now: &str, columns: usize) 
 fn ending_texts(row: &RunRow, view: Option<&RunView>, now: &str, columns: usize) -> Texts {
     let title = match (brokkr_view::need(row, now), row.verdict.standing) {
         (Some(_), _) => "WHAT IT NEEDS",
-        (None, Standing::Running) => "WHERE IT STANDS",
+        (None, Standing::Running | Standing::Stopping) => "WHERE IT STANDS",
         (
             None,
             Standing::Quarantined
@@ -334,6 +340,9 @@ fn ending_texts(row: &RunRow, view: Option<&RunView>, now: &str, columns: usize)
     let board = view.map(|view| &view.dashboard);
     let decision = board.and_then(|board| board.decision.as_ref());
     texts.push((rule_line(verdict, decision), plain()));
+    if let Some(detail) = &verdict.detail {
+        texts.push((format!("detail    {detail}"), plain()));
+    }
     let reason = decision.and_then(|ruled| ruled.problem.as_ref());
     if let Some(reason) = reason.or(verdict.reason.as_ref()) {
         texts.push((format!("reason    {reason}"), plain()));

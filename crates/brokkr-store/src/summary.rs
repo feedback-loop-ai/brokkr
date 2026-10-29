@@ -43,6 +43,7 @@ fn lane() -> String {
       WHEN refusal_words IS NOT NULL AND acknowledged = 0 THEN 'refused'
       WHEN refusal_words IS NOT NULL THEN 'acknowledged'
       WHEN status = 'awaiting_operator' THEN 'parked'
+      WHEN status = 'running' AND stop_accepted_seq IS NOT NULL THEN 'stopping'
       WHEN status = 'running' THEN 'running'
       ELSE 'finished'
     END",
@@ -144,7 +145,8 @@ fn migration() -> String {
     format!(
         "CREATE TABLE IF NOT EXISTS run_summary (
             run_id TEXT PRIMARY KEY,
-            feature_line TEXT, created_at TEXT, status TEXT, phase TEXT,
+            feature_line TEXT, created_at TEXT, status TEXT, stop_accepted_seq INTEGER,
+            phase TEXT,
             park_reason TEXT, rule_id TEXT, rule_from TEXT, rule_routes INTEGER,
             hire_seat TEXT, hire_failed_attempts INTEGER,
             residual_open TEXT, residual_count INTEGER,
@@ -235,8 +237,26 @@ fn send_stale_behind() -> String {
 pub(crate) fn summary_intact(conn: &Connection) -> Result<bool, StoreError> {
     Ok(all_present(conn, "table", &TABLE)?
         && aggregate::shaped(conn)?
+        && stopping_shaped(conn)?
         && all_present(conn, "index", &INDEX)?
         && all_present(conn, "trigger", &TRIGGERS)?)
+}
+
+/// The table's columns, by name: the one read the shape checks share.
+pub(super) fn columns(conn: &Connection) -> Result<Vec<String>, StoreError> {
+    let mut statement = conn.prepare("SELECT name FROM pragma_table_info('run_summary')")?;
+    let found: Vec<String> = statement
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    Ok(found)
+}
+
+/// Does the table carry the accepted-stop column, which a journal from
+/// before it does not? A pure read.
+fn stopping_shaped(conn: &Connection) -> Result<bool, StoreError> {
+    Ok(columns(conn)?
+        .iter()
+        .any(|name| name == "stop_accepted_seq"))
 }
 
 /// Create the summary, anew where its table lacks a column, seed a row for
@@ -244,7 +264,7 @@ pub(crate) fn summary_intact(conn: &Connection) -> Result<bool, StoreError> {
 /// folded head the repair did not see written, on a connection holding the
 /// write lock: the fifth additive repair.
 pub(crate) fn migrate_summary(conn: &Connection) -> Result<(), StoreError> {
-    if !aggregate::shaped(conn)? {
+    if !aggregate::shaped(conn)? || !stopping_shaped(conn)? {
         conn.execute_batch(&aggregate::rebuild())?;
     }
     conn.execute_batch(&migration())?;
@@ -294,6 +314,7 @@ fn written(summary: &Summary) -> Vec<(&'static str, Value)> {
         ("feature_line", Value::Text(summary.feature_line.clone())),
         ("created_at", created_at),
         ("status", word(summary.status.map(|status| status.as_str()))),
+        ("stop_accepted_seq", integer(summary.stop_accepted_seq)),
         ("phase", phase),
         ("park_reason", park_reason),
         ("rule_id", rule_id),

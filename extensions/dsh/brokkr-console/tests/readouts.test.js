@@ -61,7 +61,7 @@ test('analytics carries each recipe of each realm through, its cost as Brokkr fi
 })
 
 test('a one-hearth listing is one hearth with no journal to name', () => {
-  const fleet = fleetOf({ view_version: 27, runs: [row()], count: 1 })
+  const fleet = fleetOf({ view_version: 28, runs: [row()], count: 1 })
   assert.deepEqual(fleet.hearths.map((hearth) => [hearth.realm, hearth.journal, hearth.runs.length]), [[ONE_HEARTH, null, 1]])
 })
 
@@ -106,9 +106,9 @@ test('a carried verdict keeps the view’s status, activity and original attempt
   const activity = { text: 'carried from review attempt 2', absent: false, note: 'source-attempt' }
   const source = { attempt_id: 'source-attempt', ordinal: 2 }
   const doc = runViewDoc({ participants: [seat({ status: 'carried', working: false, activity, carried_from: source })] })
-  assert.equal(doc.view_version, 27)
+  assert.equal(doc.view_version, 28)
   const part = runViewOf(doc).participants[0]
   assert.deepEqual([part.status, part.working, part.activity, part.carried_from], ['carried', false, activity, source])
   assert.equal(runViewOf(runViewDoc({ participants: [seat()] })).participants[0].carried_from, null)
-  assert.throws(() => runViewOf({ ...doc, view_version: 23 }), new ReadoutRefused('version', 'brokkr inspect is at view version 23; this console paints version 27 only'))
+  assert.throws(() => runViewOf({ ...doc, view_version: 23 }), new ReadoutRefused('version', 'brokkr inspect is at view version 23; this console paints version 28 only'))
 })

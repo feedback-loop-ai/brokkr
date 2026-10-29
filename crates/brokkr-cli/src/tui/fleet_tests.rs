@@ -770,7 +770,7 @@ fn read_as(row: &RunRow) -> Result<Status, Quarantine> {
     match row.verdict.standing {
         Standing::Quarantined => Err(row.quarantine.expect("a quarantined row names it")),
         Standing::Parked => Ok(Status::AwaitingOperator),
-        Standing::Running => Ok(Status::Running),
+        Standing::Running | Standing::Stopping => Ok(Status::Running),
         Standing::Shipped => Ok(Status::Completed),
         Standing::Stopped | Standing::OperatorStopped => Ok(Status::Stopped),
     }

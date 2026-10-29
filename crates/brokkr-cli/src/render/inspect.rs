@@ -2,7 +2,7 @@
 //! from the run's summary and its ruling (#288): each is a list of lines
 //! the readout prints in the order it always has.
 
-use brokkr_view::{Ruling, Summary};
+use brokkr_view::{Ruling, Standing, Summary};
 
 use super::{push_line, status_code, tint, Safe, Style};
 
@@ -19,21 +19,24 @@ pub(super) fn summary_lines(out: &mut String, summary: Option<&Summary>, style: 
                 Some(phase) => phase.clone(),
                 None => "-".to_string(),
             };
+            let status = match summary.standing {
+                Standing::Stopping => summary.standing.label(),
+                _ => summary.status.as_str(),
+            };
             push_line(
                 out,
                 &format!(
                     "     {} · phase {} · seq {}",
-                    tint(
-                        Safe::new(&summary.status).as_str(),
-                        status_code(&summary.status),
-                        style
-                    ),
+                    tint(Safe::new(status).as_str(), status_code(status), style),
                     Safe::new(&phase).as_str(),
                     summary.seq
                 ),
             );
             if let Some(reason) = &summary.park_reason {
                 push_line(out, &format!("park  {}", Safe::new(reason).as_str()));
+            }
+            if let Some(detail) = &summary.detail {
+                push_line(out, &format!("stop  {}", Safe::new(detail).as_str()));
             }
         }
         None => push_line(out, "run  — this journal does not fold"),

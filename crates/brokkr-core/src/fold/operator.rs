@@ -36,7 +36,10 @@ pub(super) fn accept(state: &mut RunState, event: &EventEnvelope) -> Result<(), 
         return Err(out_of_place(state, event));
     }
     match command {
-        OperatorCommand::Retry => state.run = Run::Running(Cursor::RequestEffect),
+        OperatorCommand::Retry => {
+            state.stop_accepted_seq = None;
+            state.run = Run::Running(Cursor::RequestEffect);
+        }
         // `brokkr operator` is a live kill switch: it journals the
         // command AND its acceptance without reading the run's cursor
         // first, so a stop legitimately lands wherever the run stands.
@@ -50,6 +53,7 @@ pub(super) fn accept(state: &mut RunState, event: &EventEnvelope) -> Result<(), 
         // running between effects are the same sentence, finished at the
         // first position the journal offers.
         OperatorCommand::Stop => {
+            state.stop_accepted_seq = Some(event.seq);
             if let Run::Running(Cursor::EffectInFlight { stop_rides, .. }) = &mut state.run {
                 *stop_rides = true;
             } else {

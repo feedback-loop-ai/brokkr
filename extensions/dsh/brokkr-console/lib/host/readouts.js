@@ -5,7 +5,7 @@
 // half-read is painted. Fields the console does not paint are left unread.
 
 /** The view wire this console paints: `brokkr_view::VIEW_VERSION`. */
-export const VIEW_VERSION = 27
+export const VIEW_VERSION = 28
 
 /** The graph wire this console paints: `brokkr_view::GRAPH_VIEW_VERSION`, pinned apart from `VIEW_VERSION`. */
 export const GRAPH_VIEW_VERSION = 2
@@ -16,7 +16,7 @@ const MUNINN_RECORD_VERSION = 1
 /** The label a one-hearth world's runs go under: its listing names no realm. */
 export const ONE_HEARTH = 'this workspace'
 
-const STANDINGS = ['quarantined', 'parked', 'running', 'shipped', 'stopped', 'operator_stopped']
+const STANDINGS = ['quarantined', 'parked', 'running', 'stopping', 'shipped', 'stopped', 'operator_stopped']
 const COMMANDS = ['retry', 'stop', 'resume', 'conclude']
 const ACTIONS = ['dismiss_finding', 'talk_to_reviewer', 'hold', 'answer_here']
 const ADMISSIONS = ['admissible', 'waiting', 'held']
@@ -123,6 +123,7 @@ function verdict(value, path) {
     rule: optText(value.rule, `${path}.rule`),
     reason: optText(value.reason, `${path}.reason`),
     text: text(value.text, `${path}.text`),
+    detail: optText(value.detail, `${path}.detail`),
   }
 }
 

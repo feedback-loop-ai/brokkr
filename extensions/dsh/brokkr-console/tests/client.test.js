@@ -47,6 +47,31 @@ test('the Realms header reads the same count', () => {
   assert.equal(textOf(status), '1 running · 3 waiting on you')
 })
 
+test('a run whose accepted stop has no ending needs you, and is not counted as running (#909)', () => {
+  const detail = 'stop accepted at seq 93; no ending written. If no driver is running it, `brokkr conclude` closes it.'
+  const stopping = row({ run_id: 'stopping-without-ending-0000aaaa', title: 'Stopping without an ending', verdict: { standing: 'stopping', rule: null, reason: null, text: '', detail } })
+  const running = row({ run_id: 'still-running-0000bbbb', title: 'Still running', phase: 'verify', verdict: { standing: 'running', rule: null, reason: null, text: '', detail: null } })
+  const doc = fleetDoc([['brokkr', [stopping, running]]])
+  const client = mountClient('sidebar.panellist', { size: 16, active: false })
+  client.push({ type: 'snapshot', fleet: fleetOf(doc), overview: null, run: null })
+  assert.equal(client.tree().props['aria-label'], 'Brokkr: 1 run waiting on you')
+  const main = mountClient('main')
+  main.push({ type: 'snapshot', fleet: fleetOf(doc), overview: null, run: null })
+  const status = findAll(main.tree(), (node) => node.props.className === 'bk-status')[0]
+  assert.equal(textOf(status), '1 running · 1 waiting on you')
+  buttons(main.tree()).find((button) => textOf(button).startsWith('brokkr')).props.onClick()
+  const runs = findAll(main.tree(), (node) => node.props['aria-label'] === 'Runs')[0]
+  assert.deepEqual(findAll(runs, (node) => node.props.className === 'bk-grp').map(textOf), ['Needs you · 1', 'Running · 1'])
+  const cell = (button, className) => textOf(findAll(button, (node) => node.props.className === className)[0])
+  assert.deepEqual(
+    buttons(runs).map((button) => [cell(button, 't'), cell(button, 's')]),
+    [
+      ['Stopping without an ending', detail],
+      ['Still running', 'running'],
+    ],
+  )
+})
+
 test('an acknowledged quarantine is not counted as waiting on the operator (#511)', () => {
   const answered = { seq: 4, event_hash: 'ab12', operator: 'valentin', reason: 'history', recorded_at: '2026-10-14T08:00:00Z' }
   const quarantined = { standing: 'quarantined', rule: null, reason: null, text: 'does not fold' }

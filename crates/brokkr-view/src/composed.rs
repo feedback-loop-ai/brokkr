@@ -29,9 +29,9 @@ use serde_json::Value;
 use crate::participant::key_of;
 use crate::started::CarriedEntry;
 use crate::{
-    bucket, dashboard, ensure, field, ids, journal_rows, live_line, page_rows, scan_participants,
-    supersedes, viewed, Build, Participant, Read, RunView, Scan, Told, CARRIED, FAILED,
-    INDETERMINATE, SUCCEEDED, WORKING,
+    bucket, commands_of, dashboard, ensure, field, ids, journal_rows, live_line, page_rows,
+    scan_participants, supersedes, viewed, Build, Participant, Read, RunView, Scan, Told, CARRIED,
+    FAILED, INDETERMINATE, SUCCEEDED, WORKING,
 };
 
 /// What one run's view is composed from, read at the head its opening
@@ -164,7 +164,14 @@ fn composed(
     let lines = live(parts.seats).into_iter();
     let read = Read {
         live: lines.map(|(label, turn)| live_line(label, turn)).collect(),
-        journal: journal_rows(parts.page, &scan, &buckets, &marks, cause),
+        journal: journal_rows(
+            parts.page,
+            &scan,
+            &buckets,
+            &marks,
+            &commands_of(parts.page),
+            cause,
+        ),
         event_count: usize::try_from(parts.head_seq).unwrap_or(usize::MAX),
         dashboard: dashboard::kept(parts.trail, parts.seats, parts.last_at),
     };

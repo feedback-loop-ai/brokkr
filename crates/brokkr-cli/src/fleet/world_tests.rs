@@ -237,7 +237,7 @@ fn a_one_hearth_listing_a_page_of_which_will_not_read_is_refused_in_the_stores_w
 
 /// [`world`] as `brokkr runs --json` prints it.
 const WORLD_JSON: &str = r#"{
-  "view_version": 27,
+  "view_version": 28,
   "realms": [
     {
       "realm": "alpha",
@@ -262,7 +262,8 @@ const WORLD_JSON: &str = r#"{
             "rule": null,
             "residual": null,
             "reason": null,
-            "text": "does not fold"
+            "text": "does not fold",
+            "detail": null
           },
           "hire": null
         },
@@ -296,7 +297,8 @@ const WORLD_JSON: &str = r#"{
             "rule": "REVIEW-HOLD",
             "residual": "high",
             "reason": "REVIEW-HOLD for (review, hold): held",
-            "text": "HOLD"
+            "text": "HOLD",
+            "detail": null
           },
           "hire": null
         },
@@ -319,7 +321,8 @@ const WORLD_JSON: &str = r#"{
             "rule": null,
             "residual": null,
             "reason": null,
-            "text": ""
+            "text": "",
+            "detail": null
           },
           "hire": null
         },
@@ -342,7 +345,8 @@ const WORLD_JSON: &str = r#"{
             "rule": null,
             "residual": null,
             "reason": null,
-            "text": "—"
+            "text": "—",
+            "detail": null
           },
           "hire": null
         }
@@ -391,7 +395,8 @@ const WORLD_JSON: &str = r#"{
             "rule": null,
             "residual": "high",
             "reason": null,
-            "text": ""
+            "text": "",
+            "detail": null
           },
           "hire": null
         }

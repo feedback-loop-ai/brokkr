@@ -60,7 +60,11 @@ pub fn ranges(section: Section, now: &str) -> Vec<Range> {
     let range = |lane, bound| Range { lane, bound };
     match section {
         Section::NeedsYou => {
-            let mut held = vec![range(Lane::Refused, None), range(Lane::Parked, None)];
+            let mut held = vec![
+                range(Lane::Refused, None),
+                range(Lane::Parked, None),
+                range(Lane::Stopping, None),
+            ];
             held.extend(stale.map(|at| range(Lane::Running, Some(Bound::Below(at)))));
             held
         }
@@ -95,6 +99,7 @@ pub fn summary_row(row: &Row, whole: Option<&Whole>) -> RunRow {
             (rule, shown(&ruled.from), ruled.routes)
         }),
         park_reason: row.park_reason.as_ref().map(shown),
+        stop_accepted_seq: row.stop_accepted_seq,
     });
     let feature = whole.map_or(row.feature_line.as_str(), |whole| &whole.feature);
     let copied = whole.map_or(row.acknowledged.as_ref(), |whole| {

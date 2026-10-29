@@ -335,8 +335,11 @@ pub brokkr_core::fold::RunState::reviewed_heads: core::option::Option<brokkr_cor
 pub brokkr_core::fold::RunState::run: brokkr_core::fold::Run
 pub brokkr_core::fold::RunState::run_id: alloc::string::String
 pub brokkr_core::fold::RunState::seq: u64
+pub brokkr_core::fold::RunState::stop_accepted_seq: core::option::Option<u64>
 pub brokkr_core::fold::RunState::strategy: core::option::Option<alloc::string::String>
 pub brokkr_core::fold::RunState::visits: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
+impl brokkr_core::fold::RunState
+pub fn brokkr_core::fold::RunState::stopping_seq(&self) -> core::option::Option<u64>
 pub const brokkr_core::fold::FAILURE_RESULTS: [&str; 2]
 pub fn brokkr_core::fold::acceptance_refusal(&brokkr_core::fold::RunState, brokkr_core::fold::OperatorCommand) -> core::option::Option<brokkr_core::fold::Refusal>
 pub fn brokkr_core::fold::computed_inputs(&brokkr_core::fold::RunState, &str, &str, bool) -> serde_json::map::Map<alloc::string::String, serde_json::value::Value>
@@ -366,6 +369,7 @@ pub brokkr_core::page::Lane::Finished
 pub brokkr_core::page::Lane::Parked
 pub brokkr_core::page::Lane::Refused
 pub brokkr_core::page::Lane::Running
+pub brokkr_core::page::Lane::Stopping
 impl brokkr_core::page::Lane
 pub const fn brokkr_core::page::Lane::as_str(self) -> &'static str
 pub struct brokkr_core::page::Copied
@@ -390,6 +394,7 @@ pub brokkr_core::page::Row::residual_open: core::option::Option<brokkr_core::pol
 pub brokkr_core::page::Row::ruled: core::option::Option<brokkr_core::summary::Ruled>
 pub brokkr_core::page::Row::run_id: alloc::string::String
 pub brokkr_core::page::Row::status: core::option::Option<brokkr_core::fold::Status>
+pub brokkr_core::page::Row::stop_accepted_seq: core::option::Option<u64>
 pub struct brokkr_core::page::Whole
 pub brokkr_core::page::Whole::acknowledged: core::option::Option<brokkr_core::page::Copied>
 pub brokkr_core::page::Whole::feature: alloc::string::String
@@ -1066,6 +1071,7 @@ pub brokkr_core::summary::Summary::residual_open: core::option::Option<brokkr_co
 pub brokkr_core::summary::Summary::residuals: alloc::string::String
 pub brokkr_core::summary::Summary::ruled: core::option::Option<brokkr_core::summary::Ruled>
 pub brokkr_core::summary::Summary::status: core::option::Option<brokkr_core::fold::Status>
+pub brokkr_core::summary::Summary::stop_accepted_seq: core::option::Option<u64>
 impl brokkr_core::summary::Summary
 pub fn brokkr_core::summary::Summary::of(&brokkr_core::summary::Account, brokkr_core::summary::Listing<'_>) -> brokkr_core::summary::Summary
 pub const brokkr_core::summary::ACK_AT_CHARS: usize
@@ -1220,7 +1226,10 @@ pub brokkr_core::RunState::reviewed_heads: core::option::Option<brokkr_core::dec
 pub brokkr_core::RunState::run: brokkr_core::fold::Run
 pub brokkr_core::RunState::run_id: alloc::string::String
 pub brokkr_core::RunState::seq: u64
+pub brokkr_core::RunState::stop_accepted_seq: core::option::Option<u64>
 pub brokkr_core::RunState::strategy: core::option::Option<alloc::string::String>
 pub brokkr_core::RunState::visits: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
+impl brokkr_core::fold::RunState
+pub fn brokkr_core::fold::RunState::stopping_seq(&self) -> core::option::Option<u64>
 pub fn brokkr_core::cited_shas(&[brokkr_core::envelope::EventEnvelope]) -> alloc::collections::btree::set::BTreeSet<alloc::string::String>
 pub fn brokkr_core::fold(&[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>

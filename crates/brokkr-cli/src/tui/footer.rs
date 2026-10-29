@@ -124,6 +124,7 @@ fn in_place(tui: &Tui, views: &Views) -> Option<&'static str> {
         (
             Standing::Quarantined
             | Standing::Parked
+            | Standing::Stopping
             | Standing::Shipped
             | Standing::Stopped
             | Standing::OperatorStopped,

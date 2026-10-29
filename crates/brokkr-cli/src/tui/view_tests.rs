@@ -264,6 +264,7 @@ fn a_watched_journal_ends_when_its_run_stops_running() {
         Standing::Running,
         Standing::Quarantined,
         Standing::Parked,
+        Standing::Stopping,
         Standing::Shipped,
         Standing::Stopped,
         Standing::OperatorStopped,
@@ -275,6 +276,6 @@ fn a_watched_journal_ends_when_its_run_stops_running() {
             has_ended(&watched, &views)
         })
         .collect();
-    assert_eq!(ended, [false, false, true, true, true, true]);
+    assert_eq!(ended, [false, false, true, false, true, true, true]);
     assert!(!has_ended(&Watched::Console, &views));
 }

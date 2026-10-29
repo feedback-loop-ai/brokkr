@@ -306,8 +306,8 @@ fn an_operator_verb_writes_the_summary_of_the_fold_it_decided_on() {
     let lane = brokkr_store::test_support::lane(&store, "verb");
     assert_eq!(
         lane.as_deref(),
-        Some("running"),
-        "a stop accepted, its run/stopped next"
+        Some("stopping"),
+        "a stop accepted, its run/stopped still to come"
     );
     assert_eq!(
         brokkr_store::test_support::every_run_reads_as_its_fold(&store),

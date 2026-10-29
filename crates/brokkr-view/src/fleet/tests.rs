@@ -69,6 +69,7 @@ fn wanted(
         residual,
         reason: None,
         text: text.to_string(),
+        detail: None,
     }
 }
 
@@ -201,6 +202,60 @@ fn a_stop_says_who_stopped_it_and_by_which_rule() {
     );
 }
 
+/// #909: an accepted operator stop with no ending written stands as
+/// stopping, not running, under the section that needs the operator; its
+/// detail names the accepted seq and the command that closes it. A
+/// `run/stopped` after the stop reads exactly as it always did.
+#[test]
+fn a_stop_accepted_without_an_ending_stands_as_stopping() {
+    let detail = "stop accepted at seq 93; no ending written. If no driver is running it, \
+                  `brokkr conclude` closes it.";
+    let mut accepted = settled(Status::Running, "verify", None);
+    accepted.run = Run::Running(Cursor::Stop);
+    accepted.stop_accepted_seq = Some(93);
+    let row = silent_since(&accepted, Some(NOW));
+    assert_eq!(row.verdict.standing, Standing::Stopping);
+    assert_eq!(row.status_word(), "stopping");
+    assert_eq!(row.verdict.detail.as_deref(), Some(detail));
+    assert_eq!(
+        need(&row, NOW),
+        Some(Need::Stopping {
+            detail: detail.to_string()
+        })
+    );
+    assert_eq!(section_of(&row, NOW), Section::NeedsYou);
+
+    // A stop riding an in-flight effect is the same sentence: the cursor
+    // still holds the attempt, and the accepted seq is what its detail
+    // names.
+    let mut riding = settled(Status::Running, "verify", None);
+    riding.run = Run::Running(Cursor::EffectInFlight {
+        effect_id: "e1".to_string(),
+        attempt_id: "a1".to_string(),
+        seat: "verify".to_string(),
+        failed_attempts: 0,
+        stop_rides: true,
+    });
+    riding.stop_accepted_seq = Some(92);
+    let riding = silent_since(&riding, Some(NOW));
+    assert_eq!(riding.verdict.standing, Standing::Stopping);
+    assert!(riding
+        .verdict
+        .detail
+        .as_deref()
+        .is_some_and(|detail| detail.starts_with("stop accepted at seq 92;")));
+    assert_eq!(section_of(&riding, NOW), Section::NeedsYou);
+
+    // The driver's ending lands: stopped by the operator, as today.
+    let mut ended = accepted;
+    ended.run = Run::Stopped;
+    let ended = silent_since(&ended, Some(NOW));
+    assert_eq!(ended.verdict.standing, Standing::OperatorStopped);
+    assert_eq!(ended.status_word(), "stopped");
+    assert_eq!(ended.verdict.detail, None);
+    assert_eq!(section_of(&ended, NOW), Section::Recent);
+}
+
 /// Acceptance 4, shipped: the cell names the ruling that shipped it, and
 /// the residual is the worst OPEN one; a superseded finding is closed, a
 /// boolean flag names no severity, and `none` is no residual.
@@ -294,6 +349,7 @@ fn each_standing_and_section_has_one_word() {
         Standing::Quarantined,
         Standing::Parked,
         Standing::Running,
+        Standing::Stopping,
         Standing::Shipped,
         Standing::Stopped,
         Standing::OperatorStopped,
@@ -304,6 +360,7 @@ fn each_standing_and_section_has_one_word() {
             "quarantined",
             "parked",
             "running",
+            "stopping",
             "shipped",
             "stopped",
             "stopped"
@@ -534,7 +591,7 @@ fn a_run_row_carries_its_title_and_verdict_beside_the_whole_feature() {
         residuals: &residuals,
     }]);
     let json = serde_json::to_value(&view).unwrap();
-    assert_eq!(json["view_version"], 27);
+    assert_eq!(json["view_version"], 28);
     assert_eq!(json["runs"][0]["hire"], Value::Null);
     assert_eq!(json["runs"][0]["acknowledgement"], Value::Null);
     assert_eq!(json["runs"][0]["feature"], feature);
@@ -543,7 +600,7 @@ fn a_run_row_carries_its_title_and_verdict_beside_the_whole_feature() {
     assert_eq!(
         json["runs"][0]["verdict"],
         json!({"standing": "shipped", "rule": "SHIP-COMPLETE", "residual": "medium",
-               "reason": null, "text": "COMPLETE"})
+               "reason": null, "text": "COMPLETE", "detail": null})
     );
 }
 

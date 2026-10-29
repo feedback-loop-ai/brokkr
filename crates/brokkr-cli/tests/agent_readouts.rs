@@ -239,6 +239,7 @@ fn a_run_off_a_terminal_prints_what_it_always_has() {
     "review": 0
   },
   "cursor": "Idle",
+  "detail": null,
   "feature": "readouts",
   "last_decision": {
     "from": "review",
@@ -253,6 +254,7 @@ fn a_run_off_a_terminal_prints_what_it_always_has() {
   "phase": "done",
   "run_id": "<run>",
   "seq": 19,
+  "standing": "shipped",
   "status": "completed",
   "strategy": null
 }

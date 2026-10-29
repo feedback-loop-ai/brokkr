@@ -40,13 +40,16 @@ mod fleet;
 mod graph;
 mod items;
 pub mod js;
+mod operator_trail;
 mod participant;
+mod run_summary;
 mod scope;
 mod tokens;
 pub mod transcript;
 use tokens::usage_cells;
 pub use tokens::TokenCells;
 
+use crate::operator_trail::{commands_of, operator_what};
 pub use analytics::Range;
 pub use analytics::{analytics, Analytics, AnalyticsError, AnalyticsHearth, AnalyticsRun, Query};
 pub use brokkr_core::policy::RuleSeverity;
@@ -74,15 +77,17 @@ use dashboard::dashboard;
 pub use dashboard::{working_checkpoints, Concluded, Dashboard, Decision, Outcome, Ruled, Visit};
 pub use fleet::{
     at_work, behind_line, fleet_rows, need, page, ranges, run_row, run_rows, section_of,
-    section_of_rows, sections, summary_row, title, title_within, window, wrap, Acknowledgement,
-    Cursor, CursorError, HearthEntries, Hire, Need, Page, Paged, Quarantine, Refusal, RunRow,
-    Section, Standing, Verdict, AHEAD_ROWS, PAGE_ROWS, TITLE_COLUMNS, VERDICT_COLUMNS,
+    section_of_rows, sections, stopping_detail, summary_row, title, title_within, window, wrap,
+    Acknowledgement, Cursor, CursorError, HearthEntries, Hire, Need, Page, Paged, Quarantine,
+    Refusal, RunRow, Section, Standing, Verdict, AHEAD_ROWS, PAGE_ROWS, TITLE_COLUMNS,
+    VERDICT_COLUMNS,
 };
 pub use graph::{
     graph, GraphError, GraphQuery, GraphResolution, GraphTable, GraphView, Table,
     GRAPH_VIEW_VERSION,
 };
 pub use participant::Subject;
+pub use run_summary::{summary, Summary};
 pub use scope::{
     keeps_participant, keeps_phase, keeps_row, lens_for, Lens, Membership, Scope, ScopeError,
     Scopes,
@@ -152,7 +157,9 @@ use serde_json::Value;
 /// Bumped to 26 by #787: a participant gained its `carried_from`, and the
 /// status word `carried` (decision 0093).
 /// Bumped to 27 by decision 0094: the run view records its entry and continuation.
-pub const VIEW_VERSION: u32 = 27;
+/// Bumped to 28 by #909: a run whose accepted stop has no ending stands
+/// as `stopping`, with its detail, instead of `running`.
+pub const VIEW_VERSION: u32 = 28;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -259,22 +266,6 @@ pub struct FleetView {
     /// Every run the world holds, across every hearth — a count, never
     /// a merged listing.
     pub count: usize,
-}
-
-/// The `summarize()` keys, verbatim and in the same order the
-/// existing `brokkr inspect` prints them.
-#[derive(Serialize)]
-pub struct Summary {
-    pub consecutive_failures: BTreeMap<String, u64>,
-    pub cursor: String,
-    pub feature: Option<String>,
-    pub last_decision: Option<Decided>,
-    pub park_reason: Option<String>,
-    pub phase: Option<String>,
-    pub run_id: String,
-    pub seq: u64,
-    pub status: String,
-    pub strategy: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -2060,7 +2051,12 @@ fn inner_columns(scan: &Scan, buckets: &Buckets, phase: &str) -> Vec<Column> {
 
 // ----------------------------------------------------- trail and journal
 
-fn what_of(scan: &Scan, event: &EventEnvelope, marks: &BTreeMap<u64, Superseded>) -> What {
+fn what_of(
+    scan: &Scan,
+    event: &EventEnvelope,
+    marks: &BTreeMap<u64, Superseded>,
+    commands: &BTreeMap<String, (String, u64)>,
+) -> What {
     let payload = &event.payload;
     match event.event_type {
         EventType::TransitionDecided => {
@@ -2122,6 +2118,9 @@ fn what_of(scan: &Scan, event: &EventEnvelope, marks: &BTreeMap<u64, Superseded>
                     .map(|error| js::slice(error, 0, 160)),
             }
         }
+        EventType::OperatorCommanded
+        | EventType::OperatorAccepted
+        | EventType::OperatorRejected => operator_what(event, commands),
         EventType::RunStarted => {
             let text = match field(payload, "feature") {
                 // The ellipsis is UNCONDITIONAL: a five-character
@@ -2218,6 +2217,7 @@ fn journal_rows(
     scan: &Scan,
     buckets: &Buckets,
     marks: &BTreeMap<u64, Superseded>,
+    commands: &BTreeMap<String, (String, u64)>,
     cause: impl Fn(&str) -> Option<u64>,
 ) -> Vec<JournalRow> {
     events
@@ -2270,7 +2270,7 @@ fn journal_rows(
                 recorded_at: event.recorded_at.clone(),
                 in_trail: !TRAIL_SKIP.contains(&event.event_type),
                 phases,
-                what: what_of(scan, event, marks),
+                what: what_of(scan, event, marks, commands),
                 label: label_of(event),
                 served: ModelAtBoundary {
                     model: cell_of(recorded_model, Some("no served model recorded")),
@@ -2286,27 +2286,6 @@ fn journal_rows(
 }
 
 // ------------------------------------------------------ summary + ruling
-
-/// The run's folded state as every surface summarizes it: `brokkr
-/// inspect`'s `state`, the run view's `summary`, and the readouts that
-/// embed either.
-pub fn summary(state: &RunState) -> Summary {
-    Summary {
-        consecutive_failures: state.consecutive_failures.clone(),
-        cursor: state.run.to_string(),
-        feature: state.feature.clone(),
-        last_decision: state.last_decision.clone(),
-        park_reason: state
-            .run
-            .park_reason()
-            .map(|reason| reason.as_str().to_string()),
-        phase: state.phase.clone(),
-        run_id: state.run_id.clone(),
-        seq: state.seq,
-        status: state.run.status().as_str().to_string(),
-        strategy: state.strategy.clone(),
-    }
-}
 
 /// The last decision read as a ruling, when it records a rule at all
 /// (`null` included): the one test both the run view and the fleet read.
@@ -2352,11 +2331,12 @@ pub fn run_view(events: &[EventEnvelope], state: Option<&RunState>) -> RunView {
     let scan = scan_participants(events);
     let buckets = bucket(events);
     let marks = supersedes(events);
+    let commands = commands_of(events);
     let by_id = ids(events);
     let cause = |id: &str| by_id.get(id).copied();
     let read = Read {
         live: live_lines(events),
-        journal: journal_rows(events, &scan, &buckets, &marks, cause),
+        journal: journal_rows(events, &scan, &buckets, &marks, &commands, cause),
         event_count: events.len(),
         dashboard: dashboard(events),
     };
