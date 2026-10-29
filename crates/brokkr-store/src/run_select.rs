@@ -18,6 +18,14 @@ use crate::{patiently, schema, Store, StoreError};
 /// it to an older journal, and `DATABASE_SCHEMA` does not move for it.
 pub(crate) const INDEX: &str = "runs_created_at";
 
+/// `latest_run`'s statement: the index walked backwards, one row.
+const LATEST_SQL: &str =
+    "SELECT run_id, created_at FROM runs ORDER BY created_at DESC, rowid DESC LIMIT 1";
+
+/// `prefixed_runs`' statement: the key range a prefix reads.
+const PREFIX_SQL: &str =
+    "SELECT run_id, created_at, rowid FROM runs WHERE run_id >= ?1 ORDER BY run_id";
+
 /// The index's statement, its name held once.
 pub(crate) fn migration() -> String {
     format!("CREATE INDEX IF NOT EXISTS {INDEX} ON runs (created_at);")
@@ -44,10 +52,7 @@ impl Store {
     /// backwards, one row.
     pub fn latest_run(&self) -> Result<Option<(String, String)>, StoreError> {
         patiently("latest_run", self.patience, || {
-            let mut statement = self.conn.prepare(
-                "SELECT run_id, created_at FROM runs
-                 ORDER BY created_at DESC, rowid DESC LIMIT 1",
-            )?;
+            let mut statement = self.conn.prepare(LATEST_SQL)?;
             let found = statement
                 .query_row([], |row| Ok((row.get(0)?, row.get(1)?)))
                 .optional()?;
@@ -94,10 +99,7 @@ impl Store {
     }
 
     fn prefixed_runs(&self, prefix: &str) -> Result<Vec<(String, String)>, StoreError> {
-        let mut statement = self.conn.prepare(
-            "SELECT run_id, created_at, rowid FROM runs
-             WHERE run_id >= ?1 ORDER BY run_id",
-        )?;
+        let mut statement = self.conn.prepare(PREFIX_SQL)?;
         let mut found: Vec<(String, String, i64)> = Vec::new();
         {
             let mut rows = statement.query(params![prefix])?;

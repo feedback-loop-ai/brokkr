@@ -255,22 +255,7 @@ fn repair_if(
 fn initialize(conn: &mut Connection) -> Result<(), StoreError> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     tx.execute_batch(MIGRATION_V1)?;
-    migrate_sidecar_columns(&tx)?;
-    migrate_queue(&tx)?;
-    migrate_acknowledgements(&tx)?;
-    migrate_summary(&tx)?;
-    mark_backfilled(&tx)?;
-    // The selector's index is additive like the ones above, so a fresh
-    // journal gets it here and an older one in `repair`.
-    run_select::migrate(&tx)?;
-    // No index backfill is marked here: a journal with no schema recorded
-    // may still carry events, and the open's walk, one read on an empty
-    // journal, records the mark once every event has its row.
-    migrate_index(&tx)?;
-    // A run without a seat head reads as stale whatever this key says, and
-    // the open's walk folds it, so a new journal is marked here.
-    migrate_seats(&tx)?;
-    mark_seated(&tx)?;
+    initialize_additions(&tx)?;
     name_journal(&tx)?;
     tx.execute(
         "INSERT OR IGNORE INTO meta (key, value) VALUES ('database_schema', ?1)",
@@ -279,6 +264,30 @@ fn initialize(conn: &mut Connection) -> Result<(), StoreError> {
     let found = schema_version(&tx)?.unwrap_or(0);
     tx.commit()?;
     schema_supported(found)
+}
+
+/// [`initialize`]'s additive pieces, in [`repair`]'s order: the sidecar
+/// columns, the queue, the acknowledgements, the run summary, the event
+/// index and the seat summary, with the summary and seat marks a fresh
+/// journal seeds.
+fn initialize_additions(conn: &Connection) -> Result<(), StoreError> {
+    migrate_sidecar_columns(conn)?;
+    migrate_queue(conn)?;
+    migrate_acknowledgements(conn)?;
+    migrate_summary(conn)?;
+    mark_backfilled(conn)?;
+    // The selector's index is additive like the ones above, so a fresh
+    // journal gets it here and an older one in `repair`.
+    run_select::migrate(conn)?;
+    // No index backfill is marked here: a journal with no schema recorded
+    // may still carry events, and the open's walk, one read on an empty
+    // journal, records the mark once every event has its row.
+    migrate_index(conn)?;
+    // A run without a seat head reads as stale whatever this key says, and
+    // the open's walk folds it, so a new journal is marked here.
+    migrate_seats(conn)?;
+    mark_seated(conn)?;
+    Ok(())
 }
 
 /// Put the journal in WAL, which is what lets readers and a writer share
