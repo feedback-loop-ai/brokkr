@@ -805,12 +805,11 @@ fn the_composed_tree_judge_refuses_by_its_full_words() {
         (
             "- id: brokkr-hands\n  name: '@deepseek-ai/dsh-mcp-client'\n  disabled: true\n"
                 .to_string(),
-            Composition::Enabled {
+            Composition::HandsDisabled {
                 id: "brokkr-hands".into(),
             },
             "refusing to invoke the dsh driver: the composed dsh tree carries row 'brokkr-hands' \
-             enabled, which the hands rows disable, so the seat would keep an effectful tool \
-             beside the box (#896 D1)",
+             disabled, so the seat's one effectful tool would not be served (#896 D1)",
         ),
         (
             format!("{hands}{hands}"),

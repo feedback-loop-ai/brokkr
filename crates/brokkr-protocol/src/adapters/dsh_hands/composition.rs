@@ -8,7 +8,7 @@
 //! and the one `dsh-mcp-client` row must be Brokkr's `brokkr-hands`. An
 //! extra row — an operator home's own `dsh-mcp-client` insert or any
 //! `dsh-tool-*` a profile patch adds — refuses by its id and package, and
-//! so does a second MCP client, a repeated id, a hands row left enabled or
+//! so does a second MCP client, a repeated id, a hands row left disabled or
 //! a dump that cannot be read. A hands seat is never served a composition
 //! nobody measured.
 
@@ -49,6 +49,11 @@ pub(crate) enum Composition {
          (#896 D1)"
     )]
     Enabled { id: String },
+    #[error(
+        "refusing to invoke the dsh driver: the composed dsh tree carries row '{id}' disabled, \
+         so the seat's one effectful tool would not be served (#896 D1)"
+    )]
+    HandsDisabled { id: String },
     #[error(
         "refusing to invoke the dsh driver: the composed dsh tree names row '{id}' twice, so no \
          row it reads can be trusted (#896 D1)"
@@ -181,7 +186,7 @@ pub(crate) fn judge(rows: &[Row]) -> Result<(), Composition> {
                 return Err(Composition::SecondClient { id: row.id.clone() });
             }
             if row.disabled {
-                return Err(Composition::Enabled { id: row.id.clone() });
+                return Err(Composition::HandsDisabled { id: row.id.clone() });
             }
         } else if !MEASURED_COMPOSITION.contains(&(row.id.as_str(), row.name.as_str())) {
             return Err(Composition::Unmeasured {

@@ -18,7 +18,7 @@ pub(super) fn invoke_dsh_launch_observed(
     wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
     observer: &mut impl FnMut(&DshObservation),
 ) -> Result<Invocation, String> {
-    refused_before_spawn(&launch, workdir, bindings)?;
+    refused_before_spawn(&launch, workdir, bindings).map_err(|refusal| refusal.to_string())?;
     let transcript = Transcript::dsh(&launch.home);
     let staged = launch.staged.take();
     let mut session_meta = Map::new();
@@ -115,6 +115,19 @@ pub(super) fn invoke_dsh_launch_observed(
     Ok(invocation)
 }
 
+/// Why a launch is refused before any row names its home or any child
+/// spawns: the home's own refusal, the probe's argv refusal, or a composed
+/// tree that does not hold (#896; decision 0071 ruling 8).
+#[derive(Debug, thiserror::Error)]
+enum PreSpawnRefusal {
+    #[error(transparent)]
+    Home(#[from] crate::transcript::DshHomeError),
+    #[error(transparent)]
+    Command(#[from] HarnessCommandRefusal),
+    #[error(transparent)]
+    Composition(#[from] dsh_hands::Composition),
+}
+
 /// The refusals a launch meets before any row names its home or any child
 /// spawns: a binding over the home's fixed env, then, for a hands seat, a
 /// composed tree that does not hold (#896).
@@ -122,7 +135,7 @@ fn refused_before_spawn(
     launch: &DshLaunch,
     workdir: &str,
     bindings: &[secret::BoundSecret],
-) -> Result<(), String> {
+) -> Result<(), PreSpawnRefusal> {
     let declared = bindings.iter().map(secret::BoundSecret::name);
     launch.home.serve(&dsh_child_env(launch), declared)?;
     if launch.mode.is_some() {
@@ -149,16 +162,16 @@ fn probe_command(
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use crate::adapters::tests::binding;
+    use crate::env_guard::EnvGuard;
+    use crate::transcript::{DshHome, DshHomeError};
 
-    /// A hands seat whose driver cannot compose its tree is refused before
-    /// any child spawns: the composed-tree check is on this launch's path,
-    /// not only in a helper.
-    #[test]
-    fn a_hands_launch_is_refused_before_it_spawns_when_its_tree_is_unreadable() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("root");
-        std::fs::create_dir(&root).unwrap();
-        let launch = DshLaunch {
+    /// The hands launch a pre-spawn refusal is judged on: a driver the
+    /// probe cannot run, atop `home`.
+    fn hands_launch(dir: &std::path::Path, home: DshHome) -> DshLaunch {
+        let root = dir.join("root");
+        std::fs::create_dir_all(&root).unwrap();
+        DshLaunch {
             command: vec!["/nonexistent/dsh".to_string()],
             rejoining: None,
             refusal: None,
@@ -172,9 +185,25 @@ mod tests {
             effortless: true,
             facts: crate::hands::GitFacts::default(),
             staged: None,
-            home: crate::transcript::DshHome::operator().unwrap(),
+            home,
             mode: Some(dsh_hands::Mode::ReadOnly),
-        };
+        }
+    }
+
+    /// A binding the injector refuses because its value is not UTF-8.
+    fn invalid_utf8() -> Vec<secret::BoundSecret> {
+        let store = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(store.path(), b"TOKEN=abcd\xff\n").unwrap();
+        secret::resolve_bindings(store.path(), &["TOKEN".into()]).unwrap()
+    }
+
+    /// A hands seat whose driver cannot compose its tree is refused before
+    /// any child spawns: the composed-tree check is on this launch's path,
+    /// not only in a helper.
+    #[test]
+    fn a_hands_launch_is_refused_before_it_spawns_when_its_tree_is_unreadable() {
+        let dir = tempfile::tempdir().unwrap();
+        let launch = hands_launch(dir.path(), DshHome::operator().unwrap());
         // The refused launch never reaches its three observers, so each is
         // exercised once here and then handed to the invocation, whose
         // refusal proves they were not needed.
@@ -205,6 +234,62 @@ mod tests {
         assert_eq!(problem, dsh_hands::Composition::Unreadable.to_string());
     }
 
+    /// Each pre-spawn refusal is typed by the error it carries, matched by
+    /// variant, and prints today's full words (#896 round 6; decision 0071
+    /// ruling 8).
+    #[test]
+    fn the_pre_spawn_refusals_are_typed_and_keep_their_words() {
+        let mut env = EnvGuard::lock();
+        let dir = tempfile::tempdir().unwrap();
+        let workdir = dir.path().to_str().unwrap();
+        let unreadable = refused_before_spawn(
+            &hands_launch(dir.path(), DshHome::operator().unwrap()),
+            workdir,
+            &[],
+        )
+        .unwrap_err();
+        assert!(matches!(
+            unreadable,
+            PreSpawnRefusal::Composition(dsh_hands::Composition::Unreadable)
+        ));
+        assert_eq!(
+            unreadable.to_string(),
+            dsh_hands::Composition::Unreadable.to_string()
+        );
+
+        env.set("HOME", dir.path());
+        let engine = DshHome::stage(workdir).unwrap();
+        let fixed = refused_before_spawn(
+            &hands_launch(dir.path(), engine),
+            workdir,
+            &[binding("DSH_HOME", "elsewhere")],
+        )
+        .unwrap_err();
+        assert!(matches!(
+            fixed,
+            PreSpawnRefusal::Home(DshHomeError::FixedBinding(ref name)) if name == "DSH_HOME"
+        ));
+        assert_eq!(
+            fixed.to_string(),
+            DshHomeError::FixedBinding("DSH_HOME".into()).to_string()
+        );
+
+        let invalid = invalid_utf8();
+        let refused = refused_before_spawn(
+            &hands_launch(dir.path(), DshHome::operator().unwrap()),
+            workdir,
+            &invalid,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            refused,
+            PreSpawnRefusal::Command(HarnessCommandRefusal::Secret(
+                secret::BindError::NotUtf8(ref name)
+            )) if name == "TOKEN"
+        ));
+        assert_eq!(refused.to_string(), "secret 'TOKEN' is not valid UTF-8");
+    }
+
     /// The one harness spawn builder's refusals are typed, carry the
     /// injector's own error, and print exactly the words both existing text
     /// boundaries printed before (#896 round 4; decision 0071 ruling 8).
@@ -214,9 +299,7 @@ mod tests {
         assert_eq!(empty, HarnessCommandRefusal::Empty);
         assert_eq!(empty.to_string(), "empty command");
 
-        let store = tempfile::NamedTempFile::new().unwrap();
-        std::fs::write(store.path(), b"TOKEN=abcd\xff\n").unwrap();
-        let invalid = secret::resolve_bindings(store.path(), &["TOKEN".into()]).unwrap();
+        let invalid = invalid_utf8();
         let refused = harness_command(&["true".into()], "", &[], &invalid).unwrap_err();
         assert_eq!(
             refused,
