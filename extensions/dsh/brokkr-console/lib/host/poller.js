@@ -68,10 +68,18 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     return changed
   }
 
+  /**
+   * A listed run's view; a refused read's own words and the command that reads
+   * it beside `view: null`; or `listed: false` when the fleet no longer holds
+   * the run, which is a fact about the run rather than a read still in flight.
+   */
   async function runOf(ref) {
     const target = locate(ref.realm, ref.run_id)
-    if (target === null) return { ...ref, view: null }
-    return { ...ref, view: (await settled(() => brokkr.inspect(target))).value ?? null }
+    if (target === null) return { ...ref, view: null, listed: false }
+    const read = await settled(() => brokkr.inspect(target))
+    return read.refused === undefined
+      ? { ...ref, view: read.value ?? null }
+      : { ...ref, view: null, refused: read.refused, hint: brokkr.inspectHint(target) }
   }
 
   async function overview(fleetMoved) {

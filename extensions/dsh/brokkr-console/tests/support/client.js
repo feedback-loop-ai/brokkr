@@ -180,6 +180,19 @@ export function mountClient(component, props = {}, answers = {}, dsh = dshStub()
 }
 
 /**
+ * The panel mounted on `main`, its `fleet` snapshot pushed, and `realm` opened
+ * on the parked run 'Encrypt the token store'. `answers` are the mount's fetch
+ * answers; `ask` turns the question boxes on.
+ */
+export function openedOn(fleet, realm = 'brokkr', answers = {}, ask = false) {
+  const client = mountClient('main', {}, answers)
+  client.push({ type: 'snapshot', ask, fleet, overview: null, run: null })
+  buttons(client.tree()).find((button) => textOf(button).startsWith(realm)).props.onClick()
+  buttons(client.tree()).find((button) => textOf(button).startsWith('Encrypt the token store')).props.onClick()
+  return client
+}
+
+/**
  * Stand-ins for the DSH client services the assistant uses (slice two,
  * evidence D6b and D7), each call recorded in `calls`.
  */

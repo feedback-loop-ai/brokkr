@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { analyticsOf, fleetOf, runViewOf } from '../lib/host/readouts.js'
-import { NOW, buttons, findAll, mountClient, textOf } from './support/client.js'
+import { NOW, buttons, findAll, mountClient, openedOn, textOf } from './support/client.js'
 import { analyticsDoc, fleetDoc, journalRow, offered, row, runViewDoc } from './support/world.js'
 
 const RUN = row().run_id
@@ -21,16 +21,17 @@ const fleet = () =>
     ]),
   )
 
+/** The panel, opened on the parked run in `brokkr`, before any read of the run lands. */
+function openedRun(answers = {}, ask = false) {
+  return openedOn(fleet(), 'brokkr', answers, ask)
+}
+
 /** The panel, opened on the parked run in `brokkr`, with `view` as its run view. */
 async function onRun(view = runViewDoc(), answers = {}, ask = false) {
-  const client = mountClient('main', {}, answers)
-  client.push({ type: 'snapshot', ask, fleet: fleet(), overview: null, run: null })
-  buttons(client.tree()).find((button) => textOf(button).startsWith('brokkr')).props.onClick()
-  buttons(client.tree()).find((button) => textOf(button).startsWith('Encrypt the token store')).props.onClick()
+  const client = openedRun(answers, ask)
   client.push({ type: 'run', run: { realm: 'brokkr', run_id: RUN, view: runViewOf(view) } })
   return client
 }
-
 
 test('the panel-list icon counts the runs that need the operator across every hearth', () => {
   const client = mountClient('sidebar.panellist', { size: 16, active: false })
@@ -305,4 +306,37 @@ test('the run header paints the entry sentence and an unreadable entry as text',
     assert.equal(painted.length, 1)
     assert.deepEqual(painted[0].children, [entry.text])
   }
+})
+
+test('a refused read paints the run’s title, Brokkr’s words and the host’s hint, never reading forever, and a later read paints the run', () => {
+  const words = 'brokkr inspect printed more than the console reads'
+  const hint = `brokkr inspect --run=${RUN} --db=/hearths/brokkr/forge.db`
+  const client = openedRun()
+  assert.equal(findAll(client.tree(), (node) => textOf(node) === 'Reading the run…').length, 1)
+
+  client.push({ type: 'run', run: { realm: 'brokkr', run_id: RUN, view: null, refused: words, hint } })
+  assert.deepEqual(findAll(client.tree(), (node) => node.type === 'h1').map(textOf), ['Encrypt the token store'])
+  assert.deepEqual(findAll(client.tree(), (node) => node.props.className === 'bk-error').map(textOf), [words])
+  assert.deepEqual(findAll(client.tree(), (node) => String(node.props.className).includes('bk-hint') && textOf(node) === hint).map(textOf), [hint])
+  assert.equal(textOf(client.tree()).includes('Reading the run…'), false)
+
+  client.push({ type: 'run', run: { realm: 'brokkr', run_id: RUN, view: runViewOf(runViewDoc()) } })
+  assert.equal(findAll(client.tree(), (node) => node.props['aria-label'] === 'Graph').length, 1)
+  assert.equal(findAll(client.tree(), (node) => node.props.className === 'bk-error').length, 0)
+  assert.equal(textOf(client.tree()).includes(words), false)
+  assert.equal(textOf(client.tree()).includes(hint), false)
+})
+
+test('a run the fleet no longer lists says so, not that it is being read', () => {
+  const client = openedRun()
+  const other = row({ run_id: 'search-latency-targets-0a1b2c3d', title: 'Search latency targets', phase: 'clarify' })
+  client.push({
+    type: 'snapshot',
+    fleet: fleetOf(fleetDoc([['brokkr', [other]]])),
+    overview: null,
+    run: { realm: 'brokkr', run_id: RUN, view: null, listed: false },
+  })
+  const main = findAll(client.tree(), (node) => node.type === 'main' && node.props.className === 'bk-main').map(textOf)
+  assert.deepEqual(main, ['Brokkr no longer lists this run.'])
+  assert.equal(textOf(client.tree()).includes('Reading the run…'), false)
 })
