@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 
 use super::super::mcp::tests::{dispatched, reach};
 use super::super::route_overlay;
-use super::super::tests::dsh_version_shim;
+use super::super::tests::{binding, dsh_version_shim};
 use super::*;
 use crate::env_guard::EnvGuard;
 use crate::hands::{HandsSpec, SEALED_REACH};
@@ -444,7 +444,7 @@ fn the_dsh_startup_report_fails_closed_and_carries_partial() {
     let mut meta = serde_json::Map::new();
     assert_eq!(
         startup_gate(
-            "landlock-run: partial enforcement (older Landlock ABI)\n",
+            startup_report(b"landlock-run: partial enforcement (older Landlock ABI)\n"),
             &mut meta,
             Mode::ReadOnly
         ),
@@ -453,7 +453,11 @@ fn the_dsh_startup_report_fails_closed_and_carries_partial() {
     assert_eq!(meta["sandbox"], json!("read-only"));
     assert_eq!(meta["step_name"], json!(report::PARTIAL));
     assert_eq!(
-        startup_gate(warning, &mut serde_json::Map::new(), Mode::WorkspaceWrite),
+        startup_gate(
+            startup_report(warning.as_bytes()),
+            &mut serde_json::Map::new(),
+            Mode::WorkspaceWrite
+        ),
         Err(ReportRefusal::NotActivated)
     );
     assert_eq!(checked("dsh: done\n"), Ok(Enforcement::Full));
@@ -568,7 +572,8 @@ exit 0
 "#;
 
 /// A fake dsh whose session prints the measured activation warning after a
-/// valid composition.
+/// valid composition, or the report `BROKKR_TEST_DSH_REPORT` names when a
+/// test needs a marker a bound secret masks (#896 H1).
 const WARNING_DSH: &str = r#"#!/bin/sh
 case "$1" in
   --version|-V|-v) printf '0.2.1-rc.2\n'; exit 0 ;;
@@ -579,19 +584,25 @@ for a in "$@"; do
     exit 0
   fi
 done
-printf '%s\n' 'dsh: warning: 1 entry did not activate' \
-  'brokkr-hands (@deepseek-ai/dsh-mcp-client): Error: mcp-client(probe): initial connection or tool synchronization failed' >&2
+if [ -n "${BROKKR_TEST_DSH_REPORT-}" ]; then
+  printf '%s\n' "$BROKKR_TEST_DSH_REPORT" >&2
+else
+  printf '%s\n' 'dsh: warning: 1 entry did not activate' \
+    'brokkr-hands (@deepseek-ai/dsh-mcp-client): Error: mcp-client(probe): initial connection or tool synchronization failed' >&2
+fi
 exit 0
 "#;
 
-/// The one invocation the two launch-path tests drive: a hands seat under
-/// `input`, through `dsh`, its task appended last. Returns the home the
-/// launch served and the invocation's outcome.
+/// The one invocation the launch-path tests drive: a hands seat under
+/// `input`, through `dsh`, its task appended last, with `bindings` masked
+/// out of the stderr it exposes. Returns the home the launch served and the
+/// invocation's outcome.
 #[cfg(unix)]
 fn invoke_hands(
     dsh: &str,
     workdir: &str,
     mut input: Value,
+    bindings: &[crate::secret::BoundSecret],
 ) -> (Option<String>, Result<super::super::Invocation, String>) {
     input["workdir"] = json!(workdir);
     let launch = super::super::dsh_launch_with(dsh, &[], workdir, None, &input, |_| {
@@ -605,7 +616,7 @@ fn invoke_hands(
         launch,
         command,
         workdir,
-        &[],
+        bindings,
         &mut |_| {},
         |child| child.wait().map(|status| Some(status.code().unwrap_or(0))),
         &mut |_| {},
@@ -639,7 +650,7 @@ fn a_launch_composes_under_the_sessions_own_environment_and_directory() {
         "removals": ["LIBRARY_DOCS_TOKEN"],
     }]});
     let _removing = super::super::mcp::Removing::attempt(&removals);
-    let (child_home, invocation) = invoke_hands(fake.to_str().unwrap(), workdir, input);
+    let (child_home, invocation) = invoke_hands(fake.to_str().unwrap(), workdir, input, &[]);
     invocation.unwrap();
     let expected_home = child_home.unwrap_or_else(|| home.to_string_lossy().into_owned());
     let observed = std::fs::read_to_string(&log).unwrap();
@@ -677,11 +688,84 @@ fn a_launch_fails_closed_when_the_measured_activation_warning_arrives() {
         fake.to_str().unwrap(),
         workdir,
         sealed(SealedBoundary::Namespace, Some("read-only")),
+        &[],
     );
     let problem = invocation
         .err()
         .expect("the measured activation warning refuses the invocation");
     assert_eq!(problem, ReportRefusal::NotActivated.to_string());
+}
+
+/// A bound secret whose value sits inside dsh's marker text cannot hide the
+/// refusal: the outcome is classified from the RAW stderr once, before the
+/// exposed text is masked, and the stderr that reaches the invocation
+/// carries only the mask, never the value (#896 H1; decision 0098 ruling 4).
+#[cfg(unix)]
+#[test]
+fn a_bound_secret_never_hides_a_startup_refusal_or_appears_in_the_stderr() {
+    let dir = tempfile::tempdir().unwrap();
+    let workdir = dir.path().to_str().unwrap();
+    let mut env = EnvGuard::lock();
+    env.set("DSH_HOME", dir.path());
+    let cases = [
+        (
+            "ENTRY",
+            "entry",
+            "dsh: warning: 1 entry did not activate",
+            ReportRefusal::NotActivated,
+        ),
+        (
+            "HANDS",
+            "brokkr-hands",
+            "brokkr-hands (@deepseek-ai/dsh-mcp-client): Error: mcp-client(probe): initial \
+             connection or tool synchronization failed",
+            ReportRefusal::NotActivated,
+        ),
+        (
+            "SANDBOX",
+            "SANDBOX_UNAVAILABLE",
+            "HarnessError: SANDBOX_UNAVAILABLE",
+            ReportRefusal::SandboxUnavailable,
+        ),
+    ];
+    for (name, value, report, expected) in cases {
+        let bound = binding(name, value);
+        env.set("BROKKR_TEST_DSH_REPORT", report);
+        let fake = super::super::tests::executable(dir.path(), "dsh-report", WARNING_DSH);
+        let (_, invocation) = invoke_hands(
+            fake.to_str().unwrap(),
+            workdir,
+            sealed(SealedBoundary::Namespace, Some("read-only")),
+            std::slice::from_ref(&bound),
+        );
+        let problem = invocation
+            .err()
+            .expect("the masked marker still refuses the launch");
+        assert_eq!(problem, expected.to_string(), "{report}");
+
+        // The same raw report through the one capture edge the launch uses:
+        // the typed outcome is the refusal and the exposed stderr is masked.
+        let raw = report.as_bytes().to_vec();
+        let run = super::super::finish_dsh(
+            &mut serde_json::Map::new(),
+            0,
+            std::thread::spawn(move || raw),
+            std::slice::from_ref(&bound),
+        )
+        .unwrap();
+        assert_eq!(run.startup, Err(expected), "{report}");
+        let mask = format!("[secret:{name}]");
+        assert!(
+            run.invocation.stderr.contains(&mask),
+            "the exposed stderr carries the mask: {}",
+            run.invocation.stderr
+        );
+        assert!(
+            !run.invocation.stderr.contains(value),
+            "the exposed stderr never carries the value: {}",
+            run.invocation.stderr
+        );
+    }
 }
 
 /// A native writing seat in a linked worktree is a runner seat, never a

@@ -82,14 +82,15 @@ pub(super) fn invoke_dsh_launch_observed(
             emit,
         )
     };
-    let mut invocation = match attempt {
-        Ok(invocation) => invocation,
+    let DshRun {
+        mut invocation,
+        startup,
+    } = match attempt {
+        Ok(run) => run,
         Err(problem) => return Err(dsh_failure_before_promotion(problem, staged)),
     };
     if let Some(mode) = launch.mode {
-        if let Err(refusal) =
-            dsh_hands::startup_gate(&invocation.stderr, &mut invocation.session_meta, mode)
-        {
+        if let Err(refusal) = dsh_hands::startup_gate(startup, &mut invocation.session_meta, mode) {
             return Err(dsh_failure_before_promotion(refusal.to_string(), staged));
         }
     }

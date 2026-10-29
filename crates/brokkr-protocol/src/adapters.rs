@@ -4797,7 +4797,7 @@ fn invoke_dsh_shipped(
     mut wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
     session_meta: &mut Map<String, Value>,
     emit: &mut impl FnMut(&Value),
-) -> Result<Invocation, String> {
+) -> Result<DshRun, String> {
     let (mut child, stderr_thread) = spawn_dsh(command, workdir, Stdio::null(), launch, bindings)?;
     let mut turns = 0u64;
     let mut tail = DshTail::default();
@@ -4835,7 +4835,7 @@ fn invoke_dsh_stream_json(
     session_meta: &mut Map<String, Value>,
     emit: &mut impl FnMut(&Value),
     observer: &mut impl FnMut(&DshObservation),
-) -> Result<Invocation, String> {
+) -> Result<DshRun, String> {
     let (mut child, stderr_thread) = spawn_dsh(command, workdir, Stdio::piped(), launch, bindings)?;
     let stdout = child.stdout.take().expect("piped");
     let mut turns = 0u64;
@@ -5352,6 +5352,14 @@ fn dsh_census_within(
     })
 }
 
+/// One dsh route's conclusion: the invocation the journal reads, and dsh's
+/// startup outcome classified from the RAW stderr before masking (#896 H1;
+/// decision 0098 ruling 4).
+struct DshRun {
+    invocation: Invocation,
+    startup: dsh_hands::Startup,
+}
+
 /// The common tail of both dsh invocations: the harness and profile the
 /// lane always is, and the redacted stderr. No pin lands in `session_meta`:
 /// `model` there is only ever what the transcript said served (decision
@@ -5361,7 +5369,7 @@ fn finish_dsh(
     exit_code: i32,
     stderr_thread: std::thread::JoinHandle<Vec<u8>>,
     bindings: &[secret::BoundSecret],
-) -> Result<Invocation, String> {
+) -> Result<DshRun, String> {
     session_meta.insert("harness".into(), Value::String("deepseek".into()));
     session_meta.insert("profile".into(), Value::String("headless".into()));
     // Decision 0053: dsh's headless profile makes no machine-readable
@@ -5372,22 +5380,27 @@ fn finish_dsh(
     // dsh classifies nothing here and a refusal before its first turn
     // follows decision 0006 unchanged; the guide says so beside claude
     // and codex.
-    let stderr = redact_dsh_reasoning(&secret::mask_text(
-        &stderr_thread.join().unwrap_or_default(),
-        bindings,
-    ));
+    let raw = stderr_thread.join().unwrap_or_default();
+    // Classified ONCE, from the child's own bytes, before masking or
+    // reasoning redaction can rewrite the marker words the gate reads
+    // (#896 H1; decision 0098 ruling 4). The raw text goes no further.
+    let startup = dsh_hands::startup_report(&raw);
+    let stderr = redact_dsh_reasoning(&secret::mask_text(&raw, bindings));
     // The promotion that moves the seat's commits out of the private
     // store happens in `invoke_dsh_launch_observed`, which owns the store
     // for the seat's whole life and is the one place both routes return
     // through.
-    Ok(Invocation {
-        exit_code,
-        session_meta: session_meta.clone(),
-        stdout: String::new(),
-        stderr,
-        state: None,
-        refusal: None,
-        launch: LaunchTerminal::Cold,
+    Ok(DshRun {
+        invocation: Invocation {
+            exit_code,
+            session_meta: session_meta.clone(),
+            stdout: String::new(),
+            stderr,
+            state: None,
+            refusal: None,
+            launch: LaunchTerminal::Cold,
+        },
+        startup,
     })
 }
 

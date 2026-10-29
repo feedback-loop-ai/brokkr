@@ -43,7 +43,7 @@ mod composition;
 mod report;
 
 pub(crate) use composition::Composition;
-pub(crate) use report::ReportRefusal;
+pub(crate) use report::{Enforcement, ReportRefusal};
 
 /// The driver-input key the engine marks a boxed site's hands access under,
 /// `read-only` or `writes`, beside its `hands` marker: a spawn-time fact of
@@ -293,22 +293,36 @@ pub(crate) fn composition_gate(command: std::process::Command) -> Result<(), Com
     composition::composed_with(command, |command| command.output())
 }
 
-/// The startup dsh reported, read after its session (#896 round 2, D0 and
-/// D4): a failed hand or an unavailable sandbox refuses, and partial
-/// enforcement lands on the row the operator reads. `sandbox` keeps the
-/// MODE the seat ran under, never the word `partial`; the launcher's exact
-/// line rides the contract-admitted `step_name` (#896 round 3).
+/// dsh's startup outcome, classified once from the RAW captured stderr
+/// before any masking or reasoning redaction (#896 H1; decision 0098 ruling
+/// 4). `Err` is the report that fails the seat closed.
+pub(crate) type Startup = Result<Enforcement, ReportRefusal>;
+
+/// Classify dsh's own report from the RAW captured stderr, once, at the
+/// capture edge. The raw text goes no further than this call: the stderr
+/// the journal exposes is masked and reasoning-redacted afterwards, and a
+/// masking that rewrites these words cannot change the outcome (#896 H1).
+pub(crate) fn startup_report(raw: &[u8]) -> Startup {
+    report::checked(&String::from_utf8_lossy(raw))
+}
+
+/// The startup dsh reported, decided from the outcome classified before
+/// masking (#896 round 2, D0 and D4; #896 H1): a failed hand or an
+/// unavailable sandbox refuses, and partial enforcement lands on the row
+/// the operator reads. `sandbox` keeps the MODE the seat ran under, never
+/// the word `partial`; the launcher's exact line rides the
+/// contract-admitted `step_name` (#896 round 3).
 pub(crate) fn startup_gate(
-    stderr: &str,
+    startup: Startup,
     meta: &mut serde_json::Map<String, Value>,
     mode: Mode,
 ) -> Result<(), ReportRefusal> {
-    match report::checked(stderr)? {
-        report::Enforcement::Partial => {
+    match startup? {
+        Enforcement::Partial => {
             meta.insert("sandbox".into(), Value::String(mode.word().into()));
             meta.insert("step_name".into(), Value::String(report::PARTIAL.into()));
             Ok(())
         }
-        report::Enforcement::Full => Ok(()),
+        Enforcement::Full => Ok(()),
     }
 }
