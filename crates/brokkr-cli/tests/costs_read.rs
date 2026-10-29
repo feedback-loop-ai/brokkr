@@ -16,7 +16,8 @@ use brokkr_store::{RunRead, SeatRows, Store};
 
 use crate::boundary_readouts::brokkr;
 use crate::composed_view::imported;
-use crate::seat_view::{committed_runs, hand_built_runs, planted};
+use crate::seat_view::journals::journals;
+use crate::seat_view::planted::{chained, committed_at, planted};
 
 /// The journal at `db` copied beside it, then unmigrated: the journal a
 /// binary from before the projections left.
@@ -91,8 +92,10 @@ fn every_fixture_s_costs_and_compare_read_from_the_rows_are_today_s() {
 fn every_committed_and_hand_built_journal_s_costs_and_compare_are_today_s() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("forge.db");
-    let journals = committed_runs().into_iter().chain(hand_built_runs());
-    let runs = planted(&path, journals.collect());
+    let hand_built = journals().into_iter();
+    let hand_built = hand_built.map(|(name, events)| (name.to_string(), chained(name, events)));
+    let mut runs = committed_at(&path);
+    runs.extend(planted(&path, hand_built.collect()));
     assert_eq!(runs.len(), 39);
     assert_eq!(read_as_today(&path, &runs), (None, (37, 16)));
 }
