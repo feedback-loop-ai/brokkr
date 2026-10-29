@@ -3007,7 +3007,7 @@
     "record": "decision 0065 slice two, unit U0b: every shape a seat can be served as (replacement, Codex isolation options and profile, hands box, store at the production path)",
     "change": "openspec/changes/decision-0065-capabilities-slice-two",
     "narrative": "docs/evidence/adapters/slice-two-mcp-isolation.md, section U0b",
-    "ruled": "operator, in chat, 2026-10-23 (1(a), 2 option M, 3(a), 4(a), 5(a), 6(a)); 2026-10-24 (XA3/XA4 now; X29 closed by protecting the store's folder); 2026-10-25 (U8j); 2026-10-29 (pass 7: Codex's boxed replacement, U1d5)",
+    "ruled": "operator, in chat, 2026-10-23 (1(a), 2 option M, 3(a), 4(a), 5(a), 6(a)); 2026-10-24 (XA3/XA4 now; X29 closed by protecting the store's folder); 2026-10-25 (U8j); 2026-10-29 (pass 7: Codex's boxed replacement, U1d5); 2026-10-29 (pass 8: dsh's replacement on the keyed routes, keys approved, U1d6)",
     "measured": {
       "pass_1": "2026-10-23T12:58Z to 13:33Z",
       "pass_2": "2026-10-23T13:37Z to 13:53Z",
@@ -3017,7 +3017,8 @@
       "pass_5": "2026-10-25T15:50Z to 16:30Z (about)",
       "r16b": "2026-10-25T16:20Z (about)",
       "x29b": "2026-10-25T17:15Z (about)",
-      "pass_7": "2026-10-28T22:39Z to 22:42Z"
+      "pass_7": "2026-10-28T22:39Z to 22:42Z",
+      "pass_8": "2026-10-29T06:42:03Z to 06:43:27Z"
     },
     "host": {
       "os": "Ubuntu 25.10",
@@ -3979,6 +3980,174 @@
         },
         "engine_sentinel": "answered",
         "outcome": "passes; brokkr and engine only; HANDS-OK",
+        "note": null
+      },
+      {
+        "id": "P8-deepseek-pc",
+        "harness": "dsh 0.2.1-rc.2, deepseek-official / deepseek-flash",
+        "pass": 8,
+        "shape": "cold positive control: the disposable default ~/.dsh",
+        "candidate": "none",
+        "ambient_sentinels": {
+          "home": "answered",
+          "profile": "answered"
+        },
+        "engine_sentinel": "none",
+        "outcome": "positive control met",
+        "note": null
+      },
+      {
+        "id": "P8-deepseek-A",
+        "harness": "dsh 0.2.1-rc.2, deepseek-official / deepseek-flash",
+        "pass": 8,
+        "shape": "A (fresh engine home E1)",
+        "candidate": "engine-only DSH_HOME + engine row in the --patch overlay",
+        "ambient_sentinels": {
+          "home": "not_started",
+          "profile": "not_started"
+        },
+        "engine_sentinel": "answered",
+        "outcome": "A of the replacement",
+        "note": null
+      },
+      {
+        "id": "P8-deepseek-B",
+        "harness": "dsh 0.2.1-rc.2, deepseek-official / deepseek-flash",
+        "pass": 8,
+        "shape": "B (a fresh engine home E2, the same workdir): the replacement",
+        "candidate": "engine-only DSH_HOME + engine row in the --patch overlay",
+        "ambient_sentinels": {
+          "home": "not_started",
+          "profile": "not_started"
+        },
+        "engine_sentinel": "answered",
+        "outcome": "passes; --dump-config composes exactly one dsh-mcp-client, serverName engine",
+        "note": null
+      },
+      {
+        "id": "P8-dashscope-pc",
+        "harness": "dsh 0.2.1-rc.2, dashscope / qwen3.8-flash",
+        "pass": 8,
+        "shape": "cold positive control: the disposable default ~/.dsh",
+        "candidate": "none",
+        "ambient_sentinels": {
+          "home": "listed",
+          "profile": "listed"
+        },
+        "engine_sentinel": "none",
+        "outcome": "positive control met",
+        "note": "QUOTA 429: the token-plan monthly quota, reset 2026-11-22; no tool call"
+      },
+      {
+        "id": "P8-dashscope-A",
+        "harness": "dsh 0.2.1-rc.2, dashscope / qwen3.8-flash",
+        "pass": 8,
+        "shape": "A (fresh engine home E1)",
+        "candidate": "engine-only DSH_HOME + engine row in the --patch overlay",
+        "ambient_sentinels": {
+          "home": "not_started",
+          "profile": "not_started"
+        },
+        "engine_sentinel": "listed",
+        "outcome": "A of the replacement",
+        "note": "QUOTA 429: the token-plan monthly quota, reset 2026-11-22; no tool call"
+      },
+      {
+        "id": "P8-dashscope-B",
+        "harness": "dsh 0.2.1-rc.2, dashscope / qwen3.8-flash",
+        "pass": 8,
+        "shape": "B (a fresh engine home E2, the same workdir): the replacement",
+        "candidate": "engine-only DSH_HOME + engine row in the --patch overlay",
+        "ambient_sentinels": {
+          "home": "not_started",
+          "profile": "not_started"
+        },
+        "engine_sentinel": "listed",
+        "outcome": "passes at the startup and request level; --dump-config composes exactly one dsh-mcp-client, serverName engine",
+        "note": "QUOTA 429: the token-plan monthly quota, reset 2026-11-22; no tool call"
+      },
+      {
+        "id": "P8-meta-pc",
+        "harness": "dsh 0.2.1-rc.2, meta / meta/muse-spark-1.3",
+        "pass": 8,
+        "shape": "cold positive control: the disposable default ~/.dsh",
+        "candidate": "none",
+        "ambient_sentinels": {
+          "home": "answered",
+          "profile": "answered"
+        },
+        "engine_sentinel": "none",
+        "outcome": "positive control met",
+        "note": null
+      },
+      {
+        "id": "P8-meta-A",
+        "harness": "dsh 0.2.1-rc.2, meta / meta/muse-spark-1.3",
+        "pass": 8,
+        "shape": "A (fresh engine home E1)",
+        "candidate": "engine-only DSH_HOME + engine row in the --patch overlay",
+        "ambient_sentinels": {
+          "home": "not_started",
+          "profile": "not_started"
+        },
+        "engine_sentinel": "answered",
+        "outcome": "A of the replacement",
+        "note": null
+      },
+      {
+        "id": "P8-meta-B",
+        "harness": "dsh 0.2.1-rc.2, meta / meta/muse-spark-1.3",
+        "pass": 8,
+        "shape": "B (a fresh engine home E2, the same workdir): the replacement",
+        "candidate": "engine-only DSH_HOME + engine row in the --patch overlay",
+        "ambient_sentinels": {
+          "home": "not_started",
+          "profile": "not_started"
+        },
+        "engine_sentinel": "answered",
+        "outcome": "passes; --dump-config composes exactly one dsh-mcp-client, serverName engine",
+        "note": null
+      },
+      {
+        "id": "P8-metac-pc",
+        "harness": "dsh 0.2.1-rc.2, meta-contributor / meta/muse-spark-1.3-contributor",
+        "pass": 8,
+        "shape": "cold positive control: the disposable default ~/.dsh",
+        "candidate": "none",
+        "ambient_sentinels": {
+          "home": "answered",
+          "profile": "answered"
+        },
+        "engine_sentinel": "none",
+        "outcome": "positive control met",
+        "note": null
+      },
+      {
+        "id": "P8-metac-A",
+        "harness": "dsh 0.2.1-rc.2, meta-contributor / meta/muse-spark-1.3-contributor",
+        "pass": 8,
+        "shape": "A (fresh engine home E1)",
+        "candidate": "engine-only DSH_HOME + engine row in the --patch overlay",
+        "ambient_sentinels": {
+          "home": "not_started",
+          "profile": "not_started"
+        },
+        "engine_sentinel": "answered",
+        "outcome": "A of the replacement",
+        "note": null
+      },
+      {
+        "id": "P8-metac-B",
+        "harness": "dsh 0.2.1-rc.2, meta-contributor / meta/muse-spark-1.3-contributor",
+        "pass": 8,
+        "shape": "B (a fresh engine home E2, the same workdir): the replacement",
+        "candidate": "engine-only DSH_HOME + engine row in the --patch overlay",
+        "ambient_sentinels": {
+          "home": "not_started",
+          "profile": "not_started"
+        },
+        "engine_sentinel": "answered",
+        "outcome": "passes; --dump-config composes exactly one dsh-mcp-client, serverName engine",
         "note": null
       }
     ],

@@ -1417,7 +1417,8 @@ witness/compose pins accompany only rows that change their inputs.
 | U1d3 | U0b | Record U0b's shapes; 5.3–5.4 | `adapters/claude.json`; `adapters/codex.json`; `adapters/dsh.json`; `adapters/lanetally.json`; `crates/brokkr-cli/src/init/adapters.rs` |
 | U1d4 | U1d3 | Record Codex's shapes without hands; 5.5–5.6 | `adapters/codex.json`; `crates/brokkr-cli/src/init/adapters.rs` |
 | U1d5 | U1d4 | Record Codex's boxed replacement; 5.7–5.8 | `adapters/codex.json`; `crates/brokkr-cli/src/init/adapters.rs` |
-| U9b1 | U1d3, U8e3, U8h, U8i, U8j, U8k, U1d4, U1d5 | Enable the proved namespace path; 42.2, 46.1–46.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
+| U1d6 | U1d5 | Record dsh's replacement on the keyed routes; 5.9–5.10 | `adapters/dsh.json`; `crates/brokkr-cli/src/init/adapters.rs` |
+| U9b1 | U1d3, U8e3, U8h, U8i, U8j, U8k, U1d4, U1d5, U1d6 | Enable the proved namespace path; 42.2, 46.1–46.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
 | U9b2 | U9b1 | Publish implemented scope and contract guidance; 47.1–47.2 | None |
 | U8m | U8h | Redact doctor's server words and refuse a storeless boxed writer; 47.3–47.4 | `crates/brokkr-cli/src/doctor/capabilities/mcp.rs`; `crates/brokkr-runtime/src/engine/boxed.rs` |
 | U10a | U9b2, U8m | Audit removals and run final candidate gates; 48.1–49.2 | None |
@@ -1511,6 +1512,19 @@ Closes tasks 5.7 and 5.8; requirements [SI1](specs/strict-mcp-isolation/spec.md)
 Proof: the new shape's axes match pass 7's cells; the init scaffold's copy matches the shipped adapter (`init_doctor` parity); the moved witness row is listed; the Codex seats of triage, night-shift and release compile their boxed replacement as measured.
 
 Operator ruling 2026-10-29 (in chat, "go with recommended", on U9b1's second run's block, option A): Codex's boxed replacement is measured (U0b pass 7) and recorded by U1d5 before U9b1; no public API rise; any other file comes back to the operator.
+
+Owning tests: `crates/brokkr-cli/tests/init_doctor.rs`, `crates/brokkr-runtime/tests/witness_digests.rs`.
+
+### U1d6 — Record dsh's replacement on the keyed routes
+
+U9b1's third run found that, past the lifted fence, Linux refuses every dsh work seat at compile with SI2's unmeasured cause for `replacement`: the shipped night-shift recipe (its implement seat hires `agents/night-shift-implementer.json`, glm-flash on dsh), `brokkr init` for a dsh stack, fast and node installed into a dsh folder, and the five dsh recipes rulings 15 and 19 had let refuse. Every work seat is also served as its replacement (ruling 14), and `adapters/dsh.json` records the replacement's ambient axis as unmeasured because U0b D06 passed on keyless `spark-glm` only and a shape carries no route scope. SI2's compile check reads only that axis. U0b pass 8 measured the replacement with U0c's kit on the four keyed families U0c qualified the cold shape on (dsh 0.2.1-rc.2, Linux): after each family's positive control loaded both planted sentinels, the replacement in a fresh engine-only `DSH_HOME`, after a first invocation in the same workdir, started no home or profile sentinel while the engine's row loaded, the request carried only the engine's tool, and `--dump-config` composed one dsh-mcp-client, `serverName: engine`. The engine answered on `deepseek-official`, `meta` and `meta-contributor` (P8-deepseek-B, P8-meta-B, P8-metac-B); `dashscope` passed at the startup and request level (P8-dashscope-B), its token-plan quota refusing the model call. U1d6 records the replacement's ambient axis as measured from D06 and pass 8, in the shipped declaration and the init scaffold's copy, and re-blesses the witness digest that moves. The other three axes are unchanged.
+
+Files: `adapters/dsh.json`, `crates/brokkr-cli/src/init/adapters.rs`, `tests/witnesses.json`.
+
+Closes tasks 5.9 and 5.10; requirements [SI1](specs/strict-mcp-isolation/spec.md), [SI2](specs/strict-mcp-isolation/spec.md).
+Proof: the replacement's ambient axis matches D06 and pass 8's cells; the init scaffold's copy matches the shipped adapter (`init_doctor` parity); the moved witness row is listed; with the fence standing nothing else changes.
+
+Operator ruling 2026-10-29 (in chat, "b" and "keys approved", on U9b1's third run's block, option B): dsh's replacement is measured on the keyed routes (U0b pass 8, the operator's env files sourced only into the dsh child) and recorded by U1d6 before U9b1; no public API rise; any other file comes back to the operator.
 
 Owning tests: `crates/brokkr-cli/tests/init_doctor.rs`, `crates/brokkr-runtime/tests/witness_digests.rs`.
 

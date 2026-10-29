@@ -260,13 +260,10 @@ pub(crate) fn assert_shipped_mcp_facts(bundle: &std::path::Path, provider: &str)
 }
 
 /// A hands-less work seat's SI2 record: judged cold and as its replacement,
-/// which U0b measured for Claude; no generated declaration names a
-/// hands-less resume shape. A gate, never offered a session, is judged
-/// cold alone.
+/// which U0b measured for Claude, and for dsh on the keyed routes with its
+/// pass 8 (U1d6); no generated declaration names a hands-less resume
+/// shape. A gate, never offered a session, is judged cold alone.
 const BARE_WORK: &[&str] = &["cold none measured", "replacement none measured"];
-/// A dsh work seat's: its replacement is declared unmeasured, because a
-/// shape carries no route scope and U0b ran one route (U1d3).
-const DSH_WORK: &[&str] = &["cold none measured", "replacement none unmeasured"];
 const BARE_GATE: &[&str] = &["cold none measured"];
 /// A Codex seat's, boxed: U0b measured U9c2's cold launch, and its pass 7
 /// the boxed replacement (U1d5).
@@ -300,10 +297,10 @@ const CODEX_RECORDS: [(&str, &[&str]); 7] = [
 
 /// A dsh roster's, its review gate hired from Claude.
 const DSH_RECORDS: [(&str, &[&str]); 8] = [
-    ("implement dsh", DSH_WORK),
-    ("implement dsh", DSH_WORK),
-    ("intake dsh", DSH_WORK),
-    ("intake dsh", DSH_WORK),
+    ("implement dsh", BARE_WORK),
+    ("implement dsh", BARE_WORK),
+    ("intake dsh", BARE_WORK),
+    ("intake dsh", BARE_WORK),
     ("review claude", BARE_GATE),
     ("review claude", BARE_GATE),
     ("ship exec", EXEC),
@@ -315,9 +312,9 @@ const DSH_RECORDS: [(&str, &[&str]); 8] = [
 /// init's own compile and the compile from inside the workspace pass on
 /// them with nothing granted and every native power still OFF — dsh's
 /// review gate on claude included. This certifies no strictness. With the
-/// fence standing (U1g1) each compile keeps every site's SI2 record, the
-/// shapes a lifted fence would refuse included: dsh's replacement, declared
-/// unmeasured for want of a route scope; exec records no shape.
+/// fence standing (U1g1) each compile keeps every site's SI2 record, on
+/// Linux each measured since dsh's replacement was (U1d6); exec records no
+/// shape.
 #[test]
 fn each_rosters_declarations_carry_their_shipped_mcp_facts_and_still_compile() {
     for (present, written, reviewer, records) in [
@@ -405,12 +402,13 @@ fn each_rosters_declarations_carry_their_shipped_mcp_facts_and_still_compile() {
     }
 }
 
-/// The U0b cells a measurement's text cites, in order of first mention.
-fn cells(text: &str) -> Vec<&str> {
+/// The cells a measurement's text cites, each a word one of `marks` begins
+/// before a digit, in order of first mention.
+fn cells<'a>(text: &'a str, marks: &[char]) -> Vec<&'a str> {
     let mut cited: Vec<&str> = Vec::new();
     let words = text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '-'));
     for word in words {
-        let cell = word.starts_with('X') && word[1..].starts_with(|c: char| c.is_ascii_digit());
+        let cell = word.starts_with(marks) && word[1..].starts_with(|c: char| c.is_ascii_digit());
         if cell && !cited.contains(&word) {
             cited.push(word);
         }
@@ -495,7 +493,7 @@ fn codexs_hands_less_shapes_and_boxed_replacement_cite_u0bs_cells_on_every_axis(
                 "{invocation} {hands} {axis}"
             );
             assert_eq!(
-                cells(fact["measured"].as_str().unwrap()),
+                cells(fact["measured"].as_str().unwrap(), &['X']),
                 cited,
                 "{invocation} {hands} {axis}"
             );
@@ -531,15 +529,15 @@ fn the_shipped_hands_less_codex_seats_read_measured_where_u0b_measured_them() {
         ),
         ("recipes/wager-harness", &[("implement codex", work)][..]),
     ] {
-        let codex = shipped_codex_records(recipe, " none ");
+        let codex = shipped_records(recipe, "codex", " none ");
         assert_eq!(codex, expected_records(rows), "{recipe}");
     }
 }
 
-/// The SI2 records of the shipped `recipe`'s Codex sites, compiled against
-/// the in-tree agents and adapters, that are served a shape `served`
-/// matches.
-fn shipped_codex_records(recipe: &str, served: &str) -> Vec<(String, Vec<String>)> {
+/// The SI2 records of the shipped `recipe`'s `provider` sites, compiled
+/// against the in-tree agents and adapters, that are served a shape
+/// `served` matches.
+fn shipped_records(recipe: &str, provider: &str, served: &str) -> Vec<(String, Vec<String>)> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let compiled = brokkr_runtime::Bundle::compile_with(
         &root.join(recipe),
@@ -549,7 +547,8 @@ fn shipped_codex_records(recipe: &str, served: &str) -> Vec<(String, Vec<String>
     .unwrap_or_else(|e| panic!("{recipe} must compile: {e}"));
     (strict_records(&compiled).into_iter())
         .filter(|(site, shapes)| {
-            site.ends_with(" codex") && shapes.iter().any(|shape| shape.contains(served))
+            site.ends_with(&format!(" {provider}"))
+                && shapes.iter().any(|shape| shape.contains(served))
         })
         .collect()
 }
@@ -574,8 +573,104 @@ fn the_shipped_boxed_codex_work_seats_read_their_replacement_measured() {
         ("recipes/night-shift", &[chief, chief, author, author][..]),
         ("recipes/release", &[("implement codex", BOXED_WORK)][..]),
     ] {
-        let codex = shipped_codex_records(recipe, "replacement boxed ");
+        let codex = shipped_records(recipe, "codex", "replacement boxed ");
         assert_eq!(codex, expected_records(rows), "{recipe}");
+    }
+}
+
+/// dsh's replacement without hands as the shipped adapter records it,
+/// which the scaffold's copy carries by parity: dsh 0.2.1-rc.2 on Linux,
+/// its ambient axis measured from U0b D06 and pass 8's four keyed B cells,
+/// naming spark unqualified as for the cold shape (U1d6), and its other
+/// three axes still the D07 lines U1d3 declared unmeasured.
+#[test]
+fn dshs_replacement_cites_d06_and_pass_8_on_its_ambient_axis_alone() {
+    let shipped =
+        json_at(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../adapters/dsh.json"));
+    let all = shipped["mcp"]["shapes"].as_array().unwrap().iter();
+    let shape: Vec<&serde_json::Value> = all
+        .filter(|s| s["invocation"] == "replacement" && s["hands"] == "none")
+        .collect();
+    assert_eq!(shape.len(), 1);
+    let shape = shape[0];
+    assert_eq!(
+        shape["measured_on"],
+        serde_json::json!({"harness": "dsh", "binary": "dsh", "version": "0.2.1-rc.2", "host": "linux"})
+    );
+    let verdicts: Vec<(&str, Vec<&str>)> =
+        ["ambient", "native_write", "store_read", "process_read"]
+            .into_iter()
+            .map(|axis| {
+                let fact = shape[axis].as_object().unwrap();
+                let (verdict, text) = fact.iter().next().unwrap();
+                assert_eq!(fact.len(), 1, "{axis}");
+                let mut cited = vec![verdict.as_str()];
+                cited.extend(cells(text.as_str().unwrap(), &['D', 'P', 'S']));
+                (axis, cited)
+            })
+            .collect();
+    let d07 = vec!["unmeasured", "D07"];
+    assert_eq!(
+        verdicts,
+        [
+            (
+                "ambient",
+                vec![
+                    "measured",
+                    "D06",
+                    "P8-deepseek-B",
+                    "P8-dashscope-B",
+                    "P8-meta-B",
+                    "P8-metac-B",
+                    "S01",
+                    "S03",
+                ]
+            ),
+            ("native_write", d07.clone()),
+            ("store_read", vec!["unmeasured", "D07", "D10-p5"]),
+            ("process_read", d07),
+        ]
+    );
+}
+
+/// The shipped recipes whose dsh work seats U9b1's third run found refused
+/// past a lifted fence, and each dsh site's SI2 record as each compile
+/// keeps it under the standing fence: cold and replacement measured on
+/// Linux since U1d6, and its declared headless-work resume absent; on
+/// macOS all absent, for U0, U0b and U0c measured Linux alone.
+#[test]
+fn the_shipped_dsh_work_seats_read_their_replacement_measured() {
+    let work: &[&str] = &[
+        "cold none measured",
+        "replacement none measured",
+        "headless-work none absent",
+    ];
+    let implement = [("implement dsh", work)];
+    let gpt_flash = [
+        "design:positions:simplicity",
+        "implement:chore",
+        "implement:design",
+        "implement:engine",
+        "implement:feature",
+        "review:chore:positions:security",
+        "review:design:positions:security",
+        "review:design:positions:spec-compliance",
+        "review:engine:positions:security",
+        "review:engine:positions:spec-compliance",
+        "review:feature:positions:security",
+    ]
+    .map(|seat| format!("{seat} dsh"));
+    let gpt_flash: Vec<(&str, &[&str])> = gpt_flash.iter().map(|s| (s.as_str(), work)).collect();
+    for (recipe, rows) in [
+        ("recipes/night-shift", &implement[..]),
+        ("recipes/research-dsh", &[("research dsh", work)][..]),
+        ("recipes/gpt-flash", &gpt_flash[..]),
+        ("recipes/review-first", &implement[..]),
+        ("recipes/wager-harness-muse", &implement[..]),
+        ("recipes/wager-harness-dsh", &implement[..]),
+    ] {
+        let dsh = shipped_records(recipe, "dsh", "replacement none ");
+        assert_eq!(dsh, expected_records(rows), "{recipe}");
     }
 }
 
