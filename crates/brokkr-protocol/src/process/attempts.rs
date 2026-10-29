@@ -28,7 +28,9 @@ use signal_hook::iterator::Signals;
 use super::table::{self, Entry, Identity, TableError};
 use super::tree::{self, Bounds, GroupRefusal, Host, Unsettled};
 
-/// How often every live attempt's tree is read and recorded.
+/// How often every live attempt's tree is read and recorded: the engine's
+/// own subtree on Linux, the full table on macOS. Admission and every kill
+/// read the full table instead (#918).
 const TRACK: Duration = Duration::from_millis(100);
 
 /// The engine's exit status when its stop could not prove every live
@@ -109,7 +111,7 @@ impl Attempt {
         // SAFETY: `detach` runs between fork and exec, and makes system
         // calls and allocates nothing.
         unsafe { std::os::unix::process::CommandExt::pre_exec(builder, detach) };
-        let (child, key) = live().admit(host.table, builder)?;
+        let (child, key) = live().admit(host, builder)?;
         Ok((child, Attempt { key }))
     }
 
@@ -167,14 +169,15 @@ fn read_and_kill(key: u64, host: Host, then: fn(&mut Live)) -> Result<(), Unsett
 }
 
 impl Registry {
-    /// Read `table` afresh, spawn the driver `builder`, and register its
-    /// group. The read is never an earlier one shared: an orphan of the
-    /// engine's own born after that read and before the spawn would be
-    /// missing from `before`, and were the driver to exit before the next
-    /// read, it would be attributed to this attempt and killed with it.
-    /// What remains is one born between this read and the fork itself.
-    fn admit(&mut self, table: Table, builder: &mut Command) -> Result<(Child, u64), Unspawned> {
-        let before = self.read(table).map_err(Unspawned::Table)?;
+    /// Read `host.table` afresh, spawn the driver `builder`, and register
+    /// its group. The read is the full table, never the tracker's tick,
+    /// and never an earlier read shared: an orphan of the engine's own
+    /// born after that read and before the spawn would be missing from
+    /// `before`, and were the driver to exit before the next read, it
+    /// would be attributed to this attempt and killed with it. What
+    /// remains is one born between this read and the fork itself.
+    fn admit(&mut self, host: Host, builder: &mut Command) -> Result<(Child, u64), Unspawned> {
+        let before = self.read(host.table).map_err(Unspawned::Table)?;
         let child = builder.spawn().map_err(Unspawned::Spawn)?;
         let key = NEXT.fetch_add(1, Ordering::Relaxed);
         let attempt = Live {
@@ -532,7 +535,7 @@ fn start(host: Host) {
         std::thread::sleep(TRACK);
         let mut live = live();
         let busy = !live.attempts.is_empty();
-        drop(busy.then(|| live.read(host.table)));
+        drop(busy.then(|| live.read(host.tick)));
     });
 }
 

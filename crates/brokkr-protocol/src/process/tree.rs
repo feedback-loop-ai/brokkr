@@ -47,7 +47,7 @@
 //!
 //! Two Linux residuals remain, both accepted by the operator's rulings of
 //! 2026-09-28 and closed by construction only by per-attempt cgroup
-//! containment (#472). The first is the table-read race. A Linux read
+//! containment (#472). The first is the table-read race. A Linux tick
 //! walks the engine's own subtree: each process's row is read after its
 //! parent's `children` file names it (#918). Suppose a failed driver's
 //! last live descendant forks a detached child after that descendant's
@@ -55,12 +55,15 @@
 //! shows nothing of the attempt running, and so sets the attempt's end.
 //! The next read, up to the tracker's 100 ms later, finds the child with
 //! the engine, born after that end, and files it as the engine's own.
-//! Cleanup can then be certified while the child runs. A child the walk
-//! has already discovered keeps the parent that named it, so a parent
-//! that exits before the child's row is read is not this ordering: the
-//! next read sees the child's new parent. An identity the attempt has
-//! already recorded is read by its own row at a settlement read, so the
-//! walk's transient gap while it reparents is not read as gone.
+//! Cleanup can then be certified while the child runs. A child whose own
+//! row names another parent than the process whose `children` file listed
+//! it is dropped from that walk, so a pid reused by a stranger is never
+//! followed as the attempt's; a process that truly moved is found under
+//! its real parent on the next read. Admission and every kill read the
+//! full table, so a process that predates the attempt is in `before` even
+//! when a walk would miss it. An identity the attempt has already recorded
+//! is read by its own row at a settlement read (`Live::rows`), so a missed
+//! row is not read as gone.
 //!
 //! The second is the read-to-fork instant, a wrong kill rather than a
 //! missed one. No read is atomic with the fork, so an orphan of the
@@ -143,7 +146,13 @@ impl Bounds {
 pub(super) struct Host {
     pub kill_group: fn(Pid) -> rustix::io::Result<()>,
     pub kill: fn(&Identity) -> std::io::Result<()>,
+    /// The full table: admission's `before`, and every read at a kill or
+    /// settlement. It names what ran before the attempt, so the tracker's
+    /// narrower tick can never add a process this read excluded (#918).
     pub table: fn() -> Result<Vec<Entry>, TableError>,
+    /// The tracker's periodic read, once per 100 ms while an attempt is
+    /// live: on Linux the engine's own subtree, on macOS the full table.
+    pub tick: fn() -> Result<Vec<Entry>, TableError>,
     /// The means this host refused the engine, if one (`attempts`).
     pub missing: fn() -> Option<Unsettled>,
 }
@@ -152,12 +161,13 @@ impl Host {
     pub(super) const REAL: Host = Host {
         kill_group,
         kill: table::kill,
-        // Linux reads the engine's own subtree; macOS, which has no
-        // subreaper, reads the whole table as before (#918).
-        #[cfg(target_os = "linux")]
-        table: table::own_tree,
-        #[cfg(not(target_os = "linux"))]
+        // Admission and the kill read the whole table, as on main; only
+        // the tick takes the engine's own subtree on Linux (#918).
         table: table::snapshot,
+        #[cfg(target_os = "linux")]
+        tick: table::own_tree,
+        #[cfg(not(target_os = "linux"))]
+        tick: table::snapshot,
         missing: attempts::missing,
     };
 }

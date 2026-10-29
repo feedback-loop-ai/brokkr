@@ -226,18 +226,28 @@ fn the_engine_tree_read_does_not_grow_with_the_host() {
     assert_eq!(reads, [3, 3]);
 }
 
+/// The row error `error` carries when it names `pid`.
+#[cfg(target_os = "linux")]
+fn row_failure(error: TableError, pid: i32) -> std::io::Error {
+    match error {
+        TableError::Row { pid: named, error } => {
+            assert_eq!(named, pid, "wrong row: {error}");
+            error
+        }
+        other => panic!("expected the row of process {pid}, got {other:?}"),
+    }
+}
+
 /// #918: a process or task that exits between being named and its read
 /// is skipped; a row or task the walk cannot read fails it, as the
-/// snapshot fails on one, because it could be hiding the attempt's.
+/// snapshot fails on one, because it could be hiding the attempt's. A
+/// returned entry keeps the parent its own `stat` names.
 #[cfg(target_os = "linux")]
 #[test]
 fn a_tree_walk_skips_what_exited_and_fails_what_it_cannot_read() {
     let tree = [(501, 500)];
     let pids =
         |entries: &[Entry]| -> Vec<i32> { entries.iter().map(|entry| entry.id.pid).collect() };
-    let row_error = |pid: i32, error: std::io::Error| {
-        format!("the row of process {pid} could not be read: {error}")
-    };
 
     // A child that exited between being named and its own read is gone.
     let proc = tree_proc(500, &tree, 0);
@@ -265,21 +275,11 @@ fn a_tree_walk_skips_what_exited_and_fails_what_it_cannot_read() {
     std::fs::write(proc.path().join("500/task/500/children"), "501 501").unwrap();
     assert_eq!(pids(&own_tree_in(proc.path(), 500).unwrap()), [500, 501]);
 
-    // A child reparented after its parent named it keeps that edge: the
-    // row the kernel now shows names the engine, but the tree is still
-    // the attempt's to follow.
-    let proc = tree_proc(500, &[(501, 500), (502, 501)], 0);
-    let reparented = "502 (row) S 500 502 502 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 602 0 0";
-    std::fs::write(proc.path().join("502/stat"), reparented).unwrap();
-    let entries = own_tree_in(proc.path(), 500).unwrap();
-    let child = entries.iter().find(|entry| entry.id.pid == 502).unwrap();
-    assert_eq!(child.ppid, 501);
-
     // A children file that cannot be read is no tree.
     let proc = unreadable("501/task/501/children");
     assert_eq!(
-        own_tree_in(proc.path(), 500).unwrap_err().to_string(),
-        row_error(501, std::io::Error::from_raw_os_error(libc::EISDIR))
+        row_failure(own_tree_in(proc.path(), 500).unwrap_err(), 501).raw_os_error(),
+        Some(libc::EISDIR)
     );
 
     // A task directory that cannot be listed is no tree.
@@ -287,57 +287,116 @@ fn a_tree_walk_skips_what_exited_and_fails_what_it_cannot_read() {
     std::fs::remove_dir_all(proc.path().join("501/task")).unwrap();
     std::fs::write(proc.path().join("501/task"), "").unwrap();
     assert_eq!(
-        own_tree_in(proc.path(), 500).unwrap_err().to_string(),
-        row_error(501, std::io::Error::from_raw_os_error(libc::ENOTDIR))
+        row_failure(own_tree_in(proc.path(), 500).unwrap_err(), 501).raw_os_error(),
+        Some(libc::ENOTDIR)
     );
 
     // A child's row that cannot be read is no tree.
     let proc = unreadable("501/stat");
     assert_eq!(
-        own_tree_in(proc.path(), 500).unwrap_err().to_string(),
-        row_error(501, std::io::Error::from_raw_os_error(libc::EISDIR))
+        row_failure(own_tree_in(proc.path(), 500).unwrap_err(), 501).raw_os_error(),
+        Some(libc::EISDIR)
     );
 
     // A children line that does not name a pid is no tree.
     let proc = tree_proc(500, &tree, 0);
     std::fs::write(proc.path().join("501/task/501/children"), "x").unwrap();
-    assert_eq!(
-        own_tree_in(proc.path(), 500).unwrap_err().to_string(),
-        row_error(
-            501,
-            std::io::Error::new(std::io::ErrorKind::InvalidData, "unparsed child pid \"x\"")
-        )
-    );
+    let error = row_failure(own_tree_in(proc.path(), 500).unwrap_err(), 501);
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert_eq!(error.to_string(), "unparsed child pid \"x\"");
 
     // The engine's own row is required; one it cannot read is no tree.
     let proc = tree_proc(500, &tree, 0);
     std::fs::remove_file(proc.path().join("500/stat")).unwrap();
-    assert_eq!(
-        own_tree_in(proc.path(), 500).unwrap_err().to_string(),
-        "the table has no row for the engine itself (pid 500)"
-    );
+    assert!(matches!(
+        own_tree_in(proc.path(), 500).unwrap_err(),
+        TableError::NoSelf { pid: 500 }
+    ));
     std::fs::create_dir(proc.path().join("500/stat")).unwrap();
     assert_eq!(
-        own_tree_in(proc.path(), 500).unwrap_err().to_string(),
-        row_error(500, std::io::Error::from_raw_os_error(libc::EISDIR))
+        row_failure(own_tree_in(proc.path(), 500).unwrap_err(), 500).raw_os_error(),
+        Some(libc::EISDIR)
     );
 }
 
-/// #918: `Host::REAL.table` is the subtree walk on Linux, not the whole
-/// host table: the engine's parent is not its descendant and is not read.
+/// #918 H1: a child's own `stat` names its parent, never the listing. A
+/// pid that A's `children` named, now reused by an unrelated process U
+/// with another parent, is dropped from the walk: `Live::record` never
+/// records it and `Live::kill` never signals it. A process that truly
+/// moved is found under its real parent on the next read.
 #[cfg(target_os = "linux")]
 #[test]
-fn the_real_table_reads_the_engines_own_tree() {
+fn a_reused_child_pid_is_not_walked_from_the_listing() {
+    let pids =
+        |entries: &[Entry]| -> Vec<i32> { entries.iter().map(|entry| entry.id.pid).collect() };
+    let proc = tree_proc(500, &[(501, 500), (502, 501)], 0);
+    // 502 is now U: its own stat names 900, a process outside the tree.
+    let stranger = "502 (u) S 900 502 502 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 602 0 0";
+    std::fs::write(proc.path().join("502/stat"), stranger).unwrap();
+    assert_eq!(pids(&own_tree_in(proc.path(), 500).unwrap()), [500, 501]);
+
+    // A process that truly moved to the engine is found there on the next
+    // read, with the parent its own stat names.
+    std::fs::write(
+        proc.path().join("502/stat"),
+        "502 (row) S 500 502 502 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 602 0 0",
+    )
+    .unwrap();
+    std::fs::write(proc.path().join("500/task/500/children"), "501 502 ").unwrap();
+    let entries = own_tree_in(proc.path(), 500).unwrap();
+    let moved = entries
+        .iter()
+        .find(|entry| entry.id.pid == 502)
+        .expect("the moved process is under its real parent");
+    assert_eq!(moved.ppid, 500);
+}
+
+/// #918: the table errors name the row they could not read once.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_table_errors_name_what_they_could_not_read() {
+    let row = TableError::Row {
+        pid: 501,
+        error: std::io::Error::from_raw_os_error(libc::EISDIR),
+    };
+    assert_eq!(
+        row.to_string(),
+        format!(
+            "the row of process 501 could not be read: {}",
+            std::io::Error::from_raw_os_error(libc::EISDIR)
+        )
+    );
+    assert_eq!(
+        TableError::NoSelf { pid: 500 }.to_string(),
+        "the table has no row for the engine itself (pid 500)"
+    );
+}
+
+/// #918: `Host::REAL.tick` is the subtree walk on Linux, not the whole
+/// host table, and `Host::REAL.table` is the full table admission and the
+/// kill read: the engine's parent is not its descendant, so the tick does
+/// not read it, and the full read does.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_real_host_reads_its_own_tree_at_the_tick_and_the_full_table_elsewhere() {
     let me = rustix::process::getpid().as_raw_pid();
     let parent = rustix::process::getppid()
         .expect("a test process has a parent")
         .as_raw_pid();
-    let entries = (super::super::tree::Host::REAL.table)().unwrap();
-    let pids: std::collections::BTreeSet<i32> = entries.iter().map(|entry| entry.id.pid).collect();
-    assert!(pids.contains(&me), "the engine itself is not in its tree");
+    let pids = |entries: Vec<Entry>| -> std::collections::BTreeSet<i32> {
+        entries.iter().map(|entry| entry.id.pid).collect()
+    };
+    let tick = pids((super::super::tree::Host::REAL.tick)().unwrap());
+    assert!(tick.contains(&me), "the engine itself is not in its tree");
     assert!(
-        !pids.contains(&parent),
-        "the table listed the engine's parent {parent}"
+        !tick.contains(&parent),
+        "the tick listed the engine's parent {parent}"
+    );
+    let full = pids((super::super::tree::Host::REAL.table)().unwrap());
+    assert!(full.contains(&me), "the full table omits the engine");
+    assert!(
+        full.contains(&parent),
+        "the full table omits the engine's parent {parent}"
     );
 }
 
@@ -570,12 +629,7 @@ fn a_recorded_identity_is_read_by_its_own_row() {
     assert_eq!(row_in(planted.path(), &reused).unwrap(), None);
     let unreadable = proc_of(&[("7", None)]);
     assert_eq!(
-        row_in(unreadable.path(), &planted_id)
-            .unwrap_err()
-            .to_string(),
-        format!(
-            "the row of process 7 could not be read: {}",
-            std::io::Error::from_raw_os_error(libc::EISDIR)
-        )
+        row_failure(row_in(unreadable.path(), &planted_id).unwrap_err(), 7).raw_os_error(),
+        Some(libc::EISDIR)
     );
 }

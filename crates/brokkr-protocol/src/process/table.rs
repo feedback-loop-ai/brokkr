@@ -1,7 +1,9 @@
 //! The host's process tree, as the attempt's tree is read from it (#403,
-//! #918). Linux reads the engine's own subtree through `/proc`'s
-//! `children` files: everything settlement can attribute is a descendant
-//! of the engine, and a read that walked the whole host would pay for
+//! #918). Linux has two reads: the tracker's 100 ms tick walks the
+//! engine's own subtree through `/proc`'s `children` files, and admission
+//! and every kill read the whole table, so `before` names every process
+//! that already ran. Everything settlement can attribute is a descendant
+//! of the engine, and a tick that walked the whole host would pay for
 //! every process on it. macOS reads the whole table with `ps`, where
 //! there is no subreaper. A process is named by its pid AND its start
 //! stamp, so a pid the kernel has since handed to another process never
@@ -48,7 +50,7 @@ pub(super) struct Entry {
 /// Why a table read failed.
 #[derive(Debug, Error)]
 pub(super) enum TableError {
-    #[cfg(all(target_os = "linux", test))]
+    #[cfg(target_os = "linux")]
     #[error("/proc could not be listed: {0}")]
     List(std::io::Error),
     #[cfg(target_os = "linux")]
@@ -94,12 +96,13 @@ pub(super) fn own_tree() -> Result<Vec<Entry>, TableError> {
 /// before its own `children` are read leaves its children to be
 /// reparented to the engine, where the next read sees them.
 ///
-/// A child keeps the parent whose `children` file named it, even when
-/// that parent exited before the child's own row was read and the kernel
-/// has already reparented it: the edge is what tells the tracker the
-/// child is the attempt's, and the next read sees its new parent. Without
-/// it, a row naming the engine while the parent still reads as leading
-/// would be filed as the engine's own.
+/// An entry keeps the parent and start stamp its own `stat` reports. A
+/// pid its parent's `children` file named may have been reused by another
+/// process after the child exited; that process's row names a different
+/// parent, and it is dropped from this walk rather than given the old
+/// edge. Its subtree goes with it. A process that truly moved is found
+/// under its real parent on the next read, as an orphan is today. The
+/// walk never assigns a parent from the listing.
 #[cfg(target_os = "linux")]
 fn own_tree_in(proc: &std::path::Path, root: i32) -> Result<Vec<Entry>, TableError> {
     let entry = read(proc, root)
@@ -113,10 +116,12 @@ fn own_tree_in(proc: &std::path::Path, root: i32) -> Result<Vec<Entry>, TableErr
             if !seen.insert(child) {
                 continue;
             }
-            if let Some(mut entry) =
+            if let Some(entry) =
                 read(proc, child).map_err(|error| TableError::Row { pid: child, error })?
             {
-                entry.ppid = pid;
+                if entry.ppid != pid {
+                    continue;
+                }
                 entries.push(entry);
                 frontier.push(child);
             }
@@ -162,9 +167,9 @@ fn gone(error: &std::io::Error) -> bool {
     matches!(error.raw_os_error(), Some(libc::ENOENT | libc::ESRCH))
 }
 
-/// Every process the host lists, for the tests that plant a `/proc`
-/// tree and for the macOS table.
-#[cfg(all(target_os = "linux", test))]
+/// Every process the host lists, for admission's `before`, the read at a
+/// kill, and the tests that plant a `/proc` tree.
+#[cfg(target_os = "linux")]
 pub(super) fn snapshot() -> Result<Vec<Entry>, TableError> {
     snapshot_in(std::path::Path::new(PROC))
 }
@@ -172,7 +177,7 @@ pub(super) fn snapshot() -> Result<Vec<Entry>, TableError> {
 /// Every process `proc` lists. A process that exits between the listing
 /// and its read is gone, and is left out as gone; a row that cannot be
 /// read for any other reason, or read whole, fails the snapshot.
-#[cfg(all(target_os = "linux", test))]
+#[cfg(target_os = "linux")]
 fn snapshot_in(proc: &std::path::Path) -> Result<Vec<Entry>, TableError> {
     let mut entries = Vec::new();
     for dir in std::fs::read_dir(proc).map_err(TableError::List)? {

@@ -68,6 +68,29 @@ fn forbidden(_: &Identity) -> std::io::Result<()> {
     Err(Errno::PERM.into())
 }
 
+thread_local! {
+    /// The pids this thread's kill hook was handed. The hook is a function
+    /// pointer, so the tests that count what a kill reached share this.
+    static SIGNALLED: std::cell::RefCell<Vec<i32>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Record every identity the kill hook is given.
+fn recorded(id: &Identity) -> std::io::Result<()> {
+    SIGNALLED.with(|signalled| signalled.borrow_mut().push(id.pid));
+    Ok(())
+}
+
+/// Kill what the attempt `key` owns on `host` and assert the recording
+/// hook saw nothing: the planted stray stayed the engine's own.
+fn assert_kill_signals_nothing(registry: &Registry, key: u64, host: Host) {
+    SIGNALLED.with(|signalled| signalled.borrow_mut().clear());
+    assert_eq!(registry.attempts[&key].kill(host), Ok(()));
+    let signalled = SIGNALLED.with(|signalled| std::mem::take(&mut *signalled.borrow_mut()));
+    assert_eq!(signalled, Vec::<i32>::new());
+    assert_eq!(registry.unowned, ids([&row(STRANGER, me(), STRANGER)]));
+}
+
 /// A table whose group `GROUP` has a member still running beside its
 /// zombie leader.
 fn populated() -> Result<Vec<Entry>, TableError> {
@@ -188,19 +211,22 @@ fn a_read_that_began_after_the_ask_is_shared() {
 fn an_orphan_born_after_the_last_read_and_before_a_spawn_is_not_the_attempts() {
     use std::sync::atomic::AtomicBool;
     static BORN: AtomicBool = AtomicBool::new(false);
-    static SIGNALLED: Mutex<Vec<i32>> = Mutex::new(Vec::new());
     fn planted() -> Result<Vec<Entry>, TableError> {
         let orphan = BORN.load(Ordering::Relaxed);
         Ok(table(orphan.then(|| row(STRANGER, me(), STRANGER))))
     }
-    fn recorded(id: &Identity) -> std::io::Result<()> {
-        SIGNALLED.lock().unwrap().push(id.pid);
-        Ok(())
-    }
     let mut registry = registry([]);
     registry.read(planted).unwrap();
     BORN.store(true, Ordering::Relaxed);
-    let (mut driver, key) = registry.admit(planted, &mut Command::new("true")).unwrap();
+    let (mut driver, key) = registry
+        .admit(
+            Host {
+                table: planted,
+                ..Host::REAL
+            },
+            &mut Command::new("true"),
+        )
+        .unwrap();
     driver.wait().unwrap();
     // The next read shows the orphan, and not the driver.
     registry.read(planted).unwrap();
@@ -209,9 +235,48 @@ fn an_orphan_born_after_the_last_read_and_before_a_spawn_is_not_the_attempts() {
         kill: recorded,
         ..Host::REAL
     };
-    assert_eq!(registry.attempts[&key].kill(host), Ok(()));
-    assert_eq!(*SIGNALLED.lock().unwrap(), Vec::<i32>::new());
-    assert_eq!(registry.unowned, ids([&row(STRANGER, me(), STRANGER)]));
+    assert_kill_signals_nothing(&registry, key, host);
+}
+
+/// #918 H2: admission's `before` is the full host table, not the
+/// tracker's walk. D predates the attempt, but the walk can miss it while
+/// D's parent exits before its own row is read; the full read keeps D in
+/// `before`, so the tick that later finds D with the engine does not
+/// attribute it to the attempt or signal it.
+#[test]
+fn a_pre_existing_orphan_the_walk_misses_is_not_the_attempts() {
+    use std::sync::atomic::AtomicBool;
+    static REPARENTED: AtomicBool = AtomicBool::new(false);
+    fn full() -> Result<Vec<Entry>, TableError> {
+        // P and its detached child D both ran before admission; P exits
+        // before its own row is read and D is reparented to the engine.
+        Ok(table([
+            row(RECORDED, me(), RECORDED),
+            row(STRANGER, me(), STRANGER),
+        ]))
+    }
+    fn walk() -> Result<Vec<Entry>, TableError> {
+        // Before the reparenting the walk names neither: P exited before
+        // its row was read, so D is not under P. Afterwards it names D.
+        Ok(table(
+            REPARENTED
+                .load(Ordering::Relaxed)
+                .then(|| row(STRANGER, me(), STRANGER)),
+        ))
+    }
+    let mut registry = registry([]);
+    let host = Host {
+        table: full,
+        tick: walk,
+        kill_group: |_| Ok(()),
+        kill: recorded,
+        ..Host::REAL
+    };
+    let (mut driver, key) = registry.admit(host, &mut Command::new("true")).unwrap();
+    driver.wait().unwrap();
+    REPARENTED.store(true, Ordering::Relaxed);
+    registry.read(walk).unwrap();
+    assert_kill_signals_nothing(&registry, key, host);
 }
 
 /// #403 finding 1: every running child of the engine outside its own
