@@ -128,6 +128,21 @@ function openedPage(fleetView, run, realm = 'brokkr') {
   return page
 }
 
+/** A refused inspect for the parked run in the many-hearth world whose journal is `journal`, read and painted. */
+async function refusedHint(journal) {
+  const words = 'brokkr inspect was refused: the journal could not be read'
+  const many = fleetDoc([['Project Alpha', [row({ seq: 12 })]], ['looper', [row({ run_id: OTHER, seq: 3, title: 'Lane detection v2' })]]])
+  many.realms[0].journal = journal
+  const brokkr = stubBrokkr([
+    { match: ['runs'], responses: [json(many)] },
+    { match: ['inspect'], responses: [{ stderr: words, code: 1 }] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const client = await attached(poller, { view: 'realm', run: { realm: 'Project Alpha', run_id: RUN } })
+  const run = client.sent[0].run
+  return { run, page: openedPage(fleetOf(many), run, 'Project Alpha'), brokkr }
+}
+
 test('a refused read reaches the open client as Brokkr’s words and the command the console ran, in the snapshot and after the head moves', async () => {
   const words = 'brokkr inspect was refused: the journal moved beneath the read'
   const hint = `brokkr inspect --run=${RUN} --db=/hearths/brokkr/forge.db`
@@ -203,40 +218,19 @@ test('a one-hearth world’s refusal paints the command without a journal the co
 })
 
 test('a refused-run hint keeps a journal path with a space as one pasteable argument', async () => {
-  const words = 'brokkr inspect was refused: the journal could not be read'
   const journal = '/hearths/Project Alpha/forge.db'
-  const many = fleetDoc([['Project Alpha', [row({ seq: 12 })]], ['looper', [row({ run_id: OTHER, seq: 3, title: 'Lane detection v2' })]]])
-  const brokkr = stubBrokkr([
-    { match: ['runs'], responses: [json(many)] },
-    { match: ['inspect'], responses: [{ stderr: words, code: 1 }] },
-  ])
-  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
-  const client = await attached(poller, { view: 'realm', run: { realm: 'Project Alpha', run_id: RUN } })
-  const run = client.sent[0].run
+  const { run, page, brokkr } = await refusedHint(journal)
   assert.deepEqual(brokkr.calls().find((argv) => argv[0] === 'inspect'), ['inspect', `--run=${RUN}`, `--db=${journal}`, '--json'])
-
-  const page = openedPage(fleetOf(many), run, 'Project Alpha')
   const painted = findAll(page.tree(), (node) => String(node.props.className).includes('bk-hint') && textOf(node) === run.hint).map(textOf)
   assert.deepEqual(painted, [run.hint])
   assert.deepEqual(pasted(run.hint), ['inspect', `--run=${RUN}`, `--db=${journal}`])
 })
 
 test('a refused-run hint keeps repeated spaces and a tab in its journal path, and the paint shows them', async () => {
-  const words = 'brokkr inspect was refused: the journal could not be read'
   const journal = '/hearths/Project  \tAlpha/forge.db'
-  const many = fleetDoc([['Project Alpha', [row({ seq: 12 })]], ['looper', [row({ run_id: OTHER, seq: 3, title: 'Lane detection v2' })]]])
-  many.realms[0].journal = journal
-  const brokkr = stubBrokkr([
-    { match: ['runs'], responses: [json(many)] },
-    { match: ['inspect'], responses: [{ stderr: words, code: 1 }] },
-  ])
-  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
-  const client = await attached(poller, { view: 'realm', run: { realm: 'Project Alpha', run_id: RUN } })
-  const run = client.sent[0].run
+  const { run, page, brokkr } = await refusedHint(journal)
   assert.deepEqual(brokkr.calls().find((argv) => argv[0] === 'inspect'), ['inspect', `--run=${RUN}`, `--db=${journal}`, '--json'])
   assert.deepEqual(pasted(run.hint), ['inspect', `--run=${RUN}`, `--db=${journal}`])
-
-  const page = openedPage(fleetOf(many), run, 'Project Alpha')
   const painted = findAll(page.tree(), (node) => String(node.props.className).includes('bk-hint') && textOf(node) === run.hint).map(textOf)
   assert.deepEqual(painted, [run.hint])
   assert.match(readFileSync(new URL('../lib/console.css', import.meta.url), 'utf8'), /\.bk-hint\{[^}]*white-space:pre-wrap/)
