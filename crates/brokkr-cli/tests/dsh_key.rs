@@ -46,6 +46,7 @@ impl DshHost {
         let repo = Repo::new();
         let bins = repo.root.with_file_name("bins");
         std::fs::create_dir(&bins).unwrap();
+        crate::brokkr_folder::plant_git(&bins);
         // Staged beside and renamed in, so no write descriptor is open
         // on the file a forked child executes.
         let staged = bins.join("dsh.staged");

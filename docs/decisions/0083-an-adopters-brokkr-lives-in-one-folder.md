@@ -1186,3 +1186,45 @@ the <origin> shelf <shelf> climbs by '..' out of a directory that does not stand
 the personal shelf <shelf> cannot be made (#726): <directory>: <cause>; every directory made for it was removed again, so nothing was installed
 recipe '<name>' stands on the project shelf, at <project>/<name>, so installing it onto the personal shelf, at <personal>/<name>, would stand it on both (#726): neither shelf would win, so rename or remove one of them; nothing was installed
 ```
+
+## Addendum — 2026-10-29, the walk skips git's ignored trees and a bundle past a bound (#908)
+
+Status: proposed; only the operator accepts this addendum.
+
+The operator ruled on #908 (2026-10-29, "go with recommended on the rulings")
+that a bundle compiled from a repository's root must not pin the repository's
+build and fetch trees. The story's run started from such a root and its
+`run/started` manifest pinned 110,209 files (96,276 under `target/`, 13,248
+under `.cargo-home/`, 458 under `.git/`), so its identity moved on every
+build and every reader of the run carried the event.
+
+1. **The skip.** The manifest walk skips the top-level `.git`, as git's own
+   metadata, and each top-level tree git reports ignored for the bundle's
+   repository. Git answers by its own rules — `git check-ignore` for the
+   repository the bundle stands in, so `.gitignore`, `.git/info/exclude` and
+   a global exclude rule alike stay git's to interpret, never a copy of them.
+   A bundle outside any git work tree skips only `.git`, as it did before
+   this addendum. A bundle whose git answer cannot be read is refused by
+   name; it is never read as "pin everything" or "skip everything". The
+   walk, the pinned-script lookup and the skip reason ask one function, so
+   none can drift.
+
+   The skipped trees are still searched for the one-entry rule, exactly as
+   the other unpinned trees are: a consumed file, or a second name for one,
+   inside an ignored tree is refused by name. "Pinning more never lets a file
+   change unseen" holds of every file the compile or a pinned-script lookup
+   reads.
+
+2. **The bound.** A bundle whose pinned walk is past **5,000 files** or
+   **64 MiB** is refused by name before any run starts, in the compile's own
+   words, naming the count or bytes and the largest top-level trees. The
+   refusal comes before `run/started` is written, so no run carries a
+   manifest this large; it is judged from the walked paths, before any byte
+   is hashed. Both numbers are an ask: the controller recommended them, and
+   only the operator may move them.
+
+3. **What identity covers.** This addendum amends ruling 1's account of what
+   a bundle pins: a repository root's build and fetch output is no longer
+   part of the bundle's identity. It changes no pinned file's bytes and no
+   shipped recipe's digest, because no shipped recipe holds a `.git` or a
+   git-ignored tree.

@@ -5,6 +5,12 @@ use super::{
     Layout, Places, PlacesError,
 };
 
+/// [`unpinned_top_level`] for a fixture whose git questions are answered:
+/// these tests plant no repository, so git says the trees are pinned.
+fn skips(dir: &Path, name: &str) -> bool {
+    unpinned_top_level(dir, name).unwrap()
+}
+
 /// Mark `dir` as a recipe library (decision 0083 ruling 4), so a launch
 /// from it keeps the library's own `.forge/` layout: the one mark the
 /// runtime's launch fixtures plant in a bare temporary workspace.
@@ -420,17 +426,17 @@ fn folder_root() -> (tempfile::TempDir, PathBuf) {
 fn only_a_folder_bundle_skips_its_state() {
     let (_dir, root) = folder_root();
     let (folder, library) = (root.join(".brokkr"), root.join("recipes/state"));
-    assert!(unpinned_top_level(&folder, "state"));
-    assert!(!unpinned_top_level(&library, "state"));
-    assert!(unpinned_top_level(&library, "dialects"));
-    assert!(!unpinned_top_level(&folder, "roles"));
+    assert!(skips(&folder, "state"));
+    assert!(!skips(&library, "state"));
+    assert!(skips(&library, "dialects"));
+    assert!(!skips(&folder, "roles"));
     let (nested, recipe) = (root.join("sub/.brokkr"), root.join("recipes/.brokkr"));
     std::fs::create_dir_all(&nested).unwrap();
-    assert!(!unpinned_top_level(&nested, "state"));
+    assert!(!skips(&nested, "state"));
     plant_library(&root);
     std::fs::create_dir_all(&recipe).unwrap();
-    assert!(!unpinned_top_level(&recipe, "state"));
-    assert!(!unpinned_top_level(&folder, "state"));
+    assert!(!skips(&recipe, "state"));
+    assert!(!skips(&folder, "state"));
 }
 
 /// Only a folder bundle skips its top-level `recipes/`, the shelf (#696);
@@ -439,15 +445,17 @@ fn only_a_folder_bundle_skips_its_state() {
 fn only_a_folder_bundle_skips_its_shelf() {
     let (_dir, root) = folder_root();
     let (folder, recipe) = (root.join(".brokkr"), root.join("recipes/x"));
-    assert!(unpinned_top_level(&folder, "recipes"));
-    assert!(!unpinned_top_level(&recipe, "recipes"));
-    assert!(!unpinned_top_level(
-        &root.join(".brokkr/recipes/x"),
-        "recipes"
-    ));
+    assert!(skips(&folder, "recipes"));
+    assert!(!skips(&recipe, "recipes"));
+    assert!(!skips(&root.join(".brokkr/recipes/x"), "recipes"));
     plant_library(&root);
-    assert!(!unpinned_top_level(&folder, "recipes"));
-    let holds = ["state", "recipes", "dialects"].map(super::unpinned_holds);
+    assert!(!skips(&folder, "recipes"));
+    let holds = [
+        super::Skip::State,
+        super::Skip::Shelf,
+        super::Skip::Workspace,
+    ]
+    .map(super::unpinned_holds);
     assert_eq!(
         holds,
         [
@@ -489,7 +497,7 @@ fn a_folder_bundle_whose_layout_cannot_be_read_refuses_a_base() {
     mode(&recipes, 0o000);
     let judged = (!reads_anything(&recipes)).then(|| {
         let refused = base_library(&folder).unwrap_err();
-        (refused, !unpinned_top_level(&folder, "state"))
+        (refused, !skips(&folder, "state"))
     });
     mode(&recipes, 0o755);
     let Some((refused, pinned)) = judged else {

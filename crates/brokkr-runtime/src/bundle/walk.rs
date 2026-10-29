@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 use brokkr_core::canonical::sha256_bytes;
 
 use super::{
-    at_stage, bounded_reference, listing, node, one_entry, unobservable, walk_key, CompileError,
-    Entry, Found, ReadStage, Supplied,
+    at_stage, bounded_reference, folded, listing, node, one_entry, unobservable, walk_key,
+    CompileError, Entry, Found, ReadStage, Supplied,
 };
 
 /// The walk's listing of one layer: each directory to list, with how its
@@ -70,10 +70,21 @@ impl<'a> Walk<'a> {
         // A scaffold may also be the workspace from which Brokkr is
         // invoked. Its realm map and dialect library are workspace
         // declarations pinned into the RUN manifest, never bundle files:
-        // changing either must not move the strategy's identity.
-        let skipped = in_skipped
-            || current == dir
-                && (name.to_str()).is_some_and(|n| crate::places::unpinned_top_level(dir, n));
+        // changing either must not move the strategy's identity. Git's
+        // metadata and a tree git reports ignored are the same kind of
+        // answer for a bundle that is a repository's root (#908); asking
+        // git is refused by name when it cannot answer.
+        let skipped = if in_skipped {
+            true
+        } else if current == dir {
+            match name.to_str() {
+                Some(name) => crate::places::unpinned_top_level(dir, name)
+                    .map_err(|refused| CompileError::Invalid(refused.to_string()))?,
+                None => false,
+            }
+        } else {
+            false
+        };
         if skipped && consumed.is_empty() {
             return Ok(());
         }
@@ -153,6 +164,167 @@ pub(super) fn walk_keys(
         walked.push((path, rel));
     }
     Ok(walked)
+}
+
+/// The most pinned files and pinned bytes one bundle's walk may hold
+/// (#908). A bundle past either is refused before any run starts, so no
+/// `run/started` manifest carries it and no reader of the run pays for it.
+const MAX_FILES: usize = 5_000;
+const MAX_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Refuse a layer whose pinned walk is past [`MAX_FILES`] files or
+/// [`MAX_BYTES`] bytes (#908), naming the bundle, the count or bytes, and
+/// the largest top-level trees. Judged from the walked paths before any
+/// byte is read, so a bundle this large is refused without hashing it.
+pub(super) fn refuse_oversized(
+    dir: &Path,
+    walked: &[(PathBuf, String)],
+) -> Result<(), CompileError> {
+    let mut total = 0u64;
+    let mut trees: BTreeMap<&str, (bool, usize, u64)> = BTreeMap::new();
+    for (path, rel) in walked {
+        let bytes = std::fs::metadata(path)?.len();
+        total = total.saturating_add(bytes);
+        let (top, tree) = match rel.split_once('/') {
+            Some((top, _)) => (top, true),
+            None => (rel.as_str(), false),
+        };
+        let held = trees.entry(top).or_insert((tree, 0, 0));
+        held.0 |= tree;
+        held.1 += 1;
+        held.2 = held.2.saturating_add(bytes);
+    }
+    let files_past = walked.len() > MAX_FILES;
+    if !files_past && total <= MAX_BYTES {
+        return Ok(());
+    }
+    let mut ranked: Vec<(&str, (bool, usize, u64))> = trees.into_iter().collect();
+    if files_past {
+        ranked.sort_by(|(an, (_, ac, _)), (bn, (_, bc, _))| bc.cmp(ac).then_with(|| an.cmp(bn)));
+    } else {
+        ranked.sort_by(|(an, (_, _, ab)), (bn, (_, _, bb))| bb.cmp(ab).then_with(|| an.cmp(bn)));
+    }
+    let largest: Vec<String> = ranked
+        .iter()
+        .take(3)
+        .map(|(name, (tree, count, bytes))| {
+            let shown = if *tree {
+                format!("{name}/")
+            } else {
+                (*name).to_string()
+            };
+            match files_past {
+                true => format!("{shown} ({count} files)"),
+                false => format!("{shown} ({bytes} bytes)"),
+            }
+        })
+        .collect();
+    let measured = match files_past {
+        true => format!(
+            "pins {} files, past the bound of {MAX_FILES} files",
+            walked.len()
+        ),
+        false => format!("pins {total} bytes, past the bound of {MAX_BYTES} bytes (64 MiB)"),
+    };
+    Err(CompileError::Invalid(format!(
+        "the bundle at {} {measured} (#908): the largest top-level trees are {}; it is refused \
+         before any run starts, so no run carries a manifest this large (decision 0083 \
+         amendment)",
+        dir.display(),
+        largest.join(", ")
+    )))
+}
+
+/// The top-level name an ACTIVE input stands under, where that name is one
+/// the walk skips (decision 0066 ruling 5, correcting decision 0065's
+/// design D7). A seat's charter decides what the seat is told and a layer's
+/// table decides how the run is ruled, so neither may sit where the
+/// manifest's file map does not look: the skip is sound for operator
+/// configuration only while nothing a recipe EXECUTES is read from under
+/// it. One predicate, shared with the walk, so the two cannot drift.
+///
+/// `root` is the declaring layer's canonical directory and `reference` is
+/// what that layer wrote. Judged twice: here, the reference as written, its
+/// `.` and `..` folded without touching the disk, which catches a path
+/// spelled into the skipped tree — a link there that points back out
+/// included, since the link is itself bytes nobody pins; and in
+/// [`bound_input`](super::bound_input), its canonical target, which catches
+/// an allowed spelling whose file, or whose parent, is a link into it. That
+/// second question is asked of the one resolution the read is then bound
+/// to.
+///
+/// A reference written OUT of the layer altogether — `../shared/role.md`
+/// — escapes the same map the same way, and no other route pins it: an
+/// agent's charter is pinned by its library record, a dialect's
+/// instructions by the dialect pin, and an inline role by the file map or
+/// by nothing. It is refused on the same terms. The answer is WHERE the
+/// input stands, as the clause both refusals carry.
+///
+/// Second council H5: A `..` STEP IS NOT A PATH THE WALK EVER TAKES. The
+/// walk descends real directory entries — through a link, though a
+/// consumed input whose link leaves the layer is refused by
+/// [`bound_input`](super::bound_input) under operator ruling 3 — and every
+/// key it writes is a chain of such entries. A
+/// reference that walks back UP cannot be one of those keys: with
+/// `base/alias -> ../outside/child`, `alias/../charter.md` folds
+/// lexically to `base/charter.md`, which the map does pin, while the file
+/// a reader opens is `outside/charter.md`, which nothing pins. The chief
+/// edited that file and every manifest digest stayed the same.
+///
+/// So the fold is no longer asked to stand in for the filesystem: a
+/// reference that reaches its file through `..` is refused outright, and
+/// what remains is exactly the set of paths the walk enumerates.
+pub(super) fn unpinned_active_input(
+    root: &Path,
+    reference: &str,
+) -> Result<Option<String>, crate::places::SkipError> {
+    let folded = folded(&root.join(reference));
+    if !folded.starts_with(root) {
+        return Ok(Some(
+            "which stands outside the layer's own directory, where the bundle's file walk \
+             never reaches"
+                .to_string(),
+        ));
+    }
+    // The narrower question first, so a reference spelled into operator
+    // configuration keeps naming the tree it reached.
+    if let Some(place) = skipped_top_level(root, &folded)? {
+        return Ok(Some(place));
+    }
+    Ok(Path::new(reference)
+        .components()
+        .any(|part| part == std::path::Component::ParentDir)
+        .then(|| {
+            "which reaches its file through a '..' step — never a path the bundle's file \
+             walk takes, so a link earlier in it can put the file a reader opens outside \
+             everything the walk pinned"
+                .to_string()
+        }))
+}
+
+/// The clause for a path standing under a top-level name the walk skips,
+/// judged relative to the declaring layer's canonical `root`.
+pub(super) fn skipped_top_level(
+    root: &Path,
+    path: &Path,
+) -> Result<Option<String>, crate::places::SkipError> {
+    let Some(name) = top_level_name(root, path) else {
+        return Ok(None);
+    };
+    let Some(skip) = crate::places::unpinned_reason(root, name)? else {
+        return Ok(None);
+    };
+    let holds = crate::places::unpinned_holds(skip);
+    Ok(Some(format!(
+        "which stands under '{name}' — a top-level name the bundle's file walk does not \
+         pin, because it holds {holds}"
+    )))
+}
+
+/// The first component `path` names under `root`, if it names one at all.
+pub(super) fn top_level_name<'a>(root: &Path, path: &'a Path) -> Option<&'a str> {
+    let first = path.strip_prefix(root).ok()?.components().next()?;
+    first.as_os_str().to_str()
 }
 
 /// Refuse a consumed key the walk lists no entry for, naming who consumed

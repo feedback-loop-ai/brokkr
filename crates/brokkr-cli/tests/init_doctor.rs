@@ -844,6 +844,7 @@ fn init_on_an_empty_path() -> (tempfile::TempDir, String) {
     let dir = repository();
     let empty_path = dir.path().join("empty-path");
     std::fs::create_dir(&empty_path).unwrap();
+    crate::brokkr_folder::plant_git(&empty_path);
     let out = Command::new(env!("CARGO_BIN_EXE_brokkr"))
         .args(["init", "."])
         .env("PATH", &empty_path)
@@ -1725,6 +1726,9 @@ fn doctor_judges_each_boundary_and_compiles_the_discovered_dialect() {
     assert_eq!(code, Some(0), "{error}");
     let empty = dir.path().join("empty-path");
     std::fs::create_dir(&empty).unwrap();
+    // The bundle's compile asks git which trees it ignores (#908); the
+    // boxers this PATH must hide are bwrap, sandbox-exec and docker.
+    crate::brokkr_folder::plant_git(&empty);
     let map_path = dir.path().join(".brokkr/realms.json");
     let mut map: Value = serde_json::from_slice(&std::fs::read(&map_path).unwrap()).unwrap();
     map["schema"] = json!("forge.realms/v4");

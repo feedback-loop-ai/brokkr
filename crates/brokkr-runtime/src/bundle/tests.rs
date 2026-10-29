@@ -1,4 +1,5 @@
 mod entry;
+mod walk_908;
 use super::*;
 use crate::argv::tests::ENGINE;
 use serde_json::json;
