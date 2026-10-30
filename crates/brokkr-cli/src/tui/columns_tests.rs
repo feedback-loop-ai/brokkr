@@ -577,6 +577,24 @@ fn every_width_shares_the_whole_frame_and_holds_each_column_it_draws() {
     }
 }
 
+/// A live page moves one past its held end on `PageDown`, so the shell
+/// asks the page after it (decision 0089 slice 3); without that a bounded
+/// page could never be scrolled past its oldest row.
+#[test]
+fn a_live_page_moves_one_past_its_last_row_to_ask_the_next() {
+    let mut views = fleet_reading(held_view());
+    views.more = true;
+    let mut tui = selecting(HELD);
+    apply(&mut tui, &views, Key::Tab);
+    apply(&mut tui, &views, Key::Tab);
+    let (_, live) = live_text(&views, HELD, 111);
+    tui.live_offset = live.len() - 1;
+    apply(&mut tui, &views, Key::PageDown);
+    assert_eq!(tui.live_offset, live.len(), "one past the held page");
+    apply(&mut tui, &views, Key::PageUp);
+    assert_eq!(tui.live_offset, live.len() - 1, "back onto its last row");
+}
+
 /// `Tab` cycles the focus through the columns on the frame, and the list
 /// keys scroll the focused one: the dashboard's and the live column's
 /// scrolls are their own, and moving the list reads the next run from

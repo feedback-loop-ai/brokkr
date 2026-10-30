@@ -39,22 +39,48 @@ fn edited_below_its_head(db: &Path) {
     assert_eq!(journal.execute(edit, []).unwrap(), 1);
 }
 
-/// The console's frame over `db`, the operator on `r1`: whether it drew a
-/// run view, and the fleet's row of `r1`.
-fn opened_in_the_console(db: &Path) -> (bool, brokkr_view::RunRow) {
+/// The console's frame over `db`, the operator on `r1`, at its run level
+/// and detail pane or at the level of the participant `key` names: whether
+/// it drew a run view, and the fleet's row of `r1`.
+fn opened_in_the_console(db: &Path, key: Option<&str>) -> (bool, brokkr_view::RunRow) {
+    let subject = key.map(|key| tui::Subject {
+        tab: 0,
+        realm: None,
+        run: "r1".to_string(),
+        key: key.to_string(),
+        reference: None,
+        provenance: brokkr_view::transcript::LegacyProvenance::Absent,
+        legacy_id: None,
+        working: false,
+    });
     let ask = tui::Ask {
         run: Some("r1"),
-        subject: None,
+        subject,
+        run_level: false,
         force: true,
         fleet: true,
         tab: 0,
         window: Default::default(),
+        live_rows: 0,
+        live_offset: 0,
     };
     let clock = || "2026-10-20T00:00:00Z".to_string();
     let views = tui_views(db, true, ask, &mut None, &mut None, clock).unwrap();
     let views = views.expect("a forced frame is drawn");
     let row = views.runs.runs.into_iter().find(|row| row.run_id == "r1");
     (views.run.is_some(), row.expect("the opened run is listed"))
+}
+
+/// The console opened on `r1` over `db`, at its run level and detail pane
+/// and at a participant's level, draws no run and shows its row
+/// quarantined in the store's words.
+fn the_console_refuses_it(db: &Path) {
+    let quarantined = (false, Some(EDITED), Some(Quarantine::DoesNotLoad));
+    for key in [None, Some("work")] {
+        let (drawn, row) = opened_in_the_console(db, key);
+        let shown = (drawn, row.detail.as_deref(), row.quarantine);
+        assert_eq!(shown, quarantined, "{key:?}");
+    }
 }
 
 /// The page `brokkr ui` serves.
@@ -234,8 +260,9 @@ fn refused_as_opened(pages: impl Fn(&str) -> Result<Option<usize>, StoreError>) 
 /// with the store's own variant, the edited event's broken hash, as the
 /// opening the readouts move to refuses it, and the run view's read after
 /// it — the
-/// console's opened run, on a journal the summary pages and on one it does
-/// not, shows it quarantined and draws no run; `/api/view`, the
+/// console's opened run, at its run level and at a participant's, on a
+/// journal the summary pages and on one it does not, shows it quarantined
+/// and draws no run; `/api/view`, the
 /// participant presentation and the transcript refuse it in the same
 /// words, where a run the journal does not hold is not found — and the
 /// run beside it reads.
@@ -337,12 +364,9 @@ fn a_corrupt_run_is_refused_wherever_it_is_opened() {
     ]);
     assert_eq!(drawn_in_the_page(&db, "r3")["detail"], not_found);
     assert!(Store::open_read_only(&db).unwrap().pages().unwrap());
-    let quarantined = (false, Some(EDITED), Some(Quarantine::DoesNotLoad));
-    let (drawn, row) = opened_in_the_console(&db);
-    assert_eq!((drawn, row.detail.as_deref(), row.quarantine), quarantined);
+    the_console_refuses_it(&db);
     unmigrate(&rusqlite::Connection::open(&db).unwrap()).unwrap();
-    let (drawn, row) = opened_in_the_console(&db);
-    assert_eq!((drawn, row.detail.as_deref(), row.quarantine), quarantined);
+    the_console_refuses_it(&db);
     let beside = Store::open_read_only(&db).unwrap().load("r2").unwrap();
     assert_eq!(beside.len(), 2, "the run beside it reads");
 }

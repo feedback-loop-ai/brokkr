@@ -7,14 +7,13 @@
 use std::path::Path;
 
 use anyhow::Result;
-use brokkr_core::fold::{fold, RunState};
-use brokkr_core::EventEnvelope;
 use brokkr_runtime::realms::Hearth;
 use brokkr_store::{Store, StoreError};
 use brokkr_view::transcript::{LegacyProvenance, TranscriptRead};
 use brokkr_view::{Cursor, Paged, RunsView, Section};
 
 use crate::fleet::{Ask, Journal, Pages, AHEAD_ROWS, PAGE_ROWS};
+use crate::run_pages::{self, Console, Shown};
 use crate::{local_transcript, tui};
 
 /// The in-memory stamp of the selected transcript source: the subject
@@ -131,7 +130,7 @@ fn refreshed_subject(prior: &tui::Subject, view: &brokkr_view::RunView) -> Optio
 }
 
 /// What the console keeps of one hearth between refreshes: the head of
-/// the run it last read and that run's journal, and the fleet's kept rows
+/// the run it last read and what it read of that run, and the fleet's kept rows
 /// (#744). Nothing here is persisted; it lives as long as the console's
 /// source does.
 #[derive(Default)]
@@ -142,6 +141,22 @@ pub(crate) struct Kept {
     /// The window of the fleet the last frame read (decision 0089 ruling
     /// 6): a list that scrolled or filtered is read again.
     window: Option<tui::Window>,
+    /// How many checkpoint rows the last frame's screen showed, so how
+    /// many pages it asked for: a scroll that shows more is read again
+    /// (decision 0089 slice 3).
+    rows: usize,
+    /// The scroll's own row, which the participant level's window starts
+    /// at (R2, F2, F3), or the end key's request where it asked for the
+    /// stream's absolute end (M3).
+    offset: usize,
+    /// The stream's rank the end key asked for, resolved into `offset`
+    /// once the read reaches the end (M3).
+    end: Option<usize>,
+    /// Whether the run's page the last frame showed has a next one.
+    more: bool,
+    /// How many rows of the screen's order stand before the page the run
+    /// keeps (decision 0089 ruling 9).
+    start: usize,
     /// The events the last frame read, the fleet's and the run's: the
     /// work a refresh paid for.
     read: usize,
@@ -204,23 +219,29 @@ fn read_views(
         resolve_transcript(&ask, seen, &secrets, home.as_deref());
     // A journal that is not the file the fleet was kept from has moved,
     // whatever head the open run still holds in it: the selected run is
-    // read whole again with the fleet.
-    let moved = current != kept.head || kept.fleet.replaced(before);
-    let scrolled = kept.window.as_ref() != Some(&ask.window);
+    // opened again with the fleet.
+    let replaced = kept.fleet.replaced(before);
+    let moved = current != kept.head || replaced;
+    let scrolled = kept.window.as_ref() != Some(&ask.window)
+        || kept.rows != ask.live_rows
+        || kept.offset != ask.live_offset;
     if !(ask.force || ask.fleet || moved || transcript_changed || scrolled) {
         // Nothing has moved: the console keeps the frame it has, and
         // nothing is re-folded at four polls a second.
         return Ok(None);
     }
     kept.head = current;
+    kept.rows = ask.live_rows;
+    kept.offset = ask.live_offset;
+    kept.end = None;
     // Quarantined per run: a console would otherwise lose the operator's
     // whole fleet table because one old run is corrupt. The absence mark
     // is `RunRow.status_known`'s job (0001), and the refusal's own words
     // ride along as the row's detail. A page at a time (decision 0089):
     // the window the list asks for, the selected run's values whole.
     let now = clock();
-    let rebuild = ask.force || moved;
-    let (listed, run) = listed_and_opened(&store, kept, (&now, before), &ask, rebuild)
+    let reopen = ask.force || replaced;
+    let (listed, run) = listed_and_opened(&store, kept, (&now, before), &ask, reopen)
         .map_err(|error| anyhow::Error::msg(error.to_string()))?;
     let transcript = reconciled(
         Reconcile {
@@ -244,6 +265,9 @@ fn read_views(
         unread: listed.unread,
         window: ask.window,
         ahead: listed.ahead,
+        more: kept.more,
+        start: kept.start,
+        end: kept.end,
     }))
 }
 
@@ -255,10 +279,15 @@ fn listed_and_opened(
     kept: &mut Kept,
     (now, before): (&str, Option<Journal>),
     ask: &tui::Ask,
-    rebuild: bool,
+    reopen: bool,
 ) -> Result<(Listed, Option<brokkr_view::RunView>), StoreError> {
     let mut listed = fleet_page(store, kept, now, (&ask.window, ask.run), before)?;
-    let run = match run_of(store, ask.run, rebuild, kept) {
+    let asked = match (&ask.subject, ask.run_level) {
+        (Some(subject), _) => Console::Participant(subject.key.clone()),
+        (None, true) => Console::Run,
+        (None, false) => Console::Detail,
+    };
+    let run = match run_of(store, (ask.run, asked), reopen, kept) {
         Ok(run) => run,
         Err((run, refused)) => {
             let row = crate::fleet::refused_row(store, run, refused)?;
@@ -362,63 +391,95 @@ fn fleet_page_with(
     })
 }
 
-/// The selected run as the console last read it: its journal and what
-/// that folded to.
+/// The selected run as the console last read it: what it read of it
+/// through the run's pages, or whole (decision 0089 slice 3).
 struct Selected {
     run: String,
-    events: Vec<EventEnvelope>,
-    state: Option<RunState>,
+    shown: Shown,
 }
 
-/// Run `run`'s view, derived from the journal kept for it while its head
-/// stands, no rebuild is asked and the fleet carried it, so the fleet's
-/// cadence reads none of the run; read whole and folded otherwise, as the
-/// fleet reads a run whose journal it cannot carry. A run that would not
-/// load keeps nothing, so the next frame reads it again, and is the run
-/// and the store's refusal of it, which the frame shows (decision 0089
-/// ruling 5).
+/// Run `run`'s view as the console shows it `asked`, read through the
+/// run's pages at its run level and whole at a participant's
+/// ([`run_pages::console`]): derived from what an earlier frame read while
+/// the run's head stands and that read paints the screen asked, so the
+/// fleet's cadence reads none of the run; read past that head where the
+/// head moved, the events landed since and what it shows; and opened
+/// again where `reopen` asks it, the fleet read the run whole, or a row
+/// below the head it was read at is lost. A run that would not open keeps
+/// nothing, so the next frame reads it again, and is the run and the
+/// store's refusal of it, which the frame shows (decision 0089 ruling 5).
 fn run_of<'a>(
     store: &Store,
-    run: Option<&'a str>,
-    rebuild: bool,
+    (run, asked): (Option<&'a str>, Console),
+    reopen: bool,
     kept: &mut Kept,
 ) -> Result<Option<brokkr_view::RunView>, (&'a str, StoreError)> {
     let standing = kept.run.take();
+    kept.more = false;
+    kept.start = 0;
     let Some(run) = run else {
+        kept.end = None;
         return Ok(None);
     };
     // An id past what any writer admits names no run, and none is read:
     // the fleet lists it refused in the store's words (decision 0089
     // rulings 5 and 6).
     if brokkr_store::keyed(0, run.to_string()).is_err() {
+        kept.end = None;
         return Ok(None);
     }
-    let rebuild = rebuild || kept.fleet.was_read_whole(run);
-    let kept_run = standing.filter(|selected| !rebuild && selected.run == run);
-    let selected = match kept_run.filter(|selected| still_whole(store, selected)) {
-        Some(selected) => selected,
-        None => {
-            let events = store.load(run).map_err(|refused| (run, refused))?;
-            kept.read += events.len();
-            let state = fold(&events).ok();
-            Selected {
-                run: run.to_string(),
-                events,
-                state,
-            }
-        }
+    // The end a participant read answered is that run's fact: another
+    // run starts without it.
+    if !standing
+        .as_ref()
+        .is_some_and(|selected| selected.run == run)
+    {
+        kept.end = None;
+    }
+    let reopen = reopen || kept.fleet.was_read_whole(run);
+    let standing = standing.filter(|selected| !reopen && selected.run == run);
+    let standing = standing.filter(|selected| still_whole(store, selected));
+    let standing = standing.map(|selected| selected.shown);
+    let screen = asked.clone();
+    // The viewport is the frame's: the rows asked for above the scroll's
+    // first row. The end key's request reads its own window (M3).
+    let visible = match kept.offset {
+        usize::MAX => 0,
+        offset => kept.rows.saturating_sub(offset),
     };
-    let view = brokkr_view::run_view(&selected.events, selected.state.as_ref());
-    kept.run = Some(selected);
+    let reading = run_pages::Reading {
+        rows: kept.rows,
+        offset: kept.offset,
+        visible,
+    };
+    let (shown, read) =
+        run_pages::console_with(store, run, asked, standing, kept.head.as_ref(), reading)
+            .map_err(|refused| (run, refused))?;
+    kept.more = shown.more(&screen);
+    kept.start = shown.start(&screen);
+    // The participant level's whole rank is the read's own fact, kept
+    // across an ordinary scroll and advanced by the checkpoints that land
+    // (R3, F1); the other screens answer it only for the end key's ask.
+    let end = shown.end(&screen);
+    kept.end = match (&screen, end) {
+        (_, Some(end)) => Some(end),
+        (Console::Participant(_), None) => kept.end,
+        _ => None,
+    };
+    kept.read += read;
+    let view = shown.view();
+    let run = run.to_string();
+    kept.run = Some(Selected { run, shown });
     Ok(Some(view))
 }
 
-/// Whether the journal still holds every row of the run `selected` kept,
-/// counted by the key's index and no event read: a row lost below its
-/// head, which no head compares, has the run opened again (decision 0089
-/// ruling 5), as #744's kept read counts every run it keeps.
+/// Whether the journal still holds every row of the run `selected` read,
+/// through the head it was read at, counted by the key's index and no
+/// event read: a row lost below its head, which no head compares, has the
+/// run opened again (decision 0089 ruling 5), as #744's kept read counts
+/// every run it keeps.
 fn still_whole(store: &Store, selected: &Selected) -> bool {
-    let head = selected.events.last().map_or(0, |event| event.seq);
+    let head = selected.shown.head();
     let counted = store.rows_through(&[(selected.run.as_str(), head)]);
     counted.is_ok_and(|counted| counted == [head])
 }

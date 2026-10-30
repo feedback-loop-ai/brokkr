@@ -94,6 +94,23 @@ pub fn composed_whole(
     Some(view)
 }
 
+/// The participants `seats` keep, once each in their order: each one's
+/// key, as the run view keys it, and its seat, its effect and its member,
+/// `None` for the seat's own, as the seat view's read asks for its pages
+/// (`Store::seat_read`). A reader that pages a participant the view lists
+/// finds its seat here by its key.
+pub fn seat_keys(seats: &[SeatRow]) -> Vec<(String, (String, Option<String>))> {
+    let keyed = facts(seats).into_iter().map(|facts| {
+        let member = match facts.member {
+            Member::Seat => None,
+            Member::Named(member) => Some(member),
+        };
+        let key = key_of(&facts.effect_id, member.as_deref());
+        (key, (facts.effect_id, member))
+    });
+    keyed.collect()
+}
+
 /// Each of `participants`' checkpoints, oldest first, made from the
 /// checkpoints of `journal` its key names ([`key_of`] of each one's effect
 /// and member), each row by the seat view's row maker ([`page_rows`]) of

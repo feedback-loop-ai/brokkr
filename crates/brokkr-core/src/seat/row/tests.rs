@@ -4,8 +4,10 @@ use crate::summary::Account;
 
 #[path = "../../../../../tests/support/seat_rows.rs"]
 pub(super) mod journals;
+#[path = "../../../../../tests/support/seat_steps.rs"]
+pub(super) mod seat_steps;
 
-use journals::at;
+use seat_steps::at;
 
 fn facts_of(events: &[EventEnvelope]) -> Vec<SeatFacts> {
     facts(Account::whole("run", events).seats())

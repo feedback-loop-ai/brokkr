@@ -350,25 +350,36 @@ where
         let ask = Ask {
             run: asked.as_deref(),
             subject,
+            // The RUN level paints the graph, the seats and the trail and
+            // no checkpoint: it reads the frame alone (decision 0089
+            // slice 3).
+            run_level: tui.level == Level::Run,
             force: std::mem::take(&mut tui.force),
             fleet: tui.ticks.is_multiple_of(RUNS_REFRESH_TICKS),
             // Only the ACTIVE hearth is ever asked about, so an inactive
             // tab's journal is neither polled nor opened.
             tab: tui.tab,
             window: asked_window(tui),
+            live_rows: asked_rows(tui),
+            live_offset: checkpoint_offset(tui),
         };
         // A read still out (`Polled::Pending`) is neither read nor
         // refused: the give-up bound counts reads.
+        let mut answered = false;
         if let Polled::Answered(answer) = source(ask).into() {
             let key = vanishing_key.as_deref();
             if taken(tui, &mut views, *answer, key, &mut failures)? {
                 shown = asking.clone();
+                answered = true;
             }
         }
         // What the shell has left behind: until what it asks about now
         // answers, the frame draws none of it.
         held_to(tui, &mut views, &mut shown, asking);
-        settle(tui, &views);
+        // A page request the keys parked is resolved only against the
+        // frame that answers it; the frame held while a read is out is not
+        // that answer (R4).
+        settle_when(tui, &views, answered);
         // Ruled over the frame just read, so the frame that first shows
         // the run settled is drawn, and keyed, as ended. The next frame
         // reads the journal as the run left it, and stays until a key

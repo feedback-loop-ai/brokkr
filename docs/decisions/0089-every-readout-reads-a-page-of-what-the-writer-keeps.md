@@ -3,7 +3,7 @@
 Status: accepted — operator ruled 2026-10-19 (PR #769), every choice asked taken as recommended
 Date: 2026-10-18
 
-Built: partial (#753) — slice 1, the fleet, is built but Muninn's queue, which still reads the kept way, and the console's last page by the reverse order; of slice 2, `event_index` is built, its trigger, backfill, keyed reads, each event's id and ruling 4's check, and `seat_summary` is built, its table, writer, seat head, backfill, ruling 4's check, the seat-rows read and the facts the run view reads of a seat's records, a sequence's finished steps, a visit's models and the live block among them (a run whose live start names an effect not yet asked, or none, which no row is of, keeps no seat head, so its rows read stale and the run is read whole), but the run and seat views that read them are unbuilt; slice 3 is unbuilt; of slice 4, `run_summary`'s aggregate columns are built, written from brokkr-core's one reading of a run that `analytics` and `graph` now share, with their `(finished_ms)` index and ruling 4's check, but no readout reads them yet, and `event_index`'s parks' dated facts are built, written from brokkr-core's one reading that `brokkr analytics` still derives from, with their `(span_class, at_ms)` index, their partial index of rows still to write and ruling 4's check, but no readout reads them yet, and its metered checkpoints' dated facts are unbuilt, and the run selectors are built by a key range on `runs`, `latest` through the `(created_at)` index
+Built: partial (#753) — slice 1, the fleet, is built but Muninn's queue, which still reads the kept way, and the console's last page by the reverse order; of slice 2, `event_index` is built, its trigger, backfill, keyed reads, each event's id and ruling 4's check, and `seat_summary` is built, its table, writer, seat head, backfill, ruling 4's check, the seat-rows read and the facts the run view reads of a seat's records, a sequence's finished steps, a visit's models and the live block among them (a run whose live start names an effect not yet asked, or none, which no row is of, keeps no seat head, so its rows read stale and the run is read whole), and the run and seat views that read them are built (`inspect`, `seats`, `watch`, `transcript`, and the console's run level, detail pane, live column and participant level, the live column in the ruled journal order and the participant level oldest-first); of slice 3, those run readers and the console's run screens are built, and `costs` and `compare` read their runs' seat rows at the head each opening verified; of slice 4, `run_summary`'s aggregate columns are built, written from brokkr-core's one reading of a run that `analytics` and `graph` now share, with their `(finished_ms)` index and ruling 4's check, but no readout reads them yet, and `event_index`'s parks' dated facts are built, written from brokkr-core's one reading that `brokkr analytics` still derives from, with their `(span_class, at_ms)` index, their partial index of rows still to write and ruling 4's check, but no readout reads them yet, and its metered checkpoints' dated facts are unbuilt, and the run selectors are built by a key range on `runs`, `latest` through the `(created_at)` index
 Supersedes in part: 0088
 
 ## Context
@@ -634,6 +634,37 @@ model the writer keeps in the journal's own file and transaction.
    Muninn's queue and the aggregates share `run_summary`; the run view,
    the seat view, costs, compare and the aggregates share `seat_summary`;
    the run view, the seat view and the aggregates share `event_index`.
+
+   *Amended, 2026-10-28 (operator, "5a", recorded on #753), the live
+   column's order:* the console's live column orders a seat's checkpoints
+   in journal order, by `seq`, not by `recorded_at`. This is the one
+   accepted output change: it differs from the whole read's `recorded_at`
+   order only where a seat's clock ran backwards, and every fixture whose
+   bytes move is named. The rollback detection the order comparison needed
+   is gone with it: the check over arrivals, `run_pages`' `unordered`, and
+   `seat_read.rs`'s unbounded, effect-crossing older-stamp lookup that cost
+   34,680 VM steps at 3,499,680 and 826 µs at 117,293 µs. A page's cost is
+   the page's, whatever the run holds.
+
+   The participant level's window reads the same journal order, but its
+   pane keeps today's ascending paint and its viewport: it opens on the
+   participant's oldest page and reads forward, older pages as the
+   operator scrolls up and newer as they scroll down, so an ordinary
+   journal's pane bytes are unchanged and the committed
+   `participant_checkpoints` snapshot does not move. Its rows are drawn
+   oldest first, one stream row translated once into the drawn window, and
+   the scroll's row starts the window rather than the newest page's tail,
+   so the oldest row is the top and the newest is reachable. The window
+   differs from the whole read only where a seat's clock ran backwards, as
+   the live column does; no committed or hand-built fixture journal runs
+   its clock backwards, so no fixture's bytes move. The hand-built
+   `rolled_back` journal in `run_pages/tests.rs` is the difference's
+   binding, and `the_participant_level_paints_today_s_ascending_order`
+   pins the ordinary two-row baseline while
+   `the_participant_level_keeps_todays_top_anchored_viewport` pins a
+   multi-page journal's first and last screens. A refresh refills the
+   newer prefix it had dropped, and the detail pane's merge holds a window
+   however deep the scroll.
 
    **`graph` is a follow-up.** It reads what no projection here keeps:
    each run's stays in its states (`stays`,

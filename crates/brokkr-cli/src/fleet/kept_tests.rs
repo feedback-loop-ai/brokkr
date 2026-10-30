@@ -128,9 +128,11 @@ fn chain(run_id: &str, events: impl Iterator<Item = (EventType, Value)>) -> Vec<
 const RUNS: usize = 100;
 const CHECKPOINTS: usize = 4_996;
 
-/// One run of the large journal: an effect in flight, checkpointing.
-fn checkpointing(run_id: &str) -> Vec<EventEnvelope> {
-    let opening = [
+/// The four events that open run `run_id`'s effect `eff` in flight: the
+/// run started, in phase `work`, its seat asked for and its attempt `att`
+/// started.
+pub(crate) fn in_flight(run_id: &str) -> [(EventType, Value); 4] {
+    [
         (EventType::RunStarted, json!({"feature": run_id})),
         (EventType::PhaseEntered, json!({"phase": "work"})),
         (
@@ -141,12 +143,16 @@ fn checkpointing(run_id: &str) -> Vec<EventEnvelope> {
             EventType::EffectStarted,
             json!({"effect_id": "eff", "attempt_id": "att"}),
         ),
-    ];
+    ]
+}
+
+/// One run of the large journal: an effect in flight, checkpointing.
+fn checkpointing(run_id: &str) -> Vec<EventEnvelope> {
     let checkpoints = std::iter::repeat_n(
         (EventType::EffectCheckpointed, json!({"effect_id": "eff"})),
         CHECKPOINTS,
     );
-    chain(run_id, opening.into_iter().chain(checkpoints))
+    chain(run_id, in_flight(run_id).into_iter().chain(checkpoints))
 }
 
 /// A journal of half a million events, nearly all of them checkpoints,

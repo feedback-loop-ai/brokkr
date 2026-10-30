@@ -28,7 +28,9 @@ fn append(db: &Path, run_id: &str, event_type: EventType, payload: serde_json::V
         .unwrap();
 }
 
-/// A running run with an effect in flight, checkpointing.
+/// A running run with an effect in flight, checkpointing in its attempt,
+/// so the stream index keys its checkpoints and the console reads them a
+/// page at a time.
 fn checkpointing(db: &Path, run_id: &str) {
     running_store(db, run_id);
     append(
@@ -44,13 +46,13 @@ fn checkpointing(db: &Path, run_id: &str) {
         json!({"effect_id": "eff", "attempt_id": "att"}),
     );
     for _ in 0..CHECKPOINTS {
-        append(
-            db,
-            run_id,
-            EventType::EffectCheckpointed,
-            json!({"effect_id": "eff"}),
-        );
+        append(db, run_id, EventType::EffectCheckpointed, checkpoint());
     }
+}
+
+/// A checkpoint of the effect in flight, in its attempt.
+fn checkpoint() -> serde_json::Value {
+    json!({"effect_id": "eff", "attempt_id": "att", "checkpoint": {"step": "turn"}})
 }
 
 /// One frame of `brokkr tui` over `db`, open on `run`: how many events it
@@ -65,10 +67,13 @@ fn framed(db: &Path, kept: &mut Kept, run: &str, force: bool) -> (usize, String,
     let ask = tui::Ask {
         run: Some(run),
         subject: None,
+        run_level: false,
         force,
         fleet: true,
         tab: 0,
         window: Default::default(),
+        live_rows: 0,
+        live_offset: 0,
     };
     let views = read_views(db, true, ask, kept, &mut None, || "now".to_string())
         .unwrap()
@@ -82,9 +87,13 @@ fn framed(db: &Path, kept: &mut Kept, run: &str, force: bool) -> (usize, String,
 /// fleet's cadence over a journal that has not moved reads no event, the
 /// run's or the fleet's, and draws the run as it drew it. The fleet is a
 /// page of the summary (decision 0089), which reads no event: what lands
-/// in another run reads none; what lands in the selected run reads it
-/// again; and `r` reads it whole. Loading the selected run at every frame
-/// (a `run_of` that keeps nothing) reads its 204 events at the idle tick.
+/// in another run reads none; what lands in the selected run reads that
+/// event alone, verified onto the head the run was read at, and what the
+/// console shows again (#753, decision 0089 slice 3), never the run whole;
+/// and `r` opens it again, its chain verified whole. Loading the selected
+/// run at every frame (a `run_of` that keeps nothing) reads its 204 events
+/// at the idle tick; one that opens the run again on a moved head reads
+/// its 205 after the append.
 #[test]
 fn the_fleet_cadence_reads_nothing_of_a_journal_that_has_not_moved() {
     let dir = tempfile::tempdir().unwrap();
@@ -106,14 +115,9 @@ fn the_fleet_cadence_reads_nothing_of_a_journal_that_has_not_moved() {
     );
     assert_eq!(frame(&db, &mut kept, "selected", false), (0, drawn.clone()));
 
-    append(
-        &db,
-        "selected",
-        EventType::EffectCheckpointed,
-        json!({"effect_id": "eff"}),
-    );
+    append(&db, "selected", EventType::EffectCheckpointed, checkpoint());
     let (read, moved) = frame(&db, &mut kept, "selected", false);
-    assert_eq!(read, selected + 1, "the run again");
+    assert_eq!(read, 1, "the event landed since, never the run");
     assert_ne!(moved, drawn);
     assert_eq!(frame(&db, &mut kept, "selected", false), (0, moved.clone()));
     assert_eq!(
@@ -213,6 +217,7 @@ fn asked(filter: &str) -> tui::Ask<'static> {
     tui::Ask {
         run: Some("selected"),
         subject: None,
+        run_level: false,
         force: false,
         fleet: false,
         tab: 0,
@@ -220,6 +225,8 @@ fn asked(filter: &str) -> tui::Ask<'static> {
             after: None,
             filter: filter.to_string(),
         },
+        live_rows: 0,
+        live_offset: 0,
     }
 }
 
@@ -374,10 +381,13 @@ fn a_journal_whose_runs_cannot_be_listed_refuses_the_frame_in_the_stores_words()
     let ask = tui::Ask {
         run: None,
         subject: None,
+        run_level: false,
         force: false,
         fleet: true,
         tab: 0,
         window: Default::default(),
+        live_rows: 0,
+        live_offset: 0,
     };
     let refused = read_views(&db, true, ask, &mut Kept::default(), &mut None, || {
         "now".to_string()

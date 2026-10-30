@@ -392,18 +392,25 @@ pub(crate) static TRAIL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// A seat's checkpoints under an attempt and a member, newest first,
-/// between two seqs, both held, read through the stream index, as many as
-/// the last bound: a page, or the seat view's page and one more
-/// (`seat_read.rs`).
-pub(crate) static STREAM: LazyLock<String> = LazyLock::new(|| {
+/// A seat's checkpoints under an attempt and a member, between two seqs,
+/// both held, read through the stream index in `order`, as many as the
+/// last bound: a page, or a page and one more (`seat_read.rs`).
+fn stream_sql(order: &str) -> String {
     format!(
         "SELECT seq FROM event_index INDEXED BY event_index_stream
          WHERE run_id = ?1 AND attempt_id = ?2 AND member IS ?3 AND seq >= ?4 AND seq <= ?5
            AND type = '{CHECKPOINTED}'
-         ORDER BY seq DESC LIMIT ?6"
+         ORDER BY seq {order} LIMIT ?6"
     )
-});
+}
+
+/// A seat's checkpoints newest first: the seat view's page and the live
+/// column's, and the page below their cursor.
+pub(crate) static STREAM: LazyLock<String> = LazyLock::new(|| stream_sql("DESC"));
+
+/// A seat's checkpoints oldest first: the participant level's first page
+/// and the page above its cursor.
+pub(crate) static FORWARD: LazyLock<String> = LazyLock::new(|| stream_sql("ASC"));
 
 /// One event's envelope, by its key.
 const ENVELOPE: &str = "SELECT envelope FROM events WHERE run_id = ?1 AND seq = ?2";

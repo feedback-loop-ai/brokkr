@@ -729,6 +729,7 @@ pub fn brokkr_view::resolved(alloc::vec::Vec<brokkr_view::Participant>) -> alloc
 pub fn brokkr_view::run_row(&brokkr_view::RunEntry<'_>) -> brokkr_view::RunRow
 pub fn brokkr_view::run_rows(&[brokkr_view::RunEntry<'_>]) -> brokkr_view::RunsView
 pub fn brokkr_view::run_view(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> brokkr_view::RunView
+pub fn brokkr_view::seat_keys(&[brokkr_core::seat::row::SeatRow]) -> alloc::vec::Vec<(alloc::string::String, (alloc::string::String, core::option::Option<alloc::string::String>))>
 pub fn brokkr_view::section_of(&brokkr_view::RunRow, &str) -> brokkr_view::Section
 pub fn brokkr_view::section_of_rows(&[brokkr_view::RunRow], brokkr_view::Section, &str, core::option::Option<brokkr_core::page::Place<'_>>, (usize, &dyn core::ops::function::Fn(&brokkr_view::RunRow) -> bool)) -> alloc::vec::Vec<brokkr_view::RunRow>
 pub fn brokkr_view::sections<'a>(&'a [brokkr_view::RunRow], &str) -> alloc::vec::Vec<(brokkr_view::Section, alloc::vec::Vec<&'a brokkr_view::RunRow>)>
@@ -739,4 +740,5 @@ pub fn brokkr_view::title(&str) -> alloc::string::String
 pub fn brokkr_view::title_within(&str, usize) -> alloc::string::String
 pub fn brokkr_view::window<E>(core::option::Option<&brokkr_view::Cursor>, (usize, &str), usize, impl core::ops::function::FnMut(brokkr_view::Section, core::option::Option<brokkr_core::page::Place<'_>>, usize) -> core::result::Result<alloc::vec::Vec<brokkr_view::RunRow>, E>) -> core::result::Result<(brokkr_view::Page, core::option::Option<brokkr_view::Cursor>), E>
 pub fn brokkr_view::working_checkpoints<'a>(&'a brokkr_view::RunView, &str) -> alloc::vec::Vec<(&'a str, &'a brokkr_view::CheckpointRow)>
+pub fn brokkr_view::working_participants<'a>(&'a brokkr_view::RunView, &str) -> alloc::vec::Vec<&'a brokkr_view::Participant>
 pub fn brokkr_view::wrap(&str, usize) -> alloc::vec::Vec<alloc::string::String>

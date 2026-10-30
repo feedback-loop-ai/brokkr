@@ -77,6 +77,29 @@ fn facts_pair_with_their_own_rows_by_effect_and_member() {
 /// The stamp every event of a run built here is recorded at.
 const AT: &str = "2026-01-01T00:00:00Z";
 
+/// Each participant the seat rows keep is found by the key its view row
+/// carries, its seat its effect and its member: the seat's own and its
+/// member's, once each, in the order the run view lists them.
+#[test]
+fn each_participant_s_seat_is_found_by_its_key() {
+    let started = json!({"effect_id": "e", "attempt_id": "a"});
+    let mut events = begun(started);
+    let record = json!({"effect_id": "e", "attempt_id": "a", "checkpoint": {"member": "x"}});
+    events.push(ev(4, EventType::EffectCheckpointed, record.clone(), AT));
+    events.push(ev(5, EventType::EffectCheckpointed, record, AT));
+    let account = Account::whole("r", &events);
+    let keyed = seat_keys(account.seats());
+    let seat = |member: Option<&str>| ("e".to_string(), member.map(str::to_string));
+    let expected = [
+        ("e".to_string(), seat(None)),
+        ("e:x".to_string(), seat(Some("x"))),
+    ];
+    assert_eq!(keyed, expected);
+    let listed = crate::run_view(&events, None).participants;
+    let listed: Vec<&str> = listed.iter().map(|part| part.key.as_str()).collect();
+    assert_eq!(listed, ["e", "e:x"]);
+}
+
 /// A run started, asking for effect `e` and starting its attempt `a`, the
 /// start's payload `started`.
 fn begun(started: serde_json::Value) -> Vec<EventEnvelope> {

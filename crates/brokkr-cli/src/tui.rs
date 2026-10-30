@@ -83,6 +83,12 @@ const RUNS_REFRESH_TICKS: usize = 8;
 /// One `PageUp`/`PageDown` in list rows.
 const PAGE: usize = 10;
 
+/// The absolute rank today's participant renderer can display: its `u16`
+/// scroll narrows every offset above it. The one home of the cutoff the
+/// read chooses a page by, the movement narrows with and the pane paints
+/// through, so the three cannot drift (L1, decision 0071 ruling 5).
+pub(crate) const DISPLAY_RANK: usize = u16::MAX as usize;
+
 /// The fleet list's columns, left to right (#491): how the run stands (a
 /// glyph and its widest word, `quarantined`), its verdict, its residual
 /// (the widest, `critical`), its title, its age (`999h59m`) and its id.
@@ -150,6 +156,7 @@ mod panes;
 mod participant;
 mod reader;
 mod seats;
+mod settle;
 mod state;
 mod style;
 mod terminal;
@@ -163,6 +170,7 @@ use self::movement::*;
 use self::painter::*;
 use self::participant::*;
 use self::seats::*;
+use self::settle::*;
 use self::state::*;
 use self::style::*;
 // No sibling reads the frame's panes or the shell beyond the entries
@@ -182,8 +190,11 @@ pub(crate) use self::movement::{asked_window, keeps};
 pub(crate) use self::panes::draw;
 pub use self::participant::transcript_surfaces_for_test;
 pub(crate) use self::reader::behind;
+#[cfg(test)]
+pub(crate) use self::settle::{settle_end, settle_when};
 pub(crate) use self::state::{
-    Ask, DriveEnd, Refreshed, Scrolled, Subject, Tui, Unread, Views, Watched, Window,
+    asked_rows, checkpoint_offset, Ask, DriveEnd, Refreshed, Scrolled, Subject, Tui, Unread, Views,
+    Watched, Window,
 };
 pub(crate) use self::terminal::{production_ops, start, Closed, Session};
 
@@ -195,6 +206,104 @@ mod fleet_tests;
 
 #[cfg(test)]
 mod reader_tests;
+
+#[cfg(test)]
+mod screens_tests;
+
+#[cfg(test)]
+pub(crate) use self::state::ask;
+
+#[cfg(test)]
+pub(crate) use self::screens_tests::{run_level_screens, screens, ENDS};
+
+/// The real paging keys, for the run readers' key/read/draw proofs (#753):
+/// the console's own key handler, not a second movement path.
+#[cfg(test)]
+pub(crate) fn page_key(tui: &mut Tui, views: &Views, down: bool) {
+    let key = match down {
+        true => Key::PageDown,
+        false => Key::PageUp,
+    };
+    let _ = apply(tui, views, key);
+}
+
+/// The real `g` and Down keys, for the endpoints and within-row proofs.
+#[cfg(test)]
+pub(crate) fn top_key(tui: &mut Tui, views: &Views) {
+    let _ = apply(tui, views, Key::Char('g'));
+}
+
+#[cfg(test)]
+pub(crate) fn bottom_key(tui: &mut Tui, views: &Views) {
+    let _ = apply(tui, views, Key::Char('G'));
+}
+
+#[cfg(test)]
+pub(crate) fn tab_key(tui: &mut Tui, views: &Views) {
+    let _ = apply(tui, views, Key::Tab);
+}
+
+#[cfg(test)]
+pub(crate) fn down_key(tui: &mut Tui, views: &Views) {
+    let _ = apply(tui, views, Key::Down);
+}
+
+#[cfg(test)]
+pub(crate) fn up_key(tui: &mut Tui, views: &Views) {
+    let _ = apply(tui, views, Key::Up);
+}
+
+/// A real character key, for the hearth and other bound keys (#753).
+#[cfg(test)]
+pub(crate) fn char_key(tui: &mut Tui, views: &Views, character: char) {
+    let _ = apply(tui, views, Key::Char(character));
+}
+
+/// A frame drawn by the console's own draw path, as the key/read/draw
+/// proofs compare it with the whole read's.
+#[cfg(test)]
+pub(crate) fn frame_for_test(tui: &Tui, views: &Views, width: u16, height: u16) -> String {
+    self::tests::frame_of(tui, views, width, height)
+}
+
+/// The live column alone, drawn at the width the real layout gives it, so
+/// a wrapped live line is measured where the console draws it (R1).
+#[cfg(test)]
+pub(crate) fn live_frame_for_test(
+    tui: &Tui,
+    views: &Views,
+    run: &str,
+    width: u16,
+    height: u16,
+) -> String {
+    let Some((_, live)) = layout(tui.toggles, width)
+        .into_iter()
+        .find(|(column, _)| *column == FleetColumn::Live)
+    else {
+        return String::new();
+    };
+    let Some(row) = views.runs.runs.iter().find(|row| key_of(row) == run) else {
+        return String::new();
+    };
+    let mut terminal =
+        ratatui::Terminal::new(ratatui::backend::TestBackend::new(live, height)).unwrap();
+    terminal
+        .draw(|frame| {
+            let area = frame.area();
+            draw_live(frame, area, tui, views, row);
+        })
+        .unwrap();
+    terminal.backend().to_string()
+}
+
+/// The console at a participant's level, by the real state machine's own
+/// shape, for the continuation proof (R2).
+#[cfg(test)]
+pub(crate) fn participant_level(tui: &mut Tui, key: &str) {
+    tui.level = Level::Participant;
+    tui.seat = Some(key.to_string());
+    tui.pane = 0;
+}
 
 #[cfg(test)]
 mod snapshot_tests;

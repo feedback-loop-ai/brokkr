@@ -249,6 +249,7 @@ pub(super) fn ascend(tui: &mut Tui) {
             // fleet reads its selection from the top.
             tui.offset = 0;
             tui.live_offset = 0;
+            tui.live_line = 0;
             tui.force = true;
         }
         Level::Runs => {}

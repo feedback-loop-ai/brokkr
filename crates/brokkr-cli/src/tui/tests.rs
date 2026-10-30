@@ -5191,7 +5191,7 @@ fn refresh_subject(
     crate::tui_read::tui_views(
         db,
         true,
-        Ask {
+        ask! {
             run: Some("run-7"),
             subject: Some(subject),
             force,

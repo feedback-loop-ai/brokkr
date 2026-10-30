@@ -69,8 +69,9 @@ pub use compare::{
     first_divergence, resolution_divergence, resolutions, resolved, FirstDivergence, Resolution,
     Sides,
 };
-pub use composed::{composed_view, composed_whole, Parts};
+pub use composed::{composed_view, composed_whole, seat_keys, Parts};
 use dashboard::dashboard;
+pub use dashboard::working_participants;
 pub use dashboard::{working_checkpoints, Concluded, Dashboard, Decision, Outcome, Ruled, Visit};
 pub use fleet::{
     at_work, behind_line, fleet_rows, need, page, ranges, run_row, run_rows, section_of,
@@ -87,8 +88,8 @@ pub use scope::{
     keeps_participant, keeps_phase, keeps_row, lens_for, Lens, Membership, Scope, ScopeError,
     Scopes,
 };
-pub use seat_view::page_rows;
 use seat_view::{attempt_boundary, boundaries_of, row_of, Boundaries};
+pub use seat_view::{page_rows, CheckpointRow};
 pub use started::CarriedFrom;
 
 use std::collections::BTreeMap;
@@ -179,7 +180,7 @@ const TRAIL_SKIP: [EventType; 3] = [
 
 /// One displayed scalar: its rendered text plus whether the journal
 /// carries it at all, and why not when it does not.
-#[derive(Serialize, Debug, PartialEq)]
+#[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct Cell {
     pub text: String,
     pub absent: bool,
@@ -316,7 +317,7 @@ pub struct Activity {
 /// the five, or decision 0031's `not applicable` for a site without
 /// hands — and never the adjective; a journal that recorded none renders
 /// the absent mark with [`NO_BOUNDARY`].
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct ModelAtBoundary {
     /// The provider-reported model. No adapter default or abstract agent
     /// choice is substituted when the journal carries no such report.
@@ -341,25 +342,6 @@ pub struct RunBoundary {
     /// recorded`, or empty for a run that boxes nothing. The only
     /// place the adjective is spelled, so no surface composes its own.
     pub text: String,
-}
-
-#[derive(Serialize)]
-pub struct CheckpointRow {
-    pub turn: Cell,
-    pub step: String,
-    #[serde(flatten)]
-    pub served: ModelAtBoundary,
-    /// The effort this turn was configured with, as the harness echoed
-    /// it. Per-turn because both codex and claude write it per turn, so
-    /// a thread that changed effort mid-seat says so row by row rather
-    /// than averaging into one seat-level answer.
-    pub effort: Cell,
-    pub usage: Cell,
-    pub target: Cell,
-    pub target_full: Option<String>,
-    /// The capability call this checkpoint records (decision 0065).
-    pub capability_call: capability_calls::CallEvidence,
-    pub recorded_at: String,
 }
 
 /// Which agent resolution selected one invocation's adapter and pinned
@@ -993,7 +975,7 @@ struct Build {
     transcript: Option<Transcript>,
     member_outcome: Option<Value>,
     member_finished_at: Option<String>,
-    checkpoints: Vec<(Value, String, Option<String>)>,
+    checkpoints: Vec<(Value, String, Option<String>, u64)>,
     /// What its records told, typed once the scan has read them all.
     told: Told,
     status: &'static str,
@@ -1148,6 +1130,7 @@ fn scan_participants(events: &[EventEnvelope]) -> Scan {
                     checkpoint.clone(),
                     event.recorded_at.clone(),
                     boundary,
+                    event.seq,
                 ));
                 let step = checkpoint.get("step").and_then(Value::as_str);
                 // A turn is a turn whoever counts it. Claude numbers a
@@ -1432,8 +1415,8 @@ fn activity_for(
 
 fn checkpoint_rows(part: &Build) -> Vec<CheckpointRow> {
     let rows = part.checkpoints.iter();
-    let row = |(checkpoint, at, boundary): &(Value, String, Option<String>)| {
-        row_of(checkpoint, at, boundary.clone())
+    let row = |(checkpoint, at, boundary, seq): &(Value, String, Option<String>, u64)| {
+        row_of(checkpoint, at, boundary.clone(), *seq)
     };
     rows.map(row).collect()
 }

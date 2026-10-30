@@ -70,8 +70,8 @@ grep -oE "wall${tab}[a-z0-9-]+${tab}[0-9]+\$" "$scratch/release" > "$scratch/wal
 
 [[ -s "$scratch/prompts" ]] || { printf 'measure-budgets: the prompt test reported no site\n' >&2; exit 1; }
 [[ "$(wc -l < "$scratch/packages")" -eq 1 ]] || { printf 'measure-budgets: the crate count was not reported once\n' >&2; exit 1; }
-[[ "$(wc -l < "$scratch/peaks")" -eq 26 ]] || { printf 'measure-budgets: not every transcript kind, fleet page, listing, opening, run view, run frame, seat view, costs and compare reported its peak\n' >&2; exit 1; }
-[[ "$(wc -l < "$scratch/walls")" -eq 11 ]] || { printf 'measure-budgets: the fleet page, costs and compare did not report their wall times at both sizes, or the opening, the whole read, the run view, the run frame and the seat view theirs\n' >&2; exit 1; }
+[[ "$(wc -l < "$scratch/peaks")" -eq 27 ]] || { printf 'measure-budgets: not every transcript kind, fleet page, listing, opening, run view, run frame, detail window, seat view, costs and compare reported its peak\n' >&2; exit 1; }
+[[ "$(wc -l < "$scratch/walls")" -eq 13 ]] || { printf 'measure-budgets: the fleet page, costs and compare did not report their wall times at both sizes, or the opening, the whole read, the run view, the run frame, the console run level, idle and at work, and the seat view theirs\n' >&2; exit 1; }
 
 jq -Rn --arg date "$(date -u +%F)" '
   [inputs | split("\t") | {key: .[0], value: (.[1] | split(" ")[0] | tonumber)}] | from_entries
@@ -105,5 +105,5 @@ jq -Rn --arg date "$(date -u +%F)" '
 
 printf 'measured %s prompt sites, %s packages, peaks:' "$(wc -l < "$scratch/prompts")" "$(cut -f2 "$scratch/packages")"
 cut -f2,3 "$scratch/peaks" | tr '\t\n' '= ' && printf '\n'
-printf 'wall times, release, warm, in microseconds (the fleet first page against ruling 9: 50000; opening the 7,510-event run beside load; the run view'"'"'s first screen, its terminal frame, the seat view'"'"'s page, costs and compare against ruling 9: 50000; not gated):'
+printf 'wall times, release, warm, in microseconds (the fleet first page against ruling 9: 50000; opening the 7,510-event run beside load; the run view'"'"'s first screen, its terminal frame, the console'"'"'s run level, idle and at work, the seat view'"'"'s page, costs and compare against ruling 9: 50000; not gated):'
 cut -f2,3 "$scratch/walls" | tr '\t\n' '= ' && printf '\n'

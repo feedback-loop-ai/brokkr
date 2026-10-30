@@ -11,6 +11,8 @@ mod envelope_builder;
 mod committed_journals;
 #[path = "../../../tests/support/seat_rows.rs"]
 mod journals;
+#[path = "../../../tests/support/seat_steps.rs"]
+mod seat_steps;
 
 mod composed_view;
 mod seat_items;

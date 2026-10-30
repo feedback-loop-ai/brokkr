@@ -5,13 +5,13 @@ use std::path::Path;
 
 use brokkr_core::envelope::EventEnvelope;
 use brokkr_store::{Opened, Store, StoreError};
-use brokkr_view::{Cursor, RunsView};
+use brokkr_view::{Cursor, RunView, RunsView};
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 use ratatui::Terminal;
 
 use crate::fleet::Journal;
-use crate::run_pages::{viewed, Shows};
+use crate::run_pages::{console, viewed, Console, Shows};
 use crate::tui::{asked_window, draw, Scrolled, Tui, Views};
 use crate::tui_read::{fleet_page, Kept};
 
@@ -41,6 +41,7 @@ pub fn run_frame_for_budget(
         residuals: &[],
     };
     let views = Views {
+        start: 0,
         now: now.to_string(),
         runs: brokkr_view::run_rows(&[entry]),
         run: Some(brokkr_view::run_view(events, state.as_ref())),
@@ -49,6 +50,8 @@ pub fn run_frame_for_budget(
         unread: Default::default(),
         window: Default::default(),
         ahead: None,
+        more: false,
+        end: None,
     };
     // Opened at the RUN level, as `brokkr tui --run <id>` opens.
     let tui = Tui::over(Some(run_id.to_string()), Vec::new(), 0);
@@ -178,16 +181,81 @@ pub fn fleet_frame_for_budget(
     height: u16,
 ) -> Result<String, StoreError> {
     let views = Views {
+        start: 0,
         runs: fleet_page_for_budget(db, now, &fleet_window_for_budget(&FleetScroll::default()))?.0,
         now: now.to_string(),
         ..Views::empty()
     };
     // Opened at the RUNS level, as `brokkr tui` opens.
-    let mut tui = Tui::over(None, Vec::new(), 0);
+    Ok(painted_text(
+        Tui::over(None, Vec::new(), 0),
+        &views,
+        (width, height),
+    ))
+}
+
+/// `views` drawn as `tui` stands at `width`×`height`: the frame's text,
+/// row after row, each cell its symbol.
+fn painted_text(mut tui: Tui, views: &Views, (width, height): (u16, u16)) -> String {
     (tui.width, tui.height) = (width, height);
-    let terminal = painted(&tui, &views, (width, height));
+    let terminal = painted(&tui, views, (width, height));
     let cells = terminal.backend().buffer().content().iter();
-    Ok(cells.map(|cell| cell.symbol()).collect())
+    cells.map(|cell| cell.symbol()).collect()
+}
+
+/// The view the console's RUN level paints of `run` in the journal at
+/// `db`, from its read-only open, read as the console reads it when the
+/// run is selected (decision 0089 slice 3): the frame, and no seat's
+/// checkpoints.
+pub fn console_run_view_for_budget(db: &Path, run: &str) -> Result<RunView, StoreError> {
+    let store = Store::open_read_only(db)?;
+    Ok(console(&store, run, Console::Run, None, None, 0, 0)?
+        .0
+        .view())
+}
+
+/// The view the console's fleet detail pane paints of `run` at `rows`: the
+/// frame and the merged window across the seats at work, from its
+/// read-only open, as the shell asks it at a scroll `rows` deep. The
+/// console's detail read, for the heap proof that its intermediate merge
+/// is the window's however deep the scroll (F4, decision 0089 ruling 9).
+pub fn console_detail_view_for_budget(
+    db: &Path,
+    run: &str,
+    rows: usize,
+) -> Result<RunView, StoreError> {
+    let store = Store::open_read_only(db)?;
+    Ok(console(&store, run, Console::Detail, None, None, rows, 0)?
+        .0
+        .view())
+}
+
+/// The console's RUN level as it is first painted after `run` is selected
+/// in the journal at `db`, at `now`, 160×48, by its own `draw`, from its
+/// read-only open: the run read as the console reads it at its run level
+/// ([`console_run_view_for_budget`]), or with `whole` read whole and
+/// folded, as the console read it before the pages; the frame's text.
+pub fn console_run_level_for_budget(
+    db: &Path,
+    run: &str,
+    now: &str,
+    whole: bool,
+) -> Result<String, StoreError> {
+    let view = match whole {
+        true => {
+            let events = Store::open_read_only(db)?.load(run)?;
+            brokkr_view::run_view(&events, brokkr_core::fold::fold(&events).ok().as_ref())
+        }
+        false => console_run_view_for_budget(db, run)?,
+    };
+    let views = Views {
+        start: 0,
+        now: now.to_string(),
+        run: Some(view),
+        ..Views::empty()
+    };
+    let tui = Tui::over(Some(run.to_string()), Vec::new(), 0);
+    Ok(painted_text(tui, &views, (160, 48)))
 }
 
 /// What `brokkr watch --once` paints of `run` in the journal at `db`, its

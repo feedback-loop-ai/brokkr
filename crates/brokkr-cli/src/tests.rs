@@ -1,5 +1,6 @@
 use super::*;
 use crate::folder::folder_tests::library_journal;
+use crate::tui::ask;
 use crate::tui_read::{tui_source, tui_views, SourceStamp};
 use brokkr_bridge::BridgeError;
 use brokkr_core::canonical::{sha256_hex, ZERO_HASH};
@@ -2136,7 +2137,7 @@ fn a_vanished_participant_clears_the_same_frames_transcript() {
     let clock = || "2026-01-01T00:07:03Z".to_string();
     let mut head = None;
     let mut seen = None;
-    let ask = tui::Ask {
+    let ask = ask! {
         tab: 0,
         run: Some("r1"),
         subject: Some(tui::Subject {
@@ -2192,7 +2193,7 @@ fn the_console_masks_a_bound_value_the_dsh_session_file_holds() {
          \"text\":\"the token is ghp-bound-7f3a9c\"}]}},\"time\":2000}\n",
     )
     .unwrap();
-    let ask = tui::Ask {
+    let ask = ask! {
         tab: 0,
         run: Some("r1"),
         subject: Some(tui::Subject {
@@ -2320,9 +2321,7 @@ fn read_only_resolution_opens_a_sole_hearth_without_writing() {
     );
 }
 
-/// The console's liveness, at the one place a store is opened on its
-/// path: head-gated on both seq and hash, fleet on the slower cadence,
-/// and one unfoldable run keeping its row.
+/// The console's liveness: head-gated on seq and hash, fleet on the slower cadence, an unfoldable run keeping its row.
 #[test]
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
@@ -2330,13 +2329,15 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     let db = dir.path().join("forge.db");
     running_store(&db, "r1");
     let clock = || "2026-01-01T00:07:03Z".to_string();
-    let ask = |run, force, fleet| tui::Ask {
-        tab: 0,
-        run,
-        subject: None,
-        force,
-        fleet,
-        window: Default::default(),
+    let ask = |run, force, fleet| {
+        ask! {
+            tab: 0,
+            run,
+            subject: None,
+            force,
+            fleet,
+            window: Default::default(),
+        }
     };
     let mut head = None;
 
@@ -2505,7 +2506,7 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     let views = tui_views(
         &mixed,
         true,
-        tui::Ask {
+        ask! {
             tab: 0,
             run: None,
             subject: Some(tui::Subject {
@@ -2611,13 +2612,15 @@ fn a_working_seats_transcript_is_re_resolved_without_a_journal_move() {
         legacy_id: None,
         working,
     };
-    let poll = |locator: &str, working: bool| tui::Ask {
-        tab: 0,
-        run: Some("r1"),
-        subject: Some(subject(locator, working)),
-        force: false,
-        fleet: false,
-        window: Default::default(),
+    let poll = |locator: &str, working: bool| {
+        ask! {
+            tab: 0,
+            run: Some("r1"),
+            subject: Some(subject(locator, working)),
+            force: false,
+            fleet: false,
+            window: Default::default(),
+        }
     };
     let turn = |text: &str| {
         format!("{{\"type\":\"assistant\",\"message\":{{\"role\":\"assistant\",\"content\":\"{text}\"}}}}\n")
@@ -2630,7 +2633,7 @@ fn a_working_seats_transcript_is_re_resolved_without_a_journal_move() {
     let first = tui_views(
         &db,
         true,
-        tui::Ask {
+        ask! {
             tab: 0,
             run: Some("r1"),
             subject: Some(subject("abcd-1234", true)),
@@ -2796,7 +2799,7 @@ fn a_working_seats_transcript_is_re_resolved_without_a_journal_move() {
     let refreshed = tui_views(
         &db,
         true,
-        tui::Ask {
+        ask! {
             tab: 0,
             run: Some("r1"),
             subject: Some(subject("abcd-1234", false)),
@@ -3184,7 +3187,7 @@ fn one_broken_chain_is_one_quarantined_row_on_every_fleet_surface() {
     );
 
     // `tui`: the forced fleet frame, the refusal its row's detail, not a bare `?`.
-    let ask = tui::Ask {
+    let ask = ask! {
         tab: 0,
         run: None,
         subject: None,
@@ -4004,7 +4007,6 @@ fn write_bundle_with(bundle_dir: &std::path::Path, hands: Value) {
     )
     .unwrap();
 }
-
 /// Its compile half is the runtime's `launch::tests` test of the same
 /// name, beside the private compile it proves (#350); what a run and a
 /// resume make of it through the CLI stays here.
@@ -4066,7 +4068,6 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
     )
     .is_err());
 }
-
 /// `brokkr seats` (decision 0046 ruling 3; design DD11): a thin verb
 /// over `inspect`'s own view, opening the journal by the same route and
 /// resolving the run by the same selector, in both faces. The bytes it
@@ -4160,7 +4161,6 @@ fn held_and_shipped(db: &std::path::Path) {
         }
     }
 }
-
 /// `brokkr operator supersede` end to end (decision 0047 rulings 1 and
 /// 2): the verb writes one annotation, and every way of asking for it
 /// wrong is refused with nothing written.
@@ -4405,7 +4405,7 @@ fn a_refreshed_run_re_resolves_changed_authority_before_display() {
     let views = tui_views(
         &db,
         true,
-        tui::Ask {
+        ask! {
             tab: 0,
             run: Some("r1"),
             subject: Some(subject),

@@ -9,12 +9,40 @@ use std::collections::BTreeMap;
 
 use brokkr_core::seat::{boundary_entries, stamp_of, token_usage, BoundaryEntry};
 use brokkr_core::{EventEnvelope, EventType};
+use serde::Serialize;
 use serde_json::Value;
 
 use crate::{
-    capability_calls, cell_of, field, joined, js, target_cells, usage_text, CheckpointRow,
-    ModelAtBoundary, NO_BOUNDARY,
+    capability_calls, cell_of, field, joined, js, target_cells, usage_text, Cell, ModelAtBoundary,
+    NO_BOUNDARY,
 };
+
+/// Cloned where a reader keeps a page of a seat's rows between the frames
+/// it derives from them, as the console keeps its run's (#753).
+#[derive(Serialize, Clone)]
+pub struct CheckpointRow {
+    pub turn: Cell,
+    pub step: String,
+    #[serde(flatten)]
+    pub served: ModelAtBoundary,
+    /// The effort this turn was configured with, as the harness echoed
+    /// it. Per-turn because both codex and claude write it per turn, so
+    /// a thread that changed effort mid-seat says so row by row rather
+    /// than averaging into one seat-level answer.
+    pub effort: Cell,
+    pub usage: Cell,
+    pub target: Cell,
+    pub target_full: Option<String>,
+    /// The capability call this checkpoint records (decision 0065).
+    pub capability_call: capability_calls::CallEvidence,
+    pub recorded_at: String,
+    /// The journal seq this row was made from: the console's live column
+    /// orders a seat's checkpoints by it (decision 0089, amended
+    /// 2026-10-28), never by `recorded_at`, which a clock can step back.
+    /// Read by the view alone; it is no surface's field.
+    #[serde(skip)]
+    pub(crate) seq: u64,
+}
 
 /// An attempt, by its effect and its attempt.
 type Attempt = (String, String);
@@ -139,6 +167,7 @@ pub(crate) fn row_of(
     checkpoint: &Value,
     recorded_at: &str,
     boundary: Option<String>,
+    seq: u64,
 ) -> CheckpointRow {
     let target = match checkpoint.get("target") {
         Some(Value::String(target)) if !target.is_empty() => Some(target.as_str()),
@@ -188,6 +217,7 @@ pub(crate) fn row_of(
         target_full: full,
         capability_call: capability_calls::call_evidence(checkpoint),
         recorded_at: recorded_at.to_string(),
+        seq,
     }
 }
 
@@ -215,7 +245,7 @@ pub fn page_rows(
         }
         let boundary = worded.get(&key).unwrap_or(&UNSTARTED).boundary(record);
         let checkpoint = event.payload.get("checkpoint").unwrap_or(&Value::Null);
-        Some(row_of(checkpoint, &event.recorded_at, boundary))
+        Some(row_of(checkpoint, &event.recorded_at, boundary, event.seq))
     }
 }
 

@@ -59,8 +59,8 @@ impl Told {
             outcome: (outcome != Some(&Value::Null)).then(|| js::to_display(outcome)),
         });
         let session = part.session.as_ref();
-        let at = |checkpoint: Option<&(Value, String, Option<String>)>| {
-            checkpoint.map(|(_, at, _)| at.clone())
+        let at = |checkpoint: Option<&(Value, String, Option<String>, u64)>| {
+            checkpoint.map(|(_, at, _, _)| at.clone())
         };
         Told {
             spent: spent(part),
@@ -104,7 +104,7 @@ impl Told {
 /// Every attempt's reported cost, summed in journal order.
 fn spent(part: &Build) -> Option<f64> {
     let mut total = None;
-    for (checkpoint, _, _) in &part.checkpoints {
+    for (checkpoint, _, _, _) in &part.checkpoints {
         if let Some(cost) = reported_cost(checkpoint) {
             total = Some(total.unwrap_or(0.0) + cost);
         }
@@ -115,7 +115,7 @@ fn spent(part: &Build) -> Option<f64> {
 fn session_usage(part: &Build) -> Option<TokenUsage> {
     let checkpoints = part.checkpoints.iter();
     let mut meters: Vec<Meter> = checkpoints
-        .map(|(checkpoint, _, _)| Meter::of(checkpoint))
+        .map(|(checkpoint, _, _, _)| Meter::of(checkpoint))
         .collect();
     meter::once(&mut meters);
     let session = part.session.as_ref().map(Meter::of);

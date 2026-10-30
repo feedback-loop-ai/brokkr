@@ -35,6 +35,16 @@ pub(crate) struct Views {
     /// The key past the window's first page, where the page ahead
     /// begins, when the fleet runs on past it.
     pub ahead: Option<brokkr_view::Cursor>,
+    /// Whether the selected screen's held page has a next one, so a
+    /// scroll past its rows asks for it (decision 0089 slice 3).
+    pub more: bool,
+    /// How many rows of the selected screen's order stand before the page
+    /// it holds, so the panes scroll from the window they have rather than
+    /// the top of the stream it dropped (decision 0089 ruling 9).
+    pub start: usize,
+    /// The selected screen's whole rank, where its end key asked for it:
+    /// the offset the end key's request resolves to (M3).
+    pub end: Option<usize>,
 }
 
 /// Where the fleet's list reads from (decision 0089 ruling 6): the key
@@ -95,6 +105,9 @@ impl Views {
             unread: Unread::default(),
             window: Window::default(),
             ahead: None,
+            more: false,
+            start: 0,
+            end: None,
         }
     }
 }
@@ -131,6 +144,9 @@ pub(crate) struct Ask<'a> {
     /// The participant whose transcript this frame is about, or `None`
     /// away from the participant level.
     pub subject: Option<Subject>,
+    /// The RUN level is the screen on the frame: it reads the run's frame
+    /// and no seat's checkpoints (decision 0089 slice 3).
+    pub run_level: bool,
     /// `r`, a level change, or the first frame: rebuild regardless.
     pub force: bool,
     /// The fleet's slower cadence is due.
@@ -143,7 +159,69 @@ pub(crate) struct Ask<'a> {
     /// The window of the fleet the list asks to be read: the page its
     /// window starts at and the one ahead (decision 0089 ruling 6).
     pub window: Window,
+    /// How many checkpoint rows the screen shows, so how many it asks the
+    /// run's pages for: the live column's or the participant pane's
+    /// scroll and the pane's height, and no more (decision 0089 slice 3).
+    pub live_rows: usize,
+    /// The scroll's own row: the participant pane's first row, whose
+    /// window the page holds (R2, F2, F3).
+    pub live_offset: usize,
 }
+
+/// How many rows the selected screen shows of a seat's checkpoints: the
+/// live column's or the participant pane's scroll plus the pane's height
+/// on the frame the shell measured. The run level shows none.
+pub(crate) fn asked_rows(tui: &Tui) -> usize {
+    match tui.level {
+        Level::Run => 0,
+        // The end key asks for the stream's end, not for a rank-plus-height
+        // that saturates: the read holds the frame's viewport past the rank
+        // it resolves, so the page it keeps is the pane's, not `usize::MAX`
+        // (M3, M4).
+        Level::Runs | Level::Participant => match checkpoint_offset(tui) {
+            usize::MAX => usize::from(tui.height),
+            offset => offset.saturating_add(usize::from(tui.height)),
+        },
+    }
+}
+
+/// The checkpoint pane's scroll as the frame displays it: the live
+/// column's, or the participant pane's when that pane has the focus. An
+/// unfocused participant pane paints from its top, so its read asks for
+/// the oldest window and the focused offset waits for Tab back (M4).
+pub(crate) fn checkpoint_offset(tui: &Tui) -> usize {
+    match tui.level {
+        Level::Runs => tui.live_offset,
+        Level::Participant => match tui.pane {
+            0 => display_rank(tui.offset),
+            _ => 0,
+        },
+        Level::Run => 0,
+    }
+}
+
+/// The absolute rank today's participant renderer can display: its
+/// `u16` scroll narrows every offset above it. The read chooses the page
+/// that rank names before translating into the window, rather than
+/// subtracting an unclamped page start from the narrowed rank (M4). The
+/// end key's `usize::MAX` request stays whole for the read to answer.
+fn display_rank(offset: usize) -> usize {
+    match offset {
+        usize::MAX => offset,
+        offset => offset.min(DISPLAY_RANK),
+    }
+}
+
+/// A console ask away from the RUN level: the tests that open a run from
+/// the fleet do not spell the field that tells its run level from the
+/// fleet's (decision 0089 slice 3).
+#[cfg(test)]
+macro_rules! ask {
+    ($($field:tt)*) => { $crate::tui::Ask { run_level: false, live_rows: 0, live_offset: 0, $($field)* } };
+}
+
+#[cfg(test)]
+pub(crate) use ask;
 
 // -------------------------------------------------------------- the state
 
@@ -200,6 +278,19 @@ pub(crate) struct TabState {
     pub commission: bool,
     /// How far this hearth's fleet has scrolled.
     pub scrolled: Scrolled,
+}
+
+/// A step across the held live window: the stream row its anchor line
+/// sits at, and the drawn-line distance from that row's first line. The
+/// read lays the rows around the anchor at the column's width, so movement
+/// keeps the whole distance rather than the window's edge: negative above
+/// the window (PageUp), positive below it (PageDown) (R1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct LiveCross {
+    /// The absolute stream row rank of the anchor row.
+    pub(crate) row: usize,
+    /// Drawn lines from the anchor row's first line.
+    pub(crate) lines: isize,
 }
 
 /// Owned scalars only. Selection is by **stable key** — `RunRow.run_id`,
@@ -284,8 +375,16 @@ pub(crate) struct Tui {
     pub toggles: Toggles,
     /// `c`: the dashboard shows the selected run's whole commission.
     pub commission: bool,
-    /// The live or findings column's scroll, in drawn lines.
+    /// The live or findings column's scroll: a checkpoint row in the
+    /// stream for the live column, a drawn line for the findings, and the
+    /// drawn line within that row the viewport starts at.
     pub live_offset: usize,
+    pub live_line: usize,
+    /// A step above the held live window, whose remaining drawn-line
+    /// distance the read must lay out at the column's width before
+    /// [`settle_end`] can resolve it (R1). Cleared by the next move and
+    /// once resolved.
+    pub live_cross: Option<LiveCross>,
     /// What this session watches besides its keys (#508).
     pub watched: Watched,
     /// The run it watched has ended: the frame stays until any key.
@@ -346,6 +445,8 @@ impl Tui {
             toggles: Toggles::default(),
             commission: false,
             live_offset: 0,
+            live_line: 0,
+            live_cross: None,
             watched: Watched::Console,
             ended: false,
         }
@@ -366,6 +467,8 @@ impl Tui {
         self.node = None;
         self.turn = None;
         self.offset = 0;
+        self.live_line = 0;
+        self.live_cross = None;
         self.force = true;
     }
 }
@@ -407,6 +510,8 @@ pub(super) fn switch(tui: &mut Tui, index: usize) {
     tui.commission = resumed.commission;
     tui.scrolled = resumed.scrolled;
     tui.live_offset = 0;
+    tui.live_line = 0;
+    tui.live_cross = None;
     tui.level = Level::Runs;
     tui.pane = 0;
     tui.run = None;
@@ -481,46 +586,6 @@ pub(super) fn lens_of(tui: &Tui, views: &Views) -> Option<brokkr_view::Lens> {
             .ok()
             .flatten()
     })
-}
-
-/// Selection clears itself when its subject disappears — the rule the
-/// console already follows. A **filter** never clears a scope: absence
-/// from a filtered list is a display fact, and this runs against the
-/// unfiltered models.
-pub(super) fn settle(tui: &mut Tui, views: &Views) {
-    if lens_of(tui, views).is_none() {
-        tui.scope = None;
-    }
-    seed_cursor(tui, views);
-    if seat_of(tui, views).is_none() {
-        tui.seat = None;
-        if tui.level == Level::Participant {
-            tui.level = Level::Run;
-            tui.pane = 1;
-        }
-    }
-    // The fleet's rows are a window of pages read by keyset (decision 0089
-    // ruling 6), and a writer moves a run out of it, so a run missing from
-    // them has not gone on that account. Only the run level reads the open
-    // run, and there the frame says what it found: a view of it, or, when
-    // the store refused it, its row in the store's words (ruling 5). A
-    // fleet that lists runs while the frame holds neither has lost it. An
-    // empty fleet is the unreadable-journal frame, which is not evidence
-    // that the run went away.
-    let vanished = match &tui.run {
-        Some(run) if tui.level != Level::Runs && views.run.is_none() => {
-            !views.runs.runs.is_empty() && !views.runs.runs.iter().any(|row| key_of(row) == run)
-        }
-        Some(_) | None => false,
-    };
-    if vanished {
-        tui.run = None;
-        tui.level = Level::Runs;
-        tui.pane = 0;
-        tui.scope = None;
-        tui.seat = None;
-        tui.cursor = [None, None, None];
-    }
 }
 
 pub(super) fn seat_of<'a>(tui: &Tui, views: &'a Views) -> Option<&'a Participant> {

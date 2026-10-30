@@ -319,7 +319,19 @@ pub(super) fn step(tui: &mut Tui, views: &Views, step: Step) {
             return;
         }
         let len = stream_len(tui, views);
-        scroll(&mut tui.offset, len, step);
+        // The end key keeps the stream's logical rank; movement reads that
+        // same coordinate, including the stream's current end, and Down
+        // there wraps as the whole read's does (M4, R2, R3, R4; decision
+        // 0071 ruling 5).
+        scroll_paged(
+            &mut tui.offset,
+            views.start,
+            len,
+            step,
+            views.more,
+            views.end,
+            Paging::Absolute,
+        );
         return;
     }
     if tui.level == Level::Runs {
@@ -346,6 +358,253 @@ fn scroll(offset: &mut usize, len: usize, step: Step) {
     *offset = cursor.and_then(|line| line.parse().ok()).unwrap_or(0);
 }
 
+/// How a paragraph's page step treats the held window: the participant
+/// level is a paged stream whose rows continue past the window, while the
+/// findings column is held whole and stops at its last drawn line.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Paging {
+    Absolute,
+    Held,
+}
+
+/// A paragraph's offset, in the stream's own rows: the window holds rows
+/// `start..start + len`, and movement is one arithmetic over the absolute
+/// stream coordinate, never over the window's edges. A paged stream's
+/// page step therefore keeps all ten rows it names when it leaves the
+/// held window, and the shell reads the page the destination names (R2).
+/// Where the stream's current end is known, a step past it wraps there as
+/// the whole read's does, whatever the display window's bounds (R3). A
+/// column held whole stops at its last drawn line, or asks one line past
+/// it when a page follows, so a page can be scrolled past its oldest row
+/// (decision 0089 slice 3). One coordinate, translated once into the
+/// window (R1).
+fn scroll_paged(
+    offset: &mut usize,
+    start: usize,
+    len: usize,
+    step: Step,
+    more: bool,
+    end: Option<usize>,
+    paging: Paging,
+) {
+    if len == 0 {
+        *offset = start;
+        return;
+    }
+    let window_end = start.saturating_add(len);
+    let stream_end = end.unwrap_or(match more {
+        true => usize::MAX,
+        false => window_end,
+    });
+    match step {
+        // The top and the end are the stream's, not the held window's:
+        // `g` reaches rank zero even from a deep window (R1, F2).
+        Step::Top => *offset = 0,
+        // A held end is the stream's end; with a page beyond it, ask for
+        // the absolute end and let the read say how deep the stream is
+        // (M3).
+        Step::Bottom => {
+            *offset = match more {
+                true => usize::MAX,
+                false => stream_end.saturating_sub(1),
+            }
+        }
+        // Up from the stream's top is the stream's end, not the held
+        // window's: ask for the absolute end and let the read say it (M1).
+        Step::Up if *offset == 0 => {
+            *offset = match more {
+                true => usize::MAX,
+                false => stream_end.saturating_sub(1),
+            }
+        }
+        Step::Up => *offset = offset.saturating_sub(1),
+        // A held column steps one row past its window's last when the
+        // shell says a page follows it, so the page can be asked for.
+        Step::Down if paging == Paging::Held && offset.saturating_add(1) >= window_end => {
+            *offset = match more {
+                true => window_end,
+                false => 0,
+            }
+        }
+        // Down from the stream's current end is its top, never the held
+        // window's first row (M1, R3).
+        Step::Down if offset.saturating_add(1) >= stream_end => *offset = 0,
+        Step::Down => *offset = offset.saturating_add(1),
+        // A held column's page step stops at the window's last line, or
+        // asks one line past it when a page follows.
+        Step::PageDown if paging == Paging::Held => {
+            *offset = match more && offset.saturating_add(PAGE) >= window_end {
+                true => window_end,
+                false => offset
+                    .saturating_add(PAGE)
+                    .min(window_end.saturating_sub(1)),
+            }
+        }
+        // A paged stream's page step always moves the ten rows it names
+        // from the absolute offset, so a crossing keeps its remaining
+        // distance (R2). It never passes the stream's known end.
+        Step::PageDown => {
+            *offset = match stream_end {
+                usize::MAX => offset.saturating_add(PAGE),
+                stream_end => offset
+                    .saturating_add(PAGE)
+                    .min(stream_end.saturating_sub(1)),
+            }
+        }
+        Step::PageUp if paging == Paging::Held && *offset >= window_end => {
+            *offset = window_end.saturating_sub(1)
+        }
+        Step::PageUp => *offset = offset.saturating_sub(PAGE),
+    }
+}
+
+/// The live column's position as a drawn line from the held window's
+/// first line, including the distance an outstanding crossing still owes:
+/// a move that has not been answered yet continues from where it asked to
+/// go, not from the window's edge (R5, decision 0071 ruling 5).
+fn live_position(tui: &Tui, views: &Views, laid: &Laid) -> isize {
+    let rows = laid.rows.len() - 1;
+    if let Some(cross) = tui.live_cross {
+        let anchor = cross.row.saturating_sub(views.start).min(rows);
+        return (laid.rows[anchor] as isize).saturating_add(cross.lines);
+    }
+    let row = tui.live_offset.saturating_sub(views.start).min(rows - 1);
+    let line = tui
+        .live_line
+        .min(laid.rows[row + 1].saturating_sub(laid.rows[row] + 1));
+    (laid.rows[row] + line) as isize
+}
+
+/// Keep a live position as the row and drawn line the pane scrolls at,
+/// keeping a position above or below the held window as the crossing the
+/// read must answer first (R1, R5).
+fn store_live(tui: &mut Tui, views: &Views, laid: &Laid, at: isize, more: bool) {
+    let rows = laid.rows.len() - 1;
+    let end = laid.rows[rows] as isize;
+    tui.live_cross = None;
+    if at < 0 {
+        tui.live_cross = Some(LiveCross {
+            row: views.start,
+            lines: at,
+        });
+        tui.live_offset = views.start.saturating_sub(PAGE);
+        tui.live_line = 0;
+        return;
+    }
+    if more && at >= end {
+        tui.live_cross = Some(LiveCross {
+            row: views.start + rows,
+            lines: at - end,
+        });
+        tui.live_offset = views.start + rows;
+        tui.live_line = 0;
+        return;
+    }
+    let at = (at as usize).min(end.saturating_sub(1) as usize);
+    place_live(tui, views, laid, at);
+}
+
+/// The live column's offset, in stream rows and a drawn line within the
+/// row, moved by drawn lines so a wrapped continuation is reachable one
+/// line at a time (R1, F3). Movement is one arithmetic on that position,
+/// including any distance a crossing still owes, so repeated keys before
+/// a page answer accumulate rather than clamping back into the previous
+/// window (R5). A step past the held window asks the next page by moving
+/// one row past it; the top is the stream's rank zero.
+fn scroll_live(tui: &mut Tui, views: &Views, laid: &Laid, step: Step, more: bool) {
+    let rows = laid.rows.len().saturating_sub(1);
+    if rows == 0 {
+        tui.live_cross = None;
+        tui.live_offset = 0;
+        tui.live_line = 0;
+        return;
+    }
+    let end = laid.rows[rows] as isize;
+    let mut at = live_position(tui, views, laid);
+    match step {
+        Step::Top => {
+            tui.live_cross = None;
+            tui.live_offset = 0;
+            tui.live_line = 0;
+            return;
+        }
+        // A step above the held window asks the page above it, so the
+        // read refills from the newest page instead of wrapping inside
+        // the window (R1). An `Up` lands on the preceding row's FOOT: the
+        // whole read's Up is one drawn line, so the row above a window
+        // edge keeps its last wrapped continuation (R5); the read resolves
+        // the request at the column's width (settle_end).
+        Step::Up if at == 0 && views.start > 0 => {
+            tui.live_cross = Some(LiveCross {
+                row: views.start,
+                lines: -1,
+            });
+            tui.live_offset = views.start - 1;
+            tui.live_line = usize::MAX;
+            return;
+        }
+        // Up from the stream's top asks for its absolute end (M1), whether
+        // or not the held window already reaches it: a stream held whole
+        // wraps to its foot as today's renderer does (R1).
+        Step::Up if at == 0 => {
+            tui.live_cross = None;
+            tui.live_offset = usize::MAX;
+            tui.live_line = 0;
+            return;
+        }
+        Step::Up => at -= 1,
+        Step::Bottom if more => {
+            tui.live_cross = None;
+            tui.live_offset = usize::MAX;
+            tui.live_line = 0;
+            return;
+        }
+        Step::Bottom => at = end - 1,
+        // Down from the stream's last drawn line is its top, never the
+        // held window's first row (M1).
+        Step::Down if !more && at + 1 >= end => {
+            tui.live_cross = None;
+            tui.live_offset = 0;
+            tui.live_line = 0;
+            return;
+        }
+        Step::Down => at += 1,
+        // A `PageUp` crosses in drawn lines, not checkpoint rows, and
+        // keeps every line it names: the anchor is the window's first row,
+        // and the distance is how many lines above it the move reaches,
+        // including a previous crossing's (R1, R5). The read lays the rows
+        // above at the column's actual width and `settle_end` resolves the
+        // whole distance there.
+        Step::PageUp if at < PAGE as isize && views.start > 0 => {
+            let back = (PAGE as isize - at).max(PAGE as isize) as usize;
+            tui.live_cross = Some(LiveCross {
+                row: views.start,
+                lines: at - PAGE as isize,
+            });
+            tui.live_offset = views.start.saturating_sub(back);
+            tui.live_line = 0;
+            return;
+        }
+        Step::PageUp => at = (at - PAGE as isize).max(0),
+        // A `PageDown` that crosses the window's last drawn line keeps the
+        // lines it still owes: the anchor is the row after the window, and
+        // the distance is how far past its first line the move reaches,
+        // including a previous crossing's (R1, R5). The read lays the newer
+        // rows and `settle_end` resolves the whole distance there.
+        Step::PageDown if more && at + PAGE as isize >= end => {
+            tui.live_cross = Some(LiveCross {
+                row: views.start + rows,
+                lines: at + PAGE as isize - end,
+            });
+            tui.live_offset = views.start + rows;
+            tui.live_line = 0;
+            return;
+        }
+        Step::PageDown => at = (at + PAGE as isize).min(end - 1),
+    }
+    store_live(tui, views, laid, at, more);
+}
+
 /// The fleet's keys move the list, or scroll the focused column a drawn
 /// line at a time (#503). A new selection is read from its first line,
 /// its commission folded.
@@ -358,8 +617,22 @@ fn fleet_step(tui: &mut Tui, views: &Views, step: Step) {
             scroll(&mut tui.offset, drawn, step);
         }
         Some((FleetColumn::Live, row)) => {
-            let drawn = live_column(views, row, width).1.len();
-            scroll(&mut tui.live_offset, drawn, step);
+            let laid = live_layout(views, row, width);
+            if laid.streamed {
+                scroll_live(tui, views, &laid, step, views.more);
+            } else {
+                // Findings are not a stream: their offset is a drawn line
+                // from the top, and no window stands before it.
+                scroll_paged(
+                    &mut tui.live_offset,
+                    0,
+                    laid.lines.len(),
+                    step,
+                    views.more,
+                    None,
+                    Paging::Held,
+                );
+            }
         }
         Some((FleetColumn::List, _)) | None => {
             let keys = keys_for(tui, views);
@@ -368,6 +641,7 @@ fn fleet_step(tui: &mut Tui, views: &Views, step: Step) {
             follow(tui, views, (&keys, from), step);
             tui.offset = 0;
             tui.live_offset = 0;
+            tui.live_line = 0;
             tui.commission = false;
         }
     }

@@ -30,10 +30,13 @@ fn asking<'a>(
             legacy_id: None,
             working: false,
         }),
+        run_level: false,
         force,
         fleet,
         tab,
         window: Default::default(),
+        live_rows: 0,
+        live_offset: 0,
     }
 }
 
@@ -87,6 +90,7 @@ fn gated(gate: Receiver<()>, asked: &Asked) -> impl FnMut(Ask) -> Result<Refresh
             .push((run.clone(), ask.force, ask.fleet));
         let _ = gate.recv();
         Ok(Some(Views {
+            start: 0,
             note: run,
             ..Views::empty()
         }))
@@ -314,6 +318,7 @@ fn drawn_while_out(keys: &[Key]) -> (String, Tui) {
         out = key.as_deref() == Some("eff-i");
         let transcript = key.map(|_| super::tests::read_of(super::tests::turns_of(2), false));
         Ok(Some(Views {
+            start: 0,
             transcript,
             ..views()
         }))
@@ -342,6 +347,7 @@ fn a_selection_entered_draws_none_of_the_one_left_while_its_read_is_out() {
         apply(&mut reading, &views(), key);
     }
     let prose = Views {
+        start: 0,
         transcript: Some(super::tests::read_of(super::tests::turns_of(2), false)),
         ..views()
     };

@@ -390,17 +390,35 @@ pub fn statements_begun<T>(store: &mut Store, read: impl FnOnce(&Store) -> T) ->
 /// (decision 0089 ruling 7).
 #[cfg(feature = "test-support")]
 pub fn statements_traced<T>(store: &mut Store, read: impl FnOnce(&Store) -> T) -> (T, Vec<String>) {
-    use std::sync::{Mutex, PoisonError};
-    static BEGUN: Mutex<Vec<String>> = Mutex::new(Vec::new());
-    fn begun(sql: &str) {
-        let mut begun = BEGUN.lock().unwrap_or_else(PoisonError::into_inner);
-        begun.push(sql.to_string());
+    use std::cell::RefCell;
+    thread_local! {
+        // SQLite calls a connection's trace on the thread running its
+        // statement, so one collector per test thread keeps overlapping
+        // collectors apart: the process-wide clear/take erased another
+        // test's statements under CI's default parallelism (M5).
+        static BEGUN: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     }
-    BEGUN.lock().unwrap_or_else(PoisonError::into_inner).clear();
+    fn begun(sql: &str) {
+        BEGUN.with(|begun| begun.borrow_mut().push(sql.to_string()));
+    }
+    /// This thread's collector is cleared however `read` leaves: a panic
+    /// unwinds through the guard rather than leaving a sibling test's
+    /// thread-local history for the next call. The connection's trace is
+    /// removed on the normal path; a panicking read drops its store with
+    /// the trace still installed, which no later statement reads.
+    struct Traced;
+    impl Drop for Traced {
+        fn drop(&mut self) {
+            BEGUN.with(|begun| begun.borrow_mut().clear());
+        }
+    }
+    BEGUN.with(|begun| begun.borrow_mut().clear());
     store.conn.trace(Some(begun));
+    let guard = Traced;
     let read = read(store);
+    let begun = BEGUN.with(|begun| std::mem::take(&mut *begun.borrow_mut()));
+    drop(guard);
     store.conn.trace(None);
-    let begun = std::mem::take(&mut *BEGUN.lock().unwrap_or_else(PoisonError::into_inner));
     (read, begun)
 }
 
