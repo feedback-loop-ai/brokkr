@@ -30,6 +30,30 @@ function headsOf(fleet) {
   return heads
 }
 
+/** The key a retained page is held by: the realm and the journal it was read from. */
+const pageKey = (realm, journal) => `${realm}\u0000${journal}`
+
+/**
+ * The standing a fresh inspect summary states, by the status and phase
+ * `brokkr-view` derives it from; `null` for a status this console does not
+ * know, so the cached row is kept rather than guessed at.
+ */
+function standingOf(summary) {
+  if (summary === null) return null
+  if (summary.status === 'running') return 'running'
+  if (summary.status === 'awaiting_operator') return 'parked'
+  if (summary.status === 'completed') return 'shipped'
+  if (summary.status === 'stopped') return summary.phase === 'stop' ? 'stopped' : 'operator_stopped'
+  return null
+}
+
+/** The row a fresh inspect summary states over the row the listing gave: its head, phase, standing and park reason follow the read. */
+function rowOf(summary, row) {
+  const standing = standingOf(summary)
+  if (standing === null) return row
+  return { ...row, seq: summary.seq, phase: summary.phase, verdict: { ...row.verdict, standing, reason: summary.park_reason } }
+}
+
 /** A watch message, checked; `null` for one the host does not read. */
 function watchOf(message) {
   if (message === null || typeof message !== 'object' || message.type !== 'watch') return null
@@ -141,19 +165,22 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
 
   /**
    * Read the fleet; whether it differs from the last one read, and the rows
-   * a refresh kept from a page already loaded. Every poll reads each
-   * hearth's first page only; the pages an operator paged into are kept for
-   * the hearth on screen while the first page still ends where they began,
-   * and let go otherwise so no run is left unreachable.
+   * a refresh kept from a page already loaded or for a run still open. Every
+   * poll reads each hearth's first page only; the pages an operator paged
+   * into are kept for the hearth on screen, keyed by its journal, while the
+   * first page still ends where they began, and let go otherwise. An open
+   * run the listing no longer holds is kept from the last fleet while the
+   * listing is incomplete, so moving a page boundary never closes it.
    */
   async function readFleet() {
+    const prior = state.fleet
     const fleet = await readHearths(await hearthsOf(brokkr, workspace))
     const onScreen = watched()
-    const paged = new Set()
-    for (const [realm, extra] of [...state.extras]) {
-      const hearth = fleet.hearths.find((each) => each.realm === realm)
-      if (!onScreen.has(realm) || hearth === undefined || hearth.next !== extra.from) {
-        state.extras.delete(realm)
+    const retained = new Set()
+    for (const [key, extra] of [...state.extras]) {
+      const hearth = fleet.hearths.find((each) => each.realm === extra.realm && each.journal === extra.journal)
+      if (!onScreen.has(extra.realm) || hearth === undefined || hearth.next !== extra.from) {
+        state.extras.delete(key)
         continue
       }
       const listed = new Set(hearth.runs.map((row) => row.run_id))
@@ -161,14 +188,35 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
         if (listed.has(row.run_id)) continue
         listed.add(row.run_id)
         hearth.runs.push(row)
-        paged.add(keyOf(realm, row.run_id))
+        retained.add(keyOf(extra.realm, row.run_id))
       }
       hearth.next = extra.next
+      hearth.retained = true
     }
+    const pinned = pinOpen(prior, fleet)
     const text = JSON.stringify(fleet)
     const changed = text !== state.fleetText
     Object.assign(state, { fleet, fleetText: text })
-    return { changed, paged }
+    return { changed, retained, pinned }
+  }
+
+  /** A row for an open run this read's incomplete listing lacks, kept from the last fleet so absence never closes it. */
+  function pinOpen(prior, fleet) {
+    const pinned = new Set()
+    if (prior === null) return pinned
+    for (const client of clients) {
+      const ref = client.watch.run
+      if (ref === null) continue
+      const key = keyOf(ref.realm, ref.run_id)
+      const hearth = fleet.hearths.find((each) => each.realm === ref.realm)
+      if (hearth === undefined || whole(hearth) || hearth.detail !== null || hearth.runs.some((row) => row.run_id === ref.run_id)) continue
+      const before = prior.hearths.find((each) => each.realm === ref.realm && each.journal === hearth.journal)
+      const row = before?.runs.find((each) => each.run_id === ref.run_id)
+      if (row === undefined) continue
+      hearth.runs.push(row)
+      pinned.add(key)
+    }
+    return pinned
   }
 
   /**
@@ -200,7 +248,9 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     hearth.runs.push(...added)
     hearth.next = read.value.next
     hearth.behind = read.value.behind
-    const kept = state.extras.get(realm)
+    hearth.retained = true
+    const key = pageKey(hearth.realm, hearth.journal)
+    const kept = state.extras.get(key)
     const runs = [...(kept?.runs ?? [])]
     const held = new Set(runs.map((row) => row.run_id))
     for (const row of read.value.runs) {
@@ -208,7 +258,7 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
       held.add(row.run_id)
       runs.push(row)
     }
-    state.extras.set(realm, { from: kept?.from ?? cursor, runs, next: read.value.next })
+    state.extras.set(key, { realm: hearth.realm, journal: hearth.journal, from: kept?.from ?? cursor, runs, next: read.value.next })
     state.fleetText = JSON.stringify(state.fleet)
     for (const client of clients) client.peer.send({ type: 'fleet', fleet: state.fleet })
   }
@@ -253,29 +303,55 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
 
   /**
    * Re-read each open run whose head moved, once, for the clients that have
-   * it open. A run loaded only from a page past the first has no fresh head
-   * to compare, so it is read each poll and pushed only when its head moved.
+   * it open. A run loaded from a page past the first, or kept while its
+   * listing is incomplete, has no fresh head to compare, so it is read each
+   * poll; a fresh summary replaces its row in the fleet, and a retained run
+   * is pushed only when its head moved.
    */
-  async function pushRuns(before, paged) {
+  async function pushRuns(before, { retained, pinned }) {
     const open = new Map()
     for (const client of clients) {
       const run = client.watch.run
       if (run === null) continue
       const key = keyOf(run.realm, run.run_id)
-      if (!paged.has(key) && state.heads.get(key) === before.get(key)) continue
+      if (!retained.has(key) && !pinned.has(key) && state.heads.get(key) === before.get(key)) continue
       open.set(key, [...(open.get(key) ?? []), client])
     }
+    const updates = []
+    let patched = false
     for (const [key, watchers] of open) {
       const run = await runOf(watchers[0].watch.run)
-      if (paged.has(key)) {
-        const seq = run.view?.summary?.seq
+      const summary = run.view?.summary ?? null
+      if (retained.has(key) || pinned.has(key)) {
+        const seq = summary?.seq
         // The head that was just read is the one to compare against next; the
         // retained row's older seq must not put it back.
         if (seq !== undefined) state.heads.set(key, seq)
-        if (seq === before.get(key)) continue
+        if (patchRow(watchers[0].watch.run, summary)) patched = true
+        if (retained.has(key) && seq === before.get(key)) continue
       }
-      for (const client of watchers) client.peer.send({ type: 'run', run })
+      updates.push([watchers, run])
     }
+    if (patched) for (const client of clients) client.peer.send({ type: 'fleet', fleet: state.fleet })
+    for (const [watchers, run] of updates) for (const client of watchers) client.peer.send({ type: 'run', run })
+  }
+
+  /** Replace a retained or pinned row with the fresh inspect summary wherever the fleet holds it; say whether the fleet moved. */
+  function patchRow(ref, summary) {
+    const hearth = state.fleet?.hearths.find((each) => each.realm === ref.realm)
+    if (hearth === undefined) return false
+    const index = hearth.runs.findIndex((each) => each.run_id === ref.run_id)
+    if (index === -1) return false
+    const fresh = rowOf(summary, hearth.runs[index])
+    if (JSON.stringify(fresh) === JSON.stringify(hearth.runs[index])) return false
+    hearth.runs[index] = fresh
+    for (const extra of state.extras.values()) {
+      if (extra.realm !== ref.realm || extra.journal !== hearth.journal) continue
+      const at = extra.runs.findIndex((each) => each.run_id === ref.run_id)
+      if (at !== -1) extra.runs[at] = fresh
+    }
+    state.fleetText = JSON.stringify(state.fleet)
+    return true
   }
 
   async function tick() {
@@ -283,10 +359,10 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     state.busy = true
     try {
       const before = state.heads
-      const { changed: moved, paged } = await readFleet()
+      const { changed: moved, retained, pinned } = await readFleet()
       state.heads = headsOf(state.fleet)
       if (moved) for (const client of clients) client.peer.send({ type: 'fleet', fleet: state.fleet })
-      await pushRuns(before, paged)
+      await pushRuns(before, { retained, pinned })
       const onOverview = [...clients].filter((client) => client.watch.view === 'realms')
       if (onOverview.length === 0) return
       const next = await overview(moved)

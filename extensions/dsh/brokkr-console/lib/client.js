@@ -154,8 +154,8 @@ window.__ModuleLoader__.load({
     const runningIn = (rows) => rows.filter((row) => row.verdict.standing === 'running').length
     const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`
     const moreIn = (hearth) => hearth.next !== null && hearth.next !== undefined, behindIn = (hearth) => hearth.behind > 0
-    const atLeast = (n, more) => (more ? `${n}+` : String(n))
-    const fleetMore = (fleet) => fleet !== null && fleet.hearths.some((hearth) => moreIn(hearth) || behindIn(hearth))
+    const incomplete = (hearth) => moreIn(hearth) || behindIn(hearth) || hearth.retained === true
+    const atLeast = (n, more) => (more ? `${n}+` : String(n)), fleetMore = (fleet) => fleet !== null && fleet.hearths.some(incomplete)
     const STANDING = {
       quarantined: ['quarantined', 'bk-bad'],
       parked: ['parked · waiting on you', 'bk-park'],
@@ -347,7 +347,7 @@ window.__ModuleLoader__.load({
     /** One realm as a row of the realms pane, as the TUI's fleet lists it; a realm Brokkr cannot read is one quiet line. */
     function RealmRow({ hearth, day, open, here }) {
       const needs = hearth.runs.filter(needsYou)
-      const [running, more] = [runningIn(hearth.runs), moreIn(hearth) || behindIn(hearth)]
+      const [running, more] = [runningIn(hearth.runs), incomplete(hearth)]
       const labels = labelsOf(hearth.runs), lead = needs[0] ?? hearth.runs.find((row) => row.verdict.standing === 'running') ?? null
       const unreadable = hearth.detail !== null, live = running > 0 && !unreadable
       const tone = unreadable ? 'halt' : needs.length > 0 ? 'park' : running > 0 ? 'violet' : 'quiet'
@@ -419,7 +419,7 @@ window.__ModuleLoader__.load({
 
     /** A realm's runs as one pane of rows, as the TUI's run list reads them, with a small filter in its corner. */
     function RunList({ hearth, selected, select }) {
-      const [filter, setFilter] = useState(''), labels = labelsOf(hearth.runs), more = moreIn(hearth) || behindIn(hearth)
+      const [filter, setFilter] = useState(''), labels = labelsOf(hearth.runs), more = incomplete(hearth)
       const shown = hearth.runs.filter((row) => `${labels.get(row.run_id)} ${row.feature}`.toLowerCase().includes(filter.toLowerCase()))
       const finished = (row) => !needsYou(row) && !acknowledged(row) && row.verdict.standing !== 'running' && Date.now() - Date.parse(row.last_recorded_at ?? row.created_at) < DAY_MS
       // Every run lists somewhere: an acknowledged quarantine and a run that finished before the last day are Older.
@@ -1044,7 +1044,7 @@ window.__ModuleLoader__.load({
       if (hearth === undefined) return h('main', { className: 'bk-main' }, h('div', { className: 'bk-note' }, `Brokkr no longer lists ${realm}.`))
       const row = hearth.runs.find((each) => each.run_id === runId) ?? null
       const runView = row !== null && state.run?.realm === hearth.realm && state.run?.run_id === row.run_id ? state.run.view : null
-      const [needs, more] = [hearth.runs.filter(needsYou).length, moreIn(hearth) || behindIn(hearth)], label = row === null ? null : labelsOf(hearth.runs).get(row.run_id)
+      const [needs, more] = [hearth.runs.filter(needsYou).length, incomplete(hearth)], label = row === null ? null : labelsOf(hearth.runs).get(row.run_id)
       // What a question is about, closest first. A pick outlives the view's refreshes and ends with its run.
       const focus = runView === null ? null : focusOf(runView, picked)
       const context = [
