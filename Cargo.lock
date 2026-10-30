@@ -454,6 +454,7 @@ dependencies = [
  "hex",
  "jsonschema",
  "rusqlite",
+ "serde",
  "serde_json",
  "sha2",
  "tempfile",
