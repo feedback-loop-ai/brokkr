@@ -180,6 +180,14 @@ enum Cmd {
     Replay(ReplayArgs),
     /// Write the canonical NDJSON journal and pinned manifest.
     Export(ExportArgs),
+    /// Back up a whole journal — one consistent snapshot taken while
+    /// writers may run, plus the versioned inventory that declares its
+    /// boundary and makes the backup complete.
+    Backup(verbs::backup::BackupArgs),
+    /// Restore a journal backup into a new location, after the inventory,
+    /// the snapshot's digest, SQLite's integrity, every chain and the
+    /// counts all pass. It starts nothing.
+    Restore(verbs::backup::RestoreArgs),
     /// Adopt an exported run into this journal, byte-identically — the
     /// verb paired with `export`. Journals never merge; one run
     /// relocates. Nothing lands unless the whole chain verifies, the
@@ -1446,20 +1454,6 @@ fn fleet_of(
     Ok((invocation.world, hearths))
 }
 
-/// The pinned manifest an export wrote beside its journal, named the
-/// way `Cmd::Export` names it: `<run>.ndjson` is paired with
-/// `<run>.manifest.json`, and — since the stem carries the marker —
-/// `<run>.redacted.ndjson` with `<run>.redacted.manifest.json`, so a
-/// redacted pair can be named in full and refused by name.
-fn manifest_beside(journal: &std::path::Path) -> PathBuf {
-    let stem = journal
-        .file_stem()
-        .unwrap_or(journal.as_os_str())
-        .to_string_lossy()
-        .to_string();
-    journal.with_file_name(format!("{stem}.manifest.json"))
-}
-
 /// Dispatch one parsed command to its verb's handler (decision 0071
 /// ruling 10: a verb is a `Cmd` variant plus a handler). The match is
 /// exhaustive and every arm only forwards, so a new verb cannot compile
@@ -1476,7 +1470,7 @@ fn run_with(
     watch_iteration_limit: Option<usize>,
     run_tui: impl FnOnce(Vec<Hearth>, Option<String>, usize) -> Result<tui::Closed>,
 ) -> Result<ExitCode> {
-    use verbs::{delivery, exchange, probe, queue, readouts, setup};
+    use verbs::{backup, delivery, exchange, probe, queue, readouts, setup};
     match cli.command {
         Cmd::Init(args) => setup::init(args),
         Cmd::Costs(args) => readouts::costs(workspace, args),
@@ -1511,6 +1505,8 @@ fn run_with(
         ),
         Cmd::Replay(args) => readouts::replay(workspace, args),
         Cmd::Export(args) => exchange::export(workspace, args),
+        Cmd::Backup(args) => backup::backup(workspace, args),
+        Cmd::Restore(args) => backup::restore(args),
         Cmd::Import(args) => exchange::import(workspace, args),
         Cmd::VerifyRun(args) => exchange::verify_run(args),
         Cmd::Bridge(args) => exchange::bridge(workspace, args, bridge_iteration_limit),

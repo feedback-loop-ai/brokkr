@@ -51,6 +51,8 @@ Every `brokkr` verb and argument with its default, and every exit code, as the b
 - [`brokkr watch`](#brokkr-watch): Watch a run live: redraw the graph, seats, last ruling and seat activity whenever the journal head moves; exit when the run reaches a terminal status. Read-only, like every other readout
 - [`brokkr replay`](#brokkr-replay): Rebuild state from the journal twice and verify determinism
 - [`brokkr export`](#brokkr-export): Write the canonical NDJSON journal and pinned manifest
+- [`brokkr backup`](#brokkr-backup): Back up a whole journal — one consistent snapshot taken while writers may run, plus the versioned inventory that declares its boundary and makes the backup complete
+- [`brokkr restore`](#brokkr-restore): Restore a journal backup into a new location, after the inventory, the snapshot's digest, SQLite's integrity, every chain and the counts all pass. It starts nothing
 - [`brokkr import`](#brokkr-import): Adopt an exported run into this journal, byte-identically — the verb paired with `export`. Journals never merge; one run relocates. Nothing lands unless the whole chain verifies, the events fold, the run_id does not already exist here, and the export is not a redacted derivative
 - [`brokkr verify-run`](#brokkr-verify-run): Verify an exported journal offline: chain, envelopes, fold
 - [`brokkr bridge`](#brokkr-bridge): Synchronize a Looper-bound run over the authenticated producer API. The API key is read from an environment variable and is never stored
@@ -749,6 +751,33 @@ Usage: brokkr export [OPTIONS] --run <RUN>
 | `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
 | `--redact` |  |  | Also write a sanitized copy for publishable fixtures — `<run>.redacted.ndjson` and `<run>.redacted.manifest.json` — with every absolute path in event payloads rewritten to a stable placeholder. The verbatim pair is written unchanged; the redacted copy's recorded hashes no longer verify, and its manifest says so |
+
+## brokkr backup
+
+Back up a whole journal — one consistent snapshot taken while writers may run, plus the versioned inventory that declares its boundary and makes the backup complete
+
+```text
+Usage: brokkr backup [OPTIONS] --to <TO>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--to <TO>` |  |  | The directory the snapshot and its inventory are written into; it must be absent or empty, and nothing in it is overwritten |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
+
+## brokkr restore
+
+Restore a journal backup into a new location, after the inventory, the snapshot's digest, SQLite's integrity, every chain and the counts all pass. It starts nothing
+
+```text
+Usage: brokkr restore --from <FROM> --to <TO>
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--from <FROM>` |  |  | The backup directory holding the snapshot and its inventory |
+| `--to <TO>` |  |  | The new journal path. It must not exist; a live journal is never a restore's destination |
 
 ## brokkr import
 

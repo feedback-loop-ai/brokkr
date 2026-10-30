@@ -16,6 +16,7 @@
 
 mod acknowledge;
 pub(super) mod analytics;
+pub(super) mod backup;
 pub(super) mod delivery;
 pub(super) mod exchange;
 pub(super) mod graph;
