@@ -461,16 +461,26 @@ pub(super) fn hard_results(machine: &Machine, phase: &str) -> BTreeSet<String> {
 }
 
 /// Refuse a table arm for `phase` whose word no step of this sequence can
-/// emit, naming the rule and the word (decision 0050, ruling 7).
+/// emit, naming the rule and the word (decision 0050, ruling 7). A middle
+/// step's word reaches the table only through a compiled ending: its plain
+/// checkpoint is context for the later steps, never the effect's result.
 fn refuse_unreachable(
     machine: &Machine,
     bundle: &str,
     phase: &str,
     steps: &[SequenceStep],
 ) -> Result<(), CompileError> {
+    let last = steps.len().saturating_sub(1);
     let emittable: BTreeSet<&str> = steps
         .iter()
-        .flat_map(|step| step.results.iter().map(String::as_str))
+        .enumerate()
+        .flat_map(|(index, step)| {
+            if index == last {
+                step.results.iter().map(String::as_str)
+            } else {
+                step.ends_on.iter().map(String::as_str)
+            }
+        })
         .collect();
     for rule in machine.rules.iter().filter(|rule| rule.from == phase) {
         if !emittable.contains(rule.result.as_str()) {

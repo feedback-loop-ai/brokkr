@@ -445,3 +445,173 @@ fn a_panel_non_hard_word_does_not_end_the_sequence() {
         "the chief's result, not the panel's residual, is the seat's result"
     );
 }
+
+/// An early ending is appended under the same seat-record fence as a final
+/// step's result. A hard word that carries a field the contract refuses
+/// therefore fails the attempt — naming the step — and the exhausted
+/// attempt parks, instead of the refusal escaping as an engine error.
+#[test]
+fn a_refused_early_ending_is_the_attempts_failure_and_parks() {
+    let test = "crucible_review_sequence::a_refused_early_ending_is_the_attempts_failure_and_parks";
+    if !crate::own_home::in_own_home(test) {
+        return;
+    }
+    let mut bundle = review_bundle(
+        &panel(&[]),
+        r#"{"result":"clean","inputs":{"fixes_applied":false}}"#,
+    );
+    bundle.seats.get_mut("review").unwrap().limits.max_attempts = 1;
+    let SeatBody::Sequence { steps } = &mut bundle.seats.get_mut("review").unwrap().body else {
+        panic!("triage's engine review is a sequence");
+    };
+    let StepBody::Invocation(Invocation::Panel { .. }) = &steps[0].body else {
+        panic!("'positions' is a panel");
+    };
+    // The hard word the panel can report, carrying a key the seat-record
+    // contract does not admit: the fence refuses the effect's success.
+    steps[0].body = StepBody::Invocation(Invocation::Single {
+        role_path: PathBuf::new(),
+        command: driver(r#"{"result":"security-hold","commits":["see branch"]}"#),
+        candidates: Vec::new(),
+        written: Vec::new(),
+        class: (),
+    });
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = brokkr_store::Store::open(&dir.path().join("forge.db")).unwrap();
+    let mut engine = brokkr_runtime::Engine::start(store, bundle, "feature", Some(workspace()))
+        .expect("the run starts at review");
+    let run_id = engine.run_id.clone();
+    let end = engine
+        .drive()
+        .expect("a refused ending is the attempt's failure, never an engine error");
+    let events = engine.store.load(&run_id).unwrap();
+
+    let failed = events
+        .iter()
+        .find(|event| event.event_type == brokkr_core::envelope::EventType::EffectFailed)
+        .expect("effect/failed names the refused ending");
+    let error = failed.payload["error"].as_str().unwrap();
+    assert!(error.contains("positions"), "{error}");
+    assert!(
+        error.contains("violates contracts/seat-record.v"),
+        "{error}"
+    );
+    assert!(
+        !error.contains("see branch"),
+        "the fence does not echo the refused value: {error}"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| event.event_type == brokkr_core::envelope::EventType::EffectSucceeded),
+        "no result escaped the fence"
+    );
+    let parked = events
+        .iter()
+        .find(|event| event.event_type == brokkr_core::envelope::EventType::RunParked)
+        .expect("the exhausted attempt parks");
+    let reason = parked.payload["reason"].as_str().unwrap();
+    assert!(reason.contains("failed 1 of 1 attempt"), "{reason}");
+    assert_eq!(
+        end.state.run.status(),
+        brokkr_core::Status::AwaitingOperator
+    );
+}
+
+/// A run pinned before the endings were compiled carries the same manifest
+/// the compiler writes today — no `ends_on`, no `hard_results`. Resume
+/// recompiles the recipe (the production path) and derives the endings
+/// again, so the resumed run still ends on the panel's hard word.
+#[test]
+fn a_stored_manifest_without_endings_resumes_with_the_derived_endings() {
+    let test = "crucible_review_sequence::\
+                a_stored_manifest_without_endings_resumes_with_the_derived_endings";
+    if !crate::own_home::in_own_home(test) {
+        return;
+    }
+    let security = panel(&[(
+        "security",
+        r#"{"result":"security-hold","inputs":{"has_security_residual":true,"max_residual_severity":"critical"}}"#,
+    )]);
+    let chief = r#"{"result":"clean","inputs":{"fixes_applied":false}}"#;
+    let dir = tempfile::tempdir().unwrap();
+    let database = dir.path().join("forge.db");
+
+    // Pin the run, then let the process go: the manifest is on disk before
+    // any step runs, exactly as a pre-change resume would find it.
+    let started = brokkr_runtime::Engine::start(
+        brokkr_store::Store::open(&database).unwrap(),
+        review_bundle(&security, chief),
+        "feature",
+        Some(workspace()),
+    )
+    .expect("the run starts at review");
+    let run_id = started.run_id.clone();
+    let pinned = started
+        .store
+        .manifest(&run_id)
+        .expect("the run pins its manifest");
+    let pinned = pinned.to_string();
+    assert!(
+        !pinned.contains("ends_on") && !pinned.contains("hard_results"),
+        "the pinned manifest is the pre-change shape: the endings were never serialized"
+    );
+    drop(started);
+
+    // A resume recompiles the pinned recipe; the endings are DERIVED here,
+    // not read back from the manifest.
+    let recompiled = review_bundle(&security, chief);
+    let SeatBody::Sequence { steps } = &recompiled.seats["review"].body else {
+        panic!("triage's engine review is a sequence");
+    };
+    assert_eq!(
+        steps[0].ends_on,
+        vec!["security-hold".to_string()],
+        "the recompiled panel step derives its hard ending"
+    );
+    assert_eq!(
+        steps[0].hard_results,
+        vec!["security-hold".to_string()],
+        "the recompiled panel step names the hard word"
+    );
+    assert!(
+        steps[1].ends_on.is_empty(),
+        "the final step ends by definition and derives no ending"
+    );
+
+    let mut resumed = brokkr_runtime::Engine::resume(
+        brokkr_store::Store::open(&database).unwrap(),
+        recompiled,
+        &run_id,
+        Some(workspace()),
+    )
+    .expect("a manifest without endings admits the recompiled bundle");
+    let end = resumed.drive().expect("the resumed sequence runs");
+    let events = resumed.store.load(&run_id).unwrap();
+
+    let succeeded = events
+        .iter()
+        .find(|event| event.event_type == brokkr_core::envelope::EventType::EffectSucceeded)
+        .expect("the resumed run ends the effect");
+    assert_eq!(
+        succeeded.payload["result"]["result"], "security-hold",
+        "the resumed sequence derives the panel's hard ending"
+    );
+    assert_eq!(
+        succeeded.payload["step"], "positions",
+        "the resumed run names the step that ended it"
+    );
+    assert_eq!(
+        succeeded.payload["why"], "hard-word",
+        "the resumed run reads the table's hard vocabulary"
+    );
+    assert!(
+        !events.iter().any(|event| {
+            event.event_type == brokkr_core::envelope::EventType::EffectCheckpointed
+                && event.payload["checkpoint"]["step_name"] == "chief"
+        }),
+        "the chief never runs on the resumed hard ending"
+    );
+    assert_eq!(end.state.run.status(), brokkr_core::Status::Stopped);
+}

@@ -283,17 +283,25 @@ Alternatives weighed:
 
    **Enforcement binding:** the sequence parser in
    `crates/brokkr-runtime/src/bundle/sequence.rs` (`parse_sequence`,
-   `stamp_endings`, `hard_results`) and the executor in
+   `stamp_endings`, `hard_results`, `refuse_unreachable`: the reachable set
+   is the final step's results plus every non-final step's compiled
+   `ends_on`, since a middle step's plain checkpoint never reaches the
+   table) and the executor in
    `crates/brokkr-runtime/src/engine/sequence.rs` (`ends_sequence`, which
    reads only `SequenceStep::ends_on` and never compares vocabularies at
-   run time); `crates/brokkr-runtime/src/bundle/sequence_tests.rs` — the
+   run time, and `end_sequence_on`, which appends the early ending under
+   the same seat-record fence as a final step's result, so a refused
+   ending fails the attempt and parks rather than escaping as an engine
+   error); `crates/brokkr-runtime/src/bundle/sequence_tests.rs` — the
    compiled set equals the old run-time rule plus the hard words for every
    shipped sequence, an unreachable arm is refused naming the rule and the
    word, and a manifest without endings recompiles to the same set;
    `crates/brokkr-runtime/tests/crucible_review_sequence.rs` — a panel
    reporting `security-hold` under a chief that would rule `clean` ends the
    effect at `security-hold` and the run stops, while a non-hard `residual`
-   the chief can also emit does not; `crates/brokkr-runtime/tests/table_lints.rs`
+   the chief can also emit does not, a refused early ending fails and
+   parks, and a stored manifest without endings resumes to the derived
+   set; `crates/brokkr-runtime/tests/table_lints.rs`
    — ruling 5's sequence property over every composed recipe.
 
    `ends_on` is **derived, never serialized**: the compiler computes it

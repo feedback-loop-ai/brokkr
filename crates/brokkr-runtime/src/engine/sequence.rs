@@ -464,7 +464,9 @@ impl Engine {
             return Ok(StepVerdict::Ended);
         };
         if !run.is_last(at) {
-            let StepVerdict::Goes(()) = self.between_steps(run, at, &result, carried)? else {
+            let StepVerdict::Goes(()) =
+                self.between_steps(run, at, &result, carried, &start_failures)?
+            else {
                 return Ok(StepVerdict::Ended);
             };
         }
@@ -532,6 +534,7 @@ impl Engine {
         at: &StepAt,
         result: &Value,
         carried: &mut Carried,
+        start_failures: &[Site],
     ) -> Result<StepVerdict<()>, EngineError> {
         if let Some(problem) = vocabulary_problem(at.step, result) {
             return self.end_failed(run, run.failed_payload(at, &problem, Vec::new()));
@@ -540,19 +543,7 @@ impl Engine {
         // the step may report, or a hard word from the phase's table. The
         // journal names the step and why it ended.
         if let Some(why) = run.ends_sequence(at, result) {
-            return self
-                .append(
-                    EventType::EffectSucceeded,
-                    json!({
-                        "effect_id": run.effect_id,
-                        "attempt_id": run.attempt_id,
-                        "result": result,
-                        "step": at.step.name,
-                        "why": why,
-                    }),
-                    Some(run.attempt_id.to_string()),
-                )
-                .map(|_| StepVerdict::Ended);
+            return self.end_sequence_on(run, at, result, why, start_failures);
         }
         let phase = run.phase();
         if matches!(at.step.body, StepBody::Dialect { .. })
@@ -668,6 +659,41 @@ impl Engine {
         }
         carried.prior_results.insert(at.step.name.clone(), result);
         Ok(StepVerdict::Goes(()))
+    }
+
+    /// End the sequence on a compiled word, journaling the step and why
+    /// beside the result. The seat-record fence judges this result exactly
+    /// as the final step's does, so a refused ending fails the attempt
+    /// instead of escaping as an engine error; the success payload carries
+    /// `step` and `why`, which `append_succeeded` cannot, and `engine.rs`
+    /// is at its size ceiling (decision 0071, ruling 4).
+    fn end_sequence_on(
+        &mut self,
+        run: &SequenceRun,
+        at: &StepAt,
+        result: &Value,
+        why: &'static str,
+        start_failures: &[Site],
+    ) -> Result<StepVerdict<()>, EngineError> {
+        let succeeded = json!({
+            "effect_id": run.effect_id,
+            "attempt_id": run.attempt_id,
+            "result": result,
+            "step": at.step.name,
+            "why": why,
+        });
+        match self.append(
+            EventType::EffectSucceeded,
+            succeeded,
+            Some(run.attempt_id.to_string()),
+        ) {
+            Ok(_) => Ok(StepVerdict::Ended),
+            Err(EngineError::Store(StoreError::SeatRecord(refusal))) => {
+                let payload = run.failed_payload(at, &refusal.to_string(), start_failures.to_vec());
+                self.end_failed(run, payload)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     /// Journal the attempt's `effect/failed` and end it.

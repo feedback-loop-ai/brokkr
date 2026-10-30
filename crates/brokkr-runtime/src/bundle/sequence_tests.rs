@@ -228,10 +228,14 @@ fn policy(rules: Value) -> Value {
 }
 
 fn sequence_seat(results: Value) -> Value {
+    sequence_seat_declaring(json!(["a", "hold"]), results)
+}
+
+fn sequence_seat_declaring(first: Value, results: Value) -> Value {
     json!({
         "results": results,
         "sequence": [
-            {"name": "first", "results": ["a", "hold"],
+            {"name": "first", "results": first,
              "role": "roles/role.md", "driver": {"command": ["driver"]}},
             {"name": "last",
              "role": "roles/role.md", "driver": {"command": ["driver"]}},
@@ -246,6 +250,29 @@ fn compile(dir: &Path) -> Result<Bundle, CompileError> {
         &root.join("agents"),
         &root.join("adapters"),
     )
+}
+
+/// Refuse `rule`'s ghost arm by name in one fixture and compile the same
+/// fixture without it, returning the compiled steps.
+fn arm_refused_then_reachable(
+    rules: impl Fn(bool) -> Value,
+    seat: Value,
+    rule: &str,
+) -> Vec<SequenceStep> {
+    let refused = fixture(policy(rules(true)), seat.clone());
+    let text = compile(refused.path())
+        .expect_err("the ghost arm is refused")
+        .to_string();
+    assert!(text.contains(rule), "{text}");
+    assert!(text.contains("'ghost'"), "{text}");
+    assert!(text.contains("no step"), "{text}");
+
+    let valid = fixture(policy(rules(false)), seat);
+    let compiled = compile(valid.path()).expect("the reachable table compiles");
+    match &compiled.seats["review"].body {
+        SeatBody::Sequence { steps } => steps.clone(),
+        other => panic!("the fixture is a sequence: {other:?}"),
+    }
 }
 
 /// The reverse of the coverage rule: an arm whose word no step of the
@@ -270,21 +297,11 @@ fn an_arm_no_step_can_emit_is_refused_naming_the_rule_and_the_word() {
         }
         json!(rules)
     };
-    let seat = sequence_seat(json!(["a", "b", "hold"]));
-
-    let refused = fixture(policy(rules(true)), seat.clone());
-    let refusal = compile(refused.path()).expect_err("the ghost arm is refused");
-    let text = refusal.to_string();
-    assert!(text.contains("WORK-GHOST"), "{text}");
-    assert!(text.contains("'ghost'"), "{text}");
-    assert!(text.contains("no step"), "{text}");
-
-    let valid = fixture(policy(rules(false)), seat);
-    let compiled = compile(valid.path()).expect("the reachable table compiles");
-    let steps = match &compiled.seats["review"].body {
-        SeatBody::Sequence { steps } => steps,
-        other => panic!("the fixture is a sequence: {other:?}"),
-    };
+    let steps = arm_refused_then_reachable(
+        rules,
+        sequence_seat(json!(["a", "b", "hold"])),
+        "WORK-GHOST",
+    );
     assert_eq!(
         steps[0].ends_on,
         vec!["hold".to_string()],
@@ -296,5 +313,38 @@ fn an_arm_no_step_can_emit_is_refused_naming_the_rule_and_the_word() {
             StepBody::Invocation(Invocation::Single { .. })
         ),
         "the final step is the seat boundary"
+    );
+}
+
+/// A middle step's declared word is not a table arm: the step's plain
+/// checkpoint is context for the later steps, so only the final step's
+/// vocabulary and the compiled endings reach the composed table. An arm
+/// reachable by neither is refused even when a middle step speaks it.
+#[test]
+fn an_arm_only_a_middle_steps_checkpoint_can_speak_is_refused() {
+    let rules = |ghost: bool| {
+        let mut rules = vec![
+            json!({"id": "REVIEW-OK", "from": "review", "result": "ok", "next": "done",
+                   "reason": "ok"}),
+            json!({"id": "REVIEW-HOLD", "from": "review", "result": "hold", "next": "stop",
+                   "severity": "hard", "reason": "hold"}),
+        ];
+        if ghost {
+            rules.push(
+                json!({"id": "REVIEW-GHOST", "from": "review", "result": "ghost",
+                       "next": "done", "reason": "no final step or ending emits this"}),
+            );
+        }
+        json!(rules)
+    };
+    let steps = arm_refused_then_reachable(
+        rules,
+        sequence_seat_declaring(json!(["ghost", "hold"]), json!(["ok", "hold"])),
+        "REVIEW-GHOST",
+    );
+    assert_eq!(
+        steps[0].ends_on,
+        vec!["hold".to_string()],
+        "ghost is checkpoint-only; hold is the hard ending that reaches the table"
     );
 }
