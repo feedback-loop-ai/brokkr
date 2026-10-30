@@ -25,6 +25,8 @@ mod codex;
 mod composite;
 mod discovery;
 mod dsh_effort;
+mod dsh_hands;
+mod dsh_launch;
 mod dsh_stderr;
 mod lost;
 mod mcp;
@@ -39,6 +41,7 @@ pub use composite::{
     dsh_composite, dsh_composite_prepared, CompositeError, DshComposite, DshInvocation, DshNode,
     DshPrepared, DshSeams, DshSelection, DshUnprepared, DshUnselected,
 };
+pub use dsh_hands::ACCESS;
 pub use mcp::{harness_auth, HarnessAuthError, StrictCause};
 pub use served_route::split_route;
 
@@ -714,9 +717,52 @@ fn drain_stderr(child: &mut std::process::Child) -> std::thread::JoinHandle<Vec<
     })
 }
 
-/// Every harness spawns here: argv, workdir, stdio and extra environment,
-/// then the one secret injector, its typed refusal mapped to text once,
-/// and last the removals of the attempt it serves (U7d; MB4).
+/// Why the one harness spawn builder could not build a command: an argv
+/// with no program, or the secret injector's own refusal, carried rather
+/// than stringified (#896 round 4; decision 0071 ruling 8).
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub(super) enum HarnessCommandRefusal {
+    #[error("empty command")]
+    Empty,
+    #[error(transparent)]
+    Secret(#[from] secret::BindError),
+}
+
+/// The composition probe's `Result<Invocation, String>` and every harness
+/// spawn's existing text boundary print this typed refusal in one place,
+/// so neither helper carries text of its own.
+impl From<HarnessCommandRefusal> for String {
+    fn from(refusal: HarnessCommandRefusal) -> Self {
+        refusal.to_string()
+    }
+}
+
+/// The one builder every harness spawn and the dsh composition probe
+/// share (#896 round 3): argv, working directory and extra environment,
+/// then the one secret injector, its typed refusal carried, and last the
+/// removals of the attempt it serves (U7d; MB4). A spawn adds its stdio
+/// and spawns; the probe adds `--dump-config` to the argv and reads the
+/// output, so probe and session cannot disagree about the effective
+/// environment.
+pub(super) fn harness_command(
+    command: &[String],
+    workdir: &str,
+    env: &[(&str, &str)],
+    bindings: &[secret::BoundSecret],
+) -> Result<Command, HarnessCommandRefusal> {
+    let (program, args) = command.split_first().ok_or(HarnessCommandRefusal::Empty)?;
+    let mut builder = Command::new(program);
+    builder
+        .args(args)
+        .current_dir(if workdir.is_empty() { "." } else { workdir })
+        .envs(env.iter().copied());
+    secret::bind_environment(&mut builder, bindings)?;
+    mcp::unbind(&mut builder);
+    Ok(builder)
+}
+
+/// Every harness spawns here: the shared [`harness_command`], the child's
+/// stdio, and the one spawn fact every route reports.
 fn spawn_harness(
     command: &[String],
     workdir: &str,
@@ -725,19 +771,8 @@ fn spawn_harness(
     env: &[(&str, &str)],
     bindings: &[secret::BoundSecret],
 ) -> Result<std::process::Child, String> {
-    let (program, args) = command
-        .split_first()
-        .ok_or_else(|| "empty command".to_string())?;
-    let mut builder = Command::new(program);
-    builder
-        .args(args)
-        .current_dir(if workdir.is_empty() { "." } else { workdir })
-        .envs(env.iter().copied())
-        .stdin(stdin)
-        .stdout(stdout)
-        .stderr(Stdio::piped());
-    secret::bind_environment(&mut builder, bindings).map_err(|error| error.to_string())?;
-    mcp::unbind(&mut builder);
+    let mut builder = harness_command(command, workdir, env, bindings)?;
+    builder.stdin(stdin).stdout(stdout).stderr(Stdio::piped());
     let child = io_context(builder.spawn(), "could not invoke the agent CLI")?;
     lost::spawned();
     Ok(child)
@@ -3732,8 +3767,16 @@ fn invoke_dsh(
     let wait = |child: &mut std::process::Child| {
         child.try_wait().map(|status| status.map(lost::exit_code))
     };
-    invoke_dsh_launch_observed(launch, command, workdir, bindings, emit, wait, &mut |_| {})
-        .map(|invocation| dsh_stderr::name_the_pin(invocation, pinned.extra))
+    dsh_launch::invoke_dsh_launch_observed(
+        launch,
+        command,
+        workdir,
+        bindings,
+        emit,
+        wait,
+        &mut |_| {},
+    )
+    .map(|invocation| dsh_stderr::name_the_pin(invocation, pinned.extra))
 }
 
 /// The DSH plugin's own value-taking selectors and the launcher's control
@@ -4188,6 +4231,11 @@ struct DshLaunch {
     staged: Option<(String, dsh_sandbox::GitScope, dsh_sandbox::SeatGitStore)>,
     /// The one home the plan read and the child is served from (U1c2).
     home: crate::transcript::DshHome,
+    /// The dsh sandbox mode a seat whose office declares boxed hands runs
+    /// under, and `None` for a seat with no hands. It is the ONE carrier
+    /// of "this seat has hands": a scoped runner's overlay row is not a
+    /// hands selection (#896 round 3).
+    mode: Option<dsh_hands::Mode>,
 }
 
 impl DshLaunch {
@@ -4343,11 +4391,7 @@ fn dsh_argv(extra: &[String], input: &Value, offered: bool) -> Result<DshArgv, S
 
 /// `dsh_launch` over an injected composite producer, so every drift and
 /// mismatch case is a plain test over synthetic homes.
-#[expect(
-    clippy::excessive_nesting,
-    clippy::too_many_lines,
-    reason = "baseline 2026-09, #288"
-)]
+#[expect(clippy::excessive_nesting, reason = "baseline 2026-09, #288")]
 fn dsh_launch_with(
     bin: &str,
     extra: &[String],
@@ -4460,23 +4504,21 @@ fn dsh_launch_with(
     } else {
         crate::hands::git_facts(Path::new(workdir))
     };
-    let mode = std::env::var("DSH_PERMISSION_MODE").unwrap_or_default();
     // The private git store is named in every command's runner argv, so
     // it is held for the seat's whole life and handed to the promotion,
     // which is the only way anything the seat committed reaches the
-    // shared repository.
-    let staged = dsh_sandbox_row_for(workdir, &facts, &mode)?;
-    let sandbox = staged.as_ref().map(|(row, _, _)| row.as_str());
-    let overlay = dsh_seat_overlay_with(model, effort, &root, route.as_deref(), sandbox)?;
-    let command = dsh_command(
-        bin,
-        &overlay.path().to_string_lossy(),
-        stream_json,
-        rejoining.as_deref(),
-    );
+    // shared repository. A seat whose office declares boxed hands runs no
+    // native command: its rows are the hands rows, and it stages no store
+    // (#896). The choice is typed, so a runner's overlay row is never
+    // read as hands.
+    let selection = dsh_hands::sandbox(bin, workdir, &facts, input)?;
+    let overlay = dsh_seat_overlay_with(model, effort, &root, route.as_deref(), selection.rows())?;
+    let overlay_path = overlay.path().to_string_lossy();
+    let command = dsh_command(bin, &overlay_path, stream_json, rejoining.as_deref());
     // Nothing of the seat's own argv follows: `dsh_control_conflict`
     // above refused every residual part, so the argv is exactly what the
     // engine composed.
+    let (staged, mode) = selection.into_parts();
     Ok(DshLaunch {
         command,
         rejoining,
@@ -4492,6 +4534,7 @@ fn dsh_launch_with(
         facts,
         staged,
         home: served,
+        mode,
     })
 }
 
@@ -4701,113 +4744,15 @@ fn invoke_dsh_launch(
 ) -> Result<Invocation, String> {
     let mut command = launch.command.clone();
     command.push(prompt.to_string());
-    invoke_dsh_launch_observed(launch, command, workdir, bindings, emit, wait, &mut |_| {})
-}
-
-/// `invoke_dsh_launch` with this ONE invocation's observer of the
-/// confirmation's completed observations, spawning exactly `command`.
-/// Production watches nothing; a test reads here exactly what the watcher
-/// consumed — never a second walk of its own — and only once the watcher
-/// has ruled on it.
-fn invoke_dsh_launch_observed(
-    mut launch: DshLaunch,
-    command: Vec<String>,
-    workdir: &str,
-    bindings: &[secret::BoundSecret],
-    emit: &mut impl FnMut(&Value),
-    wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
-    observer: &mut impl FnMut(&DshObservation),
-) -> Result<Invocation, String> {
-    // Before any row names the home, a binding over its fixed env refuses.
-    let declared = bindings.iter().map(secret::BoundSecret::name);
-    launch.home.serve(&dsh_child_env(&launch), declared)?;
-    let transcript = Transcript::dsh(&launch.home);
-    let staged = launch.staged.take();
-    let mut session_meta = Map::new();
-    // Decision 0035 addendum 2026-09-11: a dsh seat with no `--effort`
-    // pin compiles only on an effortless route, so the absence IS the
-    // standing — no level to forward, none for any header to echo. It
-    // is seeded so every fold row and the finishing record read `not
-    // applicable` from the first row; a header that echoes a real level
-    // overwrites the seed, which is the applied configuration ruling 3
-    // asks the fold to read.
-    if launch.effortless {
-        session_meta.insert(
-            "effort".into(),
-            Value::String(EFFORT_NOT_APPLICABLE.to_string()),
-        );
-    }
-    // The store is censused BEFORE anything spawns, so a session the
-    // plugin opens instead of rejoining the offered one is visible as a
-    // session that was not there (task 8.8(d), Pass C).
-    let mut watch = DshRootWatch::new(&launch, transcript);
-    let mut hold = LaunchHold::new("deepseek", launch.plan());
-    // The retained locator is published before anything spawns, exactly as
-    // before; `run_seat` holds it until a turn begins (decision 0053). A
-    // REJOIN holds it instead: an attempt that never confirms the offered
-    // root publishes no locator either, because the row would address a
-    // session this driver cannot say it was in (design D7).
-    if !watch.confirming() {
-        watch.record_locator(&mut hold, &mut session_meta, emit);
-    }
-    // The shipped cold route confirms nothing, so its one launch row is
-    // published before the spawn — exactly where it always was, and the
-    // only reason a spawn failure still flushes the held rows. The
-    // stream-json route waits for the init event instead.
-    if !launch.stream_json {
-        hold.finish(emit);
-    }
-    // Everything the seat committed lives in the private store and
-    // nowhere else until the promotion below moves it. Returning early
-    // would drop the store — and the seat's work with it — behind an
-    // error naming neither (decision 0054 ruling 5).
-    let attempt = if launch.stream_json {
-        invoke_dsh_stream_json(
-            &command,
-            &launch,
-            workdir,
-            bindings,
-            &mut watch,
-            &mut hold,
-            &mut session_meta,
-            emit,
-            observer,
-        )
-    } else {
-        invoke_dsh_shipped(
-            &command,
-            workdir,
-            &launch,
-            bindings,
-            wait,
-            &mut session_meta,
-            emit,
-        )
-    };
-    let mut invocation = match attempt {
-        Ok(invocation) => invocation,
-        Err(problem) => return Err(dsh_failure_before_promotion(problem, staged)),
-    };
-    // The seat wrote its objects and moved its branch inside the private
-    // common directory the driver staged; the shared repository was
-    // read-only to it throughout. This is where the ONE ref the worktree
-    // owns crosses over, outside every box (decision 0054 ruling 5). A
-    // promotion that cannot happen is a driver failure with the store's
-    // path in it, never a silent loss of the seat's commits.
-    if let Some((_, scope, store)) = staged {
-        if let Some(promotion) = dsh_sandbox::promote_seat_commits(store, &scope)? {
-            invocation.stderr.push_str(&promotion.summary());
-            invocation.stderr.push('\n');
-        }
-    }
-    // The qualified route's launch row was held until the harness named
-    // its root, or until the invocation ended without one (`finish` is a
-    // no-op once a confirmation has already published).
-    if launch.stream_json {
-        hold.finish(emit);
-    }
-    invocation.launch = hold.terminal();
-    Ok(invocation)
+    dsh_launch::invoke_dsh_launch_observed(
+        launch,
+        command,
+        workdir,
+        bindings,
+        emit,
+        wait,
+        &mut |_| {},
+    )
 }
 
 /// Spawn one dsh child with the given stdout disposition, and drain its
@@ -4852,7 +4797,7 @@ fn invoke_dsh_shipped(
     mut wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
     session_meta: &mut Map<String, Value>,
     emit: &mut impl FnMut(&Value),
-) -> Result<Invocation, String> {
+) -> Result<DshRun, String> {
     let (mut child, stderr_thread) = spawn_dsh(command, workdir, Stdio::null(), launch, bindings)?;
     let mut turns = 0u64;
     let mut tail = DshTail::default();
@@ -4890,7 +4835,7 @@ fn invoke_dsh_stream_json(
     session_meta: &mut Map<String, Value>,
     emit: &mut impl FnMut(&Value),
     observer: &mut impl FnMut(&DshObservation),
-) -> Result<Invocation, String> {
+) -> Result<DshRun, String> {
     let (mut child, stderr_thread) = spawn_dsh(command, workdir, Stdio::piped(), launch, bindings)?;
     let stdout = child.stdout.take().expect("piped");
     let mut turns = 0u64;
@@ -5407,6 +5352,14 @@ fn dsh_census_within(
     })
 }
 
+/// One dsh route's conclusion: the invocation the journal reads, and dsh's
+/// startup outcome classified from the RAW stderr before masking (#896 H1;
+/// decision 0098 ruling 4).
+struct DshRun {
+    invocation: Invocation,
+    startup: dsh_hands::Startup,
+}
+
 /// The common tail of both dsh invocations: the harness and profile the
 /// lane always is, and the redacted stderr. No pin lands in `session_meta`:
 /// `model` there is only ever what the transcript said served (decision
@@ -5416,7 +5369,7 @@ fn finish_dsh(
     exit_code: i32,
     stderr_thread: std::thread::JoinHandle<Vec<u8>>,
     bindings: &[secret::BoundSecret],
-) -> Result<Invocation, String> {
+) -> Result<DshRun, String> {
     session_meta.insert("harness".into(), Value::String("deepseek".into()));
     session_meta.insert("profile".into(), Value::String("headless".into()));
     // Decision 0053: dsh's headless profile makes no machine-readable
@@ -5427,22 +5380,27 @@ fn finish_dsh(
     // dsh classifies nothing here and a refusal before its first turn
     // follows decision 0006 unchanged; the guide says so beside claude
     // and codex.
-    let stderr = redact_dsh_reasoning(&secret::mask_text(
-        &stderr_thread.join().unwrap_or_default(),
-        bindings,
-    ));
+    let raw = stderr_thread.join().unwrap_or_default();
+    // Classified ONCE, from the child's own bytes, before masking or
+    // reasoning redaction can rewrite the marker words the gate reads
+    // (#896 H1; decision 0098 ruling 4). The raw text goes no further.
+    let startup = dsh_hands::startup_report(&raw);
+    let stderr = redact_dsh_reasoning(&secret::mask_text(&raw, bindings));
     // The promotion that moves the seat's commits out of the private
     // store happens in `invoke_dsh_launch_observed`, which owns the store
     // for the seat's whole life and is the one place both routes return
     // through.
-    Ok(Invocation {
-        exit_code,
-        session_meta: session_meta.clone(),
-        stdout: String::new(),
-        stderr,
-        state: None,
-        refusal: None,
-        launch: LaunchTerminal::Cold,
+    Ok(DshRun {
+        invocation: Invocation {
+            exit_code,
+            session_meta: session_meta.clone(),
+            stdout: String::new(),
+            stderr,
+            state: None,
+            refusal: None,
+            launch: LaunchTerminal::Cold,
+        },
+        startup,
     })
 }
 
@@ -6108,9 +6066,9 @@ fn dsh_runner_program() -> Result<String, OverrideError> {
     ))
 }
 
-/// The seat overlay with the scoped sandbox row a linked-worktree seat
-/// needs (decision 0054). It is one patch file because `--patch` is the
-/// launcher's only override channel.
+/// The seat overlay with Brokkr's sandbox rows: a linked worktree's scoped
+/// runner (decision 0054) or a boxed seat's hands rows (#896). It is one
+/// patch file because `--patch` is the launcher's only override channel.
 fn dsh_seat_overlay_with(
     model: Option<&str>,
     effort: Option<&str>,
@@ -6191,9 +6149,9 @@ fn dsh_seat_overlay_in(
         }
         _ => None,
     };
-    // The scoped sandbox row a linked-worktree seat needs (decision 0054)
-    // rides with Brokkr's own rows, after the route's and before the
-    // write: the route may not reach the provider the sandbox names.
+    // Brokkr's sandbox rows, a linked worktree's scoped runner (decision
+    // 0054) or a boxed seat's hands rows (#896), ride with its own rows,
+    // after the route's: the route may not reach what they name.
     if let Some(sandbox) = sandbox {
         rows.push_str(sandbox);
     }

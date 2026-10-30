@@ -1,4 +1,5 @@
 {
+  "access": "read-only",
   "description": "Review panel member: the adversarial security read of the change.",
   "charter": "charters/review-security.md",
   "models": [

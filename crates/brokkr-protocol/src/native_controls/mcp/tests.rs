@@ -180,3 +180,51 @@ fn the_hands_entry_is_read_with_its_artifact_root() {
         assert!(!owed.is("/bin/brokkr", &entry(args.clone())), "{args:?}");
     }
 }
+
+/// #896: dsh carries the box's hands alone in its staged overlay, so R1
+/// reads them carried by a command with no MCP option, and not with a
+/// broker beside them, an MCP option in the command or no hands at all.
+#[test]
+fn dsh_carries_the_hands_alone_in_its_overlay() {
+    let path = std::path::Path::new;
+    let spec = crate::hands::HandsSpec::default();
+    let reach = crate::hands::Sealed::default();
+    let hands = Transport {
+        brokkr: path("/bin/brokkr"),
+        workdir: path("/w"),
+        artifacts: path("/a"),
+        sealed: &reach,
+        spec: &spec,
+    };
+    let broker = [SealedBroker {
+        capability: "docs".into(),
+        plan: "/p/plan.json".into(),
+        plan_digest: "a".repeat(64),
+        removals: Vec::new(),
+    }];
+    let document = vec!["{}".to_string()];
+    let option = [("--mcp-config", &document)];
+    let alone = Servers {
+        hands: Some(hands),
+        brokers: &[],
+    };
+    let brokered = Servers {
+        hands: Some(hands),
+        brokers: &broker,
+    };
+    assert!(alone.carried("dsh", &[]));
+    assert!(!brokered.carried("dsh", &[]));
+    assert!(!alone.carried("dsh", &option));
+    assert!(!Servers::default().carried("dsh", &[]));
+}
+
+/// A harness whose grammar carries no MCP options reads no server table,
+/// as the reader's own contract says, so dsh's overlay-borne set never
+/// borrows Claude's or Codex's reading.
+#[test]
+fn a_harness_with_no_mcp_carrier_reads_no_servers() {
+    let document = vec!["{}".to_string()];
+    let controls = [("--mcp-config", &document)];
+    assert_eq!(read("dsh", &controls), None);
+    assert_eq!(read("exec", &controls), None);
+}

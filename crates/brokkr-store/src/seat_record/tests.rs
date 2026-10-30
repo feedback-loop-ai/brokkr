@@ -255,6 +255,34 @@ fn event_validation_checks_only_checkpoints_and_successful_results() {
     assert_eq!(validate_events(&invalid).unwrap_err().seq, 4);
 }
 
+/// #896 round 3: a dsh partial-enforcement report rides a contract-valid
+/// finishing checkpoint. `sandbox` keeps the MODE; the launcher's exact
+/// line is the admitted `step_name` text. `sandbox: partial` is refused at
+/// append, so a driver that wrote it would lose the checkpoint.
+#[test]
+fn a_dsh_partial_enforcement_report_rides_a_contract_valid_checkpoint() {
+    let valid = event(
+        2,
+        EventType::EffectCheckpointed,
+        json!({"checkpoint":{
+            "step":"dsh-session-finished", "exit_code":0,
+            "sandbox":"read-only",
+            "step_name":"landlock-run: partial enforcement (older Landlock ABI)"
+        }}),
+    );
+    validate_events(&[started("0.12.0"), valid]).unwrap();
+    let invalid = event(
+        3,
+        EventType::EffectCheckpointed,
+        json!({"checkpoint":{
+            "step":"dsh-session-finished", "exit_code":0, "sandbox":"partial"
+        }}),
+    );
+    let refused = validate_events(&[started("0.12.0"), invalid]).unwrap_err();
+    assert_eq!(refused.seq, 3);
+    assert_eq!(refused.contract, CONTRACT_V6);
+}
+
 /// Ruling 7: a dialect step's `state` rides the successful result
 /// under v3, and the same row is refused in a journal an engine
 /// before the v2/v3 line wrote — that engine had no dialect step to

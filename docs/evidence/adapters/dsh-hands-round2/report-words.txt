@@ -1,0 +1,16 @@
+# Exact words bound from the installed dsh 0.2.1-rc.2 packages
+# (2026-10-26), and from the controller's live runs in this directory.
+
+# @deepseek-ai/dsh-sandbox/lib/index.js:264
+SANDBOX_UNAVAILABLE = "SANDBOX_UNAVAILABLE"
+
+# @deepseek-ai/dsh-sandbox/lib/index.js:272 (SandboxUnavailableError)
+sandbox mode "<mode>" is requested but no sandbox backend is usable on this host; refusing to run the command unconfined.
+
+# @deepseek-ai/node-addon-system/lib/index.js:21 and dsh-sandbox-local/lib/index.js:236
+LAUNCHER_BIN = "landlock-run"
+landlock-run: partial enforcement (older Landlock ABI)
+
+# live-failclosed.txt (dsh 0.2.1-rc.2, 2026-10-26)
+dsh: warning: 1 entry did not activate
+brokkr-hands (@deepseek-ai/dsh-mcp-client): Error: mcp-client(probe): initial connection or tool synchronization failed

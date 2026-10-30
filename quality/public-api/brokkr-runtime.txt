@@ -333,6 +333,7 @@ pub fn brokkr_runtime::Adapters::load(&std::path::Path) -> core::result::Result<
 pub fn brokkr_runtime::Adapters::providers(&self) -> impl core::iter::traits::iterator::Iterator<Item = &brokkr_runtime::agents::Adapter>
 pub fn brokkr_runtime::Adapters::serving(&self, &str) -> core::option::Option<(&brokkr_runtime::agents::Adapter, &str)>
 pub struct brokkr_runtime::agents::Agent
+pub brokkr_runtime::agents::Agent::access: brokkr_protocol::native_controls::access::Access
 pub brokkr_runtime::agents::Agent::allow: core::option::Option<alloc::vec::Vec<alloc::string::String>>
 pub brokkr_runtime::agents::Agent::capabilities: brokkr_runtime::capabilities::Requests
 pub brokkr_runtime::agents::Agent::charter: std::path::PathBuf
@@ -796,6 +797,7 @@ pub brokkr_runtime::bundle::SequenceStep::class: brokkr_runtime::bundle::SeatCla
 pub brokkr_runtime::bundle::SequenceStep::name: alloc::string::String
 pub brokkr_runtime::bundle::SequenceStep::results: alloc::vec::Vec<alloc::string::String>
 pub struct brokkr_runtime::bundle::SiteFacts
+pub brokkr_runtime::bundle::SiteFacts::access: core::option::Option<brokkr_protocol::native_controls::access::Access>
 pub brokkr_runtime::bundle::SiteFacts::capabilities: core::option::Option<brokkr_runtime::capabilities::SiteCapabilities>
 pub brokkr_runtime::bundle::SiteFacts::chain: alloc::vec::Vec<brokkr_runtime::agents::Candidate>
 pub brokkr_runtime::bundle::SiteFacts::charter: core::option::Option<brokkr_runtime::bundle::CharterPin>

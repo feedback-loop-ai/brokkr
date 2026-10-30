@@ -6,7 +6,8 @@
 //! ruling 5).
 
 use brokkr_core::realms::Boundary;
-use brokkr_protocol::adapters::HandsNotice;
+use brokkr_protocol::adapters::{HandsNotice, ACCESS};
+use brokkr_protocol::native_controls::Access;
 use serde_json::{json, Value};
 
 use crate::agents::{Candidate, ResultDoor};
@@ -38,11 +39,12 @@ pub struct SiteMarks<'a> {
 
 impl<'a> SiteMarks<'a> {
     /// Every spawn-time mark of one model site, in the engine's order:
-    /// hands, then the result door, then the discovery notice, then what
-    /// the serving candidate holds (decision 0065), then the MCP servers
-    /// it is given.
+    /// hands and the access they serve, then the result door, then the
+    /// discovery notice, then what the serving candidate holds (decision
+    /// 0065), then the MCP servers it is given.
     pub fn site(&self, label: &str, gate: bool, link: Option<&Candidate>, input: &mut Value) {
         self.hands(label, input);
+        self.access(label, gate, input);
         self.door(label, gate, link, input);
         self.notice(label, link, input);
         self.capabilities(label, link, input);
@@ -145,6 +147,28 @@ impl<'a> SiteMarks<'a> {
                 input["hands"] = Value::Null;
             }
         }
+    }
+
+    /// The hands access a boxed site serves (#896 round 2): the office's
+    /// own `read-only` or `writes`, carried to this site with its hands.
+    /// An inline site has no office to declare one, so its gate class
+    /// stands in exactly as it did; a changed office declaration now moves
+    /// the mode rather than being re-derived from the phase's class.
+    /// Cleared first, as `notice` clears its carrier, and written only where
+    /// this label resolves hands and Brokkr boxes them; a spawn-time fact,
+    /// outside the requested digest.
+    pub(super) fn access(&self, label: &str, gate: bool, input: &mut Value) {
+        // Every driver input the engine composes is an object.
+        let _ = input.as_object_mut().map(|object| object.remove(ACCESS));
+        if !(self.has_hands(label) && self.boundary.is_boxed()) {
+            return;
+        }
+        let declared = self.bundle.sites.get(label).and_then(|facts| facts.access);
+        let access = declared.unwrap_or(match gate {
+            true => Access::ReadOnly,
+            false => Access::Writes,
+        });
+        input[ACCESS] = serde_json::to_value(access).expect("an access is a scalar word");
     }
 
     /// The judge's door under `harness` (decision 0046 ruling 4; design
@@ -296,3 +320,6 @@ pub(super) fn brokered_at<'a>(
     };
     servers.into_iter().filter_map(held).collect()
 }
+
+#[cfg(test)]
+mod tests;

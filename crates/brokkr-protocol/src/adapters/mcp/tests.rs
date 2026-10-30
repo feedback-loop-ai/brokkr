@@ -1068,3 +1068,28 @@ fn a_measured_shape_of_a_harness_with_no_mechanism_refuses_as_unmeasured() {
         assert_eq!(isolation.admit("codex", invocation), Ok(()), "{shape}");
     }
 }
+
+/// A dsh seat's boxed hands bind to an executable no overlay value
+/// represents only by refusing (#896): a lossy path would bind another
+/// program.
+#[cfg(unix)]
+#[test]
+fn dsh_hands_no_overlay_value_represents_are_refused() {
+    use std::os::unix::ffi::OsStrExt;
+    let mut input =
+        json!({"workdir": "/w", SERVING_INPUTS: hands_under(SealedBoundary::Namespace)});
+    input[crate::hands::SEALED_REACH] = serde_json::to_value(reach()).unwrap();
+    let lossy = Path::new(std::ffi::OsStr::from_bytes(b"/bin/\xffbrokkr"));
+    let refusal = dsh_hands_at(&input, "/w", lossy).unwrap_err();
+    assert_eq!(refusal, McpRefusal::Unbindable);
+    assert_eq!(
+        refusal.at_launch(),
+        "refusing to invoke the agent CLI: the box's hands cannot be bound to a dsh seat \
+         exactly: a path they name is not UTF-8, and no overlay value represents it (#896)"
+    );
+    let exact = dsh_hands_at(&input, "/w", Path::new("/bin/brokkr")).unwrap();
+    assert_eq!(
+        exact.map(|(command, _)| command),
+        Some("/bin/brokkr".into())
+    );
+}

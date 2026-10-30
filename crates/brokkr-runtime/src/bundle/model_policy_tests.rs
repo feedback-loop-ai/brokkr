@@ -12,6 +12,7 @@ use super::*;
 use pin_walk_tests::typed_seats;
 use serde_json::json;
 
+mod dsh_hands_tests;
 mod pin_walk_tests;
 mod site_form_tests;
 
@@ -2153,8 +2154,10 @@ fn the_shipped_codex_adapter_says_why_it_cannot_restrict_tools() {
     assert!(gap.contains("danger-full-access"), "{gap}");
     // The neighbours are untouched by this slice: their silence stays
     // silence, so the new field cannot be mistaken for a migration
-    // somebody forgot to finish.
-    for quiet in ["dsh", "exec"] {
+    // somebody forgot to finish. dsh's own reason arrived with its hands
+    // (#896) and is pinned beside them.
+    {
+        let quiet = "exec";
         let adapter = adapters.adapter(quiet).expect("a shipped adapter");
         assert!(adapter.tool_permissions.is_none(), "{quiet}");
         assert!(
@@ -2166,43 +2169,20 @@ fn the_shipped_codex_adapter_says_why_it_cannot_restrict_tools() {
 
 #[test]
 fn the_shipped_dsh_adapter_re_measures_its_tool_gap_on_the_pinned_release() {
-    // The dsh pin task re-probed the installed launcher `dsh 0.1.5-rc.1`
-    // (2026-09-12) for every stale version note and moved only what it
-    // re-measured: the launcher flags
-    // (`-V/--profile/--patch/--dump-config/--dump-default-config`,
-    // `web`/`plugin`) and the headless flags (`-h` alone, reasoning
-    // streamed to stderr) are unchanged since 0.1.2-rc.1, still no CLI
-    // flag swaps the shell and file tools or adds an MCP server. The
-    // tools row reads `DSH_TOOLS_MODE` into `tools.mode`
-    // (`dsh-headless/cordis.patch.yml:16`, the same seam as
-    // `dsh-web-app/cordis.patch.yml:34`) with documented vocabulary
-    // `native|ptc|both` (`@deepseek-ai/dsh-tools/README.md:64-74`); those
-    // are presentation modes for the visible schemas, not a restriction
-    // of the underlying shell and file tools, so the capability stays
-    // absent and `hands` stays unsupported. The installed components
-    // behind the launcher identify as 0.1.5-rc.2
-    // (`@deepseek-ai/dsh-tools`, `@deepseek-ai/dsh-headless`), so the
-    // reason names both identities. What moves is the REASON, which now
-    // names the release the tree is pinned to. An edit that drops the
-    // measurement back to an older release trips here, as does one that
-    // invents a flag or reverts the vocabulary to undocumented.
+    // Re-measured on dsh 0.2.1-rc.2 and rc.3 (#896, 2026-10-26): every
+    // model-facing tool is its own profile row, which the seat's one
+    // `--patch` overlay disables whole, so dsh's hands are expressible. The
+    // driver writes them into that overlay rather than the argv, so the
+    // workspace fragment is empty, and dsh lists MCP tools without a
+    // search tool, so no discovery notice is declared (decision 0069): the
+    // boxed paragraph's default names its `mcp__brokkr__workspace`. A row
+    // disables a tool whole and narrows no command, so `tools.allow` still
+    // maps onto nothing, and the reason now says so on the release it was
+    // measured on. An edit that drops either half trips here.
     let adapters = Adapters::load(&shipped_adapters()).expect("the shipped adapters load");
     let dsh = adapters.adapter("dsh").expect("a shipped adapter");
-    assert!(dsh.hands.is_none(), "dsh still expresses no tool surface");
-    let gap = dsh
-        .hands_gap
-        .as_deref()
-        .expect("and still records why, rather than leaving it to be guessed");
-    assert!(gap.contains("0.1.5-rc.1"), "{gap}");
-    assert!(gap.contains("0.1.5-rc.2"), "{gap}");
-    assert!(gap.contains("no CLI flag"), "{gap}");
-    assert!(gap.contains("presentAs"), "{gap}");
-    assert!(gap.contains("DSH_TOOLS_MODE"), "{gap}");
-    assert!(gap.contains("tools.mode"), "{gap}");
-    assert!(gap.contains("native"), "{gap}");
-    assert!(gap.contains("ptc"), "{gap}");
-    assert!(gap.contains("both"), "{gap}");
-    assert!(gap.contains("presentation"), "{gap}");
+    assert_eq!(dsh.hands, Some(Vec::new()), "dsh's hands ride its overlay");
+    assert_eq!((&dsh.hands_gap, &dsh.hands_notice), (&None, &None));
     // The spark effort refusal was already measured on this release
     // (decision 0035 addendum 2026-09-11, same binary), so it stands —
     // pinned here so a re-pin that drops the route or its version trips
@@ -2212,14 +2192,16 @@ fn the_shipped_dsh_adapter_re_measures_its_tool_gap_on_the_pinned_release() {
         .get("spark")
         .expect("spark stays the measured effortless route");
     assert!(spark.contains("0.1.5-rc.1"), "{spark}");
-    // The neighbours are untouched by this slice: bare `unsupported`
-    // stays bare, so the re-measured reason cannot be mistaken for a
-    // capability somebody forgot to wire.
     assert!(dsh.tool_permissions.is_none(), "dsh tool_permissions");
-    assert!(
-        dsh.tool_permissions_gap.is_none(),
-        "dsh tool_permissions_gap"
-    );
+    let gap = dsh.tool_permissions_gap.as_deref().unwrap_or_default();
+    for named in [
+        "0.2.1-rc.2",
+        "--patch overlay",
+        "Bash(cargo:*)",
+        "tools.allow",
+    ] {
+        assert!(gap.contains(named), "{named}: {gap}");
+    }
 }
 
 #[test]

@@ -1,0 +1,27 @@
+# dsh 0.2.1-rc.2, headless, deepseek-official/deepseek-flash, 2026-10-26, overlay-stdio.yml
+## stdout
+create_goal, exit_plan_mode, get_goal, interrupt_agent, list_agents, list_mcp_resource_templates, list_mcp_resources, mcp__probe__ping, read_mcp_resource, send_message, todo_write, update_goal, working_directory
+exit=0
+## stderr
+dsh: reasoning:
+We need to list exact tool names, comma-separated, and nothing else. Need to enumerate all tools available. This is simple single-turn. The tools given in the system prompt.
+
+Names:
+create_goal
+exit_plan_mode
+get_goal
+interrupt_agent
+list_agents
+list_mcp_resource_templates
+list_mcp_resources
+mcp__probe__ping
+read_mcp_resource
+send_message
+todo_write
+update_goal
+working_directory
+
+That's 13. Should I include MCP server name? The tool name as callable is mcp__probe__ping. Yes.
+
+Output comma-separated and nothing else. No extra text.
+## server starts: 2

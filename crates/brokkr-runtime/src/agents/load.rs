@@ -24,6 +24,7 @@ use super::{
 };
 use crate::bundle::Limits;
 
+mod access;
 mod adapter;
 mod agent;
 mod auth;
@@ -41,7 +42,6 @@ pub fn valid_name(name: &str) -> bool {
     matches!(characters.next(), Some(first) if first.is_ascii_lowercase())
         && characters.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
-
 #[derive(Debug, Error)]
 pub enum LibraryError {
     #[error("{0}")]
@@ -53,11 +53,9 @@ pub enum LibraryError {
     #[error("{0}")]
     Mcp(#[from] McpRefusal),
 }
-
 fn invalid<T>(message: String) -> Result<T, LibraryError> {
     Err(LibraryError::Invalid(message))
 }
-
 /// The `.json` files directly under `root`, sorted, with their parsed
 /// bodies — plus the `secrets.env` refusal over the whole tree.
 fn definition_files(root: &Path, kind: &str) -> Result<Vec<(String, PathBuf)>, LibraryError> {
@@ -80,7 +78,6 @@ fn definition_files(root: &Path, kind: &str) -> Result<Vec<(String, PathBuf)>, L
     found.sort();
     Ok(found)
 }
-
 /// A secrets store under the library or adapter tree would ride into a
 /// digest exactly as one inside a bundle would — an offline-guessing
 /// oracle (decision 0012, layer 2).
@@ -472,6 +469,7 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
             "tools",
             "capabilities",
             "hands",
+            "access",
             "limits",
             "inputs",
         ],
@@ -487,6 +485,7 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
     let (models, efforts) = agent::chain(map, &what)?;
     let LocalTools { allow, sandbox } = parse_tools(map, &what)?;
     let hands = agent::hands(map, &what)?;
+    let access = access::parse(map, &what)?;
     let limits = parse_limits(map, &what)?;
     let inputs = agent::inputs(map, &what)?;
     super::charter_data::check_office(&charter_bytes, &capabilities, &what, &charter_rel)?;
@@ -501,6 +500,7 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
         efforts,
         allow,
         sandbox,
+        access,
         capabilities,
         hands,
         limits,

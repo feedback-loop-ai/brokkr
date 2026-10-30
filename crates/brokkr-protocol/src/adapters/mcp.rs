@@ -189,6 +189,45 @@ fn sealed_reach(input: &Value) -> Sealed {
     carried.and_then(Result::ok).unwrap_or_default()
 }
 
+/// The box's hands a dsh seat is served through its one overlay (#896):
+/// the engine's executable and the `hands serve` arguments the final check
+/// binds the box's hands to, where the sealed inputs declare hands a
+/// boundary boxes ([`sealed_servers`]). `None` where the input carries no
+/// sealed inputs, a driver run by hand, or they declare no boxed hands;
+/// inputs that cannot be read refuse, and so do hands no overlay value can
+/// bind exactly.
+pub(super) fn dsh_hands(
+    input: &Value,
+    workdir: &str,
+) -> Result<Option<(String, Vec<String>)>, McpRefusal> {
+    dsh_hands_at(input, workdir, &engine_executable())
+}
+
+/// [`dsh_hands`] for the engine's executable at `brokkr`, so a path no
+/// overlay value represents is a plain test.
+fn dsh_hands_at(
+    input: &Value,
+    workdir: &str,
+    brokkr: &Path,
+) -> Result<Option<(String, Vec<String>)>, McpRefusal> {
+    let edge = Edge::new(input);
+    let Some(sealed) = edge.sealed() else {
+        return Ok(None);
+    };
+    let sealed = sealed.as_ref().map_err(|_| McpRefusal::Unreadable)?;
+    if sealed_servers(sealed) != SealedServers::Hands {
+        return Ok(None);
+    }
+    let reach = sealed_reach(input);
+    // The set's own check of what can be served exactly, every path UTF-8,
+    // which a set of the hands has whenever its spec is sealed.
+    let hands = hands_transport(sealed, (brokkr, workdir), input, &reach)
+        .filter(|hands| hands.expand(&[]).is_some())
+        .ok_or(McpRefusal::Unbindable)?;
+    let args = crate::hands::serve_args(hands.workdir, hands.artifacts, hands.sealed, hands.spec);
+    Ok(Some((brokkr.to_string_lossy().into_owned(), args)))
+}
+
 /// Rebuild units 14 and 15 (operator ruling 2 of 2026-09-23; design D6):
 /// the command a launch spawns, cold, rejoining or a rejected rejoin's cold
 /// replacement, once [`check_final`] has proved that it expresses exactly
@@ -332,6 +371,11 @@ pub(super) enum McpRefusal {
     /// served-home decision refuses it ([`dsh_served`]).
     #[error(transparent)]
     Route(#[from] RouteRefusal),
+    #[error(
+        "the box's hands cannot be bound to a dsh seat exactly: a path they name is not UTF-8, \
+         and no overlay value represents it (#896)"
+    )]
+    Unbindable,
 }
 
 impl From<DshRefusal> for McpRefusal {
@@ -585,9 +629,10 @@ fn with_empty_set(
 /// document the final check proves, and the empty set gains the strict
 /// flag and the empty document here. dsh's empty set is its engine-only
 /// home with no server row in its overlay, so its arguments are unchanged,
-/// and dsh holds no hands (its adapter's measured fact), so a hands set is
-/// never measured for it. A brokered set rides the same fragment, whose
-/// document the engine expanded to the whole set (U7d); Codex's fragment
+/// and dsh's hands ride that overlay (#896), beside which no engine-only
+/// home is measured, so a hands set is never admitted for it. A brokered
+/// set rides the same fragment, whose document the engine expanded to the
+/// whole set (U7d); Codex's fragment
 /// and dsh's home carry no broker, so a brokered set refuses for either
 /// whichever way the fence stands, never served without the brokers it
 /// seals. A launch offered no rejoin is admitted cold; one

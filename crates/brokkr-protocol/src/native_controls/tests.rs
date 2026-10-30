@@ -10439,8 +10439,8 @@ fn dsh_sealed() -> Sealed {
 /// overlay, rejoins exactly the chosen session under the stream reading and
 /// carries exactly the chosen prompt, each compared token for token (R4); a
 /// serving choice with no place in the shape rebuilds nothing; the
-/// driver-input grammar is not the serving one; and DSH has no hands
-/// transport.
+/// driver-input grammar is not the serving one; and DSH's hands transport
+/// rides its staged overlay alone (#896).
 #[test]
 #[expect(
     clippy::too_many_lines,
@@ -10583,7 +10583,7 @@ fn an_unmeasured_dsh_command_checks_only_under_its_own_reason() {
              with belongs)"
         )
     );
-    // No hands transport is the engine's at DSH.
+    // DSH's hands ride the staged overlay its driver writes (#896).
     let handed = Sealed {
         expected: Expected {
             hands: HandsIntent::Required,
@@ -10593,8 +10593,8 @@ fn an_unmeasured_dsh_command_checks_only_under_its_own_reason() {
         ..sealed.clone()
     };
     assert_eq!(
-        check(&handed, &cold, None, staged),
-        refused("is sealed with hands that are not the engine's workspace hands")
+        check(&handed, &cold, None, staged).map(Checked::into_argv),
+        Ok(cold.clone())
     );
     // Another harness patches nothing, streams nothing and reads its prompt
     // on stdin.

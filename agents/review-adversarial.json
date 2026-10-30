@@ -1,4 +1,5 @@
 {
+  "access": "read-only",
   "description": "Review panel member: tries to break the delivered change with concrete adversarial cases.",
   "charter": "charters/review-adversarial.md",
   "models": [

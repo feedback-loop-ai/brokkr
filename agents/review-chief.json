@@ -1,4 +1,5 @@
 {
+  "access": "read-only",
   "description": "Review chief: checks the panel's findings and rules the protected phase without lowering its verdict.",
   "charter": "charters/review-chief.md",
   "models": [

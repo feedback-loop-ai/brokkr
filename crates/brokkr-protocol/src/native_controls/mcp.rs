@@ -368,8 +368,14 @@ impl<'a> Servers<'a> {
     /// Whether `controls`, the MCP options of one command at `harness`,
     /// carry exactly this set, read on their own ([`read`]): every name,
     /// and each server's executable and arguments. A harness with no MCP
-    /// carrier in its arguments carries none.
+    /// carrier in its arguments carries none. dsh carries the box's hands,
+    /// and nothing beside them, in the one overlay its driver stages from
+    /// this transport, whose path the final check binds (#896), so its
+    /// arguments carry no MCP option and no broker rides beside them.
     fn carried(&self, harness: &str, controls: &[(&str, &Vec<String>)]) -> bool {
+        if harness == "dsh" {
+            return controls.is_empty() && self.brokers.is_empty() && self.hands.is_some();
+        }
         let (Some(owed), Some(read)) = (self.named(), read(harness, controls)) else {
             return false;
         };
@@ -394,8 +400,8 @@ impl<'a> Servers<'a> {
     /// harness's environment are exactly the brokers' sealed removals, each
     /// once (MB4). The empty set is carried by no MCP option at all or by
     /// the strict flag beside the empty document SI2's isolation appends.
-    /// dsh carries its set in its engine-only home, not in its arguments,
-    /// and holds no hands, which R1's judgment refuses ([`Self::carried_by`]).
+    /// dsh carries its set in its engine-only home and its hands in its
+    /// staged overlay, not in its arguments, as R1 reads ([`Self::carried_by`]).
     pub(super) fn served(&self, harness: &str, state: &State, removed: &[String]) -> bool {
         let owed: BTreeSet<&str> = (self.brokers.iter())
             .flat_map(|broker| &broker.removals)

@@ -1069,6 +1069,19 @@ fn replacement_quotes_d06_pass_8_and_d07(isolation: McpIsolation) {
     );
 }
 
+/// Whether a measured line opens by citing its cells: U0's, U0b's or
+/// #896's.
+fn cited(line: &str) -> bool {
+    ["U0 ", "U0b ", "#896 "]
+        .iter()
+        .any(|cell| line.starts_with(cell))
+}
+
+/// An adapter's body with its `hands` declaration removed.
+fn handless(body: &mut Value) {
+    body.as_object_mut().unwrap().remove("hands");
+}
+
 /// U1e, U1d3 and U1d6 (SI1): dsh declares its own no-hands Linux shapes
 /// exactly as U0, U0c and U0b measured them: cold on 0.1.5-rc.1, its
 /// ambient line naming every route qualified, and the replacement on
@@ -1077,7 +1090,10 @@ fn replacement_quotes_d06_pass_8_and_d07(isolation: McpIsolation) {
 /// carries no route scope and D07 ran keyless spark-glm alone (operator
 /// ruling 2026-10-26): those lines quote D07's canaries, and none borrows
 /// D10's candidate hands row. Each line cites its cells, and no other
-/// shape, no Claude result and no hands follow from them.
+/// shape, no Claude result and no hands follow from them. The boxed cold
+/// shape is #896's, on 0.2.1-rc.2: ambient unmeasured on the same route
+/// scope, the other three measured from tool rows and the box, which no
+/// route composes.
 #[test]
 fn dsh_declares_only_its_own_cold_and_replacement_shapes_and_inherits_nothing() {
     let adapters = Adapters::load(&shipped()).expect("the shipped adapters load");
@@ -1085,20 +1101,19 @@ fn dsh_declares_only_its_own_cold_and_replacement_shapes_and_inherits_nothing() 
     let (m, u, d) = ("measured", "unsupported", "unmeasured");
     let cold = shape(McpInvocation::Cold, McpHands::NoHands);
     let replacement = shape(McpInvocation::Replacement, McpHands::NoHands);
+    let boxed = shape(McpInvocation::Cold, McpHands::Boxed);
     assert_eq!(
         declaration(&dsh.mcp),
         (
             m,
             vec![
+                (boxed.clone(), "0.2.1-rc.2".into(), [d, m, m, m]),
                 (cold.clone(), "0.1.5-rc.1".into(), [m, d, u, m]),
                 (replacement.clone(), "0.2.1-rc.2".into(), [m, d, d, d]),
             ]
         )
     );
-    let uncited: Vec<&str> = lines(&dsh.mcp)
-        .into_iter()
-        .filter(|line| !line.starts_with("U0 ") && !line.starts_with("U0b "))
-        .collect();
+    let uncited: Vec<&str> = lines(&dsh.mcp).into_iter().filter(|l| !cited(l)).collect();
     assert_eq!(uncited, Vec::<&str>::new(), "every line cites its cell");
     replacement_quotes_d06_pass_8_and_d07(dsh.mcp.isolation(&replacement));
     let McpAxis::Measured { evidence } = dsh.mcp.isolation(&cold).ambient else {
@@ -1116,32 +1131,29 @@ fn dsh_declares_only_its_own_cold_and_replacement_shapes_and_inherits_nothing() 
         .filter(|routes| !evidence.contains(&format!("({routes})")))
         .collect();
     assert_eq!(unnamed, Vec::<&str>::new(), "{evidence}");
-
-    let macos = McpShape {
+    let macos = |shape: &McpShape| McpShape {
         host: McpHost::Macos,
-        ..cold.clone()
+        ..shape.clone()
     };
     let absent = [
-        shape(McpInvocation::Cold, McpHands::Boxed),
+        macos(&boxed),
         shape(McpInvocation::Cold, McpHands::Harness),
         shape(McpInvocation::Replacement, McpHands::Boxed),
         shape(resume("headless-work"), McpHands::NoHands),
-        macos,
-        McpShape {
-            host: McpHost::Macos,
-            ..replacement
-        },
+        macos(&cold),
+        macos(&replacement),
     ]
     .map(|shape| dsh.mcp.isolation(&shape));
     let none = every(&McpAxis::Unmeasured(McpUnmeasured::Absent));
     assert_eq!(absent, [(); 6].map(|()| none.clone()));
     let headless = dsh.resume.shape("headless-work").unwrap();
     assert_eq!(
-        (dsh.hands.as_ref(), headless.status),
-        (None, crate::agents::ResumeStatus::Unmeasured)
+        (dsh.hands.as_deref(), headless.status),
+        (Some(&[][..]), crate::agents::ResumeStatus::Unmeasured)
     );
 
-    // Claude's cell, a hands mode dsh lacks, and exec's form all refuse.
+    // Claude's cell, a hands mode dsh lacks, the boxed shape without the
+    // hands it rests on, and exec's form all refuse.
     let claude: Value =
         serde_json::from_slice(&std::fs::read(shipped().join("claude.json")).unwrap()).unwrap();
     let borrowed = claude["mcp"]["shapes"][1].clone();
@@ -1153,7 +1165,7 @@ fn dsh_declares_only_its_own_cold_and_replacement_shapes_and_inherits_nothing() 
             shipped_with("dsh", |body| {
                 body["mcp"]["shapes"].as_array_mut().unwrap().push(borrowed);
             }),
-            shipped_with("dsh", rehand("boxed")),
+            shipped_with("dsh", handless),
             shipped_with("dsh", rehand("harness")),
             shipped_with("dsh", |body| {
                 body["mcp"] = json!({"inapplicable": "no model MCP surface"});

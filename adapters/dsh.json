@@ -56,7 +56,9 @@
     "spark": "dsh 0.1.5-rc.1 refuses reasoningEffort at every level tried (low, none — runs task-framing-doctor-warns-when-a-088cb62b, task-framing-doctor-warns-when-a-b2b4fdc4, 2026-09-11); seats on this route pin no effort and record not applicable (decision 0035 addendum 2026-09-11)",
     "spark-glm": "dsh 0.1.5-rc.1 refuses reasoningEffort on spark-glm/GLM-5.3-Flash-EXL3 (low — UNSUPPORTED_REASONING_EFFORT, measured 2026-09-16); the model entry states no reasoningEfforts so the lane materialises as non-reasoning, seats on this route pin no effort and record not applicable (decision 0035 addendum 2026-09-11)"
   },
-  "tool_permissions": "unsupported",
+  "tool_permissions": {
+    "unsupported": "dsh 0.2.1-rc.2 and rc.3 (measured 2026-10-26) disable a tool only as a whole profile row through the --patch overlay, which is how this adapter's hands are served; no row narrows bash to a command (no Bash(cargo:*) analogue), so an agent's tools.allow list has nothing to map onto"
+  },
   "mcp": {
     "carriage": {
       "measured": "U0 D03 (dsh 0.1.5-rc.1, Linux, 2026-10-03, local spark-glm route): the engine's dsh-mcp-client row, inserted by the --patch overlay over an engine-only DSH_HOME, started the engine sentinel and answered its call; U0c K02, K05, K08 and K11t (2026-10-06) answered it on deepseek-official, dashscope, meta and meta-contributor (docs/evidence/adapters/slice-two-mcp-isolation.md)"
@@ -105,6 +107,28 @@
         "process_read": {
           "unmeasured": "U0b D07 (keyless spark-glm): dsh's native bash found no process canary in /proc, in its private pid namespace; a shape carries no route scope, so one route's result qualifies none"
         }
+      },
+      {
+        "invocation": "cold",
+        "hands": "boxed",
+        "measured_on": {
+          "harness": "dsh",
+          "binary": "dsh",
+          "version": "0.2.1-rc.2",
+          "host": "linux"
+        },
+        "ambient": {
+          "unmeasured": "#896 round 2 (2026-10-26, dsh 0.2.1-rc.2): with transport: stdio the equivalent probe row started and the model listed mcp__probe__ping, not a live Brokkr call through this driver; without it the server never started and dsh exited 0, and failOnStartupError refused nothing. Each launch composes --dump-config against the measured 99 (docs/evidence/adapters/dsh-hands-round2)"
+        },
+        "native_write": {
+          "measured": "#896 round 2 (2026-10-26, dsh 0.2.1-rc.2/rc.3): the ten hands rows disabled left 12 bookkeeping tools, the nine plus mcp-resources' three, which reach only the one MCP server in scope; each disabled row read disabled: true in --dump-config, and sandbox-policy is set from the office's access (docs/evidence/adapters/dsh-hands-round2)"
+        },
+        "store_read": {
+          "measured": "U0b D10-p5 with #896 round 2 (dsh 0.2.1-rc.2): the hands box, Brokkr's whatever the route, masks the 0600 store at its production path behind /dev/null (Permission denied) after U8h, and the hands rows compose no native read, search or shell tool; mcp-resources reaches only the seat's one MCP server (docs/evidence/adapters/dsh-hands-round2)"
+        },
+        "process_read": {
+          "measured": "U0b D10-p5 with #896 (dsh 0.2.1-rc.2): the hands box, Brokkr's whatever the route, found no process canary in /proc in its private pid namespace, and the hands rows compose no native shell (docs/evidence/adapters/slice-two-dsh-hands.md)"
+        }
       }
     ]
   },
@@ -112,7 +136,7 @@
     "unmeasured": "dsh's tool_permissions and mcp declarations cover command-line narrowing, ambient MCP exclusion and engine-server carriage only, which does not establish that dsh has no native egress. U0 and U0c listed native web_fetch and web_search under an engine-only DSH_HOME, and the web_search row (web-search-deepseek) reads DEEPSEEK_API_KEY on every route family; no cell exercised either. dsh 0.2's web-deepseek-api row (the Search and Fetch APIs, billed from 2026-11-01) reads it too. No OFF control is measured: nothing is granted through dsh and no native denial is claimed (decision 0065 slice one; owed to the controller)"
   },
   "hands": {
-    "unsupported": "dsh 0.1.0-rc.6 replaces its tool surface only through a profile plugin (presentAs/restrict/guard/register on the scoped tools service); no CLI flag disables its shell and file tools or adds an MCP server, so the one boxed tool cannot be expressed without a plugin. Re-measured on 0.1.2-rc.1 (2026-09-04): the launcher and headless flags are unchanged; the tools plugin reads a DSH_TOOLS_MODE environment value whose vocabulary the release does not document, so it is not relied on. Re-measured on 0.1.5-rc.1 (2026-09-12; launcher 0.1.5-rc.1, installed @deepseek-ai/dsh-tools and @deepseek-ai/dsh-headless 0.1.5-rc.2): the launcher flags (-V/--profile/--patch/--dump-config/--dump-default-config, web/plugin) and the headless flags (-h alone; reasoning streams to stderr) are unchanged, still no CLI flag swaps the tool surface or adds an MCP server. The tools row reads DSH_TOOLS_MODE into tools.mode (dsh-headless/cordis.patch.yml:16, same seam as dsh-web-app/cordis.patch.yml:34) with documented vocabulary native|ptc|both (@deepseek-ai/dsh-tools/README.md:64-74); those are presentation modes for the visible schemas, not a restriction of the underlying shell and file tools, so hands stays unsupported. The plugin is the next slice."
+    "workspace": []
   },
   "resume": {
     "headless-work": {

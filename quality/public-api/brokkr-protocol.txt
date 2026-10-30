@@ -105,6 +105,7 @@ pub fn brokkr_protocol::adapters::HandsNotice::discovery_tool(&self) -> &str
 pub fn brokkr_protocol::adapters::HandsNotice::parse(&serde_json::value::Value) -> core::result::Result<brokkr_protocol::adapters::HandsNotice, alloc::string::String>
 pub fn brokkr_protocol::adapters::HandsNotice::to_value(&self) -> serde_json::value::Value
 pub fn brokkr_protocol::adapters::HandsNotice::workspace_tool(&self) -> &str
+pub const brokkr_protocol::adapters::ACCESS: &str
 pub const brokkr_protocol::adapters::DEFAULT_WORKSPACE_TOOL: &str
 pub const brokkr_protocol::adapters::EFFORT_NOT_APPLICABLE: &str
 pub const brokkr_protocol::adapters::EFFORT_NOT_REPORTED: &str
@@ -676,6 +677,9 @@ pub fn brokkr_protocol::native_controls::grammar::rejoin_class(brokkr_protocol::
 pub fn brokkr_protocol::native_controls::grammar::setting(&str) -> core::result::Result<brokkr_protocol::native_controls::grammar::Setting, &'static str>
 pub fn brokkr_protocol::native_controls::grammar::tool_name(&str) -> &str
 pub fn brokkr_protocol::native_controls::grammar::tool_patterns(&str) -> alloc::vec::Vec<&str>
+pub enum brokkr_protocol::native_controls::Access
+pub brokkr_protocol::native_controls::Access::ReadOnly
+pub brokkr_protocol::native_controls::Access::Writes
 pub enum brokkr_protocol::native_controls::AllowIntent
 pub brokkr_protocol::native_controls::AllowIntent::Listed(alloc::vec::Vec<alloc::string::String>)
 pub brokkr_protocol::native_controls::AllowIntent::Unspecified

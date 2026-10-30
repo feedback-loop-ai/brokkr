@@ -1,4 +1,5 @@
 {
+  "access": "read-only",
   "description": "Review panel member: does the delivered change satisfy the committed spec's acceptance criteria?",
   "charter": "charters/review-spec-compliance.md",
   "models": [

@@ -6,7 +6,6 @@ mod codex_isolation;
 use codex_isolation::{
     isolated, profiled_cold, strings, ISOLATION, READ_ONLY, SELECTOR, STORE, WORKSPACE_WRITE,
 };
-
 /// One invocation of `kind` over its override as this test's environment
 /// holds it, read by the one reader the way `run_seat` reads it.
 fn invoke(
@@ -5502,6 +5501,7 @@ fn dsh_stream_launch(
         root: root.to_path_buf(),
         overlay: dsh_seat_overlay_with(None, None, root, None, None).unwrap(),
         home: crate::transcript::DshHome::operator().unwrap(),
+        mode: None,
     }
 }
 
@@ -6230,7 +6230,7 @@ fn run_dsh_latch(case: &DshLatchCase, delivers: bool) -> DshLatchRun {
         &mut |body| bodies.push(body),
         |prompt, input, _bindings, mut emit| {
             let command = [launch.command.clone(), vec![prompt.to_string()]].concat();
-            invoke_dsh_launch_observed(
+            super::dsh_launch::invoke_dsh_launch_observed(
                 launch,
                 command,
                 input["workdir"].as_str().unwrap(),
@@ -8375,7 +8375,7 @@ fn a_failure_before_the_promotion_keeps_the_private_store_and_names_it() {
 /// worktree `dir/wt` on branch `slice` and that worktree's git facts, and
 /// the directory holding both.
 #[cfg(target_os = "linux")]
-fn real_linked_worktree() -> (tempfile::TempDir, PathBuf, GitFacts) {
+pub(super) fn real_linked_worktree() -> (tempfile::TempDir, PathBuf, GitFacts) {
     let dir = tempfile::tempdir().unwrap();
     let main = dir.path().canonicalize().unwrap().join("main");
     std::fs::create_dir_all(&main).unwrap();

@@ -1,4 +1,5 @@
 {
+  "access": "read-only",
   "description": "Review panel member: does the change do what it claims, and does the evidence support it?",
   "charter": "charters/review-correctness.md",
   "models": [

@@ -1,0 +1,17 @@
+# dsh 0.2.1-rc.2, headless, deepseek-official/deepseek-flash, 2026-10-26, overlay-failclosed.yml
+## stdout
+create_goal, exit_plan_mode, get_goal, interrupt_agent, list_agents, send_message, todo_write, update_goal, working_directory
+exit=0
+## stderr
+dsh: warning: 1 entry did not activate
+brokkr-hands (@deepseek-ai/dsh-mcp-client): Error: mcp-client(probe): initial connection or tool synchronization failed
+    at Object.apply [as callback] (file:///home/vyanakiev/.volta/tools/image/packages/@deepseek-ai/dsh/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-mcp-client/lib/index.js:832:67)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async Fiber._reload (file:///home/vyanakiev/.volta/tools/image/packages/@deepseek-ai/dsh/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/cordis/lib/index.js:1356:5)
+Error: spawn /nonexistent/brokkr ENOENT
+    at ChildProcess._handle.onexit (node:internal/child_process:285:19)
+    at onErrorNT (node:internal/child_process:483:16)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21)
+dsh: reasoning:
+We need answer exact tool names comma-separated nothing else. Tools: create_goal, exit_plan_mode, get_goal, interrupt_agent, list_agents, send_message, todo_write, update_goal, working_directory. The prompt asks list exact names of every tool I can call. We should just output those comma-separated. Need not call tools. Ensure "nothing else." So no explanation. Alphabetical? As listed. We'll output.
+## server starts: 0

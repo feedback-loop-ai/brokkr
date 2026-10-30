@@ -1,0 +1,12 @@
+# dsh 0.2.1-rc.2, headless, deepseek-official/deepseek-flash, 2026-10-26, overlay-failopen.yml
+## stdout
+create_goal, exit_plan_mode, get_goal, interrupt_agent, list_agents, list_mcp_resource_templates, list_mcp_resources, read_mcp_resource, send_message, todo_write, update_goal, working_directory
+exit=0
+## stderr
+dsh: reasoning:
+I need to list all tool names exactly as defined. Let me enumerate from the system prompt:
+
+create_goal, exit_plan_mode, get_goal, interrupt_agent, list_agents, list_mcp_resource_templates, list_mcp_resources, read_mcp_resource, send_message, todo_write, update_goal, working_directory.
+
+The user wants comma-separated, nothing else.
+## server starts: 0
