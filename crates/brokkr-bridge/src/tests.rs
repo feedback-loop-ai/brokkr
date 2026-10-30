@@ -1,14 +1,14 @@
 use super::*;
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::dispatch::{
-    build_run_manifest_v2, ActorBinding, BudgetBinding, DispatchBounds, LooperBinding,
-    ProducerBinding, RecipeBinding, RepositoryBinding, DISPATCH_SCHEMA_V2, PRODUCER_EFFECTS,
+    build_run_manifest_v2, bundle_manifest_from_run, dispatch_from_run, ActorBinding,
+    BudgetBinding, DispatchBounds, LooperBinding, ProducerBinding, RecipeBinding,
+    RepositoryBinding, DISPATCH_SCHEMA_V2, PRODUCER_EFFECTS,
 };
-use time::format_description::well_known::Rfc3339;
-
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::thread::JoinHandle;
+use time::format_description::well_known::Rfc3339;
 
 #[path = "../../../tests/support/envelope.rs"]
 mod envelope_builder;

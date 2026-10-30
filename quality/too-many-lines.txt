@@ -1,6 +1,5 @@
 # produced by quality/measure.sh with clippy 0.1.98 (88d9e12ae1 2026-08-18)
 # production
- 111 crates/brokkr-bridge/src/lib.rs:613 sync_once
  177 crates/brokkr-cli/src/muninn.rs:230 dossier_of
  140 crates/brokkr-core/src/dispatch.rs:241 verify
  106 crates/brokkr-core/src/policy.rs:427 parse_rule
