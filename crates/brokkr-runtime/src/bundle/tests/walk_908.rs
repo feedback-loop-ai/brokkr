@@ -37,9 +37,28 @@ fn ignored_repository(fixture: &Fixture) {
     std::fs::create_dir(fixture.root.join("target")).unwrap();
 }
 
-/// Compile `fixture` with `relative` holding `one`, then `two`: a path the
-/// walk skips must leave the digest where it was. Returns the first compile.
-fn stable_despite(fixture: &Fixture, relative: &str) -> Bundle {
+/// A repository root whose index git cannot read: discovery still succeeds,
+/// but check-ignore fails for real, with git's own explanation (#908).
+fn unreadable_index(fixture: &Fixture) {
+    git(&fixture.root, &["init", "-q"]);
+    std::fs::write(fixture.root.join("tracked"), "bytes").unwrap();
+    git(&fixture.root, &["add", "tracked"]);
+    std::fs::write(fixture.root.join(".git/index"), "garbage").unwrap();
+}
+
+/// The detail a failed check-ignore refusal carries, kept in one place:
+/// git's status and its own stderr, through the house's `git_refusal`.
+fn check_ignore_failure(bundle: &Path) -> String {
+    git_unreadable(
+        bundle,
+        "git check-ignore answered exit status: 128: fatal: .git/index: index file smaller \
+         than expected",
+    )
+}
+
+/// Compile `fixture` with `relative` holding `one`, then `two`: the first
+/// compile, and the digests the two reads produced.
+fn recompiled(fixture: &Fixture, relative: &str) -> (Bundle, String, String) {
     std::fs::write(fixture.root.join(relative), "one").unwrap();
     let compiled = fixture
         .compile(&Fixture::config(), &Fixture::policy())
@@ -49,12 +68,37 @@ fn stable_despite(fixture: &Fixture, relative: &str) -> Bundle {
     let again = fixture
         .compile(&Fixture::config(), &Fixture::policy())
         .unwrap();
-    assert_eq!(
-        again.manifest_digest(),
-        digest,
-        "{relative} moved the digest"
-    );
+    (compiled, digest, again.manifest_digest())
+}
+
+/// Compile `fixture` with `relative` holding `one`, then `two`: a path the
+/// walk skips must leave the digest where it was. Returns the first compile.
+fn stable_despite(fixture: &Fixture, relative: &str) -> Bundle {
+    let (compiled, digest, again) = recompiled(fixture, relative);
+    assert_eq!(again, digest, "{relative} moved the digest");
     compiled
+}
+
+/// Compile `fixture` with `relative` holding `one`, then `two`: a path the
+/// walk pins must move the digest. Returns the first compile.
+fn moved_by(fixture: &Fixture, relative: &str) -> Bundle {
+    let (compiled, digest, again) = recompiled(fixture, relative);
+    assert_ne!(again, digest, "{relative} did not move the digest");
+    compiled
+}
+
+/// The refusal a seat's ignored charter gets, naming `relative` as both
+/// the reference and the tree the walk does not pin.
+fn ignored_charter(bundle: &Path, relative: &str) -> String {
+    format!(
+        "bundle: {}: seat 'work' names role '{relative}', which stands at '{relative}' — a \
+         path the bundle's file walk does not pin, because it holds a tree git ignores in the \
+         bundle's repository, whose bytes are not part of the bundle's identity. A charter \
+         there could change what the seat is told without moving the bundle's identity, so it \
+         is refused; move it to a path the bundle pins, such as 'roles/' (decision 0066 \
+         ruling 5)",
+        bundle.join("bundle.json").display()
+    )
 }
 
 #[test]
@@ -87,18 +131,7 @@ fn a_charter_inside_an_ignored_tree_is_refused_by_name() {
     let mut config = Fixture::config();
     config["seats"]["work"]["role"] = json!("target/role.md");
     let refused = error(fixture.compile(&config, &Fixture::policy()));
-    assert_eq!(
-        refused,
-        format!(
-            "bundle: {}: seat 'work' names role 'target/role.md', which stands at \
-             'target/role.md' — a path the bundle's file walk does not pin, because it holds a \
-             tree git ignores in the bundle's repository, whose bytes are not part of the \
-             bundle's identity. A charter there could change what the seat is told without \
-             moving the bundle's identity, so it is refused; move it to a path the bundle pins, \
-             such as 'roles/' (decision 0066 ruling 5)",
-            fixture.root.join("bundle.json").display()
-        )
-    );
+    assert_eq!(refused, ignored_charter(&fixture.root, "target/role.md"));
 }
 
 #[test]
@@ -112,15 +145,7 @@ fn a_charter_inside_a_nested_ignored_tree_is_refused_by_name() {
     let refused = error(fixture.compile(&config, &Fixture::policy()));
     assert_eq!(
         refused,
-        format!(
-            "bundle: {}: seat 'work' names role 'nested/target/role.md', which stands at \
-             'nested/target/role.md' — a path the bundle's file walk does not pin, because it \
-             holds a tree git ignores in the bundle's repository, whose bytes are not part of \
-             the bundle's identity. A charter there could change what the seat is told without \
-             moving the bundle's identity, so it is refused; move it to a path the bundle pins, \
-             such as 'roles/' (decision 0066 ruling 5)",
-            fixture.root.join("bundle.json").display()
-        )
+        ignored_charter(&fixture.root, "nested/target/role.md")
     );
 }
 
@@ -315,50 +340,70 @@ fn a_git_that_cannot_be_asked_refuses_by_name() {
 }
 
 #[test]
-fn a_git_that_cannot_answer_the_ignore_question_refuses_by_name() {
+fn a_check_ignore_failure_refuses_by_name_with_gits_own_words() {
     let fixture = Fixture::new();
-    git(&fixture.root, &["init", "-q"]);
-    // A real name git's pathspec grammar refuses: check-ignore answers an
-    // error rather than yes or no. The compile must refuse by name, never
-    // read the tree as pinned or as ignored.
-    let magic = fixture.root.join(":(exclude)x");
-    std::fs::create_dir(&magic).unwrap();
-    std::fs::write(magic.join("role.md"), "# role").unwrap();
-    let mut config = Fixture::config();
-    config["seats"]["work"]["role"] = json!(":(exclude)x/role.md");
-    let refused = error(fixture.compile(&config, &Fixture::policy()));
+    unreadable_index(&fixture);
+    // A real git failure, not a pathspec: check-ignore answers an error
+    // rather than yes or no. The refusal names the declaring document and
+    // carries git's own explanation of what it could not read (#908).
+    let refused = error(fixture.compile(&Fixture::config(), &Fixture::policy()));
     assert_eq!(
         refused,
         format!(
-            "bundle: {}: seat 'work' names role ':(exclude)x/role.md', asking git which trees \
-             the bundle at {} ignores failed (git check-ignore answered exit status: 128); a \
-             bundle's walk skips a git-ignored tree only when git says so, never by guessing. \
-             A charter there could change what the seat is told without moving the bundle's \
-             identity, so it is refused; move it to a path the bundle pins, such as 'roles/' \
-             (decision 0066 ruling 5)",
+            "bundle: {}: the layer's declaring document, {}. What a run is composed from \
+             must be what its identity names, so it is refused (decision 0065 slice one, \
+             design D7)",
             fixture.root.join("bundle.json").display(),
-            fixture.root.display()
+            check_ignore_failure(&fixture.root)
         )
     );
 }
 
 #[test]
-fn a_walk_that_cannot_ask_git_refuses_by_name() {
+fn a_pathspec_shaped_name_is_judged_literally() {
+    let fixture = Fixture::new();
+    ignored_repository(&fixture);
+    // `:(exclude)x` used to be pathspec magic to git, which answered an
+    // error for a name the walk had. Judged literally, it is an ordinary
+    // directory whose file the bundle pins and whose bytes move its
+    // identity (#908).
+    std::fs::create_dir(fixture.root.join(":(exclude)x")).unwrap();
+    let compiled = moved_by(&fixture, ":(exclude)x/plain.txt");
+    assert!(compiled.manifest["files"]
+        .as_object()
+        .unwrap()
+        .contains_key(":(exclude)x/plain.txt"));
+}
+
+#[test]
+fn a_name_beginning_with_a_colon_is_judged_literally() {
     let fixture = Fixture::new();
     git(&fixture.root, &["init", "-q"]);
-    let magic = fixture.root.join(":(exclude)x");
-    std::fs::create_dir(&magic).unwrap();
-    std::fs::write(magic.join("plain.txt"), "bytes").unwrap();
-    let refused = error(fixture.compile(&Fixture::config(), &Fixture::policy()));
-    assert_eq!(
-        refused,
-        format!(
-            "bundle: asking git which trees the bundle at {} ignores failed (git check-ignore \
-             answered exit status: 128); a bundle's walk skips a git-ignored tree only when git \
-             says so, never by guessing",
-            fixture.root.display()
-        )
-    );
+    // `foo` is ignored, but the file the walk names is `:foo`: judged as a
+    // pathspec it would be omitted and its bytes would not move the
+    // bundle's identity (#908).
+    std::fs::write(fixture.root.join(".gitignore"), "foo\n").unwrap();
+    let compiled = moved_by(&fixture, ":foo");
+    assert!(compiled.manifest["files"]
+        .as_object()
+        .unwrap()
+        .contains_key(":foo"));
+}
+
+#[test]
+fn a_charter_under_a_colon_pathspec_is_refused_by_name() {
+    let fixture = Fixture::new();
+    git(&fixture.root, &["init", "-q"]);
+    // `.gitignore` ignores the literal directory `:roles/`; judged as a
+    // pathspec the charter would be pinned instead, so its bytes could
+    // change under the bundle's identity (#908).
+    std::fs::write(fixture.root.join(".gitignore"), ":roles/\n").unwrap();
+    std::fs::create_dir(fixture.root.join(":roles")).unwrap();
+    std::fs::write(fixture.root.join(":roles/role.md"), "# role").unwrap();
+    let mut config = Fixture::config();
+    config["seats"]["work"]["role"] = json!(":roles/role.md");
+    let refused = error(fixture.compile(&config, &Fixture::policy()));
+    assert_eq!(refused, ignored_charter(&fixture.root, ":roles/role.md"));
 }
 
 #[test]

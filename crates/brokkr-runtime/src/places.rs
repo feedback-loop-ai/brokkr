@@ -313,7 +313,8 @@ fn stands_in_git(dir: &Path) -> bool {
 /// `.gitignore`, `.git/info/exclude` and a global exclude rule alike are
 /// git's rules, never a copy of them. `rel` is the entry's full relative
 /// path, so a tree ignored at any depth is judged, not only the first
-/// component.
+/// component. It is passed to git as `./<rel>`, so git judges the literal
+/// name the walk named and never a pathspec (#908).
 ///
 /// A bundle outside a git work tree answers "not ignored": it skips only
 /// [`GIT`]. A `.git` stands above the bundle but git cannot answer for it:
@@ -360,13 +361,20 @@ fn git_ignored(dir: &Path, rel: &str) -> Result<bool, SkipError> {
     if String::from_utf8_lossy(&inside.stdout).trim() != "true" {
         return Ok(false);
     }
-    let checked = run(&["check-ignore", "--quiet", "--", rel])?;
+    // Git reads a bare relative operand as a pathspec, and `--` ends
+    // options without making it literal: a `:`-leading name is pathspec
+    // magic, so git would judge a different path than the walk named.
+    // Prefixing `./` judges the literal name relative to the bundle git
+    // already runs in (`--literal-pathspecs` and `--stdin` are no help,
+    // and check-ignore expands no glob) (#908).
+    let operand = format!("./{rel}");
+    let checked = run(&["check-ignore", "--quiet", "--", &operand])?;
     match checked.status.code() {
         Some(0) => Ok(true),
         Some(1) => Ok(false),
         _ => Err(SkipError::Git {
             bundle: dir.to_path_buf(),
-            detail: format!("git check-ignore answered {}", checked.status),
+            detail: git_refusal(&checked, "check-ignore"),
         }),
     }
 }
