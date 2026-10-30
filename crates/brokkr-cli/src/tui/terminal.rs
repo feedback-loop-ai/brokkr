@@ -365,14 +365,17 @@ where
         };
         // A read still out (`Polled::Pending`) is neither read nor
         // refused: the give-up bound counts reads, and the movement keys
-        // pressed meanwhile are held for its answer.
+        // pressed meanwhile are held for its answer. A failed read is no
+        // answer either: its frame is the old one, so the keys keep
+        // waiting for a successful read (M2).
         let mut answered = false;
         if let Polled::Answered(answer) = source(ask).into() {
             let key = vanishing_key.as_deref();
+            let succeeded = answer.is_ok();
             if taken(tui, &mut views, *answer, key, &mut failures)? {
                 shown = asking.clone();
             }
-            answered = true;
+            answered = succeeded;
         } else {
             tui.pending = true;
         }

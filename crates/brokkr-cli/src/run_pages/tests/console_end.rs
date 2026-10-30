@@ -89,7 +89,7 @@ fn settle_participant_end(
 
 /// The reads the shell would make for the live column's held keys: the
 /// page each waits for, answered and settled, until none is left.
-fn settle_held_live(db: &Path, run: &str, tui: &mut Tui, now: &str) -> Views {
+pub(super) fn settle_held_live(db: &Path, run: &str, tui: &mut Tui, now: &str) -> Views {
     use crate::tui::settle_when;
     let mut views = live_read(db, run, tui, now);
     while !tui.held.is_empty() {
@@ -104,7 +104,14 @@ fn settle_held_live(db: &Path, run: &str, tui: &mut Tui, now: &str) -> Views {
 
 /// The live column's real read at `rank` on the wrapped panel, and the
 /// terminal it is drawn at.
-fn live_at(db: &Path, run: &str, rank: usize, width: u16, height: u16, now: &str) -> (Tui, Views) {
+pub(super) fn live_at(
+    db: &Path,
+    run: &str,
+    rank: usize,
+    width: u16,
+    height: u16,
+    now: &str,
+) -> (Tui, Views) {
     let tui = live_tui(run, rank, width, height);
     let views = live_read(db, run, &tui, now);
     (tui, views)
@@ -119,7 +126,7 @@ type ConsoleJournal = (
     Views,
 );
 
-fn console_of(run: &str, journal: Vec<EventEnvelope>) -> ConsoleJournal {
+pub(super) fn console_of(run: &str, journal: Vec<EventEnvelope>) -> ConsoleJournal {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
     planted(&db, vec![(run.to_string(), journal)]);
@@ -131,7 +138,7 @@ fn console_of(run: &str, journal: Vec<EventEnvelope>) -> ConsoleJournal {
 /// The journal at `db` holding one run's two-member panel of 500
 /// interleaved 3,000-character checkpoints each, and its whole console
 /// read.
-fn wrapped_panel_console(run: &str) -> ConsoleJournal {
+pub(super) fn wrapped_panel_console(run: &str) -> ConsoleJournal {
     let target = "x".repeat(3_000);
     console_of(run, panel_with(run, 500, 500, Some(&target)))
 }

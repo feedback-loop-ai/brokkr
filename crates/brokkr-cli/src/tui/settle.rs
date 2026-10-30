@@ -143,6 +143,12 @@ pub(super) fn live_can(tui: &Tui, views: &Views, step: Step) -> bool {
     if !laid.streamed || laid.rows.len() < 2 {
         return true;
     }
+    // The top and the end are the stream's, not the held window's: they
+    // need no saved continuation, and a resize that removed one must not
+    // hold `g` or `G` (M3).
+    if matches!(step, Step::Top | Step::Bottom) {
+        return true;
+    }
     let end = laid.rows[laid.rows.len() - 1] as isize;
     let Some(at) = live_position(tui, views, &laid) else {
         return false;
@@ -210,8 +216,19 @@ fn in_window(tui: &Tui, views: &Views) -> bool {
 
 /// Apply the held keys, in order, against the answered window. A key that
 /// would cross it asks the next page and keeps its place, and every key
-/// behind it waits (decision 0071 ruling 5).
+/// behind it waits. A queue pressed on another view — a reselected fleet,
+/// a pane the frame no longer draws, a level the operator left — is
+/// dropped rather than applied to what replaced it (M4, decision 0071
+/// ruling 5).
 pub(super) fn flush_held(tui: &mut Tui, views: &Views) {
+    if tui.held.is_empty() {
+        tui.want = None;
+        return;
+    }
+    if tui.held_for.as_ref() != Some(&held_view(tui, views)) {
+        drop_held(tui);
+        return;
+    }
     while let Some(&Held { step: next, .. }) = tui.held.first() {
         if !can_move(tui, views, next) {
             tui.want = Some(ask_want(tui, next));
@@ -230,6 +247,7 @@ pub(super) fn flush_held(tui: &mut Tui, views: &Views) {
         }
     }
     tui.want = None;
+    tui.held_for = None;
 }
 
 /// Selection clears itself when its subject disappears — the rule the

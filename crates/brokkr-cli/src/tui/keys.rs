@@ -385,6 +385,7 @@ fn page_step(tui: &Tui, views: &Views, key: Key) -> Option<Step> {
 /// Drop the held movement of the view the operator has left.
 pub(super) fn drop_held(tui: &mut Tui) {
     tui.held.clear();
+    tui.held_for = None;
     tui.want = None;
 }
 
@@ -392,8 +393,9 @@ pub(super) fn drop_held(tui: &mut Tui) {
 /// terminal, no store, no I/O. A paged movement is held while its read is
 /// out or while it would leave the held window, and applied by
 /// [`flush_held`] when the answer lands (decision 0071 ruling 5). Every
-/// other key, including a level or selection change, acts at once and
-/// drops the held movement of the view it left.
+/// other key acts at once; it drops the held movement only when it has
+/// changed the view the movement belongs to, so a refresh, help or an
+/// unbound character leaves the queue waiting for its answer (M1).
 pub(crate) fn apply(tui: &mut Tui, views: &Views, key: Key) -> Flow {
     if tui.reading.is_some() {
         drop_held(tui);
@@ -404,13 +406,20 @@ pub(crate) fn apply(tui: &mut Tui, views: &Views, key: Key) -> Flow {
         // window waits while any earlier one does, and so does one that
         // would leave the held window.
         Some(step) if tui.pending || !tui.held.is_empty() || !can_move(tui, views, step) => {
+            if tui.held.is_empty() {
+                tui.held_for = Some(held_view(tui, views));
+            }
             hold(tui, step);
             Flow::Continue
         }
         Some(_) => apply_key(tui, views, key),
         None => {
-            drop_held(tui);
-            apply_key(tui, views, key)
+            let before = held_view(tui, views);
+            let flow = apply_key(tui, views, key);
+            if !tui.held.is_empty() && held_view(tui, views) != before {
+                drop_held(tui);
+            }
+            flow
         }
     }
 }

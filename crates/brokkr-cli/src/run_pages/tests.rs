@@ -12,6 +12,7 @@
 //! a journal without the projections take the kept read.
 
 mod console_end;
+mod held_view;
 
 use std::path::Path;
 

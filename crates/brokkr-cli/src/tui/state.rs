@@ -258,7 +258,7 @@ pub(crate) enum DriveEnd {
     Unwound,
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Level {
     Runs,
     Run,
@@ -300,6 +300,38 @@ pub(crate) struct Held {
 /// How many held runs the queue keeps. Past it the oldest run is dropped,
 /// and the status line says so.
 pub(crate) const HELD_BOUND: usize = 64;
+
+/// The view a held movement was pressed on: the level, the run and the
+/// pane that owned the paged window, so an answer is applied only while
+/// the operator is still looking at it (decision 0071 ruling 5). A frame
+/// that changes any of these leaves the queue behind rather than moving
+/// the fleet or another seat with it.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub(crate) struct HeldView {
+    tab: usize,
+    level: Level,
+    run: Option<String>,
+    seat: Option<String>,
+    pane: usize,
+    selected: Option<String>,
+    column: FleetColumn,
+}
+
+/// The view `tui` is showing under `views`: the fields a held movement
+/// belongs to. `selected` is the fleet's selected run and `column` the
+/// pane the keys move, so a reselected fleet or a column a narrowed frame
+/// no longer draws is a different view.
+pub(crate) fn held_view(tui: &Tui, views: &Views) -> HeldView {
+    HeldView {
+        tab: tui.tab,
+        level: tui.level,
+        run: tui.run.clone(),
+        seat: tui.seat.clone(),
+        pane: tui.pane,
+        selected: selected_run(tui, views).map(|row| key_of(row).to_string()),
+        column: focused(tui, views),
+    }
+}
 
 /// Owned scalars only. Selection is by **stable key** — `RunRow.run_id`,
 /// `Phase.name`, `Participant.key`, `JournalRow.seq` — resolved against
@@ -393,6 +425,8 @@ pub(crate) struct Tui {
     /// a key that crosses it asks the next page and keeps its place at
     /// the head (decision 0071 ruling 5).
     pub held: Vec<Held>,
+    /// The view the queue was pressed on; a different view drops it.
+    pub held_for: Option<HeldView>,
     /// The page a held key waits for: the rank the next read must hold.
     /// It is not the cursor; the cursor waits where the operator left it.
     pub want: Option<usize>,
@@ -461,6 +495,7 @@ impl Tui {
             live_offset: 0,
             live_line: 0,
             held: Vec::new(),
+            held_for: None,
             want: None,
             pending: false,
             watched: Watched::Console,
@@ -485,6 +520,7 @@ impl Tui {
         self.offset = 0;
         self.live_line = 0;
         self.held.clear();
+        self.held_for = None;
         self.want = None;
         self.force = true;
     }
@@ -529,6 +565,7 @@ pub(super) fn switch(tui: &mut Tui, index: usize) {
     tui.live_offset = 0;
     tui.live_line = 0;
     tui.held.clear();
+    tui.held_for = None;
     tui.want = None;
     tui.level = Level::Runs;
     tui.pane = 0;

@@ -60,7 +60,7 @@ pub(super) fn state_of(status: Status) -> RunState {
 /// with two members, a one-member step, and a bare member still working.
 /// Every shape the graph draws, in one run.
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
-fn journal(seat: &str) -> Vec<EventEnvelope> {
+pub(super) fn journal(seat: &str) -> Vec<EventEnvelope> {
     let mut events = vec![
         ev(
             1,
@@ -202,7 +202,7 @@ fn fleet() -> RunsView {
 }
 
 /// The fixture fleet at the fixture clock, `run` read beside it.
-fn over_fleet(run: Option<RunView>) -> Views {
+pub(super) fn over_fleet(run: Option<RunView>) -> Views {
     Views {
         now: NOW.to_string(),
         runs: fleet(),
