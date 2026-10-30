@@ -75,13 +75,13 @@ test('only an absolute folder is asked about', async () => {
 
 test('the realms readout reads each realm’s name and folder', () => {
   const doc = { journal: './.forge/forge.db', map: './realms.json', realms: [{ default_branch: 'main', head: '67a1886e', journal: './.forge/forge.db', name: 'brokkr', path: '.' }] }
-  assert.deepEqual(realmsOf(doc), [{ name: 'brokkr', path: '.' }])
+  assert.deepEqual(realmsOf(doc), [{ name: 'brokkr', path: '.', journal: './.forge/forge.db' }])
   assert.throws(() => realmsOf({ realms: [{ name: 'brokkr' }] }), ReadoutRefused)
 })
 
 test('the route answers the realm through the fence, and the stylesheet is revalidated on every load', async () => {
   const { root, brokkr: workspace } = world()
-  const realms = { journal: './.forge/forge.db', map: './realms.json', realms: [{ name: 'brokkr', path: '.' }, { name: 'swarmail', path: '../swarmail' }] }
+  const realms = { journal: './.forge/forge.db', map: './realms.json', realms: [{ name: 'brokkr', path: '.', journal: './.forge/forge.db' }, { name: 'swarmail', path: '../swarmail', journal: './.forge/forge.db' }] }
   const brokkr = stubBrokkr([{ match: ['realms'], responses: [json(realms)] }])
   const host = stubHost()
   await withEnv({ BROKKR_CONSOLE_BROKKR: brokkr.program, BROKKR_STUB_DIR: brokkr.dir, BROKKR_CONSOLE_WORKSPACE: workspace }, () => apply(host.ctx))

@@ -156,13 +156,18 @@ function acknowledgement(value, path) {
 
 /**
  * `brokkr runs --json`: one hearth's `RunsView` or a world's `FleetView`, as
- * the hearths the console lists.
+ * the hearths the console lists. A paged `RunsView` states where its next
+ * page starts and how many runs behind their summary it left unread; that
+ * cursor is kept as the hearth's `next`, `null` when the listing was whole
+ * or its page was the last, and `behind` as the count it states.
  */
 export function fleetOf(doc) {
   versioned(doc, 'brokkr runs')
   const rows = (value, path) => list(value, path, runRow)
+  // A whole listing states no behind count, and none is painted as one.
+  const behind = maybe(doc.behind, 'behind', count) ?? 0
   if (doc.realms === undefined) {
-    return { hearths: [{ realm: ONE_HEARTH, journal: null, detail: null, runs: rows(doc.runs, 'runs') }] }
+    return { hearths: [{ realm: ONE_HEARTH, journal: null, detail: null, runs: rows(doc.runs, 'runs'), next: optText(doc.next, 'next'), behind }] }
   }
   return {
     hearths: list(doc.realms, 'realms', (value, path) => ({
@@ -170,16 +175,26 @@ export function fleetOf(doc) {
       journal: text(value.journal, `${path}.journal`),
       detail: optText(value.detail, `${path}.detail`),
       runs: rows(value.runs, `${path}.runs`),
+      next: null,
+      behind: 0,
     })),
   }
 }
 
-/** `brokkr realms --json`: each realm's name and its folder, as the map names it (relative to the workspace). */
+/** One paged hearth's listing, refused when a `--db` read unexpectedly names more than one hearth. */
+export function pageOf(doc) {
+  const fleet = fleetOf(doc)
+  if (fleet.hearths.length !== 1) throw new ReadoutRefused('shape', 'brokkr runs named more than one hearth for one journal')
+  return fleet.hearths[0]
+}
+
+/** `brokkr realms --json`: each realm's name, folder and effective journal, as the map names it (relative to the workspace). */
 export function realmsOf(doc) {
   object(doc, 'realms')
   return list(doc.realms, 'realms', (value, path) => ({
     name: text(object(value, path).name, `${path}.name`),
     path: text(value.path, `${path}.path`),
+    journal: text(value.journal, `${path}.journal`),
   }))
 }
 

@@ -66,8 +66,8 @@ window.__ModuleLoader__.load({
           return emit({ error: message.message })
       }
     }
-    function watch(view, run) {
-      store.watch = { type: 'watch', view, run }
+    function watch(view, run, realm = null) {
+      store.watch = { type: 'watch', view, run, ...(view === 'realm' && realm !== null ? { realm } : {}) }
       if (store.socket?.readyState === 1) store.socket.send(JSON.stringify(store.watch))
     }
     function useStore() {
@@ -153,6 +153,9 @@ window.__ModuleLoader__.load({
     const waiting = (fleet) => (fleet === null ? 0 : fleet.hearths.reduce((sum, hearth) => sum + hearth.runs.filter(needsYou).length, 0))
     const runningIn = (rows) => rows.filter((row) => row.verdict.standing === 'running').length
     const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`
+    const moreIn = (hearth) => hearth.next !== null && hearth.next !== undefined, behindIn = (hearth) => hearth.behind > 0
+    const atLeast = (n, more) => (more ? `${n}+` : String(n))
+    const fleetMore = (fleet) => fleet !== null && fleet.hearths.some((hearth) => moreIn(hearth) || behindIn(hearth))
     const STANDING = {
       quarantined: ['quarantined', 'bk-bad'],
       parked: ['parked · waiting on you', 'bk-park'],
@@ -234,9 +237,9 @@ window.__ModuleLoader__.load({
     function Icon({ size, active }) {
       const fleet = useStore().fleet
       useStyles()
-      const count = waiting(fleet)
-      return h('span', { className: `bk-icon${active ? ' on' : ''}`, style: { width: size, height: size }, 'aria-label': `Brokkr: ${plural(count, 'run', 'runs')} waiting on you` },
-        h(Mark, { live: forging(fleet), size: Math.round(size * 0.7) }), count > 0 ? h('span', { className: 'bk-badge' }, String(count)) : null)
+      const count = waiting(fleet), waitingText = atLeast(count, fleetMore(fleet))
+      return h('span', { className: `bk-icon${active ? ' on' : ''}`, style: { width: size, height: size }, 'aria-label': `Brokkr: ${waitingText} ${count === 1 && !fleetMore(fleet) ? 'run' : 'runs'} waiting on you` },
+        h(Mark, { live: forging(fleet), size: Math.round(size * 0.7) }), count > 0 || fleetMore(fleet) ? h('span', { className: 'bk-badge' }, waitingText) : null)
     }
 
     // ------------------------------------------------------ the assistant
@@ -344,17 +347,15 @@ window.__ModuleLoader__.load({
     /** One realm as a row of the realms pane, as the TUI's fleet lists it; a realm Brokkr cannot read is one quiet line. */
     function RealmRow({ hearth, day, open, here }) {
       const needs = hearth.runs.filter(needsYou)
-      const running = runningIn(hearth.runs)
-      const labels = labelsOf(hearth.runs)
-      const lead = needs[0] ?? hearth.runs.find((row) => row.verdict.standing === 'running') ?? null
-      const unreadable = hearth.detail !== null
-      const live = running > 0 && !unreadable
+      const [running, more] = [runningIn(hearth.runs), moreIn(hearth) || behindIn(hearth)]
+      const labels = labelsOf(hearth.runs), lead = needs[0] ?? hearth.runs.find((row) => row.verdict.standing === 'running') ?? null
+      const unreadable = hearth.detail !== null, live = running > 0 && !unreadable
       const tone = unreadable ? 'halt' : needs.length > 0 ? 'park' : running > 0 ? 'violet' : 'quiet'
       const word = unreadable ? chip('cannot read', 'bk-bad')
-        : needs.length > 0 ? chip(`${needs.length} need${needs.length === 1 ? 's' : ''} you`, 'bk-park')
-          : chip(running > 0 ? 'all moving' : 'nothing running', running > 0 ? 'bk-run' : 'bk-stop')
+        : needs.length > 0 ? chip(`${atLeast(needs.length, more)} need${needs.length === 1 && !more ? 's' : ''} you`, 'bk-park')
+          : chip(running > 0 ? 'all moving' : more ? 'more runs' : 'nothing running', running > 0 ? 'bk-run' : 'bk-stop')
       const what = unreadable ? hearth.detail
-        : lead === null ? 'nothing needs you or is running'
+        : lead === null ? (more ? 'more runs than this page lists' : 'nothing needs you or is running')
           : `${labels.get(lead.run_id)} · ${lead.phase ?? 'not started'} · ${needsYou(lead) ? shortReason(lead) : 'running'} · ${ago(lead.last_recorded_at ?? lead.created_at)}`
       return h('button', { type: 'button', className: `bk-realm${needs.length > 0 ? ' needs' : ''}${unreadable ? ' unreadable' : ''}${holds(hearth, here) ? ' here' : ''}`, title: what, onClick: () => open(hearth.realm) },
         h('span', { className: 'bk-realm-name' },
@@ -363,7 +364,7 @@ window.__ModuleLoader__.load({
             h('circle', { cx: 6, cy: 6, r: 4, className: `bk-dot-fill ${tone}${live ? ' live' : ''}` })),
           h('strong', null, hearth.realm), holds(hearth, here) ? h('span', { className: 'bk-note' }, 'this conversation') : null),
         h('span', null, word),
-        h('span', { className: 'bk-muted' }, unreadable ? '—' : `${running} running`),
+        h('span', { className: 'bk-muted' }, unreadable ? '—' : `${atLeast(running, more)} running`),
         h('span', { className: 'bk-muted' }, day === null ? '—' : `${day.shipped} shipped · ${day.stopped} stopped today`),
         h('span', { className: 'bk-realm-what' }, what),
         h('span', { className: 'bk-link' }, 'open →'))
@@ -418,18 +419,17 @@ window.__ModuleLoader__.load({
 
     /** A realm's runs as one pane of rows, as the TUI's run list reads them, with a small filter in its corner. */
     function RunList({ hearth, selected, select }) {
-      const [filter, setFilter] = useState('')
-      const labels = labelsOf(hearth.runs)
+      const [filter, setFilter] = useState(''), labels = labelsOf(hearth.runs), more = moreIn(hearth) || behindIn(hearth)
       const shown = hearth.runs.filter((row) => `${labels.get(row.run_id)} ${row.feature}`.toLowerCase().includes(filter.toLowerCase()))
       const finished = (row) => !needsYou(row) && !acknowledged(row) && row.verdict.standing !== 'running' && Date.now() - Date.parse(row.last_recorded_at ?? row.created_at) < DAY_MS
       // Every run lists somewhere: an acknowledged quarantine and a run that finished before the last day are Older.
       const older = (row) => !needsYou(row) && row.verdict.standing !== 'running' && !finished(row)
       const groups = [['Needs you', needsYou], ['Running', (row) => row.verdict.standing === 'running'], ['Last 24 hours', finished], ['Older', older]]
         .map(([label, within]) => [label, shown.filter(within)]).filter(([, rows]) => rows.length > 0)
-      return pane(`runs · ${hearth.runs.length}`, 'Runs', 'bk-runs',
+      return pane(`runs · ${atLeast(hearth.runs.length, more)}`, 'Runs', 'bk-runs',
         h('input', { className: 'bk-input bk-filter', 'aria-label': 'Filter runs', placeholder: 'Filter by name…', value: filter, onChange: (event) => setFilter(event.target.value) }),
         groups.flatMap(([label, rows]) => {
-          return [h('div', { key: label, className: 'bk-grp' }, `${label} · ${rows.length}`), ...rows.map((row) => {
+          return [h('div', { key: label, className: 'bk-grp' }, `${label} · ${atLeast(rows.length, more)}`), ...rows.map((row) => {
             const [word, tone] = STANDING[row.verdict.standing]
             return h('button', { key: row.run_id, type: 'button', title: row.feature.slice(0, 400), className: `bk-q${row.run_id === selected ? ' on' : ''}`, onClick: () => select(row.run_id) },
               runDot(row.verdict.standing),
@@ -439,7 +439,8 @@ window.__ModuleLoader__.load({
               h('span', { className: 'bk-muted bk-ago' }, ago(row.last_recorded_at ?? row.created_at)))
           })]
         }),
-        groups.length > 0 ? null : h('div', { className: 'bk-note' }, filter === '' ? 'No run has started in this realm yet.' : 'No run’s name holds that.'))
+        moreIn(hearth) ? h('button', { type: 'button', className: 'bk-link', onClick: () => store.socket?.readyState === 1 && store.socket.send(JSON.stringify({ type: 'more', realm: hearth.realm })) }, 'Show more runs') : null,
+        ...(behindIn(hearth) ? [h('div', { className: 'bk-note' }, `${hearth.behind} more runs behind their summary, unread until a writer catches them up`)] : []), groups.length > 0 ? null : h('div', { className: 'bk-note' }, filter === '' ? 'No run has started in this realm yet.' : 'No run’s name holds that.'))
     }
 
     // ----------------------------------------------------------- the rail
@@ -1043,8 +1044,7 @@ window.__ModuleLoader__.load({
       if (hearth === undefined) return h('main', { className: 'bk-main' }, h('div', { className: 'bk-note' }, `Brokkr no longer lists ${realm}.`))
       const row = hearth.runs.find((each) => each.run_id === runId) ?? null
       const runView = row !== null && state.run?.realm === hearth.realm && state.run?.run_id === row.run_id ? state.run.view : null
-      const needs = hearth.runs.filter(needsYou).length
-      const label = row === null ? null : labelsOf(hearth.runs).get(row.run_id)
+      const [needs, more] = [hearth.runs.filter(needsYou).length, moreIn(hearth) || behindIn(hearth)], label = row === null ? null : labelsOf(hearth.runs).get(row.run_id)
       // What a question is about, closest first. A pick outlives the view's refreshes and ends with its run.
       const focus = runView === null ? null : focusOf(runView, picked)
       const context = [
@@ -1062,7 +1062,7 @@ window.__ModuleLoader__.load({
           row !== null && cameFrom !== null ? h('button', { type: 'button', className: 'bk-link', onClick: cameFrom.go }, `← ${cameFrom.label}`) : null,
           h('button', { type: 'button', className: 'bk-link', onClick: row === null ? back : () => select(null) }, row === null ? '← All realms' : cameFrom !== null ? `${hearth.realm}’s runs` : `← ${hearth.realm}’s runs`),
           h('span', { style: { fontSize: 17, fontWeight: 600 } }, row === null ? hearth.realm : label),
-          h('span', { className: 'bk-note' }, `${runningIn(hearth.runs)} running${row === null ? '' : ` in ${hearth.realm}`}`), needs > 0 ? chip(`${needs} need${needs === 1 ? 's' : ''} you`, 'bk-park') : null),
+          h('span', { className: 'bk-note' }, `${atLeast(runningIn(hearth.runs), more)} running${row === null ? '' : ` in ${hearth.realm}`}`), needs > 0 ? chip(`${atLeast(needs, more)} need${needs === 1 && !more ? 's' : ''} you`, 'bk-park') : null),
         row === null
           ? h('main', { className: 'bk-main' }, state.run?.realm === realm && state.run?.run_id === runId && state.run.listed === false ? h('div', { className: 'bk-note' }, 'Brokkr no longer lists this run.') : h(RunList, { hearth, selected: runId, select }))
           : h(Run, { hearth, row, run: state.run, see, picked, pick }),
@@ -1664,7 +1664,7 @@ window.__ModuleLoader__.load({
       }, [home])
       useEffect(() => {
         // The host knows no Library view: the Library reads by fetch, as Analytics does, and watches only what Analytics watches.
-        watch(route.view === 'library' ? 'analytics' : route.view, route.run === null ? null : { realm: route.realm, run_id: route.run })
+        watch(route.view === 'library' ? 'analytics' : route.view, route.run === null ? null : { realm: route.realm, run_id: route.run }, route.view === 'realm' ? route.realm : null)
         return () => watch('none', null)
       }, [route.view, route.realm, route.run])
       const open = (realm, run = null) => setRoute({ view: 'realm', realm, run })
@@ -1693,7 +1693,7 @@ window.__ModuleLoader__.load({
       return h('div', { className: `bk${inTab ? ' in-tab' : ''}`, 'data-testid': inTab ? 'brokkr-console-tab' : 'brokkr-console', ref: (element) => (root.element = element) },
         h('nav', { className: 'bk-nav', 'aria-label': 'Brokkr views' }, h('span', { className: 'bk-brand' }, h(Mark, { live: forging(state.fleet) }), 'Brokkr'), tab('realms', 'Realms'), tab('analytics', 'Analytics'), tab('library', 'Library'),
           context === null ? null : h('span', { className: 'bk-note' }, context),
-          state.fleet === null ? null : h('span', { className: 'bk-status' }, `${state.fleet.hearths.reduce((sum, hearth) => sum + runningIn(hearth.runs), 0)} running · `, h('strong', null, `${count} waiting on you`), state.live ? '' : ' · reconnecting')),
+          state.fleet === null ? null : h('span', { className: 'bk-status' }, `${atLeast(state.fleet.hearths.reduce((sum, hearth) => sum + runningIn(hearth.runs), 0), fleetMore(state.fleet))} running · `, h('strong', null, `${atLeast(count, fleetMore(state.fleet))} waiting on you`), state.live ? '' : ' · reconnecting')),
         state.error === null ? null : h('div', { className: 'bk-main' }, h('div', { className: 'bk-error' }, state.error)),
         body)
     }

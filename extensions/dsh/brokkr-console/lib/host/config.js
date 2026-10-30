@@ -7,6 +7,9 @@ import { join } from 'node:path'
 
 const READOUT_TIMEOUT_MS = 30_000
 const OUTPUT_BOUND_BYTES = 16 * 1024 * 1024
+// The most runs one hearth lists in a poll (ask (a), 100 recommended): a
+// world of any size reads at most its hearths times this many rows.
+export const FLEET_WINDOW = 100
 const POLL_MS = 5000
 const POLL_FLOOR_MS = 1000
 

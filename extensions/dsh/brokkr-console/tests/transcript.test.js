@@ -82,7 +82,7 @@ test('a run or seat outside the id grammar, or a realm past its bound, is refuse
     const answer = await ask(query)
     assert.deepEqual([answer.status, JSON.parse(answer.body)], [400, { error: 'a transcript is asked for by realm, run and seat' }], JSON.stringify(query))
   }
-  assert.deepEqual(calls(), ['runs --json'])
+  assert.deepEqual(calls(), ['realms --json', 'runs --json --limit=100'])
 })
 
 test('a run the listing does not hold in that realm is refused, and nothing runs', async () => {
@@ -91,14 +91,14 @@ test('a run the listing does not hold in that realm is refused, and nothing runs
     const answer = await ask(query)
     assert.deepEqual([answer.status, JSON.parse(answer.body)], [400, { error: 'Brokkr no longer lists this run' }], JSON.stringify(query))
   }
-  assert.deepEqual(calls(), ['runs --json'])
+  assert.deepEqual(calls(), ['realms --json', 'runs --json --limit=100'])
 })
 
 test('a transcript is read against the listing’s journal, each value a flag, and reaches the page as the console read it', async () => {
   const { ask, calls } = await hosted([{ match: ['transcript'], responses: [json(doc())] }])
   const answer = await ask({ realm: 'brokkr', run: RUN, seat: SEAT })
   assert.deepEqual([answer.status, JSON.parse(answer.body)], [200, transcriptOf(doc())])
-  assert.deepEqual(calls(), ['runs --json', `transcript --run=${RUN} --db=/hearths/brokkr/forge.db --seat=${SEAT} --json`])
+  assert.deepEqual(calls(), ['realms --json', 'runs --json --limit=100', `transcript --run=${RUN} --db=/hearths/brokkr/forge.db --seat=${SEAT} --json`])
 })
 
 test('a readout Brokkr refuses reaches the page as its own words', async () => {
