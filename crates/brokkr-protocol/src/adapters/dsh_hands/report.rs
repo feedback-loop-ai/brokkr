@@ -14,6 +14,7 @@
 //! dropped. The exact words are dsh-sandbox's and dsh-sandbox-local's
 //! (docs/evidence/adapters/dsh-hands-round2/report-words.txt).
 
+use super::super::dsh_stderr::before_reasoning;
 use thiserror::Error;
 
 /// The one row Brokkr inserts; dsh's warning line names a count, and the
@@ -56,17 +57,20 @@ pub(crate) enum ReportRefusal {
     SandboxUnavailable,
 }
 
-/// Read dsh's startup stderr: an unavailable sandbox fails closed, a hands
-/// entry that did not activate fails closed, and partial enforcement is
-/// reported to the caller.
+/// Read the stderr dsh wrote before its session: an unavailable sandbox
+/// fails closed, a hands entry that did not activate fails closed, and
+/// partial enforcement is reported to the caller. The model's reasoning is
+/// session content, so it is never startup evidence (#896 M1; decision
+/// 0098 ruling 4).
 pub(crate) fn checked(stderr: &str) -> Result<Enforcement, ReportRefusal> {
-    if stderr.contains(SANDBOX_UNAVAILABLE) || stderr.contains(UNCONFINED) {
+    let startup = before_reasoning(stderr);
+    if startup.contains(SANDBOX_UNAVAILABLE) || startup.contains(UNCONFINED) {
         return Err(ReportRefusal::SandboxUnavailable);
     }
-    if stderr.lines().any(did_not_activate) {
+    if startup.lines().any(did_not_activate) {
         return Err(ReportRefusal::NotActivated);
     }
-    match stderr.contains(PARTIAL) {
+    match startup.contains(PARTIAL) {
         true => Ok(Enforcement::Partial),
         false => Ok(Enforcement::Full),
     }

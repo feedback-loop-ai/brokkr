@@ -470,6 +470,21 @@ fn the_dsh_startup_report_fails_closed_and_carries_partial() {
         Ok(Enforcement::Full),
         "a warning with no space after its count is no activation refusal"
     );
+    // What the model reasons is session content, not dsh's startup report:
+    // a marker word there cannot refuse a healthy seat (#896 M1).
+    let reasoning = "dsh: reasoning:\n\
+                     I should explain what SANDBOX_UNAVAILABLE means: no sandbox backend is \
+                     usable on this host; refusing to run the command unconfined.\n\
+                     brokkr-hands (@deepseek-ai/dsh-mcp-client): Error: initial connection or \
+                     tool synchronization failed\ndsh: done\n";
+    assert_eq!(checked(reasoning), Ok(Enforcement::Full));
+    // A startup report before that block is still read and still refuses.
+    assert_eq!(
+        checked(&format!(
+            "dsh: warning: 1 entry did not activate\n{reasoning}"
+        )),
+        Err(ReportRefusal::NotActivated)
+    );
     assert_eq!(
         ReportRefusal::NotActivated.to_string(),
         "refusing the dsh seat: the hands row 'brokkr-hands' did not activate, so the seat's one \
@@ -624,6 +639,32 @@ fn invoke_hands(
     (child_home, result)
 }
 
+/// The one launch the startup-report tests drive: the measured fake dsh
+/// that prints `report` on stderr (or its measured activation warning when
+/// `None`), as a cold hands seat under its own home, with `bindings` masked
+/// out of the stderr it exposes.
+#[cfg(unix)]
+fn launch_reporting(
+    env: &mut EnvGuard,
+    dir: &tempfile::TempDir,
+    report: Option<&str>,
+    bindings: &[crate::secret::BoundSecret],
+) -> Result<super::super::Invocation, String> {
+    match report {
+        Some(report) => env.set("BROKKR_TEST_DSH_REPORT", report),
+        None => env.remove("BROKKR_TEST_DSH_REPORT"),
+    }
+    let fake = super::super::tests::executable(dir.path(), "dsh", WARNING_DSH);
+    let workdir = dir.path().to_str().unwrap();
+    invoke_hands(
+        fake.to_str().unwrap(),
+        workdir,
+        sealed(SealedBoundary::Namespace, Some("read-only")),
+        bindings,
+    )
+    .1
+}
+
 /// The launch's one builder gives the composition probe the session's
 /// working directory, environment and removals, so a probe can never read
 /// a different tree than the session runs in (#896 round 3).
@@ -682,18 +723,40 @@ fn a_launch_fails_closed_when_the_measured_activation_warning_arrives() {
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     env.set("DSH_HOME", dir.path());
-    let fake = super::super::tests::executable(dir.path(), "dsh", WARNING_DSH);
-    let workdir = dir.path().to_str().unwrap();
-    let (_, invocation) = invoke_hands(
-        fake.to_str().unwrap(),
-        workdir,
-        sealed(SealedBoundary::Namespace, Some("read-only")),
-        &[],
-    );
-    let problem = invocation
+    let problem = launch_reporting(&mut env, &dir, None, &[])
         .err()
         .expect("the measured activation warning refuses the invocation");
     assert_eq!(problem, ReportRefusal::NotActivated.to_string());
+}
+
+/// A healthy launch whose model reasons about the refusal words stays
+/// healthy: only the stderr dsh wrote before its session is classified, so
+/// session content can neither hide nor manufacture a refusal (#896 M1;
+/// decision 0098 ruling 4).
+#[cfg(unix)]
+#[test]
+fn a_healthy_launch_is_not_refused_by_its_models_reasoning() {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    env.set("DSH_HOME", dir.path());
+    let invocation = launch_reporting(
+        &mut env,
+        &dir,
+        Some(
+            "dsh: reasoning:\n\
+             I should explain what SANDBOX_UNAVAILABLE means: no sandbox backend is usable on \
+             this host; refusing to run the command unconfined.\n\
+             brokkr-hands (@deepseek-ai/dsh-mcp-client): Error: initial connection or tool \
+             synchronization failed\ndsh: done",
+        ),
+        &[],
+    )
+    .expect("the model's reasoning refuses no healthy launch");
+    assert_eq!(invocation.exit_code, 0);
+    assert_eq!(
+        invocation.stderr,
+        "dsh: reasoning: [not journaled — decision 0034]\ndsh: done\n"
+    );
 }
 
 /// A bound secret whose value sits inside dsh's marker text cannot hide the
@@ -704,7 +767,6 @@ fn a_launch_fails_closed_when_the_measured_activation_warning_arrives() {
 #[test]
 fn a_bound_secret_never_hides_a_startup_refusal_or_appears_in_the_stderr() {
     let dir = tempfile::tempdir().unwrap();
-    let workdir = dir.path().to_str().unwrap();
     let mut env = EnvGuard::lock();
     env.set("DSH_HOME", dir.path());
     let cases = [
@@ -730,15 +792,7 @@ fn a_bound_secret_never_hides_a_startup_refusal_or_appears_in_the_stderr() {
     ];
     for (name, value, report, expected) in cases {
         let bound = binding(name, value);
-        env.set("BROKKR_TEST_DSH_REPORT", report);
-        let fake = super::super::tests::executable(dir.path(), "dsh-report", WARNING_DSH);
-        let (_, invocation) = invoke_hands(
-            fake.to_str().unwrap(),
-            workdir,
-            sealed(SealedBoundary::Namespace, Some("read-only")),
-            std::slice::from_ref(&bound),
-        );
-        let problem = invocation
+        let problem = launch_reporting(&mut env, &dir, Some(report), std::slice::from_ref(&bound))
             .err()
             .expect("the masked marker still refuses the launch");
         assert_eq!(problem, expected.to_string(), "{report}");

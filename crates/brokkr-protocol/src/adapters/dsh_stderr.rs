@@ -4,6 +4,26 @@
 
 use super::{parse_dsh_model, split_dsh_model, Invocation};
 
+/// The line dsh's headless profile prints where its session's reasoning
+/// begins. Every line after it, until the next `dsh: ` line or the end of
+/// the stream, is model content (#896 M1; decisions 0032 and 0034).
+const REASONING: &str = "dsh: reasoning:";
+
+/// The stderr dsh wrote before its session: every line up to its first
+/// reasoning block. The startup report a hands seat classifies is there,
+/// and what the model reasons while the session runs is not (#896 M1;
+/// decision 0098 ruling 4).
+pub(super) fn before_reasoning(stderr: &str) -> &str {
+    let mut boundary = 0;
+    for line in stderr.split_inclusive('\n') {
+        if line.trim_end() == REASONING {
+            return &stderr[..boundary];
+        }
+        boundary += line.len();
+    }
+    stderr
+}
+
 /// The one dsh stderr stream the journal may not quote.
 ///
 /// dsh 0.1.2-rc.1's headless profile streams the model's reasoning to
@@ -15,12 +35,11 @@ use super::{parse_dsh_model, split_dsh_model, Invocation};
 /// replaced by one line that says it was there, and every harness line
 /// survives, because those are what a park needs to be read.
 pub(super) fn redact_dsh_reasoning(stderr: &str) -> String {
-    const HEADER: &str = "dsh: reasoning:";
     const REDACTED: &str = "dsh: reasoning: [not journaled — decision 0034]";
     let mut kept = Vec::new();
     let mut inside = false;
     for line in stderr.lines() {
-        if line.trim_end() == HEADER {
+        if line.trim_end() == REASONING {
             inside = true;
             kept.push(REDACTED);
         } else if line.starts_with("dsh: ") {
