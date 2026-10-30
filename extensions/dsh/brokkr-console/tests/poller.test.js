@@ -199,7 +199,7 @@ test('the runner’s own output bound reaches the run page as Brokkr’s refusal
 test('a one-hearth world’s refusal paints the command without a journal the console did not read', async () => {
   const words = 'brokkr inspect was refused: the journal could not be read'
   const hint = `brokkr inspect --run=${RUN}`
-  const oneHearth = { view_version: 27, runs: [row({ seq: 12 })], count: 1 }
+  const oneHearth = { view_version: 28, runs: [row({ seq: 12 })], count: 1 }
   const brokkr = stubBrokkr([
     { match: ['runs'], responses: [json(oneHearth)] },
     { match: ['inspect'], responses: [{ stderr: words, code: 1 }] },
