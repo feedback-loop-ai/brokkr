@@ -29,6 +29,8 @@ use crate::bundle::{
 };
 use crate::dialect::DialectPhase;
 
+mod success;
+
 /// Where a step leaves its attempt, at each stage of settling it.
 enum StepVerdict<T> {
     /// The attempt goes on, carrying `T` to the next stage or step.
@@ -662,11 +664,8 @@ impl Engine {
     }
 
     /// End the sequence on a compiled word, journaling the step and why
-    /// beside the result. The seat-record fence judges this result exactly
-    /// as the final step's does, so a refused ending fails the attempt
-    /// instead of escaping as an engine error; the success payload carries
-    /// `step` and `why`, which `append_succeeded` cannot, and `engine.rs`
-    /// is at its size ceiling (decision 0071, ruling 4).
+    /// beside the result under the same seat-record fence as a final
+    /// step's result (decision 0034).
     fn end_sequence_on(
         &mut self,
         run: &SequenceRun,
@@ -675,25 +674,18 @@ impl Engine {
         why: &'static str,
         start_failures: &[Site],
     ) -> Result<StepVerdict<()>, EngineError> {
-        let succeeded = json!({
-            "effect_id": run.effect_id,
-            "attempt_id": run.attempt_id,
-            "result": result,
-            "step": at.step.name,
-            "why": why,
-        });
-        match self.append(
-            EventType::EffectSucceeded,
-            succeeded,
-            Some(run.attempt_id.to_string()),
-        ) {
-            Ok(_) => Ok(StepVerdict::Ended),
-            Err(EngineError::Store(StoreError::SeatRecord(refusal))) => {
-                let payload = run.failed_payload(at, &refusal.to_string(), start_failures.to_vec());
-                self.end_failed(run, payload)
-            }
-            Err(error) => Err(error),
-        }
+        self.append_succeeded_under_fence(
+            json!({
+                "effect_id": run.effect_id,
+                "attempt_id": run.attempt_id,
+                "result": result,
+                "step": at.step.name,
+                "why": why,
+            }),
+            run.attempt_id,
+            |refusal| run.failed_payload(at, &refusal, start_failures.to_vec()),
+        )?;
+        Ok(StepVerdict::Ended)
     }
 
     /// Journal the attempt's `effect/failed` and end it.

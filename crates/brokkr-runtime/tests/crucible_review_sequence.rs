@@ -332,22 +332,48 @@ fn review_bundle(panel: &[(&str, &str)], chief: &str) -> Bundle {
     bundle
 }
 
+/// Start `bundle` at its initial phase, drive it, and return the journal,
+/// the run id, and the end it reached.
+fn drive(
+    bundle: Bundle,
+) -> (
+    Vec<brokkr_core::envelope::EventEnvelope>,
+    String,
+    brokkr_runtime::DriveEnd,
+) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = brokkr_store::Store::open(&dir.path().join("forge.db")).unwrap();
+    let mut engine = brokkr_runtime::Engine::start(store, bundle, "feature", Some(workspace()))
+        .expect("the run starts");
+    let run_id = engine.run_id.clone();
+    let end = engine.drive().expect("the sequence runs");
+    (engine.store.load(&run_id).unwrap(), run_id, end)
+}
+
+/// Whether the journal checkpointed `step`.
+fn checkpointed(events: &[brokkr_core::envelope::EventEnvelope], step: &str) -> bool {
+    events.iter().any(|event| {
+        event.event_type == brokkr_core::envelope::EventType::EffectCheckpointed
+            && event.payload["checkpoint"]["step_name"] == step
+    })
+}
+
+/// The journal's one successful effect, which settles a sequence.
+fn effect_succeeded(
+    events: &[brokkr_core::envelope::EventEnvelope],
+) -> &brokkr_core::envelope::EventEnvelope {
+    events
+        .iter()
+        .find(|event| event.event_type == brokkr_core::envelope::EventType::EffectSucceeded)
+        .expect("the sequence concludes on its final step")
+}
+
 fn events(
     panel: &[(&str, &str)],
     chief: &str,
 ) -> (Vec<brokkr_core::envelope::EventEnvelope>, String) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = brokkr_store::Store::open(&dir.path().join("forge.db")).unwrap();
-    let mut engine = brokkr_runtime::Engine::start(
-        store,
-        review_bundle(panel, chief),
-        "feature",
-        Some(workspace()),
-    )
-    .expect("the run starts at review");
-    let run_id = engine.run_id.clone();
-    engine.drive().expect("the sequence runs");
-    (engine.store.load(&run_id).unwrap(), run_id)
+    let (events, run_id, _) = drive(review_bundle(panel, chief));
+    (events, run_id)
 }
 
 fn panel<'a>(results: &'a [(&'a str, &'a str)]) -> Vec<(&'a str, &'a str)> {
@@ -436,10 +462,7 @@ fn a_panel_non_hard_word_does_not_end_the_sequence() {
         }),
         "the panel's residual is carried to the chief, not treated as an ending"
     );
-    let succeeded = events
-        .iter()
-        .find(|event| event.event_type == brokkr_core::envelope::EventType::EffectSucceeded)
-        .expect("the sequence concludes on its final step");
+    let succeeded = effect_succeeded(&events);
     assert_eq!(
         succeeded.payload["result"]["result"], "clean",
         "the chief's result, not the panel's residual, is the seat's result"
@@ -614,4 +637,187 @@ fn a_stored_manifest_without_endings_resumes_with_the_derived_endings() {
         "the chief never runs on the resumed hard ending"
     );
     assert_eq!(end.state.run.status(), brokkr_core::Status::Stopped);
+}
+
+// ── ruling 7's destination leg: a hard severity is not a stop ──────────
+
+/// Write a fixture bundle's policy and seat table and compile it against
+/// the workspace's library.
+fn sequence_fixture(
+    policy: serde_json::Value,
+    seats: serde_json::Value,
+) -> (tempfile::TempDir, Bundle) {
+    let dir = tempfile::tempdir().expect("a fixture directory");
+    let bundle = dir.path().join("bundle");
+    std::fs::create_dir_all(bundle.join("roles")).expect("roles/");
+    std::fs::write(bundle.join("roles/role.md"), "# fixture role\n").expect("role");
+    let policy = serde_json::to_string(&policy).expect("policy json");
+    std::fs::write(bundle.join("policy.json"), policy).expect("policy");
+    let manifest = serde_json::to_string(&serde_json::json!({
+        "name": "sequence-fixture",
+        "policy": "policy.json",
+        "seats": seats,
+    }))
+    .expect("bundle json");
+    std::fs::write(bundle.join("bundle.json"), manifest).expect("bundle");
+    let root = workspace();
+    let compiled = Bundle::compile_with(&bundle, &root.join("agents"), &root.join("adapters"))
+        .expect("the sequence fixture compiles");
+    (dir, compiled)
+}
+
+/// A two-step review sequence over a table whose `hold` arm is `hard` but
+/// advances to `done`, and whose `security-hold` arm is the hard stop.
+/// Both steps inherit the seat's vocabulary, so only the arm's destination
+/// separates the two words.
+fn advancing_hard_bundle(first: &str) -> (tempfile::TempDir, Bundle) {
+    let first = driver(&format!(r#"{{"result":"{first}"}}"#));
+    let policy = serde_json::json!({
+        "schema": "forge.phase-machine/v1",
+        "phases": ["work", "review", "done", "stop"],
+        "initial": "work",
+        "terminal": ["done", "stop"],
+        "rules": [
+            {"id": "WORK-ENTER", "from": "work", "result": "complete",
+             "next": "review", "reason": "enter review"},
+            {"id": "REVIEW-HOLD", "from": "review", "result": "hold", "next": "done",
+             "severity": "hard", "reason": "hard severity, but not a stop"},
+            {"id": "REVIEW-STOP", "from": "review", "result": "security-hold",
+             "next": "stop", "severity": "hard", "reason": "the stop"}
+        ],
+    });
+    let seats = serde_json::json!({
+        "work": {"results": ["complete"],
+                 "role": "roles/role.md",
+                 "driver": {"command": ["driver"]}},
+        "review": {
+            "results": ["hold", "security-hold"],
+            "sequence": [
+                {"name": "first", "results": ["continue", "hold"],
+                 "role": "roles/role.md", "driver": {"command": first}},
+                {"name": "last",
+                 "role": "roles/role.md",
+                 "driver": {"command": driver(r#"{"result":"security-hold"}"#)}},
+            ],
+        },
+    });
+    let (dir, mut compiled) = sequence_fixture(policy, seats);
+    // Compile audits the table from its normal entry; the test starts at
+    // the review sequence it is about, as the shipped review fixtures do.
+    compiled.machine.initial = "review".to_string();
+    (dir, compiled)
+}
+
+/// A hard severity that advances to a non-stop terminal must not end the
+/// sequence. The first step checkpoints, the final step runs, and its
+/// refusing result stops the run.
+#[test]
+fn a_hard_arm_that_does_not_stop_does_not_skip_the_final_step() {
+    let test = "crucible_review_sequence::\
+                a_hard_arm_that_does_not_stop_does_not_skip_the_final_step";
+    if !crate::own_home::in_own_home(test) {
+        return;
+    }
+    let (_fixture, bundle) = advancing_hard_bundle("hold");
+    let (events, _, end) = drive(bundle);
+
+    assert!(
+        checkpointed(&events, "first"),
+        "the advancing hard word is a checkpoint, not an ending"
+    );
+    let succeeded = effect_succeeded(&events);
+    assert_eq!(
+        succeeded.payload["result"]["result"], "security-hold",
+        "the final step's refusing result is the effect's"
+    );
+    assert!(
+        succeeded.payload.get("step").is_none(),
+        "the final step settles the effect; no early ending skipped it"
+    );
+    let decided = events
+        .iter()
+        .rev()
+        .find(|event| event.event_type == brokkr_core::envelope::EventType::TransitionDecided)
+        .expect("the machine rules on the final result");
+    assert_eq!(decided.payload["next"], "stop", "the refusal stops the run");
+    assert_eq!(end.state.run.status(), brokkr_core::Status::Stopped);
+}
+
+/// A `specify` sequence whose first step can report `upstream`, a seat
+/// word its final dialect step cannot emit. `continue` is checkpoint-only,
+/// so the final step is reachable and the table's arms are all admitted at
+/// compile.
+fn ordinary_ending_bundle() -> (tempfile::TempDir, Bundle) {
+    let policy = serde_json::json!({
+        "schema": "forge.phase-machine/v1",
+        "phases": ["specify", "review", "done", "stop"],
+        "initial": "specify",
+        "terminal": ["done", "stop"],
+        "rules": [
+            {"id": "SPECIFY-DRAFTED", "from": "specify", "result": "drafted",
+             "next": "review", "reason": "drafted"},
+            {"id": "SPECIFY-UPSTREAM", "from": "specify", "result": "upstream",
+             "next": "stop", "reason": "upstream"},
+            {"id": "SPECIFY-FAIL", "from": "specify", "result": "fail",
+             "next": "review", "reason": "fail"},
+            {"id": "REVIEW-CLEAN", "from": "review", "result": "clean",
+             "next": "done", "reason": "clean"}
+        ],
+    });
+    let seats = serde_json::json!({
+        "specify": {
+            "results": ["drafted", "fail", "upstream"],
+            "sequence": [
+                {"name": "author", "results": ["continue", "upstream"],
+                 "role": "roles/role.md",
+                 "driver": {"command": driver(r#"{"result":"upstream"}"#)}},
+                {"name": "validate", "dialect": "validate"},
+            ],
+        },
+        "review": {"results": ["clean"],
+                   "role": "roles/role.md",
+                   "driver": {"command": ["driver"]}},
+    });
+    sequence_fixture(policy, seats)
+}
+
+/// A `specify` fixture compiles an ordinary ending: `upstream` is a seat
+/// word no later step emits, while the final dialect step emits only
+/// `drafted`/`fail`. The executor names the step and the compiled ending in
+/// the journal.
+#[test]
+fn an_ordinary_compiled_ending_names_its_step_and_why() {
+    let test = "crucible_review_sequence::an_ordinary_compiled_ending_names_its_step_and_why";
+    if !crate::own_home::in_own_home(test) {
+        return;
+    }
+    let (_fixture, bundle) = ordinary_ending_bundle();
+    let SeatBody::Sequence { steps } = &bundle.seats["specify"].body else {
+        panic!("the fixture is a sequence");
+    };
+    assert_eq!(
+        steps[0].ends_on,
+        vec!["upstream".to_string()],
+        "`upstream` is compiled as an ordinary ending; `continue` is checkpoint-only"
+    );
+    assert!(
+        steps[0].hard_results.is_empty(),
+        "`upstream` is not the phase's hard vocabulary"
+    );
+
+    let (events, _, _) = drive(bundle);
+
+    let succeeded = events
+        .iter()
+        .find(|event| event.event_type == brokkr_core::envelope::EventType::EffectSucceeded)
+        .unwrap_or_else(|| panic!("no effect succeeded: {events:#?}"));
+    assert_eq!(succeeded.payload["result"]["result"], "upstream");
+    assert_eq!(
+        succeeded.payload["step"], "author",
+        "the journal names the step that ended the sequence"
+    );
+    assert_eq!(
+        succeeded.payload["why"], "ends-on",
+        "the journal says a compiled ending, not the hard vocabulary, ended it"
+    );
 }

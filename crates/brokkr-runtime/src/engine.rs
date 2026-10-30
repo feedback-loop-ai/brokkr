@@ -1564,22 +1564,11 @@ impl Engine {
         result: Value,
         failed: impl FnOnce(String) -> Value,
     ) -> Result<(), EngineError> {
-        match self.append(
-            EventType::EffectSucceeded,
+        self.append_succeeded_under_fence(
             json!({"effect_id": effect_id, "attempt_id": attempt_id, "result": result}),
-            Some(attempt_id.to_string()),
-        ) {
-            Ok(_) => Ok(()),
-            Err(EngineError::Store(StoreError::SeatRecord(refusal))) => {
-                self.append(
-                    EventType::EffectFailed,
-                    failed(refusal.to_string()),
-                    Some(attempt_id.to_string()),
-                )?;
-                Ok(())
-            }
-            Err(error) => Err(error),
-        }
+            attempt_id,
+            failed,
+        )
     }
 }
 

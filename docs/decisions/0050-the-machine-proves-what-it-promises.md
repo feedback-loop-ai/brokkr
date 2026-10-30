@@ -273,10 +273,12 @@ Alternatives weighed:
    the words in the seat's vocabulary the step may report that no later
    step can emit, pinned on the compiled step; the executor ends the
    sequence on a word in `ends_on` and never compares vocabularies at run
-   time. Compile refuses a table arm for the phase whose word no step can
-   reach — the reverse of the coverage rule that stands today. And a
-   non-final step whose result is in the seat's *hard* vocabulary — a
-   word whose every table arm is `hard` — ends the sequence with that
+   time. Compile refuses a table arm for the phase whose word no step the
+   sequence can reach can emit — the reverse of the coverage rule that
+   stands today, where a step every result of which ends the sequence
+   makes its later steps unreachable. And a non-final step whose result is
+   in the seat's *hard* vocabulary — a word whose every table arm is
+   `hard` and goes to `stop` — ends the sequence with that
    word wherever it is reported: a panel's `security-hold` is the
    machine's. The chief's charter floor stays as prose and stops being
    the only defence.
@@ -285,7 +287,8 @@ Alternatives weighed:
    `crates/brokkr-runtime/src/bundle/sequence.rs` (`parse_sequence`,
    `stamp_endings`, `hard_results`, `refuse_unreachable`: the reachable set
    is the final step's results plus every non-final step's compiled
-   `ends_on`, since a middle step's plain checkpoint never reaches the
+   `ends_on`, walked until a step every result of which ends the sequence,
+   since a middle step's plain checkpoint never reaches the
    table) and the executor in
    `crates/brokkr-runtime/src/engine/sequence.rs` (`ends_sequence`, which
    reads only `SequenceStep::ends_on` and never compares vocabularies at

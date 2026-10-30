@@ -5,7 +5,7 @@
 
 use std::collections::BTreeSet;
 
-use brokkr_core::policy::Machine;
+use brokkr_core::policy::{Machine, Rule};
 use brokkr_protocol::hands::HandsSpec;
 use serde_json::Value;
 
@@ -443,15 +443,27 @@ fn endings(
     words.into_iter().collect()
 }
 
+/// The terminal the engine reads as a stopped run (`request_or_finish`),
+/// named once here for the hard-vocabulary predicate below.
+const STOP: &str = "stop";
+
+/// Whether this table arm is a hard stop: hard severity AND the stop
+/// terminal, because `Machine::evaluate` follows `next` and the engine
+/// tells a stopped run from a completed one by the terminal phase, not by
+/// severity. A hard arm that advances to `done` ends nothing.
+fn is_hard_stop(rule: &Rule) -> bool {
+    rule.severity == "hard" && rule.next.as_deref() == Some(STOP)
+}
+
 /// The phase's hard vocabulary: every word whose every arm in the composed
-/// table is a `hard` stop (decision 0050, ruling 7).
+/// table is hard and goes to `stop` (decision 0050, ruling 7).
 pub(super) fn hard_results(machine: &Machine, phase: &str) -> BTreeSet<String> {
     let mut words: std::collections::BTreeMap<&str, bool> = std::collections::BTreeMap::new();
     for rule in machine.rules.iter().filter(|rule| rule.from == phase) {
         words
             .entry(rule.result.as_str())
-            .and_modify(|hard| *hard &= rule.severity == "hard")
-            .or_insert(rule.severity == "hard");
+            .and_modify(|hard| *hard &= is_hard_stop(rule))
+            .or_insert_with(|| is_hard_stop(rule));
     }
     words
         .into_iter()
@@ -460,10 +472,12 @@ pub(super) fn hard_results(machine: &Machine, phase: &str) -> BTreeSet<String> {
         .collect()
 }
 
-/// Refuse a table arm for `phase` whose word no step of this sequence can
-/// emit, naming the rule and the word (decision 0050, ruling 7). A middle
-/// step's word reaches the table only through a compiled ending: its plain
-/// checkpoint is context for the later steps, never the effect's result.
+/// Refuse a table arm for `phase` whose word no step the sequence can reach
+/// can emit, naming the rule and the word (decision 0050, ruling 7). A
+/// middle step's word reaches the table only through a compiled ending: its
+/// plain checkpoint is context for the later steps, never the effect's
+/// result. The walk stops at a step every result of which ends the
+/// sequence: no later step runs, so none of their words admits an arm.
 fn refuse_unreachable(
     machine: &Machine,
     bundle: &str,
@@ -471,17 +485,17 @@ fn refuse_unreachable(
     steps: &[SequenceStep],
 ) -> Result<(), CompileError> {
     let last = steps.len().saturating_sub(1);
-    let emittable: BTreeSet<&str> = steps
-        .iter()
-        .enumerate()
-        .flat_map(|(index, step)| {
-            if index == last {
-                step.results.iter().map(String::as_str)
-            } else {
-                step.ends_on.iter().map(String::as_str)
-            }
-        })
-        .collect();
+    let mut emittable: BTreeSet<&str> = BTreeSet::new();
+    for (index, step) in steps.iter().enumerate() {
+        if index == last {
+            emittable.extend(step.results.iter().map(String::as_str));
+            continue;
+        }
+        emittable.extend(step.ends_on.iter().map(String::as_str));
+        if step.results.iter().all(|word| step.ends_on.contains(word)) {
+            break;
+        }
+    }
     for rule in machine.rules.iter().filter(|rule| rule.from == phase) {
         if !emittable.contains(rule.result.as_str()) {
             return Err(CompileError::Invalid(format!(
