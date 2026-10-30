@@ -47,7 +47,7 @@ the README's contributing section:
 Three things follow, and all three are enforced rather than trusted:
 
 1. **New version files sit beside the old ones.** `contracts/` today
-   contains separately numbered `run-manifest.v1` through `.v11` files.
+   contains separately numbered `run-manifest.v1` through `.v14` files.
    A later version does not replace or edit the earlier versions.
 2. **A version cannot quietly widen.** Schemas set
    `additionalProperties: false` and the loaders refuse unknown fields.
@@ -85,7 +85,7 @@ fields defined so far live in `effect-provenance.v1.schema.json`.
 There are **two** manifest lineages, not one line, and conflating them
 is the mistake to avoid.
 
-**The local lineage: `run-manifest.v1` → `v3` → `v4` → `v5` → `v6` → `v7` → `v8` → `v9` → `v10` → `v11`.**
+**The local lineage: `run-manifest.v1` → `v3` → `v4` → `v5` → `v6` → `v7` → `v8` → `v9` → `v10` → `v11` → `v12` → `v13` → `v14`.**
 
 - `v3` is `v1`'s bytes plus one optional `agents` property (decision
   0016), absent when no seat references an agent — so every
@@ -104,7 +104,7 @@ is the mistake to avoid.
   hands; `v7` records strategy-selected cases; `v8` records per-step
   result vocabularies; `v9` pins the selected boundary per hands site.
   These are bundle identity. The compiler wrote v9 until decision 0065
-  and writes v11 now; older contract files remain available for their
+  and writes v14 now; older contract files remain available for their
   readers.
 - `v10` is `v9` plus one optional `crossings` property (decision 0057):
   per publishing realm, per crossing name, the resolved path and the
@@ -133,13 +133,14 @@ is the mistake to avoid.
   bundle that does, and the comparison refuses the difference rather
   than restoring a harness's old default. Historical runs are not
   rewritten.
-- Realm maps now reach `forge.realms/v6`: v3 added house and dialect
+- Realm maps now reach `forge.realms/v8`: v3 added house and dialect
   declarations, v4 adds the realm's boundary, v5 adds the crossings a
   realm publishes and the ones it consumes, each pinned by a sha256 over
   the published file's raw bytes (decision 0057), and v6 adds the
-  capabilities a realm grants (decision 0065). House content and its
-  digest are pinned in the run's realms record. Every older version keeps
-  loading and grants nothing.
+  capabilities a realm grants (decision 0065), v7 adds the provisional
+  tier (decision 0075), and v8 adds the retention veto (decision 0065
+  slice two). House content and its digest are pinned in the run's realms
+  record. Every older version keeps loading and grants nothing.
 
 **The Looper-bound lineage: `run-manifest.v2`, unchanged.** Its
 round-trip reconstructs a bundle manifest from six named keys and drops
@@ -154,23 +155,66 @@ capability authority under `capabilities`, the six-key round-trip cannot
 carry it, and the guard names the key before any run row is written
 rather than the authority being stripped to fit.
 
-**The other contracts, and where they stand:**
+**The lifecycle of every contract.** One row per file under
+`contracts/`, plus the one label that has no file. The columns are read as
+data by `crates/brokkr-cli/tests/contract_lifecycle.rs`: `Minted under` by
+the minting rule in `crates/brokkr-cli/tests/decisions_index.rs`, and each
+`Reader` by the loader it names. A `record` row has no reader; its bytes
+describe what an older journal holds. `Last written` and `Reader until`
+are stated here from decision 0082 ruling 3 and are bound to the loaders
+and the release window in that ruling's slice 2.
 
-| Contract | Files | Status |
-|---|---|---|
-| Event envelope | `event-envelope.v1.schema.json` | Frozen v1. Extension fields per the amendment above. |
-| Driver protocol | `driver-protocol.v1.schema.json` | Frozen v1. This is what an outside driver builds against. |
-| Effect provenance | `effect-provenance.v1.schema.json` | The numbered extension schema for `effect/started.provenance` and `effect/failed.start_failure`. |
-| Attempt-bound dispatch | `dispatch-envelope.v2.schema.json` | The Looper-bound envelope, embedded whole in `run-manifest.v2`. |
-| Phase-machine table | `phase-machine.v2.schema.json` | `v2` = `v1` plus exactly one thing: a rule may rule a park. `v1` tables are read exactly as they always were. |
-| The world's map | `realms.v1.schema.json` | `forge.realms/v1`: realms (name, path, default branch) and the world's single `journal`. |
-| The world's map, many hearths | `realms.v2.schema.json` | `v2` = `v1` plus exactly one thing: a realm may name its own `journal`, falling back to the world's when it does not. `v1` maps are read exactly as they always were, and the one new word is refused under a `v1` label. |
-| Named boundary | `realms.v4.schema.json`, `run-manifest.v9.schema.json`, `seat-record.v4.schema.json`, `effect-boundary.v1.schema.json` | The realm selects the boundary, the manifest pins it, and effects and readouts retain it. Earlier versions remain unchanged. |
-| The crossing | `realms.v5.schema.json`, `run-manifest.v10.schema.json` | The map declares what a realm publishes and what it consumes, each consumed crossing pinned by a sha256 over the published file's raw bytes; the run manifest records what the loader observed for every published crossing at run start. Declaration and observation are separate keys and answer separate questions. Earlier versions remain unchanged. |
-| The grant | `realms.v6.schema.json`, `tool-dialect.v1.schema.json`, `run-manifest.v11.schema.json` | The map lists the capabilities a realm grants; a tool dialect binds one abstract capability to exactly one implementation kind; the manifest pins the authority a bundle compiled under, per site and per provider candidate. Only a realm grants. The `mcp` kind is whole as data and refused as a grant until decision 0065's slice two. Earlier versions remain unchanged. |
-| Specification dialect | `dialect.v1.schema.json`, `dialect.v2.schema.json`, `dialect.v3.schema.json` | `v2` = `v1` plus the tool's install identity; `v3` = `v2` plus the archive step's instruction. A dialect FILE is written and read at v3 only. A dialect PIN — a run embeds its resolved dialect in the manifest, and a resume rehydrates it — is read at any of the three, so a run pinned before a version landed still resumes and still folds exactly as it did. Each version is held to its own shape: a field is refused under a label that predates it. |
-| Finding closure | `operator-supersede.v1.schema.json` | The operator names the residual findings being closed and may cite the closing run. |
-| Evaluator behavior | `fixtures/evaluator/corpus.ndjson` | Frozen contract data. Never regenerated, only versioned. |
+| Version | File | Class | Minted under | Writer | Reader | State | Last written | Reader until |
+|---|---|---|---|---|---|---|---|---|
+| `run-manifest/v1` | `contracts/run-manifest.v1.schema.json` | journal | 0003 | none | none | record | | |
+| `run-manifest/v3` | `contracts/run-manifest.v3.schema.json` | journal | 0016 | none | none | record | | |
+| `run-manifest/v4` | `contracts/run-manifest.v4.schema.json` | journal | 0023 | none | none | record | | |
+| `run-manifest/v5` | `contracts/run-manifest.v5.schema.json` | journal | 0021 | none | none | record | | |
+| `run-manifest/v6` | `contracts/run-manifest.v6.schema.json` | journal | 0043 | none | none | record | | |
+| `run-manifest/v7` | `contracts/run-manifest.v7.schema.json` | journal | 0041 | none | none | record | | |
+| `run-manifest/v8` | `contracts/run-manifest.v8.schema.json` | journal | 0041 | none | none | record | | |
+| `run-manifest/v9` | `contracts/run-manifest.v9.schema.json` | journal | 0046 | none | none | record | | |
+| `run-manifest/v10` | `contracts/run-manifest.v10.schema.json` | journal | 0057, enacted, pending acceptance | none | none | record | | |
+| `run-manifest/v11` | `contracts/run-manifest.v11.schema.json` | journal | 0065 | none | none | record | | |
+| `run-manifest/v12` | `contracts/run-manifest.v12.schema.json` | journal | 0065 | none | none | record | | |
+| `run-manifest/v13` | `contracts/run-manifest.v13.schema.json` | journal | operator ruling 2026-10-10 (#430, PR #621), enacted, pending acceptance | none | none | record | | |
+| `run-manifest/v14` | `contracts/run-manifest.v14.schema.json` | journal | 0095 | engine crates/brokkr-runtime/src/engine/start.rs | load brokkr_core::dispatch::bundle_manifest_from_run | current | | |
+| `forge-run-manifest/v2` | `contracts/run-manifest.v2.schema.json` | journal | no decision (PR #28), enacted, pending acceptance | Looper | label brokkr_core::dispatch::RUN_MANIFEST_SCHEMA_V2 | current | | |
+| `seat-record/v1` | `contracts/seat-record.v1.schema.json` | journal | 0034 | drivers | dispatch brokkr_store::SeatRecordVersion | reader | 0.7 | 0.12 |
+| `seat-record/v2` | `contracts/seat-record.v2.schema.json` | journal | 0035 | drivers | dispatch brokkr_store::SeatRecordVersion | reader | never | 0.12 |
+| `seat-record/v3` | `contracts/seat-record.v3.schema.json` | journal | 0034 | drivers | dispatch brokkr_store::SeatRecordVersion | reader | 0.8 | 0.12 |
+| `seat-record/v4` | `contracts/seat-record.v4.schema.json` | journal | 0046 | drivers | dispatch brokkr_store::SeatRecordVersion | reader | 0.9 | 0.12 |
+| `seat-record/v5` | `contracts/seat-record.v5.schema.json` | journal | 0056, enacted, pending acceptance | drivers | dispatch brokkr_store::SeatRecordVersion | reader | 0.11 | 0.14 |
+| `seat-record/v6` | `contracts/seat-record.v6.schema.json` | journal | 0065 | drivers | dispatch brokkr_store::SeatRecordVersion | current | | |
+| `forge.realms/v1` | `contracts/realms.v1.schema.json` | input | 0023 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
+| `forge.realms/v2` | `contracts/realms.v2.schema.json` | input | 0026 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
+| `forge.realms/v3` | `contracts/realms.v3.schema.json` | input | 0041 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
+| `forge.realms/v4` | `contracts/realms.v4.schema.json` | input | 0046 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
+| `forge.realms/v5` | `contracts/realms.v5.schema.json` | input | 0057, enacted, pending acceptance | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
+| `forge.realms/v6` | `contracts/realms.v6.schema.json` | input | 0065 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
+| `forge.realms/v7` | `contracts/realms.v7.schema.json` | input | 0075 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
+| `forge.realms/v8` | `contracts/realms.v8.schema.json` | input | 0065 | operator | set brokkr_core::realms::SCHEMAS | current | | decision |
+| `brokkr.dialect/v1` | `contracts/dialect.v1.schema.json` | journal | 0042 | none | set brokkr_runtime::dialect::SCHEMAS | reader | unmeasured | unmeasured |
+| `brokkr.dialect/v2` | `contracts/dialect.v2.schema.json` | journal | 0042 (2026-09-04 addendum) | none | set brokkr_runtime::dialect::SCHEMAS | reader | unmeasured | unmeasured |
+| `brokkr.dialect/v3` | `contracts/dialect.v3.schema.json` | journal | 0042 (2026-09-06 addendum) | shipped dialects/openspec.json | set brokkr_runtime::dialect::SCHEMAS | current | | |
+| `forge.phase-machine/v1` | `none (decision 0082 ruling 5)` | input | 0002 | none | load brokkr_core::policy::Machine::from_table | reader | | decision |
+| `forge.phase-machine/v2` | `contracts/phase-machine.v2.schema.json` | input | 0022 | shipped recipes/fast/policy.json | label brokkr_core::policy::TABLE_SCHEMA_V2 | current | | decision |
+| `event-envelope/v1` | `contracts/event-envelope.v1.schema.json` | journal | 0003 | engine crates/brokkr-core/src/envelope.rs | load brokkr_core::envelope::verify_chain | current | | |
+| `forge-driver/v1` | `contracts/driver-protocol.v1.schema.json` | input | 0003 | drivers | label brokkr_protocol::PROTO | current | | decision |
+| `forge-dispatch/v2` | `contracts/dispatch-envelope.v2.schema.json` | input | no decision (PR #28), enacted, pending acceptance | Looper | label brokkr_core::dispatch::DISPATCH_SCHEMA_V2 | current | | decision |
+| `effect-provenance/v1` | `contracts/effect-provenance.v1.schema.json` | journal | 0016 | engine crates/brokkr-runtime/src/engine.rs | load brokkr_core::seat::row::Seats::note | current | | |
+| `effect-boundary/v1` | `contracts/effect-boundary.v1.schema.json` | journal | 0046 | engine crates/brokkr-runtime/src/engine.rs | load brokkr_core::seat::boundary_entries | current | | |
+| `effect-cleanup/v1` | `contracts/effect-cleanup.v1.schema.json` | journal | 0006 (2026-09-27 addendum), enacted, pending acceptance | engine crates/brokkr-runtime/src/engine.rs | none | current | | |
+| `phase-entered-head/v1` | `contracts/phase-entered-head.v1.schema.json` | journal | 0039, enacted, pending acceptance | engine crates/brokkr-runtime/src/engine.rs | load brokkr_core::payload::PhaseEntered::read | current | | |
+| `phase-entered-case/v1` | `contracts/phase-entered-case.v1.schema.json` | journal | 0041 | engine crates/brokkr-runtime/src/engine.rs | none | current | | |
+| `operator-supersede/v1` | `contracts/operator-supersede.v1.schema.json` | journal | 0047 | operator | load brokkr_core::residual::closings | current | | |
+| `brokkr.tool-dialect/v1` | `contracts/tool-dialect.v1.schema.json` | input | 0065 | shipped dialects/tools | schema brokkr_runtime::capabilities::dialect::TOOL_DIALECT_SCHEMA | current | | decision |
+| `forge.host/v1` | `contracts/host.v1.schema.json` | input | 0068 (2026-10-10 addendum) | operator | load brokkr_runtime::admission::host::read | current | | decision |
+| `panel-carry/v1` | `contracts/panel-carry.v1.schema.json` | journal | 0093, enacted, pending acceptance | engine crates/brokkr-runtime/src/engine/dispatch.rs | load brokkr_runtime::engine::carry::facts::terminal_record | current | | |
+
+`fixtures/evaluator/corpus.ndjson` is frozen contract data, never
+regenerated, only versioned; it is not a file under `contracts/` and so
+has no row here.
 
 The binary reports the versions it was built against:
 

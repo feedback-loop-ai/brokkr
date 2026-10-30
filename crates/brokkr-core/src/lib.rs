@@ -36,6 +36,9 @@ extern crate self as brokkr_core;
 #[path = "../tests/committed_journals.rs"]
 mod committed_journals;
 #[cfg(test)]
+#[path = "../../../tests/support/contract_lifecycle.rs"]
+mod contract_lifecycle;
+#[cfg(test)]
 #[path = "../../../tests/support/envelope.rs"]
 mod envelope_builder;
 #[cfg(test)]

@@ -1946,3 +1946,12 @@ fn every_finding_reads_in_the_operators_words() {
         ]
     );
 }
+
+mod minting;
+
+/// Decision 0082 ruling 1: every contract version names a ruling that mints
+/// it, read from the ledger beside this rule. The walk lives in `minting`.
+#[test]
+fn every_contract_version_is_minted_under_an_accepted_ruling() {
+    minting::check();
+}
