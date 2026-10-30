@@ -712,6 +712,45 @@ fn a_dead_running_run_needs_you_as_stale_and_never_reads_as_live() {
     assert!(fleet_live(&views), "the other two are");
 }
 
+/// The run whose stop the operator's command accepted with no ending yet.
+const STOPPING: &str = "landing-pr-909-of-the-readouts-5e6f7a8b";
+
+/// #909: a run whose accepted stop has no ending wears the stopping mark
+/// in the stopping tone on its row, and its detail names the stop and the
+/// one command that closes it.
+#[test]
+fn a_stopping_run_wears_its_mark_and_its_detail_names_the_way_out() {
+    let mut stopping = state_of(Status::Running);
+    stopping.phase = Some("verify".to_string());
+    stopping.run = Run::Running(Cursor::Stop);
+    stopping.stop_accepted_seq = Some(93);
+    let entry = brokkr_view::RunEntry {
+        run_id: STOPPING,
+        feature: "LANDING PR #909: a stop with no ending stands as stopping",
+        created_at: T0,
+        last_recorded_at: Some(NOW),
+        state: Some(&stopping),
+        detail: None,
+        residuals: &[],
+    };
+    let mut views = fleet_to_act_on();
+    let row = brokkr_view::run_rows(&[entry]).runs.remove(0);
+    views.runs.runs.insert(0, row);
+    let terminal = drawn(&Tui::new(None), &views, 160, 48);
+    let lines = lines_of(terminal.backend().buffer());
+    let at = row_of(&lines, "landi…5e6f7a8b");
+    assert!(lines[at].contains("◼ stopping"), "{}", lines[at]);
+    let detail = dashboard_of(&views, &views.runs.runs[0]);
+    assert_eq!(detail[2], "stopping · verify · 7m03s");
+    let said = "detail    stop accepted at seq 93; no ending written. If no driver is running \
+                it, `brokkr conclude` closes it.";
+    assert!(detail.iter().any(|line| line == said), "{detail:#?}");
+    let wanted = [format!(
+        "way out   brokkr conclude --run {STOPPING} --reason <why>"
+    )];
+    assert_eq!(under(&detail, "WAY OUT"), wanted, "{detail:#?}");
+}
+
 /// Review F3: every command a way out names is one `brokkr` parses once
 /// its placeholders are filled, and one the engine admits on a run that
 /// stands as that one does. A stale run folds to running, which

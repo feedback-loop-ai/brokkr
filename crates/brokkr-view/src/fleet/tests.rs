@@ -225,6 +225,15 @@ fn a_stop_accepted_without_an_ending_stands_as_stopping() {
         })
     );
     assert_eq!(section_of(&row, NOW), Section::NeedsYou);
+    // Its row and detail say so, and name the one command that closes it.
+    let stopping = Need::Stopping {
+        detail: detail.to_string(),
+    };
+    assert_eq!(stopping.label(), "stopping");
+    assert_eq!(stopping.prompt().as_deref(), Some(detail));
+    let conclude = "brokkr conclude --run r1 --reason <why>";
+    assert_eq!(stopping.commands("r1"), [conclude]);
+    assert_eq!(stopping.way_out("r1"), [format!("way out   {conclude}")]);
 
     // A stop riding an in-flight effect is the same sentence: the cursor
     // still holds the attempt, and the accepted seq is what its detail

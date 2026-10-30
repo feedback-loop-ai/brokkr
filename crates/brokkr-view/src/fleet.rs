@@ -593,7 +593,9 @@ pub fn run_row(entry: &RunEntry) -> RunRow {
     let status = entry
         .state
         .map(|state| state.run.status().as_str().to_string());
-    let status_known = matches!(status.as_deref(), Some(word) if KNOWN_STATUS.contains(&word));
+    let status_known = status
+        .as_deref()
+        .is_some_and(|word| KNOWN_STATUS.contains(&word));
     let verdict = verdict(entry.state, entry.residuals);
     let status_word = verdict.standing.status_word(status.as_deref()).to_string();
     RunRow {

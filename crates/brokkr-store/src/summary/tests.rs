@@ -928,6 +928,48 @@ fn a_summary_from_before_the_accepted_stop_column_is_made_anew_and_refolded() {
     stopping_row(&store);
 }
 
+/// A journal a build from before the accepted-stop columns wrote carries
+/// the aggregates but not the stop's two columns: the summary reads as not
+/// intact, and the repair makes it anew and refolds the stopping run.
+#[test]
+fn a_summary_with_its_aggregates_but_not_the_stop_columns_is_made_anew() {
+    let (_dir, mut store) = store();
+    stopping_without_ending(&mut store);
+    let path = store.path().to_path_buf();
+    drop(store);
+    let older = rusqlite::Connection::open(&path).unwrap();
+    // The older build's table: every column but the stop's two, and none of
+    // the triggers or indexes this build adds.
+    let kept: Vec<String> = older
+        .prepare(
+            "SELECT name FROM pragma_table_info('run_summary')
+             WHERE name NOT IN ('stop_accepted_seq', 'stop_folded_seq')",
+        )
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    older
+        .execute_batch(&format!(
+            "CREATE TEMP TABLE older AS SELECT {} FROM run_summary;
+             DROP TABLE run_summary;
+             CREATE TABLE run_summary AS SELECT * FROM older;
+             DROP TABLE older;",
+            kept.join(", ")
+        ))
+        .unwrap();
+    assert!(
+        !summary_intact(&older).unwrap(),
+        "the stop's columns are gone"
+    );
+    migrate_summary(&older).unwrap();
+    drop(older);
+    let store = Store::open(&path).unwrap();
+    assert!(summary_intact(&store.conn).unwrap());
+    stopping_row(&store);
+}
+
 /// A writer from before the accepted-stop columns may fold while their
 /// trigger is gone: its row stands at its head with the stop's columns
 /// unwritten, so the open's repair sends it behind on the stop's own stamp
