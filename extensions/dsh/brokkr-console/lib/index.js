@@ -13,7 +13,7 @@ import { fencedRoute, fencedUpgrade } from './host/fence.js'
 import { focusOf } from './host/focus.js'
 import { hereOf } from './host/here.js'
 import { pollerOf } from './host/poller.js'
-import { isRange, ReadoutRefused } from './host/readouts.js'
+import { isRange, REALM_BOUND, ReadoutRefused } from './host/readouts.js'
 import { accept } from './host/socket.js'
 import { GRAMMAR, toolsOf } from './host/tools.js'
 
@@ -106,7 +106,7 @@ function routes({ brokkr, desk, here, locate, focus }) {
       async (req, res) => {
         const query = queryOf(req)
         const [realm, run, seat] = ['realm', 'run', 'seat'].map((name) => query.get(name) ?? '')
-        if (!GRAMMAR.run.test(run) || !GRAMMAR.seat.test(seat) || realm.length > 256) throw new RequestRefused('a transcript is asked for by realm, run and seat')
+        if (!GRAMMAR.run.test(run) || !GRAMMAR.seat.test(seat) || realm.length > REALM_BOUND) throw new RequestRefused('a transcript is asked for by realm, run and seat')
         // The journal is the listing's, never a path the browser sent.
         const target = locate(realm, run)
         if (target === null) throw new RequestRefused('Brokkr no longer lists this run')
@@ -131,7 +131,7 @@ function routes({ brokkr, desk, here, locate, focus }) {
         const range = rangeOf(query)
         const [recipe, realm] = [query.get('recipe'), query.get('realm')]
         if (recipe !== null && !GRAMMAR.recipe.test(recipe)) throw new RequestRefused('a graph is asked for by its recipe’s name')
-        if (realm !== null && (realm === '' || realm.length > 256)) throw new RequestRefused('a realm is named in 1 to 256 characters')
+        if (realm !== null && (realm === '' || realm.length > REALM_BOUND)) throw new RequestRefused(`a realm is named in 1 to ${REALM_BOUND} characters`)
         send(res, 200, await brokkr.graph(realm, recipe, range))
       },
     ],

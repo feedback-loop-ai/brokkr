@@ -16,6 +16,9 @@ const MUNINN_RECORD_VERSION = 1
 /** The label a one-hearth world's runs go under: its listing names no realm. */
 export const ONE_HEARTH = 'this workspace'
 
+/** The most characters a realm name may hold, on every wire the console reads or is asked. */
+export const REALM_BOUND = 256
+
 const STANDINGS = ['quarantined', 'parked', 'running', 'stopping', 'shipped', 'stopped', 'operator_stopped']
 const COMMANDS = ['retry', 'stop', 'resume', 'conclude']
 const ACTIONS = ['dismiss_finding', 'talk_to_reviewer', 'hold', 'answer_here']
@@ -379,6 +382,7 @@ function summary(value, path) {
     standing: word(value.standing, STANDINGS, `${path}.standing`),
     detail: optText(value.detail, `${path}.detail`),
     phase: optText(value.phase, `${path}.phase`),
+    feature: optText(value.feature, `${path}.feature`),
     park_reason: optText(value.park_reason, `${path}.park_reason`),
   }
 }
@@ -389,6 +393,7 @@ export function runViewOf(doc) {
   const ruling = maybe(doc.ruling, 'ruling', (value, path) => ({
     rule_id: text(object(value, path).rule_id, `${path}.rule_id`),
     from: text(value.from, `${path}.from`),
+    next: text(value.next, `${path}.next`),
   }))
   return {
     summary: maybe(doc.summary, 'summary', summary),

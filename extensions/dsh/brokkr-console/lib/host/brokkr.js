@@ -26,10 +26,15 @@ export function resumeSource(override, recipe) {
   return recipe === null || recipe === undefined ? null : flag('recipe', recipe)
 }
 
-/** `--run=<id>`, and `--db=<journal>` for a run in a many-hearth world. */
+/**
+ * `--run=<id>`, and `--db=<journal>` for a run in a many-hearth world. A
+ * target that names `db` keeps its cache journal and its argv apart, so a
+ * one-hearth map can own its retained pages without gaining a `--db`.
+ */
 function runOf(target) {
-  const journal = target.journal === null ? [] : [flag('db', target.journal)]
-  return [flag('run', target.run_id), ...journal]
+  const journal = target.db === undefined ? target.journal : target.db
+  const db = journal === null ? [] : [flag('db', journal)]
+  return [flag('run', target.run_id), ...db]
 }
 
 /** One argv word as a POSIX shell reads it: bare when it can be, else single-quoted. */

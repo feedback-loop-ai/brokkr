@@ -1,6 +1,7 @@
-// Live refresh (design D5): a run is re-read only when its head moved, only
-// for the client that has it open; the overview's readouts go only to a
-// client on the Realms view; a client that reconnects gets a full snapshot.
+// Live refresh (design D5): every open run is re-read on every poll, only
+// for the clients that have it open, wherever the fleet holds it; the
+// overview's readouts go only to a client on the Realms view; a client that
+// reconnects gets a full snapshot.
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
@@ -43,10 +44,10 @@ async function attached(poller, watch) {
   return settle(client)
 }
 
-function polled(fleets, ask = undefined) {
+function polled(fleets, ask = undefined, inspections = [json(runViewDoc())]) {
   const brokkr = stubBrokkr([
     { match: ['runs'], responses: fleets },
-    { match: ['inspect'], responses: [json(runViewDoc())] },
+    { match: ['inspect'], responses: inspections },
     { match: ['queue'], responses: [json([])] },
     { match: ['muninn'], responses: [json([])] },
     { match: ['analytics'], responses: [json(analyticsDoc())] },
@@ -55,20 +56,24 @@ function polled(fleets, ask = undefined) {
   return { poller, calls: () => brokkr.calls().map((argv) => argv[0]) }
 }
 
-test('a run is re-read only when its head moved, and only for the client that has it open', async () => {
-  const { poller, calls } = polled([fleetAt(12), fleetAt(12), fleetAt(12, 4), fleetAt(13, 4)])
+test('an open run is re-read on every poll, and only for the client that has it open', async () => {
+  const { poller, calls } = polled(
+    [fleetAt(12), fleetAt(12), fleetAt(12, 4), fleetAt(13, 4)],
+    undefined,
+    [12, 12, 13].map((seq) => json(runViewDoc({ seq }))),
+  )
   const open = await attached(poller, { view: 'realm', run: { realm: 'brokkr', run_id: RUN } })
   const elsewhere = await attached(poller, { view: 'analytics', run: null })
   const before = calls().filter((verb) => verb === 'inspect').length
   open.sent.length = 0
   elsewhere.sent.length = 0
 
-  await poller.tick() // only the other run moved
-  assert.equal(calls().filter((verb) => verb === 'inspect').length, before)
+  await poller.tick() // only the other run moved; the open run is still read
+  assert.equal(calls().filter((verb) => verb === 'inspect').length, before + 1)
   assert.deepEqual(open.sent.map((message) => message.type), ['fleet'])
 
   await poller.tick() // the open run moved
-  assert.equal(calls().filter((verb) => verb === 'inspect').length, before + 1)
+  assert.equal(calls().filter((verb) => verb === 'inspect').length, before + 2)
   assert.deepEqual(open.sent.map((message) => message.type), ['fleet', 'fleet', 'run'])
   assert.deepEqual(elsewhere.sent.map((message) => message.type), ['fleet', 'fleet'])
 })
@@ -360,10 +365,7 @@ test('a hearth’s next page is read only when asked, appended in order, and a r
 
 test('a one-hearth world is read without --db, as the run hint names no journal', async () => {
   const page = windowOf([runOf('alpha', 0)], null)
-  const brokkr = stubBrokkr([
-    { match: ['realms'], responses: [json(realmsDoc(['alpha']))] },
-    { match: ['runs'], responses: [json(page)] },
-  ])
+  const brokkr = stubBrokkr([{ match: ['runs'], responses: [json(page)] }])
   const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
   const client = await attached(poller, { view: 'realm', realm: ONE_HEARTH, run: null })
   assert.deepEqual(brokkr.calls().filter((argv) => argv[0] === 'runs'), [['runs', '--json', `--limit=${FLEET_WINDOW}`]])
@@ -381,7 +383,6 @@ test('one-hearth Show more appends a second page', async () => {
   const first = windowOf([runOf('alpha', 0)], 'needs-you:1:alpha-run-0000')
   const second = windowOf([runOf('alpha', 1)], null)
   const brokkr = stubBrokkr([
-    { match: ['realms'], responses: [json(realmsDoc(['alpha']))] },
     { match: ['runs'], responses: [json(first), json(second)] },
   ])
   const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
@@ -402,7 +403,6 @@ test('a refresh keeps a previously visible page-boundary run reachable', async (
   const shifted = windowOf([runOf('alpha', 9), runOf('alpha', 0)], 'needs-you:2:alpha-run-0000')
   const bridge = windowOf([runOf('alpha', 1)], null)
   const brokkr = stubBrokkr([
-    { match: ['realms'], responses: [json(realmsDoc(['alpha']))] },
     { match: ['runs'], responses: [json(first), json(second), json(shifted), json(bridge)] },
   ])
   const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
@@ -428,7 +428,6 @@ test('a refresh keeps a previously visible page-boundary run reachable', async (
 test('behind makes the painted count incomplete even with no next cursor', async () => {
   const page = { ...windowOf(Array.from({ length: FLEET_WINDOW }, (_, index) => runOf('alpha', index)), null), behind: 130 }
   const brokkr = stubBrokkr([
-    { match: ['realms'], responses: [json(realmsDoc(['alpha']))] },
     { match: ['runs'], responses: [json(page)] },
   ])
   const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
@@ -454,7 +453,6 @@ test('a running second-page run refreshes behind 100 parked runs', async () => {
   const running = runningOf('alpha', 100, 12)
   const second = windowOf([running], null)
   const brokkr = stubBrokkr([
-    { match: ['realms'], responses: [json(realmsDoc(['alpha']))] },
     { match: ['runs'], responses: [json(first), json(second), json(first)] },
     { match: ['inspect'], responses: [json(runViewDoc({ seq: 12 })), json(runViewDoc({ seq: 13 }))] },
   ])
@@ -490,7 +488,7 @@ test('equivalent journal paths name one hearth and read one first page', async (
   ])
   const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
   const client = await attached(poller, { view: 'realm', realm: ONE_HEARTH, run: null })
-  assert.deepEqual(client.sent[0].fleet.hearths.map((hearth) => [hearth.realm, hearth.runs.length, hearth.next]), [[ONE_HEARTH, 1, null]])
+  assert.deepEqual(client.sent[0].fleet.hearths.map((hearth) => [hearth.realm, hearth.runs.length, hearth.next]), [['alpha+beta', 1, null]])
   assert.deepEqual(brokkr.calls().filter((argv) => argv[0] === 'runs'), [['runs', '--json', `--limit=${FLEET_WINDOW}`]])
 })
 
@@ -498,7 +496,6 @@ test('simultaneous Show more requests cannot duplicate rows after refresh', asyn
   const first = windowOf([runOf('alpha', 0)], 'needs-you:1:alpha-run-0000')
   const second = windowOf([runOf('alpha', 1)], null)
   const brokkr = stubBrokkr([
-    { match: ['realms'], responses: [json(realmsDoc(['alpha']))] },
     { match: ['runs', `--after=${first.next}`], responses: [json(second)] },
     { match: ['runs'], responses: [json(first)] },
   ])
@@ -562,7 +559,6 @@ test('a refused next page reaches the client as Brokkr’s words, and appends no
   const next = windowOf([runOf('alpha', 1)], null)
   const words = 'brokkr runs was refused: the page could not be read'
   const brokkr = stubBrokkr([
-    { match: ['realms'], responses: [json(realmsDoc(['alpha']))] },
     { match: ['runs'], responses: [json(first), { stderr: words, code: 1 }, json(next)] },
   ])
   const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
@@ -586,7 +582,6 @@ test('an open run stays readable when a new arrival moves the page boundary', as
   const second = windowOf([runOf('alpha', 1)], null)
   const shifted = windowOf([runOf('alpha', 9), runOf('alpha', 0)], 'needs-you:2:alpha-run-0000')
   const brokkr = stubBrokkr([
-    { match: ['realms'], responses: [json(realmsDoc(['alpha']))] },
     { match: ['runs'], responses: [json(first), json(second), json(first), json(shifted)] },
     { match: ['inspect'], responses: [json(runViewDoc({ seq: 12 }))] },
   ])
@@ -614,7 +609,6 @@ test('Show more publishes its appended page when a poll finishes during the read
   const first = windowOf([runOf('alpha', 0)], 'needs-you:1:alpha-run-0000')
   const second = windowOf([runOf('alpha', 1)], null)
   const brokkr = stubBrokkr([
-    { match: ['realms'], responses: [json(realmsDoc(['alpha']))] },
     { match: ['runs', `--after=${first.next}`], responses: [{ ...json(second), sleep_ms: 400 }] },
     { match: ['runs'], responses: [json(first)] },
   ])
@@ -670,7 +664,6 @@ test('journal identity preserves OS resolution of a symlink followed by dot-dot'
 test('the realm header marks counts incomplete when behind is nonzero without next', async () => {
   const page = { ...windowOf([runOf('alpha', 0)], null), behind: 130 }
   const brokkr = stubBrokkr([
-    { match: ['realms'], responses: [json(realmsDoc(['alpha']))] },
     { match: ['runs'], responses: [json(page)] },
   ])
   const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
@@ -687,7 +680,6 @@ test('Show more preserves the new behind count and paints a lower bound', async 
   const first = windowOf([runOf('alpha', 0)], 'needs-you:1:alpha-run-0000')
   const second = { ...windowOf([runOf('alpha', 1)], null), behind: 130 }
   const brokkr = stubBrokkr([
-    { match: ['realms'], responses: [json(realmsDoc(['alpha']))] },
     { match: ['runs'], responses: [json(first), json(second)] },
   ])
   const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
@@ -712,7 +704,6 @@ test('Show more preserves the new behind count and paints a lower bound', async 
 
 test('unchanged Realms snapshots reuse cached day analytics', async () => {
   const brokkr = stubBrokkr([
-    { match: ['realms'], responses: [json(realmsDoc(['alpha']))] },
     { match: ['runs'], responses: [json(windowOf([runOf('alpha', 0)], null))] },
     { match: ['queue'], responses: [json([])] },
     { match: ['muninn'], responses: [json([])] },
@@ -734,7 +725,6 @@ test('a paged open run pushes one update for one head change across four polls',
   const running = runningOf('alpha', 1, 12)
   const second = windowOf([running], null)
   const brokkr = stubBrokkr([
-    { match: ['realms'], responses: [json(realmsDoc(['alpha']))] },
     { match: ['runs'], responses: [json(first), json(second), json(first)] },
     { match: ['inspect'], responses: [json(runViewDoc({ seq: 12 })), json(runViewDoc({ seq: 13 }))] },
   ])
@@ -769,7 +759,6 @@ function displaced() {
 test('chief F1: an open run remains painted after its first-page cursor changes', async () => {
   const { first, running, second, arrival } = displaced()
   const brokkr = stubBrokkr([
-    { match: ['realms'], responses: [json(realmsDoc(['alpha']))] },
     { match: ['runs'], responses: [json(first), json(second), json(first), json(arrival)] },
     { match: ['inspect'], responses: [json(runViewDoc({ seq: 12 })), json(runViewDoc({ seq: 13 }))] },
   ])
@@ -801,7 +790,6 @@ test('chief F1: an open run remains painted after its first-page cursor changes'
 test('chief F2: a displaced open run is inspected on each subsequent poll', async () => {
   const { first, running, second, arrival } = displaced()
   const brokkr = stubBrokkr([
-    { match: ['realms'], responses: [json(realmsDoc(['alpha']))] },
     { match: ['runs'], responses: [json(first), json(second), json(first), json(arrival)] },
     { match: ['inspect'], responses: [12, 13, 14, 15].map((seq) => json(runViewDoc({ seq }))) },
   ])
@@ -832,7 +820,6 @@ test('chief F3: a freshly inspected completed run is not still counted as runnin
   const completed = runViewDoc({ seq: 13 })
   completed.summary = { ...completed.summary, status: 'completed', phase: 'done', park_reason: null }
   const brokkr = stubBrokkr([
-    { match: ['realms'], responses: [json(realmsDoc(['alpha']))] },
     { match: ['runs'], responses: [json(first), json(second), json(first)] },
     { match: ['inspect'], responses: [json(runViewDoc({ seq: 12 })), json(completed)] },
   ])
@@ -907,4 +894,208 @@ test('chief F4: changing a realm journal discards pages read from its old journa
   buttons(painted.tree()).find((button) => textOf(button).startsWith('alpha')).props.onClick()
   const runs = findAll(painted.tree(), (node) => node.props['aria-label'] === 'Runs')[0]
   assert.ok(buttons(runs).some((button) => textOf(button) === 'Show more runs'))
+})
+
+test('chief C1: an open first-page run is inspected on every poll, and each read updates it', async () => {
+  const page = windowOf([runningOf('alpha', 0, 12)], null)
+  const brokkr = stubBrokkr([
+    { match: ['runs'], responses: [json(page)] },
+    { match: ['inspect'], responses: [12, 13, 14].map((seq) => json(runViewDoc({ seq }))) },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const host = await attached(poller, {
+    view: 'realm',
+    realm: ONE_HEARTH,
+    run: { realm: ONE_HEARTH, run_id: 'alpha-run-0000' },
+  })
+  const inspections = () => brokkr.calls().filter((argv) => argv[0] === 'inspect').length
+  assert.equal(inspections(), 1)
+
+  const updates = []
+  for (let poll = 0; poll < 2; poll += 1) {
+    host.sent.length = 0
+    await poller.tick()
+    updates.push(host.sent.find((message) => message.type === 'run')?.run.view.summary.seq ?? null)
+  }
+  assert.deepEqual([inspections(), updates], [3, [13, 14]])
+})
+
+test('chief C1: an open run a partial listing omits is read and still paints its detail', async () => {
+  const page = windowOf([runOf('alpha', 0)], 'needs-you:1:alpha-run-0000')
+  const missing = 'alpha-run-0100'
+  const brokkr = stubBrokkr([
+    { match: ['runs'], responses: [json(page)] },
+    { match: ['inspect'], responses: [12, 13, 14].map((seq) => json(runViewDoc({ seq }))) },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const host = await attached(poller, { view: 'realm', realm: ONE_HEARTH, run: { realm: ONE_HEARTH, run_id: missing } })
+  const snapshot = host.sent[0]
+  assert.ok(snapshot.fleet.hearths[0].runs.some((row) => row.run_id === missing), 'the inspected run is held in the fleet')
+
+  const painted = mountClient('main')
+  painted.push(snapshot)
+  buttons(painted.tree()).find((button) => textOf(button).startsWith(ONE_HEARTH)).props.onClick()
+  const runs = findAll(painted.tree(), (node) => node.props['aria-label'] === 'Runs')[0]
+  buttons(runs).find((button) => textOf(button).startsWith('Encrypt the token store')).props.onClick()
+  painted.push({ type: 'run', run: snapshot.run })
+  assert.equal(findAll(painted.tree(), (node) => node.props['aria-label'] === 'Graph').length, 1)
+
+  const inspections = () => brokkr.calls().filter((argv) => argv[0] === 'inspect').length
+  host.sent.length = 0
+  await poller.tick()
+  assert.equal(inspections(), 2)
+})
+
+test('chief C2: a first-page fresh completed summary replaces its row and its counts', async () => {
+  const page = windowOf([runningOf('alpha', 0, 12)], null)
+  const completed = runViewDoc({ seq: 13 })
+  completed.summary = { ...completed.summary, status: 'completed', phase: 'done', park_reason: null }
+  const brokkr = stubBrokkr([
+    { match: ['runs'], responses: [json(page)] },
+    { match: ['inspect'], responses: [json(completed)] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const host = await attached(poller, {
+    view: 'realm',
+    realm: ONE_HEARTH,
+    run: { realm: ONE_HEARTH, run_id: 'alpha-run-0000' },
+  })
+  const snapshot = host.sent[0]
+  const row = snapshot.fleet.hearths[0].runs[0]
+  assert.deepEqual([row.seq, row.verdict.standing], [13, 'shipped'])
+
+  const painted = mountClient('main')
+  painted.push(snapshot)
+  assert.equal(textOf(findAll(painted.tree(), (node) => node.props.className === 'bk-status')[0]), '0 running · 0 waiting on you')
+  buttons(painted.tree()).find((button) => textOf(button).startsWith(ONE_HEARTH)).props.onClick()
+  const runs = findAll(painted.tree(), (node) => node.props['aria-label'] === 'Runs')[0]
+  assert.match(textOf(buttons(runs).find((button) => textOf(button).startsWith('alpha run 0'))), /shipped/)
+})
+
+test('chief C3: a single mapped hearth owns its pages by journal and keeps the new first-page cursor', async () => {
+  const cursor = 'needs-you:1:alpha-run-0000'
+  const oldFirst = windowOf([runOf('alpha', 0)], cursor)
+  const oldOnly = windowOf([runOf('alpha', 1)], null)
+  const newFirst = windowOf([runOf('alpha', 2)], cursor)
+  const realmsFor = (journal) => ({
+    ...realmsDoc(['alpha']),
+    realms: [{ default_branch: 'main', head: '0000000', journal, name: 'alpha', path: '../alpha' }],
+  })
+  const brokkr = stubBrokkr([
+    {
+      match: ['realms'],
+      responses: [json(realmsFor('/old/forge.db')), json(realmsFor('/new/forge.db')), json(realmsFor('/new/forge.db'))],
+    },
+    { match: ['runs'], responses: [json(oldFirst), json(oldOnly), json(newFirst)] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const host = await attached(poller, { view: 'realm', realm: 'alpha', run: null })
+  assert.equal(host.sent[0].fleet.hearths[0].realm, 'alpha', 'a single mapped hearth keeps the realm its map names')
+  host.sent.length = 0
+  host.receive({ type: 'more', realm: 'alpha' })
+  const more = await heard(host)
+  assert.ok(more.fleet.hearths[0].runs.some((row) => row.run_id === 'alpha-run-0001'))
+
+  host.sent.length = 0
+  await poller.tick()
+  const first = await heard(host)
+  host.sent.length = 0
+  await poller.tick()
+  host.receive({ type: 'watch', view: 'realm', realm: 'alpha', run: null })
+  const settled = await heard(host)
+  for (const fleet of [first.fleet, settled.fleet]) {
+    const alpha = fleet.hearths.find((hearth) => hearth.realm === 'alpha')
+    assert.deepEqual(alpha.runs.map((row) => row.run_id), ['alpha-run-0002'])
+    assert.equal(alpha.journal, '/new/forge.db')
+    assert.equal(alpha.next, cursor)
+  }
+
+  const painted = mountClient('main')
+  painted.push({ type: 'snapshot', ask: false, fleet: settled.fleet, overview: null, run: null })
+  buttons(painted.tree()).find((button) => textOf(button).startsWith('alpha')).props.onClick()
+  const runs = findAll(painted.tree(), (node) => node.props['aria-label'] === 'Runs')[0]
+  assert.ok(buttons(runs).some((button) => textOf(button) === 'Show more runs'))
+})
+
+test('chief C4: a delayed inspect cannot patch the run now watched, nor reach it', async () => {
+  const parked = windowOf([{ ...runOf('alpha', 0), seq: 5 }], 'needs-you:1:alpha-run-0000')
+  const running = runningOf('alpha', 100, 12)
+  const second = windowOf([running], null)
+  const completed = runViewDoc({ seq: 13 })
+  completed.summary = { ...completed.summary, status: 'completed', phase: 'done', park_reason: null }
+  const brokkr = stubBrokkr([
+    { match: ['runs'], responses: [json(parked), json(second), json(parked)] },
+    {
+      match: ['inspect'],
+      responses: [json(runViewDoc({ seq: 12 })), { ...json(completed), sleep_ms: 800 }, json(runViewDoc({ seq: 5 }))],
+    },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const host = await attached(poller, { view: 'realm', realm: ONE_HEARTH, run: null })
+  host.sent.length = 0
+  host.receive({ type: 'more', realm: ONE_HEARTH })
+  await heard(host)
+  host.receive({ type: 'watch', view: 'realm', realm: ONE_HEARTH, run: { realm: ONE_HEARTH, run_id: running.run_id } })
+  await heard(host)
+
+  const inspections = () => brokkr.calls().filter((argv) => argv[0] === 'inspect').length
+  host.sent.length = 0
+  const ticking = poller.tick()
+  for (let waited = 0; inspections() < 2; waited += 10) {
+    assert.ok(waited < 10_000, 'the delayed inspect did not start within 10s')
+    await new Promise((wake) => setTimeout(wake, 10))
+  }
+  host.receive({ type: 'watch', view: 'realm', realm: ONE_HEARTH, run: { realm: ONE_HEARTH, run_id: 'alpha-run-0000' } })
+  const snapshot = await heard(host)
+  await ticking
+  const after = host.sent.slice()
+  assert.deepEqual(after.filter((message) => message.type === 'run'), [], 'the old run message is not sent to the new watch')
+  const fleet = after.find((message) => message.type === 'fleet')?.fleet
+  assert.ok(fleet, 'the fresh summary still reaches the fleet')
+  const alpha = fleet.hearths[0]
+  const row = (runId) => alpha.runs.find((each) => each.run_id === runId)
+  assert.deepEqual([row('alpha-run-0000').seq, row('alpha-run-0000').verdict.standing], [5, 'parked'])
+  assert.deepEqual([row(running.run_id).seq, row(running.run_id).verdict.standing], [13, 'shipped'])
+  assert.equal(snapshot.run.run_id, 'alpha-run-0000')
+
+  const painted = mountClient('main')
+  painted.push({ type: 'snapshot', ask: false, fleet, overview: null, run: snapshot.run })
+  buttons(painted.tree()).find((button) => textOf(button).startsWith(ONE_HEARTH)).props.onClick()
+  buttons(painted.tree()).find((button) => textOf(button).startsWith('alpha run 0')).props.onClick()
+  assert.equal(findAll(painted.tree(), (node) => node.props['aria-label'] === 'Graph').length, 1)
+})
+
+test('chief C5: a fresh stop replaces the cached review park’s rule and words', async () => {
+  const page = windowOf([runOf('alpha', 0)], null)
+  const stopped = runViewDoc({ seq: 13 })
+  stopped.summary = { ...stopped.summary, status: 'stopped', phase: 'stop', park_reason: null }
+  stopped.ruling = { ...stopped.ruling, rule_id: 'VERIFY-FAIL-TWICE', from: 'verify' }
+  const brokkr = stubBrokkr([
+    { match: ['runs'], responses: [json(page)] },
+    { match: ['inspect'], responses: [json(runViewDoc({ seq: 12 })), json(stopped)] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const host = await attached(poller, {
+    view: 'realm',
+    realm: ONE_HEARTH,
+    run: { realm: ONE_HEARTH, run_id: 'alpha-run-0000' },
+  })
+  host.sent.length = 0
+  await poller.tick()
+  const fleet = host.sent.find((message) => message.type === 'fleet').fleet
+  const run = host.sent.find((message) => message.type === 'run').run
+  const row = fleet.hearths[0].runs[0]
+  assert.deepEqual(
+    [row.verdict.standing, row.verdict.rule, row.verdict.text, row.verdict.reason],
+    ['stopped', 'VERIFY-FAIL-TWICE', 'FAIL-TWICE', null],
+  )
+
+  const painted = mountClient('main')
+  painted.push({ type: 'snapshot', ask: false, fleet, overview: null, run })
+  buttons(painted.tree()).find((button) => textOf(button).startsWith(ONE_HEARTH)).props.onClick()
+  buttons(painted.tree()).find((button) => textOf(button).startsWith('alpha run 0')).props.onClick()
+  const why = findAll(painted.tree(), (node) => node.props['aria-label'] === 'Why it waits')[0]
+  assert.doesNotMatch(textOf(why), /SECURITY-RESI|REVIEW-SECURITY-RESIDUAL/)
+  assert.match(textOf(why), /FAIL-TWICE/)
+  assert.match(textOf(why), /stopped by VERIFY-FAIL-TWICE/)
 })
