@@ -423,7 +423,8 @@ fn parse_rules(
     Ok(rules)
 }
 
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
+/// One rule: its identity, its movement, its gate and its conditions, in
+/// the order the table has always checked them.
 fn parse_rule(
     raw: &Value,
     phases: &[String],
@@ -431,105 +432,20 @@ fn parse_rule(
     schema: Option<&str>,
 ) -> Result<Rule, Malformed> {
     let obj = raw.as_object().ok_or(Malformed::RuleNotAnObject)?;
-    let get = |key: RuleKey| obj.get(key.field());
-    let field = |key: RuleKey| -> Result<String, Malformed> {
-        get(key)
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .ok_or_else(|| Malformed::MissingField {
-                rule: get(RuleKey::Id).and_then(Value::as_str).map(str::to_string),
-                key,
-            })
-    };
-    let id = field(RuleKey::Id)?;
-    let from = field(RuleKey::From)?;
-    let result = field(RuleKey::Result)?;
-    let reason = field(RuleKey::Reason)?;
-    if schema == Some(TABLE_SCHEMA_V2) {
-        let known = |key: &String| RuleKey::ALL.iter().any(|k| k.field() == key);
-        if let Some(key) = obj.keys().find(|key| !known(key)) {
-            return Err(Malformed::UnknownRuleKey {
-                rule: id,
-                key: key.clone(),
-            });
-        }
-    }
-    // A rule either advances the run or parks it — never both, never
-    // neither. `park` is v2 vocabulary and the table must declare it:
-    // a park read out of a table calling itself v1 would be a ruling
-    // nobody reviewed (decision 0022).
-    let parks = match get(RuleKey::Park) {
-        None => false,
-        Some(Value::Bool(true)) => true,
-        Some(other) => {
-            return Err(Malformed::ParkNotTrue {
-                rule: id,
-                written: other.to_string(),
-            })
-        }
-    };
-    let next = match (parks, get(RuleKey::Next)) {
-        (false, _) => Some(field(RuleKey::Next)?),
-        (true, None) => None,
-        (true, Some(_)) => return Err(Malformed::ParkAndNext(id)),
-    };
+    let id = rule::field(obj, RuleKey::Id)?;
+    let from = rule::field(obj, RuleKey::From)?;
+    let result = rule::field(obj, RuleKey::Result)?;
+    let reason = rule::field(obj, RuleKey::Reason)?;
+    rule::check_keys(obj, &id, schema)?;
+    let parks = rule::parse_park(obj, &id)?;
+    let next = rule::parse_next(obj, &id, parks)?;
     if parks {
-        if schema != Some(TABLE_SCHEMA_V2) {
-            return Err(Malformed::ParkOutsideV2 {
-                rule: id,
-                schema: schema.map(str::to_string),
-            });
-        }
-        for forbidden in [RuleKey::Severity, RuleKey::RequiresArtifacts] {
-            if get(forbidden).is_some() {
-                return Err(Malformed::ParkDeclares {
-                    rule: id,
-                    key: forbidden,
-                });
-            }
-        }
+        rule::check_park(obj, &id, schema)?;
     }
-    if !phases.contains(&from) || next.as_ref().is_some_and(|next| !phases.contains(next)) {
-        return Err(Malformed::UnknownPhase(id));
-    }
-    if terminal.contains(&from) {
-        return Err(Malformed::LeavesTerminal {
-            rule: id,
-            phase: from,
-        });
-    }
-    let severity = match get(RuleKey::Severity) {
-        None => "normal".to_string(),
-        Some(v) => {
-            let s = v
-                .as_str()
-                .ok_or_else(|| Malformed::SeverityNotAString(id.clone()))?;
-            if !RULING_SEVERITIES.contains(&s) {
-                return Err(Malformed::UnknownSeverity {
-                    rule: id,
-                    severity: s.to_string(),
-                });
-            }
-            s.to_string()
-        }
-    };
-    let requires_artifacts = match get(RuleKey::RequiresArtifacts) {
-        None => Vec::new(),
-        Some(v) => string_array(v, Place::Artifacts { rule: id.clone() })?,
-    };
-    let when = match get(RuleKey::When) {
-        None => Vec::new(),
-        Some(v) => {
-            let map = v
-                .as_object()
-                .ok_or_else(|| Malformed::WhenNotAnObject(id.clone()))?;
-            let mut conditions = Vec::with_capacity(map.len());
-            for (key, expected) in map {
-                conditions.push(parse_condition(&id, key, expected, phases)?);
-            }
-            conditions
-        }
-    };
+    rule::check_phases(&id, &from, next.as_ref(), phases, terminal)?;
+    let severity = rule::parse_severity(obj, &id)?;
+    let requires_artifacts = rule::parse_requires_artifacts(obj, &id)?;
+    let when = rule::parse_when(obj, &id, phases)?;
     Ok(Rule {
         id,
         from,
@@ -542,31 +458,6 @@ fn parse_rule(
     })
 }
 
-/// A severity condition's threshold rank, once its axis is a declared
-/// severity input: `_above` and `_at_most` read it alike.
-fn severity_threshold(
-    rule_id: &str,
-    key: &str,
-    name: &str,
-    expected: &Value,
-) -> Result<usize, Malformed> {
-    if !SEVERITY_INPUTS.contains(&name) {
-        return Err(Malformed::UnknownAxis {
-            rule: rule_id.to_string(),
-            name: name.to_string(),
-            key: key.to_string(),
-        });
-    }
-    expected
-        .as_str()
-        .and_then(severity_rank)
-        .ok_or_else(|| Malformed::Unranked {
-            rule: rule_id.to_string(),
-            key: key.to_string(),
-            written: expected.to_string(),
-        })
-}
-
 /// Load-time half of the closed vocabulary: every condition names a
 /// declared input and carries a threshold of the right type.
 fn parse_condition(
@@ -575,98 +466,30 @@ fn parse_condition(
     expected: &Value,
     phases: &[String],
 ) -> Result<Condition, Malformed> {
-    let (rule, key_text) = (rule_id.to_string(), key.to_string());
-    if IDENTIFIER_INPUTS.contains(&key)
-        || key
-            .strip_suffix("_in")
-            .is_some_and(|name| IDENTIFIER_INPUTS.contains(&name))
-    {
+    if conditions::identifier_condition(key) {
         return Err(Malformed::IdentifierCondition {
-            rule,
-            key: key_text,
+            rule: rule_id.to_string(),
+            key: key.to_string(),
         });
     }
-    if let Some((name, vocabulary)) = choice_keyed(key) {
-        let place = Place::Condition {
-            rule: rule.clone(),
-            key: key_text.clone(),
-        };
-        let allowed = string_array(expected, place)?;
-        if allowed.is_empty() {
-            return Err(Malformed::NoValues {
-                rule,
-                key: key_text,
-            });
-        }
-        for value in &allowed {
-            if !vocabulary.contains(&value.as_str()) {
-                return Err(Malformed::OutsideVocabulary {
-                    rule,
-                    key: key_text,
-                    value: value.clone(),
-                    vocabulary,
-                });
-            }
-        }
-        return Ok(Condition::EnumIn {
-            name: name.to_string(),
-            allowed,
-        });
+    if let Some(condition) = conditions::parse_choice(rule_id, key, expected)? {
+        return Ok(condition);
     }
     if let Some(name) = key.strip_suffix("_gte") {
-        // Counters are the declared list plus one family: the phase-visit
-        // predicate (decision 0022), whose suffix must name a phase THIS
-        // table has — the vocabulary stays closed, it just closes over
-        // the table's own graph.
-        let visit_phase = name
-            .strip_prefix(VISIT_PREFIX)
-            .filter(|phase| phases.iter().any(|known| known == phase));
-        if !COUNTER_INPUTS.contains(&name) && visit_phase.is_none() {
-            return Err(Malformed::UnknownCounter {
-                rule,
-                name: name.to_string(),
-                key: key_text,
-                phases: phases.to_vec(),
-            });
-        }
-        let threshold = expected.as_f64().ok_or_else(|| Malformed::NotNumeric {
-            rule,
-            key: key_text,
-            written: expected.to_string(),
-        })?;
-        return Ok(Condition::CounterGte {
-            name: name.to_string(),
-            threshold,
-        });
+        return conditions::parse_counter(rule_id, key, name, expected, phases);
     }
     if let Some(name) = key.strip_suffix("_above") {
-        let threshold_rank = severity_threshold(rule_id, key, name, expected)?;
-        return Ok(Condition::SeverityAbove {
-            name: name.to_string(),
-            threshold_rank,
-        });
+        return conditions::parse_severity_above(rule_id, key, name, expected);
     }
     if let Some(name) = key.strip_suffix("_at_most") {
-        let threshold_rank = severity_threshold(rule_id, key, name, expected)?;
-        return Ok(Condition::SeverityAtMost {
-            name: name.to_string(),
-            threshold_rank,
-        });
+        return conditions::parse_severity_at_most(rule_id, key, name, expected);
     }
     if BOOLEAN_INPUTS.contains(&key) {
-        let expected = expected.as_bool().ok_or_else(|| Malformed::NotBoolean {
-            rule,
-            key: key_text.clone(),
-            written: expected.to_string(),
-        })?;
-        return Ok(Condition::Flag {
-            name: key_text,
-            expected,
-        });
+        return conditions::parse_flag(rule_id, key, expected);
     }
     Err(Malformed::UnknownCondition {
-        rule,
-        key: key_text,
+        rule: rule_id.to_string(),
+        key: key.to_string(),
     })
 }
 
@@ -677,77 +500,8 @@ fn parse_condition(
 /// never an advantage.
 fn conditions_met(when: &[Condition], inputs: &Map<String, Value>) -> Result<bool, Unreadable> {
     for condition in when {
-        match condition {
-            Condition::CounterGte { name, threshold } => match inputs.get(name) {
-                None | Some(Value::Null) => return Ok(false),
-                Some(Value::Number(n)) => {
-                    // serde_json rejects non-finite numbers at construction,
-                    // so every Number is representable through this API.
-                    let actual = n.as_f64().expect("JSON numbers are finite");
-                    if actual < *threshold {
-                        return Ok(false);
-                    }
-                }
-                Some(other) => {
-                    return Err(Unreadable::NotANumber {
-                        name: name.clone(),
-                        written: other.to_string(),
-                    })
-                }
-            },
-            Condition::SeverityAbove {
-                name,
-                threshold_rank,
-            } => match severity_of(name, inputs.get(name))? {
-                Some(rank) if rank > *threshold_rank => {}
-                Some(_) | None => return Ok(false),
-            },
-            // Fail-closed at-most: an ABSENT severity is an unknown
-            // severity and never qualifies — the ruling that ships as
-            // debt must be earned by a value, not by silence (the
-            // review that repealed the blind stop caught exactly this).
-            Condition::SeverityAtMost {
-                name,
-                threshold_rank,
-            } => match severity_of(name, inputs.get(name))? {
-                Some(rank) if rank <= *threshold_rank => {}
-                Some(_) | None => return Ok(false),
-            },
-            Condition::Flag { name, expected } => match inputs.get(name) {
-                None | Some(Value::Null) => return Ok(false),
-                Some(Value::Bool(actual)) => {
-                    if actual != expected {
-                        return Ok(false);
-                    }
-                }
-                Some(other) => {
-                    return Err(Unreadable::NotABoolean {
-                        name: name.clone(),
-                        written: other.to_string(),
-                    })
-                }
-            },
-            Condition::EnumIn { name, allowed } => match inputs.get(name) {
-                None | Some(Value::Null) => return Ok(false),
-                Some(Value::String(actual)) if !vocabulary(name).contains(&actual.as_str()) => {
-                    return Err(Unreadable::OutsideVocabulary {
-                        name: name.clone(),
-                        word: actual.clone(),
-                        vocabulary: vocabulary(name),
-                    });
-                }
-                Some(Value::String(actual)) => {
-                    if !allowed.contains(actual) {
-                        return Ok(false);
-                    }
-                }
-                Some(other) => {
-                    return Err(Unreadable::NotAString {
-                        name: name.clone(),
-                        written: other.to_string(),
-                    })
-                }
-            },
+        if !conditions::condition_met(condition, inputs)? {
+            return Ok(false);
         }
     }
     Ok(true)
@@ -774,11 +528,13 @@ fn severity_of(name: &str, value: Option<&Value>) -> Result<Option<usize>, Unrea
     }
 }
 pub mod audit;
+mod conditions;
 mod direction;
 pub use direction::Direction;
 mod errors;
 mod inputs;
 pub(crate) use inputs::STRATEGY;
+mod rule;
 mod words;
 
 pub use errors::{Malformed, Place, RuleKey, TableKey, Unreadable};

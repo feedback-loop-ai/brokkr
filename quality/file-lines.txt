@@ -109,13 +109,13 @@
     47 crates/brokkr-core/src/lib.rs
    128 crates/brokkr-core/src/page.rs
    359 crates/brokkr-core/src/payload.rs
-   789 crates/brokkr-core/src/policy.rs
+   545 crates/brokkr-core/src/policy.rs
    630 crates/brokkr-core/src/policy/audit.rs
     21 crates/brokkr-core/src/policy/direction.rs
    274 crates/brokkr-core/src/policy/errors.rs
    218 crates/brokkr-core/src/policy/inputs.rs
     38 crates/brokkr-core/src/policy/words.rs
-   751 crates/brokkr-core/src/realms.rs
+   550 crates/brokkr-core/src/realms.rs
    250 crates/brokkr-core/src/realms/grants.rs
     47 crates/brokkr-core/src/realms/provisional.rs
    180 crates/brokkr-core/src/realms/unusable.rs
