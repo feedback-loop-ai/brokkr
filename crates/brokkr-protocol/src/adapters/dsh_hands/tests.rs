@@ -673,14 +673,18 @@ fn launch_reporting(
 fn a_launch_composes_under_the_sessions_own_environment_and_directory() {
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let home = dir.path().join("home");
+    // The fake's `pwd` prints the kernel's spelling of its directory, and
+    // macOS's temporary root `/var` is a link to `/private/var`: the root
+    // is canonical once, here, so the expected `cwd=` is that spelling too.
+    let root = dir.path().canonicalize().unwrap();
+    let home = root.join("home");
     std::fs::create_dir(&home).unwrap();
-    let log = dir.path().join("observed");
+    let log = root.join("observed");
     env.set("DSH_HOME", &home);
     env.set("BROKKR_TEST_DSH_OBSERVE", &log);
     env.set("LIBRARY_DOCS_TOKEN", "exported");
-    let fake = super::super::tests::executable(dir.path(), "dsh", RECORDING_DSH);
-    let workdir = dir.path().to_str().unwrap();
+    let fake = super::super::tests::executable(&root, "dsh", RECORDING_DSH);
+    let workdir = root.to_str().unwrap();
     let input = sealed(SealedBoundary::Namespace, Some("read-only"));
     // An attempt's removal, in force exactly as the invocation holds it.
     let mut removals = input.clone();
