@@ -210,7 +210,7 @@ and the release window in that ruling's slice 2.
 | `operator-supersede/v1` | `contracts/operator-supersede.v1.schema.json` | journal | 0047 | operator | load brokkr_core::residual::closings | current | | |
 | `brokkr.tool-dialect/v1` | `contracts/tool-dialect.v1.schema.json` | input | 0065 | shipped dialects/tools | schema brokkr_runtime::capabilities::dialect::TOOL_DIALECT_SCHEMA | current | | decision |
 | `forge.host/v1` | `contracts/host.v1.schema.json` | input | 0068 (2026-10-10 addendum) | operator | load brokkr_runtime::admission::host::read | current | | decision |
-| `panel-carry/v1` | `contracts/panel-carry.v1.schema.json` | journal | 0093, enacted, pending acceptance | engine crates/brokkr-runtime/src/engine/dispatch.rs | load brokkr_runtime::engine::carry::facts::terminal_record | current | | |
+| `panel-carry/v1` | `contracts/panel-carry.v1.schema.json` | journal | 0093 | engine crates/brokkr-runtime/src/engine/dispatch.rs | load brokkr_runtime::engine::carry::facts::terminal_record | current | | |
 
 `fixtures/evaluator/corpus.ndjson` is frozen contract data, never
 regenerated, only versioned; it is not a file under `contracts/` and so

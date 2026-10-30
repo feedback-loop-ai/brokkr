@@ -17,11 +17,10 @@ use crate::contract_lifecycle::{self, Minted};
 /// ruling, with the exact cell each row writes. The list only shrinks.
 ///
 /// `realms.v7` left the list when decision 0075 was accepted on 2026-10-12.
-/// `panel-carry.v1` is the one file 0082 did not see: it landed on `main`
-/// on 2026-10-21 under proposed decision 0093, after the ruling was
-/// accepted, and it is the ninth pending row until the operator rules 0093.
-/// The build's pull request names it.
-const PENDING: [(&str, &str); 9] = [
+/// `panel-carry.v1`, minted under decision 0093 after this rule was
+/// accepted, was never on it: the operator accepted 0093 on 2026-10-30
+/// rather than widen a list that only shrinks.
+const PENDING: [(&str, &str); 8] = [
     (
         "contracts/seat-record.v5.schema.json",
         "0056, enacted, pending acceptance",
@@ -53,10 +52,6 @@ const PENDING: [(&str, &str); 9] = [
     (
         "contracts/run-manifest.v2.schema.json",
         "no decision (PR #28), enacted, pending acceptance",
-    ),
-    (
-        "contracts/panel-carry.v1.schema.json",
-        "0093, enacted, pending acceptance",
     ),
 ];
 

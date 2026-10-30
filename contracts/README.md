@@ -158,19 +158,19 @@ envelope **with the `event_hash` member removed**. `previous_hash` is the
 per run. `recorded_at` (RFC 3339 UTC) is evidence and display data only;
 reducer decisions never read it.
 
-## Panel carry extension (proposed decision 0093)
+## Panel carry extension (decision 0093)
 
 `panel-carry.v1.schema.json` publishes optional `tree`, `head` and
 `settled_members` evidence on a panel's failed or indeterminate terminal,
 `carried` entries naming each source attempt on a carrying `effect/started`,
 and `args.members` on `operator/commanded` for `retry`. The fields are absent
 by default at event_schema 1 and the fold reads none of them. Result values
-remain opaque until the aggregate reads them. This contract lands on main
-only with the operator's acceptance of decision 0093.
+remain opaque until the aggregate reads them. Decision 0093, under which
+this contract was minted, was accepted by the operator on 2026-10-30.
 
 | Extension | Minting decision |
 | --- | --- |
-| `panel-carry.v1.schema.json` | 0093 (proposed) |
+| `panel-carry.v1.schema.json` | 0093 |
 
 ## Event vocabulary (v1)
 

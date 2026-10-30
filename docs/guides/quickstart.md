@@ -755,7 +755,7 @@ writes nothing; plain `retry` re-runs the whole phase. With `--member`,
 `--repo`, `--bundle`, `--recipe`, `--recipes-dir` and `--secrets-file` resolve
 as on `resume`; give the same secrets store the run was driven with. The
 journal and participant readouts name carried verdicts and their source
-attempt (proposed decision 0093).
+attempt (decision 0093).
 
 The command is **fenced**: the engine re-reads the run's state after the
 `operator/commanded` lands and before it writes a disposition, because

@@ -1,6 +1,6 @@
 # 0093 — A retry by member re-runs the named panel members and carries the others' settled verdicts
 
-Status: proposed
+Status: accepted — operator ruled in chat 2026-10-30, "go with recommended" (#361, https://github.com/feedback-loop-ai/brokkr/issues/361#issuecomment-6522822871)
 Date: 2026-10-21
 
 Built: built
