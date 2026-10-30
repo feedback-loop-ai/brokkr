@@ -133,6 +133,37 @@ fn the_hands_rows_are_the_measured_overlay_and_the_workspace_server() {
     );
 }
 
+/// The hands identity has one spelling: the row the overlay writer emits,
+/// the id the composed tree's judge accepts, the row dsh's startup report
+/// recognises, and the package beside it are all the same two constants,
+/// and the measured dump spells them the same way.
+#[test]
+fn the_writer_the_composition_and_the_report_spell_one_hands_identity() {
+    use super::composition::{judge, Row, MEASURED_COMPOSITION};
+    use super::report::{checked, ReportRefusal};
+
+    assert!(MEASURED_COMPOSITION.contains(&(HANDS_ID, MCP_CLIENT)));
+    assert_eq!(HANDS_ID, "brokkr-hands");
+    assert_eq!(MCP_CLIENT, "@deepseek-ai/dsh-mcp-client");
+
+    let rows = hands_rows(Mode::ReadOnly, "/bin/brokkr", &s(&["hands"])).unwrap();
+    assert!(rows.contains(&format!("- id: {HANDS_ID}\n")), "{rows}");
+    assert!(rows.contains(&format!("name: '{MCP_CLIENT}'\n")), "{rows}");
+
+    let row = Row {
+        id: HANDS_ID.to_string(),
+        name: MCP_CLIENT.to_string(),
+        disabled: false,
+    };
+    assert_eq!(judge(&[row]), Ok(()));
+    assert_eq!(
+        checked(&format!(
+            "{HANDS_ID} ({MCP_CLIENT}): Error: initial connection or tool synchronization failed\n"
+        )),
+        Err(ReportRefusal::NotActivated)
+    );
+}
+
 /// The bounded reader admits the rows in their one shape and refuses every
 /// other row, a repeat, and a measured row left out, each by name.
 #[test]

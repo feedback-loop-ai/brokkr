@@ -15,11 +15,8 @@
 //! (docs/evidence/adapters/dsh-hands-round2/report-words.txt).
 
 use super::super::dsh_stderr::before_reasoning;
+use super::{HANDS_ID, MCP_CLIENT};
 use thiserror::Error;
-
-/// The one row Brokkr inserts; dsh's warning line names a count, and the
-/// row's own failure line names it.
-const HANDS_ID: &str = "brokkr-hands";
 
 /// dsh-sandbox's structured error code for a host with no usable backend.
 const SANDBOX_UNAVAILABLE: &str = "SANDBOX_UNAVAILABLE";
@@ -67,7 +64,14 @@ pub(crate) fn checked(stderr: &str) -> Result<Enforcement, ReportRefusal> {
     if startup.contains(SANDBOX_UNAVAILABLE) || startup.contains(UNCONFINED) {
         return Err(ReportRefusal::SandboxUnavailable);
     }
-    if startup.lines().any(did_not_activate) {
+    // The hands row's own failure prefix, built once from the one spelling
+    // of the row id and the package; each line is matched against it
+    // without allocating again.
+    let hands_error = format!("{HANDS_ID} ({MCP_CLIENT}): Error:");
+    if startup
+        .lines()
+        .any(|line| did_not_activate(line, &hands_error))
+    {
         return Err(ReportRefusal::NotActivated);
     }
     match startup.contains(PARTIAL) {
@@ -78,7 +82,7 @@ pub(crate) fn checked(stderr: &str) -> Result<Enforcement, ReportRefusal> {
 
 /// dsh's warning that some row did not activate, or the hands row's own
 /// failure line beneath it.
-fn did_not_activate(line: &str) -> bool {
+fn did_not_activate(line: &str, hands_error: &str) -> bool {
     let warning = line.strip_prefix("dsh: warning: ").is_some_and(|rest| {
         let Some((count, tail)) = rest.split_once(' ') else {
             return false;
@@ -87,6 +91,6 @@ fn did_not_activate(line: &str) -> bool {
         count && matches!(tail, "entry did not activate" | "entries did not activate")
     });
     warning
-        || (line.starts_with("brokkr-hands (@deepseek-ai/dsh-mcp-client): Error:")
+        || (line.starts_with(hands_error)
             && line.contains("initial connection or tool synchronization failed"))
 }

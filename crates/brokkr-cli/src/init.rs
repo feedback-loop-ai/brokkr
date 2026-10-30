@@ -91,6 +91,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use brokkr_core::realms::{Boundary, SCHEMA_V3, SCHEMA_V4};
+use brokkr_protocol::native_controls::Access;
 use brokkr_runtime::bundle::{DEFAULT_ADAPTERS_DIR, DEFAULT_AGENTS_DIR};
 use brokkr_runtime::dialect::Dialect;
 use brokkr_runtime::places::{FOLDER, JOURNAL, STATE};
@@ -286,8 +287,10 @@ struct AgentSpec {
     codex: &'static [(&'static str, Effort)],
     dsh: Option<&'static [(&'static str, Effort)]>,
     /// What a boxed office's hands may do, where the base office is
-    /// read-only (#896 round 2); `None` means the loader's `writes`.
-    access: Option<&'static str>,
+    /// read-only (#896 round 2); `None` means the loader's `writes`. The
+    /// loader's own typed vocabulary, serialized through serde so the
+    /// scaffold cannot spell a word the loader does not decode.
+    access: Option<Access>,
     max_attempts: u64,
     timeout_seconds: u64,
 }
@@ -387,7 +390,7 @@ const SEATS: &[AgentSpec] = &[
         models: &[("fable", Effort::High), ("opus", Effort::High)],
         codex: &[("sol", Effort::Medium)], // astra is only a chief's last fallback (0045)
         dsh: None,
-        access: Some("read-only"),
+        access: Some(Access::ReadOnly),
         max_attempts: 2,
         timeout_seconds: 3600,
     },
@@ -615,7 +618,10 @@ fn agent_json(
         definition["hands"] = hands;
     }
     if let Some(access) = spec.access {
-        definition["access"] = json!(access);
+        // The word is serde's, from the loader's own carrier, so what
+        // `init` writes is what `agents/load/access.rs` decodes.
+        definition["access"] =
+            serde_json::to_value(access).expect("an access declaration serializes");
     }
     format!(
         "{}\n",

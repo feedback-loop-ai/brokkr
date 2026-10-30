@@ -16,8 +16,7 @@ use std::process::{Command, Stdio};
 
 use thiserror::Error;
 
-/// The row Brokkr inserts, and the only `dsh-mcp-client` a seat may carry.
-const HANDS_ID: &str = "brokkr-hands";
+use super::{HANDS_ID, MCP_CLIENT};
 
 /// A dump larger than this is not the measured shape, and is refused
 /// before it is parsed.
@@ -33,7 +32,7 @@ pub(crate) enum Composition {
     )]
     Unmeasured { id: String, name: String },
     #[error(
-        "refusing to invoke the dsh driver: the composed dsh tree carries no 'brokkr-hands' row, \
+        "refusing to invoke the dsh driver: the composed dsh tree carries no '{HANDS_ID}' row, \
          so the seat's one effectful tool would not be served (#896 D1)"
     )]
     NoHands,
@@ -175,7 +174,7 @@ pub(crate) fn judge(rows: &[Row]) -> Result<(), Composition> {
             return Err(Composition::Repeated { id: row.id.clone() });
         }
         seen.push(&row.id);
-        if row.name == super::MCP_CLIENT {
+        if row.name == MCP_CLIENT {
             if row.id != HANDS_ID {
                 return Err(Composition::SecondClient { id: row.id.clone() });
             }
@@ -366,5 +365,8 @@ pub(crate) const MEASURED_COMPOSITION: [(&str, &str); 99] = [
     ),
     ("headless-startup", "@deepseek-ai/dsh-headless/startup"),
     ("headless-runner", "@deepseek-ai/dsh-headless"),
+    // The measured dump is data, so its hands row keeps the words measured
+    // verbatim; `the_writer_the_composition_and_the_report_spell_one_hands_identity`
+    // pins them equal to `HANDS_ID` and `MCP_CLIENT`.
     ("brokkr-hands", "@deepseek-ai/dsh-mcp-client"),
 ];

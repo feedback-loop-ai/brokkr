@@ -8,12 +8,14 @@
 //! synthetic `Detected` can reach.
 
 use super::{
-    allowance, command_tools, detect, dialect_files, grants, host, leading_word, realms_json,
-    runner_tools, stack_readme, tools_for, verify_script, write_files, AgentSpec, Boundary, Claims,
-    Class, Cli, Detected, DialectDetection, Effort, Host, Tool, NO_TOOL_MAP, OPENSPEC,
-    PRE_APPROVAL, REVIEW_GATE, SEATS,
+    agent_json, allowance, command_tools, detect, dialect_files, grants, host, leading_word,
+    realms_json, runner_tools, stack_readme, tools_for, verify_script, write_files, AgentSpec,
+    Boundary, Claims, Class, Cli, Detected, DialectDetection, Effort, Host, Tool, NO_TOOL_MAP,
+    OPENSPEC, PRE_APPROVAL, REVIEW_GATE, SEATS,
 };
 use std::panic::{catch_unwind, AssertUnwindSafe};
+
+use brokkr_protocol::native_controls::Access;
 
 #[test]
 fn dialect_detection_covers_each_marker_combination() {
@@ -227,6 +229,39 @@ fn an_agents_allowance_follows_its_seats_class() {
     for cli in [Cli::Codex, Cli::Dsh] {
         assert!(allowance(&work, cli, &grant).is_none());
         assert!(allowance(&gate, cli, &grant).is_none());
+    }
+}
+
+/// The scaffold's access is the loader's typed vocabulary, not a literal:
+/// the reviewer's `Access::ReadOnly` serializes to the one word
+/// `read-only`, and every access the scaffold writes decodes back through
+/// the loader's own `Access` decode.
+#[test]
+fn the_scaffold_writes_the_loaders_typed_access_vocabulary() {
+    let reviewer = SEATS
+        .iter()
+        .find(|spec| spec.agent == "reviewer")
+        .expect("the scaffold seats a reviewer");
+    assert_eq!(reviewer.access, Some(Access::ReadOnly));
+    let definition: serde_json::Value =
+        serde_json::from_str(&agent_json(reviewer, reviewer.models, None, None))
+            .expect("an agent definition parses");
+    assert_eq!(definition["access"], serde_json::json!("read-only"));
+
+    for spec in SEATS.iter().filter(|spec| spec.access.is_some()) {
+        let definition: serde_json::Value =
+            serde_json::from_str(&agent_json(spec, spec.models, None, None))
+                .expect("an agent definition parses");
+        let word = definition
+            .get("access")
+            .unwrap_or_else(|| panic!("{} writes an access", spec.agent))
+            .clone();
+        assert_eq!(
+            serde_json::from_value::<Access>(word).ok(),
+            Some(spec.access.expect("a filtered seat has an access")),
+            "{}",
+            spec.agent
+        );
     }
 }
 

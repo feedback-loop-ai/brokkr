@@ -75,8 +75,13 @@ pub(super) const DISABLED_ROWS: [&str; 10] = [
 /// The row whose `mode` is dsh's own sandbox.
 pub(super) const SANDBOX_POLICY: &str = "sandbox-policy";
 
+/// The one row Brokkr inserts: the overlay writer writes it, the composed
+/// tree's judge requires it, and dsh's startup report names it. One
+/// spelling, so the three cannot drift (decision 0071 ruling 5).
+pub(super) const HANDS_ID: &str = "brokkr-hands";
+
 /// The dsh package that serves one MCP server per inserted row.
-const MCP_CLIENT: &str = "@deepseek-ai/dsh-mcp-client";
+pub(super) const MCP_CLIENT: &str = "@deepseek-ai/dsh-mcp-client";
 
 /// The scoped runner a linked worktree's native commits need (decision
 /// 0054), its row first.
@@ -260,7 +265,7 @@ fn hands_rows(mode: Mode, command: &str, args: &[String]) -> Result<String, Refu
     route_overlay::hands(rows.as_bytes())?;
     rows.push_str(&format!(
         "- insert:\n\
-         \x20   - id: brokkr-hands\n\
+         \x20   - id: {HANDS_ID}\n\
          \x20     name: '{MCP_CLIENT}'\n\
          \x20     config:\n\
          \x20       serverName: {SERVER_NAME}\n\
