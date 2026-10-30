@@ -29,7 +29,7 @@ fn whole_page_up(run: &str, start: usize, whole: &Views) -> Tui {
 
 /// The participant level's page for `tui`'s own scroll, read as the shell
 /// asks it.
-fn participant_page(db: &Path, run: &str, subject: &Subject, tui: &Tui) -> Views {
+pub(super) fn participant_page(db: &Path, run: &str, subject: &Subject, tui: &Tui) -> Views {
     use crate::tui::{ask_offset, asked_rows};
     let rows = asked_rows(tui);
     console_rows_at(db, run, Some(subject.clone()), false, rows, ask_offset(tui))
@@ -145,7 +145,7 @@ pub(super) fn wrapped_panel_console(run: &str) -> ConsoleJournal {
 
 /// The journal at `db` holding one run at work with `checkpoints`
 /// checkpoints, and the events it holds.
-fn far_work_of(
+pub(super) fn far_work_of(
     run: &str,
     checkpoints: u64,
 ) -> (tempfile::TempDir, std::path::PathBuf, Vec<EventEnvelope>) {
@@ -163,7 +163,7 @@ fn far_work(run: &str) -> (tempfile::TempDir, std::path::PathBuf, Vec<EventEnvel
 }
 
 /// The first checkpoint turn a participant-level read paints.
-fn first_turn(views: &Views, key: &str) -> Option<String> {
+pub(super) fn first_turn(views: &Views, key: &str) -> Option<String> {
     views
         .run
         .as_ref()?
@@ -1243,18 +1243,7 @@ fn gate_review_large_logical_end_is_independent_of_display_page() {
     let mut views = participant_page(&db, run, &subject, &tui);
     views.now = now.clone();
     settle_end(&mut tui, &views);
-    let whole_views = participant_whole_views(
-        &db,
-        run,
-        &events,
-        brokkr_view::run_view(&events, fold(&events).as_ref().ok()),
-        subject,
-    );
-    let (mut whole_tui, _) = participant_console(run, &whole);
-    whole_tui.offset = 65_998;
-    let paged = frame_for_test(&tui, &views, 80, 30);
-    let expected = frame_for_test(&whole_tui, &whole_views, 80, 30);
-    assert_eq!(paged, expected, "Up paints the whole read's frame");
+    let paged = participant_frame_whole_read(&db, run, &events, subject, 65_998, &tui, &views);
     let starts_at_today = rows_of_text(&paged)
         .into_iter()
         .any(|line| line.contains("│65536  turn"));

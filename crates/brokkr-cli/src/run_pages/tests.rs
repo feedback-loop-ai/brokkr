@@ -12,6 +12,7 @@
 //! a journal without the projections take the kept read.
 
 mod console_end;
+mod display_clamp;
 mod held_view;
 
 use std::path::Path;
@@ -508,6 +509,31 @@ fn participant_whole_views(
     views.start = 0;
     views.more = false;
     views
+}
+
+/// The participant frame a paged console paints at `offset` equals the
+/// whole read's at the same rank, `paged`'s bytes returned for the control
+/// that reads them.
+pub(super) fn participant_frame_whole_read(
+    db: &Path,
+    run: &str,
+    events: &[EventEnvelope],
+    subject: Subject,
+    offset: usize,
+    tui: &Tui,
+    views: &Views,
+) -> String {
+    let whole = brokkr_view::run_view(events, fold(events).as_ref().ok());
+    let (mut whole_tui, _) = participant_console(run, &whole);
+    whole_tui.offset = offset;
+    let whole_views = participant_whole_views(db, run, events, whole, subject);
+    let paged = frame_for_test(tui, views, 80, 30);
+    assert_eq!(
+        paged,
+        frame_for_test(&whole_tui, &whole_views, 80, 30),
+        "the paged frame is the whole read's"
+    );
+    paged
 }
 
 /// The detail pane's views over a carried `Shown`, at `now`.

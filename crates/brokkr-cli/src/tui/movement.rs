@@ -460,6 +460,10 @@ fn scroll_paged(
 
 /// The live column's drawn line in the held window, when the cursor is
 /// inside it: the row's first drawn line plus the line within the row.
+/// A continuation the window no longer lays — a resize narrowed the row
+/// it was saved in — is the whole read's position on the row's last drawn
+/// line, so movement from it is the whole read's movement, never a page
+/// the console keeps asking for (M1, decision 0071 ruling 5).
 pub(super) fn live_position(tui: &Tui, views: &Views, laid: &Laid) -> Option<isize> {
     let rows = laid.rows.len().checked_sub(1)?;
     if rows == 0
@@ -469,10 +473,10 @@ pub(super) fn live_position(tui: &Tui, views: &Views, laid: &Laid) -> Option<isi
         return None;
     }
     let row = tui.live_offset - views.start;
-    if tui.live_line >= laid.rows[row + 1].saturating_sub(laid.rows[row]) {
-        return None;
-    }
-    Some((laid.rows[row] + tui.live_line) as isize)
+    let line = tui
+        .live_line
+        .min(laid.rows[row + 1].saturating_sub(laid.rows[row] + 1));
+    Some((laid.rows[row] + line) as isize)
 }
 
 /// The live column's position moved within the held window: `Top` and
