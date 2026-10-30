@@ -60,26 +60,36 @@ function abbreviated(rule, from) {
 }
 
 /**
- * The verdict a fresh inspect summary and its ruling state, as `brokkr-view`'s
- * `Facts::standing` and `verdict_of` derive it. `null` for a status this
- * console does not know, so the cached verdict is kept rather than guessed at.
+ * A verdict for a fresh summary whose standing the held row does not state:
+ * the one transition an inspect read can prove. The listing's verdict is kept
+ * whenever the standing is unchanged, so Brokkr's rule, text and residual are
+ * never derived a second time for a row a read already derived. `?` is the
+ * wire's absent destination, so it routes nowhere exactly as `brokkr-view`
+ * reads a missing `next`.
  */
-function verdictOf(summary, ruling, prior = null) {
+function verdictOf(summary, ruling) {
   const standing = standingOf(summary)
   if (standing === null) return null
-  const routed = ruling === null || ruling === undefined ? null : ruling.next !== ''
+  const routed = ruling === null || ruling === undefined ? null : ruling.next !== '' && ruling.next !== '?'
   const named = standing === 'shipped' || standing === 'stopped' || (standing === 'parked' && routed === false)
   const rule = named ? ruling?.rule_id ?? null : null
   const text = standing === 'running' ? ''
     : standing === 'operator_stopped' ? 'by operator'
       : rule === null ? '—' : abbreviated(rule, ruling?.from ?? null)
-  return { standing, rule, residual: prior?.residual ?? null, reason: summary.park_reason ?? null, text }
+  return { standing, rule, reason: summary.park_reason ?? null, text }
 }
 
-/** The row a fresh inspect summary states over the row the listing gave: its head, phase, verdict and park reason follow the read. */
-function rowOf(summary, ruling, row) {
-  const verdict = verdictOf(summary, ruling, row.verdict)
-  return verdict === null ? row : { ...row, seq: summary.seq, phase: summary.phase, verdict }
+/**
+ * The row a fresh inspect summary states over the row the listing gave: its
+ * head and phase follow the read. Its verdict is Brokkr's own and stays put
+ * while the standing does not move; only a standing the held row does not
+ * state is translated from the summary and ruling.
+ */
+function rowOf(summary, ruling, held) {
+  const standing = standingOf(summary)
+  if (standing === null) return held
+  const moved = { ...held, seq: summary.seq, phase: summary.phase }
+  return standing === held.verdict.standing ? moved : { ...moved, verdict: verdictOf(summary, ruling) }
 }
 
 /**
@@ -87,19 +97,21 @@ function rowOf(summary, ruling, row) {
  * states it: its inspect summary, over the row the same journal held last
  * time when there was one, so its title and start time survive the page.
  */
-function rowFor(ref, summary, ruling, held = null) {
+function rowFor(ref, view, held = null) {
+  const summary = view.summary
   const feature = summary.feature ?? held?.feature ?? ''
+  const written = view.journal.map((row) => row.recorded_at).filter((at) => at !== '')
   return {
     run_id: ref.run_id,
     title: held?.title ?? (feature.split('\n')[0] || ref.run_id),
     feature,
     phase: summary.phase,
     seq: summary.seq,
-    created_at: held?.created_at ?? '',
-    last_recorded_at: held?.last_recorded_at ?? null,
+    created_at: held?.created_at ?? written[0] ?? null,
+    last_recorded_at: written.at(-1) ?? held?.last_recorded_at ?? null,
     detail: held?.detail ?? null,
     acknowledgement: held?.acknowledgement ?? null,
-    verdict: verdictOf(summary, ruling, held?.verdict),
+    verdict: held === null ? verdictOf(summary, view.ruling) : rowOf(summary, view.ruling, held).verdict,
   }
 }
 
@@ -179,7 +191,7 @@ async function settled(read) {
  */
 export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
   const clients = new Set()
-  const state = { fleet: null, prior: null, extras: new Map(), fleetText: null, oneMap: false, day: null, overviewText: null, timer: null, busy: false }
+  const state = { fleet: null, prior: null, extras: new Map(), repin: new Set(), fleetText: null, oneMap: false, day: null, overviewText: null, timer: null, busy: false }
 
   /**
    * A run's journal from the latest fleet, or `null` when the listing is
@@ -221,6 +233,25 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
   }
 
   /**
+   * A partial listing that omits an open run cannot say it was dropped: its
+   * row is carried from the fleet this poll is about to replace, under the
+   * same journal. A whole listing does say it is gone, and a changed journal
+   * owns none of the pages read from the old one.
+   */
+  function pinOpen(fleet) {
+    for (const client of clients) {
+      const ref = client.watch.run
+      if (ref === null) continue
+      const hearth = fleet.hearths.find((each) => each.realm === ref.realm)
+      if (hearth === undefined || hearth.detail !== null || whole(hearth)) continue
+      if (hearth.runs.some((row) => row.run_id === ref.run_id)) continue
+      const before = state.fleet?.hearths.find((each) => each.realm === ref.realm && each.journal === hearth.journal)
+      const held = before?.runs.find((row) => row.run_id === ref.run_id)
+      if (held !== undefined) hearth.runs.push(held)
+    }
+  }
+
+  /**
    * Read the fleet and say whether it differs from the last one read. Every
    * poll reads each hearth's first page only; the pages an operator paged
    * into are kept for the hearth on screen, keyed by its realm and journal,
@@ -233,9 +264,11 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     state.oneMap = hearths !== null && hearths.length === 1
     const fleet = await readHearths(hearths)
     const onScreen = watched()
+    const repin = new Set()
     for (const [key, extra] of [...state.extras]) {
       const hearth = fleet.hearths.find((each) => each.realm === extra.realm && each.journal === extra.journal)
       if (!onScreen.has(extra.realm) || hearth === undefined || hearth.next !== extra.from) {
+        for (const row of extra.runs) repin.add(keyOf(extra.realm, row.run_id))
         state.extras.delete(key)
         continue
       }
@@ -248,6 +281,8 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
       hearth.next = extra.next
       hearth.retained = true
     }
+    pinOpen(fleet)
+    state.repin = repin
     const text = JSON.stringify(fleet)
     const changed = text !== state.fleetText
     Object.assign(state, { prior: state.fleet, fleet, fleetText: text })
@@ -323,7 +358,8 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
    * An older read never replaces a newer head, and a whole listing that does
    * not hold the run says the run is gone, not that a row is invented.
    */
-  function holdRow(target, summary, ruling) {
+  function holdRow(target, view) {
+    const summary = view.summary
     const hearth = state.fleet?.hearths.find((each) => each.realm === target.realm && (target.journal === null || each.journal === target.journal))
     if (hearth === undefined || hearth.detail !== null) return false
     const index = hearth.runs.findIndex((each) => each.run_id === target.run_id)
@@ -331,7 +367,7 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
       if (whole(hearth)) return false
       const before = state.prior?.hearths.find((each) => each.realm === target.realm && each.journal === target.journal)
       const held = before?.runs.find((each) => each.run_id === target.run_id) ?? null
-      const fresh = rowFor(target, summary, ruling, held)
+      const fresh = rowFor(target, view, held)
       if (fresh.verdict === null) return false
       hearth.runs.push(fresh)
       state.fleetText = JSON.stringify(state.fleet)
@@ -339,7 +375,7 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     }
     const held = hearth.runs[index]
     if (held.seq !== null && summary.seq < held.seq) return false
-    const fresh = rowOf(summary, ruling, held)
+    const fresh = rowOf(summary, view.ruling, held)
     if (JSON.stringify(fresh) === JSON.stringify(held)) return false
     hearth.runs[index] = fresh
     for (const extra of state.extras.values()) {
@@ -364,9 +400,7 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
       if (ref !== null) {
         const read = await runOf(ref)
         run = read.run
-        if (read.target !== null && run.view?.summary !== null && run.view?.summary !== undefined) {
-          holdRow(read.target, run.view.summary, run.view.ruling)
-        }
+        if (read.target !== null && run.view?.summary !== null && run.view?.summary !== undefined) holdRow(read.target, run.view)
         client.runText.set(keyOf(ref.realm, ref.run_id), JSON.stringify(run))
       }
       client.peer.send({
@@ -404,8 +438,7 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     for (const [key, watchers] of open) {
       const ref = { ...watchers[0].watch.run }
       const read = await runOf(ref)
-      const summary = read.run.view?.summary ?? null
-      const held = read.target !== null && summary !== null ? holdRow(read.target, summary, read.run.view.ruling) : false
+      const held = read.target !== null && read.run.view?.summary !== null && read.run.view?.summary !== undefined ? holdRow(read.target, read.run.view) : false
       if (held !== false) patched = true
       const text = JSON.stringify(read.run)
       // A refusal has no summary to compare; it is sent again when the
@@ -415,7 +448,7 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
       const seq = read.target === null ? undefined
         : state.fleet?.hearths.find((each) => each.realm === ref.realm && each.journal === read.target.journal)?.runs.find((each) => each.run_id === ref.run_id)?.seq
       const refusalMoved = read.run.refused !== undefined && before.get(key) !== seq
-      const reach = watchers.filter((client) => client.runText.get(key) !== text || refusalMoved || held === 'added')
+      const reach = watchers.filter((client) => client.runText.get(key) !== text || refusalMoved || held === 'added' || state.repin.has(key))
       if (reach.length === 0) continue
       for (const client of reach) client.runText.set(key, text)
       updates.push([reach, read.run])

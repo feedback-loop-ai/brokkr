@@ -1099,3 +1099,152 @@ test('chief C5: a fresh stop replaces the cached review park’s rule and words'
   assert.match(textOf(why), /FAIL-TWICE/)
   assert.match(textOf(why), /stopped by VERIFY-FAIL-TWICE/)
 })
+
+/** A fresh inspect read of a running run: the summary the listing already states, with no ruling. */
+const runningRead = (seq) => {
+  const doc = runViewDoc({ seq })
+  doc.summary = { ...doc.summary, status: 'running', phase: 'review', park_reason: null }
+  doc.ruling = null
+  return doc
+}
+
+test('review R1: an unchanged parked read keeps the rule and verdict Brokkr derived', async () => {
+  const page = windowOf([row({ seq: 0 })], null)
+  const read = runViewDoc({ seq: 0 })
+  read.ruling = { ...read.ruling, next: '?' }
+  const brokkr = stubBrokkr([
+    { match: ['runs'], responses: [json(page)] },
+    { match: ['inspect'], responses: [json(read)] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const host = await attached(poller, { view: 'realm', realm: ONE_HEARTH, run: { realm: ONE_HEARTH, run_id: RUN } })
+  const snapshot = host.sent[0]
+  const held = snapshot.fleet.hearths[0].runs[0]
+  assert.deepEqual([held.verdict.rule, held.verdict.text], ['REVIEW-SECURITY-RESIDUAL', 'SECURITY-RESI…'])
+
+  const painted = mountClient('main')
+  painted.push(snapshot)
+  buttons(painted.tree()).find((button) => textOf(button).startsWith(ONE_HEARTH)).props.onClick()
+  const runs = findAll(painted.tree(), (node) => node.props['aria-label'] === 'Runs')[0]
+  const runButton = buttons(runs).find((button) => textOf(button).startsWith('Encrypt the token store'))
+  assert.match(textOf(runButton), /SECURITY-RESI…/)
+  runButton.props.onClick()
+  const why = findAll(painted.tree(), (node) => node.props['aria-label'] === 'Why it waits')[0]
+  assert.match(textOf(why), /REVIEW-SECURITY-RESIDUAL/)
+})
+
+test('review R2: a refused inspect keeps a displaced open run and paints the refusal and hint', async () => {
+  const { first, running, second, arrival } = displaced()
+  const words = 'brokkr inspect was refused: temporary read failure'
+  const brokkr = stubBrokkr([
+    { match: ['runs'], responses: [json(first), json(second), json(first), json(arrival)] },
+    { match: ['inspect'], responses: [json(runViewDoc({ seq: 12 })), { stderr: words, code: 1 }] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const host = await attached(poller, { view: 'realm', realm: ONE_HEARTH, run: null })
+  host.sent.length = 0
+  host.receive({ type: 'more', realm: ONE_HEARTH })
+  const more = await heard(host)
+  host.receive({ type: 'watch', view: 'realm', realm: ONE_HEARTH, run: { realm: ONE_HEARTH, run_id: running.run_id } })
+  const opened = await heard(host)
+  assert.equal(opened.run.view.summary.seq, 12)
+
+  host.sent.length = 0
+  await poller.tick()
+  const fleet = host.sent.find((message) => message.type === 'fleet')?.fleet
+  const refused = host.sent.find((message) => message.type === 'run')?.run
+  const kept = fleet?.hearths[0].runs.find((row) => row.run_id === running.run_id)
+  assert.deepEqual([kept?.seq, refused?.refused, refused?.hint], [12, words, `brokkr inspect --run=${running.run_id}`])
+
+  const painted = mountClient('main')
+  painted.push({ type: 'snapshot', ask: false, fleet: more.fleet, overview: null, run: opened.run })
+  buttons(painted.tree()).find((button) => textOf(button).startsWith(ONE_HEARTH)).props.onClick()
+  buttons(painted.tree()).find((button) => textOf(button).startsWith('alpha run 100')).props.onClick()
+  painted.push({ type: 'fleet', fleet })
+  painted.push({ type: 'run', run: refused })
+  assert.equal(findAll(painted.tree(), (node) => node.props['aria-label'] === 'Runs').length, 0)
+  const error = findAll(painted.tree(), (node) => node.props.className === 'bk-error').map(textOf)
+  assert.deepEqual(error, [words])
+  const hint = findAll(painted.tree(), (node) => String(node.props.className).includes('bk-hint')).map(textOf)
+  assert.deepEqual(hint, [refused.hint])
+})
+
+test('review R3: an unchanged first-page open run pushes no fleet and reuses the cached day', async () => {
+  const page = windowOf([runningOf('alpha', 0, 12)], null)
+  const brokkr = stubBrokkr([
+    { match: ['runs'], responses: [json(page)] },
+    { match: ['inspect'], responses: [json(runningRead(12))] },
+    { match: ['queue'], responses: [json([])] },
+    { match: ['muninn'], responses: [json([])] },
+    { match: ['analytics'], responses: [json(analyticsDoc())] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const realms = await attached(poller, { view: 'realms', run: null })
+  const watcher = await attached(poller, { view: 'realm', realm: ONE_HEARTH, run: { realm: ONE_HEARTH, run_id: 'alpha-run-0000' } })
+  const analytics = () => brokkr.calls().filter((argv) => argv[0] === 'analytics').length
+  const before = analytics()
+  realms.sent.length = 0
+  watcher.sent.length = 0
+  for (let poll = 0; poll < 3; poll += 1) await poller.tick()
+  const pushes = (client) => client.sent.filter((message) => message.type === 'fleet').length
+  assert.deepEqual([pushes(realms), pushes(watcher), analytics()], [0, 0, before])
+})
+
+test('review R3: an unchanged open run a partial page omits also pushes no fleet', async () => {
+  const page = windowOf([runOf('alpha', 0)], 'needs-you:1:alpha-run-0000')
+  const missing = 'alpha-run-0100'
+  const brokkr = stubBrokkr([
+    { match: ['runs'], responses: [json(page)] },
+    { match: ['inspect'], responses: [json(runningRead(12))] },
+    { match: ['queue'], responses: [json([])] },
+    { match: ['muninn'], responses: [json([])] },
+    { match: ['analytics'], responses: [json(analyticsDoc())] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const realms = await attached(poller, { view: 'realms', run: null })
+  const watcher = await attached(poller, { view: 'realm', realm: ONE_HEARTH, run: { realm: ONE_HEARTH, run_id: missing } })
+  const analytics = () => brokkr.calls().filter((argv) => argv[0] === 'analytics').length
+  const before = analytics()
+  realms.sent.length = 0
+  watcher.sent.length = 0
+  for (let poll = 0; poll < 3; poll += 1) await poller.tick()
+  const pushes = (client) => client.sent.filter((message) => message.type === 'fleet').length
+  assert.deepEqual([pushes(realms), pushes(watcher), analytics()], [0, 0, before])
+})
+
+test('review R4: a row read from inspect takes the timestamps its journal records', async () => {
+  const listed = row({ run_id: 'listed-run', title: 'same feature', feature: 'same feature', seq: 0 })
+  const page = windowOf([listed], 'needs-you:1:listed-run')
+  const read = runViewDoc({ seq: 12 })
+  read.summary = { ...read.summary, run_id: 'missing-run', feature: 'same feature' }
+  const brokkr = stubBrokkr([
+    { match: ['runs'], responses: [json(page)] },
+    { match: ['inspect'], responses: [json(read)] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const host = await attached(poller, { view: 'realm', realm: ONE_HEARTH, run: { realm: ONE_HEARTH, run_id: 'missing-run' } })
+  const snapshot = host.sent[0]
+  const missing = snapshot.fleet.hearths[0].runs.find((row) => row.run_id === 'missing-run')
+  assert.deepEqual([missing.created_at, missing.last_recorded_at], ['2026-10-13T09:00:00Z', '2026-10-13T09:00:00Z'])
+
+  const painted = mountClient('main')
+  painted.push(snapshot)
+  buttons(painted.tree()).find((button) => textOf(button).startsWith(ONE_HEARTH)).props.onClick()
+  const runs = findAll(painted.tree(), (node) => node.props['aria-label'] === 'Runs')[0]
+  assert.doesNotMatch(textOf(runs), /Invalid Date/)
+  assert.match(textOf(runs), /1h/)
+})
+
+test('review R1: an omitted run reads the absent destination as routed nowhere', async () => {
+  const page = windowOf([runOf('alpha', 0)], 'needs-you:1:alpha-run-0000')
+  const read = runViewDoc({ seq: 12 })
+  read.ruling = { ...read.ruling, next: '?' }
+  const brokkr = stubBrokkr([
+    { match: ['runs'], responses: [json(page)] },
+    { match: ['inspect'], responses: [json(read)] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const host = await attached(poller, { view: 'realm', realm: ONE_HEARTH, run: { realm: ONE_HEARTH, run_id: 'alpha-run-0100' } })
+  const held = host.sent[0].fleet.hearths[0].runs.find((row) => row.run_id === 'alpha-run-0100')
+  assert.deepEqual([held.verdict.rule, held.verdict.text], ['REVIEW-SECURITY-RESIDUAL', 'SECURITY-RESI…'])
+})

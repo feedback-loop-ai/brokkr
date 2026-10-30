@@ -193,7 +193,7 @@ window.__ModuleLoader__.load({
         const tells = (k) => new Set(rows.map((_, index) => prefix(index, k))).size === rows.length
         const k = Array.from({ length: 20 }, (_, n) => n + 1).find(tells)
         rows.forEach((row, index) => labels.set(row.run_id, k === undefined
-          ? `${row.title} (${new Date(row.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`
+          ? Number.isNaN(Date.parse(row.created_at)) ? row.title : `${row.title} (${new Date(row.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`
           : prefix(index, k)))
       }
       return labels
