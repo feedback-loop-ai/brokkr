@@ -194,8 +194,8 @@ and the release window in that ruling's slice 2.
 | `forge.realms/v6` | `contracts/realms.v6.schema.json` | input | 0065 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
 | `forge.realms/v7` | `contracts/realms.v7.schema.json` | input | 0075 | operator | set brokkr_core::realms::SCHEMAS | reader | | decision |
 | `forge.realms/v8` | `contracts/realms.v8.schema.json` | input | 0065 | operator | set brokkr_core::realms::SCHEMAS | current | | decision |
-| `brokkr.dialect/v1` | `contracts/dialect.v1.schema.json` | journal | 0042 | none | set brokkr_runtime::dialect::SCHEMAS | reader | unmeasured | unmeasured |
-| `brokkr.dialect/v2` | `contracts/dialect.v2.schema.json` | journal | 0042 (2026-09-04 addendum) | none | set brokkr_runtime::dialect::SCHEMAS | reader | unmeasured | unmeasured |
+| `brokkr.dialect/v1` | `contracts/dialect.v1.schema.json` | journal | 0042 | none | set brokkr_runtime::dialect::SCHEMAS | reader | 0.8 | 0.12 |
+| `brokkr.dialect/v2` | `contracts/dialect.v2.schema.json` | journal | 0042 (2026-09-04 addendum) | none | set brokkr_runtime::dialect::SCHEMAS | reader | 0.10 | 0.13 |
 | `brokkr.dialect/v3` | `contracts/dialect.v3.schema.json` | journal | 0042 (2026-09-06 addendum) | shipped dialects/openspec.json | set brokkr_runtime::dialect::SCHEMAS | current | | |
 | `forge.phase-machine/v1` | `none (decision 0082 ruling 5)` | input | 0002 | none | load brokkr_core::policy::Machine::from_table | reader | | decision |
 | `forge.phase-machine/v2` | `contracts/phase-machine.v2.schema.json` | input | 0022 | shipped recipes/fast/policy.json | label brokkr_core::policy::TABLE_SCHEMA_V2 | current | | decision |

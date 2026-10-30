@@ -293,8 +293,6 @@ pub(crate) enum LastWritten {
     Empty,
     Never,
     Line(String),
-    /// Slice 1 states the cell; ruling 3's binding measures it in slice 2.
-    Unmeasured,
 }
 
 impl LastWritten {
@@ -302,7 +300,6 @@ impl LastWritten {
         match value {
             "" => Some(LastWritten::Empty),
             "never" => Some(LastWritten::Never),
-            "unmeasured" => Some(LastWritten::Unmeasured),
             _ if engine_line(value) => Some(LastWritten::Line(value.to_string())),
             _ => None,
         }
@@ -315,8 +312,6 @@ pub(crate) enum ReaderUntil {
     Decision,
     Line(String),
     Extended(String, u16),
-    /// Slice 1 states the cell; ruling 3's binding computes it in slice 2.
-    Unmeasured,
 }
 
 impl ReaderUntil {
@@ -324,7 +319,6 @@ impl ReaderUntil {
         match value {
             "" => Some(ReaderUntil::Empty),
             "decision" => Some(ReaderUntil::Decision),
-            "unmeasured" => Some(ReaderUntil::Unmeasured),
             _ if engine_line(value) => Some(ReaderUntil::Line(value.to_string())),
             _ => {
                 let (line, decision) = value.split_once(" (decision ")?;
@@ -429,6 +423,27 @@ fn the_table_names_every_contract_file_and_no_other() {
     );
 }
 
+/// One row per file, and one for the file-less label: a second row would
+/// let the table state two lifecycles for one version.
+#[test]
+fn a_second_row_for_one_file_refuses_naming_it() {
+    let mut seen = BTreeSet::new();
+    let mut findings = Vec::new();
+    for row in rows() {
+        if !seen.insert(row.file.clone()) {
+            findings.push(format!(
+                "{GUIDE}:{}: {}: a second lifecycle row for this file",
+                row.line, row.file
+            ));
+        }
+    }
+    assert_eq!(
+        findings,
+        Vec::<String>::new(),
+        "a lifecycle row is duplicated"
+    );
+}
+
 #[test]
 fn every_cell_is_read_from_its_closed_form() {
     let mut findings = Vec::new();
@@ -494,9 +509,71 @@ fn exactly_one_row_per_family_is_current() {
 /// The Looper's one file, outside the local lineage (ruling 4's constant).
 pub(crate) const LOOPER: &str = "contracts/run-manifest.v2.schema.json";
 
+/// The current bundle the record rows are resumed against: the shipped
+/// `fast` recipe, compiled against the workspace's library and adapters.
+fn resume_bundle() -> brokkr_runtime::Bundle {
+    let workspace = workspace();
+    brokkr_runtime::Bundle::compile_with(
+        &workspace.join("recipes/fast"),
+        &workspace.join("agents"),
+        &workspace.join("adapters"),
+    )
+    .expect("the fast bundle compiles")
+}
+
+/// A record version's manifest, valid against its own schema, carrying the
+/// six required fields every local lineage version has, plus capabilities
+/// from v11 on.
+fn record_instance(row: &Row) -> serde_json::Value {
+    let mut instance = serde_json::json!({
+        "engine": "0.12.0",
+        "event_schema": 1,
+        "database_schema": 1,
+        "driver_protocol": 1,
+        "bundle_name": "record",
+        "files": {"README.md": "0000000000000000000000000000000000000000000000000000000000000000"},
+    });
+    if row.number() >= 11 {
+        instance["capabilities"] = serde_json::json!({
+            "realm": brokkr_runtime::capabilities::UNMAPPED,
+            "grants": {},
+            "definitions": {},
+            "dialects": {},
+            "sites": {},
+        });
+    }
+    instance
+}
+
+/// Drive `Engine::resume` with an instance of the row's record version: a
+/// record has no reader, and the resume comparison is what refuses it.
+fn record_refused_on_resume(row: &Row, bundle: &brokkr_runtime::Bundle) -> Vec<String> {
+    let instance = record_instance(row);
+    if let Some(finding) = instance_satisfies_row(row, &instance) {
+        return vec![finding];
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let store = brokkr_store::Store::open(&db).unwrap();
+    {
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        brokkr_store::test_support::plant_run(&conn, "record", &instance.to_string()).unwrap();
+    }
+    let refused = match brokkr_runtime::Engine::resume(store, bundle.clone(), "record", None) {
+        Err(brokkr_runtime::EngineError::ManifestMismatch { .. }) => return Vec::new(),
+        Err(other) => format!("another refusal: {other}"),
+        Ok(_) => "no refusal".to_string(),
+    };
+    vec![format!(
+        "{GUIDE}:{}: {}: resume did not refuse the {} record by its manifest comparison: {refused}",
+        row.line, row.file, row.version
+    )]
+}
+
 #[test]
 fn a_record_row_is_only_an_older_local_run_manifest() {
     let rows = rows();
+    let bundle = resume_bundle();
     let current = rows
         .iter()
         .find(|row| {
@@ -546,6 +623,7 @@ fn a_record_row_is_only_an_older_local_run_manifest() {
             None
         };
         findings.extend(refused);
+        findings.extend(record_refused_on_resume(row, &bundle));
     }
     assert_eq!(findings, Vec::<String>::new(), "a record row is refused");
 }
@@ -613,14 +691,52 @@ fn envelope(
     .sealed()
 }
 
+/// The row's own schema, named by its `Version` cell, admits `instance`.
+/// The label and the schema file are bound together: moving a cell moves
+/// the schema its instance is held to, and a label naming no file refuses.
+fn instance_satisfies_row(row: &Row, instance: &serde_json::Value) -> Option<String> {
+    if row.file == FILELESS {
+        // Ruling 5 records the one label that has no schema file.
+        return None;
+    }
+    let (family, number) = row.version.rsplit_once("/v")?;
+    let named = format!("contracts/{family}.v{number}.schema.json");
+    if named != row.file {
+        return Some(format!(
+            "{GUIDE}:{}: {}: the Version cell '{}' names {named}, not the row's file",
+            row.line, row.file, row.version
+        ));
+    }
+    let bytes = std::fs::read(workspace().join(&row.file))
+        .unwrap_or_else(|why| panic!("{}: {why}", row.file));
+    let schema: serde_json::Value =
+        serde_json::from_slice(&bytes).unwrap_or_else(|why| panic!("{}: {why}", row.file));
+    let validator = jsonschema::draft7::new(&schema)
+        .unwrap_or_else(|why| panic!("{} is a draft-07 schema: {why}", row.file));
+    if validator.is_valid(instance) {
+        None
+    } else {
+        Some(format!(
+            "{GUIDE}:{}: {}: the driven instance does not satisfy its own schema",
+            row.line, row.file
+        ))
+    }
+}
+
 /// Drive the public loader a `load` row names with an instance of the row's
-/// version, and require it to load.
-fn drive_load(item: &str) {
+/// version, and require it to load. The instance is validated against the
+/// row's own schema file first; a row whose label names another file never
+/// reaches its loader.
+fn drive_load(row: &Row, item: &str) -> Vec<String> {
     match item {
         "brokkr_core::policy::Machine::from_table" => {
             let bytes = std::fs::read(workspace().join("policy/phase-machine.json")).unwrap();
-            let table = serde_json::from_slice(&bytes).unwrap();
+            let table: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            if let Some(finding) = instance_satisfies_row(row, &table) {
+                return vec![finding];
+            }
             brokkr_core::policy::Machine::from_table(&table).expect("the frozen table loads");
+            Vec::new()
         }
         "brokkr_core::envelope::verify_chain" => {
             let event = envelope(
@@ -628,37 +744,73 @@ fn drive_load(item: &str) {
                 serde_json::json!({"feature": "f", "manifest": {}}),
                 1,
             );
+            let instance = serde_json::to_value(&event).expect("the envelope is JSON");
+            if let Some(finding) = instance_satisfies_row(row, &instance) {
+                return vec![finding];
+            }
             brokkr_core::envelope::verify_chain(&[event]).expect("a v1 envelope loads");
+            Vec::new()
         }
         "brokkr_core::dispatch::bundle_manifest_from_run" => {
-            let manifest =
-                serde_json::json!({"engine": "0.12.0", "queue_entry": {"entry": 1, "claim": 2}});
+            let manifest = serde_json::json!({
+                "engine": "0.12.0",
+                "event_schema": 1,
+                "database_schema": 1,
+                "driver_protocol": 1,
+                "bundle_name": "self",
+                "files": {},
+                "capabilities": {
+                    "realm": brokkr_runtime::capabilities::UNMAPPED,
+                    "grants": {},
+                    "definitions": {},
+                    "dialects": {},
+                    "sites": {}
+                },
+                "queue_entry": {"entry": 1, "claim": 2}
+            });
+            if let Some(finding) = instance_satisfies_row(row, &manifest) {
+                return vec![finding];
+            }
             let loaded = brokkr_core::dispatch::bundle_manifest_from_run(&manifest)
                 .expect("a v14 manifest loads");
             assert!(
                 loaded.get("queue_entry").is_none(),
                 "the v14 queue claim is read and dropped"
             );
+            Vec::new()
         }
         "brokkr_core::residual::closings" => {
+            let args = serde_json::json!({
+                "findings": [1],
+                "by": {"realm": null, "run_id": "run", "seq": 1},
+                "reason": "the finding is closed"
+            });
+            if let Some(finding) = instance_satisfies_row(row, &args) {
+                return vec![finding];
+            }
             let event = envelope(
                 brokkr_core::EventType::OperatorCommanded,
                 serde_json::json!({
                     "command": brokkr_core::residual::SUPERSEDE,
                     "operator": "operator",
-                    "args": {"by": {"run_id": "run", "seq": 1}, "findings": [1]}
+                    "args": args
                 }),
                 1,
             );
             let marks = brokkr_core::residual::closings(&[event]);
             assert_eq!(marks.len(), 1, "a v1 supersede annotation loads");
+            Vec::new()
         }
         "brokkr_core::seat::boundary_entries" => {
             let payload = serde_json::json!({
                 "boundary": [{"member": "m", "boundary": "namespace", "gate": false}]
             });
+            if let Some(finding) = instance_satisfies_row(row, &payload) {
+                return vec![finding];
+            }
             let entries = brokkr_core::seat::boundary_entries(&payload);
             assert_eq!(entries.len(), 1, "a v1 boundary entry loads");
+            Vec::new()
         }
         other => panic!("{other} is not a public loader this check knows"),
     }
@@ -824,7 +976,7 @@ fn every_reader_cell_drives_the_source_its_kind_names() {
                         ));
                     }
                 } else {
-                    drive_load(&item);
+                    findings.extend(drive_load(row, &item));
                 }
             }
             Reader::Schema(item) => {
@@ -882,7 +1034,10 @@ fn the_file_less_row_is_ruling_five_and_loads_the_frozen_table() {
         ReaderUntil::parse(&row.reader_until),
         Some(ReaderUntil::Decision)
     );
-    drive_load("brokkr_core::policy::Machine::from_table");
+    assert_eq!(
+        drive_load(&row, "brokkr_core::policy::Machine::from_table"),
+        Vec::<String>::new()
+    );
 }
 
 #[test]

@@ -1,7 +1,11 @@
-//! Test support for decision 0082 ruling 4's private rows: read the one
-//! lifecycle table from the workspace root at run time. The owning crate
-//! drives the loader; this module only finds the row. Test code by its
-//! `#[cfg(test)]` declaration, so it stays outside the coverage denominator.
+//! Test support for decision 0082 ruling 4's private rows: find the one
+//! lifecycle table's row for a contract file. The guide is embedded with
+//! `include_str!` rather than read at run time, because `brokkr-core`'s
+//! clippy configuration forbids filesystem I/O in tests (decision 0071
+//! ruling 1); cargo rebuilds this test when the guide changes. The owning
+//! crate drives the loader; this module only finds the row. Test code by
+//! its `#[cfg(test)]` declaration, so it stays outside the coverage
+//! denominator.
 
 use std::path::PathBuf;
 
@@ -20,9 +24,10 @@ pub(crate) struct Row {
     pub(crate) reader: String,
 }
 
-/// The one table, embedded so `brokkr-core`'s pure test build does no I/O
-/// (decision 0071 ruling 1); cargo re-reads it at every compile, and an edit
-/// to the guide rebuilds this test.
+/// The one table. `brokkr-core`'s clippy configuration forbids filesystem
+/// I/O in tests (decision 0071 ruling 1), so this is `include_str!` and not
+/// a run-time read; cargo re-reads it at every compile, and an edit to the
+/// guide rebuilds this test.
 const GUIDE_TEXT: &str = include_str!("../../docs/guides/versioning.md");
 
 pub(crate) fn row(file: &str) -> Row {

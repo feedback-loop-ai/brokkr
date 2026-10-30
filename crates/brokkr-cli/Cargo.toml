@@ -81,6 +81,10 @@ rustix = { version = "1.1.4", default-features = false, features = ["event", "fs
 [dev-dependencies]
 brokkr-store = { workspace = true, features = ["test-support"] }
 rusqlite = { workspace = true }
+# `contract_lifecycle`'s driven instances are held to their row's own
+# contract file before their loader runs. Already in the workspace graph
+# through store and runtime; dev-only, and linked into no binary.
+jsonschema = { workspace = true }
 # The packaging test verifies an APT `Release` file's own digests
 # against the files it indexes — the same hash the engine already
 # depends on, no new crate in the graph.

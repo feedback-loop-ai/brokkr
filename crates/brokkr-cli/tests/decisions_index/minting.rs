@@ -8,7 +8,7 @@
 //! The cell's grammar lives once, in `contract_lifecycle::minted_form`; this
 //! module reads the ruling a cell names.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::{header, Decision, Ledger, Pointer, Status, DECISIONS};
 use crate::contract_lifecycle::{self, Minted};
@@ -95,8 +95,15 @@ fn read_addendum(decision: &Decision, date: &str) -> Result<AddendumStatus, Stri
         ));
     };
     let line = line + 1;
-    if text == format!("Addendum status: accepted (operator, {date})") {
-        return Ok(AddendumStatus::Accepted);
+    if let Some(accepted) = text.strip_prefix("Addendum status: accepted (operator, ") {
+        // The heading's date selects the addendum; the status line's own
+        // date is read for its form only, and may follow the heading.
+        if accepted
+            .strip_suffix(')')
+            .is_some_and(contract_lifecycle::date_form)
+        {
+            return Ok(AddendumStatus::Accepted);
+        }
     }
     if text.starts_with("Addendum status: proposed") {
         return Ok(AddendumStatus::Proposed);
@@ -197,6 +204,15 @@ fn admits(
                 "{file}: minted under {number:04}, which is superseded and names no successor"
             ))
         };
+    }
+    // Walk every decision each pointer names, keeper or not: a cycle may
+    // run through a successor that keeps nothing, and a keeper-only walk
+    // never meets it. Each branch carries its own path, so a number the
+    // walk meets twice on one branch refuses, while two branches that
+    // meet at one decision need not.
+    for successor in &successors {
+        let mut branch = seen.clone();
+        admits(ledger, *successor, file, &mut branch)?;
     }
     let keepers: Vec<u16> = successors
         .iter()
@@ -420,5 +436,71 @@ pub(super) fn check() {
         findings,
         Vec::<String>::new(),
         "a contract version is not minted under an accepted ruling"
+    );
+}
+
+/// A decision the minting rule can walk, with `header` above its body.
+fn fixture(number: u16, status: &str, pointers: &[(Pointer, &[u16])], header: &str) -> Decision {
+    Decision {
+        number,
+        file: format!("{number:04}-fixture.md"),
+        status: status.to_string(),
+        built: None,
+        pointers: pointers
+            .iter()
+            .map(|(pointer, numbers)| (*pointer, numbers.to_vec()))
+            .collect(),
+        lines: BTreeMap::new(),
+        text: format!("{header}\n\n## Body\n"),
+    }
+}
+
+/// 0082 ruling 1: a supersession walk meets every decision a pointer
+/// names. 0001 names 0002, which keeps the file, and 0003, which cycles
+/// back to 0001; walking only the keeper would admit it.
+#[test]
+fn chief_non_keeper_cycle_must_refuse() {
+    let file = "contracts/chief.schema.json";
+    let first = fixture(
+        1,
+        "superseded",
+        &[(Pointer::SupersededBy, &[2, 3])],
+        "# 0001",
+    );
+    let keeper = fixture(
+        2,
+        "accepted",
+        &[],
+        &format!("# 0002\nKeeps the minting of: {file}"),
+    );
+    let cycle = fixture(3, "superseded", &[(Pointer::SupersededBy, &[1])], "# 0003");
+    let ledger = Ledger {
+        decisions: vec![first, keeper, cycle],
+        rows: Vec::new(),
+        gaps: Vec::new(),
+        read: Vec::new(),
+    };
+    let mut seen = BTreeSet::new();
+    let refused = admits(&ledger, 1, file, &mut seen).expect_err("the walk must meet 0001 twice");
+    assert_eq!(
+        refused,
+        format!("{file}: the supersession walk met 0001 twice")
+    );
+}
+
+/// 0082 ruling 1: the heading's date selects the addendum, and the status
+/// line's date is read for its `YYYY-MM-DD` form only, so an acceptance
+/// dated after the heading admits.
+#[test]
+fn chief_later_addendum_acceptance_date_must_admit() {
+    let decision = fixture(
+        42,
+        "accepted",
+        &[],
+        "## Addendum — 2026-09-04\nAddendum status: accepted (operator, 2026-09-06)",
+    );
+    assert_eq!(
+        read_addendum(&decision, "2026-09-04"),
+        Ok(AddendumStatus::Accepted)
     );
 }
