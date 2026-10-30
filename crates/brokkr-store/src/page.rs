@@ -126,14 +126,15 @@ fn row_of(row: &rusqlite::Row<'_>, run_id: String, order_at: i64) -> Result<Row,
         None => None,
     };
     let (feature_line, created_at, last_recorded_at) = listed_of(row)?;
+    let (status, stop_accepted_seq) = standing_of(row)?;
     Ok(Row {
         run_id,
         order_at,
         feature_line,
         created_at,
         last_recorded_at,
-        status: status_of(row)?,
-        stop_accepted_seq: row.get::<_, Option<i64>>(22)?.map(|seq| seq as u64),
+        status,
+        stop_accepted_seq,
         phase: bounded(row, 6)?,
         park_reason: bounded(row, 7)?,
         ruled: ruled_of(row)?,
@@ -154,6 +155,13 @@ fn bounded(row: &rusqlite::Row<'_>, at: usize) -> rusqlite::Result<Option<Bounde
 /// created and when its journal last moved.
 fn listed_of(row: &rusqlite::Row<'_>) -> rusqlite::Result<(String, Bounded, Option<Bounded>)> {
     Ok((row.get(2)?, cut(row.get(3)?), bounded(row, 4)?))
+}
+
+/// Where the row's run stands: its status, and the seq of an operator
+/// stop accepted with no ending yet (#909).
+fn standing_of(row: &rusqlite::Row<'_>) -> Result<(Option<Status>, Option<u64>), RowRefusal> {
+    let stop_accepted_seq = row.get::<_, Option<i64>>(22)?.map(|seq| seq as u64);
+    Ok((status_of(row)?, stop_accepted_seq))
 }
 
 /// The row's status word, read into the status a writer words by it.

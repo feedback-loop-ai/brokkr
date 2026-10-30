@@ -2118,9 +2118,6 @@ fn what_of(
                     .map(|error| js::slice(error, 0, 160)),
             }
         }
-        EventType::OperatorCommanded => operator_what(OperatorKind::Commanded, event, commands),
-        EventType::OperatorAccepted => operator_what(OperatorKind::Accepted, event, commands),
-        EventType::OperatorRejected => operator_what(OperatorKind::Rejected, event, commands),
         EventType::RunStarted => {
             let text = match field(payload, "feature") {
                 // The ellipsis is UNCONDITIONAL: a five-character
@@ -2137,22 +2134,34 @@ fn what_of(
                 problem: None,
             }
         }
-        other => {
-            let token = ["rule_id", "phase", "reason"]
-                .iter()
-                .find_map(|key| field(payload, key).filter(|value| !value.is_empty()));
-            let text = match token {
-                Some(token) => token.to_string(),
-                None => type_tail(other.as_str()).to_string(),
-            };
-            What {
-                text,
-                badge: None,
-                badge_class: None,
-                arrow: None,
-                problem: None,
-            }
-        }
+        other => other_what(other, event, commands),
+    }
+}
+
+/// An event the trail gives no arm of its own: an operator disposition
+/// names its command (#909); any other names its rule, phase or reason,
+/// else its type.
+fn other_what(
+    other: EventType,
+    event: &EventEnvelope,
+    commands: &BTreeMap<u64, (String, u64)>,
+) -> What {
+    if let Some(kind) = OperatorKind::of(other) {
+        return operator_what(kind, event, commands);
+    }
+    let token = ["rule_id", "phase", "reason"]
+        .iter()
+        .find_map(|key| field(&event.payload, key).filter(|value| !value.is_empty()));
+    let text = match token {
+        Some(token) => token.to_string(),
+        None => type_tail(other.as_str()).to_string(),
+    };
+    What {
+        text,
+        badge: None,
+        badge_class: None,
+        arrow: None,
+        problem: None,
     }
 }
 

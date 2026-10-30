@@ -17,6 +17,19 @@ pub(crate) enum OperatorKind {
     Rejected,
 }
 
+impl OperatorKind {
+    /// The disposition an event of this type records, where it records
+    /// one.
+    pub(crate) fn of(event_type: EventType) -> Option<OperatorKind> {
+        match event_type {
+            EventType::OperatorCommanded => Some(OperatorKind::Commanded),
+            EventType::OperatorAccepted => Some(OperatorKind::Accepted),
+            EventType::OperatorRejected => Some(OperatorKind::Rejected),
+            _ => None,
+        }
+    }
+}
+
 /// Each operator disposition's command word and the seq of the
 /// `operator/commanded` that stood when it answered, by the disposition's
 /// own seq: a command id reused later never overwrites an earlier answer.
