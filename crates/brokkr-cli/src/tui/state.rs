@@ -177,12 +177,19 @@ pub(crate) fn asked_rows(tui: &Tui) -> usize {
         // The end key asks for the stream's end, not for a rank-plus-height
         // that saturates: the read holds the frame's viewport past the rank
         // it resolves, so the page it keeps is the pane's, not `usize::MAX`
-        // (M3, M4).
-        Level::Runs | Level::Participant => match checkpoint_offset(tui) {
+        // (M3, M4). A held key's request is the ask until it is answered.
+        Level::Runs | Level::Participant => match ask_offset(tui) {
             usize::MAX => usize::from(tui.height),
             offset => offset.saturating_add(usize::from(tui.height)),
         },
     }
+}
+
+/// The page the shell asks the read for: the held movement key's request
+/// while one waits for its page, else the pane's own scroll. A request
+/// never moves the cursor; it only says which rows the answer must hold.
+pub(crate) fn ask_offset(tui: &Tui) -> usize {
+    tui.want.unwrap_or_else(|| checkpoint_offset(tui))
 }
 
 /// The checkpoint pane's scroll as the frame displays it: the live
@@ -280,18 +287,19 @@ pub(crate) struct TabState {
     pub scrolled: Scrolled,
 }
 
-/// A step across the held live window: the stream row its anchor line
-/// sits at, and the drawn-line distance from that row's first line. The
-/// read lays the rows around the anchor at the column's width, so movement
-/// keeps the whole distance rather than the window's edge: negative above
-/// the window (PageUp), positive below it (PageDown) (R1).
+/// A movement key held while a page read is out, or while its own
+/// destination is not in the held window: a run of the same step is one
+/// entry with a count, so a long hold stays bounded without losing an
+/// order (decision 0071 ruling 5).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct LiveCross {
-    /// The absolute stream row rank of the anchor row.
-    pub(crate) row: usize,
-    /// Drawn lines from the anchor row's first line.
-    pub(crate) lines: isize,
+pub(crate) struct Held {
+    pub(crate) step: Step,
+    pub(crate) count: usize,
 }
+
+/// How many held runs the queue keeps. Past it the oldest run is dropped,
+/// and the status line says so.
+pub(crate) const HELD_BOUND: usize = 64;
 
 /// Owned scalars only. Selection is by **stable key** — `RunRow.run_id`,
 /// `Phase.name`, `Participant.key`, `JournalRow.seq` — resolved against
@@ -380,11 +388,17 @@ pub(crate) struct Tui {
     /// drawn line within that row the viewport starts at.
     pub live_offset: usize,
     pub live_line: usize,
-    /// A step above the held live window, whose remaining drawn-line
-    /// distance the read must lay out at the column's width before
-    /// [`settle_end`] can resolve it (R1). Cleared by the next move and
-    /// once resolved.
-    pub live_cross: Option<LiveCross>,
+    /// The movement keys pressed while a page read is out, in order,
+    /// between them and their answer. The answer's window settles them;
+    /// a key that crosses it asks the next page and keeps its place at
+    /// the head (decision 0071 ruling 5).
+    pub held: Vec<Held>,
+    /// The page a held key waits for: the rank the next read must hold.
+    /// It is not the cursor; the cursor waits where the operator left it.
+    pub want: Option<usize>,
+    /// Whether a read is still out, as the shell last polled. Keys that
+    /// move a paged window are held while it is.
+    pub pending: bool,
     /// What this session watches besides its keys (#508).
     pub watched: Watched,
     /// The run it watched has ended: the frame stays until any key.
@@ -446,7 +460,9 @@ impl Tui {
             commission: false,
             live_offset: 0,
             live_line: 0,
-            live_cross: None,
+            held: Vec::new(),
+            want: None,
+            pending: false,
             watched: Watched::Console,
             ended: false,
         }
@@ -468,7 +484,8 @@ impl Tui {
         self.turn = None;
         self.offset = 0;
         self.live_line = 0;
-        self.live_cross = None;
+        self.held.clear();
+        self.want = None;
         self.force = true;
     }
 }
@@ -511,7 +528,8 @@ pub(super) fn switch(tui: &mut Tui, index: usize) {
     tui.scrolled = resumed.scrolled;
     tui.live_offset = 0;
     tui.live_line = 0;
-    tui.live_cross = None;
+    tui.held.clear();
+    tui.want = None;
     tui.level = Level::Runs;
     tui.pane = 0;
     tui.run = None;

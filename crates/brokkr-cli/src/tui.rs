@@ -186,15 +186,18 @@ use self::terminal::*;
 
 // What the rest of the crate reaches: the models the shell's refresh
 // source builds, the draw path the budget frame measures, and the entry.
+#[cfg(test)]
+pub(crate) use self::keys::Step;
 pub(crate) use self::movement::{asked_window, keeps};
 pub(crate) use self::panes::draw;
 pub use self::participant::transcript_surfaces_for_test;
 pub(crate) use self::reader::behind;
 #[cfg(test)]
-pub(crate) use self::settle::{settle_end, settle_when};
+pub(crate) use self::settle::{hold, settle_end, settle_when};
+#[cfg(test)]
+pub(crate) use self::state::{ask_offset, checkpoint_offset, Held, Level, HELD_BOUND};
 pub(crate) use self::state::{
-    asked_rows, checkpoint_offset, Ask, DriveEnd, Refreshed, Scrolled, Subject, Tui, Unread, Views,
-    Watched, Window,
+    asked_rows, Ask, DriveEnd, Refreshed, Scrolled, Subject, Tui, Unread, Views, Watched, Window,
 };
 pub(crate) use self::terminal::{production_ops, start, Closed, Session};
 
@@ -257,6 +260,12 @@ pub(crate) fn up_key(tui: &mut Tui, views: &Views) {
 #[cfg(test)]
 pub(crate) fn char_key(tui: &mut Tui, views: &Views, character: char) {
     let _ = apply(tui, views, Key::Char(character));
+}
+
+/// The real `Esc`, for the ladder and the held movement it drops.
+#[cfg(test)]
+pub(crate) fn escape_key(tui: &mut Tui, views: &Views) {
+    let _ = apply(tui, views, Key::Escape);
 }
 
 /// A frame drawn by the console's own draw path, as the key/read/draw

@@ -361,17 +361,20 @@ where
             tab: tui.tab,
             window: asked_window(tui),
             live_rows: asked_rows(tui),
-            live_offset: checkpoint_offset(tui),
+            live_offset: ask_offset(tui),
         };
         // A read still out (`Polled::Pending`) is neither read nor
-        // refused: the give-up bound counts reads.
+        // refused: the give-up bound counts reads, and the movement keys
+        // pressed meanwhile are held for its answer.
         let mut answered = false;
         if let Polled::Answered(answer) = source(ask).into() {
             let key = vanishing_key.as_deref();
             if taken(tui, &mut views, *answer, key, &mut failures)? {
                 shown = asking.clone();
-                answered = true;
             }
+            answered = true;
+        } else {
+            tui.pending = true;
         }
         // What the shell has left behind: until what it asks about now
         // answers, the frame draws none of it.

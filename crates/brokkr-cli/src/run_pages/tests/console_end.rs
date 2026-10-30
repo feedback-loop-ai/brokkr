@@ -30,16 +30,20 @@ fn whole_page_up(run: &str, start: usize, whole: &Views) -> Tui {
 /// The participant level's page for `tui`'s own scroll, read as the shell
 /// asks it.
 fn participant_page(db: &Path, run: &str, subject: &Subject, tui: &Tui) -> Views {
-    use crate::tui::{asked_rows, checkpoint_offset};
+    use crate::tui::{ask_offset, asked_rows};
     let rows = asked_rows(tui);
-    console_rows_at(
-        db,
-        run,
-        Some(subject.clone()),
-        false,
-        rows,
-        checkpoint_offset(tui),
-    )
+    console_rows_at(db, run, Some(subject.clone()), false, rows, ask_offset(tui))
+}
+
+/// The participant level at `run`'s first page with `G` asked, the start
+/// the end's controls share.
+fn participant_end(db: &Path, run: &str, events: &[EventEnvelope]) -> (Tui, Subject, Views) {
+    use crate::tui::bottom_key;
+    let whole = brokkr_view::run_view(events, fold(events).as_ref().ok());
+    let (mut tui, subject) = participant_console(run, &whole);
+    let views = participant_page(db, run, &subject, &tui);
+    bottom_key(&mut tui, &views);
+    (tui, subject, views)
 }
 
 /// The participant level's held page at rows 0..200 with a page beyond it,
@@ -57,9 +61,9 @@ fn held_lower_page(db: &Path, run: &str, subject: &Subject) -> Views {
 /// The live column's absolute-end request: the read at the end and the
 /// cursor it resolves to, at `now`.
 fn settle_live_end(db: &Path, run: &str, tui: &mut Tui, now: &str) -> Views {
-    use crate::tui::{asked_rows, checkpoint_offset, settle_end};
+    use crate::tui::{ask_offset, asked_rows, settle_end};
     let rows = asked_rows(tui);
-    let mut views = console_rows_at(db, run, None, false, rows, checkpoint_offset(tui));
+    let mut views = console_rows_at(db, run, None, false, rows, ask_offset(tui));
     views.now = now.to_string();
     settle_end(tui, &views);
     views
@@ -80,6 +84,21 @@ fn settle_participant_end(
     let mut views = participant_page(db, run, subject, tui);
     views.now = now.to_string();
     settle_end(tui, &views);
+    views
+}
+
+/// The reads the shell would make for the live column's held keys: the
+/// page each waits for, answered and settled, until none is left.
+fn settle_held_live(db: &Path, run: &str, tui: &mut Tui, now: &str) -> Views {
+    use crate::tui::settle_when;
+    let mut views = live_read(db, run, tui, now);
+    while !tui.held.is_empty() {
+        settle_when(tui, &views, true);
+        if tui.held.is_empty() {
+            break;
+        }
+        views = live_read(db, run, tui, now);
+    }
     views
 }
 
@@ -797,9 +816,7 @@ fn the_participant_s_down_after_a_large_end_wraps_to_the_top() {
     let (_dir, db, events) = far_work("far down");
     let run = "far down";
     let whole = brokkr_view::run_view(&events, fold(&events).as_ref().ok());
-    let (mut tui, subject) = participant_console(run, &whole);
-    let views = participant_page(&db, run, &subject, &tui);
-    bottom_key(&mut tui, &views);
+    let (mut tui, subject, _) = participant_end(&db, run, &events);
     let mut views = participant_page(&db, run, &subject, &tui);
     views.now = events.last().unwrap().recorded_at.clone();
     assert_eq!(views.end, Some(65_600), "the counted stream's end");
@@ -842,14 +859,8 @@ fn the_live_column_s_up_crosses_to_the_preceding_wrapped_rows_last_line() {
         "the held window starts at the read's rank"
     );
     up_key(&mut tui, &views);
-    assert_eq!(tui.live_offset, 99, "Up asks the preceding row");
-    assert_eq!(
-        tui.live_line,
-        usize::MAX,
-        "the preceding row's foot is asked"
-    );
-    let views = live_read(&db, run, &tui, &whole_views.now);
-    settle_end(&mut tui, &views);
+    assert_eq!(tui.held.len(), 1, "Up is held for the row above");
+    let views = settle_held_live(&db, run, &mut tui, &whole_views.now);
     let mut whole_tui = live_tui(run, 100, width, height);
     up_key(&mut whole_tui, &whole_views);
     settle_end(&mut whole_tui, &whole_views);
@@ -1175,7 +1186,7 @@ fn gate_review_participant_page_jump_keeps_ten_rows() {
     whole_tui.offset = 195;
     page_key(&mut whole_tui, &whole_views, true);
     assert_eq!(whole_tui.offset, 205, "the whole read's PageDown");
-    let upper = console_rows_at(&db, run, Some(subject), false, 200, 100);
+    let upper = console_rows_at(&db, run, Some(subject.clone()), false, 200, 100);
     assert_eq!(
         (upper.start, upper.more),
         (100, true),
@@ -1516,7 +1527,7 @@ fn retired_panel(run: &str) -> Vec<EventEnvelope> {
     chained(run, journals::journal(steps))
 }
 
-/// A page request parked by the keys is resolved only by the frame that
+/// A page request held by the keys is resolved only by the frame that
 /// answers it (R4): with the next read still out, the held window does
 /// not consume a PageUp across it or a `G`, so the answer reaches
 /// (99, 24) and (999, 28) as the whole read does, never (100, 0) or the
@@ -1533,11 +1544,7 @@ fn gate_review_pending_page_request_waits_for_its_answer() {
     }
     page_key(&mut tui, &views, false);
     settle_when(&mut tui, &views, false);
-    assert_eq!(
-        tui.live_cross.map(|cross| (cross.row, cross.lines)),
-        Some((100, -5)),
-        "a read still out does not consume the crossing"
-    );
+    assert_eq!(tui.held.len(), 1, "a read still out holds the crossing");
     let next = live_read(&db, run, &tui, &whole_views.now);
     settle_when(&mut tui, &next, true);
     assert_eq!(
@@ -1566,8 +1573,8 @@ fn gate_review_pending_page_request_waits_for_its_answer() {
 
 /// Two Downs pressed before the page they ask for is read keep both moves
 /// (R5): the unwrapped panel at 375x30 holds [0, 50) with the cursor at
-/// (49, 0), and the second move continues from the outstanding destination
-/// to 51, as the whole read's does, rather than clamping back to 50.
+/// (49, 0), both moves are held, and the answer applies them in order to
+/// 51, as the whole read's does, rather than clamping back to 50.
 #[test]
 fn gate_review_two_downs_before_answer_accumulate() {
     use crate::tui::{down_key, settle_end};
@@ -1580,11 +1587,8 @@ fn gate_review_two_downs_before_answer_accumulate() {
     tui.live_line = 0;
     down_key(&mut tui, &views);
     down_key(&mut tui, &views);
-    assert_eq!(
-        tui.live_cross.map(|cross| (cross.row, cross.lines)),
-        Some((50, 1)),
-        "the second move is owed past the window"
-    );
+    assert_eq!(tui.held.len(), 1, "both moves are one held run");
+    assert_eq!(tui.held[0].count, 2, "the run counts both moves");
     let next = live_read(&db, run, &tui, &whole_views.now);
     settle_end(&mut tui, &next);
     assert_eq!((tui.live_offset, tui.live_line), (51, 0), "both moves land");
@@ -1741,4 +1745,200 @@ fn gate_review_carried_rank_advances_with_arrivals() {
     tui.offset = 66_000;
     down_key(&mut tui, &views);
     assert_eq!(tui.offset, 0, "Down wraps at the advanced end");
+}
+
+/// M1 (rulings 5 and 9): a `G` whose end read is out, then `Up`, settles
+/// both against the end's window, as the whole read does. Two working
+/// members' 1,000 unwrapped checkpoints at 375x30 reach (998, 0), never
+/// the old window's crossing at (48, 0).
+#[test]
+fn chief_review_live_pending_end_then_up() {
+    use crate::tui::{bottom_key, settle_when, up_key};
+    let run = "chief live end then up";
+    let (_dir, db, _events, whole_views) = console_of(run, panel_with(run, 500, 500, None));
+    let (mut tui, views) = live_at(&db, run, 0, 375, 30, &whole_views.now);
+    bottom_key(&mut tui, &views);
+    assert_eq!(tui.live_offset, usize::MAX, "G asks the absolute end");
+    tui.pending = true;
+    up_key(&mut tui, &views);
+    assert_eq!(tui.held.len(), 1, "Up waits behind G's read");
+    let end = live_read(&db, run, &tui, &whole_views.now);
+    settle_when(&mut tui, &end, true);
+    assert_eq!(
+        (tui.live_offset, tui.live_line),
+        (998, 0),
+        "the held Up lands at the end's window"
+    );
+    let mut whole_tui = live_tui(run, 0, 375, 30);
+    bottom_key(&mut whole_tui, &whole_views);
+    up_key(&mut whole_tui, &whole_views);
+    assert_eq!(
+        (whole_tui.live_offset, whole_tui.live_line),
+        (998, 0),
+        "the whole read's G then Up"
+    );
+}
+
+/// M1 (rulings 5 and 9): the participant level's `G` then `Up` with the
+/// end read out reaches 998 of 1,000, as the whole read does, never the
+/// `G`'s own end at 999.
+#[test]
+fn chief_review_participant_pending_end_then_up() {
+    use crate::tui::{bottom_key, settle_when, up_key};
+    let run = "chief participant end then up";
+    let (_dir, db, events) = far_work_of(run, 1_000);
+    let (mut tui, subject, views) = participant_end(&db, run, &events);
+    assert_eq!(tui.offset, usize::MAX, "G asks the absolute end");
+    tui.pending = true;
+    up_key(&mut tui, &views);
+    assert_eq!(tui.held.len(), 1, "Up waits behind G's read");
+    let end = participant_page(&db, run, &subject, &tui);
+    settle_when(&mut tui, &end, true);
+    assert_eq!(tui.offset, 998, "the held Up lands at the end's window");
+    let whole = brokkr_view::run_view(&events, fold(&events).as_ref().ok());
+    let (mut whole_tui, _) = participant_console(run, &whole);
+    let whole_views = participant_whole_views(&db, run, &events, whole, subject);
+    bottom_key(&mut whole_tui, &whole_views);
+    up_key(&mut whole_tui, &whole_views);
+    assert_eq!(whole_tui.offset, 998, "the whole read's G then Up");
+}
+
+/// M2 (rulings 5 and 9): four `PageDown`s before an answer are held and
+/// applied one window at a time, reaching (89, 0) on the 1,000-row panel
+/// at 375x30, as the whole read does, never the old window's (79, 0).
+#[test]
+fn chief_review_four_pending_page_downs() {
+    use crate::tui::page_key;
+    let run = "chief four page downs";
+    let (_dir, db, _events, whole_views) = console_of(run, panel_with(run, 500, 500, None));
+    let (mut tui, views) = live_at(&db, run, 0, 375, 30, &whole_views.now);
+    tui.live_offset = 49;
+    tui.live_line = 0;
+    page_key(&mut tui, &views, true);
+    tui.pending = true;
+    for _ in 0..3 {
+        page_key(&mut tui, &views, true);
+    }
+    assert_eq!(tui.held.len(), 1, "the four moves are one held run");
+    assert_eq!(tui.held[0].count, 4, "the run counts four moves");
+    settle_held_live(&db, run, &mut tui, &whole_views.now);
+    assert_eq!(
+        (tui.live_offset, tui.live_line),
+        (89, 0),
+        "the four held PageDowns land"
+    );
+    let mut whole_tui = live_tui(run, 0, 375, 30);
+    whole_tui.live_offset = 49;
+    whole_tui.live_line = 0;
+    for _ in 0..4 {
+        page_key(&mut whole_tui, &whole_views, true);
+    }
+    assert_eq!(
+        (whole_tui.live_offset, whole_tui.live_line),
+        (89, 0),
+        "the whole read's four PageDowns"
+    );
+}
+
+/// M2 (rulings 5 and 9): eleven `Up`s before an answer, from (100, 0) at
+/// 375x250, are held and applied against the page above, reaching
+/// (89, 0) as the whole read does, never the old window's (90, 0).
+#[test]
+fn chief_review_eleven_pending_ups() {
+    use crate::tui::up_key;
+    let run = "chief eleven ups";
+    let (_dir, db, _events, whole_views) = console_of(run, panel_with(run, 500, 500, None));
+    let (mut tui, views) = live_at(&db, run, 100, 375, 250, &whole_views.now);
+    assert_eq!(views.start, 100, "the window starts at the cursor");
+    up_key(&mut tui, &views);
+    tui.pending = true;
+    for _ in 0..10 {
+        up_key(&mut tui, &views);
+    }
+    assert_eq!(tui.held.len(), 1, "the eleven moves are one held run");
+    assert_eq!(tui.held[0].count, 11, "the run counts eleven moves");
+    settle_held_live(&db, run, &mut tui, &whole_views.now);
+    assert_eq!(
+        (tui.live_offset, tui.live_line),
+        (89, 0),
+        "the eleven held Ups land"
+    );
+    let mut whole_tui = live_tui(run, 100, 375, 250);
+    for _ in 0..11 {
+        up_key(&mut whole_tui, &whole_views);
+    }
+    assert_eq!(
+        (whole_tui.live_offset, whole_tui.live_line),
+        (89, 0),
+        "the whole read's eleven Ups"
+    );
+}
+
+/// A run of one held key is one entry with a count, and past the stated
+/// bound the oldest run is dropped with a status-line word (decision 0071
+/// ruling 5).
+#[test]
+fn chief_review_held_runs_coalesce_and_the_bound_drops_the_oldest() {
+    use crate::tui::{hold, Held, Step, HELD_BOUND};
+    let mut tui = Tui::new(None);
+    for _ in 0..3 {
+        hold(&mut tui, Step::PageDown);
+    }
+    assert_eq!(
+        tui.held,
+        [Held {
+            step: Step::PageDown,
+            count: 3
+        }],
+        "a run of one key is one entry"
+    );
+    for run in 0..HELD_BOUND {
+        let step = match run % 2 {
+            0 => Step::Up,
+            _ => Step::Down,
+        };
+        hold(&mut tui, step);
+    }
+    assert_eq!(tui.held.len(), HELD_BOUND, "the queue keeps its bound");
+    assert_eq!(
+        tui.held.first().map(|held| held.step),
+        Some(Step::Up),
+        "the oldest run was dropped"
+    );
+    assert!(
+        tui.status
+            .as_deref()
+            .is_some_and(|status| status.contains("dropped")),
+        "the status line says so"
+    );
+}
+
+/// A held page move belongs to the view it was pressed on: a `PageDown`
+/// at the participant level, then `Esc` to the fleet before its answer,
+/// leaves the fleet's cursor where it was (decision 0071 ruling 5).
+#[test]
+fn chief_review_level_change_drops_held_page_down() {
+    use crate::tui::{escape_key, page_key, settle_when};
+    let run = "chief level change";
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    at_work_in(&db, &[(run, 120, true), ("second", 10, true)]);
+    let (_, events, _) = console_journal(&db, run);
+    let whole = brokkr_view::run_view(&events, fold(&events).as_ref().ok());
+    let (mut tui, subject) = participant_console(run, &whole);
+    let views = participant_page(&db, run, &subject, &tui);
+    tui.pending = true;
+    page_key(&mut tui, &views, true);
+    assert_eq!(tui.held.len(), 1, "the participant's PageDown is held");
+    escape_key(&mut tui, &views);
+    escape_key(&mut tui, &views);
+    assert_eq!(
+        (tui.level, tui.held.len()),
+        (tui::Level::Runs, 0),
+        "the fleet drops the movement of the view it left"
+    );
+    let fleet = console_rows(&db, run, None, false, 0);
+    let before = tui.cursor[0].clone();
+    settle_when(&mut tui, &fleet, true);
+    assert_eq!(tui.cursor[0], before, "the fleet's cursor did not move");
 }

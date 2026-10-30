@@ -531,7 +531,14 @@ fn live_tui(run: &str, offset: usize, width: u16, height: u16) -> Tui {
 
 /// The console's read of `run` at the live column's ask.
 fn live_read(db: &Path, run: &str, tui: &Tui, now: &str) -> Views {
-    let mut views = console_rows_at(db, run, None, false, tui::asked_rows(tui), tui.live_offset);
+    let mut views = console_rows_at(
+        db,
+        run,
+        None,
+        false,
+        tui::asked_rows(tui),
+        tui::ask_offset(tui),
+    );
     views.now = now.to_string();
     views
 }

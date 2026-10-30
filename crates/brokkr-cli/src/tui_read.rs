@@ -457,15 +457,10 @@ fn run_of<'a>(
             .map_err(|refused| (run, refused))?;
     kept.more = shown.more(&screen);
     kept.start = shown.start(&screen);
-    // The participant level's whole rank is the read's own fact, kept
-    // across an ordinary scroll and advanced by the checkpoints that land
-    // (R3, F1); the other screens answer it only for the end key's ask.
-    let end = shown.end(&screen);
-    kept.end = match (&screen, end) {
-        (_, Some(end)) => Some(end),
-        (Console::Participant(_), None) => kept.end,
-        _ => None,
-    };
+    // The participant level's whole rank is the read's own fact, carried
+    // through an ordinary scroll and advanced by the checkpoints that land
+    // (R3, F1); every screen answers it where its read reaches the end.
+    kept.end = shown.end(&screen);
     kept.read += read;
     let view = shown.view();
     let run = run.to_string();
