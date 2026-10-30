@@ -63,6 +63,37 @@ fn closed(group: i32, recorded: &[Entry], before: &[Entry]) -> Live {
     }
 }
 
+/// A walk's sighting: the engine, `leader`, and `extra` when there is one.
+#[cfg(target_os = "linux")]
+fn sighting(leader: Entry, extra: Option<Entry>) -> Sighting {
+    let mut rows = vec![row(me(), 1, me()), leader];
+    rows.extend(extra);
+    Sighting::new(rows, false)
+}
+
+/// A registry holding one open attempt `group` with `recorded`, and the
+/// host whose tick is `walk` and whose full table is `full`.
+#[cfg(target_os = "linux")]
+fn tracked(
+    group: i32,
+    recorded: &[Entry],
+    walk: fn() -> Result<Sighting, TableError>,
+    full: fn() -> Result<Vec<Entry>, TableError>,
+) -> (Registry, Host) {
+    let live = Live {
+        open: true,
+        ..closed(group, recorded, &[])
+    };
+    (
+        registry([live]),
+        Host {
+            tick: walk,
+            table: full,
+            ..Host::REAL
+        },
+    )
+}
+
 /// A kill that signals nothing, and one the kernel refuses.
 fn spared(_: &Identity) -> std::io::Result<()> {
     Ok(())
@@ -177,6 +208,8 @@ fn registry(attempts: impl IntoIterator<Item = Live>) -> Registry {
         attempts: (0..).zip(attempts).collect(),
         unowned: BTreeSet::new(),
         latest: None,
+        #[cfg(target_os = "linux")]
+        walk: None,
     }
 }
 
@@ -363,10 +396,11 @@ fn a_pid_reused_between_the_walk_and_the_snapshot_is_not_attributed() {
     assert_eq!(signalled, vec![RECORDED], "V {} was signalled", v.id.pid);
 }
 
-/// #918c: a tick whose walk sees only identities the registry already
-/// knows takes no snapshot, however many ticks run; a walk that cannot
-/// complete takes exactly one. The count is held through the injectable
-/// `Host`.
+/// #918c, #918d: a tick whose walk sees only identities the registry
+/// already knows, in the same states, takes no snapshot, however many
+/// ticks run; the first tick, with no previous walk, takes one, and a walk
+/// that cannot complete takes exactly one. The count is held through the
+/// injectable `Host`.
 #[cfg(target_os = "linux")]
 #[test]
 fn quiet_ticks_take_no_snapshot_and_a_doubt_takes_one() {
@@ -382,18 +416,16 @@ fn quiet_ticks_take_no_snapshot_and_a_doubt_takes_one() {
         SNAPSHOTS.fetch_add(1, Ordering::Relaxed);
         Ok(table([]))
     }
-    let live = Live {
-        open: true,
-        ..closed(GROUP, &[], &[])
-    };
-    let mut registry = registry([live]);
-    let host = Host {
-        tick: walk,
-        table: full,
-        ..Host::REAL
-    };
+    let (mut registry, host) = tracked(GROUP, &[], walk, full);
     SNAPSHOTS.store(0, Ordering::Relaxed);
     DOUBT.store(false, Ordering::Relaxed);
+    registry.track(host);
+    assert_eq!(
+        SNAPSHOTS.load(Ordering::Relaxed),
+        1,
+        "the first tick had no walk to compare"
+    );
+    SNAPSHOTS.store(0, Ordering::Relaxed);
     for _ in 0..10 {
         registry.track(host);
     }
@@ -401,6 +433,131 @@ fn quiet_ticks_take_no_snapshot_and_a_doubt_takes_one() {
     DOUBT.store(true, Ordering::Relaxed);
     registry.track(host);
     assert_eq!(SNAPSHOTS.load(Ordering::Relaxed), 1, "a doubt was trusted");
+}
+
+/// #918d HIGH: a known leader that turns zombie is a change the walk must
+/// report. Without the snapshot that change takes, `observe` and `note`
+/// never run, `ended` stays `None`, and a detached orphan O born after
+/// that tick is attributed to the ended attempt and killed with it. The
+/// tick that sees the leader turn zombie is the tick that must end the
+/// attempt; the orphan's later appearance only makes O the engine's own.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_leader_that_turns_zombie_on_a_quiet_tick_ends_its_attempt() {
+    static SNAPSHOTS: AtomicU64 = AtomicU64::new(0);
+    static TURNED: AtomicBool = AtomicBool::new(false);
+    static ORPHAN: AtomicBool = AtomicBool::new(false);
+    fn leader() -> Entry {
+        let leader = row(GROUP, me(), GROUP);
+        if TURNED.load(Ordering::Relaxed) {
+            zombie(leader)
+        } else {
+            leader
+        }
+    }
+    fn walk() -> Result<Sighting, TableError> {
+        let extra = ORPHAN
+            .load(Ordering::Relaxed)
+            .then(|| row(STRANGER, me(), STRANGER));
+        Ok(sighting(leader(), extra))
+    }
+    fn full() -> Result<Vec<Entry>, TableError> {
+        SNAPSHOTS.fetch_add(1, Ordering::Relaxed);
+        let mut rows = vec![leader()];
+        if ORPHAN.load(Ordering::Relaxed) {
+            rows.push(row(STRANGER, me(), STRANGER));
+        }
+        Ok(table(rows))
+    }
+    let born = |pid: i32| u64::try_from(pid).unwrap();
+    let (mut registry, host) = tracked(GROUP, &[], walk, full);
+    let host = Host {
+        kill_group: |_| Ok(()),
+        kill: recorded,
+        ..host
+    };
+    SNAPSHOTS.store(0, Ordering::Relaxed);
+    TURNED.store(false, Ordering::Relaxed);
+    ORPHAN.store(false, Ordering::Relaxed);
+
+    registry.track(host);
+    assert_eq!(
+        SNAPSHOTS.load(Ordering::Relaxed),
+        1,
+        "the first tick had no walk to compare"
+    );
+    assert_eq!(registry.attempts[&0].ended, None, "the leader still ran");
+
+    TURNED.store(true, Ordering::Relaxed);
+    registry.track(host);
+    assert_eq!(
+        SNAPSHOTS.load(Ordering::Relaxed),
+        2,
+        "the leader's state change did not take a snapshot"
+    );
+    assert_eq!(
+        registry.attempts[&0].ended,
+        Some(born(GROUP)),
+        "the tick that saw the leader turn zombie did not end the attempt"
+    );
+
+    ORPHAN.store(true, Ordering::Relaxed);
+    registry.track(host);
+    assert_eq!(
+        SNAPSHOTS.load(Ordering::Relaxed),
+        3,
+        "the later orphan did not take a snapshot"
+    );
+    assert_eq!(
+        registry.attempts[&0].recorded,
+        BTreeSet::new(),
+        "the later orphan O was recorded as the attempt's"
+    );
+    assert_kill_signals_nothing(&registry, 0, host);
+}
+
+/// #918d: a recorded descendant that vanishes from the walk is a change
+/// the tick must report, even though its identity was known. The tick
+/// takes one snapshot; the attribution sets keep the identity, which is
+/// what `recorded` means here.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_recorded_descendant_that_vanishes_from_the_walk_takes_one_snapshot() {
+    static SNAPSHOTS: AtomicU64 = AtomicU64::new(0);
+    static VANISHED: AtomicBool = AtomicBool::new(false);
+    fn walk() -> Result<Sighting, TableError> {
+        let extra = (!VANISHED.load(Ordering::Relaxed)).then(|| row(RECORDED, GROUP, GROUP));
+        Ok(sighting(row(GROUP, me(), GROUP), extra))
+    }
+    fn full() -> Result<Vec<Entry>, TableError> {
+        SNAPSHOTS.fetch_add(1, Ordering::Relaxed);
+        let mut rows = vec![row(GROUP, me(), GROUP)];
+        if !VANISHED.load(Ordering::Relaxed) {
+            rows.push(row(RECORDED, GROUP, GROUP));
+        }
+        Ok(table(rows))
+    }
+    let descendant = row(RECORDED, GROUP, GROUP);
+    let (mut registry, host) = tracked(GROUP, std::slice::from_ref(&descendant), walk, full);
+    SNAPSHOTS.store(0, Ordering::Relaxed);
+    VANISHED.store(false, Ordering::Relaxed);
+
+    registry.track(host);
+    assert_eq!(
+        SNAPSHOTS.load(Ordering::Relaxed),
+        1,
+        "the first tick had no walk to compare"
+    );
+    registry.track(host);
+    assert_eq!(SNAPSHOTS.load(Ordering::Relaxed), 1, "a quiet tick read");
+
+    VANISHED.store(true, Ordering::Relaxed);
+    registry.track(host);
+    assert_eq!(
+        SNAPSHOTS.load(Ordering::Relaxed),
+        2,
+        "the vanished descendant did not take a snapshot"
+    );
 }
 
 /// #403 finding 1: every running child of the engine outside its own

@@ -67,6 +67,12 @@ struct Registry {
     /// The last read, which every caller that asked for one before it
     /// began may take instead of reading again.
     latest: Option<Read>,
+    /// The last tick's walk, compared by identity and state. It is the
+    /// tick's own memory, never an attribution: nothing here reaches
+    /// `observe`, `record`, `recorded`, `doubted` or a kill. `None` means
+    /// there is no previous walk, so the next tick must read the table.
+    #[cfg(target_os = "linux")]
+    walk: Option<table::Sighted>,
 }
 
 struct Read {
@@ -79,6 +85,8 @@ static LIVE: Mutex<Registry> = Mutex::new(Registry {
     attempts: BTreeMap::new(),
     unowned: BTreeSet::new(),
     latest: None,
+    #[cfg(target_os = "linux")]
+    walk: None,
 });
 static NEXT: AtomicU64 = AtomicU64::new(0);
 static START: Once = Once::new();
@@ -178,6 +186,12 @@ impl Registry {
     /// would be attributed to this attempt and killed with it. What
     /// remains is one born between this read and the fork itself.
     fn admit(&mut self, host: Host, builder: &mut Command) -> Result<(Child, u64), Unspawned> {
+        // The first tick after the registry was empty has no previous walk
+        // to compare, so it reads the table even when every row is known.
+        #[cfg(target_os = "linux")]
+        if self.attempts.is_empty() {
+            self.walk = None;
+        }
         let before = self.read(host.table).map_err(Unspawned::Table)?;
         let child = builder.spawn().map_err(Unspawned::Spawn)?;
         let key = NEXT.fetch_add(1, Ordering::Relaxed);
@@ -221,12 +235,15 @@ impl Registry {
     }
 
     /// One tick. On Linux the engine's own tree is walked only to ask
-    /// whether the registry already knows everything in it; when the walk
-    /// sees an identity it does not know, or could not complete, one full
-    /// snapshot is read and attributed by `observe`. The walk's rows are
-    /// never observed, so it can only cause an extra snapshot, never an
-    /// attribution. On macOS the full table itself is the tick, as main
-    /// reads it.
+    /// whether it changed since the last walk, or holds an identity the
+    /// registry does not know, or could not be walked whole; then one full
+    /// snapshot is read and attributed by `observe`. A change is any row
+    /// that appears or disappears, or whose zombie or exiting state
+    /// changed: a known leader that turns zombie, or a recorded descendant
+    /// that vanishes, is exactly a fact `observe` and `note` decide an
+    /// attempt's end by. The walk's rows are never observed, so it can
+    /// only cause an extra snapshot, never an attribution. On macOS the
+    /// full table itself is the tick, as main reads it.
     fn track(&mut self, host: Host) {
         if self.attempts.is_empty() {
             return;
@@ -234,8 +251,23 @@ impl Registry {
         #[cfg(target_os = "linux")]
         {
             let changed = match (host.tick)() {
-                Ok(sighting) => sighting.unseen(|id| self.knows(id)),
-                Err(_) => true,
+                Ok(sighting) => {
+                    let sighted = sighting.sighted();
+                    let changed = self.walk.as_ref() != Some(&sighted)
+                        || sighting.unseen(|id| self.knows(id));
+                    // Remember this walk for the next tick's comparison.
+                    // It is still only a comparison: `observe` below reads
+                    // the full table, never `sighted`.
+                    self.walk = Some(sighted);
+                    changed
+                }
+                Err(_) => {
+                    // A walk that could not complete is no memory of the
+                    // tree: the next tick must read the table again rather
+                    // than compare against an older walk.
+                    self.walk = None;
+                    true
+                }
             };
             if changed {
                 drop(self.read(host.table));

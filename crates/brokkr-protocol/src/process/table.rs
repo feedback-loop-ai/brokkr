@@ -1,8 +1,9 @@
 //! The host's process tree, as the attempt's tree is read from it (#403,
 //! #918). Linux has two reads: the tracker's 100 ms tick walks the
 //! engine's own subtree through `/proc`'s `children` files only to ask
-//! whether the registry already knows everything in it, and a new identity
-//! or any doubt makes the tick read the whole table, which alone
+//! whether the registry already knows everything in it and whether any row
+//! changed since the last walk, and a new identity, a changed row, a doubt
+//! or no previous walk makes the tick read the whole table, which alone
 //! attributes; admission and every kill read the whole table too, so
 //! `before` names every process that already ran. Everything settlement can
 //! attribute is a descendant of the engine, and a tick that walked the
@@ -14,7 +15,7 @@
 //! so it fails the read rather than reading as gone.
 
 #[cfg(target_os = "linux")]
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use rustix::process::{Pid, Signal};
 use thiserror::Error;
@@ -74,11 +75,34 @@ pub(super) enum TableError {
 #[cfg(target_os = "linux")]
 const PROC: &str = "/proc";
 
+/// The two row states that decide whether anything of a live attempt still
+/// runs: a zombie holds a pid but runs nothing, and an exiting process is on
+/// its way to one. Linux lists no exiting process, so there it is always
+/// false; both are compared so a state a Linux table never lists could not
+/// change unreported.
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct State {
+    zombie: bool,
+    exiting: bool,
+}
+
+/// One tick's walk as the tracker remembers it: each identity the walk saw
+/// and its state. `attempts::Registry` only compares it with the next
+/// walk; it is never passed to `Live::record`, `observe`, `recorded`,
+/// `doubted` or a kill.
+#[cfg(target_os = "linux")]
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct Sighted {
+    rows: BTreeMap<Identity, State>,
+}
+
 /// What one tick's walk of the engine's own tree saw: the rows it read, and
 /// whether anything kept it from reading the tree whole. It is a sighting,
-/// not a table read: the tracker only asks whether it shows an identity the
-/// registry does not know, and the full snapshot alone attributes. Nothing
-/// here reaches `Live::record`, `observe`, `recorded`, `doubted` or a kill.
+/// not a table read: the tracker asks whether it shows an identity the
+/// registry does not know or a row that changed since the last walk, and
+/// the full snapshot alone attributes. Nothing here reaches `Live::record`,
+/// `observe`, `recorded`, `doubted` or a kill.
 #[cfg(target_os = "linux")]
 #[derive(Debug)]
 pub(super) struct Sighting {
@@ -95,6 +119,27 @@ impl Sighting {
     /// as one: a partial walk proves nothing either way.
     pub(super) fn unseen(&self, known: impl Fn(&Identity) -> bool) -> bool {
         self.doubt || self.entries.iter().any(|entry| !known(&entry.id))
+    }
+
+    /// The sighting as the next tick compares it: each identity and its
+    /// states. An identity that appears or disappears, or a row that turns
+    /// zombie or exiting, is a change the tick must take a snapshot for.
+    pub(super) fn sighted(&self) -> Sighted {
+        Sighted {
+            rows: self
+                .entries
+                .iter()
+                .map(|entry| {
+                    (
+                        entry.id.clone(),
+                        State {
+                            zombie: entry.zombie,
+                            exiting: entry.exiting,
+                        },
+                    )
+                })
+                .collect(),
+        }
     }
 
     /// A sighting of `entries`, for the tests that plant a walk.
@@ -119,9 +164,9 @@ impl Sighting {
 ///
 /// The walk reads the subtree, never the host: unrelated host processes
 /// are not visited, and one read costs the engine's own process count,
-/// not the host's. It answers one question for the tick: is there an
-/// identity here the registry does not already know, or could the walk
-/// not tell?
+/// not the host's. It answers two questions for the tick: is there an
+/// identity here the registry does not already know or a row that changed
+/// since the last walk, and could the walk not tell?
 #[cfg(target_os = "linux")]
 pub(super) fn own_tree() -> Result<Sighting, TableError> {
     sighting_in(

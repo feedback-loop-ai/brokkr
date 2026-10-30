@@ -35,24 +35,42 @@ recommended on all four" (#918), rules the third by changing the design
 rather than patching one more race: **the walk detects; the snapshot
 attributes.**
 
+The 918c review held that split but found the detection too narrow: it
+asked only whether the walk held an identity the registry did not know.
+A known leader that turned zombie, or a recorded descendant that
+vanished, was therefore no change at all, the tick took no snapshot,
+`observe` and `note` never ran, and the attempt kept `ended: None`. A
+detached orphan born after that tick was then attributed to the attempt
+with no end bound and killed with it. The operator's ruling of
+2026-10-30, "go with recommended on all the rulings" (#918), amends
+ruling 2: any change in the tree since the last walk takes one full
+snapshot; 0099 and `process/tree.rs` are corrected to say so.
+
 ## Rulings
 
 1. On Linux the tracker's periodic tick (`attempts::start`'s loop) walks
    the engine's own tree through `/proc/<pid>/task/<tid>/children`, and
-   only to answer one question: is there an identity in it the registry
-   does not already know? The known identities are every live attempt's
+   answers two questions: did any row change since the last walk, and is
+   there an identity in it the registry does not already know? A change is
+   an identity that appears or disappears, or a row whose `zombie` or
+   `exiting` state changed. The known identities are every live attempt's
    `before`, `recorded` and `doubted`, what the engine owns, the engine
    itself, and each live driver. A walk returns a `Sighting`: the rows it
-   saw and whether it could complete. Its rows are never passed to
-   `Live::record`, `observe`, `recorded`, `doubted` or a kill, and no
+   saw and whether it could complete. The tick keeps the last walk as its
+   own memory, compared by identity and state; that memory is never passed
+   to `Live::record`, `observe`, `recorded`, `doubted` or a kill, and no
    parent is inferred from the listing.
-2. When the walk sees an identity the registry does not know, or cannot
+2. When this tick's walk differs from the last tick's walk in any row,
+   when it sees an identity the registry does not know, when it cannot
    complete (a named process or thread vanished or was replaced under it,
-   an unreadable stat, any doubt), the tick takes exactly one full
-   `table::snapshot`, and attribution goes through main's existing logic:
-   `Registry::read` and `observe`. A walk that misses a process because it
-   was read after that process's `children` file was finished only means
-   the next tick sees it under its real parent; the walk cannot attribute.
+   an unreadable stat, any doubt), or when there is no previous walk (the
+   first tick, or the first after the registry was empty), the tick takes
+   exactly one full `table::snapshot`, and attribution goes through main's
+   existing logic: `Registry::read` and `observe`. A quiet tick, the same
+   rows in the same states, takes none. A walk that misses a process
+   because it was read after that process's `children` file was finished
+   only means the next tick sees it under its real parent; the walk cannot
+   attribute.
 3. Admission's read before a spawn, the kill-time read in
    `read_and_kill`, the settlement reads and the stop sweep keep the full
    table, exactly as on main. `before` names every process that already
@@ -65,12 +83,90 @@ attributes.**
    was attributed by the same full-table read main already trusts. The
    walk can only cause an extra snapshot, never an attribution: a stale
    numeric pid, a reused child pid, or an inferred edge can at most make
-   the tick read the table, and that read is what decides. A full
-   snapshot removes an identity it no longer shows from the attribution
-   sets, so no walk-only record can survive into the kill set.
+   the tick read the table, and that read is what decides. The snapshot
+   does not remove the identities it no longer shows from the attribution
+   sets: `recorded` and `doubted` retain them, and `unowned` alone is
+   pruned. The test
+   `a_pid_reused_between_the_walk_and_the_snapshot_is_not_attributed`
+   keeps P in `recorded` and passes P's old identity to the kill hook
+   while V is excluded. The safety is instead that the walk's rows never
+   enter those sets at all, and that a signal is identity-checked: on
+   Linux a pidfd pins the process and its start stamp is read again
+   before the signal (`table::kill`), so a reused pid is not the recorded
+   identity; on macOS `ps` checks the stamp first (`table::kill_listed`),
+   with the read-then-signal window the macOS residual names.
 6. The choice changes no wire, journal, contract or public API, and
    installs no new process containment. Per-attempt cgroup containment
    remains #472's work.
+
+## What the walk must report
+
+`observe` and `note` read these facts from the full snapshot when they
+decide an open attempt's lifecycle, and the walk's comparison covers each
+one:
+
+- **An identity.** `Live::record`, `Live::explains`, `before`, `recorded`
+  and `doubted` all turn on the pid and start stamp. An identity that
+  appears is a new row and one that disappears is a missing row, both
+  changes. A reused pid carries a different start stamp, so it is one
+  identity disappearing and another appearing in the same tick.
+- **Running versus zombie.** `Live::note` and `Live::record` skip a
+  zombie, and `Live::running` counts only a non-zombie row. The row's
+  `zombie` is compared. `exiting` is compared too; Linux lists no
+  exiting process (`table::parse_stat`), so it cannot change there.
+- **Explained by group.** `Live::record` seeds its roots with the group
+  while the leader is open, `Live::explains` matches `pgid`, and
+  `Live::running` refuses a group member. While the attempt is open, a
+  process can join its group only from within the group's session, and
+  that session is the driver's own, entered only by fork from the
+  driver; so every group member is the driver's descendant and the
+  engine's, and the walk lists it. A process that leaves the group
+  changes `pgid` without changing identity; it stays in the engine's own
+  tree by descent, and `recorded` or `doubted` explains it by identity,
+  so the group clause is an extra way to explain a process, never the
+  only one for one the walk has already seen. `pgid` is not compared
+  because it cannot make a new process appear in an open attempt's group
+  or make a recorded one cease to be the attempt's.
+- **The youngest birth.** `Live::note` sets `ended` from the start stamps
+  the snapshot shows, and `Live::left` bounds attribution by it. The
+  start stamp is part of the identity, so a changed stamp is an identity
+  change. The snapshot that computes it runs on the first tick that
+  shows the last running row of the attempt turn zombie or disappear,
+  which is exactly the change the walk now reports; before 918d a quiet
+  tick could skip that snapshot and leave `ended` unset indefinitely.
+- **A parent.** `Live::record` follows `ppid` from a recorded identity.
+  On Linux a process's parent changes only when its old parent exits and
+  the subreaper adopts it, and the old parent is in the engine's tree, so
+  its disappearance is a change reported in the same tick. A live parent
+  cannot hand its child to a new parent. `ppid` is not compared because
+  the cause of its change is.
+
+In particular, a process in an open attempt's group that is not the
+engine's descendant cannot exist on Linux. The group is the driver's
+session, a `setsid` session of its own; a process enters a session only
+by being forked from a member, and `setpgid` refuses a group in another
+session. Every group member is therefore a descendant of the driver, and
+the walk sees it. A running member keeps the attempt open and is a row
+the walk lists; one that turns zombie is a compared state change; one
+that is reaped is a disappearance. There is no quiet tick on which a
+group member can hold an open attempt open unseen.
+
+After the leader is reaped the group is no longer the attempt's:
+`Live::record` and `Live::kill` gate their group clauses on `open`, so a
+group number reused by a stranger cannot add a recorded identity or take
+a group signal. `Live::note` and `Live::running` still compare the bare
+`pgid`, so a stranger that reuses the number after the reap can keep
+`ended` unset on an attempt that is already closing. That is main's
+close-time reading of a reused group number, not a change the walk failed
+to report: main read the whole table every tick and saw the same. It is
+left as a follow-up rather than widened here.
+
+The one fact the walk does not report is the full table's own
+non-atomicity: a process can be listed and exit before its row is read,
+so a snapshot can miss a birth the next snapshot would have seen. That is
+main's accepted table-read residual (`process/tree.rs`, decision 0006),
+not the walk-attribution race this decision closes, and #472 closes it by
+cgroup containment.
 
 ## Enforcement binding
 
@@ -82,9 +178,20 @@ The split is bound by tests that fail on a compiling mutation:
   snapshot does not record V, and the kill signals P's identity only.
   Feeding the walk's rows to `observe` instead fails it by name.
 - `process::attempts::tests::quiet_ticks_take_no_snapshot_and_a_doubt_takes_one`
-  drives ten quiet ticks through the injectable `Host` and counts zero
-  snapshots, then one doubtful walk and counts one. Taking a snapshot on
-  every tick fails it.
+  takes one snapshot on the first tick, which has no previous walk, then
+  drives ten quiet ticks through the injectable `Host` and counts zero,
+  then one doubtful walk and counts one. Taking a snapshot on every tick
+  fails it.
+- `process::attempts::tests::a_leader_that_turns_zombie_on_a_quiet_tick_ends_its_attempt`
+  plants a leader that turns zombie, asserts the tick takes a snapshot and
+  sets `ended`, then plants a detached orphan born after that end and
+  asserts it is not recorded and never reaches the kill hook. Comparing
+  the walk by identity only fails it by name, and so does dropping the
+  last-walk comparison.
+- `process::attempts::tests::a_recorded_descendant_that_vanishes_from_the_walk_takes_one_snapshot`
+  plants a recorded descendant that disappears and asserts the tick takes
+  one snapshot after two quiet ones. Dropping the last-walk comparison
+  fails it by name.
 - `process::attempts::tests::a_pre_existing_orphan_the_walk_misses_is_not_the_attempts`
   keeps admission's full `before` excluding a pre-existing orphan the
   walk misses.
@@ -109,9 +216,11 @@ The split is bound by tests that fail on a compiling mutation:
 ## Consequences
 
 An idle engine's tick costs its own tree, not the host's process count,
-and a quiet tick takes no full snapshot. A changed tree, or a walk that
-could not complete, costs one full snapshot, which is what main paid on
-every tick. Admission pays one full table read per attempt, and a kill or
+and a quiet tick takes no full snapshot. A changed tree, a walk that
+could not complete, or the first tick after the registry was empty costs
+one full snapshot, which is what main paid on every tick. A known row
+that turns zombie or disappears is a change, so the snapshot that ends an
+attempt can no longer be skipped. Admission pays one full table read per attempt, and a kill or
 settlement pays full reads during its bounded window. A pid reused by a
 stranger, a stale child pid or a stale ancestry can no longer reach the
 kill set from a walk: the walk only makes the tracker take the snapshot

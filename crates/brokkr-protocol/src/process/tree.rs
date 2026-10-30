@@ -45,20 +45,47 @@
 //! absent: a kill that saw any descendant then parks, naming the means
 //! that was missing.
 //!
-//! One Linux residual remains, accepted by the operator's rulings of
+//! Two Linux residuals remain, both accepted by the operator's rulings of
 //! 2026-09-28 and closed by construction only by per-attempt cgroup
-//! containment (#472). The table-read race the walk once had is closed
-//! (#918): on Linux a tick's walk of the engine's own subtree only asks
-//! whether the registry already knows every identity in it, and whether the
-//! walk could complete. A new identity, or any doubt, makes the tick take
-//! one full snapshot, and only that read attributes: the walk's own rows
-//! never enter `recorded`, `doubted` or a kill. Admission and every kill
-//! read the full table too, so a process that predates the attempt is in
-//! `before` even when a walk would miss it, and an identity the attempt has
-//! already recorded is read by its own row at a settlement read
-//! (`Live::rows`), so a missed row is not read as gone.
+//! containment (#472). The first is the table-read race. A Linux read is a
+//! `/proc` listing followed by one stat read per pid. Suppose a failed
+//! driver's last live descendant forks a detached child after the listing
+//! and exits before its own row is read. That read shows nothing of the
+//! attempt running, and so sets the attempt's end. The next read, up to
+//! the tracker's 100 ms later, finds the child with the engine, born
+//! after that end, and files it as the engine's own. Cleanup can then be
+//! certified while the child runs. The same read has a second ordering.
+//! Once the pid counter has wrapped, a detached child can have a lower
+//! pid than its parent, so its row is read first, still naming that
+//! parent, and the parent exits before its own row is read. That read
+//! records the child neither as a descendant nor as a stray, and the same
+//! certification follows. A third ordering needs no wrap. A detached
+//! descendant born after one read is listed by the next, whose row for
+//! the driver is read first and shows it running. The descendant's parent
+//! and the driver then exit before the descendant's own row is read, so
+//! that row names the engine as its parent while the driver still reads
+//! as leading: no attempt could have left it, and it is filed, once, as
+//! the engine's own. A later read finds nothing of the attempt running,
+//! and the same certification follows. That is the non-atomic snapshot's
+//! residual, and `Live::rows` does not close it: it only supplements an
+//! identity already recorded or doubted, so a descendant the listing never
+//! named stays unnamed.
 //!
-//! The residual is the read-to-fork instant, a wrong kill rather than a
+//! #918 closes a different race, the walk's own attribution. On Linux a
+//! tick walks the engine's own subtree and reports any change since the
+//! last walk (an identity appearing or disappearing, or a row's zombie or
+//! exiting state changing), any identity the registry does not know, any
+//! doubt, and no previous walk; then it takes one full snapshot, and only
+//! that read attributes. The walk's rows never enter `recorded`, `doubted`
+//! or a kill, so a stale numeric pid or a missed row can at most cause an
+//! extra snapshot. Admission and every kill read the full table too, so a
+//! process that predates the attempt is in `before` even when a walk would
+//! miss it, and an identity the attempt has already recorded is read by
+//! its own row at a settlement read (`Live::rows`), so a missed row is not
+//! read as gone. That does not reach the non-atomic snapshot above, which
+//! remains.
+//!
+//! The second is the read-to-fork instant, a wrong kill rather than a
 //! missed one. No read is atomic with the fork, so an orphan of the
 //! engine's own (git's detached maintenance, say) that the engine adopts
 //! between the fresh read before a spawn and the fork itself is absent
