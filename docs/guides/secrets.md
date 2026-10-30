@@ -6,13 +6,26 @@ upstream of it — resolves that to the environment reference `$NAME`, and
 hands the value, read from an operator-side store that lives outside
 version control, to the child through its environment alone.
 
+`secrets set` reads the value from STDIN, never argv, and creates the
+store 0600:
+
 ```
-$ brokkr secrets set GITHUB_TOKEN    # value read from STDIN, never argv; store created 0600
+$ brokkr secrets set GITHUB_TOKEN
 set GITHUB_TOKEN in /home/you/my-app/.brokkr/state/secrets.env
+```
 
-$ brokkr secrets list                # names, one per line — there is no value-printing verb
+`secrets list` prints the bound names, one per line: there is no
+value-printing verb.
+
+```
+$ brokkr secrets list
 GITHUB_TOKEN
+```
 
+`secrets remove` takes the name off the store and says where it
+removed it from:
+
+```
 $ brokkr secrets remove GITHUB_TOKEN
 removed GITHUB_TOKEN from /home/you/my-app/.brokkr/state/secrets.env
 ```
