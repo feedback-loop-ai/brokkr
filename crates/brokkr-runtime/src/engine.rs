@@ -30,8 +30,8 @@ use uuid::Uuid;
 use crate::agents::{Candidate, Lowering, ResultDoor};
 use crate::argv::Executable;
 use crate::bundle::{
-    charters_as_started, charters_intact, Bundle, CharterPin, ExecutableBody, HandsState, Seat,
-    SeatBody, SeatClass, SiteFacts, StepBody, ENGINE_VERSION,
+    charters_as_started, charters_intact, sequence::stops_run, Bundle, CharterPin, ExecutableBody,
+    HandsState, Seat, SeatBody, SeatClass, SiteFacts, StepBody, ENGINE_VERSION,
 };
 use crate::phase_name;
 // The test modules reach these through `use super::*`.
@@ -891,7 +891,7 @@ impl Engine {
     fn request_or_finish(&mut self, state: &RunState) -> Result<(), EngineError> {
         let phase = phase_of(state, "RequestEffect with no phase")?;
         if self.bundle.machine.terminal.contains(&phase) {
-            if phase == "stop" {
+            if stops_run(&self.bundle.machine, &phase) {
                 let reason = state
                     .last_decision
                     .as_ref()

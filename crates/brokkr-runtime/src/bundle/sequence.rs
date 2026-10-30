@@ -443,16 +443,24 @@ fn endings(
     words.into_iter().collect()
 }
 
-/// The terminal the engine reads as a stopped run (`request_or_finish`),
-/// named once here for the hard-vocabulary predicate below.
-const STOP: &str = "stop";
+/// Whether entering `phase` stops the run: it is terminal AND it is the
+/// stopped terminal. This is the engine's own test (`request_or_finish`),
+/// named once so the compiler cannot call a hard arm to a phase merely
+/// NAMED `stop` a stop. Both callers read it here.
+pub(crate) fn stops_run(machine: &Machine, phase: &str) -> bool {
+    machine.terminal.iter().any(|terminal| terminal == phase) && phase == "stop"
+}
 
-/// Whether this table arm is a hard stop: hard severity AND the stop
-/// terminal, because `Machine::evaluate` follows `next` and the engine
-/// tells a stopped run from a completed one by the terminal phase, not by
-/// severity. A hard arm that advances to `done` ends nothing.
-fn is_hard_stop(rule: &Rule) -> bool {
-    rule.severity == "hard" && rule.next.as_deref() == Some(STOP)
+/// Whether this table arm is a hard stop: hard severity AND a destination
+/// the engine stops at, because `Machine::evaluate` follows `next` and the
+/// engine tells a stopped run from a completed one by the terminal phase,
+/// not by severity. A hard arm that advances to `done` ends nothing.
+fn is_hard_stop(machine: &Machine, rule: &Rule) -> bool {
+    rule.severity == "hard"
+        && rule
+            .next
+            .as_deref()
+            .is_some_and(|next| stops_run(machine, next))
 }
 
 /// The phase's hard vocabulary: every word whose every arm in the composed
@@ -462,8 +470,8 @@ pub(super) fn hard_results(machine: &Machine, phase: &str) -> BTreeSet<String> {
     for rule in machine.rules.iter().filter(|rule| rule.from == phase) {
         words
             .entry(rule.result.as_str())
-            .and_modify(|hard| *hard &= is_hard_stop(rule))
-            .or_insert_with(|| is_hard_stop(rule));
+            .and_modify(|hard| *hard &= is_hard_stop(machine, rule))
+            .or_insert_with(|| is_hard_stop(machine, rule));
     }
     words
         .into_iter()

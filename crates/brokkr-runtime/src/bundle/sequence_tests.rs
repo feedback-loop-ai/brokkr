@@ -185,6 +185,18 @@ fn a_manifest_without_endings_recompiles_to_the_same_compiled_endings() {
 }
 
 fn fixture(policy: Value, seat: Value) -> tempfile::TempDir {
+    fixture_with_seats(
+        policy,
+        json!({
+            "work": {"results": ["complete"],
+                     "role": "roles/role.md",
+                     "driver": {"command": ["driver"]}},
+            "review": seat,
+        }),
+    )
+}
+
+fn fixture_with_seats(policy: Value, seats: Value) -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("a fixture directory");
     let bundle = dir.path().join("bundle");
     std::fs::create_dir_all(bundle.join("roles")).expect("roles/");
@@ -199,12 +211,7 @@ fn fixture(policy: Value, seat: Value) -> tempfile::TempDir {
         serde_json::to_string(&json!({
             "name": "sequence-endings",
             "policy": "policy.json",
-            "seats": {
-                "work": {"results": ["complete"],
-                         "role": "roles/role.md",
-                         "driver": {"command": ["driver"]}},
-                "review": seat,
-            },
+            "seats": seats,
         }))
         .expect("bundle json"),
     )
@@ -224,6 +231,21 @@ fn policy(rules: Value) -> Value {
         }))
         .chain(rules.as_array().unwrap().iter().cloned())
         .collect::<Vec<_>>(),
+    })
+}
+
+fn policy_with_terminal(rules: Value, terminal: Value) -> Value {
+    let mut table = policy(rules);
+    table["schema"] = json!("forge.phase-machine/v2");
+    table["terminal"] = terminal;
+    table
+}
+
+fn single_seat(results: &[&str]) -> Value {
+    json!({
+        "results": results,
+        "role": "roles/role.md",
+        "driver": {"command": ["driver"]},
     })
 }
 
@@ -252,6 +274,15 @@ fn compile(dir: &Path) -> Result<Bundle, CompileError> {
     )
 }
 
+/// Compile `dir` and return the fixture's review steps.
+fn compiled_steps(dir: &Path, what: &str) -> Vec<SequenceStep> {
+    let compiled = compile(dir).unwrap_or_else(|error| panic!("{what}: {error}"));
+    match &compiled.seats["review"].body {
+        SeatBody::Sequence { steps } => steps.clone(),
+        other => panic!("the fixture is a sequence: {other:?}"),
+    }
+}
+
 /// Refuse `rule`'s ghost arm by its whole diagnostic in one fixture and
 /// compile the same fixture without it, returning the compiled steps.
 fn arm_refused_then_reachable(
@@ -261,13 +292,7 @@ fn arm_refused_then_reachable(
     word: &str,
 ) -> Vec<SequenceStep> {
     let refused = fixture(policy(rules(true)), seat.clone());
-    assert_eq!(
-        refusal_text(compile(refused.path())),
-        format!(
-            "bundle 'sequence-endings' sequence for phase 'review' cannot emit table arm \
-             '{rule}' result '{word}': no step of the sequence can report it"
-        ),
-    );
+    assert_unreachable_arm(compile(refused.path()), rule, word);
 
     let valid = fixture(policy(rules(false)), seat);
     let compiled = compile(valid.path()).expect("the reachable table compiles");
@@ -277,10 +302,17 @@ fn arm_refused_then_reachable(
     }
 }
 
-/// The whole refusal a fixture's compile returns, matched by variant.
-fn refusal_text(compiled: Result<Bundle, CompileError>) -> String {
+/// The whole refusal an unreachable arm produces, naming the rule and the
+/// word, matched by variant.
+fn assert_unreachable_arm(compiled: Result<Bundle, CompileError>, rule: &str, word: &str) {
     match compiled {
-        Err(CompileError::Invalid(text)) => text,
+        Err(CompileError::Invalid(text)) => assert_eq!(
+            text,
+            format!(
+                "bundle 'sequence-endings' sequence for phase 'review' cannot emit table arm \
+                 '{rule}' result '{word}': no step of the sequence can report it"
+            ),
+        ),
         Err(other) => panic!("expected CompileError::Invalid, got {other:?}"),
         Ok(_) => panic!("the unreachable arm is refused"),
     }
@@ -397,6 +429,73 @@ fn a_hard_word_that_does_not_stop_is_not_an_ending() {
     );
 }
 
+/// The engine stops a run only at a terminal `stop`
+/// (`request_or_finish`), so a hard arm to a phase merely NAMED `stop` is
+/// not a stop. This table accepts `stop` as an ordinary phase that
+/// advances to `done`; `hold` therefore checkpoints.
+#[test]
+fn a_hard_word_to_a_nonterminal_stop_is_not_an_ending() {
+    let dir = fixture_with_seats(
+        policy_with_terminal(
+            json!([
+                {"id": "REVIEW-HOLD", "from": "review", "result": "hold",
+                 "next": "stop", "severity": "hard",
+                 "reason": "hard arm to a phase named stop"},
+                {"id": "REVIEW-REFUSE", "from": "review", "result": "refuse",
+                 "park": true, "reason": "the operator's"},
+                {"id": "STOP-COMPLETE", "from": "stop", "result": "complete",
+                 "next": "done", "reason": "the stop phase advances"},
+            ]),
+            json!(["done"]),
+        ),
+        json!({
+            "work": single_seat(&["complete"]),
+            "stop": single_seat(&["complete"]),
+            "review": sequence_seat_declaring(
+                json!(["continue", "hold"]),
+                json!(["hold", "refuse"]),
+            ),
+        }),
+    );
+    let steps = compiled_steps(dir.path(), "the accepted table compiles");
+    assert_eq!(
+        steps[0].ends_on,
+        Vec::<String>::new(),
+        "`stop` is not terminal, so entering it does not stop the run; `hold` checkpoints"
+    );
+    assert_eq!(
+        steps[0].hard_results,
+        Vec::<String>::new(),
+        "only a hard arm to a terminal `stop` is the phase's hard vocabulary"
+    );
+}
+
+/// The counterpart: with `stop` terminal, the same arm is a hard stop and
+/// `hold` ends the sequence.
+#[test]
+fn a_hard_word_to_a_terminal_stop_is_an_ending() {
+    let dir = fixture(
+        policy(json!([
+            {"id": "REVIEW-HOLD", "from": "review", "result": "hold",
+             "next": "stop", "severity": "hard", "reason": "the stop"},
+            {"id": "REVIEW-REFUSE", "from": "review", "result": "refuse",
+             "next": "done", "reason": "an ordinary refusal"},
+        ])),
+        sequence_seat_declaring(json!(["continue", "hold"]), json!(["hold", "refuse"])),
+    );
+    let steps = compiled_steps(dir.path(), "the terminal stop compiles");
+    assert_eq!(
+        steps[0].ends_on,
+        vec!["hold".to_string()],
+        "`stop` is terminal, so `hold` ends the first step"
+    );
+    assert_eq!(
+        steps[0].hard_results,
+        vec!["hold".to_string()],
+        "a hard arm to the terminal stop is the phase's hard vocabulary"
+    );
+}
+
 /// A step every result of which ends the sequence makes its later steps
 /// unreachable: their words admit no table arm. A checkpoint-only continue
 /// keeps the final step reachable, and then its `ok` admits the arm.
@@ -412,21 +511,16 @@ fn an_arm_only_an_unreachable_later_step_can_emit_is_refused() {
         policy(rules.clone()),
         sequence_seat_declaring(json!(["hold"]), json!(["ok", "hold"])),
     );
-    assert_eq!(
-        refusal_text(compile(dead.path())),
-        "bundle 'sequence-endings' sequence for phase 'review' cannot emit table arm \
-         'REVIEW-OK' result 'ok': no step of the sequence can report it",
-    );
+    assert_unreachable_arm(compile(dead.path()), "REVIEW-OK", "ok");
 
     let reachable = fixture(
         policy(rules),
         sequence_seat_declaring(json!(["continue", "hold"]), json!(["ok", "hold"])),
     );
-    let compiled =
-        compile(reachable.path()).expect("the checkpoint-only continue reaches the last step");
-    let SeatBody::Sequence { steps } = &compiled.seats["review"].body else {
-        panic!("the fixture is a sequence");
-    };
+    let steps = compiled_steps(
+        reachable.path(),
+        "the checkpoint-only continue reaches the last step",
+    );
     assert_eq!(
         steps[0].ends_on,
         vec!["hold".to_string()],

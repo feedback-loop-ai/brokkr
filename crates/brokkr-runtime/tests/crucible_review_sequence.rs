@@ -267,6 +267,30 @@ fn the_panel_prose_path_is_disclosed_where_an_office_is_chosen() {
 
 // ── ruling 7's behavioural leg: the machine's floor, not the prose's ───
 
+/// A single-driver seat declaring `results`.
+fn seat(results: &[&str]) -> serde_json::Value {
+    serde_json::json!({
+        "results": results,
+        "role": "roles/role.md",
+        "driver": {"command": ["driver"]},
+    })
+}
+
+/// A two-step review seat: `first`'s driver, then a final driver reporting
+/// `last`, over the seat's `results`.
+fn review_sequence_seat(results: &[&str], first: &[String], last: &str) -> serde_json::Value {
+    serde_json::json!({
+        "results": results,
+        "sequence": [
+            {"name": "first", "results": ["continue", "hold"],
+             "role": "roles/role.md", "driver": {"command": first}},
+            {"name": "last",
+             "role": "roles/role.md",
+             "driver": {"command": driver(&format!(r#"{{"result":"{last}"}}"#))}},
+        ],
+    })
+}
+
 fn driver(result: &str) -> Vec<String> {
     let script = format!(
         r#"read -r hello
@@ -687,25 +711,114 @@ fn advancing_hard_bundle(first: &str) -> (tempfile::TempDir, Bundle) {
         ],
     });
     let seats = serde_json::json!({
-        "work": {"results": ["complete"],
-                 "role": "roles/role.md",
-                 "driver": {"command": ["driver"]}},
-        "review": {
-            "results": ["hold", "security-hold"],
-            "sequence": [
-                {"name": "first", "results": ["continue", "hold"],
-                 "role": "roles/role.md", "driver": {"command": first}},
-                {"name": "last",
-                 "role": "roles/role.md",
-                 "driver": {"command": driver(r#"{"result":"security-hold"}"#)}},
-            ],
-        },
+        "work": seat(&["complete"]),
+        "review": review_sequence_seat(&["hold", "security-hold"], &first, "security-hold"),
     });
     let (dir, mut compiled) = sequence_fixture(policy, seats);
     // Compile audits the table from its normal entry; the test starts at
     // the review sequence it is about, as the shipped review fixtures do.
     compiled.machine.initial = "review".to_string();
     (dir, compiled)
+}
+
+/// A table whose `stop` phase is NOT terminal: `review.hold` is a hard arm
+/// to a phase merely named `stop`, which the engine would advance through
+/// rather than stop at. The final step's `refuse` parks the run.
+fn nonterminal_stop_bundle(first: &str) -> (tempfile::TempDir, Bundle) {
+    let first = driver(&format!(r#"{{"result":"{first}"}}"#));
+    let policy = serde_json::json!({
+        "schema": "forge.phase-machine/v2",
+        "phases": ["work", "review", "stop", "done"],
+        "initial": "work",
+        "terminal": ["done"],
+        "rules": [
+            {"id": "WORK-ENTER", "from": "work", "result": "complete",
+             "next": "review", "reason": "enter review"},
+            {"id": "REVIEW-HOLD", "from": "review", "result": "hold",
+             "next": "stop", "severity": "hard",
+             "reason": "a hard arm to a phase named stop"},
+            {"id": "REVIEW-REFUSE", "from": "review", "result": "refuse",
+             "park": true, "reason": "the operator's"},
+            {"id": "STOP-COMPLETE", "from": "stop", "result": "complete",
+             "next": "done", "reason": "the stop phase advances"},
+        ],
+    });
+    let seats = serde_json::json!({
+        "work": seat(&["complete"]),
+        "stop": seat(&["complete"]),
+        "review": review_sequence_seat(&["hold", "refuse"], &first, "refuse"),
+    });
+    let (dir, mut compiled) = sequence_fixture(policy, seats);
+    compiled.machine.initial = "review".to_string();
+    (dir, compiled)
+}
+
+/// A hard arm to a phase named `stop` that is not terminal is not the
+/// engine's stop: the chief's `hold` is a checkpoint, the final step runs,
+/// and its refusal parks the run instead of `stop.complete` completing it.
+#[test]
+fn chief_a_nonterminal_stop_does_not_skip_the_refusal() {
+    let test = "crucible_review_sequence::chief_a_nonterminal_stop_does_not_skip_the_refusal";
+    if !crate::own_home::in_own_home(test) {
+        return;
+    }
+    let (_fixture, bundle) = nonterminal_stop_bundle("hold");
+    let (events, _, end) = drive(bundle);
+
+    assert!(
+        checkpointed(&events, "first"),
+        "a hard arm to a nonterminal `stop` is a checkpoint, not an ending"
+    );
+    let succeeded = effect_succeeded(&events);
+    assert_eq!(
+        succeeded.payload["result"]["result"], "refuse",
+        "the final step runs and its refusing result is the effect's"
+    );
+    assert!(
+        succeeded.payload.get("step").is_none(),
+        "the final step settles the effect; no early ending skipped it"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| event.event_type == brokkr_core::envelope::EventType::RunParked),
+        "the refusal parks the run"
+    );
+    assert_eq!(
+        end.state.run.status(),
+        brokkr_core::Status::AwaitingOperator
+    );
+}
+
+/// The control for the test above: the same table and final refusal, reached
+/// through the checkpoint-only `continue`, still parks. The refusal is
+/// reachable, so the first test fails only when `hold` wrongly ends.
+#[test]
+fn chief_checkpoint_reaches_final_refusal_control() {
+    let test = "crucible_review_sequence::chief_checkpoint_reaches_final_refusal_control";
+    if !crate::own_home::in_own_home(test) {
+        return;
+    }
+    let (_fixture, bundle) = nonterminal_stop_bundle("continue");
+    let (events, _, end) = drive(bundle);
+
+    assert!(
+        checkpointed(&events, "first"),
+        "`continue` is checkpoint-only"
+    );
+    let succeeded = effect_succeeded(&events);
+    assert_eq!(
+        succeeded.payload["result"]["result"], "refuse",
+        "the final step's refusing result is the effect's"
+    );
+    assert!(
+        succeeded.payload.get("step").is_none(),
+        "the final step settles the effect"
+    );
+    assert_eq!(
+        end.state.run.status(),
+        brokkr_core::Status::AwaitingOperator
+    );
 }
 
 /// A hard severity that advances to a non-stop terminal must not end the

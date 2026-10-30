@@ -53,7 +53,7 @@ mod pins;
 mod reference;
 mod route_policy;
 mod sandbox;
-mod sequence;
+pub(crate) mod sequence;
 mod site_form;
 mod site_key;
 mod survey;

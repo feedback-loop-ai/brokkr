@@ -784,7 +784,10 @@ fn security_hold_rules_a_hard_stop_from_every_step_of_every_shipped_sequence() {
         // spells the destination independently so a severity-only copy
         // cannot agree with itself.
         let is_hard_stop = |rule: &brokkr_core::policy::Rule| {
-            rule.severity == "hard" && rule.next.as_deref() == Some("stop")
+            rule.severity == "hard"
+                && rule.next.as_deref().is_some_and(|next| {
+                    next == "stop" && machine.terminal.iter().any(|terminal| terminal == next)
+                })
         };
         let mut words: BTreeMap<&str, bool> = BTreeMap::new();
         for rule in machine.rules.iter().filter(|rule| rule.from == phase) {
