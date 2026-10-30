@@ -29,22 +29,25 @@ pub struct Summary {
     pub seq: u64,
     pub standing: Standing,
     pub status: String,
+    /// The word the readouts print, derived once from the standing:
+    /// `stopping` where the fold still words its status `running`
+    /// (decision 0102 ruling 5).
+    pub status_word: String,
     pub strategy: Option<String>,
 }
 
 impl Summary {
-    /// The word a readout prints for the run's status: the fold's own
-    /// word, except that an accepted stop with no ending stands as
-    /// stopping. The rule is [`Standing`]'s, painted here (decision 0071
-    /// ruling 5).
+    /// The word a readout prints; the field carries [`Standing`]'s answer.
     pub fn status_word(&self) -> &str {
-        self.standing.status_word(Some(&self.status))
+        &self.status_word
     }
 }
 
 /// The run's folded state as every surface summarizes it.
 pub fn summary(state: &RunState) -> Summary {
     let facts = Facts::of(state);
+    let standing = facts.standing();
+    let status = state.run.status().as_str().to_string();
     Summary {
         consecutive_failures: state.consecutive_failures.clone(),
         cursor: state.run.to_string(),
@@ -58,8 +61,9 @@ pub fn summary(state: &RunState) -> Summary {
         phase: state.phase.clone(),
         run_id: state.run_id.clone(),
         seq: state.seq,
-        standing: facts.standing(),
-        status: state.run.status().as_str().to_string(),
+        standing,
+        status_word: standing.status_word(Some(&status)).to_string(),
+        status,
         strategy: state.strategy.clone(),
     }
 }

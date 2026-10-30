@@ -221,13 +221,11 @@ const FAVICON_IDLE = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/sv
 const FAVICON_FORGING = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 150 150'%3E%3Crect width='150' height='150' rx='30' fill='%237c5cff'/%3E%3Cpath d='M26 96h40l-13 26h44l-13-26h26V66H38l-10-24h94v24' fill='%2312101a'/%3E%3C/svg%3E";
 
 /* run-list:start */
-// A run's word and why: the fleet's one standing derivation when it names
-// a stopping run, the journal's own status otherwise (decision 0071
-// ruling 7). The page never decides that an accepted stop stands as
-// stopping; it paints the standing it was served, and the detail with it.
+// A run's word and why: brokkr-view serves the word as `status_word`
+// (decision 0102 ruling 5), so the page paints it and decides none
+// (decision 0071 ruling 7). The detail is served beside it.
 function runWord(model) {
-  const standing = model.verdict ? model.verdict.standing : model.standing;
-  return standing === 'stopping' ? 'stopping' : (model.status ?? '?');
+  return model.status_word ?? '?';
 }
 
 function runDetail(model) {

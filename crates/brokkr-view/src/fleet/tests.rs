@@ -2,9 +2,10 @@
 //! verdict it shows, and the section it is listed under.
 
 use super::*;
-use crate::tests::state;
-use crate::{Superseded, SupersededBy};
-use brokkr_core::fold::{Cursor, ParkReason, Run};
+use crate::tests::{ev, state};
+use crate::{summary, Superseded, SupersededBy};
+use brokkr_core::envelope::EventType;
+use brokkr_core::fold::{fold, Cursor, ParkReason, Run};
 use serde_json::{json, Value};
 
 const NOW: &str = "2026-01-02T00:00:00Z";
@@ -254,6 +255,43 @@ fn a_stop_accepted_without_an_ending_stands_as_stopping() {
     assert_eq!(ended.status_word(), "stopped");
     assert_eq!(ended.verdict.detail, None);
     assert_eq!(section_of(&ended, NOW), Section::Recent);
+}
+
+/// #909: the word is the view's, served once. A row and a summary carry
+/// `status_word`, so a client paints it instead of choosing between a
+/// standing and a status (decision 0102 ruling 5, decision 0071 ruling
+/// 7). The fold itself still words the status `running`.
+#[test]
+fn the_row_and_the_summary_serve_the_status_word() {
+    let started = [
+        ev(1, EventType::RunStarted, json!({"manifest": {}}), NOW),
+        ev(2, EventType::PhaseEntered, json!({"phase": "verify"}), NOW),
+    ];
+    let mut accepted = started.to_vec();
+    for (seq, event_type, payload) in [
+        (
+            3,
+            EventType::OperatorCommanded,
+            json!({"command_id": "c", "command": "stop"}),
+        ),
+        (4, EventType::OperatorAccepted, json!({"command_id": "c"})),
+    ] {
+        accepted.push(ev(seq, event_type, payload, NOW));
+    }
+    for (events, word) in [(&started[..], "running"), (&accepted[..], "stopping")] {
+        let state = fold(events).expect("the journal folds");
+        let row = run_row(&crate::tests::listed("r1", "feat", NOW, Some(&state)));
+        let row = serde_json::to_value(row).expect("the row serializes");
+        let summary = serde_json::to_value(summary(&state)).expect("the summary serializes");
+        assert_eq!(row["status_word"], word);
+        assert_eq!(summary["status_word"], word);
+    }
+    let state = fold(&accepted).expect("the journal folds");
+    assert_eq!(
+        state.run.status().as_str(),
+        "running",
+        "the fold's own word is unchanged"
+    );
 }
 
 /// Acceptance 4, shipped: the cell names the ruling that shipped it, and

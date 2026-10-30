@@ -256,6 +256,7 @@ fn a_run_off_a_terminal_prints_what_it_always_has() {
   "seq": 19,
   "standing": "shipped",
   "status": "completed",
+  "status_word": "completed",
   "strategy": null
 }
 "#;

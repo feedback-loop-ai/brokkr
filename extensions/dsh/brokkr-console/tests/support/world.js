@@ -131,6 +131,7 @@ export function runViewDoc(over = {}) {
       run_id: 'encrypt-the-token-store-41d0a9c2',
       seq,
       status: 'awaiting_operator',
+      status_word: 'awaiting_operator',
       standing: 'parked',
       detail: null,
       strategy: null,

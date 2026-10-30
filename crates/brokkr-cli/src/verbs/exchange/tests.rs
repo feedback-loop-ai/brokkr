@@ -70,6 +70,7 @@ fn verify_run_prints_the_chain_and_the_state_in_these_bytes() {
     "seq": 2,
     "standing": "running",
     "status": "running",
+    "status_word": "running",
     "strategy": null
   }
 }"#

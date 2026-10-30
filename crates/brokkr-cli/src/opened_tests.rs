@@ -430,9 +430,10 @@ fn drawn_in_the_run_list(runs: serde_json::Value) -> serde_json::Value {
     serde_json::from_str(&drawn.to_std_string_escaped()).unwrap()
 }
 
-/// #909: the run list paints the shared standing's word, not the journal's
-/// running status, and a stopping run is not counted as forging; the
-/// standing's detail is the run page's, not a word the page derives.
+/// #909: the run list paints the served `status_word`, not a word it
+/// chooses from the standing and the journal's running status, and a
+/// stopping run is not counted as forging; the served detail is the run
+/// page's, not a word the page derives (decision 0102 ruling 5).
 #[test]
 fn the_run_list_reads_a_stopping_run_from_the_shared_standing() {
     let detail = "stop accepted at seq 4; no ending written. If no driver is running it, \
@@ -441,6 +442,7 @@ fn the_run_list_reads_a_stopping_run_from_the_shared_standing() {
         "run_id": "r1",
         "status": "running",
         "status_known": true,
+        "status_word": "stopping",
         "phase": "verify",
         "seq": 4,
         "verdict": {"standing": "stopping", "detail": detail},
@@ -451,6 +453,22 @@ fn the_run_list_reads_a_stopping_run_from_the_shared_standing() {
     );
     assert_eq!(drawn["forging"], serde_json::json!([false]));
     assert_eq!(drawn["detail"], detail);
+    // The page paints the served word even where the standing disagrees:
+    // the choice is `brokkr-view`'s, never the page's.
+    let contradicted = drawn_in_the_run_list(serde_json::json!([{
+        "run_id": "r1",
+        "status": "running",
+        "status_known": true,
+        "status_word": "stopping",
+        "phase": "verify",
+        "seq": 9,
+        "verdict": {"standing": "running", "detail": detail},
+    }]));
+    assert_eq!(
+        contradicted["list"],
+        serde_json::json!(["r1stopping verify seq 9"])
+    );
+    assert_eq!(contradicted["forging"], serde_json::json!([false]));
     // The run header paints the same word and why.
     assert!(PAGE.contains("const word = runWord(s);"));
     assert!(PAGE.contains("const stop = runDetail(s);"));

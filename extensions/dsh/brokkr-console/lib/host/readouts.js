@@ -356,6 +356,9 @@ function summary(value, path) {
     run_id: text(value.run_id, `${path}.run_id`),
     seq: count(value.seq, `${path}.seq`),
     status: text(value.status, `${path}.status`),
+    // The word the view derived, served once: the rail paints it rather
+    // than choosing one from the standing and the status (#909).
+    status_word: text(value.status_word, `${path}.status_word`),
     // The shared standing and its why, as `inspect --json` carries them:
     // a stopping run is not read as running here either (#909).
     standing: word(value.standing, STANDINGS, `${path}.standing`),

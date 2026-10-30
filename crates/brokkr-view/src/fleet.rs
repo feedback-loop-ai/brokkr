@@ -23,6 +23,8 @@ pub struct RunRow {
     pub status: Option<String>,
     /// The status is one of the four the surfaces have a colour for.
     pub status_known: bool,
+    /// The word a readout prints, derived once from the standing (0102).
+    pub status_word: String,
     pub phase: Option<String>,
     pub seq: Option<u64>,
     pub created_at: String,
@@ -74,11 +76,9 @@ pub struct RunRow {
 }
 
 impl RunRow {
-    /// The word a readout prints for the run's status: its fold's status,
-    /// except that a run whose accepted stop has no ending stands as
-    /// stopping, not running.
+    /// The word a readout prints; the field carries [`Standing`]'s answer.
     pub fn status_word(&self) -> &str {
-        self.verdict.standing.status_word(self.status.as_deref())
+        &self.status_word
     }
 }
 
@@ -593,14 +593,14 @@ pub fn run_row(entry: &RunEntry) -> RunRow {
     let status = entry
         .state
         .map(|state| state.run.status().as_str().to_string());
-    let status_known = match &status {
-        Some(status) => KNOWN_STATUS.contains(&status.as_str()),
-        None => false,
-    };
+    let status_known = matches!(status.as_deref(), Some(word) if KNOWN_STATUS.contains(&word));
+    let verdict = verdict(entry.state, entry.residuals);
+    let status_word = verdict.standing.status_word(status.as_deref()).to_string();
     RunRow {
         run_id: entry.run_id.to_string(),
         status,
         status_known,
+        status_word,
         phase: entry.state.and_then(|state| state.phase.clone()),
         seq: entry.state.map(|state| state.seq),
         created_at: entry.created_at.to_string(),
@@ -618,7 +618,7 @@ pub fn run_row(entry: &RunEntry) -> RunRow {
             .detail
             .and_then(|refusal| refusal.acknowledgement.cloned()),
         title: title(entry.feature),
-        verdict: verdict(entry.state, entry.residuals),
+        verdict,
         hire: entry.state.and_then(hire),
         order_at: order_at(entry.last_recorded_at, entry.created_at),
         paged_at: None,

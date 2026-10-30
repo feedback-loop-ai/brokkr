@@ -523,10 +523,10 @@ window.__ModuleLoader__.load({
      * current phase boxed, and each road back beneath.
      */
     function railOf(view) {
-      const standing = view.summary?.standing ?? null
-      // A stopping run is not driven: its rail reads the stopping tone and
-      // wears no live pulse, whatever the fold still words its status.
-      const status = standing === 'stopping' ? 'stopping' : (view.summary?.status ?? null)
+      // The word is brokkr-view's, served as `status_word`; the rail paints
+      // it and derives none (decision 0102 ruling 5). A stopping run is not
+      // driven, so it reads the stopping tone and wears no live pulse.
+      const status = view.summary?.status_word ?? null
       const ranks = []
       const spans = []
       for (const phase of view.phases) {
@@ -558,7 +558,7 @@ window.__ModuleLoader__.load({
       const roads = roadsOf(spans, placed, names, edge)
       const width = Math.max(edge + RAIL.pad, ...roads.map((road) => road.depart + RAIL.pad))
       const height = roads.length === 0 ? names + 14 : Math.max(...roads.map((road) => road.y)) + ROAD.hang + 8
-      return { status, driven: (standing ?? status) === 'running', placed, spans, roads, y, spread, names, width, height }
+      return { status, driven: status === 'running', placed, spans, roads, y, spread, names, width, height }
     }
 
     /** What is picked: a phase `{phase}`, a step `{phase, key}`, or an arrow `{arrow: {from, to}}`. */

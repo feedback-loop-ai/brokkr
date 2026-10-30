@@ -33,10 +33,9 @@ use crate::event_index::{finished, first_unindexed, runless, write_parks, IndexR
 use crate::schema::all_present;
 use crate::{head_of, patiently, seat_summary, Acknowledgement, Store, StoreError};
 
-/// The lane a row's range is read from (ruling 6), exactly as ruled: a row
-/// whose fold, or whose aggregates or accepted stop, are not its head's
-/// reads behind and whole, so no reader trusts columns older than the head
-/// it stands at.
+/// The lane a row's range is read from (ruling 6): a row whose fold,
+/// aggregates or accepted stop are not its head's reads behind and whole,
+/// so no reader trusts columns older than the head it stands at.
 fn lane() -> String {
     format!(
         "CASE
@@ -52,8 +51,7 @@ fn lane() -> String {
     )
 }
 
-/// Both stamps: a row whose aggregates or accepted stop were not written
-/// at its folded head is sent behind, whichever writer folded it.
+/// Either stamp off the folded head sends the row behind, whichever writer folded it.
 fn stale(prefix: &str) -> String {
     format!("{} OR {}", aggregate::stale(prefix), stop::stale(prefix))
 }
@@ -145,14 +143,12 @@ fn acknowledged_by(acknowledgement: &str) -> String {
 }
 
 /// The table, its page index and its five triggers, `IF NOT EXISTS`
-/// throughout so racing openers agree. The whole values sit last in the
-/// row, so a page that selects none of them reads none of them. A stamp
-/// past its bound is cut by a trigger of its own, which fires only then,
-/// whichever statement wrote it, and keeps the stamp whole last in the
-/// row; its own update does not fire it again, as SQLite fires no trigger
-/// recursively unless asked, and leaves a stamp within its bound anyway. A
-/// writer from before the stopping columns leaves their stamp off its
-/// folded head, so a trigger sends its row behind, as the aggregates' does.
+/// throughout so racing openers agree. The whole values sit last, so a page
+/// that selects none reads none. A stamp past its bound is cut by its own
+/// trigger, whichever statement wrote it, and kept whole last in the row;
+/// its update fires it again only if SQLite were asked to recurse. A writer
+/// from before the stopping columns leaves their stamp off its folded head,
+/// so a trigger sends its row behind, as the aggregates' does.
 fn migration() -> String {
     format!(
         "CREATE TABLE IF NOT EXISTS run_summary (
@@ -235,10 +231,8 @@ fn seed() -> String {
 
 /// Send behind every row whose aggregates or accepted stop are not its
 /// folded head's, as the triggers send one: the repair recreates them, and
-/// a writer from before either may have folded while they were gone, so
-/// its columns must not stand at the head the run now has. The backfill
-/// that follows the open refolds the rows this sends behind (rulings 4 and
-/// 8).
+/// a writer from before either may have folded while they were gone. The
+/// open's backfill refolds the rows this sends behind (rulings 4 and 8).
 fn send_stale_behind() -> String {
     format!(
         "UPDATE run_summary SET folded_seq = NULL, folded_hash = NULL

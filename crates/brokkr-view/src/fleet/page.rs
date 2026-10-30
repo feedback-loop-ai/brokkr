@@ -107,11 +107,14 @@ pub fn summary_row(row: &Row, whole: Option<&Whole>) -> RunRow {
     });
     let refused = row.refused.as_ref();
     let status = row.status.map(|status| status.as_str().to_string());
+    let verdict = verdict_of(facts, row.residual_open);
+    let status_word = verdict.standing.status_word(status.as_deref()).to_string();
     RunRow {
         run_id: row.run_id.clone(),
         status_known: status
             .as_deref()
             .is_some_and(|status| KNOWN_STATUS.contains(&status)),
+        status_word,
         status,
         phase: facts.and_then(|facts| facts.phase).map(str::to_string),
         seq: facts.map(|_| row.folded.0),
@@ -133,7 +136,7 @@ pub fn summary_row(row: &Row, whole: Option<&Whole>) -> RunRow {
                 .collect()
         }),
         title: title(feature),
-        verdict: verdict_of(facts, row.residual_open),
+        verdict,
         hire: row.hired.as_ref().map(|hired| Hire {
             seat: shown(&hired.seat).to_string(),
             attempt: hired.failed_attempts + 1,

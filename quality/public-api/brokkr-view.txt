@@ -598,6 +598,7 @@ pub brokkr_view::RunRow::run_id: alloc::string::String
 pub brokkr_view::RunRow::seq: core::option::Option<u64>
 pub brokkr_view::RunRow::status: core::option::Option<alloc::string::String>
 pub brokkr_view::RunRow::status_known: bool
+pub brokkr_view::RunRow::status_word: alloc::string::String
 pub brokkr_view::RunRow::title: alloc::string::String
 pub brokkr_view::RunRow::verdict: brokkr_view::Verdict
 impl brokkr_view::RunRow
@@ -659,6 +660,7 @@ pub brokkr_view::Summary::run_id: alloc::string::String
 pub brokkr_view::Summary::seq: u64
 pub brokkr_view::Summary::standing: brokkr_view::Standing
 pub brokkr_view::Summary::status: alloc::string::String
+pub brokkr_view::Summary::status_word: alloc::string::String
 pub brokkr_view::Summary::strategy: core::option::Option<alloc::string::String>
 impl brokkr_view::Summary
 pub fn brokkr_view::Summary::status_word(&self) -> &str

@@ -2715,7 +2715,7 @@ fn a_live_node_pulses_and_a_still_terminal_and_a_still_run_never_do() {
     // and a live fleet keeps the corner pulsing over a concluded run.
     tui.animate = true;
     match views.run.as_mut().unwrap().summary.as_mut() {
-        Some(summary) => summary.status = "completed".to_string(),
+        Some(summary) => summary.status_word = "completed".to_string(),
         None => panic!("the fixture folds"),
     }
     for row in &mut views.runs.runs {

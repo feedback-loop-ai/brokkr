@@ -113,9 +113,9 @@ test('a carried verdict keeps the view’s status, activity and original attempt
   assert.throws(() => runViewOf({ ...doc, view_version: 23 }), new ReadoutRefused('version', 'brokkr inspect is at view version 23; this console paints version 28 only'))
 })
 
-test('a run view summary keeps the shared standing and its why (#909)', () => {
+test('a run view summary keeps the shared standing, its word and its why (#909)', () => {
   const detail = 'stop accepted at seq 93; no ending written. If no driver is running it, `brokkr conclude` closes it.'
-  const doc = runViewDoc({ summary: { ...runViewDoc().summary, status: 'running', standing: 'stopping', detail, park_reason: null } })
+  const doc = runViewDoc({ summary: { ...runViewDoc().summary, status: 'running', status_word: 'stopping', standing: 'stopping', detail, park_reason: null } })
   const summary = runViewOf(doc).summary
-  assert.deepEqual([summary.status, summary.standing, summary.detail], ['running', 'stopping', detail])
+  assert.deepEqual([summary.status, summary.status_word, summary.standing, summary.detail], ['running', 'stopping', 'stopping', detail])
 })

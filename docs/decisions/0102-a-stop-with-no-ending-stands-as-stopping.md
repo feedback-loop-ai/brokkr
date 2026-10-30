@@ -1,4 +1,4 @@
-# 0097 — A stop accepted with no ending written stands as stopping, not running
+# 0102 — A stop with no ending stands as stopping, not running
 
 Status: proposed
 Date: 2026-10-29
@@ -59,8 +59,11 @@ command or its seq.
    other trail row's bytes are unchanged.
 5. **The wire moves once.** `VIEW_VERSION` moves 27 to 28: a row's
    `verdict.standing` may now be `stopping`, a verdict carries its
-   `detail`, and `inspect`'s summary carries `standing` and `detail`.
-   The public API additions are named on the pull request.
+   `detail`, `inspect`'s summary carries `standing` and `detail`, and both
+   a run row and the summary carry `status_word`, the one word a client
+   paints (decision 0071 rulings 5 and 7). The public API additions are
+   the two served `status_word` fields, `RunRow.status_word` and
+   `Summary.status_word`, named on the pull request.
 
 Not this story: whether `stop` itself should write the ending when it can
 prove no driver holds the run (decision 0029's fence, the U8e lease
