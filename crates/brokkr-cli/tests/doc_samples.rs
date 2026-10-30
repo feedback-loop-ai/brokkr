@@ -103,6 +103,18 @@ enum Place {
     DrivenAfter(&'static [&'static [&'static str]]),
 }
 
+impl Place {
+    /// Whether a sample here runs on the bootstrap bench's scaffold, whose
+    /// gates must be boxed. Each place answers by name, so a place added
+    /// later must say.
+    fn on_the_scaffold(self) -> bool {
+        match self {
+            Place::Workspace | Place::Fixture(_) | Place::Folder(_) | Place::Library(_) => false,
+            Place::Scaffold | Place::Driven | Place::DrivenAfter(_) => true,
+        }
+    }
+}
+
 /// The run the guides drive, as Step 3 of the quickstart starts it.
 const RUN: [&str; 3] = ["run", "--feature", "prefix selectors for the read surfaces"];
 
@@ -638,52 +650,88 @@ fn printed(sample: &Sample) -> Printed {
             }
             run(repo.path(), roots_of(repo.path()), &hermetic, &argv)
         }
-        Place::Scaffold | Place::Driven | Place::DrivenAfter(_) => {
-            let scaffold = scaffold_with(hermetic);
-            let stubbed = |command: &mut Command| {
-                hermetic(command);
-                command
-                    .env("PATH", &scaffold.path)
-                    .env("BROKKR_CLAUDE_BIN", &scaffold.stub);
+        Place::Scaffold => {
+            let before = Before {
+                drive: false,
+                chain: &[],
+                run_id: false,
             };
-            let chain = match sample.place {
-                Place::DrivenAfter(chain) => chain,
-                _ => &[],
-            };
-            if !matches!(sample.place, Place::Scaffold) {
-                drive(&scaffold, &stubbed);
-            }
-            let names_run = words.iter().any(|arg| arg.contains("<run>"));
-            let id = match sample.place {
-                Place::Driven if names_run => Some(driven_run_id(&scaffold, &stubbed)),
-                Place::DrivenAfter(_) => Some(driven_run_id(&scaffold, &stubbed)),
-                _ => None,
-            };
-            if let Some(id) = &id {
-                for earlier in chain {
-                    let earlier: Vec<String> = earlier.iter().map(|arg| filled(arg, id)).collect();
-                    let earlier: Vec<&str> = earlier.iter().map(String::as_str).collect();
-                    let (code, _, stderr) = brokkr_with(&earlier, &scaffold.root, stubbed);
-                    assert_eq!(
-                        code,
-                        Some(0),
-                        "{}: the chain's `{}` did not exit zero, so the sample never runs: \
-                         {stderr}",
-                        sample.prompt,
-                        spelled(&earlier)
-                    );
-                }
-            }
-            let filled: Vec<String> = words
-                .iter()
-                .map(|arg| match &id {
-                    Some(id) => filled(arg, id),
-                    None => arg.clone(),
-                })
-                .collect();
-            let filled: Vec<&str> = filled.iter().map(String::as_str).collect();
-            run(&scaffold.root, roots_of(&scaffold.root), &stubbed, &filled)
+            scaffolded(sample, &words, &hermetic, before)
         }
+        Place::Driven => {
+            let before = Before {
+                drive: true,
+                chain: &[],
+                run_id: words.iter().any(|arg| arg.contains("<run>")),
+            };
+            scaffolded(sample, &words, &hermetic, before)
+        }
+        Place::DrivenAfter(chain) => {
+            let before = Before {
+                drive: true,
+                chain,
+                run_id: true,
+            };
+            scaffolded(sample, &words, &hermetic, before)
+        }
+    }
+}
+
+/// What a place on the scaffold does before a sample's own argv runs,
+/// each choice stated by the place itself: whether [`RUN`] is driven
+/// first, the earlier argvs run after it, in order, and whether the
+/// driven run's id is read to fill `<run>`.
+struct Before {
+    drive: bool,
+    chain: &'static [&'static [&'static str]],
+    run_id: bool,
+}
+
+/// A sample at one of the scaffold's places, after what `before` says,
+/// run at the scaffold's root with the `claude` CLI stubbed. Each earlier
+/// argv must exit zero, or the sample refuses with that command's stderr
+/// and its own argv never runs.
+fn scaffolded(
+    sample: &Sample,
+    words: &[String],
+    hermetic: &dyn Fn(&mut Command),
+    before: Before,
+) -> Printed {
+    let scaffold = scaffold_with(hermetic);
+    let stubbed = |command: &mut Command| {
+        hermetic(command);
+        command
+            .env("PATH", &scaffold.path)
+            .env("BROKKR_CLAUDE_BIN", &scaffold.stub);
+    };
+    if before.drive {
+        drive(&scaffold, &stubbed);
+    }
+    let id = before.run_id.then(|| driven_run_id(&scaffold, &stubbed));
+    let fill = |arg: &str| match &id {
+        Some(id) => filled(arg, id),
+        None => arg.to_string(),
+    };
+    for earlier in before.chain {
+        let earlier: Vec<String> = earlier.iter().map(|arg| fill(arg)).collect();
+        let earlier: Vec<&str> = earlier.iter().map(String::as_str).collect();
+        let (code, _, stderr) = brokkr_with(&earlier, &scaffold.root, stubbed);
+        assert_eq!(
+            code,
+            Some(0),
+            "{}: the chain's `{}` did not exit zero, so the sample never runs: {stderr}",
+            sample.prompt,
+            spelled(&earlier)
+        );
+    }
+    let argv: Vec<String> = words.iter().map(|arg| fill(arg)).collect();
+    let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
+    let (code, stdout, stderr) = brokkr_with(&argv, &scaffold.root, stubbed);
+    Printed {
+        code,
+        stdout,
+        stderr,
+        roots: roots_of(&scaffold.root),
     }
 }
 
@@ -867,15 +915,9 @@ fn every_brokkr_prompt_in_a_living_doc_is_sampled_or_allowed() {
 /// The samples a host runs: all of them where the scaffold's gates can
 /// be `boxed`, and else all but those at the scaffold's places.
 fn runnable(boxed: bool) -> Vec<Sample> {
-    let scaffolded = |sample: &&Sample| {
-        matches!(
-            sample.place,
-            Place::Scaffold | Place::Driven | Place::DrivenAfter(_)
-        )
-    };
     SAMPLED
         .iter()
-        .filter(|sample| boxed || !scaffolded(sample))
+        .filter(|sample| boxed || !sample.place.on_the_scaffold())
         .copied()
         .collect()
 }

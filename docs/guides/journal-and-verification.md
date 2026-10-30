@@ -54,6 +54,10 @@ note: the map /home/you/my-app/.brokkr/realms.json found in this workspace is ad
 exported ./out/prefix-selectors-for-the-read-su-….ndjson
 ```
 
+Each file is named after the run's full id, as `export` printed it. In
+the commands below, `<run>` stands for that id: write your run's id in
+its place.
+
 `verify-run` reads the file `export` wrote and verifies the chain, the
 envelopes and the fold, offline. `replay` rebuilds the run twice and
 compares:
