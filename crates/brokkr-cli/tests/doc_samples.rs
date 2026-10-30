@@ -9,6 +9,10 @@
 //! prompt, its first line, and every line after it is what the built
 //! binary prints for that argv: run where its row says ([`Place`]), on the
 //! stream it names ([`Stream`]), exiting as it expects ([`Exit`]). A
+//! sample that reads an earlier command's output names that command in
+//! [`Place::DrivenAfter`], and the earlier argv runs first and must exit
+//! zero. A prompt that names the run's file writes `<run>` where the
+//! driven run's id goes, and the sampler fills it in. A
 //! fixture's root reads in the doc as [`HOME`], the guides' convention.
 //! `…` is the one wildcard, as trycmd reads it: a
 //! line that is `…` alone stands for any number of whole lines, and a `…`
@@ -38,7 +42,7 @@ const ELIDED: &str = "…";
 /// Docs whose `$ brokkr` prompts are shown but not sampled, one row per
 /// doc, never per line, each with its reason. An allowance that covers
 /// nothing fails, so none outlives its prompts.
-const ALLOWED: [(&str, &str); 6] = [
+const ALLOWED: [(&str, &str); 5] = [
     (
         "docs/guides/quickstart.md",
         "its recipe-shelf blocks (recipes list, and Try another recipe's variant add, list and \
@@ -59,11 +63,6 @@ const ALLOWED: [(&str, &str); 6] = [
         "its transcript blocks need a real model's session, its muninn block a Muninn seat \
          and a parked fleet, its operator supersede block and the inspect after it a \
          historical run's residual findings, and watch and ui are live views",
-    ),
-    (
-        "docs/guides/journal-and-verification.md",
-        "a driven run's evidence (anchor, export, verify-run, replay, import, keep-refs), \
-         which #365's next slice samples at Place::Driven",
     ),
     (
         "docs/guides/provider-adapters.md",
@@ -95,6 +94,25 @@ enum Place {
     /// The [`Place::Scaffold`] after [`RUN`], the guides' run, reached
     /// `done`.
     Driven,
+    /// The [`Place::Driven`] after each earlier argv, in order, each run
+    /// at the scaffold's root and required to exit zero. An earlier
+    /// command that fails refuses the sample with its stderr, and the
+    /// sample's own argv never runs. A prompt that names the run's file
+    /// writes `<run>` where the driven run's id goes; the sampler fills
+    /// it in before the argv runs.
+    DrivenAfter(&'static [&'static [&'static str]]),
+}
+
+impl Place {
+    /// Whether a sample here runs on the bootstrap bench's scaffold, whose
+    /// gates must be boxed. Each place answers by name, so a place added
+    /// later must say.
+    fn on_the_scaffold(self) -> bool {
+        match self {
+            Place::Workspace | Place::Fixture(_) | Place::Folder(_) | Place::Library(_) => false,
+            Place::Scaffold | Place::Driven | Place::DrivenAfter(_) => true,
+        }
+    }
 }
 
 /// The run the guides drive, as Step 3 of the quickstart starts it.
@@ -152,7 +170,28 @@ const ADD_NODE: [&str; 5] = [
 /// agent library, then its capability definitions.
 const ADAPTER: &str = "adapters/claude.json";
 
-const SAMPLED: [Sample; 20] = [
+/// The `export` both chained file samples read.
+const EXPORT: [&str; 5] = ["export", "--run", "latest", "--out", "./out"];
+
+/// A sample of the journal guide's evidence at a driven place, on
+/// `stream`; every one succeeds.
+const fn journal(
+    prompt: &'static str,
+    argv: &'static [&'static str],
+    place: Place,
+    stream: Stream,
+) -> Sample {
+    Sample {
+        doc: "docs/guides/journal-and-verification.md",
+        prompt,
+        argv,
+        place,
+        stream,
+        exit: Exit::Success,
+    }
+}
+
+const SAMPLED: [Sample; 30] = [
     Sample {
         doc: "docs/guides/agent-library.md",
         prompt: "$ brokkr agents list",
@@ -328,6 +367,79 @@ const SAMPLED: [Sample; 20] = [
         stream: Stream::Stderr,
         exit: Exit::Success,
     },
+    // #365 slice 5: the journal guide's evidence, each command at a
+    // driven run. The chained samples name the commands they read, so
+    // `verify-run` and `import` run after the `export` that writes their
+    // file, `anchor --check` after the `anchor` it checks, and
+    // `keep-refs delete` after the `plant` it removes. The run's id ends
+    // in a fresh uuid suffix every drive, so a prompt that names its file
+    // writes `<run>`, which the sampler fills in.
+    journal(
+        "$ brokkr anchor --run latest",
+        &["anchor", "--run", "latest"],
+        Place::Driven,
+        Stream::Stderr,
+    ),
+    journal(
+        "$ brokkr anchor --run latest --check",
+        &["anchor", "--run", "latest", "--check"],
+        Place::DrivenAfter(&[&["anchor", "--run", "latest"]]),
+        Stream::Stdout,
+    ),
+    journal(
+        "$ brokkr export --run latest --out ./out --redact",
+        &["export", "--run", "latest", "--out", "./out", "--redact"],
+        Place::Driven,
+        Stream::Stderr,
+    ),
+    journal(
+        "$ brokkr export --run latest --out ./out",
+        &["export", "--run", "latest", "--out", "./out"],
+        Place::Driven,
+        Stream::Stderr,
+    ),
+    journal(
+        "$ brokkr verify-run ./out/<run>.ndjson",
+        &["verify-run", "./out/<run>.ndjson"],
+        Place::DrivenAfter(&[&EXPORT]),
+        Stream::Stdout,
+    ),
+    journal(
+        "$ brokkr replay --run latest",
+        &["replay", "--run", "latest"],
+        Place::Driven,
+        Stream::Stdout,
+    ),
+    journal(
+        "$ brokkr import --from ./out/<run>.ndjson --db ./canonical/forge.db",
+        &[
+            "import",
+            "--from",
+            "./out/<run>.ndjson",
+            "--db",
+            "./canonical/forge.db",
+        ],
+        Place::DrivenAfter(&[&EXPORT]),
+        Stream::Stdout,
+    ),
+    journal(
+        "$ brokkr keep-refs list",
+        &["keep-refs", "list"],
+        Place::Driven,
+        Stream::Stdout,
+    ),
+    journal(
+        "$ brokkr keep-refs plant --run latest",
+        &["keep-refs", "plant", "--run", "latest"],
+        Place::Driven,
+        Stream::Stderr,
+    ),
+    journal(
+        "$ brokkr keep-refs delete --run latest",
+        &["keep-refs", "delete", "--run", "latest"],
+        Place::DrivenAfter(&[&["keep-refs", "plant", "--run", "latest"]]),
+        Stream::Stderr,
+    ),
 ];
 
 /// Whether a line of a fenced block is a `$ brokkr` prompt.
@@ -469,16 +581,49 @@ fn drive(scaffold: &Scaffold, configure: &dyn Fn(&mut Command)) {
     );
 }
 
+/// A run's id, as `inspect --run latest --json` prints it.
+#[derive(Deserialize)]
+struct Inspected {
+    summary: RunSummary,
+}
+
+#[derive(Deserialize)]
+struct RunSummary {
+    run_id: String,
+}
+
+/// The id of the run [`drive`] left at `latest` in `scaffold`.
+fn driven_run_id(scaffold: &Scaffold, configure: &dyn Fn(&mut Command)) -> String {
+    let (code, stdout, stderr) = brokkr_with(
+        &["inspect", "--run", "latest", "--json"],
+        &scaffold.root,
+        configure,
+    );
+    assert_eq!(
+        code,
+        Some(0),
+        "inspect did not read the run a sample chains after: {stderr}"
+    );
+    let inspected: Inspected = serde_json::from_str(&stdout)
+        .unwrap_or_else(|error| panic!("inspect printed no run id: {error}\n{stdout}"));
+    inspected.summary.run_id
+}
+
+/// `arg` with the run's placeholder `<run>` filled by `run`.
+fn filled(arg: &str, run: &str) -> String {
+    arg.replace("<run>", run)
+}
+
 /// The built binary run with a sample's argv where the sample says, an
 /// `init` with a `claude` first on PATH, as `init_stacks` runs it. Every
 /// command it spawns is [`hermetic`].
 fn printed(sample: &Sample) -> Printed {
     let config = tempfile::tempdir().unwrap();
     let hermetic = |command: &mut Command| hermetic(command, config.path());
-    let argv: Vec<String> = sample.argv.iter().map(|arg| expanded(arg)).collect();
-    let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
-    let run = |cwd: &Path, roots: Vec<String>, configure: &dyn Fn(&mut Command)| {
-        let (code, stdout, stderr) = brokkr_with(&argv, cwd, configure);
+    let words: Vec<String> = sample.argv.iter().map(|arg| expanded(arg)).collect();
+    let argv: Vec<&str> = words.iter().map(String::as_str).collect();
+    let run = |cwd: &Path, roots: Vec<String>, configure: &dyn Fn(&mut Command), argv: &[&str]| {
+        let (code, stdout, stderr) = brokkr_with(argv, cwd, configure);
         Printed {
             code,
             stdout,
@@ -487,37 +632,106 @@ fn printed(sample: &Sample) -> Printed {
         }
     };
     match sample.place {
-        Place::Workspace => run(&workspace(), Vec::new(), &hermetic),
+        Place::Workspace => run(&workspace(), Vec::new(), &hermetic, &argv),
         Place::Fixture(fixture) => {
             let repo = repository_of(fixture);
-            run(repo.path(), roots_of(repo.path()), &hermetic)
+            run(repo.path(), roots_of(repo.path()), &hermetic, &argv)
         }
         Place::Folder(fixture) => {
             let repo = repository_of(fixture);
             let (code, _, stderr) = brokkr_with(&["init", "."], repo.path(), hermetic);
             assert_eq!(code, Some(0), "{fixture}: init refused: {stderr}");
-            run(repo.path(), roots_of(repo.path()), &hermetic)
+            run(repo.path(), roots_of(repo.path()), &hermetic, &argv)
         }
         Place::Library(paths) => {
             let repo = repository();
             for path in paths {
                 copied(&workspace().join(path), &repo.path().join(path));
             }
-            run(repo.path(), roots_of(repo.path()), &hermetic)
+            run(repo.path(), roots_of(repo.path()), &hermetic, &argv)
         }
-        Place::Scaffold | Place::Driven => {
-            let scaffold = scaffold_with(hermetic);
-            let stubbed = |command: &mut Command| {
-                hermetic(command);
-                command
-                    .env("PATH", &scaffold.path)
-                    .env("BROKKR_CLAUDE_BIN", &scaffold.stub);
+        Place::Scaffold => {
+            let before = Before {
+                drive: false,
+                chain: &[],
+                run_id: false,
             };
-            if matches!(sample.place, Place::Driven) {
-                drive(&scaffold, &stubbed);
-            }
-            run(&scaffold.root, roots_of(&scaffold.root), &stubbed)
+            scaffolded(sample, &words, &hermetic, before)
         }
+        Place::Driven => {
+            let before = Before {
+                drive: true,
+                chain: &[],
+                run_id: words.iter().any(|arg| arg.contains("<run>")),
+            };
+            scaffolded(sample, &words, &hermetic, before)
+        }
+        Place::DrivenAfter(chain) => {
+            let before = Before {
+                drive: true,
+                chain,
+                run_id: true,
+            };
+            scaffolded(sample, &words, &hermetic, before)
+        }
+    }
+}
+
+/// What a place on the scaffold does before a sample's own argv runs,
+/// each choice stated by the place itself: whether [`RUN`] is driven
+/// first, the earlier argvs run after it, in order, and whether the
+/// driven run's id is read to fill `<run>`.
+struct Before {
+    drive: bool,
+    chain: &'static [&'static [&'static str]],
+    run_id: bool,
+}
+
+/// A sample at one of the scaffold's places, after what `before` says,
+/// run at the scaffold's root with the `claude` CLI stubbed. Each earlier
+/// argv must exit zero, or the sample refuses with that command's stderr
+/// and its own argv never runs.
+fn scaffolded(
+    sample: &Sample,
+    words: &[String],
+    hermetic: &dyn Fn(&mut Command),
+    before: Before,
+) -> Printed {
+    let scaffold = scaffold_with(hermetic);
+    let stubbed = |command: &mut Command| {
+        hermetic(command);
+        command
+            .env("PATH", &scaffold.path)
+            .env("BROKKR_CLAUDE_BIN", &scaffold.stub);
+    };
+    if before.drive {
+        drive(&scaffold, &stubbed);
+    }
+    let id = before.run_id.then(|| driven_run_id(&scaffold, &stubbed));
+    let fill = |arg: &str| match &id {
+        Some(id) => filled(arg, id),
+        None => arg.to_string(),
+    };
+    for earlier in before.chain {
+        let earlier: Vec<String> = earlier.iter().map(|arg| fill(arg)).collect();
+        let earlier: Vec<&str> = earlier.iter().map(String::as_str).collect();
+        let (code, _, stderr) = brokkr_with(&earlier, &scaffold.root, stubbed);
+        assert_eq!(
+            code,
+            Some(0),
+            "{}: the chain's `{}` did not exit zero, so the sample never runs: {stderr}",
+            sample.prompt,
+            spelled(&earlier)
+        );
+    }
+    let argv: Vec<String> = words.iter().map(|arg| fill(arg)).collect();
+    let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
+    let (code, stdout, stderr) = brokkr_with(&argv, &scaffold.root, stubbed);
+    Printed {
+        code,
+        stdout,
+        stderr,
+        roots: roots_of(&scaffold.root),
     }
 }
 
@@ -701,10 +915,9 @@ fn every_brokkr_prompt_in_a_living_doc_is_sampled_or_allowed() {
 /// The samples a host runs: all of them where the scaffold's gates can
 /// be `boxed`, and else all but those at the scaffold's places.
 fn runnable(boxed: bool) -> Vec<Sample> {
-    let scaffolded = |sample: &&Sample| matches!(sample.place, Place::Scaffold | Place::Driven);
     SAMPLED
         .iter()
-        .filter(|sample| boxed || !scaffolded(sample))
+        .filter(|sample| boxed || !sample.place.on_the_scaffold())
         .copied()
         .collect()
 }

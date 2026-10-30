@@ -3,48 +3,96 @@
 The journal is an append-only, hash-chained SQLite table. State is the
 fold of it; nothing else is authoritative.
 
+The commands below are one driven run's evidence, in the order a reader
+meets it. Each fenced block holds one command; every line after its
+prompt is what the built binary prints for it on the stream the block
+shows. A command that reads the workspace adopts the map in
+`.brokkr/realms.json` and says so on stderr; where a block shows stderr,
+that note is part of it.
+
 ```
-$ brokkr anchor --run latest                     # record the head in refs/forge/<run>
-anchored prefix-selectors-for-the-read-su-8bf6d692 at 94c5bd9dff99bef4d4b9d224d8cc1661681fd194
+$ brokkr anchor --run latest
+note: the map /home/you/my-app/.brokkr/realms.json found in this workspace is adopted (journal unchanged); --realms names it explicitly
+anchored prefix-selectors-for-the-read-su-… at …
+```
 
-$ brokkr anchor --run latest --check             # tamper evidence, re-checked
-$ brokkr export --run latest --out ./out --redact  # plus a marked publishable derivative:
-#   <run>.redacted.ndjson — paths and usernames as stable placeholders, hashes
-#   verify only on the verbatim pair, and the manifest says so
+`anchor` records the journal head in `refs/forge/<run>`; `--check`
+re-reads the journal and that ref, and reports the tamper evidence:
+
+```
+$ brokkr anchor --run latest --check
 {
+  "anchor": "forge.journal-anchor/v3",
+  "base": "…",
   "chain_length": 2,
-  "journal_head_hash": "74d186fb254b62fb486b3f5f3fe1e1ad7c91fa5deef2d850d60c16e5478be918",
-  "repo_head": "c9f1…",
-  "ref": "refs/forge/prefix-selectors-for-the-read-su-8bf6d692",
-  "seq": 38,
-  …
+  "journal_head_hash": "…",
+  "patch": {},
+  "ref": "refs/forge/prefix-selectors-for-the-read-su-…",
+  "repo_head": "…",
+  "seq": 51,
+  "tip": "…",
+  "verdict": "anchored"
 }
+```
 
-$ brokkr export --run latest --out ./out         # canonical NDJSON + pinned manifest
-exported ./out/prefix-selectors-for-the-read-su-8bf6d692.ndjson
+`export` writes the canonical NDJSON and its pinned manifest beside it.
+With `--redact` it also writes a marked publishable derivative,
+`<run>.redacted.ndjson`: paths and usernames become stable placeholders,
+hashes verify only on the verbatim pair, and the derivative's manifest
+says so.
 
-$ brokkr verify-run ./out/prefix-selectors-for-the-read-su-8bf6d692.ndjson
+```
+$ brokkr export --run latest --out ./out --redact
+note: the map /home/you/my-app/.brokkr/realms.json found in this workspace is adopted (journal unchanged); --realms names it explicitly
+exported ./out/prefix-selectors-for-the-read-su-….ndjson
+exported ./out/prefix-selectors-for-the-read-su-….redacted.ndjson (redacted)
+```
+
+```
+$ brokkr export --run latest --out ./out
+note: the map /home/you/my-app/.brokkr/realms.json found in this workspace is adopted (journal unchanged); --realms names it explicitly
+exported ./out/prefix-selectors-for-the-read-su-….ndjson
+```
+
+Each file is named after the run's full id, as `export` printed it. In
+the commands below, `<run>` stands for that id: write your run's id in
+its place.
+
+`verify-run` reads the file `export` wrote and verifies the chain, the
+envelopes and the fold, offline. `replay` rebuilds the run twice and
+compares:
+
+```
+$ brokkr verify-run ./out/<run>.ndjson
 {
   "chain": "verified",
-  …                                              # envelopes and fold, offline
+…
 }
+```
 
-$ brokkr replay --run latest                     # rebuild twice, compare
+```
+$ brokkr replay --run latest
 {
   "chain": "verified",
-  "events": 38,
+  "events": 51,
   "replay": "deterministic",
-  …
+…
 }
+```
 
-$ brokkr import --from ./out/prefix-selectors-for-the-read-su-8bf6d692.ndjson \
-      --db ./canonical/forge.db                  # adopt that run into another journal
+`import` adopts that export into another journal, `--db` naming the
+destination; the store makes its directory:
+
+```
+$ brokkr import --from ./out/<run>.ndjson --db ./canonical/forge.db
 {
   "adopted": "byte-identical",
   "chain": "verified",
-  "events": 38,
-  "imported_from": "./out/prefix-selectors-for-the-read-su-8bf6d692.ndjson",
-  …
+  "events": 51,
+  "imported_at": "…",
+  "imported_from": "./out/prefix-selectors-for-the-read-su-….ndjson",
+  "journal_head_hash": "…",
+  "run_id": "prefix-selectors-for-the-read-su-…"
 }
 ```
 
@@ -81,18 +129,34 @@ A journal cites git SHAs — the head it reviewed, the head it shipped —
 and squash-merge, branch delete and `git gc` would collect them. Every
 run plants **keep-refs** at conclusion: `refs/forge/keep/<run>/<sha>`,
 one per cited object, so the exhibits outlive the branch that carried
-them ([decision 0028](../decisions/0028-keep-refs.md)).
+them ([decision 0028](../decisions/0028-keep-refs.md)). `keep-refs list`
+shows which runs hold which exhibits:
 
 ```
-$ brokkr keep-refs list                          # which runs hold which exhibits
+$ brokkr keep-refs list
 {
   "keep": {
-    "keep-refs-the-journal-s-exhibits-c78fb73e": ["c9f1…", "3ad0…"]
+    "prefix-selectors-for-the-read-su-…": [
+      "…"
+    ]
   }
 }
+```
 
-$ brokkr keep-refs plant --run latest            # idempotent; for runs that predate the mechanism
-$ brokkr keep-refs delete --run <id>             # the exhibits may go — the operator's call alone
+`keep-refs plant` is idempotent, for runs that predate the mechanism:
+
+```
+$ brokkr keep-refs plant --run latest
+note: the map /home/you/my-app/.brokkr/realms.json found in this workspace is adopted (journal unchanged); --realms names it explicitly
+kept 1 exhibit(s) for prefix-selectors-for-the-read-su-… in refs/forge/keep/prefix-selectors-for-the-read-su-…/
+```
+
+`keep-refs delete` removes them — the operator's call alone:
+
+```
+$ brokkr keep-refs delete --run latest
+note: the map /home/you/my-app/.brokkr/realms.json found in this workspace is adopted (journal unchanged); --realms names it explicitly
+released 1 exhibit(s) for prefix-selectors-for-the-read-su-…
 ```
 
 A run parked on **`GATE-MOVED-HEAD`** is saying the repository head moved
