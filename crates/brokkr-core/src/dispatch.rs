@@ -237,12 +237,30 @@ impl DispatchEnvelopeV2 {
         self
     }
 
-    #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
     pub fn verify(
         &self,
         now: OffsetDateTime,
         compiled_bundle_sha256: &str,
     ) -> Result<(), DispatchError> {
+        self.check_schema_and_fields()?;
+        self.check_digests()?;
+        self.check_times(now)?;
+        if self.compute_digest() != self.canonical_digest {
+            return Err(DispatchError::BadDigest);
+        }
+        self.check_authority()?;
+        self.check_recipe(compiled_bundle_sha256)?;
+        self.check_effects()?;
+        self.check_forbidden_actions()?;
+        self.check_bounds()?;
+        self.check_budget()?;
+        self.check_evidence()?;
+        Ok(())
+    }
+
+    /// The schema, the protocol version and every scalar field the
+    /// envelope must write.
+    fn check_schema_and_fields(&self) -> Result<(), DispatchError> {
         if self.schema != DISPATCH_SCHEMA_V2 || self.producer.protocol_version != 1 {
             return Err(DispatchError::BadSchema);
         }
@@ -279,9 +297,13 @@ impl DispatchEnvelopeV2 {
                 return Err(DispatchError::BadField(name));
             }
         }
-        // One spelling of a digest's shape for every reader that judges
-        // one, so a dispatch pin and a realm's crossing pin (decision
-        // 0057 ruling 2) cannot drift apart on what "malformed" means.
+        Ok(())
+    }
+
+    /// Every digest is the one shape, so a dispatch pin and a realm's
+    /// crossing pin (decision 0057 ruling 2) cannot drift apart on what
+    /// "malformed" means.
+    fn check_digests(&self) -> Result<(), DispatchError> {
         if !canonical::is_sha256_hex(&self.canonical_digest)
             || !canonical::is_sha256_hex(&self.looper.immutable_inputs_sha256)
             || !canonical::is_sha256_hex(&self.repository.base_sha)
@@ -294,6 +316,11 @@ impl DispatchEnvelopeV2 {
         {
             return Err(DispatchError::BadField("sha256"));
         }
+        Ok(())
+    }
+
+    /// The window: both ends parse, and `now` sits inside it.
+    fn check_times(&self, now: OffsetDateTime) -> Result<(), DispatchError> {
         let issued = OffsetDateTime::parse(&self.issued_at, &Rfc3339)
             .map_err(|_| DispatchError::InvalidTime)?;
         let expires = OffsetDateTime::parse(&self.expires_at, &Rfc3339)
@@ -301,9 +328,12 @@ impl DispatchEnvelopeV2 {
         if issued >= expires || now < issued || now >= expires {
             return Err(DispatchError::InvalidTime);
         }
-        if self.compute_digest() != self.canonical_digest {
-            return Err(DispatchError::BadDigest);
-        }
+        Ok(())
+    }
+
+    /// The producer's authority: who may dispatch, from where, and at
+    /// which starting cursor.
+    fn check_authority(&self) -> Result<(), DispatchError> {
         if self.actor.principal_kind != "api_key"
             || self.actor.principal_id != self.producer.token_reference
             || self.actor.authority_source != "looper-grant"
@@ -319,9 +349,19 @@ impl DispatchEnvelopeV2 {
         {
             return Err(DispatchError::BadField("producer_authority"));
         }
+        Ok(())
+    }
+
+    /// The envelope pins the bundle the caller compiled.
+    fn check_recipe(&self, compiled_bundle_sha256: &str) -> Result<(), DispatchError> {
         if self.recipe.compiled_sha256 != compiled_bundle_sha256 {
             return Err(DispatchError::RecipeMismatch);
         }
+        Ok(())
+    }
+
+    /// The allowed effects are unique and inside the closed least-scope set.
+    fn check_effects(&self) -> Result<(), DispatchError> {
         let effects: BTreeSet<&str> = self.allowed_effects.iter().map(String::as_str).collect();
         if effects.len() != self.allowed_effects.len()
             || effects.is_empty()
@@ -331,6 +371,11 @@ impl DispatchEnvelopeV2 {
         {
             return Err(DispatchError::EffectScope);
         }
+        Ok(())
+    }
+
+    /// The forbidden actions are unique and cover the whole reserved set.
+    fn check_forbidden_actions(&self) -> Result<(), DispatchError> {
         let forbidden: BTreeSet<&str> = self.forbidden_actions.iter().map(String::as_str).collect();
         if forbidden.len() != self.forbidden_actions.len()
             || forbidden.len() != REQUIRED_FORBIDDEN_ACTIONS.len()
@@ -340,6 +385,12 @@ impl DispatchEnvelopeV2 {
         {
             return Err(DispatchError::ForbiddenScope);
         }
+        Ok(())
+    }
+
+    /// Every execution bound is non-zero, inside its ceiling, and every
+    /// closed word is one of the two it may be.
+    fn check_bounds(&self) -> Result<(), DispatchError> {
         if self.bounds.max_attempts == 0
             || self.bounds.max_parallel_effects == 0
             || self.bounds.max_event_bytes == 0
@@ -353,6 +404,12 @@ impl DispatchEnvelopeV2 {
         {
             return Err(DispatchError::UnsafeBounds);
         }
+        Ok(())
+    }
+
+    /// The budget is complete: a known cost state, a ceiling and a
+    /// three-uppercase-letter currency.
+    fn check_budget(&self) -> Result<(), DispatchError> {
         let cost_state = self.budget.cost_state.as_str();
         if ![
             "known",
@@ -373,6 +430,12 @@ impl DispatchEnvelopeV2 {
         {
             return Err(DispatchError::Budget);
         }
+        Ok(())
+    }
+
+    /// The evidence requirements are unique, non-empty, and pin the
+    /// ordered hash chain and a self-reported attestation.
+    fn check_evidence(&self) -> Result<(), DispatchError> {
         let evidence: BTreeSet<&str> = self
             .evidence_requirements
             .iter()
