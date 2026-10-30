@@ -24,11 +24,12 @@
 //! [`restore`] is the other half, and it accepts nothing it has not
 //! checked: the inventory's `format`, the snapshot's size and SHA-256,
 //! SQLite's `integrity_check`, every run's chain and its boundary head,
-//! and the counts. It writes to a temporary name beside its destination
-//! and renames only after every check has passed, so a refusal leaves
-//! the destination absent. It starts nothing — no driver, no queue
-//! claim, no resume — and a run in flight at the snapshot stays as it was
-//! recorded, under the existing indeterminate-recovery rule.
+//! the whole-table counts, and the projections. It writes to a temporary
+//! name beside its destination and publishes only after every check has
+//! passed, so a refusal leaves the destination absent. It starts nothing
+//! — no driver, no queue claim, no resume — and a run in flight at the
+//! snapshot stays as it was recorded, under the existing
+//! indeterminate-recovery rule.
 //!
 //! What this slice deliberately does not carry is named in the
 //! inventory's `excluded` list: Git objects and refs/forge anchors,
@@ -42,11 +43,13 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical::ZERO_HASH;
-use rusqlite::{params, OptionalExtension};
+use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
+use crate::queue::queue_schema;
+use crate::schema::schema_version;
 use crate::{patiently, Store, StoreError};
 
 /// The one inventory format this build writes and reads. A change to the
@@ -236,6 +239,16 @@ pub enum BackupError {
         inventory_runs: u64,
         inventory_events: u64,
     },
+    #[error(
+        "the snapshot holds {count} events no run owns; the first is run '{run_id}' at seq {seq}"
+    )]
+    UnownedEvents {
+        count: u64,
+        run_id: String,
+        seq: u64,
+    },
+    #[error("the snapshot's projections disagree: {first}")]
+    ProjectionDisagreement { first: String },
     #[error("the journal records no '{key}' schema")]
     UnrecordedSchema { key: &'static str },
     #[error("refused: '{0}' is not a path SQLite can name")]
@@ -305,8 +318,8 @@ fn backup_through(
     })
 }
 
-/// Restore the backup at `from` into the journal path `to`, which must not
-/// exist, after every check passed.
+/// Restore the backup at `from` into the journal path `to`, which no file
+/// or SQLite sidecar may occupy, after every check passed.
 pub fn restore(from: &Path, to: &Path) -> Result<Restored, BackupError> {
     refuse_existing(to)?;
     let inventory = read_inventory(from)?;
@@ -342,14 +355,29 @@ pub fn restore(from: &Path, to: &Path) -> Result<Restored, BackupError> {
     })
 }
 
+/// The names SQLite gives a journal's sidecars beside it: the hot rollback
+/// journal, the write-ahead log and the WAL's shared-memory index. A
+/// destination any of them occupies is refused, so a later writable open
+/// cannot roll one into the restored bytes.
+const SQLITE_SIDECARS: [&str; 3] = ["-journal", "-wal", "-shm"];
+
 /// Refuse a destination that already exists, of any kind — including a
-/// symlink, which is why this asks the link itself and not its target.
+/// symlink, which is why this asks the link itself and not its target —
+/// or that any SQLite sidecar beside it occupies.
 fn refuse_existing(to: &Path) -> Result<(), BackupError> {
-    match std::fs::symlink_metadata(to) {
-        Ok(_) => Err(BackupError::RestoreDestinationExists(to.to_path_buf())),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error.into()),
+    let sidecars = SQLITE_SIDECARS.iter().map(|suffix| {
+        let mut name = to.as_os_str().to_os_string();
+        name.push(suffix);
+        PathBuf::from(name)
+    });
+    for occupied in std::iter::once(to.to_path_buf()).chain(sidecars) {
+        match std::fs::symlink_metadata(&occupied) {
+            Ok(_) => return Err(BackupError::RestoreDestinationExists(occupied)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
     }
+    Ok(())
 }
 
 /// The inventory a backup directory states, parsed and of this build's
@@ -394,7 +422,13 @@ fn verify_snapshot(path: &Path, inventory: &Inventory) -> Result<(), BackupError
     let store = Store::open_read_only(path)?;
     integrity_of(&store)?;
     let boundary = boundary_of(&store, &inventory.boundary.taken_at)?;
-    compared_boundary(&boundary, &inventory.boundary)
+    compared_boundary(&boundary, &inventory.boundary)?;
+    match store.summary_disagreements()?.into_iter().next() {
+        Some(first) => Err(BackupError::ProjectionDisagreement {
+            first: first.to_string(),
+        }),
+        None => Ok(()),
+    }
 }
 
 /// SQLite's `PRAGMA integrity_check`, which must answer exactly `ok`. A
@@ -428,16 +462,23 @@ fn integrity_of(store: &Store) -> Result<(), BackupError> {
 }
 
 /// The boundary a store's own pages record: every run, by id, with its
-/// chain verified and its head taken from the chain's last event.
+/// chain verified and its head taken from the chain's last event. The
+/// counts are the whole tables', never the sum of what a reader loaded, so
+/// an event no run owns is counted and then refused by name.
 fn boundary_of(store: &Store, taken_at: &str) -> Result<Boundary, BackupError> {
+    let (runs, events): (u64, u64) = store.conn.query_row(
+        "SELECT (SELECT count(*) FROM runs), (SELECT count(*) FROM events)",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    refuse_unowned(store)?;
     let mut statement = store
         .conn
         .prepare("SELECT run_id FROM runs ORDER BY run_id")?;
     let run_ids = statement
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<Result<Vec<_>, _>>()?;
-    let mut events = 0u64;
-    let mut heads = Vec::with_capacity(run_ids.len());
+    let mut heads = Vec::with_capacity(runs as usize);
     for run_id in run_ids {
         let chain = store.load(&run_id).map_err(|error| match error {
             StoreError::Chain(source) => BackupError::Chain {
@@ -446,7 +487,6 @@ fn boundary_of(store: &Store, taken_at: &str) -> Result<Boundary, BackupError> {
             },
             error => BackupError::Store(error),
         })?;
-        events += chain.len() as u64;
         let (seq, chain_head) = chain
             .last()
             .map(|event| (event.seq, event.event_hash.clone()))
@@ -459,9 +499,34 @@ fn boundary_of(store: &Store, taken_at: &str) -> Result<Boundary, BackupError> {
     }
     Ok(Boundary {
         taken_at: taken_at.to_string(),
-        runs: heads.len() as u64,
+        runs,
         events,
         heads,
+    })
+}
+
+/// Refuse a snapshot holding an event whose `run_id` no run owns: the
+/// chains a reader verified are not the whole `events` table, and the
+/// boundary declares what it counted, never what it happened to load.
+fn refuse_unowned(store: &Store) -> Result<(), BackupError> {
+    let count: u64 = store.conn.query_row(
+        "SELECT count(*) FROM events WHERE run_id NOT IN (SELECT run_id FROM runs)",
+        [],
+        |row| row.get(0),
+    )?;
+    if count == 0 {
+        return Ok(());
+    }
+    let (run_id, seq): (String, i64) = store.conn.query_row(
+        "SELECT run_id, seq FROM events WHERE run_id NOT IN (SELECT run_id FROM runs)
+         ORDER BY run_id, seq LIMIT 1",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    Err(BackupError::UnownedEvents {
+        count,
+        run_id,
+        seq: seq.try_into().unwrap_or(0),
     })
 }
 
@@ -516,30 +581,20 @@ fn compared_boundary(found: &Boundary, inventory: &Boundary) -> Result<(), Backu
     }
 }
 
-/// The journal's recorded schema versions, read from the snapshot, and
-/// the projection version the taking build reads.
+/// The journal's recorded schema versions, read through the store's own
+/// readers, and the projection version the taking build reads.
 fn schemas_of(store: &Store, projection: u32) -> Result<Schemas, BackupError> {
+    let database = schema_version(&store.conn)?.ok_or(BackupError::UnrecordedSchema {
+        key: "database_schema",
+    })?;
+    let queue = queue_schema(&store.conn)?.ok_or(BackupError::UnrecordedSchema {
+        key: "queue_schema",
+    })?;
     Ok(Schemas {
-        database: recorded_schema(store, "database_schema")?,
-        queue: recorded_schema(store, "queue_schema")?,
+        database,
+        queue,
         projection,
     })
-}
-
-/// One version a journal records under `key` in its `meta` table.
-fn recorded_schema(store: &Store, key: &'static str) -> Result<u32, BackupError> {
-    let recorded: Option<String> = store
-        .conn
-        .query_row(
-            "SELECT value FROM meta WHERE key = ?1",
-            params![key],
-            |row| row.get(0),
-        )
-        .optional()?;
-    match recorded {
-        Some(value) => Ok(value.parse().unwrap_or(0)),
-        None => Err(BackupError::UnrecordedSchema { key }),
-    }
 }
 
 /// `VACUUM INTO` one temporary file under `scratch`, retried through the

@@ -46,7 +46,8 @@ never carry their values), and 0068 (nothing is claimed by reading).
    (`bytes` and `sha256`), `boundary` (`taken_at`, `runs`, `events`, and
    each run's `run_id`, `seq` and `chain_head`), and `excluded`. The projection version is stated by the taking build because
    the journal records none of its own; the database and queue versions are
-   read from the journal. Enforcement: the typed `Inventory` with
+   read through the store's own `schema_version` and `queue_schema` readers,
+   never a second vocabulary. Enforcement: the typed `Inventory` with
    `deny_unknown_fields`, the `format` refusal, and
    `backup::tests::a_backup_records_the_versioned_inventory_this_build_reads`
    and `an_inventory_of_another_format_is_refused_by_name`.
@@ -68,31 +69,71 @@ never carry their values), and 0068 (nothing is claimed by reading).
    inventory, and `a_backup_into_a_place_that_holds_a_file_is_refused_by_name`
    proves the refusal.
 
-4. **Restore accepts only what verifies, and never overwrites.** A restore
-   refuses an existing destination by name before reading anything else: a
-   live journal is never a destination. It accepts a backup only when the
-   inventory parses and its `format` is one this build reads; the snapshot's
-   size and SHA-256 equal the inventory's; `PRAGMA integrity_check` answers
-   `ok`; every run's chain verifies with the store's existing chain
-   verification and its head seq and chain head equal the boundary; and the
-   run and event counts equal the boundary. It writes to a temporary name
-   beside the destination and publishes it under the destination's name
-   only after every check has passed, so any refusal leaves the destination
-   absent and an existing name is never written over. It starts nothing: no driver,
-   no queue claim, no resume. A run that was in flight at the snapshot stays
+4. **Restore accepts only what verifies, and never overwrites.** A
+   destination is occupied when `<to>` or any of SQLite's sidecars for it —
+   `<to>-journal`, `<to>-wal`, `<to>-shm` — exists, asked with
+   `symlink_metadata` so a symlink or a sidecar both count. A restore
+   refuses an occupied destination by the name it found, before reading
+   anything else, so a later writable open cannot roll a hot sidecar into
+   the restored bytes. A file created beside the destination by another
+   process while a restore runs is not detected; that residual is left open
+   here, and the publish below still refuses the destination's own name.
+   It accepts a backup only when the inventory parses and its `format` is
+   one this build reads; the snapshot's size and SHA-256 equal the
+   inventory's; `PRAGMA integrity_check` answers `ok`; every run's chain
+   verifies with the store's existing chain verification and its head seq
+   and chain head equal the boundary; and the run and event counts equal
+   the boundary. It writes to a temporary name beside the destination and
+   publishes it under the destination's name only after every check has
+   passed, so any refusal leaves the destination absent and an existing
+   name is never written over. It starts nothing: no driver, no queue
+   claim, no resume. A run that was in flight at the snapshot stays
    exactly as it was recorded, under the existing indeterminate-recovery
-   rule. Enforcement: `restore`, `verify_snapshot` and `compared_boundary`,
-   with `backup::tests`' refusals for the truncated snapshot, the altered
-   byte, the missing inventory, the other format, the disagreeing head, the
-   disagreeing count, the live destination and the non-empty place.
-   Dropping the early destination check changes the diagnostic
-   `a_live_destination_is_refused_by_name_and_left_byte_equal` asserts.
+   rule.
+
+   What the checks establish, table by table:
+   - **Chains — `runs` and `events`:** every run's chain is verified whole
+     from its first event, every event's `run_id` is a run the snapshot
+     holds, and the boundary's run and event counts are the whole `runs`
+     and `events` tables' — never the sum of the chains a reader loaded. A
+     snapshot holding an event no run owns is refused by its count and its
+     first `(run_id, seq)`. `backup` reads the same boundary, so a source
+     journal holding an unowned event refuses backup by name too: that
+     fail-closed behaviour is an ask of this proposal.
+   - **Projections — `event_index`, `run_summary`, `seat_summary` and
+     `seat_head`:** restore holds them to the store's own
+     `Store::summary_disagreements`, the comparison `brokkr doctor` reports
+     as failures, and refuses a snapshot whose list is not empty, naming
+     the first entry. It writes no second comparison.
+   - **`meta`:** read for the database and queue schema versions the
+     inventory records.
+   - **Recorded state — `queue_entries`, `queue_waits`, `queue_commands`,
+     `queue_latches`, `queue_pins`, `queue_claims`, `queue_refusals`,
+     `dispatch_holders`, `dispatch_settings` and
+     `quarantine_acknowledgements`:** carried as recorded under the existing
+     recovery rules; restore starts nothing.
+   - **Authenticity:** the checks detect corruption, truncation, an
+     interrupted backup and an internally inconsistent snapshot. They do
+     not authenticate the backup against someone who rewrites the snapshot
+     and the inventory together; that belongs to a later slice — anchoring
+     or signing the inventory — and is an ask.
+
+   Enforcement: `restore`, `verify_snapshot`, `refuse_existing`,
+   `boundary_of`, `refuse_unowned` and `compared_boundary`, with
+   `backup::tests`' refusals for the truncated snapshot, the altered byte,
+   the missing inventory, the other format, the disagreeing head, the
+   disagreeing count, the live destination, each SQLite sidecar, an
+   unowned event, a projection disagreement and the non-empty place.
+   Dropping the early destination check changes the variant
+   `a_live_destination_is_refused_by_name_and_left_byte_equal` matches.
 
 5. **The later slices, in order, and none built here.** After this journal
    half: (a) Git objects and refs/forge anchors; (b) artifacts outside the
    journal; (c) retention with a dry-run inventory; (d) the offline restore
    drill with its measured duration, size and recovery point; (e)
-   upgrade/downgrade across the contract window (#361). Each takes its own
+   upgrade/downgrade across the contract window (#361); (f) signing or
+   anchoring the inventory, so authenticity is checked and not only
+   consistency. Each takes its own
    design and its own decision where it changes a contract. This ruling is
    judgment-guidance for the order; the only determinable part is that the
    inventory's `excluded` names these things, and ruling 1's test binds

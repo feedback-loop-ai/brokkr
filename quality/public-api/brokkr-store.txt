@@ -32,6 +32,8 @@ pub brokkr_store::backup::BackupError::Io(core::io::error::Error)
 pub brokkr_store::backup::BackupError::Json(serde_json::error::Error)
 pub brokkr_store::backup::BackupError::MissingInventory(std::path::PathBuf)
 pub brokkr_store::backup::BackupError::MissingSnapshot(std::path::PathBuf)
+pub brokkr_store::backup::BackupError::ProjectionDisagreement
+pub brokkr_store::backup::BackupError::ProjectionDisagreement::first: alloc::string::String
 pub brokkr_store::backup::BackupError::RestoreDestinationExists(std::path::PathBuf)
 pub brokkr_store::backup::BackupError::SizeMismatch
 pub brokkr_store::backup::BackupError::SizeMismatch::found: u64
@@ -41,6 +43,10 @@ pub brokkr_store::backup::BackupError::Store(brokkr_store::StoreError)
 pub brokkr_store::backup::BackupError::UnknownFormat
 pub brokkr_store::backup::BackupError::UnknownFormat::found: alloc::string::String
 pub brokkr_store::backup::BackupError::UnnameablePath(std::path::PathBuf)
+pub brokkr_store::backup::BackupError::UnownedEvents
+pub brokkr_store::backup::BackupError::UnownedEvents::count: u64
+pub brokkr_store::backup::BackupError::UnownedEvents::run_id: alloc::string::String
+pub brokkr_store::backup::BackupError::UnownedEvents::seq: u64
 pub brokkr_store::backup::BackupError::UnreadableInventory
 pub brokkr_store::backup::BackupError::UnreadableInventory::path: std::path::PathBuf
 pub brokkr_store::backup::BackupError::UnreadableInventory::source: core::io::error::Error

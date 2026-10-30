@@ -40,7 +40,7 @@ use storage::{
     latch_row, queue_stored, wait_row, Stored, PINNED_PAYLOAD, PINNED_SEQ, QUEUE_SCHEMA,
     STANDING_LATCH, WAITS,
 };
-pub(crate) use storage::{migrate_queue, queue_intact};
+pub(crate) use storage::{migrate_queue, queue_intact, queue_schema};
 
 /// A queue entry's id: assigned at `add`, never reused, since no entry is
 /// ever deleted.
