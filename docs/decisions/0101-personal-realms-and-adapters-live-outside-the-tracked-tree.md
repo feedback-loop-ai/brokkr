@@ -1,6 +1,6 @@
 # 0101 — Personal realms and adapters live outside the tracked tree
 
-Status: proposed
+Status: accepted — operator ruled in chat 2026-10-30, "go with recommended" (https://github.com/feedback-loop-ai/brokkr/issues/432#issuecomment-6533691550)
 Date: 2026-10-26
 
 Built: unbuilt (#432)
@@ -28,11 +28,14 @@ This decision is docs only: it inventories main, states the options,
 recommends one of each choice, and gives the slices. No code, test, guide,
 `realms.json`, `.gitignore` or tracked sample changes here.
 
-The lines are at the branch point, `bc36e9302`. The code is unchanged
-through this decision's head: `git diff bc36e9302..HEAD -- crates/` prints
-nothing; only this file and its index row are added.
+The lines are at `1d8955b82`, the base this decision landed on. Of the
+files it cites, only `crates/brokkr-runtime/src/agents/load.rs` and
+`crates/brokkr-runtime/src/bundle.rs` changed since the design began at
+`bc36e9302` (#914), and the cited lines were re-read there. This
+decision adds only itself and three rows of the decisions index:
+its own, and the gap rows for 0099 and 0100.
 
-## What main holds, at HEAD bc36e9302
+## What main holds, at HEAD 1d8955b82
 
 ### The map selector
 
@@ -198,7 +201,7 @@ adapters and copies no agent or charter (`:295-320`).
    `state` and `recipes` (`crates/brokkr-runtime/src/places.rs:176-203`);
    a nested personal file would be pinned. Adapter trees refuse a
    `secrets.env`, and redacted export scrubs map paths
-   (`crates/brokkr-runtime/src/agents/load.rs:87-104`;
+   (`crates/brokkr-runtime/src/agents/load.rs:84-101`;
    `crates/brokkr-cli/src/verbs/exchange.rs:72-114`). No option adds a
    secret store.
 
@@ -441,9 +444,10 @@ identity" is met only by the typed effective digest below.
 
 **Recommendation: keep the written digest and add the typed effective
 one.** `sha256` stays the integrity and origin evidence of the map's
-canonical written JSON: key order and whitespace never move it, while
-`schema`, every written field and each number's spelling (`-0.0`
-included) do. It is not a digest of the file's bytes. A new
+canonical written JSON: key order, whitespace and a number's spelling
+(`1.0`, `1e0`, `1.00`) never move it, since each value is parsed first,
+while `schema`, every written field and each parsed number (`-0.0` kept
+apart from `0.0`) do. It is not a digest of the file's bytes. A new
 `effective_sha256` is the digest of one canonical **typed** effective map
 produced by a pure core normalizer from the **validated** `RealmMap`
 (never raw `Value`). Slice 3 adds serializable `EffectiveMap`,
@@ -589,8 +593,8 @@ The comparison is between the pinned map's typed effective form — its
 from the embedded map — and the live file's. An older pin is fenced on the
 same terms; a written-only change of key order or an omitted default
 cannot refuse; a rewrite that changes a typed grant, such as the v7/v8
-`retain:false` pair, moves the digest and refuses even though the written
-JSON matches.
+`retain:false` pair, moves the digest and refuses even though the grant's
+written JSON matches.
 
 A redirected `--realms` names another map for the **journal** only: it
 never replaces the pinned world; if its journal does not hold the run, the
@@ -630,7 +634,7 @@ comes from the pin.
   still carries them by design, so published examples use placeholders.
 - No map field stores a secret value. Credentials are names under
   decision 0012, and adapter and agent trees already refuse a
-  `secrets.env` (`crates/brokkr-runtime/src/agents/load.rs:87-104`). This
+  `secrets.env` (`crates/brokkr-runtime/src/agents/load.rs:84-101`). This
   decision adds no secret store.
 - Docs show `<config>` or `<repo>` placeholders, not a real home path;
   tests use temporary directories; `fixtures/` is not touched.
@@ -708,7 +712,7 @@ comes from the pin.
    signed-zero rewrite (`0.0` against `-0.0` in a restriction) resume
    because the typed values are equal and the canonical effective bytes
    are one; a rewrite that changes a grant's reading — the v7/v8 pair —
-   refuses even though the written JSON matches. A redirected `--realms`
+   refuses even though the grant's written JSON matches. A redirected `--realms`
    never replaces the world; a moved journal shows as the run not being
    in it; an unmapped run stays unmapped. Today's pin-only resume is the
    named alternative.
@@ -718,6 +722,22 @@ comes from the pin.
    scrubs the pin's paths; fixtures and examples use placeholders. The
    walk is not widened to skip a nested personal map: the rule is "outside
    the repository", not "in an ignored file".
+
+## Ruled (operator, in chat, 2026-10-30)
+
+The operator answered "go with recommended" (#432,
+https://github.com/feedback-loop-ai/brokkr/issues/432#issuecomment-6533691550), and each ruling above was taken as recommended:
+1. (A), explicit external maps through `--realms`, including `compile`
+   and `recipes show`; no lookup finds a personal map.
+2. The named selection wins, with no merge and no fallback.
+3. The existing path bases, with a complete migration for an external map.
+4. No personal adapter root in this build.
+5. The stock-map test reads and parses `git show HEAD:realms.json`.
+6. Both digests, the canonical written and the typed effective one,
+   minted as run-manifest v15 under this acceptance (decision 0082).
+7. The pinned-source fence: resume refuses a changed source with
+   `WorldError::SourceDrift`.
+8. External personal paths and the existing named secret bindings.
 
 ## Consequences
 
@@ -755,7 +775,14 @@ Two touched files are already near or over ruling 4's 800-line ceiling:
 runtime parent, already over, may not grow. Slice 3 puts the effective
 types in a new `realms/effective.rs`; slices 3 and 4 put the runtime pin
 and fence additions in new `realms/` submodules and re-export them, so
-neither parent grows.
+neither parent grows. Two more files the slices name are at their rows:
+`crates/brokkr-cli/src/lib.rs` (1,546 of its 1,549) and
+`crates/brokkr-runtime/src/bundle.rs` (4,593, its row). Slices 2 and 6
+put their flag handling in the verbs' own modules and add at most three
+lines to the CLI's `lib.rs`; slice 7 leaves `bundle.rs` untouched if the
+existing `places.rs` skip rule (`crates/brokkr-runtime/src/places.rs:199`)
+already keeps a personal map out of a bundle's walk, and otherwise puts
+its addition in a `bundle/` child module.
 
 1. **Committed-default test and the personal-map words.** (Small: about 60
    lines of docs, 50 of test.) Files:
