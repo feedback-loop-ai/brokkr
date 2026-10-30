@@ -26,7 +26,7 @@ fn resolve_end(tui: &mut Tui, views: &Views) {
     // end request on either wraps to the same row (R1).
     let end = match views.end {
         Some(end) => Some(end),
-        None if tui.level == Level::Runs && tui.live_offset == usize::MAX => {
+        None if tui.level == Level::Runs && tui.live_offset == usize::MAX && !views.more => {
             held_live_end(tui, views)
         }
         None => None,

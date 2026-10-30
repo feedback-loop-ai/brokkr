@@ -1913,6 +1913,36 @@ fn chief_review_held_runs_coalesce_and_the_bound_drops_the_oldest() {
     );
 }
 
+/// A `G` held behind another read asks the absolute end when that answer
+/// lands, never the held window's last rank (decision 0071 ruling 5).
+#[test]
+fn chief_review_held_end_asks_the_absolute_end() {
+    use crate::tui::{bottom_key, settle_when};
+    let run = "chief held end";
+    let (_dir, db, _events, whole_views) = console_of(run, panel_with(run, 500, 500, None));
+    let (mut tui, views) = live_at(&db, run, 0, 375, 30, &whole_views.now);
+    tui.pending = true;
+    bottom_key(&mut tui, &views);
+    assert_eq!(tui.held.len(), 1, "G waits behind the read");
+    let next = live_read(&db, run, &tui, &whole_views.now);
+    settle_when(&mut tui, &next, true);
+    assert_eq!(tui.live_offset, usize::MAX, "G asks the absolute end");
+    let end = live_read(&db, run, &tui, &whole_views.now);
+    settle_when(&mut tui, &end, true);
+    assert_eq!(
+        (tui.live_offset, tui.live_line),
+        (999, 0),
+        "G reaches the stream's end"
+    );
+    let mut whole_tui = live_tui(run, 0, 375, 30);
+    bottom_key(&mut whole_tui, &whole_views);
+    assert_eq!(
+        (whole_tui.live_offset, whole_tui.live_line),
+        (999, 0),
+        "the whole read's G"
+    );
+}
+
 /// A held page move belongs to the view it was pressed on: a `PageDown`
 /// at the participant level, then `Esc` to the fleet before its answer,
 /// leaves the fleet's cursor where it was (decision 0071 ruling 5).
