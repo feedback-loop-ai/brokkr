@@ -158,21 +158,22 @@ impl SequenceRun<'_> {
         payload
     }
 
-    /// Whether `result`, from a step before the last, names a result the
-    /// seat declares and no remaining step can emit.
-    fn ends_sequence(&self, at: &StepAt, result: &Value) -> bool {
-        result
-            .get("result")
-            .and_then(Value::as_str)
-            .is_some_and(|word| {
-                let seat_declares = self.input["allowed_results"]
-                    .as_array()
-                    .is_some_and(|allowed| allowed.iter().any(|value| value == word));
-                let later_can_emit = self.steps[at.index + 1..]
-                    .iter()
-                    .any(|later| later.results.iter().any(|allowed| allowed == word));
-                seat_declares && !later_can_emit
-            })
+    /// Why `result`, from a step before the last, ends the sequence, when
+    /// it does: `hard-word` for the phase's hard vocabulary, `ends-on` for
+    /// a compiled word no later step can emit. The sets are compiled on
+    /// the step; nothing here compares vocabularies at run time.
+    fn ends_sequence(&self, at: &StepAt, result: &Value) -> Option<&'static str> {
+        let word = result.get("result").and_then(Value::as_str)?;
+        if !at.step.ends_on.iter().any(|ending| ending == word) {
+            return None;
+        }
+        Some(
+            if at.step.hard_results.iter().any(|ending| ending == word) {
+                "hard-word"
+            } else {
+                "ends-on"
+            },
+        )
     }
 }
 
@@ -535,16 +536,20 @@ impl Engine {
         if let Some(problem) = vocabulary_problem(at.step, result) {
             return self.end_failed(run, run.failed_payload(at, &problem, Vec::new()));
         }
-        // A seat result which no remaining compiled step can emit is
-        // a declared sequence-ending boundary. The comparison is
-        // against the remaining steps' actual vocabularies, not the
-        // enclosing seat vocabulary inherited by the old final-step
-        // representation.
-        if run.ends_sequence(at, result) {
+        // The compiled endings settle a non-final step: an `ends_on` word
+        // the step may report, or a hard word from the phase's table. The
+        // journal names the step and why it ended.
+        if let Some(why) = run.ends_sequence(at, result) {
             return self
                 .append(
                     EventType::EffectSucceeded,
-                    json!({"effect_id": run.effect_id, "attempt_id": run.attempt_id, "result": result}),
+                    json!({
+                        "effect_id": run.effect_id,
+                        "attempt_id": run.attempt_id,
+                        "result": result,
+                        "step": at.step.name,
+                        "why": why,
+                    }),
                     Some(run.attempt_id.to_string()),
                 )
                 .map(|_| StepVerdict::Ended);

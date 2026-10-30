@@ -26,7 +26,6 @@ pub(crate) fn add(
         path,
     )
 }
-
 fn bundle_with_sequence() -> Bundle {
     let step = |name: &str, result: &str| SequenceStep {
         name: name.into(),
@@ -39,6 +38,8 @@ fn bundle_with_sequence() -> Bundle {
             written: Vec::new(),
             class: (),
         }),
+        ends_on: Vec::new(),
+        hard_results: Vec::new(),
     };
     let mut seats = BTreeMap::new();
     seats.insert(
@@ -84,7 +85,6 @@ fn bundle_with_sequence() -> Bundle {
         charters: Default::default(),
     }
 }
-
 #[test]
 fn resolver_and_sequence_summary_cover_every_shape() {
     let dir = tempfile::tempdir().unwrap();

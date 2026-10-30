@@ -129,13 +129,13 @@ fn seats_without_bindings_carry_no_secret_keys() {
 fn a_codex_seat_binding_nothing_is_handed_the_store_its_profile_denies() {
     use super::capability_tests::link;
     use super::tests::{draft_then_finish, engine, member, single_body};
-    use crate::bundle::{Aggregate, DialectExecution, SeatClass, SequenceStep, StepBody};
+    use crate::bundle::{Aggregate, DialectExecution, SeatClass, StepBody};
     let argv = |kind: &str| -> Vec<String> {
         ["/bin/brokkr", "driver", kind, "--"]
             .map(String::from)
             .to_vec()
     };
-    let check = SequenceStep {
+    let check = uncompiled_sequence_step! {
         name: "check".into(),
         class: SeatClass::Work,
         results: Vec::new(),

@@ -494,6 +494,8 @@ impl Seated<'_, '_> {
             class: SeatClass::of(self.seats[verify].has_gate()),
             results: self.seats[verify].results.clone(),
             body: prior_body,
+            ends_on: Vec::new(),
+            hard_results: Vec::new(),
         };
         self.seats.get_mut(verify).expect("parsed above").body = SeatBody::Sequence {
             steps: vec![
@@ -511,6 +513,8 @@ impl Seated<'_, '_> {
                             state: command.state.clone(),
                         },
                     },
+                    ends_on: Vec::new(),
+                    hard_results: Vec::new(),
                 },
             ],
         };

@@ -5968,7 +5968,6 @@ fn a_dialect_step_owns_only_a_checked_empty_declaration() {
             {"id":"D", "from":"design", "result":"drafted", "next":"clarify", "reason":"drafted"},
             {"id":"DF", "from":"design", "result":"fail", "next":"design", "reason":"retry"},
             {"id":"C", "from":"clarify", "result":"clear", "next":"review", "reason":"clear"},
-            {"id":"CA", "from":"clarify", "result":"ambiguous", "next":"clarify", "reason":"again"},
             {"id":"R", "from":"review", "result":"clean", "next":"done", "reason":"clean"},
         ],
     });
@@ -5990,7 +5989,7 @@ fn a_dialect_step_owns_only_a_checked_empty_declaration() {
             "seats": {
                 "design": {"results": ["drafted", "fail"],
                            "sequence": [author("drafted"), validate]},
-                "clarify": {"results": ["clear", "ambiguous"],
+                "clarify": {"results": ["clear"],
                             "sequence": [author("clear"), check]},
                 "review": {"results": ["clean"], "role": "roles/work.md",
                            "driver": {"command": ["driver"]}},

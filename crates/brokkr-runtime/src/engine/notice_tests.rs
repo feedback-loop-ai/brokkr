@@ -13,6 +13,7 @@
 use super::*;
 use crate::agents::Adapters;
 use crate::bundle::{SiteFacts, StepBody};
+use crate::dialect::Dialect;
 use crate::realms::World;
 use brokkr_protocol::adapters::{render_prompt, AdapterKind, HandsNotice};
 
@@ -84,20 +85,24 @@ fact goes INSIDE inputs, and a record with any other top-level key is refused wh
 policy table rules on your typed result.{tail}\n"
     )
 }
-
 fn codex_carrier() -> Value {
     json!({"workspace_tool": "mcp__brokkr__workspace", "discovery_tool": "tool_search"})
 }
-
 fn repository() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .canonicalize()
         .unwrap()
 }
-
 fn shipped_adapters() -> PathBuf {
     repository().join("adapters")
+}
+
+/// The shipped OpenSpec dialect the wrapper cases compile against.
+fn openspec_dialect() -> Dialect {
+    Dialect::load(&repository().join("dialects/openspec.json"))
+        .unwrap()
+        .0
 }
 
 const POLICY: &str = r#"{
@@ -429,7 +434,6 @@ fn record_invocation<C>(
         }
     }
 }
-
 fn record_body(body: &mut SeatBody, label: &str, logs: &Path, result: &str, fail_first: bool) {
     match body {
         SeatBody::Invocation(invocation) => {
@@ -1216,9 +1220,7 @@ fn an_optional_inline_adapter_read_tells_absence_from_invalidity() {
 #[test]
 fn a_wrapped_inline_codex_verify_is_told_at_its_checks_step() {
     let fixture = Fixture::new();
-    let dialect = crate::dialect::Dialect::load(&repository().join("dialects/openspec.json"))
-        .unwrap()
-        .0;
+    let dialect = openspec_dialect();
     let dir = fixture.root.join("bundle");
     std::fs::create_dir_all(dir.join("roles")).unwrap();
     std::fs::write(dir.join("roles/role.md"), "# role\n").unwrap();
@@ -1232,8 +1234,9 @@ fn a_wrapped_inline_codex_verify_is_told_at_its_checks_step() {
                 {"id": "D", "from": "design", "result": "drafted", "next": "verify",
                     "reason": "drafted"},
                 {"id": "V", "from": "verify", "result": "pass", "next": "review", "reason": "pass"},
+                {"id": "VU", "from": "verify", "result": "fail", "when": {"fixes_applied": true},
+                    "next": "design", "reason": "up"},
                 {"id": "VF", "from": "verify", "result": "fail", "next": "verify", "reason": "retry"},
-                {"id": "VU", "from": "verify", "result": "up", "next": "design", "reason": "up"},
                 {"id": "R", "from": "review", "result": "clean", "next": "done",
                     "reason": "clean"},
             ]
@@ -1263,8 +1266,7 @@ fn a_wrapped_inline_codex_verify_is_told_at_its_checks_step() {
         Boundary::Namespace,
     )
     .unwrap();
-    // The compiled facts at the relocated label, read now and asserted
-    // after dispatch, so the dispatched seat is the first thing judged.
+    // The compiled facts at the relocated label, read now and asserted after dispatch.
     let relocated = bundle
         .sites
         .get("verify:checks")
@@ -1287,7 +1289,6 @@ fn a_wrapped_inline_codex_verify_is_told_at_its_checks_step() {
     };
     *command = recording(&fixture.logs().join("verify-checks-0.json"), "halt");
     let engine = fixture.drive(bundle, || fixture.has("verify-checks-0.json"));
-
     let start = fixture.captured("verify-checks-0.json");
     assert_eq!(start["input"]["hands"], "boxed");
     assert_eq!(start["input"]["hands_notice"], codex_carrier());
@@ -1308,7 +1309,6 @@ fn a_wrapped_inline_codex_verify_is_told_at_its_checks_step() {
             "sequence step 'checks': reported 'halt', outside its declared results [\"pass\", \"fail\"]"
         )]
     );
-
     // It was told from the notice relocated with the step, read from the
     // adapter the manifest witnesses at that same label — and neither is
     // left at, nor invented for, the wrapper's own label.

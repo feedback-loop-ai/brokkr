@@ -9,6 +9,7 @@ pub mod agents;
 pub mod anchor;
 pub mod argv;
 pub mod boundary;
+#[macro_use]
 pub mod bundle;
 pub mod capabilities;
 pub mod dialect;

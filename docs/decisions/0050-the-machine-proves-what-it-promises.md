@@ -3,7 +3,7 @@
 Status: accepted (operator ruled in chat, 2026-09-29, on the #429 audit; the readings ruled with it are in the addendum)
 Date: 2026-09-08
 
-Built: partial (#429) — the remaining compiler and machine checks
+Built: built — rulings 1-7; the sequence endings landed 2026-10-30
 
 ## Context
 
@@ -281,12 +281,28 @@ Alternatives weighed:
    machine's. The chief's charter floor stays as prose and stops being
    the only defence.
 
-   **Enforcement binding:** the sequence parser in `bundle.rs` and the
-   executor in `engine.rs`;
-   `crates/brokkr-runtime/tests/crucible_review_sequence.rs` gains the
-   behavioural leg — a panel reporting `security-hold` under a chief that
-   would rule `clean` ends the effect at `security-hold` and the run
-   stops; a compile test for the unreachable arm.
+   **Enforcement binding:** the sequence parser in
+   `crates/brokkr-runtime/src/bundle/sequence.rs` (`parse_sequence`,
+   `stamp_endings`, `hard_results`) and the executor in
+   `crates/brokkr-runtime/src/engine/sequence.rs` (`ends_sequence`, which
+   reads only `SequenceStep::ends_on` and never compares vocabularies at
+   run time); `crates/brokkr-runtime/src/bundle/sequence_tests.rs` — the
+   compiled set equals the old run-time rule plus the hard words for every
+   shipped sequence, an unreachable arm is refused naming the rule and the
+   word, and a manifest without endings recompiles to the same set;
+   `crates/brokkr-runtime/tests/crucible_review_sequence.rs` — a panel
+   reporting `security-hold` under a chief that would rule `clean` ends the
+   effect at `security-hold` and the run stops, while a non-hard `residual`
+   the chief can also emit does not; `crates/brokkr-runtime/tests/table_lints.rs`
+   — ruling 5's sequence property over every composed recipe.
+
+   `ends_on` is **derived, never serialized**: the compiler computes it
+   from each step's `results`, the seat's vocabulary and the composed
+   table, and it is absent from the manifest. `Bundle::compile` is also
+   the resume path, so a run resumed over a manifest written before this
+   ruling recompiles the recipe and derives the same endings rather than
+   reading a field from the pinned manifest; `run-manifest.v14`'s sequence
+   `step` gains nothing.
 
 ## Consequences
 

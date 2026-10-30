@@ -144,7 +144,7 @@ fn dialect_step_through(
     let stand_in = kept.path().join("brokkr-test");
     std::fs::rename(&staged, &stand_in).unwrap();
     engine.bundle.executable = Executable(carried(&stand_in));
-    let step = SequenceStep {
+    let step = uncompiled_sequence_step! {
         name: "validate".into(),
         results: strings(&["drafted", "fail"]),
         class: SeatClass::Work,

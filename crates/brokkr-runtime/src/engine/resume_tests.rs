@@ -740,19 +740,19 @@ fn every_work_topology_is_offered_its_own_session_and_no_other() {
 #[test]
 fn a_sequence_offers_its_work_steps_and_members_and_nothing_to_a_validator() {
     let dir = tempfile::tempdir().unwrap();
-    let author = SequenceStep {
+    let author = uncompiled_sequence_step! {
         name: "author".into(),
         class: SeatClass::Work,
         results: vec!["drafted".into()],
         body: step_body(model_driver(dir.path(), "author", &["drafted"])),
     };
-    let validator = SequenceStep {
+    let validator = uncompiled_sequence_step! {
         name: "validate".into(),
         class: SeatClass::Work,
         results: vec!["drafted".into()],
         body: step_body(driver(dir.path(), "validate", &["drafted"])),
     };
-    let council = SequenceStep {
+    let council = uncompiled_sequence_step! {
         name: "council".into(),
         class: SeatClass::Work,
         results: vec!["pass".into(), "fail".into()],
@@ -839,13 +839,13 @@ fn no_gate_topology_is_ever_offered_a_session() {
             ]),
             _ => SeatBody::Sequence {
                 steps: vec![
-                    SequenceStep {
+                    uncompiled_sequence_step! {
                         name: "judge".into(),
                         class: SeatClass::Gate,
                         results: vec!["pass".into()],
                         body: step_body(model_driver(dir.path(), "step-judge", &["pass"])),
                     },
-                    SequenceStep {
+                    uncompiled_sequence_step! {
                         name: "bench".into(),
                         class: SeatClass::Gate,
                         results: vec!["pass".into(), "fail".into()],

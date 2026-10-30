@@ -39,7 +39,6 @@ impl Engine {
 fn exec_spawn(command: Vec<String>, roots: &[PathBuf]) -> SiteSpawn {
     exec_segments(vec![Segment::new(Origin::Authored, &command)], roots)
 }
-
 fn candidate(provider: &str, hands_fragment: Vec<&str>, harness: HarnessHands) -> Candidate {
     let template: Vec<String> = ["{brokkr}", "driver", provider, "--", "--model", "m-1"]
         .iter()
@@ -80,7 +79,6 @@ fn marked(engine: &Engine, gate: bool, door: Option<&Candidate>) -> Value {
     engine.marks().door("work", gate, door, &mut input);
     input
 }
-
 fn codex_harness() -> HarnessHands {
     HarnessHands {
         gate: Some(vec![
@@ -3169,13 +3167,13 @@ fn effect_started_carries_the_boundary_beside_provenance() {
         HandsSpec::default(),
     );
     let steps = vec![
-        SequenceStep {
+        uncompiled_sequence_step! {
             name: "author".into(),
             class: SeatClass::Work,
             results: vec!["drafted".into()],
             body: step_body(vec!["driver".into()]),
         },
-        SequenceStep {
+        uncompiled_sequence_step! {
             name: "validate".into(),
             class: SeatClass::Gate,
             results: vec!["pass".into()],
@@ -3186,7 +3184,7 @@ fn effect_started_carries_the_boundary_beside_provenance() {
                 },
             },
         },
-        SequenceStep {
+        uncompiled_sequence_step! {
             name: "review".into(),
             class: SeatClass::Gate,
             results: vec!["clean".into()],
@@ -3499,17 +3497,19 @@ fn a_panels_members_and_a_sequences_steps_carry_their_own_word() {
     let (_dir, mut engine) = super::tests::engine(single_body(vec!["driver".into()]));
     super::tests::set_site_hands(&mut engine.bundle, "work:second", HandsSpec::default());
     engine.sealed_for(Path::new("/home/fixture"), &HandsSpec::default());
-    let step = |name: &str, results: Vec<&str>, result: &str| SequenceStep {
-        name: name.into(),
-        class: SeatClass::Gate,
-        results: results.iter().map(|r| r.to_string()).collect(),
-        body: step_body(driver_command(
-            "effect",
-            "attempt",
-            AttemptOutcome::Succeeded {
-                result: json!({"result": result, "model": format!("m-{name}")}),
-            },
-        )),
+    let step = |name: &str, results: Vec<&str>, result: &str| {
+        uncompiled_sequence_step!(
+            name: name.into(),
+            class: SeatClass::Gate,
+            results: results.iter().map(|r| r.to_string()).collect(),
+            body: step_body(driver_command(
+                "effect",
+                "attempt",
+                AttemptOutcome::Succeeded {
+                    result: json!({"result": result, "model": format!("m-{name}")}),
+                },
+            )),
+        )
     };
     let steps = vec![
         step("first", vec!["done"], "done"),
@@ -4088,7 +4088,7 @@ fn an_invalid_boundary_record_fails_at_append_without_writing_the_result() {
 #[test]
 fn a_sequence_panel_cannot_continue_when_its_member_marker_cannot_be_journaled() {
     let (dir, mut engine) = super::tests::engine(single_body(vec!["driver".into()]));
-    let steps = [SequenceStep {
+    let steps = [uncompiled_sequence_step! {
         name: "panel".into(),
         class: SeatClass::Work,
         results: vec!["complete".into()],

@@ -117,13 +117,13 @@ pub(super) fn draft_then_finish(
         class: (),
     });
     vec![
-        SequenceStep {
+        uncompiled_sequence_step! {
             name: "draft".into(),
             class: SeatClass::Work,
             results: drafted.iter().map(|result| result.to_string()).collect(),
             body: draft,
         },
-        SequenceStep {
+        uncompiled_sequence_step! {
             name: "finish".into(),
             class: SeatClass::Work,
             results: vec!["pass".into(), "fail".into()],
@@ -447,23 +447,18 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
         )), &mut Unproven::Proven),
         AttemptOutcome::Indeterminate { reason } if reason == "lost"
     ));
-    let step = SequenceStep {
-        name: "validate".into(),
-        results: vec!["drafted".into(), "fail".into()],
-        class: SeatClass::Gate,
-        body: StepBody::Dialect {
-            execution: crate::bundle::DialectExecution {
-                argv: vec![
-                    "sh".into(),
-                    "-c".into(),
-                    "test \"$1\" = expected".into(),
-                    "sh".into(),
-                    "{change}".into(),
-                ],
-                state: None,
-            },
-        },
-    };
+    let step = dialect_step(
+        "validate",
+        SeatClass::Gate,
+        vec![
+            "sh".into(),
+            "-c".into(),
+            "test \"$1\" = expected".into(),
+            "sh".into(),
+            "{change}".into(),
+        ],
+        None,
+    );
     let input = |context: Value| {
         json!({
             "feature":"feature", "phase":"design", "workdir":".",
@@ -493,14 +488,7 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
         )
         .unwrap();
     let events = absent.store.load(&absent.run_id).unwrap();
-    assert_eq!(
-        events.last().unwrap().event_type,
-        EventType::EffectIndeterminate
-    );
-    assert!(events.last().unwrap().payload["reason"]
-        .as_str()
-        .unwrap()
-        .contains("no preceding successful result carries it"));
+    assert_absent_reason(&events);
 
     let (_kept, mut verify_without_change) = engine(single_body(vec!["driver".into()]));
     let verify_input = json!({
@@ -509,7 +497,7 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
         "context":{},
         "steps":[{"role_path":"", "result_path":"result.json", "allowed_results":["pass", "fail"]}],
     });
-    let verify_steps = [SequenceStep {
+    let verify_steps = [uncompiled_sequence_step! {
         name: "dialect-verify".into(),
         results: vec!["pass".into(), "fail".into()],
         class: SeatClass::Gate,
@@ -535,26 +523,14 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
         .store
         .load(&verify_without_change.run_id)
         .unwrap();
-    assert_eq!(
-        events.last().unwrap().event_type,
-        EventType::EffectIndeterminate
-    );
-    assert!(events.last().unwrap().payload["reason"]
-        .as_str()
-        .unwrap()
-        .contains("no preceding successful result carries it"));
+    assert_absent_reason(&events);
 
-    let metadata_step = SequenceStep {
-        name: "validate".into(),
-        results: vec!["drafted".into(), "fail".into()],
-        class: SeatClass::Gate,
-        body: StepBody::Dialect {
-            execution: crate::bundle::DialectExecution {
-                argv: vec!["validator".into()],
-                state: Some(vec!["state".into()]),
-            },
-        },
-    };
+    let metadata_step = dialect_step(
+        "validate",
+        SeatClass::Gate,
+        vec!["validator".into()],
+        Some(vec!["state".into()]),
+    );
     let (_kept, metadata) = engine(SeatBody::Sequence {
         steps: vec![metadata_step],
     });
@@ -578,7 +554,7 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
         ("design", vec!["drafted", "fail"]),
     ] {
         let (_kept, mut present) = engine(single_body(vec!["driver".into()]));
-        let dialect_step = SequenceStep {
+        let dialect_step = uncompiled_sequence_step! {
             name: "validate".into(),
             results: allowed.iter().map(|value| value.to_string()).collect(),
             class: SeatClass::Work,
@@ -602,7 +578,7 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
         });
         let mut steps = vec![dialect_step];
         if phase == "clarify" {
-            steps.push(SequenceStep {
+            steps.push(uncompiled_sequence_step! {
                 name: "judge".into(),
                 results: vec!["clear".into(), "ambiguous".into()],
                 class: SeatClass::Work,
@@ -630,17 +606,7 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
     }
 
     let (_kept, mut no_token) = engine(single_body(vec!["driver".into()]));
-    let no_token_step = SequenceStep {
-        name: "validate".into(),
-        results: vec!["drafted".into(), "fail".into()],
-        class: SeatClass::Work,
-        body: StepBody::Dialect {
-            execution: crate::bundle::DialectExecution {
-                argv: vec!["true".into()],
-                state: None,
-            },
-        },
-    };
+    let no_token_step = dialect_step("validate", SeatClass::Work, vec!["true".into()], None);
     no_token
         .execute_sequence(
             "effect",
@@ -658,17 +624,7 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
         result: json!({"result":"drafted"}),
     };
     let selection = exec_selection("validate", driver_command("effect", "attempt", outcome));
-    let failing_step = SequenceStep {
-        name: "validate".into(),
-        results: vec!["drafted".into(), "fail".into()],
-        class: SeatClass::Work,
-        body: StepBody::Dialect {
-            execution: crate::bundle::DialectExecution {
-                argv: vec!["unused".into()],
-                state: None,
-            },
-        },
-    };
+    let failing_step = dialect_step("validate", SeatClass::Work, vec!["unused".into()], None);
     assert!(storage_error
         .execute_sequence(
             "effect",
@@ -683,9 +639,8 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
 }
 
 #[test]
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_sequence_fences_a_malformed_change_before_the_dialect_tool_runs() {
-    let first = SequenceStep {
+    let first = uncompiled_sequence_step! {
         name: "author".into(),
         results: vec!["drafted".into()],
         class: SeatClass::Work,
@@ -700,17 +655,12 @@ fn a_sequence_fences_a_malformed_change_before_the_dialect_tool_runs() {
             },
         )),
     };
-    let validate = SequenceStep {
-        name: "validate".into(),
-        results: vec!["drafted".into(), "fail".into()],
-        class: SeatClass::Gate,
-        body: StepBody::Dialect {
-            execution: crate::bundle::DialectExecution {
-                argv: vec!["validator".into(), "{change}".into()],
-                state: None,
-            },
-        },
-    };
+    let validate = dialect_step(
+        "validate",
+        SeatClass::Gate,
+        vec!["validator".into(), "{change}".into()],
+        None,
+    );
     let input = json!({
         "feature":"feature", "phase":"design", "workdir":".",
         "allowed_results":["drafted", "fail"], "context":{},
@@ -1409,11 +1359,13 @@ read -r done
 
 #[test]
 fn an_all_gate_sequence_arms_no_observation_outside_its_steps() {
-    let gate_step = |name: &str| SequenceStep {
-        name: name.into(),
-        class: SeatClass::Gate,
-        results: vec!["complete".into()],
-        body: step_body(vec!["driver".into()]),
+    let gate_step = |name: &str| {
+        uncompiled_sequence_step!(
+            name: name.into(),
+            class: SeatClass::Gate,
+            results: vec!["complete".into()],
+            body: step_body(vec!["driver".into()]),
+        )
     };
     let seat = |body: SeatBody| Seat {
         // Every site in it is a gate — which the compiler says of an
@@ -1487,7 +1439,7 @@ fn dispatch_bounds_cover_single_panel_sequence_defaults_and_refusals() {
         dir.path(),
         SeatBody::Sequence {
             steps: vec![
-                SequenceStep {
+                uncompiled_sequence_step! {
                     name: "single".into(),
                     results: vec!["single-result".into()],
                     class: SeatClass::Work,
@@ -1499,7 +1451,7 @@ fn dispatch_bounds_cover_single_panel_sequence_defaults_and_refusals() {
                         class: (),
                     }),
                 },
-                SequenceStep {
+                uncompiled_sequence_step! {
                     name: "panel".into(),
                     results: vec!["panel-result".into()],
                     class: SeatClass::Work,
@@ -1508,7 +1460,7 @@ fn dispatch_bounds_cover_single_panel_sequence_defaults_and_refusals() {
                         aggregate: Aggregate::UnanimousPass,
                     }),
                 },
-                SequenceStep {
+                uncompiled_sequence_step! {
                     name: "dialect".into(),
                     results: vec!["drafted".into()],
                     class: SeatClass::Gate,
@@ -2142,7 +2094,7 @@ fn sequence_execution_covers_spawn_failure_and_indeterminate_terminal_shapes() {
         .iter()
         .any(|event| event.event_type == EventType::EffectFailed));
 
-    let lost_step = SequenceStep {
+    let lost_step = uncompiled_sequence_step! {
         name: "lost".into(),
         results: vec!["lost-result".into()],
         class: SeatClass::Work,
@@ -3629,7 +3581,7 @@ fn panel_and_sequence_storage_failures_propagate() {
         )
         .is_err());
 
-    let lost_step = SequenceStep {
+    let lost_step = uncompiled_sequence_step! {
         name: "lost".into(),
         results: vec!["lost-result".into()],
         class: SeatClass::Work,
@@ -3654,7 +3606,7 @@ fn panel_and_sequence_storage_failures_propagate() {
         )
         .is_err());
 
-    let ok_step = SequenceStep {
+    let ok_step = uncompiled_sequence_step! {
         name: "ok".into(),
         results: vec!["ok-result".into()],
         class: SeatClass::Work,
@@ -3679,7 +3631,7 @@ fn panel_and_sequence_storage_failures_propagate() {
         )
         .is_err());
 
-    let checkpoint_step = SequenceStep {
+    let checkpoint_step = uncompiled_sequence_step! {
         name: "checkpoint".into(),
         results: vec!["checkpoint-result".into()],
         class: SeatClass::Work,
@@ -3699,7 +3651,7 @@ fn panel_and_sequence_storage_failures_propagate() {
         .is_err());
 
     let steps = [
-        SequenceStep {
+        uncompiled_sequence_step! {
             name: "first".into(),
             results: vec!["first-result".into()],
             class: SeatClass::Work,
@@ -3711,7 +3663,7 @@ fn panel_and_sequence_storage_failures_propagate() {
                 },
             )),
         },
-        SequenceStep {
+        uncompiled_sequence_step! {
             name: "second".into(),
             results: vec!["second-result".into()],
             class: SeatClass::Work,
@@ -3741,7 +3693,7 @@ fn panel_and_sequence_storage_failures_propagate() {
         .is_err());
 
     let invalid_steps = [
-        SequenceStep {
+        uncompiled_sequence_step! {
             name: "invalid".into(),
             results: vec!["declared".into()],
             class: SeatClass::Work,
@@ -3753,7 +3705,7 @@ fn panel_and_sequence_storage_failures_propagate() {
                 },
             )),
         },
-        SequenceStep {
+        uncompiled_sequence_step! {
             name: "never".into(),
             results: vec!["complete".into()],
             class: SeatClass::Work,
@@ -4635,7 +4587,7 @@ fn a_non_final_sequence_result_is_enforced_before_it_becomes_prior_context() {
         (json!({"notes": "missing word"}), "has no 'result' string"),
     ] {
         let steps = vec![
-            SequenceStep {
+            uncompiled_sequence_step! {
                 name: "draft".into(),
                 class: SeatClass::Work,
                 results: vec!["drafted".into()],
@@ -4651,7 +4603,7 @@ fn a_non_final_sequence_result_is_enforced_before_it_becomes_prior_context() {
                     class: (),
                 }),
             },
-            SequenceStep {
+            uncompiled_sequence_step! {
                 name: "finish".into(),
                 class: SeatClass::Work,
                 results: vec!["complete".into()],
@@ -4948,7 +4900,7 @@ fn chief_synthesis_carries_a_panel_security_hold_to_the_machine() {
         let capture = tempfile::tempdir().unwrap();
         let start_line = capture.path().join("chief-start.json");
         let steps = vec![
-            SequenceStep {
+            uncompiled_sequence_step! {
                 name: "positions".into(),
                 results: vec!["clean".into(), "residual".into(), "security-hold".into()],
                 class: SeatClass::Work,
@@ -4988,7 +4940,7 @@ fn chief_synthesis_carries_a_panel_security_hold_to_the_machine() {
                     aggregate: Aggregate::ReviewPanel,
                 }),
             },
-            SequenceStep {
+            uncompiled_sequence_step! {
                 name: "chief".into(),
                 results: vec!["clean".into(), "residual".into(), "security-hold".into()],
                 class: SeatClass::Work,
@@ -6036,11 +5988,42 @@ fn two_step_input() -> Value {
 }
 
 fn step(name: &str, command: Vec<String>) -> SequenceStep {
-    SequenceStep {
+    uncompiled_sequence_step! {
         name: name.into(),
         class: SeatClass::Work,
         results: vec!["complete".into()],
         body: step_body(command),
+    }
+}
+
+/// The effect ended indeterminate because a dialect step could not expand
+/// `{change}`; both absence cases below assert exactly that.
+fn assert_absent_reason(events: &[EventEnvelope]) {
+    assert_eq!(
+        events.last().unwrap().event_type,
+        EventType::EffectIndeterminate
+    );
+    assert!(events.last().unwrap().payload["reason"]
+        .as_str()
+        .unwrap()
+        .contains("no preceding successful result carries it"));
+}
+
+/// A deterministic dialect step whose validator runs `argv`; the tests
+/// below share its shape rather than restating the same literal.
+fn dialect_step(
+    name: &str,
+    class: SeatClass,
+    argv: Vec<String>,
+    state: Option<Vec<String>>,
+) -> SequenceStep {
+    uncompiled_sequence_step! {
+        name: name.into(),
+        results: vec!["drafted".into(), "fail".into()],
+        class,
+        body: StepBody::Dialect {
+            execution: crate::bundle::DialectExecution { argv, state },
+        },
     }
 }
 

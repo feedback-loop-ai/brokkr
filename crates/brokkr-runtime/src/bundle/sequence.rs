@@ -3,16 +3,20 @@
 //! shape (the dialect step's its own), and its class. `parse_sequence` reads
 //! as their sequence.
 
+use std::collections::BTreeSet;
+
+use brokkr_core::policy::Machine;
 use brokkr_protocol::hands::HandsSpec;
 use serde_json::Value;
 
 use super::charters::parse_role;
+use super::gate::{self, GateAssessment, WorkSite};
 use super::parse::{SeatScope, SiteCompiler};
-use super::site_form::{StepShape, STEP};
+use super::site_form::{classify, StepShape, STEP};
 use super::{
-    command_parts, dialect_gate_site, dialect_results, parse_command, record_inline_tools,
-    refuse_class_without_a_driver, resolve_reference, Aggregate, CompileError, DialectExecution,
-    Invocation, SeatClass, SequenceStep, StepBody,
+    command_parts, dialect_gate_site, dialect_results, parse_class, parse_command,
+    record_inline_tools, refuse_class_without_a_driver, resolve_reference, Aggregate, CompileError,
+    DialectExecution, Invocation, SeatBody, SeatClass, SequenceStep, StepBody,
 };
 use crate::dialect::DialectPhase;
 
@@ -308,4 +312,174 @@ pub(super) fn step_class(
         }
         StepBody::Dialect { .. } => SeatClass::Gate,
     })
+}
+
+/// Parse a sequence body: named steps, each a single driver or a panel,
+/// run serially inside one effect. At least two steps (a one-step
+/// sequence is a single seat); names unique case-insensitively. Beside them,
+/// `has_gate`: every step, a dialect one or an unsupplied check too, WROTE `gate`.
+pub(super) fn parse_sequence(
+    compiler: &mut SiteCompiler<'_>,
+    at: SeatScope<'_>,
+    phase: &str,
+    raw: &Value,
+) -> Result<(Vec<SequenceStep>, GateAssessment), CompileError> {
+    let steps_raw = sequence_steps(phase, raw)?;
+    let mut steps: Vec<SequenceStep> = Vec::with_capacity(steps_raw.len());
+    let mut whole_gate = GateAssessment::AllGate;
+    for (index, step_raw) in steps_raw.iter().enumerate() {
+        let name = step_name(phase, index, step_raw, &steps)?;
+        let what = format!("{phase}:{name}");
+        let shape = classify(&what, step_raw, &STEP)?;
+        let step = StepAt {
+            phase,
+            name,
+            what: &what,
+            raw: step_raw,
+        };
+        let step_results = step_results(at, step, index + 1 == steps_raw.len())?;
+        let written = (shape == StepShape::Dialect)
+            .then(|| parse_class(&what, step_raw).unwrap_or(SeatClass::Work));
+        let parsed = step_body(compiler, at, step, shape, step_results)?;
+        if written == Some(SeatClass::Work) {
+            whole_gate.first_work(WorkSite {
+                path: vec![name.into()],
+                compiled: parsed.is_some(),
+            });
+        }
+        let Some(parsed) = parsed else { continue };
+        let class = step_class(compiler, at, step, &parsed.body, parsed.hands)?;
+        if written.is_none() {
+            if let GateAssessment::ContainsWork(site) =
+                gate::step_assessment(name, class, &parsed.body)
+            {
+                whole_gate.first_work(site);
+            }
+        }
+        steps.push(SequenceStep {
+            name: name.to_string(),
+            class,
+            results: parsed.results,
+            body: parsed.body,
+            ends_on: Vec::new(),
+            hard_results: Vec::new(),
+        });
+    }
+    Ok((steps, whole_gate))
+}
+
+/// Derive every sequence step's compiled endings, and refuse a table arm
+/// whose word no step of the sequence can emit (decision 0050, ruling 7).
+pub(super) fn stamp_endings(
+    machine: &Machine,
+    bundle: &str,
+    phase: &str,
+    seat_results: &[String],
+    body: &mut SeatBody,
+) -> Result<(), CompileError> {
+    match body {
+        SeatBody::Invocation(_) => Ok(()),
+        SeatBody::Sequence { steps } => stamp_sequence(machine, bundle, phase, seat_results, steps),
+        SeatBody::Select { cases, default } => {
+            for case in cases.values_mut() {
+                stamp_endings(machine, bundle, phase, seat_results, case)?;
+            }
+            if let Some(default) = default.as_deref_mut() {
+                stamp_endings(machine, bundle, phase, seat_results, default)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+/// A sequence's compiled endings: each non-final step's ending words, and
+/// the arms its phase's table holds that the sequence cannot reach.
+fn stamp_sequence(
+    machine: &Machine,
+    bundle: &str,
+    phase: &str,
+    seat_results: &[String],
+    steps: &mut [SequenceStep],
+) -> Result<(), CompileError> {
+    let hard = hard_results(machine, phase);
+    let last = steps.len().saturating_sub(1);
+    for index in 0..last {
+        let (before, later) = steps.split_at_mut(index + 1);
+        let step = &mut before[index];
+        step.ends_on = endings(&step.results, later, seat_results, &hard);
+        step.hard_results = step
+            .results
+            .iter()
+            .filter(|word| hard.contains(*word))
+            .cloned()
+            .collect();
+    }
+    if let Some(step) = steps.get_mut(last) {
+        step.ends_on.clear();
+        step.hard_results.clear();
+    }
+    refuse_unreachable(machine, bundle, phase, steps)
+}
+
+/// The words `results` holds that end a sequence at a non-final step: the
+/// seat's words no later step can emit, and every hard word the step can
+/// report even when a later step can emit it too.
+fn endings(
+    results: &[String],
+    later: &[SequenceStep],
+    seat_results: &[String],
+    hard: &BTreeSet<String>,
+) -> Vec<String> {
+    let later: BTreeSet<&str> = later
+        .iter()
+        .flat_map(|step| step.results.iter().map(String::as_str))
+        .collect();
+    let mut words: BTreeSet<String> = results
+        .iter()
+        .filter(|word| seat_results.contains(word) && !later.contains(word.as_str()))
+        .cloned()
+        .collect();
+    words.extend(results.iter().filter(|word| hard.contains(*word)).cloned());
+    words.into_iter().collect()
+}
+
+/// The phase's hard vocabulary: every word whose every arm in the composed
+/// table is a `hard` stop (decision 0050, ruling 7).
+pub(super) fn hard_results(machine: &Machine, phase: &str) -> BTreeSet<String> {
+    let mut words: std::collections::BTreeMap<&str, bool> = std::collections::BTreeMap::new();
+    for rule in machine.rules.iter().filter(|rule| rule.from == phase) {
+        words
+            .entry(rule.result.as_str())
+            .and_modify(|hard| *hard &= rule.severity == "hard")
+            .or_insert(rule.severity == "hard");
+    }
+    words
+        .into_iter()
+        .filter(|(_, hard)| *hard)
+        .map(|(word, _)| word.to_string())
+        .collect()
+}
+
+/// Refuse a table arm for `phase` whose word no step of this sequence can
+/// emit, naming the rule and the word (decision 0050, ruling 7).
+fn refuse_unreachable(
+    machine: &Machine,
+    bundle: &str,
+    phase: &str,
+    steps: &[SequenceStep],
+) -> Result<(), CompileError> {
+    let emittable: BTreeSet<&str> = steps
+        .iter()
+        .flat_map(|step| step.results.iter().map(String::as_str))
+        .collect();
+    for rule in machine.rules.iter().filter(|rule| rule.from == phase) {
+        if !emittable.contains(rule.result.as_str()) {
+            return Err(CompileError::Invalid(format!(
+                "bundle '{bundle}' sequence for phase '{phase}' cannot emit table arm '{}' \
+                 result '{}': no step of the sequence can report it",
+                rule.id, rule.result
+            )));
+        }
+    }
+    Ok(())
 }

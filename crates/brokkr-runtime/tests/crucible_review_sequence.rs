@@ -264,3 +264,184 @@ fn the_panel_prose_path_is_disclosed_where_an_office_is_chosen() {
          the general form of the hazard"
     );
 }
+
+// ── ruling 7's behavioural leg: the machine's floor, not the prose's ───
+
+fn driver(result: &str) -> Vec<String> {
+    let script = format!(
+        r#"read -r hello
+printf '%s\n' '{{"proto":"forge-driver/v1","msg_id":"cap","type":"capabilities","driver":"crucible","version":"1","supports":[]}}'
+read -r start
+effect_id=$(printf '%s' "$start" | sed -n 's/.*"effect_id":"\([^"]*\)".*/\1/p')
+attempt_id=$(printf '%s' "$start" | sed -n 's/.*"attempt_id":"\([^"]*\)".*/\1/p')
+printf '{{"proto":"forge-driver/v1","msg_id":"accepted","type":"accepted","effect_id":"%s","attempt_id":"%s","session_ref":null}}\n' "$effect_id" "$attempt_id"
+printf '{{"proto":"forge-driver/v1","msg_id":"result","type":"result","effect_id":"%s","attempt_id":"%s","status":"succeeded","result":{result},"error":null}}\n' "$effect_id" "$attempt_id"
+read -r done
+"#
+    );
+    vec!["sh".into(), "-c".into(), script]
+}
+
+/// The shipped engine review sequence, its drivers answered by stubs, and
+/// the run starting at review so the sequence is the first effect.
+fn review_bundle(panel: &[(&str, &str)], chief: &str) -> Bundle {
+    let mut bundle = triage();
+    bundle.machine.initial = "review".to_string();
+    let SeatBody::Select { cases, .. } = &mut bundle.seats.get_mut("review").unwrap().body else {
+        panic!("triage review selects by strategy");
+    };
+    let SeatBody::Sequence { mut steps } = cases.remove("engine").expect("the engine case") else {
+        panic!("triage's engine review is a sequence");
+    };
+    for step in &mut steps {
+        match step.name.as_str() {
+            "positions" => {
+                let StepBody::Invocation(Invocation::Panel { members, .. }) = &mut step.body else {
+                    panic!("'positions' is a panel");
+                };
+                for member in members {
+                    let result = panel
+                        .iter()
+                        .find(|(name, _)| *name == member.name)
+                        .map(|(_, result)| *result)
+                        .unwrap_or(r#"{"result":"clean"}"#);
+                    member.command = driver(result);
+                    member.candidates.clear();
+                    member.role_path = PathBuf::new();
+                }
+            }
+            "chief" => {
+                let StepBody::Invocation(Invocation::Single {
+                    command,
+                    candidates,
+                    ..
+                }) = &mut step.body
+                else {
+                    panic!("'chief' is a single step");
+                };
+                *command = driver(chief);
+                candidates.clear();
+                if let StepBody::Invocation(Invocation::Single { role_path, .. }) = &mut step.body {
+                    *role_path = PathBuf::new();
+                }
+            }
+            other => panic!("unexpected review step {other:?}"),
+        }
+    }
+    bundle.seats.get_mut("review").unwrap().body = SeatBody::Sequence { steps };
+    bundle
+}
+
+fn events(
+    panel: &[(&str, &str)],
+    chief: &str,
+) -> (Vec<brokkr_core::envelope::EventEnvelope>, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = brokkr_store::Store::open(&dir.path().join("forge.db")).unwrap();
+    let mut engine = brokkr_runtime::Engine::start(
+        store,
+        review_bundle(panel, chief),
+        "feature",
+        Some(workspace()),
+    )
+    .expect("the run starts at review");
+    let run_id = engine.run_id.clone();
+    engine.drive().expect("the sequence runs");
+    (engine.store.load(&run_id).unwrap(), run_id)
+}
+
+fn panel<'a>(results: &'a [(&'a str, &'a str)]) -> Vec<(&'a str, &'a str)> {
+    let mut panel = vec![
+        ("adversarial", r#"{"result":"clean"}"#),
+        ("correctness", r#"{"result":"clean"}"#),
+        ("security", r#"{"result":"clean"}"#),
+        ("spec-compliance", r#"{"result":"clean"}"#),
+    ];
+    for (name, result) in results {
+        panel.retain(|(key, _)| key != name);
+        panel.push((name, *result));
+    }
+    panel
+}
+
+/// A panel's `security-hold` is the machine's: the sequence ends at the
+/// panel step with that word, the chief never rules it down, and the run
+/// stops under the hard rule.
+#[test]
+fn a_panel_security_hold_ends_the_sequence_before_the_chief_rules() {
+    let test =
+        "crucible_review_sequence::a_panel_security_hold_ends_the_sequence_before_the_chief_rules";
+    if !crate::own_home::in_own_home(test) {
+        return;
+    }
+    let panel = panel(&[(
+        "security",
+        r#"{"result":"security-hold","inputs":{"has_security_residual":true,"max_residual_severity":"critical"}}"#,
+    )]);
+    let (events, _) = events(
+        &panel,
+        r#"{"result":"clean","inputs":{"fixes_applied":false}}"#,
+    );
+    let succeeded = events
+        .iter()
+        .find(|event| event.event_type == brokkr_core::envelope::EventType::EffectSucceeded)
+        .expect("the panel's ending succeeds the effect");
+    assert_eq!(
+        succeeded.payload["result"]["result"], "security-hold",
+        "the panel's worst member is the effect's result"
+    );
+    assert_eq!(
+        succeeded.payload["step"], "positions",
+        "the journal names the step that ended the sequence"
+    );
+    assert_eq!(
+        succeeded.payload["why"], "hard-word",
+        "the journal says the table's hard vocabulary ended it"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| { event.payload["checkpoint"]["step_name"] == "chief" }),
+        "the chief never ran"
+    );
+    let decided = events
+        .iter()
+        .rev()
+        .find(|event| event.event_type == brokkr_core::envelope::EventType::TransitionDecided)
+        .expect("the machine rules on the ending");
+    assert_eq!(decided.payload["next"], "stop", "security-hold hard stops");
+}
+
+/// A non-hard word the chief can also emit does not end the sequence:
+/// the panel checkpoints, the chief runs, and the chief's result is the
+/// effect's.
+#[test]
+fn a_panel_non_hard_word_does_not_end_the_sequence() {
+    let test = "crucible_review_sequence::a_panel_non_hard_word_does_not_end_the_sequence";
+    if !crate::own_home::in_own_home(test) {
+        return;
+    }
+    let panel = panel(&[(
+        "correctness",
+        r#"{"result":"residual","inputs":{"has_security_residual":false,"max_residual_severity":"low"}}"#,
+    )]);
+    let (events, _) = events(
+        &panel,
+        r#"{"result":"clean","inputs":{"fixes_applied":false}}"#,
+    );
+    assert!(
+        events.iter().any(|event| {
+            event.event_type == brokkr_core::envelope::EventType::EffectCheckpointed
+                && event.payload["checkpoint"]["step_name"] == "positions"
+        }),
+        "the panel's residual is carried to the chief, not treated as an ending"
+    );
+    let succeeded = events
+        .iter()
+        .find(|event| event.event_type == brokkr_core::envelope::EventType::EffectSucceeded)
+        .expect("the sequence concludes on its final step");
+    assert_eq!(
+        succeeded.payload["result"]["result"], "clean",
+        "the chief's result, not the panel's residual, is the seat's result"
+    );
+}
