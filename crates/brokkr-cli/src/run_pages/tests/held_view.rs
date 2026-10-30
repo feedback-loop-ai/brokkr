@@ -5,7 +5,9 @@
 //! it belongs to leaves the frame. Split from `console_end.rs` to keep
 //! that file within its ceiling (decision 0071 ruling 4).
 
-use super::console_end::{console_of, live_at, settle_held_live, wrapped_panel_console};
+use super::console_end::{
+    console_of, live_at, retired_panel, settle_held_live, wrapped_panel_console,
+};
 use super::*;
 
 /// The wrapped panel's console at (100, 25): twenty-five drawn lines into
@@ -246,5 +248,49 @@ fn chief_gate_resize_up_must_finish() {
         (whole_tui.live_offset, whole_tui.live_line),
         (100, 13),
         "the whole read's Up after the resize"
+    );
+}
+
+/// 753c6's last review, M1 (decision 0089 rulings 5 and 8): on an
+/// unindexed journal the console falls back to the whole read, and that
+/// read ends the live column at the hired seat's last row, as the paged
+/// read does. `eff:a`'s pinned 300 turns extend nothing, so Up from the
+/// top with the read out wraps to (29, 0), as the whole read does, never
+/// (330, 0).
+#[test]
+fn chief_review_fallback_end_ignores_retired_seat() {
+    use crate::tui::{settle_when, up_key};
+    let run = "chief fallback end";
+    let (_dir, db, _events, whole_views) = console_of(run, retired_panel(run));
+    unindex(&rusqlite::Connection::open(&db).unwrap()).unwrap();
+    let store = Store::open_read_only(&db).unwrap();
+    let (shown, _) = super::super::console(&store, run, Console::Detail, None, None, 0, 0).unwrap();
+    assert!(
+        matches!(shown.read, Held::Whole(..)),
+        "an unindexed journal is read whole"
+    );
+    assert_eq!(
+        shown.end(&Console::Detail),
+        Some(30),
+        "the hired seat's 30 rows end the column"
+    );
+    drop(store);
+    let (mut tui, views) = live_at(&db, run, 0, 375, 30, &whole_views.now);
+    tui.pending = true;
+    up_key(&mut tui, &views);
+    let answer = live_read(&db, run, &tui, &whole_views.now);
+    settle_when(&mut tui, &answer, true);
+    assert_eq!(
+        (tui.live_offset, tui.live_line),
+        (29, 0),
+        "Up from the top wraps at the hired seat's end"
+    );
+    let mut whole_tui = live_tui(run, 0, 375, 30);
+    up_key(&mut whole_tui, &whole_views);
+    crate::tui::settle_end(&mut whole_tui, &whole_views);
+    assert_eq!(
+        (whole_tui.live_offset, whole_tui.live_line),
+        (29, 0),
+        "the whole read's Up"
     );
 }

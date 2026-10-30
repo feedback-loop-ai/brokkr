@@ -282,14 +282,20 @@ impl Shown {
     pub(crate) fn end(&self, asked: &Console) -> Option<usize> {
         match &self.read {
             Held::Paged(_, held) => held.total,
-            Held::Whole(..) => match asked {
+            Held::Whole(_, state) => match asked {
                 Console::Run => None,
                 Console::Detail => {
-                    let working = self.view().participants;
+                    // The column's stream is the hired seat's, as the paged
+                    // read counts it: a retired seat's pinned member is not
+                    // in it (M1).
+                    let view = self.view();
+                    let keys = state
+                        .as_deref()
+                        .map_or_else(Vec::new, |state| live_keys(&view, state));
                     Some(
-                        working
+                        view.participants
                             .iter()
-                            .filter(|part| part.working)
+                            .filter(|part| keys.contains(&part.key))
                             .map(|part| part.checkpoints.len())
                             .sum(),
                     )
@@ -609,10 +615,7 @@ fn paged_at(
         // The live column paints the seat the fold hires, and only that
         // seat's members: a previous seat's pinned member extends no
         // stream this screen draws (F4, ruling 5).
-        Screen::Detail => match frame.state.run.cursor().and_then(|cursor| cursor.hire()) {
-            Some((seat, _)) => at_work(&view, seat),
-            None => Vec::new(),
-        },
+        Screen::Detail => live_keys(&view, &frame.state),
         Screen::Participant(key) => vec![key.clone()],
     };
     let fetch = Fetch {
@@ -675,6 +678,17 @@ fn paged_at(
         Screen::Run => {}
     }
     Ok(Some((frame, checkpoints)))
+}
+
+/// The keys of the participants the live column paints: the seat the
+/// fold hires, and only that seat's members, so a previous seat's pinned
+/// member extends no stream the column draws (F4, ruling 5). The paged
+/// read and the whole read's end both count this one set.
+fn live_keys(view: &RunView, state: &RunState) -> Vec<String> {
+    match state.run.cursor().and_then(|cursor| cursor.hire()) {
+        Some((seat, _)) => at_work(view, seat),
+        None => Vec::new(),
+    }
 }
 
 /// The keys of the participants the live column paints for `seat`: the

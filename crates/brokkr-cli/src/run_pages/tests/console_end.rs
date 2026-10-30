@@ -88,18 +88,21 @@ fn settle_participant_end(
 }
 
 /// The reads the shell would make for the live column's held keys: the
-/// page each waits for, answered and settled, until none is left.
+/// page each waits for, answered and settled, until none is left. A held
+/// key that never lands fails here, by name, rather than looping.
 pub(super) fn settle_held_live(db: &Path, run: &str, tui: &mut Tui, now: &str) -> Views {
     use crate::tui::settle_when;
     let mut views = live_read(db, run, tui, now);
-    while !tui.held.is_empty() {
+    // Far more reads than any held run of keys needs: each read lands at
+    // least one window's worth.
+    for _ in 0..1_000 {
         settle_when(tui, &views, true);
         if tui.held.is_empty() {
-            break;
+            return views;
         }
         views = live_read(db, run, tui, now);
     }
-    views
+    panic!("held keys never landed: {} still held", tui.held.len())
 }
 
 /// The live column's real read at `rank` on the wrapped panel, and the
@@ -1474,7 +1477,7 @@ fn chief_confirm_live_end_ignores_a_previous_seats_pinned_member() {
 /// its panel member finished working, `eff` succeeded into `next`, and
 /// the new hire `p2:c` recorded 30: the earlier seat's pinned member
 /// still folds as working, but the live column paints only `p2`'s seat.
-fn retired_panel(run: &str) -> Vec<EventEnvelope> {
+pub(super) fn retired_panel(run: &str) -> Vec<EventEnvelope> {
     let mut steps = in_flight_as(run, "eff", "a");
     steps[2].1["seat"] = json!("eff");
     steps[3].1["boundary"] = json!([
