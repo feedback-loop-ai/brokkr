@@ -47,10 +47,10 @@
 //!
 //! Two Linux residuals remain, both accepted by the operator's rulings of
 //! 2026-09-28 and closed by construction only by per-attempt cgroup
-//! containment (#472). The first is the table-read race. A Linux read is a `/proc`
-//! listing followed by one stat read per pid. Suppose a failed driver's
-//! last live descendant forks a detached child after the listing and
-//! exits before its own row is read. That read shows nothing of the
+//! containment (#472). The first is the table-read race. A Linux read is a
+//! `/proc` listing followed by one stat read per pid. Suppose a failed
+//! driver's last live descendant forks a detached child after the listing
+//! and exits before its own row is read. That read shows nothing of the
 //! attempt running, and so sets the attempt's end. The next read, up to
 //! the tracker's 100 ms later, finds the child with the engine, born
 //! after that end, and files it as the engine's own. Cleanup can then be
@@ -66,7 +66,28 @@
 //! that row names the engine as its parent while the driver still reads
 //! as leading: no attempt could have left it, and it is filed, once, as
 //! the engine's own. A later read finds nothing of the attempt running,
-//! and the same certification follows.
+//! and the same certification follows. That is the non-atomic snapshot's
+//! residual, and `Live::rows` does not close it: it only supplements an
+//! identity already recorded or doubted, so a descendant the listing never
+//! named stays unnamed.
+//!
+//! #918 closes a different race, the walk's own attribution. On Linux a
+//! tick walks the engine's own subtree and reports any change since the
+//! last walk (an identity appearing or disappearing, or a row's zombie or
+//! exiting state changing), any identity the registry does not know, any
+//! doubt, and no previous walk; then it takes one full snapshot, and only
+//! that read attributes. A snapshot the walk owes stays owed until a full
+//! read succeeds: a failed read is not an answered change, so the next tick
+//! takes it again even when its walk is unchanged, and the walk is
+//! remembered only with the read that answered it. The walk's rows never
+//! enter `recorded`, `doubted` or a kill, so a stale numeric pid or a
+//! missed row can at most cause an extra snapshot. Admission and every kill
+//! read the full table too, so a
+//! process that predates the attempt is in `before` even when a walk would
+//! miss it, and an identity the attempt has already recorded is read by
+//! its own row at a settlement read (`Live::rows`), so a missed row is not
+//! read as gone. That does not reach the non-atomic snapshot above, which
+//! remains.
 //!
 //! The second is the read-to-fork instant, a wrong kill rather than a
 //! missed one. No read is atomic with the fork, so an orphan of the
@@ -83,14 +104,14 @@
 //! Every read fails closed. A table that cannot be read, a row that
 //! cannot be read or parsed, a `ps` that exits nonzero and a snapshot
 //! without the engine's own row prove nothing; a row that vanished
-//! between the listing and its read is gone. A read before the spawn that
-//! fails refuses the spawn: without it, nothing tells the attempt's
-//! orphans from what ran before it. A kill the kernel refuses on a live
-//! identity leaves the cleanup unresolved. So does a kill it refuses on
-//! the group, with one exception: an EPERM on the group is read against
-//! the table. Darwin refuses a group with EPERM when its only members are
-//! zombies or exiting, so a group whose fresh, whole read shows no member
-//! running is gone. An EPERM group with a member running and any other
+//! between being named by its parent and its read is gone. A read before
+//! the spawn that fails refuses the spawn: without it, nothing tells the
+//! attempt's orphans from what ran before it. A kill the kernel refuses
+//! on a live identity leaves the cleanup unresolved. So does a kill it
+//! refuses on the group, with one exception: an EPERM on the group is
+//! read against the table. Darwin refuses a group with EPERM when its
+//! only members are zombies or exiting, so a group whose fresh, whole
+//! read shows no member running is gone. An EPERM group with a member running and any other
 //! refusal stay unresolved, reported ahead of an identity's refusal. One
 //! whose table cannot be read whole stays unresolved too, and the cleanup
 //! reports what the read shows: an identity's refusal first, otherwise
@@ -149,7 +170,18 @@ impl Bounds {
 pub(super) struct Host {
     pub kill_group: fn(Pid) -> rustix::io::Result<()>,
     pub kill: fn(&Identity) -> std::io::Result<()>,
+    /// The full table: admission's `before`, and every read at a kill or
+    /// settlement. It names what ran before the attempt, so the tracker's
+    /// narrower tick can never add a process this read excluded (#918).
     pub table: fn() -> Result<Vec<Entry>, TableError>,
+    /// The tracker's periodic read, once per 100 ms while an attempt is
+    /// live. On Linux it is a walk of the engine's own subtree that only
+    /// says whether the full table needs reading; on macOS it is the full
+    /// table itself, as main.
+    #[cfg(target_os = "linux")]
+    pub tick: fn() -> Result<table::Sighting, TableError>,
+    #[cfg(not(target_os = "linux"))]
+    pub tick: fn() -> Result<Vec<Entry>, TableError>,
     /// The means this host refused the engine, if one (`attempts`).
     pub missing: fn() -> Option<Unsettled>,
 }
@@ -158,7 +190,13 @@ impl Host {
     pub(super) const REAL: Host = Host {
         kill_group,
         kill: table::kill,
+        // Admission and the kill read the whole table, as on main; only
+        // the tick takes the engine's own subtree on Linux (#918).
         table: table::snapshot,
+        #[cfg(target_os = "linux")]
+        tick: table::own_tree,
+        #[cfg(not(target_os = "linux"))]
+        tick: table::snapshot,
         missing: attempts::missing,
     };
 }

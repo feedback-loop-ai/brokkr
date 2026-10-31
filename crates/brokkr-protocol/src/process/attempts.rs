@@ -28,7 +28,10 @@ use signal_hook::iterator::Signals;
 use super::table::{self, Entry, Identity, TableError};
 use super::tree::{self, Bounds, GroupRefusal, Host, Unsettled};
 
-/// How often every live attempt's tree is read and recorded.
+/// How often every live attempt's tree is walked: the engine's own subtree
+/// on Linux, the full table on macOS. On Linux the walk only says whether
+/// the full table needs reading; admission, every kill and that snapshot
+/// read the full table (#918).
 const TRACK: Duration = Duration::from_millis(100);
 
 /// The engine's exit status when its stop could not prove every live
@@ -64,6 +67,17 @@ struct Registry {
     /// The last read, which every caller that asked for one before it
     /// began may take instead of reading again.
     latest: Option<Read>,
+    /// The last tick's walk, compared by identity and state. It is the
+    /// tick's own memory, never an attribution: nothing here reaches
+    /// `observe`, `record`, `recorded`, `doubted` or a kill. `None` means
+    /// there is no previous walk, so the next tick must read the table.
+    #[cfg(target_os = "linux")]
+    walk: Option<table::Sighted>,
+    /// A changed walk that the full snapshot did not answer still owes
+    /// one. It stays owed until a full read succeeds, so a quiet walk in
+    /// between cannot make the tick forget it.
+    #[cfg(target_os = "linux")]
+    owed: bool,
 }
 
 struct Read {
@@ -76,6 +90,10 @@ static LIVE: Mutex<Registry> = Mutex::new(Registry {
     attempts: BTreeMap::new(),
     unowned: BTreeSet::new(),
     latest: None,
+    #[cfg(target_os = "linux")]
+    walk: None,
+    #[cfg(target_os = "linux")]
+    owed: false,
 });
 static NEXT: AtomicU64 = AtomicU64::new(0);
 static START: Once = Once::new();
@@ -109,7 +127,7 @@ impl Attempt {
         // SAFETY: `detach` runs between fork and exec, and makes system
         // calls and allocates nothing.
         unsafe { std::os::unix::process::CommandExt::pre_exec(builder, detach) };
-        let (child, key) = live().admit(host.table, builder)?;
+        let (child, key) = live().admit(host, builder)?;
         Ok((child, Attempt { key }))
     }
 
@@ -167,14 +185,21 @@ fn read_and_kill(key: u64, host: Host, then: fn(&mut Live)) -> Result<(), Unsett
 }
 
 impl Registry {
-    /// Read `table` afresh, spawn the driver `builder`, and register its
-    /// group. The read is never an earlier one shared: an orphan of the
-    /// engine's own born after that read and before the spawn would be
-    /// missing from `before`, and were the driver to exit before the next
-    /// read, it would be attributed to this attempt and killed with it.
-    /// What remains is one born between this read and the fork itself.
-    fn admit(&mut self, table: Table, builder: &mut Command) -> Result<(Child, u64), Unspawned> {
-        let before = self.read(table).map_err(Unspawned::Table)?;
+    /// Read `host.table` afresh, spawn the driver `builder`, and register
+    /// its group. The read is the full table, never the tracker's tick,
+    /// and never an earlier read shared: an orphan of the engine's own
+    /// born after that read and before the spawn would be missing from
+    /// `before`, and were the driver to exit before the next read, it
+    /// would be attributed to this attempt and killed with it. What
+    /// remains is one born between this read and the fork itself.
+    fn admit(&mut self, host: Host, builder: &mut Command) -> Result<(Child, u64), Unspawned> {
+        // The first tick after the registry was empty has no previous walk
+        // to compare, so it reads the table even when every row is known.
+        #[cfg(target_os = "linux")]
+        if self.attempts.is_empty() {
+            self.walk = None;
+        }
+        let before = self.read(host.table).map_err(Unspawned::Table)?;
         let child = builder.spawn().map_err(Unspawned::Spawn)?;
         let key = NEXT.fetch_add(1, Ordering::Relaxed);
         let attempt = Live {
@@ -214,6 +239,82 @@ impl Registry {
             Some(latest) => Ok(latest.entries.clone()),
             None => self.read(table),
         }
+    }
+
+    /// One tick. On Linux the engine's own tree is walked only to ask
+    /// whether it changed since the last walk, or holds an identity the
+    /// registry does not know, or could not be walked whole; then one full
+    /// snapshot is read and attributed by `observe`. A change is any row
+    /// that appears or disappears, or whose zombie or exiting state
+    /// changed: a known leader that turns zombie, or a recorded descendant
+    /// that vanishes, is exactly a fact `observe` and `note` decide an
+    /// attempt's end by. The walk's rows are never observed, so it can
+    /// only cause an extra snapshot, never an attribution. On macOS the
+    /// full table itself is the tick, as main reads it.
+    fn track(&mut self, host: Host) {
+        if self.attempts.is_empty() {
+            return;
+        }
+        #[cfg(target_os = "linux")]
+        {
+            match (host.tick)() {
+                Ok(sighting) => {
+                    let sighted = sighting.sighted();
+                    // A snapshot the walk owes stays owed until a full
+                    // read succeeds: a change is never remembered as
+                    // answered by a read that failed.
+                    let changed = self.owed
+                        || self.walk.as_ref() != Some(&sighted)
+                        || sighting.unseen(|id| self.knows(id));
+                    self.answer(changed, sighted, host.table);
+                }
+                Err(_) => {
+                    // A walk that could not complete is no memory of the
+                    // tree: the next tick must read the table again rather
+                    // than compare against an older walk. That read is
+                    // also this tick's, and it answers the walk only if it
+                    // succeeds.
+                    self.walk = None;
+                    self.owed = self.read(host.table).is_err();
+                }
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        drop(self.read(host.tick));
+    }
+
+    /// Answer a walk with the full snapshot it asks for. A quiet walk is
+    /// just the next tick's memory; a changed one is recorded as seen only
+    /// by the read that answers it, and a failed read leaves it owed.
+    #[cfg(target_os = "linux")]
+    fn answer(&mut self, changed: bool, sighted: table::Sighted, table: Table) {
+        if !changed {
+            self.walk = Some(sighted);
+            return;
+        }
+        if self.read(table).is_ok() {
+            self.walk = Some(sighted);
+            self.owed = false;
+        } else {
+            self.owed = true;
+        }
+    }
+
+    /// Does the registry already know `id`? Every attempt's `before`,
+    /// `recorded` and `doubted` identities, what the engine owns, the
+    /// engine itself, and each live driver. A live driver is known by its
+    /// bare pid: its group id is its pid, and the kernel does not reuse it
+    /// while the leader is unreaped.
+    #[cfg(target_os = "linux")]
+    fn knows(&self, id: &Identity) -> bool {
+        id.pid == getpid().as_raw_pid()
+            || self.unowned.contains(id)
+            || self.attempts.values().any(|live| {
+                live.before.contains(id)
+                    || live.recorded.contains(id)
+                    || live.doubted.contains(id)
+                    || (live.open && live.group.as_raw_pid() == id.pid)
+            })
     }
 
     /// Record what `entries` shows of every live attempt's tree, attribute
@@ -388,6 +489,34 @@ impl Live {
             || self.doubted.contains(&entry.id)
     }
 
+    /// `entries` plus the own row of every recorded or doubted identity
+    /// the tree walk missed. A process is briefly absent from every
+    /// `children` file while the kernel reparents it, so a settlement
+    /// read could otherwise take a recorded survivor for gone (#918).
+    #[cfg(target_os = "linux")]
+    fn rows(
+        &self,
+        entries: &[Entry],
+        row: fn(&Identity) -> Result<Option<Entry>, TableError>,
+    ) -> Result<Vec<Entry>, Unsettled> {
+        let mut rows = entries.to_vec();
+        for id in self.recorded.iter().chain(&self.doubted) {
+            if rows.iter().any(|entry| entry.id == *id) {
+                continue;
+            }
+            match row(id) {
+                Ok(Some(entry)) => rows.push(entry),
+                Ok(None) => {}
+                Err(error) => {
+                    return Err(Unsettled::Table {
+                        error: error.to_string(),
+                    })
+                }
+            }
+        }
+        Ok(rows)
+    }
+
     /// What of the attempt `entries` shows running, in the order it is
     /// reported: its group, its recorded descendants, the orphans it
     /// doubts. Every identity still running is signalled again first,
@@ -397,6 +526,10 @@ impl Live {
         entries: &[Entry],
         kill: fn(&Identity) -> std::io::Result<()>,
     ) -> Result<(), Unsettled> {
+        #[cfg(target_os = "linux")]
+        let completed = self.rows(entries, table::row_of)?;
+        #[cfg(target_os = "linux")]
+        let entries = completed.as_slice();
         let running = || entries.iter().filter(|entry| !entry.zombie);
         let owned = |set: &BTreeSet<Identity>| -> Vec<&Identity> {
             running()
@@ -498,9 +631,7 @@ fn start(host: Host) {
     stop_on_signals(host);
     std::thread::spawn(move || loop {
         std::thread::sleep(TRACK);
-        let mut live = live();
-        let busy = !live.attempts.is_empty();
-        drop(busy.then(|| live.read(host.table)));
+        live().track(host);
     });
 }
 
