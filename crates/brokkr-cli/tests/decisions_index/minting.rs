@@ -9,6 +9,7 @@
 //! module reads the ruling a cell names.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
 
 use super::{header, Decision, Ledger, Pointer, Status, DECISIONS};
 use crate::contract_lifecycle::{self, Minted};
@@ -149,17 +150,116 @@ fn reaches(ledger: &Ledger, from: u16, target: u16) -> bool {
     false
 }
 
-/// The exact refusal ruling 1 gives when a successor keeps no minting.
-fn not_kept(file: &str, old: u16, new: &str) -> String {
-    format!("{file}: minted under {old:04}, which is superseded by {new}, and {new} does not keep its minting")
+/// `numbers` as four-digit text, joined by `separator`.
+fn numbers(numbers: &[u16], separator: &str) -> String {
+    numbers
+        .iter()
+        .map(|number| format!("{number:04}"))
+        .collect::<Vec<_>>()
+        .join(separator)
 }
 
-/// Every decision a supersession pointer names, each once.
-fn successors(decision: &Decision) -> BTreeSet<u16> {
-    let mut successors = BTreeSet::new();
+/// What ruling 1's walk and keeper chain refuse, in the words the failing
+/// test prints. The one home for each refusal's diagnostic text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Refusal {
+    MetTwice {
+        file: String,
+        number: u16,
+    },
+    NotInLedger {
+        file: String,
+        number: u16,
+    },
+    Proposed {
+        file: String,
+        number: u16,
+    },
+    Withdrawn {
+        file: String,
+        number: u16,
+    },
+    UnknownStatus {
+        file: String,
+        number: u16,
+        status: String,
+    },
+    NoSuccessor {
+        file: String,
+        number: u16,
+    },
+    NoKeeper {
+        file: String,
+        old: u16,
+        named: Vec<u16>,
+    },
+    TwoKeepers {
+        file: String,
+        old: u16,
+        keepers: Vec<u16>,
+    },
+}
+
+impl fmt::Display for Refusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Refusal::MetTwice { file, number } => {
+                write!(f, "{file}: the supersession walk met {number:04} twice")
+            }
+            Refusal::NotInLedger { file, number } => {
+                write!(
+                    f,
+                    "{file}: minted under {number:04}, which is not in the ledger"
+                )
+            }
+            Refusal::Proposed { file, number } => write!(
+                f,
+                "{file}: minted under {number:04}, which is proposed and mints nothing"
+            ),
+            Refusal::Withdrawn { file, number } => write!(
+                f,
+                "{file}: minted under {number:04}, which is withdrawn and was never accepted"
+            ),
+            Refusal::UnknownStatus {
+                file,
+                number,
+                status,
+            } => write!(
+                f,
+                "{file}: minted under {number:04}, whose status '{status}' is not in the ledger's vocabulary"
+            ),
+            Refusal::NoSuccessor { file, number } => write!(
+                f,
+                "{file}: minted under {number:04}, which is superseded and names no successor"
+            ),
+            Refusal::NoKeeper { file, old, named } => {
+                let named = numbers(named, ", ");
+                write!(
+                    f,
+                    "{file}: minted under {old:04}, which is superseded by {named}, and {named} does not keep its minting"
+                )
+            }
+            Refusal::TwoKeepers {
+                file,
+                old,
+                keepers,
+            } => write!(
+                f,
+                "{file}: minted under {old:04}, and {} each keep its minting; exactly one may",
+                numbers(keepers, " and ")
+            ),
+        }
+    }
+}
+
+/// Every decision a supersession pointer names, in the order read, once per
+/// occurrence. Nothing here deduplicates: the graph walk's `seen` set is
+/// what refuses a number met twice.
+fn successors(decision: &Decision) -> Vec<u16> {
+    let mut successors = Vec::new();
     for pointer in [Pointer::SupersededBy, Pointer::SupersededInPartBy] {
         if let Some(numbers) = decision.pointers.get(&pointer) {
-            successors.extend(numbers);
+            successors.extend_from_slice(numbers);
         }
     }
     successors
@@ -167,22 +267,27 @@ fn successors(decision: &Decision) -> BTreeSet<u16> {
 
 /// Ruling 1's graph walk: every decision the supersession pointers reach,
 /// with one `seen` set for the whole walk. A number met twice refuses,
-/// whether a cycle or two branches meeting at one decision; a pointer
-/// naming no decision in the ledger refuses by the default.
+/// whether a cycle, two branches meeting at one decision, or one successor
+/// named twice; a pointer naming no decision in the ledger refuses by the
+/// default.
 fn graph_walk(
     ledger: &Ledger,
     number: u16,
     file: &str,
     seen: &mut BTreeSet<u16>,
-) -> Result<(), String> {
+) -> Result<(), Refusal> {
     if !seen.insert(number) {
-        return Err(format!(
-            "{file}: the supersession walk met {number:04} twice"
-        ));
+        return Err(Refusal::MetTwice {
+            file: file.to_string(),
+            number,
+        });
     }
     let decision = ledger
         .decision(number)
-        .ok_or_else(|| format!("{file}: minted under {number:04}, which is not in the ledger"))?;
+        .ok_or_else(|| Refusal::NotInLedger {
+            file: file.to_string(),
+            number,
+        })?;
     for successor in successors(decision) {
         graph_walk(ledger, successor, file, seen)?;
     }
@@ -194,29 +299,35 @@ fn graph_walk(
 /// keeper, and end at an accepted decision nothing supersedes. A branch
 /// the chain does not take is walked for repeats only and is never asked
 /// to keep the file.
-fn keeper_chain(ledger: &Ledger, number: u16, file: &str) -> Result<(), String> {
+fn keeper_chain(ledger: &Ledger, number: u16, file: &str) -> Result<(), Refusal> {
     let mut current = number;
     loop {
-        let decision = ledger.decision(current).ok_or_else(|| {
-            format!("{file}: minted under {current:04}, which is not in the ledger")
-        })?;
+        let decision = ledger
+            .decision(current)
+            .ok_or_else(|| Refusal::NotInLedger {
+                file: file.to_string(),
+                number: current,
+            })?;
         match Status::parse(&decision.status) {
             Some(Status::Accepted | Status::Superseded) => {}
             Some(Status::Proposed) => {
-                return Err(format!(
-                    "{file}: minted under {current:04}, which is proposed and mints nothing"
-                ))
+                return Err(Refusal::Proposed {
+                    file: file.to_string(),
+                    number: current,
+                })
             }
             Some(Status::Withdrawn) => {
-                return Err(format!(
-                    "{file}: minted under {current:04}, which is withdrawn and was never accepted"
-                ))
+                return Err(Refusal::Withdrawn {
+                    file: file.to_string(),
+                    number: current,
+                })
             }
             None => {
-                return Err(format!(
-                    "{file}: minted under {current:04}, whose status '{}' is not in the ledger's vocabulary",
-                    decision.status
-                ))
+                return Err(Refusal::UnknownStatus {
+                    file: file.to_string(),
+                    number: current,
+                    status: decision.status.clone(),
+                })
             }
         }
         let pointed = successors(decision);
@@ -224,9 +335,10 @@ fn keeper_chain(ledger: &Ledger, number: u16, file: &str) -> Result<(), String> 
             return if Status::parse(&decision.status) == Some(Status::Accepted) {
                 Ok(())
             } else {
-                Err(format!(
-                    "{file}: minted under {current:04}, which is superseded and names no successor"
-                ))
+                Err(Refusal::NoSuccessor {
+                    file: file.to_string(),
+                    number: current,
+                })
             };
         }
         let keepers: Vec<u16> = pointed
@@ -241,22 +353,18 @@ fn keeper_chain(ledger: &Ledger, number: u16, file: &str) -> Result<(), String> 
         match keepers.as_slice() {
             [one] => current = *one,
             [] => {
-                let named = pointed
-                    .iter()
-                    .map(|number| format!("{number:04}"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                return Err(not_kept(file, current, &named));
+                return Err(Refusal::NoKeeper {
+                    file: file.to_string(),
+                    old: current,
+                    named: pointed,
+                });
             }
             many => {
-                let each = many
-                    .iter()
-                    .map(|number| format!("{number:04}"))
-                    .collect::<Vec<_>>()
-                    .join(" and ");
-                return Err(format!(
-                    "{file}: minted under {current:04}, and {each} each keep its minting; exactly one may"
-                ));
+                return Err(Refusal::TwoKeepers {
+                    file: file.to_string(),
+                    old: current,
+                    keepers: many.to_vec(),
+                });
             }
         }
     }
@@ -269,7 +377,7 @@ fn admits(
     number: u16,
     file: &str,
     seen: &mut BTreeSet<u16>,
-) -> Result<(), String> {
+) -> Result<(), Refusal> {
     graph_walk(ledger, number, file, seen)?;
     keeper_chain(ledger, number, file)
 }
@@ -408,9 +516,11 @@ fn minted_row(ledger: &Ledger, row: &contract_lifecycle::Row) -> Vec<String> {
             }
             if let Some(date) = addendum.as_deref() {
                 let Some(decision) = ledger.decision(number) else {
-                    return vec![format!(
-                        "{file}: minted under {number:04}, which is not in the ledger"
-                    )];
+                    return vec![Refusal::NotInLedger {
+                        file: file.clone(),
+                        number,
+                    }
+                    .to_string()];
                 };
                 match read_addendum(decision, date) {
                     Ok(AddendumStatus::Accepted) => {}
@@ -424,8 +534,8 @@ fn minted_row(ledger: &Ledger, row: &contract_lifecycle::Row) -> Vec<String> {
                 }
             }
             let mut seen = BTreeSet::new();
-            if let Err(finding) = admits(ledger, number, file, &mut seen) {
-                findings.push(finding);
+            if let Err(refusal) = admits(ledger, number, file, &mut seen) {
+                findings.push(refusal.to_string());
             }
             findings
         }
@@ -536,6 +646,19 @@ fn fixture_ledger(decisions: Vec<Decision>) -> Ledger {
     }
 }
 
+/// Assert that the row minted under 0001 refuses `number` met twice.
+fn refuses_a_number_met_twice(ledger: &Ledger, number: u16) {
+    let mut seen = BTreeSet::new();
+    let refused = admits(ledger, 1, FILE, &mut seen).expect_err("the walk must meet it twice");
+    assert_eq!(
+        refused,
+        Refusal::MetTwice {
+            file: FILE.to_string(),
+            number
+        }
+    );
+}
+
 /// 0082 ruling 1: a supersession walk meets every decision a pointer
 /// names. 0001 names 0002, which keeps the file, and 0003, which cycles
 /// back to 0001; walking only the keeper would admit it.
@@ -546,7 +669,10 @@ fn chief_non_keeper_cycle_must_refuse() {
     let refused = admits(&ledger, 1, FILE, &mut seen).expect_err("the walk must meet 0001 twice");
     assert_eq!(
         refused,
-        format!("{FILE}: the supersession walk met 0001 twice")
+        Refusal::MetTwice {
+            file: FILE.to_string(),
+            number: 1
+        }
     );
 }
 
@@ -566,8 +692,111 @@ fn review_shared_successor_must_refuse_twice() {
     let refused = admits(&ledger, 1, FILE, &mut seen).expect_err("both branches must meet 0004");
     assert_eq!(
         refused,
-        format!("{FILE}: the supersession walk met 0004 twice")
+        Refusal::MetTwice {
+            file: FILE.to_string(),
+            number: 4
+        }
     );
+}
+
+/// 0082 ruling 1: a successor named twice on one pointer line is a number
+/// met twice. 0001 is superseded by 0002, keeper of the file, and reads
+/// `Superseded by: 0002, 0002`; the walk must count both occurrences.
+#[test]
+fn a_successor_named_twice_on_one_line_refuses() {
+    let ledger = fixture_ledger(vec![
+        fixture(
+            1,
+            "superseded",
+            &[(Pointer::SupersededBy, &[2, 2])],
+            "# 0001",
+        ),
+        keeper(2, "accepted", &[]),
+    ]);
+    refuses_a_number_met_twice(&ledger, 2);
+}
+
+/// 0082 ruling 1: a successor named by both pointer keys is a number met
+/// twice. 0001 is superseded by 0002, keeper of the file, and reads both
+/// `Superseded by: 0002` and `Superseded in part by: 0002`.
+#[test]
+fn a_successor_named_by_both_pointer_keys_refuses() {
+    let ledger = fixture_ledger(vec![
+        fixture(
+            1,
+            "superseded",
+            &[
+                (Pointer::SupersededBy, &[2]),
+                (Pointer::SupersededInPartBy, &[2]),
+            ],
+            "# 0001",
+        ),
+        keeper(2, "accepted", &[]),
+    ]);
+    refuses_a_number_met_twice(&ledger, 2);
+}
+
+/// 0082 ruling 1: each walk refusal keeps the diagnostic words the ledger
+/// printed before it was typed, pinned here once so a variant's text can
+/// change only with this test.
+#[test]
+fn walk_refusals_display_the_ledgers_words() {
+    let file = || FILE.to_string();
+    let cases = [
+        (
+            Refusal::MetTwice { file: file(), number: 2 },
+            format!("{FILE}: the supersession walk met 0002 twice"),
+        ),
+        (
+            Refusal::NotInLedger { file: file(), number: 2 },
+            format!("{FILE}: minted under 0002, which is not in the ledger"),
+        ),
+        (
+            Refusal::Proposed { file: file(), number: 2 },
+            format!("{FILE}: minted under 0002, which is proposed and mints nothing"),
+        ),
+        (
+            Refusal::Withdrawn { file: file(), number: 2 },
+            format!("{FILE}: minted under 0002, which is withdrawn and was never accepted"),
+        ),
+        (
+            Refusal::UnknownStatus {
+                file: file(),
+                number: 2,
+                status: "landed".to_string(),
+            },
+            format!(
+                "{FILE}: minted under 0002, whose status 'landed' is not in the ledger's vocabulary"
+            ),
+        ),
+        (
+            Refusal::NoSuccessor { file: file(), number: 2 },
+            format!("{FILE}: minted under 0002, which is superseded and names no successor"),
+        ),
+        (
+            Refusal::NoKeeper {
+                file: file(),
+                old: 1,
+                named: vec![2],
+            },
+            format!(
+                "{FILE}: minted under 0001, which is superseded by 0002, and 0002 does not keep its minting"
+            ),
+        ),
+        (
+            Refusal::TwoKeepers {
+                file: file(),
+                old: 1,
+                keepers: vec![2, 3],
+            },
+            format!(
+                "{FILE}: minted under 0001, and 0002 and 0003 each keep its minting; exactly one may"
+            ),
+        ),
+    ];
+    for (refusal, words) in cases {
+        assert_eq!(refusal.to_string(), words);
+    }
 }
 
 /// 0082 ruling 1 and Ruled item 9: the keeper chain asks the keeper branch
