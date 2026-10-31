@@ -10,7 +10,14 @@ use super::*;
 /// in order against the window it holds, and resolve an end a held `G`
 /// asked for (M3, decision 0071 ruling 5).
 pub(crate) fn settle_end(tui: &mut Tui, views: &Views) {
-    resolve_end(tui, views);
+    // A held key that asked for the absolute end leaves its request in
+    // `want`; the answer that names the end resolves the marker, which is
+    // that key's one application. Take it from the queue first, or the
+    // flush below repeats it: a wrapping `Up` would subtract twice (M1).
+    let asked_end = held_asks_end(tui);
+    if resolve_end(tui, views) && asked_end {
+        consumed(tui);
+    }
     // The answer's window settles the keys pressed against it, in order;
     // a key that crosses it asks the next page and keeps its place.
     flush_held(tui, views);
@@ -18,9 +25,19 @@ pub(crate) fn settle_end(tui: &mut Tui, views: &Views) {
     resolve_end(tui, views);
 }
 
+/// Whether the held queue's head asked for the absolute end and still
+/// waits for an answer that names it. Only the flush sets `want` to the
+/// end marker, and only after its head key applied it to the unresolved
+/// position, so a held queue with `want` at `usize::MAX` is exactly that
+/// one unanswered application.
+fn held_asks_end(tui: &Tui) -> bool {
+    tui.want == Some(usize::MAX) && !tui.held.is_empty()
+}
+
 /// Resolve an absolute-end request into the rank the read answered, and
-/// leave every other position where the keys put it.
-fn resolve_end(tui: &mut Tui, views: &Views) {
+/// leave every other position where the keys put it. Returns whether it
+/// resolved such a request, which is the held head's one application.
+fn resolve_end(tui: &mut Tui, views: &Views) -> bool {
     // A read through the pages answers the stream's end; a whole read in
     // the same coordinate answers it from the laid column, so an absolute
     // end request on either wraps to the same row (R1).
@@ -31,27 +48,31 @@ fn resolve_end(tui: &mut Tui, views: &Views) {
         }
         None => None,
     };
-    if let Some(end) = end {
-        let at = end.saturating_sub(1);
-        match tui.level {
-            Level::Runs if tui.live_offset == usize::MAX => {
-                tui.live_offset = at;
-                tui.live_line = last_live_line(tui, views);
-            }
-            Level::Participant if tui.pane == 0 && tui.offset == usize::MAX => {
-                // The logical rank is kept; the pane narrows it for display
-                // only, as today's renderer did, so movement from the end
-                // stays in the stream's own coordinate (M4, R2).
-                tui.offset = at;
-            }
-            // A page step past a stream whose end the read just discovered
-            // resolves to that end's last row, never a blank page beyond
-            // it (F3).
-            Level::Participant if tui.pane == 0 => {
-                tui.offset = tui.offset.min(at);
-            }
-            _ => {}
+    let Some(end) = end else {
+        return false;
+    };
+    let at = end.saturating_sub(1);
+    match tui.level {
+        Level::Runs if tui.live_offset == usize::MAX => {
+            tui.live_offset = at;
+            tui.live_line = last_live_line(tui, views);
+            true
         }
+        Level::Participant if tui.pane == 0 && tui.offset == usize::MAX => {
+            // The logical rank is kept; the pane narrows it for display
+            // only, as today's renderer did, so movement from the end
+            // stays in the stream's own coordinate (M4, R2).
+            tui.offset = at;
+            true
+        }
+        // A page step past a stream whose end the read just discovered
+        // resolves to that end's last row, never a blank page beyond
+        // it (F3).
+        Level::Participant if tui.pane == 0 => {
+            tui.offset = tui.offset.min(at);
+            false
+        }
+        _ => false,
     }
 }
 
@@ -214,6 +235,17 @@ fn in_window(tui: &Tui, views: &Views) -> bool {
     }
 }
 
+/// Take one application off the head run: a run of several keeps its
+/// count, and the last leaves the queue.
+fn consumed(tui: &mut Tui) {
+    if let Some(entry) = tui.held.first_mut() {
+        entry.count -= 1;
+        if entry.count == 0 {
+            tui.held.remove(0);
+        }
+    }
+}
+
 /// Apply the held keys, in order, against the answered window. A key that
 /// would cross it asks the next page and keeps its place, and every key
 /// behind it waits. A queue pressed on another view — a reselected fleet,
@@ -248,12 +280,7 @@ pub(super) fn flush_held(tui: &mut Tui, views: &Views) {
             }
             resolve_end(tui, views);
         }
-        if let Some(entry) = tui.held.first_mut() {
-            entry.count -= 1;
-            if entry.count == 0 {
-                tui.held.remove(0);
-            }
-        }
+        consumed(tui);
         if !in_window(tui, views) {
             tui.want = None;
             return;

@@ -6,7 +6,8 @@
 //! that file within its ceiling (decision 0071 ruling 4).
 
 use super::console_end::{
-    console_of, far_work_of, live_at, retired_panel, settle_held_live, wrapped_panel_console,
+    console_of, far_work_of, live_at, participant_page, retired_panel, settle_held_live,
+    wrapped_panel_console,
 };
 use super::*;
 
@@ -345,6 +346,72 @@ fn hold_end_then_up(tui: &mut Tui, views: &Views) {
     assert_eq!(tui.held.len(), 2, "Up waits behind the unresolved end");
 }
 
+/// The participant level's first page of a 1,000-checkpoint run with a
+/// page beyond it: the journal, the whole read's view, the seat and the
+/// page, the start the participant held-end cases share.
+struct FarPage {
+    _dir: tempfile::TempDir,
+    db: std::path::PathBuf,
+    events: Vec<EventEnvelope>,
+    whole: RunView,
+    subject: Subject,
+    views: Views,
+}
+
+fn far_page(run: &str) -> FarPage {
+    let (dir, db, events) = far_work_of(run, 1_000);
+    let whole = brokkr_view::run_view(&events, fold(&events).as_ref().ok());
+    let (_, subject) = participant_console(run, &whole);
+    let views = console_rows_at(&db, run, Some(subject.clone()), false, 200, 0);
+    assert_eq!(
+        (views.start, views.more, views.end),
+        (0, true, None),
+        "the first page has an end beyond it"
+    );
+    FarPage {
+        _dir: dir,
+        db,
+        events,
+        whole,
+        subject,
+        views,
+    }
+}
+
+/// The held-key sequences both run screens' end controls try: one `Up`,
+/// two `Up`s in one coalesced run, and `Up` then `Down`.
+const HELD_UP_CASES: [(&str, usize, bool); 3] = [
+    ("one Up", 1, false),
+    ("two Ups", 2, false),
+    ("Up then Down", 1, true),
+];
+
+/// Press `ups` `Up`s and then a `Down` when asked, on a read that is
+/// out: the keys both run screens' end controls hold.
+fn press_ups(tui: &mut Tui, views: &Views, ups: usize, down: bool) {
+    use crate::tui::{down_key, up_key};
+    for _ in 0..ups {
+        up_key(tui, views);
+    }
+    if down {
+        down_key(tui, views);
+    }
+}
+
+/// The whole read's own keys, each settled before the next as the
+/// console's drive settles them between frames.
+fn whole_press(tui: &mut Tui, views: &Views, ups: usize, down: bool) {
+    use crate::tui::{down_key, settle_end, up_key};
+    for _ in 0..ups {
+        up_key(tui, views);
+        settle_end(tui, views);
+    }
+    if down {
+        down_key(tui, views);
+        settle_end(tui, views);
+    }
+}
+
 /// M2 (rulings 5 and 9): a held `G` stays at the head of the queue until
 /// the answer names the stream's absolute end, so a movement pressed on
 /// that answer's tick waits behind it. The participant level starts on
@@ -355,15 +422,15 @@ fn hold_end_then_up(tui: &mut Tui, views: &Views) {
 fn chief_landing_held_end_owns_the_movement_after_its_first_answer() {
     use crate::tui::{asked_rows, bottom_key, up_key};
     let run = "chief landing held end participant";
-    let (_dir, db, events) = far_work_of(run, 1_000);
-    let whole = brokkr_view::run_view(&events, fold(&events).as_ref().ok());
-    let (mut tui, subject) = participant_console(run, &whole);
-    let views = console_rows_at(&db, run, Some(subject.clone()), false, 200, 0);
-    assert_eq!(
-        (views.start, views.more, views.end),
-        (0, true, None),
-        "the first page has an end beyond it"
-    );
+    let FarPage {
+        _dir,
+        db,
+        events,
+        whole,
+        subject,
+        views,
+    } = far_page(run);
+    let mut tui = participant_tui(run);
     hold_end_then_up(&mut tui, &views);
     assert_eq!(tui.offset, usize::MAX, "G asks the absolute end");
     let end = console_rows_at(
@@ -412,4 +479,86 @@ fn chief_landing_held_end_keeps_the_live_window_bounded() {
         (998, 0),
         "G then Up lands as the whole read does"
     );
+}
+
+/// A participant-level console at the participant pane's top, ready to
+/// take the same keys the whole read's control takes.
+fn participant_tui(run: &str) -> Tui {
+    let mut tui = Tui::new(Some(run.to_string()));
+    crate::tui::participant_level(&mut tui, "eff");
+    (tui.width, tui.height) = (80, 30);
+    tui
+}
+
+/// The reads the shell would make for the participant level's held keys:
+/// the page each waits for, answered and settled, until none is left. A
+/// held key that never lands fails here, by name, rather than looping.
+fn settle_participant_held(db: &Path, run: &str, subject: &Subject, tui: &mut Tui) -> Views {
+    use crate::tui::settle_when;
+    let mut views = participant_page(db, run, subject, tui);
+    for _ in 0..1_000 {
+        settle_when(tui, &views, true);
+        if tui.held.is_empty() {
+            return views;
+        }
+        views = participant_page(db, run, subject, tui);
+    }
+    panic!("held keys never landed: {} still held", tui.held.len())
+}
+
+/// The review's M1 (rulings 5 and 9): a held `Up` at the participant
+/// level's top asks the absolute end once. The first answer does not name
+/// the end, so the key waits; the end's answer resolves it, and it is not
+/// applied a second time. On the first page of 1,000 checkpoints, one held
+/// `Up` lands on 999, two on 998, and `Up` then `Down` on 0, as the whole
+/// read does.
+#[test]
+fn chief_review_held_up_resolves_once_at_the_participant_level() {
+    let run = "chief review held up participant";
+    let FarPage {
+        _dir,
+        db,
+        events,
+        whole,
+        subject,
+        views,
+    } = far_page(run);
+    let whole_views = participant_whole_views(&db, run, &events, whole, subject.clone());
+    for (what, ups, down) in HELD_UP_CASES {
+        let mut tui = participant_tui(run);
+        tui.pending = true;
+        press_ups(&mut tui, &views, ups, down);
+        assert!(!tui.held.is_empty(), "{what}: the keys wait for the read");
+        settle_participant_held(&db, run, &subject, &mut tui);
+        let mut whole_tui = participant_tui(run);
+        whole_press(&mut whole_tui, &whole_views, ups, down);
+        assert_eq!(
+            tui.offset, whole_tui.offset,
+            "{what}: the held keys land where the whole read does"
+        );
+    }
+}
+
+/// The review's M1 on the live column (rulings 5 and 9): the same held
+/// `Up` at the column's top is resolved once. On the two-member panel's
+/// 375x30 live column at (0, 0), one held `Up` lands on (999, 0), two on
+/// (998, 0), and `Up` then `Down` wraps to (0, 0), as the whole read does.
+#[test]
+fn chief_review_held_up_resolves_once_on_the_live_column() {
+    let run = "chief review held up live";
+    let (_dir, db, _events, whole_views) = console_of(run, panel_with(run, 500, 500, None));
+    for (what, ups, down) in HELD_UP_CASES {
+        let (mut tui, views) = live_at(&db, run, 0, 375, 30, &whole_views.now);
+        tui.pending = true;
+        press_ups(&mut tui, &views, ups, down);
+        assert!(!tui.held.is_empty(), "{what}: the keys wait for the read");
+        settle_held_live(&db, run, &mut tui, &whole_views.now);
+        let mut whole_tui = live_tui(run, 0, 375, 30);
+        whole_press(&mut whole_tui, &whole_views, ups, down);
+        assert_eq!(
+            (tui.live_offset, tui.live_line),
+            (whole_tui.live_offset, whole_tui.live_line),
+            "{what}: the held keys land where the whole read does"
+        );
+    }
 }
