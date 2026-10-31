@@ -267,26 +267,23 @@ fn the_panel_prose_path_is_disclosed_where_an_office_is_chosen() {
 
 // ── ruling 7's behavioural leg: the machine's floor, not the prose's ───
 
-/// A single-driver seat declaring `results`.
+/// A single-office seat declaring `results`; `sequence_fixture` hires its
+/// office over a scripted driver beside the bundle.
 fn seat(results: &[&str]) -> serde_json::Value {
     serde_json::json!({
         "results": results,
-        "role": "roles/role.md",
-        "driver": {"command": ["driver"]},
+        "agent": "worker",
     })
 }
 
-/// A two-step review seat: `first`'s driver, then a final driver reporting
-/// `last`, over the seat's `results`.
-fn review_sequence_seat(results: &[&str], first: &[String], last: &str) -> serde_json::Value {
+/// A two-step review seat: `first`'s office, then the final `last` office,
+/// over the seat's `results`.
+fn review_sequence_seat(results: &[&str], first: &str, last: &str) -> serde_json::Value {
     serde_json::json!({
         "results": results,
         "sequence": [
-            {"name": "first", "results": ["continue", "hold"],
-             "role": "roles/role.md", "driver": {"command": first}},
-            {"name": "last",
-             "role": "roles/role.md",
-             "driver": {"command": driver(&format!(r#"{{"result":"{last}"}}"#))}},
+            {"name": "first", "results": ["continue", "hold"], "agent": first},
+            {"name": "last", "agent": last},
         ],
     })
 }
@@ -665,13 +662,22 @@ fn a_stored_manifest_without_endings_resumes_with_the_derived_endings() {
 
 // ── ruling 7's destination leg: a hard severity is not a stop ──────────
 
-/// Write a fixture bundle's policy and seat table and compile it against
-/// the workspace's library.
+/// Write a fixture bundle's policy and seat table, hire each named office
+/// over its scripted driver beside it, and compile against those fixtures.
 fn sequence_fixture(
     policy: serde_json::Value,
     seats: serde_json::Value,
+    offices: &[(&str, &[String])],
 ) -> (tempfile::TempDir, Bundle) {
     let dir = tempfile::tempdir().expect("a fixture directory");
+    for (office, driver) in offices {
+        let driver: Vec<&str> = driver.iter().map(String::as_str).collect();
+        crate::office::hire(dir.path(), office, &driver, None);
+    }
+    // The default dialect is read beside the library root, whose parent
+    // is the fixture directory now that the offices stand there.
+    std::os::unix::fs::symlink(workspace().join("dialects"), dir.path().join("dialects"))
+        .expect("the workspace's default dialect tree");
     let bundle = dir.path().join("bundle");
     std::fs::create_dir_all(bundle.join("roles")).expect("roles/");
     std::fs::write(bundle.join("roles/role.md"), "# fixture role\n").expect("role");
@@ -684,10 +690,29 @@ fn sequence_fixture(
     }))
     .expect("bundle json");
     std::fs::write(bundle.join("bundle.json"), manifest).expect("bundle");
-    let root = workspace();
-    let compiled = Bundle::compile_with(&bundle, &root.join("agents"), &root.join("adapters"))
-        .expect("the sequence fixture compiles");
+    let compiled = Bundle::compile_with(
+        &bundle,
+        &dir.path().join("agents"),
+        &dir.path().join("adapters"),
+    )
+    .expect("the sequence fixture compiles");
     (dir, compiled)
+}
+
+/// A review fixture's bundle: the `worker` office its reachable-but-unused
+/// seats hire, the first step's office and the final step's.
+fn review_sequence_fixture(
+    policy: serde_json::Value,
+    seats: serde_json::Value,
+    first: &[String],
+    last: &[String],
+) -> (tempfile::TempDir, Bundle) {
+    let worker = crate::office::answering(":", "complete");
+    sequence_fixture(
+        policy,
+        seats,
+        &[("worker", &worker), ("first", first), ("last", last)],
+    )
 }
 
 /// A two-step review sequence over a table whose `hold` arm is `hard` but
@@ -696,6 +721,7 @@ fn sequence_fixture(
 /// separates the two words.
 fn advancing_hard_bundle(first: &str) -> (tempfile::TempDir, Bundle) {
     let first = driver(&format!(r#"{{"result":"{first}"}}"#));
+    let last = driver(r#"{"result":"security-hold"}"#);
     let policy = serde_json::json!({
         "schema": "forge.phase-machine/v1",
         "phases": ["work", "review", "done", "stop"],
@@ -712,9 +738,9 @@ fn advancing_hard_bundle(first: &str) -> (tempfile::TempDir, Bundle) {
     });
     let seats = serde_json::json!({
         "work": seat(&["complete"]),
-        "review": review_sequence_seat(&["hold", "security-hold"], &first, "security-hold"),
+        "review": review_sequence_seat(&["hold", "security-hold"], "first", "last"),
     });
-    let (dir, mut compiled) = sequence_fixture(policy, seats);
+    let (dir, mut compiled) = review_sequence_fixture(policy, seats, &first, &last);
     // Compile audits the table from its normal entry; the test starts at
     // the review sequence it is about, as the shipped review fixtures do.
     compiled.machine.initial = "review".to_string();
@@ -726,6 +752,7 @@ fn advancing_hard_bundle(first: &str) -> (tempfile::TempDir, Bundle) {
 /// rather than stop at. The final step's `refuse` parks the run.
 fn nonterminal_stop_bundle(first: &str) -> (tempfile::TempDir, Bundle) {
     let first = driver(&format!(r#"{{"result":"{first}"}}"#));
+    let last = driver(r#"{"result":"refuse"}"#);
     let policy = serde_json::json!({
         "schema": "forge.phase-machine/v2",
         "phases": ["work", "review", "stop", "done"],
@@ -746,9 +773,9 @@ fn nonterminal_stop_bundle(first: &str) -> (tempfile::TempDir, Bundle) {
     let seats = serde_json::json!({
         "work": seat(&["complete"]),
         "stop": seat(&["complete"]),
-        "review": review_sequence_seat(&["hold", "refuse"], &first, "refuse"),
+        "review": review_sequence_seat(&["hold", "refuse"], "first", "last"),
     });
-    let (dir, mut compiled) = sequence_fixture(policy, seats);
+    let (dir, mut compiled) = review_sequence_fixture(policy, seats, &first, &last);
     compiled.machine.initial = "review".to_string();
     (dir, compiled)
 }
@@ -861,6 +888,8 @@ fn a_hard_arm_that_does_not_stop_does_not_skip_the_final_step() {
 /// so the final step is reachable and the table's arms are all admitted at
 /// compile.
 fn ordinary_ending_bundle() -> (tempfile::TempDir, Bundle) {
+    let author = driver(r#"{"result":"upstream"}"#);
+    let worker = crate::office::answering(":", "complete");
     let policy = serde_json::json!({
         "schema": "forge.phase-machine/v1",
         "phases": ["specify", "review", "done", "stop"],
@@ -882,16 +911,13 @@ fn ordinary_ending_bundle() -> (tempfile::TempDir, Bundle) {
             "results": ["drafted", "fail", "upstream"],
             "sequence": [
                 {"name": "author", "results": ["continue", "upstream"],
-                 "role": "roles/role.md",
-                 "driver": {"command": driver(r#"{"result":"upstream"}"#)}},
+                 "agent": "author"},
                 {"name": "validate", "dialect": "validate"},
             ],
         },
-        "review": {"results": ["clean"],
-                   "role": "roles/role.md",
-                   "driver": {"command": ["driver"]}},
+        "review": {"results": ["clean"], "agent": "worker"},
     });
-    sequence_fixture(policy, seats)
+    sequence_fixture(policy, seats, &[("author", &author), ("worker", &worker)])
 }
 
 /// A `specify` fixture compiles an ordinary ending: `upstream` is a seat
