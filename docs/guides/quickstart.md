@@ -462,8 +462,9 @@ Copy the project's map (`realms.json`, or a folder's
 `.brokkr/realms.json`) to the personal path, then make its paths reach
 this repository: a map's realm path and its journal (the world `journal`,
 or a realm's own) are read relative to the map file's directory, so write
-them as absolute paths — otherwise `.forge/forge.db` lands under the
-personal directory. Keep `house` repository-relative — this repository's
+them as absolute paths, or as paths relative to the personal map's
+directory that reach this repository — otherwise `.forge/forge.db` lands
+under the personal directory. Keep `house` repository-relative — this repository's
 `docs/house-rules.md` for its realm. A named dialect such as `openspec`
 is looked up at
 `<personal>/dialects/openspec.json`: either copy `dialects/openspec.json`
