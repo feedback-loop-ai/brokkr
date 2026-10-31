@@ -35,7 +35,8 @@ minted when this one is accepted.
 
 ## What main holds at HEAD
 
-Measured at 0675e03e8.
+Measured at 0675e03e8 and re-read at 29230fbc8. Only this decision and its
+index row landed between them, so every code line below is HEAD's.
 
 **The adapters.** `claude_refusal` (`crates/brokkr-protocol/src/adapters.rs:1475`)
 returns a string for three shapes — the `assistant` record with
@@ -54,7 +55,11 @@ decision 0053's boundary. The adapters count turns but impose no one-turn
 invocation: `fold_stream_event` counts an `assistant` record (`:1600`) and
 `fold_codex_event` counts `turn.started` (`:1922`), and an invocation runs
 to its result or deadline. A probe therefore needs a bound of its own;
-today there is none. The reason travels as `Invocation.refusal:
+today there is none. The events that carry model output differ by adapter —
+ruling 4 names each by file and line — and none of them is `turn.started`
+(`:1922`), a session start; exec has no model turn at all
+(`docs/decisions/0053-a-pre-session-refusal-is-a-failure-to-start.md:130`).
+The reason travels as `Invocation.refusal:
 Option<String>` (`:504`); a panel drives each member as its own invocation,
 so each member's report carries one refusal and the terminal event is where
 a per-site collection is assembled. `lost::refusal_to_start`
@@ -165,8 +170,11 @@ absent-by-default field under a numbered extension schema provided `fold`
 never reads it. Today a run's only wait is a park: `run/parked` makes the
 fold `awaiting_operator` (`contracts/README.md:303`; `fold.rs:692`), with
 the reason `cursor.rs:61-76` builds. `brokkr runs` prints the standing and
-that reason (`crates/brokkr-view/src/fleet.rs:577-586`; "needs you" at
-`:435`, `Need::Parked` at `:309`), `brokkr inspect` shows the events and the
+that reason, both derived once in `brokkr-view`: `Facts::of` reads the
+fold's `park_reason` (`crates/brokkr-view/src/fleet.rs:577-587`),
+`verdict_of` puts it on the row (`:650`), and the section heading is
+`Section::NeedsYou`'s label (`:265-267`), with `Need::Parked` at `:312` and
+`need` returning it at `:435-441`. `brokkr inspect` shows the events and the
 park (`crates/brokkr-cli/src/verbs/readouts.rs:127`), and the TUI paints the
 same derivation. A running run has no wait event; only the 3-hour staleness
 bound calls it dead (`fleet.rs:164`, `:174`). So today the rate limit is a
@@ -246,9 +254,15 @@ store table whose rows are per site.**
   `event_seq` (the terminal event that began the episode), `site` (the
   journal tag, `''` for an inline seat), `provider`, `route`, `until_at`,
   `reason` (the provider's words, bounded), nullable `retry_after_seconds`,
-  `rounds`, `recorded_at`. A unique index on `(event_seq, site, rounds)`
-  holds one row per site and round of an episode. `CHECK`s: whole
-  `rounds >= 1`; a nullable retry-after is a whole number above 0;
+  `rounds`, `recorded_at`. A unique index on
+  `(run_id, event_seq, site, rounds)` holds one row per site and round of an
+  episode. The run is part of the key, not decoration: `events` is keyed by
+  `(run_id, seq)` (`crates/brokkr-store/src/schema.rs:35-40`), so
+  `event_seq` alone repeats across runs and an index without the run would
+  refuse the second run's row — and with it that run's terminal event and its
+  hold. Every row is identified, and every join here is made, by
+  `(run_id, event_seq)`. `CHECK`s:
+  whole `rounds >= 1`; a nullable retry-after is a whole number above 0;
   `until_at > recorded_at`; non-empty provider, route and reason. Triggers
   refuse update and delete, as 0095's tables do.
 - **The aggregate.** Admission is keyed by provider and route, not by the
@@ -269,8 +283,9 @@ store table whose rows are per site.**
   land together; the event is the attempt's home and the rows are
   admission's index, as the claim is the pass's. A probe's later refusal is
   not a second attempt and has no event of its own — a new event type is
-  option (b), refused below — so it appends a row with the same `event_seq`
-  and the next `rounds` for that site: the table is that fact's one home.
+  option (b), refused below — so it appends a row with the same `run_id` and
+  `event_seq` and the next `rounds` for that site: the table is that fact's
+  one home.
   The table lives in the journal's own database, so the probe is journaled
   there even though the event stream carries no row for it. The journal's
   `waits` array stays the attempt's record; the aggregate, not the event's
@@ -357,12 +372,20 @@ driver advertises `probe` in the `capabilities` it already sends
 (`crates/brokkr-protocol/src/process.rs:565-585`), and `Start` carries a
 typed `probe: true` under a numbered extension schema; a driver that does
 not advertise it is never probed, and the run parks naming the unsupported
-probe. The adapter ends the session at the first counted turn and admits no
-second: the first counted turn is the answer, decision 0053's boundary (a
-turn or a delivered result), not an HTTP 200 and not a spawn. The probe's
-own arm reports `Succeeded` with that first turn's checkpoint, whichever way
-the harness ends after it is stopped; a report with no `accepted` and no
-checkpoint is not an answer.
+probe. A probe's answer is a model-output event, not decision 0053's
+session-start boundary and not merely a counted turn: at HEAD the adapter
+reports one as claude's and lanetally's `assistant` record
+(`crates/brokkr-protocol/src/adapters.rs:1596`), codex's `item.completed`
+whose `item.type` is `agent_message` (`:1926`; the type is read at
+`crates/brokkr-protocol/src/adapters/capability_calls.rs:89-99`), and dsh's
+`assistant/message` in the session log (`:2164`). `turn.started` (`:1922`), a
+session start (`system/init` at `:1580`, `thread.started` at `:1903`, dsh's
+`session` at `:2148`), a spawn, an HTTP 200, a hang, the probe's deadline and
+an error are not answers. The adapter ends the probe at the first answer and
+admits no second; the probe's own arm reports `Succeeded` with the checkpoint
+that answer emitted, whichever way the harness ends after it is stopped. A
+report with no `accepted` and no checkpoint is not an answer, and neither is
+`accepted` alone: codex crosses that at `turn.started`, before any output.
 
 The answer is journaled on the retry's `effect/started` as an optional
 extension under the same `provider-wait/v1` schema — the site, provider,
@@ -371,20 +394,33 @@ that extends the wait is the table row ruling 2 describes. A driver's
 reported usage rides that extension where the driver gives it, but the
 probe's token cost is unmeasured today.
 
-What a probe's other ends do:
+What a probe's other ends do, cleanup's refusal first as 0006 ruling 2's
+cleanup-failure row has it — a probe whose tree is not proven gone is a
+cleanup failure and parks, naming the group's refusal first, whatever its
+stream said, and no effect retries:
 
-- A typed `rate_limit` refusal records a new row for the same site and
-  extends the cool-down. It spends no effect attempt — the probe's failure
-  is not a `failed_attempts` — and the engine waits the new aggregate and
-  probes again. That loop is bounded by the effect's declared episode
-  maximum (choice 3), which parks it, not by the attempt cap.
-- Any other typed refusal (auth, an unknown model, a non-rate-limit
-  provider refusal) parks, naming the provider's words. It does not fall
-  back and does not retry the effect.
-- A timeout, a lost result, an unreadable or malformed present refusal, and
-  an indeterminate end park under 0006's rows; none is a silent retry.
-- An answer releases the cooled route for admission, and the effect retries
-  only after the answer.
+- A typed `rate_limit` refusal before any answer records a new row for the
+  same `(run_id, event_seq)` and the next `rounds`, and extends the
+  cool-down. It spends no effect attempt — the probe's failure is not a
+  `failed_attempts` — and the engine waits the new aggregate and probes
+  again. That loop is bounded by the effect's declared episode maximum
+  (choice 3), which parks it, not by the attempt cap.
+- Any other typed refusal before an answer (auth, an unknown model, a
+  non-rate-limit provider refusal) parks, naming the provider's words. It
+  does not fall back and does not retry the effect.
+- An unreadable or malformed present refusal refuses by name, never as
+  absent; it parks, records no row, and neither ends nor extends the
+  cool-down.
+- A probe that ends with no answer is an **indeterminate** end under 0006: a
+  hang, its deadline, a session start with no model output, a lost result, a
+  clean exit before an answer, or an error after `turn.started` (which 0053
+  does not classify) all park and spend no effect attempt. The row is
+  neither ended nor extended — only its own `until_at` expiry retires it —
+  and no effect retries. A driver `failed` report with no answer is
+  indeterminate here even where the same report would retry an effect.
+- An answer ends this run's wait and permits its retry. It clears no row:
+  ruling 2 keeps every unexpired row in admission's aggregate until its own
+  `until_at`, so an answer is not evidence another run's refusal has ended.
 
 The probe's cost is one extra driver invocation per cooled site per round.
 Whether it bills tokens is **unmeasured**, as is whether a pre-inference
@@ -442,8 +478,9 @@ must precede the retry.
 
 **Recommended: (a) admission reads the aggregate after the declaration
 checks and before the ceilings, and writes nothing.** `Measure::take`
-(`capacity.rs:304`) already reads the host and the journal once; it takes
-`now` as an argument (0071 ruling 1) and gains one read of every unexpired
+(`crates/brokkr-runtime/src/admission/capacity.rs:304`) already reads the
+host and the journal once and takes no `now` today; the aggregate adds `now`
+as an argument (0071 ruling 1) and one read of every unexpired
 `provider_cooldowns` row, aggregated to the latest `until_at` and the words
 of the latest row at that maximum, per provider and route.
 `Measure::room` (`:322`) checks the entry's lanes after every provider and
@@ -502,19 +539,23 @@ with its own reason and tests; it is not this decision's default, and
 (a) Do not count it: needs the fold to read the class (a v2 event, with the
 digest cost choice 2 avoids) or a second counter (0071 ruling 5), and makes
 `failed_attempts` mean something other than 0006 says. (b) Keep today's
-order exactly: count, and at the cap park before any wait. That keeps the
-cap but loses the wait whenever the rate limit lands on the last permitted
-attempt; refused because 0068 says a rate-limited run within its maximum
-waits instead of parking.
+order exactly: count the refusal and retry at once, with no cool-down wait
+and no probe inserted, and park at `max_attempts`. Both (b) and (c) park at
+the cap, so the cap is not the difference; the difference is below it. (b)
+retries into a route still cooling, so the remaining attempts can be spent
+against the same limit before the aggregate `until` passes, and the run then
+parks at the cap without ever waiting the cool-down out. Refused because
+0068 says the run waits, with the provider's words, and retries only after a
+probe answers — not because of the cap, which (b) and (c) keep alike.
 
 The retry's candidate is selected by the existing chain rule, not by the
 cool-down. A rate-limit refusal is still a pre-session failure to start
 under 0053 ruling 1, and `chain_index`/`select_candidates`
 (`engine.rs:1729-1769`) has already counted it, so for
 `[claude/first, codex/second]` the retried effect takes codex/second while
-the probe asks the cooled route claude/first. The probe's answer releases
-the cooled route for admission; it does not reset the chain and does not
-re-select the retried effect onto the cooled link. If the retried
+the probe asks the cooled route claude/first. The probe's answer ends this
+run's wait; it clears no row and does not reset the chain or re-select the
+retried effect onto the cooled link. If the retried
 candidate's route is itself in an unexpired cool-down, the engine waits that
 aggregate too before the attempt. On a one-candidate chain, or once the
 chain clamps to its last link, the retried effect takes the cooled route,
@@ -567,18 +608,20 @@ contracts/host.v2.schema.json
   route the run already used; admission itself asks no model.
 - No non-rate-limit refusal becomes a retry. 0053's boundary, 0006's
   timeout, lost-result, transport-limit, partial-side-effect and
-  cleanup-failure rows, and 0016's mid-session rule are unchanged.
+  cleanup-failure rows, and 0016's mid-session rule are unchanged; a probe
+  that ends with no answer is indeterminate and parks.
 - A run still parks for a person exactly when it does today, plus the cap:
   a rate-limit refusal with attempts remaining waits and probes instead of
   parking, and a rate-limit refusal at 0006's cap parks naming the
   cool-down. A refusal whose route cannot be resolved, whose declaration is
   missing, or whose typed object cannot be read also parks, as ruling 1
   and ruling 3 say; a provider-wide hold would hold unrelated routes, so
-  the run waits for the operator instead.
+  the run waits for the operator instead. A probe with no answer parks too
+  and ends no cool-down (ruling 4).
 - A panel or sequence with any indeterminate member is indeterminate and
-  parks under 0006; the refused sites' rows are still recorded on that
-  terminal event, so admission holds the routes the panel did observe even
-  though the effect does not retry.
+  parks under 0006; from 4d the refused sites' rows are still recorded on
+  that terminal event, so admission holds the routes the panel did observe
+  even though the effect does not retry.
 - No Windows code, test or evidence (decision 0063).
 - No contract is edited by this story; the acceptance of this decision
   mints the named versions, and the build slices mint them in order.
@@ -589,10 +632,16 @@ Smallest first; each lands alone, tested, through the merge queue. Only 4a
 edits `crates/brokkr-protocol/src/adapters.rs`; the adapter slot is held for
 it, and a later dsh classification would be its own slice and its own turn.
 4c, 4d and 4e do not touch it, because the typed refusal and the probe's
-one-turn bound are 4a's. 4c waits the attempt's own event and has no table
-yet; 4d adds the table and extends the engine's wait, retry and transaction
-to read its aggregate; 4e adds admission. The overlapping-refusal aggregate
-tests therefore land in 4d and 4e, not 4c.
+answer bound are 4a's. 4c waits the attempt's own event and has no table
+yet: it can write the attempt's `waits` and take the wait its own event
+computes, but it cannot give a repeated probe refusal a new round or an
+indeterminate panel's refused site a row. 4c therefore parks on both, writes
+no row, never retries an effect before an answer and never treats a probe's
+start or refusal as one. 4d adds the table — its rows keyed by the run's
+event, `(run_id, event_seq)`, so two runs at the same `event_seq` never
+collide — and the row-recording, and extends the engine's wait, retry and
+transaction to read its aggregate; 4e adds admission. The overlapping-refusal
+and run-keyed-row tests therefore land in 4d and 4e, not 4c.
 
 1. **4a — the typed refusal and the probe's adapter bound.** Files:
    `crates/brokkr-protocol/src/adapters.rs` (the only slice that edits it),
@@ -609,9 +658,12 @@ tests therefore land in 4d and 4e, not 4c.
    answers on the next attempt; the report carries the class, provider,
    route and words, `failed_to_start` still holds, and the second attempt
    proceeds; **a present but malformed refusal refuses by name, never as
-   absent**; a panel's members each carry their own refusal; a probe
-   invocation ends at the first counted turn and admits no second; a driver
-   that does not advertise `probe` is refused a probe.
+   absent**; a panel's members each carry their own refusal; **a probe ends
+   only on an answer:** `a_probe_ends_only_on_an_answer` stops at the first
+   model-output event and admits no second, while `turn.started` followed by
+   a hang (`a_probe_that_starts_then_hangs_has_no_answer`) and by an error
+   (`a_probe_that_starts_then_errors_has_no_answer`) carries no answer; a
+   driver that does not advertise `probe` is refused a probe.
 2. **4b — the host's cool-down bounds.** Files:
    `crates/brokkr-runtime/src/admission/host.rs`,
    `crates/brokkr-runtime/src/admission/host/tests.rs`, the new
@@ -638,8 +690,13 @@ tests therefore land in 4d and 4e, not 4c.
      the cap; the run parks, names the cool-down, and no third
      `effect/started` exists.
    - **the probe comes first:** no `effect/started` for the effect before
-     the probe's answer; a probe refused again extends the cool-down and
-     leaves `failed_attempts` unchanged.
+     the probe's answer; a probe refused again parks in 4c — no further
+     probe, no `effect/started`, and `failed_attempts` unchanged — because
+     the table that records its next round arrives in 4d.
+   - **a probe that starts and then hangs or errors has no answer:** after
+     `turn.started`, a hang (`a_probe_that_starts_then_hangs_parks_without_a_retry`)
+     and an error (`a_probe_that_starts_then_errors_parks_without_a_retry`)
+     park, retry no effect, and neither end nor extend the cool-down.
    - **selection:** a two-candidate chain `[claude/first, codex/second]`;
      the first refuses, the probe asks claude/first, and after it answers
      the retried effect starts codex/second; a one-candidate chain retries
@@ -647,8 +704,8 @@ tests therefore land in 4d and 4e, not 4c.
    - **a two-route panel:** claude/A and codex/B refuse in one attempt; one
      terminal `effect/failed` carries two waits; the effect retries only
      after both probes answer; a non-rate-limit member parks; an
-     indeterminate member parks, records the refused site's row, and does
-     not retry.
+     indeterminate member parks, carries the refused site's wait on its
+     `effect/indeterminate`, and does not retry; 4d adds its row.
    - a sequence step's refusal carries its step-tagged site, and the retry
      restarts from step 1.
    - a present but malformed `waits` entry refuses by name.
@@ -672,9 +729,16 @@ tests therefore land in 4d and 4e, not 4c.
    non-integer round, a non-positive retry-after, an until not after its
    record and an empty provider; one event with two refused sites writes two
    rows; a probe's second refusal for the same site writes a second row with
-   the next round; **two overlapping refusals from two runs aggregate, and
-   admission holds until the longer one ends**; **the claim transaction
-   refuses a claim taken between the pass's read and the claim**.
+   the next round and extends the engine's wait, leaving `failed_attempts`
+   unchanged (`a_probe_refusal_extends_the_wait_without_an_attempt`); an
+   indeterminate panel records each refused site's row and retries nothing
+   (`an_indeterminate_panel_records_the_refused_site`); **two runs at the
+   same `event_seq`, site and round** — run-A on claude/A and run-B on
+   codex/B, both at seq 7 — store both rows under their own
+   `(run_id, event_seq)` (`two_runs_at_the_same_event_seq_store_both_rows`);
+   **two overlapping refusals from two runs aggregate, and admission holds
+   until the longer one ends**; **the claim transaction refuses a claim
+   taken between the pass's read and the claim**.
 5. **4e — admission's cool-down leg.** Files:
    `crates/brokkr-runtime/src/admission.rs`,
    `crates/brokkr-runtime/src/admission/capacity.rs`,
@@ -683,10 +747,11 @@ tests therefore land in 4d and 4e, not 4c.
    About 150 production and 130 test lines. Contract: none. Tests: an entry whose provider and route
    stand in a cool-down gets `Capacity::CoolingDown`, kind `cooling_down`,
    the until and the provider's words in its text, and is not held; an entry
-   on a route with no row is admitted; **two overlapping refusals, with the
-   later one shorter, hold until the longer ends**; an expired row never
-   holds; an unreadable row refuses; the claim's recheck refuses a row
-   recorded after the pass read.
+   on a route with no row is admitted; **two runs at the same `event_seq` on
+   different routes both hold** (`two_runs_at_the_same_event_seq_hold_both_routes`);
+   **two overlapping refusals, with the later one shorter, hold until the
+   longer ends**; an expired row never holds; an unreadable row refuses; the
+   claim's recheck refuses a row recorded after the pass read.
 6. **4f — the readouts paint the waits.** Files:
    `crates/brokkr-view/src/fleet.rs`, `crates/brokkr-view/src/lib.rs`
    (`VIEW_VERSION` 27 to 28), `crates/brokkr-view/src/tests.rs`, and the
@@ -708,16 +773,19 @@ tests therefore land in 4d and 4e, not 4c.
 
 - A rate-limited run shows every refused site's wait with the provider's
   words, not a park for a person; every wait is bounded by the declared
-  maximum, and a wait past it or a refusal at 0006's cap parks. The retry is
-  an attempt inside 0006's limit; the probe is not, and no amendment to 0006
-  is proposed.
+  maximum, and a wait past it or a refusal at 0006's cap parks. A probe ends
+  the wait only with a provider's answer, never with a session start, a
+  hang, a deadline or an error. The retry is an attempt inside 0006's limit;
+  the probe is not, and no amendment to 0006 is proposed.
 - Before slice 6 the price is the held lane: an in-process wait holds the
   run's lock and counts against its provider and route until the retry, and
   each round costs one probe per cooled site, whose token cost is unmeasured.
   The operator can shorten it with a lower maximum.
 - A later, shorter refusal never releases a route an earlier row still
   holds; only expiry retires a row, so admission waits for the latest
-  `until_at` across unexpired rows.
+  `until_at` across unexpired rows. Two runs that refuse at the same
+  `event_seq` keep separate rows, because the row's key is the run's own
+  event.
 - A panel's retry re-runs the whole panel, including a member that settled;
   0093's member carry is the operator's retry and is unchanged. That is the
   cost of keeping 0006's panel semantics.
@@ -740,10 +808,14 @@ tests therefore land in 4d and 4e, not 4c.
 
 ## Evidence
 
-Read at 0675e03e8 and re-read at e2a2b1e6f for this revision. The journal
-counts in the Context are the controller's and were not re-read here. Each
-code claim names its file and line; this revision ran `git grep`/`sed` on
-each one and the commands are recorded in the fix round's notes. The dsh
+Read at 0675e03e8 and re-read at 29230fbc8 for the 430s4f revision. The
+journal counts in the Context are the controller's and were not re-read
+here. Each code claim names its file and line; this revision ran
+`git grep`/`sed` on each one and the commands are recorded in the fix
+round's notes. It re-checked every `fleet.rs` citation at HEAD
+(`:164`, `:174`, `:265-267`, `:312`, `:435-441`, `:577-587`, `:650`), the
+adapter events that carry model output (`adapters.rs:1596`, `:1926`,
+`:2164`), and the journal's event key (`schema.rs:35-40`). The dsh
 check is the drafting session's, not re-run here: `dsh --version` printed
 `0.2.1-rc.2`, and `dsh headless --help` stopped at `EROFS: read-only file
 system` on its profile file, so the 429 and the stream drop remain
