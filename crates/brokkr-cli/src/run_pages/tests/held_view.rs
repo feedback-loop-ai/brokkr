@@ -6,7 +6,7 @@
 //! that file within its ceiling (decision 0071 ruling 4).
 
 use super::console_end::{
-    console_of, live_at, retired_panel, settle_held_live, wrapped_panel_console,
+    console_of, far_work_of, live_at, retired_panel, settle_held_live, wrapped_panel_console,
 };
 use super::*;
 
@@ -320,5 +320,96 @@ fn chief_review_fallback_end_ignores_retired_seat() {
         (whole_tui.live_offset, whole_tui.live_line),
         (29, 0),
         "the whole read's Up"
+    );
+}
+
+/// Hold `G` on the read that is out, settle its first answer, and press
+/// `Up` on that answer's tick before the absolute end answers: the held
+/// end and the movement behind it.
+fn hold_end_then_up(tui: &mut Tui, views: &Views) {
+    use crate::tui::{bottom_key, settle_when, up_key, Step};
+    tui.pending = true;
+    bottom_key(tui, views);
+    assert_eq!(
+        tui.held.first().map(|held| held.step),
+        Some(Step::Bottom),
+        "G waits behind the read"
+    );
+    settle_when(tui, views, true);
+    assert_eq!(
+        tui.held.first().map(|held| held.step),
+        Some(Step::Bottom),
+        "G still owns the movement until the absolute end answers"
+    );
+    up_key(tui, views);
+    assert_eq!(tui.held.len(), 2, "Up waits behind the unresolved end");
+}
+
+/// M2 (rulings 5 and 9): a held `G` stays at the head of the queue until
+/// the answer names the stream's absolute end, so a movement pressed on
+/// that answer's tick waits behind it. The participant level starts on
+/// the first 200 of 1,000 checkpoints; `G` is held while the read is out,
+/// its first answer lands, and `Up` is pressed before the end answers.
+/// The end's window settles both: 998, as the whole read's `G` then `Up`.
+#[test]
+fn chief_landing_held_end_owns_the_movement_after_its_first_answer() {
+    use crate::tui::{asked_rows, bottom_key, up_key};
+    let run = "chief landing held end participant";
+    let (_dir, db, events) = far_work_of(run, 1_000);
+    let whole = brokkr_view::run_view(&events, fold(&events).as_ref().ok());
+    let (mut tui, subject) = participant_console(run, &whole);
+    let views = console_rows_at(&db, run, Some(subject.clone()), false, 200, 0);
+    assert_eq!(
+        (views.start, views.more, views.end),
+        (0, true, None),
+        "the first page has an end beyond it"
+    );
+    hold_end_then_up(&mut tui, &views);
+    assert_eq!(tui.offset, usize::MAX, "G asks the absolute end");
+    let end = console_rows_at(
+        &db,
+        run,
+        Some(subject.clone()),
+        false,
+        asked_rows(&tui),
+        crate::tui::ask_offset(&tui),
+    );
+    assert_eq!(end.end, Some(1_000), "the end's window names the stream");
+    crate::tui::settle_when(&mut tui, &end, true);
+    assert_eq!(tui.offset, 998, "G then Up lands as the whole read does");
+    let whole_views = participant_whole_views(&db, run, &events, whole, subject);
+    let (mut whole_tui, _) = participant_console(run, whole_views.run.as_ref().unwrap());
+    bottom_key(&mut whole_tui, &whole_views);
+    up_key(&mut whole_tui, &whole_views);
+    assert_eq!(whole_tui.offset, 998, "the whole read's G then Up");
+}
+
+/// M2 (rulings 5 and 9; decision 0089 ruling 9's bounded window): the
+/// same sequence on the live column keeps the end request `usize::MAX`
+/// while `Up` waits, so the read asks the viewport and not `MAX` plus a
+/// viewport. The held sequence lands at (998, 0), and the end's window
+/// holds one window of checkpoints, never the 1,000-row stream.
+#[test]
+fn chief_landing_held_end_keeps_the_live_window_bounded() {
+    use crate::tui::{ask_offset, asked_rows, settle_when};
+    let run = "chief landing held end live";
+    let (_dir, db, _events, whole_views) = console_of(run, panel_with(run, 500, 500, None));
+    let (mut tui, views) = live_at(&db, run, 0, 375, 30, &whole_views.now);
+    hold_end_then_up(&mut tui, &views);
+    assert_eq!(tui.live_offset, usize::MAX, "G asks the absolute end");
+    assert_eq!((ask_offset(&tui), asked_rows(&tui)), (usize::MAX, 30));
+    let end = live_read(&db, run, &tui, &whole_views.now);
+    let retained: usize = end.run.as_ref().map_or(0, |view| {
+        view.participants
+            .iter()
+            .map(|part| part.checkpoints.len())
+            .sum()
+    });
+    assert_eq!(retained, 200, "the end read keeps one window");
+    settle_when(&mut tui, &end, true);
+    assert_eq!(
+        (tui.live_offset, tui.live_line),
+        (998, 0),
+        "G then Up lands as the whole read does"
     );
 }

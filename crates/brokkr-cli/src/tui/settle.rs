@@ -235,6 +235,19 @@ pub(super) fn flush_held(tui: &mut Tui, views: &Views) {
             return;
         }
         step(tui, views, next);
+        if checkpoint_offset(tui) == usize::MAX {
+            // The step asked for the stream's absolute end. Until an
+            // answer names that end, the key stays at the head and every
+            // key behind it waits: subtracting from the unresolved
+            // marker would lose a movement the whole read makes (M2).
+            // An answer that names the end resolves the step now, so the
+            // keys behind it keep their order in the same flush.
+            if views.end.is_none() {
+                tui.want = Some(usize::MAX);
+                return;
+            }
+            resolve_end(tui, views);
+        }
         if let Some(entry) = tui.held.first_mut() {
             entry.count -= 1;
             if entry.count == 0 {

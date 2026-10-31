@@ -327,11 +327,39 @@ where
     // A backend's own error reaches the operator through `anyhow`.
     B::Error: std::error::Error + Send + Sync + 'static,
 {
+    drive_with(
+        terminal,
+        ops,
+        source,
+        tui,
+        max_iterations,
+        &mut |terminal| {
+            let size = terminal.size()?;
+            Ok((size.width, size.height))
+        },
+    )
+}
+
+/// [`drive`], with the tick's frame size measured by `measure` instead of
+/// the backend. Production measures the terminal itself; a test can
+/// resize between reads without a second drive loop or a second loop
+/// body.
+pub(super) fn drive_with<B: Backend, P: Into<Polled>, M>(
+    terminal: &mut Terminal<B>,
+    ops: &TerminalOps,
+    source: &mut dyn FnMut(Ask) -> P,
+    tui: &mut Tui,
+    max_iterations: usize,
+    measure: &mut M,
+) -> Result<Closed>
+where
+    // A backend's own error reaches the operator through `anyhow`.
+    B::Error: std::error::Error + Send + Sync + 'static,
+    M: FnMut(&Terminal<B>) -> Result<(u16, u16)>,
+{
     let mut views = Views::empty();
     // What `views` was read for: a frame is never drawn under the tab,
-    // the run or the participant of another (#744). The empty frame holds
-    // nothing of anything, so it stands for what is first asked, and no
-    // participant is asked about over a frame that lists none.
+    // run or participant of another (#744); the empty frame asks first.
     let mut shown = ReadFor {
         tab: tui.tab,
         run: asked_run(tui, &views),
@@ -363,11 +391,8 @@ where
             live_rows: asked_rows(tui),
             live_offset: ask_offset(tui),
         };
-        // A read still out (`Polled::Pending`) is neither read nor
-        // refused: the give-up bound counts reads, and the movement keys
-        // pressed meanwhile are held for its answer. A failed read is no
-        // answer either: its frame is the old one, so the keys keep
-        // waiting for a successful read (M2).
+        // A read still out is neither read nor refused; a failed read is
+        // no answer either, so the keys wait for a successful one (M2).
         let mut answered = false;
         if let Polled::Answered(answer) = source(ask).into() {
             let key = vanishing_key.as_deref();
@@ -382,6 +407,12 @@ where
         // What the shell has left behind: until what it asks about now
         // answers, the frame draws none of it.
         held_to(tui, &mut views, &mut shown, asking);
+        // Measured before the answer is settled, so a held movement is
+        // applied against the frame the operator is looking at: whether
+        // its column is still drawn and how its row wraps are the size's
+        // facts, not the previous frame's (M1, decision 0088 ruling 4).
+        let size = measure(terminal)?;
+        (tui.width, tui.height) = size;
         // A page request the keys parked is resolved only against the
         // frame that answers it; the frame held while a read is out is not
         // that answer (R4).
@@ -399,10 +430,8 @@ where
         if unwound(&tui.watched) {
             return Ok(Closed::Ended);
         }
-        // Measured before the draw, so the frame, its footer and the keys
-        // below are pressed against one size.
-        let size = terminal.size()?;
-        (tui.width, tui.height) = (size.width, size.height);
+        // The same measurement draws the frame, its footer and the keys
+        // below, so all of them agree on one size.
         terminal.draw(|frame| draw(frame, tui, &views))?;
         if (ops.poll)(TICK)? {
             if let Some(closed) = closed_by(tui, &views, (ops.read)()?) {
