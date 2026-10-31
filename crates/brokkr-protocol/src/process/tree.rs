@@ -76,9 +76,13 @@
 //! last walk (an identity appearing or disappearing, or a row's zombie or
 //! exiting state changing), any identity the registry does not know, any
 //! doubt, and no previous walk; then it takes one full snapshot, and only
-//! that read attributes. The walk's rows never enter `recorded`, `doubted`
-//! or a kill, so a stale numeric pid or a missed row can at most cause an
-//! extra snapshot. Admission and every kill read the full table too, so a
+//! that read attributes. A snapshot the walk owes stays owed until a full
+//! read succeeds: a failed read is not an answered change, so the next tick
+//! takes it again even when its walk is unchanged, and the walk is
+//! remembered only with the read that answered it. The walk's rows never
+//! enter `recorded`, `doubted` or a kill, so a stale numeric pid or a
+//! missed row can at most cause an extra snapshot. Admission and every kill
+//! read the full table too, so a
 //! process that predates the attempt is in `before` even when a walk would
 //! miss it, and an identity the attempt has already recorded is read by
 //! its own row at a settlement read (`Live::rows`), so a missed row is not

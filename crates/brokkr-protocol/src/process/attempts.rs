@@ -73,6 +73,11 @@ struct Registry {
     /// there is no previous walk, so the next tick must read the table.
     #[cfg(target_os = "linux")]
     walk: Option<table::Sighted>,
+    /// A changed walk that the full snapshot did not answer still owes
+    /// one. It stays owed until a full read succeeds, so a quiet walk in
+    /// between cannot make the tick forget it.
+    #[cfg(target_os = "linux")]
+    owed: bool,
 }
 
 struct Read {
@@ -87,6 +92,8 @@ static LIVE: Mutex<Registry> = Mutex::new(Registry {
     latest: None,
     #[cfg(target_os = "linux")]
     walk: None,
+    #[cfg(target_os = "linux")]
+    owed: false,
 });
 static NEXT: AtomicU64 = AtomicU64::new(0);
 static START: Once = Once::new();
@@ -250,31 +257,47 @@ impl Registry {
         }
         #[cfg(target_os = "linux")]
         {
-            let changed = match (host.tick)() {
+            match (host.tick)() {
                 Ok(sighting) => {
                     let sighted = sighting.sighted();
-                    let changed = self.walk.as_ref() != Some(&sighted)
+                    // A snapshot the walk owes stays owed until a full
+                    // read succeeds: a change is never remembered as
+                    // answered by a read that failed.
+                    let changed = self.owed
+                        || self.walk.as_ref() != Some(&sighted)
                         || sighting.unseen(|id| self.knows(id));
-                    // Remember this walk for the next tick's comparison.
-                    // It is still only a comparison: `observe` below reads
-                    // the full table, never `sighted`.
-                    self.walk = Some(sighted);
-                    changed
+                    self.answer(changed, sighted, host.table);
                 }
                 Err(_) => {
                     // A walk that could not complete is no memory of the
                     // tree: the next tick must read the table again rather
-                    // than compare against an older walk.
+                    // than compare against an older walk. That read is
+                    // also this tick's, and it answers the walk only if it
+                    // succeeds.
                     self.walk = None;
-                    true
+                    self.owed = self.read(host.table).is_err();
                 }
-            };
-            if changed {
-                drop(self.read(host.table));
             }
         }
         #[cfg(not(target_os = "linux"))]
         drop(self.read(host.tick));
+    }
+
+    /// Answer a walk with the full snapshot it asks for. A quiet walk is
+    /// just the next tick's memory; a changed one is recorded as seen only
+    /// by the read that answers it, and a failed read leaves it owed.
+    #[cfg(target_os = "linux")]
+    fn answer(&mut self, changed: bool, sighted: table::Sighted, table: Table) {
+        if !changed {
+            self.walk = Some(sighted);
+            return;
+        }
+        if self.read(table).is_ok() {
+            self.walk = Some(sighted);
+            self.owed = false;
+        } else {
+            self.owed = true;
+        }
     }
 
     /// Does the registry already know `id`? Every attempt's `before`,

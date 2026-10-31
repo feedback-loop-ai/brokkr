@@ -46,6 +46,15 @@ with no end bound and killed with it. The operator's ruling of
 ruling 2: any change in the tree since the last walk takes one full
 snapshot; 0099 and `process/tree.rs` are corrected to say so.
 
+The 918e review found that the 918d tick saved the walk before the full
+read and discarded that read's error. A walk that reported the leader
+turning zombie took its snapshot, the snapshot failed on an unrelated row,
+and the walk was nevertheless remembered as answered; the next tick, with
+an identical zombie walk, took no snapshot, left `ended` unset, and
+attributed a detached orphan born after it to the ended attempt and killed
+it. The operator's ruling of 2026-10-30, "go with recommended" (#918),
+fixes it: a snapshot the walk owes stays owed until a full read succeeds.
+
 ## Rulings
 
 1. On Linux the tracker's periodic tick (`attempts::start`'s loop) walks
@@ -66,8 +75,14 @@ snapshot; 0099 and `process/tree.rs` are corrected to say so.
    an unreadable stat, any doubt), or when there is no previous walk (the
    first tick, or the first after the registry was empty), the tick takes
    exactly one full `table::snapshot`, and attribution goes through main's
-   existing logic: `Registry::read` and `observe`. A quiet tick, the same
-   rows in the same states, takes none. A walk that misses a process
+   existing logic: `Registry::read` and `observe`. A snapshot a changed walk
+   owes stays owed until a full read succeeds: a read that fails is not an
+   answered change, and the next tick takes the full snapshot again even
+   when its walk is unchanged. Only while no snapshot is owed does a quiet
+   tick, the same rows in the same states, take none. The tick's own read
+   error is still dropped there, as 918d had it; admission, every kill, the
+   settlement reads and the stop sweep keep surfacing their typed errors as
+   `Unsettled`. A walk that misses a process
    because it was read after that process's `children` file was finished
    only means the next tick sees it under its real parent; the walk cannot
    attribute.
@@ -192,6 +207,13 @@ The split is bound by tests that fail on a compiling mutation:
   plants a recorded descendant that disappears and asserts the tick takes
   one snapshot after two quiet ones. Dropping the last-walk comparison
   fails it by name.
+- `process::attempts::tests::chief_failed_snapshot_retries_before_attributing_a_later_orphan`
+  plants a leader that turns zombie while the full read fails on an
+  unrelated row, then a healthy tick with the identical walk: it asserts
+  the third read, `ended` set, the later orphan unowned and absent from the
+  kill hook. Saving the walk before the read and dropping its error fails
+  it by name ("the snapshot the failed read owed was forgotten": left 2,
+  right 3).
 - `process::attempts::tests::a_pre_existing_orphan_the_walk_misses_is_not_the_attempts`
   keeps admission's full `before` excluding a pre-existing orphan the
   walk misses.
@@ -220,7 +242,9 @@ and a quiet tick takes no full snapshot. A changed tree, a walk that
 could not complete, or the first tick after the registry was empty costs
 one full snapshot, which is what main paid on every tick. A known row
 that turns zombie or disappears is a change, so the snapshot that ends an
-attempt can no longer be skipped. Admission pays one full table read per attempt, and a kill or
+attempt can no longer be skipped. A full read that fails leaves the walk's
+snapshot owed, so the next tick retries it even when the walk is unchanged,
+and only a successful read records the walk as seen. Admission pays one full table read per attempt, and a kill or
 settlement pays full reads during its bounded window. A pid reused by a
 stranger, a stale child pid or a stale ancestry can no longer reach the
 kill set from a walk: the walk only makes the tracker take the snapshot

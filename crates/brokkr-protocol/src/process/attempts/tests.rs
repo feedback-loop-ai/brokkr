@@ -94,6 +94,134 @@ fn tracked(
     )
 }
 
+/// The leader row the tracker's change tests plant: `GROUP` running, or
+/// its zombie once `turned` is set.
+#[cfg(target_os = "linux")]
+fn turning_leader(turned: &AtomicBool) -> Entry {
+    let leader = row(GROUP, me(), GROUP);
+    if turned.load(Ordering::Relaxed) {
+        zombie(leader)
+    } else {
+        leader
+    }
+}
+
+/// A walk of `turning_leader`, with the detached orphan `STRANGER` once
+/// `orphan` is set.
+#[cfg(target_os = "linux")]
+fn turning_walk(turned: &AtomicBool, orphan: &AtomicBool) -> Result<Sighting, TableError> {
+    let extra = orphan
+        .load(Ordering::Relaxed)
+        .then(|| row(STRANGER, me(), STRANGER));
+    Ok(sighting(turning_leader(turned), extra))
+}
+
+/// The full table a change test reads: the leader, the orphan once
+/// `orphan` is set, and a failure when `fail` is set. Each read counts in
+/// `snapshots`.
+#[cfg(target_os = "linux")]
+fn turning_full(
+    snapshots: &AtomicU64,
+    turned: &AtomicBool,
+    fail: &AtomicBool,
+    orphan: &AtomicBool,
+) -> Result<Vec<Entry>, TableError> {
+    snapshots.fetch_add(1, Ordering::Relaxed);
+    if fail.load(Ordering::Relaxed) {
+        // The unrelated row the read could not read: the snapshot the
+        // walk owes is not taken.
+        return Err(TableError::Row {
+            pid: RECORDED,
+            error: Errno::ACCESS.into(),
+        });
+    }
+    let mut rows = vec![turning_leader(turned)];
+    if orphan.load(Ordering::Relaxed) {
+        rows.push(row(STRANGER, me(), STRANGER));
+    }
+    Ok(table(rows))
+}
+
+/// The change tests' host: kill nothing, but record what the kill hook is
+/// handed.
+#[cfg(target_os = "linux")]
+fn turning_host(host: Host) -> Host {
+    Host {
+        kill_group: |_| Ok(()),
+        kill: recorded,
+        ..host
+    }
+}
+
+/// Start a change test cleanly: no previous walk, a running leader, and no
+/// orphan. The first tick owes exactly one snapshot, which this host takes.
+#[cfg(target_os = "linux")]
+fn first_tick(
+    registry: &mut Registry,
+    host: Host,
+    snapshots: &AtomicU64,
+    turned: &AtomicBool,
+    orphan: &AtomicBool,
+) {
+    snapshots.store(0, Ordering::Relaxed);
+    turned.store(false, Ordering::Relaxed);
+    orphan.store(false, Ordering::Relaxed);
+    registry.track(host);
+    assert_eq!(
+        snapshots.load(Ordering::Relaxed),
+        1,
+        "the first tick had no walk to compare"
+    );
+    assert_eq!(registry.attempts[&0].ended, None, "the leader still ran");
+}
+
+/// The planted statics the two change tests share. A `Host` carries only
+/// function pointers, so the fixture cannot be passed in, and a lock keeps
+/// the two tests from resetting each other's scenario.
+#[cfg(target_os = "linux")]
+static CHANGE_LOCK: Mutex<()> = Mutex::new(());
+#[cfg(target_os = "linux")]
+static CHANGE_SNAPSHOTS: AtomicU64 = AtomicU64::new(0);
+#[cfg(target_os = "linux")]
+static CHANGE_TURNED: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "linux")]
+static CHANGE_FAIL: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "linux")]
+static CHANGE_ORPHAN: AtomicBool = AtomicBool::new(false);
+
+#[cfg(target_os = "linux")]
+fn change_walk() -> Result<Sighting, TableError> {
+    turning_walk(&CHANGE_TURNED, &CHANGE_ORPHAN)
+}
+
+#[cfg(target_os = "linux")]
+fn change_full() -> Result<Vec<Entry>, TableError> {
+    turning_full(
+        &CHANGE_SNAPSHOTS,
+        &CHANGE_TURNED,
+        &CHANGE_FAIL,
+        &CHANGE_ORPHAN,
+    )
+}
+
+/// A change test's held lock, registry and host, with the first tick
+/// already taken: no previous walk, a running leader, and no orphan.
+#[cfg(target_os = "linux")]
+fn change_scenario() -> (MutexGuard<'static, ()>, Registry, Host) {
+    let held = CHANGE_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
+    CHANGE_FAIL.store(false, Ordering::Relaxed);
+    let (mut registry, host) = tracked(GROUP, &[], change_walk, change_full);
+    let host = turning_host(host);
+    first_tick(
+        &mut registry,
+        host,
+        &CHANGE_SNAPSHOTS,
+        &CHANGE_TURNED,
+        &CHANGE_ORPHAN,
+    );
+    (held, registry, host)
+}
+
 /// A kill that signals nothing, and one the kernel refuses.
 fn spared(_: &Identity) -> std::io::Result<()> {
     Ok(())
@@ -210,6 +338,8 @@ fn registry(attempts: impl IntoIterator<Item = Live>) -> Registry {
         latest: None,
         #[cfg(target_os = "linux")]
         walk: None,
+        #[cfg(target_os = "linux")]
+        owed: false,
     }
 }
 
@@ -444,54 +574,12 @@ fn quiet_ticks_take_no_snapshot_and_a_doubt_takes_one() {
 #[cfg(target_os = "linux")]
 #[test]
 fn a_leader_that_turns_zombie_on_a_quiet_tick_ends_its_attempt() {
-    static SNAPSHOTS: AtomicU64 = AtomicU64::new(0);
-    static TURNED: AtomicBool = AtomicBool::new(false);
-    static ORPHAN: AtomicBool = AtomicBool::new(false);
-    fn leader() -> Entry {
-        let leader = row(GROUP, me(), GROUP);
-        if TURNED.load(Ordering::Relaxed) {
-            zombie(leader)
-        } else {
-            leader
-        }
-    }
-    fn walk() -> Result<Sighting, TableError> {
-        let extra = ORPHAN
-            .load(Ordering::Relaxed)
-            .then(|| row(STRANGER, me(), STRANGER));
-        Ok(sighting(leader(), extra))
-    }
-    fn full() -> Result<Vec<Entry>, TableError> {
-        SNAPSHOTS.fetch_add(1, Ordering::Relaxed);
-        let mut rows = vec![leader()];
-        if ORPHAN.load(Ordering::Relaxed) {
-            rows.push(row(STRANGER, me(), STRANGER));
-        }
-        Ok(table(rows))
-    }
+    let (_held, mut registry, host) = change_scenario();
     let born = |pid: i32| u64::try_from(pid).unwrap();
-    let (mut registry, host) = tracked(GROUP, &[], walk, full);
-    let host = Host {
-        kill_group: |_| Ok(()),
-        kill: recorded,
-        ..host
-    };
-    SNAPSHOTS.store(0, Ordering::Relaxed);
-    TURNED.store(false, Ordering::Relaxed);
-    ORPHAN.store(false, Ordering::Relaxed);
-
+    CHANGE_TURNED.store(true, Ordering::Relaxed);
     registry.track(host);
     assert_eq!(
-        SNAPSHOTS.load(Ordering::Relaxed),
-        1,
-        "the first tick had no walk to compare"
-    );
-    assert_eq!(registry.attempts[&0].ended, None, "the leader still ran");
-
-    TURNED.store(true, Ordering::Relaxed);
-    registry.track(host);
-    assert_eq!(
-        SNAPSHOTS.load(Ordering::Relaxed),
+        CHANGE_SNAPSHOTS.load(Ordering::Relaxed),
         2,
         "the leader's state change did not take a snapshot"
     );
@@ -501,11 +589,63 @@ fn a_leader_that_turns_zombie_on_a_quiet_tick_ends_its_attempt() {
         "the tick that saw the leader turn zombie did not end the attempt"
     );
 
-    ORPHAN.store(true, Ordering::Relaxed);
+    CHANGE_ORPHAN.store(true, Ordering::Relaxed);
     registry.track(host);
     assert_eq!(
-        SNAPSHOTS.load(Ordering::Relaxed),
+        CHANGE_SNAPSHOTS.load(Ordering::Relaxed),
         3,
+        "the later orphan did not take a snapshot"
+    );
+    assert_eq!(
+        registry.attempts[&0].recorded,
+        BTreeSet::new(),
+        "the later orphan O was recorded as the attempt's"
+    );
+    assert_kill_signals_nothing(&registry, 0, host);
+}
+
+/// #918e HIGH: a full read that fails does not answer the walk that asked
+/// for it. The walk that turned the leader zombie still owes its snapshot,
+/// so the next tick takes it even though the walk is unchanged; the
+/// attempt's end is set before a later detached orphan appears, and that
+/// orphan stays the engine's own. With the read healthy, the quiet tick
+/// takes no extra snapshot (`quiet_ticks_take_no_snapshot_and_a_doubt_takes_one`).
+#[cfg(target_os = "linux")]
+#[test]
+fn chief_failed_snapshot_retries_before_attributing_a_later_orphan() {
+    let (_held, mut registry, host) = change_scenario();
+    let born = |pid: i32| u64::try_from(pid).unwrap();
+    CHANGE_TURNED.store(true, Ordering::Relaxed);
+    CHANGE_FAIL.store(true, Ordering::Relaxed);
+    registry.track(host);
+    assert_eq!(
+        CHANGE_SNAPSHOTS.load(Ordering::Relaxed),
+        2,
+        "the leader's state change did not take a snapshot"
+    );
+    assert_eq!(
+        registry.attempts[&0].ended, None,
+        "a failed read ended the attempt"
+    );
+
+    CHANGE_FAIL.store(false, Ordering::Relaxed);
+    registry.track(host);
+    assert_eq!(
+        CHANGE_SNAPSHOTS.load(Ordering::Relaxed),
+        3,
+        "the snapshot the failed read owed was forgotten"
+    );
+    assert_eq!(
+        registry.attempts[&0].ended,
+        Some(born(GROUP)),
+        "the recovery tick did not end the attempt"
+    );
+
+    CHANGE_ORPHAN.store(true, Ordering::Relaxed);
+    registry.track(host);
+    assert_eq!(
+        CHANGE_SNAPSHOTS.load(Ordering::Relaxed),
+        4,
         "the later orphan did not take a snapshot"
     );
     assert_eq!(
