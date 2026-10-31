@@ -580,7 +580,7 @@ const KINDS: [Kind; 2] = [Kind::Mount, Kind::Launcher];
 /// Why a run skips the held-launcher proofs: a boundary proof's skip, which
 /// fails where boundary evidence is required, as CI's bubblewrap setup
 /// installs the tracer.
-pub(super) const NO_TRACER: &str =
+pub(crate) const NO_TRACER: &str =
     "no strace on PATH traces a child here, so no admitted launcher can be held at its exec";
 
 /// The tracer's arguments: every process of the run followed, stopped by
@@ -605,7 +605,7 @@ const TRACED: [&str; 11] = [
 ];
 
 /// The `strace` this process's `PATH` finds, where it traces a child here.
-pub(super) fn tracer() -> Option<PathBuf> {
+pub(crate) fn tracer() -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     let mut found = std::env::split_paths(&path).map(|dir| dir.join("strace"));
     let tracer = found.find(|tracer| tracer.is_file())?;
@@ -709,7 +709,7 @@ fn kill(pid: i32) {
 
 /// A process's state, parent and process group, from `/proc/<pid>/stat`;
 /// none once it is gone.
-pub(super) fn status(pid: i32) -> Option<(char, i32, i32)> {
+pub(crate) fn status(pid: i32) -> Option<(char, i32, i32)> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     let mut fields = stat.rsplit_once(')')?.1.split_whitespace();
     let state = fields.next()?.chars().next()?;
@@ -719,7 +719,7 @@ pub(super) fn status(pid: i32) -> Option<(char, i32, i32)> {
 }
 
 /// Every process of the host.
-pub(super) fn processes() -> impl Iterator<Item = i32> {
+pub(crate) fn processes() -> impl Iterator<Item = i32> {
     let entries = std::fs::read_dir("/proc").unwrap();
     entries.filter_map(|entry| entry.ok()?.file_name().to_str()?.parse().ok())
 }

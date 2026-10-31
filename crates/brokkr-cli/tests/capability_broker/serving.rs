@@ -65,7 +65,7 @@ fn fresh() -> String {
 /// A regular file of the system set every box binds that is multiply
 /// linked, as installed systems hold them, root's and written by no one
 /// else: its path, link count and inode; none where this host holds none.
-fn system_hard_link() -> Option<(std::path::PathBuf, u64, u64)> {
+pub(crate) fn system_hard_link() -> Option<(std::path::PathBuf, u64, u64)> {
     use std::os::unix::fs::MetadataExt;
     ["/usr/bin", "/usr/sbin", "/usr/lib"]
         .iter()

@@ -77,7 +77,7 @@ pub(super) const STAGED: &str = ".new";
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub(in crate::engine) enum Unadmitted {
     #[error("dispatch refused: {UNPROTECTED_EVIDENCE}: {0}")]
-    Evidence(Conflict),
+    Evidence(#[from] Conflict),
     #[error("dispatch refused: {identity}: {0}", identity = Refusal::Identity)]
     Identity(Unknown),
     /// The artifact root cannot be made or observed: U8a's own refusal.
@@ -179,14 +179,13 @@ pub(in crate::engine) enum Unknown {
     Unconfined { site: String, run: String },
     #[error("the mount table does not prove where '{}' lies beside a managed writer", .0.display())]
     Unmounted(PathBuf),
+    /// No HOME names where the root lies, so no boxed writer is proved apart.
+    #[error(
+        "this host names no HOME, so no boxed writer is proved apart from its coordination root"
+    )]
+    Homeless,
     #[error("the route of '{}', which an MCP server's box is built from, {}", .0.display(), .1)]
     Unrouted(PathBuf, Unroutable),
-}
-
-impl From<Conflict> for Unadmitted {
-    fn from(conflict: Conflict) -> Unadmitted {
-        Unadmitted::Evidence(conflict)
-    }
 }
 
 impl From<Unknown> for Unadmitted {

@@ -542,8 +542,9 @@ pub(super) fn unserved(
 /// record's writers before a broker extended beside it, and one admitted where
 /// the root could not be opened could repair the walk and stand beside a later
 /// broker unrecorded. MB3's identity cause naming the root, or naming why its
-/// reach is not proved: a mount table that does not prove where it lies, or a
-/// root with no absolute path, where the host names no HOME. Admission asks it
+/// reach is not proved: a mount table that does not prove where it lies, or,
+/// by its own cause, a root with no absolute path, where the host names no
+/// HOME. Admission asks it
 /// under the lock, the root open ([`super::exclusion::compared`]), and
 /// [`records_unopened`] where it cannot be. A writer Brokkr cannot box holds
 /// the user's write anyway, so a forged record gives it nothing more, and it
@@ -556,14 +557,13 @@ pub(super) fn records_kept(
     budget: &Budget,
 ) -> Result<(), Unknown> {
     let records = Served::Source(root.to_path_buf());
-    let unproved = || Unknown::Unmounted(root.to_path_buf());
     let mut table = None;
     for writer in claim.reserved.writers.iter().map(Writing::from) {
         budget.check()?;
         let Reaching::Boxed { writable, .. } = &writer.reach else {
             continue;
         };
-        root.is_absolute().then_some(()).ok_or_else(unproved)?;
+        root.is_absolute().then_some(()).ok_or(Unknown::Homeless)?;
         if reach_records(writable, &records, (mounts, budget), &mut table)? {
             return Err(Unknown::Serving {
                 site: writer.site,

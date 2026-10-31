@@ -120,7 +120,7 @@ pub fn brokkr_protocol::adapters::dsh_composite_prepared(&brokkr_protocol::adapt
 pub fn brokkr_protocol::adapters::harness_auth(&serde_json::value::Value) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, brokkr_protocol::adapters::HarnessAuthError>
 pub fn brokkr_protocol::adapters::lanetally_command(&str, &[alloc::string::String], core::option::Option<&str>, &serde_json::value::Value) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, alloc::string::String>
 pub fn brokkr_protocol::adapters::render_prompt(&serde_json::value::Value, brokkr_protocol::adapters::AdapterKind) -> core::result::Result<alloc::string::String, brokkr_protocol::adapters::StartRefusal>
-pub fn brokkr_protocol::adapters::serve(brokkr_protocol::adapters::AdapterKind, alloc::vec::Vec<alloc::string::String>) -> core::io::error::Result<()>
+pub fn brokkr_protocol::adapters::serve(brokkr_protocol::adapters::AdapterKind, alloc::vec::Vec<alloc::string::String>, fn() -> core::io::error::Result<()>) -> core::io::error::Result<()>
 pub fn brokkr_protocol::adapters::split_route(&str) -> (core::option::Option<&str>, &str)
 pub mod brokkr_protocol::broker
 pub mod brokkr_protocol::broker::ledger
