@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use brokkr_core::realms::RealmMap;
 use brokkr_core::EventType;
 use serde_json::{json, Value};
 
@@ -1310,9 +1311,89 @@ fn a_missing_or_malformed_map_refuses_before_any_seat_spawns() {
     assert!(stderr.contains("names its own journal"), "{stderr}");
 }
 
+/// The committed bytes of one path under `root`, as `git show HEAD:<path>`
+/// prints them — HEAD's blob, never the working tree's copy. A git that
+/// fails (no repository, or no such path at HEAD) is refused with its own
+/// stderr, so a caller cannot mistake an empty read for a committed one.
+/// It lives here, not in `support/tracked.rs`, because the shared support
+/// module is also compiled by the lib's `cli_reference_tests`, where an
+/// `at_head` only this file uses is dead code, and
+/// `layering::test_targets` holds a support module to carrying no test of
+/// the binary's own.
+fn at_head(root: &Path, path: &str) -> Vec<u8> {
+    let spec = format!("HEAD:{path}");
+    let output = std::process::Command::new("git")
+        .current_dir(root)
+        .args(["show", &spec])
+        .output()
+        .expect("git show");
+    assert!(
+        output.status.success(),
+        "git show {spec} failed: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
+    output.stdout
+}
+
+/// The HEAD helper reads the committed blob, not the working tree: a
+/// scratch repository commits one map, the working tree is edited to
+/// another, and the helper still returns the committed one. This is the
+/// removal control decision 0101's ruling 5 names for the stock-map test.
+#[test]
+fn the_head_helper_reads_the_committed_map() {
+    const COMMITTED: &str = "{\"journal\":\"committed.db\"}\n";
+    const WORKING: &str = "{\"journal\":\"working.db\"}\n";
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("repo");
+    let config = dir.path().join("empty.gitconfig");
+    std::fs::write(&config, "").unwrap();
+    std::fs::create_dir(&root).unwrap();
+    // The host's git configuration is isolated: a global
+    // `commit.gpgSign` or a system hook must not decide whether this
+    // scratch repo commits.
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&root)
+            .env("GIT_CONFIG_GLOBAL", &config)
+            .env("GIT_CONFIG_SYSTEM", &config)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    };
+    git(&["init", "-q"]);
+    std::fs::write(root.join("realms.json"), COMMITTED).unwrap();
+    git(&["add", "realms.json"]);
+    git(&[
+        "-c",
+        "user.name=Brokkr Test",
+        "-c",
+        "user.email=brokkr@test",
+        "-c",
+        "commit.gpgSign=false",
+        "commit",
+        "-q",
+        "-m",
+        "the committed map",
+    ]);
+    std::fs::write(root.join("realms.json"), WORKING).unwrap();
+    assert_eq!(
+        std::fs::read(root.join("realms.json")).unwrap(),
+        WORKING.as_bytes()
+    );
+    assert_eq!(at_head(&root, "realms.json"), COMMITTED.as_bytes());
+}
+
 /// This repository carries its own map (ruling 1), and it is the
 /// bootstrap world: one realm, this repository, the journal this
-/// repository has always written.
+/// repository has always written. The committed blob is read (decision
+/// 0101 ruling 5), so a developer's uncommitted edit to the working map
+/// cannot make this test pass or fail.
 #[test]
 fn the_repository_carries_the_bootstrap_map() {
     let root: PathBuf = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -1321,10 +1402,11 @@ fn the_repository_carries_the_bootstrap_map() {
         .parent()
         .unwrap()
         .to_path_buf();
-    let map: Value =
-        serde_json::from_str(&std::fs::read_to_string(root.join("realms.json")).unwrap()).unwrap();
+    let text =
+        String::from_utf8(at_head(&root, "realms.json")).expect("realms.json at HEAD is UTF-8");
+    let (map, content) = RealmMap::parse("HEAD:realms.json", &text).unwrap();
     assert_eq!(
-        map,
+        content,
         json!({
             "schema": "forge.realms/v3",
             "realms": [{"name": "brokkr", "path": ".", "default_branch": "main",
@@ -1332,7 +1414,26 @@ fn the_repository_carries_the_bootstrap_map() {
             "journal": ".forge/forge.db",
         })
     );
-    let world = brokkr_runtime::World::load(&root.join("realms.json")).unwrap();
-    assert_eq!(world.journal(), root.join(".forge/forge.db"));
-    assert_eq!(world.realm_for(&root).unwrap().name, "brokkr");
+    assert_eq!(map.schema, "forge.realms/v3");
+    assert_eq!(map.journal, ".forge/forge.db");
+    assert_eq!(map.realms.len(), 1, "the bootstrap map names one realm");
+    let realm = &map.realms[0];
+    assert_eq!(realm.name, "brokkr");
+    assert_eq!(realm.path, ".");
+    assert_eq!(realm.default_branch, "main");
+    assert_eq!(realm.house.as_deref(), Some("docs/house-rules.md"));
+    assert_eq!(realm.dialect.as_deref(), Some("openspec"));
+
+    // A `World` still answers the journal and realm lookups, from an
+    // isolated copy of the very same HEAD bytes: the repository's `docs/`
+    // and `dialects/` are linked in, so no path is read from the tracked
+    // map's directory and no file is written at the repository root.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("realms.json"), &text).unwrap();
+    for tree in ["docs", "dialects"] {
+        std::os::unix::fs::symlink(root.join(tree), dir.path().join(tree)).unwrap();
+    }
+    let world = brokkr_runtime::World::load(&dir.path().join("realms.json")).unwrap();
+    assert_eq!(world.journal(), dir.path().join(".forge/forge.db"));
+    assert_eq!(world.realm_for(dir.path()).unwrap().name, "brokkr");
 }

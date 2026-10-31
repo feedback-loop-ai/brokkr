@@ -22,8 +22,9 @@ shelf (#697), puts recipes at `$XDG_CONFIG_HOME/brokkr/recipes/`, else
 project's shelf one way only, a name on both shelves refuses, every
 layer's origin is pinned, and resume refuses drift
 (`docs/decisions/0083-an-adopters-brokkr-lives-in-one-folder.md:935-958`,
-`:1088-1096`). The operator's 2026-10-15 ruling on #432 leaves "personal
-realms and adapters, and the stock-map test" to this story (`:1141-1144`).
+`:999-1007`, `:1088-1096`). The operator's 2026-10-15 ruling on #432
+leaves "personal realms and adapters, and the stock-map test" to this
+story (`:1141-1144`).
 This decision is docs only: it inventories main, states the options,
 recommends one of each choice, and gives the slices. No code, test, guide,
 `realms.json`, `.gitignore` or tracked sample changes here.

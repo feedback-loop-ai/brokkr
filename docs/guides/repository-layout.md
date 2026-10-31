@@ -16,7 +16,7 @@ shows.
 | [`CONTRIBUTING.md`](../../CONTRIBUTING.md) | The mandatory sixty-second path: choose a recipe, run Brokkr, publish its evidence, and name the run in the pull request. |
 | `crates/` | The engine: `brokkr-core` (pure) · `brokkr-store` · `brokkr-protocol` (+ built-in claude/codex/dsh/exec adapters) · `brokkr-runtime` · `brokkr-view` (one display derivation, no I/O) · `brokkr-bridge` · `brokkr-cli` (builds `brokkr`, the only binary). |
 | `contracts/` | Frozen v1 contracts plus additive `forge-dispatch/v2`, `forge-run-manifest/v2`, `/v3` and `/v4`, `forge-effect-provenance/v1`, `forge.phase-machine/v2` (the rule-driven park, decision 0022), `forge.realms/v1` (the world's map, decision 0023), `forge.realms/v2` (a realm may name its own journal — many hearths, decision 0026), the `forge.realms/v3` and run-manifest v8 contracts for house, dialect, and per-step result vocabulary, and decision 0046's four: `realms.v4` (the realm's `boundary`), `run-manifest.v9` (the boundary pinned per hands site), `seat-record.v4` (`boundary` beside `model`) and `effect-boundary.v1` (the `effect/started.boundary` extension field). |
-| `realms.json` | This repository's own map (decision 0023): one realm — this repository — its journal, and its optional `house`, `dialect` and `boundary` (decision 0046: what stands between a boxed seat's hands and this machine; absent reads `namespace`). A workspace of many projects is another file, named with `--realms`. |
+| `realms.json` | This repository's own map (decision 0023): one realm — this repository — its journal, and its optional `house`, `dialect` and `boundary` (decision 0046: what stands between a boxed seat's hands and this machine; absent reads `namespace`). A workspace of many projects is another file, named with `--realms`; a personal map lives outside the repository (see below). |
 | `docs/house-rules.md` | This realm's repository-specific prompt text: toolchain, frozen surfaces, gates and delivery conventions. The map names it; the engine pins and renders it. |
 | `recipes/` | The recipe library (`fast`, `triage` — the routing form with selected chore, feature, design, and engine crews — `night-shift`, `node`, `panel-review`, `preflight`, the explicit wager harnesses, Brokkr's own `self` (self-delivery) and `verify` (the verification agents), and yours). `fast` and `node` are portable: they install onto any folder `brokkr init` made. Every other recipe here is Brokkr-only ([decision 0087](../decisions/0087-the-base-offices-are-the-ones-init-writes.md) ruling 5). |
 | `docs/releases/` | Release descriptions and reviewed handoffs, including organization-profile patches. |
@@ -33,6 +33,31 @@ shows.
 | `assets/` | The brand mark: [`logo.svg`](../../assets/logo.svg) (the anvil and the three rail nodes) and `social-preview.png`, the 1280×640 card the repository shows when it is linked. |
 | `reference/` | Read-only heritage documents: handoff-protocol lore, recorded schemas. |
 | `scripts/coverage-exact.sh` | The exact-coverage gate: literal 100% line/branch/function, or refusal. |
+
+A personal map lives outside the worktree, beside the personal recipe
+shelf: `$XDG_CONFIG_HOME/brokkr/realms/<name>.json`, else
+`$HOME/.config/brokkr/realms/<name>.json` (decision
+[0101](../decisions/0101-personal-realms-and-adapters-live-outside-the-tracked-tree.md)
+ruling 1). Nothing finds it by lookup. `--realms <path>` names it on
+every verb that opens a journal or a world, and the named map is read
+alone: never merged with this repository's map, never a fallback, and
+missing or malformed refuses. `compile` and `recipes show` do not take
+the flag yet.
+
+Its paths are read relative to the map file, so a map moved out of this
+repository writes its realm and journal as absolute paths (or paths
+relative to the map) — otherwise `.forge/forge.db` lands under the
+personal directory. Its `house` stays repository-relative; a named
+dialect resolves beside the map (copy it there, or write the path form
+that reads the tracked file); a map that declares `capabilities` carries
+its `capabilities/` and `dialects/tools/` trees beside itself. The
+[quickstart](quickstart.md#a-personal-map-lives-outside-the-repository)
+gives the full migration.
+
+A personal map's paths and credentials never go into the tracked
+`realms.json` or a bundle (ruling 8). Credentials stay names under the
+existing secret bindings (decision
+[0012](../decisions/0012-sealed-secret-bindings.md)), never map fields.
 
 A seat prompt is assembled from the portable office in
 `agents/charters/`, the realm-owned house file, and the engine-owned result
