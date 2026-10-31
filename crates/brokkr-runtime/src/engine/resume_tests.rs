@@ -2874,8 +2874,8 @@ fn serve_dsh_when_spawned() {
     if std::env::var_os(SERVE_DSH).is_some() {
         let extra = std::env::var(format!("{SERVE_DSH}_EXTRA")).unwrap();
         let extra = extra.split(' ').map(str::to_string).collect();
-        let served =
-            brokkr_protocol::adapters::serve(brokkr_protocol::adapters::AdapterKind::Dsh, extra);
+        let kind = brokkr_protocol::adapters::AdapterKind::Dsh;
+        let served = brokkr_protocol::adapters::serve(kind, extra, || Ok(()));
         // Nothing of the harness may follow the protocol on stdout.
         std::process::exit(if served.is_ok() { 0 } else { 70 });
     }

@@ -791,6 +791,12 @@ impl BufRead for BrokenReader {
     fn consume(&mut self, _: usize) {}
 }
 
+/// The confinement `start::serve_io` hands its starts, none of which seals a
+/// broker, so it is never called.
+pub(super) fn unconfined() -> std::io::Result<()> {
+    Ok(())
+}
+
 #[test]
 fn adapter_stdio_propagates_reader_errors() {
     assert!(serve_io(AdapterKind::Exec, &[], BrokenReader, Vec::new()).is_err());

@@ -28,7 +28,7 @@ use super::{admitted, refused, skip, unservable, Refusal, Sealed};
 /// reads once it has started. The FIFO store of the admission tests is
 /// refused at its identity, before any box, so a store the broker admits
 /// is watched here.
-pub(super) struct Reads {
+pub(crate) struct Reads {
     path: PathBuf,
     watch: OwnedFd,
 }
@@ -41,7 +41,7 @@ impl Reads {
     }
 
     /// Every read of the file at `path` from now on.
-    pub(super) fn on(path: PathBuf) -> Reads {
+    pub(crate) fn on(path: PathBuf) -> Reads {
         let watch = inotify::init(CreateFlags::NONBLOCK | CreateFlags::CLOEXEC).unwrap();
         inotify::add_watch(&watch, &path, WatchFlags::ACCESS).unwrap();
         Reads { path, watch }
@@ -49,7 +49,7 @@ impl Reads {
 
     /// The reads seen since last asked; identical reads unseen between
     /// them are seen as one.
-    pub(super) fn seen(&self) -> usize {
+    pub(crate) fn seen(&self) -> usize {
         let mut buffer = [MaybeUninit::uninit(); 4096];
         let mut events = inotify::Reader::new(&self.watch, &mut buffer);
         std::iter::from_fn(|| events.next().ok().map(drop)).count()
@@ -57,7 +57,7 @@ impl Reads {
 
     /// Whether any lookup read the file; the watch shown to see one read
     /// here, so that none seen is none made.
-    pub(super) fn lookups(self) -> usize {
+    pub(crate) fn lookups(self) -> usize {
         let made = self.seen();
         std::fs::read(&self.path).unwrap();
         assert_eq!(self.seen(), 1, "the watch saw no read");

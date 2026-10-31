@@ -284,8 +284,25 @@ pub(crate) fn driver(DriverArgs { kind, args }: DriverArgs) -> Result<ExitCode> 
         anyhow::anyhow!("unknown driver '{kind}'; known: claude, lanetally, codex, dsh, exec")
     })?;
     let extra = driver_payload(kind, args);
-    brokkr_protocol::adapters::serve(kind, extra)?;
+    brokkr_protocol::adapters::serve(kind, extra, confine)?;
     Ok(Exit::Completed.into())
+}
+
+/// What a driver sets on itself before it spawns a harness the engine brokers
+/// MCP for (U9b1b's ruling F1): `no_new_privs`, which that harness and its
+/// broker inherit, as MB3's observer requires of a managed writer. It runs on
+/// this process's main thread, the one that spawns the harness and the one
+/// `/proc/<pid>/status` reads.
+#[cfg(target_os = "linux")]
+fn confine() -> std::io::Result<()> {
+    rustix::thread::set_no_new_privs(true).map_err(std::io::Error::from)
+}
+
+/// No server box stands off Linux, where the MCP fence stands, so a brokered
+/// launch never reaches here; one that did refuses.
+#[cfg(not(target_os = "linux"))]
+fn confine() -> std::io::Result<()> {
+    Err(std::io::ErrorKind::Unsupported.into())
 }
 
 /// `brokkr fake-driver`: the scripted driver the machine proof runs.
