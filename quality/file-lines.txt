@@ -125,7 +125,7 @@
    785 crates/brokkr-core/src/seat/row.rs
     93 crates/brokkr-core/src/stamp.rs
    407 crates/brokkr-core/src/summary.rs
-  6989 crates/brokkr-protocol/src/adapters.rs
+  6963 crates/brokkr-protocol/src/adapters.rs
    180 crates/brokkr-protocol/src/adapters/capability_calls.rs
    140 crates/brokkr-protocol/src/adapters/claude_fold.rs
    386 crates/brokkr-protocol/src/adapters/codex.rs
@@ -141,7 +141,7 @@
    572 crates/brokkr-protocol/src/adapters/route_overlay.rs
    197 crates/brokkr-protocol/src/adapters/route_overlay/refusal.rs
     42 crates/brokkr-protocol/src/adapters/served_route.rs
-   102 crates/brokkr-protocol/src/adapters/start.rs
+   143 crates/brokkr-protocol/src/adapters/start.rs
    392 crates/brokkr-protocol/src/broker.rs
    693 crates/brokkr-protocol/src/broker/ledger.rs
    202 crates/brokkr-protocol/src/broker/ledger/retention.rs

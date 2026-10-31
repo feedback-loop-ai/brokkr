@@ -3,7 +3,7 @@
 
 use serde_json::Value;
 
-use super::{render_prompt, AdapterKind, OfferState, StartRefusal};
+use super::{render_prompt, AdapterKind, OfferState, PendingOffer, StartRefusal, OFFER_LIMIT};
 use crate::native_controls::{SealedServers, SealedServing, SERVING_INPUTS};
 use crate::overrides::OverrideError;
 
@@ -47,6 +47,47 @@ pub(super) fn admitted(
         }
     }
     Ok(rejoined)
+}
+
+/// The exchange's offer once a `resume` envelope arrives with `correlation`
+/// (its effect and attempt) and `handle` (decision 0030): the first
+/// well-formed offer after negotiation waits for the next start, while a
+/// second offer, one before capabilities were negotiated, or a malformed
+/// envelope poisons the exchange, which stays poisoned.
+pub(super) fn reoffered(
+    offer: &OfferState,
+    negotiated: bool,
+    correlation: (String, String),
+    handle: Option<&str>,
+) -> OfferState {
+    match offer {
+        // A second offer before one start is ambiguous: two handles claim
+        // the same attempt and nothing on the wire says which the engine
+        // meant. Neither is used.
+        OfferState::Pending(_) => OfferState::Poisoned("duplicate resume offer"),
+        OfferState::Poisoned(reason) => OfferState::Poisoned(reason),
+        OfferState::None if !negotiated => {
+            OfferState::Poisoned("resume before capabilities were negotiated")
+        }
+        OfferState::None => {
+            let (effect_id, attempt_id) = correlation;
+            match handle {
+                Some(handle)
+                    if !effect_id.is_empty()
+                        && !attempt_id.is_empty()
+                        && !handle.is_empty()
+                        && handle.len() <= OFFER_LIMIT =>
+                {
+                    OfferState::Pending(PendingOffer {
+                        effect_id,
+                        attempt_id,
+                        handle: handle.to_string(),
+                    })
+                }
+                _ => OfferState::Poisoned("malformed resume envelope"),
+            }
+        }
+    }
 }
 
 /// The prompt a seat starts on, or why it launches nothing: a start with

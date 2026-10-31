@@ -6902,35 +6902,9 @@ fn serve_with(
                 })
             }
             Some("resume") => {
-                offer = match &offer {
-                    // A second offer before one start is ambiguous: two
-                    // handles claim the same attempt and nothing on the
-                    // wire says which the engine meant. Neither is used.
-                    OfferState::Pending(_) => OfferState::Poisoned("duplicate resume offer"),
-                    OfferState::Poisoned(reason) => OfferState::Poisoned(reason),
-                    OfferState::None if !negotiated => {
-                        OfferState::Poisoned("resume before capabilities were negotiated")
-                    }
-                    OfferState::None => {
-                        let (effect_id, attempt_id) = (field("effect_id"), field("attempt_id"));
-                        let handle = message.get("session_ref").and_then(Value::as_str);
-                        match handle {
-                            Some(handle)
-                                if !effect_id.is_empty()
-                                    && !attempt_id.is_empty()
-                                    && !handle.is_empty()
-                                    && handle.len() <= OFFER_LIMIT =>
-                            {
-                                OfferState::Pending(PendingOffer {
-                                    effect_id,
-                                    attempt_id,
-                                    handle: handle.to_string(),
-                                })
-                            }
-                            _ => OfferState::Poisoned("malformed resume envelope"),
-                        }
-                    }
-                };
+                let handle = message.get("session_ref").and_then(Value::as_str);
+                let correlation = (field("effect_id"), field("attempt_id"));
+                offer = start::reoffered(&offer, negotiated, correlation, handle);
             }
             Some("start") => {
                 let (effect_id, attempt_id) = (field("effect_id"), field("attempt_id"));
