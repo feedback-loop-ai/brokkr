@@ -1222,8 +1222,8 @@ build and every reader of the run carried the event.
    **64 MiB** is refused by name before any run starts, in the compile's own
    words, naming the count or bytes and the largest top-level trees. The
    refusal comes before `run/started` is written, so no run carries a
-   manifest this large; it is judged from the walked paths, before any byte
-   is hashed. Both numbers are an ask: the controller recommended them, and
+   manifest this large; it is judged from the walked paths' listed sizes
+   alone, before any walked byte is read or hashed. Both numbers are an ask: the controller recommended them, and
    only the operator may move them.
 
 3. **What identity covers.** This addendum amends ruling 1's account of what
@@ -1237,10 +1237,12 @@ build and every reader of the run carried the event.
 Status: proposed; only the operator accepts this amendment.
 
 The operator ruled on 2026-10-30 ("go with recommended") that the bound is
-enforced on the bytes actually read. Point 2's "judged from the walked paths,
-before any byte is hashed" is the metadata preflight: it refuses a bundle
-whose listed sizes already pass the bound before any byte is read, and its
-words stand. The bound is also enforced during the walk, on what is read:
+enforced on the bytes actually read. Point 2's "judged from the walked
+paths' listed sizes alone, before any walked byte is read or hashed" is the
+metadata preflight: it refuses a bundle whose listed sizes already pass the
+bound before any walked byte is read. The inputs the compile consumed were
+read before it, each through its own cap (item 2 below). The bound is also
+enforced during the walk, on what is read:
 
 1. **Unconsumed entries.** Each is read through a cap at the budget still
    left plus one byte; the byte past the budget is the witness that it
