@@ -1195,6 +1195,7 @@ fn judged(
                 intent,
                 adapter: adapters.adapter(&candidate.provider),
                 strict: Vec::new(),
+                networked: false,
             };
             let judgment = serving.contribute(authority.who(&site), &site.asks, &mut outcome);
             (intent, judgment, before, outcome)
@@ -1384,6 +1385,7 @@ fn a_set_without_the_hands_server_or_a_model_channel_carries_no_broker() {
             intent,
             adapter,
             strict: Vec::new(),
+            networked: false,
         };
         let mut judged = outcome.clone();
         let judgment = site.contribute(authority.who(&asks), &asks.asks, &mut judged);
@@ -1496,7 +1498,24 @@ fn the_pass_judges_each_resolved_candidate_and_refuses_in_the_sites_words() {
     use crate::capabilities::{parse_requests, Authority, CapabilityContext, Outcome, SiteAsks};
     let fixture = AgentFixture::new();
     let carriage = json!({"unsupported": "engine MCP loading is unavailable"});
-    carriers(&fixture, json!({"carriage": carriage, "shapes": []}));
+    // MB2's hard checks come first and hold here: each boxed shape is proved.
+    let proved = |harness: &str, invocations: &[Value]| {
+        let fact = json!({"measured": "synthetic fixture"});
+        let shape = |invocation: &Value| {
+            let mut shape = synthetic_shape(harness, invocation.clone(), "boxed", fact.clone());
+            for axis in ["native_write", "store_read", "process_read"] {
+                shape[axis] = fact.clone();
+            }
+            shape
+        };
+        invocations.iter().map(shape).collect::<Vec<_>>()
+    };
+    let (cold, replacement) = (json!("cold"), json!("replacement"));
+    let shapes = proved("codex", &[cold.clone(), replacement.clone()]);
+    carriers(&fixture, json!({"carriage": carriage, "shapes": shapes}));
+    let rejoin = json!({"resume": "boxed-rejoin"});
+    let shapes = proved("claude", &[cold, replacement, rejoin]);
+    fixture.write("adapters/claude.json", strict_claude(shapes));
     let mut config = fixture.config();
     config["seats"]["work"]["agent"] = json!("boxed");
     let bundle = fixture.compile_under(config, Boundary::Namespace).unwrap();

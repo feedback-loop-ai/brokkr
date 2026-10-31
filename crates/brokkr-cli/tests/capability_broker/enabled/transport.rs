@@ -126,15 +126,13 @@ fn the_handoff_failure_tag_fails_its_attempt_past_the_harness_success() {
         return;
     };
     world.store(b"DOCS_TOKEN=ab\0cd\n");
-    let started = world.base.join("server-started");
-    let marks = format!("#!/bin/sh\ntouch '{}'\n", started.display());
-    world.server(&marks);
+    let started = world.server_reads();
     parked_by(&world, Refusal::Handoff.to_string());
-    assert!(!started.exists(), "no server started");
+    assert_eq!(started.lookups(), 0, "no server started");
 }
 
 /// The bootstrap's exec tag: an interpreter absent from the box, after the
-/// lookup, and nothing runs the server another way.
+/// lookup. Its exec was attempted, so [`World::server_reads`] proves nothing here.
 #[test]
 fn the_exec_failure_tag_fails_its_attempt_past_the_harness_success() {
     let Some(world) = World::new() else {

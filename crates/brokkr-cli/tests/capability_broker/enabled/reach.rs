@@ -9,7 +9,7 @@ use std::path::Path;
 use brokkr_protocol::broker::Refusal;
 use serde_json::{json, Value};
 
-use super::matrix::{marking, refused_unread, STARTED};
+use super::matrix::refused_unread;
 use super::{answering, put, World, TOKEN};
 
 /// A seat's boxed hands, binding `path` as `mode`.
@@ -22,7 +22,7 @@ fn binding(path: &Path, mode: &str) -> Value {
 /// server. Ruling F6's order: this cause answers first, ahead of MB3's "launch
 /// resolves inside seat-writable reach", which stands behind it.
 fn leased_off(world: &World, names: &Path) {
-    let reads = world.store_reads();
+    let (looked, started) = (world.store_reads(), world.server_reads());
     let ended = world.run();
     let cause = ended.cause.clone().unwrap_or_default();
     let identity = format!("dispatch refused: {}: ", Refusal::Identity);
@@ -35,12 +35,8 @@ fn leased_off(world: &World, names: &Path) {
         ("awaiting_operator", true, true),
         "{ended:?}"
     );
-    let unstarted = (
-        reads.lookups(),
-        world.starts(),
-        world.base.join(STARTED).exists(),
-    );
-    assert_eq!(unstarted, (0, 0, false));
+    let unstarted = (looked.lookups(), world.starts(), started.lookups());
+    assert_eq!(unstarted, (0, 0, 0));
 }
 
 /// `refused` over a world whose seat binds the server's package as `mode`, at,
@@ -50,7 +46,6 @@ fn each_direction(mode: &str, refused: impl Fn(&World, &Path)) {
         let Some(world) = World::new() else {
             return;
         };
-        marking(&world);
         let bound = world.base.join(at);
         world.worker(Some(binding(&bound, mode)), "requires");
         refused(&world, &bound);
@@ -71,8 +66,7 @@ fn a_writable_bind_at_above_or_below_the_package_reaches_it() {
 fn a_read_only_or_overlay_bind_over_the_package_overlaps_the_box() {
     for mode in ["ro", "overlay"] {
         each_direction(mode, |world, _| {
-            let reads = world.store_reads();
-            refused_unread(world, reads, &Refusal::BindOverlapsReach.to_string());
+            refused_unread(world, &Refusal::BindOverlapsReach.to_string());
         });
     }
 }
@@ -85,7 +79,6 @@ fn a_launch_resolved_through_a_link_in_reach_refuses_with_no_lookup_or_start() {
     let Some(world) = World::new() else {
         return;
     };
-    marking(&world);
     let writable = world.base.join("writable");
     std::fs::create_dir(&writable).unwrap();
     super::chmod(&writable, 0o755);
@@ -102,7 +95,6 @@ fn a_program_in_the_worktree_refuses_with_no_lookup_or_start() {
     let Some(world) = World::new() else {
         return;
     };
-    marking(&world);
     let program = world.repo.join("tools/docs-mcp");
     put(&program, std::fs::read(world.program()).unwrap());
     super::chmod(&program, 0o755);
@@ -138,7 +130,7 @@ fn an_empty_or_missing_store_starts_no_server() {
         let Some(world) = World::new() else {
             return;
         };
-        marking(&world);
+        let started = world.server_reads();
         let store = world.secrets();
         match missing {
             true => std::fs::remove_file(&store).unwrap(),
@@ -154,7 +146,7 @@ fn an_empty_or_missing_store_starts_no_server() {
             ("awaiting_operator", Some(cause.as_str())),
             "{ended:?}"
         );
-        assert!(!world.base.join(STARTED).exists(), "no server start");
+        assert_eq!(started.lookups(), 0, "no server start");
         assert_eq!(world.calls(&ended.run), []);
     }
 }

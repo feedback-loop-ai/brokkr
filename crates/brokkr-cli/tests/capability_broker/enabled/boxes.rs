@@ -188,6 +188,14 @@ echo >&2"#;
         (Some(0), "0".to_string())
     );
     assert_eq!(world.calls(&ended.run).len(), 2);
+    // MB1: the two holdings and the hands are the harness's three servers.
+    let config = std::fs::read_to_string(world.bin("config.json")).unwrap();
+    let config: serde_json::Value = serde_json::from_str(&config).unwrap();
+    let servers = config["mcpServers"].as_object().unwrap().keys();
+    assert_eq!(
+        servers.map(String::as_str).collect::<Vec<_>>(),
+        ["brokkr", "cap-library-docs", "cap-more-docs"]
+    );
     let (first, second) = (
         relayed(&world, "broker.stderr"),
         relayed(&world, "broker2.stderr"),
@@ -218,7 +226,6 @@ fn a_bind_alias_of_the_package_refuses_with_no_lookup_or_start() {
     let Some(world) = World::new() else {
         return;
     };
-    super::matrix::marking(&world);
     let alias = world.base.join("alias");
     std::fs::create_dir(&alias).unwrap();
     super::chmod(&alias, 0o755);
@@ -226,7 +233,7 @@ fn a_bind_alias_of_the_package_refuses_with_no_lookup_or_start() {
     let hands = json!({"kind": "workspace", "network": false,
                        "binds": [{"path": alias, "mode": "rw"}]});
     world.worker(Some(hands), "requires");
-    let reads = world.store_reads();
+    let (reads, started) = (world.store_reads(), world.server_reads());
     let brokkr = crate::capability_broker::brokkr();
     let mut command = Command::new("bwrap");
     command.args(["--unshare-user", "--dev", "/dev", "--proc", "/proc"]);
@@ -264,8 +271,8 @@ fn a_bind_alias_of_the_package_refuses_with_no_lookup_or_start() {
         ("awaiting_operator", true, true),
         "{ended:?}"
     );
-    assert_eq!((reads.lookups(), world.starts()), (0, 0));
-    assert!(!world.base.join(super::matrix::STARTED).exists());
+    let unstarted = (reads.lookups(), world.starts(), started.lookups());
+    assert_eq!(unstarted, (0, 0, 0));
 }
 
 /// CR3's quota past the door. Four retaining panel members share the attempt's

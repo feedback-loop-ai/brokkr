@@ -7,8 +7,7 @@
 //! box is made ready, its bindings handed over and its server started
 //! inside it (U6c8), initialized (U6e) and served (U6f1b); the fixture's
 //! plan retains its responses, which are staged beside its ledger (U8b).
-//! A bound plan's one lifetime has its private ledger (U6d). The compile
-//! fence still refuses every MCP grant.
+//! A bound plan's one lifetime has its private ledger (U6d).
 
 use std::io::{Read, Write};
 use std::os::unix::fs::PermissionsExt;
@@ -23,6 +22,7 @@ use serde_json::{json, Value};
 
 #[cfg(target_os = "linux")]
 mod cleanup;
+mod enabled;
 #[cfg(target_os = "linux")]
 mod handoff;
 mod ledger;

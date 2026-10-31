@@ -82,8 +82,8 @@ impl<'w> Second<'w> {
             .unwrap()
     }
 
-    /// Its run, driven to its end or its park, let through once its seat is
-    /// live.
+    /// Its run, driven to its end or its park, its seat's release already
+    /// standing: a seat admitted runs straight through.
     fn run(&self) -> Ended {
         std::fs::write(&self.release, "").unwrap();
         let mut command = self.world.brokkr(&["run", "--feature", "second"]);
@@ -152,47 +152,42 @@ fn a_server_arriving_beside_a_running_writer_is_refused_with_no_lookup_or_start(
 }
 
 /// Simultaneous admission is atomic: of a server and a writer that reaches it,
-/// started together, never both are admitted.
+/// started together, never both are admitted. Each admitted one holds until the
+/// other's run has ended or been admitted too, so neither's reservation can go
+/// before the other's admission is decided; both live at once is the failure.
 #[test]
 fn a_server_and_a_writer_started_together_are_never_both_admitted() {
     let Some(world) = World::new() else {
         return;
     };
     let second = Second::new(&world, &world.base.join("opt/docs"));
-    std::fs::write(&second.release, "").unwrap();
     put(&world.bin("hold"), "");
     let args = world.run_args();
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let mut both = false;
     let (one, two) = std::thread::scope(|scope| {
-        let first = scope.spawn(|| {
-            let out = world.brokkr(&args).output().unwrap();
-            ended(out)
-        });
+        let first = scope.spawn(|| ended(world.brokkr(&args).output().unwrap()));
         let writer = scope.spawn(|| {
             let mut command = world.brokkr(&["run", "--feature", "second"]);
             ended(command.current_dir(&second.repo).output().unwrap())
         });
-        // The harness holds only where the server was admitted; let it on.
         let until = Instant::now() + PATIENCE;
-        while !first.is_finished() && Instant::now() < until {
-            if world.bin("harness.pid").exists() {
-                std::fs::remove_file(world.bin("hold")).ok();
-            }
+        while !first.is_finished() && !writer.is_finished() && !both && Instant::now() < until {
+            both = world.starts() > 0 && second.live.exists();
             std::thread::sleep(Duration::from_millis(20));
         }
         std::fs::remove_file(world.bin("hold")).ok();
+        std::fs::write(&second.release, "").unwrap();
         (first.join().unwrap(), writer.join().unwrap())
     });
-    let admitted = (one.status == "completed", two.status == "completed");
+    assert!(!both, "both admitted, live at once: {one:?} {two:?}");
     let refused = |run: &Ended| {
         run.cause
             .as_deref()
             .is_some_and(|cause| cause.starts_with("dispatch refused:"))
     };
-    assert!(
-        matches!(admitted, (true, false) | (false, true) | (false, false)),
-        "{one:?} {two:?}"
-    );
+    let completed = [&one, &two].map(|run| run.status == "completed");
+    assert_ne!(completed, [true, true], "{one:?} {two:?}");
     assert!(refused(&one) || refused(&two), "{one:?} {two:?}");
 }
 

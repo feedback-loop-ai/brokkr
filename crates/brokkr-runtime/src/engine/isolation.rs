@@ -300,7 +300,7 @@ fn servers(
     }
     Ok(match intent {
         McpIntent::Empty => SealedServers::Empty,
-        McpIntent::Hands => SealedServers::Hands,
+        McpIntent::Hands | McpIntent::NetworkedHands => SealedServers::Hands,
         McpIntent::Brokered => SealedServers::Brokered(provisioned.to_vec()),
         McpIntent::NoModelSurface => SealedServers::NoModelSurface,
     })

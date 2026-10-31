@@ -216,12 +216,145 @@ over 11 groups, 0 unruled". No warm sample was retaken in this visit, as the hos
 and no production file moved. No test moved and no new test file was added. The two new
 restart tests' own time was not measured apart; `transport::`'s eight took 72 s together.
 
+### The review's second return
+
+The chief returned head f36596c8f with M1, M2 and M3 at medium and L2 to L5 at low. Answering
+M3's audit found a defect no earlier visit or review had reached, F10 below. It is a fail-open
+path in U9b1a's lift, and this visit fixes it. The suite moved (L2), so its tests are now
+`capability_broker::enabled::…`; the older sections keep the `enabled::` names they ran under.
+
+**F10 (security), fixed in the row.** MB2 orders hard checks after the hands check: "requires
+workspace hands with network false", "cannot protect broker evidence from this provider's
+native tools", and, for a dialect with secrets, "cannot protect its secret bindings from this
+provider's native tools". D3 step 4 repeats that order, and 46.1 asks that "unsafe secret reads
+refuse". None of those strings stood anywhere in `crates/`, and production read only the
+`ambient` axis of an adapter's shape (`bundle/mcp.rs:161`). So since the lift a brokered seat
+was served past each of them. A scratch probe through `brokkr run` on the previous head ended
+`completed` with one harness start in each of four cases: boxed hands with `network: true`, and
+every shape's `native_write`, `store_read` and `process_read` in turn declared unsupported. The
+holds kept this from any house realm. `McpSite::contribute` now makes those three refusals, on
+every shape the seat is served as, whatever the ask's strength, in MB2's order. The network
+fact is read from the composition's spec at an agent site. At an inline site it is read as
+`McpIntent::NetworkedHands`, as `capability_record.rs` is not in this row and `McpIntent::inline`
+already takes the spec. `engine/isolation.rs` seals that variant as the hands set. No public
+item moves.
+
+The fix has one consequence the operator should read. Claude's shipped boxed replacement has
+`store_read` unmeasured (U0b C17 read the store before U8h; C17-p5, on 2.1.310, was denied after
+it, which is not that shape's 2.1.308). So on shipped facts a Claude work seat binding a secret
+now refuses, and the same seat binding none is served, while Codex's boxed shapes are all
+measured. `the_shipped_claude_adapter_serves_a_secret_free_work_seat_and_refuses_a_secret_bearing_one`
+pins exactly that on the shipped file. Ruling 21's second case reads "Claude or Codex", so it
+stands, but the `World` fixture now carries one synthetic `store_read` fact so that its Claude
+seat can exercise the secret path; the suite's secret-bearing proofs are the broker's and not a
+claim about shipped Claude. Options: (a) re-measure Claude's boxed replacement on the current
+binary and record it in a U1d row, which lifts the refusal; (b) leave it refusing until a later
+unit; (c) judge only the cold shape, which MB2 and SI2's served-shape ruling do not allow. I
+recommend (a) before any house realm grants a secret-bearing server. The controller's brokered
+real-harness check under F1 meets this refusal on Claude unless its dialect binds no secret or
+(a) has landed.
+
+| Test (`matrix::`) | Observed | Compiling removal, and how it failed |
+|---|---|---|
+| `a_site_lacking_each_of_mb2s_hard_facts_refuses_by_its_cause_whatever_it_asked` | Network ahead of the evidence and the secrets, for `requires` and `wants`; `native_write` on the cold and on the replacement shape, ahead of the secrets; `store_read` and `process_read` on each; each the exact site-prefixed cause, no harness, lookup or read of the server | The network guard false: it panics wanting the network cause while `said` holds the evidence cause, so the order is shown. The evidence guard false: wanting the evidence cause, `said` holds the secrets cause. `process_read` dropped from the proof: "secret bindings" not said, at the process row. `store_read` dropped: the same, at the store row. `proved` taking only the first shape: the replacement row's cause not said |
+| `an_inline_site_whose_hands_ask_the_network_refuses_an_mcp_holding` | The inline site's spec alone gives the network cause, zero starts and reads | `Some(spec) if false && spec.network`: the cause not said, at the helper's assertion |
+| `a_secret_free_holding_needs_no_secret_read_proof` | Store and process axes unsupported, no secret bound: completes with one call | The secret-bearing test made true of every holding: parks "no state" with "cannot protect its secret bindings" |
+| `the_shipped_claude_adapter_serves…` | The shipped file: refused with a secret, served with one call without | `store_read` dropped from the proof: the secret row's refusal not said |
+
+**F11 (LOW, fails closed).** MB2's first cause, "requires boundary 'namespace'; this site uses
+'<boundary>'", stands nowhere either, as `McpIntent::composed` collapses the boundary and
+`capability_record.rs` is outside this row. Through `brokkr run` each other boundary still
+refuses before any harness, by another cause: `seatbelt` and `container` as "built by slice…
+not by this engine", `harness` as its fragment's capability gap, and `open` as "requires
+workspace hands at this site". Only the words differ. Options: (a) one row for a following unit
+that adds `capability_record.rs` and the exact cause; (b) amend MB2's table to these words. I
+recommend (a). **F12 (LOW, fails closed).** MB2 says its hard checks run before GP1, but
+`authority.resolve` holds GP1 ahead of `contribute`. A gate's wanted ask therefore drops by GP1
+where MB2 would refuse it, and a dropped holding serves nothing. I recommend amending the order
+in the spec at U10a's audit, as moving it changes which cause every gate reports.
+
+**M1, the missing proofs.** `windows.rs` holds each window through real dispatch and ends it
+three ways, with `Standing` the one setup. A sixth window, `Handoff`, delays the bootstrap's exec
+of the server with the whole frame delivered and its status pipe open.
+
+| Tests (`windows::`) | Observed | Compiling removal, and how it failed |
+|---|---|---|
+| `an_observation_held_to…`, `a_box_held_at_its_entry_to…`, `a_store_read_held_to…`, `a_status_pipe_open_to…`, `a_server_silent_to_the_startup_deadline…` | The deadline with the harness alive: the broker ends at 30 s or later and before the 60 s hold; parks on `Refusal::Identity`, `Establishment`, the lifecycle refusal (a held read withholds its closure), `Handoff` and `Failure::Timeout`; exact ledger and disposition, exit 1, no call row; store reads and server reads each held to the window's table | `STARTUP` at 5 s: all five fail the bound at about 5.03 s, after the first version let the store-read row pass, as `broker.code`'s time followed the tracer's hold, so the test now times the broker's own state. `STARTUP` at 70 s: all five fail, three at about 70.03 s and the two held rows when the read's release changes the cause |
+| `the_engines_timeout_at_{a_brokers_observation, a_standing_box, a_held_store_read}…`, `…during_{initialization, a_call}…` | The seat's `limits.timeout_seconds` of 25, the engine's own sweep: parks "attempt exceeded its Ns deadline and was killed; its process tree is gone, and what it did is unknown", N what admission and provisioning left (19 and 20 seen); the broker and everything below it gone within 5 s | `timeout_seconds * 4`: the four startup windows park on their broker's own cause instead, and the call window panics "the engine did not end the window" at 90 s |
+| `the_engines_timeout_during_a_call_leaves_it_interrupted_through_inspect` | `inspect` keeps `("resolve", "interrupted", None)` | `fold` clearing its rows where `invalid` is set: `left: []` |
+| Every window, by `Standing::settled` | Private-mount teardown observed: a box's `/proc/<pid>/ns/mnt` read at the hold, non-empty wherever a box stands, and no process on the host left in it | `--die-with-parent` removed alone passes (the broker's teardown and the sweep stand behind it). With `tree::kill_group` and `table::kill` also no-ops, `a_harness_dying_during_initialization…` fails "3432349 holds the box's mounts" |
+| `sites::a_gate_holds_a_native_power_by_its_class_and_named_office_only` | GP1's five rows through `claude-native-fetch`, the capability's classes as the dialect's, `requires` and `wants`: exact refusal with no harness, or notice with `--tools` empty and `WebFetch,WebSearch` disallowed, or `--tools WebFetch` with `WebSearch` disallowed, no broker and no call row | The egress arm of `gates::check` removed: both tables fail at the egress row's refusal. `native_plan` given no holdings: the native table fails (a panic in `attribution.rs:40`) while the MCP table passes |
+
+The windows release `World`'s lock once held, as each then waits on a clock, so these 15 tests do
+not add their waits end to end. F7's measure below is updated.
+
+**M2, the marker that could not fire.** It was as the chief said: a server's box mounts nothing
+writable of the host, so its `touch` could not leave the marker. `STARTED` and `marking` are gone.
+`World::server_reads` watches the program's inode through the existing `Reads` inotify seam, which
+sees reads across namespaces. It also sees the kernel's own read at an exec: an unmodified
+`the_exec_failure_tag…` saw a read with no interpreter to make it, so that test makes no claim
+from this observation and it reads "an exec attempted or done". The healthy control asserts it
+moves (`a_seat_holding_an_mcp_grant…`: `started.lookups() > 0`). The independent binding keeps the
+cause: a removal running the server by `/bin/sh` at `provision_with`'s and `refuse_admission`'s
+failures and at `serve`'s, with every refusal's text left alone. Then `refused_unread`'s "no server
+start" fails `left: 1`, `reach::leased_off` fails `left: (0, 0, 1)`, `a_store_in_the_worktree…`
+`left: (0, 1)`, `boxes::a_bind_alias…` `left: (0, 0, 1)`, `an_empty_or_missing_store…` and
+`the_handoff_failure_tag…` `left: 1`, across all 10 tests that claim no start.
+
+**M3, the audit.** Answered by F10, F11 and F12 above, and:
+
+| Audit item | What was checked on this head | Result |
+|---|---|---|
+| Adapters' qualification | `jq` over `adapters/{claude,codex,dsh}.json`'s shapes, axis by axis, against the U0, U0b and U0c records in `evidence.md` and the U1d rows | Claude: cold boxed all measured at 2.1.287; replacement boxed at 2.1.308 with `store_read` unmeasured. Codex: cold, harness, none and replacement all measured at 0.164.0. dsh: cold none at 0.1.5-rc.1 and replacement none at 0.2.1-rc.2, each with unmeasured axes, and cold boxed with `ambient` unmeasured, so a boxed dsh seat refuses by SI2 (#896's). LaneTally: cold and replacement no-hands only, over its wrapper's own identity |
+| Which axes bind | Production consumers of each axis, by grep | Only `ambient` bound before this visit (F10). A shape's `measured_on.version` binds nothing: nothing compares it to the installed harness, so a later harness is served on the older measurement. That is the "exact evidence scope" U1d records and is not a defect of the lift, but operators should read it as such; U9b2 owes the words. The harness versions on this host could not be read, as this seat may not run them |
+| SI2 switched on | `init_doctor::`, `init_stacks::` and the recipes' compile on this head: 60 passed. Removing `McpFence::admit`'s refusal passes all 58 of the first two, as after U1d6 no shipped scaffold reaches it | Not bound by that matrix, so `a_served_shape_without_measured_isolation_refuses_with_sis_exact_cause` binds it through the binary, for both causes and no holding. The removal: it fails, the cause not said. Init's "scaffolded bundle failed to compile" wrapper around an SI2 cause is unreachable from shipped facts and stays unpinned; 8.1 and 8.2 stay U10a's to reconcile |
+| Open prerequisites | The tasks.md unticked rows before 46 | 8.1, 8.2 (above); 28.9, 28.10 (SD4 samples; native alias creation, recorded open since U6c5b and not tested here); 28.17, 31.1, 31.2 (SD4 samples). All carry stated reasons; none is closed here |
+| Unit removal evidence | Each row of design.md's unit table has its record: a file under `evidence/`, or a section of `evidence.md` for U0, U1a, U2, U3a, U4a, U5a, U5a2, U5c, U5f and U6a | Present. Their mutations were not re-executed here; 48.1 owns that |
+| Real namespace results | This visit's runs above and below, on a host with `legacy_tiocsti` 0 and no hands box. Every removal above failed where it says, so those tests executed; the suite was not re-run with `--nocapture` in this visit | Linux x86_64 only |
+| macOS refusal | `McpFence::current` by `cfg`, `Standing` off Linux; `the_compile_fence_refuses_an_unused_mcp_grant_only_where_it_stands` passes its Linux half here | The macOS half is CI's, pending |
+| Scenario map | The rows naming 46.1–46.2 | MB1's three servers now asserted in `a_second_servers…` (`brokkr`, `cap-library-docs`, `cap-more-docs`). The rest are named in the tables above and earlier; the complete-frame row is F5's |
+
+**L2, the shard.** The suite moved whole, to `capability_broker/enabled.rs` and
+`capability_broker/enabled/`, declared by one `mod enabled;` in `capability_broker.rs`, which
+stays at 2,000 lines, its stale "compile fence still refuses every MCP grant" sentence paying for
+the line. `test-shards.sh`'s two filters now select it with `capability_broker::`, with no script
+or CI change. F8's four members and its reason stand. `cargo test --test it -- capability_broker::`
+passed 177 with 1 ignored in 567 s, at load 22.7 falling to 7.2.
+
+**L3.** The admitted run now holds until the other has ended or been admitted, so neither
+reservation can go first; `Second::run`'s comment now says what it does. With the lease's
+`writes` check false: "both admitted, live at once", both `completed`.
+
+**L4.** It is now the same-run sibling, `a_boxed_sibling_in_the_run_cannot_alter_the_attempts_evidence`.
+The boxed review seat strikes by glob at everything under the coordination root, with its own
+control that it ran, and the plan and ledger are compared with what the harness copied as its
+broker closed. With `/var/tmp` bound writable into every workspace box, the strike reaches the
+root and its `rm -rf` parks the run: "the admission lock is not this user's own single file".
+
+**L5** stays as the chief carried it: `engine/broker.rs:509` repeats `broker/session.rs:285`'s
+fixed-key predicate, as sharing it crosses crates and grows the API. **The INFO**, the stale
+comment, is the one L2 replaced. **G1** needed nothing.
+
+**F7, updated.** The whole isolated shard, `enabled::` within it, now takes 567 s here at that
+load, and its `enabled::` part 427 s in a run at load 14. CI's 75-minute job is far from it, and CI
+itself has not run this, so no change is asked.
+
+Warm samples, by the sampler, load 6.8 before and 7.5 after: 7,669, 5,127, 5,006, 5,102 and 5,021
+ms total; engine 3,443 to 5,819 ms, broker 1,552 to 1,849 ms. All within budget, none a verdict, as
+the host was not quiet.
+
+After the mutations, each restored, and with the fix in: `brokkr-runtime` `--lib` 1,447,
+`capability_launch` 76, `it` 144, `operated_repo` 1, `queued_launch` 8; the CLI's `--lib` 1,105 passed
+and 1 ignored, and `--test it` outside `capability_broker::` 717 passed and 3 ignored; witness
+pins unmoved, 6 passed. After the last fold of a test helper, `matrix::` and `sites::` passed again,
+21 of 21. `brokkr-protocol` moved no line, so it was not re-run; its last pass is above.
+
 ### Pending, none of it this seat's
 
 The fully cold x86_64 sample; every aarch64 sample; warm samples on a quiet host, each
 observation timed alone; FD high-water and peak metadata memory; exact coverage and the
-crap ratchet; the brokered real-harness check under the flag (ruling F1); macOS, which this
-host cannot compile; CI on the final head; and the committed
+crap ratchet; the brokered real-harness check under the flag (ruling F1), which now meets F10 on
+Claude as said there; macOS, which this host cannot compile; CI on the final head; and the committed
 `a_bind_alias_of_protected_evidence_is_refused` on the host. This seat ran it again and it
 skipped ("unshare: write failed /proc/self/uid_map: Operation not permitted"), so what stands
 is the scratch variant under "U9b1a's owed items".
@@ -229,11 +362,11 @@ is the scratch variant under "U9b1a's owed items".
 ### Tasks
 
 42.2 and 46.1 are ticked on the proofs above, with F5's seams, and SD4's timings pending as
-listed. 42.2 was ticked before the review on a test that began no call, and M1 above is what
-now meets it. 46.2 stays unticked. Host evidence is part of why, by its own last sentence,
-"missing host evidence leaves this task pending"; the other part is not a host measurement:
-its audit of current-head U0 qualification has not been repeated by this seat beyond
-compiling `recipes/self`.
+listed. 42.2 was ticked before the first review on a test that began no call, and 46.1 before the
+second on proofs that left the compositions M1 names unproved and on a matrix that had not reached
+F10's refusals. Both now meet their text on this tree. 46.2 stays unticked: its non-host work is
+done above, audit included, and by its own last sentence "missing host evidence leaves this task
+pending".
 
 ## The proof the first run built
 

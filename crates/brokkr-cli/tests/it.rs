@@ -52,7 +52,6 @@ mod doctor_dsh_selection;
 mod dsh_key;
 mod dsh_sandbox_runner;
 mod effect_replay;
-mod enabled;
 mod folder_seats;
 mod hands;
 mod harness_probe;
