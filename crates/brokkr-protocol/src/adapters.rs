@@ -56,7 +56,7 @@ use capability_calls::Observation;
 use claude_fold::ClaudeFold;
 use dsh_stderr::redact_dsh_reasoning;
 use mcp::served;
-use start::start_prompt;
+use start::{start_prompt, Confine};
 
 const ADAPTER_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const MODEL_NOT_REPORTED: &str = "not reported";
@@ -6859,11 +6859,12 @@ enum OfferState {
 /// start with no resume in front of it is a cold start, and an offer
 /// whose correlation does not match the next start reaches no provider
 /// and survives to no later start.
-fn serve_io(
+fn serve_with(
     kind: AdapterKind,
     extra: &[String],
     input: impl BufRead,
     mut output: impl Write,
+    confine: Confine,
 ) -> std::io::Result<()> {
     let mut send = |body: Body| {
         let line = serde_json::to_string(&Message::new(body))
@@ -6934,25 +6935,22 @@ fn serve_io(
                 // The offer is consumed here whatever happens to it, so
                 // a handle can never reach a later start.
                 let offered = std::mem::replace(&mut offer, OfferState::None);
-                match start::session(offered, &effect_id, &attempt_id) {
+                match start::admitted(&message, confine, offered, &effect_id, &attempt_id) {
                     // A start that sent no result ends the driver (`lost`).
                     Ok(session) => {
                         if !run_seat(kind, extra, &message, session.as_deref(), &mut send) {
                             return Ok(());
                         }
                     }
-                    // A poisoned exchange launches no provider. The
-                    // failure is bounded and structural — no provider
-                    // prose, no invented refusal token — and it is sent
-                    // only because the START named the correlation, so
-                    // the engine can attribute it. A driver defect is a
-                    // determinate failure under decision 0006.
-                    Err(reason) => send(Body::Result {
+                    // A poisoned exchange or an unconfined driver launches
+                    // no provider, and says so, as the START named its
+                    // correlation: a determinate failure under decision 0006.
+                    Err(refused) => send(Body::Result {
                         effect_id,
                         attempt_id,
                         status: ResultStatus::Failed,
                         result: None,
-                        error: Some(format!("resume exchange refused: {reason}")),
+                        error: Some(refused.to_string()),
                     }),
                 }
             }
@@ -6969,8 +6967,9 @@ fn serve_io(
     Ok(())
 }
 
-pub fn serve(kind: AdapterKind, extra: Vec<String>) -> std::io::Result<()> {
-    serve_io(kind, &extra, std::io::stdin().lock(), std::io::stdout())
+pub fn serve(kind: AdapterKind, extra: Vec<String>, confine: Confine) -> std::io::Result<()> {
+    let input = std::io::stdin().lock();
+    serve_with(kind, &extra, input, std::io::stdout(), confine)
 }
 
 #[cfg(test)]

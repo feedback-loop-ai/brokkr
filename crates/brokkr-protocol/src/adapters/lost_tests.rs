@@ -5,6 +5,7 @@
 //! the command did leave, are reported as they always were. Every child
 //! here is a real `sh`.
 
+use super::start::serve_io;
 use super::*;
 use crate::env_guard::EnvGuard;
 

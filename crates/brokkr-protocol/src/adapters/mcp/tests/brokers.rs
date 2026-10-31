@@ -101,6 +101,69 @@ fn authored_beside(
     (extra, input)
 }
 
+/// U9b1b's ruling F1 at the driver's own loop: a start sealed with brokers
+/// whose driver cannot confine itself refuses with no `accepted` and no spawn;
+/// a start sealed with none never asks, whatever asking would answer.
+#[test]
+fn a_brokered_start_confines_its_driver_first_and_refuses_where_it_cannot() {
+    use crate::adapters::serve_with;
+    use crate::{Body, Message};
+    fn refuses() -> std::io::Result<()> {
+        Err(std::io::ErrorKind::PermissionDenied.into())
+    }
+    let _env = EnvGuard::lock();
+    let line = |body: Body| serde_json::to_string(&Message::new(body)).unwrap();
+    let drive = |input: Value| -> Vec<Value> {
+        let hello = line(Body::Hello {
+            engine_version: "test".into(),
+        });
+        let start = line(Body::Start {
+            effect_id: "e".into(),
+            attempt_id: "a".into(),
+            seat: "work".into(),
+            input,
+        });
+        let mut output = Vec::new();
+        let frames = format!("{hello}\n{start}\n");
+        serve_with(
+            AdapterKind::Claude,
+            &[],
+            frames.as_bytes(),
+            &mut output,
+            refuses,
+        )
+        .unwrap();
+        let said = String::from_utf8(output).unwrap();
+        let said = said.lines().map(|said| serde_json::from_str(said).unwrap());
+        said.collect()
+    };
+    let measured = || json!("measured");
+    let assessments = [measured(), measured(), measured()];
+    let (_, input) = brokered("claude", brokers(), &document(&exe()), assessments);
+    let answers = drive(input.clone());
+    let types: Vec<&str> = answers
+        .iter()
+        .map(|said| said["type"].as_str().unwrap())
+        .collect();
+    assert_eq!(types, ["capabilities", "result"]);
+    assert_eq!(answers[1]["status"], "failed");
+    assert_eq!(
+        answers[1]["error"],
+        "seat refused to start: its driver could not set no_new_privs before a harness the \
+         engine brokers MCP for: permission denied"
+    );
+    let mut hands_only = input;
+    hands_only[SERVING_INPUTS]["isolation"]["servers"] = json!("hands");
+    let answers = drive(hands_only);
+    let result = answers.iter().find(|said| said["type"] == "result");
+    assert!(
+        !result.unwrap()["error"]
+            .to_string()
+            .contains("no_new_privs"),
+        "{answers:?}"
+    );
+}
+
 /// The names in force for the attempt in progress.
 fn recorded_removals() -> Vec<String> {
     REMOVED.with_borrow(Clone::clone)

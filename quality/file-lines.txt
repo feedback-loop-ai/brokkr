@@ -273,14 +273,14 @@
   3314 crates/brokkr-runtime/src/engine.rs
    508 crates/brokkr-runtime/src/engine/artifacts.rs
    418 crates/brokkr-runtime/src/engine/boxed.rs
-   771 crates/brokkr-runtime/src/engine/broker.rs
-   800 crates/brokkr-runtime/src/engine/broker/admission.rs
-   547 crates/brokkr-runtime/src/engine/broker/exclusion.rs
+   782 crates/brokkr-runtime/src/engine/broker.rs
+   799 crates/brokkr-runtime/src/engine/broker/admission.rs
+   546 crates/brokkr-runtime/src/engine/broker/exclusion.rs
    783 crates/brokkr-runtime/src/engine/broker/fold.rs
    161 crates/brokkr-runtime/src/engine/broker/historical.rs
    241 crates/brokkr-runtime/src/engine/broker/inventory.rs
    220 crates/brokkr-runtime/src/engine/broker/inventory/standing.rs
-    40 crates/brokkr-runtime/src/engine/broker/observation.rs
+    75 crates/brokkr-runtime/src/engine/broker/observation.rs
    457 crates/brokkr-runtime/src/engine/broker/root.rs
    709 crates/brokkr-runtime/src/engine/broker/settlement.rs
    123 crates/brokkr-runtime/src/engine/broker/settlement/attestation.rs
@@ -479,6 +479,13 @@
   3404 crates/brokkr-cli/tests/driver_conformance.rs
    400 crates/brokkr-cli/tests/dsh_sandbox_runner.rs
    197 crates/brokkr-cli/tests/effect_replay.rs
+   626 crates/brokkr-cli/tests/enabled.rs
+   236 crates/brokkr-cli/tests/enabled/dispatch.rs
+   274 crates/brokkr-cli/tests/enabled/lifetime.rs
+   274 crates/brokkr-cli/tests/enabled/matrix.rs
+   241 crates/brokkr-cli/tests/enabled/reach.rs
+   296 crates/brokkr-cli/tests/enabled/sites.rs
+   170 crates/brokkr-cli/tests/enabled/transport.rs
    257 crates/brokkr-cli/tests/folder_seats.rs
   1014 crates/brokkr-cli/tests/hands.rs
    528 crates/brokkr-cli/tests/harness_probe.rs
@@ -492,7 +499,7 @@
    511 crates/brokkr-cli/tests/house_prose.rs
   1763 crates/brokkr-cli/tests/init_doctor.rs
   1446 crates/brokkr-cli/tests/init_stacks.rs
-    88 crates/brokkr-cli/tests/it.rs
+    97 crates/brokkr-cli/tests/it.rs
   1168 crates/brokkr-cli/tests/layering/main.rs
    131 crates/brokkr-cli/tests/layering/projection.rs
   1441 crates/brokkr-cli/tests/layering/scan.rs
@@ -694,7 +701,7 @@
    233 crates/brokkr-runtime/src/engine/broker/admission/tests/reach.rs
    200 crates/brokkr-runtime/src/engine/broker/admission/tests/recovery.rs
    599 crates/brokkr-runtime/src/engine/broker/admission/tests/sealing.rs
-  1793 crates/brokkr-runtime/src/engine/broker/admission/tests/sources.rs
+  1823 crates/brokkr-runtime/src/engine/broker/admission/tests/sources.rs
   1130 crates/brokkr-runtime/src/engine/broker/fold/tests.rs
    885 crates/brokkr-runtime/src/engine/broker/fold/tests/restart.rs
    352 crates/brokkr-runtime/src/engine/broker/fold/tests/routes.rs

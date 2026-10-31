@@ -474,7 +474,10 @@ impl<'a> Slot<'a> {
     }
 
     /// The seal and stdio launch the slot's holding is sealed from, or the
-    /// refusal of a holding without them.
+    /// refusal of a holding without them, or of one binding a fixed key of
+    /// the server box (MB4). The harness has that name removed from its own
+    /// environment, so a HOME sealed here would reach its broker as no plan
+    /// bound at all: it refuses here, by the startup cause, before any start.
     fn seal(&self) -> Result<Seal<'a>, Unprovisioned> {
         let holding = self.held.holding;
         match (&holding.admitted, &holding.implementation) {
@@ -486,17 +489,25 @@ impl<'a> Slot<'a> {
                     secrets,
                     ..
                 },
-            ) => Ok(Seal {
-                admitted,
-                argv,
-                version,
-                secrets,
-            }),
+            ) => match secrets.iter().any(|name| fixed_key(name)) {
+                true => Err(Unprovisioned::Box(Refusal::StartupInputs)),
+                false => Ok(Seal {
+                    admitted,
+                    argv,
+                    version,
+                    secrets,
+                }),
+            },
             (None, _) | (Some(_), Implementation::Mcp { .. } | Implementation::Native { .. }) => {
                 Err(Unprovisioned::Unsealed(self.held.capability.to_string()))
             }
         }
     }
+}
+
+/// Whether `name` is a key the server box's own environment sets (MB4).
+fn fixed_key(name: &str) -> bool {
+    hands::server_environment().any(|fixed| fixed == name)
 }
 
 /// The site's effective hands reach (D5): the canonical workspace, the

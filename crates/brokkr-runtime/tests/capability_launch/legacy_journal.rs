@@ -74,7 +74,7 @@ fn serve_child(var: &str, kind: AdapterKind) {
         return;
     };
     let extra = extra.lines().map(str::to_string).collect();
-    let served = brokkr_protocol::adapters::serve(kind, extra);
+    let served = brokkr_protocol::adapters::serve(kind, extra, || Ok(()));
     std::process::exit(if served.is_ok() { 0 } else { 70 });
 }
 

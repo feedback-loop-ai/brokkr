@@ -1,3 +1,4 @@
+use super::start::serve_io;
 use super::*;
 use crate::env_guard::EnvGuard;
 use std::{os::unix::ffi::OsStrExt, path::Path};
@@ -7218,13 +7219,8 @@ fn a_cancel_reaching_the_dsh_driver_publishes_nothing_and_launches_nothing() {
     }))
     .unwrap();
     let mut output = Vec::new();
-    serve_io(
-        AdapterKind::Dsh,
-        &[],
-        format!("{hello}\n{cancel}\n").as_bytes(),
-        &mut output,
-    )
-    .unwrap();
+    let input = format!("{hello}\n{cancel}\n");
+    serve_io(AdapterKind::Dsh, &[], input.as_bytes(), &mut output).unwrap();
     let messages: Vec<Message> = String::from_utf8(output)
         .unwrap()
         .lines()

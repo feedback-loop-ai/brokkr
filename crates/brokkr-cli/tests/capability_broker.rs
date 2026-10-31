@@ -31,9 +31,9 @@ mod observer;
 #[cfg(target_os = "linux")]
 mod protocol;
 #[cfg(target_os = "linux")]
-mod readiness;
+pub(crate) mod readiness;
 #[cfg(target_os = "linux")]
-mod serving;
+pub(crate) mod serving;
 mod survey;
 
 const DIGEST: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -82,7 +82,7 @@ const COPIES: &str = "brokkr-capability-broker-";
 /// The copy is written by a child `cp`, then renamed in (#255): a copy this
 /// process wrote is `Text file busy` while a sibling test's fork still holds
 /// the inherited write descriptor, and a rename keeps the inode's count.
-fn brokkr() -> &'static Path {
+pub(crate) fn brokkr() -> &'static Path {
     static COPY: std::sync::OnceLock<(PathBuf, std::fs::File)> = std::sync::OnceLock::new();
     let (copy, _live) = COPY.get_or_init(|| {
         if !boxed() {
@@ -748,7 +748,7 @@ fn boxed() -> bool {
 
 /// Skip a proof this run cannot give, for `reason`: a run that declared
 /// boundary evidence fails instead of passing on it.
-fn skip(reason: &str) {
+pub(crate) fn skip(reason: &str) {
     let required = brokkr_protocol::hands::boundary_evidence_required();
     brokkr_protocol::hands::skip_boundary_proof(required, reason);
 }
@@ -760,7 +760,7 @@ const BOXED: &str = "a seat's hands box prepares no server box";
 /// hands box prepares none. A host's root-only system files are no reason
 /// (operator ruling 2026-10-07): MB3 admits them, so a box stands beside
 /// them.
-fn unservable() -> Option<String> {
+pub(crate) fn unservable() -> Option<String> {
     boxed().then(|| BOXED.to_string())
 }
 

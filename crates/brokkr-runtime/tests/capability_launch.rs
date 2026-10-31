@@ -8426,7 +8426,7 @@ fn driver_serving_child() {
         other => panic!("no serving child for {other}"),
     };
     let extra: Vec<String> = serde_json::from_value(served["extra"].clone()).unwrap();
-    brokkr_protocol::adapters::serve(kind, extra).unwrap();
+    brokkr_protocol::adapters::serve(kind, extra, || Ok(())).unwrap();
     std::process::exit(0);
 }
 
