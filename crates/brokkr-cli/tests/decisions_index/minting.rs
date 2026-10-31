@@ -64,8 +64,50 @@ enum AddendumStatus {
     Withdrawn,
 }
 
+/// What reading an addendum's status line refuses, in the words the failing
+/// test prints. The one home for each refusal's diagnostic text.
+#[derive(Debug, PartialEq, Eq)]
+enum AddendumRefusal {
+    Headings {
+        file: String,
+        date: String,
+        headings: usize,
+    },
+    NoStatusLine {
+        file: String,
+        line: usize,
+    },
+    NotAStatusLine {
+        file: String,
+        line: usize,
+        text: String,
+    },
+}
+
+impl fmt::Display for AddendumRefusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AddendumRefusal::Headings {
+                file,
+                date,
+                headings,
+            } => write!(
+                f,
+                "{file}: names {date} as its addendum, and the file has {headings} headings for it"
+            ),
+            AddendumRefusal::NoStatusLine { file, line } => {
+                write!(f, "{file}:{line}: the addendum carries no status line")
+            }
+            AddendumRefusal::NotAStatusLine { file, line, text } => {
+                write!(f, "{file}:{line}: '{text}' is not an addendum status line")
+            }
+        }
+    }
+}
+
 /// The first non-blank line under `## Addendum — <date>`, read whole.
-fn read_addendum(decision: &Decision, date: &str) -> Result<AddendumStatus, String> {
+fn read_addendum(decision: &Decision, date: &str) -> Result<AddendumStatus, AddendumRefusal> {
+    let file = format!("{DECISIONS}/{}", decision.file);
     let heading = format!("## Addendum — {date}");
     let headings: Vec<usize> = decision
         .text
@@ -75,11 +117,11 @@ fn read_addendum(decision: &Decision, date: &str) -> Result<AddendumStatus, Stri
         .map(|(at, _)| at)
         .collect();
     if headings.len() != 1 {
-        return Err(format!(
-            "{DECISIONS}/{}: names {date} as its addendum, and the file has {} headings for it",
-            decision.file,
-            headings.len()
-        ));
+        return Err(AddendumRefusal::Headings {
+            file,
+            date: date.to_string(),
+            headings: headings.len(),
+        });
     }
     let at = headings[0];
     let Some((line, text)) = decision
@@ -89,11 +131,7 @@ fn read_addendum(decision: &Decision, date: &str) -> Result<AddendumStatus, Stri
         .skip(at + 1)
         .find(|(_, line)| !line.trim().is_empty())
     else {
-        return Err(format!(
-            "{DECISIONS}/{}:{}: the addendum carries no status line",
-            decision.file,
-            at + 1
-        ));
+        return Err(AddendumRefusal::NoStatusLine { file, line: at + 1 });
     };
     let line = line + 1;
     if let Some(accepted) = text.strip_prefix("Addendum status: accepted (operator, ") {
@@ -112,10 +150,11 @@ fn read_addendum(decision: &Decision, date: &str) -> Result<AddendumStatus, Stri
     if text.starts_with("Addendum status: withdrawn") {
         return Ok(AddendumStatus::Withdrawn);
     }
-    Err(format!(
-        "{DECISIONS}/{}:{line}: '{text}' is not an addendum status line",
-        decision.file
-    ))
+    Err(AddendumRefusal::NotAStatusLine {
+        file,
+        line,
+        text: text.to_string(),
+    })
 }
 
 /// Whether `line` opens the addendum heading for exactly `date`: the date
@@ -170,7 +209,7 @@ fn numbers(numbers: &[u16], separator: &str) -> String {
 
 /// What ruling 1's walk and keeper chain refuse, in the words the failing
 /// test prints. The one home for each refusal's diagnostic text.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 enum Refusal {
     MetTwice {
         file: String,
@@ -420,7 +459,7 @@ fn listed_authority(ledger: &Ledger, cell: &str) -> Listed {
             Ok(AddendumStatus::Accepted) => Listed::Status(Status::Accepted),
             Ok(AddendumStatus::Proposed) => Listed::Status(Status::Proposed),
             Ok(AddendumStatus::Withdrawn) => Listed::Status(Status::Withdrawn),
-            Err(why) => Listed::Unreadable(why),
+            Err(why) => Listed::Unreadable(why.to_string()),
         },
         None => match Status::parse(&decision.status) {
             Some(status) => Listed::Status(status),
@@ -866,8 +905,74 @@ fn an_addendum_heading_date_must_be_a_whole_token() {
     );
     assert_eq!(
         read_addendum(&extended, "2026-09-04"),
-        Err(format!(
-            "{DECISIONS}/0043-fixture.md: names 2026-09-04 as its addendum, and the file has 0 headings for it"
-        ))
+        Err(AddendumRefusal::Headings {
+            file: format!("{DECISIONS}/0043-fixture.md"),
+            date: "2026-09-04".to_string(),
+            headings: 0,
+        })
+    );
+}
+
+/// 0082 ruling 1: each addendum refusal keeps the diagnostic words the
+/// ledger printed before the refusal was typed, pinned here once.
+#[test]
+fn addendum_refusals_display_the_ledgers_words() {
+    let file = || format!("{DECISIONS}/0042-fixture.md");
+    let cases = [
+        (
+            AddendumRefusal::Headings {
+                file: file(),
+                date: "2026-09-04".to_string(),
+                headings: 2,
+            },
+            format!(
+                "{DECISIONS}/0042-fixture.md: names 2026-09-04 as its addendum, and the file has 2 headings for it"
+            ),
+        ),
+        (
+            AddendumRefusal::NoStatusLine {
+                file: file(),
+                line: 7,
+            },
+            format!("{DECISIONS}/0042-fixture.md:7: the addendum carries no status line"),
+        ),
+        (
+            AddendumRefusal::NotAStatusLine {
+                file: file(),
+                line: 9,
+                text: "Addendum status: landed".to_string(),
+            },
+            format!(
+                "{DECISIONS}/0042-fixture.md:9: 'Addendum status: landed' is not an addendum status line"
+            ),
+        ),
+    ];
+    for (refusal, words) in cases {
+        assert_eq!(refusal.to_string(), words);
+    }
+}
+
+/// 0082 ruling 2: a `Minted under` cell outside the closed grammar is
+/// refused by name rather than skipped as an unread row.
+#[test]
+fn an_open_minted_cell_refuses_naming_it() {
+    let row = contract_lifecycle::Row {
+        line: 1,
+        version: "run-manifest/v14".to_string(),
+        file: "contracts/run-manifest.v14.schema.json".to_string(),
+        class: "journal".to_string(),
+        minted: "0093, enacted".to_string(),
+        writer: "none".to_string(),
+        reader: "none".to_string(),
+        state: "current".to_string(),
+        last_written: String::new(),
+        reader_until: String::new(),
+    };
+    assert_eq!(
+        minted_row(&fixture_ledger(Vec::new()), &row),
+        vec![
+            "contracts/run-manifest.v14.schema.json: the Minted under cell '0093, enacted' is not a closed form"
+                .to_string()
+        ]
     );
 }

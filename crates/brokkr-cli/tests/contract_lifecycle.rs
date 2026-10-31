@@ -43,6 +43,32 @@ pub(crate) const PRIVATE: [(&str, &str); 5] = [
     ),
 ];
 
+/// The two reader-less current rows ruling 5 admits: additive payload
+/// extensions the fold never reads. Any other current or reader row that
+/// names no loader is refused by name.
+const NO_LOADER: [&str; 2] = [
+    "contracts/effect-cleanup.v1.schema.json",
+    "contracts/phase-entered-case.v1.schema.json",
+];
+
+/// Ruling 4: a current or reader row that names no loader, other than the
+/// two the fold never reads, refuses by name.
+fn readerless_finding(row: &Row) -> Option<String> {
+    if Reader::parse(&row.reader) != Some(Reader::None)
+        || !matches!(
+            State::parse(&row.state),
+            Some(State::Current | State::Reader)
+        )
+        || NO_LOADER.contains(&row.file.as_str())
+    {
+        return None;
+    }
+    Some(format!(
+        "{GUIDE}:{}: {}: a current or reader row names no loader, and it is not one of the two the fold never reads",
+        row.line, row.file
+    ))
+}
+
 fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -515,6 +541,27 @@ fn every_cell_is_read_from_its_closed_form() {
         }
     }
     assert_eq!(findings, Vec::<String>::new(), "a lifecycle cell is open");
+}
+
+/// Ruling 4: every cell is read from its closed form, and a value one edit
+/// from a legal form refuses rather than reading as the nearest legal value.
+#[test]
+fn every_closed_form_refuses_a_value_one_edit_from_a_legal_one() {
+    assert_eq!(Class::parse("Journal"), None);
+    assert_eq!(
+        Writer::parse("Engine crates/brokkr-runtime/src/engine.rs"),
+        None
+    );
+    assert_eq!(
+        Reader::parse("loader brokkr_core::envelope::verify_chain"),
+        None
+    );
+    assert_eq!(State::parse("Current"), None);
+    assert_eq!(LastWritten::parse("0.8.1"), None);
+    assert_eq!(ReaderUntil::parse("0.12 (decision 12)"), None);
+    assert!(!version_form("run-manifest/14"));
+    assert!(!file_form("contracts/nested/run-manifest.v14.schema.json"));
+    assert_eq!(minted_form("093"), None);
 }
 
 #[test]
@@ -1013,7 +1060,12 @@ fn every_reader_cell_drives_the_source_its_kind_names() {
             continue;
         };
         match reader {
-            Reader::None | Reader::Set(_) => {}
+            Reader::None => {
+                if let Some(finding) = readerless_finding(row) {
+                    findings.push(finding);
+                }
+            }
+            Reader::Set(_) => {}
             Reader::Dispatch(item) => {
                 let contract = dispatched_contract(&item, row.number());
                 if contract != Some(row.file.as_str()) {
@@ -1062,6 +1114,39 @@ fn every_reader_cell_drives_the_source_its_kind_names() {
         }
     }
     assert_eq!(findings, Vec::<String>::new(), "a reader does not bind");
+}
+
+/// Ruling 4: the reader-less rows are exactly the two additive payload
+/// extensions the fold never reads. [`NO_LOADER`] is closed both ways: a
+/// third current or reader row that names no loader refuses through
+/// [`readerless_finding`], and a listed file with no such row refuses here.
+#[test]
+fn the_reader_less_rows_are_the_fold_unread_extensions() {
+    let rows = rows();
+    let mut seen = BTreeSet::new();
+    let mut findings = Vec::new();
+    for row in &rows {
+        if let Some(finding) = readerless_finding(row) {
+            findings.push(finding);
+        }
+        if Reader::parse(&row.reader) == Some(Reader::None)
+            && matches!(
+                State::parse(&row.state),
+                Some(State::Current | State::Reader)
+            )
+            && NO_LOADER.contains(&row.file.as_str())
+        {
+            seen.insert(row.file.clone());
+        }
+    }
+    for file in NO_LOADER {
+        if !seen.contains(file) {
+            findings.push(format!(
+                "{GUIDE}: {file}: the reader-less list names no current row"
+            ));
+        }
+    }
+    assert_eq!(findings, Vec::<String>::new(), "the reader-less rows moved");
 }
 
 #[test]
