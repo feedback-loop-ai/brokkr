@@ -365,12 +365,21 @@ fn restore_through(
         });
     }
     let temporary = Temp::beside(to)?;
-    copy_file(&source, temporary.path())?;
+    // The metadata above is the path's; the bytes are the stream's. A source
+    // whose stream differs from its metadata (a FIFO reports 0) is refused
+    // on what the copy read, before the digest.
+    let copied = copy_file(&source, temporary.path())?;
+    if copied != inventory.snapshot.bytes {
+        return Err(BackupError::SizeMismatch {
+            found: copied,
+            inventory: inventory.snapshot.bytes,
+        });
+    }
     verify_snapshot(temporary.path(), &inventory)?;
     publish(temporary.path(), to).map_err(|error| destination_error(error, to))?;
     temporary.disarm();
     if let Err(error) = sync_dir(parent_of(to)) {
-        // A failure after the rename must not leave the destination: the
+        // A failure after the publish must not leave the destination: the
         // restore reports a refusal, and a refusal writes nothing.
         let _ = std::fs::remove_file(to);
         return Err(error);
@@ -428,9 +437,10 @@ fn read_inventory(from: &Path) -> Result<Inventory, BackupError> {
     Ok(inventory)
 }
 
-/// The checks the copied bytes must pass before they may be renamed into
-/// place: the digest (the size was the source's, refused before the copy;
-/// a source that changed under the copy changes the digest), SQLite's own
+/// The checks the copied bytes must pass before they may be published:
+/// the digest (their size was checked against the inventory twice, on the
+/// source's metadata before the copy and on the bytes the copy read; a
+/// source that changed under the copy changes the digest), SQLite's own
 /// integrity, every chain with its boundary head, and the counts.
 fn verify_snapshot(path: &Path, inventory: &Inventory) -> Result<(), BackupError> {
     let found = sha256_file(path)?;
@@ -663,13 +673,14 @@ fn write_file(path: &Path, bytes: &[u8]) -> Result<(), BackupError> {
     Ok(())
 }
 
-/// Copy `from` to a new file at `to` and fsync it.
-fn copy_file(from: &Path, to: &Path) -> Result<(), BackupError> {
+/// Copy `from` to a new file at `to`, fsync it, and answer how many bytes
+/// the copy read.
+fn copy_file(from: &Path, to: &Path) -> Result<u64, BackupError> {
     let mut source = File::open(from)?;
     let mut target = OpenOptions::new().write(true).create_new(true).open(to)?;
-    std::io::copy(&mut source, &mut target)?;
+    let copied = std::io::copy(&mut source, &mut target)?;
     target.sync_all()?;
-    Ok(())
+    Ok(copied)
 }
 
 /// fsync one file already written.
@@ -679,7 +690,7 @@ fn sync_file(path: &Path) -> Result<(), BackupError> {
 }
 
 /// fsync a directory, so a published name survives a power loss. macOS
-/// answers `EINVAL` for a directory fsync; the rename still landed and
+/// answers `EINVAL` for a directory fsync; the publish still landed and
 /// there is no stronger call to make there, so that one answer is not a
 /// refusal.
 fn sync_dir(dir: &Path) -> Result<(), BackupError> {

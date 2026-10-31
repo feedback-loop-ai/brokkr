@@ -350,3 +350,32 @@ fn a_snapshot_whose_tables_are_not_the_journals_shape_is_refused_as_sqlites_erro
         assert!(error.contains(said), "{shape}: {error}");
     }
 }
+
+/// A snapshot whose stream is not what its metadata says (a FIFO reports no
+/// bytes) is refused on what the copy read: an inventory that contradicts
+/// the bytes is never published, though the digest names them.
+#[cfg(unix)]
+#[test]
+fn a_snapshot_whose_stream_outruns_its_metadata_is_refused_on_the_bytes_copied() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_, taken) = completed(dir.path());
+    let snapshot = taken.to.join(SNAPSHOT_FILE);
+    let bytes = std::fs::read(&snapshot).unwrap();
+    let streamed = bytes.len() as u64;
+    let mut inventory = inventory_of(&taken);
+    inventory.snapshot.bytes = 0;
+    rewrite_inventory(&taken, &inventory);
+    std::fs::remove_file(&snapshot).unwrap();
+    let made = std::process::Command::new("mkfifo").arg(&snapshot).status();
+    assert!(made.unwrap().success(), "mkfifo {}", snapshot.display());
+    let writer = std::thread::spawn(move || std::fs::write(&snapshot, bytes).unwrap());
+    let destination = absent_destination(dir.path());
+    let refused = restore(&taken.to, &destination).unwrap_err();
+    writer.join().unwrap();
+    assert!(
+        matches!(refused, BackupError::SizeMismatch { found, inventory: 0 } if found == streamed),
+        "{refused:?}"
+    );
+    assert_absent(&destination);
+    assert_eq!(temporaries_in(dir.path()), Vec::<PathBuf>::new());
+}
