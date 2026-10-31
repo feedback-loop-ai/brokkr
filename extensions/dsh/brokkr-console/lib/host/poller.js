@@ -121,7 +121,7 @@ async function settled(read) {
  */
 export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
   const clients = new Set()
-  const state = { fleet: null, extras: new Map(), repin: new Set(), fleetText: null, oneMap: false, shown: [], day: null, overviewText: null, timer: null, busy: false }
+  const state = { fleet: null, extras: new Map(), repin: new Set(), fleetText: null, oneMap: false, shown: [], day: null, overviewText: null, timer: null, busy: false, generation: 0, installed: 0 }
 
   /** Whether the journal `target` was read from is still the one its realm names (M4). */
   function current(target) {
@@ -197,9 +197,15 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
    * `inspect` in the poll that follows.
    */
   async function readFleet() {
+    const generation = ++state.generation
     const hearths = await hearthsOf(brokkr, workspace)
-    state.oneMap = hearths !== null && hearths.length === 1
     const fleet = await readHearths(hearths)
+    // A page read before a newer one landed cannot roll the fleet back to a
+    // journal the realm no longer names: only a read at least as new as the
+    // installed one may install, and the older result paints nothing (M4).
+    if (generation <= state.installed) return { changed: false }
+    state.installed = generation
+    state.oneMap = hearths !== null && hearths.length === 1
     // The latest first page's running rows, before any retained page is
     // merged: each is inspected on every poll, whatever the held pages say.
     const shown = []
@@ -355,26 +361,26 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
 
   async function snapshot(client) {
     try {
+      // The watch this snapshot answers, held across every await: a newer
+      // watch from the same client makes this snapshot obsolete (M4).
+      const watch = client.watch
       const moved = await readFleet()
-      const { view, run: ref } = client.watch
       let run = null
-      if (ref !== null) {
-        const read = await runOf(ref)
-        // A snapshot read from a journal the realm no longer names paints
-        // nothing, not even the current fleet it was read beside (M4).
-        if (read.target !== null && !current(read.target)) return
+      let target = null
+      if (watch.run !== null) {
+        const read = await runOf(watch.run)
+        target = read.target
         run = read.run
-        if (read.target !== null && run.view?.summary !== null && run.view?.summary !== undefined) await syncRow(read.target, run.view.summary)
-        client.runText.set(keyOf(ref.realm, ref.run_id), JSON.stringify(run))
+        if (target !== null && run.view?.summary !== null && run.view?.summary !== undefined) await syncRow(target, run.view.summary)
       }
-      client.peer.send({
-        type: 'snapshot',
-        workspace,
-        ask,
-        fleet: state.fleet,
-        overview: view === 'realms' ? await overview(moved.changed) : null,
-        run,
-      })
+      const overviewRead = watch.view === 'realms' ? await overview(moved.changed) : null
+      // A snapshot whose journal the realm no longer names, or whose watch
+      // has been replaced, paints nothing, not even the current fleet it was
+      // read beside (M4).
+      if (client.watch !== watch) return
+      if (target !== null && !current(target)) return
+      if (watch.run !== null) client.runText.set(keyOf(watch.run.realm, watch.run.run_id), JSON.stringify(run))
+      client.peer.send({ type: 'snapshot', workspace, ask, fleet: state.fleet, overview: overviewRead, run })
     } catch (error) {
       if (!(error instanceof ReadoutRefused)) throw error
       client.peer.send({ type: 'error', message: error.message })
@@ -403,9 +409,8 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     let patched = false
     for (const [key, { ref, watchers }] of reads) {
       const read = await runOf(ref)
-      if (read.target !== null && !current(read.target)) continue
       const summary = read.run.view?.summary ?? null
-      if (summary !== null && (await syncRow(read.target, summary)) !== false) patched = true
+      if (read.target !== null && summary !== null && (await syncRow(read.target, summary)) !== false) patched = true
       if (watchers.length === 0) continue
       const text = JSON.stringify(read.run)
       // A refusal has no summary to compare; it is sent again when the
@@ -417,17 +422,24 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
       const refusalMoved = read.run.refused !== undefined && before.get(key) !== seq
       const reach = watchers.filter((client) => client.runText.get(key) !== text || refusalMoved || state.repin.has(key))
       if (reach.length === 0) continue
-      for (const client of reach) client.runText.set(key, text)
-      updates.push([reach, read.run])
+      updates.push([reach, read.run, read.target])
     }
     return { patched, updates }
   }
 
-  /** Send `run` only to the watchers that still have it open, never to a client that has moved to another run. */
-  function sendRun(watchers, run) {
+  /**
+   * Send `run` only to the watchers that still have it open, never to a
+   * client that has moved to another run, and only while the journal it was
+   * read from is still the one its realm names (M4). A message is recorded
+   * as painted only here, so a dropped read cannot mask a later one.
+   */
+  function sendRun(watchers, run, target) {
+    if (target !== null && !current(target)) return
     for (const client of watchers) {
       const watched = client.watch.run
-      if (watched !== null && watched.realm === run.realm && watched.run_id === run.run_id) client.peer.send({ type: 'run', run })
+      if (watched === null || watched.realm !== run.realm || watched.run_id !== run.run_id) continue
+      client.runText.set(keyOf(run.realm, run.run_id), JSON.stringify(run))
+      client.peer.send({ type: 'run', run })
     }
   }
 
@@ -439,7 +451,7 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
       const { changed: moved } = await readFleet()
       const { patched, updates } = await pushRuns(before)
       if (moved || patched) for (const client of clients) client.peer.send({ type: 'fleet', fleet: state.fleet })
-      for (const [watchers, run] of updates) sendRun(watchers, run)
+      for (const [watchers, run, target] of updates) sendRun(watchers, run, target)
       const onOverview = [...clients].filter((client) => client.watch.view === 'realms')
       if (onOverview.length === 0) return
       const next = await overview(moved)
