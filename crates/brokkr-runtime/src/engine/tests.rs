@@ -3692,6 +3692,24 @@ fn panel_and_sequence_storage_failures_propagate() {
         )
         .is_err());
 
+    // An early ending's result passes the same fence, and a failure the
+    // fence does not own is the engine's error, not an ended attempt.
+    let mut ending = steps.clone();
+    ending[0].ends_on = vec!["first-result".into()];
+    let (dir, mut early) = engine(single_body(vec!["driver".into()]));
+    fail_event(&dir.path().join("forge.db"), "ends-on");
+    assert!(early
+        .execute_sequence(
+            "effect",
+            "attempt",
+            "work",
+            &ending,
+            &input,
+            std::time::Duration::from_secs(2),
+            &Selection::new(),
+        )
+        .is_err());
+
     let invalid_steps = [
         uncompiled_sequence_step! {
             name: "invalid".into(),

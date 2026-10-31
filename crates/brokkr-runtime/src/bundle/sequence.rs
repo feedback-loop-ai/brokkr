@@ -414,7 +414,9 @@ fn stamp_sequence(
             .cloned()
             .collect();
     }
-    if let Some(step) = steps.get_mut(last) {
+    // The final step (the schema gives a sequence at least one) ends the
+    // sequence by definition, so it holds no endings of its own.
+    for step in steps.iter_mut().skip(last) {
         step.ends_on.clear();
         step.hard_results.clear();
     }
