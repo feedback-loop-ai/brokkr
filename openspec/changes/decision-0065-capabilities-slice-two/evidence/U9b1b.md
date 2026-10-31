@@ -23,8 +23,9 @@ resume exchange, then calls `Confine` only where the sealed set is
 `SealedServers::Brokered`. A refusal is a `failed` result with no `accepted`, the
 exchange's own structural path. `verbs/setup.rs`'s `confine` is the only call of
 rustix's `set_no_new_privs`, on Linux; off Linux, where the fence stands, it refuses
-with `Unsupported`. `adapters.rs` went from 6,989 lines to 6,988. `start::serve_io`,
-`#[cfg(test)]`, keeps the suites' 4-argument call as it was. `quality/public-api`'s
+with `Unsupported`. `adapters.rs` stays 6,989 lines. `start::serve_io`,
+`#[cfg(test)]`, keeps the suites' 4-argument call as it was, so `adapters/tests.rs`
+does not move. `quality/public-api`'s
 one line for `serve` changes, measured with `cargo public-api` on the pinned nightly:
 this is the signature change the ruling admits, adding no item.
 
@@ -45,6 +46,122 @@ their harnesses: `capability_broker`'s shells and `observer.rs`, and
 `resume_tests` drivers pass `|| Ok(())`: they are test stand-ins, their launches
 unchanged. Pending, by ruling F1, the controller's: a real Claude and a real Codex
 harness through a brokered launch under the flag.
+
+### F6: the lease answers first
+
+MB3's table and its "Resolution failures" scenario in `specs/mcp-capability-broker/spec.md`
+now record the order. `enabled::reach`'s `leased_off` pins the whole prefix,
+"dispatch refused: MCP server box filesystem identity is not protected: ", for each
+reach case. With the lease removed the first run saw the kept cause behind it.
+
+### 46.1's remainder and 46.2, through real dispatch
+
+New test files, registered through `enabled.rs`: `enabled/boxes.rs` and
+`enabled/windows.rs`. The harness gained switches for them and now keeps its FIFOs per
+process, as panel members share its directory. `enabled::` passed whole on the final
+tree, 51 passed and 1 ignored (the sampler), in 408 s, the load falling from near 12 to
+near 5. A pass before it, at load near 20, failed `a_spent_share…` with 8 members on the
+survey's deadline (F8), so the test now uses 4. The earlier whole pass took 306 s at load
+near 4.
+
+The other suites on this tree, all before the 4-member edit, which touched only
+`boxes.rs`: `cargo test -p brokkr-cli --locked --test it -- --skip enabled::` 825 passed,
+3 ignored, in 349 s; `--lib` 1,105 passed, 1 ignored; `brokkr-protocol` 1,123 passed, 3
+ignored, then 6, 1 and 1; `brokkr-runtime` `--lib` 1,447 passed, `capability_launch` 76,
+`it` 144, `operated_repo` 1, `queued_launch` 8. Formatting, clippy over the workspace
+with warnings denied, `quality/ratchet.sh files` and `clones`, `git diff --check`,
+`typos --hidden` and strict openspec validation (36 of 36) were clean; `recipes/self`
+compiled with "48 valuations over 11 groups, 0 unruled". No test moved; new test files
+are named above. `crates/brokkr-cli/tests/capability_broker.rs` sits at its 2,000-line
+ceiling after the part-one visibility edits, its one `pub(crate) mod observer` costing
+no line.
+
+| Test | Observed | Compiling removal, and how it failed |
+|---|---|---|
+| `boxes::a_native_binary_in_a_users_package_is_served` | A singleton copy of the system shell at the package's program, ELF bytes: its own `/proc/$$/exe`, broker exit 0, one call | `ServerProgram::resolve` refusing all but `/usr`: `left` holds "MCP server box program tree cannot be resolved" |
+| `boxes::a_second_servers_private_directories_hold_nothing_of_the_first` | Two brokers in one attempt, the first standing: the second's HOME and TMPDIR empty before it writes, each then holding only its own file; two calls settled | The server box's `/tmp` tmpfs replaced with a bind of `/var/tmp`: `left` holds "MCP server box could not be established", an earlier cause, as the box's own check refuses a `/tmp` not private |
+| `boxes::a_bind_alias_of_the_package_refuses_with_no_lookup_or_start` | Under an outer `bwrap` whose root and path to the world are the user's, so the coordination root stays protected, a seat binds a bind alias of the package writable: "dispatch refused: …can write '…/docs-mcp'", zero lookups, harness and server starts | `covers`'s `identical` and `writes`'s `table.reaches` removed together: `left: ("awaiting_operator", false, false)`, the survey's bare identity cause. With `table.reaches` alone removed it still passes, by identity |
+| `boxes::a_spent_share_refuses_its_next_call_with_no_forwarding` | Four retaining members, so 64 MiB each: eight answers of 8,000,000 bytes settle, the ninth call is refused "capability evidence budget is exhausted", the server answered only eight | `ledger.reserve`'s denial ignored: `left: ("awaiting_operator", "work", Some("panel members failed — m0: broker ledger lifecycle is invalid"))` |
+| `boxes::a_server_starts_with_its_exact_descriptors_and_environment` | Descriptors `0=pipe 1=pipe 2=pipe` alone; environment exactly `BROKKR_HANDS_BOX=1`, `DOCS_TOKEN=[secret:DOCS_TOKEN]` (relayed masked), `HOME=/runtime/home`, `LANG=C.UTF-8`, `LC_ALL=C.UTF-8`, `LOGNAME=runner`, `PATH=/usr/local/bin:/usr/bin:/bin`, `TMPDIR=/tmp`, `USER=runner` | `close_on_exec_above_stdio` skipped in `exec_confined`: `left` holds "MCP server secret environment could not be delivered", as an open status pipe refuses the handoff. Scan: an earlier cause |
+| `windows::a_harness_dying_at_{its_brokers_observation, a_standing_box, a_held_store_read}…`, `…during_{initialization, a_call}…` | The harness SIGKILLed with its broker held at that window, under `strace -f -DDD` where a tracer holds it, the broker's input kept open by another session: the broker gone within 5 s, each process standing below it gone within 5 s more, the ledger a prefix of or closed on that window's record (`identity`, `establishment`, none at the store read, `timeout`, `timeout` with its failed call), the store unread before the handoff | See item 5 below |
+
+F5 applies as ruled: "The real broker and bootstrap never write invalid status tags or a
+malformed complete frame, so those rows of 42.2 and of MB4's complete-frame matrix are
+proved at the private seams. 42.2 and 46.2 accept those seams." They stand in
+`broker::session::readiness::tests`, `capability_broker::handoff` and the bootstrap's
+own tests.
+
+### Item 5, the two proofs part two dropped
+
+**A harness dying at a standing box.** Two routes hid the broker's own end from the
+first run. The harness held the broker's input, so its death was EOF on it; and the
+driver's exit makes the engine sweep the attempt's tree (`tree.rs`'s `Host::REAL`,
+`kill_group` and `table::kill`). `windows.rs` closes the first with a `setsid` keeper
+of the input. The remaining two layers are independent. With `lifetime.rs`'s
+`cancelled` made false alone, all five tests pass, on the sweep. With the sweep made a
+no-op alone, the observation, entry, initialization and call tests pass, on the
+parent check, and the store-read test fails on its park. With both removed all five
+fail at the 5 s bound on the broker's end: that removal is the binding. The first
+version's Initialization test passed under that removal because its predicate read a
+relay the broker writes only at close, so it waited out the 30 s deadline; it now waits
+for the server's own `sleep`, and fails.
+
+The parks vary and the tests say so: the engine reads a ledger only once it proved the
+attempt settled, so a harness's death parks with the broker's cause or with "indeterminate:
+driver exited after accepting…", and the sweep may kill the broker before it closes, so
+the ledger may be a prefix (seen for Observation). Neither claims success. See F9.
+
+**The host loader environment.** `Entry`'s launch in `hands/namespace/entry.rs` calls
+`env_clear()` on the box's launcher, ahead of `--clearenv`, which is what kept the
+variable out with the first run's two removals. `--clearenv` removed alone still passes
+for that reason. `boxes::the_host_loader_environment_stays_out_of_the_box` has the harness
+export `LD_LIBRARY_PATH` to its broker. With `--clearenv` removed and the launcher given
+exactly that variable, it fails with "MCP server box could not be established", the
+bootstrap's own refusal of a name past MB4's. `cargo test`'s own `LD_LIBRARY_PATH` made
+that removal fail the suite's other tests too, as the broker inherits it.
+
+### Findings from this run
+
+**F8 (fails closed, LOW).** The attempt's budget admits 32 retaining members, but on this
+host a panel of 32 parked with "MCP server box survey did not answer before its startup
+deadline" (seen once, at load near 6), and a panel of 8 parked the same way once at load
+near 20, having passed at load near 4. Each member's plan surveys the host within the
+one shared 30 s bound. So large retaining panels are not reachable under load here. The
+spent-share test uses 4 members for that reason. Options: (a) record it in U9b2's guidance
+as a measured limit; (b) share the survey among a panel's plans, a production change past
+this row. I recommend (a) now, with SD4's quiet-host sample deciding if (b) is owed. The
+same contention is why the whole suite can still flake on a heavily loaded host.
+
+**F9 (LOW, for the controller's reading).** See "The parks vary" above: a harness that
+dies mid-startup can park indeterminate instead of on the broker's closed cause. It is
+fail-closed and honest, and nothing here changes it. No option needs ruling unless the
+operator wants the exact cause always, which would mean the engine waiting for a
+broker's closure past the driver's end.
+
+**F7, updated.** `enabled::` takes 306 to 408 s here, serialized by `World`'s lock as
+each attempt's survey shares a host-wide 30 s bound. `.github/workflows/ci.yml`'s long
+jobs hold `timeout-minutes: 75`, which this does not approach by itself, so no CI change
+is asked. CI itself has not run it; that remains pending.
+
+### SD4 warm samples, this run
+
+Five samples by `enabled::sd4_warm_samples`, load average 3.7 before and after: 4,591,
+4,505, 4,547, 4,677 and 4,867 ms total, engine 3,084 to 3,287 ms, broker 1,400 to 1,579 ms,
+all within budget. The host was not quiet, so these are no verdict.
+
+### Pending, none of it this seat's
+
+The fully cold x86_64 sample; every aarch64 sample; warm samples on a quiet host, each
+observation timed alone; FD high-water and peak metadata memory; exact coverage and the
+crap ratchet; the brokered real-harness check under the flag (ruling F1); macOS, which this
+host cannot compile; CI on the final head.
+
+### Tasks
+
+42.2 and 46.1 are ticked on the proofs above, with F5's seams, and SD4's timings pending as
+listed. 46.2 stays unticked by its own last sentence, "missing host evidence leaves this
+task pending": everything else it names is proved here, the earlier audit of U0
+qualification excepted, which this seat did not repeat beyond compiling `recipes/self`.
 
 ## The proof the first run built
 
@@ -195,7 +312,7 @@ that I did not identify. A host `LD_LIBRARY_PATH` absent from the server stayed 
 with the box's `--clearenv` and the bootstrap's filter both removed, so something
 before them clears it, which I also did not identify. Both remain owed.
 
-Owed by 46.1: a user-installed package whose program is a native binary beside the
+Owed by 46.1 when the first run stopped, all now proved in the second run's section: a user-installed package whose program is a native binary beside the
 singleton (the fixture's is a shebang script); cancellation at every startup window
 through dispatch, where `capability_broker`'s `a_cancelled_attempt_ends_a_box_held_at_its_entry`,
 `a_store_read_held_when_the_attempt_is_cancelled_is_refused_at_once`,
@@ -339,14 +456,5 @@ U9b1a's named mutations, L1, L2 (scratch variant), L3 and the terminal seam; F3'
 GP1's table, the sites, reach, stores, networks and retention through dispatch; MB3's
 two-worktree matrix; ten warm samples.
 
-42.2 stays unticked on F5's invalid-status case, for the seam ruling. 46.1 stays
-unticked on F1 and on its "Owed by 46.1" list above. 46.2 stays unticked on F1, F5's
-frame matrix, its pending host evidence (the fully cold x86_64 sample, every aarch64
-sample, each observation timed alone, FD high-water, peak metadata memory) and the
-exact descriptor fixture through dispatch.
-
-**The wall is F1.** No visit can close this unit without it: ruling 21's second case
-completes only with the engine under `setpriv --no-new-privs`, and every fix lies
-outside the row. Recommended: rule option (a) for F1 with `brokkr driver` admitted to
-the row, accept the seams for F5, and amend MB3 for F6. The remaining 46.1 list is
-then one narrow visit.
+The first run ended there, every item above then owed on F1, F5 and F6. The second run's
+section at the top of this file carries them.

@@ -27,7 +27,7 @@ mod cleanup;
 mod handoff;
 mod ledger;
 #[cfg(target_os = "linux")]
-mod observer;
+pub(crate) mod observer;
 #[cfg(target_os = "linux")]
 mod protocol;
 #[cfg(target_os = "linux")]

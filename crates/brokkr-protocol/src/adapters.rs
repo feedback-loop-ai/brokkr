@@ -56,6 +56,8 @@ use capability_calls::Observation;
 use claude_fold::ClaudeFold;
 use dsh_stderr::redact_dsh_reasoning;
 use mcp::served;
+#[cfg(test)]
+use start::serve_io;
 use start::{start_prompt, Confine};
 
 const ADAPTER_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -6942,9 +6944,8 @@ fn serve_with(
                             return Ok(());
                         }
                     }
-                    // A poisoned exchange or an unconfined driver launches
-                    // no provider, and says so, as the START named its
-                    // correlation: a determinate failure under decision 0006.
+                    // A poisoned exchange or an unconfined driver launches no
+                    // provider, and says so: determinate under decision 0006.
                     Err(refused) => send(Body::Result {
                         effect_id,
                         attempt_id,

@@ -10,8 +10,8 @@
 //! the engine folds that ledger at settlement; `inspect` reads the result.
 //! Linux only, as a server box is; macOS's refusal is `capability_broker`'s
 //! `the_compile_fence_refuses_an_unused_mcp_grant_only_where_it_stands`.
-//! Children: `transport` (42.2), `matrix`, `reach` and `sites` (46.1),
-//! `lifetime` (46.2's two worktrees), `dispatch` (ruling 21).
+//! Children: `transport` (42.2), `matrix`, `reach`, `sites`, `boxes` and
+//! `windows` (46.1), `lifetime` (46.2's two worktrees), `dispatch` (ruling 21).
 //!
 //! The engine runs here as an operator runs it, with no wrapper: `brokkr
 //! driver` sets `no_new_privs` on itself before it spawns a brokered harness
@@ -21,12 +21,14 @@
 
 #![cfg(target_os = "linux")]
 
+mod boxes;
 mod dispatch;
 mod lifetime;
 mod matrix;
 mod reach;
 mod sites;
 mod transport;
+mod windows;
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -70,7 +72,12 @@ const FRAMES: &str = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{
 /// `kill-broker` stands, and waits where `hold` stands; and then reports the
 /// word on its start's line of the `results` file, or `complete`, whatever
 /// happened, as a harness that hides a broker's failure would. Writes nothing
-/// but its own files and the result file.
+/// but its own files and the result file. Three more switches: `wrap`'s words
+/// run the broker, as a tracer holding one of its windows; `keep-input` has a
+/// process of another session hold the broker's input open past this harness's
+/// death; `loader` exports the host's loader environment to the broker. Where
+/// `frames2` stands, a second broker, `cap-more-docs`, is told those frames
+/// while the first stands.
 const HARNESS: &str = r#"#!/bin/sh
 here=$(dirname "$0")
 case "$1" in --version) echo '2.1.308 (Claude Code)'; exit 0;; esac
@@ -79,6 +86,7 @@ grep NoNewPrivs /proc/self/status > "$here/privileges"
 date +%s%N >> "$here/times"
 printf '%s\n' "$@" > "$here/argv"
 [ -e "$here/fail-once" ] && { rm "$here/fail-once"; exit 1; }
+echo "$$" > "$here/self.pid"
 prompt=$(cat)
 target=$(printf '%s\n' "$prompt" | sed -n 's/^    \(.*\.json\)$/\1/p' | head -1)
 config=
@@ -87,22 +95,44 @@ for word in "$@"; do
   previous=$word
 done
 printf '%s\n' "$config" > "$here/config.json"
-plan=$(printf '%s' "$config" | sed -n 's/.*"--plan","\([^"]*\)".*/\1/p')
-digest=$(printf '%s' "$config" | sed -n 's/.*"--plan-digest","\([^"]*\)".*/\1/p')
-broker=$(printf '%s' "$config" | sed -n 's/.*"cap-library-docs":{"args":\[[^]]*\],"command":"\([^"]*\)".*/\1/p')
-if [ -n "$plan" ]; then
-  mkfifo "$here/in" "$here/out"
-  "$broker" broker serve --plan "$plan" --plan-digest "$digest" < "$here/in" > "$here/out" 2> "$here/broker.stderr" &
-  child=$!
-  exec 3> "$here/in" 4< "$here/out"
+named() {
+  printf '%s' "$config" | sed -n "s/.*\"cap-$1\":{\"args\":\[\"broker\",\"serve\",\"--plan\",\"\([^\"]*\)\",\"--plan-digest\",\"\([^\"]*\)\"\],\"command\":\"\([^\"]*\)\".*/\\$2/p"
+}
+talk() {
   while IFS= read -r frame; do
     printf '%s\n' "$frame" >&3 2>/dev/null || break
     case "$frame" in
-      *'"id"'*) IFS= read -r answer <&4 || break; printf '%s\n' "$answer" >> "$here/heard"
+      *'"id"'*) IFS= read -r answer <&4 || break; printf '%s\n' "$answer" >> "$here/$2"
         [ -e "$here/answered" ] || { : > "$here/answered"; date +%s%N >> "$here/times"; };;
     esac
-  done < "$here/frames"
+  done < "$here/$1"
+}
+plan=$(named library-docs 1)
+digest=$(named library-docs 2)
+broker=$(named library-docs 3)
+if [ -n "$plan" ]; then
+  in="$here/in.$$"; out="$here/out.$$"
+  mkfifo "$in" "$out"
+  [ -e "$here/loader" ] && export LD_LIBRARY_PATH=/host-loader-path
+  [ -e "$here/keep-input" ] && setsid sh -c 'echo $$ > "$0"; exec sleep 600' "$here/keeper.pid" > "$in" < /dev/null 2> /dev/null &
+  $(cat "$here/wrap" 2> /dev/null) "$broker" broker serve --plan "$plan" --plan-digest "$digest" < "$in" > "$out" 2>> "$here/broker.stderr" &
+  child=$!
+  exec 3> "$in" 4< "$out"
+  if mkdir "$here/first" 2> /dev/null || [ ! -e "$here/frames.rest" ]; then talk frames heard; else talk frames.rest heard; fi
   [ -e "$here/kill-broker" ] && kill -9 "$child"
+  if [ -e "$here/frames2" ]; then
+    mkfifo "$in.2" "$out.2"
+    "$broker" broker serve --plan "$(named more-docs 1)" --plan-digest "$(named more-docs 2)" < "$in.2" > "$out.2" 2> "$here/broker2.stderr" &
+    other=$!
+    (
+      exec 3> "$in.2" 4< "$out.2"
+      talk frames2 heard2
+      exec 3>&-
+      while IFS= read -r answer <&4; do printf '%s\n' "$answer" >> "$here/heard2"; done
+    )
+    wait "$other"
+    echo "$?" > "$here/broker2.code"
+  fi
   echo "$$" > "$here/harness.pid"
   while [ -e "$here/hold" ]; do sleep 0.05; done
   exec 3>&-
@@ -110,7 +140,7 @@ if [ -n "$plan" ]; then
   exec 4<&-
   wait "$child"
   echo "$?" > "$here/broker.code"
-  rm -f "$here/in" "$here/out"
+  rm -f "$in" "$out" "$in.2" "$out.2"
 fi
 result=$(sed -n "$(wc -l < "$here/starts")p" "$here/results" 2>/dev/null)
 [ -n "$target" ] && printf '{"result": "%s", "notes": "the harness reports success"}' "${result:-complete}" > "$target"

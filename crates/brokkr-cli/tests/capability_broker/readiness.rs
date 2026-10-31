@@ -49,7 +49,7 @@ impl Reads {
 
     /// The reads seen since last asked; identical reads unseen between
     /// them are seen as one.
-    pub(super) fn seen(&self) -> usize {
+    pub(crate) fn seen(&self) -> usize {
         let mut buffer = [MaybeUninit::uninit(); 4096];
         let mut events = inotify::Reader::new(&self.watch, &mut buffer);
         std::iter::from_fn(|| events.next().ok().map(drop)).count()

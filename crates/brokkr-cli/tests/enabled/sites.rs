@@ -15,6 +15,17 @@ fn review() -> Value {
 }
 
 impl World {
+    /// The bundle whose `work` seat is a unanimous panel of `count` workers.
+    pub(super) fn worker_panel(&self, count: usize) {
+        let members: serde_json::Map<String, Value> = (0..count)
+            .map(|at| (format!("m{at}"), json!({"agent": "worker"})))
+            .collect();
+        self.working(
+            json!({"results": ["pass", "fail"], "aggregate": "unanimous-pass", "panel": members}),
+            &["pass", "fail"],
+        );
+    }
+
     /// The bundle whose `work` seat is `work`, its result moving on by
     /// whichever of `results` it says.
     fn working(&self, work: Value, results: &[&str]) {
@@ -197,13 +208,7 @@ fn more_retaining_members_than_the_budget_shares_refuse_before_anything_starts()
     let Some(world) = World::new() else {
         return;
     };
-    let members: serde_json::Map<String, Value> = (0..33)
-        .map(|at| (format!("m{at}"), json!({"agent": "worker"})))
-        .collect();
-    world.working(
-        json!({"results": ["pass", "fail"], "aggregate": "unanimous-pass", "panel": members}),
-        &["pass", "fail"],
-    );
+    world.worker_panel(33);
     let reads = world.store_reads();
     let ended = world.run();
     assert_eq!(

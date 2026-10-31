@@ -191,9 +191,8 @@ echo >&2"#;
 }
 
 /// A declared loading name reaches the server at its confined exec: the
-/// server's names are MB4's fixed ones and its binding. That the host's own
-/// loader environment reaches no box is not bound here: no removal this suite
-/// could reach let `LD_LIBRARY_PATH` through (evidence/U9b1b.md).
+/// server's names are MB4's fixed ones and its binding. The host's own loader
+/// environment is `boxes::the_host_loader_environment_stays_out_of_the_box`'s.
 #[test]
 fn a_declared_loading_binding_reaches_the_server() {
     let Some(world) = World::new() else {
