@@ -479,6 +479,25 @@ fn a_check_ignore_failure_refuses_by_name_with_gits_own_words() {
     );
 }
 
+/// The walk asks git itself, entry by entry: a check-ignore that starts
+/// failing after the declaring document was read refuses the walk by name,
+/// with git's own words, and never pins or skips an entry by guessing.
+#[test]
+fn a_check_ignore_failure_during_the_walk_refuses_by_name() {
+    let fixture = Fixture::new();
+    test_repository(&fixture.root);
+    std::fs::write(fixture.root.join("tracked"), "bytes").unwrap();
+    git(&fixture.root, &["add", "tracked"]);
+    let index = fixture.root.join(".git/index");
+    on_stage(ReadStage::Listing, &fixture.root, move |_| {
+        std::fs::write(&index, "garbage").unwrap();
+    });
+    assert_eq!(
+        error(compile(&fixture)),
+        format!("bundle: {}", check_ignore_failure(&fixture.root))
+    );
+}
+
 #[test]
 fn a_pathspec_shaped_name_is_judged_literally() {
     let fixture = Fixture::new();
