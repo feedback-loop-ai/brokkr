@@ -350,6 +350,19 @@ fn a_pinned_script_inside_an_ignored_tree_is_refused_by_name() {
 }
 
 #[test]
+fn a_pinned_script_under_git_metadata_is_refused_by_name() {
+    let fixture = Fixture::new();
+    let refused =
+        super::super::pinned_key(&fixture.root, "./.git/hooks/run.sh", ".git/hooks/run.sh")
+            .unwrap_err();
+    assert_eq!(
+        refused,
+        "'./.git/hooks/run.sh' names a path the manifest walk does not pin (.git/hooks/run.sh \
+         is git's own metadata, which no bundle pins)"
+    );
+}
+
+#[test]
 fn a_bundle_outside_a_work_tree_pins_as_before_minus_git() {
     let fixture = Fixture::new();
     // No `.git` anywhere above the bundle: git is asked nothing, and the

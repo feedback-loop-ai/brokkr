@@ -545,3 +545,42 @@ fn the_personal_shelf_stands_beside_the_host_file() {
     assert_eq!(found, Err(unplaced.to_string()));
     assert_eq!(found, beside);
 }
+
+/// #908: a path that does not start with a name has no first name, and a
+/// path with a component that is not a plain name has no spelling git is
+/// asked about; each answers `None` rather than a lossy guess.
+#[test]
+fn a_path_that_is_not_plain_names_is_never_spelled_for_git() {
+    assert_eq!(super::first_name(Path::new("../x")), None);
+    assert_eq!(super::first_name(Path::new("x/y")), Some("x"));
+    assert_eq!(super::relative_text(Path::new("a/../b")), None);
+    assert_eq!(
+        super::relative_text(Path::new("a/b")),
+        Some("a/b".to_string())
+    );
+}
+
+/// #908: git's refusal keeps its own words, and a refusal git gave in
+/// silence still names the verb and the status it answered.
+#[cfg(unix)]
+#[test]
+fn a_git_refusal_names_its_status_with_or_without_stderr() {
+    use std::os::unix::process::ExitStatusExt;
+    let silent = std::process::Output {
+        status: std::process::ExitStatus::from_raw(128 << 8),
+        stdout: Vec::new(),
+        stderr: Vec::new(),
+    };
+    assert_eq!(
+        super::git_refusal(&silent, "check-ignore"),
+        "git check-ignore answered exit status: 128"
+    );
+    let spoken = std::process::Output {
+        stderr: b"fatal: not a git repository\n".to_vec(),
+        ..silent
+    };
+    assert_eq!(
+        super::git_refusal(&spoken, "check-ignore"),
+        "git check-ignore answered exit status: 128: fatal: not a git repository"
+    );
+}
