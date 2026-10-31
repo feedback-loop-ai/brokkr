@@ -173,6 +173,34 @@ fn chief_753c6_hidden_pane_does_not_move_fleet() {
     );
 }
 
+/// The landing's M1 (rulings 5 and 9): a pane that leaves the frame while
+/// its read is out takes its held movement with it, and coming back
+/// before the answer does not revive it. The panel's live column at
+/// (0, 0) at 375x30 holds a `Down`; the frame narrows to 80, hiding the
+/// column, while the read is still out, and widens back to 375 before the
+/// answer lands. The cursor stays at (0, 0) with nothing held.
+#[test]
+fn chief_landing_hidden_then_shown_drops_held_movement() {
+    use crate::tui::{down_key, settle_when};
+    let run = "chief hidden and back";
+    let (_dir, db, _events, whole_views) = console_of(run, panel_with(run, 50, 50, None));
+    let (mut tui, views) = live_at(&db, run, 0, 375, 30, &whole_views.now);
+    tui.pending = true;
+    down_key(&mut tui, &views);
+    assert_eq!(tui.held.len(), 1, "the live column's Down is held");
+    tui.width = 80;
+    settle_when(&mut tui, &views, false);
+    assert!(tui.held.is_empty(), "the hidden pane's queue is dropped");
+    tui.width = 375;
+    let answer = live_read(&db, run, &tui, &whole_views.now);
+    settle_when(&mut tui, &answer, true);
+    assert_eq!(
+        (tui.live_offset, tui.live_line),
+        (0, 0),
+        "the answer moves nothing the hidden pane held"
+    );
+}
+
 /// M1 (rulings 5 and 9): a resize that removes the saved continuation
 /// does not strand ordinary movement. At (100, 25) of the wrapped panel,
 /// widening to 750 and pressing `Down` lands on (101, 0) as the whole

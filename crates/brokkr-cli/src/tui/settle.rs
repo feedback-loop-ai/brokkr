@@ -268,6 +268,11 @@ pub(crate) fn settle_when(tui: &mut Tui, views: &Views, answered: bool) {
     if answered {
         tui.pending = false;
         settle_end(tui, views);
+    } else if !tui.held.is_empty() && tui.held_for.as_ref() != Some(&held_view(tui, views)) {
+        // A view that leaves the frame while its read is out takes its
+        // held movement with it; coming back before the answer does not
+        // revive it (M4, decision 0071 ruling 5).
+        drop_held(tui);
     }
     if lens_of(tui, views).is_none() {
         tui.scope = None;
