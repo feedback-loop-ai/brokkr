@@ -492,7 +492,7 @@ test('equivalent journal paths name one hearth and read one first page', async (
   const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
   const client = await attached(poller, { view: 'realm', realm: ONE_HEARTH, run: null })
   assert.deepEqual(client.sent[0].fleet.hearths.map((hearth) => [hearth.realm, hearth.runs.length, hearth.next]), [['alpha+beta', 1, null]])
-  assert.deepEqual(brokkr.calls().filter((argv) => argv[0] === 'runs'), [['runs', '--json', `--limit=${FLEET_WINDOW}`]])
+  assert.deepEqual(brokkr.calls().filter((argv) => argv[0] === 'runs'), [['runs', '--json', '--db=/hearths/a/forge.db', `--limit=${FLEET_WINDOW}`]])
 })
 
 test('simultaneous Show more requests cannot duplicate rows after refresh', async () => {
@@ -1702,6 +1702,26 @@ test('review M4: a newer watch drops the snapshot its older watch read', async (
   await new Promise((wake) => setTimeout(wake, 900))
   assert.equal(client.sent.length, 1, 'the replaced watch paints one snapshot')
   assert.deepEqual(client.sent[0].fleet.hearths.map((hearth) => [hearth.journal, hearth.runs[0].seq]), [['/hearths/alpha/new.db', 25]])
+})
+
+test('review F1: a one-realm map names its realm journal, not the map’s world journal', async () => {
+  const page = windowOf([runOf('alpha', 0)], null)
+  const realms = {
+    journal: './.forge/world.db',
+    map: './realms.json',
+    realms: [{ default_branch: 'main', head: '0000000', journal: '/hearths/alpha/realm.db', name: 'alpha', path: '../alpha' }],
+  }
+  const brokkr = stubBrokkr([
+    { match: ['realms'], responses: [json(realms)] },
+    { match: ['runs'], responses: [json(page)] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const client = await attached(poller, { view: 'realm', realm: 'alpha', run: null })
+  assert.deepEqual(
+    brokkr.calls().filter((argv) => argv[0] === 'runs'),
+    [['runs', '--json', '--db=/hearths/alpha/realm.db', `--limit=${FLEET_WINDOW}`]],
+  )
+  assert.equal(client.sent[0].fleet.hearths[0].journal, '/hearths/alpha/realm.db')
 })
 
 test('review F1: a one-realm map repointed before the inspect paints no snapshot from the old journal', async () => {

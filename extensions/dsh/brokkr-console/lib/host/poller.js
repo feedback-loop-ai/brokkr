@@ -105,11 +105,11 @@ async function hearthsOf(brokkr, workspace) {
 }
 
 /**
- * Whether a one-hearth map still names `journal`. A read that passes no
- * `--db` lets Brokkr resolve the map itself, so the label the console read
- * beside it is only the journal actually opened while the map names it on
- * both sides of the read (F1). A map that moved, vanished or grew another
- * hearth cannot confirm any result read from it, and none is painted.
+ * Whether a one-realm map still names `journal`. A map's journal is named in
+ * the read's argv, but the map can be repointed between the read and its
+ * publication: the label is only the realm's journal while the map names it
+ * on both sides (F1). A map that moved, vanished or grew another hearth
+ * cannot confirm any result read from it, and none is painted.
  */
 async function stillNamed(brokkr, workspace, journal) {
   if (journal === null) return true
@@ -159,9 +159,10 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     const hearth = state.fleet?.hearths.find((each) => each.realm === realm)
     if (hearth === undefined) return null
     if (whole(hearth) && !hearth.runs.some((row) => row.run_id === runId)) return null
-    // The journal owns this realm's pages even when a one-hearth world keeps
-    // part 1's argv without `--db`; the two facts are kept apart.
-    return { realm, run_id: runId, journal: hearth.journal, db: state.oneMap ? null : hearth.journal }
+    // A map's journal is named in the argv even when it names one realm:
+    // without `--db` Brokkr opens the map's world journal, not this realm's
+    // own. A no-map world has no journal to name and keeps part 1's argv.
+    return { realm, run_id: runId, journal: hearth.journal, db: hearth.journal }
   }
 
   /** The realms whose hearths a client has on screen: what a refresh keeps paged into. */
@@ -172,10 +173,11 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
   }
 
   /**
-   * Each hearth's first page; a hearth Brokkr cannot read keeps its refusal.
-   * A one-hearth world is read without `--db` (part 1's hint rule), but a
-   * map of one realm still names that realm's journal, so retained pages are
-   * owned by the journal the map resolved.
+   * Each hearth's first page, named by the journal the map gives that
+   * hearth; a hearth Brokkr cannot read keeps its refusal. Only a world
+   * with no map is read without `--db` (part 1's hint rule): a map, even
+   * one naming a single realm, names the realm's journal, and a no-`--db`
+   * read would open the map's world journal instead.
    */
   async function readHearths(hearths) {
     if (hearths === null || hearths.length === 0) {
@@ -188,9 +190,8 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
           : { realm: ONE_HEARTH, journal: null, detail: read.refused, runs: [], next: null, behind: 0 }],
       }
     }
-    const one = hearths.length === 1
     const each = async (hearth) => {
-      const read = await settled(() => brokkr.fleetPage(one ? null : hearth.journal))
+      const read = await settled(() => brokkr.fleetPage(hearth.journal))
       return read.refused === undefined
         ? { ...read.value, realm: hearth.realm, journal: hearth.journal, detail: null }
         : { realm: hearth.realm, journal: hearth.journal, detail: read.refused, runs: [], next: null, behind: 0 }
@@ -287,8 +288,9 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     const first = state.fleet?.hearths.find((each) => each.realm === realm)
     if (first === undefined || first.next === null || first.next === undefined) return
     const cursor = first.next
-    // A one-hearth world keeps part 1's no-`--db` argv; a map's journal still owns its pages.
-    const read = await settled(() => brokkr.fleetPage(state.oneMap ? null : first.journal, cursor))
+    // A map names its journal even when it names one realm; a no-map world
+    // alone keeps part 1's no-`--db` argv.
+    const read = await settled(() => brokkr.fleetPage(first.journal, cursor))
     // A poll may have replaced the fleet, or a one-hearth map may have moved,
     // while this page was in flight: a result read from a journal the realm
     // no longer names is dropped, and nothing is painted from it (M4, F1).
