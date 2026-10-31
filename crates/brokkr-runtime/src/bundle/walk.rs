@@ -169,7 +169,7 @@ pub(super) fn walk_keys(
 /// (#908). A bundle past either is refused before any run starts, so no
 /// `run/started` manifest carries it and no reader of the run pays for it.
 const MAX_FILES: usize = 5_000;
-const MAX_BYTES: u64 = 64 * 1024 * 1024;
+pub(super) const MAX_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Refuse a layer whose pinned walk is past [`MAX_FILES`] files or
 /// [`MAX_BYTES`] bytes (#908), naming the bundle, the count or bytes, and
@@ -236,6 +236,33 @@ fn past_bound(
          amendment)",
         dir.display(),
         largest.join(", ")
+    ))
+}
+
+/// The refusal of a bound read that passes [`MAX_BYTES`] (#908, fix round
+/// 908e): the same one [`past_bound`] text, charged with the `total` bytes
+/// the read took and the entry `rel` it read, never a second wording.
+fn past_read_bound(dir: &Path, rel: &str, total: u64) -> CompileError {
+    let mut trees = BTreeMap::new();
+    tally(&mut trees, rel, total);
+    past_bound(dir, false, total, 0, trees)
+}
+
+/// Refuse the buffer a bound read of `rel` took when it passed [`MAX_BYTES`],
+/// with [`past_read_bound`]'s text, so the read's caller refuses by name
+/// rather than admit bytes past the bound (#908, fix round 908e).
+pub(super) fn refuse_read_past_bound(
+    dir: &Path,
+    rel: &str,
+    bytes: &[u8],
+) -> Result<(), super::InputFault> {
+    if bytes.len() as u64 <= MAX_BYTES {
+        return Ok(());
+    }
+    let refusal = past_read_bound(dir, rel, bytes.len() as u64);
+    Err(super::Place::of(
+        super::FaultKind::Unbound,
+        refusal.to_string(),
     ))
 }
 
@@ -397,11 +424,18 @@ pub(super) fn walk_digests(
         let digest = match supplied {
             Some(supplied) => {
                 // A consumed file's bytes were read by the bound read that
-                // supplied its digest; its entry counts them against the
-                // same budget, and that read's `intact` check refuses any
-                // change to them (#908, fix round 908d).
-                let spent = std::fs::metadata(path)?.len();
-                spend(dir, &walked, rel, spent, &mut read, &mut read_trees)?;
+                // supplied its digest; its entry charges the length of that
+                // buffer, never the entry's metadata, so a file shrunk after
+                // the read cannot pay less than the bytes its digest pins
+                // (#908, fix rounds 908d and 908e).
+                spend(
+                    dir,
+                    &walked,
+                    rel,
+                    supplied.bytes,
+                    &mut read,
+                    &mut read_trees,
+                )?;
                 supplied.digest.clone()
             }
             None => {
@@ -409,7 +443,7 @@ pub(super) fn walk_digests(
                 // reaches the extra byte has outgrown the bound after the
                 // metadata preflight, and is refused rather than hashed
                 // (#908, fix round 908d).
-                let bytes = read_within(path, MAX_BYTES - read)?;
+                let bytes = read_file_within(path, MAX_BYTES - read)?;
                 let spent = bytes.len() as u64;
                 spend(dir, &walked, rel, spent, &mut read, &mut read_trees)?;
                 sha256_bytes(&bytes)
@@ -470,15 +504,20 @@ fn spend<'a>(
     Ok(())
 }
 
+/// At most `left` bytes plus one through `reader`: every read of bundle
+/// bytes takes this one cap, so none is unbounded (#908, fix round 908e).
+/// The extra byte is the witness that the bytes outgrew the bound.
+pub(super) fn read_within<R: std::io::Read>(reader: R, left: u64) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    reader.take(left + 1).read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
 /// The bytes of `path`, at most `left` plus one: the walk never reads, and
 /// so never hashes, past the byte budget still left in it (#908, fix round
 /// 908d). The extra byte is the witness that the file outgrew the bound
 /// after [`refuse_oversized`] measured the walked paths.
-fn read_within(path: &Path, left: u64) -> Result<Vec<u8>, CompileError> {
-    use std::io::Read;
-    let mut bytes = Vec::new();
-    std::fs::File::open(path)?
-        .take(left + 1)
-        .read_to_end(&mut bytes)?;
-    Ok(bytes)
+fn read_file_within(path: &Path, left: u64) -> Result<Vec<u8>, CompileError> {
+    Ok(read_within(std::fs::File::open(path)?, left)?)
 }

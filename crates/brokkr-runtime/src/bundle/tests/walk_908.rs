@@ -7,19 +7,47 @@ use super::{error, workspace_root, Boundary, Bundle, Fixture};
 use brokkr_core::canonical::sha256_bytes;
 use serde_json::json;
 use std::path::Path;
-use std::process::Command;
+
+// The fixture's git runs with the host's own configuration isolated, so a
+// global or system `core.excludesFile` cannot decide what this test pins
+// (#908, fix round 908e).
+use crate::places::places_tests::{run as git_run, test_repository};
 
 fn git(dir: &Path, args: &[&str]) {
-    let out = Command::new("git")
-        .args(args)
-        .current_dir(dir)
-        .output()
-        .unwrap();
+    let out = git_run(dir, args);
     assert!(
         out.status.success(),
         "git {args:?}: {}",
         String::from_utf8_lossy(&out.stderr)
     );
+}
+
+/// Compile the fixture with its own table and clear the read hook, whatever
+/// the outcome, so a controlled replacement cannot leak to the next test.
+fn compile(fixture: &Fixture) -> Result<Bundle, super::CompileError> {
+    let result = fixture.compile(&Fixture::config(), &Fixture::policy());
+    clear_hook();
+    result
+}
+
+/// Clear the read hook.
+fn clear_hook() {
+    READ_HOOK.with(|hook| *hook.borrow_mut() = None);
+}
+
+/// Run `act` once, when a read of `watched` reaches `stage`.
+fn on_stage(stage: ReadStage, watched: &Path, act: impl FnOnce(&Path) + 'static) {
+    let watched = watched.to_path_buf();
+    let mut once = Some(act);
+    READ_HOOK.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move |at, path| {
+            if at == stage && path == watched.as_path() {
+                if let Some(act) = once.take() {
+                    act(path);
+                }
+            }
+        }));
+    });
 }
 
 /// The one interface pin for [`crate::places::SkipError`]'s display: both
@@ -35,14 +63,14 @@ fn git_unreadable(bundle: &Path, detail: &str) -> String {
 /// A fixture that is a git repository root whose `target/` is ignored.
 fn ignored_repository(fixture: &Fixture) {
     std::fs::write(fixture.root.join(".gitignore"), "target/\n").unwrap();
-    git(&fixture.root, &["init", "-q"]);
+    test_repository(&fixture.root);
     std::fs::create_dir(fixture.root.join("target")).unwrap();
 }
 
 /// A repository root whose index git cannot read: discovery still succeeds,
 /// but check-ignore fails for real, with git's own explanation (#908).
 fn unreadable_index(fixture: &Fixture) {
-    git(&fixture.root, &["init", "-q"]);
+    test_repository(&fixture.root);
     std::fs::write(fixture.root.join("tracked"), "bytes").unwrap();
     git(&fixture.root, &["add", "tracked"]);
     std::fs::write(fixture.root.join(".git/index"), "garbage").unwrap();
@@ -380,7 +408,7 @@ fn a_pathspec_shaped_name_is_judged_literally() {
 #[test]
 fn a_name_beginning_with_a_colon_is_judged_literally() {
     let fixture = Fixture::new();
-    git(&fixture.root, &["init", "-q"]);
+    test_repository(&fixture.root);
     // `foo` is ignored, but the file the walk names is `:foo`: judged as a
     // pathspec it would be omitted and its bytes would not move the
     // bundle's identity (#908).
@@ -395,7 +423,7 @@ fn a_name_beginning_with_a_colon_is_judged_literally() {
 #[test]
 fn a_charter_under_a_colon_pathspec_is_refused_by_name() {
     let fixture = Fixture::new();
-    git(&fixture.root, &["init", "-q"]);
+    test_repository(&fixture.root);
     // `.gitignore` ignores the literal directory `:roles/`; judged as a
     // pathspec the charter would be pinned instead, so its bytes could
     // change under the bundle's identity (#908).
@@ -550,6 +578,161 @@ fn a_file_growing_within_the_bound_is_pinned_at_the_bytes_read() {
         compiled.manifest["files"]["blob"],
         json!(sha256_bytes(&grown))
     );
+}
+
+/// The regression's shrinking counterpart: a file rewritten while the walk
+/// reads it is pinned at the bytes actually read, not the metadata the
+/// preflight saw (#908, fix round 908e).
+#[test]
+fn a_file_that_shrinks_during_the_walk_is_pinned_at_its_bytes_read() {
+    let fixture = Fixture::new();
+    let blob = fixture.root.join("blob");
+    std::fs::write(&blob, "a file that shrinks").unwrap();
+    on_stage(ReadStage::Walked, &blob, |path| {
+        std::fs::write(path, "x").unwrap();
+    });
+    let compiled = compile(&fixture).unwrap();
+    assert_eq!(
+        compiled.manifest["files"]["blob"],
+        json!(sha256_bytes(b"x"))
+    );
+}
+
+/// A file that vanishes between the preflight and the walk's read is refused
+/// by its io kind, never pinned from the metadata that is now stale (#908,
+/// fix round 908e).
+#[test]
+fn a_file_that_vanishes_during_the_walk_is_refused() {
+    let fixture = Fixture::new();
+    let watched = fixture.root.join("blob");
+    std::fs::write(&watched, "small").unwrap();
+    on_stage(ReadStage::Walked, &watched, |path| {
+        std::fs::remove_file(path).unwrap();
+    });
+    let refused = error(compile(&fixture));
+    assert_eq!(refused, "bundle io: No such file or directory (os error 2)");
+}
+
+/// C1: a consumed file is charged the length of the buffer whose digest it
+/// supplied, never the metadata of an entry truncated after the read. The
+/// 2 MiB charter is truncated at `Walked(blob)` and the blob grown to 63 MiB
+/// there: the walk's charged bytes pass 64 MiB with the charter's pinned
+/// length, and no `Bundle` is admitted (#908, fix round 908e).
+#[test]
+fn a_consumed_file_shrunk_during_the_walk_is_charged_its_pinned_bytes() {
+    const MIB: u64 = 1024 * 1024;
+    let fixture = Fixture::new();
+    let role = fixture.root.join("roles/role.md");
+    let blob = fixture.root.join("blob");
+    let restore = fixture.root.join("z_restore");
+    std::fs::write(&role, vec![b'r'; (2 * MIB) as usize]).unwrap();
+    std::fs::write(&blob, "small").unwrap();
+    std::fs::write(&restore, "trigger").unwrap();
+    let (watched, watched_role, watched_restore) = (blob.clone(), role.clone(), restore.clone());
+    let mut grown = Some(());
+    let mut restored = Some(std::fs::read(&role).unwrap());
+    READ_HOOK.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move |stage, path| {
+            if stage != ReadStage::Walked {
+                return;
+            }
+            if path == watched.as_path() && grown.take().is_some() {
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(path)
+                    .unwrap()
+                    .set_len(63 * MIB)
+                    .unwrap();
+                std::fs::write(&watched_role, b"").unwrap();
+            }
+            if path == watched_restore.as_path() {
+                if let Some(bytes) = restored.take() {
+                    std::fs::write(&watched_role, bytes).unwrap();
+                }
+            }
+        }));
+    });
+    let refused = error(compile(&fixture));
+    let written = |name: &str| std::fs::metadata(fixture.root.join(name)).unwrap().len();
+    let (bundle, policy) = (written("bundle.json"), written("policy.json"));
+    let (second, second_bytes) = if bundle >= policy {
+        ("bundle.json", bundle)
+    } else {
+        ("policy.json", policy)
+    };
+    let total = 2 * MIB + 63 * MIB + bundle + policy;
+    assert_eq!(
+        refused,
+        format!(
+            "bundle: the bundle at {} pins {total} bytes, past the bound of 67108864 bytes (64 \
+             MiB) (#908): the largest top-level trees are blob (66060288 bytes), roles/ \
+             (2097152 bytes), {second} ({second_bytes} bytes); it is refused before any run \
+             starts, so no run carries a manifest this large (decision 0083 amendment)",
+            fixture.root.display()
+        )
+    );
+}
+
+/// C2: a bound read of an input stops at the layer's bound plus one byte and
+/// refuses with the shared `past_bound` text; it never buffers the rest
+/// (#908, fix round 908e).
+#[test]
+fn a_consumed_input_past_the_bound_is_refused_without_reading_it_all() {
+    let fixture = Fixture::new();
+    let role = fixture.root.join("roles/role.md");
+    on_stage(ReadStage::Checked, &role, |path| {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_len(64 * 1024 * 1024 + 2)
+            .unwrap();
+    });
+    let refused = match super::super::bound_input(&fixture.root, "roles/role.md") {
+        Err(super::super::InputFault::Place(place)) => place.to_string(),
+        Err(super::super::InputFault::Missing(error)) => panic!("missing: {error}"),
+        Ok(_) => panic!("expected the bound read to refuse"),
+    };
+    clear_hook();
+    assert_eq!(
+        refused,
+        format!(
+            "bundle: the bundle at {} pins 67108865 bytes, past the bound of 67108864 bytes (64 \
+             MiB) (#908): the largest top-level trees are roles/ (67108865 bytes); it is refused \
+             before any run starts, so no run carries a manifest this large (decision 0083 \
+             amendment)",
+            fixture.root.display()
+        )
+    );
+}
+
+/// C2: a held file grown past its pinned length is not intact, and the check
+/// stops at that length plus one byte: the descriptor's position says how
+/// much was read (#908, fix round 908e).
+#[test]
+fn a_held_file_grown_past_its_pinned_length_is_not_intact_without_reading_it_all() {
+    use std::io::Seek;
+    let fixture = Fixture::new();
+    let bound = match super::super::bound_input(&fixture.root, "roles/role.md") {
+        Ok(bound) => bound,
+        Err(super::super::InputFault::Missing(error)) => panic!("missing: {error}"),
+        Err(super::super::InputFault::Place(place)) => panic!("refused: {place}"),
+    };
+    let digest = sha256_bytes(&bound.bytes);
+    let pinned = bound.bytes.len() as u64;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(fixture.root.join("roles/role.md"))
+        .unwrap()
+        .set_len(64 * 1024 * 1024 + 2)
+        .unwrap();
+    assert!(!bound.held.intact(&digest, pinned));
+    let mut file = bound
+        .held
+        .handles
+        .last()
+        .expect("a resolution ends at a handle");
+    assert_eq!(file.stream_position().unwrap(), pinned + 1);
 }
 
 // Linux filesystems allow arbitrary filename bytes; APFS and HFS+ refuse

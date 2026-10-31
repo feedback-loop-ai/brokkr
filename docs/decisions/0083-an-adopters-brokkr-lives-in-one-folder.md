@@ -1231,3 +1231,31 @@ build and every reader of the run carried the event.
    nested, is no longer part of the bundle's identity. It changes no pinned
    file's bytes and no shipped recipe's digest, because no shipped recipe
    holds a `.git` or a git-ignored tree.
+
+### Amendment — 2026-10-31, the bound is enforced on the bytes actually read (#908)
+
+Status: proposed; only the operator accepts this amendment.
+
+The operator ruled on 2026-10-30 ("go with recommended") that the bound is
+enforced on the bytes actually read. Point 2's "judged from the walked paths,
+before any byte is hashed" is the metadata preflight: it refuses a bundle
+whose listed sizes already pass the bound before any byte is read, and its
+words stand. The bound is also enforced during the walk, on what is read:
+
+1. **Unconsumed entries.** Each is read through a cap at the budget still
+   left plus one byte; the byte past the budget is the witness that it
+   outgrew the preflight, and the layer is refused rather than hashed.
+2. **Consumed entries.** Each is charged the length of the buffer whose
+   digest it supplied — the bytes the bound read actually read — never the
+   entry's metadata, which a file truncated after the read would understate.
+   The charges are cumulative per pinned layer, and a consumed read itself
+   stops at the layer's bound plus one byte.
+3. **Integrity re-reads.** A held file is read back at most its pinned length
+   plus one byte; a longer file is not intact and is refused by the seal.
+
+A later read can therefore cross the bound after earlier entries were hashed:
+the refusal is then on the cumulative bytes read, and nothing is admitted.
+A layer past the bound, whether the preflight or a read found it, gets the
+one `past_bound` refusal in point 2's words, so the two cannot drift. This
+amendment changes no bound: both numbers stay 5,000 files and 64 MiB,
+inclusive per pinned layer.

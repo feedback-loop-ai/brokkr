@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 #[path = "../../tests/support/git.rs"]
 mod git;
-pub(crate) use git::test_repository;
+pub(crate) use git::{run, test_repository};
 
 use super::{
     base_library, default_map, folder, library, run_local, state_of, unpinned_reason, Kind, Layout,

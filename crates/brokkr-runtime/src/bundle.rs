@@ -676,13 +676,14 @@ struct LibraryRead {
     agent: String,
     reference: String,
     digest: String,
+    bytes: u64,
     held: Held,
 }
 
 impl LibraryRead {
     /// Refused, where the read no longer stands as it was read.
     fn check(&self) -> Result<(), CompileError> {
-        match self.held.intact(&self.digest) {
+        match self.held.intact(&self.digest, self.bytes) {
             true => Ok(()),
             false => Err(library_refusal(
                 &self.site,
@@ -2740,12 +2741,10 @@ fn pinned_key(dir: &Path, token: &str, relative: &str) -> Result<String, String>
 /// a time and read through the handle that resolution ended at (operator
 /// ruling 3; decision 0065 slice one, design D7).
 pub(crate) struct BoundInput {
-    /// The bytes the handle supplied: the buffer a caller hashes and parses,
-    /// and whose digest the layer's walk takes for both of its keys.
+    /// The bytes the handle supplied, a caller hashes and parses.
     pub(crate) bytes: Vec<u8>,
-    /// What the resolution observed, the names it bound the input by and
-    /// the handles it holds, so the walk can verify the input without
-    /// opening its path to read it.
+    /// What the resolution observed and the handles it holds, so the walk
+    /// can verify the input without opening its path to read it.
     pub(crate) held: Held,
 }
 
@@ -2788,10 +2787,11 @@ impl Binding {
     }
 
     /// What a layer's walk is told about `key`, one of these keys, whose
-    /// buffer hashed to `digest`, read for `consumer`.
-    pub(crate) fn supplied(&self, digest: &str, consumer: String) -> Supplied {
+    /// `bytes`-long buffer hashed to `digest`, read for `consumer`.
+    pub(crate) fn supplied(&self, digest: &str, bytes: u64, consumer: String) -> Supplied {
         Supplied {
             digest: digest.to_string(),
+            bytes,
             id: self.id,
             target: self.target_key.clone(),
             consumer,
@@ -2846,11 +2846,13 @@ impl Binding {
 }
 
 /// A key a bound read supplied, as its layer's walk takes it (design D7):
-/// the digest of the buffer that was read, and the file the read held,
-/// named by its target's key, so no other name for that file is walked as
-/// a file nothing consumed.
+/// the digest and length of the buffer read, and the file the read held,
+/// named by its target's key so no other name for it is walked as a file
+/// nothing consumed.
 pub(crate) struct Supplied {
     digest: String,
+    /// The length of the buffer whose digest it is (#908, fix round 908e).
+    bytes: u64,
     id: (u64, u64),
     target: String,
     /// Who consumed it, bounded, as its own refusal opens: the declaring
@@ -2903,24 +2905,23 @@ impl Held {
         (&now.binding, &now.owner) == (&self.binding, &self.owner)
     }
 
-    /// Whether the input still stands as it was read: its reference, resolved
-    /// again from the layer's directory — reached as the read reached it —
-    /// [`Held::stands`], and the held file still holds exactly the bytes
-    /// whose digest is `digest`. Those bytes are read back through the held
-    /// handle, never by opening the path, and any failure to observe or read
-    /// is a change: this fails closed.
-    pub(crate) fn intact(&self, digest: &str) -> bool {
-        use std::io::{Read, Seek};
+    /// Whether the input still stands as it was read: the reference resolved
+    /// as the read reached it, and the `bytes` whose digest is `digest` held
+    /// and read back at most their length plus one. Any failure is a change.
+    pub(crate) fn intact(&self, digest: &str, bytes: u64) -> bool {
+        use std::io::Seek;
         let mut file = self.handles.last().expect("a resolution ends at a handle");
-        let mut again = Vec::new();
-        let reread = file.rewind().and_then(|()| file.read_to_end(&mut again));
-        let held = reread.map(|_| sha256_bytes(&again));
+        let reread = file
+            .rewind()
+            .and_then(|()| walk::read_within(&mut file, bytes));
+        let held = reread.ok().filter(|again| again.len() as u64 == bytes);
+        let held = held.map(|again| sha256_bytes(&again));
         let open = || match self.owner {
             Some(_) => owner_open(&self.root),
             None => by_path(&self.root),
         };
         let stands = observe(&self.root, &open, &self.reference).is_ok_and(|now| self.stands(&now));
-        (held.ok().as_deref(), stands) == (Some(digest), true)
+        (held.as_deref(), stands) == (Some(digest), true)
     }
 }
 
@@ -3350,7 +3351,6 @@ pub(crate) fn bound_input(root: &Path, reference: &str) -> Result<BoundInput, In
 /// [`bound_input`] with the layer's directory given by `open`, for both of
 /// the read's resolutions.
 fn bound_through(root: &Path, open: Opener<'_>, reference: &str) -> Result<BoundInput, InputFault> {
-    use std::io::Read;
     let refused =
         |error: crate::places::SkipError| Place::of(FaultKind::Unbound, error.to_string());
     if let Some(place) = unpinned_active_input(root, reference).map_err(refused)? {
@@ -3375,8 +3375,8 @@ fn bound_through(root: &Path, open: Opener<'_>, reference: &str) -> Result<Bound
         return Err(Place::of(FaultKind::Nonregular, NONREGULAR));
     }
     at_stage(ReadStage::Checked, &target);
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes).map_err(unopened)?;
+    let bytes = walk::read_within(&mut file, walk::MAX_BYTES).map_err(unopened)?;
+    walk::refuse_read_past_bound(root, &held.binding.target_key, &bytes)?;
     at_stage(ReadStage::Read, &target);
     if !observe(root, open, &held.reference).is_ok_and(|now| held.stands(&now)) {
         return Err(Place::of(FaultKind::Replaced, REPLACED));
