@@ -1,6 +1,6 @@
 # 0103 — A provider's pre-session rate limit becomes a cool-down, not a park
 
-Status: proposed
+Status: accepted — operator ruled in chat 2026-10-31, "go with recommended" (https://github.com/feedback-loop-ai/brokkr/issues/430#issuecomment-6548910347)
 Date: 2026-10-30
 
 Built: unbuilt (#430)
@@ -35,8 +35,12 @@ minted when this one is accepted.
 
 ## What main holds at HEAD
 
-Measured at 0675e03e8 and re-read at 29230fbc8. Only this decision and its
-index row landed between them, so every code line below is HEAD's.
+Measured at 0675e03e8 and re-read at 29230fbc8; on the restack onto
+c3e52bd23, #926 (decision 0102) moved `crates/brokkr-core/src/fold.rs` and
+`crates/brokkr-view/src/fleet.rs` (and split `Need` into
+`crates/brokkr-view/src/fleet/need.rs`), and the acceptance re-read every
+fold and fleet citation below at c3e52bd23. Every other code line below is
+unchanged since 29230fbc8.
 
 **The adapters.** `claude_refusal` (`crates/brokkr-protocol/src/adapters.rs:1475`)
 returns a string for three shapes — the `assistant` record with
@@ -86,8 +90,8 @@ no checkpoint (`crates/brokkr-protocol/src/lib.rs:145`, `:167`).
 `failed_to_start` (`crates/brokkr-runtime/src/engine.rs:1971`) is that shape
 minus a deadline kill; `conclude_single` then writes `effect/failed` with
 `start_failure: true` (`:1422`, `:1428-1432`; `start_failure_fields` at
-`:1981`). The fold's `fail` (`crates/brokkr-core/src/fold.rs:601`) returns
-the open effect to `ExecuteEffect` with `failed_attempts + 1` (`:613`). The
+`:1981`). The fold's `fail` (`crates/brokkr-core/src/fold.rs:621`) returns
+the open effect to `ExecuteEffect` with `failed_attempts + 1` (`:633`). The
 engine retries under `max_attempts` or parks with `effect <id> failed <n> of
 <max> attempt(s); last error: <error>`
 (`crates/brokkr-runtime/src/engine/cursor.rs:47-80`, text `:61-76`; last
@@ -168,16 +172,17 @@ listed in `contracts/README.md:175-193`. A payload field not listed is
 forbidden at v1 (`contracts/README.md:200-207`), which permits an optional,
 absent-by-default field under a numbered extension schema provided `fold`
 never reads it. Today a run's only wait is a park: `run/parked` makes the
-fold `awaiting_operator` (`contracts/README.md:303`; `fold.rs:692`), with
+fold `awaiting_operator` (`contracts/README.md:303`; `fold.rs:712`), with
 the reason `cursor.rs:61-76` builds. `brokkr runs` prints the standing and
 that reason, both derived once in `brokkr-view`: `Facts::of` reads the
-fold's `park_reason` (`crates/brokkr-view/src/fleet.rs:577-587`),
-`verdict_of` puts it on the row (`:650`), and the section heading is
-`Section::NeedsYou`'s label (`:265-267`), with `Need::Parked` at `:312` and
-`need` returning it at `:435-441`. `brokkr inspect` shows the events and the
+fold's `park_reason` (`crates/brokkr-view/src/fleet.rs:459-476`),
+`verdict_of` (`:510`) puts it on the row (`:547`), and the section heading
+is `Section::NeedsYou`'s label (`:311-313`), with `Need::Parked` at
+`crates/brokkr-view/src/fleet/need.rs:15-17` and `need` returning it at
+`:147-151`. `brokkr inspect` shows the events and the
 park (`crates/brokkr-cli/src/verbs/readouts.rs:127`), and the TUI paints the
 same derivation. A running run has no wait event; only the 3-hour staleness
-bound calls it dead (`fleet.rs:164`, `:174`). So today the rate limit is a
+bound calls it dead (`fleet.rs:173`, `:183`). So today the rate limit is a
 park in "needs you", which is the fact 0068 ruling 4 says must change.
 
 ## Rulings
@@ -323,9 +328,9 @@ provider or route must already be declared under `providers` in the capacity
 block, so one file names one vocabulary. Every object stays closed, so an
 unknown key refuses as it does in v1. Every value is positive;
 `default_seconds <= max_seconds`; `max_seconds <= 7200`. The 2-hour cap is
-the shipped seats' longest attempt deadline (`fleet.rs:164`), so an
+the shipped seats' longest attempt deadline (`fleet.rs:173`), so an
 in-process wait cannot outlive the fleet's 3-hour staleness bound
-(`fleet.rs:174`) and be mistaken for a dead engine. A v1 file read by the v2
+(`fleet.rs:183`) and be mistaken for a dead engine. A v1 file read by the v2
 loader has no cool-downs declared, so a rate-limit refusal parks as today
 with a reason naming the absent declaration. That is fail-closed, and it is
 the price of the default being the operator's data rather than a constant.
@@ -515,7 +520,7 @@ taken only while attempts remain.** The refused attempt is one terminal
 `effect/failed` with a fresh `attempt_id`; the effect's `effect_id` and
 idempotency key are unchanged across the wait and the retry, as 0006's
 same-open-effect rule and the addendum's operator-retry sentence require.
-The count increments as today (`fold.rs:613`), so the journal says how many
+The count increments as today (`fold.rs:633`), so the journal says how many
 attempts failed. `execute_effect` (`cursor.rs:47-80`) checks
 `failed_attempts >= max_attempts` first, exactly as it does now (`:61-76`):
 at the cap the run parks, and when the last terminal event carries a wait
@@ -592,6 +597,32 @@ contracts/driver-refusal.v1.schema.json
 contracts/provider-wait.v1.schema.json
 contracts/host.v2.schema.json
 ```
+
+## Ruled (operator, in chat, 2026-10-31)
+
+The operator answered "go with recommended" (#430,
+https://github.com/feedback-loop-ai/brokkr/issues/430#issuecomment-6548910347), and each ruling above was taken as recommended:
+1. 1(a), one typed refusal per invocation at the existing classification
+   edge.
+2. 2(a), a per-site `waits` array on the terminal event plus
+   `provider_cooldowns` rows in queue storage v4, keyed
+   `(run_id, event_seq, site, rounds)`, read as the aggregate latest
+   `until` and re-checked in the claim transaction.
+3. 3(a), the provider's retry-after, else a declared per-provider and
+   per-route default in `forge.host/v2`, at most 2 hours, doubling per
+   round; an episode past the maximum parks.
+4. 4(a), a dedicated one-turn probe before the retry, ended only by a
+   provider's answer, with the per-adapter answer evidence above.
+5. 5(a), the engine waits in-process until slice 6.
+6. 6(a), admission reads the aggregate after declarations and before
+   ceilings, and writes nothing.
+7. 7(c), decision 0006's attempt cap kept exactly: wait and probe only
+   while attempts remain.
+
+The acceptance mints `driver-refusal.v1`, `provider-wait.v1` and
+`forge.host/v2` under decision 0082 when their slices land. Slice 4a waits
+for the one adapters.rs slot, held by decision 0065 slice two until its
+U9b1b merges.
 
 ## What stays out
 
@@ -754,7 +785,8 @@ and run-keyed-row tests therefore land in 4d and 4e, not 4c.
    claim's recheck refuses a row recorded after the pass read.
 6. **4f — the readouts paint the waits.** Files:
    `crates/brokkr-view/src/fleet.rs`, `crates/brokkr-view/src/lib.rs`
-   (`VIEW_VERSION` 27 to 28), `crates/brokkr-view/src/tests.rs`, and the
+   (`VIEW_VERSION` 28 to 29, as measured when built: 0102 took it to 28),
+   `crates/brokkr-view/src/tests.rs`, and the
    CLI and TUI rows if the view's typed field is not enough. About 120
    production and 80 test lines. Contract: none under `contracts/`; the view
    model gains a typed collection of waits whose end is the aggregate the
@@ -808,12 +840,15 @@ and run-keyed-row tests therefore land in 4d and 4e, not 4c.
 
 ## Evidence
 
-Read at 0675e03e8 and re-read at 29230fbc8 for the 430s4f revision. The
+Read at 0675e03e8 and re-read at 29230fbc8 for the 430s4f revision; the
+fold and fleet citations were re-read at c3e52bd23 for the acceptance. The
 journal counts in the Context are the controller's and were not re-read
 here. Each code claim names its file and line; this revision ran
 `git grep`/`sed` on each one and the commands are recorded in the fix
-round's notes. It re-checked every `fleet.rs` citation at HEAD
-(`:164`, `:174`, `:265-267`, `:312`, `:435-441`, `:577-587`, `:650`), the
+round's notes. The acceptance re-checked every fold and fleet citation at
+c3e52bd23 (`fold.rs:621`, `:633`, `:712`; `fleet.rs:173`, `:183`,
+`:311-313`, `:459-476`, `:510`, `:547`; `fleet/need.rs:15-17`,
+`:147-151`), the
 adapter events that carry model output (`adapters.rs:1596`, `:1926`,
 `:2164`), and the journal's event key (`schema.rs:35-40`). The dsh
 check is the drafting session's, not re-run here: `dsh --version` printed
