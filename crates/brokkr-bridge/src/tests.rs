@@ -1,14 +1,14 @@
 use super::*;
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::dispatch::{
-    build_run_manifest_v2, ActorBinding, BudgetBinding, DispatchBounds, LooperBinding,
-    ProducerBinding, RecipeBinding, RepositoryBinding, DISPATCH_SCHEMA_V2, PRODUCER_EFFECTS,
+    build_run_manifest_v2, bundle_manifest_from_run, dispatch_from_run, ActorBinding,
+    BudgetBinding, DispatchBounds, LooperBinding, ProducerBinding, RecipeBinding,
+    RepositoryBinding, DISPATCH_SCHEMA_V2, PRODUCER_EFFECTS,
 };
-use time::format_description::well_known::Rfc3339;
-
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::thread::JoinHandle;
+use time::format_description::well_known::Rfc3339;
 
 #[path = "../../../tests/support/envelope.rs"]
 mod envelope_builder;
@@ -117,6 +117,7 @@ struct MockTransport {
     replay_all: bool,
     origin: Option<String>,
     registrations: usize,
+    refuse_submit: Option<String>,
 }
 
 impl ProducerTransport for MockTransport {
@@ -142,6 +143,9 @@ impl ProducerTransport for MockTransport {
     }
 
     fn submit(&mut self, event: &ProducerEvent) -> Result<bool, BridgeError> {
+        if let Some(message) = &self.refuse_submit {
+            return Err(BridgeError::Transport(message.clone()));
+        }
         if self.replay_all {
             return Ok(true);
         }
@@ -1003,6 +1007,40 @@ fn sync_refuses_a_transport_whose_origin_is_not_the_sealed_audience() {
         assert_eq!(transport.registrations, 0, "{origin}: registered anyway");
         assert!(transport.events.is_empty(), "{origin}: submitted anyway");
     }
+}
+
+#[test]
+fn a_submission_refused_after_registration_is_the_syncs_refusal() {
+    // The submission round runs after the registration it submits under:
+    // a transport refusing an event ends the sync with the transport's own
+    // words, and no command round runs (#288 slice T moved the round into
+    // `submit_pending`; its refusal still reaches the caller).
+    let (manifest, _, now) = fixture();
+    let (_, mut store) = store_with_manifest(&manifest, "forge-run-1");
+    store
+        .append_next(
+            "forge-run-1",
+            EventType::RunStarted,
+            json!({"manifest": {}}),
+            None,
+            None,
+        )
+        .unwrap();
+    let mut bridge = Bridge::new(MockTransport {
+        refuse_submit: Some("the producer refused the event".into()),
+        ..Default::default()
+    });
+    let error = bridge
+        .sync_once(&mut store, "forge-run-1", now, 0)
+        .unwrap_err();
+    assert!(
+        matches!(&error, BridgeError::Transport(message) if message == "the producer refused the event"),
+        "{error}"
+    );
+    let transport = bridge.into_transport();
+    assert_eq!(transport.registrations, 1, "it registered first");
+    assert!(transport.events.is_empty(), "nothing was submitted");
+    assert!(transport.receipts.is_empty(), "no command round ran");
 }
 
 #[test]

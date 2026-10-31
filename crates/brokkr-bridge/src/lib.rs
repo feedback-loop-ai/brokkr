@@ -12,16 +12,16 @@ use std::collections::{BTreeMap, VecDeque};
 use std::time::{Duration, Instant};
 
 use brokkr_core::canonical;
-use brokkr_core::dispatch::{bundle_manifest_from_run, dispatch_from_run, DispatchEnvelopeV2};
+use brokkr_core::dispatch::DispatchEnvelopeV2;
 use brokkr_core::{EventEnvelope, EventType};
-use brokkr_runtime::{
-    apply_fenced_operator_command, CommandWord, FencedCommand, FencedCommandOutcome,
-};
+use brokkr_runtime::{CommandWord, FencedCommand};
 use brokkr_store::Store;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use thiserror::Error;
 use time::OffsetDateTime;
+
+mod sync;
 
 pub const PRODUCER_EVENT_SCHEMA: &str = "looper.forge-producer-event/v1";
 
@@ -122,6 +122,14 @@ pub struct SyncReport {
     pub commands: usize,
     pub last_command_cursor: u64,
     pub last_forge_sequence: u64,
+}
+
+/// What one synchronization pass has submitted so far: the two counters the
+/// report returns and the journal sequence submission has reached.
+struct Submission {
+    submitted: usize,
+    replayed: usize,
+    through: u64,
 }
 
 #[derive(Debug, Error)]
@@ -614,7 +622,6 @@ impl<T: ProducerTransport> Bridge<T> {
         self.event_times.push_back(now);
     }
 
-    #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
     pub fn sync_once(
         &mut self,
         store: &mut Store,
@@ -622,117 +629,33 @@ impl<T: ProducerTransport> Bridge<T> {
         now: OffsetDateTime,
         command_after: u64,
     ) -> Result<SyncReport, BridgeError> {
-        let manifest = store.manifest(run_id)?;
-        let dispatch = dispatch_from_run(&manifest)?.ok_or(BridgeError::UnboundRun)?;
-        let bundle_manifest = bundle_manifest_from_run(&manifest)?;
-        let bundle_sha = canonical::sha256_hex(&bundle_manifest);
-        dispatch.verify(now, &bundle_sha)?;
-        if dispatch.forge_run_id != run_id {
-            return Err(BridgeError::RegistrationMismatch);
-        }
-        audience_matches(self.transport.origin(), &dispatch)?;
-        let registration = self.transport.register(&dispatch, &manifest)?;
-        if registration.registration_id != dispatch.producer.registration_id {
-            return Err(BridgeError::RegistrationMismatch);
-        }
-        let events = store.load(run_id)?;
-        if registration.last_forge_sequence > events.len() as u64
-            || (registration.last_forge_sequence > 0
-                && events[(registration.last_forge_sequence - 1) as usize].event_hash
-                    != registration.last_event_hash)
-        {
-            return Err(BridgeError::RegistrationMismatch);
-        }
-        if registration.status == "terminal" {
-            if registration.last_forge_sequence != events.len() as u64 {
-                return Err(BridgeError::RegistrationMismatch);
-            }
-            return Ok(SyncReport {
-                registered: true,
-                submitted: 0,
-                replayed: 0,
-                commands: 0,
-                last_command_cursor: command_after,
-                last_forge_sequence: registration.last_forge_sequence,
-            });
+        let (manifest, dispatch) = self.sealed_dispatch(store, run_id, now)?;
+        let (registration, events) = self.bind_registration(store, run_id, &dispatch, &manifest)?;
+        if let Some(report) = sync::terminal_report(&registration, &events, command_after)? {
+            return Ok(report);
         }
         if registration.status != "active" {
             return Err(BridgeError::AuthorityInactive(registration.status));
         }
-        let mut submitted = 0;
-        let mut replayed = 0;
-        let mut submitted_through = registration.last_forge_sequence;
-        for event in events
-            .iter()
-            .filter(|event| event.seq > registration.last_forge_sequence)
-        {
-            self.await_event_slot(dispatch.bounds.max_events_per_ten_seconds);
-            if self.transport.submit(&normalize_event(&dispatch, event)?)? {
-                replayed += 1;
-            } else {
-                submitted += 1;
-            }
-            submitted_through = event.seq;
-        }
-
-        let commands = self
-            .transport
-            .commands(&dispatch.producer.registration_id, command_after)?;
-        let mut last_command_cursor = command_after;
-        for command in &commands {
-            if command.cursor <= last_command_cursor {
-                return Err(BridgeError::RegistrationMismatch);
-            }
-            last_command_cursor = command.cursor;
-            let result = apply_fenced_operator_command(store, run_id, &command.fenced())?;
-            // A one-shot bridge invocation is still a complete round trip: send
-            // the durable command/disposition evidence before acknowledging it.
-            let command_start = submitted_through;
-            for event in store
-                .load(run_id)?
-                .iter()
-                .filter(|event| event.seq > command_start)
-            {
-                self.await_event_slot(dispatch.bounds.max_events_per_ten_seconds);
-                if self.transport.submit(&normalize_event(&dispatch, event)?)? {
-                    replayed += 1;
-                } else {
-                    submitted += 1;
-                }
-                submitted_through = event.seq;
-            }
-            let receipt = match result {
-                FencedCommandOutcome::Accepted {
-                    head_seq,
-                    head_hash,
-                } => CommandReceipt {
-                    command_id: command.id.clone(),
-                    outcome: "accepted".into(),
-                    reason: None,
-                    forge_sequence: head_seq,
-                    event_hash: head_hash,
-                },
-                FencedCommandOutcome::Rejected {
-                    reason,
-                    head_seq,
-                    head_hash,
-                } => CommandReceipt {
-                    command_id: command.id.clone(),
-                    outcome: "rejected".into(),
-                    reason: Some(reason),
-                    forge_sequence: head_seq,
-                    event_hash: head_hash,
-                },
-            };
-            self.transport
-                .acknowledge_command(&dispatch.producer.registration_id, &receipt)?;
-        }
+        let mut submission = Submission {
+            submitted: 0,
+            replayed: 0,
+            through: registration.last_forge_sequence,
+        };
+        self.submit_pending(
+            &dispatch,
+            &events,
+            registration.last_forge_sequence,
+            &mut submission,
+        )?;
+        let (commands, last_command_cursor) =
+            self.apply_commands(store, run_id, &dispatch, command_after, &mut submission)?;
         let (last_forge_sequence, _) = store.head_hash(run_id)?;
         Ok(SyncReport {
             registered: true,
-            submitted,
-            replayed,
-            commands: commands.len(),
+            submitted: submission.submitted,
+            replayed: submission.replayed,
+            commands,
             last_command_cursor,
             last_forge_sequence,
         })

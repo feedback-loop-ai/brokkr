@@ -1,6 +1,7 @@
 # produced by quality/measure.sh with git ls-files and wc -l
 # production
-   747 crates/brokkr-bridge/src/lib.rs
+   670 crates/brokkr-bridge/src/lib.rs
+   167 crates/brokkr-bridge/src/sync.rs
    153 crates/brokkr-cli/src/agents.rs
      8 crates/brokkr-cli/src/bin/brokkr.rs
     95 crates/brokkr-cli/src/boundary.rs
