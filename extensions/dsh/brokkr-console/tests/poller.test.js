@@ -257,7 +257,7 @@ test('a refused-run hint keeps shell syntax in its journal path inert', async ()
 })
 
 /** A paged `brokkr runs --json`: one window and where the next page starts, as Brokkr states both. */
-const windowOf = (runs, next = null) => ({ view_version: 27, runs, count: runs.length, next, behind: 0 })
+const windowOf = (runs, next = null) => ({ view_version: 28, runs, count: runs.length, next, behind: 0 })
 
 /** `brokkr realms --json` for `names`, each in its own journal. */
 const realmsDoc = (names) => ({
