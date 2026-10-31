@@ -31,7 +31,8 @@
 //! a dangling candidate live, is refused too; a link is guarded as its own entry, so a writer apart
 //! from the directory it lies in, and from where it leads, is not. Every
 //! later admission compares its incoming writers with the roots and every
-//! input a standing attempt reserved ([`kept`]). In either order, and for
+//! input a standing attempt reserved, and with the coordination root that
+//! holds those reservations ([`kept`]). In either order, and for
 //! two started together, at most one of a conflicting pair is admitted,
 //! and the inputs stay reserved, as the writers do, until their attempt is
 //! proven settled: an engine's death or a free lock releases neither. The
@@ -79,14 +80,15 @@ use brokkr_protocol::hands::{ServerProgram, HOST_TOOLCHAIN_BINDS, SERVER_RESOLVE
 use serde::{Deserialize, Serialize};
 
 use super::admission::{sealed, Claim, Held, Unadmitted, Unknown};
-use super::exclusion::{beneath, covers, everywhere, Guarded};
+use super::exclusion::{beneath, covers, covers_spelled, Guarded};
 use super::inventory::{inventory, Budget, Reaching, Standing, Writing};
 use super::resolved;
-use super::root::{locked, Commit, Mounts};
+use super::root::{coordination, locked, Commit, Mounts, Root};
 use super::settlement::recovered;
+use crate::capabilities::McpFence;
 
 #[cfg(target_os = "linux")]
-use super::exclusion::{self, mounts, Mount, Shown, MOUNTINFO};
+use super::exclusion::{self, anchored, mounts, Mount, Shown, MOUNTINFO};
 
 /// What the mount table shows, read once for one comparison: every mount it
 /// names, and how the mount a path lies on is found (its `statx` mount id
@@ -170,17 +172,6 @@ impl Table {
         };
         Ok((part, whole))
     }
-}
-
-/// `path`'s nearest ancestor that stands, canonical, and the rest of `path`
-/// below it; `path` itself where none does.
-#[cfg(target_os = "linux")]
-fn anchored(path: &Path) -> (PathBuf, PathBuf) {
-    let found = path.ancestors().find_map(|at| {
-        let rest = path.strip_prefix(at).ok()?.to_path_buf();
-        Some((std::fs::canonicalize(at).ok()?, rest))
-    });
-    found.unwrap_or((path.to_path_buf(), PathBuf::new()))
 }
 
 /// This namespace's mount table, read within `budget`'s deadline, beside
@@ -456,22 +447,26 @@ fn hop(next: &Path) -> std::io::Result<Option<PathBuf>> {
 }
 
 /// Whether every writer of `writers`, each named with its run, is kept
-/// from every operating-system root ([`SYSTEM_ROOTS`]), as spelled, and
-/// then from every input of `serves`, each observed now, the mount table
-/// read by `mounts` once, beside the reserved inputs, as the first boxed
-/// writer is compared with them, within `budget`'s deadline: MB3's
-/// identity cause naming the first that is not. With nothing reserved no
-/// server is at stake, and nothing is compared.
+/// from every operating-system root ([`SYSTEM_ROOTS`]), as spelled, then
+/// from every input of `serves`, and then from the coordination root
+/// `coordination`, whose reservations hold those inputs: a writer able to
+/// rewrite them could clear the very lease that keeps later writers out,
+/// whatever evidence is at stake. Each is observed now, the mount table
+/// read by `coordination`'s observer once, beside the reserved inputs, as
+/// the first boxed writer is compared with them, within `budget`'s
+/// deadline: MB3's identity cause naming the first that is not. With
+/// nothing reserved no server is at stake, and nothing is compared.
 pub(super) fn kept<'w>(
     writers: impl IntoIterator<Item = (&'w str, &'w Writing)>,
     serves: &[Served],
-    mounts: Mounts,
+    coordination: &Root,
     budget: &Budget,
 ) -> Result<(), Unknown> {
     let Some(first) = serves.first() else {
         return Ok(());
     };
     let roots = SYSTEM_ROOTS.map(|root| Served::Source(PathBuf::from(root)));
+    let records = Served::Source(coordination.path().to_path_buf());
     let mut table = None;
     for (run, writer) in writers {
         budget.check()?;
@@ -481,9 +476,9 @@ pub(super) fn kept<'w>(
         };
         let table = match &mut table {
             Some(table) => table,
-            None => table.insert(mounts(budget, first.path())?),
+            None => table.insert(coordination.mounts()(budget, first.path())?),
         };
-        for served in roots.iter().chain(serves) {
+        for served in roots.iter().chain(serves).chain([&records]) {
             if writes(writable, served, table)? {
                 let served = served.path().to_path_buf();
                 return Err(Unknown::Serving { site, run, served });
@@ -520,12 +515,12 @@ fn writes(writable: &[PathBuf], served: &Served, table: &Table) -> Result<bool, 
 }
 
 /// Whether every writer of the incoming `claim` is kept from every input
-/// an attempt of `standing` reserved ([`kept`]), the mount table read by
-/// `mounts`, within `budget`.
+/// an attempt of `standing` reserved, and from the coordination root
+/// `coordination` that holds them ([`kept`]), within `budget`.
 pub(super) fn unserved(
     claim: &Claim,
     standing: &[Standing],
-    mounts: Mounts,
+    coordination: &Root,
     budget: &Budget,
 ) -> Result<(), Unknown> {
     let serves: Vec<Served> = standing
@@ -535,7 +530,94 @@ pub(super) fn unserved(
         .collect();
     let writers: Vec<Writing> = claim.reserved.writers.iter().map(Writing::from).collect();
     let writers = writers.iter().map(|writer| (claim.run.as_str(), writer));
-    kept(writers, &serves, mounts, budget)
+    kept(writers, &serves, coordination, budget)
+}
+
+/// Whether every boxed writer of the incoming `claim` is kept from the
+/// coordination root at `root`, on every run, whatever is at stake and
+/// whatever is served, by the test [`kept`] holds that root to, the root's
+/// path read even where it does not stand ([`covers_spelled`]; operator ruling
+/// of 2026-10-30 on the chief's H2, the controller's on H3): a reservation is
+/// a plain file, so a boxed writer that reached the root could clear its own
+/// record's writers before a broker extended beside it, and one admitted where
+/// the root could not be opened could repair the walk and stand beside a later
+/// broker unrecorded. MB3's identity cause naming the root, or naming why its
+/// reach is not proved: a mount table that does not prove where it lies, or a
+/// root with no absolute path, where the host names no HOME. Admission asks it
+/// under the lock, the root open ([`super::exclusion::compared`]), and
+/// [`records_unopened`] where it cannot be. A writer Brokkr cannot box holds
+/// the user's write anyway, so a forged record gives it nothing more, and it
+/// is left to [`kept`] beside a live broker and to the comparison beside
+/// evidence (ruling 21).
+pub(super) fn records_kept(
+    claim: &Claim,
+    root: &Path,
+    mounts: Mounts,
+    budget: &Budget,
+) -> Result<(), Unknown> {
+    let records = Served::Source(root.to_path_buf());
+    let unproved = || Unknown::Unmounted(root.to_path_buf());
+    let mut table = None;
+    for writer in claim.reserved.writers.iter().map(Writing::from) {
+        budget.check()?;
+        let Reaching::Boxed { writable, .. } = &writer.reach else {
+            continue;
+        };
+        root.is_absolute().then_some(()).ok_or_else(unproved)?;
+        if reach_records(writable, &records, (mounts, budget), &mut table)? {
+            return Err(Unknown::Serving {
+                site: writer.site,
+                run: claim.run.clone(),
+                served: root.to_path_buf(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// [`records_kept`] before an attempt proceeds holding no lease (C1): the
+/// coordination root under `home` could not be opened, so its spelled path is
+/// compared, the mount table read as production reads it, before `deadline`.
+/// No reservation or lock is involved: there is no root to hold them.
+pub(super) fn records_unopened(
+    claim: &Claim,
+    home: &Path,
+    deadline: Instant,
+) -> Result<(), Unknown> {
+    let budget = Budget::new(deadline);
+    records_kept(claim, &coordination(home), observed, &budget)
+}
+
+/// Whether `writable` writes the coordination root `records`, the mount table
+/// read by `mounts` once, as the first boxed writer is compared.
+#[cfg(target_os = "linux")]
+fn reach_records(
+    writable: &[PathBuf],
+    records: &Served,
+    (mounts, budget): (Mounts, &Budget),
+    table: &mut Option<Table>,
+) -> Result<bool, Unknown> {
+    let table = match table {
+        Some(table) => table,
+        None => table.insert(mounts(budget, records.path())?),
+    };
+    let spelled = writable
+        .iter()
+        .any(|root| covers_spelled(root, records.path()));
+    Ok(spelled || writes(writable, records, table)?)
+}
+
+/// Off Linux no mount table is read (decision 0063), so a run with nothing at
+/// stake is not refused for the want of one: path and identity decide alone.
+#[cfg(not(target_os = "linux"))]
+fn reach_records(
+    writable: &[PathBuf],
+    records: &Served,
+    _: (Mounts, &Budget),
+    _: &mut Option<Table>,
+) -> Result<bool, Unknown> {
+    let spelled = |root: &PathBuf| covers_spelled(root, records.path());
+    Ok(writable.iter().any(spelled))
 }
 
 /// The lease `held` extended to the inputs `serves` its attempt's servers
@@ -557,10 +639,10 @@ pub(super) fn extended(
 }
 
 /// [`extended`] where `held` names the attempt's lease. With the fence
-/// lifted every attempt that brokers is admitted before it is provisioned,
-/// [`super::admission::coordinated`] refusing one whose root it cannot
-/// open, so one that holds no lease is refused as an attempt whose
-/// reservation no longer stands
+/// lifted every attempt that brokers holds a lease whatever is at stake,
+/// so one admitted without one, its coordination root unprotectable with
+/// nothing at stake ([`super::admission::coordinated`]), is refused as an
+/// attempt whose reservation no longer stands
 /// (`a_brokered_attempt_holding_no_lease_is_refused_once_the_fence_lifts`).
 /// While the fence stands no public engine brokers, and a test provisioning
 /// an attempt it never admitted extends nothing.
@@ -572,8 +654,12 @@ pub(super) fn held_extended(
 ) -> Result<(), Unadmitted> {
     match held {
         Some(held) => extended(held, serves, deadline, commits),
-        None if everywhere() => Err(Unknown::Lost.into()),
-        None => Ok(()),
+        None => match McpFence::current() {
+            #[cfg(any(test, target_os = "linux"))]
+            McpFence::Lifted => Err(Unknown::Lost.into()),
+            #[cfg(any(test, not(target_os = "linux")))]
+            McpFence::Standing => Ok(()),
+        },
     }
 }
 
@@ -614,7 +700,7 @@ pub(super) fn extended_with(
         let run = found.run.as_str();
         found.writers().map(move |writer| (run, writer))
     });
-    kept(writers, &reserves, root.mounts(), &budget)?;
+    kept(writers, &reserves, root, &budget)?;
     between();
     reserved.serves = reserves;
     reservation.attempts.insert(held.attempt.clone(), reserved);

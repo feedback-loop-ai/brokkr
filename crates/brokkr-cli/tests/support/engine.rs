@@ -158,10 +158,10 @@ pub(crate) fn brokkr_in(dir: &Path) -> Command {
 /// the operator's HOME (decision 0065 slice two, U8a2a). `dir` is the
 /// test's own, but may be the tree a run operates: [`brokkr_in`] stands in
 /// it, and some suites hand it as `--repo` too. That HOME is then inside
-/// the operated tree, which only the fence standing with nothing at stake
-/// admits (the operator's first ruling of 2026-10-18); a test that puts
-/// evidence at stake gives a HOME beside its repository instead, as
-/// `brokkr_folder.rs` does (L4 of run four's second review).
+/// the operated tree, which an unboxed writer with nothing at stake may
+/// share (ruling 21 of 2026-10-29); a test that boxes a writer of that tree,
+/// or puts evidence at stake, gives a HOME beside it instead, as
+/// `brokkr_folder.rs` does (the operator's ruling of 2026-10-30).
 pub(crate) fn home_in(dir: &Path) -> PathBuf {
     let home = dir.join("home");
     let mut made = std::fs::DirBuilder::new();

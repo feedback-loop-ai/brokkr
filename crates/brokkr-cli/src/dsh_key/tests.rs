@@ -975,6 +975,17 @@ fn scaffolded_elsewhere() -> (tempfile::TempDir, Bundle) {
 /// shipped adapter measured on Linux, are measured on `on`, and its
 /// compile.
 fn scaffolded_on(on: &str) -> (tempfile::TempDir, Bundle) {
+    let (dir, compiled) = scaffold_compiled_on(on);
+    (dir, compiled.unwrap())
+}
+
+/// [`scaffolded_on`], its compile as it ended.
+fn scaffold_compiled_on(
+    on: &str,
+) -> (
+    tempfile::TempDir,
+    Result<Bundle, brokkr_runtime::bundle::CompileError>,
+) {
     let dir = tempfile::tempdir().unwrap();
     let (root, path) = (dir.path(), std::ffi::OsStr::new(""));
     let dsh = Some(crate::init::Cli::Dsh);
@@ -991,8 +1002,16 @@ fn scaffolded_on(on: &str) -> (tempfile::TempDir, Bundle) {
     std::fs::write(&path, dsh.to_string()).unwrap();
     let (agents, adapters) = (folder.join("agents"), folder.join("adapters"));
     let boundary = brokkr_core::realms::Boundary::Namespace;
-    let compiled = Bundle::compile_under(&folder, &agents, &adapters, boundary).unwrap();
+    let compiled = Bundle::compile_under(&folder, &agents, &adapters, boundary);
     (dir, compiled)
+}
+
+/// The fence this host's compile seals: lifted on Linux (U9b1).
+fn sealed_fence() -> SealedFence {
+    match cfg!(target_os = "linux") {
+        true => SealedFence::Lifted,
+        false => SealedFence::Standing,
+    }
 }
 
 /// The intent of an empty set under `fence` whose cold and replacement
@@ -1027,13 +1046,13 @@ fn seat(label: &str, model: &str, routed: bool, fence: Option<SealedFence>) -> S
 #[test]
 fn each_dsh_seat_of_a_compile_is_read_from_its_candidates_argv() {
     let (_dir, mut compiled) = scaffolded();
-    let standing = Some(SealedFence::Standing);
+    let sealed = Some(sealed_fence());
     let (flash, pro) = ("deepseek-flash", "deepseek-v4-pro");
     let scaffold = vec![
-        seat("implement", pro, false, standing),
-        seat("implement", flash, false, standing),
-        seat("intake", flash, false, standing),
-        seat("intake", pro, false, standing),
+        seat("implement", pro, false, sealed),
+        seat("implement", flash, false, sealed),
+        seat("intake", flash, false, sealed),
+        seat("intake", pro, false, sealed),
     ];
     let read = |read: &[Seat], unread: &[&str]| home::Seats {
         read: read.to_vec(),
@@ -1367,9 +1386,20 @@ fn a_shape_the_admission_does_not_admit_is_served_as_its_launch_is() {
 /// shapes were measured on Linux and qualify nothing on macOS, so each seat
 /// of a scaffold compiled there carries both unmeasured and is served from
 /// the operator's home, as its launch is; its key line asks every layer
-/// that home reads, and none reads as an engine-only home's.
+/// that home reads, and none reads as an engine-only home's. On Linux,
+/// past the fence U9b1 lifts, the same scaffold with its shapes measured
+/// only on the other host refuses its first dsh site instead.
 #[test]
 fn a_scaffold_compiled_on_macos_is_served_from_the_operators_home() {
+    if cfg!(target_os = "linux") {
+        let (_dir, compiled) = scaffold_compiled_on(host_name(false));
+        let refused = "seat 'implement' (office 'implementer') in realm '<unmapped>': provider \
+                       'dsh' has no measured strict MCP configuration for 'cold'";
+        let Err(brokkr_runtime::bundle::CompileError::Capability(cause)) = compiled else {
+            panic!("SI2 refuses the scaffold: {:?}", compiled.map(drop));
+        };
+        return assert_eq!(cause, refused);
+    }
     let (_dir, compiled) = scaffolded_elsewhere();
     let seats = home::seats(&compiled);
     let shapes: Vec<_> = (seats.read.iter())

@@ -160,20 +160,31 @@ impl Repo {
         std::fs::write(&script, seats.to_string()).unwrap();
         let state = self.aside.join(format!("{name}.state"));
         std::fs::create_dir_all(&state).unwrap();
+        // Its office lives where a run reads it: the folder's places once
+        // there is a folder, else the library's (U9b1; `fake_office`).
+        let folder = self.root.join(".brokkr");
+        let places = match relative.starts_with(".brokkr") || folder.is_dir() {
+            true => folder,
+            false => self.root.clone(),
+        };
+        let office = format!("{name}-office");
+        let hired = [office.as_str(), &format!("{name}-fake")];
+        crate::fake_office::hire_driver(
+            &places,
+            hired,
+            crate::fake_office::fake_driver(&script, &state),
+        );
+        self.hiring(relative, name, &office);
+    }
+
+    /// A bundle named `name` at `relative` whose seats hire `office`, an
+    /// office already in the library.
+    pub(crate) fn hiring(&self, relative: &str, name: &str, office: &str) {
         let dir = self.root.join(relative);
         std::fs::create_dir_all(dir.join("roles")).unwrap();
         std::fs::write(dir.join("policy.json"), policy()).unwrap();
         std::fs::write(dir.join("roles/role.md"), "# role\n").unwrap();
-        let seat = |results: Value| {
-            json!({
-                "role": "roles/role.md",
-                "results": results,
-                "driver": {"command": [
-                    env!("CARGO_BIN_EXE_brokkr"), "fake-driver",
-                    "--script", script, "--state", state,
-                ]},
-            })
-        };
+        let seat = |results: Value| json!({"results": results, "agent": office});
         let bundle = json!({
             "name": name,
             "policy": "policy.json",
@@ -355,7 +366,8 @@ fn discovery_finds_the_folder_from_a_subdirectory() {
             "database: {} opens (WAL, append-only triggers)",
             state.join("forge.db").display()
         ),
-        format!("agents: {}:", repo.path(".brokkr/agents").display()),
+        // The folder's own office, hired from its agents (U9b1).
+        "ok       agent folder-office: would run folder-office via folder-fake here".to_string(),
         "credential 'SPARK_API_KEY' is satisfied from the process environment — an ambient \
          value is journaled nowhere and moves no digest (decision 0036 ruling 5); no seat of \
          the inspected bundle binds it"
@@ -466,7 +478,14 @@ fn a_hand_moved_layout_runs() {
     assert_eq!((refused.code, refused.first_line()), (Some(1), ROOT_LAYOUT));
     make(&repo, &listed_moves(&refused));
     std::fs::create_dir_all(repo.path(".brokkr/roles")).unwrap();
-    for read in ["bundle.json", "policy.json", "roles/role.md"] {
+    // The office its seats hire moves with them (U9b1).
+    for read in [
+        "bundle.json",
+        "policy.json",
+        "roles/role.md",
+        "agents",
+        "adapters",
+    ] {
         std::fs::rename(repo.path(read), repo.path(&format!(".brokkr/{read}"))).unwrap();
     }
     std::fs::remove_file(repo.path("realms.json")).unwrap();
@@ -757,8 +776,17 @@ fn a_named_library_is_read(repo: &Repo) {
         format!("error: agent library {library}: No such file or directory (os error 2)\n")
     };
     assert_eq!(named.stderr, absent("own/agents"));
-    let folder_agents = repo.path(".brokkr/agents");
-    assert_eq!(folder.stderr, absent(folder_agents.to_str().unwrap()));
+    // The folder's own library holds the offices its bundles hire (U9b1).
+    let offices: Vec<&str> = folder
+        .stdout
+        .lines()
+        .filter_map(|l| l.split('\t').next())
+        .collect();
+    assert_eq!(
+        (&*folder.stderr, offices.contains(&"folder-office")),
+        ("", true),
+        "{offices:?}"
+    );
     let probe = [
         "probe",
         "harness",
@@ -1053,6 +1081,9 @@ fn an_explicit_db_reaches_the_old_journal() {
     for planted in ["forge.db", "forge.db-wal", "secrets.env"] {
         std::fs::remove_file(repo.path(".forge").join(planted)).unwrap();
     }
+    // Nor does one whose library holds the old layout's empty agent beside
+    // the office its seats hire (U9b1).
+    std::fs::remove_file(repo.path("agents/implementer.json")).unwrap();
     repo.bundle("", "old", json!([{"behavior": "fail", "error": "boom"}]));
     let db = ["--db", ".forge/forge.db"];
     let old = ["run", "--bundle", ".", "--feature", "x", "--no-view"];
@@ -1097,14 +1128,22 @@ fn state_never_moves_the_bundle() {
     assert_ne!(digest(), before);
 }
 
-/// Both seats of the bundle at `relative` hire a role under its `state/`.
+/// The implement seat of the bundle at `relative` hires a role under its
+/// `state/`. A role is no agent's, so the seat is inline, dispatching the
+/// operator adapter `fake_office::inline` writes in the places the
+/// review seat's office opens (U9b1).
 fn role_under_state(repo: &Repo, relative: &str) {
     repo.write(&format!("{relative}/state/role.md"), "# role\n");
     let path = repo.path(&format!("{relative}/bundle.json"));
     let mut bundle: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    for seat in ["implement", "review"] {
-        bundle["seats"][seat]["role"] = json!("state/role.md");
-    }
+    let places = match relative.starts_with(".brokkr") {
+        true => repo.path(".brokkr"),
+        false => repo.root.clone(),
+    };
+    let (script, state) = (repo.aside.join("inline.json"), repo.aside.join("inline"));
+    let driver = crate::fake_office::inline(&places, &script, &state);
+    bundle["seats"]["implement"] =
+        json!({"results": ["complete"], "role": "state/role.md", "driver": driver});
     std::fs::write(&path, bundle.to_string()).unwrap();
 }
 

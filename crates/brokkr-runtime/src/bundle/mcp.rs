@@ -21,13 +21,13 @@
 //! alone against its own adapter's measured carriage, which a `requires`
 //! ask refuses on and a `wants` drops by. An adapter's legacy server map is
 //! no carriage and names no server. No MCP holding is admissible while the
-//! compile fence stands (U9b), so until then every set contributes itself.
+//! compile fence stands (macOS), so there every set contributes itself.
 //!
 //! SI2's strict admission is decided here for every serving (U1g1): each
 //! shape it can be served as, with what its adapter's validated evidence
 //! measures of ambient exclusion there, is recorded beside its outcome for
-//! U9a's doctor, and refuses only once U9b lifts the MCP compile fence
-//! (operator rulings of 2026-10-07 and 2026-10-08).
+//! U9a's doctor, and refuses past the lifted MCP compile fence, on Linux
+//! since U9b1 (operator rulings of 2026-10-07, 2026-10-08 and 2026-10-18).
 
 use brokkr_core::realms::Boundary;
 use brokkr_protocol::adapters::{AdapterKind, StrictCause};
@@ -36,6 +36,7 @@ use brokkr_protocol::native_controls::{Application, HandsIntent, Provenance, Sit
 use thiserror::Error;
 
 use super::{dispatch_driver, CapabilityAdapters, CompileError, SeatClass, SiteFacts};
+use crate::agents::ResumeStatus;
 use crate::agents::{Adapter, Candidate, Composition, Lowering, Uncarried};
 use crate::agents::{McpAxis, McpHands, McpHost, McpInvocation, McpShape, McpUnmeasured};
 use crate::capabilities::{
@@ -51,16 +52,25 @@ const HOST: McpHost = McpHost::Macos;
 const HOST: McpHost = McpHost::Linux;
 
 impl McpFence {
-    /// The fence every load stands under (SC5): standing, `Authority::load`
-    /// refuses every `mcp` grant and a serving's SI2 record is kept but
-    /// never refused. Only U9b lifts it, and before then only a test does,
-    /// on its own thread ([`Lift`]); there is no runtime knob.
-    #[cfg(not(test))]
+    /// The fence every load stands under (SC5), by host and never by a
+    /// knob. U9b1 lifts it on Linux, where the namespace path is proved:
+    /// an `mcp` grant loads and a serving's SI2 cause refuses. On macOS it
+    /// stands until boxing exists there (operator ruling 1 of 2026-10-18):
+    /// `Authority::load` refuses every `mcp` grant and a serving's SI2
+    /// record is kept but never refused.
+    #[cfg(all(not(test), target_os = "linux"))]
+    pub(crate) fn current() -> McpFence {
+        McpFence::Lifted
+    }
+
+    /// [`McpFence::current`] off Linux: standing.
+    #[cfg(all(not(test), not(target_os = "linux")))]
     pub(crate) fn current() -> McpFence {
         McpFence::Standing
     }
 
-    /// The fence on this thread: standing unless a [`Lift`] is held.
+    /// The fence on this thread: standing, as macOS's, unless a [`Lift`]
+    /// is held, as Linux's.
     #[cfg(test)]
     pub(crate) fn current() -> McpFence {
         FENCE.get()
@@ -77,10 +87,11 @@ impl McpFence {
     /// A serving's first SI2 cause, which refuses only past the fence.
     fn admit(self, cause: Option<StrictCause>) -> Result<(), StrictCause> {
         match (self, cause) {
+            #[cfg(any(test, not(target_os = "linux")))]
             (McpFence::Standing, _) => Ok(()),
-            #[cfg(test)]
+            #[cfg(any(test, target_os = "linux"))]
             (McpFence::Lifted, None) => Ok(()),
-            #[cfg(test)]
+            #[cfg(any(test, target_os = "linux"))]
             (McpFence::Lifted, Some(cause)) => Err(cause),
         }
     }
@@ -107,8 +118,10 @@ impl Drop for Lift {
 /// ambient exclusion its adapter measures there, read by the adapter's own
 /// isolation reader and never from a name. Every serving is served cold; a
 /// work site, which may be offered a rejoin, also as the cold replacement
-/// and as each resume shape its adapter declares under the same hands,
-/// while a gate is never offered one. The hands are the intended set's: the
+/// and as each resume shape its adapter declares `supported` under the
+/// same hands, while a gate is never offered one. An `unmeasured` or
+/// `unsupported` resume is never performed, so it is no served shape
+/// (operator ruling (2) of 2026-10-28). The hands are the intended set's: the
 /// box's where it holds the hands server, the harness's own sandbox where
 /// `harnessed` hands were composed, and none otherwise. Exec's set, which
 /// serves no model, and a candidate that composed nothing have no shape.
@@ -129,7 +142,9 @@ fn strictness(
         SeatClass::Work => {
             invocations.push(McpInvocation::Replacement);
             let declared = adapter.into_iter().flat_map(|adapter| &adapter.resume.0);
-            let declared = declared.filter(|(_, shape)| shape.hands == hands.word());
+            let declared = declared.filter(|(_, shape)| {
+                shape.status == ResumeStatus::Supported && shape.hands == hands.word()
+            });
             invocations.extend(declared.map(|(name, _)| McpInvocation::Resume(name.clone())));
         }
         SeatClass::Gate => {}
@@ -605,9 +620,9 @@ pub(super) fn inline_capabilities(
         fragment: inline.hands,
         provenance: &provenance,
         written: inline.argv,
-        // An inline site carries no adapter's authentication names
-        // (operator ruling of 2026-10-16).
-        auth: &[],
+        // The names its own driver's adapter reads to authenticate, as a
+        // candidate's are (MB4; U7d3 L3): none for an opaque command.
+        auth: auth(adapters, harness),
     };
     // Inline hands are boxed or none: the hands law refuses an inline model
     // harness's hands unboxed (decision 0046 ruling 4).

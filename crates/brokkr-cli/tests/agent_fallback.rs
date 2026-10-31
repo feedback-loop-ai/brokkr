@@ -160,15 +160,17 @@ impl Workspace {
         json!({
             "results": ["clean"],
             "role": "roles/work.md",
-            "driver": {"command": [
-                brokkr_bin(), "fake-driver",
-                "--script", self.path().join("script.json").to_string_lossy(),
-                "--state", self.path().join("state").to_string_lossy(),
-            ]},
+            "driver": crate::fake_office::inline(
+                self.path(),
+                &self.path().join("script.json"),
+                &self.path().join("state"),
+            ),
         })
     }
 
+    /// The fixture's run, every fixture adapter measured first (U9b1).
     fn run(&self) -> String {
+        crate::fake_office::measure_all(self.path());
         crate::engine::run_in(self.path(), "fallback", &self.db()).0
     }
 
@@ -608,12 +610,8 @@ fn a_sequence_step_that_never_accepts_advances_its_own_chain_index() {
             "limits": {"max_attempts": 2, "timeout_seconds": 60},
             "sequence": [
                 {"name": "think", "results": ["complete", "broken"], "agent": "thinker"},
-                {"name": "echo", "role": "roles/work.md",
-                 "driver": {"command": [
-                     brokkr_bin(), "fake-driver",
-                     "--script", ws.path().join("script.json").to_string_lossy(),
-                     "--state", ws.path().join("state").to_string_lossy(),
-                 ]}},
+                {"name": "echo", "role": "roles/work.md", "driver": crate::fake_office::inline(
+                    ws.path(), &ws.path().join("script.json"), &ws.path().join("state"))},
             ],
         },
         "review": ws.inline_review(),

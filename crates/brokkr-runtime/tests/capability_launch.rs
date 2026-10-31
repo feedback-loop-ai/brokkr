@@ -209,7 +209,7 @@ impl Operator {
         }
         let mut seats = json!({"inline": inline, "agent": agent, "chain": chain,
             "review": {"results": ["clean"], "role": "roles/role.md",
-                       "driver": {"command": ["driver"]}}});
+                       "driver": {"command": redrive::exec()}}});
         // Under `harness` an inline model site with hands is refused, and a
         // Claude link declares no writable harness fragment: both are
         // decision 0046's law, not this one's, so the unboxed matrix keeps
@@ -217,7 +217,7 @@ impl Operator {
         // custom driver in the other two phases.
         if !boundary.is_boxed() {
             let plain = json!({"results": ["complete"], "role": "roles/role.md",
-                               "driver": {"command": ["driver"]}});
+                               "driver": {"command": redrive::exec()}});
             boxed = plain.clone();
             seats["chain"] = plain;
         }
@@ -1019,7 +1019,7 @@ fn a_compiled_inline_codex_panel_member_with_hands_passes_the_final_check_as_an_
                                            "--model", "gpt-6-astra", "--effort", "high"]}},
                 "agent": {"agent": "searcher"}}},
             "review": {"results": ["clean"], "role": "roles/role.md",
-                       "driver": {"command": ["driver"]}}}}),
+                       "driver": {"command": redrive::exec()}}}}),
     );
     let bundle = Bundle::compile_with_capabilities(
         &operator.root().join("bundle"),
@@ -1300,14 +1300,7 @@ fn a_compiled_direct_allow_list_reaches_the_record_as_exact_local_limits() {
         }),
     );
     one_inline_seat(&operator, &["driver"]);
-    write(
-        operator.root(),
-        "solo/bundle.json",
-        &json!({"name": "solo", "policy": "policy.json", "seats": {
-            "work": {"results": ["complete"], "agent": "limited"},
-            "review": {"results": ["clean"], "role": "roles/role.md",
-                       "driver": {"command": ["driver"]}}}}),
-    );
+    solo_agent(&operator, "limited");
     let bundle = solo_bundle(
         &operator,
         &workspace().join("adapters"),
@@ -1376,14 +1369,7 @@ fn a_compiled_direct_allow_list_reaches_the_record_as_exact_local_limits() {
 fn an_agent_backed_seat_records_the_permission_template_its_adapter_declares() {
     let operator = Operator::new();
     one_inline_seat(&operator, &["driver"]);
-    write(
-        operator.root(),
-        "solo/bundle.json",
-        &json!({"name": "solo", "policy": "policy.json", "seats": {
-            "work": {"results": ["complete"], "agent": "plain"},
-            "review": {"results": ["clean"], "role": "roles/role.md",
-                       "driver": {"command": ["driver"]}}}}),
-    );
+    solo_agent(&operator, "plain");
     let context = CapabilityContext::no_grants("private", operator.root());
     let adapters = copied_adapters();
     let root = std::fs::canonicalize(adapters.path()).unwrap();
@@ -1500,13 +1486,19 @@ fn agent_backed_solo(operator: &Operator, effort: &str) {
         }),
     );
     one_inline_seat(operator, &["driver"]);
+    solo_agent(operator, "plain");
+}
+
+/// The solo bundle's work seat hiring `agent`, under a bare review gate
+/// the engine's exec driver drives (U9b1; `redrive::exec`).
+fn solo_agent(operator: &Operator, agent: &str) {
     write(
         operator.root(),
         "solo/bundle.json",
         &json!({"name": "solo", "policy": "policy.json", "seats": {
-            "work": {"results": ["complete"], "agent": "plain"},
+            "work": {"results": ["complete"], "agent": agent},
             "review": {"results": ["clean"], "role": "roles/role.md",
-                       "driver": {"command": ["driver"]}}}}),
+                       "driver": {"command": redrive::exec()}}}}),
     );
 }
 
@@ -5037,7 +5029,7 @@ fn an_ungranted_requirement_refuses_compilation_at_every_site_form() {
          its office does not ask for; a seat may subtract from its office's asks and never add \
          to them"
     );
-    // An MCP grant refuses the whole compile, asked for or not.
+    // Standing (macOS), an MCP grant refuses the whole compile, asked for or not.
     write(
         operator.root(),
         "capabilities/library-docs.json",
@@ -5052,19 +5044,17 @@ fn an_ungranted_requirement_refuses_compilation_at_every_site_form() {
                 "secrets": [], "tools": ["read"],
                 "sends": {"description": "a library name", "seat_composed": true}}),
     );
-    assert_eq!(
-        operator
-            .compile(
-                &operator.context(json!({"library-docs": {"dialect": "docs-mcp", "offices": []}})),
-                Boundary::Namespace,
-                None,
-                None
-            )
-            .unwrap_err(),
-        "bundle: realm 'private' grants capability 'library-docs' through dialect \
+    let docs = operator.context(json!({"library-docs": {"dialect": "docs-mcp", "offices": []}}));
+    let compiled = operator.compile(&docs, Boundary::Namespace, None, None);
+    let standing = "bundle: realm 'private' grants capability 'library-docs' through dialect \
          'docs-mcp' of kind 'mcp', whose broker support is not implemented until decision 0065 \
-         slice two"
-    );
+         slice two";
+    // Past the fence, lifted on Linux (U9b1), the grant no seat asks loads.
+    let expected = match cfg!(target_os = "linux") {
+        true => Ok("launch".to_string()),
+        false => Err(standing.to_string()),
+    };
+    assert_eq!(compiled.map(|bundle| bundle.name), expected);
 }
 
 /// Ruling 8: the grant is part of the bundle's identity. Identical inputs
@@ -5987,7 +5977,7 @@ fn a_panel_member_and_a_sequence_step_resolve_under_their_own_labels() {
                 "judges": judges,
                 "steps": {"results": ["complete"], "sequence": [one, two]},
                 "review": {"results": ["clean"], "role": "roles/role.md",
-                           "driver": {"command": ["driver"]}}}}),
+                           "driver": {"command": redrive::exec()}}}}),
         );
         Bundle::compile_with_capabilities(
             &operator.root().join("bundle"),
@@ -6110,7 +6100,7 @@ fn an_office_is_inherited_subset_and_emptied_the_same_way_in_every_body() {
                 "cases": {"engine": scholar(None)},
                 "default": scholar(Some(search_only.clone()))}},
             "review": {"results": ["clean"], "role": "roles/role.md",
-                       "driver": {"command": ["driver"]}},
+                       "driver": {"command": redrive::exec()}},
         })
     };
     let compile_typed = |recipe: &str, offices: Option<Value>| {
@@ -6293,7 +6283,7 @@ fn one_inline_seat(operator: &Operator, command: &[&str]) {
             "work": {"results": ["complete"], "role": "roles/role.md",
                      "driver": {"command": command}},
             "review": {"results": ["clean"], "role": "roles/role.md",
-                       "driver": {"command": ["driver"]}}}}),
+                       "driver": {"command": redrive::exec()}}}}),
     );
 }
 
@@ -6695,14 +6685,14 @@ fn an_authored_capability_server_refuses_the_compile_and_the_engines_hands_still
             {"name": "first", "aggregate": "unanimous-pass", "panel": {
                 "member": {"role": "roles/role.md", "driver": {"command": codex(&[
                     "-c", "mcp_servers.ungranted.command=\"npx\""])}},
-                "peer": {"role": "roles/role.md", "driver": {"command": ["driver"]}}}},
-            {"name": "second", "role": "roles/role.md", "driver": {"command": ["driver"]}}]}),
+                "peer": {"role": "roles/role.md", "driver": {"command": redrive::exec()}}}},
+            {"name": "second", "role": "roles/role.md", "driver": {"command": redrive::exec()}}]}),
             "work:first:member",
         ),
         (
             json!({"results": ["complete"], "sequence": [
             {"name": "before", "results": ["drafted"], "role": "roles/role.md",
-             "driver": {"command": ["driver"]}},
+             "driver": {"command": redrive::exec()}},
             {"name": "step", "role": "roles/role.md", "driver": {"command": codex(&[
                 "-c", "mcp_servers.ungranted.command=\"npx\""])}}]}),
             "work:step",
@@ -7383,14 +7373,7 @@ fn a_narrowed_grant_admits_its_subset_and_a_template_limit_is_never_widened() {
         ])
     );
     // R3: an agent-backed seat, typed allow [ls], behind a template limit.
-    write(
-        operator.root(),
-        "solo/bundle.json",
-        &json!({"name": "solo", "policy": "policy.json", "seats": {
-            "work": {"results": ["complete"], "agent": "templated"},
-            "review": {"results": ["clean"], "role": "roles/role.md",
-                       "driver": {"command": ["driver"]}}}}),
-    );
+    solo_agent(&operator, "templated");
     let copied = copied_adapters();
     let limited = copied.path().to_path_buf();
     let templated = |limit: &str, strength: &str| {
@@ -7531,17 +7514,10 @@ fn every_chief_reproduction_composes_inside_the_holdings_and_every_limit() {
     );
     // R2: an agent seat with hands under `harness`, whose Claude adapter
     // appends a managed `--tools Read,Bash` for a work seat.
-    write(
-        operator.root(),
-        "solo/bundle.json",
-        &json!({"name": "solo", "policy": "policy.json", "seats": {
-            "work": {"results": ["complete"], "agent": "handed"},
-            "review": {"results": ["clean"], "role": "roles/role.md",
-                       "driver": {"command": ["driver"]}}}}),
-    );
+    solo_agent(&operator, "handed");
     let managed = copied_adapters();
     edit_adapter(managed.path(), "claude", |adapter| {
-        adapter["hands"]["harness"] = json!({"work": ["--tools", "Read,Bash"]});
+        redrive::harness(adapter, json!({"work": ["--tools", "Read,Bash"]}));
     });
     let handed = |strength: &str| {
         write(
@@ -7566,15 +7542,15 @@ fn every_chief_reproduction_composes_inside_the_holdings_and_every_limit() {
          'web-fetch'; an explicit tool list is a hard limit that nothing widens, so the conflict \
          is refused whole rather than unioned (design D6)"
     );
-    // U1g2: hands under `harness` intend the empty set, whose shape no
-    // shipped Claude evidence measures, so it is served as before.
+    // U1g2: hands under `harness` intend the empty set, whose shape
+    // `redrive`'s synthetic facts measure on this host (U9b1).
     let wants = launched_with(
         &[
             &["--permission-mode", "acceptEdits"],
             &["--model", "claude-opus-5-5", "--effort", "high"],
             &["--tools", "", "--disallowedTools", "WebFetch,WebSearch"],
         ],
-        &[],
+        &servers::EMPTY_SET,
     );
     assert_eq!(handed("wants"), wants);
     // The same launch checked whole, as rebuild unit 14 serves it: under
@@ -7699,23 +7675,12 @@ fn every_chief_reproduction_composes_inside_the_holdings_and_every_limit() {
 /// Since rebuild unit 14 the Claude driver runs the same check at its cold
 /// seam, so under `open` it is the driver that refuses.
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
-)]
 fn an_empty_harness_fragment_is_the_hands_under_harness_and_refused_under_open() {
     use brokkr_protocol::native_controls::{SealedServing, SERVING_INPUTS};
     let operator = Operator::new();
     let nothing = operator.context(json!({}));
     one_inline_seat(&operator, &["driver"]);
-    write(
-        operator.root(),
-        "solo/bundle.json",
-        &json!({"name": "solo", "policy": "policy.json", "seats": {
-            "work": {"results": ["complete"], "agent": "handed"},
-            "review": {"results": ["clean"], "role": "roles/role.md",
-                       "driver": {"command": ["driver"]}}}}),
-    );
+    solo_agent(&operator, "handed");
     write(
         operator.root(),
         "agents/handed.json",
@@ -7729,7 +7694,7 @@ fn an_empty_harness_fragment_is_the_hands_under_harness_and_refused_under_open()
     );
     let adapters = copied_adapters();
     edit_adapter(adapters.path(), "claude", |adapter| {
-        adapter["hands"]["harness"] = json!({"work": []});
+        redrive::harness(adapter, json!({"work": []}));
     });
     let checked = |boundary: Boundary| {
         let bundle = Bundle::compile_with_capabilities(
@@ -7776,26 +7741,13 @@ fn an_empty_harness_fragment_is_the_hands_under_harness_and_refused_under_open()
     };
     let (stands, harness) = checked(Boundary::Harness);
     assert_eq!(stands, json!({"kind": "harness"}));
-    assert_eq!(
-        harness,
-        Ok([
-            "claude",
-            "-p",
-            "--output-format",
-            "stream-json",
-            "--verbose",
-            "--permission-mode",
-            "acceptEdits",
-            "--model",
-            "claude-opus-5-5",
-            "--effort",
-            "high",
-            "--disallowedTools",
-            "WebFetch,WebSearch",
-        ]
-        .map(String::from)
-        .to_vec())
-    );
+    let parts: [&[&str]; 3] = [
+        &["--permission-mode", "acceptEdits"],
+        &["--model", "claude-opus-5-5", "--effort", "high"],
+        &["--disallowedTools", "WebFetch,WebSearch"],
+    ];
+    let launched = harness.map(|argv| format!("launched {argv:?}"));
+    assert_eq!(launched, Ok(launched_with(&parts, &servers::EMPTY_SET)));
     let (stands, open) = checked(Boundary::Open);
     assert_eq!(stands, json!({"kind": "open"}));
     assert_eq!(
@@ -7839,7 +7791,7 @@ fn every_position_reproduction_refuses_by_provenance_and_typed_origins_launch() 
             &json!({"name": "solo", "policy": "policy.json", "seats": {
                 "work": {"results": ["complete"], "agent": office},
                 "review": {"results": ["clean"], "role": "roles/role.md",
-                           "driver": {"command": ["driver"]}}}}),
+                           "driver": {"command": redrive::exec()}}}}),
         );
     };
     let refused = |office: &str, cause: &str| {
@@ -7871,7 +7823,7 @@ fn every_position_reproduction_refuses_by_provenance_and_typed_origins_launch() 
         );
         let adapters = copied_adapters();
         edit_adapter(adapters.path(), "claude", |adapter| {
-            adapter["hands"]["harness"] = json!({"work": fragment});
+            redrive::harness(adapter, json!({"work": fragment}));
         });
         solo_sealed(&operator, adapters.path(), context)
     };
@@ -8013,14 +7965,7 @@ fn a_compiled_conflict_is_refused_in_bounded_identities() {
     const SENTINEL: &str = "REVIEW_SENTINEL";
     let operator = Operator::new();
     one_inline_seat(&operator, &["driver"]);
-    write(
-        operator.root(),
-        "solo/bundle.json",
-        &json!({"name": "solo", "policy": "policy.json", "seats": {
-            "work": {"results": ["complete"], "agent": "bounded"},
-            "review": {"results": ["clean"], "role": "roles/role.md",
-                       "driver": {"command": ["driver"]}}}}),
-    );
+    solo_agent(&operator, "bounded");
     // One realm-granted entry serving `capability` with `tool`, whose ON
     // allows `on`, required by the office under the template's `template`.
     let compiled = |capability: &str, tool: &str, on: &str, template: &[&str]| {
@@ -8123,14 +8068,7 @@ fn a_compiled_conflict_is_refused_in_bounded_identities() {
 fn a_composed_capability_refusal_renders_as_one_bounded_line() {
     let operator = Operator::new();
     one_inline_seat(&operator, &["driver"]);
-    write(
-        operator.root(),
-        "solo/bundle.json",
-        &json!({"name": "solo", "policy": "policy.json", "seats": {
-            "work": {"results": ["complete"], "agent": "bounded"},
-            "review": {"results": ["clean"], "role": "roles/role.md",
-                       "driver": {"command": ["driver"]}}}}),
-    );
+    solo_agent(&operator, "bounded");
     write(
         operator.root(),
         "derived/bundle.json",
@@ -9394,14 +9332,7 @@ fn a_compiled_unmeasured_site_carries_its_typed_hands_into_its_compose() {
                 "models": ["opus-tallied"], "efforts": {"opus-tallied": "high"},
                 "hands": {"kind": "workspace", "network": false, "binds": []}}),
     );
-    write(
-        operator.root(),
-        "solo/bundle.json",
-        &json!({"name": "solo", "policy": "policy.json", "seats": {
-            "work": {"results": ["complete"], "agent": "handed-tally"},
-            "review": {"results": ["clean"], "role": "roles/role.md",
-                       "driver": {"command": ["driver"]}}}}),
-    );
+    solo_agent(&operator, "handed-tally");
     let compiled = |fragment: &[&str]| {
         let adapters = copied_adapters();
         edit_adapter(adapters.path(), "lanetally", |adapter| {
@@ -10601,7 +10532,7 @@ fn one_shape(
     // The protected review gate every layered policy keeps, on a plain
     // custom driver that composes nothing.
     let review = json!({"results": ["clean"], "role": "roles/x.md",
-                        "driver": {"command": ["driver"]}});
+                        "driver": {"command": redrive::exec()}});
     for layer in ["shape", "shape-base"] {
         std::fs::create_dir_all(root.join(layer).join("roles")).unwrap();
         std::fs::write(root.join(layer).join("roles/x.md"), charters::titled("x")).unwrap();

@@ -25,10 +25,12 @@ fn bundle_dir(dir: &std::path::Path) -> std::path::PathBuf {
     std::fs::create_dir_all(bundle.join("roles")).unwrap();
     std::fs::write(bundle.join("policy.json"), POLICY).unwrap();
     std::fs::write(bundle.join("roles/role.md"), "# role\n").unwrap();
+    // Never spawned: each test parks first. The exec driver serves no
+    // model, so SI2 past the lifted fence does not judge it (U9b1).
     let seat = json!({
         "role": "roles/role.md",
         "results": ["resolved"],
-        "driver": {"command": ["false"]},
+        "driver": {"command": ["{brokkr}", "driver", "exec", "--", "false"]},
     });
     let mut review_seat = seat.clone();
     review_seat["results"] = json!(["clean"]);

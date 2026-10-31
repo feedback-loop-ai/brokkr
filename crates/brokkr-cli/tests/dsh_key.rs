@@ -270,9 +270,9 @@ fn an_inline_dsh_seat_leaves_the_agent_seats_home_standing() {
 }
 
 /// A seat whose model rides a route no engine-only home was measured on is
-/// served from the operator's home while the fence stands, so every layer
-/// that home reads is asked, in dsh's order, beside the seats an
-/// engine-only home serves.
+/// served from the operator's home while the fence stands (macOS), so every
+/// layer that home reads is asked, in dsh's order, beside the seats an
+/// engine-only home serves; past it (Linux) the route refuses its seats.
 #[test]
 fn a_seat_on_an_unmeasured_route_is_served_from_the_operators_home() {
     let host = DshHost::new();
@@ -298,6 +298,17 @@ fn a_seat_on_an_unmeasured_route_is_served_from_the_operators_home() {
         format!("ok       {REACHED}"),
         format!("ok       {}", engine("deepseek-official", "implement")),
     ];
+    // Past the fence, lifted on Linux (U9b1), no seat is served from the
+    // operator's home: the unqualified route refuses its seats, and no key
+    // is asked for them.
+    if cfg!(target_os = "linux") {
+        let refused = "MISSING  dsh home spark: Brokkr refuses to launch seats [intake] on this \
+                       route: provider 'dsh' has no measured strict MCP configuration on route \
+                       'spark'";
+        let expected = [&implement[..], &[refused.to_string()]].concat();
+        assert_eq!(host.doctor(Some(PLANTED)), (expected, Some(1)));
+        return;
+    }
     let spark = |key: String| [key, operator.clone()];
     let unreached = format!(
         "MISSING  dsh key spark: {}",

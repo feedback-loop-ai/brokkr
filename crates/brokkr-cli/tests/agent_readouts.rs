@@ -131,11 +131,11 @@ impl Workspace {
                     "review": {
                         "results": ["clean"],
                         "role": "roles/work.md",
-                        "driver": {"command": [
-                            brokkr_bin(), "fake-driver",
-                            "--script", ws.path().join("script.json").to_string_lossy(),
-                            "--state", ws.path().join("state").to_string_lossy(),
-                        ]},
+                        "driver": crate::fake_office::inline(
+                            ws.path(),
+                            &ws.path().join("script.json"),
+                            &ws.path().join("state"),
+                        ),
                     },
                 },
             }),
@@ -159,7 +159,9 @@ impl Workspace {
         .unwrap();
     }
 
+    /// `brokkr <args>`, every fixture adapter measured first (U9b1).
     fn brokkr(&self, args: &[&str]) -> (String, String) {
+        crate::fake_office::measure_all(self.path());
         crate::engine::printed_in(self.path(), args)
     }
 

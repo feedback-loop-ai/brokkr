@@ -36,12 +36,14 @@ fn fixture() -> Workspace {
     config["seats"]["review"] = config["seats"]["design"].clone();
     config["seats"]["review"]["results"] = json!(["clean", "residual", "security-hold"]);
     config["seats"].as_object_mut().unwrap().remove("triage");
-    std::fs::write(ws.path().join("adapters/judge.json"),json!({
+    std::fs::write(ws.path().join("adapters/judge.json"),crate::fake_office::measured(json!({
         "provider":"judge","binary":"judge","driver":["{brokkr}","driver","judge","--"],
         "trust_tier":"trusted","egress":"contracted","models":{"judge":"judge-1"},"judges":["judge"],
         "model_flag":"--model","efforts":[],"effort_flag":"unsupported",
-        "tool_permissions":"unsupported","mcp":"unsupported"
-    }).to_string()).unwrap();
+        "tool_permissions":"unsupported"
+    })).to_string()).unwrap();
+    let fake =
+        crate::fake_office::fake_driver(&ws.path().join("script.json"), &ws.path().join("state"));
     // A synthetic trusted provider delegates the protocol to the fake driver.
     let wrapper = ws.path().join("judge");
     std::fs::write(
@@ -54,9 +56,7 @@ fn fixture() -> Workspace {
     .unwrap();
     std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
     for phase in ["verify", "review", "ship"] {
-        let command = config["seats"][phase]["driver"]["command"]
-            .as_array()
-            .unwrap();
+        let command = fake.as_array().unwrap();
         let mut gate = vec![
             json!(wrapper),
             json!("driver"),
@@ -65,8 +65,11 @@ fn fixture() -> Workspace {
             json!("judge-1"),
         ];
         gate.extend(command[2..].iter().cloned());
-        config["seats"][phase]["driver"]["command"] = json!(gate);
-        config["seats"][phase]["class"] = json!("gate");
+        let seat = config["seats"][phase].as_object_mut().unwrap();
+        seat.remove("agent");
+        seat.insert("role".into(), json!("roles/role.md"));
+        seat.insert("driver".into(), json!({"command": gate}));
+        seat.insert("class".into(), json!("gate"));
     }
     work_driver(&ws, &mut config);
     std::fs::write(bundle_path, config.to_string()).unwrap();
@@ -336,12 +339,12 @@ fn work_driver(ws: &Workspace, config: &mut Value) {
         "#!/bin/sh\ngit -c commit.gpgsign=false commit -q --allow-empty -m 'synthetic implementation' >&2\nexec '{}' fake-driver \"$@\"\n",
         brokkr_bin())).unwrap();
     std::fs::set_permissions(&work_driver, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let old = config["seats"]["implement"]["driver"]["command"]
-        .as_array()
-        .unwrap();
+    let fake =
+        crate::fake_office::fake_driver(&ws.path().join("script.json"), &ws.path().join("state"));
     let mut work = vec![json!(work_driver)];
-    work.extend(old[2..].iter().cloned());
-    config["seats"]["implement"]["driver"]["command"] = json!(work);
+    work.extend(fake.as_array().unwrap()[2..].iter().cloned());
+    crate::fake_office::hire_driver(ws.path(), ["work-office", "work"], json!(work));
+    config["seats"]["implement"]["agent"] = json!("work-office");
 }
 
 fn landing_fixture() -> Workspace {

@@ -185,9 +185,11 @@ pub(crate) fn reap_bundle(tmp: &Path) -> PathBuf {
                  {"id":"R","from":"review","result":"clean","next":"done","reason":"done"}]}"#;
     std::fs::write(bundle.join("policy.json"), policy).unwrap();
     std::fs::write(bundle.join("role.md"), "# seat\n").unwrap();
+    // The exec driver's `false`: a failing seat with no model surface,
+    // which SI2 does not judge past the lifted fence (U9b1).
     let seat = |result: &str| {
         format!(
-            r#"{{"results":["{result}"],"role":"role.md","driver":{{"command":["/bin/false"]}}}}"#
+            r#"{{"results":["{result}"],"role":"role.md","driver":{{"command":["{{brokkr}}","driver","exec","--","/bin/false"]}}}}"#
         )
     };
     let seats = format!(

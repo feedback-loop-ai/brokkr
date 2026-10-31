@@ -25,6 +25,7 @@ use brokkr_protocol::hands::{ServerBox, SERVER_RESOLVER};
 
 use super::*;
 use crate::engine::broker::inventory::Writing;
+use crate::engine::broker::sources::records_kept;
 use crate::engine::broker::sources::{extended, extended_with, fixed, fixed_with, kept};
 use crate::engine::broker::sources::{launchers, surveying, Unroutable, HOPS_MAX, SYSTEM_ROOTS};
 use crate::engine::broker::sources::{launches, launches_with, read, routed, Served};
@@ -165,21 +166,6 @@ fn serving(host: &Host, worktree: &Path, ids: [&str; 2], package: &Path) -> Held
     let held = host.admit(&writing(worktree, ids, &[worktree])).unwrap();
     assert_eq!(extend(&held, inputs(host, package)), Ok(Commit::Synced));
     held
-}
-
-/// MB3's refusal of the site `site` of the run `run` able to write
-/// `served`.
-fn exposing(site: &str, run: &str, served: &Path) -> Unknown {
-    Unknown::Serving {
-        site: site.into(),
-        run: run.into(),
-        served: served.to_path_buf(),
-    }
-}
-
-/// [`exposing`], as admission refuses with it.
-fn exposed(site: &str, run: &str, served: &Path) -> Result<Held, Unadmitted> {
-    mb3(exposing(site, run, served))
 }
 
 /// The three kinds of source every case is proved for: a program source,
@@ -362,7 +348,11 @@ fn a_writer_reaching_an_operating_system_root_is_refused_before_the_survey() {
     let held = host.admit(&writing(&a, ["run-a", "a1"], &[&a])).unwrap();
     assert_eq!(extend(&held, fixed(&boot)), Ok(Commit::Synced));
     for (index, writable) in writers.iter().enumerate() {
-        let named = first_root(writable, &binds).unwrap();
+        // `/` holds the coordination root too, which the door names first.
+        let named = match writable.parent() {
+            None => host.root(),
+            Some(_) => first_root(writable, &binds).unwrap(),
+        };
         let incoming = writing(&b, ["run-b", &format!("b{index}")], &[&b, writable]);
         assert_eq!(
             host.admit(&incoming),
@@ -467,7 +457,7 @@ fn every_link_on_an_inputs_route_is_reserved() {
     let compared = kept(
         [("run-b", &Writing::from(&writer))],
         &expected,
-        shown,
+        &host.root,
         &budget,
     );
     assert_eq!(compared, Err(exposing("work", "run-b", &missing)));
@@ -603,7 +593,7 @@ fn a_bind_of_the_directory_a_link_lies_in_is_refused() {
         let compared = kept(
             [("run-b", &Writing::from(&writer))],
             &serves,
-            shown,
+            &host.root,
             &Budget::new(soon()),
         );
         let expected = refused.then(|| exposing("work", "run-b", &links.join("server")));
@@ -728,18 +718,21 @@ fn pair(host: &Host, index: usize) -> (PathBuf, PathBuf) {
     (named("a"), named("b"))
 }
 
-/// Writer first: a zero-grant run on `b` whose box could also write
-/// `writable`, standing, then an attempt on `a` admitted and its lease
-/// extended to `serves`: how the extension committed, or why it was
-/// refused, its reservation then left byte for byte as it stood; both
-/// settled after.
+/// Writer first: a zero-grant run on `b` standing, its record planted as a box
+/// that could also write `writable` (the door keeps one that reaches the
+/// coordination root from being admitted at all), then an attempt on `a`
+/// admitted and its lease extended to `serves`: how the extension committed,
+/// or why it was refused, its reservation then left byte for byte as it stood;
+/// both settled after.
 fn writer_first(
     host: &Host,
     (a, b): (PathBuf, PathBuf),
     writable: &Path,
     serves: Vec<Served>,
 ) -> Result<Commit, Unadmitted> {
-    let standing = host.admit(&writing(&b, ["run-b", "w"], &[&b, writable]));
+    let standing = host.admit(&writing(&b, ["run-b", "w"], &[&b]));
+    let reach = vec![boxed("work", &[&b, writable])];
+    planted_writers(host, &b, ["run-b", "w"], reach);
     let held = host.admit(&writing(&a, ["run-a", "w"], &[&a])).unwrap();
     let sealed = std::fs::read(host.reservation(&a, "run-a")).unwrap();
     let extension = extend(&held, serves);
@@ -871,7 +864,7 @@ fn a_mount_table_that_proves_nothing_keeps_no_writer() {
         kept(
             [("run-b", &Writing::from(&writer))],
             &serves,
-            shown,
+            &host.root,
             &Budget::new(soon()),
         )
     };
@@ -908,7 +901,7 @@ fn a_mount_table_that_proves_nothing_keeps_no_writer() {
         kept(
             [("run-b", &Writing::from(&writer))],
             &entries,
-            shown,
+            &host.root,
             &Budget::new(soon())
         ),
         refused
@@ -1206,6 +1199,12 @@ pub(in crate::engine) fn leased(engine: &mut Engine, home: &Path, attempt: &str)
     engine.held = Some(admit(&root, &claim, soon()).unwrap());
 }
 
+/// `engine`'s lease ([`leased`]) as one admitted with evidence at stake,
+/// whose settlement the fence rule fails on a refusal.
+pub(in crate::engine) fn staked(engine: &mut Engine) {
+    engine.held.as_mut().expect("a lease").staked = true;
+}
+
 /// The next seal on this thread commits, but its last directory sync
 /// fails, so it reports itself committed unsynced (L1).
 pub(in crate::engine) fn unsynced_next() {
@@ -1301,7 +1300,7 @@ fn an_extension_refuses_what_admission_refuses() {
     let compared = kept(
         [("run-a", &Writing::from(&writer))],
         &serves(),
-        shown,
+        &host.root,
         &spent,
     );
     assert_eq!(compared, Err(Unknown::Expired));
@@ -1512,7 +1511,7 @@ fn a_link_is_guarded_as_its_own_entry_not_as_what_it_names() {
         kept(
             [("run-b", &Writing::from(&writer))],
             &serves,
-            shown,
+            &host.root,
             &budget,
         )
         .err()
@@ -1525,4 +1524,270 @@ fn a_link_is_guarded_as_its_own_entry_not_as_what_it_names() {
     assert_eq!(compared(d), Some(exposing("work", "run-b", &link)));
     let bin = program.parent().unwrap();
     assert_eq!(compared(bin), Some(exposing("work", "run-b", &program)));
+}
+
+/// The chief's H1: a served lease depends on the reservations that hold it,
+/// whatever evidence is at stake. A zero-grant writer whose box reaches the
+/// coordination root, at it or above it, is refused beside a standing
+/// server, by MB3's identity cause naming the root, nothing of it sealed;
+/// one kept from the root is still admitted.
+#[test]
+fn a_writer_that_reaches_the_coordination_root_is_refused_beside_a_standing_server() {
+    let host = Host::new();
+    let (a, b, docs) = (host.worktree("a"), host.worktree("b"), package(&host));
+    let served = serving(&host, &a, ["run-a", "a1"], &docs);
+    let records = host.root();
+    for (attempt, reach) in [("b1", &records), ("b2", &host.home)] {
+        let incoming = writing(&b, ["run-b", attempt], &[&b, reach]);
+        assert_eq!(
+            host.admit(&incoming),
+            exposed("work", "run-b", &records),
+            "{reach:?}"
+        );
+    }
+    assert!(!host.reservation(&b, "run-b").exists());
+    let kept_apart = writing(&b, ["run-b", "b3"], &[&b]);
+    freed(&host.admit(&kept_apart).unwrap());
+    freed(&served);
+}
+
+/// H1 in the other order: a server's lease is not extended beside a standing
+/// record whose writer's box reaches the coordination root, by MB3's identity
+/// cause naming the root, the reservation unchanged; beside one kept from the
+/// root, it is. The record is planted, as no such writer is admitted now
+/// ([`a_boxed_writer_that_reaches_the_coordination_root_is_refused_on_every_run`]):
+/// one an earlier build sealed still stands in this order.
+#[test]
+fn a_server_is_refused_beside_a_standing_writer_that_reaches_the_coordination_root() {
+    let host = Host::new();
+    let (a, b, docs) = (host.worktree("a"), host.worktree("b"), package(&host));
+    let records = host.root();
+    let standing = host.admit(&writing(&b, ["run-b", "b1"], &[&b])).unwrap();
+    let reaching = vec![boxed("work", &[&b, &records])];
+    planted_writers(&host, &b, ["run-b", "b1"], reaching);
+    let held = host.admit(&writing(&a, ["run-a", "a1"], &[&a])).unwrap();
+    let before = std::fs::read(host.reservation(&a, "run-a")).unwrap();
+    assert_eq!(
+        extend(&held, inputs(&host, &docs)),
+        Err(exposing("work", "run-b", &records).into())
+    );
+    assert_eq!(
+        std::fs::read(host.reservation(&a, "run-a")).unwrap(),
+        before
+    );
+    let apart = vec![boxed("work", &[&b])];
+    planted_writers(&host, &b, ["run-b", "b1"], apart);
+    assert_eq!(extend(&held, inputs(&host, &docs)), Ok(Commit::Synced));
+    freed(&standing);
+    freed(&held);
+}
+
+/// The operator's ruling of 2026-10-30 on the chief's H2: with nothing served
+/// and nothing at stake, a boxed writer whose reach covers the coordination
+/// root, at it, above it, below it or through a link toward it, is refused by
+/// MB3's identity cause naming the root, nothing of it sealed; one apart is
+/// admitted.
+#[test]
+fn a_boxed_writer_that_reaches_the_coordination_root_is_refused_on_every_run() {
+    let host = Host::new();
+    let work = host.worktree("work");
+    let records = host.root();
+    let toward = host.dir.path().join("toward");
+    std::os::unix::fs::symlink(&records, &toward).unwrap();
+    for (attempt, reach) in [
+        ("w1", records.clone()),
+        ("w2", host.home.clone()),
+        ("w3", records.join("below")),
+        ("w4", toward),
+    ] {
+        let incoming = writing(&work, ["run-w", attempt], &[&work, &reach]);
+        assert_eq!(
+            host.admit(&incoming),
+            exposed("work", "run-w", &records),
+            "{reach:?}"
+        );
+    }
+    assert!(!host.reservation(&work, "run-w").exists());
+    freed(
+        &host
+            .admit(&writing(&work, ["run-w", "w5"], &[&work]))
+            .unwrap(),
+    );
+}
+
+/// The same refusal as the mount table alone shows it: a writer whose root is
+/// a bind of the coordination root's own directory, which neither its path nor
+/// its identity leads into, on a run with nothing at stake. Beside a table
+/// that does not prove where the root lies, a boxed writer is refused too.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_bind_of_the_coordination_root_is_refused_as_the_mount_table_shows_it() {
+    let host = Host::new();
+    let (work, alias) = (host.worktree("work"), host.worktree("alias"));
+    let records = host.root();
+    let incoming = writing(&work, ["run-w", "w1"], &[&work, &alias]);
+    let bound = Shown::with(&[(7, &records, &alias)]);
+    assert_eq!(host.admit(&incoming), exposed("work", "run-w", &records));
+    drop(bound);
+    let _torn = Shown::text("not a mount table\n".into());
+    assert_eq!(
+        host.admit(&incoming),
+        mb3(Unknown::Unmounted(records.clone()))
+    );
+    assert!(!host.reservation(&work, "run-w").exists());
+}
+
+/// H2's route, end to end. A record whose writers were cleared in place, the
+/// forgery the chief named, is taken as written, so a broker extends beside
+/// it: no check of the record can close this, and nothing here tries. The
+/// route is closed at the door instead: the boxed writer that would forge it
+/// is never admitted, with nothing served and nothing at stake, so no
+/// reservation of it stands to clear. A writer that reaches the root only
+/// beside a served lease is refused the same way, the lease's bytes kept.
+#[test]
+fn a_forged_record_has_no_boxed_writer_to_forge_it() {
+    let host = Host::new();
+    let (a, b, docs) = (host.worktree("a"), host.worktree("b"), package(&host));
+    let records = host.root();
+    let forger = writing(&b, ["run-b", "b1"], &[&b, &records]);
+    assert_eq!(host.admit(&forger), exposed("work", "run-b", &records));
+    assert!(!host.reservation(&b, "run-b").exists());
+    let planted = host.admit(&writing(&b, ["run-b", "b2"], &[&b])).unwrap();
+    planted_writers(&host, &b, ["run-b", "b2"], Vec::new());
+    let held = host.admit(&writing(&a, ["run-a", "a1"], &[&a])).unwrap();
+    assert_eq!(extend(&held, inputs(&host, &docs)), Ok(Commit::Synced));
+    let lease = std::fs::read(host.reservation(&a, "run-a")).unwrap();
+    let late = writing(&b, ["run-b", "b3"], &[&b, &records]);
+    assert_eq!(host.admit(&late), exposed("work", "run-b", &records));
+    assert_eq!(std::fs::read(host.reservation(&a, "run-a")).unwrap(), lease);
+    freed(&planted);
+    freed(&held);
+}
+
+/// A HOME in `host` under a group-writable parent, which [`Root::of`] will not
+/// open, as the 0775 case of
+/// [`the_root_resolves_from_home_only_where_every_ancestor_protects`] stands
+/// one: that parent, and the HOME.
+fn unprotected(host: &Host) -> (PathBuf, PathBuf) {
+    let group = host.dir.path().join("group");
+    let home = group.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::set_permissions(&group, std::fs::Permissions::from_mode(0o775)).unwrap();
+    std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(Root::of(&home), None, "the walk is not protected");
+    (group, home)
+}
+
+/// A boxed seat of `binds`, on a fresh engine: its directory, the engine, and
+/// the file its driver touches if it runs.
+fn seat_binding(binds: &[&Path]) -> (tempfile::TempDir, Engine, PathBuf) {
+    let (dir, mut engine) = engine(single_body(Vec::new()));
+    let ran = dir.path().join("ran");
+    let body = driver(&format!("touch '{}'", ran.display()));
+    engine.bundle.seats.get_mut("work").unwrap().body = single_body(body);
+    set_site_hands(&mut engine.bundle, "work", hands(binds));
+    engine.boundary = brokkr_core::realms::Boundary::Namespace;
+    (dir, engine, ran)
+}
+
+/// Whether the work seat's attempt is admitted under `home`, its root opened
+/// as production's resolution opens it.
+fn admitted_under(engine: &mut Engine, home: &Path) -> bool {
+    let seat = engine.bundle.seats["work"].clone();
+    let (body, _) = seat.body.selected(None).unwrap();
+    let root = || Root::of(home);
+    let ids = ["effect", "attempt", "work"];
+    let coordination: Coordination<'_> = (home.to_path_buf(), &root);
+    let selection = Selection::new();
+    let admitted = engine.admit_in(coordination, ids, body, &selection, soon());
+    admitted.unwrap()
+}
+
+/// The controller's ruling on the chief's H3: where the walk to the
+/// coordination root is not protected, a boxed writer whose bind covers that
+/// root, at it or above it, is refused by MB3's identity cause naming the
+/// root, journaled, holding no lease, and nothing of the root is made. A box
+/// beside the root under the same HOME, and a writer Brokkr cannot box,
+/// proceed holding no lease.
+#[test]
+fn a_boxed_writer_reaching_a_root_that_cannot_be_opened_is_refused() {
+    let host = Host::new();
+    let (_group, home) = unprotected(&host);
+    let records = coordination(&home);
+    let beside = home.join("work");
+    std::fs::create_dir(&beside).unwrap();
+    for reach in [&records, &home] {
+        let (_dir, mut seat, _) = seat_binding(&[reach]);
+        assert!(!admitted_under(&mut seat, &home), "{reach:?}");
+        let (event, payload) = last(&seat);
+        assert_eq!(event, EventType::EffectFailed, "{payload}");
+        let refused = Unadmitted::from(exposing("work", &seat.run_id, &records));
+        assert_eq!(payload["error"], refused.to_string());
+        assert_eq!(seat.held, None);
+        assert!(!home.join(".local").exists(), "nothing was made or sealed");
+    }
+    let (_dir, mut apart, _) = seat_binding(&[&beside]);
+    assert!(admitted_under(&mut apart, &home));
+    assert_eq!(apart.held, None);
+    let (_dir, mut unboxed, _) = seat_binding(&[&home]);
+    unboxed.boundary = brokkr_core::realms::Boundary::Open;
+    assert!(admitted_under(&mut unboxed, &home));
+    assert_eq!(unboxed.held, None);
+    assert!(!home.join(".local").exists(), "nothing was made or sealed");
+}
+
+/// The same refusal where the writer's reach cannot be proved: a mount table
+/// that does not prove where the unopened root lies. A writer Brokkr cannot
+/// box is compared with nothing, so it does not refuse that writer.
+#[test]
+fn a_boxed_writers_reach_of_an_unopened_root_that_cannot_be_proved_is_refused() {
+    let host = Host::new();
+    let work = host.worktree("work");
+    let records = coordination(&host.dir.path().join("never/home"));
+    let boxed_in = writing(&work, ["run-w", "w1"], &[&work]);
+    let budget = Budget::new(soon());
+    let keep = |claim: &Claim, root: &Path| records_kept(claim, root, shown, &budget);
+    assert_eq!(keep(&boxed_in, &records), Ok(()), "the table proves it");
+    let _torn = Shown::text("not a mount table\n".into());
+    let unproved = Unknown::Unmounted(records.clone());
+    assert_eq!(keep(&boxed_in, &records), Err(unproved));
+    assert_eq!(keep(&open(&work, ["run-w", "w2"]), &records), Ok(()));
+}
+
+/// H3's transition, each step's outcome exact. The walk not protected, the
+/// root-reaching writer is refused, so no such writer is live. The walk then
+/// repaired, as that writer could have done from inside its box: a later
+/// attempt opens the root, is admitted, and extends a broker's lease beside
+/// nothing unrecorded, and the same writer is now refused under the lock with
+/// the lease's bytes kept. Skipped with its reason where no location protects
+/// a HOME, as the repaired walk then opens nothing.
+#[test]
+fn a_root_reaching_writer_refused_unopened_leaves_a_later_broker_alone() {
+    let Some(host) = Host::resolving() else {
+        return;
+    };
+    let (group, home) = unprotected(&host);
+    let records = coordination(&home);
+    let (_dir, mut reaching, ran) = seat_binding(&[&home]);
+    assert!(!admitted_under(&mut reaching, &home));
+    let refused = Unadmitted::from(exposing("work", &reaching.run_id, &records));
+    assert_eq!(last(&reaching).1["error"], refused.to_string());
+    assert!(!ran.exists(), "no driver started");
+    std::fs::set_permissions(&group, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let root = Arc::new(Root::of(&home).expect("the walk is repaired"));
+    assert_eq!(root.path(), records);
+    let a = host.worktree("a");
+    let docs = package(&host);
+    let broker = writing(&a, ["run-a", "a1"], &[&a]);
+    let held = admit(&root, &broker, soon()).unwrap();
+    assert_eq!(extend(&held, inputs(&host, &docs)), Ok(Commit::Synced));
+    let lease = records.join(&broker.repo).join("run-a").join(RESERVATION);
+    let bytes = std::fs::read(&lease).unwrap();
+    let later = writing(&a, ["run-a", "a2"], &[&a, &home]);
+    assert_eq!(
+        admit(&root, &later, soon()),
+        exposed("work", "run-a", &records)
+    );
+    assert_eq!(std::fs::read(&lease).unwrap(), bytes);
+    freed(&held);
 }

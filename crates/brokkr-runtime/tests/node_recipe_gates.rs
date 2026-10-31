@@ -33,7 +33,8 @@ fn workspace() -> PathBuf {
 }
 
 /// An adapter as data, in the shape `Adapters::load` reads: a provider
-/// that declares a tier and nothing else it does not need.
+/// that declares a tier and nothing else it does not need, but the
+/// synthetic MCP facts it compiles by past the lifted fence (U9b1).
 fn adapter(name: &str, tier: &str) -> Value {
     let mut value = json!({
         "provider": name,
@@ -47,10 +48,9 @@ fn adapter(name: &str, tier: &str) -> Value {
         "efforts": ["high"],
         "effort_flag": "--effort",
         "tool_permissions": "unsupported",
-        "mcp": "unsupported",
     });
     value["models"][name] = json!("claude-fable-5-1");
-    value
+    crate::synthetic_mcp::measured(value)
 }
 
 /// A copy of `recipes/node` whose seats are driven by fixture providers.

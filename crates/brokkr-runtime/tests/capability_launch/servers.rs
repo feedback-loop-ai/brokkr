@@ -14,6 +14,15 @@ use super::*;
 /// the input carries none: the one that seals nothing (U8a2c).
 pub(super) static REACH: std::sync::LazyLock<Sealed> = std::sync::LazyLock::new(Sealed::default);
 
+/// The empty set's strict configuration a Claude launch gains where its
+/// shape is admitted, as its serving builds it: where `redrive`'s
+/// synthetic facts measure the shape on this host, on either host (U9b1).
+pub(super) const EMPTY_SET: [&str; 3] = [
+    "--strict-mcp-config",
+    "--mcp-config",
+    r#"{"mcpServers":{}}"#,
+];
+
 /// The brokers `carried` seals beside the box's hands, none for any other
 /// server set.
 pub(super) fn sealed_brokers(carried: &SealedServing) -> &[SealedBroker] {
@@ -112,9 +121,15 @@ pub(super) fn checked_against(
     // A Codex launch is handed the store its profile denies, and its
     // isolation built the measured options (U9c2).
     let codex = harness == "codex";
-    let isolating: Vec<String> = match codex {
-        true => ISOLATING.map(String::from).to_vec(),
-        false => Vec::new(),
+    // A Claude launch whose admitted shape serves the empty set gains its
+    // strict configuration ([`EMPTY_SET`]).
+    let strict = harness == "claude"
+        && carried.isolation.servers == SealedServers::Empty
+        && command.ends_with(&EMPTY_SET.map(String::from));
+    let isolating: Vec<String> = match (codex, strict) {
+        (true, _) => ISOLATING.map(String::from).to_vec(),
+        (false, true) => EMPTY_SET.map(String::from).to_vec(),
+        (false, false) => Vec::new(),
     };
     check_final(
         harness,

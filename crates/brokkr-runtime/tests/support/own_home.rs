@@ -28,6 +28,11 @@ pub(crate) fn in_own_home(test: &str) -> bool {
         return true;
     }
     let dir = tempfile::tempdir().unwrap();
+    // HOME's parent protects it whatever the umask made it: past the
+    // fence, lifted on Linux (U9b1), a coordination root below a
+    // group-writable ancestor refuses every dispatch (U8a2a; MB3).
+    let private = std::os::unix::fs::PermissionsExt::from_mode(0o700);
+    std::fs::set_permissions(dir.path(), private).unwrap();
     let home = dir.path().join("home");
     std::fs::DirBuilder::new()
         .mode(0o700)

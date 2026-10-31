@@ -17,11 +17,19 @@
 //! and a root visible at a second mount point refuses. Each refuses with
 //! CR2's cause.
 //!
-//! While the MCP compile fence stands no bundle can retain, so these
-//! refusals apply where evidence is at stake: the incoming attempt
-//! protects it, a standing one does, or a historical root exists. Once it
-//! is lifted (U9b1; a test through `McpFence::lift`) they apply to every
-//! participant on every run. The fence is the switch's one home.
+//! These refusals apply where evidence is at stake: the incoming attempt
+//! protects it, a standing one does, or a historical root exists. The
+//! lifted MCP compile fence (Linux since U9b1) does not widen them to
+//! every run, so a run with nothing at stake admits a writer Brokkr cannot
+//! box (operator ruling of 2026-10-29 on U9b1's fourth run). A served lease
+//! depends on the coordination root whatever is at stake, so while any
+//! reservation serves, [`super::sources::kept`] keeps every writer from it.
+//! Since a reservation is a plain file, a boxed writer that reaches that
+//! root, or whose reach cannot be proved, is refused on every run
+//! ([`super::sources::records_kept`], operator ruling of 2026-10-30): here
+//! under the lock where the root is open, and before the attempt proceeds
+//! holding no lease, against the root's spelled path, where it cannot be
+//! opened (the controller's ruling on the third run).
 
 #[cfg(target_os = "linux")]
 use std::io::BufRead;
@@ -35,7 +43,8 @@ use super::admission::{Claim, Conflict, Unadmitted};
 use super::historical::verified;
 use super::inventory::{Budget, Reaching, Standing, Writing};
 use super::resolved;
-use crate::capabilities::McpFence;
+use super::root::Root;
+use super::sources::records_kept;
 
 /// What admission compares under its lock: every standing reservation as
 /// the view every build writes reads it (decision 0090).
@@ -43,7 +52,7 @@ pub(super) struct Comparison<'a> {
     pub(super) claim: &'a Claim,
     pub(super) standing: &'a [Standing],
     pub(super) historical: &'a [PathBuf],
-    pub(super) coordination: &'a Path,
+    pub(super) coordination: &'a Root,
 }
 
 /// One participant: its run, the artifact root its boxes overlay
@@ -98,11 +107,14 @@ pub(super) fn staked(comparison: &Comparison<'_>) -> bool {
     guarded(comparison).len() > 1
 }
 
-/// Whether `comparison` admits its claim: by the lease, then, where the
-/// fence or the evidence at stake asks it, by every participant's writers.
+/// Whether `comparison` admits its claim: by the lease, by its boxed writers
+/// kept from the coordination root on every run, then, where evidence is at
+/// stake, by every participant's writers.
 pub(super) fn compared(comparison: &Comparison<'_>, budget: &mut Budget) -> Result<(), Unadmitted> {
     leased(comparison)?;
-    if !staked(comparison) & !everywhere() {
+    let root = comparison.coordination;
+    records_kept(comparison.claim, root.path(), root.mounts(), budget)?;
+    if !staked(comparison) {
         return Ok(());
     }
     let roots = guarded(comparison);
@@ -198,15 +210,6 @@ pub(super) fn beneath(path: &Guarded, root: &Guarded) -> bool {
     path.path.starts_with(&root.path) | identical
 }
 
-/// Whether the fence lifts these refusals' scope to every run (U9b1).
-pub(super) fn everywhere() -> bool {
-    match McpFence::current() {
-        McpFence::Standing => false,
-        #[cfg(test)]
-        McpFence::Lifted => true,
-    }
-}
-
 /// Whether no other run of the claim's worktree holds it: a run is its
 /// worktree's key and its id, and a reservation with no attempt standing
 /// holds nothing.
@@ -224,7 +227,7 @@ fn guarded(comparison: &Comparison<'_>) -> Vec<PathBuf> {
     let claim = comparison.claim;
     let incoming = claim.protects().then_some(&claim.artifacts);
     let standing = comparison.standing.iter().filter(|held| held.protects());
-    let mut roots = vec![comparison.coordination.to_path_buf()];
+    let mut roots = vec![comparison.coordination.path().to_path_buf()];
     let protecting = incoming
         .into_iter()
         .chain(standing.map(|held| &held.artifacts));
@@ -311,6 +314,41 @@ pub(super) fn covers(writable: &Path, root: &Guarded) -> bool {
         _ => false,
     };
     lexical | identical
+}
+
+/// `path`'s nearest ancestor that stands, canonical, and the rest of `path`
+/// below it; `path` itself where none does.
+pub(super) fn anchored(path: &Path) -> (PathBuf, PathBuf) {
+    let found = path.ancestors().find_map(|at| {
+        let rest = path.strip_prefix(at).ok()?.to_path_buf();
+        Some((std::fs::canonicalize(at).ok()?, rest))
+    });
+    found.unwrap_or((path.to_path_buf(), PathBuf::new()))
+}
+
+/// [`covers`] for a root that need not stand, as the coordination root's
+/// path does not where the walk to it could not be protected: each read by
+/// its nearest ancestor that stands ([`anchored`]), and `writable`'s identity
+/// looked for among whichever of `root`'s ancestors stand. Below a root that
+/// does not stand nothing can be identified, so none of those ancestors'
+/// identities counts against a writer lying beneath them: a sibling of the
+/// root under its HOME is kept apart.
+pub(super) fn covers_spelled(writable: &Path, root: &Path) -> bool {
+    let whole = |path: &Path| {
+        let (at, rest) = anchored(path);
+        at.join(rest)
+    };
+    let (writes, root) = (whole(writable), whole(root));
+    let identity = |at: &Path| {
+        let found = std::fs::metadata(at).ok()?;
+        Some((found.dev(), found.ino()))
+    };
+    let own = identity(&writes);
+    let above = root
+        .ancestors()
+        .any(|at| own.is_some() & (identity(at) == own));
+    let lexical = writes.starts_with(&root) | root.starts_with(&writes);
+    lexical | above | covers(writable, &Guarded::of(root))
 }
 
 /// Whether the mount table shows `root` at its own place only, read

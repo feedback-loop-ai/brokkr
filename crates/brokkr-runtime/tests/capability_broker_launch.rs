@@ -68,10 +68,10 @@ fn an_engine_holds_its_lease_in_the_root_its_home_resolves() {
         runs.display(),
         seen.display()
     );
-    driven(&work, &script);
+    let end = driven(&work, &script);
     assert!(
         seen.exists(),
-        "its driver ran under a lease in its HOME's root"
+        "its driver ran under a lease in its HOME's root: {end:?}"
     );
 }
 
@@ -80,27 +80,60 @@ pub(crate) fn home() -> PathBuf {
     std::fs::canonicalize(std::env::var_os("HOME").unwrap()).unwrap()
 }
 
+/// The operator's ruling of 2026-10-29 on U9b1's fourth run, which keeps
+/// U8a2a's coordination refusals keyed to evidence at stake past the fence
+/// U9b1 lifts on Linux as where it stands: a run whose seats hold nothing,
+/// two hands-less offices Brokkr cannot box, puts nothing at stake, so it
+/// is admitted and completes.
+#[test]
+fn a_run_with_nothing_at_stake_admits_its_unboxed_writers() {
+    let test = "capability_broker_launch::a_run_with_nothing_at_stake_admits_its_unboxed_writers";
+    if !crate::own_home::in_own_home(test) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let work = std::fs::canonicalize(dir.path()).unwrap();
+    let answering = crate::office::answering;
+    let end = run_of(&work, [answering(":", "complete"), answering(":", "clean")]);
+    let ended = (end.run.status(), end.phase.as_deref());
+    assert_eq!(
+        ended,
+        (brokkr_core::fold::Status::Completed, Some("done")),
+        "{end:?}"
+    );
+}
+
 /// A run whose `work` seat's driver runs `script` and fails, driven to its
-/// park by the public engine on the worktree `work`, journaled there.
-pub(crate) fn driven(work: &Path, script: &str) {
+/// park by the public engine on the worktree `work`, journaled there: the
+/// state it ends in.
+pub(crate) fn driven(work: &Path, script: &str) -> brokkr_core::fold::RunState {
+    let script = ["sh", "-c", script].map(String::from).to_vec();
+    run_of(work, [script, vec!["false".into()]])
+}
+
+/// The run of `work` and `review` seats hiring offices over the `drivers`
+/// given, driven to its end by the public engine on the worktree `work`.
+fn run_of(work: &Path, drivers: [Vec<String>; 2]) -> brokkr_core::fold::RunState {
     crate::own_home::required();
     let bundle = work.join("bundle");
     std::fs::create_dir_all(bundle.join("roles")).unwrap();
     std::fs::write(bundle.join("policy.json"), POLICY).unwrap();
     std::fs::write(bundle.join("roles/role.md"), "# role\n").unwrap();
-    let seat = |result: &str, command: &[&str]| {
-        json!({"role": "roles/role.md", "results": [result],
-               "limits": {"max_attempts": 1, "timeout_seconds": 120},
-               "driver": {"command": command}})
-    };
-    let seats = json!({"work": seat("complete", &["sh", "-c", script]),
-                       "review": seat("clean", &["false"])});
+    // Each seat hires an office over its own command (U9b1).
+    let limits = json!({"max_attempts": 1, "timeout_seconds": 120});
+    for (office, driver) in ["worker", "reviewer"].into_iter().zip(&drivers) {
+        let driver: Vec<&str> = driver.iter().map(String::as_str).collect();
+        crate::office::hire(work, office, &driver, Some(limits.clone()));
+    }
+    let seat = |result: &str, office: &str| json!({"results": [result], "agent": office});
+    let seats = json!({"work": seat("complete", "worker"), "review": seat("clean", "reviewer")});
     let document = json!({"name": "resolved", "policy": "policy.json", "seats": seats});
     std::fs::write(bundle.join("bundle.json"), document.to_string()).unwrap();
-    let bundle = Bundle::compile(&bundle).unwrap();
+    let (agents, adapters) = (work.join("agents"), work.join("adapters"));
+    let bundle = Bundle::compile_with(&bundle, &agents, &adapters).unwrap();
     let store = Store::open(&work.join("forge.db")).unwrap();
     let mut engine = Engine::start(store, bundle, "resolved", Some(work.to_path_buf())).unwrap();
-    engine.drive().unwrap();
+    engine.drive().unwrap().state
 }
 
 /// Whether `at` and every ancestor of it protect what lies below them:

@@ -6,8 +6,14 @@
 
 // Support shared by several files, declared once: a file reaches it as
 // `crate::witnesses`.
+#[path = "../../../tests/support/hired_office.rs"]
+mod hired_office;
+#[path = "support/office.rs"]
+mod office;
 #[path = "support/own_home.rs"]
 mod own_home;
+#[path = "../../../tests/support/synthetic_mcp.rs"]
+mod synthetic_mcp;
 #[path = "support/witnesses.rs"]
 mod witnesses;
 

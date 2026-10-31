@@ -177,11 +177,25 @@ fn lost(cause: &str) -> Judged {
     )
 }
 
+/// `docs-mcp` lost for a `cause` that names its dialect itself (MB4's
+/// egress comparison, D3's deferred restriction): both of GP1's forms end
+/// at the cause, with no incompatibility suffix and no native tail (U5a2
+/// F1, U9b1).
+pub(super) fn closed(cause: &str) -> Judged {
+    let notice = format!("{WHO}: dropped wanted capability 'library-docs' because {cause}");
+    (
+        format!("{WHO}: requires capability 'library-docs' but {cause}"),
+        Vec::new(),
+        vec![("library-docs".to_string(), notice)],
+    )
+}
+
 /// MB4 (U5a2): every minimum against every egress. Below it, a requires
 /// refuses and a want drops with MB4's exact cause; at or above it the
-/// comparison passes, and until U9b builds the broker the fence's own
-/// words are what the dialect meets next. Every row is judged before the
-/// one comparison, so each row binds on its own.
+/// comparison passes, and where the fence stands, as it does on macOS and
+/// on this thread with no `Lift` held, the fence's own words are what the
+/// dialect meets next. Every row is judged before the one comparison, so
+/// each row binds on its own.
 #[test]
 fn an_mcp_dialect_below_the_binding_minimum_is_refused_or_dropped_and_at_or_above_it_passes() {
     let root = cq1_root();
@@ -206,11 +220,11 @@ fn an_mcp_dialect_below_the_binding_minimum_is_refused_or_dropped_and_at_or_abov
     let expected: Vec<_> = rows
         .iter()
         .map(|&(minimum, egress, relation)| {
-            let cause = match relation {
-                "below" => below(egress, minimum),
-                _ => MCP.to_string(),
+            let judged = match relation {
+                "below" => closed(&below(egress, minimum)),
+                _ => lost(MCP),
             };
-            (minimum, egress, relation, lost(&cause))
+            (minimum, egress, relation, judged)
         })
         .collect();
     assert_eq!(observed, expected);
@@ -228,7 +242,7 @@ fn an_absent_binding_minimum_is_contracted() {
         [
             lost(MCP),
             lost(MCP),
-            lost(&below("uncontracted", "contracted"))
+            closed(&below("uncontracted", "contracted"))
         ]
     );
 }
@@ -311,8 +325,9 @@ fn an_admitted_mcp_dialect_seals_its_network_and_receipt_and_each_follows_its_ow
 /// admitted `docs-mcp` grant carries exactly what MB4's comparison
 /// admitted, its network following the dialect's egress and its receipt
 /// the minimum read; a grant below the minimum seals no holding and names
-/// MB4's cause; and the fence's own words still follow the sealed holding
-/// until U9b.
+/// MB4's cause; and where the fence stands, as it does on macOS and on this
+/// thread with no `Lift` held, the fence's own words follow the sealed
+/// holding.
 #[test]
 fn the_resolver_seals_an_admitted_mcp_grant_on_its_holding_and_the_fence_still_follows_it() {
     use brokkr_protocol::broker::{Clearance, Network};
@@ -340,7 +355,9 @@ fn the_resolver_seals_an_admitted_mcp_grant_on_its_holding_and_the_fence_still_f
     .map(|(egress, minimum)| match sealed(egress, minimum) {
         Ok(holding) => (
             holding.admitted.clone(),
-            holding.native("private", "library-docs").err(),
+            holding
+                .native("private", "library-docs", McpFence::current())
+                .err(),
         ),
         Err(_) => panic!("docs-mcp at {egress} is admitted under {minimum:?}"),
     });
@@ -362,7 +379,7 @@ fn the_resolver_seals_an_admitted_mcp_grant_on_its_holding_and_the_fence_still_f
         Err(Unheld::Cause(cause)) => required(cause),
         _ => panic!("docs-mcp at contracted is below local"),
     };
-    assert_eq!(below_minimum, lost(&below("contracted", "local")).0);
+    assert_eq!(below_minimum, closed(&below("contracted", "local")).0);
 }
 
 /// A native holding is never judged by MB4, so it carries no admitted

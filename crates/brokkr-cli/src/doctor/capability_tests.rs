@@ -1242,6 +1242,7 @@ fn claude_workspace(
     claude["models"] = json!({"opus": "claude-test"});
     claude["efforts"] = json!(["high"]);
     claude["effort_flag"] = json!("--effort");
+    let claude = synthetic_mcp::measured(claude);
     write(root, "adapters/claude.json", &claude);
     write(
         root,
@@ -1302,7 +1303,7 @@ fn bundle_with(dir: &Path, work: Value) {
         "bundle/bundle.json",
         &json!({"name": "doctor", "policy": "policy.json", "seats": {"work": work,
             "review": {"results": ["clean"], "role": "roles/role.md",
-                       "driver": {"command": ["driver"]}}}}),
+                       "driver": {"command": ["{brokkr}", "driver", "exec", "--", "true"]}}}}),
     );
 }
 
@@ -1992,3 +1993,5 @@ fn an_office_or_evidence_with_a_control_character_cannot_split_or_forge_a_line()
 
 mod binding_tests;
 mod mcp_tests;
+#[path = "../../../../tests/support/synthetic_mcp.rs"]
+pub(super) mod synthetic_mcp;

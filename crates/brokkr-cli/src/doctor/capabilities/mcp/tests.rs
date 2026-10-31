@@ -1,10 +1,19 @@
-//! U8m: doctor's words for a declared server, read where the dialect
-//! contract's own refusal cannot stand in front of them: a URL's userinfo,
-//! which no dialect that loads carries, is withheld all the same.
+//! Doctor's own words where nothing the compile does stands in front of
+//! them. U8m: a declared server's, so a URL's userinfo, which no dialect
+//! that loads carries, is withheld all the same. U9b1a: a serving's line
+//! under U1g1's strict verdict, which past the lifted fence (Linux) no
+//! surveyed bundle reaches with a refusal, as the compile refuses the
+//! site first.
 
-use brokkr_runtime::capabilities::{Connection, McpServer};
+use std::collections::BTreeMap;
 
-use super::server_words;
+use brokkr_protocol::adapters::StrictCause;
+use brokkr_protocol::native_controls::Provenance;
+use brokkr_runtime::capabilities::{Connection, McpServer, NativePlan, Outcome, SiteAsks};
+use brokkr_runtime::SeatClass;
+
+use super::{report_serving, server_words, STRICT};
+use crate::doctor::Report;
 
 /// A marker planted where a credential would sit.
 const PLANTED: &str = "U8M-MARKER";
@@ -57,4 +66,49 @@ fn a_server_is_named_without_its_userinfo_query_fragment_or_arguments() {
         named(argv(&["/opt/docs", "--key", PLANTED])),
         "'/opt/docs' (stdio, 2 further argument(s) withheld)"
     );
+}
+
+/// A serving U1g1's strict check admits is reported ok, and one it refuses
+/// is warned with its cause, on every host: the warning is what a seat's
+/// line reads on macOS, where the fence stands and the compile admits the
+/// site.
+#[test]
+fn a_serving_the_strict_check_refuses_is_warned_with_its_cause() {
+    let asks = SiteAsks::at(SeatClass::Work, "work", None, None).expect("an inline site's asks");
+    let outcome = Outcome {
+        provider: "claude".to_string(),
+        harness: "claude".to_string(),
+        model: None,
+        held: BTreeMap::new(),
+        not_held: BTreeMap::new(),
+        notices: Vec::new(),
+        native: NativePlan::Unmeasured {
+            declaration: None,
+            reason: "unmeasured here".to_string(),
+            provenance: Provenance::default(),
+        },
+    };
+    let cause = StrictCause::Unmeasured {
+        provider: "claude".to_string(),
+        shape: "replacement".to_string(),
+    };
+    let mut report = Report {
+        healthy: true,
+        lines: Vec::new(),
+    };
+    report_serving(&mut report, "work", &asks, &outcome, None);
+    report_serving(&mut report, "work", &asks, &outcome, Some(&cause));
+    let seat = "capabilities seat 'work' claude model none: office 'work' asks: nothing · \
+                holds: nothing · not held: nothing ·";
+    assert_eq!(
+        report.lines,
+        [
+            format!("ok       {seat} {STRICT} admits every shape it can be served as"),
+            format!(
+                "warn     {seat} {STRICT} refuses it: provider 'claude' has no measured strict \
+                 MCP configuration for 'replacement'"
+            ),
+        ]
+    );
+    assert!(report.healthy, "a warning leaves doctor healthy");
 }

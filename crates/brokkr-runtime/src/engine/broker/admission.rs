@@ -45,12 +45,12 @@ use brokkr_protocol::hands::{self, HandsSpec, UNPROTECTED_EVIDENCE};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use super::exclusion::{compared, everywhere, staked, Comparison};
+use super::exclusion::{compared, staked, Comparison};
 use super::historical::recorded;
 use super::inventory::{inventory, Budget, Standing};
 use super::root::{locked, read, Commit, Root};
 use super::settlement::{keyed, recovered, reserved_in, unchanged, Driver};
-use super::sources::{unserved, Served, Unroutable};
+use super::sources::{records_unopened, unserved, Served, Unroutable};
 use super::{startup, Observed};
 use crate::bundle::ExecutableBody;
 use crate::engine::boxed::{artifact_root, make_root, Unrooted};
@@ -164,7 +164,7 @@ pub(in crate::engine) enum Unknown {
     #[error("the attempt's reservation holds no proof that its owned processes settled")]
     Unproven,
     #[error(
-        "site '{site}' of run '{run}' can write '{}', which an MCP server's box is built from",
+        "site '{site}' of run '{run}' can write '{}', which an MCP server's box or lease rests on",
         .served.display()
     )]
     Serving {
@@ -382,10 +382,10 @@ impl Engine {
 
     /// [`Engine::admit`] under `coordination`, before `deadline`. A claim
     /// admitted under a lease holds it on the engine; one that proceeds
-    /// holding none (C1) records that it took no reservation; one refused
-    /// fails the attempt before any driver starts. Either way the reach the
-    /// claim sealed for each boxed writer is the one every box of the
-    /// attempt is built from (U8a2c); a claim refused leaves none.
+    /// holding none (C1), each boxed writer kept from the root's spelled path,
+    /// takes no reservation; one refused fails before any driver starts. The
+    /// reach the claim sealed for each boxed writer is the one every box of
+    /// the attempt is built from (U8a2c); a claim refused leaves none.
     pub(super) fn admit_in(
         &mut self,
         (home, root): Coordination<'_>,
@@ -402,7 +402,10 @@ impl Engine {
         self.reach = claim.authored.clone();
         let admitted = match coordinated(root(), &claim) {
             Ok(Some(root)) => admit(&Arc::new(root), &claim, deadline),
-            Ok(None) => return self.unreserved(),
+            Ok(None) => match records_unopened(&claim, &home, deadline) {
+                Ok(()) => return self.unreserved(),
+                Err(unknown) => Err(unknown.into()),
+            },
             Err(unknown) => Err(unknown.into()),
         };
         match admitted {
@@ -414,8 +417,7 @@ impl Engine {
         }
     }
 
-    /// The attempt `attempt` of `effect` failed by `refusal` before any
-    /// driver started.
+    /// The attempt `attempt` of `effect` failed by `refusal` before its driver.
     fn refuse_admission(
         &mut self,
         effect: &str,
@@ -431,15 +433,12 @@ impl Engine {
         Ok(false)
     }
 
-    /// Proceed holding no writer lease: the coordination root is not
-    /// protected and nothing is at stake, so under the fence rule (C1) this
-    /// attempt takes no reservation. No lease is held, so the dispatch door
-    /// rechecks nothing and settlement releases nothing; the evidence that
-    /// it took none is the durable absence of any reservation beneath the
-    /// run, read under the lock by every later admission. An engine-authored
-    /// journal marker is deliberately not written: a checkpoint before the
-    /// driver is refused by the seat-record fence (decision 0034) and would
-    /// lose the attempt.
+    /// Proceed holding no writer lease (C1): the root is not protected, nothing
+    /// is at stake and every boxed writer is kept from the root's path, so the
+    /// door rechecks nothing and settlement releases nothing. The absence of a
+    /// reservation tells a later broker nothing: this writer may be live. No
+    /// journal marker either: the seat-record fence (decision 0034) refuses a
+    /// checkpoint before the driver, which would lose the attempt.
     fn unreserved(&mut self) -> Result<bool, EngineError> {
         self.held = None;
         Ok(true)
@@ -559,12 +558,14 @@ pub(super) fn boxed_reach(
 
 /// C1 (operator ruling 2026-10-18): the coordination root `root` resolved
 /// for `claim`; or, where none could be protected or made, none, so the
-/// dispatch proceeds holding no lease, only while the fence stands and the
-/// claim protects nothing; else MB3's identity cause.
+/// dispatch proceeds holding no lease, only where the claim protects
+/// nothing and its boxed writers are then kept from the root's path
+/// ([`records_unopened`]); else MB3's identity cause. An attempt that brokers
+/// still holds a lease past the lifted fence (`sources::held_extended`).
 pub(super) fn coordinated(root: Option<Root>, claim: &Claim) -> Result<Option<Root>, Unknown> {
     match root {
         Some(root) => Ok(Some(root)),
-        None if everywhere() || claim.protects() => Err(Unknown::Root),
+        None if claim.protects() => Err(Unknown::Root),
         None => Ok(None),
     }
 }
@@ -633,10 +634,10 @@ pub(super) fn admit_with(
         claim,
         standing: &standing,
         historical: &found.historical,
-        coordination: root.path(),
+        coordination: root,
     };
     compared(&comparison, &mut budget)?;
-    unserved(claim, &standing, root.mounts(), &budget)?;
+    unserved(claim, &standing, root, &budget)?;
     let staked = staked(&comparison);
     between();
     let artifacts = match claim.reserved.protects {
@@ -706,9 +707,8 @@ pub(in crate::engine) fn recheck(held: &Held) -> Result<(), Unadmitted> {
     // now than when it was sealed — a bind source swapped, the worktree's
     // Git pointer or `commondir` rewritten — was redirected since
     // admission, and the door refuses it before the driver too, as the
-    // comparison's refusals are, where the fence or the evidence at stake
-    // asks it.
-    if let Some(moved) = redirected(held).filter(|_| everywhere() | held.staked) {
+    // comparison's refusals are, where evidence is at stake.
+    if let Some(moved) = redirected(held).filter(|_| held.staked) {
         return Err(Conflict::Redirected(moved).into());
     }
     let Some((root, admitted)) = &held.root else {

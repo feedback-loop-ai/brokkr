@@ -29,6 +29,7 @@ pub(in crate::engine) fn observed() -> Observed {
     }
     let host = Host::of(std::env::vars_os(), std::env::current_exe());
     let home = host.as_ref().ok().map(|host| host.home.clone());
+    let host = host.and_then(|host| host.served(super::terminal::legacy_tiocsti()));
     let open = Root::of;
     Observed {
         host,

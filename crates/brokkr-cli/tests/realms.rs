@@ -12,7 +12,7 @@ fn brokkr() -> &'static str {
     env!("CARGO_BIN_EXE_brokkr")
 }
 
-const POLICY: &str = r#"{
+pub(crate) const POLICY: &str = r#"{
   "schema": "forge.phase-machine/v1",
   "phases": ["implement", "review", "done"],
   "initial": "implement",
@@ -53,25 +53,16 @@ impl Workspace {
             .to_string(),
         )
         .unwrap();
-        let seat = |results: Value| {
-            json!({
-                "role": "roles/role.md",
-                "results": results,
-                "driver": {"command": [
-                    brokkr(), "fake-driver",
-                    "--script", script.to_string_lossy(),
-                    "--state", ws.path().join("state").to_string_lossy(),
-                ]},
-            })
-        };
+        crate::fake_office::hire(&ws.path(), &script, &ws.path().join("state"));
+        let seat = crate::fake_office::seat;
         std::fs::write(
             bundle.join("bundle.json"),
             json!({
                 "name": "mapped",
                 "policy": "policy.json",
                 "seats": {
-                    "implement": seat(json!(["complete"])),
-                    "review": seat(json!(["clean"])),
+                    "implement": seat(&["complete"]),
+                    "review": seat(&["clean"]),
                 },
             })
             .to_string(),

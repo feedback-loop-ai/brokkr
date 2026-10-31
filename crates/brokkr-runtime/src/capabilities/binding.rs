@@ -16,8 +16,8 @@ use brokkr_protocol::broker::{Clearance, Network};
 use serde_json::{Map, Value};
 
 use super::{
-    gates, Authority, CapabilityContext, Cause, Connection, DialectKind, Implementation, McpServer,
-    Requests, SiteAsks, ToolDialect, Unheld, ADAPTER_SEAT,
+    gates, Authority, CapabilityContext, Cause, Connection, DialectKind, Implementation, McpFence,
+    McpServer, Requests, SiteAsks, ToolDialect, Unheld, ADAPTER_SEAT,
 };
 use crate::agents::EgressClass;
 use crate::bundle::{CompileError, SeatClass};
@@ -39,8 +39,11 @@ const TOOL_BYTES: usize = 256;
 /// same words where they meet one.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Unbound {
-    /// A valid `mcp` dialect: its server is a broker's to carry, and no
-    /// broker exists until slice two enables one (U9b).
+    /// A valid `mcp` dialect where the fence stands, as it does on macOS:
+    /// its server is a broker's to carry, and no box stands there for a
+    /// broker to carry it in. Past the fence, on Linux, the grant loads and
+    /// no compile refuses by this cause; `Authority::binding` still gives it,
+    /// as such a grant has no native binding for doctor to compare.
     #[error(
         "realm '{realm}' grants capability '{capability}' through dialect '{dialect}' of kind \
          'mcp', whose broker support is not implemented until decision 0065 slice two"
@@ -96,6 +99,10 @@ pub(super) enum Unserved {
     Url,
     #[error(transparent)]
     Below(#[from] Below),
+    /// The broker carries only the empty restriction (design D3 step 6;
+    /// D11): a nonempty one is never discarded alone.
+    #[error("MCP nonempty restrictions are deferred to the restriction-transport slice")]
+    Restricted,
     /// MB4: a secret the dialect binds is a name the serving harness reads
     /// to authenticate.
     #[error("MCP secret binding '{0}' collides with harness authentication")]
@@ -104,16 +111,21 @@ pub(super) enum Unserved {
 
 impl Unserved {
     /// How the resolver holds this against an ask through `dialect`: SC4's
-    /// unrepresentable identity refuses the compile whatever the strength,
-    /// and every other cause is the dialect's incompatibility, which the
-    /// ask's strength settles.
+    /// unrepresentable identity refuses the compile whatever the strength;
+    /// MB4's egress comparison, which names its dialect, and D3's deferred
+    /// MCP restriction close both of GP1's forms on their own words, with
+    /// no incompatibility suffix and no native tail (U5a2 F1); and every
+    /// other cause is the dialect's incompatibility, which the ask's
+    /// strength settles.
     pub(super) fn unheld(self, dialect: &str) -> Unheld {
         match self {
             Unserved::Identity => Unheld::Identity,
+            Unserved::Below(_) | Unserved::Restricted => {
+                Unheld::Cause(Cause::Ungranted(self.to_string()))
+            }
             Unserved::Unbound(_)
             | Unserved::ArgvReference
             | Unserved::Url
-            | Unserved::Below(_)
             | Unserved::Collides(_) => {
                 Unheld::Cause(Cause::incompatible(dialect, self.to_string()))
             }
@@ -169,9 +181,8 @@ fn bound<'a>(
 }
 
 /// The native `(provider, adapter key)` `dialect` binds `capability` to in
-/// `realm`, or why it binds none: the compile fence's reading, and
-/// `brokkr doctor`'s, under which an `mcp` binding has no broker until
-/// U9b.
+/// `realm`, or why it binds none: `brokkr doctor`'s reading, and the
+/// standing compile fence's, under which an `mcp` binding has no broker.
 pub(super) fn native<'a>(
     realm: &str,
     capability: &str,
@@ -191,6 +202,18 @@ fn unbuilt(realm: &str, capability: &str, dialect: &str) -> Unbound {
         realm: realm.into(),
         capability: capability.into(),
         dialect: dialect.into(),
+    }
+}
+
+/// Whether `fence` stands, so an `mcp` binding meets the unbuilt kind's
+/// own words (macOS; SC5, operator ruling 1 of 2026-10-18), or is lifted,
+/// so its broker carries it (Linux, U9b1).
+fn stands(fence: McpFence) -> bool {
+    match fence {
+        #[cfg(any(test, not(target_os = "linux")))]
+        McpFence::Standing => true,
+        #[cfg(any(test, target_os = "linux"))]
+        McpFence::Lifted => false,
     }
 }
 
@@ -295,18 +318,28 @@ pub struct Admitted {
 
 impl Holding {
     /// The native `(provider, adapter key)` a provider must carry this
-    /// holding of `capability` in `realm` by. An `mcp` holding, sealed with
-    /// what MB4's comparison admitted, takes the fence's own words until
-    /// U9b builds its broker.
-    pub(super) fn native(&self, realm: &str, capability: &str) -> Result<(&str, &str), Unheld> {
+    /// holding of `capability` in `realm` by, or `None` where the engine's
+    /// broker carries it instead: an `mcp` holding, sealed with what MB4's
+    /// comparison admitted, past the lifted `fence`. While the fence
+    /// stands, such a holding meets the fence's own words.
+    pub(super) fn native(
+        &self,
+        realm: &str,
+        capability: &str,
+        fence: McpFence,
+    ) -> Result<Option<(&str, &str)>, Unheld> {
         match &self.implementation {
             Implementation::Native {
                 provider,
                 adapter_key,
-            } => Ok((provider, adapter_key)),
-            Implementation::Mcp { .. } => {
+            } => Ok(Some((provider, adapter_key))),
+            Implementation::Mcp { .. } if stands(fence) => {
                 Err(Unserved::from(unbuilt(realm, capability, &self.dialect)).unheld(&self.dialect))
             }
+            Implementation::Mcp { .. } => match self.restrictions.is_empty() {
+                true => Ok(None),
+                false => Err(Unserved::Restricted.unheld(&self.dialect)),
+            },
         }
     }
 
@@ -375,14 +408,21 @@ pub fn admitted(dialect: &ToolDialect, minimum: EgressClass) -> Result<Admitted,
 
 impl Authority {
     /// Validate every grant of the operated realm BEFORE any seat is
-    /// looked at, then the two realm-wide refusals, which hold whether or
-    /// not any seat asks: an `mcp` grant, the compile fence's (`McpFence`),
-    /// and a `hands` grant. None of these can become an optional drop.
+    /// looked at, then the realm-wide refusals, which hold whether or not
+    /// any seat asks: a `hands` grant, and an `mcp` grant while the compile
+    /// fence (`McpFence`) stands. None of these can become an optional drop.
     pub fn load(context: CapabilityContext) -> Result<Authority, String> {
         let authority = Authority::validated(context)?;
         for (capability, dialect) in &authority.dialects {
             let realm = &authority.context.realm;
-            native(realm, capability, dialect).map_err(|unbound| unbound.to_string())?;
+            let carried = match bound(realm, capability, dialect) {
+                Ok(Binding::Mcp(_)) if stands(authority.fence) => {
+                    Err(unbuilt(realm, capability, &dialect.name))
+                }
+                Ok(Binding::Native { .. } | Binding::Mcp(_)) => Ok(()),
+                Err(unbound) => Err(unbound),
+            };
+            carried.map_err(|unbound| unbound.to_string())?;
         }
         Ok(authority)
     }
@@ -414,12 +454,12 @@ impl Authority {
     /// for a native one, or why no candidate can carry it. An `mcp` binding
     /// answers in design D3 step 6's order — its identity, then an
     /// unexecutable connection's SC1 cause, then its egress against the
-    /// bundle's binding minimum (MB4); the fence's own words follow its
-    /// sealed holding ([`Holding::native`]) until U9b builds its broker. A
-    /// native binding is judged as slice one judged it, whatever its
-    /// dialect's egress. A compile reaches it only past the compile fence,
-    /// which refuses every `mcp` grant first; a survey (U9a2) reaches it
-    /// for an `mcp` grant, which then meets the fence's own words.
+    /// bundle's binding minimum (MB4); past the lifted fence the broker
+    /// carries its sealed holding ([`Holding::native`]), and while the fence
+    /// stands its own words follow. A native binding is judged as slice one
+    /// judged it, whatever its dialect's egress. A standing fence refuses
+    /// every `mcp` grant before a compile reaches it; a survey (U9a2)
+    /// reaches it for an `mcp` grant either way.
     fn carried(
         &self,
         capability: &str,

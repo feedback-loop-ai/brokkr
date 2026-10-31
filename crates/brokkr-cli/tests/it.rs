@@ -8,6 +8,8 @@
 // `crate::<name>`.
 #[path = "support/engine.rs"]
 mod engine;
+#[path = "support/fake_office.rs"]
+mod fake_office;
 #[path = "support/numbered.rs"]
 mod numbered;
 #[path = "support/records.rs"]

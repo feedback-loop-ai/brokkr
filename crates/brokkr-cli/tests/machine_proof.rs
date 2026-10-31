@@ -221,18 +221,8 @@ impl Workspace {
         std::fs::write(bundle.join("policy.json"), policy).unwrap();
         let script_path = ws.path().join("script.json");
         std::fs::write(&script_path, serde_json::to_string(&script).unwrap()).unwrap();
-
-        let seat = |results: Vec<&str>| -> Value {
-            json!({
-                "role": "roles/role.md",
-                "results": results,
-                "driver": {"command": [
-                    brokkr_bin(), "fake-driver",
-                    "--script", script_path.to_string_lossy(),
-                    "--state", ws.path().join("state").to_string_lossy(),
-                ]}
-            })
-        };
+        crate::fake_office::hire(ws.path(), &script_path, &ws.path().join("state"));
+        let seat = |results: Vec<&str>| crate::fake_office::seat(&results);
         std::fs::write(bundle.join("roles/role.md"), "# test role\n").unwrap();
         let config = json!({
             "name": "proof",
@@ -245,15 +235,16 @@ impl Workspace {
                 "ship": seat(vec!["ready", "shipped"]),
             }
         });
-        std::fs::write(
-            bundle.join("bundle.json"),
-            serde_json::to_string_pretty(&config).unwrap(),
-        )
-        .unwrap();
-        ws
+        ws.with_bundle(&config)
     }
 
-    #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
+    /// The workspace with `config` written as its bundle.
+    fn with_bundle(self, config: &Value) -> Workspace {
+        let bytes = serde_json::to_string_pretty(config).unwrap();
+        std::fs::write(self.bundle_dir().join("bundle.json"), bytes).unwrap();
+        self
+    }
+
     fn triage(script: Value) -> Workspace {
         let ws = Workspace {
             dir: tempfile::tempdir().unwrap(),
@@ -303,26 +294,9 @@ impl Workspace {
         let script_path = ws.path().join("script.json");
         std::fs::write(&script_path, serde_json::to_string(&script).unwrap()).unwrap();
         std::fs::write(bundle.join("roles/role.md"), "# test role\n").unwrap();
-        let seat = |results: Vec<&str>| -> Value {
-            json!({
-                "role": "roles/role.md",
-                "results": results,
-                "driver": {"command": [
-                    brokkr_bin(), "fake-driver",
-                    "--script", script_path.to_string_lossy(),
-                    "--state", ws.path().join("state").to_string_lossy(),
-                ]}
-            })
-        };
-        let body = || {
-            json!({
-                "role": "roles/role.md",
-                "driver": {"command": [
-                    brokkr_bin(), "fake-driver", "--script", script_path.to_string_lossy(),
-                    "--state", ws.path().join("state").to_string_lossy()
-                ]}
-            })
-        };
+        crate::fake_office::hire(ws.path(), &script_path, &ws.path().join("state"));
+        let seat = |results: Vec<&str>| crate::fake_office::seat(&results);
+        let body = crate::fake_office::body;
         let review_panel = |names: &[&str]| {
             let panel: serde_json::Map<String, Value> = names
                 .iter()
@@ -333,7 +307,7 @@ impl Workspace {
         let review_sequence = |names: &[&str]| {
             json!({"sequence":[
                 {"name":"positions", "aggregate":"review-panel", "panel": names.iter().map(|name| ((*name).to_string(), body())).collect::<serde_json::Map<String, Value>>()},
-                {"name":"chief", "role":"roles/role.md", "driver": body()["driver"].clone()}
+                {"name":"chief", "agent": crate::fake_office::OFFICE}
             ]})
         };
         let config = json!({
@@ -360,27 +334,15 @@ impl Workspace {
                 "ship": seat(vec!["ready", "shipped"]),
             }
         });
-        std::fs::write(
-            bundle.join("bundle.json"),
-            serde_json::to_string_pretty(&config).unwrap(),
-        )
-        .unwrap();
-        ws
+        ws.with_bundle(&config)
     }
 
     fn sdd(script: Value) -> Workspace {
         let ws = Workspace::triage(script);
         std::fs::write(ws.bundle_dir().join("policy.json"), SDD_PROOF_POLICY).unwrap();
-        let script_path = ws.path().join("script.json");
-        let state_path = ws.path().join("state");
-        let driver = || {
-            json!({"command":[
-                brokkr_bin(), "fake-driver", "--script", script_path.to_string_lossy(),
-                "--state", state_path.to_string_lossy()
-            ]})
-        };
-        let single = |results: Vec<&str>| json!({"role":"roles/role.md", "results":results, "driver":driver()});
-        let step = |name: &str, results: Vec<&str>| json!({"name":name, "results":results, "role":"roles/role.md", "driver":driver()});
+        let office = crate::fake_office::OFFICE;
+        let single = |results: Vec<&str>| crate::fake_office::seat(&results);
+        let step = |name: &str, results: Vec<&str>| json!({"name":name, "results":results, "agent":office});
         let config = json!({
             "name":"sdd-proof", "policy":"policy.json", "protected_phase":"review",
             "seats":{
@@ -388,25 +350,25 @@ impl Workspace {
                 "specify":single(vec!["drafted","fail"]),
                 "clarify":{"results":["clear","ambiguous"],"sequence":[
                     step("check", vec!["clear"]),
-                    {"name":"judge","role":"roles/role.md","driver":driver()}
+                    {"name":"judge","agent":office}
                 ]},
                 "design":{"results":["drafted"],"sequence":[
                     {"name":"positions","aggregate":"unanimous-pass","panel":{
-                        "simplicity":{"role":"roles/role.md","driver":driver()},
-                        "robustness":{"role":"roles/role.md","driver":driver()}
+                        "simplicity":{"agent":office},
+                        "robustness":{"agent":office}
                     }},
-                    {"name":"chief","role":"roles/role.md","driver":driver()}
+                    {"name":"chief","agent":office}
                 ]},
                 "tasks":single(vec!["drafted"]),
                 "analyze":{"results":["consistent","drift"],"inputs":["drift_in"],"sequence":[
                     step("check", vec!["consistent"]),
-                    {"name":"judge","role":"roles/role.md","driver":driver()}
+                    {"name":"judge","agent":office}
                 ]},
                 "implement":single(vec!["complete"]),
                 "verify":single(vec!["pass"]),
                 "review":{"results":["clean","residual","security-hold"],"aggregate":"review-panel","panel":{
-                    "correctness":{"role":"roles/role.md","driver":driver()},
-                    "spec-compliance":{"role":"roles/role.md","driver":driver()}
+                    "correctness":{"agent":office},
+                    "spec-compliance":{"agent":office}
                 }},
                 "ship":single(vec!["ready","shipped"])
             }
@@ -443,6 +405,11 @@ impl Workspace {
     }
 
     fn run(&self) -> (Option<i32>, Value, String) {
+        self.run_homed(&crate::engine::home_in(self.path()))
+    }
+
+    /// [`Workspace::run`] under the HOME `home`.
+    fn run_homed(&self, home: &Path) -> (Option<i32>, Value, String) {
         let bundle = self.bundle_dir();
         let db = self.db();
         let realms = self.path().join("realms.json");
@@ -458,7 +425,11 @@ impl Workspace {
         if realms.exists() {
             args.extend(["--realms", realms.to_str().unwrap()]);
         }
-        self.brokkr(&args)
+        let mut command = crate::engine::brokkr_in(self.path());
+        let out = command.env("HOME", home).args(&args).output().unwrap();
+        let summary = serde_json::from_slice(&out.stdout).unwrap_or(Value::Null);
+        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+        (out.status.code(), summary, stderr)
     }
 
     fn run_id(stderr: &str) -> String {
@@ -486,19 +457,14 @@ impl Workspace {
         let path = self.bundle_dir().join("bundle.json");
         let mut config: Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        let driver = config["seats"][phase]["driver"].clone();
         let mut panel = serde_json::Map::new();
         for member in members {
-            panel.insert(
-                member.to_string(),
-                json!({"role": "roles/role.md", "driver": driver}),
-            );
+            panel.insert(member.to_string(), crate::fake_office::body());
         }
         let seat = config["seats"][phase].as_object_mut().unwrap();
         seat.insert("panel".into(), Value::Object(panel));
         seat.insert("aggregate".into(), json!(aggregate));
-        seat.remove("role");
-        seat.remove("driver");
+        seat.remove("agent");
         std::fs::write(&path, serde_json::to_string(&config).unwrap()).unwrap();
     }
 
@@ -510,7 +476,7 @@ impl Workspace {
         let path = self.bundle_dir().join("bundle.json");
         let mut config: Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        let driver = config["seats"][phase]["driver"].clone();
+        let office = crate::fake_office::OFFICE;
         let seat_results = config["seats"][phase]["results"].clone();
         let steps: Vec<Value> = specs
             .iter()
@@ -521,15 +487,13 @@ impl Workspace {
                     None => json!({
                         "name": name,
                         "results": spec.get("results").unwrap_or(&seat_results).clone(),
-                        "role": "roles/role.md", "driver": driver.clone(),
+                        "agent": office,
                     }),
                     Some(members) => {
                         let mut panel = serde_json::Map::new();
                         for member in members.as_array().unwrap() {
-                            panel.insert(
-                                member.as_str().unwrap().to_string(),
-                                json!({"role": "roles/role.md", "driver": driver.clone()}),
-                            );
+                            let member = member.as_str().unwrap().to_string();
+                            panel.insert(member, crate::fake_office::body());
                         }
                         json!({
                             "name": name,
@@ -550,8 +514,7 @@ impl Workspace {
             .collect();
         let seat = config["seats"][phase].as_object_mut().unwrap();
         seat.insert("sequence".into(), json!(steps));
-        seat.remove("role");
-        seat.remove("driver");
+        seat.remove("agent");
         std::fs::write(&path, serde_json::to_string(&config).unwrap()).unwrap();
     }
 
@@ -964,10 +927,9 @@ fn dialect_validate_expands_the_chiefs_change_and_records_tool_evidence() {
 
     let bundle_path = ws.bundle_dir().join("bundle.json");
     let mut bundle: Value = serde_json::from_slice(&std::fs::read(&bundle_path).unwrap()).unwrap();
-    let author_driver = bundle["seats"]["design"]["driver"].clone();
     bundle["seats"]["design"] = json!({
         "results":["drafted","fail"], "inputs":["change"], "sequence":[
-            {"name":"author", "results":["drafted"], "role":"roles/role.md", "driver":author_driver},
+            {"name":"author", "results":["drafted"], "agent":crate::fake_office::OFFICE},
             {"name":"validate", "dialect":"validate"}
         ]
     });
@@ -994,7 +956,10 @@ fn dialect_validate_expands_the_chiefs_change_and_records_tool_evidence() {
     });
     std::fs::write(&dialect_path, dialect.to_string()).unwrap();
 
-    let (code, summary, stderr) = ws.run();
+    // The validate step's box writes the operated tree, so the coordination
+    // root's HOME stands beside it: no boxed writer may reach that root.
+    let beside = tempfile::tempdir().unwrap();
+    let (code, summary, stderr) = ws.run_homed(&crate::engine::home_in(beside.path()));
     assert_eq!(code, Some(2), "summary: {summary}; stderr: {stderr}");
     assert!(!stderr.contains(" is adopted "), "stderr: {stderr}");
     assert_eq!(summary["status"], "awaiting_operator");
@@ -2233,9 +2198,12 @@ fn compile_rejects_provenance_violations() {
         let ws = Workspace::new(happy_script());
         let bundle = ws.bundle_dir();
         let config_path = bundle.join("bundle.json");
-        let mut config: Value =
-            serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
-        config["seats"]["review"]["inputs"] = declaration.clone();
+        let written = std::fs::read_to_string(&config_path).unwrap();
+        let mut config: Value = serde_json::from_str(&written).unwrap();
+        config["seats"]["review"] = json!({"role": "roles/role.md", "inputs": declaration,
+            "results": ["clean", "residual", "security-hold"],
+            // An office's seat declares no inputs; an inline exec review does.
+            "driver": {"command": [brokkr_bin(), "driver", "exec", "--", "true"]}});
         std::fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();
         let (code, _, stderr) = ws.brokkr(&["compile", "--bundle", bundle.to_str().unwrap()]);
         assert_eq!(code, Some(1), "declaration {declaration} must be rejected");
@@ -2351,15 +2319,11 @@ fn compare_aligns_two_runs_and_finds_the_review_divergence() {
     let config_path = variant.join("bundle.json");
     let mut config: Value =
         serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+    let variant_office = ["fake-variant", "fake-variant"];
+    let driver = crate::fake_office::fake_driver(&script_path, &state);
+    crate::fake_office::hire_driver(ws.path(), variant_office, driver);
     for (_, seat) in config["seats"].as_object_mut().unwrap() {
-        seat["driver"]["command"] = json!([
-            brokkr_bin(),
-            "fake-driver",
-            "--script",
-            script_path.to_string_lossy(),
-            "--state",
-            state.to_string_lossy(),
-        ]);
+        seat["agent"] = json!(variant_office[0]);
     }
     std::fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();
 
