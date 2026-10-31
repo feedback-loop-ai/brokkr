@@ -203,9 +203,10 @@ fn pinned_under_hostile_global() {
     pinned_neither_git_nor_target(&compiled);
 }
 
-/// A global git configuration whose `core.excludesFile` ignores `roles/`,
-/// with the excluded file outside the fixture's root so the walk never pins
-/// it.
+/// A global git configuration whose `core.excludesFile` ignores `roles/`.
+/// Both files sit in the fixture's directory, which is the bundle's root,
+/// so the walk pins them as ordinary entries; the tests that use them
+/// assert only the charter and the trees the walk skips.
 fn hostile_global(fixture: &Fixture) -> (PathBuf, PathBuf) {
     let excludes = fixture.dir.path().join("hostile-excludes");
     std::fs::write(&excludes, "roles/\n").unwrap();
