@@ -601,6 +601,26 @@ fn a_quiet_walk_of_doubted_and_unowned_identities_takes_no_snapshot() {
     );
 }
 
+/// #918: a live driver is known by its bare pid only while its attempt is
+/// open. Once the attempt closes, an identity at its group's pid is known
+/// only when one of the attempt's sets names it, so a reused pid is a
+/// change that takes a snapshot.
+#[cfg(target_os = "linux")]
+#[test]
+fn only_an_open_attempt_knows_its_group_by_its_bare_pid() {
+    let leader = row(GROUP, me(), GROUP);
+    assert!(
+        !registry([closed(GROUP, &[], &[])]).knows(&leader.id),
+        "a closed attempt's group pid was known"
+    );
+    let mut open = closed(GROUP, &[], &[]);
+    open.open = true;
+    assert!(
+        registry([open]).knows(&leader.id),
+        "an open attempt's group pid was not known"
+    );
+}
+
 /// #918e: a walk that cannot complete forgets the last walk and reads the
 /// table on that tick. A failed read leaves the snapshot owed; a healthy
 /// one answers it, and the next walk, having no memory to compare, reads
