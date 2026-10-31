@@ -565,6 +565,99 @@ fn quiet_ticks_take_no_snapshot_and_a_doubt_takes_one() {
     assert_eq!(SNAPSHOTS.load(Ordering::Relaxed), 1, "a doubt was trusted");
 }
 
+/// #918e: a quiet walk whose rows the registry knows only as a closed
+/// attempt's doubted identity, or only as the engine's own orphan, takes
+/// no snapshot: each is a known identity, so the walk owes nothing.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_quiet_walk_of_doubted_and_unowned_identities_takes_no_snapshot() {
+    static SNAPSHOTS: AtomicU64 = AtomicU64::new(0);
+    fn walk() -> Result<Sighting, TableError> {
+        Ok(Sighting::new(
+            table([row(RECORDED, GROUP, GROUP), row(STRANGER, me(), STRANGER)]),
+            false,
+        ))
+    }
+    fn full() -> Result<Vec<Entry>, TableError> {
+        SNAPSHOTS.fetch_add(1, Ordering::Relaxed);
+        Ok(table([]))
+    }
+    let mut attempt = closed(GROUP, &[], &[]);
+    attempt.doubted = ids([&row(RECORDED, GROUP, GROUP)]);
+    let mut registry = registry([attempt]);
+    registry.unowned = ids([&row(STRANGER, me(), STRANGER)]);
+    registry.walk = Some(walk().unwrap().sighted());
+    let host = Host {
+        tick: walk,
+        table: full,
+        ..Host::REAL
+    };
+    SNAPSHOTS.store(0, Ordering::Relaxed);
+    registry.track(host);
+    assert_eq!(
+        SNAPSHOTS.load(Ordering::Relaxed),
+        0,
+        "a known identity took a snapshot"
+    );
+}
+
+/// #918e: a walk that cannot complete forgets the last walk and reads the
+/// table on that tick. A failed read leaves the snapshot owed; a healthy
+/// one answers it, and the next walk, having no memory to compare, reads
+/// once more.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_walk_that_fails_reads_the_table_and_a_failed_read_stays_owed() {
+    static SNAPSHOTS: AtomicU64 = AtomicU64::new(0);
+    static WALK_FAILS: AtomicBool = AtomicBool::new(false);
+    static READ_FAILS: AtomicBool = AtomicBool::new(false);
+    fn failure() -> TableError {
+        TableError::Row {
+            pid: RECORDED,
+            error: Errno::ACCESS.into(),
+        }
+    }
+    fn walk() -> Result<Sighting, TableError> {
+        if WALK_FAILS.load(Ordering::Relaxed) {
+            return Err(failure());
+        }
+        Ok(sighting(row(GROUP, me(), GROUP), None))
+    }
+    fn full() -> Result<Vec<Entry>, TableError> {
+        SNAPSHOTS.fetch_add(1, Ordering::Relaxed);
+        if READ_FAILS.load(Ordering::Relaxed) {
+            return Err(failure());
+        }
+        Ok(table([row(GROUP, me(), GROUP)]))
+    }
+    let (mut registry, host) = tracked(GROUP, &[], walk, full);
+    let snapshots = || SNAPSHOTS.load(Ordering::Relaxed);
+    SNAPSHOTS.store(0, Ordering::Relaxed);
+    WALK_FAILS.store(false, Ordering::Relaxed);
+    READ_FAILS.store(false, Ordering::Relaxed);
+    registry.track(host);
+    registry.track(host);
+    assert_eq!(snapshots(), 1, "a quiet tick read");
+
+    WALK_FAILS.store(true, Ordering::Relaxed);
+    READ_FAILS.store(true, Ordering::Relaxed);
+    registry.track(host);
+    assert_eq!(snapshots(), 2, "a failed walk did not read the table");
+    assert_eq!(registry.walk, None, "a failed walk was remembered");
+    assert!(registry.owed, "a failed read answered the walk");
+
+    READ_FAILS.store(false, Ordering::Relaxed);
+    registry.track(host);
+    assert_eq!(snapshots(), 3, "the failed walk's read was not retried");
+    assert!(!registry.owed, "a healthy read left the snapshot owed");
+
+    WALK_FAILS.store(false, Ordering::Relaxed);
+    registry.track(host);
+    assert_eq!(snapshots(), 4, "a walk after a failed one compared");
+    registry.track(host);
+    assert_eq!(snapshots(), 4, "a quiet tick read");
+}
+
 /// #918d HIGH: a known leader that turns zombie is a change the walk must
 /// report. Without the snapshot that change takes, `observe` and `note`
 /// never run, `ended` stays `None`, and a detached orphan O born after
