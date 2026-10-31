@@ -2,16 +2,20 @@
 //! and a bundle past the walk's bound is refused by name before a run
 //! starts.
 
-use super::super::{ReadStage, READ_HOOK};
+use super::super::{CompileError, ReadStage, READ_HOOK};
 use super::{error, workspace_root, Boundary, Bundle, Fixture};
 use brokkr_core::canonical::sha256_bytes;
 use serde_json::json;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 // The fixture's git runs with the host's own configuration isolated, so a
 // global or system `core.excludesFile` cannot decide what this test pins
 // (#908, fix round 908e).
 use crate::places::places_tests::{run as git_run, test_repository};
+
+/// The child-process marker carrying the fixture root whose compile runs
+/// under the hostile global configuration.
+const HOSTILE_GLOBAL: &str = "BROKKR_WALK_908_HOSTILE_GLOBAL";
 
 fn git(dir: &Path, args: &[&str]) {
     let out = git_run(dir, args);
@@ -136,10 +140,82 @@ fn a_repository_root_bundle_pins_neither_git_nor_an_ignored_tree() {
     let fixture = Fixture::new();
     ignored_repository(&fixture);
     let compiled = stable_despite(&fixture, "target/artifact");
+    pinned_neither_git_nor_target(&compiled);
+}
+
+/// The bundle pinned the charter and skipped both `.git` and the ignored
+/// `target/`.
+fn pinned_neither_git_nor_target(compiled: &Bundle) {
     let files = compiled.manifest["files"].as_object().unwrap();
     assert!(!files.keys().any(|key| key.starts_with(".git/")));
     assert!(!files.keys().any(|key| key.starts_with("target/")));
     assert!(files.contains_key("roles/role.md"));
+}
+
+/// C4: a host's global `core.excludesFile` cannot decide what a fixture's
+/// repository-root bundle pins. `test_repository` writes the repository's
+/// own `core.excludesFile`, and git's precedence makes it win; this test
+/// supplies the hostile global that would ignore `roles/` if that isolation
+/// were dropped (#908, fix round 908e; decision 0071 ruling 9). The
+/// configuration reaches only the child's compile, so no other test's git
+/// can see it.
+#[test]
+fn a_repository_root_bundle_pins_neither_git_nor_an_ignored_tree_under_a_hostile_global() {
+    if std::env::var_os(HOSTILE_GLOBAL).is_some() {
+        return pinned_under_hostile_global();
+    }
+    let fixture = Fixture::new();
+    ignored_repository(&fixture);
+    std::fs::write(fixture.root.join("target/artifact"), "bytes").unwrap();
+    fixture.declare(&Fixture::config(), &Fixture::policy());
+    let (global, excludes) = hostile_global(&fixture);
+    let this = format!(
+        "{}::a_repository_root_bundle_pins_neither_git_nor_an_ignored_tree_under_a_hostile_global",
+        module_path!().split_once("::").unwrap().1
+    );
+    let child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([this.as_str(), "--exact", "--test-threads=1"])
+        .env(HOSTILE_GLOBAL, &fixture.root)
+        .env("GIT_CONFIG_GLOBAL", &global)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&child.stdout);
+    let stderr = String::from_utf8_lossy(&child.stderr);
+    assert!(
+        child.status.success(),
+        "a hostile global changed what the bundle pins: {} (global {global:?}, excludes \
+         {excludes:?})\n{stdout}\n{stderr}",
+        child.status
+    );
+    assert!(
+        stdout.contains("1 passed"),
+        "the child ran no test: {stdout}\n{stderr}"
+    );
+}
+
+/// The child's side of the hostile-global test: the repository's own
+/// `core.excludesFile` wins, so `roles/` is pinned and `target/` and `.git`
+/// are still skipped.
+fn pinned_under_hostile_global() {
+    let root = PathBuf::from(std::env::var_os(HOSTILE_GLOBAL).expect("the child's fixture root"));
+    let compiled = Bundle::compile(&root).expect("the repository's excludesFile wins");
+    pinned_neither_git_nor_target(&compiled);
+}
+
+/// A global git configuration whose `core.excludesFile` ignores `roles/`,
+/// with the excluded file outside the fixture's root so the walk never pins
+/// it.
+fn hostile_global(fixture: &Fixture) -> (PathBuf, PathBuf) {
+    let excludes = fixture.dir.path().join("hostile-excludes");
+    std::fs::write(&excludes, "roles/\n").unwrap();
+    let global = fixture.dir.path().join("hostile-global");
+    std::fs::write(
+        &global,
+        format!("[core]\n\texcludesFile = {}\n", excludes.display()),
+    )
+    .unwrap();
+    (global, excludes)
 }
 
 #[test]
@@ -599,8 +675,9 @@ fn a_file_that_shrinks_during_the_walk_is_pinned_at_its_bytes_read() {
 }
 
 /// A file that vanishes between the preflight and the walk's read is refused
-/// by its io kind, never pinned from the metadata that is now stale (#908,
-/// fix round 908e).
+/// as the typed io fault it is, never pinned from the metadata that is now
+/// stale (#908, fix round 908e). The module's one display pin is
+/// [`a_walked_file_that_vanishes_before_the_bound_is_refused`].
 #[test]
 fn a_file_that_vanishes_during_the_walk_is_refused() {
     let fixture = Fixture::new();
@@ -609,8 +686,13 @@ fn a_file_that_vanishes_during_the_walk_is_refused() {
     on_stage(ReadStage::Walked, &watched, |path| {
         std::fs::remove_file(path).unwrap();
     });
-    let refused = error(compile(&fixture));
-    assert_eq!(refused, "bundle io: No such file or directory (os error 2)");
+    match compile(&fixture) {
+        Err(CompileError::Io(error)) => {
+            assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+        }
+        Err(other) => panic!("expected an io refusal, got {other:?}"),
+        Ok(_) => panic!("expected compilation to fail"),
+    }
 }
 
 /// C1: a consumed file is charged the length of the buffer whose digest it
