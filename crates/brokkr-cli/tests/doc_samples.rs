@@ -9,9 +9,12 @@
 //! prompt, its first line, and every line after it is what the built
 //! binary prints for that argv: run where its row says ([`Place`]), on the
 //! stream it names ([`Stream`]), exiting as it expects ([`Exit`]). A
-//! sample that reads an earlier command's output names that command in
-//! [`Place::DrivenAfter`], and the earlier argv runs first and must exit
-//! zero. A prompt that names the run's file writes `<run>` where the
+//! command that reads its input is fed the text its row names
+//! ([`Sample::stdin`]) and the stream closes; any other sample's stdin
+//! stays the null stream it has always had. A sample that reads an
+//! earlier command's output names that command in [`Place::DrivenAfter`]
+//! or [`Place::FolderAfter`], and the earlier argv runs first and must
+//! exit zero. A prompt that names the run's file writes `<run>` where the
 //! driven run's id goes, and the sampler fills it in. A
 //! fixture's root reads in the doc as [`HOME`], the guides' convention.
 //! `…` is the one wildcard, as trycmd reads it: a
@@ -42,16 +45,12 @@ const ELIDED: &str = "…";
 /// Docs whose `$ brokkr` prompts are shown but not sampled, one row per
 /// doc, never per line, each with its reason. An allowance that covers
 /// nothing fails, so none outlives its prompts.
-const ALLOWED: [(&str, &str); 5] = [
+const ALLOWED: [(&str, &str); 4] = [
     (
         "docs/guides/quickstart.md",
         "its recipe-shelf blocks (recipes list, and Try another recipe's variant add, list and \
          run) wait on #722, which changes what recipes list prints, and need a recipe source as \
          their fixture",
-    ),
-    (
-        "docs/guides/secrets.md",
-        "one block of three commands, the first reading its value from stdin",
     ),
     (
         "docs/guides/adopting-a-node-repo.md",
@@ -70,6 +69,21 @@ const ALLOWED: [(&str, &str); 5] = [
     ),
 ];
 
+/// An earlier command a sample runs first: its argv, and what its stdin
+/// receives, as [`Sample::stdin`] gives the sample's own command.
+#[derive(Clone, Copy)]
+struct Step {
+    /// The argv, before `<run>` is filled.
+    argv: &'static [&'static str],
+    /// The stdin, or `None` for the null stream a sample gets by default.
+    stdin: Option<&'static str>,
+}
+
+/// `argv` as an earlier command reading no stdin.
+const fn step(argv: &'static [&'static str]) -> Step {
+    Step { argv, stdin: None }
+}
+
 /// Where a sample's command runs.
 #[derive(Clone, Copy)]
 enum Place {
@@ -81,6 +95,11 @@ enum Place {
     /// The [`Place::Fixture`] after `init .`, run as `init_stacks` runs
     /// it: a fresh folder, as the quickstart's Step 2 leaves one.
     Folder(&'static str),
+    /// The [`Place::Folder`] after each earlier [`Step`], in order, each
+    /// run at the folder's root and required to exit zero. An earlier
+    /// command that fails refuses the sample with its stderr, and the
+    /// sample's own argv never runs.
+    FolderAfter(&'static str, &'static [Step]),
     /// The root of a fresh `git init` repository holding a copy of each
     /// named file or directory of this checkout at the same path: a
     /// recipe library assembled by hand, as flow 3's long form builds one.
@@ -94,13 +113,13 @@ enum Place {
     /// The [`Place::Scaffold`] after [`RUN`], the guides' run, reached
     /// `done`.
     Driven,
-    /// The [`Place::Driven`] after each earlier argv, in order, each run
-    /// at the scaffold's root and required to exit zero. An earlier
+    /// The [`Place::Driven`] after each earlier [`Step`], in order, each
+    /// run at the scaffold's root and required to exit zero. An earlier
     /// command that fails refuses the sample with its stderr, and the
     /// sample's own argv never runs. A prompt that names the run's file
     /// writes `<run>` where the driven run's id goes; the sampler fills
     /// it in before the argv runs.
-    DrivenAfter(&'static [&'static [&'static str]]),
+    DrivenAfter(&'static [Step]),
 }
 
 impl Place {
@@ -109,7 +128,11 @@ impl Place {
     /// later must say.
     fn on_the_scaffold(self) -> bool {
         match self {
-            Place::Workspace | Place::Fixture(_) | Place::Folder(_) | Place::Library(_) => false,
+            Place::Workspace
+            | Place::Fixture(_)
+            | Place::Folder(_)
+            | Place::FolderAfter(_, _)
+            | Place::Library(_) => false,
             Place::Scaffold | Place::Driven | Place::DrivenAfter(_) => true,
         }
     }
@@ -149,6 +172,10 @@ struct Sample {
     place: Place,
     stream: Stream,
     exit: Exit,
+    /// What the command's stdin receives, or `None` for the null stream
+    /// [`brokkr_with`] gives it: `Command::output` closes a child's
+    /// stdin at once. `Some` is written whole, then the stream closes.
+    stdin: Option<&'static str>,
 }
 
 /// How a fixture's root reads in a doc.
@@ -173,6 +200,17 @@ const ADAPTER: &str = "adapters/claude.json";
 /// The `export` both chained file samples read.
 const EXPORT: [&str; 5] = ["export", "--run", "latest", "--out", "./out"];
 
+/// The fake value the secrets guide's `set` reads from stdin: never a
+/// real secret, and newline-terminated as a shell heredoc would give it.
+const SECRET: &str = "example-not-a-secret\n";
+
+/// The `secrets set` the guide's `list` and `remove` read, the fake value
+/// arriving on stdin, never argv.
+const SET: Step = Step {
+    argv: &["secrets", "set", "GITHUB_TOKEN"],
+    stdin: Some(SECRET),
+};
+
 /// A sample of the journal guide's evidence at a driven place, on
 /// `stream`; every one succeeds.
 const fn journal(
@@ -188,10 +226,25 @@ const fn journal(
         place,
         stream,
         exit: Exit::Success,
+        stdin: None,
     }
 }
 
-const SAMPLED: [Sample; 30] = [
+/// Flow 3's `recipes add` at `place`, exiting as `exit` says: the same
+/// install onto a folder's shelf, then into a library as it is built.
+const fn added(place: Place, exit: Exit) -> Sample {
+    Sample {
+        doc: "docs/guides/adopting-a-node-repo.md",
+        prompt: "$ brokkr recipes add ~/src/brokkr/recipes/node --name node",
+        argv: &ADD_NODE,
+        place,
+        stream: Stream::Stderr,
+        exit,
+        stdin: None,
+    }
+}
+
+const SAMPLED: [Sample; 33] = [
     Sample {
         doc: "docs/guides/agent-library.md",
         prompt: "$ brokkr agents list",
@@ -199,6 +252,7 @@ const SAMPLED: [Sample; 30] = [
         place: Place::Workspace,
         stream: Stream::Stdout,
         exit: Exit::Success,
+        stdin: None,
     },
     Sample {
         doc: "docs/guides/recipe-authoring.md",
@@ -207,6 +261,7 @@ const SAMPLED: [Sample; 30] = [
         place: Place::Workspace,
         stream: Stream::Stdout,
         exit: Exit::Success,
+        stdin: None,
     },
     Sample {
         doc: "docs/guides/recipe-authoring.md",
@@ -215,6 +270,7 @@ const SAMPLED: [Sample; 30] = [
         place: Place::Workspace,
         stream: Stream::Stdout,
         exit: Exit::Success,
+        stdin: None,
     },
     Sample {
         doc: "docs/guides/quickstart.md",
@@ -223,6 +279,7 @@ const SAMPLED: [Sample; 30] = [
         place: Place::Workspace,
         stream: Stream::Stdout,
         exit: Exit::Success,
+        stdin: None,
     },
     // Doctor exits non-zero on a host missing a tool it reports, which
     // is the host's, not the sample's: the sample shows what every host
@@ -234,6 +291,7 @@ const SAMPLED: [Sample; 30] = [
         place: Place::Fixture("rust"),
         stream: Stream::Stdout,
         exit: Exit::Any,
+        stdin: None,
     },
     Sample {
         doc: "docs/guides/quickstart.md",
@@ -242,6 +300,7 @@ const SAMPLED: [Sample; 30] = [
         place: Place::Fixture("rust"),
         stream: Stream::Stderr,
         exit: Exit::Success,
+        stdin: None,
     },
     // As the quickstart's doctor: the host decides the exit.
     Sample {
@@ -251,6 +310,7 @@ const SAMPLED: [Sample; 30] = [
         place: Place::Workspace,
         stream: Stream::Stdout,
         exit: Exit::Any,
+        stdin: None,
     },
     // The guides' run itself, so not at the place it has driven.
     Sample {
@@ -260,6 +320,7 @@ const SAMPLED: [Sample; 30] = [
         place: Place::Scaffold,
         stream: Stream::Stderr,
         exit: Exit::Success,
+        stdin: None,
     },
     Sample {
         doc: "docs/guides/quickstart.md",
@@ -268,6 +329,7 @@ const SAMPLED: [Sample; 30] = [
         place: Place::Driven,
         stream: Stream::Stdout,
         exit: Exit::Success,
+        stdin: None,
     },
     Sample {
         doc: "docs/guides/quickstart.md",
@@ -276,6 +338,7 @@ const SAMPLED: [Sample; 30] = [
         place: Place::Driven,
         stream: Stream::Stdout,
         exit: Exit::Success,
+        stdin: None,
     },
     Sample {
         doc: "docs/guides/read-surfaces.md",
@@ -284,6 +347,7 @@ const SAMPLED: [Sample; 30] = [
         place: Place::Workspace,
         stream: Stream::Stdout,
         exit: Exit::Success,
+        stdin: None,
     },
     Sample {
         doc: "docs/guides/read-surfaces.md",
@@ -292,6 +356,7 @@ const SAMPLED: [Sample; 30] = [
         place: Place::Driven,
         stream: Stream::Stdout,
         exit: Exit::Success,
+        stdin: None,
     },
     Sample {
         doc: "docs/guides/read-surfaces.md",
@@ -300,6 +365,7 @@ const SAMPLED: [Sample; 30] = [
         place: Place::Driven,
         stream: Stream::Stdout,
         exit: Exit::Success,
+        stdin: None,
     },
     Sample {
         doc: "docs/guides/read-surfaces.md",
@@ -308,6 +374,7 @@ const SAMPLED: [Sample; 30] = [
         place: Place::Driven,
         stream: Stream::Stdout,
         exit: Exit::Success,
+        stdin: None,
     },
     // Decision 0087 ruling 8, slice 2 (#717): Brokkr's portable recipes
     // install onto a fresh folder's shelf.
@@ -324,6 +391,7 @@ const SAMPLED: [Sample; 30] = [
         place: Place::Folder("rust"),
         stream: Stream::Stderr,
         exit: Exit::Success,
+        stdin: None,
     },
     Sample {
         doc: "docs/guides/cards/node.md",
@@ -332,41 +400,17 @@ const SAMPLED: [Sample; 30] = [
         place: Place::Folder("node-npm"),
         stream: Stream::Stderr,
         exit: Exit::Success,
+        stdin: None,
     },
     // Flow 3's long form runs the same install four times, in the guide's
     // order: onto a folder's shelf, then into a library as it is built.
-    Sample {
-        doc: "docs/guides/adopting-a-node-repo.md",
-        prompt: "$ brokkr recipes add ~/src/brokkr/recipes/node --name node",
-        argv: &ADD_NODE,
-        place: Place::Folder("node-npm"),
-        stream: Stream::Stderr,
-        exit: Exit::Success,
-    },
-    Sample {
-        doc: "docs/guides/adopting-a-node-repo.md",
-        prompt: "$ brokkr recipes add ~/src/brokkr/recipes/node --name node",
-        argv: &ADD_NODE,
-        place: Place::Library(&[ADAPTER]),
-        stream: Stream::Stderr,
-        exit: Exit::Refused,
-    },
-    Sample {
-        doc: "docs/guides/adopting-a-node-repo.md",
-        prompt: "$ brokkr recipes add ~/src/brokkr/recipes/node --name node",
-        argv: &ADD_NODE,
-        place: Place::Library(&[ADAPTER, "agents"]),
-        stream: Stream::Stderr,
-        exit: Exit::Refused,
-    },
-    Sample {
-        doc: "docs/guides/adopting-a-node-repo.md",
-        prompt: "$ brokkr recipes add ~/src/brokkr/recipes/node --name node",
-        argv: &ADD_NODE,
-        place: Place::Library(&[ADAPTER, "agents", "capabilities"]),
-        stream: Stream::Stderr,
-        exit: Exit::Success,
-    },
+    added(Place::Folder("node-npm"), Exit::Success),
+    added(Place::Library(&[ADAPTER]), Exit::Refused),
+    added(Place::Library(&[ADAPTER, "agents"]), Exit::Refused),
+    added(
+        Place::Library(&[ADAPTER, "agents", "capabilities"]),
+        Exit::Success,
+    ),
     // #365 slice 5: the journal guide's evidence, each command at a
     // driven run. The chained samples name the commands they read, so
     // `verify-run` and `import` run after the `export` that writes their
@@ -383,7 +427,7 @@ const SAMPLED: [Sample; 30] = [
     journal(
         "$ brokkr anchor --run latest --check",
         &["anchor", "--run", "latest", "--check"],
-        Place::DrivenAfter(&[&["anchor", "--run", "latest"]]),
+        Place::DrivenAfter(&[step(&["anchor", "--run", "latest"])]),
         Stream::Stdout,
     ),
     journal(
@@ -401,7 +445,7 @@ const SAMPLED: [Sample; 30] = [
     journal(
         "$ brokkr verify-run ./out/<run>.ndjson",
         &["verify-run", "./out/<run>.ndjson"],
-        Place::DrivenAfter(&[&EXPORT]),
+        Place::DrivenAfter(&[step(&EXPORT)]),
         Stream::Stdout,
     ),
     journal(
@@ -419,7 +463,7 @@ const SAMPLED: [Sample; 30] = [
             "--db",
             "./canonical/forge.db",
         ],
-        Place::DrivenAfter(&[&EXPORT]),
+        Place::DrivenAfter(&[step(&EXPORT)]),
         Stream::Stdout,
     ),
     journal(
@@ -437,9 +481,39 @@ const SAMPLED: [Sample; 30] = [
     journal(
         "$ brokkr keep-refs delete --run latest",
         &["keep-refs", "delete", "--run", "latest"],
-        Place::DrivenAfter(&[&["keep-refs", "plant", "--run", "latest"]]),
+        Place::DrivenAfter(&[step(&["keep-refs", "plant", "--run", "latest"])]),
         Stream::Stderr,
     ),
+    // #365 slice 6: the secrets guide, in a fresh folder. `set` reads its
+    // fake value from stdin, never argv; `list` and `remove` each run
+    // after the `set` whose store entry they read.
+    Sample {
+        doc: "docs/guides/secrets.md",
+        prompt: "$ brokkr secrets set GITHUB_TOKEN",
+        argv: SET.argv,
+        place: Place::Folder("rust"),
+        stream: Stream::Stderr,
+        exit: Exit::Success,
+        stdin: Some(SECRET),
+    },
+    Sample {
+        doc: "docs/guides/secrets.md",
+        prompt: "$ brokkr secrets list",
+        argv: &["secrets", "list"],
+        place: Place::FolderAfter("rust", &[SET]),
+        stream: Stream::Stdout,
+        exit: Exit::Success,
+        stdin: None,
+    },
+    Sample {
+        doc: "docs/guides/secrets.md",
+        prompt: "$ brokkr secrets remove GITHUB_TOKEN",
+        argv: &["secrets", "remove", "GITHUB_TOKEN"],
+        place: Place::FolderAfter("rust", &[SET]),
+        stream: Stream::Stderr,
+        exit: Exit::Success,
+        stdin: None,
+    },
 ];
 
 /// Whether a line of a fenced block is a `$ brokkr` prompt.
@@ -616,20 +690,14 @@ fn filled(arg: &str, run: &str) -> String {
 
 /// The built binary run with a sample's argv where the sample says, an
 /// `init` with a `claude` first on PATH, as `init_stacks` runs it. Every
-/// command it spawns is [`hermetic`].
+/// command it spawns is [`hermetic`], and its stdin is the sample's.
 fn printed(sample: &Sample) -> Printed {
     let config = tempfile::tempdir().unwrap();
     let hermetic = |command: &mut Command| hermetic(command, config.path());
     let words: Vec<String> = sample.argv.iter().map(|arg| expanded(arg)).collect();
     let argv: Vec<&str> = words.iter().map(String::as_str).collect();
     let run = |cwd: &Path, roots: Vec<String>, configure: &dyn Fn(&mut Command), argv: &[&str]| {
-        let (code, stdout, stderr) = brokkr_with(argv, cwd, configure);
-        Printed {
-            code,
-            stdout,
-            stderr,
-            roots,
-        }
+        ran(argv, cwd, roots, configure, sample.stdin)
     };
     match sample.place {
         Place::Workspace => run(&workspace(), Vec::new(), &hermetic, &argv),
@@ -638,9 +706,12 @@ fn printed(sample: &Sample) -> Printed {
             run(repo.path(), roots_of(repo.path()), &hermetic, &argv)
         }
         Place::Folder(fixture) => {
-            let repo = repository_of(fixture);
-            let (code, _, stderr) = brokkr_with(&["init", "."], repo.path(), hermetic);
-            assert_eq!(code, Some(0), "{fixture}: init refused: {stderr}");
+            let repo = folder(fixture, &hermetic);
+            run(repo.path(), roots_of(repo.path()), &hermetic, &argv)
+        }
+        Place::FolderAfter(fixture, earlier) => {
+            let repo = folder(fixture, &hermetic);
+            chain(earlier, repo.path(), sample, &hermetic, None);
             run(repo.path(), roots_of(repo.path()), &hermetic, &argv)
         }
         Place::Library(paths) => {
@@ -677,20 +748,92 @@ fn printed(sample: &Sample) -> Printed {
     }
 }
 
+/// [`brokkr_with`] with `stdin` written whole to the child and closed, or
+/// `None` leaving the null stream `Command::output` gives it; `roots` are
+/// the fixture roots a sample's text reads as [`HOME`].
+fn ran(
+    argv: &[&str],
+    cwd: &Path,
+    roots: Vec<String>,
+    configure: &dyn Fn(&mut Command),
+    stdin: Option<&str>,
+) -> Printed {
+    let (code, stdout, stderr) = match stdin {
+        None => brokkr_with(argv, cwd, configure),
+        Some(input) => {
+            let file = tempfile::NamedTempFile::new().unwrap();
+            std::fs::write(file.path(), input).unwrap();
+            let path = file.path().to_path_buf();
+            brokkr_with(argv, cwd, |command| {
+                configure(command);
+                command.stdin(std::fs::File::open(&path).unwrap());
+            })
+        }
+    };
+    Printed {
+        code,
+        stdout,
+        stderr,
+        roots,
+    }
+}
+
+/// The fresh [`Place::Folder`] `fixture` names: `init .` run in a fresh
+/// `git init` copy of the fixture, which leaves the folder.
+fn folder(fixture: &str, hermetic: &dyn Fn(&mut Command)) -> tempfile::TempDir {
+    let repo = repository_of(fixture);
+    let (code, _, stderr) = brokkr_with(&["init", "."], repo.path(), hermetic);
+    assert_eq!(code, Some(0), "{fixture}: init refused: {stderr}");
+    repo
+}
+
+/// Run each earlier [`Step`] at `cwd`, in order, each required to exit
+/// zero: a failing earlier command refuses `sample` with its stderr, and
+/// the sample's own argv never runs. `<run>` in an earlier argv is filled
+/// from `run`, when a place read one.
+fn chain(
+    earlier: &[Step],
+    cwd: &Path,
+    sample: &Sample,
+    configure: &dyn Fn(&mut Command),
+    run: Option<&str>,
+) {
+    for step in earlier {
+        let argv: Vec<String> = step
+            .argv
+            .iter()
+            .map(|arg| match run {
+                Some(run) => filled(&expanded(arg), run),
+                None => expanded(arg),
+            })
+            .collect();
+        let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
+        let done = ran(&argv, cwd, Vec::new(), configure, step.stdin);
+        assert_eq!(
+            done.code,
+            Some(0),
+            "{}: the chain's `{}` did not exit zero, so the sample never runs: {}",
+            sample.prompt,
+            spelled(&argv),
+            done.stderr
+        );
+    }
+}
+
 /// What a place on the scaffold does before a sample's own argv runs,
 /// each choice stated by the place itself: whether [`RUN`] is driven
-/// first, the earlier argvs run after it, in order, and whether the
+/// first, the earlier [`Step`]s run after it, in order, and whether the
 /// driven run's id is read to fill `<run>`.
 struct Before {
     drive: bool,
-    chain: &'static [&'static [&'static str]],
+    chain: &'static [Step],
     run_id: bool,
 }
 
 /// A sample at one of the scaffold's places, after what `before` says,
 /// run at the scaffold's root with the `claude` CLI stubbed. Each earlier
-/// argv must exit zero, or the sample refuses with that command's stderr
-/// and its own argv never runs.
+/// [`Step`] must exit zero, or the sample refuses with that command's
+/// stderr and its own argv never runs.
 fn scaffolded(
     sample: &Sample,
     words: &[String],
@@ -708,31 +851,26 @@ fn scaffolded(
         drive(&scaffold, &stubbed);
     }
     let id = before.run_id.then(|| driven_run_id(&scaffold, &stubbed));
+    chain(
+        before.chain,
+        &scaffold.root,
+        sample,
+        &stubbed,
+        id.as_deref(),
+    );
     let fill = |arg: &str| match &id {
         Some(id) => filled(arg, id),
         None => arg.to_string(),
     };
-    for earlier in before.chain {
-        let earlier: Vec<String> = earlier.iter().map(|arg| fill(arg)).collect();
-        let earlier: Vec<&str> = earlier.iter().map(String::as_str).collect();
-        let (code, _, stderr) = brokkr_with(&earlier, &scaffold.root, stubbed);
-        assert_eq!(
-            code,
-            Some(0),
-            "{}: the chain's `{}` did not exit zero, so the sample never runs: {stderr}",
-            sample.prompt,
-            spelled(&earlier)
-        );
-    }
     let argv: Vec<String> = words.iter().map(|arg| fill(arg)).collect();
     let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
-    let (code, stdout, stderr) = brokkr_with(&argv, &scaffold.root, stubbed);
-    Printed {
-        code,
-        stdout,
-        stderr,
-        roots: roots_of(&scaffold.root),
-    }
+    ran(
+        &argv,
+        &scaffold.root,
+        roots_of(&scaffold.root),
+        &stubbed,
+        sample.stdin,
+    )
 }
 
 /// `arg` as a shell passes it: a path under [`CHECKOUT`] read as the same
@@ -952,6 +1090,7 @@ fn sample(prompt: &'static str, argv: &'static [&'static str]) -> Sample {
         place: Place::Workspace,
         stream: Stream::Stdout,
         exit: Exit::Success,
+        stdin: None,
     }
 }
 
@@ -1241,6 +1380,9 @@ fn the_scaffolds_samples_wait_for_a_box() {
             "$ brokkr recipes add ~/src/brokkr/recipes/node --name node",
             "$ brokkr recipes add ~/src/brokkr/recipes/node --name node",
             "$ brokkr recipes add ~/src/brokkr/recipes/node --name node",
+            "$ brokkr secrets set GITHUB_TOKEN",
+            "$ brokkr secrets list",
+            "$ brokkr secrets remove GITHUB_TOKEN",
         ]
     );
 }
