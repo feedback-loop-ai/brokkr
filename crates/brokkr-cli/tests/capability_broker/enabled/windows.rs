@@ -49,6 +49,10 @@ const TIMED_OUT: &str =
 /// How long the engine's end of a timed or expired window is waited for.
 const PATIENCE: Duration = Duration::from_secs(90);
 
+/// How long a window's broker, and then everything below it, is given to end
+/// once its end is due: seconds, on a hosted runner as on a quiet host.
+const TEARDOWN: Duration = Duration::from_secs(30);
+
 /// A window of a broker's startup, held open.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Window {
@@ -396,9 +400,9 @@ fn cancelled_at(window: Window) {
     };
     killed(standing.harness);
     let keeper = pid_in(&standing.world, "keeper.pid");
-    standing.broker_ended(Duration::from_secs(5));
+    standing.broker_ended(TEARDOWN);
     killed(keeper);
-    standing.settled(Duration::from_secs(5));
+    standing.settled(TEARDOWN);
     let ended = standing.engine_ended();
     // The broker's own record, closed on the window's cause, or a prefix of it
     // where the engine's sweep of the attempt's tree killed it before it closed.
@@ -460,8 +464,8 @@ fn timed_out_at(window: Window, calls: &[(String, String, Option<String>)]) {
     // Held, this waits on the timeout's clock and no survey of its own.
     standing.world.unserialized();
     let ended = standing.engine_ended();
-    standing.broker_ended(Duration::from_secs(5));
-    standing.settled(Duration::from_secs(5));
+    standing.broker_ended(TEARDOWN);
+    standing.settled(TEARDOWN);
     // The deadline it names is what admission and provisioning left of the
     // seat's timeout.
     let parked = ended.cause.clone().unwrap_or_default();

@@ -275,13 +275,14 @@ fn a_bind_alias_of_the_package_refuses_with_no_lookup_or_start() {
     assert_eq!(unstarted, (0, 0, 0));
 }
 
-/// CR3's quota past the door. Four retaining panel members share the attempt's
-/// 256 MiB, so each holds 64 MiB and each call of one first reserves 8 MiB. The
-/// one member that calls retains eight answers of about 7.6 MiB; its ninth call
-/// finds no room in its own share and is refused by the budget before any
-/// external work, the server never asked, and the session stays clean. Four, as
-/// more members' surveys outlast the shared startup bound on a loaded host
-/// (U9b1b's finding F8).
+/// CR3's quota past the door. Two retaining panel members share the attempt's
+/// 256 MiB, so each holds 128 MiB and each call of one first reserves 8 MiB.
+/// The one member that calls retains sixteen answers of about 7.6 MiB; its
+/// seventeenth call finds no room in its own share and is refused by the budget
+/// before any external work, the server never asked, and the session stays
+/// clean. Two, as more members' surveys outlast the shared startup bound on a
+/// loaded host (U9b1b's finding F8): four parked a hosted runner's merge-queue
+/// run (operator ruling 2026-11-01).
 #[test]
 fn a_spent_share_refuses_its_next_call_with_no_forwarding() {
     let Some(world) = World::new() else {
@@ -303,17 +304,17 @@ done
         payload.display()
     );
     world.server(&format!("{STARTS}{answers}"));
-    world.worker_panel(4);
+    world.worker_panel(2);
     let head = FRAMES.lines().take(3).collect::<Vec<_>>().join("\n");
     let call = |id: usize| {
         format!(
             r#"{{"jsonrpc":"2.0","id":"c{id}","method":"tools/call","params":{{"name":"resolve","arguments":{{}}}}}}"#
         )
     };
-    let calls: Vec<String> = (0..9).map(call).collect();
+    let calls: Vec<String> = (0..17).map(call).collect();
     world.frames(&format!("{head}\n{}\n", calls.join("\n")));
     put(&world.bin("frames.rest"), format!("{head}\n"));
-    put(&world.bin("results"), "pass\n".repeat(4));
+    put(&world.bin("results"), "pass\n".repeat(2));
     let ended = world.completes();
     let mut states: Vec<String> = world
         .calls(&ended.run)
@@ -322,16 +323,20 @@ done
         .collect();
     states.sort();
     let refused = states.iter().filter(|state| *state == "refused").count();
-    assert_eq!((states.len(), refused), (9, 1), "{states:?}");
+    assert_eq!((states.len(), refused), (17, 1), "{states:?}");
     assert_eq!(
         states.iter().filter(|state| *state == "succeeded").count(),
-        8
+        16
     );
     let exhausted = "capability evidence budget is exhausted";
     let heard = std::fs::read_to_string(world.bin("heard")).unwrap();
-    let last = heard.lines().find(|line| line.contains(r#""id":"c8""#));
+    let last = heard.lines().find(|line| line.contains(r#""id":"c16""#));
     assert!(last.unwrap().contains(exhausted), "{}", last.unwrap().len());
     let said = relayed(&world, "broker.stderr");
     let answered = said.iter().filter(|line| line.starts_with("answered"));
-    assert_eq!(answered.count(), 8, "the ninth call reached no server");
+    assert_eq!(
+        answered.count(),
+        16,
+        "the seventeenth call reached no server"
+    );
 }
