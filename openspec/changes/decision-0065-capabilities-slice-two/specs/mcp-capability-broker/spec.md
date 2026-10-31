@@ -318,7 +318,7 @@ within filesystem checks use reach, hard links, then remaining identity.
 | Refusal | Exact cause |
 | --- | --- |
 | Missing/forged/mismatched plan or inventory | `broker plan is not bound to this attempt` (kept) |
-| Executable resolves into seat-writable reach | `MCP server launch resolves inside seat-writable reach` (kept; checked before other tree overlap) |
+| Executable resolves into seat-writable reach | `MCP server launch resolves inside seat-writable reach` (kept; checked before other tree overlap). A seat whose own writable reach covers the program meets the source lease's `MCP server box filesystem identity is not protected` first (U9b1b's ruling F6); this cause stands behind it, and both refuse with zero lookups |
 | Binding name collides with a fixed environment key | `MCP server startup inputs are not protected from seat writes` (kept for this collision; no arbitrary-startup qualification) |
 | Executable missing/unresolvable, relative slash path, or root cannot be determined without widening | `MCP server box program tree cannot be resolved` (new) |
 | Any source/destination overlaps a reach root, including a readable or overlay root | `MCP server box bind overlaps seat reach` (new) |
@@ -439,7 +439,7 @@ alone SHALL remain a call outcome, not a fatal session failure.
 
 - **WHEN** argv[0] is a relative slash path or cannot resolve under the fixed search path, or its package root would be `/`, the host HOME or an ancestor of that HOME
 - **THEN** launch refuses "MCP server box program tree cannot be resolved" with zero secret lookups and dialect-server starts
-- **AND** an executable resolving into seat-writable reach instead receives the kept "MCP server launch resolves inside seat-writable reach" cause; a server version assertion never admits it
+- **AND** an executable resolving into seat-writable reach instead receives the kept "MCP server launch resolves inside seat-writable reach" cause, behind the source lease's identity cause for a seat whose own writable reach covers it; a server version assertion never admits it
 
 #### Scenario: Reach includes every declared bind and containing mounts
 

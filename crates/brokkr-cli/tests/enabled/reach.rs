@@ -17,16 +17,19 @@ fn binding(path: &Path, mode: &str) -> Value {
     json!({"kind": "workspace", "network": false, "binds": [{"path": path, "mode": mode}]})
 }
 
-/// The refusal of `world`'s run before its driver started, by the source lease,
-/// naming what its seat can write: no lookup, no harness and no server.
+/// The refusal of `world`'s run before its driver started, by the source lease's
+/// identity cause, naming what its seat can write: no lookup, no harness and no
+/// server. Ruling F6's order: this cause answers first, ahead of MB3's "launch
+/// resolves inside seat-writable reach", which stands behind it.
 fn leased_off(world: &World, names: &Path) {
     let reads = world.store_reads();
     let ended = world.run();
     let cause = ended.cause.clone().unwrap_or_default();
+    let identity = format!("dispatch refused: {}: ", Refusal::Identity);
     assert_eq!(
         (
             ended.status.as_str(),
-            cause.starts_with("dispatch refused:"),
+            cause.starts_with(&identity),
             cause.contains(names.to_str().unwrap()),
         ),
         ("awaiting_operator", true, true),
