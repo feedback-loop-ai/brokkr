@@ -168,6 +168,11 @@ struct Inventory {
     excluded: Vec<Excluded>,
 }
 
+/// Which stored fact of an event row a snapshot's envelope disagrees with
+/// (decision 0100 ruling 4): the row's key, or the hash the store appends
+/// under.
+pub use consistency::RowField;
+
 /// Why a backup or a restore refused. Each variant names what failed; a
 /// restore's variants all leave its destination absent.
 #[derive(Debug, Error)]
@@ -245,7 +250,18 @@ pub enum BackupError {
     UnownedEvents {
         count: u64,
         run_id: String,
-        seq: u64,
+        seq: i64,
+    },
+    #[error(
+        "the snapshot's event row for run '{run_id}' at SQL seq {seq} disagrees with its \
+         envelope: its {field} is '{found}', and the envelope's is '{expected}'"
+    )]
+    RowMismatch {
+        run_id: String,
+        seq: i64,
+        field: RowField,
+        found: String,
+        expected: String,
     },
     #[error("the snapshot's projections disagree: {first}")]
     ProjectionDisagreement { first: String },
@@ -471,7 +487,7 @@ fn boundary_of(store: &Store, taken_at: &str) -> Result<Boundary, BackupError> {
         [],
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
-    refuse_unowned(store)?;
+    consistency::refuse_unowned(store)?;
     let mut statement = store
         .conn
         .prepare("SELECT run_id FROM runs ORDER BY run_id")?;
@@ -480,13 +496,7 @@ fn boundary_of(store: &Store, taken_at: &str) -> Result<Boundary, BackupError> {
         .collect::<Result<Vec<_>, _>>()?;
     let mut heads = Vec::with_capacity(runs as usize);
     for run_id in run_ids {
-        let chain = store.load(&run_id).map_err(|error| match error {
-            StoreError::Chain(source) => BackupError::Chain {
-                run_id: run_id.clone(),
-                source,
-            },
-            error => BackupError::Store(error),
-        })?;
+        let chain = consistency::chain(store, &run_id)?;
         let (seq, chain_head) = chain
             .last()
             .map(|event| (event.seq, event.event_hash.clone()))
@@ -502,31 +512,6 @@ fn boundary_of(store: &Store, taken_at: &str) -> Result<Boundary, BackupError> {
         runs,
         events,
         heads,
-    })
-}
-
-/// Refuse a snapshot holding an event whose `run_id` no run owns: the
-/// chains a reader verified are not the whole `events` table, and the
-/// boundary declares what it counted, never what it happened to load.
-fn refuse_unowned(store: &Store) -> Result<(), BackupError> {
-    let count: u64 = store.conn.query_row(
-        "SELECT count(*) FROM events WHERE run_id NOT IN (SELECT run_id FROM runs)",
-        [],
-        |row| row.get(0),
-    )?;
-    if count == 0 {
-        return Ok(());
-    }
-    let (run_id, seq): (String, i64) = store.conn.query_row(
-        "SELECT run_id, seq FROM events WHERE run_id NOT IN (SELECT run_id FROM runs)
-         ORDER BY run_id, seq LIMIT 1",
-        [],
-        |row| Ok((row.get(0)?, row.get(1)?)),
-    )?;
-    Err(BackupError::UnownedEvents {
-        count,
-        run_id,
-        seq: seq.try_into().unwrap_or(0),
     })
 }
 
@@ -795,6 +780,8 @@ impl Drop for Temp {
         }
     }
 }
+
+mod consistency;
 
 #[cfg(test)]
 mod tests;

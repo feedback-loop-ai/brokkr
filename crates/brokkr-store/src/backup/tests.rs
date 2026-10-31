@@ -118,6 +118,112 @@ fn plant_unowned(connection: &rusqlite::Connection) {
         .unwrap();
 }
 
+/// Run `edit` with the append-only update guard dropped, then recreate the
+/// trigger exactly as the snapshot recorded it: a test edits a row the
+/// store would never edit, and the guard is back for whatever reads next.
+fn edited_despite_guard(connection: &rusqlite::Connection, edit: impl FnOnce()) {
+    let guard: String = connection
+        .query_row(
+            "SELECT sql FROM sqlite_schema
+             WHERE type = 'trigger' AND name = 'events_append_only_update'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    connection
+        .execute_batch("DROP TRIGGER events_append_only_update")
+        .unwrap();
+    edit();
+    connection.execute_batch(&guard).unwrap();
+}
+
+/// One run of eight phase entries, its eighth a `RunCompleted` when
+/// `finished`, and its head row's SQL `(seq, event_hash)` as written.
+fn one_run(dir: &Path, run_id: &str, finished: bool) -> (Store, i64, String) {
+    let mut store = journal(dir);
+    seed(&mut store, run_id, if finished { 7 } else { 8 });
+    if finished {
+        append(&mut store, run_id, EventType::RunCompleted, json!({}));
+    }
+    let (seq, hash) = store
+        .conn
+        .query_row(
+            "SELECT seq, event_hash FROM events WHERE run_id = ?1 ORDER BY seq DESC LIMIT 1",
+            rusqlite::params![run_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    (store, seq, hash)
+}
+
+/// [`one_run`] in a directory of its own, kept alive by its caller.
+fn one_run_in_own_dir(run_id: &str, finished: bool) -> (tempfile::TempDir, Store, i64, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, seq, hash) = one_run(dir.path(), run_id, finished);
+    (dir, store, seq, hash)
+}
+
+/// A head hash that is not its envelope's, edited past the append guard.
+fn break_head_hash(connection: &rusqlite::Connection, run_id: &str, seq: i64) {
+    edited_despite_guard(connection, || {
+        connection
+            .execute(
+                "UPDATE events SET event_hash = 'bad' WHERE run_id = ?1 AND seq = ?2",
+                rusqlite::params![run_id, seq],
+            )
+            .unwrap();
+    });
+}
+
+/// A head position that is not its envelope's, edited past the append
+/// guard: `seq` becomes `seq + 100`, so a later head read names it.
+fn move_head_seq(connection: &rusqlite::Connection, run_id: &str, seq: i64) {
+    edited_despite_guard(connection, || {
+        connection
+            .execute(
+                "UPDATE events SET seq = ?1 WHERE run_id = ?2 AND seq = ?3",
+                rusqlite::params![seq + 100, run_id, seq],
+            )
+            .unwrap();
+    });
+}
+
+/// The exact row/envelope refusal, field, and its two values.
+fn assert_row_mismatch(
+    refused: BackupError,
+    run_id: &str,
+    seq: i64,
+    field: RowField,
+    found: &str,
+    expected: &str,
+) {
+    let BackupError::RowMismatch {
+        run_id: named,
+        seq: at,
+        field: disagreed,
+        found: read,
+        expected: envelope,
+    } = refused
+    else {
+        panic!("a row that disagrees with its envelope is refused by name: {refused:?}");
+    };
+    assert_eq!((named.as_str(), at, disagreed), (run_id, seq, field));
+    assert_eq!((read.as_str(), envelope.as_str()), (found, expected));
+}
+
+/// The seq refusal when `tamper` moved a head row `seq + 100`.
+fn assert_moved_head(refused: BackupError, run_id: &str, seq: i64) {
+    let moved = seq + 100;
+    assert_row_mismatch(
+        refused,
+        run_id,
+        moved,
+        RowField::Seq,
+        &moved.to_string(),
+        &seq.to_string(),
+    );
+}
+
 /// A destination no restore in these tests may create on failure.
 fn absent_destination(dir: &Path) -> PathBuf {
     dir.join("restored.db")
@@ -130,6 +236,93 @@ fn assert_absent(destination: &Path) {
         "a refused restore left {} behind",
         destination.display()
     );
+}
+
+/// One case of the row/envelope tests: a run id and whether it finished.
+#[derive(Clone, Copy)]
+struct Case<'a> {
+    run_id: &'a str,
+    finished: bool,
+}
+
+/// The two states every row/envelope case is run in.
+const CASES: [Case; 2] = [
+    Case {
+        run_id: "finished",
+        finished: true,
+    },
+    Case {
+        run_id: "running",
+        finished: false,
+    },
+];
+
+/// A test's edit of one event row: the connection, the run and the SQL seq.
+type Tamper = fn(&rusqlite::Connection, &str, i64);
+
+/// One run of eight events, its head row changed by `tamper`, whose backup
+/// refused: the refusal and the head the run held before the edit.
+fn refused_backup(case: Case<'_>, tamper: Tamper) -> (BackupError, i64, String) {
+    let (dir, store, seq, hash) = one_run_in_own_dir(case.run_id, case.finished);
+    tamper(&store.conn, case.run_id, seq);
+    let to = dir.path().join("backup");
+    let refused = backup(
+        &store,
+        BackupOptions {
+            to: &to,
+            now: TAKEN_AT,
+            projection: PROJECTION,
+        },
+    )
+    .unwrap_err();
+    assert!(
+        files_under(&to).is_empty(),
+        "a refused backup publishes neither name"
+    );
+    (refused, seq, hash)
+}
+
+/// One run of eight events, its head row changed by `tamper` in a taken
+/// backup, whose restore refused: the refusal and the head as taken.
+fn refused_restore(case: Case<'_>, tamper: Tamper) -> (BackupError, i64, String) {
+    let (dir, store, seq, hash) = one_run_in_own_dir(case.run_id, case.finished);
+    let backup = snapshot_of(&store, &dir.path().join("backup"));
+    let (_, connection) = opened(&backup);
+    tamper(&connection, case.run_id, seq);
+    drop(connection);
+    resealed(&backup);
+    let destination = absent_destination(dir.path());
+    let refused = restore(&backup.to, &destination).unwrap_err();
+    assert_absent(&destination);
+    (refused, seq, hash)
+}
+
+/// A restore of `backup` whose snapshot `edit` changes, refused, leaving
+/// its destination absent.
+fn refused_edited_restore(
+    dir: &Path,
+    backup: &Backup,
+    edit: impl FnOnce(&rusqlite::Connection),
+) -> BackupError {
+    let (_, connection) = opened(backup);
+    edit(&connection);
+    drop(connection);
+    resealed(backup);
+    let destination = absent_destination(dir);
+    let refused = restore(&backup.to, &destination).unwrap_err();
+    assert_absent(&destination);
+    refused
+}
+
+/// An eight-event backup whose unowned `ghost` row `edit` changes, whose
+/// restore refused and left its destination absent.
+fn refused_unowned_restore(edit: impl FnOnce(&rusqlite::Connection)) -> BackupError {
+    let dir = tempfile::tempdir().unwrap();
+    let (_, backup) = backed_up(dir.path(), &["alpha"], 8);
+    refused_edited_restore(dir.path(), &backup, |connection| {
+        plant_unowned(connection);
+        edit(connection);
+    })
 }
 
 /// `to`'s SQLite sidecar named by `suffix`, exactly as SQLite names it.
@@ -585,6 +778,26 @@ fn a_broken_chain_is_refused_after_the_digest_matches() {
 }
 
 #[test]
+fn restore_refuses_an_owned_envelope_that_is_not_json() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_, backup) = completed(dir.path());
+    let refused = refused_edited_restore(dir.path(), &backup, |connection| {
+        edited_despite_guard(connection, || {
+            connection
+                .execute(
+                    "UPDATE events SET envelope = '{' WHERE run_id = 'alpha' AND seq = 1",
+                    [],
+                )
+                .unwrap();
+        });
+    });
+    let BackupError::Store(crate::StoreError::Json(source)) = refused else {
+        panic!("an owned envelope that is not JSON is refused by name: {refused:?}");
+    };
+    assert_eq!(source.line(), 1, "{source}");
+}
+
+#[test]
 fn an_inventory_of_another_format_is_refused_by_name() {
     let dir = tempfile::tempdir().unwrap();
     let (_, backup) = completed(dir.path());
@@ -725,22 +938,102 @@ fn restore_refuses_a_destination_with_a_shared_memory_index() {
 }
 
 #[test]
-fn restore_refuses_an_unowned_event_in_the_snapshot() {
+fn backup_refuses_a_head_hash_that_disagrees_with_its_envelope() {
+    for case in CASES {
+        let (refused, seq, hash) = refused_backup(case, break_head_hash);
+        assert_row_mismatch(refused, case.run_id, seq, RowField::EventHash, "bad", &hash);
+    }
+}
+
+#[test]
+fn restore_refuses_a_head_hash_that_disagrees_with_its_envelope() {
+    for case in CASES {
+        let (refused, seq, hash) = refused_restore(case, break_head_hash);
+        assert_row_mismatch(refused, case.run_id, seq, RowField::EventHash, "bad", &hash);
+    }
+}
+
+#[test]
+fn backup_refuses_a_head_seq_that_disagrees_with_its_envelope() {
+    for case in CASES {
+        let (refused, seq, _) = refused_backup(case, move_head_seq);
+        assert_moved_head(refused, case.run_id, seq);
+    }
+}
+
+#[test]
+fn restore_refuses_a_head_seq_that_disagrees_with_its_envelope() {
+    for case in CASES {
+        let (refused, seq, _) = refused_restore(case, move_head_seq);
+        assert_moved_head(refused, case.run_id, seq);
+    }
+}
+
+#[test]
+fn restore_refuses_a_row_run_id_that_disagrees_with_its_envelope() {
     let dir = tempfile::tempdir().unwrap();
-    let (_, backup) = backed_up(dir.path(), &["alpha"], 8);
-    let (_, connection) = opened(&backup);
-    plant_unowned(&connection);
-    drop(connection);
-    // The size and digest are brought to the edited bytes, so ownership is
-    // the check that must refuse them.
-    resealed(&backup);
+    let mut store = journal(dir.path());
+    seed(&mut store, "alpha", 8);
+    store
+        .create_run("beta", "feature", "self", &json!({"files": {}}))
+        .unwrap();
+    let backup = snapshot_of(&store, &dir.path().join("backup"));
+    let refused = refused_edited_restore(dir.path(), &backup, |connection| {
+        edited_despite_guard(connection, || {
+            connection
+                .execute(
+                    "UPDATE events SET run_id = 'beta' WHERE run_id = 'alpha'",
+                    [],
+                )
+                .unwrap();
+        });
+    });
+    assert_row_mismatch(refused, "beta", 1, RowField::RunId, "beta", "alpha");
+}
+
+#[test]
+fn a_consistent_journal_still_backs_up_and_restores() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = journal(dir.path());
+    seed(&mut store, "finished", 8);
+    append(&mut store, "finished", EventType::RunCompleted, json!({}));
+    seed(&mut store, "running", 8);
+    let backup = snapshot_of(&store, &dir.path().join("backup"));
+    assert_eq!((backup.runs, backup.events), (2, 17));
     let destination = absent_destination(dir.path());
-    let refused = restore(&backup.to, &destination).unwrap_err();
+    let restored = restore(&backup.to, &destination).unwrap();
+    assert_eq!((restored.runs, restored.events), (2, 17));
+    let reopened = Store::open_read_only(&destination).unwrap();
+    assert_eq!(reopened.load("finished").unwrap().len(), 9);
+    assert_eq!(reopened.load("running").unwrap().len(), 8);
+}
+
+#[test]
+fn restore_refuses_an_unowned_event_in_the_snapshot() {
+    let refused = refused_unowned_restore(|_| {});
     let BackupError::UnownedEvents { count, run_id, seq } = refused else {
         panic!("a snapshot holding an unowned event is refused by name: {refused:?}");
     };
     assert_eq!((count, run_id.as_str(), seq), (1, "ghost", 9));
-    assert_absent(&destination);
+}
+
+#[test]
+fn restore_refuses_a_malformed_unowned_position_as_itself() {
+    let refused = refused_unowned_restore(|connection| {
+        edited_despite_guard(connection, || {
+            connection
+                .execute("UPDATE events SET seq = -1 WHERE run_id = 'ghost'", [])
+                .unwrap();
+        });
+    });
+    let BackupError::UnownedEvents { count, run_id, seq } = refused else {
+        panic!("a malformed unowned position is refused by name: {refused:?}");
+    };
+    assert_eq!(
+        (count, run_id.as_str(), seq),
+        (1, "ghost", -1),
+        "the table's own integer is reported, never an invented 0"
+    );
 }
 
 #[test]
@@ -983,6 +1276,42 @@ fn boundary_refusals() -> Vec<(BackupError, String)> {
             },
             "the snapshot holds 3 runs and 9 events; the inventory's boundary says 3 runs and \
              10 events"
+                .to_string(),
+        ),
+        (
+            BackupError::RowMismatch {
+                run_id: "alpha".into(),
+                seq: 108,
+                field: RowField::Seq,
+                found: "108".into(),
+                expected: "8".into(),
+            },
+            "the snapshot's event row for run 'alpha' at SQL seq 108 disagrees with its envelope: \
+             its seq is '108', and the envelope's is '8'"
+                .to_string(),
+        ),
+        (
+            BackupError::RowMismatch {
+                run_id: "beta".into(),
+                seq: 1,
+                field: RowField::RunId,
+                found: "beta".into(),
+                expected: "alpha".into(),
+            },
+            "the snapshot's event row for run 'beta' at SQL seq 1 disagrees with its envelope: \
+             its run_id is 'beta', and the envelope's is 'alpha'"
+                .to_string(),
+        ),
+        (
+            BackupError::RowMismatch {
+                run_id: "alpha".into(),
+                seq: 8,
+                field: RowField::EventHash,
+                found: "bad".into(),
+                expected: "aa".into(),
+            },
+            "the snapshot's event row for run 'alpha' at SQL seq 8 disagrees with its envelope: \
+             its event_hash is 'bad', and the envelope's is 'aa'"
                 .to_string(),
         ),
         (
