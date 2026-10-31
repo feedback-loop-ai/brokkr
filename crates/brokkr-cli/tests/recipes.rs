@@ -127,35 +127,33 @@ impl Ws {
 
     /// A minimal compiling bundle at `at`, review as a two-member panel
     /// so the listing's `review[correctness+security]` rendering is
-    /// exercised. Drivers are the scripted fake driver.
+    /// exercised. Every seat hires the workspace's scripted fake office.
     fn write_recipe(&self, at: &Path) {
+        self.write_recipe_hiring(at, self.path());
+    }
+
+    /// [`Ws::write_recipe`], its office hired at `places`, where the
+    /// workspace that compiles it reads its agents and adapters.
+    fn write_recipe_hiring(&self, at: &Path, places: &Path) {
         std::fs::create_dir_all(at.join("roles")).unwrap();
         std::fs::write(at.join("policy.json"), POLICY).unwrap();
         std::fs::write(at.join("roles/role.md"), "# test role\n").unwrap();
-        let driver = json!({"command": [
-            brokkr_bin(), "fake-driver",
-            "--script", self.path().join("script.json").to_string_lossy(),
-            "--state", self.path().join("state").to_string_lossy(),
-        ]});
-        let seat = |results: Vec<&str>| -> Value {
-            json!({"role": "roles/role.md", "results": results, "driver": driver})
-        };
+        self.hire(places);
+        let seat = crate::fake_office::seat;
+        let body = crate::fake_office::body;
         let config = json!({
             "name": "recipe-proof",
             "policy": "policy.json",
             "seats": {
-                "intake": seat(vec!["resolved"]),
-                "implement": seat(vec!["complete", "broken", "blocked"]),
-                "verify": seat(vec!["pass", "fail"]),
+                "intake": seat(&["resolved"]),
+                "implement": seat(&["complete", "broken", "blocked"]),
+                "verify": seat(&["pass", "fail"]),
                 "review": {
                     "results": ["clean", "residual", "security-hold"],
                     "aggregate": "review-panel",
-                    "panel": {
-                        "correctness": {"role": "roles/role.md", "driver": driver},
-                        "security": {"role": "roles/role.md", "driver": driver},
-                    },
+                    "panel": {"correctness": body(), "security": body()},
                 },
-                "ship": seat(vec!["ready", "shipped"]),
+                "ship": seat(&["ready", "shipped"]),
             }
         });
         std::fs::write(
@@ -170,13 +168,9 @@ impl Ws {
     /// resolver-owned `override` block — omit it and the collision is a
     /// compile error, which is the point of decision 0017's merge rules.
     fn write_derived(&self, at: &Path, name: &str, base: &str, marker: bool) {
-        std::fs::create_dir_all(at.join("roles")).unwrap();
-        std::fs::write(at.join("roles/role.md"), "# derived role\n").unwrap();
-        let driver = json!({"command": [
-            brokkr_bin(), "fake-driver",
-            "--script", self.path().join("script.json").to_string_lossy(),
-            "--state", self.path().join("state").to_string_lossy(),
-        ]});
+        std::fs::create_dir_all(at).unwrap();
+        self.hire(self.path());
+        let body = crate::fake_office::body;
         let mut config = json!({
             "name": name,
             "extends": base,
@@ -184,10 +178,7 @@ impl Ws {
                 "review": {
                     "results": ["clean", "residual", "security-hold"],
                     "aggregate": "review-panel",
-                    "panel": {
-                        "adversarial": {"role": "roles/role.md", "driver": driver},
-                        "security": {"role": "roles/role.md", "driver": driver},
-                    },
+                    "panel": {"adversarial": body(), "security": body()},
                 },
             },
         });
@@ -199,6 +190,13 @@ impl Ws {
             serde_json::to_string_pretty(&config).unwrap(),
         )
         .unwrap();
+    }
+
+    /// The fake office over the workspace's script and state, at `places`
+    /// (U9b1).
+    fn hire(&self, places: &Path) {
+        let (script, state) = (self.path().join("script.json"), self.path().join("state"));
+        crate::fake_office::hire(places, &script, &state);
     }
 
     /// A bundle directory that fails to compile: bundle.json without
@@ -621,7 +619,7 @@ fn folder_and_source() -> (crate::brokkr_folder::Repo, Ws, PathBuf) {
     assert_eq!(init.code, Some(0), "{}", init.stderr);
     let ws = Ws::new();
     let src = ws.path().join("src-bundle");
-    ws.write_recipe(&src);
+    ws.write_recipe_hiring(&src, &repo.path(".brokkr"));
     (repo, ws, src)
 }
 
@@ -769,7 +767,7 @@ fn add_has_no_dir_and_installs_at_a_librarys_root() {
     repo.library();
     let ws = Ws::new();
     let src = ws.path().join("src-bundle");
-    ws.write_recipe(&src);
+    ws.write_recipe_hiring(&src, &repo.path(""));
     let add = ["recipes", "add", src.to_str().unwrap(), "--name", "z"];
     let ran = repo.brokkr("sub", &[&add[..], &["--dir", "x"]].concat());
     let unexpected = "error: unexpected argument '--dir' found";
@@ -778,7 +776,9 @@ fn add_has_no_dir_and_installs_at_a_librarys_root() {
     assert_eq!(ran.code, Some(0), "{}", ran.stderr);
     assert!(repo.path("recipes/z/bundle.json").is_file());
     assert!(!repo.path("sub/recipes").exists());
-    let listed = repo.brokkr("sub", &["recipes", "list", "--dir", "../recipes"]);
+    // From the root, whose agents its recipes hire (U9b1): `list --dir`
+    // compiles each with the working directory's library.
+    let listed = repo.brokkr("", &["recipes", "list", "--dir", "recipes"]);
     let names: Vec<&str> = listed.stdout.lines().map(|l| &l[..2]).collect();
     assert_eq!((listed.code, names), (Some(0), vec!["x\t", "z\t"]));
     let shown = repo.brokkr("", &["recipes", "show", "z"]);
@@ -890,12 +890,13 @@ fn compile_and_show_print_the_resolved_result_and_its_provenance() {
     // a realm, never to an ancestor, so the standalone base — which says
     // what its realm grants — and the layer differ by exactly that section.
     assert_ne!(chain[0]["digest"], base["digest"]);
+    // Nor does a layer carry the leaf's agent resolution: its seats hire
+    // the fake office (U9b1), whose placements belong to the composed
+    // bundle.
     let mut layer = base["manifest"].clone();
-    assert!(layer
-        .as_object_mut()
-        .unwrap()
-        .remove("capabilities")
-        .is_some());
+    let sections = layer.as_object_mut().unwrap();
+    assert!(sections.remove("capabilities").is_some());
+    assert!(sections.remove("agents").is_some());
     let layer_digest = json!(brokkr_core::canonical::sha256_hex(&layer));
     assert_eq!(chain[0]["digest"], layer_digest);
     assert!(chain[0]["dir"].as_str().unwrap().ends_with("good"));

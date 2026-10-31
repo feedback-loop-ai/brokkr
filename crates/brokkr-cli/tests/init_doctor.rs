@@ -223,15 +223,20 @@ const APPLICABLE: [(&str, &[(&str, &str)]); 3] = [
 ];
 
 /// SI2's generated parity: a scaffolded model declaration carries its
-/// shipped adapter's carriage, its applicable shapes and its native
-/// assessment word for word; exec carries the shipped declaration that it
-/// has no model MCP surface, and no strictness of its own.
+/// shipped adapter's authentication names, carriage, its applicable shapes
+/// and its native assessment word for word; exec carries its shipped names
+/// and the declaration that it has no model MCP surface, and no strictness
+/// of its own.
 pub(crate) fn assert_shipped_mcp_facts(bundle: &std::path::Path, provider: &str) {
     let generated = json_at(&bundle.join(format!("adapters/{provider}.json")));
     let shipped = json_at(
         &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join(format!("../../adapters/{provider}.json")),
     );
+    // MB4 (U7d3 L2): every scaffold reads its harness's names as shipped.
+    let auth = &shipped["harness_auth"];
+    assert_eq!(generated["harness_auth"], *auth, "{provider}");
+    assert!(auth["measured"].is_string(), "{provider}: {shipped}");
     let Some((_, applicable)) = APPLICABLE.iter().find(|(name, _)| *name == provider) else {
         assert_eq!(provider, "exec");
         assert_eq!(generated["mcp"], shipped["mcp"]);
@@ -635,16 +640,14 @@ fn dshs_replacement_cites_d06_and_pass_8_on_its_ambient_axis_alone() {
 
 /// The shipped recipes whose dsh work seats U9b1's third run found refused
 /// past a lifted fence, and each dsh site's SI2 record as each compile
-/// keeps it under the standing fence: cold and replacement measured on
-/// Linux since U1d6, and its declared headless-work resume absent; on
-/// macOS all absent, for U0, U0b and U0c measured Linux alone.
+/// keeps it: cold and replacement measured on Linux since U1d6; on macOS
+/// both absent, for U0, U0b and U0c measured Linux alone. Its declared
+/// headless-work resume is `unmeasured`, never performed, so it is no
+/// served shape and has no record (U9b1, operator ruling (2) of
+/// 2026-10-28).
 #[test]
 fn the_shipped_dsh_work_seats_read_their_replacement_measured() {
-    let work: &[&str] = &[
-        "cold none measured",
-        "replacement none measured",
-        "headless-work none absent",
-    ];
+    let work: &[&str] = &["cold none measured", "replacement none measured"];
     let implement = [("implement dsh", work)];
     let gpt_flash = [
         "design:positions:simplicity",

@@ -126,7 +126,13 @@ impl Workspace {
         self.dir.path()
     }
 
+    /// Writes `value` at `relative`; an adapter with synthetic facts in
+    /// place of its `mcp`, so it compiles past the lifted fence (U9b1).
     fn write(&self, relative: &str, value: Value) {
+        let value = match relative.starts_with("adapters/") {
+            true => crate::fake_office::measured(value),
+            false => value,
+        };
         std::fs::write(
             self.path().join(relative),
             serde_json::to_string_pretty(&value).unwrap(),

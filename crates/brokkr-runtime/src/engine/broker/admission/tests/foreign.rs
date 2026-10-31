@@ -118,8 +118,8 @@ fn a_foreign_reservation_kept_apart_is_admitted() {
 
 /// The same reservation whose writer can reach what this run protects is
 /// refused by its run: its writable root over the claim's artifact root,
-/// or over the coordination root with the fence lifted; and one outside
-/// any box beside evidence. A `protects` this build does not know is read
+/// or over the coordination root beside evidence; and one outside any box
+/// beside evidence. A `protects` this build does not know is read
 /// as evidence, so a claim's writer outside any box is refused beside it.
 #[cfg(target_os = "linux")]
 #[test]
@@ -131,31 +131,26 @@ fn a_foreign_writer_reaching_what_this_run_protects_refuses_by_its_run() {
         (
             record("nothing", boxed_to(&[&lanes, &work])),
             kept(&work, "a1", Protects::Evidence),
-            false,
             reaches("work", "order-1", &work.join(".forge/artifacts")),
         ),
         (
             record("nothing", boxed_to(&[&lanes, &host.home])),
-            kept(&work, "a2", Protects::Nothing),
-            true,
+            kept(&work, "a2", Protects::Evidence),
             reaches("work", "order-1", &host.root()),
         ),
         (
             record("evidence", json!("unbounded")),
             kept(&work, "a3", Protects::Nothing),
-            false,
             unboxed("work", "order-1"),
         ),
         (
             record("everything", boxed_to(&[&lanes])),
             open(&work, ["run-a", "a4"]),
-            false,
             unboxed("work", "run-a"),
         ),
     ];
-    for (record, incoming, lifted, refused) in cases {
+    for (record, incoming, refused) in cases {
         planted(&host, &lanes, &record);
-        let _lift = lifted.then(McpFence::lift);
         assert_eq!(host.admit(&incoming), cr2(refused));
     }
 }

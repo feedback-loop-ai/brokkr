@@ -25,7 +25,7 @@ use crate::bundle::{Invocation, PanelMember};
 use crate::capabilities::McpFence;
 use crate::engine::broker::admission::tests::{driver, hands, last};
 #[cfg(target_os = "linux")]
-use crate::engine::broker::admission::tests::{leased, standing_writer, unsynced_next};
+use crate::engine::broker::admission::tests::{leased, staked, standing_writer, unsynced_next};
 use crate::engine::broker::admission::{Conflict, Unadmitted, Unknown};
 #[cfg(target_os = "linux")]
 use crate::engine::broker::settlement::Unreleased;
@@ -115,12 +115,17 @@ impl Claude {
     /// The protected `artifact` still holds `bytes`, and the attempt failed
     /// by CR2's `conflict` before anything of it started: no driver was
     /// spawned, and nothing was provisioned.
-    fn refused(&self, conflict: Conflict, (artifact, bytes): (&Path, &[u8])) {
+    fn refused(&self, conflict: Conflict, kept: (&Path, &[u8])) {
+        self.refused_by(Unadmitted::Evidence(conflict), kept);
+    }
+
+    /// [`Claude::refused`], by the refusal `refusal`.
+    fn refused_by(&self, refusal: Unadmitted, (artifact, bytes): (&Path, &[u8])) {
         let kept = std::fs::read(artifact).unwrap();
         assert_eq!(kept, bytes, "the protected bytes");
         let (event, payload) = last(&self.fixture.engine);
         assert_eq!(event, EventType::EffectFailed, "{payload}");
-        assert_eq!(payload["error"], Unadmitted::Evidence(conflict).to_string());
+        assert_eq!(payload["error"], refusal.to_string());
         let spawned = self.fixture.root.join("driver.argv").exists();
         assert!(!spawned, "the keeper never started");
         let sealed = self.fixture.run_dir().exists();
@@ -237,8 +242,12 @@ fn a_boxed_exec_attacker_that_can_reach_the_coordination_root_never_starts() {
     let command = exec.into_iter().chain([forge]).collect();
     member(&mut claude.fixture.engine, "attacker").command = command;
     claude.attacked();
-    let conflict = reaching(&claude, &coordination);
-    claude.refused(conflict, (&artifact, b"retained"));
+    let refusal = Unadmitted::Identity(Unknown::Serving {
+        site: "work:attacker".into(),
+        run: claude.fixture.engine.run_id.clone(),
+        served: coordination.clone(),
+    });
+    claude.refused_by(refusal, (&artifact, b"retained"));
     assert!(
         coordination.join("admission.lock").exists(),
         "the lock stands"
@@ -925,7 +934,7 @@ impl Claude {
 /// after the extension to the fixed inputs, or an attempt directory that
 /// already stands, after both extensions — so, though the attempt is then
 /// proven settled and released, it fails its run as it settles under the
-/// fence rule. Linux only: the extension reads the mount table (decision
+/// fence rule, evidence at stake. Linux only: the extension reads the mount table (decision
 /// 0063).
 #[cfg(target_os = "linux")]
 #[test]
@@ -952,7 +961,7 @@ fn a_seal_committed_unsynced_is_kept_whatever_provisioning_refuses_after_it() {
         assert!(!launched.unwrap(), "{refused}");
         let (_, payload) = last(engine);
         assert_eq!(payload["error"], refused.to_string());
-        let _lift = McpFence::lift();
+        staked(engine);
         let settled = engine.settle("attempt-1", Ok(())).unwrap_err();
         let EngineError::Unreleased(unreleased) = &settled else {
             panic!("{refused}: {settled}");

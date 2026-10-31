@@ -187,10 +187,12 @@ fn shelf_fasts_verify_in_a_folder_with_no_stack_fails_closed_with_inits_text() {
     std::fs::create_dir_all(&state).unwrap();
     let answers = json!({"seats": {"implement": completes()}});
     std::fs::write(&script, answers.to_string()).unwrap();
+    // Inline, dispatching an operator adapter in the folder's places, which
+    // fast's offices open (U9b1; `fake_office::inline`).
+    let driver = crate::fake_office::inline(&repo.join(".brokkr"), &script, &state);
     let implement = json!({"role": "roles/role.md", "class": "work",
                            "results": ["complete", "broken", "blocked", "oversized"],
-                           "driver": {"command": [env!("CARGO_BIN_EXE_brokkr"), "fake-driver",
-                                                  "--script", script, "--state", state]}});
+                           "driver": driver});
     let bundle = json!({"name": "fast-verify", "extends": "fast",
                         "override": {"seats": ["implement"]}, "seats": {"implement": implement}});
     std::fs::write(overlay.join("bundle.json"), bundle.to_string()).unwrap();

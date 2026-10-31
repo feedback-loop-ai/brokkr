@@ -44,12 +44,20 @@ fn journal(dir: &Path, driver: &[String], feature: &str) -> Vec<Value> {
     std::fs::write(dir.join("bundle/roles/work.md"), "# work\n").unwrap();
     let timeout = crate::engine::HANG_DEADLINE_SECONDS;
     let limits = json!({"max_attempts": 2, "timeout_seconds": timeout});
-    let implement = json!({"results": ["complete", "fail"], "role": "roles/work.md",
-                           "driver": {"command": driver}, "limits": limits});
+    let mut implement = json!({"results": ["complete", "fail"], "role": "roles/work.md",
+                               "driver": {"command": driver}, "limits": limits});
     // The run parks at implement, so review, which the house requires,
     // never runs.
-    let review = json!({"results": ["clean"], "role": "roles/work.md",
-                        "driver": {"command": driver}});
+    let mut review = json!({"results": ["clean"], "role": "roles/work.md",
+                            "driver": {"command": driver}});
+    // A driver that is not the exec driver's serves a model: past the
+    // lifted fence it is hired as an office with measured facts (U9b1).
+    if driver.get(1).map(String::as_str) != Some("driver") {
+        let names = ["replay-office", "replay"];
+        crate::fake_office::hire_limited(dir, names, json!(driver), Some(limits));
+        implement = json!({"results": ["complete", "fail"], "agent": names[0]});
+        review = json!({"results": ["clean"], "agent": names[0]});
+    }
     let bundle = json!({"name": "replay", "policy": "policy.json",
                         "seats": {"implement": implement, "review": review}});
     std::fs::write(dir.join("bundle/bundle.json"), bundle.to_string()).unwrap();

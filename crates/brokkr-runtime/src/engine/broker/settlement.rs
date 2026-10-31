@@ -62,7 +62,7 @@ use super::admission::{
     amend, beside, identity, release, reserved_at, sealed, settled, Authored, Held, Protects,
     Reservation, Reserved, Unadmitted, Unknown, Witnessed, Writer, RESERVATION,
 };
-use super::exclusion::{everywhere, reaches};
+use super::exclusion::reaches;
 use super::fold::Begun;
 use super::historical::regular;
 use super::inventory::{inventory, Budget, Standing, Writing};
@@ -265,7 +265,7 @@ impl Engine {
             (Err(refused), _) => Err(Unreleased::standing(refused)),
         };
         match settled {
-            Err(unreleased) if everywhere() | held.staked => Err(unreleased.into()),
+            Err(unreleased) if held.staked => Err(unreleased.into()),
             _ => Ok(published.map_err(|cause| Unreleased::unpublished(lease, cause))?),
         }
     }

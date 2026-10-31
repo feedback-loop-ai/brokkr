@@ -13,22 +13,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
-fn brokkr_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_brokkr")
-}
-
-const POLICY: &str = r#"{
-  "schema": "forge.phase-machine/v1",
-  "phases": ["implement", "review", "done"],
-  "initial": "implement",
-  "terminal": ["done"],
-  "rules": [
-    {"id": "IMPL-OK", "from": "implement", "result": "complete", "next": "review",
-     "reason": "Implementation complete."},
-    {"id": "REVIEW-CLEAN", "from": "review", "result": "clean", "next": "done",
-     "reason": "Clean review; done."}
-  ]
-}"#;
+/// The two-phase table, the realm suite's own.
+use crate::realms::POLICY;
 
 /// The event sequence a two-phase run produces: type, then the payload's
 /// keys in sorted order. Recorded from this tree before the agent
@@ -87,6 +73,12 @@ const ADDED_FIELDS: [&str; 5] = [
     "realm_facts",
 ];
 
+/// Writes the result `$1` at the result path the prompt `$2` names.
+const ANSWER: &str = r#"result_path=$(grep -o '/[^[:space:]]*\.json' "$2" | tail -n 1)
+mkdir -p "$(dirname "$result_path")"
+printf '{"result": "%s"}\n' "$1" > "$result_path"
+"#;
+
 struct Workspace {
     dir: tempfile::TempDir,
 }
@@ -111,16 +103,16 @@ impl Workspace {
             .unwrap(),
         )
         .unwrap();
+        // No agent: the built-in exec driver, which has no model surface
+        // for SI2 to judge past the lifted fence (U9b1), answers each seat.
+        std::fs::write(bundle.join("answer.sh"), ANSWER).unwrap();
+        let exec = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../adapters/exec.json");
+        std::fs::create_dir_all(ws.path().join("adapters")).unwrap();
+        std::fs::copy(exec, ws.path().join("adapters/exec.json")).unwrap();
         let seat = |results: Vec<&str>| {
-            json!({
-                "role": "roles/role.md",
-                "results": results,
-                "driver": {"command": [
-                    brokkr_bin(), "fake-driver",
-                    "--script", script.to_string_lossy(),
-                    "--state", ws.dir.path().join("state").to_string_lossy(),
-                ]},
-            })
+            json!({"role": "roles/role.md", "results": results, "driver": {"command": [
+                "{brokkr}", "driver", "exec", "--", "sh", "./answer.sh", results[0], "{prompt_file}",
+            ]}})
         };
         std::fs::write(
             bundle.join("bundle.json"),
@@ -197,7 +189,11 @@ fn a_non_adopting_run_journals_exactly_the_events_it_always_did() {
         .map(|line| serde_json::from_str(line).expect("canonical NDJSON"))
         .collect();
 
-    let shape: Vec<(String, Vec<String>)> = events
+    // How many checkpoints an attempt reports is its driver's: the exec
+    // driver these seats run (U9b1) reports three where the scripted fake
+    // driver the golden was recorded under reported one, each of the same
+    // shape, so a run of them reads as one.
+    let mut shape: Vec<(String, Vec<String>)> = events
         .iter()
         .map(|event| {
             let event_type = event["type"].as_str().expect("typed event").to_string();
@@ -211,6 +207,7 @@ fn a_non_adopting_run_journals_exactly_the_events_it_always_did() {
             (event_type, keys)
         })
         .collect();
+    shape.dedup_by(|next, kept| next == kept && kept.0 == "effect/checkpointed");
     let expected: Vec<(String, Vec<String>)> = GOLDEN
         .iter()
         .map(|(kind, keys)| {

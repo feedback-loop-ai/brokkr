@@ -124,7 +124,8 @@ fn the_shelf_never_moves_the_bundle() {
     let repo = Repo::new();
     repo.folder();
     let before = digest(&repo, ".brokkr");
-    repo.bundle(".brokkr/recipes/x", "x", completes());
+    // It hires the folder's own office: a new agent is a pinned file (U9b1).
+    repo.hiring(".brokkr/recipes/x", "x", "folder-office");
     assert_eq!(digest(&repo, ".brokkr"), before);
     repo.write(".brokkr/recipes/x/roles/role.md", "# edited\n");
     assert_eq!(digest(&repo, ".brokkr"), before);

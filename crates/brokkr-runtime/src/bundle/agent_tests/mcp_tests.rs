@@ -529,24 +529,38 @@ fn synthetic_shape(harness: &str, invocation: Value, hands: &str, ambient: Value
     })
 }
 
-/// A resume shape declared under `hands` and never measured.
-fn declared_resume(hands: &str) -> Value {
-    json!({
+/// A resume shape declared under `hands`: `supported` by synthetic
+/// plumbing evidence, or never measured.
+fn declared_resume(hands: &str, supported: bool) -> Value {
+    let mut shape = json!({
         "status": "unmeasured", "identity": {"unknown": "synthetic fixture"}, "classes": ["work"],
         "boundaries": ["namespace", "not applicable"], "hands": hands, "evidence": {},
         "limitations": [],
-    })
+    });
+    if supported {
+        let evidence = ["interface", "restrictions", "root", "accounting"]
+            .map(|axis| (axis.to_string(), json!("synthetic fixture")));
+        shape["status"] = json!("supported");
+        shape["identity"] = json!({"version": "synthetic", "applies_to": "synthetic"});
+        shape["evidence"] = Value::Object(evidence.into_iter().collect());
+    }
+    shape
 }
 
 /// The fixture Claude with the box's hands and typed MCP facts, `shapes`,
-/// declaring two resume shapes: `rejoin` without hands, `boxed-rejoin` boxed.
+/// declaring three resume shapes: `rejoin` without hands and `boxed-rejoin`
+/// boxed, both supported, and `unmeasured-rejoin` without hands, which is
+/// never performed and so never served (operator ruling (2) of 2026-10-28).
 fn strict_claude(shapes: Vec<Value>) -> Value {
     let mut claude = claude();
     claude["hands"] =
         json!({"workspace": ["--strict-mcp-config", "--mcp-config", "{hands_mcp_json}"]});
     claude["mcp"] = json!({"carriage": {"measured": "synthetic carriage"}, "shapes": shapes});
-    claude["resume"] =
-        json!({"rejoin": declared_resume("none"), "boxed-rejoin": declared_resume("boxed")});
+    claude["resume"] = json!({
+        "rejoin": declared_resume("none", true),
+        "boxed-rejoin": declared_resume("boxed", true),
+        "unmeasured-rejoin": declared_resume("none", false),
+    });
     claude
 }
 
@@ -1000,19 +1014,21 @@ fn scaffold_words(bundle: &Bundle, site: &str) -> Vec<Vec<String>> {
 
 /// SI2 over a whole fresh-scaffold-shaped compile in-crate, on the shipped
 /// facts: the standing fence compiles it and keeps each model site's
-/// record, exec's empty, while lifted it refuses the first dsh work site,
-/// because U0 measured dsh's hands-less cold shape and U0b its replacement
-/// (D06 and pass 8, U1d6) on Linux alone, absent elsewhere, and no cell
-/// measures its declared headless-work resume shape.
+/// record, exec's empty. U0 measured dsh's hands-less cold shape and U0b
+/// its replacement (D06 and pass 8, U1d6) on Linux alone, absent
+/// elsewhere, and its `headless-work` resume is declared `unmeasured`, so
+/// it is never served and demands no evidence (operator ruling (2) of
+/// 2026-10-28): lifted, the scaffold compiles on Linux with the same
+/// records, and elsewhere refuses its first dsh work site's cold shape.
 #[test]
-fn a_fresh_scaffold_on_shipped_facts_compiles_standing_and_refuses_its_first_dsh_site_lifted() {
+fn a_fresh_scaffold_on_shipped_facts_compiles_lifted_only_where_its_served_shapes_are_measured() {
     let fixture = AgentFixture::new();
     let standing = scaffold_compile(&fixture, None, None, false).unwrap();
     let (cold, replacement) = match host().1 {
         McpHost::Linux => ("cold measured", "replacement measured"),
         McpHost::Macos => ("cold absent", "replacement absent"),
     };
-    let dsh_work = [cold, replacement, "headless-work absent"].map(String::from);
+    let dsh_work = [cold, replacement].map(String::from);
     let none = Vec::<String>::new();
     let rows: Vec<Row<Vec<Vec<String>>>> = [
         ("intake", vec![dsh_work.to_vec(), dsh_work.to_vec()]),
@@ -1027,17 +1043,20 @@ fn a_fresh_scaffold_on_shipped_facts_compiles_standing_and_refuses_its_first_dsh
     .into_iter()
     .map(|(site, expected)| (site.to_string(), scaffold_words(&standing, site), expected))
     .collect();
+    let sites: Vec<String> = rows.iter().map(|(site, ..)| site.clone()).collect();
     each_row(rows);
-    let first = match host().1 {
-        McpHost::Linux => "headless-work",
-        McpHost::Macos => "cold",
+    let lifted = scaffold_compile(&fixture, None, None, true);
+    let records = |bundle: &Bundle| -> Vec<_> {
+        let words = sites.iter().map(|site| scaffold_words(bundle, site));
+        words.collect()
     };
-    assert_eq!(
-        scaffold_compile(&fixture, None, None, true)
-            .unwrap_err()
-            .to_string(),
-        unmeasured("implement", "implementer", "dsh", first)
-    );
+    match host().1 {
+        McpHost::Linux => assert_eq!(records(&lifted.unwrap()), records(&standing)),
+        McpHost::Macos => assert_eq!(
+            lifted.unwrap_err().to_string(),
+            unmeasured("implement", "implementer", "dsh", "cold")
+        ),
+    }
 }
 
 /// Once the scaffold's dsh work sites are qualified, by synthetic plumbing
@@ -1578,12 +1597,13 @@ fn each_candidate_is_served_with_its_own_adapters_authentication_names() {
     );
 }
 
-/// An inline site carries no adapter's authentication names (operator
-/// ruling of 2026-10-16): its Codex command, whose adapter reads
-/// `DOCS_TOKEN`, meets a dialect binding `DOCS_TOKEN` with the fence's own
-/// words, never MB4's collision.
+/// An inline site is served with its own driver's adapter's authentication
+/// names (MB4; U7d3 L3): its Codex command, whose adapter reads
+/// `DOCS_TOKEN`, meets a dialect binding `DOCS_TOKEN` with MB4's collision
+/// cause before the fence's words; an opaque command, which no adapter
+/// answers for, carries none and meets the fence's.
 #[test]
-fn an_inline_site_is_served_with_no_authentication_names() {
+fn an_inline_site_is_served_with_its_own_adapters_authentication_names() {
     use crate::capabilities::tests::{binding, cq1_root};
     use crate::capabilities::{parse_requests, SiteAsks};
     let fixture = AgentFixture::new();
@@ -1594,28 +1614,31 @@ fn an_inline_site_is_served_with_no_authentication_names() {
     let requests = json!({"library-docs": "requires"});
     let requests = parse_requests("seat 'research'", &requests).unwrap();
     let office = Some(("researcher", &requests));
-    let asks = SiteAsks::at(SeatClass::Work, "research", office, None).unwrap();
     let argv: Vec<String> = serde_json::from_value(codex_inline(&[])).unwrap();
-    let serving = InlineServing {
-        driver: Some("codex"),
-        argv: &argv,
-        local: &[],
-        hands: &[],
-        intent: None,
+    let refusal = |driver| {
+        let asks = SiteAsks::at(SeatClass::Work, "research", office, None).unwrap();
+        let serving = InlineServing {
+            driver,
+            argv: &argv,
+            local: &[],
+            hands: &[],
+            intent: None,
+        };
+        let loaded = CapabilityAdapters::loaded(&adapters);
+        match mcp::inline_capabilities(&authority, loaded, asks, &serving).capabilities {
+            Err(CompileError::Capability(refusal)) => refusal,
+            other => panic!("a refused requires is a capability refusal: {other:?}"),
+        }
     };
-    let loaded = CapabilityAdapters::loaded(&adapters);
-    let Err(CompileError::Capability(refusal)) =
-        mcp::inline_capabilities(&authority, loaded, asks, &serving).capabilities
-    else {
-        panic!("a requires the fence refuses is a capability refusal");
-    };
-    assert_eq!(
-        refusal,
+    let lost = |cause: &str| {
         format!(
             "seat 'research' (office 'researcher') in realm 'private': requires capability \
-             'library-docs' through dialect 'docs-mcp', but {}; the capability cannot be held \
-             under this grant",
-            binding::MCP
+             'library-docs' through dialect 'docs-mcp', but {cause}; the capability cannot be \
+             held under this grant"
         )
+    };
+    assert_eq!(
+        [refusal(Some("codex")), refusal(None)],
+        [lost(&binding::collides("DOCS_TOKEN")), lost(binding::MCP)]
     );
 }

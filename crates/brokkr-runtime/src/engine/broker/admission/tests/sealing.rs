@@ -328,9 +328,8 @@ fn a_release_without_its_positive_fact_is_refused() {
 /// its reservation stands as it was, and a later run on its worktree is
 /// refused by its lease, the end in its protected journal proving nothing
 /// without the fact. Under the fence rule the settlement fails the run
-/// with the typed refusal: where evidence was at stake as it was admitted,
-/// and on every run once the fence is lifted; with the fence standing and
-/// nothing at stake it does not.
+/// with the typed refusal where evidence was at stake as it was admitted;
+/// with nothing at stake it does not, the fence standing or lifted.
 #[test]
 fn a_positive_fact_that_cannot_be_sealed_keeps_the_reservation() {
     for mut case in fenced() {
@@ -352,11 +351,12 @@ fn a_positive_fact_that_cannot_be_sealed_keeps_the_reservation() {
 
 /// The fence rule's three cases: what the attempt protects, whether the
 /// fence is lifted as it settles, and whether a settlement refused then
-/// fails its run.
+/// fails its run: only where evidence is at stake (operator ruling of
+/// 2026-10-29 on U9b1's fourth run).
 const FENCED: [(Protects, bool, bool); 3] = [
     (Protects::Nothing, false, false),
     (Protects::Evidence, false, true),
-    (Protects::Nothing, true, true),
+    (Protects::Nothing, true, false),
 ];
 
 /// One case of [`FENCED`] on a fresh host: its name, an engine leasing
@@ -456,7 +456,7 @@ fn a_reseal_whose_last_sync_fails_reports_itself_committed() {
     assert_eq!(host.attempts(&work, "run-a"), released);
     assert!(!prior(&at).exists(), "released: no prior name left");
     let host = Host::new();
-    let (_dir, mut engine, work, run) = leasing(&host, Protects::Nothing);
+    let (_dir, mut engine, work, run) = leasing(&host, Protects::Evidence);
     LATE.set(Some(Late::FailFinal));
     let unresolved = Cleanup::Unresolved {
         reason: Unsettled::Stdout,
@@ -472,9 +472,10 @@ fn a_reseal_whose_last_sync_fails_reports_itself_committed() {
         engine.held.as_ref().is_some_and(|held| held.unsynced),
         "marked: held unsynced"
     );
-    // Such a lease fails its run as it settles, under the fence rule.
+    // Such a lease fails its run as it settles beside evidence, under the
+    // fence rule.
     settled_a1(&mut engine, &run);
-    let settled = settles(&mut engine, true, "marked");
+    let settled = settles(&mut engine, false, "marked");
     // Its lease was never released, its cleanup unresolved (L1).
     let unsynced = Unreleased::standing(Unadmitted::Identity(Unknown::Unsynced));
     assert_eq!(settled, Err(unsynced), "marked: its run failed");
@@ -526,9 +527,8 @@ fn a_failed_settlement_says_whether_its_lease_was_released() {
 
 /// R1: a settlement whose reseal commits without its directory proven
 /// synced releases its lease and fails its run under the fence rule, with
-/// MB3's identity cause: where evidence was at stake as it was admitted,
-/// and on every run once the fence is lifted; with the fence standing and
-/// nothing at stake it does not.
+/// MB3's identity cause where evidence was at stake as it was admitted;
+/// with nothing at stake it does not, the fence standing or lifted.
 #[test]
 fn an_unsynced_settlement_fails_its_run_under_the_fence_rule() {
     // Its release committed, so its lease was released (L1).

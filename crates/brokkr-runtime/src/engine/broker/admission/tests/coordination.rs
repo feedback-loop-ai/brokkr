@@ -16,8 +16,9 @@ use super::*;
 use crate::capabilities::McpFence;
 #[cfg(target_os = "linux")]
 use crate::engine::broker::exclusion::{self, Shown};
-use crate::engine::broker::exclusion::{compared, Comparison};
+use crate::engine::broker::exclusion::{compared, covers_spelled, Comparison};
 use crate::engine::broker::historical;
+use crate::engine::broker::sources::records_kept;
 
 /// The artifact root of a [`claim`] on `worktree`.
 fn artifacts(worktree: &Path) -> PathBuf {
@@ -30,65 +31,109 @@ fn judged(outcome: Result<Held, Unadmitted>, refused: Option<Conflict>) {
     assert_eq!(outcome.map(drop), expected);
 }
 
-/// With the fence lifted, every participant on every run is held to the
-/// coordination root, nothing protecting evidence: a zero-grant writer
-/// outside any box refuses, as does a box whose writable reach includes
-/// the coordination root; a box kept to its worktree is admitted.
+/// The fence standing or lifted, a zero-grant writer outside any box is
+/// admitted where nothing is at stake and refused where something is (operator
+/// ruling of 2026-10-29 on U9b1's fourth run): the incoming attempt protects
+/// evidence, a standing attempt does, or only a historical root remains. A box
+/// whose writable reach includes the coordination root is refused in all four
+/// by MB3's identity cause naming that root (operator ruling of 2026-10-30),
+/// none of it sealed; a box kept apart from the root is admitted.
 #[cfg(target_os = "linux")]
 #[test]
-fn a_lifted_fence_refuses_unprotectable_writers_with_nothing_at_stake() {
-    let host = Host::new();
-    let _lift = McpFence::lift();
-    let work = host.worktree("work");
-    let cases = [
-        (unbounded("work"), Some(unboxed("work", "run-a"))),
-        (
-            boxed("work", &[&work, &host.home]),
-            Some(reaches("work", "run-a", &host.root())),
-        ),
-        (boxed("work", &[&work]), None),
-    ];
-    for (index, (writer, refused)) in cases.into_iter().enumerate() {
-        let attempt = format!("a{index}");
-        let incoming = claim(&work, ["run-a", &attempt], Protects::Nothing, &[writer]);
-        judged(host.admit(&incoming), refused);
+fn either_fence_refuses_unboxed_writers_at_stake_and_root_reaching_boxes_on_every_run() {
+    for lifted in [false, true] {
+        let _lift = lifted.then(McpFence::lift);
+        at_stake_only();
     }
 }
 
-/// While the fence stands, the same writers are admitted where nothing is
-/// at stake, and refused where something is: the incoming attempt protects
-/// evidence, a standing attempt does, or only a historical root remains.
+/// [`either_fence_refuses_unboxed_writers_at_stake_and_root_reaching_boxes_on_every_run`]
+/// under the fence this thread stands under.
 #[cfg(target_os = "linux")]
-#[test]
-fn a_standing_fence_refuses_them_only_where_evidence_is_at_stake() {
+fn at_stake_only() {
     let host = Host::new();
     let (work, kept) = (host.worktree("work"), host.worktree("kept"));
-    let writers = [unbounded("work"), boxed("work", &[&work, &host.home])];
-    let refusal = |run: &str, index: usize| match index {
-        0 => unboxed("work", run),
-        _ => reaches("work", run, &host.root()),
-    };
+    let writers = [
+        unbounded("work"),
+        boxed("work", &[&work, &host.home]),
+        boxed("work", &[&work]),
+    ];
     // The attempt `index` of `run` on `work`, its one writer `writers`'s.
     let at = |run: &str, index: usize, protects: Protects| {
         let attempt = format!("{run}-{index}");
         let writer = std::slice::from_ref(&writers[index]);
         claim(&work, [run, &attempt], protects, writer)
     };
-    for index in 0..writers.len() {
-        let incoming = at("run-n", index, Protects::Nothing);
-        freed(&host.admit(&incoming).unwrap());
-        let protecting = at("run-e", index, Protects::Evidence);
-        judged(host.admit(&protecting), Some(refusal("run-e", index)));
-    }
+    // The refusals of `run`'s two writers no comparison can keep apart.
+    let refused = |run: &str, protects: Protects| {
+        let (incoming, reaching) = (at(run, 0, protects), at(run, 1, protects));
+        judged(host.admit(&incoming), Some(unboxed("work", run)));
+        assert_eq!(host.admit(&reaching), exposed("work", run, &host.root()));
+    };
+    freed(&host.admit(&at("run-n", 0, Protects::Nothing)).unwrap());
+    freed(&host.admit(&at("run-a", 2, Protects::Nothing)).unwrap());
+    assert_eq!(
+        host.admit(&at("run-b", 1, Protects::Nothing)),
+        exposed("work", "run-b", &host.root())
+    );
+    assert!(!host.reservation(&work, "run-b").exists());
+    refused("run-e", Protects::Evidence);
     let standing = host.admit(&guarded(&kept, ["run-k", "k1"])).unwrap();
-    for index in 0..writers.len() {
-        let incoming = at("run-s", index, Protects::Nothing);
-        judged(host.admit(&incoming), Some(refusal("run-s", index)));
-    }
+    refused("run-s", Protects::Nothing);
     freed(&standing);
-    for index in 0..writers.len() {
-        let incoming = at("run-h", index, Protects::Nothing);
-        judged(host.admit(&incoming), Some(refusal("run-h", index)));
+    refused("run-h", Protects::Nothing);
+}
+
+/// The check an attempt holding no lease meets, on every host: a boxed writer
+/// is refused by MB3's identity cause where it reaches the root's path, which
+/// need not stand, at it or above it, kept where it lies apart, a sibling of
+/// the root under its HOME included; and where the host names no HOME, so the
+/// root's path is not absolute, no boxed writer is proved kept, whether the
+/// path leads nowhere or resolves against the working directory. A writer
+/// Brokkr cannot box is compared with nothing.
+#[test]
+fn an_unopened_roots_path_keeps_boxed_writers_on_every_host() {
+    let host = Host::new();
+    let work = host.worktree("work");
+    let home = host.dir.path().join("unopened");
+    let beside = home.join("beside");
+    std::fs::create_dir_all(&beside).unwrap();
+    let records = coordination(&home);
+    let budget = Budget::new(soon());
+    let of = |root: &Path| {
+        claim(
+            &work,
+            ["run-w", "w1"],
+            Protects::Nothing,
+            &[boxed("work", &[root])],
+        )
+    };
+    let keep = |claim: &Claim, root: &Path| records_kept(claim, root, shown, &budget);
+    for reach in [
+        &records,
+        &home,
+        &records.join("below"),
+        &host.dir.path().to_path_buf(),
+    ] {
+        let refused = exposing("work", "run-w", &records);
+        assert_eq!(keep(&of(reach), &records), Err(refused), "{reach:?}");
+        assert!(covers_spelled(reach, &records), "{reach:?}");
+    }
+    // The comparison alone, which is all that decides off Linux: a HOME
+    // spelled through a link leads to the same root, its sibling does not.
+    let link = host.dir.path().join("link");
+    std::os::unix::fs::symlink(&home, &link).unwrap();
+    assert!(covers_spelled(&home, &coordination(&link)));
+    assert!(covers_spelled(&coordination(&link).join("below"), &records));
+    assert!(!covers_spelled(&beside, &coordination(&link)));
+    assert!(!covers_spelled(&beside, &records));
+    assert_eq!(keep(&of(&beside), &records), Ok(()));
+    assert_eq!(keep(&open(&work, ["run-w", "w1"]), &records), Ok(()));
+    for spelled in [Path::new(""), Path::new(".")] {
+        let nameless = coordination(spelled);
+        let unproved = Unknown::Unmounted(nameless.clone());
+        assert_eq!(keep(&of(&work), &nameless), Err(unproved), "{spelled:?}");
+        assert_eq!(keep(&open(&work, ["run-w", "w1"]), &nameless), Ok(()));
     }
 }
 
@@ -96,17 +141,17 @@ fn a_standing_fence_refuses_them_only_where_evidence_is_at_stake() {
 /// before spawn, because that root's owner could replace the source with a
 /// symlink and redirect the box when hands rebuilds it from the authored
 /// sources; a source outside every writable root is admitted. The refusal
-/// obeys the fence rule, so the fence is lifted here. Linux only, as it
-/// admits a boxed writer beside the mount table's judgement (decision 0063).
+/// applies where evidence is at stake, so the attempts protect it here.
+/// Linux only, as it admits a boxed writer beside the mount table's
+/// judgement (decision 0063).
 #[cfg(target_os = "linux")]
 #[test]
 fn a_replaceable_bind_source_is_refused_before_spawn() {
     let host = Host::new();
-    let _lift = McpFence::lift();
     let (work, apart) = (host.worktree("work"), host.worktree("apart"));
     // A read-only source beneath the writable worktree: replaceable.
     let inside = boxed_binding("work", &[&work], &[&work.join("src")]);
-    let refused = claim(&work, ["run-a", "a0"], Protects::Nothing, &[inside]);
+    let refused = claim(&work, ["run-a", "a0"], Protects::Evidence, &[inside]);
     assert_eq!(
         host.admit(&refused),
         cr2(Conflict::Replaceable {
@@ -117,7 +162,7 @@ fn a_replaceable_bind_source_is_refused_before_spawn() {
     );
     // A disjoint source outside every writable root: admitted.
     let outside = boxed_binding("work", &[&work], &[&apart]);
-    let admitted = claim(&work, ["run-a", "a1"], Protects::Nothing, &[outside]);
+    let admitted = claim(&work, ["run-a", "a1"], Protects::Evidence, &[outside]);
     judged(host.admit(&admitted), None);
 }
 
@@ -174,8 +219,9 @@ fn settled_evidence_stays_protected_from_a_later_worktree() {
 }
 
 /// A writer that can reach protected evidence is refused, whichever way it
-/// is spelled (H4): through a bind of its parent, outside any box, through
-/// a HOME bind that reaches the coordination root, or through a symlink;
+/// is spelled (H4): through a bind of its parent, outside any box, or through
+/// a symlink, by CR2's cause; through a HOME bind that reaches the coordination
+/// root, by MB3's identity cause at the door (operator ruling of 2026-10-30);
 /// a box kept to its own worktree is admitted beside it.
 #[cfg(target_os = "linux")]
 #[test]
@@ -193,10 +239,6 @@ fn a_writer_that_can_reach_protected_evidence_is_refused() {
         ),
         (unbounded("work:open"), Some(unboxed("work:open", "run-b"))),
         (
-            boxed("work:home", &[&other, &host.home]),
-            Some(reaches("work:home", "run-b", &host.root())),
-        ),
-        (
             boxed("work:link", &[&other, &alias]),
             Some(reaches("work:link", "run-b", &evidence)),
         ),
@@ -207,6 +249,12 @@ fn a_writer_that_can_reach_protected_evidence_is_refused() {
         let incoming = claim(&other, ["run-b", &attempt], Protects::Nothing, &[writer]);
         judged(host.admit(&incoming), refused);
     }
+    let home = [boxed("work:home", &[&other, &host.home])];
+    let incoming = claim(&other, ["run-b", "home"], Protects::Nothing, &home);
+    assert_eq!(
+        host.admit(&incoming),
+        exposed("work:home", "run-b", &host.root())
+    );
 }
 
 /// A protected root a reservation spells through a symlink is still the
@@ -228,7 +276,9 @@ fn a_root_spelled_through_a_symlink_is_compared_by_identity() {
 
 /// A run that would protect evidence is refused beside a running writer of
 /// another worktree outside any box, or one whose box can write the
-/// coordination root, and admitted beside one kept to its own box.
+/// coordination root, and admitted beside one kept to its own box. The second
+/// is planted, as no such writer is admitted now: a record an earlier build
+/// sealed is still compared.
 #[cfg(target_os = "linux")]
 #[test]
 fn a_protecting_run_is_refused_beside_a_writer_that_can_reach_its_root() {
@@ -238,8 +288,10 @@ fn a_protecting_run_is_refused_beside_a_writer_that_can_reach_its_root() {
     let protecting = guarded(&kept, ["run-a", "a1"]);
     assert_eq!(host.admit(&protecting), cr2(unboxed("work", "run-s")));
     freed(&standing);
-    let home = [boxed("work:home", &[&other, &host.home])];
-    let standing = host.admit(&claim(&other, ["run-s", "s2"], Protects::Nothing, &home));
+    let apart = [boxed("work:home", &[&other])];
+    let standing = host.admit(&claim(&other, ["run-s", "s2"], Protects::Nothing, &apart));
+    let home = vec![boxed("work:home", &[&other, &host.home])];
+    planted_writers(&host, &other, ["run-s", "s2"], home);
     let refused = reaches("work:home", "run-s", &host.root());
     assert_eq!(host.admit(&protecting), cr2(refused));
     freed(&standing.unwrap());
@@ -251,8 +303,8 @@ fn a_protecting_run_is_refused_beside_a_writer_that_can_reach_its_root() {
 }
 
 /// A protecting attempt refuses its own writers that cannot be kept from
-/// its evidence or the coordination root: one outside any box, and one
-/// whose box can write the coordination root, each by CR2's cause.
+/// its evidence or the coordination root: one outside any box, by CR2's cause,
+/// and one whose box can write the coordination root, by MB3's identity cause.
 #[test]
 fn a_protecting_attempt_refuses_its_own_unprotectable_writers() {
     let host = Host::new();
@@ -265,8 +317,10 @@ fn a_protecting_attempt_refuses_its_own_unprotectable_writers() {
         boxed("work:b", &[&work, &host.home]),
     ];
     let protecting = claim(&work, ["run-a", "a1"], Protects::Evidence, &home);
-    let refused = reaches("work:b", "run-a", &host.root());
-    assert_eq!(host.admit(&protecting), cr2(refused));
+    assert_eq!(
+        host.admit(&protecting),
+        exposed("work:b", "run-a", &host.root())
+    );
     // Neither refused attempt sealed anything.
     assert!(!host.reservation(&work, "run-a").exists());
 }
@@ -508,19 +562,18 @@ fn survives(host: &Host, name: &str, [run, attempt]: [&str; 2], journal: PathBuf
 #[test]
 fn every_step_under_the_lock_spends_the_shared_deadline() {
     let host = Host::new();
-    let (work, root) = (host.worktree("work"), host.root());
+    let work = host.worktree("work");
     let incoming = claim(
         &work,
         ["run-a", "a1"],
-        Protects::Nothing,
+        Protects::Evidence,
         &[unbounded("work")],
     );
-    let _lift = McpFence::lift();
     let comparison = Comparison {
         claim: &incoming,
         standing: &[],
         historical: &[],
-        coordination: &root,
+        coordination: &host.root,
     };
     let expired = || Budget::new(Instant::now());
     let unknown = |unknown| Err(Unadmitted::Identity(unknown));
@@ -927,7 +980,7 @@ fn aliased(dir: &Path) {
     let (kept, other) = (dir.join("kept"), dir.join("other"));
     let (holder, alias) = (other.join("holder"), other.join("holder/alias"));
     let evidence = [artifacts(&kept)];
-    let coordination = coordination(&dir.join("home"));
+    let coordination = opened(&dir.join("home"));
     let judged = |site: &str, root: &Path| {
         let incoming = claim(
             &other,
@@ -945,6 +998,10 @@ fn aliased(dir: &Path) {
     };
     assert_eq!(judged("alias", &alias), Ok(()), "before the bind");
     assert_eq!(judged("holder", &holder), Ok(()), "before the bind");
+    // A root that does not stand, as an unopened one need not: only its
+    // standing ancestor's identity leads the alias to it.
+    let unopened = kept.join(".forge/absent");
+    assert!(!covers_spelled(&alias, &unopened), "before the bind");
     let mut bind = Command::new("mount");
     let bound = bind
         .arg("--bind")
@@ -952,6 +1009,9 @@ fn aliased(dir: &Path) {
         .arg(&alias)
         .status();
     assert!(bound.unwrap().success(), "the bind was made");
+    assert!(covers_spelled(&alias, &unopened), "by the bind's identity");
+    let below = alias.join("artifacts");
+    assert!(covers_spelled(&below, &kept.join(".forge")), "from below");
     let refused = reaches("alias", "run-b", &evidence[0]);
     assert_eq!(judged("alias", &alias), Err(refused.into()));
     let shown = Conflict::Shown(evidence[0].clone());

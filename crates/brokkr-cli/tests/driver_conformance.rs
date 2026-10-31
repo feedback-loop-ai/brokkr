@@ -2971,7 +2971,7 @@ fn write_proof_recipe(dir: &Path, shape: ProofShape, wrapped: bool) {
             "review": {
                 "results": ["clean"],
                 "role": "roles/role.md",
-                "driver": {"command": ["driver"]},
+                "driver": {"command": ["{brokkr}", "driver", "exec", "--", "true"]},
             },
         },
     });

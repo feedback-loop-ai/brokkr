@@ -43,7 +43,6 @@
 
 use std::cell::Cell;
 use std::collections::BTreeMap;
-use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::os::fd::OwnedFd;
 use std::os::unix::ffi::OsStrExt;
@@ -78,8 +77,10 @@ mod observation;
 mod root;
 pub(super) mod settlement;
 mod sources;
+mod terminal;
 pub(super) use admission::{Authored, Held};
 pub(super) use observation::{observed, Observed};
+pub(super) use terminal::Host;
 
 /// One attempt's retention budget, which its retaining plans share (CR3).
 const BUDGET: u64 = 256 << 20;
@@ -149,6 +150,13 @@ pub(super) enum Unprovisioned {
     Write,
     #[error("the trusted bootstrap cannot be read")]
     Bootstrap,
+    /// The host may let a server inject input into an ancestor's terminal
+    /// (operator ruling 4 of 2026-10-18; [`terminal`]).
+    #[error(
+        "MCP servers cannot start: the host's /proc/sys/dev/tty/legacy_tiocsti is absent, \
+         unreadable or not \"0\""
+    )]
+    Terminal,
     /// A managed writer can write a source the attempt's servers are built
     /// from, or the lease could not be extended to them (U8a2b; MB3).
     #[error(transparent)]
@@ -190,43 +198,6 @@ pub(super) fn left(
 /// test's stand-in.
 pub(super) type Surveyor<'s> =
     &'s dyn Fn(&Path, &Survey, Instant) -> Result<Provisioned, Unprovisioned>;
-
-/// What provisioning reads of the host: the trusted canonical HOME, the
-/// current Brokkr binary, which surveys each box and is each plan's
-/// bootstrap, and the managed writers' uid.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct Host {
-    pub(super) home: PathBuf,
-    pub(super) bootstrap: PathBuf,
-    pub(super) writer: u32,
-}
-
-impl Host {
-    /// The host `environment` and `this` describe: HOME as the broker
-    /// reads it from the environment the engine hands down —
-    /// `hands::home_dir` over its UTF-8 entries — absolute and canonical;
-    /// this binary, canonical; and the engine's uid, which every managed
-    /// seat runs as. The entries kept are the broker's own rule
-    /// (`session::trusted_home`, CLI-private), which
-    /// `the_host_is_the_home_and_binary_it_is_given_canonical` binds.
-    pub(super) fn of(
-        environment: impl IntoIterator<Item = (OsString, OsString)>,
-        this: std::io::Result<PathBuf>,
-    ) -> Result<Host, Unprovisioned> {
-        let environment: BTreeMap<String, String> = (environment.into_iter())
-            .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
-            .collect();
-        let home = Some(hands::home_dir(&environment)).filter(|home| home.is_absolute());
-        let home = home.and_then(|home| std::fs::canonicalize(home).ok());
-        let home = home.ok_or(Unprovisioned::Root)?;
-        let bootstrap = this.and_then(std::fs::canonicalize);
-        Ok(Host {
-            home,
-            bootstrap: bootstrap.or(Err(Unprovisioned::Bootstrap))?,
-            writer: hands::ids().0,
-        })
-    }
-}
 
 /// One brokered holding at one site of the attempt: the site's label and
 /// instance reference, the holding and its seal.

@@ -166,17 +166,11 @@ fn delivery_bundle(
     let script_path = side.join(name).join("script.json");
     std::fs::write(&script_path, serde_json::to_string(&script).unwrap()).unwrap();
     std::fs::write(bundle.join("roles/role.md"), "# role\n").unwrap();
-    let seat = |results: Vec<&str>| {
-        json!({
-            "role": "roles/role.md",
-            "results": results,
-            "driver": {"command": [
-                brokkr_bin(), "fake-driver",
-                "--script", script_path.to_string_lossy(),
-                "--state", side.join(name).join("state").to_string_lossy(),
-            ]}
-        })
-    };
+    // Each delivery's seats hire an office of its own beside the run (U9b1).
+    let office = format!("{name}-office");
+    let driver = crate::fake_office::fake_driver(&script_path, &side.join(name).join("state"));
+    crate::fake_office::hire_driver(side, [&office, &format!("{name}-fake")], driver);
+    let seat = |results: Vec<&str>| json!({"results": results, "agent": office});
     let mut seats = serde_json::Map::new();
     if table.contains("\"implement\"") {
         seats.insert("implement".into(), seat(vec!["complete"]));
@@ -1079,18 +1073,18 @@ fn gate_classes(side: &Path, bundle: &Path) {
     adapter["provider"] = json!("judge");
     adapter["driver"] = json!(["{brokkr}", "driver", "judge", "--"]);
     adapter["binary"] = json!("judge");
-    adapter["mcp"] = json!("unsupported");
     adapter["efforts"] = json!([]);
     adapter["effort_flag"] = json!("unsupported");
     adapter["models"] = json!({"judge":"judge-1"});
     adapter["judges"] = json!(["judge"]);
+    let adapter = crate::fake_office::measured(adapter);
     std::fs::write(side.join("adapters/judge.json"), adapter.to_string()).unwrap();
     let path = bundle.join("bundle.json");
     let mut config: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    // The delivery's own script and state, beside its bundle.
+    let dir = bundle.parent().unwrap();
+    let fake = crate::fake_office::fake_driver(&dir.join("script.json"), &dir.join("state"));
     for phase in ["verify", "review", "ship"] {
-        let old = config["seats"][phase]["driver"]["command"]
-            .as_array()
-            .unwrap();
         let mut command = vec![
             json!(wrapper),
             json!("driver"),
@@ -1098,9 +1092,10 @@ fn gate_classes(side: &Path, bundle: &Path) {
             json!("--model"),
             json!("judge-1"),
         ];
-        command.extend(old[2..].iter().cloned());
-        config["seats"][phase]["driver"]["command"] = json!(command);
-        config["seats"][phase]["class"] = json!("gate");
+        command.extend(fake.as_array().unwrap()[2..].iter().cloned());
+        let results = config["seats"][phase]["results"].clone();
+        config["seats"][phase] = json!({"role": "roles/role.md", "results": results,
+                                         "driver": {"command": command}, "class": "gate"});
     }
     std::fs::write(path, config.to_string()).unwrap();
 }

@@ -27,7 +27,7 @@
 //! native power it does not hold is switched OFF or the compile refuses.
 //!
 //! Nothing here runs anything. Loading a dialect contacts no server, and
-//! an `mcp` grant is refused by name until slice two builds its broker.
+//! an `mcp` grant is refused by name where the fence stands, as on macOS.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -1093,11 +1093,12 @@ pub struct Authority {
     pub(crate) fence: McpFence,
 }
 
-/// The MCP compile fence (SC5), as [`McpFence::current`] reads it.
+/// The MCP compile fence (SC5), as [`McpFence::current`] reads it: lifted on Linux (U9b1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum McpFence {
+    #[cfg(any(test, not(target_os = "linux")))]
     Standing,
-    #[cfg(test)]
+    #[cfg(any(test, target_os = "linux"))]
     Lifted,
 }
 
@@ -1233,19 +1234,21 @@ impl Authority {
     }
 
     /// Why this candidate cannot hold `capability`, or the holding and
-    /// the native key that serves it.
+    /// the native key that serves it, none where the broker does.
     fn holding(
         &self,
         site: &SiteAsks,
         capability: &str,
         serving: &Serving<'_>,
-    ) -> Result<(Holding, String), Unheld> {
+    ) -> Result<(Holding, Option<String>), Unheld> {
         let holding = self.sealed(site, capability)?;
         (holding.collision(serving.auth)).map_err(|unserved| unserved.unheld(&holding.dialect))?;
         let through = |but| Unheld::Cause(Cause::incompatible(&holding.dialect, but));
-        let tools = &holding.tools;
-        let provider = serving.provider;
-        let (bound, adapter_key) = holding.native(&self.context.realm, capability)?;
+        let (tools, provider, realm) = (&holding.tools, serving.provider, &self.context.realm);
+        // Past the lifted fence the broker carries an `mcp` holding: no native key turns ON.
+        let Some((bound, adapter_key)) = holding.native(realm, capability, self.fence)? else {
+            return Ok((holding, None));
+        };
         if bound != provider {
             return Err(through(format!(
                 "provider '{provider}' cannot carry a binding to provider '{bound}'"
@@ -1280,10 +1283,9 @@ impl Authority {
             }
             _ => {}
         }
-        // Slice one carries only the empty restriction (operator ruling of
-        // 2026-09-25; design D11): a nonempty one is inexpressible on every
-        // candidate, a declared transport included, so it reaches CQ1's
-        // outcomes alone and is never composed.
+        // Slice one carries only the empty restriction (operator ruling of 2026-09-25; design
+        // D11): a nonempty one is inexpressible on every candidate, a declared transport included,
+        // so it reaches CQ1's outcomes alone and is never composed.
         if !holding.restrictions.is_empty() {
             let names = restriction_names("", &holding.restrictions);
             let deferred = match native.restrictions {
@@ -1299,7 +1301,7 @@ impl Authority {
                 names.join("', '")
             )));
         }
-        let adapter_key = adapter_key.to_string();
+        let adapter_key = Some(adapter_key.to_string());
         Ok((holding, adapter_key))
     }
 
@@ -1323,7 +1325,7 @@ impl Authority {
         for (capability, strength) in &site.asks {
             match self.holding(site, capability, serving) {
                 Ok((holding, key)) => {
-                    keys.insert(key, capability.clone());
+                    keys.extend(key.map(|key| (key, capability.clone())));
                     held.insert(capability.clone(), holding);
                 }
                 Err(Unheld::Identity) => return Err(format!("{who}: {}", Unserved::Identity)),
@@ -1337,10 +1339,9 @@ impl Authority {
                 }
             }
         }
-        // Operator ruling 1 of 2026-09-23 (rebuild unit 12): what the
-        // recipe wrote carries no capability-bearing option, whatever the
-        // realm grants and whatever the option's value; nothing authored is
-        // merged into what the engine composes below.
+        // Operator ruling 1 of 2026-09-23 (rebuild unit 12): what the recipe wrote carries no
+        // capability-bearing option, whatever the realm grants and whatever the option's value;
+        // nothing authored is merged into what the engine composes below.
         brokkr_protocol::native_controls::authored_refusal(serving.harness, serving.written)
             .map_err(|refusal| refusal.at_compile(&who))?;
         // An explicit include limit that excludes a held tool (design D6;
@@ -1370,11 +1371,10 @@ impl Authority {
             ));
             not_held.insert(capability, exclusion.clause);
         };
-        // A notice claims a native OFF only where THIS candidate's plan
-        // composed one for a native power serving the capability. A
-        // provider whose inventory or OFF control is unmeasured denies
-        // nothing it can show, whatever else lost it the capability — a
-        // binding to another provider included (ruling 4; NC5).
+        // A notice claims a native OFF only where THIS candidate's plan composed one for a native
+        // power serving the capability. A provider whose inventory or OFF control is unmeasured
+        // denies nothing it can show, whatever else lost it the capability — a binding to another
+        // provider included (ruling 4; NC5).
         let switched_off = |capability: &str| match (&native, serving.native) {
             (NativePlan::Known { off, .. }, Some((NativeInventory::Known { known, .. }, _))) => {
                 off.iter().any(|key| known[key].capability == capability)

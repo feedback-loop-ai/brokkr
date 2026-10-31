@@ -94,8 +94,9 @@ pub fn sealed_isolation(
 /// The MCP fence this engine stands under, as an intent seals it.
 fn fence() -> SealedFence {
     match crate::capabilities::McpFence::current() {
+        #[cfg(any(test, not(target_os = "linux")))]
         crate::capabilities::McpFence::Standing => SealedFence::Standing,
-        #[cfg(test)]
+        #[cfg(any(test, target_os = "linux"))]
         crate::capabilities::McpFence::Lifted => SealedFence::Lifted,
     }
 }

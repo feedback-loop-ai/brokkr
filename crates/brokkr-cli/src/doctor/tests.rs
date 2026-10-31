@@ -1410,28 +1410,25 @@ fn doctor_names_every_route_taking_its_credential_from_the_ambient_environment()
 /// credential of its own: the shape decision 0040 ruling 4 is about.
 fn two_credentialled_routes(adapters: &Path) {
     std::fs::create_dir_all(adapters).unwrap();
-    std::fs::write(
-        adapters.join("many.json"),
-        serde_json::to_vec_pretty(&json!({
-            "provider": "many",
-            "efforts": [],
-            "effort_flag": "unsupported",
-            "binary": "many-cli",
-            "driver": ["many-cli"],
-            "egress": "uncontracted",
-            "routes": {"nearby": "local", "partner": "local"},
-            "credentials": {
-                "nearby": "NEARBY_API_KEY",
-                "partner": "PARTNER_API_KEY",
-            },
-            "models": {"near": "nearby/small-1"},
-            "model_flag": "-m",
-            "tool_permissions": "unsupported",
-            "mcp": "unsupported",
-        }))
-        .unwrap(),
-    )
-    .unwrap();
+    let many = json!({
+        "provider": "many",
+        "efforts": [],
+        "effort_flag": "unsupported",
+        "binary": "many-cli",
+        "driver": ["many-cli"],
+        "egress": "uncontracted",
+        "routes": {"nearby": "local", "partner": "local"},
+        "credentials": {
+            "nearby": "NEARBY_API_KEY",
+            "partner": "PARTNER_API_KEY",
+        },
+        "models": {"near": "nearby/small-1"},
+        "model_flag": "-m",
+        "tool_permissions": "unsupported",
+    });
+    let many = super::capability_tests::synthetic_mcp::measured(many);
+    let bytes = serde_json::to_vec_pretty(&many).unwrap();
+    std::fs::write(adapters.join("many.json"), bytes).unwrap();
 }
 
 /// A one-seat bundle on that provider, binding exactly `secrets`.

@@ -47,7 +47,6 @@
  330 crates/brokkr-cli/tests/driver_conformance.rs:1393 conformance_across_all_builtin_adapters
  146 crates/brokkr-cli/tests/driver_conformance.rs:2218 the_shipped_codex_harness_work_seat_rejoins_its_retry
  113 crates/brokkr-cli/tests/driver_conformance.rs:2403 the_shipped_inline_codex_work_seat_rejoins_its_retry
- 111 crates/brokkr-cli/tests/machine_proof.rs:257 triage
  118 crates/brokkr-cli/tests/machine_proof.rs:1535 one_unfoldable_journal_is_quarantined_by_runs_and_still_fatal_to_its_own_verbs
  110 crates/brokkr-cli/tests/machine_proof.rs:2333 compare_aligns_two_runs_and_finds_the_review_divergence
  148 crates/brokkr-cli/tests/transcript_command.rs:1110 packed_dsh_members_coalesce_into_selectable_chunks
@@ -243,7 +242,6 @@
  134 crates/brokkr-runtime/tests/capability_launch.rs:7149 a_boxed_holding_admits_only_its_bound_entry_and_the_hands_only_fill_the_limit
  129 crates/brokkr-runtime/tests/capability_launch.rs:7307 a_narrowed_grant_admits_its_subset_and_a_template_limit_is_never_widened
  195 crates/brokkr-runtime/tests/capability_launch.rs:7465 every_chief_reproduction_composes_inside_the_holdings_and_every_limit
- 104 crates/brokkr-runtime/tests/capability_launch.rs:7691 an_empty_harness_fragment_is_the_hands_under_harness_and_refused_under_open
  160 crates/brokkr-runtime/tests/capability_launch.rs:7813 every_position_reproduction_refuses_by_provenance_and_typed_origins_launch
  194 crates/brokkr-runtime/tests/capability_launch.rs:8766 compile_every_shape_on
  242 crates/brokkr-runtime/tests/capability_launch.rs:9045 every_compiled_site_shape_of_every_harness_is_served_its_whole_command_beside_its_charter

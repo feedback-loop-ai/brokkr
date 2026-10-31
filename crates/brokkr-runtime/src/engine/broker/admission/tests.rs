@@ -52,7 +52,9 @@ use crate::engine::broker::sources::observed as shown;
 #[cfg(target_os = "linux")]
 use sources::shown;
 #[cfg(target_os = "linux")]
-pub(in crate::engine) use sources::{leased, proven_settled, standing_writer, unsynced_next};
+pub(in crate::engine) use sources::{
+    leased, proven_settled, staked, standing_writer, unsynced_next,
+};
 
 /// Where admission reads its coordination on a thread under test.
 #[derive(Clone)]
@@ -544,6 +546,33 @@ fn reaches(site: &str, run: &str, root: &Path) -> Conflict {
     }
 }
 
+/// MB3's refusal of the site `site` of the run `run` able to write
+/// `served`.
+fn exposing(site: &str, run: &str, served: &Path) -> Unknown {
+    Unknown::Serving {
+        site: site.into(),
+        run: run.into(),
+        served: served.to_path_buf(),
+    }
+}
+
+/// [`exposing`], as admission refuses with it.
+fn exposed(site: &str, run: &str, served: &Path) -> Result<Held, Unadmitted> {
+    mb3(exposing(site, run, served))
+}
+
+/// The reservation of `run` on `worktree` as it stands, its attempt `attempt`'s
+/// writers rewritten to `writers`, in the root's own shape and ownership: what
+/// an earlier build sealed, or a writer reaching the root could have left.
+#[cfg(target_os = "linux")]
+fn planted_writers(host: &Host, worktree: &Path, [run, attempt]: [&str; 2], writers: Vec<Writer>) {
+    let at = host.reservation(worktree, run);
+    let bytes = std::fs::read(&at).unwrap();
+    let mut whole: Reservation = serde_json::from_slice(&bytes).unwrap();
+    whole.attempts.get_mut(attempt).unwrap().writers = writers;
+    std::fs::write(&at, serde_json::to_vec(&whole).unwrap()).unwrap();
+}
+
 /// CR2's refusal of the site `site` of the run `run` outside any box.
 fn unboxed(site: &str, run: &str) -> Conflict {
     Conflict::Unboxed {
@@ -591,7 +620,7 @@ fn every_refusal_reads_as_its_cause() {
         (Unknown::Unsynced.into(), format!("{mb3}: the attempt's reservation was committed, but its directory was not proven synced")),
         (Unknown::Lost.into(), format!("{mb3}: the attempt's reservation no longer stands")),
         (Unknown::Unproven.into(), format!("{mb3}: the attempt's reservation holds no proof that its owned processes settled")),
-        (Unknown::Serving { site: "work:m".into(), run: "a".into(), served: "/s".into() }.into(), format!("{mb3}: site 'work:m' of run 'a' can write '/s', which an MCP server's box is built from")),
+        (Unknown::Serving { site: "work:m".into(), run: "a".into(), served: "/s".into() }.into(), format!("{mb3}: site 'work:m' of run 'a' can write '/s', which an MCP server's box or lease rests on")),
         (Unknown::Unconfined { site: "work".into(), run: "a".into() }.into(), format!("{mb3}: site 'work' of run 'a' writes outside a workspace box, its privilege not confined, beside an MCP server's sources")),
         (Unknown::Unmounted("/s".into()).into(), format!("{mb3}: the mount table does not prove where '/s' lies beside a managed writer")),
         (Unknown::Unrouted("s".into(), Unroutable::Relative).into(), format!("{mb3}: the route of 's', which an MCP server's box is built from, is not absolute, as a relative or empty PATH entry or a relative TMPDIR names it")),
@@ -961,9 +990,9 @@ fn every_directory_admission_makes_is_synced_in_its_parent() {
 }
 
 /// C1 (operator ruling 2026-10-18): a coordination root that cannot be
-/// protected refuses only where the fence is lifted or the claim protects
-/// evidence; with the fence standing and nothing at stake the dispatch
-/// proceeds holding no lease, and nothing is sealed.
+/// protected refuses only where the claim protects evidence; with nothing
+/// at stake the dispatch proceeds holding no lease, the fence standing or
+/// lifted, and nothing is sealed.
 #[test]
 fn an_unprotectable_root_proceeds_unreserved_only_where_nothing_is_at_stake() {
     if !alone("an_unprotectable_root_proceeds_unreserved_only_where_nothing_is_at_stake") {
@@ -999,12 +1028,17 @@ fn an_unprotectable_root_proceeds_unreserved_only_where_nothing_is_at_stake() {
     std::fs::create_dir_all(artifacts.join("sha256")).unwrap();
     refused_with(&mut beside, Unknown::Root.into());
     assert!(!ran.exists(), "no driver started beside evidence");
-    // Fence lifted: nothing at stake refuses too.
+    // Fence lifted: nothing at stake still proceeds unreserved (operator
+    // ruling of 2026-10-29 on U9b1's fourth run).
     let _lift = crate::capabilities::McpFence::lift();
-    assert_eq!(coordinated(None, &plain), Err(Unknown::Root));
+    assert_eq!(coordinated(None, &plain), Ok(None));
     let (_dir, mut lifted, ran) = touching();
-    refused_with(&mut lifted, Unknown::Root.into());
-    assert!(!ran.exists(), "no driver started with the fence lifted");
+    let (event, payload) = executed(&mut lifted);
+    assert_eq!(event, EventType::EffectSucceeded, "{payload}");
+    assert!(
+        ran.exists(),
+        "the driver ran unreserved with the fence lifted"
+    );
 }
 
 /// The dispatch door admits only a lease that still stands: a reservation
@@ -1097,7 +1131,12 @@ fn the_door_refuses_a_lease_whose_reach_was_redirected() {
     assert_eq!(recheck(&held), Ok(()), "fence standing, nothing at stake");
     assert_eq!(recheck(&staked), redirected, "evidence at stake");
     let _lift = crate::capabilities::McpFence::lift();
-    assert_eq!(recheck(&held), redirected, "fence lifted");
+    assert_eq!(recheck(&held), Ok(()), "fence lifted, nothing at stake");
+    assert_eq!(
+        recheck(&staked),
+        redirected,
+        "fence lifted, evidence at stake"
+    );
 }
 
 /// #835: the door reads the reservation under the admission lock, so a
@@ -1245,7 +1284,7 @@ fn git(repo: &Path, args: &[&str]) {
 /// of its own as hands binds it, and the dispatch door asks Git for both
 /// again before every spawn. Once admitted, the unchanged worktree
 /// dispatches; once its `commondir` names another repository's Git
-/// directory, the door refuses before anything spawns (the fence lifted,
+/// directory, the door refuses before anything spawns (evidence at stake,
 /// so the rule applies). Holding a running driver's later calls to the
 /// sealed reach is U8a2c's.
 #[test]
@@ -1298,7 +1337,10 @@ fn the_door_refuses_a_worktree_whose_git_names_another_repository() {
     };
     let mut incoming = claim(&linked, ["run-a", "a1"], Protects::Nothing, &[writer]);
     incoming.authored.boxes = vec![(spec, reach)];
-    let held = host.admit(&incoming).unwrap();
+    let held = Held {
+        staked: true,
+        ..host.admit(&incoming).unwrap()
+    };
     let (dir, engine) = engine(single_body(Vec::new()));
     let door = |name: &str| {
         let ran = dir.path().join(name);
@@ -1314,7 +1356,6 @@ fn the_door_refuses_a_worktree_whose_git_names_another_repository() {
         );
         spawned.map(|(process, _)| drop(process))
     };
-    let _lift = crate::capabilities::McpFence::lift();
     assert_eq!(door("unchanged"), Ok(()));
     let named = format!("{}\n", other.join(".git").display());
     std::fs::write(git_dir.join("commondir"), named).unwrap();
@@ -1590,8 +1631,8 @@ fn removing(engine: &mut Engine, reservation: &Path, ran: &Path, panel: bool) {
 /// its attempt was admitted under: while the fence stands and nothing is
 /// at stake, a first step outside any box may run, and once its driver
 /// removed the run's reservation, the next step's driver does not start.
-/// With the fence lifted, that driver outside a box is itself refused
-/// before it spawns, and the reservation never stands to be removed.
+/// With the fence lifted the same holds: nothing at stake, the driver
+/// outside a box runs (operator ruling of 2026-10-29 on U9b1's fourth run).
 #[test]
 fn every_steps_door_rechecks_the_lease_its_attempt_holds() {
     if !alone("every_steps_door_rechecks_the_lease_its_attempt_holds") {
@@ -1599,7 +1640,9 @@ fn every_steps_door_rechecks_the_lease_its_attempt_holds() {
     }
     let host = Host::new();
     let _home = Coordinated::at(&host.home);
-    for panel in [false, true] {
+    // Standing, a single and a panel member; lifted, a single.
+    for (lifted, panel) in [(false, false), (false, true), (true, false)] {
+        let _lift = lifted.then(crate::capabilities::McpFence::lift);
         let (dir, mut engine) = engine(single_body(Vec::new()));
         let reservation = host.reservation(&worktree(&engine), &engine.run_id);
         let ran = dir.path().join("ran");
@@ -1616,24 +1659,10 @@ fn every_steps_door_rechecks_the_lease_its_attempt_holds() {
                  {lost}"
             ),
         };
-        assert_eq!(payload["error"], refused);
+        assert_eq!(payload["error"], refused, "lifted {lifted}");
+        assert!(!reservation.exists(), "the first step ran and removed it");
         assert!(!ran.exists(), "panel {panel}: the next step never started");
     }
-    let _lift = crate::capabilities::McpFence::lift();
-    let (dir, mut engine) = engine(single_body(Vec::new()));
-    let reservation = host.reservation(&worktree(&engine), &engine.run_id);
-    let ran = dir.path().join("ran");
-    removing(&mut engine, &reservation, &ran, false);
-    let effect = requested(&engine, "effect");
-    execute_work(&mut engine, &[effect]).unwrap();
-    let refused = unboxed("work:draft", &engine.run_id);
-    let (event, payload) = last(&engine);
-    assert_eq!(event, EventType::EffectFailed);
-    assert_eq!(payload["error"], Unadmitted::Evidence(refused).to_string());
-    let checkpointed = engine.store.load(&engine.run_id).unwrap();
-    let started =
-        (checkpointed.iter()).any(|event| event.event_type == EventType::EffectCheckpointed);
-    assert!(!started && !ran.exists(), "no step's driver started");
 }
 
 /// The panel `keeper` and `sibling`, each driver running `before` first.

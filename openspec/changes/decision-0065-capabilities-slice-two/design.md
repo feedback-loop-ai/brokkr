@@ -1418,8 +1418,9 @@ witness/compose pins accompany only rows that change their inputs.
 | U1d4 | U1d3 | Record Codex's shapes without hands; 5.5–5.6 | `adapters/codex.json`; `crates/brokkr-cli/src/init/adapters.rs` |
 | U1d5 | U1d4 | Record Codex's boxed replacement; 5.7–5.8 | `adapters/codex.json`; `crates/brokkr-cli/src/init/adapters.rs` |
 | U1d6 | U1d5 | Record dsh's replacement on the keyed routes; 5.9–5.10 | `adapters/dsh.json`; `crates/brokkr-cli/src/init/adapters.rs` |
-| U9b1 | U1d3, U8e3, U8h, U8i, U8j, U8k, U1d4, U1d5, U1d6 | Enable the proved namespace path; 42.2, 46.1–46.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
-| U9b2 | U9b1 | Publish implemented scope and contract guidance; 47.1–47.2 | None |
+| U9b1a | U1d3, U8e3, U8h, U8i, U8j, U8k, U1d4, U1d5, U1d6 | Lift the MCP compile fence where the namespace path is proved; no task (42.2, 46.1–46.2 are U9b1b's) | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs`; `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/broker/terminal.rs`; `crates/brokkr-runtime/src/engine/isolation.rs` |
+| U9b1b | U9b1a | Prove the enabled namespace path end to end; 42.2, 46.1–46.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs`; `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/broker/terminal.rs`; `crates/brokkr-runtime/src/engine/isolation.rs` |
+| U9b2 | U9b1b | Publish implemented scope and contract guidance; 47.1–47.2 | None |
 | U8m | U8h | Redact doctor's server words and refuse a storeless boxed writer; 47.3–47.4 | `crates/brokkr-cli/src/doctor/capabilities/mcp.rs`; `crates/brokkr-runtime/src/engine/boxed.rs` |
 | U10a | U9b2, U8m | Audit removals and run final candidate gates; 48.1–49.2 | None |
 | U10b | U10a | Fold the change and hand off; 49.3 | None |
@@ -2406,6 +2407,8 @@ Owning tests: `crates/brokkr-cli/tests/init_doctor.rs`, `crates/brokkr-runtime/t
 
 ### U9b1 — Enable the proved namespace path
 
+Split by operator ruling 2026-10-30 into U9b1a and U9b1b (their sections follow this one). Everything in this section, its rulings included, binds both.
+
 Lift only the global MCP compile fence after all prior proofs, activating D3's namespace, gate, strictness, carriage, secret-read, box admission/readiness, evidence and D11 rules. Quiesce older same-worktree engines before enabling managed-writer coordination;
 lifting the fence makes U8a2a's coordination refusals unconditional, so seats
 Brokkr cannot box then refuse on every run (operator ruling 2026-10-18). The lift
@@ -2433,9 +2436,55 @@ Operator rulings 2026-10-18 on U9b1's owed items (in chat: "1a, 2a, 3 ok 4 a, 5 
 5. Claude's harness authentication gains the cloud credential-chain names (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_PROFILE, GOOGLE_APPLICATION_CREDENTIALS, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID, AZURE_CLIENT_CERTIFICATE_PATH, AZURE_CLIENT_CERTIFICATE_PASSWORD, AZURE_USERNAME, AZURE_PASSWORD), so MB4's collision check refuses a binding of those names; U1d3 records them.
 6. A harness that ends its input with a call active is U8b's (its ruling).
 
+Operator ruling 2026-10-26 on U9b1's carried items (in chat, standing ruling "go with recommended for all findings next 7 hours", applied to the controller's audit of the items carried to U9b1): ruling 4's refusal of MCP servers on a host where legacy TIOCSTI is enabled lives at engine provisioning, before any survey or server starts. A new private child `crates/brokkr-runtime/src/engine/broker/terminal.rs` reads `/proc/sys/dev/tty/legacy_tiocsti` (absent, unreadable or not "0" refuses) and one new provisioning cause carries the exact refusal, consulted only by an attempt that brokers a holding; `crates/brokkr-runtime/src/engine/broker.rs` changes size-neutrally to reach it. Both files join this row. U8a2c's confirm-then-path race is closed before this unit by U8k; U8a2b's identity tree under the serving process's TMPDIR is recorded as a known LOW residual in U10a's hand-off (U8l was dropped under the operator's standing ruling of 2026-10-28: its fix needs a public API rise and files outside any small row).
+
+Operator rulings 2026-10-28 on U9b1's first run (in chat, "go with recommended"; run 0065-slice-two-unit-u9b1-see-the-81d630c6 stopped IMPL-BLOCKED): U9b1 is finished in a second run that replays the first. (1) Codex's cold and replacement shapes with hands none are recorded before it by U1d4. (2) SI2's compile check demands measured MCP isolation for each shape a seat can actually be served as: cold, the replacement of a work seat, and each resume shape its adapter declares with status `supported`; a resume declared `unmeasured` or `unsupported` is never performed (the engine's resume assessment never enables it), so it is not a served shape and demands no evidence. Claude's `boxed-workspace` resume is such a shape. (3) `recipes/research-dsh` refuses on Linux after the lift, because dsh's replacement stays unmeasured (a shape carries no route scope; U1d3's ruling); its refusal is documented, and route-scoped dsh qualification is a follow-up. (4) `crates/brokkr-runtime/src/engine/isolation.rs` joins this row for a two-line cfg edit, rather than a counted dead_code suppression.
+
+Operator rulings 2026-10-29 on U9b1's second run (in chat, "go with recommended"; run 0065-slice-two-unit-u9b1-see-the-2fb239fb stopped IMPL-BLOCKED): the first run's audit stopped at each recipe's first refusal, and past it SI2 refuses two more served shapes. U9b1 is finished in a third run that replays the second. (1) Codex's replacement with hands boxed, which chief-architect and release-manager serve (each hires sol with workspace hands), is measured by U0b pass 7 and recorded before it by U1d5, so triage, night-shift and release compile on Linux. (2) `recipes/gpt-flash`, `recipes/review-first`, `recipes/wager-harness-muse` and `recipes/wager-harness-dsh` refuse on Linux after the lift as `recipes/research-dsh` does (the first run's ruling 3, extended): each serves a dsh work seat whose replacement stays unmeasured; each refusal is pinned in a test and documented, and route-scoped dsh qualification, the same follow-up, lifts them.
+
+Operator ruling 2026-10-29 on U9b1's third run (in chat, "b", then "keys approved"; run 0065-slice-two-unit-u9b1-see-the-f8f99a38 stopped IMPL-BLOCKED): past the lifted fence every dsh work seat refused, because dsh's replacement recorded its ambient axis as unmeasured; that covered `recipes/night-shift` (its implement seat hires glm-flash on dsh), `brokkr init` for a dsh stack and fast and node in a dsh folder, beside the five recipes the earlier rulings let refuse. U9b1 is finished in a fourth run that replays the third. dsh's replacement is measured on the keyed routes by U0b pass 8 and recorded before it by U1d6, so every dsh work seat qualifies on Linux on the routes the cold shape is qualified on; the refusals of `recipes/research-dsh` (the first run's ruling 3) and of `recipes/gpt-flash`, `recipes/review-first`, `recipes/wager-harness-muse` and `recipes/wager-harness-dsh` (the second run's ruling 2) are superseded: those recipes, night-shift, init's dsh stack and fast and node in a dsh folder compile.
+
+Operator ruling 2026-10-29 on U9b1's fourth run (in chat, "1"; run 0065-slice-two-unit-u9b1-see-the-2d17136e stopped IMPL-BLOCKED): past compile, ruling 1's Linux clause refused every writer Brokkr cannot box on every run, and every model site without hands is such a writer, so Linux would have refused every run of sixteen of the nineteen shipped recipes and of a fresh `brokkr init` project, not only the test fixtures. That clause is superseded. On Linux, as on macOS, U8a2a's coordination refusals stay keyed to evidence at stake (the incoming attempt protects evidence, a standing attempt does, or a historical root exists). The lift no longer widens them to every participant on every run, so a run that retains MCP evidence refuses every writer Brokkr cannot box, and a run with nothing at stake admits an unboxed writer as before. The operator's principle: security in balance, but Brokkr must be able to run, with capabilities. Prove on Linux past the lift, through real compile and dispatch:
+- a run with nothing at stake admits its unboxed writers: a fresh `brokkr init` scaffold, and each shipped recipe's first seat;
+- a run whose seat holds an MCP grant with workspace hands (Claude or Codex, boxed) dispatches through the real broker and completes;
+- the same grant on a seat without hands refuses with CR2's exact cause;
+- a provider-native grant (Claude's or Codex's own search or fetch) retains nothing, so a seat without hands holding one dispatches.
+Refusing every unboxed writer on every run is a later decision, recorded as a follow-up, for when the seats of every harness can hold boxed hands.
+
 Owning tests: `crates/brokkr-runtime/tests/capability_broker_launch.rs`, `crates/brokkr-cli/src/doctor/capability_tests.rs`.
 
 Split from U9b (operator ruling 2026-10-12); U9b2 publishes the guides.
+
+### U9b1a — Lift the MCP compile fence where the namespace path is proved
+
+Operator ruling 2026-10-30 on U9b1's fifth run (in chat, "ok, keep going", then "A", on the controller's recommendation; run 0065-slice-two-unit-u9b1-see-the-d09b2390 stopped IMPL-BLOCKED after its second visit reported oversized): U9b1 lands as two pull requests. U9b1a lands the fifth run's tree. `McpFence::current()` is chosen by host, with no knob: Lifted on Linux, Standing on macOS (ruling 1). It carries rulings 4, 5, 14 and 21, ruling (2) of 2026-10-28, U5a2's F1 and U7d3's L2 and L3. It migrates the suites' fixtures past the lift with no fixture boxed: a seat with no model surface uses the exec driver, and a scripted driver is hired as an office over an operator adapter with synthetic plumbing facts.
+
+U9b1a proves ruling 21's first and fourth cases: a public run with nothing at stake admits its unboxed writers and completes, and a seat without hands holding a provider-native grant retains nothing. Ruling 21's third case is proved by MB2's compile refusal, "MCP capability '<capability>' requires workspace hands at this site". That refusal is earlier than CR2's and stands as the case's proof. By MB2 it refuses a wanted grant too, rather than dropping it. U9b1a closes no task: 42.2, 46.1 and 46.2 stay unticked.
+
+Until U9b1b lands, no release is cut from main, no host engine the house pipeline runs is upgraded past U9b1a, and no realm the house pipeline runs grants an MCP capability.
+
+Controller ruling 2026-10-30 on U9b1a's first run (under the operator's standing ruling of 2026-10-28, on the chief's H1; run 0065-slice-two-unit-u9b1a-see-th-2abb1e94 stopped REVIEW-SECURITY-HOLD): while any reservation serves, a writer whose writable reach covers the capability coordination root is refused with MB3's identity cause, in both arrival orders, whatever evidence is at stake.
+
+Operator ruling 2026-10-30 on U9b1a's second run (in chat, "a", on the controller's recommendation; run 0065-slice-two-unit-u9b1a-see-th-49b8e92e stopped REVIEW-SECURITY-HOLD on the chief's H2): the coordination records a broker's source lease lives in are protected from every writer Brokkr boxes, on every run. A reservation is a plain file, so a boxed writer admitted while nothing was served could rewrite its own record before a broker extended beside it. A boxed writer whose writable reach covers the capability coordination root is therefore refused at admission with MB3's identity cause, whether or not evidence is at stake and whether or not any reservation serves. No admitted boxed writer can rewrite a reservation, its own included. This narrows ruling 21 for boxed writers only. A writer Brokkr cannot box is still admitted on a run with nothing at stake, and still refuses beside a live broker; it already holds the user's own write, so a forged record gives it nothing more, and refusing it on every run stays the later decision ruling 21 names. No shipped adapter, office, recipe or scaffold binds that root.
+
+Controller ruling 2026-10-30 on U9b1a's third run (under the operator's standing ruling of 2026-10-28, on the chief's H3; run 0065-slice-two-unit-u9b1a-see-th-d93f79f1 stopped REVIEW-SECURITY-HOLD): the operator's every-run refusal above holds where the coordination root cannot be opened too. Before an attempt proceeds holding no lease (C1), each of its boxed writers is compared with the coordination root's spelled path by the same test (at, above or below, by path, by identity where anything on that path stands, and on Linux by the mount table), and is refused with MB3's identity cause where it reaches the root or where its reach cannot be proved. A boxed writer kept apart from the root, and a writer Brokkr cannot box, still proceed holding no lease, as ruling 21 says.
+
+Files: the row's files, the existing private children of `engine/broker.rs` its rulings touch (admission, exclusion, observation, settlement, sources), and `crates/brokkr-cli/src/init/adapters.rs` by ruling 5. Owning tests: as U9b1.
+
+### U9b1b — Prove the enabled namespace path end to end
+
+U9b1b closes tasks 42.2, 46.1 and 46.2 on U9b1a's tree, in the scope of U9b1's text above. That covers:
+
+- the enabling matrix through real compile, launch, broker, fold and inspect with a fake dialect, including every boxed-server seam;
+- MB3's two-worktree lifetime matrix, and MB4's complete-frame/EOF matrix with the private exec-status controls;
+- the HOME/TMPDIR collisions, with zero store lookups and child starts;
+- the success-reporting harness cases, and scalar-secret refusal on the real retention and inspect path;
+- 42.2's real transport faults through the settlement barrier;
+- ruling 21's second case: a seat holding an MCP grant with workspace hands (Claude or Codex, boxed) dispatches through the real broker and completes;
+- SD4's timings on both Linux profiles, with the controller's fully cold x86_64 sample (ruling 3);
+- exact coverage and the crap ratchet over the lift.
+
+A defect the matrix finds in U9b1a's code is fixed in the row's files, under U9b1's rulings. Owning tests: as U9b1.
 
 ### U9b2 — Publish implemented scope and contract guidance
 

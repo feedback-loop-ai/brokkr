@@ -364,6 +364,24 @@ fn intact(at: &Path, bytes: &[u8], what: &str) {
     assert_eq!(canonical::sha256_bytes(bytes), name, "{what}: its digest");
 }
 
+/// A box binding `home`, which holds the coordination root, refuses at the
+/// door by MB3's identity cause, on every run (operator ruling of 2026-10-30),
+/// its driver never started.
+fn refused_at_the_door(host: &Host, home: &Path) {
+    let (attacked, _) = host.worktree("coordination", None);
+    let mark = attacked.join("ran");
+    let touch = format!("touch '{}'", mark.display());
+    let bundle = host.bundle("coordination", &[home], &touch);
+    let (run, events) = host.ran(&attacked, &bundle);
+    let refused = format!(
+        "dispatch refused: MCP server box filesystem identity is not protected: site 'work' of \
+         run '{run}' can write '{}', which an MCP server's box or lease rests on",
+        host.coordination().display()
+    );
+    assert_eq!(failures(&events), [refused]);
+    assert!(!mark.exists(), "its driver never started");
+}
+
 #[test]
 fn a_real_boxed_exec_strikes_from_inside_its_lease_and_every_protected_byte_stands() {
     let Some(host) = boxes_here().then(Host::new).flatten() else {
@@ -450,13 +468,13 @@ fn a_real_boxed_exec_strikes_from_inside_its_lease_and_every_protected_byte_stan
     ));
     // Each case's read-write bind, and the root it reaches; the hard link
     // binds nothing, and is refused as the artifact it corrupts.
-    let cases: [(&str, Option<&Path>, Option<PathBuf>); 5] = [
+    let cases: [(&str, Option<&Path>, Option<PathBuf>); 4] = [
         ("bind", Some(&state), Some(root.clone())),
         ("ancestor", Some(&other), Some(root.clone())),
         ("symlink", Some(&alias), Some(root.clone())),
-        ("coordination", Some(&home), Some(host.coordination())),
         ("hardlink", None, None),
     ];
+    refused_at_the_door(&host, &home);
     for (case, bind, reached) in cases {
         let (attacked, _) = host.worktree(case, None);
         if bind.is_none() {

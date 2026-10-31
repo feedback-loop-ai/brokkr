@@ -33,6 +33,10 @@ pub(super) const EXEC: &str = r#"{
   "provider": "exec",
   "trust_tier": "untrusted",
   "egress": "contracted",
+  "harness_auth": {
+    "names": [],
+    "measured": "brokkr driver exec runs the command its bundle names with the seat's bindings and contacts no provider; the only variable it reads is BROKKR_EXEC_NAME, its label (crates/brokkr-protocol/src/adapters.rs, the AdapterKind::Exec invocation arm), so it reads no authentication name"
+  },
   "binary": "sh",
   "driver": ["{brokkr}", "driver", "exec", "--"],
   "models": {},
@@ -114,6 +118,22 @@ fn claude_native_capabilities() -> Value {
     })
 }
 
+/// The names Claude Code reads to authenticate, as `adapters/claude.json`
+/// declares them (MB4; U7d3 L2), so a binding of one at a scaffolded seat
+/// meets MB4's collision cause. `init_doctor` holds it equal to the
+/// shipped declaration.
+const CLAUDE_AUTH: &str = r#"{
+  "names": [
+    "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_AWS_API_KEY",
+    "ANTHROPIC_FOUNDRY_API_KEY", "ANTHROPIC_FOUNDRY_AUTH_TOKEN", "AWS_ACCESS_KEY_ID",
+    "AWS_BEARER_TOKEN_BEDROCK", "AWS_PROFILE", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
+    "AZURE_CLIENT_CERTIFICATE_PASSWORD", "AZURE_CLIENT_CERTIFICATE_PATH", "AZURE_CLIENT_ID",
+    "AZURE_CLIENT_SECRET", "AZURE_PASSWORD", "AZURE_TENANT_ID", "AZURE_USERNAME",
+    "CLAUDE_CODE_OAUTH_TOKEN", "GOOGLE_APPLICATION_CREDENTIALS"
+  ],
+  "measured": "Claude Code 2.1.299 (Linux, 2026-10-17; claude --version reads '2.1.299 (Claude Code)'): strings -n 8 of the installed binary holds one array literal of its provider credential variables, the seven ANTHROPIC_*, AWS_BEARER_TOKEN_BEDROCK and CLAUDE_CODE_OAUTH_TOKEN names here, defined beside its CLAUDE_CODE_SKIP_*_AUTH switches and its provider endpoint table. The twelve AWS, GCP and Azure credential-chain names are read by the provider SDKs, not by that list: they are declared on the operator's ruling of 2026-10-18 (U9b1's ruling 5), so MB4's collision check refuses a binding of them, and no cloud route was exercised to measure them"
+}"#;
+
 /// Claude's MCP facts that the scaffold's claude can admit: carriage, and
 /// the cold and replacement shapes without hands, because the scaffold
 /// gives no claude seat hands.
@@ -169,10 +189,12 @@ fn claude(grants: &Grants) -> String {
         names.insert(tool.name.to_string(), json!(tool.permission));
     }
     let mcp: Value = serde_json::from_str(CLAUDE_MCP).expect("claude's MCP facts are JSON");
+    let auth: Value = serde_json::from_str(CLAUDE_AUTH).expect("claude's auth names are JSON");
     let adapter = json!({
         "provider": "claude",
         "trust_tier": "trusted",
         "egress": "uncontracted",
+        "harness_auth": auth,
         "binary": "claude",
         "driver": ["{brokkr}", "driver", "claude", "--", "--permission-mode", "acceptEdits"],
         "models": {
@@ -239,6 +261,10 @@ const CODEX: &str = r#"{
   "provider": "codex",
   "trust_tier": "trusted",
   "egress": "uncontracted",
+  "harness_auth": {
+    "names": ["CODEX_ACCESS_TOKEN", "CODEX_API_KEY", "OPENAI_API_KEY"],
+    "measured": "codex-cli 0.162.1 (Linux, 2026-10-17; codex --version): the native binary's 'no Codex credentials were found' message lists its credential sources in order, auth.json, OPENAI_API_KEY, CODEX_API_KEY and CODEX_ACCESS_TOKEN, and its login help reads the key from OPENAI_API_KEY; auth.json is a file under CODEX_HOME, not a variable"
+  },
   "binary": "codex",
   "driver": ["{brokkr}", "driver", "codex", "--"],
   "models": {
@@ -462,6 +488,10 @@ const DSH: &str = r#"{
   "provider": "dsh",
   "trust_tier": "untrusted",
   "egress": "uncontracted",
+  "harness_auth": {
+    "names": [],
+    "measured": "dsh 0.1.5-rc.2 authenticates each route with the variable its provider row's apiKeyEnv names, and those are exactly this adapter's credentials: DEEPSEEK_API_KEY (dsh-llm-deepseek DEFAULT_API_KEY_ENV), DASHSCOPE_API_KEY and OPENROUTER_API_KEY (dsh --profile headless --dump-config), SPARK_API_KEY (U0 S01's MISSING_CREDENTIAL); the loader reads them from credentials, so none is written twice (docs/evidence/adapters/slice-two-mcp-isolation.md, How the operator's dsh wires each route)"
+  },
   "binary": "dsh",
   "driver": ["{brokkr}", "driver", "dsh", "--"],
   "models": {

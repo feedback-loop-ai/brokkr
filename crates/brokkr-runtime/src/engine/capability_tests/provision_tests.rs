@@ -815,6 +815,67 @@ fn the_host_is_the_home_and_binary_it_is_given_canonical() {
     assert_eq!(Host::of(home, unread()), Err(Unprovisioned::Bootstrap));
 }
 
+/// Operator ruling 4 of 2026-10-18 (U9b1): a host serves MCP servers only
+/// where its legacy TIOCSTI setting reads `0`, as the kernel writes it or
+/// bare; an absent, unreadable, enabled or any other setting is the one
+/// startup cause, whose words are pinned here.
+#[test]
+fn a_host_whose_legacy_tiocsti_is_not_switched_off_serves_no_mcp_server() {
+    let fixture = Fixture::inline();
+    let served =
+        |setting: std::io::Result<&[u8]>| fixture.host().served(setting.map(<[u8]>::to_vec));
+    let failed = |kind: std::io::ErrorKind| Err(std::io::Error::from(kind));
+    assert_eq!(
+        [served(Ok(b"0\n")), served(Ok(b"0"))],
+        [Ok(fixture.host()), Ok(fixture.host())]
+    );
+    let refused = [
+        served(failed(std::io::ErrorKind::NotFound)),
+        served(failed(std::io::ErrorKind::PermissionDenied)),
+        served(Ok(b"1\n")),
+        served(Ok(b"00\n")),
+        served(Ok(b"0\n\n")),
+        served(Ok(b"")),
+    ];
+    assert_eq!(refused, [(); 6].map(|()| Err(Unprovisioned::Terminal)));
+    assert_eq!(
+        Unprovisioned::Terminal.to_string(),
+        "MCP servers cannot start: the host's /proc/sys/dev/tty/legacy_tiocsti is absent, \
+         unreadable or not \"0\""
+    );
+}
+
+/// Ruling 4's refusal is provisioning's (operator ruling of 2026-10-26):
+/// an attempt that brokers nothing launches on a host that allows legacy
+/// TIOCSTI, its bound whole; one that brokers a holding fails with the
+/// startup cause before any survey starts, and nothing is provisioned.
+#[test]
+fn the_terminal_refusal_reaches_only_a_brokered_attempt_and_before_any_survey() {
+    let test = "the_terminal_refusal_reaches_only_a_brokered_attempt_and_before_any_survey";
+    let Some(mut fixture) = Fixture::protected(test) else {
+        return;
+    };
+    let enabled = || fixture.host().served(Ok(b"1\n".to_vec()));
+    let (none, brokered) = (enabled(), enabled());
+    let whole = Duration::from_secs(10);
+    let mut bound = whole;
+    assert!(fixture.launch("a-none", (Instant::now(), &mut bound), none, &observing));
+    assert_eq!(bound, whole);
+    let server = fixture.server();
+    fixture.hold("library-docs", admitted("library-docs", &[&server], true));
+    let survey = |_: &Path, _: &Survey, _: Instant| panic!("a box was surveyed");
+    let launched = fixture.launch("a-tty", (Instant::now(), &mut bound), brokered, &survey);
+    let events = fixture.engine.store.load(&fixture.engine.run_id).unwrap();
+    let failed = events.last().unwrap();
+    let error = Unprovisioned::Terminal.to_string();
+    let payload = json!({"effect_id": "effect", "attempt_id": "a-tty", "error": error});
+    assert_eq!(
+        (launched, failed.event_type, &failed.payload, bound),
+        (false, EventType::EffectFailed, &payload, whole)
+    );
+    assert!(!fixture.run_dir().exists(), "nothing was provisioned");
+}
+
 /// M2: every survey of an attempt answers by MB3's startup deadline or
 /// the attempt's bound, whichever comes first, and the driver is handed
 /// only what provisioning left of the bound; nothing left is spent.

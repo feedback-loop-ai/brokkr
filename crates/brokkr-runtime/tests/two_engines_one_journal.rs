@@ -92,13 +92,11 @@ fn write_bundle(dir: &Path) -> PathBuf {
     std::fs::create_dir_all(bundle.join("roles")).unwrap();
     std::fs::write(bundle.join("policy.json"), POLICY).unwrap();
     std::fs::write(bundle.join("roles/role.md"), "# role\n").unwrap();
-    let seat = |result: &str| {
-        json!({
-            "role": "roles/role.md",
-            "results": [result],
-            "driver": {"command": driver_argv()},
-        })
-    };
+    // Its seats hire an office over that driver, beside the bundle (U9b1).
+    let driver = driver_argv();
+    let driver: Vec<&str> = driver.iter().map(String::as_str).collect();
+    crate::office::hire(dir, "two-engines", &driver, None);
+    let seat = |result: &str| json!({"results": [result], "agent": "two-engines"});
     std::fs::write(
         bundle.join("bundle.json"),
         serde_json::to_string(&json!({
@@ -205,7 +203,11 @@ fn two_engines_engine_child() {
     ) else {
         return;
     };
-    let bundle = Bundle::compile(Path::new(&bundle_dir)).expect("the shared bundle compiles");
+    let bundle_dir = Path::new(&bundle_dir);
+    let beside = bundle_dir.parent().unwrap();
+    let (agents, adapters) = (beside.join("agents"), beside.join("adapters"));
+    let bundle =
+        Bundle::compile_with(bundle_dir, &agents, &adapters).expect("the shared bundle compiles");
     // The shipped patience, deliberately: this is the scenario as it
     // ran, so the budget is the one that ships. A budget shortened for
     // the test's convenience would prove a different discipline than the

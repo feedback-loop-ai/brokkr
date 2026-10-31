@@ -605,11 +605,21 @@ fn granting_mcp(root: &Root) {
     );
 }
 
+/// The fence stands on macOS, where an MCP grant no seat asks for still
+/// refuses exactly; on Linux, where U9b1 lifts it, the same folder
+/// compiles, its grant held by no office.
 #[test]
-fn the_compile_fence_still_refuses_an_unused_mcp_grant() {
+fn the_compile_fence_refuses_an_unused_mcp_grant_only_where_it_stands() {
     let root = Root::new();
     granting_mcp(&root);
     let ran = root.brokkr(&["compile", "--bundle", ".brokkr"]);
+    if cfg!(target_os = "linux") {
+        let compiled: serde_json::Value = serde_json::from_str(&ran.stdout).unwrap();
+        return assert_eq!(
+            (ran.code, &compiled["bundle"]),
+            (Some(0), &json!("starter"))
+        );
+    }
     assert_eq!(ran.code, Some(1));
     assert_eq!(
         ran.stderr,
