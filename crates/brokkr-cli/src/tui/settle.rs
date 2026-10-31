@@ -16,16 +16,12 @@ pub(crate) fn settle_end(tui: &mut Tui, views: &Views) {
     if tui.held_for.as_ref() != Some(&held_view(tui, views)) {
         drop_held(tui);
     } else {
-        // A held key that asked for the absolute end leaves its request on
-        // the head; the answer that names the end resolves the marker,
-        // which is that key's one application. Take it from the queue
-        // first, or the flush below repeats it: a wrapping `Up` would
-        // subtract twice (M1). A direct end has no held head to take, so
-        // its marker resolves without consuming one.
-        let asked_end = tui.held.first().is_some_and(|held| held.end.is_some());
-        if resolve_end(tui, views) && asked_end {
-            consumed(tui);
-        }
+        // An unresolved marker a previous answer left is resolved against
+        // this answer first. Resolution consumes the held head that owns
+        // the marker, so the flush below starts from that head's one
+        // application instead of repeating it (M1). A direct `G` owns its
+        // own marker and consumes nothing.
+        resolve_end(tui, views);
         // The answer's window settles the keys pressed against it, in
         // order; a key that crosses it asks the next page and keeps its
         // place.
@@ -37,9 +33,12 @@ pub(crate) fn settle_end(tui: &mut Tui, views: &Views) {
     resolve_end(tui, views);
 }
 
-/// Resolve an absolute-end request into the rank the read answered, and
-/// leave every other position where the keys put it. Returns whether it
-/// resolved such a request, which is the held head's one application.
+/// Resolve an absolute-end marker into the rank the read answered, and
+/// leave every other position where the keys put it. The resolution is
+/// the marker owner's one application: a held head that asked for the end
+/// leaves the queue here, while a direct `G` owns its own marker and
+/// consumes nothing. Every path that resolves a marker comes through this
+/// one function (M1, decision 0071 ruling 5).
 fn resolve_end(tui: &mut Tui, views: &Views) -> bool {
     // A read through the pages answers the stream's end; a whole read in
     // the same coordinate answers it from the laid column, so an absolute
@@ -55,7 +54,7 @@ fn resolve_end(tui: &mut Tui, views: &Views) -> bool {
         return false;
     };
     let at = end.saturating_sub(1);
-    match tui.level {
+    let resolved = match tui.level {
         Level::Runs if tui.live_offset == usize::MAX => {
             tui.live_offset = at;
             tui.live_line = last_live_line(tui, views);
@@ -76,7 +75,17 @@ fn resolve_end(tui: &mut Tui, views: &Views) -> bool {
             false
         }
         _ => false,
+    };
+    if !resolved {
+        return false;
     }
+    // The held head whose marker this is has now had its one application.
+    // A direct `G` set its marker with no held head, so nothing leaves the
+    // queue (M1).
+    if tui.held.first().is_some_and(|held| held.end.is_some()) {
+        consumed(tui);
+    }
+    true
 }
 
 /// The live column's layout for the held fleet frame: the selected row
@@ -318,22 +327,26 @@ pub(super) fn flush_held(tui: &mut Tui, views: &Views) {
         let origin = held_origin(tui);
         step(tui, views, next);
         if checkpoint_offset(tui) == usize::MAX {
-            // The step asked for the stream's absolute end. Until an
-            // answer names that end, the key stays at the head and every
-            // key behind it waits: subtracting from the unresolved
-            // marker would lose a movement the whole read makes (M2).
-            // An answer that names the end resolves the step now, so the
-            // keys behind it keep their order in the same flush.
+            // The step asked for the stream's absolute end, so the head
+            // owns the marker its one application left, whether this
+            // answer names the end or a later one (M1). Until an answer
+            // names that end, the key stays at the head and every key
+            // behind it waits: subtracting from the unresolved marker
+            // would lose a movement the whole read makes (M2). An answer
+            // that names the end resolves the step now through the one
+            // resolution path, consuming the owner, so the keys behind it
+            // keep their order in the same flush.
+            if let Some(head) = tui.held.first_mut() {
+                head.end = Some(origin);
+            }
             if views.end.is_none() {
-                if let Some(head) = tui.held.first_mut() {
-                    head.end = Some(origin);
-                }
                 tui.want = Some(usize::MAX);
                 return;
             }
             resolve_end(tui, views);
+        } else {
+            consumed(tui);
         }
-        consumed(tui);
         if !in_window(tui, views) {
             tui.want = None;
             return;

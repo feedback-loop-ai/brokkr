@@ -33,6 +33,15 @@ pub(super) struct Fetch<'a> {
 /// One page of checkpoints, oldest first, and its cursor for the next page.
 pub(super) type Fetched = (Vec<(u64, CheckpointRow)>, Option<u64>);
 
+/// Keep `item` among the window's last `window` rows, dropping the oldest
+/// as the merge passes it (F4).
+fn bury(buffer: &mut VecDeque<Item>, item: Item, window: usize) {
+    if buffer.len() == window {
+        buffer.pop_front();
+    }
+    buffer.push_back(item);
+}
+
 impl Fetch<'_> {
     /// How many rows the screen asks for, at least one page: a pane of no
     /// measured height still shows its page.
@@ -54,58 +63,17 @@ impl Fetch<'_> {
         if self.offset == usize::MAX {
             return self.participant_end(seat);
         }
-        // A carried page is not an absent one: an empty page the screen
-        // already held is its own stream's state, exhausted or above this
-        // member's rows, and reading its newest suffix again would count
-        // its rows twice (M1, M2).
-        let carried = page.is_some();
-        let mut page = page.unwrap_or_default();
-        if page.rows.is_empty() && !carried {
-            let Some((rows, newer)) = self.read_after(seat, None)? else {
-                return Ok(None);
-            };
-            page = Page::first(rows, newer);
-        }
-        // Only a page carried from the old head can lack the arrivals;
-        // a fresh read already holds them. A page with a newer cursor
-        // stops short of this head and cannot take them.
-        if carried && !self.landed.is_empty() && page.next.is_none() {
-            let Some(arrived) = landed_rows(seat, self.trail, self.landed) else {
-                return Ok(None);
-            };
-            page.rows.extend(arrived);
-        }
+        let Some(mut page) = self.participant_start(seat, page)? else {
+            return Ok(None);
+        };
         if limit == usize::MAX {
             // The whole participant is asked for: start at its oldest row
             // and read forward, whatever page was held before.
-            let Some((rows, newer)) = self.read_after(seat, None)? else {
-                return Ok(None);
-            };
-            page = Page::first(rows, newer);
-            let Some(()) = self.extend_after(seat, &mut page, None)? else {
-                return Ok(None);
-            };
-            page.start = 0;
-            page.older = None;
-            return Ok(Some((page, None)));
+            return self.participant_whole(seat);
         }
-        while page.start > self.offset {
-            let Some(before) = page.older else {
-                break;
-            };
-            let Some((rows, older)) = self.read_before(seat, Some(before))? else {
-                return Ok(None);
-            };
-            if rows.is_empty() {
-                page.older = None;
-                break;
-            }
-            page.start = page.start.saturating_sub(rows.len());
-            let mut held = rows;
-            held.append(&mut page.rows);
-            page.rows = held;
-            page.older = older;
-        }
+        let Some(()) = self.extend_back(seat, &mut page)? else {
+            return Ok(None);
+        };
         drop_passed(&mut page, self.offset);
         // Hold one window from the scroll's row, so a step down or up
         // stays inside the page rather than reading a page a row.
@@ -127,6 +95,84 @@ impl Fetch<'_> {
             _ => page.rows.first().map(|(seq, _)| *seq),
         };
         Ok(Some((page, total)))
+    }
+
+    /// The page the read starts from: a carried page with the arrivals the
+    /// head it still holds lacks, or the member's newest suffix on a fresh
+    /// read. A carried empty page stays empty rather than counting its rows
+    /// twice (M1, M2).
+    fn participant_start(
+        &self,
+        seat: (&str, Option<&str>),
+        page: Option<Page>,
+    ) -> Result<Option<Page>, StoreError> {
+        // A carried page is not an absent one: an empty page the screen
+        // already held is its own stream's state, exhausted or above this
+        // member's rows, and reading its newest suffix again would count
+        // its rows twice (M1, M2).
+        let carried = page.is_some();
+        let mut page = page.unwrap_or_default();
+        if page.rows.is_empty() && !carried {
+            let Some((rows, newer)) = self.read_after(seat, None)? else {
+                return Ok(None);
+            };
+            page = Page::first(rows, newer);
+        }
+        // Only a page carried from the old head can lack the arrivals; a
+        // fresh read already holds them. A page with a newer cursor stops
+        // short of this head and cannot take them.
+        if carried && !self.landed.is_empty() && page.next.is_none() {
+            let Some(arrived) = landed_rows(seat, self.trail, self.landed) else {
+                return Ok(None);
+            };
+            page.rows.extend(arrived);
+        }
+        Ok(Some(page))
+    }
+
+    /// The whole participant, oldest first: a fresh read from its oldest
+    /// row forward, whatever page was held before.
+    fn participant_whole(
+        &self,
+        seat: (&str, Option<&str>),
+    ) -> Result<Option<(Page, Option<usize>)>, StoreError> {
+        let Some((rows, newer)) = self.read_after(seat, None)? else {
+            return Ok(None);
+        };
+        let mut page = Page::first(rows, newer);
+        let Some(()) = self.extend_after(seat, &mut page, None)? else {
+            return Ok(None);
+        };
+        page.start = 0;
+        page.older = None;
+        Ok(Some((page, None)))
+    }
+
+    /// Extend the page back to the scroll's row, one older page at a time,
+    /// stopping at the stream's oldest row or a page the store keeps.
+    fn extend_back(
+        &self,
+        seat: (&str, Option<&str>),
+        page: &mut Page,
+    ) -> Result<Option<()>, StoreError> {
+        while page.start > self.offset {
+            let Some(before) = page.older else {
+                break;
+            };
+            let Some((rows, older)) = self.read_before(seat, Some(before))? else {
+                return Ok(None);
+            };
+            if rows.is_empty() {
+                page.older = None;
+                break;
+            }
+            page.start = page.start.saturating_sub(rows.len());
+            let mut held = rows;
+            held.append(&mut page.rows);
+            page.rows = held;
+            page.older = older;
+        }
+        Ok(Some(()))
     }
 
     /// The participant's last window, asked for by the absolute-end key
@@ -311,20 +357,15 @@ impl Fetch<'_> {
         let mut buffer: VecDeque<Item> = VecDeque::new();
         let mut all: Vec<Item> = Vec::new();
         loop {
-            match self.top_up(streams)? {
-                TopUp::More => {}
-                TopUp::Spent => break,
-                // A page the store says is kept is not the stream's end:
-                // the run must be read whole, as ruling 8 says (M6).
-                TopUp::Kept => return Ok(None),
+            // A page the store says is kept is not the stream's end: the
+            // run must be read whole, as ruling 8 says (M6).
+            let Some(more) = self.top_up_ready(streams)? else {
+                return Ok(None);
+            };
+            if !more {
+                break;
             }
-            let Some(pick) = streams
-                .iter()
-                .enumerate()
-                .filter(|(_, stream)| stream.at > 0)
-                .max_by_key(|(_, stream)| stream.rows[stream.at - 1].0)
-                .map(|(at, _)| at)
-            else {
+            let Some(pick) = Self::next_stream(streams) else {
                 break;
             };
             let stream = &mut streams[pick];
@@ -337,10 +378,7 @@ impl Fetch<'_> {
                 all.push(item);
                 continue;
             }
-            if buffer.len() == window {
-                buffer.pop_front();
-            }
-            buffer.push_back(item);
+            bury(&mut buffer, item, window);
             if total >= limit {
                 break;
             }
@@ -350,6 +388,27 @@ impl Fetch<'_> {
             false => buffer.into_iter().collect(),
         };
         Ok(Some((kept, total)))
+    }
+
+    /// The stream whose newest unread row is next in seq order: the merge
+    /// compares only unread rows, so a spent stream waits for its page.
+    fn next_stream(streams: &[Stream]) -> Option<usize> {
+        streams
+            .iter()
+            .enumerate()
+            .filter(|(_, stream)| stream.at > 0)
+            .max_by_key(|(_, stream)| stream.rows[stream.at - 1].0)
+            .map(|(at, _)| at)
+    }
+
+    /// Whether the merge still has a row to compare: `None` where the
+    /// store says a page is kept and the run must be read whole (M6).
+    fn top_up_ready(&self, streams: &mut [Stream]) -> Result<Option<bool>, StoreError> {
+        Ok(match self.top_up(streams)? {
+            TopUp::More => Some(true),
+            TopUp::Spent => Some(false),
+            TopUp::Kept => None,
+        })
     }
 
     /// Load the next older page of every spent stream, so the merge always

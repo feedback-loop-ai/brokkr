@@ -222,10 +222,7 @@ fn read_views(
     // opened again with the fleet.
     let replaced = kept.fleet.replaced(before);
     let moved = current != kept.head || replaced;
-    let scrolled = kept.window.as_ref() != Some(&ask.window)
-        || kept.rows != ask.live_rows
-        || kept.offset != ask.live_offset;
-    if !(ask.force || ask.fleet || moved || transcript_changed || scrolled) {
+    if !refresh_needed(&ask, kept, moved, transcript_changed) {
         // Nothing has moved: the console keeps the frame it has, and
         // nothing is re-folded at four polls a second.
         return Ok(None);
@@ -269,6 +266,22 @@ fn read_views(
         start: kept.start,
         end: kept.end,
     }))
+}
+
+/// Whether anything the console shows has moved since the last refresh:
+/// the frame was forced or the fleet polled, the head or the journal was
+/// replaced, the transcript read changed, or the screen asked for a
+/// different window.
+fn refresh_needed(ask: &tui::Ask, kept: &Kept, moved: bool, transcript_changed: bool) -> bool {
+    ask.force || ask.fleet || moved || transcript_changed || scrolled(kept, ask)
+}
+
+/// Whether the screen's window, row count or scroll differs from the
+/// frame the last refresh kept.
+fn scrolled(kept: &Kept, ask: &tui::Ask) -> bool {
+    kept.window.as_ref() != Some(&ask.window)
+        || kept.rows != ask.live_rows
+        || kept.offset != ask.live_offset
 }
 
 /// The fleet's window the list asks for, and the run `ask` opens read as

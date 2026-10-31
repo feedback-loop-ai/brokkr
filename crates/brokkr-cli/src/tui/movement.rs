@@ -392,57 +392,49 @@ fn scroll_paged(
         return;
     }
     let window_end = start.saturating_add(len);
-    let stream_end = end.unwrap_or(match more {
+    let stream_end = stream_end_of(end, more, window_end);
+    match paging {
+        Paging::Absolute => scroll_absolute(offset, step, more, stream_end),
+        Paging::Held => scroll_held(offset, step, more, stream_end, window_end),
+    }
+}
+
+/// The stream's end in the offset's own coordinate: the read's answer
+/// where it names one, else the window's end, or the absolute end when a
+/// page follows the window (M3).
+fn stream_end_of(end: Option<usize>, more: bool, window_end: usize) -> usize {
+    end.unwrap_or(match more {
         true => usize::MAX,
         false => window_end,
-    });
+    })
+}
+
+/// A step to the stream's end: its last row where the window is whole, or
+/// the absolute-end marker where a page beyond it must name the end (M3).
+fn end_target(more: bool, stream_end: usize) -> usize {
+    match more {
+        true => usize::MAX,
+        false => stream_end.saturating_sub(1),
+    }
+}
+
+/// A paged stream's step over its absolute coordinate. The top and the end
+/// are the stream's, not the held window's, and a page step always moves
+/// the ten rows it names from the absolute offset, so a crossing keeps its
+/// remaining distance and never passes the stream's known end (R1, R2,
+/// F2, M3).
+fn scroll_absolute(offset: &mut usize, step: Step, more: bool, stream_end: usize) {
     match step {
-        // The top and the end are the stream's, not the held window's:
-        // `g` reaches rank zero even from a deep window (R1, F2).
         Step::Top => *offset = 0,
-        // A held end is the stream's end; with a page beyond it, ask for
-        // the absolute end and let the read say how deep the stream is
-        // (M3).
-        Step::Bottom => {
-            *offset = match more {
-                true => usize::MAX,
-                false => stream_end.saturating_sub(1),
-            }
-        }
+        Step::Bottom => *offset = end_target(more, stream_end),
         // Up from the stream's top is the stream's end, not the held
         // window's: ask for the absolute end and let the read say it (M1).
-        Step::Up if *offset == 0 => {
-            *offset = match more {
-                true => usize::MAX,
-                false => stream_end.saturating_sub(1),
-            }
-        }
+        Step::Up if *offset == 0 => *offset = end_target(more, stream_end),
         Step::Up => *offset = offset.saturating_sub(1),
-        // A held column steps one row past its window's last when the
-        // shell says a page follows it, so the page can be asked for.
-        Step::Down if paging == Paging::Held && offset.saturating_add(1) >= window_end => {
-            *offset = match more {
-                true => window_end,
-                false => 0,
-            }
-        }
         // Down from the stream's current end is its top, never the held
         // window's first row (M1, R3).
         Step::Down if offset.saturating_add(1) >= stream_end => *offset = 0,
         Step::Down => *offset = offset.saturating_add(1),
-        // A held column's page step stops at the window's last line, or
-        // asks one line past it when a page follows.
-        Step::PageDown if paging == Paging::Held => {
-            *offset = match more && offset.saturating_add(PAGE) >= window_end {
-                true => window_end,
-                false => offset
-                    .saturating_add(PAGE)
-                    .min(window_end.saturating_sub(1)),
-            }
-        }
-        // A paged stream's page step always moves the ten rows it names
-        // from the absolute offset, so a crossing keeps its remaining
-        // distance (R2). It never passes the stream's known end.
         Step::PageDown => {
             *offset = match stream_end {
                 usize::MAX => offset.saturating_add(PAGE),
@@ -451,11 +443,53 @@ fn scroll_paged(
                     .min(stream_end.saturating_sub(1)),
             }
         }
-        Step::PageUp if paging == Paging::Held && *offset >= window_end => {
-            *offset = window_end.saturating_sub(1)
-        }
         Step::PageUp => *offset = offset.saturating_sub(PAGE),
     }
+}
+
+/// A held column's step over its window: one row past the window's last
+/// asks the page that follows it, and a page step stops at the window's
+/// last line or asks one line past it when a page follows (decision 0089
+/// slice 3).
+fn scroll_held(offset: &mut usize, step: Step, more: bool, stream_end: usize, window_end: usize) {
+    match step {
+        Step::Top => *offset = 0,
+        Step::Bottom => *offset = end_target(more, stream_end),
+        Step::Up if *offset == 0 => *offset = end_target(more, stream_end),
+        Step::Up => *offset = offset.saturating_sub(1),
+        Step::Down => held_down(offset, more, stream_end, window_end),
+        // A held column's page step stops at the window's last line, or
+        // asks one line past it when a page follows.
+        Step::PageDown => {
+            *offset = match more && offset.saturating_add(PAGE) >= window_end {
+                true => window_end,
+                false => offset
+                    .saturating_add(PAGE)
+                    .min(window_end.saturating_sub(1)),
+            }
+        }
+        Step::PageUp if *offset >= window_end => *offset = window_end.saturating_sub(1),
+        Step::PageUp => *offset = offset.saturating_sub(PAGE),
+    }
+}
+
+/// A held column's Down: one row past the window's last when the shell
+/// says a page follows it, so the page can be asked for; at the stream's
+/// current end it is the stream's top, never the held window's first row
+/// (M1, R3).
+fn held_down(offset: &mut usize, more: bool, stream_end: usize, window_end: usize) {
+    if offset.saturating_add(1) >= window_end {
+        *offset = match more {
+            true => window_end,
+            false => 0,
+        };
+        return;
+    }
+    if offset.saturating_add(1) >= stream_end {
+        *offset = 0;
+        return;
+    }
+    *offset = offset.saturating_add(1);
 }
 
 /// The live column's drawn line in the held window, when the cursor is

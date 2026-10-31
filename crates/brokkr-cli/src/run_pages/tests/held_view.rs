@@ -727,3 +727,112 @@ fn chief_review_participant_held_end_cancels_with_its_pane() {
     settle_when(&mut tui, &answer, true);
     assert_eq!(tui.offset, 0, "the answer resolves nothing");
 }
+
+/// M1 (rulings 5 and 9): a resolved end consumes the held head that asked
+/// for it, whichever answer resolves it. A short stream's live column at
+/// (0, 0), 375x30, holds `Up` then `Down` while its read is out; the
+/// first answer's whole read names the end the held `Up` asked for, so
+/// that answer already consumes `Up` and leaves `Down` to land from the
+/// end. Three answers leave (0, 0), as the whole read's
+/// Up/settle/Down/settle does, never (19, 0) with the queue still waiting
+/// for an end it has reached.
+#[test]
+fn a_short_stream_up_then_down_while_a_read_is_pending_matches_the_whole_read() {
+    use crate::tui::{down_key, settle_when, up_key};
+    let run = "short stream up then down";
+    let (_dir, db, _events, whole_views) = console_of(run, panel_with(run, 10, 10, None));
+    let (mut tui, views) = live_at(&db, run, 0, 375, 30, &whole_views.now);
+    assert_eq!(
+        (views.start, views.more, views.end),
+        (0, false, None),
+        "the short stream's first window has no page beyond it"
+    );
+    tui.pending = true;
+    up_key(&mut tui, &views);
+    down_key(&mut tui, &views);
+    assert_eq!(tui.held.len(), 2, "Up and Down wait for the answer");
+    for _ in 0..3 {
+        let answer = live_read(&db, run, &tui, &whole_views.now);
+        settle_when(&mut tui, &answer, true);
+    }
+    assert_eq!(
+        (tui.live_offset, tui.live_line),
+        (0, 0),
+        "the held Up then Down matches the whole read"
+    );
+    assert!(tui.held.is_empty(), "both held keys have landed");
+
+    let mut whole_tui = live_tui(run, 0, 375, 30);
+    up_key(&mut whole_tui, &whole_views);
+    crate::tui::settle_end(&mut whole_tui, &whole_views);
+    down_key(&mut whole_tui, &whole_views);
+    crate::tui::settle_end(&mut whole_tui, &whole_views);
+    assert_eq!(
+        (whole_tui.live_offset, whole_tui.live_line),
+        (tui.live_offset, tui.live_line),
+        "the whole read's Up/settle/Down/settle"
+    );
+}
+
+/// M1 (rulings 5 and 9): four held keys on the same short stream keep
+/// their order across the answers. Up, Down, Up, Down while the read is
+/// out land where the whole read's four keys settle, (0, 0), never
+/// leaving the second `Up`'s end marker behind the queue.
+#[test]
+fn a_short_stream_four_held_keys_end_where_the_whole_read_ends() {
+    use crate::tui::{down_key, settle_end, up_key};
+    let run = "short stream four held";
+    let (_dir, db, _events, whole_views) = console_of(run, panel_with(run, 10, 10, None));
+    let (mut tui, views) = live_at(&db, run, 0, 375, 30, &whole_views.now);
+    tui.pending = true;
+    for _ in 0..2 {
+        up_key(&mut tui, &views);
+        down_key(&mut tui, &views);
+    }
+    assert_eq!(tui.held.len(), 4, "four held runs wait in order");
+    settle_held_live(&db, run, &mut tui, &whole_views.now);
+    assert_eq!(
+        (tui.live_offset, tui.live_line),
+        (0, 0),
+        "the held four keys land where the whole read does"
+    );
+    let mut whole_tui = live_tui(run, 0, 375, 30);
+    for _ in 0..2 {
+        up_key(&mut whole_tui, &whole_views);
+        settle_end(&mut whole_tui, &whole_views);
+        down_key(&mut whole_tui, &whole_views);
+        settle_end(&mut whole_tui, &whole_views);
+    }
+    assert_eq!(
+        (whole_tui.live_offset, whole_tui.live_line),
+        (tui.live_offset, tui.live_line),
+        "the whole read's Up/Down/Up/Down"
+    );
+}
+
+/// M1 (rulings 5 and 9): a held `G`, then `Down`, on the same short
+/// stream lands at the end and then moves down from it once, as the
+/// whole read does. The end's owner is consumed before the `Down` behind
+/// it is applied.
+#[test]
+fn a_short_stream_held_end_then_down_matches_the_whole_read() {
+    use crate::tui::{bottom_key, down_key, settle_end};
+    let run = "short stream held end then down";
+    let (_dir, db, _events, whole_views) = console_of(run, panel_with(run, 10, 10, None));
+    let (mut tui, views) = live_at(&db, run, 0, 375, 30, &whole_views.now);
+    tui.pending = true;
+    bottom_key(&mut tui, &views);
+    down_key(&mut tui, &views);
+    assert_eq!(tui.held.len(), 2, "G and Down wait for the answer");
+    settle_held_live(&db, run, &mut tui, &whole_views.now);
+    let mut whole_tui = live_tui(run, 0, 375, 30);
+    bottom_key(&mut whole_tui, &whole_views);
+    settle_end(&mut whole_tui, &whole_views);
+    down_key(&mut whole_tui, &whole_views);
+    settle_end(&mut whole_tui, &whole_views);
+    assert_eq!(
+        (tui.live_offset, tui.live_line),
+        (whole_tui.live_offset, whole_tui.live_line),
+        "the held G then Down lands where the whole read does"
+    );
+}

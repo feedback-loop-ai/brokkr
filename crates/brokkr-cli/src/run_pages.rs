@@ -594,7 +594,7 @@ fn whole_read(store: &Store, run: &str) -> Result<(Held, usize), StoreError> {
 fn paged_at(
     reader: Reader,
     at: &Opened,
-    mut held: Checkpoints,
+    held: Checkpoints,
     screen: &Screen,
     reading: Reading,
     landed: &[EventEnvelope],
@@ -610,13 +610,13 @@ fn paged_at(
     let Some(view) = frame.view() else {
         return Ok(None);
     };
+    if matches!(screen, Screen::Run) {
+        return Ok(Some((frame, Checkpoints::new())));
+    }
     let keys = match screen {
-        Screen::Run => return Ok(Some((frame, Checkpoints::new()))),
-        // The live column paints the seat the fold hires, and only that
-        // seat's members: a previous seat's pinned member extends no
-        // stream this screen draws (F4, ruling 5).
         Screen::Detail => live_keys(&view, &frame.state),
         Screen::Participant(key) => vec![key.clone()],
+        Screen::Run => Vec::new(),
     };
     let fetch = Fetch {
         store: reader.store,
@@ -630,54 +630,76 @@ fn paged_at(
     };
     let seats: BTreeMap<String, (String, Option<String>)> =
         seat_keys(&frame.seats).into_iter().collect();
-    let mut checkpoints = Checkpoints::new();
-    match screen {
+    let checkpoints = match screen {
         // One window cut across every member's stream at one seq boundary,
         // so the merged live column is contiguous (R1). A moved head or a
         // window that dropped its newer prefix is read from the newest
         // page again; a carried read keeps its absolute prefix (F1, F4).
         Screen::Detail => {
-            let to_end = offset == usize::MAX;
-            let missing = keys.iter().any(|key| !held.pages.contains_key(key));
-            let refill = to_end
-                || !landed.is_empty() && (landed.len() > WINDOW || held.start > 0 || missing)
-                || landed.is_empty() && missing;
-            let prefix = match refill {
-                true => 0,
-                false => held.start,
-            };
-            let Some(window) = fetch.window(&keys, &seats, held.pages, prefix, refill)? else {
+            let Some(checkpoints) = detail_checkpoints(&fetch, &keys, &seats, held, offset)? else {
                 return Ok(None);
             };
-            checkpoints = window;
+            checkpoints
         }
         Screen::Participant(key) => {
-            let Some((effect, member)) = seats.get(key) else {
+            let Some(checkpoints) = participant_checkpoints(&fetch, &seats, held, key)? else {
                 return Ok(None);
             };
-            let carried = held.pages.contains_key(key);
-            let prior = held.total.filter(|_| carried);
-            let page = held.pages.remove(key);
-            let Some((page, total)) =
-                fetch.participant((effect.as_str(), member.as_deref()), page)?
-            else {
-                return Ok(None);
-            };
-            // The read reports the whole rank where it reaches the end;
-            // elsewhere the carried rank advances by the checkpoints that
-            // landed since it, so a narrowed display page never loses the
-            // stream's current end (R3, F1).
-            let total = total.or_else(|| {
-                prior
-                    .map(|total| total + landed_count((effect.as_str(), member.as_deref()), landed))
-            });
-            checkpoints.start = page.start;
-            checkpoints.total = total;
-            checkpoints.pages.insert(key.clone(), page);
+            checkpoints
         }
-        Screen::Run => {}
-    }
+        Screen::Run => Checkpoints::new(),
+    };
     Ok(Some((frame, checkpoints)))
+}
+
+/// The detail pane's window: whether its held page is refilled from the
+/// newest page again, and the absolute prefix a carried read keeps (F1,
+/// F4).
+fn detail_checkpoints(
+    fetch: &Fetch<'_>,
+    keys: &[String],
+    seats: &BTreeMap<String, (String, Option<String>)>,
+    held: Checkpoints,
+    offset: usize,
+) -> Result<Option<Checkpoints>, StoreError> {
+    let to_end = offset == usize::MAX;
+    let missing = keys.iter().any(|key| !held.pages.contains_key(key));
+    let refill = to_end
+        || !fetch.landed.is_empty() && (fetch.landed.len() > WINDOW || held.start > 0 || missing)
+        || fetch.landed.is_empty() && missing;
+    let prefix = match refill {
+        true => 0,
+        false => held.start,
+    };
+    fetch.window(keys, seats, held.pages, prefix, refill)
+}
+
+/// The participant level's page: the carried rank advances by the
+/// checkpoints that landed since it, so a narrowed display page never
+/// loses the stream's current end (R3, F1).
+fn participant_checkpoints(
+    fetch: &Fetch<'_>,
+    seats: &BTreeMap<String, (String, Option<String>)>,
+    mut held: Checkpoints,
+    key: &str,
+) -> Result<Option<Checkpoints>, StoreError> {
+    let Some((effect, member)) = seats.get(key) else {
+        return Ok(None);
+    };
+    let carried = held.pages.contains_key(key);
+    let prior = held.total.filter(|_| carried);
+    let page = held.pages.remove(key);
+    let Some((page, total)) = fetch.participant((effect.as_str(), member.as_deref()), page)? else {
+        return Ok(None);
+    };
+    let total = total.or_else(|| {
+        prior.map(|total| total + landed_count((effect.as_str(), member.as_deref()), fetch.landed))
+    });
+    let mut checkpoints = Checkpoints::new();
+    checkpoints.start = page.start;
+    checkpoints.total = total;
+    checkpoints.pages.insert(key.to_string(), page);
+    Ok(Some(checkpoints))
 }
 
 /// The keys of the participants the live column paints: the seat the
