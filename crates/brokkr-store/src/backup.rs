@@ -74,7 +74,7 @@ pub struct BackupOptions<'a> {
     /// so a test can pin it.
     pub now: &'a str,
     /// The projection version the taking build reads
-    /// ([`brokkr_view::VIEW_VERSION`] at the CLI). The journal records no
+    /// (`brokkr_view::VIEW_VERSION` at the CLI). The journal records no
     /// projection version of its own, so the build states the one it is
     /// writing for.
     pub projection: u32,
