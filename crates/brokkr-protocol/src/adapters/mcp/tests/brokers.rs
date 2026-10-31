@@ -156,10 +156,10 @@ fn a_brokered_start_confines_its_driver_first_and_refuses_where_it_cannot() {
     hands_only[SERVING_INPUTS]["isolation"]["servers"] = json!("hands");
     let answers = drive(hands_only);
     let result = answers.iter().find(|said| said["type"] == "result");
-    assert!(
-        !result.unwrap()["error"]
-            .to_string()
-            .contains("no_new_privs"),
+    // Past a refusing `Confine`, to the launch's own next step.
+    assert_eq!(
+        result.unwrap()["error"],
+        "seat refused to start: charter '' is unreadable: No such file or directory (os error 2)",
         "{answers:?}"
     );
 }

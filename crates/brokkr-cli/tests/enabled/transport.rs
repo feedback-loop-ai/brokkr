@@ -9,12 +9,13 @@ use std::time::{Duration, Instant};
 
 use brokkr_protocol::broker::ledger::Failure;
 use brokkr_protocol::broker::Refusal;
+use serde_json::{json, Value};
 
 use super::{answering, World, STARTS};
 
 /// The harness's report, overruled by `cause`, with no call row and the
-/// harness having run once; and the run reads the same through `resume`,
-/// which starts no second harness.
+/// harness having run once; and `inspect` of the parked run says the same,
+/// executing nothing. `resume`'s half is the restart tests' below.
 fn parked_by(world: &World, cause: String) {
     let ended = world.run();
     assert_eq!(
@@ -38,15 +39,11 @@ fn parked_by(world: &World, cause: String) {
 /// The restart half (42.3's, repeated on a real broker's real fault): the
 /// engine is killed while the harness that outlived the broker's failure
 /// still runs, so the attempt stays reserved. Once the harness has reported
-/// success and gone, a restarted engine settles the attempt indeterminate,
-/// as it holds no lease and no proof of settlement: its harness's success
-/// stands for nothing, no call is invented, and nothing starts again.
-#[test]
-fn a_restarted_engine_settles_the_faulted_attempt_indeterminate_and_executes_nothing_again() {
-    let Some(world) = World::new() else {
-        return;
-    };
-    world.server("#!/nonexistent/interpreter\n");
+/// success and gone, the broker having exited 1 and closed its ledger on
+/// `closed`, a restarted engine settles the attempt indeterminate, as it holds
+/// no lease and no proof of settlement: its harness's success stands for
+/// nothing, no call is invented, and nothing starts again.
+fn restarted_after(world: &World, closed: &Value) {
     let run = super::killed(world.held_serving());
     let held = Instant::now() + Duration::from_secs(90);
     let reservations = world.base.join("home/.local/state/brokkr/capabilities");
@@ -60,6 +57,13 @@ fn a_restarted_engine_settles_the_faulted_attempt_indeterminate_and_executes_not
         assert!(Instant::now() < held, "the harness never ended");
         std::thread::sleep(Duration::from_millis(20));
     }
+    assert_eq!(world.broker_code(), Some(1), "the broker met its fault");
+    let ledger = world.ledger();
+    assert_eq!(
+        ledger.last().map(|last| &last["disposition"]),
+        Some(closed),
+        "{ledger:?}"
+    );
     let resumed = world.brokkr(&["resume", "--run", &run]).output().unwrap();
     let ended = super::ended(resumed);
     let restarted =
@@ -84,6 +88,33 @@ fn a_restarted_engine_settles_the_faulted_attempt_indeterminate_and_executes_not
         (ended.status, ended.cause, 1),
         "looking again rules the same and executes nothing"
     );
+}
+
+#[test]
+fn a_restarted_engine_settles_an_exec_failure_indeterminate_and_executes_nothing_again() {
+    let Some(world) = World::new() else {
+        return;
+    };
+    world.server("#!/nonexistent/interpreter\n");
+    restarted_after(&world, &json!({"failed": {"refused": "exec"}}));
+}
+
+#[test]
+fn a_restarted_engine_settles_a_handoff_failure_indeterminate_and_executes_nothing_again() {
+    let Some(world) = World::new() else {
+        return;
+    };
+    world.store(b"DOCS_TOKEN=ab\0cd\n");
+    restarted_after(&world, &json!({"failed": {"refused": "handoff"}}));
+}
+
+#[test]
+fn a_restarted_engine_settles_status_eof_indeterminate_and_executes_nothing_again() {
+    let Some(world) = World::new() else {
+        return;
+    };
+    world.server("#!/bin/sh\n:\n");
+    restarted_after(&world, &json!({"failed": "protocol"}));
 }
 
 /// The bootstrap's handoff tag: a bound value holding NUL crosses whole to a
@@ -137,9 +168,10 @@ fn a_zero_call_version_failure_is_not_hidden_by_the_harness() {
 }
 
 /// A broker killed mid-session cannot persist its Closed, so what stands is
-/// the ledger's verified prefix and the lifecycle refusal: the broker's cause
-/// is not invented, the begun call stands interrupted, and the attempt fails
-/// past the harness's success.
+/// the ledger's verified prefix and the lifecycle refusal: the harness says a
+/// real call, the broker makes its Started durable and is killed before the
+/// server answers. The broker's cause is not invented, the begun call stands
+/// interrupted with no digest, and the attempt fails past the harness's success.
 #[test]
 fn a_closed_that_cannot_persist_reads_as_the_lifecycle_refusal_and_no_invented_cause() {
     let Some(world) = World::new() else {
@@ -148,16 +180,6 @@ fn a_closed_that_cannot_persist_reads_as_the_lifecycle_refusal_and_no_invented_c
     // The server holds the call, so the broker dies with it begun.
     world.server(&format!("{STARTS}sleep 30\n"));
     std::fs::write(world.bin("kill-broker"), "").unwrap();
-    // The harness stops before reading the call's answer: it says the call
-    // and kills, so only the frames with no answer of theirs go first.
-    let frames = super::FRAMES.lines().collect::<Vec<_>>();
-    let (head, last) = frames.split_at(3);
-    let script = format!(
-        "{}\n{}\n",
-        head.join("\n"),
-        last[0].replace(r#""id":"c","#, "")
-    );
-    world.frames(&script);
     let ended = world.run();
     assert_eq!(
         (ended.status.as_str(), ended.cause.as_deref()),
@@ -167,4 +189,15 @@ fn a_closed_that_cannot_persist_reads_as_the_lifecycle_refusal_and_no_invented_c
         ),
         "{ended:?}"
     );
+    assert_eq!(world.broker_code(), Some(137));
+    let ledger = world.ledger();
+    let kinds: Vec<&str> = (ledger.iter())
+        .map(|record| record["record"].as_str().unwrap())
+        .collect();
+    assert_eq!(kinds, ["opened", "started"], "{ledger:?}");
+    assert_eq!(
+        world.calls(&ended.run),
+        [("resolve".into(), "interrupted".into(), None)]
+    );
+    assert_eq!(world.starts(), 1);
 }

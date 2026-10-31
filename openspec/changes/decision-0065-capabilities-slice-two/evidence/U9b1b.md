@@ -149,19 +149,91 @@ Five samples by `enabled::sd4_warm_samples`, load average 3.7 before and after: 
 4,505, 4,547, 4,677 and 4,867 ms total, engine 3,084 to 3,287 ms, broker 1,400 to 1,579 ms,
 all within budget. The host was not quiet, so these are no verdict.
 
+### The review's return
+
+The review returned this run with one medium and five lows (M1, L1 to L5); this section
+answers them, every line observed in the returned visit. All of them were in the proof, and
+no production file moved: each removal below was applied, run and restored with
+`git checkout`.
+
+**M1, the interrupted call.** The test deleted the call's `id`, and the decoder turns an
+id-less frame into a notification, so no call began. Under `kill-broker` the harness now says
+the whole call, does not wait for its answer, and kills the broker once the plan's ledger
+holds `"started"`. The test observes broker exit 137, the ledger's records exactly `opened`
+and `started`, the lifecycle refusal, one harness start, and through `inspect` the one row
+`("resolve", "interrupted", None)`. So 42.2's verified-prefix sentence is proved by a begun
+call. Started is what it synchronizes on; that the server had received the frame before the
+kill is not observed, as its box has no channel out until the broker relays at close.
+
+**L1, the restart proof.** The restart proof now asserts the fault first: the broker's exit 1
+and its closed disposition, before it relies on the restart. It runs for each real fault:
+exec, handoff and status EOF, closing on `{"failed":{"refused":"exec"}}`,
+`{"failed":{"refused":"handoff"}}` and `{"failed":"protocol"}`. The invalid-status rows stay
+at F5's seams. `parked_by`'s comment now says it inspects; `resume` is the restart tests'.
+
+**L2, the windows' claim.** `enabled/windows.rs`'s module text now claims what `cancelled_at`
+asserts: the broker's end and its tree's within the bounds, a ledger that is a prefix of the
+window's records, and a park on the window's cause or a driver's lost result, never success.
+F9's limitation stands.
+
+**L3, the loader comment.** The comment no longer says the driver spawn clears the
+environment. `engine.rs` inherits it; the box's launcher and `--clearenv` clear it, as item 5
+found.
+
+**L4, the hands-only control.** It now pins the launch's own next step, the exact charter
+refusal, past a `Confine` that would have refused.
+
+**L5, controls that reach the claim.** The earlier removals of these rows fail at an earlier
+cause, which shows sensitivity and not the final assertion. Each row below reaches its own.
+
+| Test | Compiling removal | The assertion reached, and how it failed |
+|---|---|---|
+| `transport::a_closed_that_cannot_persist…` | `fold::ledger` dropping its rows where `invalid` is set | Its last row assertion: `left: []`, `right: [("resolve", "interrupted", None)]` |
+| The same | The fixture's call without its `id` (M1's old frame) | `left: ["opened"]`, `right: ["opened", "started"]`, the old fixture's own defect shown |
+| `transport::a_restarted_engine_settles_an_exec…` | The fixture's faulty server not installed, so a healthy broker | `left: Some(0)`, `right: Some(1)`, at the fault's assertion |
+| `boxes::a_second_servers_private_directories…` | Both private directories one bind of a shared directory, with `bootstrap`'s `dir.empty`, `fresh` and `each` removed | The second server's own listing: `left: ["/runtime/home: mine-first  /tmp: mine-first ", "/runtime/home: mine-first mine-second  /tmp: mine-first mine-second "]`. The first server's files, as the test claims they are not |
+| `matrix::a_normal_binding_and_private_directories…` | Each private directory seeded with `--dir <target>/seeded`, with `dir.empty` removed | Its relayed listing, `said` holding `seeded` under `/runtime/home:` and `/tmp:`. `boxes::a_second_servers…` failed the same way, `left: ["/runtime/home: mine-first seeded  /tmp: mine-first seeded "]`. With only the seed, both refuse earlier, "MCP server box could not be established", by the bootstrap's own check |
+| `boxes::a_server_starts_with_its_exact…`, descriptors | `sealing` leaving a `dup2(0, 40)` across the exec | `left: [Some("0=pipe"), Some("1=pipe"), Some("2=pipe"), Some("40=pipe")]`, `right: […, None]` |
+| The same, environment | `SERVER_ENVIRONMENT`'s `LANG` made `POSIX` | The exact list: `left` holds `"LANG=POSIX"` |
+| `matrix::a_home_or_tmpdir_binding…` | `fixed_key` false and `mcp::unbind` a no-op, so the name reaches the broker, whose own screen gives the same startup cause | Past the cause, its zero starts: `HOME: no harness`, `left: 1`, `right: 0`. With `fixed_key` false for `TMPDIR` alone, the removal of `unbind` kept: `TMPDIR: no harness`, `left: 1`, `right: 0` |
+| `adapters::mcp::tests::brokers::a_brokered_start_confines…` | `admitted` confining every sealed start | `left` holds the no_new_privs refusal, `right` the charter refusal |
+
+**L6, the suite's time.** Nothing changes. The suite's serialization and F8's survey deadlines
+remain as recorded, unqualified on a loaded host. No 75-minute overrun is demonstrated, and
+this visit added two restart tests' time to it; see "What this visit ran".
+
+### What this visit ran
+
+On the tree this visit commits, the host's load near 18: `enabled::` 53 passed, 1 ignored
+(the sampler), in 358 s, and again with `--nocapture` in 371 s, which printed no `skipped:`
+line, so every proof in it ran here; the CLI's `--test it` without
+`enabled::` 825 passed, 3 ignored, in 306 s; its `--lib` 1,105 passed, 1 ignored;
+`brokkr-protocol` 1,123 passed, 3 ignored, then 6, 1 and 1; `brokkr-runtime` `--lib` 1,447,
+`capability_launch` 76, `it` 144, `operated_repo` 1, `queued_launch` 8, all passed. Formatting,
+workspace clippy with warnings denied, both ratchets, `git diff --check`, `typos --hidden` and
+strict openspec validation (36 of 36) were clean, and `recipes/self` compiled with "48 valuations
+over 11 groups, 0 unruled". No warm sample was retaken in this visit, as the host was loaded
+and no production file moved. No test moved and no new test file was added. The two new
+restart tests' own time was not measured apart; `transport::`'s eight took 72 s together.
+
 ### Pending, none of it this seat's
 
 The fully cold x86_64 sample; every aarch64 sample; warm samples on a quiet host, each
 observation timed alone; FD high-water and peak metadata memory; exact coverage and the
 crap ratchet; the brokered real-harness check under the flag (ruling F1); macOS, which this
-host cannot compile; CI on the final head.
+host cannot compile; CI on the final head; and the committed
+`a_bind_alias_of_protected_evidence_is_refused` on the host. This seat ran it again and it
+skipped ("unshare: write failed /proc/self/uid_map: Operation not permitted"), so what stands
+is the scratch variant under "U9b1a's owed items".
 
 ### Tasks
 
 42.2 and 46.1 are ticked on the proofs above, with F5's seams, and SD4's timings pending as
-listed. 46.2 stays unticked by its own last sentence, "missing host evidence leaves this
-task pending": everything else it names is proved here, the earlier audit of U0
-qualification excepted, which this seat did not repeat beyond compiling `recipes/self`.
+listed. 42.2 was ticked before the review on a test that began no call, and M1 above is what
+now meets it. 46.2 stays unticked. Host evidence is part of why, by its own last sentence,
+"missing host evidence leaves this task pending"; the other part is not a host measurement:
+its audit of current-head U0 qualification has not been repeated by this seat beyond
+compiling `recipes/self`.
 
 ## The proof the first run built
 
@@ -256,8 +328,8 @@ this. If it strains CI, the suite can become a shard of its own.
 | `the_exec_failure_tag_fails_its_attempt_past_the_harness_success` | Parks on `Refusal::Exec`, as above | The same removal; and status propagation (`Status::ExecFailed => Refusal::Handoff`): `left: ("awaiting_operator", "work", Some("MCP server protocol is invalid"))` |
 | `status_eof_then_a_failed_initialization_keeps_the_protocols_cause` | Parks on `Failure::Protocol` | The disposition removal: `completed` |
 | `a_zero_call_version_failure_is_not_hidden_by_the_harness` | Parks on `Failure::Version` | The disposition removal: `completed` |
-| `a_closed_that_cannot_persist_reads_as_the_lifecycle_refusal_and_no_invented_cause` | Broker SIGKILLed mid-call: "broker ledger lifecycle is invalid" | `invalid` dropped from `folded`'s refusal: `left: ("completed", None)` |
-| `a_restarted_engine_settles_the_faulted_attempt_indeterminate_and_executes_nothing_again` | Engine SIGKILLed with its harness alive: reservation still stands; `resume` parks "indeterminate: engine restarted while the attempt was in flight…", no call row, one harness start, the reservation standing after it; a second `resume` rules the same and starts nothing | The restarted judgment made `EffectFailed` in `fold::restarted`: `left: ("awaiting_operator", None)`, `right: (…, Some("engine restarted…"))` |
+| `a_closed_that_cannot_persist_reads_as_the_lifecycle_refusal_and_no_invented_cause` | The first run's fixture began no call; see "The review's return" for what replaces this row's observation. Broker SIGKILLed mid-call: "broker ledger lifecycle is invalid" | `invalid` dropped from `folded`'s refusal: `left: ("completed", None)` |
+| `a_restarted_engine_settles_{an_exec, a_handoff, status_eof}…` (one test, for exec, in the first run) | Engine SIGKILLed with its harness alive: reservation still stands; the broker's exit and closed disposition asserted first; `resume` parks "indeterminate: engine restarted while the attempt was in flight…", no call row, one harness start, the reservation standing after it; a second `resume` rules the same and starts nothing | The restarted judgment made `EffectFailed` in `fold::ended_restarted`: all three, `left: ("awaiting_operator", None)`, `right: (…, Some("engine restarted…"))` |
 
 Settlement ordering is bound separately. With the `Cleanup::Settled | unproven` guard
 removed from `fold_with`, `engine::broker::fold::tests::routes::a_live_half_record_is_not_read_while_any_driver_of_its_attempt_is_unresolved`

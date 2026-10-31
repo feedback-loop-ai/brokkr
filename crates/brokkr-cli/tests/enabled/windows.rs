@@ -1,9 +1,12 @@
 //! Task 46.1's cancellation at every startup window, through real dispatch
 //! (U9b1b; MB3, MB5): the harness dies with its broker held at one window, the
 //! broker's input kept open past it by a process of another session, so EOF on
-//! that input is not what ends it. The broker ends within seconds, nothing
-//! that stood below it remains, its ledger closes on the window's exact cause,
-//! and the run parks. Pre-secret windows keep their store unread.
+//! that input is not what ends it. The broker ends within seconds and nothing
+//! that stood below it remains. What it left is bounded, not exact: its ledger
+//! is a prefix of the window's records, closed on the window's disposition only
+//! where it closed at all, as the engine's sweep may kill it first; and the run
+//! parks on the window's cause or on a driver's lost result, never on success
+//! (the evidence's F9). Pre-secret windows keep their store unread.
 
 use std::process::Stdio;
 use std::time::{Duration, Instant};

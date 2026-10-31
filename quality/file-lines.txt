@@ -479,15 +479,15 @@
   3404 crates/brokkr-cli/tests/driver_conformance.rs
    400 crates/brokkr-cli/tests/dsh_sandbox_runner.rs
    197 crates/brokkr-cli/tests/effect_replay.rs
-   625 crates/brokkr-cli/tests/enabled.rs
+   645 crates/brokkr-cli/tests/enabled.rs
    330 crates/brokkr-cli/tests/enabled/boxes.rs
    241 crates/brokkr-cli/tests/enabled/dispatch.rs
    274 crates/brokkr-cli/tests/enabled/lifetime.rs
    274 crates/brokkr-cli/tests/enabled/matrix.rs
    243 crates/brokkr-cli/tests/enabled/reach.rs
    301 crates/brokkr-cli/tests/enabled/sites.rs
-   170 crates/brokkr-cli/tests/enabled/transport.rs
-   291 crates/brokkr-cli/tests/enabled/windows.rs
+   203 crates/brokkr-cli/tests/enabled/transport.rs
+   294 crates/brokkr-cli/tests/enabled/windows.rs
    257 crates/brokkr-cli/tests/folder_seats.rs
   1014 crates/brokkr-cli/tests/hands.rs
    528 crates/brokkr-cli/tests/harness_probe.rs

@@ -104,9 +104,9 @@ tr "\0" "\n" < /proc/$$/environ | sort >&2"#
 }
 
 /// The host's loader environment, reaching the very broker that starts the
-/// box, stays out of it: the server's names are MB4's alone. An engine's
-/// driver spawn already clears the host's own environment, so the harness
-/// exports it here. A broker holding it is what `--clearenv` is for.
+/// box, stays out of it: the server's names are MB4's alone. The harness
+/// exports it, so the broker holds it whatever this host's own environment
+/// says. What clears it is the box's launcher, then bubblewrap's `--clearenv`.
 #[test]
 fn the_host_loader_environment_stays_out_of_the_box() {
     let Some(world) = World::new() else {

@@ -68,8 +68,9 @@ const FRAMES: &str = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{
 /// The deterministic harness: a `claude` that counts its starts, starts the
 /// broker its `--mcp-config` names, tells it [`FRAMES`] and keeps what it
 /// heard and the broker's exit beside itself; fails to start once where
-/// `fail-once` stands; kills the broker first where
-/// `kill-broker` stands, and waits where `hold` stands; and then reports the
+/// `fail-once` stands; where `kill-broker` stands, says a call and, not waiting
+/// for its answer, kills the broker once its ledger holds the call's Started;
+/// waits where `hold` stands; and then reports the
 /// word on its start's line of the `results` file, or `complete`, whatever
 /// happened, as a harness that hides a broker's failure would. Writes nothing
 /// but its own files and the result file. Three more switches: `wrap`'s words
@@ -101,6 +102,15 @@ named() {
 talk() {
   while IFS= read -r frame; do
     printf '%s\n' "$frame" >&3 2>/dev/null || break
+    case "$frame" in
+      *tools/call*) if [ -e "$here/kill-broker" ]; then
+          tries=0
+          until grep -q '"started"' "$plan.ledger" 2> /dev/null || [ "$tries" -gt 1200 ]; do
+            sleep 0.05; tries=$((tries + 1))
+          done
+          break
+        fi;;
+    esac
     case "$frame" in
       *'"id"'*) IFS= read -r answer <&4 || break; printf '%s\n' "$answer" >> "$here/$2"
         [ -e "$here/answered" ] || { : > "$here/answered"; date +%s%N >> "$here/times"; };;
@@ -516,6 +526,16 @@ impl World {
             .as_array()
             .unwrap();
         PathBuf::from(args[3].as_str().unwrap())
+    }
+
+    /// The records of the ledger of that plan, each parsed, as the broker left
+    /// them.
+    fn ledger(&self) -> Vec<Value> {
+        let ledger = std::fs::read_to_string(self.plan().with_extension("json.ledger")).unwrap();
+        let records = ledger
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap());
+        records.collect()
     }
 }
 
