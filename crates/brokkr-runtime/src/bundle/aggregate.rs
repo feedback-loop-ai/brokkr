@@ -42,24 +42,35 @@ impl Aggregate {
         Aggregate::ALL.map(Aggregate::word).join(", ")
     }
 
-    /// The results a declaring vocabulary must cover: every table word the
-    /// aggregate can emit ([`Aggregate::emits`]).
+    /// The results a declaring vocabulary must cover: every word the
+    /// aggregate is required to be able to return. For `unanimous-pass`
+    /// that is its own two words; for `review-panel` it is the three
+    /// words the panel's ranking names, which a declared vocabulary may
+    /// widen (a member's word is returned verbatim).
     pub(super) fn required_results(&self) -> &'static [&'static str] {
-        self.emits()
-    }
-
-    /// The table words [`Aggregate::aggregate_results`] can emit: exactly
-    /// what a panel step's declared results can put before the machine. A
-    /// member payload with no readable result string, and (for
-    /// `unanimous-pass`) a member result outside the vocabulary, become
-    /// the `__member-schema-invalid__` marker that schema validation
-    /// parks; `review-panel` lets an unknown member result flow to
-    /// decide(), whose declared-results check parks it. None of those
-    /// parks is a table word, so none is emittable here.
-    pub(super) fn emits(&self) -> &'static [&'static str] {
         match self {
             Aggregate::UnanimousPass => &["pass", "fail"],
             Aggregate::ReviewPanel => &["clean", "residual", "security-hold"],
+        }
+    }
+
+    /// The table words [`Aggregate::aggregate_results`] can emit for a
+    /// step whose declared results are `declared`. `unanimous-pass`
+    /// emits exactly `pass`/`fail`, which is all `unanimous_pass` can
+    /// return for valid members. `review-panel` returns the worst
+    /// member's word verbatim, so it emits every word the step DECLARES,
+    /// including one beyond the aggregate's required results.
+    ///
+    /// A member payload with no readable result string becomes the
+    /// `__member-schema-invalid__` marker, which no declared vocabulary
+    /// admits. A `review-panel` member word the step does not declare is
+    /// likewise not emittable: at a non-final step `vocabulary_problem`
+    /// fails the attempt (0006-retryable), and only the final step's
+    /// word reaches decide(), whose declared-results check parks it.
+    pub(super) fn emits<'a>(&self, declared: &'a [String]) -> Vec<&'a str> {
+        match self {
+            Aggregate::UnanimousPass => vec!["pass", "fail"],
+            Aggregate::ReviewPanel => declared.iter().map(String::as_str).collect(),
         }
     }
 
@@ -67,8 +78,11 @@ impl Aggregate {
     /// member payload without a readable result string poisons the
     /// aggregate into a marker the engine's own schema validation parks
     /// with the full member evidence attached — never coerced (law 0001).
-    /// A member result outside the vocabulary ranks WORST and flows to
-    /// decide(), whose declared-results check parks it with evidence.
+    /// A member result outside the three ranked words ranks WORST and is
+    /// returned verbatim: declared by the step, it is a word the step can
+    /// emit; undeclared, a non-final step's `vocabulary_problem` fails the
+    /// attempt, and only a final step's word reaches decide(), whose
+    /// declared-results check parks it with evidence.
     pub(crate) fn aggregate_results(self, members: &[(String, Value)]) -> Value {
         let Some(read) = Verdicts::read(members) else {
             let evidence: Map<String, Value> = members.iter().cloned().collect();

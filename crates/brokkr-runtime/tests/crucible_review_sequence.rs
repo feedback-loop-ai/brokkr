@@ -1081,3 +1081,104 @@ fn a_final_panel_that_cannot_emit_refuse_lets_an_earlier_refuse_end_the_sequence
         brokkr_core::Status::AwaitingOperator
     );
 }
+
+/// A v2 review fixture whose non-final step is a `review-panel` declaring
+/// the panel's three required words AND `hold`. Both members report `hold`,
+/// which `review_panel` returns verbatim, so the step's aggregate emits a
+/// word beyond its required results.
+fn review_panel_declaring_a_hard_word_bundle() -> (tempfile::TempDir, Bundle) {
+    let member = driver(r#"{"result":"hold"}"#);
+    let last = driver(r#"{"result":"clean"}"#);
+    let policy = review_policy(
+        "forge.phase-machine/v2",
+        serde_json::json!([
+            {"id": "REVIEW-CLEAN", "from": "review", "result": "clean",
+             "next": "done", "reason": "the final clean"},
+            {"id": "REVIEW-RESIDUAL", "from": "review", "result": "residual",
+             "park": true, "reason": "the residual is the operator's"},
+            {"id": "REVIEW-SECURITY-HOLD", "from": "review", "result": "security-hold",
+             "next": "stop", "severity": "hard", "reason": "the security stop"},
+            {"id": "REVIEW-HOLD", "from": "review", "result": "hold",
+             "next": "stop", "severity": "hard", "reason": "the declared stop"},
+        ]),
+    );
+    let seats = serde_json::json!({
+        "work": seat(&["complete"]),
+        "review": {
+            "results": ["clean", "residual", "security-hold", "hold"],
+            "sequence": [
+                {"name": "first", "aggregate": "review-panel",
+                 "results": ["clean", "residual", "security-hold", "hold"],
+                 "panel": {
+                     "one": {"agent": "member"},
+                     "two": {"agent": "member"},
+                 }},
+                {"name": "last", "agent": "last"},
+            ],
+        },
+    });
+    let worker = crate::office::answering(":", "complete");
+    let (dir, mut compiled) = sequence_fixture(
+        policy,
+        seats,
+        &[("worker", &worker), ("member", &member), ("last", &last)],
+    );
+    compiled.machine.initial = "review".to_string();
+    (dir, compiled)
+}
+
+/// Decision 0050 ruling 7: a `review-panel` returns the worst member's word
+/// verbatim, so the words a panel step can emit are the words it DECLARES,
+/// not only the aggregate's three required results. A declared `hold` the
+/// table makes a hard stop must therefore end the sequence at the panel
+/// step; the final step's `clean` never settles it and the run stops.
+#[test]
+fn a_review_panel_step_ends_on_a_declared_hard_word_beyond_its_required_results() {
+    let test = "crucible_review_sequence::\
+                a_review_panel_step_ends_on_a_declared_hard_word_beyond_its_required_results";
+    if !crate::own_home::in_own_home(test) {
+        return;
+    }
+    let (_fixture, bundle) = review_panel_declaring_a_hard_word_bundle();
+    let SeatBody::Sequence { steps } = &bundle.seats["review"].body else {
+        panic!("the fixture is a sequence");
+    };
+    assert_eq!(
+        steps[0].ends_on,
+        vec!["hold".to_string(), "security-hold".to_string()],
+        "the panel can report every declared word, so the declared hard `hold` ends the first step"
+    );
+    assert_eq!(
+        steps[0].hard_results,
+        vec!["hold".to_string(), "security-hold".to_string()],
+        "both hard stops are the panel step's hard vocabulary"
+    );
+
+    let (events, _, end) = drive(bundle);
+
+    assert!(
+        !checkpointed(&events, "first"),
+        "the supplied `hold` is an ending, not a checkpoint"
+    );
+    let succeeded = effect_succeeded(&events);
+    assert_eq!(
+        succeeded.payload["result"]["result"], "hold",
+        "the panel's supplied declared word is the effect's result"
+    );
+    assert_eq!(
+        succeeded.payload["step"], "first",
+        "the journal names the panel step that ended the sequence"
+    );
+    assert_eq!(
+        succeeded.payload["why"], "hard-word",
+        "the journal says the table's hard vocabulary ended it"
+    );
+    assert!(
+        !events.iter().any(|event| {
+            event.event_type == brokkr_core::envelope::EventType::EffectCheckpointed
+                && event.payload["checkpoint"]["step_name"] == "last"
+        }),
+        "the final clean step never runs"
+    );
+    assert_eq!(end.state.run.status(), brokkr_core::Status::Stopped);
+}

@@ -424,23 +424,24 @@ fn stamp_sequence(
 }
 
 /// The words a step can report to the composed table: a panel step's
-/// declared results narrowed to what its aggregate can emit, and every
-/// other step's declared results. A panel's `results` is its seat's
-/// vocabulary, which may be wider than the aggregate's output, so it is
-/// never read as the panel's own vocabulary (decision 0050, ruling 7).
+/// declared results narrowed to what its aggregate can emit — `pass`/`fail`
+/// for `unanimous-pass`, and every declared word for `review-panel`, whose
+/// worst member's word is returned verbatim — and every other step's
+/// declared results. A panel's `results` is the vocabulary it declares (the
+/// seat's own for the final step), which may be wider than the aggregate's
+/// required results, but never wider than what the aggregate itself can
+/// return (decision 0050, ruling 7).
 fn emittable(step: &SequenceStep) -> BTreeSet<String> {
-    let emits = match &step.body {
-        StepBody::Invocation(Invocation::Panel { aggregate, .. }) => aggregate.emits(),
+    match &step.body {
+        StepBody::Invocation(Invocation::Panel { aggregate, .. }) => aggregate
+            .emits(&step.results)
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
         StepBody::Invocation(Invocation::Single { .. }) | StepBody::Dialect { .. } => {
-            return step.results.iter().cloned().collect()
+            step.results.iter().cloned().collect()
         }
-    };
-    let emits: BTreeSet<&str> = emits.iter().copied().collect();
-    step.results
-        .iter()
-        .filter(|word| emits.contains(word.as_str()))
-        .cloned()
-        .collect()
+    }
 }
 
 /// The words `words` holds that end a sequence at a non-final step: the
