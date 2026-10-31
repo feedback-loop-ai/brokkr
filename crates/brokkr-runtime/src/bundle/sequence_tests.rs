@@ -527,3 +527,55 @@ fn an_arm_only_an_unreachable_later_step_can_emit_is_refused() {
         "`continue` is checkpoint-only, so the final step still runs"
     );
 }
+
+/// The final step is a `unanimous-pass` panel, so it inherits the seat's
+/// whole vocabulary but can emit only `pass`/`fail`; `ghost` is never a
+/// word the aggregate returns. An arm only the declaration could reach is
+/// refused exactly as a single final step's unreachable arm is.
+#[test]
+fn a_table_arm_no_reachable_step_or_aggregate_can_emit_is_refused() {
+    let rules = json!([
+        {"id": "REVIEW-PASS", "from": "review", "result": "pass",
+         "next": "done", "reason": "pass"},
+        {"id": "REVIEW-FAIL", "from": "review", "result": "fail",
+         "next": "stop", "severity": "hard", "reason": "fail"},
+        {"id": "REVIEW-GHOST", "from": "review", "result": "ghost",
+         "next": "done", "reason": "only a reachable step may spell this"},
+    ]);
+    let seat = |first: Value| {
+        json!({
+            "results": ["pass", "fail", "ghost"],
+            "sequence": [
+                {"name": "first", "results": first,
+                 "role": "roles/role.md", "driver": {"command": ["driver"]}},
+                {"name": "last", "aggregate": "unanimous-pass", "panel": {
+                    "one": {"role": "roles/role.md", "driver": {"command": ["driver"]}},
+                    "two": {"role": "roles/role.md", "driver": {"command": ["driver"]}},
+                }},
+            ],
+        })
+    };
+    let refused = fixture(policy(rules.clone()), seat(json!(["continue"])));
+    assert_unreachable_arm(compile(refused.path()), "REVIEW-GHOST", "ghost");
+
+    // The control: the same panel and table compile when an earlier ending
+    // can emit `ghost`, so the refusal above is about what the sequence can
+    // emit, not merely about the word existing in the seat's vocabulary.
+    let reachable = fixture(policy(rules), seat(json!(["continue", "ghost"])));
+    let steps = compiled_steps(
+        reachable.path(),
+        "the earlier ghost ending reaches the panel's table arm",
+    );
+    assert_eq!(
+        steps[0].ends_on,
+        vec!["ghost".to_string()],
+        "the first step's `ghost` reaches REVIEW-GHOST even though the panel cannot emit it"
+    );
+    assert!(
+        matches!(
+            steps[1].body,
+            StepBody::Invocation(Invocation::Panel { .. })
+        ),
+        "the final step is the unanimous-pass panel the arm cannot reach"
+    );
+}

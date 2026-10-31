@@ -406,9 +406,9 @@ fn stamp_sequence(
     for index in 0..last {
         let (before, later) = steps.split_at_mut(index + 1);
         let step = &mut before[index];
-        step.ends_on = endings(&step.results, later, seat_results, &hard);
-        step.hard_results = step
-            .results
+        let words = emittable(step);
+        step.ends_on = endings(&words, later, seat_results, &hard);
+        step.hard_results = words
             .iter()
             .filter(|word| hard.contains(*word))
             .cloned()
@@ -423,26 +423,43 @@ fn stamp_sequence(
     refuse_unreachable(machine, bundle, phase, steps)
 }
 
-/// The words `results` holds that end a sequence at a non-final step: the
+/// The words a step can report to the composed table: a panel step's
+/// declared results narrowed to what its aggregate can emit, and every
+/// other step's declared results. A panel's `results` is its seat's
+/// vocabulary, which may be wider than the aggregate's output, so it is
+/// never read as the panel's own vocabulary (decision 0050, ruling 7).
+fn emittable(step: &SequenceStep) -> BTreeSet<String> {
+    let emits = match &step.body {
+        StepBody::Invocation(Invocation::Panel { aggregate, .. }) => aggregate.emits(),
+        StepBody::Invocation(Invocation::Single { .. }) | StepBody::Dialect { .. } => {
+            return step.results.iter().cloned().collect()
+        }
+    };
+    let emits: BTreeSet<&str> = emits.iter().copied().collect();
+    step.results
+        .iter()
+        .filter(|word| emits.contains(word.as_str()))
+        .cloned()
+        .collect()
+}
+
+/// The words `words` holds that end a sequence at a non-final step: the
 /// seat's words no later step can emit, and every hard word the step can
 /// report even when a later step can emit it too.
 fn endings(
-    results: &[String],
+    words: &BTreeSet<String>,
     later: &[SequenceStep],
     seat_results: &[String],
     hard: &BTreeSet<String>,
 ) -> Vec<String> {
-    let later: BTreeSet<&str> = later
+    let later: BTreeSet<String> = later.iter().flat_map(emittable).collect();
+    let mut ends: BTreeSet<String> = words
         .iter()
-        .flat_map(|step| step.results.iter().map(String::as_str))
-        .collect();
-    let mut words: BTreeSet<String> = results
-        .iter()
-        .filter(|word| seat_results.contains(word) && !later.contains(word.as_str()))
+        .filter(|word| seat_results.contains(*word) && !later.contains(*word))
         .cloned()
         .collect();
-    words.extend(results.iter().filter(|word| hard.contains(*word)).cloned());
-    words.into_iter().collect()
+    ends.extend(words.iter().filter(|word| hard.contains(*word)).cloned());
+    ends.into_iter().collect()
 }
 
 /// Whether entering `phase` stops the run: it is terminal AND it is the
@@ -487,8 +504,8 @@ pub(super) fn hard_results(machine: &Machine, phase: &str) -> BTreeSet<String> {
 /// can emit, naming the rule and the word (decision 0050, ruling 7). A
 /// middle step's word reaches the table only through a compiled ending: its
 /// plain checkpoint is context for the later steps, never the effect's
-/// result. The walk stops at a step every result of which ends the
-/// sequence: no later step runs, so none of their words admits an arm.
+/// result. The walk stops at a step every emittable result of which ends
+/// the sequence: no later step runs, so none of their words admits an arm.
 fn refuse_unreachable(
     machine: &Machine,
     bundle: &str,
@@ -496,19 +513,20 @@ fn refuse_unreachable(
     steps: &[SequenceStep],
 ) -> Result<(), CompileError> {
     let last = steps.len().saturating_sub(1);
-    let mut emittable: BTreeSet<&str> = BTreeSet::new();
+    let mut reachable: BTreeSet<String> = BTreeSet::new();
     for (index, step) in steps.iter().enumerate() {
+        let words = emittable(step);
         if index == last {
-            emittable.extend(step.results.iter().map(String::as_str));
+            reachable.extend(words);
             continue;
         }
-        emittable.extend(step.ends_on.iter().map(String::as_str));
-        if step.results.iter().all(|word| step.ends_on.contains(word)) {
+        reachable.extend(step.ends_on.iter().cloned());
+        if words.iter().all(|word| step.ends_on.contains(word)) {
             break;
         }
     }
     for rule in machine.rules.iter().filter(|rule| rule.from == phase) {
-        if !emittable.contains(rule.result.as_str()) {
+        if !reachable.contains(rule.result.as_str()) {
             return Err(CompileError::Invalid(format!(
                 "bundle '{bundle}' sequence for phase '{phase}' cannot emit table arm '{}' \
                  result '{}': no step of the sequence can report it",

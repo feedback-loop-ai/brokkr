@@ -17,6 +17,7 @@ use entry::fixture_seat;
 // so no other test's orphan reads as a stray of its attempt.
 pub(super) use brokkr_protocol::process::in_its_own_engine;
 use brokkr_protocol::{Body, Message, ResultStatus};
+use brokkr_store::StoreError;
 use std::collections::BTreeMap;
 
 fn machine() -> Machine {
@@ -3698,17 +3699,21 @@ fn panel_and_sequence_storage_failures_propagate() {
     ending[0].ends_on = vec!["first-result".into()];
     let (dir, mut early) = engine(single_body(vec!["driver".into()]));
     fail_event(&dir.path().join("forge.db"), "ends-on");
-    assert!(early
-        .execute_sequence(
-            "effect",
-            "attempt",
-            "work",
-            &ending,
-            &input,
-            std::time::Duration::from_secs(2),
-            &Selection::new(),
-        )
-        .is_err());
+    match early.execute_sequence(
+        "effect",
+        "attempt",
+        "work",
+        &ending,
+        &input,
+        std::time::Duration::from_secs(2),
+        &Selection::new(),
+    ) {
+        Err(EngineError::Store(StoreError::Sqlite(_))) => {}
+        Err(other) => panic!(
+            "the refused ends-on append must propagate as its injected sqlite error, got {other:?}"
+        ),
+        Ok(()) => panic!("the refused ends-on append must not be swallowed"),
+    }
 
     let invalid_steps = [
         uncompiled_sequence_step! {

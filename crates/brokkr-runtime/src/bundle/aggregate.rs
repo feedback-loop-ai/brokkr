@@ -42,7 +42,21 @@ impl Aggregate {
         Aggregate::ALL.map(Aggregate::word).join(", ")
     }
 
+    /// The results a declaring vocabulary must cover: every table word the
+    /// aggregate can emit ([`Aggregate::emits`]).
     pub(super) fn required_results(&self) -> &'static [&'static str] {
+        self.emits()
+    }
+
+    /// The table words [`Aggregate::aggregate_results`] can emit: exactly
+    /// what a panel step's declared results can put before the machine. A
+    /// member payload with no readable result string, and (for
+    /// `unanimous-pass`) a member result outside the vocabulary, become
+    /// the `__member-schema-invalid__` marker that schema validation
+    /// parks; `review-panel` lets an unknown member result flow to
+    /// decide(), whose declared-results check parks it. None of those
+    /// parks is a table word, so none is emittable here.
+    pub(super) fn emits(&self) -> &'static [&'static str] {
         match self {
             Aggregate::UnanimousPass => &["pass", "fail"],
             Aggregate::ReviewPanel => &["clean", "residual", "security-hold"],

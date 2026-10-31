@@ -715,6 +715,30 @@ fn review_sequence_fixture(
     )
 }
 
+/// The common preamble of a fixture table that runs a two-step review
+/// sequence: the phases, the work entry into review, and both terminals.
+/// The caller's review arms follow.
+fn review_policy(schema: &str, rules: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "schema": schema,
+        "phases": ["work", "review", "done", "stop"],
+        "initial": "work",
+        "terminal": ["done", "stop"],
+        "rules": std::iter::once(serde_json::json!({
+            "id": "WORK-ENTER", "from": "work", "result": "complete",
+            "next": "review", "reason": "enter review"
+        }))
+        .chain(
+            rules
+                .as_array()
+                .expect("fixture review rules are an array")
+                .iter()
+                .cloned(),
+        )
+        .collect::<Vec<_>>(),
+    })
+}
+
 /// A two-step review sequence over a table whose `hold` arm is `hard` but
 /// advances to `done`, and whose `security-hold` arm is the hard stop.
 /// Both steps inherit the seat's vocabulary, so only the arm's destination
@@ -722,20 +746,15 @@ fn review_sequence_fixture(
 fn advancing_hard_bundle(first: &str) -> (tempfile::TempDir, Bundle) {
     let first = driver(&format!(r#"{{"result":"{first}"}}"#));
     let last = driver(r#"{"result":"security-hold"}"#);
-    let policy = serde_json::json!({
-        "schema": "forge.phase-machine/v1",
-        "phases": ["work", "review", "done", "stop"],
-        "initial": "work",
-        "terminal": ["done", "stop"],
-        "rules": [
-            {"id": "WORK-ENTER", "from": "work", "result": "complete",
-             "next": "review", "reason": "enter review"},
+    let policy = review_policy(
+        "forge.phase-machine/v1",
+        serde_json::json!([
             {"id": "REVIEW-HOLD", "from": "review", "result": "hold", "next": "done",
              "severity": "hard", "reason": "hard severity, but not a stop"},
             {"id": "REVIEW-STOP", "from": "review", "result": "security-hold",
              "next": "stop", "severity": "hard", "reason": "the stop"}
-        ],
-    });
+        ]),
+    );
     let seats = serde_json::json!({
         "work": seat(&["complete"]),
         "review": review_sequence_seat(&["hold", "security-hold"], "first", "last"),
@@ -958,5 +977,107 @@ fn an_ordinary_compiled_ending_names_its_step_and_why() {
     assert_eq!(
         succeeded.payload["why"], "ends-on",
         "the journal says a compiled ending, not the hard vocabulary, ended it"
+    );
+}
+
+/// A v2 review fixture whose final step is a `unanimous-pass` panel. The
+/// seat declares `refuse` because the table has a REVIEW-REFUSE arm, but
+/// the panel's aggregate can emit only `pass`/`fail`: the earlier refusal
+/// is a word no later step can repeat.
+fn final_panel_that_cannot_refuse_bundle() -> (tempfile::TempDir, Bundle) {
+    let first = driver(r#"{"result":"refuse"}"#);
+    let panel = crate::office::answering(":", "pass");
+    let policy = review_policy(
+        "forge.phase-machine/v2",
+        serde_json::json!([
+            {"id": "REVIEW-PASS", "from": "review", "result": "pass",
+             "next": "done", "reason": "the panel passes"},
+            {"id": "REVIEW-FAIL", "from": "review", "result": "fail",
+             "next": "stop", "severity": "hard", "reason": "the panel fails"},
+            {"id": "REVIEW-REFUSE", "from": "review", "result": "refuse",
+             "park": true, "reason": "the operator's"},
+        ]),
+    );
+    let seats = serde_json::json!({
+        "work": seat(&["complete"]),
+        "review": {
+            "results": ["pass", "fail", "refuse"],
+            "sequence": [
+                {"name": "first", "results": ["continue", "refuse"],
+                 "agent": "first"},
+                {"name": "last", "aggregate": "unanimous-pass", "panel": {
+                    "one": {"agent": "last"},
+                    "two": {"agent": "last"},
+                }},
+            ],
+        },
+    });
+    let (dir, mut compiled) = review_sequence_fixture(policy, seats, &first, &panel);
+    compiled.machine.initial = "review".to_string();
+    (dir, compiled)
+}
+
+/// The final panel inherits the seat's vocabulary, but `unanimous-pass` can
+/// emit only `pass` or `fail`. The first step's `refuse` is therefore an
+/// ending no later step can emit: the refusal settles the effect at
+/// `first`, and REVIEW-REFUSE parks the run instead of the final pass
+/// completing it.
+#[test]
+fn a_final_panel_that_cannot_emit_refuse_lets_an_earlier_refuse_end_the_sequence() {
+    let test = "crucible_review_sequence::\
+                a_final_panel_that_cannot_emit_refuse_lets_an_earlier_refuse_end_the_sequence";
+    if !crate::own_home::in_own_home(test) {
+        return;
+    }
+    let (_fixture, bundle) = final_panel_that_cannot_refuse_bundle();
+    let SeatBody::Sequence { steps } = &bundle.seats["review"].body else {
+        panic!("the fixture is a sequence");
+    };
+    assert_eq!(
+        steps[0].ends_on,
+        vec!["refuse".to_string()],
+        "the final panel cannot emit `refuse`, so the earlier refusal ends the sequence"
+    );
+    assert!(
+        steps[0].hard_results.is_empty(),
+        "`refuse` parks; it is not the phase's hard vocabulary"
+    );
+
+    let (events, _, end) = drive(bundle);
+
+    assert!(
+        !checkpointed(&events, "first"),
+        "the refusal is an ending, not a checkpoint"
+    );
+    let succeeded = effect_succeeded(&events);
+    assert_eq!(
+        succeeded.payload["result"]["result"], "refuse",
+        "the operator's refusal is the effect's result"
+    );
+    assert_eq!(
+        succeeded.payload["step"], "first",
+        "the journal names the step that ended the sequence"
+    );
+    assert_eq!(
+        succeeded.payload["why"], "ends-on",
+        "the journal says a compiled ending, not the hard vocabulary, ended it"
+    );
+    let decided = events
+        .iter()
+        .rev()
+        .find(|event| event.event_type == brokkr_core::envelope::EventType::TransitionDecided)
+        .expect("the machine rules on the ending");
+    assert_eq!(
+        decided.payload["rule_id"], "REVIEW-REFUSE",
+        "the operator's refusal rule decides the ending"
+    );
+    assert_eq!(
+        decided.payload["next"],
+        serde_json::Value::Null,
+        "a parking rule takes no transition"
+    );
+    assert_eq!(
+        end.state.run.status(),
+        brokkr_core::Status::AwaitingOperator
     );
 }
