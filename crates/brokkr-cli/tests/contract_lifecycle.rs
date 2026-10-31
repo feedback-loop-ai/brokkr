@@ -423,6 +423,45 @@ fn the_table_names_every_contract_file_and_no_other() {
     );
 }
 
+/// Every row's `File` cell is the one its `Version` cell names, and that
+/// file's own `$id` names the same stem and version. The two sets above are
+/// checked independently, so only this holds the two cells of one row
+/// together: swapping two rows' files leaves both sets equal.
+#[test]
+fn every_file_cell_names_its_version_and_its_own_schema() {
+    let mut findings = Vec::new();
+    for row in rows() {
+        if row.file == FILELESS {
+            continue;
+        }
+        let named = expected_file(&row);
+        if named != row.file {
+            findings.push(format!(
+                "{GUIDE}:{}: {}: the Version cell '{}' names {named}, not the row's file",
+                row.line, row.file, row.version
+            ));
+            continue;
+        }
+        let schema = schema_of(&row);
+        let identity = format!("contracts/{}.v{}.json", stem(row.family()), row.number());
+        let id = schema
+            .get("$id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        if !id.ends_with(&identity) {
+            findings.push(format!(
+                "{GUIDE}:{}: {}: the schema's $id '{id}' does not end {identity}",
+                row.line, row.file
+            ));
+        }
+    }
+    assert_eq!(
+        findings,
+        Vec::<String>::new(),
+        "a row's file and version disagree"
+    );
+}
+
 /// One row per file, and one for the file-less label: a second row would
 /// let the table state two lifecycles for one version.
 #[test]
@@ -691,6 +730,43 @@ fn envelope(
     .sealed()
 }
 
+/// The families whose file stem is not their `Version` cell's family, as
+/// ruling 4's table records them. Every other family's stem is its own name.
+const STEMS: [(&str, &str); 8] = [
+    ("forge.realms", "realms"),
+    ("brokkr.dialect", "dialect"),
+    ("forge.phase-machine", "phase-machine"),
+    ("forge-driver", "driver-protocol"),
+    ("forge-dispatch", "dispatch-envelope"),
+    ("forge-run-manifest", "run-manifest"),
+    ("brokkr.tool-dialect", "tool-dialect"),
+    ("forge.host", "host"),
+];
+
+/// The file stem a `Version` cell's family names.
+fn stem(family: &str) -> &str {
+    STEMS
+        .iter()
+        .find(|(named, _)| *named == family)
+        .map_or(family, |(_, stem)| *stem)
+}
+
+/// The file a row's `Version` cell names, through the stem table.
+fn expected_file(row: &Row) -> String {
+    format!(
+        "contracts/{}.v{}.schema.json",
+        stem(row.family()),
+        row.number()
+    )
+}
+
+/// The schema a row's file carries, read from the tree.
+fn schema_of(row: &Row) -> serde_json::Value {
+    let bytes = std::fs::read(workspace().join(&row.file))
+        .unwrap_or_else(|why| panic!("{}: {why}", row.file));
+    serde_json::from_slice(&bytes).unwrap_or_else(|why| panic!("{}: {why}", row.file))
+}
+
 /// The row's own schema, named by its `Version` cell, admits `instance`.
 /// The label and the schema file are bound together: moving a cell moves
 /// the schema its instance is held to, and a label naming no file refuses.
@@ -699,18 +775,14 @@ fn instance_satisfies_row(row: &Row, instance: &serde_json::Value) -> Option<Str
         // Ruling 5 records the one label that has no schema file.
         return None;
     }
-    let (family, number) = row.version.rsplit_once("/v")?;
-    let named = format!("contracts/{family}.v{number}.schema.json");
+    let named = expected_file(row);
     if named != row.file {
         return Some(format!(
             "{GUIDE}:{}: {}: the Version cell '{}' names {named}, not the row's file",
             row.line, row.file, row.version
         ));
     }
-    let bytes = std::fs::read(workspace().join(&row.file))
-        .unwrap_or_else(|why| panic!("{}: {why}", row.file));
-    let schema: serde_json::Value =
-        serde_json::from_slice(&bytes).unwrap_or_else(|why| panic!("{}: {why}", row.file));
+    let schema = schema_of(row);
     let validator = jsonschema::draft7::new(&schema)
         .unwrap_or_else(|why| panic!("{} is a draft-07 schema: {why}", row.file));
     if validator.is_valid(instance) {

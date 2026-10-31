@@ -71,7 +71,7 @@ fn read_addendum(decision: &Decision, date: &str) -> Result<AddendumStatus, Stri
         .text
         .lines()
         .enumerate()
-        .filter(|(_, line)| line.starts_with(&heading))
+        .filter(|(_, line)| opens_addendum(line, &heading))
         .map(|(at, _)| at)
         .collect();
     if headings.len() != 1 {
@@ -116,6 +116,15 @@ fn read_addendum(decision: &Decision, date: &str) -> Result<AddendumStatus, Stri
         "{DECISIONS}/{}:{line}: '{text}' is not an addendum status line",
         decision.file
     ))
+}
+
+/// Whether `line` opens the addendum heading for exactly `date`: the date
+/// is one whole token, followed by nothing or by the shipped heading's prose
+/// after a comma or a colon. `2026-09-040` does not open the 2026-09-04
+/// addendum.
+fn opens_addendum(line: &str, heading: &str) -> bool {
+    line.strip_prefix(heading)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with(',') || rest.starts_with(':'))
 }
 
 /// The `Keeps the minting of: contracts/<file>` lines in a decision's header.
@@ -830,5 +839,35 @@ fn chief_later_addendum_acceptance_date_must_admit() {
     assert_eq!(
         read_addendum(&decision, "2026-09-04"),
         Ok(AddendumStatus::Accepted)
+    );
+}
+
+/// 0082 ruling 1: the heading's date is one whole `YYYY-MM-DD` token, and
+/// the shipped headings may carry prose after a comma or a colon. A heading
+/// whose date merely extends the named date is not that addendum's heading,
+/// so its status line mints nothing.
+#[test]
+fn an_addendum_heading_date_must_be_a_whole_token() {
+    let suffixed = fixture(
+        42,
+        "accepted",
+        &[],
+        "## Addendum — 2026-09-04, the operator's rulings\nAddendum status: accepted (operator, 2026-09-04)",
+    );
+    assert_eq!(
+        read_addendum(&suffixed, "2026-09-04"),
+        Ok(AddendumStatus::Accepted)
+    );
+    let extended = fixture(
+        43,
+        "accepted",
+        &[],
+        "## Addendum — 2026-09-040\nAddendum status: accepted (operator, 2026-09-06)",
+    );
+    assert_eq!(
+        read_addendum(&extended, "2026-09-04"),
+        Err(format!(
+            "{DECISIONS}/0043-fixture.md: names 2026-09-04 as its addendum, and the file has 0 headings for it"
+        ))
     );
 }

@@ -22,7 +22,16 @@ fn the_lifecycle_row_names_the_provenance_reader_and_a_v1_start_loads() {
         json!({
             "effect_id": "e",
             "attempt_id": "a",
-            "provenance": [{"member": "m", "provider": "p"}]
+            // Every field `contracts/effect-provenance.v1.schema.json`
+            // requires; this crate's test build does no I/O, so the v1
+            // instance is completed by hand against the frozen schema.
+            "provenance": [{
+                "member": "m",
+                "agent": "agent",
+                "model": "model",
+                "provider": "p",
+                "chain_index": 0
+            }]
         }),
         2,
     ));
