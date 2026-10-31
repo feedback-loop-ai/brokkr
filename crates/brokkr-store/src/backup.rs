@@ -337,6 +337,17 @@ fn backup_through(
 /// Restore the backup at `from` into the journal path `to`, which no file
 /// or SQLite sidecar may occupy, after every check passed.
 pub fn restore(from: &Path, to: &Path) -> Result<Restored, BackupError> {
+    restore_through(from, to, &mut publish_noclobber)
+}
+
+/// [`restore`] with its one publish step handed in, so the test that proves
+/// a destination appearing in the race is refused by its name can make it
+/// appear (decision 0100 ruling 4). Production passes [`publish_noclobber`].
+fn restore_through(
+    from: &Path,
+    to: &Path,
+    publish: &mut dyn FnMut(&Path, &Path) -> std::io::Result<()>,
+) -> Result<Restored, BackupError> {
     refuse_existing(to)?;
     let inventory = read_inventory(from)?;
     let source = from.join(SNAPSHOT_FILE);
@@ -356,7 +367,7 @@ pub fn restore(from: &Path, to: &Path) -> Result<Restored, BackupError> {
     let temporary = Temp::beside(to)?;
     copy_file(&source, temporary.path())?;
     verify_snapshot(temporary.path(), &inventory)?;
-    publish_noclobber(temporary.path(), to).map_err(|error| destination_error(error, to))?;
+    publish(temporary.path(), to).map_err(|error| destination_error(error, to))?;
     temporary.disarm();
     if let Err(error) = sync_dir(parent_of(to)) {
         // A failure after the rename must not leave the destination: the
@@ -418,16 +429,10 @@ fn read_inventory(from: &Path) -> Result<Inventory, BackupError> {
 }
 
 /// The checks the copied bytes must pass before they may be renamed into
-/// place: size and digest, SQLite's own integrity, every chain with its
-/// boundary head, and the counts.
+/// place: the digest (the size was the source's, refused before the copy;
+/// a source that changed under the copy changes the digest), SQLite's own
+/// integrity, every chain with its boundary head, and the counts.
 fn verify_snapshot(path: &Path, inventory: &Inventory) -> Result<(), BackupError> {
-    let found = std::fs::metadata(path)?.len();
-    if found != inventory.snapshot.bytes {
-        return Err(BackupError::SizeMismatch {
-            found,
-            inventory: inventory.snapshot.bytes,
-        });
-    }
     let found = sha256_file(path)?;
     if found != inventory.snapshot.sha256 {
         return Err(BackupError::ChecksumMismatch {
@@ -469,11 +474,7 @@ fn integrity_of(store: &Store) -> Result<(), BackupError> {
         return Ok(());
     }
     Err(BackupError::Integrity {
-        reported: if rows.is_empty() {
-            "no row answered".into()
-        } else {
-            rows.join("; ")
-        },
+        reported: rows.join("; "),
     })
 }
 
@@ -727,10 +728,8 @@ impl Scratch {
 
 impl Drop for Scratch {
     fn drop(&mut self) {
-        let Ok(entries) = std::fs::read_dir(&self.dir) else {
-            return;
-        };
-        for entry in entries.flatten() {
+        // A directory that cannot be read holds nothing this can remove.
+        for entry in std::fs::read_dir(&self.dir).into_iter().flatten().flatten() {
             if entry
                 .file_name()
                 .to_string_lossy()
@@ -754,12 +753,8 @@ impl Temp {
     fn beside(to: &Path) -> Result<Temp, BackupError> {
         let parent = parent_of(to);
         std::fs::create_dir_all(parent)?;
-        let name = to
-            .file_name()
-            .unwrap_or_else(|| std::ffi::OsStr::new("journal"))
-            .to_string_lossy();
         Ok(Temp {
-            path: parent.join(format!(".{name}.{}.tmp", uuid::Uuid::new_v4())),
+            path: parent.join(format!(".brokkr-restore-{}.tmp", uuid::Uuid::new_v4())),
             live: true,
         })
     }
