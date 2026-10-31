@@ -1,6 +1,6 @@
-//! Task 46.1's bounded startup and its cancellation at every window, through
-//! real dispatch (U9b1b; MB3, MB5): each window of a broker's startup held, then
-//! ended three ways.
+//! Task 46.1's bounded startup and its cancellation, through real dispatch
+//! (U9b1b; MB3, MB5): each window of a broker's startup but `Handoff` held, then
+//! ended three ways; `Handoff` only by the deadline, the other two are U9b1c's.
 //!
 //! The harness's death, the broker's own sign of cancellation, its input kept
 //! open past it by a process of another session, so EOF on that input is not

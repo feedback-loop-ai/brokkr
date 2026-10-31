@@ -274,7 +274,8 @@ where MB2 would refuse it, and a dropped holding serves nothing. I recommend ame
 in the spec at U10a's audit, as moving it changes which cause every gate reports.
 
 **M1, the missing proofs.** `windows.rs` holds each window through real dispatch and ends it
-three ways, with `Standing` the one setup. A sixth window, `Handoff`, delays the bootstrap's exec
+three ways, with `Standing` the one setup. (Corrected by the controller, 2026-10-31: not at `Handoff`, which only
+the startup deadline ends; see "Tasks".) A sixth window, `Handoff`, delays the bootstrap's exec
 of the server with the whole frame delivered and its status pipe open.
 
 | Tests (`windows::`) | Observed | Compiling removal, and how it failed |
@@ -361,10 +362,13 @@ is the scratch variant under "U9b1a's owed items".
 
 ### Tasks
 
-42.2 and 46.1 are ticked on the proofs above, with F5's seams, and SD4's timings pending as
-listed. 42.2 was ticked before the first review on a test that began no call, and 46.1 before the
-second on proofs that left the compositions M1 names unproved and on a matrix that had not reached
-F10's refusals. Both now meet their text on this tree. 46.2 stays unticked: its non-host work is
+42.2 is ticked on the proofs above, with F5's seams, and SD4's timings pending as listed. 42.2
+was ticked before the first review on a test that began no call; it now meets its text on this tree.
+46.1 is not ticked (controller, 2026-10-31): the third review's M1 found the harness's death and
+the engine's timeout proved through real dispatch at every window but `Handoff`, which only the
+startup deadline ends, so the claim above that each window ends three ways stops short of
+`Handoff`. By operator ruling 2026-10-31 ("B") U9b1b lands by hand with 46.1 open, and U9b1c
+proves both `Handoff` cases, with their compiling removals, and ticks it. 46.2 stays unticked: its non-host work is
 done above, audit included, and by its own last sentence "missing host evidence leaves this task
 pending".
 
@@ -663,3 +667,24 @@ two-worktree matrix; ten warm samples.
 
 The first run ended there, every item above then owed on F1, F5 and F6. The second run's
 section at the top of this file carries them.
+
+## Controller ruling, 2026-10-31
+
+The second run (0065-slice-two-unit-u9b1b-see-th-9d7328d4) parked at
+REVIEW-REFORGE-EXHAUSTED-MEDIUM after its third review. The operator ruled "B": U9b1b lands by
+hand under the by-hand label, and the run was stopped with that ruling. Review 3's dispositions:
+
+- M1 (medium): 46.1 is unticked and its `Handoff` remainder, the harness's death and the
+  engine's timeout through real dispatch, moves to U9b1c, which ticks 46.1.
+- L3: 42.2 and 46.1 now link this file from `tasks.md`.
+- L1, L2, L4, L6 and L7 carry to U10a's audit, each with the reason recorded above or in the
+  review: L1 and L6 need `capability_record.rs`, outside this row; L4 crosses crates and the
+  public API; L2 orders a refusal's cause, not whether it refuses; L7 needs the spec-order
+  amendment F12 recommends.
+- L5 (low, security, predates this change): a measured shape's `measured_on.version` is not
+  compared with the installed harness's version. It stays a residual, and U9b2's guides say so.
+
+The real Claude and Codex launches under F1 ran on the controller's host on 2026-10-31 and
+found two defects that the deterministic harness cannot see; U9b1c fixes them. SD4's aarch64
+samples (debug and release) were taken that day on a temporary Linux aarch64 host; the fully
+cold x86_64 sample is the operator's. 46.2 stays open on those records until they are filed.
