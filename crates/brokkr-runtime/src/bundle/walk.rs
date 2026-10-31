@@ -184,19 +184,27 @@ pub(super) fn refuse_oversized(
     for (path, rel) in walked {
         let bytes = std::fs::metadata(path)?.len();
         total = total.saturating_add(bytes);
-        let (top, tree) = match rel.split_once('/') {
-            Some((top, _)) => (top, true),
-            None => (rel.as_str(), false),
-        };
-        let held = trees.entry(top).or_insert((tree, 0, 0));
-        held.0 |= tree;
-        held.1 += 1;
-        held.2 = held.2.saturating_add(bytes);
+        tally(&mut trees, rel, bytes);
     }
     let files_past = walked.len() > MAX_FILES;
     if !files_past && total <= MAX_BYTES {
         return Ok(());
     }
+    Err(past_bound(dir, files_past, total, walked.len(), trees))
+}
+
+/// The refusal of a bundle past a bound (#908): `files_past` says which
+/// bound was passed, `total` the bytes and `count` the files measured, and
+/// `trees` each top-level name's file count and bytes. One home for the
+/// preflight's refusal and the refusal of a read that passes the byte
+/// budget after it (fix round 908d), so the two cannot drift.
+fn past_bound(
+    dir: &Path,
+    files_past: bool,
+    total: u64,
+    count: usize,
+    trees: BTreeMap<&str, (bool, usize, u64)>,
+) -> CompileError {
     let mut ranked: Vec<(&str, (bool, usize, u64))> = trees.into_iter().collect();
     if files_past {
         ranked.sort_by(|(an, (_, ac, _)), (bn, (_, bc, _))| bc.cmp(ac).then_with(|| an.cmp(bn)));
@@ -219,19 +227,16 @@ pub(super) fn refuse_oversized(
         })
         .collect();
     let measured = match files_past {
-        true => format!(
-            "pins {} files, past the bound of {MAX_FILES} files",
-            walked.len()
-        ),
+        true => format!("pins {count} files, past the bound of {MAX_FILES} files"),
         false => format!("pins {total} bytes, past the bound of {MAX_BYTES} bytes (64 MiB)"),
     };
-    Err(CompileError::Invalid(format!(
+    CompileError::Invalid(format!(
         "the bundle at {} {measured} (#908): the largest top-level trees are {}; it is refused \
          before any run starts, so no run carries a manifest this large (decision 0083 \
          amendment)",
         dir.display(),
         largest.join(", ")
-    )))
+    ))
 }
 
 /// The top-level name an ACTIVE input stands under, where that name is one
@@ -381,17 +386,36 @@ pub(super) fn walk_digests(
 ) -> Result<BTreeMap<String, String>, CompileError> {
     let mut named: BTreeMap<(u64, u64), (Entry, String)> = BTreeMap::new();
     let mut files = BTreeMap::new();
-    for (path, rel) in walked {
-        let supplied = consumed.get(&rel);
+    let mut read = 0u64;
+    let mut read_trees: BTreeMap<&str, (bool, usize, u64)> = BTreeMap::new();
+    for (path, rel) in &walked {
+        let supplied = consumed.get(rel);
         if supplied.is_none() {
-            at_stage(ReadStage::Walked, &path);
+            at_stage(ReadStage::Walked, path);
         }
-        one_entry(dir, &path, &rel, supplied, consumed, &mut named)?;
+        one_entry(dir, path, rel, supplied, consumed, &mut named)?;
         let digest = match supplied {
-            Some(supplied) => supplied.digest.clone(),
-            None => sha256_bytes(&std::fs::read(&path)?),
+            Some(supplied) => {
+                // A consumed file's bytes were read by the bound read that
+                // supplied its digest; its entry counts them against the
+                // same budget, and that read's `intact` check refuses any
+                // change to them (#908, fix round 908d).
+                let spent = std::fs::metadata(path)?.len();
+                spend(dir, &walked, rel, spent, &mut read, &mut read_trees)?;
+                supplied.digest.clone()
+            }
+            None => {
+                // At most the budget still left plus one byte: a file that
+                // reaches the extra byte has outgrown the bound after the
+                // metadata preflight, and is refused rather than hashed
+                // (#908, fix round 908d).
+                let bytes = read_within(path, MAX_BYTES - read)?;
+                let spent = bytes.len() as u64;
+                spend(dir, &walked, rel, spent, &mut read, &mut read_trees)?;
+                sha256_bytes(&bytes)
+            }
         };
-        files.insert(rel, digest);
+        files.insert(rel.clone(), digest);
     }
     // Judged after every pinned entry, so a consumed file's first entry is
     // the one it was read by; nothing here is read or pinned.
@@ -403,4 +427,58 @@ pub(super) fn walk_digests(
         one_entry(dir, &path, &rel, None, consumed, &mut named)?;
     }
     Ok(files)
+}
+
+/// Add one walked entry's `bytes` under its top-level name in `trees`, for
+/// the refusal's ranking: a `/` in `rel` marks a tree, and each name's file
+/// count and bytes accumulate.
+fn tally<'a>(trees: &mut BTreeMap<&'a str, (bool, usize, u64)>, rel: &'a str, bytes: u64) {
+    let (top, tree) = match rel.split_once('/') {
+        Some((top, _)) => (top, true),
+        None => (rel, false),
+    };
+    let held = trees.entry(top).or_insert((tree, 0, 0));
+    held.0 |= tree;
+    held.1 += 1;
+    held.2 = held.2.saturating_add(bytes);
+}
+
+/// Count `bytes` for the walked entry `rel` against the walk's byte budget
+/// (#908, fix round 908d), recording its top-level tree for the refusal,
+/// and refuse the bundle the moment the cumulative bytes pass
+/// [`MAX_BYTES`]. `read` is what earlier entries spent; it is never past the
+/// bound on entry, and [`read_within`] caps what one read can add.
+fn spend<'a>(
+    dir: &Path,
+    walked: &'a [(PathBuf, String)],
+    rel: &'a str,
+    bytes: u64,
+    read: &mut u64,
+    trees: &mut BTreeMap<&'a str, (bool, usize, u64)>,
+) -> Result<(), CompileError> {
+    *read = read.saturating_add(bytes);
+    tally(trees, rel, bytes);
+    if *read > MAX_BYTES {
+        return Err(past_bound(
+            dir,
+            false,
+            *read,
+            walked.len(),
+            std::mem::take(trees),
+        ));
+    }
+    Ok(())
+}
+
+/// The bytes of `path`, at most `left` plus one: the walk never reads, and
+/// so never hashes, past the byte budget still left in it (#908, fix round
+/// 908d). The extra byte is the witness that the file outgrew the bound
+/// after [`refuse_oversized`] measured the walked paths.
+fn read_within(path: &Path, left: u64) -> Result<Vec<u8>, CompileError> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)?
+        .take(left + 1)
+        .read_to_end(&mut bytes)?;
+    Ok(bytes)
 }

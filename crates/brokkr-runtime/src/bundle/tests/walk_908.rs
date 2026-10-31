@@ -2,7 +2,9 @@
 //! and a bundle past the walk's bound is refused by name before a run
 //! starts.
 
+use super::super::{ReadStage, READ_HOOK};
 use super::{error, workspace_root, Boundary, Bundle, Fixture};
+use brokkr_core::canonical::sha256_bytes;
 use serde_json::json;
 use std::path::Path;
 use std::process::Command;
@@ -482,6 +484,71 @@ fn a_bundle_past_the_byte_bound_is_refused_before_a_run_starts() {
              starts, so no run carries a manifest this large (decision 0083 amendment)",
             fixture.root.display()
         )
+    );
+}
+
+/// The chief's regression: a file that grows past the bound after the
+/// metadata preflight is refused on the bytes actually read, before any
+/// `Bundle` is admitted or hashed (#908, fix round 908d).
+#[test]
+fn a_file_growing_after_the_pre_hash_bound_is_refused_chief_908() {
+    let fixture = Fixture::new();
+    let blob = fixture.root.join("blob");
+    std::fs::write(&blob, "small").unwrap();
+    let watched = blob.clone();
+    let mut grown = Some(());
+    READ_HOOK.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move |stage, path| {
+            if stage == ReadStage::Walked && path == watched.as_path() && grown.take().is_some() {
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(path)
+                    .unwrap()
+                    .set_len(64 * 1024 * 1024 + 1)
+                    .unwrap();
+            }
+        }));
+    });
+    // `error` panics on `Ok`, so this asserts that no `Bundle` is returned.
+    let refused = error(fixture.compile(&Fixture::config(), &Fixture::policy()));
+    READ_HOOK.with(|hook| *hook.borrow_mut() = None);
+    assert_eq!(
+        refused,
+        format!(
+            "bundle: the bundle at {} pins 67108865 bytes, past the bound of 67108864 bytes (64 \
+             MiB) (#908): the largest top-level trees are blob (67108865 bytes); it is refused \
+             before any run starts, so no run carries a manifest this large (decision 0083 \
+             amendment)",
+            fixture.root.display()
+        )
+    );
+}
+
+/// The regression's valid counterpart: a file that grows after the preflight
+/// but stays within the bound is admitted, and the manifest pins the bytes
+/// that were actually read (#908, fix round 908d).
+#[test]
+fn a_file_growing_within_the_bound_is_pinned_at_the_bytes_read() {
+    let fixture = Fixture::new();
+    let blob = fixture.root.join("blob");
+    std::fs::write(&blob, "small").unwrap();
+    let grown = b"grown after the size preflight".to_vec();
+    let (watched, bytes) = (blob.clone(), grown.clone());
+    let mut once = Some(());
+    READ_HOOK.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move |stage, path| {
+            if stage == ReadStage::Walked && path == watched.as_path() && once.take().is_some() {
+                std::fs::write(path, &bytes).unwrap();
+            }
+        }));
+    });
+    let compiled = fixture
+        .compile(&Fixture::config(), &Fixture::policy())
+        .unwrap();
+    READ_HOOK.with(|hook| *hook.borrow_mut() = None);
+    assert_eq!(
+        compiled.manifest["files"]["blob"],
+        json!(sha256_bytes(&grown))
     );
 }
 
