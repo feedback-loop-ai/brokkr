@@ -614,6 +614,12 @@ fn row_of(store: &Store, run_id: &str, read: Judged) -> Result<RunRow, StoreErro
     Ok(brokkr_view::run_row(&run.entry()))
 }
 
+/// One run's row, read whole, as a paged listing lists it: the one row a
+/// one-run read serves, refused by the store when its id names no run.
+pub(crate) fn one(store: &Store, run_id: &str) -> Result<RunRow, StoreError> {
+    Ok(read_whole(store, run_id)?.0)
+}
+
 /// A row whose run id is past what any writer admits, listed refused by
 /// the first bytes of its id, marked cut, and never read; it is paged at
 /// its whole id, which the page's order and every cursor compare.

@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { analyticsOf, fleetOf, graphOf, ONE_HEARTH, ReadoutRefused, runViewOf, VIEW_VERSION } from '../lib/host/readouts.js'
+import { analyticsOf, fleetOf, graphOf, ONE_HEARTH, oneRunOf, ReadoutRefused, runViewOf, VIEW_VERSION } from '../lib/host/readouts.js'
 import { analyticsDoc, fleetDoc, graphDoc, provenance, recipeRow, row, runViewDoc, seat } from './support/world.js'
 
 for (const [what, parse, doc] of [
@@ -63,6 +63,15 @@ test('analytics carries each recipe of each realm through, its cost as Brokkr fi
 test('a one-hearth listing is one hearth with no journal to name', () => {
   const fleet = fleetOf({ view_version: 28, runs: [row()], count: 1 })
   assert.deepEqual(fleet.hearths.map((hearth) => [hearth.realm, hearth.journal, hearth.runs.length]), [[ONE_HEARTH, null, 1]])
+})
+
+test('a one-run read is the paged wire holding exactly that row, and no page with another count', () => {
+  const served = row({ run_id: 'only-run', seq: 7 })
+  assert.deepEqual(oneRunOf({ view_version: 28, runs: [served], count: 1 }), fleetOf({ view_version: 28, runs: [served], count: 1 }).hearths[0].runs[0])
+  assert.throws(
+    () => oneRunOf({ view_version: 28, runs: [served, row()], count: 2 }),
+    new ReadoutRefused('shape', 'brokkr runs --run did not list exactly one run'),
+  )
 })
 
 test('a field the console paints that is missing refuses the whole readout', () => {

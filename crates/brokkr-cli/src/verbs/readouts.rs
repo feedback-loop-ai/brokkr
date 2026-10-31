@@ -384,6 +384,7 @@ pub(crate) fn runs(workspace: &Path, args: RunsArgs) -> Result<ExitCode> {
         json,
         limit,
         after,
+        run,
     } = args;
     let hearths = hearths_of(workspace, realms.clone(), db.clone())?;
     // A world with several hearths lists each one under its own
@@ -391,12 +392,20 @@ pub(crate) fn runs(workspace: &Path, args: RunsArgs) -> Result<ExitCode> {
     // always was, down to opening its journal the same way.
     if hearths.len() > 1 {
         anyhow::ensure!(
-            limit.is_none() && after.is_none(),
-            "--limit and --after page one hearth's runs, and this world has {} hearths: name \
-             one journal with --db",
+            limit.is_none() && after.is_none() && run.is_none(),
+            "--limit, --after and --run page one hearth's runs, and this world has {} hearths: \
+             name one journal with --db",
             hearths.len()
         );
         return runs_fleet(&hearths, json);
+    }
+    if let Some(run) = run {
+        let db = hearths
+            .into_iter()
+            .next()
+            .expect("a world resolves to at least one hearth")
+            .journal;
+        return hearth_run(&db, &run, json, &mut std::io::stdout().lock());
     }
     let called = fleet::Called {
         db: db.as_deref(),
@@ -410,6 +419,27 @@ pub(crate) fn runs(workspace: &Path, args: RunsArgs) -> Result<ExitCode> {
     let asked = (json, limit, after.as_ref());
     let style = render::Style::detect();
     hearth_runs(&db, asked, called, &style, &mut std::io::stdout().lock())?;
+    Ok(Exit::Completed.into())
+}
+
+/// `brokkr runs --run <id>`: one run's row, the same `RunRow` the paged
+/// read lists, refused by name when the id names no run. The derivation is
+/// brokkr-view's; this verb only asks its own hearth for the run.
+pub(crate) fn hearth_run(
+    db: &Path,
+    run_id: &str,
+    json: bool,
+    out: &mut impl Write,
+) -> Result<ExitCode> {
+    let store = open_journal(db, Access::Read)?;
+    let view = brokkr_view::RunsView::of(vec![fleet::one(&store, run_id)?]);
+    if json {
+        writeln!(out, "{}", serde_json::to_string_pretty(&view)?)?;
+    } else {
+        let now = now_rfc3339();
+        let style = render::Style::detect();
+        out.write_all(render::runs(&view, &now, &style).as_bytes())?;
+    }
     Ok(Exit::Completed.into())
 }
 

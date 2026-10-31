@@ -665,6 +665,48 @@ fn journal_run(db: &Path, run_id: &str, broken: bool) {
     }
 }
 
+/// A one-run read serves the run's own `RunRow`, field for field the row
+/// the paged read lists for it, and refuses an id that names no run by
+/// that name.
+#[test]
+fn read_surfaces_one_run_row_equals_its_paged_row_and_an_unknown_id_refuses_by_name() {
+    let ws = Workspace::new(None);
+    let world = ws.path().join("state/world.db");
+    journal_run(&world, "one", false);
+    journal_run(&world, "two", false);
+    let (code, page, stderr) = ws.run(&["runs", "--json", "--db", "state/world.db"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let page: Value = serde_json::from_str(&page).unwrap();
+    let every = page["runs"].as_array().unwrap();
+    assert_eq!(every.len(), 2, "{page}");
+    for id in ["one", "two"] {
+        let (code, one, stderr) =
+            ws.run(&["runs", "--json", "--run", id, "--db", "state/world.db"]);
+        assert_eq!(code, Some(0), "{stderr}");
+        let view: Value = serde_json::from_str(&one).unwrap();
+        let expected = every
+            .iter()
+            .find(|row| row["run_id"] == id)
+            .unwrap_or_else(|| panic!("{page}"));
+        assert_eq!(view["view_version"], brokkr_view::VIEW_VERSION);
+        assert_eq!(view["count"], 1, "{one}");
+        assert_eq!(view["runs"], json!([expected]), "{one}");
+        assert_eq!(view.get("next"), None, "{one}");
+        assert_eq!(view.get("behind"), None, "{one}");
+    }
+
+    let (code, _, stderr) = ws.run(&[
+        "runs",
+        "--json",
+        "--run",
+        "absent",
+        "--db",
+        "state/world.db",
+    ]);
+    assert_ne!(code, Some(0), "an unknown run is refused");
+    assert!(stderr.contains("run 'absent' not found"), "{stderr}");
+}
+
 /// One broken chain (#377), through the shipped binary: `runs` lists
 /// every healthy run and one quarantined row naming the broken run, the
 /// same way whether its journal is the world's only hearth or one of

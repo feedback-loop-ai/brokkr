@@ -838,6 +838,7 @@ Usage: brokkr runs [OPTIONS]
 | `--json` |  |  | Emit the view model verbatim — this is what scripts read |
 | `--limit <N>` |  |  | Print one page of at most N runs, and where the next page starts (`next`) |
 | `--after <CURSOR>` |  |  | Print the page after this cursor: a page's `next` |
+| `--run <RUN>` |  |  | Print one run's row: the same row this listing gives it, and no other. Refused by name when the id names no run |
 
 ## brokkr realms
 

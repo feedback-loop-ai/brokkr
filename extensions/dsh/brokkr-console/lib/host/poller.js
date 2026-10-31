@@ -1,13 +1,16 @@
 // Live refresh (design D5). While a client is connected, the host reads the
 // fleet every few seconds. Every open run is re-read by `inspect` on every
-// poll, whether the listing holds it or not: the listing is a page, and a
-// page never says a run was dropped. A fresh summary replaces the run's row
-// wherever the fleet holds it. The fleet is pushed whole when it changed: it
-// is one readout over every hearth, and the panel-list count on every page
-// reads every hearth. The overview's own readouts (the queue, Muninn's record
-// and the last day's figures) go only to a client on the Realms view. A
-// client that connects or changes what it watches gets a full snapshot.
-// Nothing here touches a run: closing the panel only stops reading.
+// poll, and so is every running run the latest first page shows, whether a
+// retained page holds it or not: a page never says a run was dropped. A run's
+// row is read whole from Brokkr's one derivation (`runs --run`), never
+// derived here, and it is fenced by the journal it was read from: a result
+// from a journal the realm no longer names paints nothing. The fleet is
+// pushed whole when it changed: it is one readout over every hearth, and the
+// panel-list count on every page reads every hearth. The overview's own
+// readouts (the queue, Muninn's record and the last day's figures) go only to
+// a client on the Realms view. A client that connects or changes what it
+// watches gets a full snapshot. Nothing here touches a run: closing the panel
+// only stops reading.
 import { realpath } from 'node:fs/promises'
 import { isAbsolute, resolve } from 'node:path'
 
@@ -17,8 +20,12 @@ const VIEWS = ['none', 'realms', 'realm', 'analytics']
 
 const keyOf = (realm, runId) => `${realm}\u0000${runId}`
 
-/** Whether a hearth's listing is the whole hearth: no later page, no run behind, no refusal. */
-const whole = (hearth) => hearth.detail === null && (hearth.next === null || hearth.next === undefined) && hearth.behind === 0
+/**
+ * Whether a hearth's listing is the whole hearth: no later page, no run
+ * behind, no retained page, no refusal. A page kept from an older read is
+ * still one page, so its last page states no whole fleet (M5).
+ */
+const whole = (hearth) => hearth.retained !== true && hearth.detail === null && (hearth.next === null || hearth.next === undefined) && hearth.behind === 0
 
 /** A fault in the console itself, which no readout explains: DSH's log shows it. */
 const report = (error) => console.error('[brokkr-console]', error)
@@ -35,85 +42,8 @@ function headsOf(fleet) {
 /** The key a retained page is held by: the realm and the journal it was read from. */
 const pageKey = (realm, journal) => `${realm}\u0000${journal}`
 
-/** The fleet's verdict cell, in display columns, as `brokkr-view` clamps it. */
-const VERDICT_COLUMNS = 14
-
-/**
- * The standing a fresh inspect summary states, by the status and phase
- * `brokkr-view` derives it from; `null` for a status this console does not
- * know, so the cached row is kept rather than guessed at.
- */
-function standingOf(summary) {
-  if (summary === null) return null
-  if (summary.status === 'running') return 'running'
-  if (summary.status === 'awaiting_operator') return 'parked'
-  if (summary.status === 'completed') return 'shipped'
-  if (summary.status === 'stopped') return summary.phase === 'stop' ? 'stopped' : 'operator_stopped'
-  return null
-}
-
-/** A rule id as the fleet's verdict cell writes it: the phase prefix dropped, then clamped to fourteen columns. */
-function abbreviated(rule, from) {
-  const [head, ...rest] = rule.split('-')
-  const short = rest.length > 0 && from !== null && from.startsWith(head.toLowerCase()) ? rest.join('-') : rule
-  return short.length <= VERDICT_COLUMNS ? short : `${short.slice(0, VERDICT_COLUMNS - 1)}…`
-}
-
-/**
- * A verdict for a fresh summary whose standing the held row does not state:
- * the one transition an inspect read can prove. The listing's verdict is kept
- * whenever the standing is unchanged, so Brokkr's rule, text and residual are
- * never derived a second time for a row a read already derived. `?` is the
- * wire's absent destination, so it routes nowhere exactly as `brokkr-view`
- * reads a missing `next`.
- */
-function verdictOf(summary, ruling) {
-  const standing = standingOf(summary)
-  if (standing === null) return null
-  const routed = ruling === null || ruling === undefined ? null : ruling.next !== '' && ruling.next !== '?'
-  const named = standing === 'shipped' || standing === 'stopped' || (standing === 'parked' && routed === false)
-  const rule = named ? ruling?.rule_id ?? null : null
-  const text = standing === 'running' ? ''
-    : standing === 'operator_stopped' ? 'by operator'
-      : rule === null ? '—' : abbreviated(rule, ruling?.from ?? null)
-  return { standing, rule, reason: summary.park_reason ?? null, text }
-}
-
-/**
- * The row a fresh inspect summary states over the row the listing gave: its
- * head and phase follow the read. Its verdict is Brokkr's own and stays put
- * while the standing does not move; only a standing the held row does not
- * state is translated from the summary and ruling.
- */
-function rowOf(summary, ruling, held) {
-  const standing = standingOf(summary)
-  if (standing === null) return held
-  const moved = { ...held, seq: summary.seq, phase: summary.phase }
-  return standing === held.verdict.standing ? moved : { ...moved, verdict: verdictOf(summary, ruling) }
-}
-
-/**
- * A row for an open run a partial listing omits, from the one read that
- * states it: its inspect summary, over the row the same journal held last
- * time when there was one, so its title and start time survive the page.
- */
-function rowFor(ref, view, held = null) {
-  const summary = view.summary
-  const feature = summary.feature ?? held?.feature ?? ''
-  const written = view.journal.map((row) => row.recorded_at).filter((at) => at !== '')
-  return {
-    run_id: ref.run_id,
-    title: held?.title ?? (feature.split('\n')[0] || ref.run_id),
-    feature,
-    phase: summary.phase,
-    seq: summary.seq,
-    created_at: held?.created_at ?? written[0] ?? null,
-    last_recorded_at: written.at(-1) ?? held?.last_recorded_at ?? null,
-    detail: held?.detail ?? null,
-    acknowledgement: held?.acknowledgement ?? null,
-    verdict: held === null ? verdictOf(summary, view.ruling) : rowOf(summary, view.ruling, held).verdict,
-  }
-}
+/** Whether a fresh inspect summary shows the held row moved: its head, phase or standing. */
+const moved = (row, summary) => row.seq !== summary.seq || row.phase !== summary.phase || row.verdict.standing !== summary.standing
 
 /** A watch message, checked; `null` for one the host does not read. */
 function watchOf(message) {
@@ -191,7 +121,14 @@ async function settled(read) {
  */
 export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
   const clients = new Set()
-  const state = { fleet: null, prior: null, extras: new Map(), repin: new Set(), fleetText: null, oneMap: false, day: null, overviewText: null, timer: null, busy: false }
+  const state = { fleet: null, extras: new Map(), repin: new Set(), fleetText: null, oneMap: false, shown: [], day: null, overviewText: null, timer: null, busy: false }
+
+  /** Whether the journal `target` was read from is still the one its realm names (M4). */
+  function current(target) {
+    if (target === null) return false
+    const hearth = state.fleet?.hearths.find((each) => each.realm === target.realm)
+    return hearth !== undefined && hearth.journal === target.journal
+  }
 
   /**
    * A run's journal from the latest fleet, or `null` when the listing is
@@ -263,6 +200,16 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     const hearths = await hearthsOf(brokkr, workspace)
     state.oneMap = hearths !== null && hearths.length === 1
     const fleet = await readHearths(hearths)
+    // The latest first page's running rows, before any retained page is
+    // merged: each is inspected on every poll, whatever the held pages say.
+    const shown = []
+    for (const hearth of fleet.hearths) {
+      if (hearth.detail !== null) continue
+      for (const row of hearth.runs) {
+        if (row.verdict.standing === 'running') shown.push({ realm: hearth.realm, run_id: row.run_id })
+      }
+    }
+    state.shown = shown
     const onScreen = watched()
     const repin = new Set()
     for (const [key, extra] of [...state.extras]) {
@@ -285,7 +232,7 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     state.repin = repin
     const text = JSON.stringify(fleet)
     const changed = text !== state.fleetText
-    Object.assign(state, { prior: state.fleet, fleet, fleetText: text })
+    Object.assign(state, { fleet, fleetText: text })
     return { changed }
   }
 
@@ -301,14 +248,16 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     const cursor = first.next
     // A one-hearth world keeps part 1's no-`--db` argv; a map's journal still owns its pages.
     const read = await settled(() => brokkr.fleetPage(state.oneMap ? null : first.journal, cursor))
+    // A poll may have replaced the fleet while this page was in flight: a
+    // result read from a journal the realm no longer names is dropped, and
+    // nothing is painted from it (M4).
+    const hearth = state.fleet?.hearths.find((each) => each.realm === realm)
+    if (hearth === undefined || hearth.journal !== first.journal) return
     if (read.refused !== undefined) {
       for (const client of clients) client.peer.send({ type: 'error', message: read.refused })
       return
     }
-    // A poll may have replaced the fleet while this page was in flight: append
-    // to the hearth that is current now, never to the one the read started on.
-    const hearth = state.fleet?.hearths.find((each) => each.realm === realm)
-    if (hearth === undefined || hearth.journal !== first.journal || hearth.next !== cursor) return
+    if (hearth.next !== cursor) return
     const listed = new Set(hearth.runs.map((row) => row.run_id))
     const added = []
     for (const row of read.value.runs) {
@@ -353,35 +302,47 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
   }
 
   /**
-   * Write a fresh inspect summary over the row wherever the fleet holds it;
-   * a partial listing that omits the open run gets a row from that same read.
-   * An older read never replaces a newer head, and a whole listing that does
-   * not hold the run says the run is gone, not that a row is invented.
+   * The served row for `target` when a fresh summary shows the held row
+   * moved, or when a partial listing left the run out. Brokkr's one
+   * derivation is read whole; this host derives none of its standing,
+   * verdict or text (M1-M3). A read from a journal the realm no longer
+   * names is dropped (M4).
    */
-  function holdRow(target, view) {
-    const summary = view.summary
-    const hearth = state.fleet?.hearths.find((each) => each.realm === target.realm && (target.journal === null || each.journal === target.journal))
+  async function syncRow(target, summary) {
+    const hearth = state.fleet?.hearths.find((each) => each.realm === target.realm && each.journal === target.journal)
+    if (hearth === undefined || hearth.detail !== null) return false
+    const held = hearth.runs.find((each) => each.run_id === target.run_id) ?? null
+    if (held !== null && !moved(held, summary)) return false
+    if (held !== null && held.seq !== null && summary.seq < held.seq) return false
+    const read = await settled(() => brokkr.runRow(target))
+    if (read.refused !== undefined || !current(target) || read.value.run_id !== target.run_id) return false
+    return holdRow(target, read.value)
+  }
+
+  /**
+   * Replace the fleet's row for `target` whole with `row`, the one Brokkr
+   * served, adding it where a partial listing left the run out. A whole
+   * listing that omits the run still says the run is gone; a retained page
+   * never does (M5). An older read never replaces a newer head.
+   */
+  function holdRow(target, row) {
+    const hearth = state.fleet?.hearths.find((each) => each.realm === target.realm && each.journal === target.journal)
     if (hearth === undefined || hearth.detail !== null) return false
     const index = hearth.runs.findIndex((each) => each.run_id === target.run_id)
     if (index === -1) {
       if (whole(hearth)) return false
-      const before = state.prior?.hearths.find((each) => each.realm === target.realm && each.journal === target.journal)
-      const held = before?.runs.find((each) => each.run_id === target.run_id) ?? null
-      const fresh = rowFor(target, view, held)
-      if (fresh.verdict === null) return false
-      hearth.runs.push(fresh)
+      hearth.runs.push(row)
       state.fleetText = JSON.stringify(state.fleet)
       return 'added'
     }
     const held = hearth.runs[index]
-    if (held.seq !== null && summary.seq < held.seq) return false
-    const fresh = rowOf(summary, view.ruling, held)
-    if (JSON.stringify(fresh) === JSON.stringify(held)) return false
-    hearth.runs[index] = fresh
+    if (held.seq !== null && row.seq !== null && row.seq < held.seq) return false
+    if (JSON.stringify(row) === JSON.stringify(held)) return false
+    hearth.runs[index] = row
     for (const extra of state.extras.values()) {
       if (extra.realm !== target.realm || extra.journal !== target.journal) continue
       const at = extra.runs.findIndex((each) => each.run_id === target.run_id)
-      if (at !== -1) extra.runs[at] = fresh
+      if (at !== -1) extra.runs[at] = row
     }
     state.fleetText = JSON.stringify(state.fleet)
     return 'patched'
@@ -399,8 +360,11 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
       let run = null
       if (ref !== null) {
         const read = await runOf(ref)
+        // A snapshot read from a journal the realm no longer names paints
+        // nothing, not even the current fleet it was read beside (M4).
+        if (read.target !== null && !current(read.target)) return
         run = read.run
-        if (read.target !== null && run.view?.summary !== null && run.view?.summary !== undefined) holdRow(read.target, run.view)
+        if (read.target !== null && run.view?.summary !== null && run.view?.summary !== undefined) await syncRow(read.target, run.view.summary)
         client.runText.set(keyOf(ref.realm, ref.run_id), JSON.stringify(run))
       }
       client.peer.send({
@@ -418,28 +382,31 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
   }
 
   /**
-   * Read every open run once this poll, for the clients that have it open,
-   * wherever the fleet holds it: first page, retained page or neither. The
-   * fresh summary replaces the held row, and a run message goes only when the
-   * read differs from the last one this client was sent. A message is fenced
-   * against the watch that is current when the read lands, so a read that
-   * started for one run cannot repaint or reach another.
+   * Read every open run and every running run the latest first page shows
+   * once this poll, wherever the fleet holds them: first page, retained
+   * page or neither. A fresh summary opens the run's served row when it
+   * moved, and a message goes only to the clients that have the run open.
+   * A read from a journal the realm no longer names reaches no one (M4);
+   * a retained page never proves a run is gone (M5).
    */
   async function pushRuns(before) {
-    const open = new Map()
-    for (const client of clients) {
-      const run = client.watch.run
-      if (run === null) continue
-      const key = keyOf(run.realm, run.run_id)
-      open.set(key, [...(open.get(key) ?? []), client])
+    const reads = new Map()
+    const want = (ref, watcher = null) => {
+      const key = keyOf(ref.realm, ref.run_id)
+      const held = reads.get(key)
+      if (held === undefined) reads.set(key, { ref: { realm: ref.realm, run_id: ref.run_id }, watchers: watcher === null ? [] : [watcher] })
+      else if (watcher !== null) held.watchers.push(watcher)
     }
+    for (const client of clients) if (client.watch.run !== null) want(client.watch.run, client)
+    for (const ref of state.shown ?? []) want(ref)
     const updates = []
     let patched = false
-    for (const [key, watchers] of open) {
-      const ref = { ...watchers[0].watch.run }
+    for (const [key, { ref, watchers }] of reads) {
       const read = await runOf(ref)
-      const held = read.target !== null && read.run.view?.summary !== null && read.run.view?.summary !== undefined ? holdRow(read.target, read.run.view) : false
-      if (held !== false) patched = true
+      if (read.target !== null && !current(read.target)) continue
+      const summary = read.run.view?.summary ?? null
+      if (summary !== null && (await syncRow(read.target, summary)) !== false) patched = true
+      if (watchers.length === 0) continue
       const text = JSON.stringify(read.run)
       // A refusal has no summary to compare; it is sent again when the
       // listing's head for this run moved, so a failed read still follows it.
@@ -448,7 +415,7 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
       const seq = read.target === null ? undefined
         : state.fleet?.hearths.find((each) => each.realm === ref.realm && each.journal === read.target.journal)?.runs.find((each) => each.run_id === ref.run_id)?.seq
       const refusalMoved = read.run.refused !== undefined && before.get(key) !== seq
-      const reach = watchers.filter((client) => client.runText.get(key) !== text || refusalMoved || held === 'added' || state.repin.has(key))
+      const reach = watchers.filter((client) => client.runText.get(key) !== text || refusalMoved || state.repin.has(key))
       if (reach.length === 0) continue
       for (const client of reach) client.runText.set(key, text)
       updates.push([reach, read.run])

@@ -191,6 +191,13 @@ export function pageOf(doc) {
   return fleet.hearths[0]
 }
 
+/** `brokkr runs --json --run <id>`: exactly the one row the paged read lists for that run, in the same page wire. */
+export function oneRunOf(doc) {
+  const page = pageOf(doc)
+  if (page.runs.length !== 1) throw new ReadoutRefused('shape', 'brokkr runs --run did not list exactly one run')
+  return page.runs[0]
+}
+
 /** `brokkr realms --json`: each realm's name, folder and effective journal, as the map names it (relative to the workspace). */
 export function realmsOf(doc) {
   object(doc, 'realms')

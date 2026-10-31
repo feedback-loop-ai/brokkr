@@ -61,7 +61,7 @@ enum Selector {
 /// reads the run. `verbs/tests.rs` pins the verbs that came to the
 /// resolver last. An entry that names no argument, and an argument whose
 /// id names a run with no entry, fail `every_selector_names_an_argument`.
-const SELECTORS: [(&str, &str, Selector); 22] = [
+const SELECTORS: [(&str, &str, Selector); 23] = [
     ("brokkr costs", "run", Selector::Always),
     ("brokkr run", "continues", Selector::Always),
     ("brokkr ledger", "run", Selector::Always),
@@ -78,6 +78,7 @@ const SELECTORS: [(&str, &str, Selector); 22] = [
     ("brokkr operator", "run", Selector::Always),
     ("brokkr operator", "by_run", Selector::Literal),
     ("brokkr inspect", "run", Selector::Always),
+    ("brokkr runs", "run", Selector::Literal),
     ("brokkr transcript", "run", Selector::Always),
     ("brokkr seats", "run", Selector::Always),
     ("brokkr watch", "run", Selector::Always),
@@ -407,7 +408,7 @@ fn every_selector_names_an_argument() {
         selector("brokkr keep-refs plant", run),
         Some(Selector::Always)
     );
-    assert_eq!(selector("brokkr runs", run), None);
+    assert_eq!(selector("brokkr runs", run), Some(Selector::Literal));
 }
 
 #[test]

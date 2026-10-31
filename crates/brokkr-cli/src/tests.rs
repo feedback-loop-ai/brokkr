@@ -209,13 +209,11 @@ fn inspect_r1(db: &std::path::Path, json: bool) -> Cmd {
 
 /// `brokkr runs` over the world `realms` and `db` name, every run listed.
 pub(crate) fn every_run(realms: Option<PathBuf>, db: Option<PathBuf>, json: bool) -> Cmd {
-    let (limit, after) = (None, None);
     Cmd::Runs(RunsArgs {
         realms,
         db,
         json,
-        limit,
-        after,
+        ..RunsArgs::default()
     })
 }
 

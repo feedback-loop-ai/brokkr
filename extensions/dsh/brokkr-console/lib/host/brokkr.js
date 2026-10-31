@@ -6,7 +6,7 @@
 // can) is never read as a flag.
 import { FLEET_WINDOW } from './config.js'
 import { launch, run } from './runner.js'
-import { analyticsOf, fleetOf, graphOf, jsonOf, muninnOf, pageOf, queueOf, realmsOf, runViewOf, transcriptReadOf } from './readouts.js'
+import { analyticsOf, fleetOf, graphOf, jsonOf, muninnOf, oneRunOf, pageOf, queueOf, realmsOf, runViewOf, transcriptReadOf } from './readouts.js'
 
 /** The two `brokkr operator` commands the console presses. */
 const OPERATOR = ['retry', 'stop']
@@ -72,6 +72,8 @@ export function brokkrOf(config) {
     fleet: () => read(['runs', '--json'], 'brokkr runs', fleetOf),
     /** One hearth's first page, or the page after `after`, with its `next` and `behind` kept (the fleet read). */
     fleetPage: (journal = null, after = null) => read(fleetArgv(journal, after), 'brokkr runs', pageOf),
+    /** One run's row, the same page wire the paged read gives, holding that run's `RunRow` whole. */
+    runRow: (target) => read(['runs', '--json', ...runOf(target)], 'brokkr runs', oneRunOf),
     inspect: (target) => read([...inspectArgv(target), '--json'], 'brokkr inspect', runViewOf),
     inspectHint,
     queue: () => read(['queue', 'list', '--json'], 'brokkr queue list', queueOf),

@@ -517,7 +517,7 @@ pub(super) struct BridgeArgs {
     pub(super) interval_ms: u64,
 }
 
-#[derive(clap::Args)]
+#[derive(clap::Args, Default)]
 #[group(skip)]
 pub(super) struct RunsArgs {
     /// The world's map — the journal it names is the one opened (default the found folder's
@@ -537,6 +537,10 @@ pub(super) struct RunsArgs {
     /// Print the page after this cursor: a page's `next`.
     #[arg(long, value_name = "CURSOR", value_parser = super::fleet::cursor)]
     pub(super) after: Option<brokkr_view::Cursor>,
+    /// Print one run's row: the same row this listing gives it, and no
+    /// other. Refused by name when the id names no run.
+    #[arg(long, value_name = "RUN", conflicts_with_all = ["limit", "after"])]
+    pub(super) run: Option<String>,
 }
 
 #[derive(clap::Args)]
