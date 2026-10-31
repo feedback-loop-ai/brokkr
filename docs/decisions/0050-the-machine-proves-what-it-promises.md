@@ -278,14 +278,17 @@ Alternatives weighed:
    stands today, where a step every result of which ends the sequence
    makes its later steps unreachable. And a non-final step whose result is
    in the seat's *hard* vocabulary — a word whose every table arm is
-   `hard` and goes to `stop` — ends the sequence with that
+   `hard` and goes to a phase that stops the run (the terminal `stop`,
+   the engine's own test) — ends the sequence with that
    word wherever it is reported: a panel's `security-hold` is the
    machine's. The chief's charter floor stays as prose and stops being
    the only defence.
 
    **Enforcement binding:** the sequence parser in
    `crates/brokkr-runtime/src/bundle/sequence.rs` (`parse_sequence`,
-   `stamp_endings`, `hard_results`, `refuse_unreachable`: the reachable set
+   `stamp_endings`, `hard_results`, which asks `stops_run`, the one test
+   the engine's `request_or_finish` also calls, whether an arm's
+   destination stops the run; `refuse_unreachable`: the reachable set
    is the final step's results plus every non-final step's compiled
    `ends_on`, walked until a step every result of which ends the sequence,
    since a middle step's plain checkpoint never reaches the
@@ -302,8 +305,10 @@ Alternatives weighed:
    `crates/brokkr-runtime/tests/crucible_review_sequence.rs` — a panel
    reporting `security-hold` under a chief that would rule `clean` ends the
    effect at `security-hold` and the run stops, while a non-hard `residual`
-   the chief can also emit does not, a refused early ending fails and
-   parks, and a stored manifest without endings resumes to the derived
+   the chief can also emit does not, a hard arm to a `stop` that is not
+   terminal ends nothing early (`chief_a_nonterminal_stop_does_not_skip_the_refusal`,
+   with `chief_checkpoint_reaches_final_refusal_control`), a refused early
+   ending fails and parks, and a stored manifest without endings resumes to the derived
    set; `crates/brokkr-runtime/tests/table_lints.rs`
    — ruling 5's sequence property over every composed recipe.
 

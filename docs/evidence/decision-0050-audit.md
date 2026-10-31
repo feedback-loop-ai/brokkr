@@ -303,7 +303,9 @@ rulings 5 and 7.
 - **Built (2026-10-30, #429).** The compiler derives every non-final
   step's `ends_on` — the seat's words no later step can emit, plus the
   words whose every arm in the phase's composed table is `hard` and goes
-  to `stop` — and holds it on the compiled `SequenceStep`. The executor in
+  to a phase that stops the run (`stops_run`: the terminal `stop`, the
+  engine's own test; a `stop` that is not terminal ends nothing) — and
+  holds it on the compiled `SequenceStep`. The executor in
   `crates/brokkr-runtime/src/engine/sequence.rs` reads that set and
   compares no vocabularies at run time; a hard word ends the sequence
   wherever a step reports it, so a panel's `security-hold` no longer

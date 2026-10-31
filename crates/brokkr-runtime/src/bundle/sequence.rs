@@ -466,7 +466,8 @@ fn is_hard_stop(machine: &Machine, rule: &Rule) -> bool {
 }
 
 /// The phase's hard vocabulary: every word whose every arm in the composed
-/// table is hard and goes to `stop` (decision 0050, ruling 7).
+/// table is hard and stops the run, as `stops_run` reads its destination
+/// (decision 0050, ruling 7).
 pub(super) fn hard_results(machine: &Machine, phase: &str) -> BTreeSet<String> {
     let mut words: std::collections::BTreeMap<&str, bool> = std::collections::BTreeMap::new();
     for rule in machine.rules.iter().filter(|rule| rule.from == phase) {
