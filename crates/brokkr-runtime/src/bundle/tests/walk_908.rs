@@ -164,6 +164,38 @@ fn pinned_neither_git_nor_target(compiled: &Bundle) {
     assert!(files.contains_key("roles/role.md"));
 }
 
+/// A bundle whose own root git ignores (a scratch or build tree of the
+/// repository it stands in) is outside that repository's tracked content:
+/// it compiles and pins its own files, and no git-ignore skip applies
+/// inside it, as for a bundle outside any work tree (operator, 2026-11-01,
+/// #908). CI's temporary directories sit under the repository's ignored
+/// `target/`, which is how this was found.
+#[test]
+fn a_bundle_inside_an_ignored_tree_of_its_repository_pins_its_own_files() {
+    let fixture = Fixture::new();
+    std::fs::write(fixture.root.join(".gitignore"), "scratch/\ntarget/\n").unwrap();
+    test_repository(&fixture.root);
+    let bundle = fixture.root.join("scratch/bundle");
+    std::fs::create_dir_all(bundle.join("roles")).unwrap();
+    std::fs::create_dir_all(bundle.join("target")).unwrap();
+    std::fs::write(bundle.join("roles/role.md"), "# role").unwrap();
+    std::fs::write(bundle.join("target/artifact"), "built").unwrap();
+    std::fs::write(
+        bundle.join("bundle.json"),
+        serde_json::to_vec(&Fixture::config()).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        bundle.join("policy.json"),
+        serde_json::to_vec(&Fixture::policy()).unwrap(),
+    )
+    .unwrap();
+    let compiled = Bundle::compile(&bundle).unwrap();
+    let files = compiled.manifest["files"].as_object().unwrap();
+    assert!(files.contains_key("roles/role.md"));
+    assert!(files.contains_key("target/artifact"));
+}
+
 /// C4: a host's global `core.excludesFile` cannot decide what a fixture's
 /// repository-root bundle pins. `test_repository` writes the repository's
 /// own `core.excludesFile`, and git's precedence makes it win; this test

@@ -1206,7 +1206,10 @@ build and every reader of the run carried the event.
    stay git's to interpret, never a copy of them. A tree git reports ignored
    is skipped whole, and everything under it inherits that one answer. A
    bundle outside any git work tree skips only `.git`, as it did before this
-   addendum. A `.git` stands above the bundle but git cannot answer for it:
+   addendum. So does a bundle whose own root git reports ignored, a scratch
+   or build tree of the repository it stands in: it lies outside that
+   repository's tracked content, so no git-ignore skip applies inside it
+   (operator, 2026-11-01). A `.git` stands above the bundle but git cannot answer for it:
    the bundle is refused by name with git's own stderr, never read as "pin
    everything" or "skip everything" (a failed discovery is not "not
    ignored"). The walk, the consumed inputs, the pinned-script lookup and the
