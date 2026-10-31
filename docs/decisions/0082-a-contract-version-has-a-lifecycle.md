@@ -3,7 +3,7 @@
 Status: accepted — operator ruled in chat 2026-10-12
 Date: 2026-10-11
 
-Built: unbuilt (#361)
+Built: partial (#361) — slice 1 built rulings 1, 2, 4 and 5 (the table, its check and the minting rule); ruling 3's windows, retirement and FROZEN binding are unbuilt
 
 ## Context
 

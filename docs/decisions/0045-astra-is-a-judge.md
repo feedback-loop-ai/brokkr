@@ -5,6 +5,11 @@ Date: 2026-09-05
 
 Built: built
 Supersedes in part: 0041, 0043
+Keeps the minting of: contracts/run-manifest.v7.schema.json
+Keeps the minting of: contracts/run-manifest.v8.schema.json
+Keeps the minting of: contracts/realms.v3.schema.json
+Keeps the minting of: contracts/phase-entered-case.v1.schema.json
+Keeps the minting of: contracts/run-manifest.v6.schema.json
 
 ## Context
 

@@ -62,6 +62,8 @@ discipline.
 
 ## Addendum — 2026-09-27, the kill takes the attempt's process tree (#403), proposed
 
+Addendum status: proposed
+
 The deadline kill above reached only the driver process. The harness a
 driver starts, and that harness's tool subprocesses, outlived it: on
 2026-09-25 a Claude session went on writing for 22 minutes after the

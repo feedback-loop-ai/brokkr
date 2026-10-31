@@ -425,3 +425,6 @@ impl ToolDialect {
                "kind": self.kind.word(), "serves": self.serves})
     }
 }
+
+#[cfg(test)]
+mod contract_lifecycle_tests;

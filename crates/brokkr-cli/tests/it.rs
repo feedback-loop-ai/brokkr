@@ -41,6 +41,7 @@ mod capability_artifacts;
 mod capability_broker;
 mod capability_verbs;
 mod composed_view;
+mod contract_lifecycle;
 mod contributing;
 mod costs_read;
 mod decisions_index;

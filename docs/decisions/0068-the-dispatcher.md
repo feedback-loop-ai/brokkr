@@ -138,6 +138,8 @@ drift as the journal grows.
 
 ## Addendum — 2026-10-10, the host configuration is the machine's (#430), ruled
 
+Addendum status: accepted (operator, 2026-10-10)
+
 Rulings 3 and 5 declare the admission limits "in the realm's host
 configuration", and the realms map carries no such block. The operator ruled
 on 2026-10-10 (option B, recorded on #430): host capacity lives in a

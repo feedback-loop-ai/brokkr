@@ -5,6 +5,9 @@ Date: 2026-10-10
 
 Built: built
 Supersedes in part: 0042
+Keeps the minting of: contracts/dialect.v1.schema.json
+Keeps the minting of: contracts/dialect.v2.schema.json
+Keeps the minting of: contracts/dialect.v3.schema.json
 
 ## Context
 

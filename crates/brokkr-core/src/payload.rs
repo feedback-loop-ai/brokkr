@@ -357,3 +357,6 @@ pub(crate) fn unplaced(event: &EventEnvelope, out_of_place: FoldError) -> FoldEr
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod contract_lifecycle_tests;

@@ -191,3 +191,23 @@ fn a_provider_or_a_route_written_twice_is_refused_naming_the_key() {
     let said = "key 'cloud' is written twice at line 1 column 162";
     assert_eq!(refused(&routed), said);
 }
+
+/// Decision 0082 ruling 4: the `forge.host/v1` row names this crate's private
+/// reader, and the reader admits an instance of the version.
+#[test]
+fn the_lifecycle_row_names_the_reader_and_a_v1_file_loads() {
+    let row = crate::contract_lifecycle::row("contracts/host.v1.schema.json");
+    assert_eq!(row.version, "forge.host/v1");
+    assert_eq!(row.reader, "load brokkr_runtime::admission::host::read");
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("host.json");
+    std::fs::write(
+        &file,
+        r#"{"schema":"forge.host/v1","providers":{},"floors":[{"place":"temp","floor_bytes":1}],"boxed_builds":{"ceiling":1}}"#,
+    )
+    .unwrap();
+    match read(&file).unwrap() {
+        Hosting::Declared(host) => assert_eq!(host.providers.len(), 0),
+        other => panic!("a v1 host file did not load: {other:?}"),
+    }
+}

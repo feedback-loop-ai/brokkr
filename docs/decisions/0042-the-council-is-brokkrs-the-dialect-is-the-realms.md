@@ -503,6 +503,8 @@ seat, which phase the council sits on, custom schemas, a dialect wager
 
 ## Addendum — 2026-09-04, the operator's rulings: the decision is authoritative, and the fold runs one way
 
+Addendum status: accepted (operator, 2026-09-04)
+
 Ruling 7 declared this realm's dialect and gave one reason, shape: a
 proposal that amends a living specification is what this repository
 already does with its decisions. A review the same day found the reason
@@ -578,6 +580,8 @@ right.
    so no journal pins a v1 dialect for a resume to reload.
 
 ## Addendum — 2026-09-06, operator ruled: a capability spec names the changes that wrote it
+
+Addendum status: accepted (operator, 2026-09-06)
 
 The first change to run the whole machine end to end,
 `2026-09-06-boundary-named-slice-i`, promoted eight capabilities. Every

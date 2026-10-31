@@ -333,3 +333,6 @@ fn panel_shape(body: Option<ExecutableBody<'_>>, phase: &str) -> PanelShape {
         },
     }
 }
+
+#[cfg(test)]
+mod contract_lifecycle_tests;

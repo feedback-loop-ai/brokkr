@@ -213,7 +213,7 @@ closed-vocabulary aggregate produces the one typed result the machine
 sees. On a parked panel, `operator retry --member <tag>` re-runs the named
 members and carries settled verdicts from their original attempts only when
 the reviewed head, clean tree, pinned bundle and inputs still match, at both
-command and execution time (proposed decision 0093). A sequence member uses
+command and execution time (decision 0093). A sequence member uses
 `<step>:<member>`; only a first-step panel can carry. The same aggregate and
 policy route the joined result. The journal and view name each carried
 verdict's source attempt; plain retry runs every member. A run driven with

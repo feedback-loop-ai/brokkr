@@ -376,6 +376,7 @@ dependencies = [
  "dhat",
  "gungraun",
  "insta",
+ "jsonschema",
  "ratatui",
  "rusqlite",
  "rustix",
