@@ -1343,9 +1343,11 @@ fn unsupported_carriage_refuses_requires_and_a_dead_server_map_gives_no_authorit
 
 /// A set without the box's hands server carries no broker, whatever the
 /// ask's strength (MB2): the bare office's empty set refuses by its first
-/// holding; exec's set, and an opaque command no adapter answers for, have
-/// no model channel; and a candidate that composed nothing launches
-/// nothing, so it judges nothing and its outcome is left as it was.
+/// holding, even where its hands are networked, as the networked check
+/// spares the empty set; exec's set, and an opaque command no adapter
+/// answers for, have no model channel; and a candidate that composed
+/// nothing launches nothing, so it judges nothing and its outcome is left
+/// as it was.
 #[test]
 fn a_set_without_the_hands_server_or_a_model_channel_carries_no_broker() {
     use mcp::Unservable::{NoHands, NoModelChannel};
@@ -1380,12 +1382,12 @@ fn a_set_without_the_hands_server_or_a_model_channel_carries_no_broker() {
     let adapters = Adapters::load(&fixture.adapters()).unwrap();
     let authority = crate::capabilities::Authority::nothing("private", &fixture.root);
     let asks = crate::capabilities::SiteAsks::at(SeatClass::Work, "research", None, None).unwrap();
-    let judge = |intent, adapter| {
+    let judge = |intent, adapter, networked| {
         let site = mcp::McpSite {
             intent,
             adapter,
             strict: Vec::new(),
-            networked: false,
+            networked,
         };
         let mut judged = outcome.clone();
         let judgment = site.contribute(authority.who(&asks), &asks.asks, &mut judged);
@@ -1394,14 +1396,20 @@ fn a_set_without_the_hands_server_or_a_model_channel_carries_no_broker() {
     let no_channel = Err(NoModelChannel("library-docs".into()));
     assert_eq!(
         [
-            judge(Some(McpIntent::NoModelSurface), adapters.adapter("codex")),
-            judge(*intent, None),
-            judge(None, None),
+            judge(
+                Some(McpIntent::NoModelSurface),
+                adapters.adapter("codex"),
+                false
+            ),
+            judge(*intent, None, false),
+            judge(None, None, false),
+            judge(Some(McpIntent::Empty), None, true),
         ],
         [
             (no_channel.clone(), true),
             (no_channel, true),
-            (Ok(()), true)
+            (Ok(()), true),
+            (Err(NoHands("library-docs".into())), true),
         ]
     );
     assert_eq!(
@@ -1446,8 +1454,10 @@ fn an_unrepresentable_server_name_refuses_and_is_never_shortened() {
 }
 
 /// Only an MCP holding contributes a server (U7b; MB1): a native holding
-/// beside one adds none, and a set holding no MCP capability contributes
-/// exactly itself, the empty set and exec's included.
+/// beside one adds none, a set holding no MCP capability contributes
+/// exactly itself, the empty set and exec's included, and a networked hands
+/// set refuses by its first MCP holding (MB2), which `contribute`'s earlier
+/// networked check otherwise reaches first.
 #[test]
 fn only_an_mcp_holding_contributes_and_a_set_without_one_is_itself() {
     use crate::capabilities::Implementation;
@@ -1483,6 +1493,10 @@ fn only_an_mcp_holding_contributes_and_a_set_without_one_is_itself() {
     assert_eq!(
         McpIntent::Hands.contribution(&outcome),
         Ok(Brokered(vec!["cap-library-docs"]))
+    );
+    assert_eq!(
+        McpIntent::NetworkedHands.contribution(&outcome),
+        Err(mcp::Unservable::NetworkedHands("library-docs".into()))
     );
 }
 

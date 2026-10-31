@@ -77,7 +77,7 @@ pub(super) fn serve_io(
     input: impl std::io::BufRead,
     output: impl std::io::Write,
 ) -> std::io::Result<()> {
-    super::serve_with(kind, extra, input, output, || Ok(()))
+    super::serve_with(kind, extra, input, output, super::tests::unconfined)
 }
 
 /// The session a start rejoins: the offer made for its own effect and

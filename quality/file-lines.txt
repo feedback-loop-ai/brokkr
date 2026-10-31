@@ -593,7 +593,7 @@
    236 crates/brokkr-protocol/src/adapters/notice_tests/discovery_tests.rs
    872 crates/brokkr-protocol/src/adapters/route_overlay/tests.rs
     23 crates/brokkr-protocol/src/adapters/served_route/tests.rs
- 18848 crates/brokkr-protocol/src/adapters/tests.rs
+ 18854 crates/brokkr-protocol/src/adapters/tests.rs
    212 crates/brokkr-protocol/src/adapters/tests/claude_usage.rs
    865 crates/brokkr-protocol/src/adapters/tests/codex_isolation.rs
    555 crates/brokkr-protocol/src/broker/ledger/tests.rs
@@ -656,7 +656,7 @@
    407 crates/brokkr-runtime/src/bundle/agent_tests/charter_tests.rs
    588 crates/brokkr-runtime/src/bundle/agent_tests/gate_tests.rs
     44 crates/brokkr-runtime/src/bundle/agent_tests/hire_order_tests.rs
-  1663 crates/brokkr-runtime/src/bundle/agent_tests/mcp_tests.rs
+  1677 crates/brokkr-runtime/src/bundle/agent_tests/mcp_tests.rs
    324 crates/brokkr-runtime/src/bundle/agent_tests/opened_tests.rs
     28 crates/brokkr-runtime/src/bundle/agent_tests/sandbox_tests.rs
     14 crates/brokkr-runtime/src/bundle/aggregate/tests.rs
