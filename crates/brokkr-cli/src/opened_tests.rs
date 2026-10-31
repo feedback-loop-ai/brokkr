@@ -367,3 +367,109 @@ fn a_participant_refused_after_a_failed_read_is_drawn_in_the_store_words() {
         ])
     );
 }
+
+/// The page's run list runs with a document, a clock's worth of fetch and
+/// nothing else, so what it paints is the page's own code.
+const RUN_LIST: &str = r#"
+// Boa 0.21 predates Object.hasOwn, which the page's badge uses.
+Object.hasOwn = Object.hasOwn || function (object, key) { return Object.prototype.hasOwnProperty.call(object, key); };
+var FAVICON_IDLE = 'idle';
+var FAVICON_FORGING = 'forging';
+var __forging = [];
+var __list = { children: [],
+  replaceChildren: function () { this.children = []; },
+  appendChild: function (child) { this.children.push(child); } };
+function __node(tag) {
+  return { tag: tag, text: null, className: null, title: null, children: [],
+    appendChild: function (child) { this.children.push(child); } };
+}
+var document = {
+  body: { classList: { toggle: function (name, on) { __forging.push(on); } } },
+  getElementById: function (id) {
+    if (id === 'runlist') return __list;
+    return { href: '', classList: { toggle: function () {} } };
+  },
+  createElement: function (tag) { return __node(tag); },
+  createTextNode: function (text) { return { tag: '#text', text: text, children: [] }; }
+};
+var active = 'r1';
+function select() {}
+function fetch() {
+  return Promise.resolve({ ok: true, status: 200,
+    json: function () { return Promise.resolve(__served); } });
+}
+function __words(node) {
+  const own = node.textContent === undefined ? node.text : node.textContent;
+  return (own === null || own === undefined ? '' : own) + node.children.map(__words).join('');
+}
+function __listed() {
+  return { list: __list.children.map(__words), forging: __forging,
+    detail: runDetail(__served[0]) };
+}
+"#;
+
+/// What the page's run list paints over `runs` as `/api/runs` serves it.
+fn drawn_in_the_run_list(runs: serde_json::Value) -> serde_json::Value {
+    let mut boa = boa_engine::Context::default();
+    let served = format!("var __served = {runs};");
+    for source in [page_block("run-list"), RUN_LIST, served.as_str()] {
+        boa.eval(boa_engine::Source::from_bytes(source.as_bytes()))
+            .unwrap_or_else(|error| panic!("evaluating the page: {error}"));
+    }
+    boa.eval(boa_engine::Source::from_bytes(b"loadRuns();"))
+        .expect("the run list loads");
+    boa.run_jobs().expect("the page's promises settle");
+    let drawn = boa
+        .eval(boa_engine::Source::from_bytes(
+            b"JSON.stringify(__listed())",
+        ))
+        .unwrap();
+    let drawn = drawn
+        .as_string()
+        .expect("the run list's drawing reads as text");
+    serde_json::from_str(&drawn.to_std_string_escaped()).unwrap()
+}
+
+/// #909: the run list paints the served `status_word`, not a word it
+/// chooses from the standing and the journal's running status, and a
+/// stopping run is not counted as forging; the served detail is the run
+/// page's, not a word the page derives (decision 0102 ruling 5).
+#[test]
+fn the_run_list_reads_a_stopping_run_from_the_shared_standing() {
+    let detail = "stop accepted at seq 4; no ending written. If no driver is running it, \
+                  `brokkr conclude` closes it.";
+    let drawn = drawn_in_the_run_list(serde_json::json!([{
+        "run_id": "r1",
+        "status": "running",
+        "status_known": true,
+        "status_word": "stopping",
+        "phase": "verify",
+        "seq": 4,
+        "verdict": {"standing": "stopping", "detail": detail},
+    }]));
+    assert_eq!(
+        drawn["list"],
+        serde_json::json!(["r1stopping verify seq 4"])
+    );
+    assert_eq!(drawn["forging"], serde_json::json!([false]));
+    assert_eq!(drawn["detail"], detail);
+    // The page paints the served word even where the standing disagrees:
+    // the choice is `brokkr-view`'s, never the page's.
+    let contradicted = drawn_in_the_run_list(serde_json::json!([{
+        "run_id": "r1",
+        "status": "running",
+        "status_known": true,
+        "status_word": "stopping",
+        "phase": "verify",
+        "seq": 9,
+        "verdict": {"standing": "running", "detail": detail},
+    }]));
+    assert_eq!(
+        contradicted["list"],
+        serde_json::json!(["r1stopping verify seq 9"])
+    );
+    assert_eq!(contradicted["forging"], serde_json::json!([false]));
+    // The run header paints the same word and why.
+    assert!(PAGE.contains("const word = runWord(s);"));
+    assert!(PAGE.contains("const stop = runDetail(s);"));
+}

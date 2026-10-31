@@ -13,8 +13,8 @@ use serde::Serialize;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
-    fmt_millis, ruled, FleetView, RealmRuns, ResidualFinding, RunEntry, RunsView, ABSENT,
-    KNOWN_STATUS, VIEW_VERSION,
+    ruled, FleetView, RealmRuns, ResidualFinding, RunEntry, RunsView, ABSENT, KNOWN_STATUS,
+    VIEW_VERSION,
 };
 
 #[derive(Serialize, Clone)]
@@ -23,6 +23,8 @@ pub struct RunRow {
     pub status: Option<String>,
     /// The status is one of the four the surfaces have a colour for.
     pub status_known: bool,
+    /// The word a readout prints, derived once from the standing (0102).
+    pub status_word: String,
     pub phase: Option<String>,
     pub seq: Option<u64>,
     pub created_at: String,
@@ -71,6 +73,13 @@ pub struct RunRow {
     /// a cut id's stays on the page: the key a surface selects it by.
     #[serde(skip)]
     pub paged_at: Option<(i64, String)>,
+}
+
+impl RunRow {
+    /// The word a readout prints; the field carries [`Standing`]'s answer.
+    pub fn status_word(&self) -> &str {
+        &self.status_word
+    }
 }
 
 /// A seat at work on a run's current effect, as the fold's cursor
@@ -182,7 +191,8 @@ pub(crate) const STOP_PHASE: &str = "stop";
 const ELLIPSIS: char = '…';
 
 /// How a run stands, as the fleet reads it. The fold's four statuses,
-/// with a quarantined run beside them and a stop split by who made it.
+/// with a quarantined run beside them, an accepted stop that no ending
+/// closed, and a stop split by who made it.
 #[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum Standing {
@@ -191,6 +201,9 @@ pub enum Standing {
     /// Waiting on the operator.
     Parked,
     Running,
+    /// A running run whose operator stop was accepted and whose ending
+    /// has not been written: stopping, not running.
+    Stopping,
     /// Completed.
     Shipped,
     /// The policy table ruled a hard stop.
@@ -206,10 +219,38 @@ impl Standing {
             Standing::Quarantined => "quarantined",
             Standing::Parked => "parked",
             Standing::Running => "running",
+            Standing::Stopping => "stopping",
             Standing::Shipped => "shipped",
             Standing::Stopped | Standing::OperatorStopped => "stopped",
         }
     }
+
+    /// The word a readout prints for a run whose fold status is `status`:
+    /// the fold's own word, except that an accepted stop with no ending
+    /// stands as stopping. One home for the rule every row and summary
+    /// paints (decision 0071 ruling 5).
+    pub fn status_word(self, status: Option<&str>) -> &str {
+        match self {
+            Standing::Stopping => self.label(),
+            Standing::Quarantined
+            | Standing::Parked
+            | Standing::Running
+            | Standing::Shipped
+            | Standing::Stopped
+            | Standing::OperatorStopped => status.unwrap_or("?"),
+        }
+    }
+}
+
+/// The detail a stopping run's row prints under its title: the accepted
+/// stop's seq, and the one command that closes the run it no longer
+/// drives. One function, so every surface says it alike (decision 0071
+/// ruling 5).
+pub fn stopping_detail(seq: u64) -> String {
+    format!(
+        "stop accepted at seq {seq}; no ending written. If no driver is running it, \
+         `brokkr conclude` closes it."
+    )
 }
 
 /// A run's verdict: how it stands, the ruling that settled it, and the
@@ -234,13 +275,18 @@ pub struct Verdict {
     /// phase's prefix, and nothing yet for a running one. The residual
     /// is its own cell beside it.
     pub text: String,
+    /// Why the run stands as it does when the standing alone does not say
+    /// it: a stopping run's accepted stop and its way out.
+    pub detail: Option<String>,
 }
 
 /// Who must act on a run: the fleet's sections, listed in [`Section::ORDER`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Section {
     /// Parked, quarantined because the journal does not load or fold and
-    /// not acknowledged where it stands, or stale: whatever [`need`] names.
+    /// not acknowledged where it stands, stopping because a stop was
+    /// accepted and no ending was written, or stale: whatever [`need`]
+    /// names.
     NeedsYou,
     Running,
     /// Finished within the last 24 hours, by when its journal last
@@ -300,166 +346,6 @@ pub fn section_of(row: &RunRow, now: &str) -> Section {
     match parse_millis(now) {
         Some(now) if row.order_at <= now.saturating_sub(RECENT_MILLIS) => Section::Older,
         _ => Section::Recent,
-    }
-}
-
-// ------------------------------------------------------- what it needs
-
-/// What a run in "needs you" asks of the operator (#503).
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub enum Need {
-    /// Parked on a ruling or a limit; its verdict says which and why.
-    Parked,
-    /// Its journal does not load or does not fold; the row's `detail` is
-    /// the refusal.
-    Quarantined(Quarantine),
-    /// Its journal folds to running and has not moved for longer than
-    /// the staleness bound, so nothing drives it. `silent` is how long
-    /// it has been quiet, rendered.
-    Stale { silent: String },
-}
-
-impl Need {
-    /// The word a row's standing cell prints for it.
-    pub fn label(&self) -> &'static str {
-        match self {
-            Need::Parked => Standing::Parked.label(),
-            Need::Quarantined(_) => Standing::Quarantined.label(),
-            Need::Stale { .. } => "stale",
-        }
-    }
-
-    /// The line a row prints under its title: what to do, in a few
-    /// words. A park's verdict already says why it waits, so it has none.
-    pub fn prompt(&self) -> Option<String> {
-        match self {
-            Need::Parked => None,
-            Need::Quarantined(Quarantine::DoesNotFold) => {
-                Some("quarantined: export and inspect".to_string())
-            }
-            Need::Quarantined(Quarantine::DoesNotLoad) => {
-                Some("quarantined: the journal does not load; inspect it by hand".to_string())
-            }
-            Need::Stale { silent } => Some(format!(
-                "stale: no event since {silent}; resume or conclude"
-            )),
-        }
-    }
-
-    /// The commands that answer it for run `run_id`, each whole: a line
-    /// `brokkr` parses once its `<placeholder>` words are filled. A stale
-    /// run still folds to running, and the fold admits `operator retry`
-    /// only on a parked run, so a stale run is answered by `resume`, which
-    /// drives it again under its pinned bundle, or by `conclude`, which
-    /// closes a run believed dead. `conclude` folds a journal before it
-    /// appends, so it refuses a quarantined one. `export` writes one that
-    /// loads and does not fold as it stands, and refuses one the store
-    /// does not load, as every verb that reads it does. `operator
-    /// acknowledge` answers either quarantine without folding or loading
-    /// past it (#511).
-    pub fn commands(&self, run_id: &str) -> Vec<String> {
-        match self {
-            Need::Parked => Vec::new(),
-            Need::Quarantined(Quarantine::DoesNotLoad) => vec![acknowledge(run_id)],
-            Need::Quarantined(Quarantine::DoesNotFold) => {
-                vec![export(run_id), acknowledge(run_id)]
-            }
-            Need::Stale { .. } => vec![resume(run_id), conclude(run_id)],
-        }
-    }
-
-    /// The detail's lines for run `run_id`: why it needs the operator and
-    /// the [`Need::commands`] that answer it.
-    pub fn way_out(&self, run_id: &str) -> Vec<String> {
-        match self {
-            Need::Parked => Vec::new(),
-            Need::Quarantined(Quarantine::DoesNotFold) => vec![
-                format!("way out   {}", export(run_id)),
-                "          and inspect the journal it writes".to_string(),
-                acknowledged(run_id),
-            ],
-            Need::Quarantined(Quarantine::DoesNotLoad) => vec![
-                "way out   none in brokkr: the store refuses this journal, export included;"
-                    .to_string(),
-                "          inspect the hearth's journal file by hand".to_string(),
-                acknowledged(run_id),
-            ],
-            Need::Stale { silent } => vec![
-                format!(
-                    "stale     no event since {silent}, past the {}h bound: an attempt's {}h \
-                     deadline and a {}h margin",
-                    STALE_AFTER_SECONDS / 3600,
-                    ATTEMPT_DEADLINE_SECONDS / 3600,
-                    STALE_MARGIN_SECONDS / 3600,
-                ),
-                format!("way out   {}", resume(run_id)),
-                "          drives it again under its pinned bundle (or --recipe <name>);"
-                    .to_string(),
-                format!("          or {} closes it", conclude(run_id)),
-            ],
-        }
-    }
-}
-
-fn acknowledge(run_id: &str) -> String {
-    format!("brokkr operator acknowledge --run {run_id} --reason <why>")
-}
-
-/// The way-out line a quarantine ends on (#511).
-fn acknowledged(run_id: &str) -> String {
-    format!(
-        "          then {} lists it under older",
-        acknowledge(run_id)
-    )
-}
-
-fn conclude(run_id: &str) -> String {
-    format!("brokkr conclude --run {run_id} --reason <why>")
-}
-
-fn export(run_id: &str) -> String {
-    format!("brokkr export --run {run_id}")
-}
-
-fn resume(run_id: &str) -> String {
-    format!("brokkr resume --run {run_id} --bundle <its-bundle>")
-}
-
-/// What run `row` needs of the operator at `now`, if anything: a park,
-/// a journal that does not load or fold and that the operator has not
-/// acknowledged where it stands (#511), or a running journal silent for longer
-/// than the bound — the longest attempt deadline a shipped seat holds
-/// and a margin past it, against the time of the run's last event. A
-/// run is stale only on that evidence: a clock or a last event whose
-/// time does not read never makes one.
-pub fn need(row: &RunRow, now: &str) -> Option<Need> {
-    match row.verdict.standing {
-        Standing::Quarantined if row.acknowledgement.is_some() => None,
-        Standing::Quarantined => Some(Need::Quarantined(row.quarantine.unwrap_or_default())),
-        Standing::Parked => Some(Need::Parked),
-        Standing::Running => silence(row, now).map(|silent| Need::Stale { silent }),
-        Standing::Shipped | Standing::Stopped | Standing::OperatorStopped => None,
-    }
-}
-
-/// The seat at work on run `row` at `now`, as every surface shows it: the
-/// fold's hire, except on a run [`need`] calls stale, which nothing drives
-/// whatever effect its fold still holds in flight (#503 item 3).
-pub fn at_work<'a>(row: &'a RunRow, now: &str) -> Option<&'a Hire> {
-    match need(row, now) {
-        Some(Need::Stale { .. }) => None,
-        Some(Need::Parked | Need::Quarantined(_)) | None => row.hire.as_ref(),
-    }
-}
-
-/// How long the run's journal has been silent, rendered, when that is
-/// past the staleness bound.
-fn silence(row: &RunRow, now: &str) -> Option<String> {
-    row.last_recorded_at.as_ref()?;
-    let silent = parse_millis(now)?.checked_sub(row.order_at)?;
-    match silent > STALE_AFTER_SECONDS * 1000 {
-        true => fmt_millis(silent),
-        false => None,
     }
 }
 
@@ -571,6 +457,8 @@ pub(crate) struct Facts<'a> {
     /// where present, the phase that ruled, and whether it routed on.
     pub(crate) ruling: Option<(Option<&'a str>, &'a str, bool)>,
     pub(crate) park_reason: Option<&'a str>,
+    /// The seq an operator stop was accepted at, while no ending closed it.
+    pub(crate) stop_accepted_seq: Option<u64>,
 }
 
 impl<'a> Facts<'a> {
@@ -584,11 +472,13 @@ impl<'a> Facts<'a> {
                 (rule, decision.from.as_str(), routes)
             }),
             park_reason: state.run.park_reason().map(|reason| reason.as_str()),
+            stop_accepted_seq: state.stopping_seq(),
         }
     }
 
-    fn standing(self) -> Standing {
+    pub(crate) fn standing(self) -> Standing {
         match self.status {
+            Status::Running if self.stop_accepted_seq.is_some() => Standing::Stopping,
             Status::Running => Standing::Running,
             Status::AwaitingOperator => Standing::Parked,
             Status::Completed => Standing::Shipped,
@@ -625,6 +515,7 @@ pub(crate) fn verdict_of(facts: Option<Facts<'_>>, residual: Option<Severity>) -
             residual,
             reason: None,
             text: "does not fold".to_string(),
+            detail: None,
         };
     };
     let standing = facts.standing();
@@ -633,15 +524,21 @@ pub(crate) fn verdict_of(facts: Option<Facts<'_>>, residual: Option<Severity>) -
         Standing::Parked if facts.ruling_parked() => facts.last_rule(),
         Standing::Parked
         | Standing::Running
+        | Standing::Stopping
         | Standing::OperatorStopped
         | Standing::Quarantined => None,
     };
     let text = match standing {
         Standing::Running => String::new(),
+        Standing::Stopping => String::new(),
         Standing::OperatorStopped => "by operator".to_string(),
         Standing::Shipped | Standing::Parked | Standing::Stopped | Standing::Quarantined => {
             rule.map_or(ABSENT.to_string(), |(rule, from)| abbreviate(rule, from))
         }
+    };
+    let detail = match standing {
+        Standing::Stopping => facts.stop_accepted_seq.map(stopping_detail),
+        _ => None,
     };
     Verdict {
         standing,
@@ -649,6 +546,7 @@ pub(crate) fn verdict_of(facts: Option<Facts<'_>>, residual: Option<Severity>) -
         residual,
         reason: facts.park_reason.map(str::to_string),
         text,
+        detail,
     }
 }
 
@@ -695,14 +593,16 @@ pub fn run_row(entry: &RunEntry) -> RunRow {
     let status = entry
         .state
         .map(|state| state.run.status().as_str().to_string());
-    let status_known = match &status {
-        Some(status) => KNOWN_STATUS.contains(&status.as_str()),
-        None => false,
-    };
+    let status_known = status
+        .as_deref()
+        .is_some_and(|word| KNOWN_STATUS.contains(&word));
+    let verdict = verdict(entry.state, entry.residuals);
+    let status_word = verdict.standing.status_word(status.as_deref()).to_string();
     RunRow {
         run_id: entry.run_id.to_string(),
         status,
         status_known,
+        status_word,
         phase: entry.state.and_then(|state| state.phase.clone()),
         seq: entry.state.map(|state| state.seq),
         created_at: entry.created_at.to_string(),
@@ -720,7 +620,7 @@ pub fn run_row(entry: &RunEntry) -> RunRow {
             .detail
             .and_then(|refusal| refusal.acknowledgement.cloned()),
         title: title(entry.feature),
-        verdict: verdict(entry.state, entry.residuals),
+        verdict,
         hire: entry.state.and_then(hire),
         order_at: order_at(entry.last_recorded_at, entry.created_at),
         paged_at: None,
@@ -783,7 +683,9 @@ pub fn fleet_rows(hearths: &[HearthEntries]) -> FleetView {
     }
 }
 
+mod need;
 mod page;
+pub use need::{at_work, need, Need};
 use page::order_at;
 pub use page::{
     behind_line, page, ranges, section_of_rows, summary_row, window, Cursor, CursorError, Page,

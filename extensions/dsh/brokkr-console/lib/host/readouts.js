@@ -5,7 +5,7 @@
 // half-read is painted. Fields the console does not paint are left unread.
 
 /** The view wire this console paints: `brokkr_view::VIEW_VERSION`. */
-export const VIEW_VERSION = 27
+export const VIEW_VERSION = 28
 
 /** The graph wire this console paints: `brokkr_view::GRAPH_VIEW_VERSION`, pinned apart from `VIEW_VERSION`. */
 export const GRAPH_VIEW_VERSION = 2
@@ -16,7 +16,7 @@ const MUNINN_RECORD_VERSION = 1
 /** The label a one-hearth world's runs go under: its listing names no realm. */
 export const ONE_HEARTH = 'this workspace'
 
-const STANDINGS = ['quarantined', 'parked', 'running', 'shipped', 'stopped', 'operator_stopped']
+const STANDINGS = ['quarantined', 'parked', 'running', 'stopping', 'shipped', 'stopped', 'operator_stopped']
 const COMMANDS = ['retry', 'stop', 'resume', 'conclude']
 const ACTIONS = ['dismiss_finding', 'talk_to_reviewer', 'hold', 'answer_here']
 const ADMISSIONS = ['admissible', 'waiting', 'held']
@@ -123,6 +123,7 @@ function verdict(value, path) {
     rule: optText(value.rule, `${path}.rule`),
     reason: optText(value.reason, `${path}.reason`),
     text: text(value.text, `${path}.text`),
+    detail: optText(value.detail, `${path}.detail`),
   }
 }
 
@@ -355,6 +356,13 @@ function summary(value, path) {
     run_id: text(value.run_id, `${path}.run_id`),
     seq: count(value.seq, `${path}.seq`),
     status: text(value.status, `${path}.status`),
+    // The word the view derived, served once: the rail paints it rather
+    // than choosing one from the standing and the status (#909).
+    status_word: text(value.status_word, `${path}.status_word`),
+    // The shared standing and its why, as `inspect --json` carries them:
+    // a stopping run is not read as running here either (#909).
+    standing: word(value.standing, STANDINGS, `${path}.standing`),
+    detail: optText(value.detail, `${path}.detail`),
     phase: optText(value.phase, `${path}.phase`),
     park_reason: optText(value.park_reason, `${path}.park_reason`),
   }

@@ -328,11 +328,11 @@ fn a_run_past_its_opening_is_read_the_kept_way() {
 /// The statements a read at the opening's head makes of the projections:
 /// that the event index, the run summary and the seat summary are read
 /// and current, the event index with a park's dated facts, the run
-/// summary with every aggregate column and the seat head with the shape
-/// of the rows it vouches for, each table's columns read once, the run's
-/// head, its seat rows, its summary row and its trail's seqs. None of
-/// them reads an envelope.
-const PROJECTIONS: usize = 25;
+/// summary with every aggregate column and the accepted-stop column, and
+/// the seat head with the shape of the rows it vouches for, each table's
+/// columns read once, the run's head, its seat rows, its summary row and
+/// its trail's seqs. None of them reads an envelope.
+const PROJECTIONS: usize = 27;
 
 /// The view whole reads its run once (ruling 7): on the grown run, 7,510
 /// events and 151 journal pages, the read `inspect --json`, `seats --json`

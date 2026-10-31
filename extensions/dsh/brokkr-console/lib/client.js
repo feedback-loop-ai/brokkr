@@ -147,7 +147,7 @@ window.__ModuleLoader__.load({
     // ------------------------------------------------------------- painting
 
     // An acknowledged quarantine is answered until its journal moves (#511).
-    const needsYou = (row) => row.acknowledgement === null && (row.verdict.standing === 'parked' || row.verdict.standing === 'quarantined')
+    const needsYou = (row) => row.acknowledgement === null && (row.verdict.standing === 'parked' || row.verdict.standing === 'quarantined' || row.verdict.standing === 'stopping')
     // It lists under Older whatever its age, keeping its mark and refusal.
     const acknowledged = (row) => row.acknowledgement !== null
     const waiting = (fleet) => (fleet === null ? 0 : fleet.hearths.reduce((sum, hearth) => sum + hearth.runs.filter(needsYou).length, 0))
@@ -157,6 +157,7 @@ window.__ModuleLoader__.load({
       quarantined: ['quarantined', 'bk-bad'],
       parked: ['parked · waiting on you', 'bk-park'],
       running: ['running', 'bk-run'],
+      stopping: ['stopping · waiting for an ending', 'bk-park'],
       shipped: ['shipped', 'bk-ship'],
       stopped: ['stopped by a rule', 'bk-stop'],
       operator_stopped: ['stopped by you', 'bk-stop'],
@@ -196,7 +197,7 @@ window.__ModuleLoader__.load({
     }
 
     /** Why a row needs the operator, in Brokkr's words: the refusal, or the verdict. */
-    const shortReason = (row) => (row.verdict.standing === 'quarantined' ? row.detail ?? row.verdict.text : row.verdict.text)
+    const shortReason = (row) => (row.verdict.standing === 'quarantined' ? row.detail ?? row.verdict.text : row.verdict.detail ?? row.verdict.text)
 
     /** Each command's button, named for its effect, and what it does. */
     const COMMAND = {
@@ -410,7 +411,7 @@ window.__ModuleLoader__.load({
     // ------------------------------------------------------------ one realm
 
     /** A run's dot, as its realm row and the rail colour it: parked or quarantined amber or red, running violet and striking. */
-    const RUN_DOT = { parked: 'park', quarantined: 'halt', running: 'violet', shipped: 'phosphor', stopped: 'quiet', operator_stopped: 'quiet' }
+    const RUN_DOT = { parked: 'park', quarantined: 'halt', running: 'violet', stopping: 'park', shipped: 'phosphor', stopped: 'quiet', operator_stopped: 'quiet' }
     const runDot = (standing) => h('svg', { width: 12, height: 12, className: 'bk-realm-dot', 'aria-hidden': 'true' },
       standing === 'running' ? h('circle', { cx: 6, cy: 6, r: 4, className: 'bk-dot-halo violet' }) : null,
       h('circle', { cx: 6, cy: 6, r: 4, className: `bk-dot-fill ${RUN_DOT[standing] ?? 'quiet'}${standing === 'running' ? ' live' : ''}` }))
@@ -458,9 +459,9 @@ window.__ModuleLoader__.load({
     /** The dot each node wears, by Brokkr's closed state-class set (the TUI's `class_for_node`). */
     const DOT = { 'on-phosphor': 'phosphor', 'on-halt': 'halt', 'on-park': 'park', 'in-active': 'violet' }
     /** A phase with no recorded steps, as the TUI's `class_for_phase` colours it: by the run's status when it is current. */
-    const PHASE_DOT = { running: 'phosphor', completed: 'phosphor', awaiting_operator: 'park', stopped: 'halt' }
+    const PHASE_DOT = { running: 'phosphor', completed: 'phosphor', awaiting_operator: 'park', stopped: 'halt', stopping: 'park' }
     /** The box the current phase wears, by the run's status. */
-    const NOW = { running: 'violet', completed: 'phosphor', awaiting_operator: 'park', stopped: 'halt' }
+    const NOW = { running: 'violet', completed: 'phosphor', awaiting_operator: 'park', stopped: 'halt', stopping: 'park' }
 
     /** The ruling that moved the run from `from` to `to`, the latest when it moved there more than once. */
     const rulingOf = (view, from, to) => view.journal.filter((row) => row.ruling !== null && row.ruling.from === from && row.ruling.next === to).at(-1) ?? null
@@ -522,7 +523,10 @@ window.__ModuleLoader__.load({
      * current phase boxed, and each road back beneath.
      */
     function railOf(view) {
-      const status = view.summary?.status ?? null
+      // The word is brokkr-view's, served as `status_word`; the rail paints
+      // it and derives none (decision 0102 ruling 5). A stopping run is not
+      // driven, so it reads the stopping tone and wears no live pulse.
+      const status = view.summary?.status_word ?? null
       const ranks = []
       const spans = []
       for (const phase of view.phases) {
@@ -554,7 +558,7 @@ window.__ModuleLoader__.load({
       const roads = roadsOf(spans, placed, names, edge)
       const width = Math.max(edge + RAIL.pad, ...roads.map((road) => road.depart + RAIL.pad))
       const height = roads.length === 0 ? names + 14 : Math.max(...roads.map((road) => road.y)) + ROAD.hang + 8
-      return { status, placed, spans, roads, y, spread, names, width, height }
+      return { status, driven: status === 'running', placed, spans, roads, y, spread, names, width, height }
     }
 
     /** What is picked: a phase `{phase}`, a step `{phase, key}`, or an arrow `{arrow: {from, to}}`. */
@@ -576,8 +580,7 @@ window.__ModuleLoader__.load({
 
     function Rail({ view, picked, pick }) {
       const rail = railOf(view)
-      const { status, placed, spans, roads, y, spread, names } = rail
-      const driven = status === 'running'
+      const { status, driven, placed, spans, roads, y, spread, names } = rail
       const toggle = (next) => pick(samePick(picked, next) ? null : next)
       const ink = []
       // The current phase, boxed as the TUI boxes it; a picked phase, outlined.
@@ -803,11 +806,14 @@ window.__ModuleLoader__.load({
     const pane = (title, label, className, ...body) => h('section', { className: `bk-pane${className === '' ? '' : ` ${className}`}`, 'aria-label': label },
       h('span', { className: 'bk-pane-title' }, title), ...body)
 
-    /** Why the run waits, in Brokkr's words: the park reason, the clarifier's questions, a quarantine or the rule that stopped it. */
+    /** Why the run waits, in Brokkr's words: the park reason, the clarifier's questions, a quarantine, the rule that stopped it, or a stopping run's accepted stop. */
     function WhyItWaits({ view, row, pick }) {
       const parked = view.summary?.park_reason ?? null
       const stopped = row.verdict.standing === 'stopped' && row.verdict.text !== '' ? row.verdict.text : null
-      if (parked === null && view.clarify === null && row.detail === null && stopped === null) return null
+      // The shared standing's detail, from the run view or the row; the
+      // quarantine's refusal still comes from the row's own detail.
+      const why = view.summary?.detail ?? row.verdict.detail ?? row.detail
+      if (parked === null && view.clarify === null && why === null && stopped === null) return null
       const where = view.ruling?.from ?? row.phase
       const seat = where === null ? null : view.participants.filter((each) => each.phase === where).at(-1) ?? null
       return pane('why it waits', 'Why it waits', 'bk-why',
@@ -818,7 +824,7 @@ window.__ModuleLoader__.load({
             seat === null ? null : [' · ', h('button', { key: 'r', type: 'button', className: 'bk-link', onClick: () => pick({ phase: where, key: seat.key }) }, `read the ${seat.label} seat`)])],
         view.clarify === null ? null : h(Clarify, { view }),
         stopped === null ? null : h('div', { className: 'bk-quote' }, `“${stopped}”`, h('div', { className: 'bk-d' }, row.verdict.rule === null ? 'how Brokkr stopped it' : `stopped by ${row.verdict.rule}`)),
-        row.detail === null ? null : h('div', { className: 'bk-error' }, row.detail))
+        why === null ? null : h('div', { className: 'bk-error' }, why))
     }
 
     /** A seat's tokens as Brokkr reads them apart: Σ total · ↑ in · ↓ out. */

@@ -340,6 +340,9 @@ pub struct Summary {
     pub created_at: Bounded,
     pub feature: String,
     pub status: Option<Status>,
+    /// An operator stop accepted with no ending written, at the seq it
+    /// was accepted: the run is stopping, not running. `None` otherwise.
+    pub stop_accepted_seq: Option<u64>,
     pub phase: Option<Bounded>,
     pub park_reason: Option<Bounded>,
     pub ruled: Option<Ruled>,
@@ -371,6 +374,7 @@ impl Summary {
             created_at: Bounded::within(listing.created_at, STAMP_BYTES),
             feature: listing.feature.to_string(),
             status: state.map(|state| state.run.status()),
+            stop_accepted_seq: state.and_then(RunState::stopping_seq),
             phase: state
                 .and_then(|state| state.phase.as_deref())
                 .map(|phase| Bounded::within(phase, NAME_BYTES)),

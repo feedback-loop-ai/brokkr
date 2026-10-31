@@ -183,6 +183,7 @@ fn summary_of(run: &Generated) -> Summary {
         feature_line: feature_line(&feature).to_string(),
         created_at: Bounded::within(CREATED, STAMP_BYTES),
         status,
+        stop_accepted_seq: None,
         phase: (!refused).then(|| bounded("review", NAME_BYTES)),
         park_reason: (run.standing == Standing::Parked)
             .then(|| bounded("REVIEW-HOLD for (review, hold): held", PARK_REASON_BYTES)),

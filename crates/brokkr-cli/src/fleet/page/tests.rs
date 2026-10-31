@@ -8,6 +8,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use brokkr_core::canonical::ZERO_HASH;
+use brokkr_core::fold::fold;
 use brokkr_core::stamp::parse_millis;
 use brokkr_core::{EventEnvelope, EventType};
 use brokkr_store::test_support::{import_fixtures, plant_envelope, plant_run, unmigrate};
@@ -1316,4 +1317,140 @@ fn brokkr_runs_pages_one_hearth_by_a_cursor_it_reads_at_the_edge() {
         "--limit and --after page one hearth's runs, and this world has 2 hearths: name one \
          journal with --db"
     );
+}
+
+/// The two committed journals that end at an accepted stop with no
+/// ending, and the seq each accepted at (#909).
+const STOPPING: [(&str, u64); 2] = [
+    ("conclude-stopped-mid-effect-hand-built", 11),
+    ("tui-graph-the-selection-box-gets-80f98deb", 93),
+];
+
+/// A fresh store holding every committed fixture journal.
+fn fixture_hearth() -> (tempfile::TempDir, std::path::PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    fixture_journal(&db);
+    (dir, db)
+}
+
+/// The fleet rows of the hearth at `db`, read whole.
+fn listed_rows(db: &Path) -> brokkr_view::RunsView {
+    let store = Store::open_read_only(db).unwrap();
+    let read = read_hearth(&store);
+    let entries: Vec<_> = read.runs.iter().map(ListedRun::entry).collect();
+    brokkr_view::run_rows(&entries)
+}
+
+/// #909: a run whose accepted stop has no ending reads as stopping on
+/// `brokkr runs`'s table and JSON and in the fleet's sections, and never
+/// among the running.
+#[test]
+fn an_unapplied_stop_reads_as_stopping_on_every_readout() {
+    let (_dir, db) = fixture_hearth();
+    let rows = listed_rows(&db);
+    let row = |run_id: &str| rows.runs.iter().find(|row| row.run_id == run_id).unwrap();
+    for (run_id, seq) in STOPPING {
+        let row = row(run_id);
+        assert_eq!(row.verdict.standing, brokkr_view::Standing::Stopping);
+        assert_eq!(row.status_word(), "stopping");
+        assert_eq!(
+            row.verdict.detail.as_deref(),
+            Some(brokkr_view::stopping_detail(seq).as_str())
+        );
+        assert_eq!(brokkr_view::section_of(row, NOW), Section::NeedsYou);
+    }
+    let running: Vec<&str> = brokkr_view::sections(&rows.runs, NOW)
+        .into_iter()
+        .find(|(section, _)| *section == Section::Running)
+        .unwrap()
+        .1
+        .iter()
+        .map(|row| row.run_id.as_str())
+        .collect();
+    for (run_id, _) in STOPPING {
+        assert!(!running.contains(&run_id), "{run_id} is not running");
+    }
+    let text = crate::render::runs(&rows, NOW, &STYLE);
+    assert!(text.contains("stopping"), "{text}");
+    assert!(
+        text.contains("stop accepted at seq 93; no ending written."),
+        "{text}"
+    );
+    assert!(
+        text.contains("stop accepted at seq 11; no ending written."),
+        "{text}"
+    );
+    let json = serde_json::to_value(&rows).unwrap();
+    for (run_id, seq) in STOPPING {
+        let listed = json["runs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["run_id"] == run_id)
+            .unwrap();
+        assert_eq!(listed["verdict"]["standing"], "stopping");
+        assert_eq!(
+            listed["verdict"]["detail"],
+            brokkr_view::stopping_detail(seq)
+        );
+    }
+}
+
+/// #909: `inspect` prints the stopping status line, the accepted stop's
+/// detail, and the command and acceptance in its text trail; once the
+/// driver writes `run/stopped`, the same journal reads as today.
+#[test]
+fn inspect_shows_the_stop_accepted_with_no_ending_and_its_ending_reads_as_before() {
+    let (_dir, db) = fixture_hearth();
+    let store = Store::open_read_only(&db).unwrap();
+    for (run_id, seq) in STOPPING {
+        let events = store.load(run_id).unwrap();
+        let state = fold(&events).unwrap();
+        let view = brokkr_view::run_view(&events, Some(&state));
+        let text = crate::render::inspect(&view, None, true, &STYLE);
+        assert!(text.contains("stopping · phase"), "{run_id}: {text}");
+        assert!(
+            text.contains(brokkr_view::stopping_detail(seq).as_str()),
+            "{run_id}: {text}"
+        );
+        assert!(text.contains("operator/commanded"), "{run_id}: {text}");
+        assert!(text.contains("operator/accepted"), "{run_id}: {text}");
+        assert!(
+            text.contains(&format!("(command at seq {})", seq - 1)),
+            "{run_id}: {text}"
+        );
+    }
+
+    // The driver writes the ending: stopped by the operator, as today.
+    let mut writable = Store::open(&db).unwrap();
+    writable
+        .append_next(
+            "tui-graph-the-selection-box-gets-80f98deb",
+            EventType::RunStopped,
+            json!({}),
+            None,
+            None,
+        )
+        .unwrap();
+    drop(writable);
+    let rows = listed_rows(&db);
+    let ended = rows
+        .runs
+        .iter()
+        .find(|row| row.run_id == "tui-graph-the-selection-box-gets-80f98deb")
+        .unwrap();
+    assert_eq!(
+        ended.verdict.standing,
+        brokkr_view::Standing::OperatorStopped
+    );
+    assert_eq!(ended.status_word(), "stopped");
+    assert_eq!(ended.verdict.detail, None);
+    let text = crate::render::runs(&rows, NOW, &STYLE);
+    let line = text
+        .lines()
+        .find(|line| line.starts_with("tui-graph-the-selection-box-gets-80f98deb"))
+        .unwrap();
+    assert!(line.contains("stopped"), "{line}");
+    assert!(!line.contains("stopping"), "{line}");
 }

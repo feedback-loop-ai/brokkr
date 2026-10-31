@@ -727,6 +727,7 @@ fn an_accepted_stop_rides_the_in_flight_attempt_to_the_effects_boundary() {
         // still running, the command spent from pending and now riding.
         assert_eq!(current.run, Run::Running(in_flight(true)));
         assert_eq!(current.pending_command, None);
+        assert_eq!(current.stopping_seq(), Some(2), "the accepted stop's seq");
         current
     };
 
@@ -739,6 +740,13 @@ fn an_accepted_stop_rides_the_in_flight_attempt_to_the_effects_boundary() {
     )
     .unwrap();
     assert_eq!(current.run, Run::Running(in_flight(true)));
+    assert_eq!(current.stopping_seq(), Some(2), "the stop still rides");
+
+    // The ending lands: nothing is stopping any more.
+    let mut ended = current.clone();
+    apply(&mut ended, &event(EventType::RunStopped, json!({}))).unwrap();
+    assert_eq!(ended.run, Run::Stopped);
+    assert_eq!(ended.stopping_seq(), None);
 
     // The evidenced boundary: the effect succeeds, and instead of its
     // normal `Decide` the run concludes per the stop, the riding

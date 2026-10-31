@@ -2,9 +2,10 @@
 //! verdict it shows, and the section it is listed under.
 
 use super::*;
-use crate::tests::state;
-use crate::{Superseded, SupersededBy};
-use brokkr_core::fold::{Cursor, ParkReason, Run};
+use crate::tests::{ev, state};
+use crate::{summary, Superseded, SupersededBy};
+use brokkr_core::envelope::EventType;
+use brokkr_core::fold::{fold, Cursor, ParkReason, Run};
 use serde_json::{json, Value};
 
 const NOW: &str = "2026-01-02T00:00:00Z";
@@ -69,6 +70,7 @@ fn wanted(
         residual,
         reason: None,
         text: text.to_string(),
+        detail: None,
     }
 }
 
@@ -201,6 +203,106 @@ fn a_stop_says_who_stopped_it_and_by_which_rule() {
     );
 }
 
+/// #909: an accepted operator stop with no ending written stands as
+/// stopping, not running, under the section that needs the operator; its
+/// detail names the accepted seq and the command that closes it. A
+/// `run/stopped` after the stop reads exactly as it always did.
+#[test]
+fn a_stop_accepted_without_an_ending_stands_as_stopping() {
+    let detail = "stop accepted at seq 93; no ending written. If no driver is running it, \
+                  `brokkr conclude` closes it.";
+    let mut accepted = settled(Status::Running, "verify", None);
+    accepted.run = Run::Running(Cursor::Stop);
+    accepted.stop_accepted_seq = Some(93);
+    let row = silent_since(&accepted, Some(NOW));
+    assert_eq!(row.verdict.standing, Standing::Stopping);
+    assert_eq!(row.status_word(), "stopping");
+    assert_eq!(row.verdict.detail.as_deref(), Some(detail));
+    assert_eq!(
+        need(&row, NOW),
+        Some(Need::Stopping {
+            detail: detail.to_string()
+        })
+    );
+    assert_eq!(section_of(&row, NOW), Section::NeedsYou);
+    // Its row and detail say so, and name the one command that closes it.
+    let stopping = Need::Stopping {
+        detail: detail.to_string(),
+    };
+    assert_eq!(stopping.label(), "stopping");
+    assert_eq!(stopping.prompt().as_deref(), Some(detail));
+    let conclude = "brokkr conclude --run r1 --reason <why>";
+    assert_eq!(stopping.commands("r1"), [conclude]);
+    assert_eq!(stopping.way_out("r1"), [format!("way out   {conclude}")]);
+
+    // A stop riding an in-flight effect is the same sentence: the cursor
+    // still holds the attempt, and the accepted seq is what its detail
+    // names.
+    let mut riding = settled(Status::Running, "verify", None);
+    riding.run = Run::Running(Cursor::EffectInFlight {
+        effect_id: "e1".to_string(),
+        attempt_id: "a1".to_string(),
+        seat: "verify".to_string(),
+        failed_attempts: 0,
+        stop_rides: true,
+    });
+    riding.stop_accepted_seq = Some(92);
+    let riding = silent_since(&riding, Some(NOW));
+    assert_eq!(riding.verdict.standing, Standing::Stopping);
+    assert!(riding
+        .verdict
+        .detail
+        .as_deref()
+        .is_some_and(|detail| detail.starts_with("stop accepted at seq 92;")));
+    assert_eq!(section_of(&riding, NOW), Section::NeedsYou);
+
+    // The driver's ending lands: stopped by the operator, as today.
+    let mut ended = accepted;
+    ended.run = Run::Stopped;
+    let ended = silent_since(&ended, Some(NOW));
+    assert_eq!(ended.verdict.standing, Standing::OperatorStopped);
+    assert_eq!(ended.status_word(), "stopped");
+    assert_eq!(ended.verdict.detail, None);
+    assert_eq!(section_of(&ended, NOW), Section::Recent);
+}
+
+/// #909: the word is the view's, served once. A row and a summary carry
+/// `status_word`, so a client paints it instead of choosing between a
+/// standing and a status (decision 0102 ruling 5, decision 0071 ruling
+/// 7). The fold itself still words the status `running`.
+#[test]
+fn the_row_and_the_summary_serve_the_status_word() {
+    let started = [
+        ev(1, EventType::RunStarted, json!({"manifest": {}}), NOW),
+        ev(2, EventType::PhaseEntered, json!({"phase": "verify"}), NOW),
+    ];
+    let mut accepted = started.to_vec();
+    for (seq, event_type, payload) in [
+        (
+            3,
+            EventType::OperatorCommanded,
+            json!({"command_id": "c", "command": "stop"}),
+        ),
+        (4, EventType::OperatorAccepted, json!({"command_id": "c"})),
+    ] {
+        accepted.push(ev(seq, event_type, payload, NOW));
+    }
+    for (events, word) in [(&started[..], "running"), (&accepted[..], "stopping")] {
+        let state = fold(events).expect("the journal folds");
+        let row = run_row(&crate::tests::listed("r1", "feat", NOW, Some(&state)));
+        let row = serde_json::to_value(row).expect("the row serializes");
+        let summary = serde_json::to_value(summary(&state)).expect("the summary serializes");
+        assert_eq!(row["status_word"], word);
+        assert_eq!(summary["status_word"], word);
+    }
+    let state = fold(&accepted).expect("the journal folds");
+    assert_eq!(
+        state.run.status().as_str(),
+        "running",
+        "the fold's own word is unchanged"
+    );
+}
+
 /// Acceptance 4, shipped: the cell names the ruling that shipped it, and
 /// the residual is the worst OPEN one; a superseded finding is closed, a
 /// boolean flag names no severity, and `none` is no residual.
@@ -294,6 +396,7 @@ fn each_standing_and_section_has_one_word() {
         Standing::Quarantined,
         Standing::Parked,
         Standing::Running,
+        Standing::Stopping,
         Standing::Shipped,
         Standing::Stopped,
         Standing::OperatorStopped,
@@ -304,6 +407,7 @@ fn each_standing_and_section_has_one_word() {
             "quarantined",
             "parked",
             "running",
+            "stopping",
             "shipped",
             "stopped",
             "stopped"
@@ -534,7 +638,7 @@ fn a_run_row_carries_its_title_and_verdict_beside_the_whole_feature() {
         residuals: &residuals,
     }]);
     let json = serde_json::to_value(&view).unwrap();
-    assert_eq!(json["view_version"], 27);
+    assert_eq!(json["view_version"], 28);
     assert_eq!(json["runs"][0]["hire"], Value::Null);
     assert_eq!(json["runs"][0]["acknowledgement"], Value::Null);
     assert_eq!(json["runs"][0]["feature"], feature);
@@ -543,7 +647,7 @@ fn a_run_row_carries_its_title_and_verdict_beside_the_whole_feature() {
     assert_eq!(
         json["runs"][0]["verdict"],
         json!({"standing": "shipped", "rule": "SHIP-COMPLETE", "residual": "medium",
-               "reason": null, "text": "COMPLETE"})
+               "reason": null, "text": "COMPLETE", "detail": null})
     );
 }
 

@@ -351,6 +351,7 @@ fn glyph_of(standing: Standing, need: Option<&Need>) -> &'static str {
         Standing::Quarantined => "?",
         Standing::Parked => "●",
         Standing::Running => "◐",
+        Standing::Stopping => "◼",
         Standing::Shipped => "✓",
         Standing::Stopped => "✗",
         Standing::OperatorStopped => "■",
@@ -362,13 +363,15 @@ fn glyph_of(standing: Standing, need: Option<&Need>) -> &'static str {
 fn standing_word<'a>(row: &'a RunRow, need: Option<&Need>) -> &'a str {
     match (need, row.verdict.standing) {
         (Some(stale @ Need::Stale { .. }), _) => stale.label(),
-        (Some(Need::Parked | Need::Quarantined(_)) | None, Standing::Running) => {
-            row.phase.as_deref().unwrap_or(brokkr_view::ABSENT)
-        }
         (
-            Some(Need::Parked | Need::Quarantined(_)) | None,
+            Some(Need::Parked | Need::Quarantined(_) | Need::Stopping { .. }) | None,
+            Standing::Running,
+        ) => row.phase.as_deref().unwrap_or(brokkr_view::ABSENT),
+        (
+            Some(Need::Parked | Need::Quarantined(_) | Need::Stopping { .. }) | None,
             Standing::Quarantined
             | Standing::Parked
+            | Standing::Stopping
             | Standing::Shipped
             | Standing::Stopped
             | Standing::OperatorStopped,
@@ -382,6 +385,7 @@ pub(super) fn tone_of(row: &RunRow, need: Option<&Need>) -> Style {
     let status = match need {
         Some(stale @ Need::Stale { .. }) => stale.label(),
         Some(Need::Parked | Need::Quarantined(_)) | None => row.status.as_deref().unwrap_or("?"),
+        Some(Need::Stopping { .. }) => Standing::Stopping.label(),
     };
     tone_style(status)
 }

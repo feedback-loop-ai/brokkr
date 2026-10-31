@@ -161,6 +161,7 @@ fn a_run_with_no_event_reads_as_an_empty_journal_at_the_zero_head() {
             created_at: bounded("2026-01-01T00:00:00Z"),
             feature: LISTING.feature.into(),
             status: None,
+            stop_accepted_seq: None,
             phase: None,
             park_reason: None,
             ruled: None,
@@ -207,6 +208,7 @@ fn a_parked_run_reads_its_ruling_its_reason_and_its_open_residuals() {
             created_at: bounded("2026-01-01T00:00:00Z"),
             feature: LISTING.feature.into(),
             status: Some(Status::AwaitingOperator),
+            stop_accepted_seq: None,
             phase: Some(bounded("review")),
             park_reason: Some(bounded("REVIEW-HOLD for (review, hold): held")),
             ruled: Some(Ruled {

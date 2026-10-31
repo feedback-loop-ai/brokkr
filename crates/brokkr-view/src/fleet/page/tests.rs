@@ -73,6 +73,7 @@ fn row_of(summary: &Summary) -> Row {
         last_recorded_at: summary.last_recorded_at.as_ref().map(cut),
         order_at: summary.last_at_ms.unwrap_or(i64::MAX),
         status: summary.status,
+        stop_accepted_seq: summary.stop_accepted_seq,
         phase: summary.phase.as_ref().map(cut),
         park_reason: summary.park_reason.as_ref().map(cut),
         ruled: summary.ruled.clone(),
@@ -197,6 +198,7 @@ fn each_section_reads_the_ranges_it_places_rows_in() {
             vec![
                 range(Lane::Refused, None),
                 range(Lane::Parked, None),
+                range(Lane::Stopping, None),
                 range(Lane::Running, Some(Bound::Below(stale))),
             ],
         ),
@@ -222,7 +224,11 @@ fn each_section_reads_the_ranges_it_places_rows_in() {
     let unbounded = [
         (
             Section::NeedsYou,
-            vec![range(Lane::Refused, None), range(Lane::Parked, None)],
+            vec![
+                range(Lane::Refused, None),
+                range(Lane::Parked, None),
+                range(Lane::Stopping, None),
+            ],
         ),
         (Section::Running, vec![range(Lane::Running, None)]),
         (Section::Recent, vec![range(Lane::Finished, None)]),

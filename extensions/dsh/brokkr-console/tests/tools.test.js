@@ -64,7 +64,7 @@ test('a run no realm lists, or one listed twice without a realm, is refused', as
 })
 
 test('a readout past the bound is cut, and the answer says so', async () => {
-  const big = { stdout: JSON.stringify({ view_version: 27, pad: 'x'.repeat(TOOL_BOUND_BYTES + 10) }) }
+  const big = { stdout: JSON.stringify({ view_version: 28, pad: 'x'.repeat(TOOL_BOUND_BYTES + 10) }) }
   const { tools } = toolsWith([{ match: ['queue'], responses: [big] }])
   const answer = await tools.get('brokkr_queue').execute({})
   assert.equal(answer.cut, true)

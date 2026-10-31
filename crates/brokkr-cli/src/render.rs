@@ -222,10 +222,7 @@ pub(crate) fn runs(view: &RunsView, now: &str, style: &Style) -> String {
 
 /// A run's six cells: id, status, phase, seq, age and feature.
 fn run_cells(run: &RunRow, now: &str) -> [Safe; 6] {
-    let status = match &run.status {
-        Some(status) => status.clone(),
-        None => "?".to_string(),
-    };
+    let status = run.status_word().to_string();
     let phase = match &run.phase {
         Some(phase) => phase.clone(),
         None => "-".to_string(),
@@ -273,7 +270,7 @@ pub(crate) fn lines_within(
     let mut out = String::new();
     for run in runs {
         let row = run_cells(run, now);
-        let code = status_code(run.status.as_deref().unwrap_or("?"));
+        let code = status_code(run.status_word());
         let mut line = String::new();
         for (index, width) in widths.iter().enumerate() {
             let piece = row[index].padded(*width);
@@ -308,7 +305,16 @@ fn under_row(run: &RunRow) -> Vec<String> {
         .acknowledgement
         .as_ref()
         .map(|acknowledgement| format!("  {}", Safe::new(&acknowledgement.line()).as_str()));
-    refusal.into_iter().chain(acknowledged).collect()
+    let stopping = run
+        .verdict
+        .detail
+        .as_deref()
+        .map(|detail| format!("  {}", Safe::new(detail).as_str()));
+    refusal
+        .into_iter()
+        .chain(acknowledged)
+        .chain(stopping)
+        .collect()
 }
 
 /// The heading of the `index`th realm's section of a many-hearth world's

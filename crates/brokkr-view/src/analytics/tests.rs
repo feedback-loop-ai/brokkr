@@ -862,7 +862,7 @@ fn a_recipe_with_no_reported_cost_is_off_the_plot_and_dominates_nothing() {
     );
     assert_eq!(row(&rows, "alpha", "priced").on_frontier, Some(true));
     let wire = serde_json::to_value(read_one(&runs(&journals), Range::Week)).unwrap();
-    assert_eq!(wire["view_version"], json!(27));
+    assert_eq!(wire["view_version"], json!(28));
     assert_eq!(wire["recipes"][1]["on_frontier"], Value::Null);
     assert_eq!(
         wire["recipes"][1]["cost_per_run"]["cost"],

@@ -47,9 +47,9 @@ fn every_run_reads_as_its_fold() {
             lane("conclude-already-done-hand-built", "finished"),
             lane("conclude-broken-chain-hand-built", "behind"),
             lane("conclude-parked-hand-built", "parked"),
-            lane("conclude-stopped-mid-effect-hand-built", "running"),
+            lane("conclude-stopped-mid-effect-hand-built", "stopping"),
             lane("reforging-the-road-back-hand-built", "finished"),
-            lane("tui-graph-the-selection-box-gets-80f98deb", "running"),
+            lane("tui-graph-the-selection-box-gets-80f98deb", "stopping"),
         ]
     );
     assert_eq!(
@@ -198,7 +198,7 @@ fn a_run_that_does_not_load_is_named_behind_its_head_and_at_it() {
         .conn
         .execute(
             "UPDATE run_summary SET folded_seq = head_seq, folded_hash = head_hash,
-                 aggregated_seq = head_seq",
+                 aggregated_seq = head_seq, stop_folded_seq = head_seq",
             [],
         )
         .unwrap();

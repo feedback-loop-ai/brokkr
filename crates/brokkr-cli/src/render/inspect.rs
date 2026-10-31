@@ -19,21 +19,21 @@ pub(super) fn summary_lines(out: &mut String, summary: Option<&Summary>, style: 
                 Some(phase) => phase.clone(),
                 None => "-".to_string(),
             };
+            let status = summary.status_word();
             push_line(
                 out,
                 &format!(
                     "     {} · phase {} · seq {}",
-                    tint(
-                        Safe::new(&summary.status).as_str(),
-                        status_code(&summary.status),
-                        style
-                    ),
+                    tint(Safe::new(status).as_str(), status_code(status), style),
                     Safe::new(&phase).as_str(),
                     summary.seq
                 ),
             );
             if let Some(reason) = &summary.park_reason {
                 push_line(out, &format!("park  {}", Safe::new(reason).as_str()));
+            }
+            if let Some(detail) = &summary.detail {
+                push_line(out, &format!("stop  {}", Safe::new(detail).as_str()));
             }
         }
         None => push_line(out, "run  — this journal does not fold"),

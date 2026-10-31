@@ -25,6 +25,9 @@ pub enum Lane {
     Acknowledged,
     /// Waiting on the operator.
     Parked,
+    /// Running with an operator stop accepted and no ending written: it
+    /// is stopping, not running.
+    Stopping,
     Running,
     /// Completed or stopped.
     Finished,
@@ -38,6 +41,7 @@ impl Lane {
             Lane::Refused => "refused",
             Lane::Acknowledged => "acknowledged",
             Lane::Parked => "parked",
+            Lane::Stopping => "stopping",
             Lane::Running => "running",
             Lane::Finished => "finished",
         }
@@ -92,6 +96,9 @@ pub struct Row {
     pub order_at: i64,
     /// `None` exactly when the fold refused the run (`refused`).
     pub status: Option<Status>,
+    /// An accepted operator stop with no ending written, at its seq, while
+    /// the run still folds to running.
+    pub stop_accepted_seq: Option<u64>,
     pub phase: Option<Bounded>,
     pub park_reason: Option<Bounded>,
     pub ruled: Option<Ruled>,
