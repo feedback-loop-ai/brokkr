@@ -95,7 +95,7 @@ impl Folder {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
         let (repo, personal) = (root.join("repo"), root.join("config/recipes"));
-        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        crate::places::places_tests::test_repository(&repo);
         std::fs::create_dir_all(&personal).unwrap();
         let folder = Folder {
             _dir: dir,

@@ -71,7 +71,10 @@ use site_form::{refuse_amendments, refuse_boundary_key, refuse_confine};
 pub(crate) use site_key::SiteKey;
 pub use survey::{survey, Survey};
 pub use tier::{ProvisionalRefusal, RealmLaw};
-use walk::{refuse_unlisted_consumed, walk_digests, walk_keys, Walk};
+use walk::{
+    refuse_oversized, refuse_unlisted_consumed, skipped_path, unpinned_active_input, walk_digests,
+    walk_keys, Walk,
+};
 
 #[cfg(test)]
 use crate::agents::{resolve_route, Lowering, TrustTier};
@@ -673,13 +676,14 @@ struct LibraryRead {
     agent: String,
     reference: String,
     digest: String,
+    bytes: u64,
     held: Held,
 }
 
 impl LibraryRead {
     /// Refused, where the read no longer stands as it was read.
     fn check(&self) -> Result<(), CompileError> {
-        match self.held.intact(&self.digest) {
+        match self.held.intact(&self.digest, self.bytes) {
             true => Ok(()),
             false => Err(library_refusal(
                 &self.site,
@@ -2703,11 +2707,21 @@ fn pinned_key(dir: &Path, token: &str, relative: &str) -> Result<String, String>
              never `..`, `.`, empty, a `\\` or a drive"
         ));
     }
-    if crate::places::unpinned_top_level(dir, components[0]) {
+    if let Some(skip) = crate::places::unpinned_reason(dir, Path::new(relative))
+        .map_err(|refused| refused.to_string())?
+    {
+        let holds = match skip {
+            crate::places::Skip::Workspace
+            | crate::places::Skip::State
+            | crate::places::Skip::Shelf => "workspace data, never bundle bytes",
+            crate::places::Skip::GitMetadata => "git's own metadata, which no bundle pins",
+            crate::places::Skip::GitIgnored => {
+                "in a tree git ignores in the bundle's repository, whose bytes are not part of \
+                 the bundle's identity"
+            }
+        };
         return Err(format!(
-            "'{token}' names a path the manifest walk does not pin ({} is workspace data, \
-             never bundle bytes)",
-            components[0]
+            "'{token}' names a path the manifest walk does not pin ({relative} is {holds})"
         ));
     }
     let mut path = dir.to_path_buf();
@@ -2723,92 +2737,14 @@ fn pinned_key(dir: &Path, token: &str, relative: &str) -> Result<String, String>
     }
 }
 
-/// The top-level name an ACTIVE input stands under, where that name is one
-/// the walk skips (decision 0066 ruling 5, correcting decision 0065's
-/// design D7). A seat's charter decides what the seat is told and a layer's
-/// table decides how the run is ruled, so neither may sit where the
-/// manifest's file map does not look: the skip is sound for operator
-/// configuration only while nothing a recipe EXECUTES is read from under
-/// it. One predicate, shared with the walk, so the two cannot drift.
-///
-/// `root` is the declaring layer's canonical directory and `reference` is
-/// what that layer wrote. Judged twice: here, the reference as written, its
-/// `.` and `..` folded without touching the disk, which catches a path
-/// spelled into the skipped tree — a link there that points back out
-/// included, since the link is itself bytes nobody pins; and in
-/// [`bound_input`], its canonical target, which catches an allowed spelling
-/// whose file, or whose parent, is a link into it. That second question is
-/// asked of the one resolution the read is then bound to.
-///
-/// A reference written OUT of the layer altogether — `../shared/role.md`
-/// — escapes the same map the same way, and no other route pins it: an
-/// agent's charter is pinned by its library record, a dialect's
-/// instructions by the dialect pin, and an inline role by the file map or
-/// by nothing. It is refused on the same terms. The answer is WHERE the
-/// input stands, as the clause both refusals carry.
-///
-/// Second council H5: A `..` STEP IS NOT A PATH THE WALK EVER TAKES. The
-/// walk descends real directory entries — through a link, though a
-/// consumed input whose link leaves the layer is refused by
-/// [`bound_input`] under operator ruling 3 — and every key it writes is a
-/// chain of such entries. A
-/// reference that walks back UP cannot be one of those keys: with
-/// `base/alias -> ../outside/child`, `alias/../charter.md` folds
-/// lexically to `base/charter.md`, which the map does pin, while the file
-/// a reader opens is `outside/charter.md`, which nothing pins. The chief
-/// edited that file and every manifest digest stayed the same.
-///
-/// So the fold is no longer asked to stand in for the filesystem: a
-/// reference that reaches its file through `..` is refused outright, and
-/// what remains is exactly the set of paths the walk enumerates.
-fn unpinned_active_input(root: &Path, reference: &str) -> Option<String> {
-    let folded = folded(&root.join(reference));
-    if !folded.starts_with(root) {
-        return Some(
-            "which stands outside the layer's own directory, where the bundle's file walk \
-             never reaches"
-                .to_string(),
-        );
-    }
-    // The narrower question first, so a reference spelled into operator
-    // configuration keeps naming the tree it reached.
-    skipped_top_level(root, &folded).or_else(|| {
-        Path::new(reference)
-            .components()
-            .any(|part| part == std::path::Component::ParentDir)
-            .then(|| {
-                "which reaches its file through a '..' step — never a path the bundle's file \
-                 walk takes, so a link earlier in it can put the file a reader opens outside \
-                 everything the walk pinned"
-                    .to_string()
-            })
-    })
-}
-
-/// The clause for a path standing under a top-level name the walk skips,
-/// judged relative to the declaring layer's canonical `root`.
-fn skipped_top_level(root: &Path, path: &Path) -> Option<String> {
-    let first = path.strip_prefix(root).ok()?.components().next()?;
-    let name = first.as_os_str().to_str()?;
-    crate::places::unpinned_top_level(root, name).then(|| {
-        let holds = crate::places::unpinned_holds(name);
-        format!(
-            "which stands under '{name}' — a top-level name the bundle's file walk does not \
-             pin, because it holds {holds}"
-        )
-    })
-}
-
 /// One consumed input, resolved from its layer's directory handle a name at
 /// a time and read through the handle that resolution ended at (operator
 /// ruling 3; decision 0065 slice one, design D7).
 pub(crate) struct BoundInput {
-    /// The bytes the handle supplied: the buffer a caller hashes and parses,
-    /// and whose digest the layer's walk takes for both of its keys.
+    /// The bytes the handle supplied, a caller hashes and parses.
     pub(crate) bytes: Vec<u8>,
-    /// What the resolution observed, the names it bound the input by and
-    /// the handles it holds, so the walk can verify the input without
-    /// opening its path to read it.
+    /// What the resolution observed and the handles it holds, so the walk
+    /// can verify the input without opening its path to read it.
     pub(crate) held: Held,
 }
 
@@ -2851,10 +2787,11 @@ impl Binding {
     }
 
     /// What a layer's walk is told about `key`, one of these keys, whose
-    /// buffer hashed to `digest`, read for `consumer`.
-    pub(crate) fn supplied(&self, digest: &str, consumer: String) -> Supplied {
+    /// `bytes`-long buffer hashed to `digest`, read for `consumer`.
+    pub(crate) fn supplied(&self, digest: &str, bytes: u64, consumer: String) -> Supplied {
         Supplied {
             digest: digest.to_string(),
+            bytes,
             id: self.id,
             target: self.target_key.clone(),
             consumer,
@@ -2909,11 +2846,13 @@ impl Binding {
 }
 
 /// A key a bound read supplied, as its layer's walk takes it (design D7):
-/// the digest of the buffer that was read, and the file the read held,
-/// named by its target's key, so no other name for that file is walked as
-/// a file nothing consumed.
+/// the digest and length of the buffer read, and the file the read held,
+/// named by its target's key so no other name for it is walked as a file
+/// nothing consumed.
 pub(crate) struct Supplied {
     digest: String,
+    /// The length of the buffer whose digest it is (#908, fix round 908e).
+    bytes: u64,
     id: (u64, u64),
     target: String,
     /// Who consumed it, bounded, as its own refusal opens: the declaring
@@ -2966,24 +2905,23 @@ impl Held {
         (&now.binding, &now.owner) == (&self.binding, &self.owner)
     }
 
-    /// Whether the input still stands as it was read: its reference, resolved
-    /// again from the layer's directory — reached as the read reached it —
-    /// [`Held::stands`], and the held file still holds exactly the bytes
-    /// whose digest is `digest`. Those bytes are read back through the held
-    /// handle, never by opening the path, and any failure to observe or read
-    /// is a change: this fails closed.
-    pub(crate) fn intact(&self, digest: &str) -> bool {
-        use std::io::{Read, Seek};
+    /// Whether the input still stands as it was read: the reference resolved
+    /// as the read reached it, and the `bytes` whose digest is `digest` held
+    /// and read back at most their length plus one. Any failure is a change.
+    pub(crate) fn intact(&self, digest: &str, bytes: u64) -> bool {
+        use std::io::Seek;
         let mut file = self.handles.last().expect("a resolution ends at a handle");
-        let mut again = Vec::new();
-        let reread = file.rewind().and_then(|()| file.read_to_end(&mut again));
-        let held = reread.map(|_| sha256_bytes(&again));
+        let reread = file
+            .rewind()
+            .and_then(|()| walk::read_within(&mut file, bytes));
+        let held = reread.ok().filter(|again| again.len() as u64 == bytes);
+        let held = held.map(|again| sha256_bytes(&again));
         let open = || match self.owner {
             Some(_) => owner_open(&self.root),
             None => by_path(&self.root),
         };
         let stands = observe(&self.root, &open, &self.reference).is_ok_and(|now| self.stands(&now));
-        (held.ok().as_deref(), stands) == (Some(digest), true)
+        (held.as_deref(), stands) == (Some(digest), true)
     }
 }
 
@@ -3413,14 +3351,15 @@ pub(crate) fn bound_input(root: &Path, reference: &str) -> Result<BoundInput, In
 /// [`bound_input`] with the layer's directory given by `open`, for both of
 /// the read's resolutions.
 fn bound_through(root: &Path, open: Opener<'_>, reference: &str) -> Result<BoundInput, InputFault> {
-    use std::io::Read;
-    if let Some(place) = unpinned_active_input(root, reference) {
+    let refused =
+        |error: crate::places::SkipError| Place::of(FaultKind::Unbound, error.to_string());
+    if let Some(place) = unpinned_active_input(root, reference).map_err(refused)? {
         return Err(Place::of(FaultKind::Unbound, place));
     }
     let reference = PathBuf::from(reference);
     let observed = observe(root, open, &reference)?;
     let target = root.join(&observed.binding.target_key);
-    if let Some(place) = skipped_top_level(root, &target) {
+    if let Some(place) = skipped_path(root, &target).map_err(refused)? {
         return Err(Place::of(FaultKind::Unbound, place));
     }
     let held = Held {
@@ -3436,8 +3375,8 @@ fn bound_through(root: &Path, open: Opener<'_>, reference: &str) -> Result<Bound
         return Err(Place::of(FaultKind::Nonregular, NONREGULAR));
     }
     at_stage(ReadStage::Checked, &target);
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes).map_err(unopened)?;
+    let bytes = walk::read_within(&mut file, walk::MAX_BYTES).map_err(unopened)?;
+    walk::refuse_read_past_bound(root, &held.binding.target_key, &bytes)?;
     at_stage(ReadStage::Read, &target);
     if !observe(root, open, &held.reference).is_ok_and(|now| held.stands(&now)) {
         return Err(Place::of(FaultKind::Replaced, REPLACED));
@@ -4358,6 +4297,7 @@ fn walk_files(
     let (paths, unpinned) = Walk::list(dir, scope, consumed)?;
     let walked = walk_keys(dir, paths)?;
     refuse_unlisted_consumed(consumed, &walked)?;
+    refuse_oversized(dir, &walked)?;
     walk_digests(dir, walked, unpinned, consumed)
 }
 

@@ -21,6 +21,10 @@ use serde_json::{json, Value};
 #[path = "support/own_home.rs"]
 mod own_home;
 
+#[path = "support/git.rs"]
+mod git;
+use git::test_repository;
+
 static CWD: Mutex<()> = Mutex::new(());
 
 /// A recipe library's mark under a workspace (decision 0083 ruling 4).
@@ -203,7 +207,7 @@ impl Fleet {
     /// payload.
     fn queued_from_src(&self) -> (PathBuf, PathBuf, String) {
         let library = self.workspace("a");
-        std::fs::create_dir(library.join(".git")).unwrap();
+        test_repository(&library);
         let src = library.join("src");
         adapters(&src);
         let payload = self.queued_in(src.clone(), BundleSource::Dir(library.join("bundle")));
@@ -450,7 +454,7 @@ fn shelved(fleet: &Fleet) -> (PathBuf, PathBuf) {
         personal.display()
     );
     let workspace = fleet.workspace("c");
-    std::fs::create_dir_all(workspace.join(".git")).unwrap();
+    test_repository(&workspace);
     let folder = workspace.join(".brokkr");
     adapters(&folder);
     bundle(&folder.join("recipes/fast"), "fast", exec());

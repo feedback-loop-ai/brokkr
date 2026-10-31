@@ -260,14 +260,31 @@ pub(crate) fn repository() -> tempfile::TempDir {
 }
 
 /// `aside/bins`, holding an empty file for each of the agent CLIs
-/// `present`: a PATH on which `init` finds those and no others.
+/// `present`: a PATH on which `init` finds those and no others, plus the
+/// host's `git` a compile asks about the bundle's ignored trees (#908).
 pub(crate) fn bins_holding(aside: &Path, present: &[&str]) -> PathBuf {
     let bins = aside.join("bins");
     std::fs::create_dir_all(&bins).unwrap();
     for binary in present {
         std::fs::write(bins.join(binary), "").unwrap();
     }
+    plant_git(&bins);
     bins
+}
+
+/// Put the host's `git` in `bins`. The compiler asks git which trees a
+/// bundle's repository ignores (#908), so a fixture PATH that hides the
+/// host's tools must still let it ask.
+pub(crate) fn plant_git(bins: &Path) {
+    let at = bins.join("git");
+    if at.symlink_metadata().is_ok() {
+        return;
+    }
+    let git = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+        .map(|dir| dir.join("git"))
+        .find(|path| path.is_file())
+        .expect("git on the test process's PATH");
+    std::os::unix::fs::symlink(git, at).unwrap();
 }
 
 /// Commit what `root`'s index holds.

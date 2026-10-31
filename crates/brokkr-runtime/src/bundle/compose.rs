@@ -375,14 +375,14 @@ fn own_table(layer: &Layer) -> Result<Option<LayerTable>, CompileError> {
     Ok(Some((table, layer.dir.join(relative), read)))
 }
 
-/// Where one consumed buffer must stand in its layer's file map: the
-/// walk's key for the entry the reference names and for the target that
-/// was read, as `held`'s binding names them, and the digest of the buffer
-/// that was parsed. The walk takes that digest for both keys and never
-/// reads either path; `held` is what the read observed, verified before the
-/// layer is sealed.
+/// Where one consumed buffer must stand in its layer's file map: the walk's
+/// key for the entry the reference names and for the target read, its
+/// digest and length, and `held`, what the read observed and the seal
+/// verifies.
 struct Pinned {
     digest: String,
+    /// The length of the buffer whose digest it is (#908, fix round 908e).
+    bytes: u64,
     held: super::Held,
 }
 
@@ -403,6 +403,7 @@ impl Pinned {
     fn of(bound: super::BoundInput) -> (Pinned, Vec<u8>) {
         let pinned = Pinned {
             digest: brokkr_core::canonical::sha256_bytes(&bound.bytes),
+            bytes: bound.bytes.len() as u64,
             held: bound.held,
         };
         (pinned, bound.bytes)
@@ -419,7 +420,7 @@ impl Pinned {
         // Not short-circuited: the held input is verified whatever the map
         // says, and either disagreement is a change.
         let digests = pinned.iter().all(|at| *at == Some(self.digest.as_str()));
-        match digests & self.held.intact(&self.digest) {
+        match digests & self.held.intact(&self.digest, self.bytes) {
             true => Standing::Held,
             false => Standing::Changed,
         }
@@ -503,9 +504,8 @@ impl Consumed {
         for (pinned, consumer) in std::iter::once(document).chain(tables).chain(charters) {
             let binding = pinned.held.binding();
             for key in binding.keys() {
-                digests
-                    .entry(key.to_string())
-                    .or_insert_with(|| binding.supplied(&pinned.digest, consumer.clone()));
+                let supplied = || binding.supplied(&pinned.digest, pinned.bytes, consumer.clone());
+                digests.entry(key.to_string()).or_insert_with(supplied);
             }
         }
         digests

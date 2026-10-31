@@ -773,6 +773,9 @@ fn doctor_reads_the_realms_boundary_from_the_workspace_map() {
     let ws = Workspace::new("harness");
     let empty = ws.path().join("empty-path");
     std::fs::create_dir_all(&empty).unwrap();
+    // The bundle's compile asks git which trees it ignores (#908); this
+    // PATH exists to hide bwrap, sandbox-exec and docker alone.
+    crate::brokkr_folder::plant_git(&empty);
     let bundle = ws.bundle_dir();
     let out = Command::new(brokkr_bin())
         .args(["doctor", "--bundle", bundle.to_str().unwrap()])

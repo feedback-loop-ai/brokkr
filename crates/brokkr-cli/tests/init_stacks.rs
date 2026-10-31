@@ -277,6 +277,7 @@ pub(crate) fn brokkr_for(
         std::fs::create_dir_all(dir).unwrap();
     }
     std::fs::write(bins.join(cli), "").unwrap();
+    crate::brokkr_folder::plant_git(&bins);
     brokkr_with(args, cwd, |command| {
         command
             .env("HOME", aside.join("home"))
@@ -944,6 +945,7 @@ fn init_on(repo: &Path, aside: &Path, extra: &[PathBuf], vars: &[(&str, &Path)])
     let bins = aside.join("bins");
     std::fs::create_dir_all(&bins).unwrap();
     std::fs::write(bins.join("claude"), "").unwrap();
+    crate::brokkr_folder::plant_git(&bins);
     let path = std::env::join_paths(std::iter::once(bins).chain(extra.iter().cloned())).unwrap();
     let (code, _, stderr) = brokkr_with(&["init", "."], repo, |command| {
         command.env("PATH", &path).env("HOME", aside.join("home"));

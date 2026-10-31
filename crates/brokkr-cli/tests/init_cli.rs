@@ -161,6 +161,7 @@ fn a_volta_bin_holding_codex_and_dsh_scaffolds_for_the_named_one() {
         for shim in ["npm", "node"] {
             std::os::unix::fs::symlink("volta-shim", bin.join(shim)).unwrap();
         }
+        crate::brokkr_folder::plant_git(&bin);
         let (code, stderr) = init_under(repo.path(), &bin, &home, extra);
         assert_eq!(code, Some(0), "{stderr}");
         assert_eq!(adapters(repo.path()), written, "{extra:?}: {stderr}");

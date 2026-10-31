@@ -181,33 +181,213 @@ pub(crate) const UNPINNED_TOP_LEVEL: [&str; 3] = [
     crate::capabilities::DEFINITIONS_DIR,
 ];
 
-/// Whether the walk of the layer at `dir`, its canonical directory, skips
-/// the top-level `name`: one of [`UNPINNED_TOP_LEVEL`], or a folder
-/// bundle's [`STATE`] (decision 0083) or shelf, [`RECIPES`] (#696), so
-/// installing or editing a shelf recipe never moves the default bundle's
-/// digest; a shelf recipe it extends is pinned as every composed base is
-/// (decision 0017). Every other bundle pins a top-level `state/` and
-/// `recipes/` as it always did, and so does a layer whose layout cannot
-/// be read: pinning more never lets a file change unseen.
+/// Git's own metadata directory: never bundle bytes, whatever git says
+/// about it (#908).
+pub(crate) const GIT: &str = ".git";
+
+/// Why the walk of a layer skips a relative path: one of the fixed
+/// answers, or git's own verdict on the path (#908). A closed set matched
+/// exhaustively, so a new skip cannot be silently read as operator
+/// configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Skip {
+    /// One of [`UNPINNED_TOP_LEVEL`].
+    Workspace,
+    /// A folder bundle's [`STATE`].
+    State,
+    /// A folder bundle's shelf, [`RECIPES`].
+    Shelf,
+    /// [`GIT`].
+    GitMetadata,
+    /// A path git reports ignored for the bundle's repository, and every
+    /// entry beneath an ignored tree.
+    GitIgnored,
+}
+
+/// A git question the bundle's walk could not get answered (#908):
+/// refused by name rather than read as "pin everything" or "skip
+/// everything".
+#[derive(Debug, Error)]
+pub(crate) enum SkipError {
+    #[error(
+        "asking git which trees the bundle at {} ignores failed ({detail}); a bundle's walk \
+         skips a git-ignored tree only when git says so, never by guessing",
+        .bundle.display()
+    )]
+    Git { bundle: PathBuf, detail: String },
+}
+
+/// Why the walk of the layer at `dir`, its canonical directory, skips the
+/// entry at `rel`, its path relative to `dir`, or `None` when it pins it.
+/// [`Skip`] has one home here: one of [`UNPINNED_TOP_LEVEL`], a folder
+/// bundle's [`STATE`] (decision 0083) or shelf [`RECIPES`] (#696), git's
+/// metadata [`GIT`], or any path git reports ignored for the bundle's
+/// repository (#908).
+///
+/// The fixed names are judged by `rel`'s first component, so the walk
+/// skips a top-level tree whole while a consumed input or a pinned script
+/// under it is refused by the same answer. The git question is asked of
+/// the full relative path, so an ignored tree nested at any depth is
+/// skipped and a consumed file inside one is refused (#908).
 ///
 /// A scaffold may also be the workspace brokkr is invoked from (decision
 /// 0042): its realm map and dialect library are workspace declarations
 /// pinned into the RUN manifest, never bundle files, and an unconsulted
 /// capability definition is no second source of bundle identity (decision
-/// 0065). The bundle's file walk, its pinned-script lookup and its skip
-/// reason all ask this one function, so they cannot drift.
-pub(crate) fn unpinned_top_level(dir: &Path, name: &str) -> bool {
-    UNPINNED_TOP_LEVEL.contains(&name)
-        || [STATE, RECIPES].contains(&name) && matches!(folder_bundle(dir), Ok(Some(_)))
+/// 0065). A bundle outside any git work tree skips only [`GIT`], and a
+/// layer whose layout cannot be read pins its `state/` and `recipes/` as
+/// every other bundle always did: pinning more never lets a file change
+/// unseen. The bundle's file walk, its consumed inputs, its pinned-script
+/// lookup and its skip reason all ask this one function, so they cannot
+/// drift.
+pub(crate) fn unpinned_reason(dir: &Path, rel: &Path) -> Result<Option<Skip>, SkipError> {
+    if let Some(name) = first_name(rel) {
+        if [STATE, RECIPES].contains(&name) && matches!(folder_bundle(dir), Ok(Some(_))) {
+            return Ok(Some(match name {
+                STATE => Skip::State,
+                _ => Skip::Shelf,
+            }));
+        }
+        if UNPINNED_TOP_LEVEL.contains(&name) {
+            return Ok(Some(Skip::Workspace));
+        }
+        if name == GIT {
+            return Ok(Some(Skip::GitMetadata));
+        }
+    }
+    let Some(path) = relative_text(rel) else {
+        // A name JSON cannot represent is refused by the walk that writes
+        // its keys, naming it; it is never asked of git lossily.
+        return Ok(None);
+    };
+    Ok(git_ignored(dir, &path)?.then_some(Skip::GitIgnored))
 }
 
-/// What the top-level `name` a walk skips ([`unpinned_top_level`]) holds,
-/// in the words of the refusal of a path under it.
-pub(crate) fn unpinned_holds(name: &str) -> &'static str {
-    match name {
-        STATE => "the folder's runtime state, which a run writes",
-        RECIPES => "the folder's shelf, whose named recipes are bundles of their own (#696)",
-        _ => "operator configuration",
+/// The first named component of `rel`, if it has one.
+fn first_name(rel: &Path) -> Option<&str> {
+    match rel.components().next()? {
+        std::path::Component::Normal(name) => name.to_str(),
+        _ => None,
+    }
+}
+
+/// `rel` as git spells it, slash-joined, or `None` when a component is
+/// not UTF-8: a name git cannot be asked about is left to the walk that
+/// refuses it by name.
+fn relative_text(rel: &Path) -> Option<String> {
+    let parts = rel
+        .components()
+        .map(|part| match part {
+            std::path::Component::Normal(name) => name.to_str(),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>()?;
+    (!parts.is_empty()).then(|| parts.join("/"))
+}
+
+/// What a skipped path holds, in the words of the refusal of a path under
+/// it.
+pub(crate) fn unpinned_holds(skip: Skip) -> &'static str {
+    match skip {
+        Skip::Workspace => "operator configuration",
+        Skip::State => "the folder's runtime state, which a run writes",
+        Skip::Shelf => "the folder's shelf, whose named recipes are bundles of their own (#696)",
+        Skip::GitMetadata => "git's own metadata, which no bundle pins",
+        Skip::GitIgnored => {
+            "a tree git ignores in the bundle's repository, whose bytes are not part of the \
+             bundle's identity"
+        }
+    }
+}
+
+/// Whether `dir` has a `.git` entry at itself or an ancestor: the one
+/// question that tells a bundle outside any git work tree, which asks git
+/// nothing, from one whose answer must be read (#908).
+fn stands_in_git(dir: &Path) -> bool {
+    dir.ancestors()
+        .any(|at| at.join(GIT).symlink_metadata().is_ok())
+}
+
+/// Git's own answer to whether `rel` under `dir` is ignored (#908):
+/// `git check-ignore` for the repository the bundle stands in, so
+/// `.gitignore`, `.git/info/exclude` and a global exclude rule alike are
+/// git's rules, never a copy of them. `rel` is the entry's full relative
+/// path, so a tree ignored at any depth is judged, not only the first
+/// component. It is passed to git as `./<rel>`, so git judges the literal
+/// name the walk named and never a pathspec (#908).
+///
+/// A bundle outside a git work tree answers "not ignored": it skips only
+/// [`GIT`]. A `.git` stands above the bundle but git cannot answer for it:
+/// that refusal is by name, with git's own stderr, never read as "nothing
+/// is ignored" or "everything is".
+fn git_ignored(dir: &Path, rel: &str) -> Result<bool, SkipError> {
+    // A directory that is no longer there has no repository to ask: the
+    // read that follows names it missing, as it always did, rather than
+    // asking git about a bundle that does not stand.
+    if !dir.exists() {
+        return Ok(false);
+    }
+    // A directory with no `.git` at it or above it stands in no work tree,
+    // so there is no question to ask and it skips only `.git`, as it did
+    // before #908. A path that is not a directory is still asked, so git's
+    // own refusal names it rather than being read as "not ignored".
+    if dir.is_dir() && !stands_in_git(dir) {
+        return Ok(false);
+    }
+    // Run git in the bundle, as the house's other git calls do. A bundle
+    // whose directory cannot be entered is a spawn failure, refused by
+    // name rather than read as "nothing is ignored".
+    let run = |args: &[&str]| -> Result<std::process::Output, SkipError> {
+        std::process::Command::new("git")
+            .current_dir(dir)
+            .args(args)
+            .output()
+            .map_err(|error| SkipError::Git {
+                bundle: dir.to_path_buf(),
+                detail: error.to_string(),
+            })
+    };
+    // Git's own test for the question. A repository git cannot read is a
+    // refusal by name carrying git's stderr: only a successful `false`
+    // answer says the bundle is inside no work tree (a bare repository or
+    // git's own metadata), which pins as it always did.
+    let inside = run(&["rev-parse", "--is-inside-work-tree"])?;
+    if !inside.status.success() {
+        return Err(SkipError::Git {
+            bundle: dir.to_path_buf(),
+            detail: git_refusal(&inside, "rev-parse"),
+        });
+    }
+    if String::from_utf8_lossy(&inside.stdout).trim() != "true" {
+        return Ok(false);
+    }
+    // Git reads a bare relative operand as a pathspec, and `--` ends
+    // options without making it literal: a `:`-leading name is pathspec
+    // magic, so git would judge a different path than the walk named.
+    // Prefixing `./` judges the literal name relative to the bundle git
+    // already runs in (`--literal-pathspecs` and `--stdin` are no help,
+    // and check-ignore expands no glob) (#908).
+    let operand = format!("./{rel}");
+    let checked = run(&["check-ignore", "--quiet", "--", &operand])?;
+    match checked.status.code() {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        _ => Err(SkipError::Git {
+            bundle: dir.to_path_buf(),
+            detail: git_refusal(&checked, "check-ignore"),
+        }),
+    }
+}
+
+/// Git's own words for an answer it could not give (#908): its status and
+/// stderr, so the refusal names what git said rather than guessing.
+fn git_refusal(output: &std::process::Output, verb: &str) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stderr = stderr.trim();
+    if stderr.is_empty() {
+        format!("git {verb} answered {}", output.status)
+    } else {
+        format!("git {verb} answered {}: {stderr}", output.status)
     }
 }
 

@@ -1,9 +1,19 @@
 use std::path::{Path, PathBuf};
 
+#[path = "../../tests/support/git.rs"]
+mod git;
+pub(crate) use git::{run, test_repository};
+
 use super::{
-    base_library, default_map, folder, library, run_local, state_of, unpinned_top_level, Kind,
-    Layout, Places, PlacesError,
+    base_library, default_map, folder, library, run_local, state_of, unpinned_reason, Kind, Layout,
+    Places, PlacesError,
 };
+
+/// [`unpinned_reason`] for a fixture whose git questions are answered:
+/// these tests plant no repository, so git says the paths are pinned.
+fn skips(dir: &Path, name: &str) -> bool {
+    unpinned_reason(dir, Path::new(name)).unwrap().is_some()
+}
 
 /// Mark `dir` as a recipe library (decision 0083 ruling 4), so a launch
 /// from it keeps the library's own `.forge/` layout: the one mark the
@@ -56,7 +66,7 @@ fn folder_places(root: &Path) -> Places {
 fn places_are_the_root_folders_from_a_subdirectory() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    std::fs::create_dir_all(root.join(".git")).unwrap();
+    test_repository(&root);
     std::fs::create_dir_all(root.join(".brokkr")).unwrap();
     let deep = root.join("src/deep");
     std::fs::create_dir_all(&deep).unwrap();
@@ -90,7 +100,7 @@ fn places_are_the_root_folders_from_a_subdirectory() {
 fn a_linked_workspace_is_walked_from_its_real_directory() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    std::fs::create_dir_all(root.join(".git")).unwrap();
+    test_repository(&root);
     plant_library(&root);
     let (real, link) = (root.join("other/deep"), root.join("src"));
     std::fs::create_dir_all(&real).unwrap();
@@ -168,7 +178,7 @@ fn a_workspace_with_no_place_refuses_its_state() {
 
     // From below the repository's root, the walk reaches it as the CLI's
     // does, and a workspace that cannot be made absolute is unreadable.
-    std::fs::create_dir_all(root.join(".git")).unwrap();
+    test_repository(root);
     std::fs::create_dir_all(root.join("sub")).unwrap();
     assert_eq!(state_of(&root.join("sub")).unwrap(), None);
     let empty = state_of(Path::new("")).unwrap_err();
@@ -406,7 +416,7 @@ fn the_run_local_directory_is_the_state_handed_else_the_workdirs_forge() {
 fn folder_root() -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    std::fs::create_dir_all(root.join(".git")).unwrap();
+    test_repository(&root);
     std::fs::create_dir(root.join(".brokkr")).unwrap();
     (dir, root)
 }
@@ -420,17 +430,17 @@ fn folder_root() -> (tempfile::TempDir, PathBuf) {
 fn only_a_folder_bundle_skips_its_state() {
     let (_dir, root) = folder_root();
     let (folder, library) = (root.join(".brokkr"), root.join("recipes/state"));
-    assert!(unpinned_top_level(&folder, "state"));
-    assert!(!unpinned_top_level(&library, "state"));
-    assert!(unpinned_top_level(&library, "dialects"));
-    assert!(!unpinned_top_level(&folder, "roles"));
+    assert!(skips(&folder, "state"));
+    assert!(!skips(&library, "state"));
+    assert!(skips(&library, "dialects"));
+    assert!(!skips(&folder, "roles"));
     let (nested, recipe) = (root.join("sub/.brokkr"), root.join("recipes/.brokkr"));
     std::fs::create_dir_all(&nested).unwrap();
-    assert!(!unpinned_top_level(&nested, "state"));
+    assert!(!skips(&nested, "state"));
     plant_library(&root);
     std::fs::create_dir_all(&recipe).unwrap();
-    assert!(!unpinned_top_level(&recipe, "state"));
-    assert!(!unpinned_top_level(&folder, "state"));
+    assert!(!skips(&recipe, "state"));
+    assert!(!skips(&folder, "state"));
 }
 
 /// Only a folder bundle skips its top-level `recipes/`, the shelf (#696);
@@ -439,15 +449,17 @@ fn only_a_folder_bundle_skips_its_state() {
 fn only_a_folder_bundle_skips_its_shelf() {
     let (_dir, root) = folder_root();
     let (folder, recipe) = (root.join(".brokkr"), root.join("recipes/x"));
-    assert!(unpinned_top_level(&folder, "recipes"));
-    assert!(!unpinned_top_level(&recipe, "recipes"));
-    assert!(!unpinned_top_level(
-        &root.join(".brokkr/recipes/x"),
-        "recipes"
-    ));
+    assert!(skips(&folder, "recipes"));
+    assert!(!skips(&recipe, "recipes"));
+    assert!(!skips(&root.join(".brokkr/recipes/x"), "recipes"));
     plant_library(&root);
-    assert!(!unpinned_top_level(&folder, "recipes"));
-    let holds = ["state", "recipes", "dialects"].map(super::unpinned_holds);
+    assert!(!skips(&folder, "recipes"));
+    let holds = [
+        super::Skip::State,
+        super::Skip::Shelf,
+        super::Skip::Workspace,
+    ]
+    .map(super::unpinned_holds);
     assert_eq!(
         holds,
         [
@@ -489,7 +501,7 @@ fn a_folder_bundle_whose_layout_cannot_be_read_refuses_a_base() {
     mode(&recipes, 0o000);
     let judged = (!reads_anything(&recipes)).then(|| {
         let refused = base_library(&folder).unwrap_err();
-        (refused, !unpinned_top_level(&folder, "state"))
+        (refused, !skips(&folder, "state"))
     });
     mode(&recipes, 0o755);
     let Some((refused, pinned)) = judged else {
@@ -532,4 +544,43 @@ fn the_personal_shelf_stands_beside_the_host_file() {
     let (found, beside) = placed(None, Some("relative"));
     assert_eq!(found, Err(unplaced.to_string()));
     assert_eq!(found, beside);
+}
+
+/// #908: a path that does not start with a name has no first name, and a
+/// path with a component that is not a plain name has no spelling git is
+/// asked about; each answers `None` rather than a lossy guess.
+#[test]
+fn a_path_that_is_not_plain_names_is_never_spelled_for_git() {
+    assert_eq!(super::first_name(Path::new("../x")), None);
+    assert_eq!(super::first_name(Path::new("x/y")), Some("x"));
+    assert_eq!(super::relative_text(Path::new("a/../b")), None);
+    assert_eq!(
+        super::relative_text(Path::new("a/b")),
+        Some("a/b".to_string())
+    );
+}
+
+/// #908: git's refusal keeps its own words, and a refusal git gave in
+/// silence still names the verb and the status it answered.
+#[cfg(unix)]
+#[test]
+fn a_git_refusal_names_its_status_with_or_without_stderr() {
+    use std::os::unix::process::ExitStatusExt;
+    let silent = std::process::Output {
+        status: std::process::ExitStatus::from_raw(128 << 8),
+        stdout: Vec::new(),
+        stderr: Vec::new(),
+    };
+    assert_eq!(
+        super::git_refusal(&silent, "check-ignore"),
+        "git check-ignore answered exit status: 128"
+    );
+    let spoken = std::process::Output {
+        stderr: b"fatal: not a git repository\n".to_vec(),
+        ..silent
+    };
+    assert_eq!(
+        super::git_refusal(&spoken, "check-ignore"),
+        "git check-ignore answered exit status: 128: fatal: not a git repository"
+    );
 }

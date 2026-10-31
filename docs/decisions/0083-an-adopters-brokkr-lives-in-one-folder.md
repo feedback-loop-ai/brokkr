@@ -1186,3 +1186,78 @@ the <origin> shelf <shelf> climbs by '..' out of a directory that does not stand
 the personal shelf <shelf> cannot be made (#726): <directory>: <cause>; every directory made for it was removed again, so nothing was installed
 recipe '<name>' stands on the project shelf, at <project>/<name>, so installing it onto the personal shelf, at <personal>/<name>, would stand it on both (#726): neither shelf would win, so rename or remove one of them; nothing was installed
 ```
+
+## Addendum — 2026-10-29, the walk skips git's ignored trees and a bundle past a bound (#908)
+
+Status: proposed; only the operator accepts this addendum.
+
+The operator ruled on #908 (2026-10-29, "go with recommended on the rulings")
+that a bundle compiled from a repository's root must not pin the repository's
+build and fetch trees. The story's run started from such a root and its
+`run/started` manifest pinned 110,209 files (96,276 under `target/`, 13,248
+under `.cargo-home/`, 458 under `.git/`), so its identity moved on every
+build and every reader of the run carried the event.
+
+1. **The skip.** The manifest walk skips `.git` at the bundle's top level, as
+   git's own metadata, and every path git reports ignored for the bundle's
+   repository, at any depth. Git answers by its own rules — `git check-ignore`
+   for the repository the bundle stands in, asked of the entry's full relative
+   path, so `.gitignore`, `.git/info/exclude` and a global exclude rule alike
+   stay git's to interpret, never a copy of them. A tree git reports ignored
+   is skipped whole, and everything under it inherits that one answer. A
+   bundle outside any git work tree skips only `.git`, as it did before this
+   addendum. A `.git` stands above the bundle but git cannot answer for it:
+   the bundle is refused by name with git's own stderr, never read as "pin
+   everything" or "skip everything" (a failed discovery is not "not
+   ignored"). The walk, the consumed inputs, the pinned-script lookup and the
+   skip reason ask one full-relative-path function, so none can drift.
+
+   The skipped trees are still searched for the one-entry rule, exactly as
+   the other unpinned trees are: a consumed file, or a second name for one,
+   inside an ignored tree at any depth is refused by name. "Pinning more never
+   lets a file change unseen" holds of every file the compile or a
+   pinned-script lookup reads.
+
+2. **The bound.** A bundle whose pinned walk is past **5,000 files** or
+   **64 MiB** is refused by name before any run starts, in the compile's own
+   words, naming the count or bytes and the largest top-level trees. The
+   refusal comes before `run/started` is written, so no run carries a
+   manifest this large; it is judged from the walked paths' listed sizes
+   alone, before any walked byte is read or hashed. Both numbers are an ask: the controller recommended them, and
+   only the operator may move them.
+
+3. **What identity covers.** This addendum amends ruling 1's account of what
+   a bundle pins: a repository root's build and fetch output, top-level or
+   nested, is no longer part of the bundle's identity. It changes no pinned
+   file's bytes and no shipped recipe's digest, because no shipped recipe
+   holds a `.git` or a git-ignored tree.
+
+### Amendment — 2026-10-31, the bound is enforced on the bytes actually read (#908)
+
+Status: proposed; only the operator accepts this amendment.
+
+The operator ruled on 2026-10-30 ("go with recommended") that the bound is
+enforced on the bytes actually read. Point 2's "judged from the walked
+paths' listed sizes alone, before any walked byte is read or hashed" is the
+metadata preflight: it refuses a bundle whose listed sizes already pass the
+bound before any walked byte is read. The inputs the compile consumed were
+read before it, each through its own cap (item 2 below). The bound is also
+enforced during the walk, on what is read:
+
+1. **Unconsumed entries.** Each is read through a cap at the budget still
+   left plus one byte; the byte past the budget is the witness that it
+   outgrew the preflight, and the layer is refused rather than hashed.
+2. **Consumed entries.** Each is charged the length of the buffer whose
+   digest it supplied — the bytes the bound read actually read — never the
+   entry's metadata, which a file truncated after the read would understate.
+   The charges are cumulative per pinned layer, and a consumed read itself
+   stops at the layer's bound plus one byte.
+3. **Integrity re-reads.** A held file is read back at most its pinned length
+   plus one byte; a longer file is not intact and is refused by the seal.
+
+A later read can therefore cross the bound after earlier entries were hashed:
+the refusal is then on the cumulative bytes read, and nothing is admitted.
+A layer past the bound, whether the preflight or a read found it, gets the
+one `past_bound` refusal in point 2's words, so the two cannot drift. This
+amendment changes no bound: both numbers stay 5,000 files and 64 MiB,
+inclusive per pinned layer.

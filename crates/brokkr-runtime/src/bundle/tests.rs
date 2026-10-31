@@ -1,4 +1,5 @@
 mod entry;
+mod walk_908;
 use super::*;
 use crate::argv::tests::ENGINE;
 use serde_json::json;
@@ -58,7 +59,9 @@ impl Fixture {
         })
     }
 
-    fn compile(&self, config: &Value, policy: &Value) -> Result<Bundle, CompileError> {
+    /// Write the fixture's two declarations without compiling, so a test
+    /// can compile the prepared root in another process.
+    fn declare(&self, config: &Value, policy: &Value) {
         std::fs::write(
             self.root.join("bundle.json"),
             serde_json::to_vec(config).unwrap(),
@@ -69,6 +72,10 @@ impl Fixture {
             serde_json::to_vec(policy).unwrap(),
         )
         .unwrap();
+    }
+
+    fn compile(&self, config: &Value, policy: &Value) -> Result<Bundle, CompileError> {
+        self.declare(config, policy);
         Bundle::compile(&self.root)
     }
 }

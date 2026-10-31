@@ -2660,7 +2660,7 @@ fn an_unboxed_exec_site_with_hands_is_admitted_only_when_it_names_a_pinned_scrip
         ),
         (
             &["bash", "./dialects/run.sh"],
-            "'./dialects/run.sh' names a path the manifest walk does not pin (dialects is \
+            "'./dialects/run.sh' names a path the manifest walk does not pin (dialects/run.sh is \
              workspace data",
             false,
         ),
