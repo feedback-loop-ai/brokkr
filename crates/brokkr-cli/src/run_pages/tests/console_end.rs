@@ -1887,7 +1887,8 @@ fn chief_review_held_runs_coalesce_and_the_bound_drops_the_oldest() {
         tui.held,
         [Held {
             step: Step::PageDown,
-            count: 3
+            count: 3,
+            end: None,
         }],
         "a run of one key is one entry"
     );

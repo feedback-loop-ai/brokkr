@@ -182,24 +182,39 @@ fn chief_753c6_hidden_pane_does_not_move_fleet() {
 /// answer lands. The cursor stays at (0, 0) with nothing held.
 #[test]
 fn chief_landing_hidden_then_shown_drops_held_movement() {
-    use crate::tui::{down_key, settle_when};
+    use crate::tui::down_key;
     let run = "chief hidden and back";
     let (_dir, db, _events, whole_views) = console_of(run, panel_with(run, 50, 50, None));
     let (mut tui, views) = live_at(&db, run, 0, 375, 30, &whole_views.now);
     tui.pending = true;
     down_key(&mut tui, &views);
     assert_eq!(tui.held.len(), 1, "the live column's Down is held");
-    tui.width = 80;
-    settle_when(&mut tui, &views, false);
-    assert!(tui.held.is_empty(), "the hidden pane's queue is dropped");
-    tui.width = 375;
-    let answer = live_read(&db, run, &tui, &whole_views.now);
-    settle_when(&mut tui, &answer, true);
+    hide_and_settle(&mut tui, &views);
     assert_eq!(
-        (tui.live_offset, tui.live_line),
+        widen_and_answer(&db, run, &mut tui, &whole_views.now),
         (0, 0),
         "the answer moves nothing the hidden pane held"
     );
+}
+
+/// Narrow the frame so the live column leaves it, and settle the read
+/// still out: the hidden pane's queue is dropped, never revived.
+fn hide_and_settle(tui: &mut Tui, views: &Views) {
+    use crate::tui::settle_when;
+    tui.width = 80;
+    settle_when(tui, views, false);
+    assert!(tui.held.is_empty(), "the hidden pane's queue is dropped");
+}
+
+/// Widen back to 375, let the read answer, and return where the answer
+/// left the live column: the frame a hidden pane's cancelled queue must
+/// not move.
+fn widen_and_answer(db: &Path, run: &str, tui: &mut Tui, now: &str) -> (usize, usize) {
+    use crate::tui::settle_when;
+    tui.width = 375;
+    let answer = live_read(db, run, tui, now);
+    settle_when(tui, &answer, true);
+    (tui.live_offset, tui.live_line)
 }
 
 /// M1 (rulings 5 and 9): a resize that removes the saved continuation
@@ -481,6 +496,121 @@ fn chief_landing_held_end_keeps_the_live_window_bounded() {
     );
 }
 
+/// The review's M1 (rulings 5 and 9): an answer that does not name the
+/// end neither applies a held `G` again nor forgets the cursor its
+/// application replaced. A second ordinary answer arrives before the
+/// end's; the marker still waits, and hiding the column returns it to
+/// (0, 0), not to the marker it replaced.
+#[test]
+fn chief_landing_ordinary_answer_keeps_held_end_origin() {
+    use crate::tui::{settle_when, Step};
+    let run = "chief held end origin";
+    let (_dir, db, _events, whole_views) = console_of(run, panel_with(run, 500, 500, None));
+    let (mut tui, views) = live_at(&db, run, 0, 375, 30, &whole_views.now);
+    hold_end_for_answer(&mut tui, &views);
+    settle_when(&mut tui, &views, true);
+    assert_eq!(
+        tui.held.first().map(|held| held.step),
+        Some(Step::Bottom),
+        "the ordinary answer leaves G waiting for the end"
+    );
+    assert_eq!(tui.live_offset, usize::MAX, "the marker still asks the end");
+    hide_and_settle(&mut tui, &views);
+    assert_eq!(
+        (tui.live_offset, tui.live_line),
+        (0, 0),
+        "the end's origin survived the ordinary answer"
+    );
+}
+
+/// Hold `G` on a read that is out and settle its ordinary answer: the
+/// head still owns the absolute-end request and the cursor holds the
+/// unresolved marker, the start the cancelled-end controls share.
+fn hold_end_for_answer(tui: &mut Tui, views: &Views) {
+    use crate::tui::{bottom_key, settle_when, Step};
+    tui.pending = true;
+    bottom_key(tui, views);
+    settle_when(tui, views, true);
+    assert_eq!(
+        tui.held.first().map(|held| held.step),
+        Some(Step::Bottom),
+        "G owns the absolute-end request"
+    );
+    assert_eq!(tui.live_offset, usize::MAX, "G asked the absolute end");
+}
+
+/// The review's M1 (rulings 5 and 9): a held `G` that asked the absolute
+/// end is cancelled when the pane it was pressed on leaves the frame,
+/// never left to resolve later. The panel's live column at (0, 0) holds
+/// `G` while its read is out; the ordinary answer leaves the end request
+/// at the head, the frame narrows to 80 so the column disappears, and the
+/// queue drops unanswered. Widened back, the answer moves nothing: (0, 0),
+/// as the whole read with no key does.
+#[test]
+fn chief_landing_hidden_pane_drops_held_end() {
+    let run = "chief hidden held end";
+    let (_dir, db, _events, whole_views) = console_of(run, panel_with(run, 500, 500, None));
+    let (mut tui, views) = live_at(&db, run, 0, 375, 30, &whole_views.now);
+    hold_end_for_answer(&mut tui, &views);
+    hide_and_settle(&mut tui, &views);
+    assert_eq!(
+        (tui.live_offset, tui.live_line),
+        (0, 0),
+        "the dropped end puts the cursor back where it was"
+    );
+    assert_eq!(
+        widen_and_answer(&db, run, &mut tui, &whole_views.now),
+        (0, 0),
+        "the answer moves nothing the dropped pane held"
+    );
+}
+
+/// The review's M1 (rulings 5 and 9): the absolute-end request belongs to
+/// the run that asked it. The live column's held `G` is evicted by the
+/// 64-run bound before the end answers; its cursor change is cancelled,
+/// so the retained runs are applied against the window their own answer
+/// names and never consumed in its place. The 64 keys from (0, 0) stay
+/// there, as the whole read's do.
+#[test]
+fn chief_landing_evicted_end_cancels_with_its_run() {
+    use crate::tui::{down_key, up_key, Step, HELD_BOUND};
+    let run = "chief evicted held end";
+    let (_dir, db, _events, whole_views) = console_of(run, panel_with(run, 500, 500, None));
+    let (mut tui, views) = live_at(&db, run, 0, 375, 30, &whole_views.now);
+    hold_end_for_answer(&mut tui, &views);
+    for _ in 0..32 {
+        down_key(&mut tui, &views);
+        up_key(&mut tui, &views);
+    }
+    assert_eq!(tui.held.len(), HELD_BOUND, "the bound keeps 64 runs");
+    assert_eq!(
+        tui.held.first().map(|held| held.step),
+        Some(Step::Down),
+        "G left with the bound"
+    );
+    assert_eq!(
+        (tui.live_offset, tui.live_line),
+        (0, 0),
+        "the evicted end puts the cursor back where it was"
+    );
+    settle_held_live(&db, run, &mut tui, &whole_views.now);
+    assert_eq!(
+        (tui.live_offset, tui.live_line),
+        (0, 0),
+        "the retained 64 keys land as the whole read's from the top"
+    );
+    let mut whole_tui = live_tui(run, 0, 375, 30);
+    for _ in 0..32 {
+        down_key(&mut whole_tui, &whole_views);
+        up_key(&mut whole_tui, &whole_views);
+    }
+    assert_eq!(
+        (whole_tui.live_offset, whole_tui.live_line),
+        (0, 0),
+        "the whole read's 64 keys from the top"
+    );
+}
+
 /// A participant-level console at the participant pane's top, ready to
 /// take the same keys the whole read's control takes.
 fn participant_tui(run: &str) -> Tui {
@@ -561,4 +691,39 @@ fn chief_review_held_up_resolves_once_on_the_live_column() {
             "{what}: the held keys land where the whole read does"
         );
     }
+}
+
+/// The review's M1 at the participant level (rulings 5 and 9): a held
+/// `Up` that asked the absolute end belongs to the checkpoint pane. The
+/// ordinary answer leaves the marker at its head; Tab moves to the
+/// transcript, cancelling it back to the rank it replaced, and Tab back
+/// answers at the top the whole read would show.
+#[test]
+fn chief_review_participant_held_end_cancels_with_its_pane() {
+    use crate::tui::{settle_when, tab_key, up_key, Step};
+    let run = "chief participant cancelled end";
+    let FarPage {
+        _dir,
+        db,
+        subject,
+        views,
+        ..
+    } = far_page(run);
+    let mut tui = participant_tui(run);
+    tui.pending = true;
+    up_key(&mut tui, &views);
+    settle_when(&mut tui, &views, true);
+    assert_eq!(
+        tui.held.first().map(|held| held.step),
+        Some(Step::Up),
+        "Up owns the absolute-end request"
+    );
+    assert_eq!(tui.offset, usize::MAX, "Up asked the absolute end");
+    tab_key(&mut tui, &views);
+    assert!(tui.held.is_empty(), "the transcript pane drops the queue");
+    assert_eq!(tui.offset, 0, "the cancelled end restores the rank");
+    tab_key(&mut tui, &views);
+    let answer = participant_page(&db, run, &subject, &tui);
+    settle_when(&mut tui, &answer, true);
+    assert_eq!(tui.offset, 0, "the answer resolves nothing");
 }

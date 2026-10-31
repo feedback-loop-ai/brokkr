@@ -10,28 +10,31 @@ use super::*;
 /// in order against the window it holds, and resolve an end a held `G`
 /// asked for (M3, decision 0071 ruling 5).
 pub(crate) fn settle_end(tui: &mut Tui, views: &Views) {
-    // A held key that asked for the absolute end leaves its request in
-    // `want`; the answer that names the end resolves the marker, which is
-    // that key's one application. Take it from the queue first, or the
-    // flush below repeats it: a wrapping `Up` would subtract twice (M1).
-    let asked_end = held_asks_end(tui);
-    if resolve_end(tui, views) && asked_end {
-        consumed(tui);
+    // A queue pressed on another view is dropped first: its head's
+    // unresolved move is cancelled, not resolved against a frame it was
+    // never pressed on (M1).
+    if tui.held_for.as_ref() != Some(&held_view(tui, views)) {
+        drop_held(tui);
+    } else {
+        // A held key that asked for the absolute end leaves its request on
+        // the head; the answer that names the end resolves the marker,
+        // which is that key's one application. Take it from the queue
+        // first, or the flush below repeats it: a wrapping `Up` would
+        // subtract twice (M1). A direct end has no held head to take, so
+        // its marker resolves without consuming one.
+        let asked_end = tui.held.first().is_some_and(|held| held.end.is_some());
+        if resolve_end(tui, views) && asked_end {
+            consumed(tui);
+        }
+        // The answer's window settles the keys pressed against it, in
+        // order; a key that crosses it asks the next page and keeps its
+        // place.
+        flush_held(tui, views);
     }
-    // The answer's window settles the keys pressed against it, in order;
-    // a key that crosses it asks the next page and keeps its place.
-    flush_held(tui, views);
-    // A held `G` applied above asks the absolute end it now needs.
+    // A directly applied `G` keeps its marker until its own answer; a
+    // cancelled or consumed held move has already left the cursor where
+    // the operator put it.
     resolve_end(tui, views);
-}
-
-/// Whether the held queue's head asked for the absolute end and still
-/// waits for an answer that names it. Only the flush sets `want` to the
-/// end marker, and only after its head key applied it to the unresolved
-/// position, so a held queue with `want` at `usize::MAX` is exactly that
-/// one unanswered application.
-fn held_asks_end(tui: &Tui) -> bool {
-    tui.want == Some(usize::MAX) && !tui.held.is_empty()
 }
 
 /// Resolve an absolute-end request into the rank the read answered, and
@@ -202,7 +205,8 @@ fn ask_want(tui: &Tui, step: Step) -> usize {
 
 /// Hold `step` until the page it needs is answered. A run of the same key
 /// is one entry with a count; past [`HELD_BOUND`] runs the oldest is
-/// dropped and the status line says so.
+/// dropped, with any unresolved end application it still owns, and the
+/// status line says so.
 pub(crate) fn hold(tui: &mut Tui, step: Step) {
     // Only the head asks a page; a key behind it waits for that answer.
     if !tui.pending && tui.held.is_empty() {
@@ -215,10 +219,45 @@ pub(crate) fn hold(tui: &mut Tui, step: Step) {
         }
     }
     if tui.held.len() >= HELD_BOUND {
-        tui.held.remove(0);
+        // The oldest run leaves with the cursor change it still owns:
+        // cancel it first, so the replacement head is not the one an
+        // answer consumes, and no resolved marker is left behind (M1).
+        if let Some(origin) = tui.held.remove(0).end {
+            cancel_end(tui, origin);
+            tui.want = None;
+        }
         tui.status = Some("held movement keys dropped: the queue is full".to_string());
     }
-    tui.held.push(Held { step, count: 1 });
+    tui.held.push(Held {
+        step,
+        count: 1,
+        end: None,
+    });
+}
+
+/// The cursor a held absolute-end application replaces: the position the
+/// operator left, so cancelling the run can put it back.
+fn held_origin(tui: &Tui) -> HeldOrigin {
+    match tui.level {
+        Level::Runs => HeldOrigin::Live {
+            offset: tui.live_offset,
+            line: tui.live_line,
+        },
+        Level::Run | Level::Participant => HeldOrigin::Rank(tui.offset),
+    }
+}
+
+/// Cancel a held run's unresolved absolute-end application: the marker
+/// returns to the position the run replaced, so a dropped or evicted key
+/// moves nothing and no later answer resolves it (M1).
+pub(super) fn cancel_end(tui: &mut Tui, origin: HeldOrigin) {
+    match origin {
+        HeldOrigin::Live { offset, line } => {
+            tui.live_offset = offset;
+            tui.live_line = line;
+        }
+        HeldOrigin::Rank(rank) => tui.offset = rank,
+    }
 }
 
 /// Whether the cursor is in the answered window, so the next held key can
@@ -236,10 +275,13 @@ fn in_window(tui: &Tui, views: &Views) -> bool {
 }
 
 /// Take one application off the head run: a run of several keeps its
-/// count, and the last leaves the queue.
+/// count, and the last leaves the queue. The application consumed is the
+/// one an answer just resolved, so the rest of the run no longer carries
+/// its end marker.
 fn consumed(tui: &mut Tui) {
     if let Some(entry) = tui.held.first_mut() {
         entry.count -= 1;
+        entry.end = None;
         if entry.count == 0 {
             tui.held.remove(0);
         }
@@ -262,10 +304,18 @@ pub(super) fn flush_held(tui: &mut Tui, views: &Views) {
         return;
     }
     while let Some(&Held { step: next, .. }) = tui.held.first() {
+        if tui.held.first().is_some_and(|held| held.end.is_some()) {
+            // The head's absolute-end application already happened; only
+            // an answer that names that end can resolve it, never a
+            // second application of the same key (M1).
+            tui.want = Some(usize::MAX);
+            return;
+        }
         if !can_move(tui, views, next) {
             tui.want = Some(ask_want(tui, next));
             return;
         }
+        let origin = held_origin(tui);
         step(tui, views, next);
         if checkpoint_offset(tui) == usize::MAX {
             // The step asked for the stream's absolute end. Until an
@@ -275,6 +325,9 @@ pub(super) fn flush_held(tui: &mut Tui, views: &Views) {
             // An answer that names the end resolves the step now, so the
             // keys behind it keep their order in the same flush.
             if views.end.is_none() {
+                if let Some(head) = tui.held.first_mut() {
+                    head.end = Some(origin);
+                }
                 tui.want = Some(usize::MAX);
                 return;
             }

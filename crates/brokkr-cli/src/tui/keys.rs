@@ -382,8 +382,14 @@ fn page_step(tui: &Tui, views: &Views, key: Key) -> Option<Step> {
     }
 }
 
-/// Drop the held movement of the view the operator has left.
+/// Drop the held movement of the view the operator has left. A run that
+/// already asked for the absolute end puts its cursor back where the
+/// operator left it, so a dropped key moves nothing and no later answer
+/// resolves it (M1).
 pub(super) fn drop_held(tui: &mut Tui) {
+    if let Some(origin) = tui.held.first().and_then(|held| held.end) {
+        cancel_end(tui, origin);
+    }
     tui.held.clear();
     tui.held_for = None;
     tui.want = None;

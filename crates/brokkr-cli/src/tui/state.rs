@@ -287,6 +287,19 @@ pub(crate) struct TabState {
     pub scrolled: Scrolled,
 }
 
+/// The cursor a held run replaced with the absolute-end marker: the
+/// position the operator left, kept so cancelling the run can put it back
+/// instead of leaving a movement the queue no longer owns (M1, decision
+/// 0071 ruling 5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum HeldOrigin {
+    /// The live column's cursor: the checkpoint row and the line within it.
+    Live { offset: usize, line: usize },
+    /// The participant level's checkpoint rank, in the stream's own
+    /// coordinate.
+    Rank(usize),
+}
+
 /// A movement key held while a page read is out, or while its own
 /// destination is not in the held window: a run of the same step is one
 /// entry with a count, so a long hold stays bounded without losing an
@@ -295,6 +308,11 @@ pub(crate) struct TabState {
 pub(crate) struct Held {
     pub(crate) step: Step,
     pub(crate) count: usize,
+    /// The cursor this run's one application replaced with the
+    /// absolute-end marker, while the answer that names the end is still
+    /// out. Only the head carries it; dropping or evicting the run
+    /// restores it, and only that run's own answer consumes it (M1).
+    pub(crate) end: Option<HeldOrigin>,
 }
 
 /// How many held runs the queue keeps. Past it the oldest run is dropped,
