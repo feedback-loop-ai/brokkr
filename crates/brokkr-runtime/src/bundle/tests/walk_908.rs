@@ -64,6 +64,18 @@ fn git_unreadable(bundle: &Path, detail: &str) -> String {
     )
 }
 
+/// What this host's spawn answers when git is started in a file rather
+/// than a directory: Linux's chdir reports ENOTDIR, macOS's posix_spawn
+/// reports ENOENT (decision 0063: both are hosts, and each is pinned
+/// exactly).
+fn spawned_in_a_file() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "No such file or directory (os error 2)"
+    } else {
+        "Not a directory (os error 20)"
+    }
+}
+
 /// A fixture that is a git repository root whose `target/` is ignored.
 fn ignored_repository(fixture: &Fixture) {
     std::fs::write(fixture.root.join(".gitignore"), "target/\n").unwrap();
@@ -322,7 +334,7 @@ fn a_pinned_script_lookup_that_cannot_ask_git_refuses_by_name() {
     let refused = super::super::pinned_key(&not_a_directory, "./x/run.sh", "x/run.sh").unwrap_err();
     assert_eq!(
         refused,
-        git_unreadable(&not_a_directory, "Not a directory (os error 20)")
+        git_unreadable(&not_a_directory, spawned_in_a_file())
     );
 }
 
@@ -455,7 +467,7 @@ fn a_git_that_cannot_be_asked_refuses_by_name() {
     assert!(matches!(refused, crate::places::SkipError::Git { .. }));
     assert_eq!(
         refused.to_string(),
-        git_unreadable(&not_a_directory, "Not a directory (os error 20)")
+        git_unreadable(&not_a_directory, spawned_in_a_file())
     );
 }
 
