@@ -82,8 +82,12 @@ never carry their values), and 0068 (nothing is claimed by reading).
    one this build reads; the snapshot's size and SHA-256 equal the
    inventory's; `PRAGMA integrity_check` answers `ok`; every run's chain
    verifies with the store's existing chain verification and its head seq
-   and chain head equal the boundary; and the run and event counts equal
-   the boundary. It writes to a temporary name beside the destination and
+   and chain head equal the boundary; every event row's SQL key —
+   `run_id` and `seq` — equals its own envelope's, and its stored
+   `event_hash` equals the hash the store computes over that envelope on
+   append, the first disagreement refused by its run, SQL position and
+   field; and the run and event counts equal the boundary. It writes to a
+   temporary name beside the destination and
    publishes it under the destination's name only after every check has
    passed, so any refusal leaves the destination absent and an existing
    name is never written over. It starts nothing: no driver, no queue
@@ -99,7 +103,14 @@ never carry their values), and 0068 (nothing is claimed by reading).
      snapshot holding an event no run owns is refused by its count and its
      first `(run_id, seq)`. `backup` reads the same boundary, so a source
      journal holding an unowned event refuses backup by name too: that
-     fail-closed behaviour is an ask of this proposal.
+     fail-closed behaviour is an ask of this proposal. Every owned row is
+     also held to its own envelope: its SQL `(run_id, seq)` and stored
+     `event_hash` must be the envelope's key and the hash the store
+     computes on append, so the boundary `Store::load` reads is the one
+     `head_hash`, `load_after` and `append_next` later use. The first row
+     that disagrees is refused by its run, its SQL position and the field,
+     and a malformed SQL position is reported as the integer the table
+     holds, never repaired into `0`.
    - **Projections — `event_index`, `run_summary`, `seat_summary` and
      `seat_head`:** restore holds them to the store's own
      `Store::summary_disagreements`, the comparison `brokkr doctor` reports
@@ -119,11 +130,13 @@ never carry their values), and 0068 (nothing is claimed by reading).
      or signing the inventory — and is an ask.
 
    Enforcement: `restore`, `verify_snapshot`, `refuse_existing`,
-   `boundary_of`, `refuse_unowned` and `compared_boundary`, with
-   `backup::tests`' refusals for the truncated snapshot, the altered byte,
-   the missing inventory, the other format, the disagreeing head, the
-   disagreeing count, the live destination, each SQLite sidecar, an
-   unowned event, a projection disagreement and the non-empty place.
+   `boundary_of`, `consistency::refuse_unowned`, `consistency::chain` and
+   `compared_boundary`, with `backup::tests`' refusals for the truncated
+   snapshot, the altered byte, the missing inventory, the other format, the
+   disagreeing head, the disagreeing count, the live destination, each
+   SQLite sidecar, an unowned event, a row whose SQL key or stored hash
+   disagrees with its envelope, a malformed unowned position, a projection
+   disagreement and the non-empty place.
    Dropping the early destination check changes the variant
    `a_live_destination_is_refused_by_name_and_left_byte_equal` matches.
 
