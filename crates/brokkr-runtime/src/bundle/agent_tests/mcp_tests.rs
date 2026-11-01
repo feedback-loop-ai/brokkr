@@ -1500,6 +1500,71 @@ fn only_an_mcp_holding_contributes_and_a_set_without_one_is_itself() {
     );
 }
 
+/// `harness`'s boxed `invocations`, each proved on every axis: MB2's hard
+/// checks come first, and each holds on these.
+fn proved_boxed(harness: &str, invocations: &[Value]) -> Vec<Value> {
+    let fact = json!({"measured": "synthetic fixture"});
+    let shape = |invocation: &Value| {
+        let mut shape = synthetic_shape(harness, invocation.clone(), "boxed", fact.clone());
+        for axis in ["native_write", "store_read", "process_read"] {
+            shape[axis] = fact.clone();
+        }
+        shape
+    };
+    invocations.iter().map(shape).collect()
+}
+
+/// [`carriers`] with the Codex fallback's `carriage` beside its boxed cold
+/// and replacement shapes, and the strict Claude primary's boxed shapes,
+/// its boxed rejoin included, each proved ([`proved_boxed`]).
+fn proved_carriers(fixture: &AgentFixture, carriage: Value) {
+    let (cold, replacement) = (json!("cold"), json!("replacement"));
+    let shapes = proved_boxed("codex", &[cold.clone(), replacement.clone()]);
+    carriers(fixture, json!({"carriage": carriage, "shapes": shapes}));
+    let rejoin = json!({"resume": "boxed-rejoin"});
+    let shapes = proved_boxed("claude", &[cold, replacement, rejoin]);
+    fixture.write("adapters/claude.json", strict_claude(shapes));
+}
+
+/// `agent`'s `work` site, compiled under the namespace boundary, through the
+/// capability pass by the compile's own resolver, under an authority loaded
+/// with the fence `lifted` or standing. Where the site asks `strength` of
+/// `library-docs`, every candidate's outcome then holds it through
+/// `library-docs-mcp`, as no compile can until U9b; otherwise it asks and
+/// holds nothing.
+fn holding_docs(
+    fixture: &AgentFixture,
+    agent: &str,
+    strength: Option<&str>,
+    lifted: bool,
+) -> Result<crate::capabilities::SiteCapabilities, CompileError> {
+    use crate::capabilities::{parse_requests, Authority, CapabilityContext, Outcome, SiteAsks};
+    let mut config = fixture.config();
+    config["seats"]["work"]["agent"] = json!(agent);
+    let bundle = fixture.compile_under(config, Boundary::Namespace).unwrap();
+    let adapters = Adapters::load(&fixture.adapters()).unwrap();
+    let context = CapabilityContext::no_grants("private", &fixture.root);
+    let lift = lifted.then(McpFence::lift);
+    let authority = Authority::load(context).unwrap();
+    drop(lift);
+    let unasked = SiteAsks::at(SeatClass::Work, "research", None, None).unwrap();
+    let resolve = |_: &SiteAsks, serving: &crate::capabilities::Serving<'_>| {
+        let mut outcome: Outcome = mcp::resolve(&authority, &unasked, serving)?;
+        if strength.is_some() {
+            let holding = mcp_holding("library-docs");
+            outcome.held.insert("library-docs".to_string(), holding);
+        }
+        Ok(outcome)
+    };
+    let asked = strength.map_or(json!({}), |strength| json!({"library-docs": strength}));
+    let requests = parse_requests("seat 'research'", &asked).unwrap();
+    let office = Some(("researcher", &requests));
+    let asks = SiteAsks::at(SeatClass::Work, "research", office, None).unwrap();
+    let loaded = CapabilityAdapters::loaded(&adapters);
+    let planned = (bundle.sites["work"].chain.as_slice(), None);
+    mcp::candidate_capabilities_with(&authority, loaded, asks, planned, &resolve).capabilities
+}
+
 /// The capability pass judges each candidate's contribution once its own
 /// outcome is resolved (U7b): with the resolver's outcomes sealing an MCP
 /// holding at both links, the carrying primary keeps its holding while the
@@ -1509,50 +1574,11 @@ fn only_an_mcp_holding_contributes_and_a_set_without_one_is_itself() {
 /// `library-docs` as no compile can until U9b.
 #[test]
 fn the_pass_judges_each_resolved_candidate_and_refuses_in_the_sites_words() {
-    use crate::capabilities::{parse_requests, Authority, CapabilityContext, Outcome, SiteAsks};
+    use crate::capabilities::Outcome;
     let fixture = AgentFixture::new();
     let carriage = json!({"unsupported": "engine MCP loading is unavailable"});
-    // MB2's hard checks come first and hold here: each boxed shape is proved.
-    let proved = |harness: &str, invocations: &[Value]| {
-        let fact = json!({"measured": "synthetic fixture"});
-        let shape = |invocation: &Value| {
-            let mut shape = synthetic_shape(harness, invocation.clone(), "boxed", fact.clone());
-            for axis in ["native_write", "store_read", "process_read"] {
-                shape[axis] = fact.clone();
-            }
-            shape
-        };
-        invocations.iter().map(shape).collect::<Vec<_>>()
-    };
-    let (cold, replacement) = (json!("cold"), json!("replacement"));
-    let shapes = proved("codex", &[cold.clone(), replacement.clone()]);
-    carriers(&fixture, json!({"carriage": carriage, "shapes": shapes}));
-    let rejoin = json!({"resume": "boxed-rejoin"});
-    let shapes = proved("claude", &[cold, replacement, rejoin]);
-    fixture.write("adapters/claude.json", strict_claude(shapes));
-    let mut config = fixture.config();
-    config["seats"]["work"]["agent"] = json!("boxed");
-    let bundle = fixture.compile_under(config, Boundary::Namespace).unwrap();
-    let chain = &bundle.sites["work"].chain;
-    let adapters = Adapters::load(&fixture.adapters()).unwrap();
-    let context = CapabilityContext::no_grants("private", &fixture.root);
-    let authority = Authority::load(context).unwrap();
-    let unasked = SiteAsks::at(SeatClass::Work, "research", None, None).unwrap();
-    let resolve = |_: &SiteAsks, serving: &crate::capabilities::Serving<'_>| {
-        let mut outcome: Outcome = mcp::resolve(&authority, &unasked, serving)?;
-        let holding = mcp_holding("library-docs");
-        outcome.held.insert("library-docs".to_string(), holding);
-        Ok(outcome)
-    };
-    let pass = |strength: &str| {
-        let requests = parse_requests("seat 'research'", &json!({"library-docs": strength}));
-        let requests = requests.unwrap();
-        let office = Some(("researcher", &requests));
-        let asks = SiteAsks::at(SeatClass::Work, "research", office, None).unwrap();
-        let loaded = CapabilityAdapters::loaded(&adapters);
-        let planned = (chain.as_slice(), None);
-        mcp::candidate_capabilities_with(&authority, loaded, asks, planned, &resolve).capabilities
-    };
+    proved_carriers(&fixture, carriage);
+    let pass = |strength: &str| holding_docs(&fixture, "boxed", Some(strength), false);
     let site = pass("wants").unwrap();
     let cause = "provider 'codex' cannot carry MCP (engine MCP loading is unavailable)";
     let notice = format!(
@@ -1580,6 +1606,74 @@ fn the_pass_judges_each_resolved_candidate_and_refuses_in_the_sites_words() {
             "{RESEARCH}: requires capability 'library-docs' through dialect 'library-docs-mcp', \
              but {cause}"
         )
+    );
+}
+
+/// A brokered grant refuses at compile where its harness carries no broker
+/// (U9b1c; SI2): past the lifted fence, a Codex site and a dsh site holding
+/// `library-docs` refuse in the site's words with the driver's own cause,
+/// which every other check here passes, while a Claude site compiles holding
+/// it. A Codex or dsh site holding no MCP compiles past the fence as before,
+/// and while the fence stands, as on macOS, every site compiles as before.
+#[test]
+fn a_brokered_grant_on_a_harness_carrying_no_broker_refuses_at_compile_with_the_drivers_cause() {
+    let fixture = AgentFixture::new();
+    proved_carriers(&fixture, json!({"measured": "synthetic carriage"}));
+    let mut dsh: Value = serde_json::from_slice(
+        &std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../adapters/dsh.json"))
+            .unwrap(),
+    )
+    .unwrap();
+    let (cold, replacement) = (json!("cold"), json!("replacement"));
+    let shapes = proved_boxed("dsh", &[cold, replacement]);
+    dsh["mcp"] = json!({"carriage": {"measured": "synthetic carriage"}, "shapes": shapes});
+    fixture.write("adapters/dsh.json", dsh);
+    let offices = [
+        ("on-claude", "opus"),
+        ("on-codex", "astra"),
+        ("on-dsh", "flash"),
+    ];
+    for (office, model) in offices {
+        fixture.write(
+            &format!("agents/{office}.json"),
+            boxed_agent(&[model], json!({})),
+        );
+    }
+    let judged = |strength: Option<&str>, lifted: bool| {
+        offices.map(
+            |(office, _)| match holding_docs(&fixture, office, strength, lifted) {
+                Ok(site) => Ok(site
+                    .outcomes
+                    .iter()
+                    .flat_map(|o| o.held.keys().cloned())
+                    .collect()),
+                Err(CompileError::Capability(refusal)) => Err(refusal),
+                Err(other) => panic!("a compile refusal here is a capability one: {other:?}"),
+            },
+        )
+    };
+    let brokers = |provider: &str| {
+        Err(format!(
+            "{RESEARCH}: provider '{provider}' has no measured strict MCP configuration for \
+             'brokers'"
+        ))
+    };
+    let held: Result<Vec<String>, String> = Ok(vec!["library-docs".to_string()]);
+    assert_eq!(
+        judged(Some("requires"), true),
+        [held.clone(), brokers("codex"), brokers("dsh")]
+    );
+    assert_eq!(
+        judged(Some("wants"), true)[1..],
+        [brokers("codex"), brokers("dsh")]
+    );
+    assert_eq!(
+        judged(None, true),
+        [Ok(Vec::new()), Ok(Vec::new()), Ok(Vec::new())]
+    );
+    assert_eq!(
+        judged(Some("requires"), false),
+        [held.clone(), held.clone(), held]
     );
 }
 
