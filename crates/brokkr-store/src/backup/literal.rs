@@ -28,3 +28,12 @@ pub(super) fn nameable(path: &Path) -> Result<PathBuf, BackupError> {
         None => Err(BackupError::UnnameablePath(path.to_path_buf())),
     }
 }
+
+/// A backup's destination bound by [`nameable`] and then made ready by
+/// [`super::prepare_directory`] (absent, or an empty directory), in the
+/// one call `backup_through` makes before anything is written.
+pub(super) fn destination(path: &Path) -> Result<PathBuf, BackupError> {
+    let bound = nameable(path)?;
+    super::prepare_directory(&bound)?;
+    Ok(bound)
+}

@@ -293,8 +293,7 @@ fn backup_through(
     options: BackupOptions<'_>,
     publish: &mut dyn FnMut(&Path, &Path) -> std::io::Result<()>,
 ) -> Result<Backup, BackupError> {
-    let to = &literal::nameable(options.to)?;
-    prepare_directory(to)?;
+    let to = &literal::destination(options.to)?;
     let scratch = Scratch::in_directory(to);
     let temporary = vacuum_into(store, &scratch)?;
     sync_file(&temporary)?;
