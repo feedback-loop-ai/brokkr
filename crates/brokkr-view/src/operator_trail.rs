@@ -25,7 +25,18 @@ impl OperatorKind {
             EventType::OperatorCommanded => Some(OperatorKind::Commanded),
             EventType::OperatorAccepted => Some(OperatorKind::Accepted),
             EventType::OperatorRejected => Some(OperatorKind::Rejected),
-            _ => None,
+            EventType::RunStarted
+            | EventType::PhaseEntered
+            | EventType::EffectRequested
+            | EventType::EffectStarted
+            | EventType::EffectCheckpointed
+            | EventType::EffectSucceeded
+            | EventType::EffectFailed
+            | EventType::EffectIndeterminate
+            | EventType::TransitionDecided
+            | EventType::RunParked
+            | EventType::RunCompleted
+            | EventType::RunStopped => None,
         }
     }
 }
