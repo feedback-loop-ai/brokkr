@@ -228,3 +228,82 @@ fn a_harness_with_no_mcp_carrier_reads_no_servers() {
     assert_eq!(read("dsh", &controls), None);
     assert_eq!(read("exec", &controls), None);
 }
+
+/// U9b1d (MB1): beside sealed brokers, the shipped Claude fragment's allow
+/// list names each broker by its served name after the hands tool, once,
+/// in sealed order, written out by hand; with none the fragment keeps every
+/// byte but its document, and a fragment writing no allow list, as Codex's
+/// and dsh's write none, gains none.
+#[test]
+fn a_fragment_allows_each_broker_by_its_served_name_after_the_hands_tool() {
+    let path = std::path::Path::new;
+    let (spec, reach) = (crate::hands::HandsSpec::default(), Default::default());
+    let hands = Transport {
+        brokkr: path("/bin/brokkr"),
+        workdir: path("/w"),
+        artifacts: path("/a"),
+        sealed: &reach,
+        spec: &spec,
+    };
+    let broker = |capability: &str| SealedBroker {
+        capability: capability.into(),
+        plan: format!("/p/{capability}.json"),
+        plan_digest: "a".repeat(64),
+        removals: Vec::new(),
+    };
+    let fragment: Vec<String> = ["--tools", "", "--strict-mcp-config", "--mcp-config"]
+        .into_iter()
+        .chain([
+            "{hands_mcp_json}",
+            "--allowedTools",
+            "mcp__brokkr__workspace",
+        ])
+        .map(String::from)
+        .collect();
+    let expanded = |brokers: &[SealedBroker]| hands.expand_beside(&fragment, brokers).unwrap();
+    let (docs, tracker) = (broker("library-docs"), broker("issue-tracker"));
+    assert_eq!(
+        expanded(std::slice::from_ref(&docs))[6],
+        "mcp__brokkr__workspace,mcp__cap-library-docs"
+    );
+    assert_eq!(
+        expanded(&[docs.clone(), tracker])[6],
+        "mcp__brokkr__workspace,mcp__cap-library-docs,mcp__cap-issue-tracker"
+    );
+    let alone = expanded(&[]);
+    assert_eq!((&alone[..4], &alone[5..]), (&fragment[..4], &fragment[5..]));
+    let toml = ["-c", "mcp_servers.brokkr.command={brokkr}"].map(String::from);
+    let served = ["-c", "mcp_servers.brokkr.command=/bin/brokkr"].map(String::from);
+    assert_eq!(hands.expand_beside(&toml, &[docs]), Some(served.to_vec()));
+}
+
+/// R4's one reading: W learns from a hands document only the `cap-` servers
+/// it names, each once, in one closed table; anything else serves none.
+#[test]
+fn only_a_documents_own_cap_servers_are_brokered() {
+    let entry = r#"{"command":"/bin/brokkr","args":[]}"#;
+    let table = |names: &[&str]| {
+        let entries: Vec<String> = (names.iter())
+            .map(|name| format!(r#""{name}":{entry}"#))
+            .collect();
+        format!(r#"{{"mcpServers":{{{}}}}}"#, entries.join(","))
+    };
+    assert_eq!(
+        brokered(&table(&[
+            "brokkr",
+            "cap-web",
+            "cap-library-docs",
+            "capx",
+            "cap-"
+        ])),
+        ["mcp__cap-library-docs", "mcp__cap-web"]
+    );
+    for unread in [
+        table(&["brokkr", "cap-web", "cap-web"]),
+        format!(r#"{{"mcpServers":{{"cap-web":{entry}}},"more":1}}"#),
+        r#"{"mcpServers":{"cap-web":{"command":"x","args":[],"env":{}}}}"#.to_string(),
+        "{hands_mcp_json}".to_string(),
+    ] {
+        assert_eq!(brokered(&unread), Vec::<String>::new(), "{unread}");
+    }
+}

@@ -12,7 +12,7 @@
 //! `the_compile_fence_refuses_an_unused_mcp_grant_only_where_it_stands`.
 //! Children: `transport` (42.2), `matrix`, `reach`, `sites`, `boxes` and
 //! `windows` (46.1), `lifetime` (46.2's two worktrees), `dispatch` (ruling 21),
-//! `negotiation` (U9b1c's 46.3).
+//! `negotiation` (U9b1c's 46.3), `allowance` (U9b1d's 46.6).
 //!
 //! The engine runs here as an operator runs it, with no wrapper: `brokkr
 //! driver` sets `no_new_privs` on itself before it spawns a brokered harness
@@ -22,6 +22,7 @@
 
 #![cfg(target_os = "linux")]
 
+mod allowance;
 mod boxes;
 mod dispatch;
 mod lifetime;

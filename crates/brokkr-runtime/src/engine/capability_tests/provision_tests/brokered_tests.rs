@@ -324,10 +324,12 @@ impl Claude {
     }
 }
 
-/// The Claude command a cold launch of the seat is served, written out by
-/// hand with the hands fragment's MCP document `document`.
+/// The Claude command a cold launch of the seat is served, written by hand
+/// with the MCP document `document`, whose broker it allows (U9b1d).
 fn cold(program: &str, document: &str) -> Vec<String> {
-    let words = [
+    let brokered = usize::from(document.contains(r#""cap-library-docs""#));
+    let allowed = ["mcp__brokkr__workspace", ",mcp__cap-library-docs"][..=brokered].concat();
+    strings(&[
         program,
         "-p",
         "--output-format",
@@ -343,18 +345,16 @@ fn cold(program: &str, document: &str) -> Vec<String> {
         "--mcp-config",
         document,
         "--allowedTools",
-        "mcp__brokkr__workspace",
+        &allowed,
         "--disallowedTools",
         "WebFetch,WebSearch",
-    ];
-    strings(&words)
+    ])
 }
 
-/// The whole set's document at `workdir`, the box's hands and, beside them,
-/// `broker` on its own plan, both run by this test binary, written out by
-/// hand; `None` for the hands alone. The hands carry the reach sealed for
-/// them under the fixture's HOME beside `workdir`, sealed here on its own
-/// (U8a2c), with the run-local secrets store its boxes hide (U8h).
+/// The whole set's document at `workdir`, by hand: the box's hands, with the
+/// reach sealed here for them under the fixture's HOME (U8a2c) and the
+/// run-local store its boxes hide (U8h), and beside them `broker` on its own
+/// plan, both run by this test binary; `None` for the hands alone.
 fn document(workdir: &Path, broker: Option<&SealedBroker>) -> String {
     let exe = std::env::current_exe().unwrap();
     let home = workdir.parent().unwrap().join("home");

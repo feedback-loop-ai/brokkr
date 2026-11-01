@@ -155,6 +155,18 @@ fn carrying(entries: &[(&str, String)]) -> Vec<String> {
     cold
 }
 
+/// [`brokers`]' served names in sealed order, as a brokered launch's allow
+/// list grants them (U9b1d).
+const SEALED: [&str; 2] = ["cap-library-docs", "cap-issue-tracker"];
+
+/// `cold` with its allow list also naming `servers` after the hands tool,
+/// as the set's builder writes a brokered set's allowance (U9b1d).
+fn allowing(mut cold: Vec<String>, servers: &[&str]) -> Vec<String> {
+    let named: String = servers.iter().map(|name| format!(",mcp__{name}")).collect();
+    cold[13] = format!("mcp__brokkr__workspace{named},WebSearch");
+    cold
+}
+
 /// The engine's serving choices beside the plan: the sealed `brokers` and
 /// the names its spawn `removed`.
 fn serving<'a>(brokers: &'a [SealedBroker], removed: &'a [String]) -> Serving<'a> {
@@ -174,7 +186,7 @@ fn serving<'a>(brokers: &'a [SealedBroker], removed: &'a [String]) -> Serving<'a
 fn hands_and_two_brokers_check_exactly_beside_native_off() {
     let (boxed, brokers, removed) = (claude_final(), brokers(), removals());
     let serving = serving(&brokers, &removed);
-    let cold = carrying(&three());
+    let cold = allowing(carrying(&three()), &SEALED);
     assert_eq!(
         boxed.check(cold.clone(), serving).map(Checked::into_argv),
         Ok(cold.clone())
@@ -202,6 +214,7 @@ fn hands_and_two_brokers_check_exactly_beside_native_off() {
 fn each_departure_from_the_three_server_set_refuses_before_spawn() {
     let (boxed, brokers, removed) = (claude_final(), brokers(), removals());
     let (serving, three) = (serving(&brokers, &removed), three());
+    let carrying = |entries: &[(&str, String)]| allowing(carrying(entries), &SEALED);
     let replaced =
         |entry: String| [three[..2].to_vec(), vec![("cap-library-docs", entry)]].concat();
     let docs = "/state/plans/library-docs.json";
@@ -396,6 +409,7 @@ fn a_server_name_is_never_repaired_into_another_holding() {
         ("brokkr", HANDS_ENTRY.into()),
         ("cap-library_docs", docs_entry("/bin/brokkr")),
     ]);
+    let cold = allowing(cold, &["cap-library_docs"]);
     assert_eq!(
         (boxed.check(cold.clone(), serving(&underscored, &removed))).map(Checked::into_argv),
         Ok(cold)

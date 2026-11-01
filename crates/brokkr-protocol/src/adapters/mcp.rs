@@ -361,6 +361,18 @@ pub(super) enum McpRefusal {
     Strict(#[from] StrictCause),
     #[error("provider '{provider}' final MCP configuration is not the engine's sealed server set")]
     NotSealed { provider: &'static str },
+    /// The `mcp__cap-` servers a launch's allow list names, each list
+    /// rendered in order, are not its sealed brokers' (U9b1d; MB1).
+    #[error(
+        "provider '{provider}' final allow list names the brokered MCP servers [{allowed}], but \
+         the engine seals [{sealed}]: each sealed broker is allowed once, by its served name, in \
+         sealed order, and no other"
+    )]
+    Unallowed {
+        provider: &'static str,
+        allowed: String,
+        sealed: String,
+    },
     #[error(
         "provider '{provider}' arguments do not place the engine's MCP configuration as options \
          of their own: a terminator, a dangling value or an argument the grammar does not model \
@@ -598,9 +610,38 @@ fn final_set(
         owed.sort();
     }
     match options(&carried.command) == owed {
-        true => Ok(()),
+        true => allowed(provider, &carried.command, brokers),
         false => Err(not_sealed),
     }
+}
+
+/// The final check's binding of a Claude-grammar `command`'s allowance to
+/// its sealed `brokers` (U9b1d; MB1): every value its allow lists name
+/// under `mcp__cap-`, read by the grammar, is exactly each broker's served
+/// name once, in sealed order ([`SealedBroker::allowance`]). A server the
+/// set does not seal, one it seals left out, a name written twice or one
+/// tool of a server named refuses before any spawn. A recipe's own `mcp__`
+/// allow never reaches here (`authored_server_conflict`).
+fn allowed(
+    provider: &'static str,
+    command: &crate::native_controls::grammar::Command,
+    brokers: &[SealedBroker],
+) -> Result<(), McpRefusal> {
+    use crate::native_controls::grammar::{node_patterns, tool_name, ListKind};
+    let allowed: Vec<&str> = (command.lists(ListKind::Allow))
+        .flat_map(node_patterns)
+        .map(tool_name)
+        .filter(|tool| tool.starts_with("mcp__cap-"))
+        .collect();
+    let sealed = SealedBroker::allowance(brokers).ok_or(McpRefusal::NotSealed { provider })?;
+    if allowed == sealed {
+        return Ok(());
+    }
+    Err(McpRefusal::Unallowed {
+        provider,
+        allowed: allowed.join(", "),
+        sealed: sealed.join(", "),
+    })
 }
 
 /// `argv` with the empty set's strict flag and document appended, once

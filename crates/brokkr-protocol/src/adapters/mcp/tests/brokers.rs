@@ -89,6 +89,7 @@ fn authored_beside(
     let mut seal = Seal::authored(authored.len());
     let mut hands = seal.hands(&FRAGMENT);
     hands[4] = document.to_string();
+    hands[6].push_str(&allowance(&servers));
     let mut plan = claude_plan(&[], &[], &["WebSearch", "WebFetch"]);
     (plan["local"], plan["hands"]) = (json!([]), json!(hands.len()));
     (plan["provider"], plan["harness"]) = (json!(provider), json!(provider));
@@ -99,6 +100,17 @@ fn authored_beside(
     let mut input = intended(input, "hands", assessments);
     input[SERVING_INPUTS]["isolation"]["servers"] = servers;
     (extra, input)
+}
+
+/// What the builder joins after the hands tool for `servers`' brokers, each
+/// by its served name in sealed order, written out by hand (U9b1d): nothing
+/// for a set with none, and nothing for a capability with a space, which
+/// the builder cannot name as one server.
+fn allowance(servers: &Value) -> String {
+    let brokers = servers["brokered"].as_array().into_iter().flatten();
+    let named = brokers.map(|broker| broker["capability"].as_str().unwrap());
+    let bare = named.filter(|name| !name.contains(' '));
+    bare.map(|name| format!(",mcp__cap-{name}")).collect()
 }
 
 /// U9b1b's ruling F1 at the driver's own loop: a start sealed with brokers
@@ -185,7 +197,8 @@ fn a_brokered_set_is_served_cold_rejoining_and_replacing_as_its_literal() {
     assert_eq!(recorded_removals(), Vec::<String>::new());
     let denied = s(&["--disallowedTools", "WebSearch,WebFetch"]);
     let set = |document: &str| {
-        let parts = [&FRAGMENT[..4], &[document], &FRAGMENT[5..]].concat();
+        let allowed = "mcp__brokkr__workspace,mcp__cap-library-docs,mcp__cap-web";
+        let parts = [&FRAGMENT[..4], &[document], &FRAGMENT[5..6], &[allowed]].concat();
         s(&parts)
     };
     for (provider, shape) in [("claude", CLAUDE_SHAPE), ("lanetally", LANETALLY_SHAPE)] {
@@ -220,10 +233,92 @@ fn a_brokered_set_is_served_cold_rejoining_and_replacing_as_its_literal() {
     );
 }
 
+/// U9b1d's two bindings at the serving edge, each before anything spawns.
+/// W admits only the brokers the hands' own document serves (ruling R4), so
+/// a document missing a sealed broker, or naming one twice, which is no
+/// table, refuses the allowance that still names it as the composer's. The
+/// served command's allowance altered after composition, an unsealed
+/// `mcp__cap-` server added, a sealed one dropped or one of its tools named
+/// instead, refuses with the allowance's own cause.
+#[test]
+fn an_allowance_departing_from_the_sealed_brokers_refuses_before_spawn() {
+    let whole = document(&exe());
+    let web = whole.find(r#","cap-web""#).unwrap();
+    let docs = whole.find(r#","cap-library-docs""#).unwrap();
+    let close = |document: &str| format!("{document}}}}}");
+    let twice = close(&[&whole[..whole.len() - 2], &whole[web..whole.len() - 2]].concat());
+    let unadmitted = |tool: &str| {
+        format!(
+            "refusing to invoke the agent CLI: the box's hands' '--allowedTools' allow list \
+             names tool '{tool}' for provider 'claude', which no realm holding admits, the \
+             site's typed hands do not carry and its typed 'tools.allow' did not lower; an \
+             allowance is admitted by the typed contribution that made it, never by its \
+             spelling or by the list it stands in (design D6)"
+        )
+    };
+    for (document, tool) in [
+        (close(&whole[..web]), "mcp__cap-web"),
+        (close(&whole[..docs]), "mcp__cap-library-docs"),
+        (twice, "mcp__cap-library-docs"),
+    ] {
+        let (extra, input) = brokered("claude", brokers(), &document, cold_only());
+        let launch = claude_launch("claude", &extra, None, &input, CLAUDE_SHAPE, None);
+        assert_eq!(launch.map(|plan| plan.command), Err(unadmitted(tool)));
+    }
+    let (extra, input) = brokered("claude", brokers(), &whole, cold_only());
+    let cold = claude_launch("claude", &extra, None, &input, CLAUDE_SHAPE, None);
+    let (cold, edge) = (cold.unwrap().command, Edge::new(&input));
+    let chosen = crate::native_controls::Serving {
+        program: "claude",
+        workdir: "/w",
+        ..Default::default()
+    };
+    let at = 1 + cold
+        .iter()
+        .position(|part| part == "--allowedTools")
+        .unwrap();
+    assert_eq!(
+        cold[at],
+        "mcp__brokkr__workspace,mcp__cap-library-docs,mcp__cap-web"
+    );
+    for (allowance, allowed) in [
+        (
+            "mcp__brokkr__workspace,mcp__cap-library-docs,mcp__cap-web,mcp__cap-x",
+            "mcp__cap-library-docs, mcp__cap-web, mcp__cap-x",
+        ),
+        (
+            "mcp__brokkr__workspace,mcp__cap-library-docs",
+            "mcp__cap-library-docs",
+        ),
+        (
+            "mcp__brokkr__workspace,mcp__cap-library-docs,mcp__cap-web__resolve",
+            "mcp__cap-library-docs, mcp__cap-web__resolve",
+        ),
+    ] {
+        let mut altered = cold.clone();
+        altered[at] = allowance.to_string();
+        assert_eq!(
+            served("claude", altered, &extra, &edge, chosen),
+            Err(format!(
+                "refusing to invoke the agent CLI: provider 'claude' final allow list names the \
+                 brokered MCP servers [{allowed}], but the engine seals [mcp__cap-library-docs, \
+                 mcp__cap-web]: each sealed broker is allowed once, by its served name, in \
+                 sealed order, and no other"
+            )),
+            "{allowance}"
+        );
+    }
+    assert_eq!(
+        served("claude", cold.clone(), &extra, &edge, chosen),
+        Ok(cold)
+    );
+}
+
 /// Every departure from the sealed set refuses at the final boundary with
-/// the final-set cause before anything spawns: a broker missing, one extra, a name written twice, another executable,
-/// plan or digest, the strict isolation dropped, a broker list that names
-/// none, and brokers beside no hands.
+/// the final-set cause before anything spawns: one extra, another
+/// executable, plan or digest, the strict isolation dropped, a broker list
+/// that names none, and brokers beside no hands. A broker missing and a name
+/// written twice refuse earlier, by W (U9b1d; above).
 #[test]
 fn each_departure_from_the_brokered_set_refuses_at_the_final_boundary() {
     let refused = |servers: Value, document: &str| {
@@ -233,23 +328,11 @@ fn each_departure_from_the_brokered_set_refuses_at_the_final_boundary() {
     };
     let not_sealed = McpRefusal::NotSealed { provider: "claude" }.at_launch();
     let whole = document(&exe());
-    // `whole` closes its table and itself with `}}`; `web` is its last entry.
-    let (body, web) = (
-        &whole[..whole.len() - 2],
-        whole.find(r#","cap-web""#).unwrap(),
-    );
-    let entry = &body[web..];
-    let library = format!("{}}}}}", &whole[..web]);
-    let hands = format!(
-        "{}}}}}",
-        &whole[..whole.find(r#","cap-library-docs""#).unwrap()]
-    );
+    // `whole` closes its table and itself with `}}`.
+    let body = &whole[..whole.len() - 2];
     let x = r#","cap-x":{"args":["broker","serve"],"command":"x"}"#;
     for (case, document) in [
-        ("a broker missing", library),
-        ("the hands alone", hands),
         ("a broker extra", format!("{body}{x}}}}}")),
-        ("a name written twice", format!("{body}{entry}}}}}")),
         ("another executable", whole.replace(&exe(), "/usr/bin/npx")),
         (
             "another plan",
