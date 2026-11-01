@@ -1308,8 +1308,8 @@ fn a_boxed_dsh_hands_launch_is_served_from_the_engine_only_home() {
     invoke_dsh_launch_observed(
         launch,
         command,
-        work.to_str().unwrap(),
         &[],
+        &mut crate::adapters::probe::ProbeAnswer::new(false),
         &mut emit,
         |child| child.wait().map(|status| Some(status.code().unwrap_or(0))),
         &mut observer,
