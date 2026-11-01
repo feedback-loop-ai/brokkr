@@ -3,7 +3,6 @@
 // client on the Realms view; a refused read reaches the page as Brokkr's own
 // words. The fixtures these tests share live in tests/support/poller.js.
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { test } from 'node:test'
 

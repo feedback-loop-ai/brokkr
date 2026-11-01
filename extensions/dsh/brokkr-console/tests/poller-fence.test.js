@@ -10,7 +10,7 @@ import { FLEET_WINDOW } from '../lib/host/config.js'
 import { pollerOf } from '../lib/host/poller.js'
 import { ONE_HEARTH } from '../lib/host/readouts.js'
 import { buttons, findAll, mountClient, textOf } from './support/client.js'
-import { attached, heard, oneRow, peer, realmsDoc, runOf, runningOf, runningRead, windowOf } from './support/poller.js'
+import { attached, heard, oneRow, peer, realmsDoc, realmsMap, runOf, runningOf, runningRead, windowOf } from './support/poller.js'
 import { json, row, runViewDoc, stubBrokkr } from './support/world.js'
 
 test('chief F4: changing a realm journal discards pages read from its old journal', async () => {
@@ -66,11 +66,7 @@ test('review M4: an inspect from a replaced journal publishes nothing', async ()
   const oldPage = windowOf([rowAt(12)], null)
   const newPage = windowOf([rowAt(25)], null)
   const betaPage = windowOf([runOf('beta', 0)], null)
-  const world = (journal) => ({
-    journal: './.forge/forge.db',
-    map: './realms.json',
-    realms: ['alpha', 'beta'].map((name) => ({ default_branch: 'main', head: '0000000', journal: name === 'alpha' ? journal : '/hearths/beta/forge.db', name, path: `../${name}` })),
-  })
+  const world = (journal) => realmsMap(journal)
   const oldRead = runViewDoc({ seq: 12 })
   oldRead.summary = { ...oldRead.summary, run_id: runId }
   const newRead = runViewDoc({ seq: 25 })
@@ -109,11 +105,7 @@ test('review M4: a delayed run-row read from a replaced journal paints no snapsh
   const oldPage = windowOf([watched], null)
   const newPage = windowOf([{ ...watched, seq: 25 }], null)
   const betaPage = windowOf([runOf('beta', 0)], null)
-  const world = (journal) => ({
-    journal: './.forge/forge.db',
-    map: './realms.json',
-    realms: ['alpha', 'beta'].map((name) => ({ default_branch: 'main', head: '0000000', journal: name === 'alpha' ? journal : '/hearths/beta/forge.db', name, path: `../${name}` })),
-  })
+  const world = (journal) => realmsMap(journal)
   const oldRead = runViewDoc({ seq: 13 })
   oldRead.summary = { ...oldRead.summary, run_id: watched.run_id }
   const newRead = runViewDoc({ seq: 25 })
@@ -150,11 +142,7 @@ test('review M4: a delayed run-row read from a replaced journal paints no snapsh
 test('review M4: a delayed first page cannot roll a repointed realm back', async () => {
   const oldPage = windowOf([{ ...runOf('alpha', 0), seq: 12 }], null)
   const newPage = windowOf([{ ...runOf('alpha', 0), seq: 25 }], null)
-  const world = (journal) => ({
-    journal: './.forge/forge.db',
-    map: './realms.json',
-    realms: [{ default_branch: 'main', head: '0000000', journal, name: 'alpha', path: '../alpha' }],
-  })
+  const world = (journal) => realmsMap(journal, ['alpha'])
   const brokkr = stubBrokkr([
     { match: ['runs'], responses: [{ ...json(oldPage), sleep_ms: 700 }, json(newPage)] },
     { match: ['realms'], responses: [json(world('/hearths/alpha/old.db')), json(world('/hearths/alpha/new.db')), json(world('/hearths/alpha/new.db'))] },
@@ -183,11 +171,7 @@ test('review M4: a Show more page from a replaced journal paints nothing', async
   const first = windowOf([{ ...runOf('alpha', 0), seq: 12 }], cursor)
   const second = windowOf([runOf('alpha', 1)], null)
   const fresh = windowOf([{ ...runOf('alpha', 2), seq: 25 }], cursor)
-  const world = (journal) => ({
-    journal: './.forge/forge.db',
-    map: './realms.json',
-    realms: [{ default_branch: 'main', head: '0000000', journal, name: 'alpha', path: '../alpha' }],
-  })
+  const world = (journal) => realmsMap(journal, ['alpha'])
   const brokkr = stubBrokkr([
     { match: ['runs'], responses: [json(first), { ...json(second), sleep_ms: 700 }, json(fresh)] },
     { match: ['realms'], responses: [json(world('/hearths/alpha/old.db')), json(world('/hearths/alpha/old.db')), json(world('/hearths/alpha/new.db'))] },
@@ -216,11 +200,7 @@ test('review M4: a poll’s queued update from a replaced journal reaches no cli
   const oldPage = windowOf([watched, other], null)
   const newPage = windowOf([{ ...watched, seq: 25 }, other], null)
   const betaPage = windowOf([runOf('beta', 0)], null)
-  const world = (journal) => ({
-    journal: './.forge/forge.db',
-    map: './realms.json',
-    realms: ['alpha', 'beta'].map((name) => ({ default_branch: 'main', head: '0000000', journal: name === 'alpha' ? journal : '/hearths/beta/forge.db', name, path: `../${name}` })),
-  })
+  const world = (journal) => realmsMap(journal)
   const held = runningRead(12)
   held.summary = { ...held.summary, run_id: watched.run_id }
   const moved = runningRead(13)
@@ -264,11 +244,7 @@ test('review M4: a poll’s queued update from a replaced journal reaches no cli
 test('review M4: a newer watch drops the snapshot its older watch read', async () => {
   const oldPage = windowOf([{ ...runOf('alpha', 0), seq: 12 }], null)
   const newPage = windowOf([{ ...runOf('alpha', 0), seq: 25 }], null)
-  const world = (journal) => ({
-    journal: './.forge/forge.db',
-    map: './realms.json',
-    realms: [{ default_branch: 'main', head: '0000000', journal, name: 'alpha', path: '../alpha' }],
-  })
+  const world = (journal) => realmsMap(journal, ['alpha'])
   const brokkr = stubBrokkr([
     { match: ['runs'], responses: [{ ...json(oldPage), sleep_ms: 700 }, json(newPage)] },
     { match: ['realms'], responses: [json(world('/hearths/alpha/old.db')), json(world('/hearths/alpha/new.db')), json(world('/hearths/alpha/new.db'))] },
@@ -319,11 +295,7 @@ test('review F1: a one-realm map repointed before the inspect paints no snapshot
   const runId = 'alpha-run-0000'
   const oldPage = windowOf([{ ...runOf('alpha', 0), seq: 12 }], null)
   const newPage = windowOf([{ ...runOf('alpha', 0), seq: 25 }], null)
-  const world = (journal) => ({
-    journal: './.forge/forge.db',
-    map: './realms.json',
-    realms: [{ default_branch: 'main', head: '0000000', journal, name: 'alpha', path: '../alpha' }],
-  })
+  const world = (journal) => realmsMap(journal, ['alpha'])
   const newRead = runViewDoc({ seq: 25 })
   newRead.summary = { ...newRead.summary, run_id: runId }
   const served = row({ run_id: runId, title: 'alpha run 0', feature: 'alpha run 0', seq: 25 })
@@ -361,11 +333,7 @@ test('review F1: a poll whose one-realm map moves while it reads paints nothing'
   const runId = 'alpha-run-0000'
   const oldPage = windowOf([{ ...runningOf('alpha', 0, 12) }], null)
   const movedPage = windowOf([{ ...runningOf('alpha', 0, 13) }], null)
-  const world = (journal) => ({
-    journal: './.forge/forge.db',
-    map: './realms.json',
-    realms: [{ default_branch: 'main', head: '0000000', journal, name: 'alpha', path: '../alpha' }],
-  })
+  const world = (journal) => realmsMap(journal, ['alpha'])
   const oldRead = runningRead(12)
   oldRead.summary = { ...oldRead.summary, run_id: runId }
   const movedRead = runningRead(13)
@@ -395,11 +363,7 @@ test('review F1: a one-realm map repointed while a Show more page is in flight p
   const cursor = 'needs-you:1:alpha-run-0000'
   const first = windowOf([{ ...runOf('alpha', 0), seq: 12 }], cursor)
   const second = windowOf([runOf('alpha', 1)], null)
-  const world = (journal) => ({
-    journal: './.forge/forge.db',
-    map: './realms.json',
-    realms: [{ default_branch: 'main', head: '0000000', journal, name: 'alpha', path: '../alpha' }],
-  })
+  const world = (journal) => realmsMap(journal, ['alpha'])
   const brokkr = stubBrokkr([
     { match: ['runs'], responses: [json(first), { ...json(second), sleep_ms: 500 }] },
     { match: ['realms'], responses: [json(world('/hearths/alpha/old.db')), json(world('/hearths/alpha/old.db')), json(world('/hearths/alpha/new.db'))] },
@@ -506,11 +470,7 @@ test('review F3: an absence from a fleet this poll has replaced reaches no clien
 
 test('review F1: a map repointed before the inspect publishes nothing in a two-hearth world as in a one-hearth one', async () => {
   const runId = 'alpha-run-0000'
-  const world = (journal, names) => ({
-    journal: './.forge/forge.db',
-    map: './realms.json',
-    realms: names.map((name) => ({ default_branch: 'main', head: '0000000', journal: name === 'alpha' ? journal : `/hearths/${name}/forge.db`, name, path: `../${name}` })),
-  })
+  const world = (journal, names) => realmsMap(journal, names)
   const oldPage = windowOf([{ ...runOf('alpha', 0), seq: 12 }], null)
   const newPage = windowOf([{ ...runOf('alpha', 0), seq: 25 }], null)
   const betaPage = windowOf([runOf('beta', 0)], null)
@@ -601,11 +561,7 @@ test('review F1: a map appearing after a no-map fleet read drops the inspect, an
 
 test('review residual F1-A: a dropped one-run row fence withholds the snapshot in a one- and a two-hearth world', async () => {
   const runId = 'alpha-run-0000'
-  const world = (journal, names) => ({
-    journal: './.forge/forge.db',
-    map: './realms.json',
-    realms: names.map((name) => ({ default_branch: 'main', head: '0000000', journal: name === 'alpha' ? journal : `/hearths/${name}/forge.db`, name, path: `../${name}` })),
-  })
+  const world = (journal, names) => realmsMap(journal, names)
   const oldPage = windowOf([{ ...runOf('alpha', 0), seq: 12 }], null)
   const newPage = windowOf([{ ...runOf('alpha', 0), seq: 25 }], null)
   const betaPage = windowOf([runOf('beta', 0)], null)
@@ -660,11 +616,7 @@ test('review residual F1-A: a poll whose row fence drops paints no fleet and no 
   const runId = 'alpha-run-0000'
   const held = runningOf('alpha', 0, 12)
   const moved = runningOf('alpha', 0, 13)
-  const world = (journal) => ({
-    journal: './.forge/forge.db',
-    map: './realms.json',
-    realms: [{ default_branch: 'main', head: '0000000', journal, name: 'alpha', path: '../alpha' }],
-  })
+  const world = (journal) => realmsMap(journal, ['alpha'])
   const page = windowOf([held], null)
   const oldRead = runningRead(12)
   oldRead.summary = { ...oldRead.summary, run_id: runId }
@@ -693,14 +645,7 @@ test('review residual F1-B: a journal another realm names after a swap does not 
   const runId = 'alpha-run-0000'
   const alphaPage = windowOf([{ ...runOf('alpha', 0), seq: 12 }], null)
   const betaPage = windowOf([runOf('beta', 0)], null)
-  const world = (alpha, beta) => ({
-    journal: './.forge/forge.db',
-    map: './realms.json',
-    realms: [
-      { default_branch: 'main', head: '0000000', journal: alpha, name: 'alpha', path: '../alpha' },
-      { default_branch: 'main', head: '0000000', journal: beta, name: 'beta', path: '../beta' },
-    ],
-  })
+  const world = (alpha, beta) => realmsDoc(['alpha', 'beta'], (name) => (name === 'alpha' ? alpha : beta))
   const oldRead = runViewDoc({ seq: 12 })
   oldRead.summary = { ...oldRead.summary, run_id: runId }
   const brokkr = stubBrokkr([
@@ -731,4 +676,79 @@ test('review residual F1-B: a journal another realm names after a swap does not 
   // alpha's, so the old realm's snapshot paints nothing.
   assert.deepEqual(client.sent, [], 'a journal another realm names paints nothing for alpha')
   assert.equal(realms(), 3, 'the inspect is fenced by the map read after it')
+})
+
+test('review residual M1: a joined hearth publishes nothing when one of its names no longer binds its journal', async () => {
+  const runId = 'alpha-run-0000'
+  const shared = '/hearths/shared/old.db'
+  const page = windowOf([{ ...runOf('alpha', 0), seq: 12 }], null)
+  const oldRead = runViewDoc({ seq: 12 })
+  oldRead.summary = { ...oldRead.summary, run_id: runId }
+  const brokkr = stubBrokkr([
+    {
+      match: ['realms'],
+      responses: [
+        json(realmsDoc(['alpha', 'beta'], () => shared)),
+        json(realmsDoc(['alpha', 'beta'], () => shared)),
+        json(realmsDoc(['alpha', 'beta'], (name) => (name === 'alpha' ? '/hearths/alpha/new.db' : shared))),
+      ],
+    },
+    { match: ['runs', `--db=${shared}`], responses: [json(page)] },
+    { match: ['inspect'], responses: [json(oldRead)] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const client = peer()
+  client.receive = poller.attach(client)
+  const realms = () => brokkr.calls().filter((argv) => argv[0] === 'realms').length
+  client.receive({ type: 'watch', view: 'realm', realm: 'alpha+beta', run: { realm: 'alpha+beta', run_id: runId } })
+  for (let waited = 0; realms() < 3; waited += 10) {
+    assert.ok(waited < 10_000, 'the joined hearth’s map re-read did not finish within 10s')
+    await new Promise((wake) => setTimeout(wake, 10))
+  }
+  await new Promise((wake) => setTimeout(wake, 100))
+
+  // beta still names old.db, but alpha has moved: the label alpha+beta no
+  // longer binds that journal, so the snapshot and its run paint nothing.
+  assert.deepEqual(client.sent, [], 'a joined hearth with one moved name paints nothing')
+  assert.equal(realms(), 3, 'the joined snapshot is fenced by one map read after its reads')
+})
+
+test('review residual M2: a poll withholds a fleet its own last map read already contradicts', async () => {
+  const heldAlpha = runningOf('alpha', 0, 12)
+  const heldBeta = runningOf('beta', 0, 12)
+  const movedAlpha = runningOf('alpha', 0, 13)
+  const freshAlpha = runningOf('alpha', 0, 25)
+  const oldMap = realmsMap('/hearths/alpha/old.db')
+  const newMap = realmsMap('/hearths/alpha/new.db')
+  const readOf = (run, seq) => {
+    const read = runningRead(seq)
+    read.summary = { ...read.summary, run_id: run.run_id }
+    return read
+  }
+  const brokkr = stubBrokkr([
+    { match: ['realms'], responses: [json(oldMap), json(oldMap), json(oldMap), json(oldMap), json(oldMap), json(newMap), json(newMap), json(newMap), json(newMap), json(newMap)] },
+    { match: ['runs', '--db=/hearths/alpha/old.db'], responses: [json(windowOf([heldAlpha], null)), json(windowOf([movedAlpha], null))] },
+    { match: ['runs', '--db=/hearths/alpha/new.db'], responses: [json(windowOf([freshAlpha], null))] },
+    { match: ['runs', '--db=/hearths/beta/forge.db'], responses: [json(windowOf([heldBeta], null)), json(windowOf([heldBeta], null)), json(windowOf([heldBeta], null))] },
+    { match: ['inspect'], responses: [json(readOf(heldAlpha, 13)), json(readOf(heldBeta, 12)), json(readOf(freshAlpha, 25)), json(readOf(heldBeta, 12))] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const client = await attached(poller, { view: 'realm', realm: 'alpha', run: null })
+  client.sent.length = 0
+  const realms = () => brokkr.calls().filter((argv) => argv[0] === 'realms').length
+
+  // The poll's beta fence resolves the moved map after its alpha fence did
+  // not: the old-world fleet it read is no longer labelable and paints nothing.
+  await poller.tick()
+  assert.deepEqual(client.sent, [], 'the fleet the poll’s last map read contradicts paints nothing')
+  assert.equal(realms(), 6, 'one realms read per read: the fleet, its fence, and each running run')
+
+  // The next poll starts from the moved map and reads the new world whole.
+  await poller.tick()
+  const fleet = client.sent.find((message) => message.type === 'fleet')?.fleet
+  const alpha = fleet?.hearths.find((hearth) => hearth.realm === 'alpha')
+  const beta = fleet?.hearths.find((hearth) => hearth.realm === 'beta')
+  assert.deepEqual([alpha?.journal, alpha?.runs[0].seq], ['/hearths/alpha/new.db', 25], 'the next poll reads the new journal')
+  assert.deepEqual([beta?.journal, beta?.runs[0].seq], ['/hearths/beta/forge.db', 12], 'the unchanged hearth is still read')
+  assert.equal(realms(), 10, 'the next poll adds one map read per read again')
 })

@@ -89,12 +89,15 @@ export const windowOf = (runs, next = null) => ({ view_version: 28, runs, count:
 /** `brokkr runs --json --run <id>`: the same page wire, holding that run's one row. */
 export const oneRow = (row) => ({ view_version: 28, runs: [row], count: 1 })
 
-/** `brokkr realms --json` for `names`, each in its own journal. */
-export const realmsDoc = (names) => ({
+/** `brokkr realms --json` for `names`, each in `journalOf(name)`'s journal (its own unless told otherwise). */
+export const realmsDoc = (names, journalOf = (name) => `/hearths/${name}/forge.db`) => ({
   journal: './.forge/forge.db',
   map: './realms.json',
-  realms: names.map((name) => ({ default_branch: 'main', head: '0000000', journal: `/hearths/${name}/forge.db`, name, path: `../${name}` })),
+  realms: names.map((name) => ({ default_branch: 'main', head: '0000000', journal: journalOf(name), name, path: `../${name}` })),
 })
+
+/** `brokkr realms --json` for `names`: alpha reads `journal`, every other realm its own. */
+export const realmsMap = (journal, names = ['alpha', 'beta']) => realmsDoc(names, (name) => (name === 'alpha' ? journal : `/hearths/${name}/forge.db`))
 
 /** A run row of `name`'s hearth, its title and feature naming it. */
 export const runOf = (name, index) => row({
