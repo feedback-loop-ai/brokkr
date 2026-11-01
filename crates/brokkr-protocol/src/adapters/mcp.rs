@@ -629,8 +629,9 @@ fn with_empty_set(
 /// document the final check proves, and the empty set gains the strict
 /// flag and the empty document here. dsh's empty set is its engine-only
 /// home with no server row in its overlay, so its arguments are unchanged,
-/// and dsh's hands ride that overlay (#896), beside which no engine-only
-/// home is measured, so a hands set is never admitted for it. A brokered
+/// and dsh's one boxed hands server rides that overlay (#896), the set an
+/// engine-only home was measured with beside the empty one; any other set
+/// is refused for it. A brokered
 /// set rides the same fragment, whose document the engine expanded to the
 /// whole set (U7d); Codex's fragment
 /// and dsh's home carry no broker, so a brokered set refuses for either

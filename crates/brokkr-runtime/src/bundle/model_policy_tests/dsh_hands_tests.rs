@@ -2,6 +2,45 @@
 
 use super::*;
 
+/// #896: past Linux's lifted fence, a boxed dsh hands office compiles
+/// because the boxed cold and replacement shapes' ambient axes are measured
+/// on an engine-only home. Before this unit the same compile refused
+/// `provider 'dsh' has no measured strict MCP configuration for 'cold'`.
+/// The boxed shapes are measured on Linux alone, and macOS's fence stands,
+/// so the test runs nowhere else and asserts no macOS result.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_boxed_dsh_hands_office_compiles_past_the_lifted_fence() {
+    let fixture = Fixture::new();
+    fixture.write_agent_file("smith", &["glm-flash"], None, true);
+    let (agents, adapters) = (fixture.agents(), shipped_adapters());
+    let bundle = fixture.stage(boxed_seat("smith", "work"), None);
+    // The fixture's default review seat hires a synthetic `judge` no
+    // shipped adapter answers for; give it the boxed exec gate decision
+    // 0043 ruling 3 admits, so the dsh work seat is the only model serving.
+    let mut config: Value =
+        serde_json::from_slice(&std::fs::read(bundle.join("bundle.json")).unwrap()).unwrap();
+    config["seats"]["review"] = json!({
+        "role": "roles/role.md",
+        "results": ["clean"],
+        "class": "gate",
+        "driver": {"command": [
+            "{brokkr}", "driver", "exec", "--", "bash", "./scripts/verify.sh"
+        ]},
+        "hands": {"kind": "workspace", "network": false, "binds": []}
+    });
+    std::fs::write(
+        bundle.join("bundle.json"),
+        serde_json::to_vec(&config).unwrap(),
+    )
+    .unwrap();
+    fixture.script("scripts/verify.sh");
+    let lift = crate::capabilities::McpFence::lift();
+    let compiled = Bundle::compile_under(&bundle, &agents, &adapters, Boundary::Namespace);
+    drop(lift);
+    compiled.expect("Linux's lifted fence admits the measured boxed dsh hands shapes");
+}
+
 /// The shipped dsh adapter declares hands, so a boxed office is hired from
 /// it alone or behind a codex link, its link carrying no hands argument:
 /// dsh's hands ride the seat's one overlay, which its driver writes. The

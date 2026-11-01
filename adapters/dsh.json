@@ -118,7 +118,7 @@
           "host": "linux"
         },
         "ambient": {
-          "unmeasured": "#896 round 2 (2026-10-26, dsh 0.2.1-rc.2): with transport: stdio the equivalent probe row started and the model listed mcp__probe__ping, not a live Brokkr call through this driver; without it the server never started and dsh exited 0, and failOnStartupError refused nothing. Each launch composes --dump-config against the measured 99 (docs/evidence/adapters/dsh-hands-round2)"
+          "measured": "#896 (2026-11-01, dsh 0.2.1-rc.2, Linux, spark-glm): after positive controls loaded a planted home- and profile-level sentinel, a boxed hands launch in a fresh engine-only DSH_HOME started neither, composed the measured 99 rows with one brokkr-hands client, and the real hands tool listed as mcp__brokkr__workspace; unchanged under no_new_privs (docs/evidence/adapters/dsh-boxed-hands.md)"
         },
         "native_write": {
           "measured": "#896 round 2 (2026-10-26, dsh 0.2.1-rc.2/rc.3): the ten hands rows disabled left 12 bookkeeping tools, the nine plus mcp-resources' three, which reach only the one MCP server in scope; each disabled row read disabled: true in --dump-config, and sandbox-policy is set from the office's access (docs/evidence/adapters/dsh-hands-round2)"
@@ -128,6 +128,28 @@
         },
         "process_read": {
           "measured": "U0b D10-p5 with #896 (dsh 0.2.1-rc.2): the hands box, Brokkr's whatever the route, found no process canary in /proc in its private pid namespace, and the hands rows compose no native shell (docs/evidence/adapters/slice-two-dsh-hands.md)"
+        }
+      },
+      {
+        "invocation": "replacement",
+        "hands": "boxed",
+        "measured_on": {
+          "harness": "dsh",
+          "binary": "dsh",
+          "version": "0.2.1-rc.2",
+          "host": "linux"
+        },
+        "ambient": {
+          "measured": "#896 (2026-11-01, dsh 0.2.1-rc.2, Linux, spark-glm): after a first boxed hands run in the workdir, a fresh engine-only DSH_HOME replacement (dsh's resume unmeasured, so the offer is declined) started no ambient sentinel, composed the measured 99 rows with one brokkr-hands client, and listed mcp__brokkr__workspace (docs/evidence/adapters/dsh-boxed-hands.md)"
+        },
+        "native_write": {
+          "unmeasured": "#896 (2026-11-01, dsh 0.2.1-rc.2, Linux, spark-glm): the replacement run composed and listed the engine's tool but re-measured none of the ten hands rows or their disabled state, so this shape borrows nothing from the cold boxed shape's round 2 measurement (docs/evidence/adapters/dsh-boxed-hands.md)"
+        },
+        "store_read": {
+          "unmeasured": "#896 (2026-11-01, dsh 0.2.1-rc.2, Linux, spark-glm): the replacement run read no store canary, so this shape borrows nothing from the cold boxed shape's U0b D10-p5 store measurement (docs/evidence/adapters/dsh-boxed-hands.md)"
+        },
+        "process_read": {
+          "unmeasured": "#896 (2026-11-01, dsh 0.2.1-rc.2, Linux, spark-glm): the replacement run read no process canary, so this shape borrows nothing from the cold boxed shape's U0b D10-p5 process measurement (docs/evidence/adapters/dsh-boxed-hands.md)"
         }
       }
     ]

@@ -1,8 +1,9 @@
 # 0098 — A dsh hands seat runs on the composed tree it measured, fails closed without its tool, and takes its access from its office
 
 Status: accepted — operator ruled 2026-10-29 (#896, https://github.com/feedback-loop-ai/brokkr/issues/896#issuecomment-6491164088), as written, with ruling 2's probe-to-spawn residual accepted until decision 0065 slice two's U9b1
+Amendment (proposed, 2026-11-01, #896): the Built line and ruling 2's residual text are proposed: Linux closes the probe-to-spawn residual on the engine-only home, and macOS keeps it.
 Date: 2026-10-26
-Built: partial (#896) — the one hands overlay, the composed-tree check and its measured allowlist, the typed office access and its carrier, the activation refusal and the partial-enforcement report are built; the engine-only home (decision 0065 slice two's U9b1) and the read-only `HandsSpec` are unbuilt
+Built: partial (#896) — the one hands overlay, the composed-tree check and its measured allowlist, the typed office access and its carrier, the activation refusal, the partial-enforcement report and, for a boxed dsh hands seat on Linux, the engine-only home are built; the read-only `HandsSpec` is unbuilt. Linux closes ruling 2's probe-to-spawn residual on that home; macOS keeps it, where the fence stands
 
 ## Context
 
@@ -45,9 +46,9 @@ This decision records the round-two semantics; the operator accepted it on
    measured effectful rows must read `disabled: true`; a repeated id, a
    second MCP client, an enabled effectful row, a dump that cannot be read and
    a `--dump-config` that fails all refuse, each naming the row where one is
-   known. The version pin stays beside the check. No engine-only `DSH_HOME`
-   is built for hands seats in this round; that is decision 0065 slice two's
-   U9b1, and the standing fence still serves the operator's home.
+   known. The version pin stays beside the check. On Linux this round now
+   builds the engine-only `DSH_HOME` for the measured boxed hands shape; on
+   macOS the fence stands and the operator's home still serves it.
 
    *Residual, accepted by the operator 2026-10-29 ([#896](https://github.com/feedback-loop-ai/brokkr/issues/896#issuecomment-6491164088)):* the
    check and the session each read the operator's home, one after the
@@ -55,9 +56,10 @@ This decision records the round-two semantics; the operator accepted it on
    to that home between the probe and the spawn is therefore served without
    being measured, and a healthy extra server prints none of the words
    ruling 4 refuses. The home is the operator's own, and such a change is
-   outside the threat model of 2026-09-26. U9b1's engine-only home closes it
-   by construction: the probe and the session then read one home that
-   Brokkr made.
+   outside the threat model of 2026-09-26. On Linux U9b1's engine-only home
+   closes it by construction: the probe and the session then read one home
+   that Brokkr made. On macOS the fence still stands and the shape is
+   served the operator's home, so the residual remains there.
 
 3. **An office's access is typed data, not its gate class.** An office may
    declare `access`, `read-only` or `writes`, beside its hands. Absent is
@@ -105,8 +107,10 @@ Trusting `failOnStartupError` alone is refused by measurement: it changed no
 exit status and no warning. Reading only the version pin is refused by the
 same measurement: an ambient home composes beside the pin. Serving the
 operator's home without reading what it composed is the fail-open path this
-round closes. A new engine-only home is the sturdier fix, but it belongs to
-decision 0065 slice two's U9b1 and is not built beside that session's files.
+round closes. A new engine-only home is the sturdier fix: decision 0065
+slice two's U9b1 built it for the measured boxed dsh hands shape on Linux,
+and macOS keeps the standing fence and the operator's home until boxing
+exists there.
 
 The cost is one `--dump-config` per launch (0.06–0.07 s, about 64 MB, no model
 call) and a 99-pair allowlist that moves when dsh moves. A release whose
@@ -128,6 +132,8 @@ brokkr-store and brokkr-view are unmoved. Adapter `dsh.json` and eight office
 definitions move their bundles' witness digests, re-pinned from the suite's
 reported values. Linux and macOS are the supported hosts; production remains
 Rust. The tree carries the overlay, the composed-tree check, the access
-carrier, the activation refusal and this record; the engine-only home
-(decision 0065 slice two's U9b1) and the read-only `HandsSpec` remain owed,
-so the decision is built in part. The operator accepted it on 2026-10-29.
+carrier, the activation refusal and this record; the engine-only home is
+built for the measured boxed dsh hands shape on Linux (macOS keeps the
+operator's home under the standing fence), and the read-only `HandsSpec`
+remains owed, so the decision is built in part. The operator accepted it on
+2026-10-29.
