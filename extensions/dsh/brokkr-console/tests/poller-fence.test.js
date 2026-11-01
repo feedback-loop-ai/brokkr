@@ -854,6 +854,111 @@ test('review 907p6 R-2: a withheld snapshot leaves its client owed the fleet the
   )
 })
 
+/**
+ * The world where a second client's snapshot installs a newer fleet while the
+ * first client's poll holds an inspect, then beta moves to a new journal: the
+ * poll's own last map contradicts the newer fleet. Returns the first client
+ * with its snapshot cleared, the second, and the stub.
+ */
+async function overlappingPoll() {
+  const held = { ...runOf('alpha', 0), seq: 12 }
+  const beta = { ...runOf('beta', 0), seq: 25 }
+  const oldMap = realmsMap('/hearths/alpha/forge.db')
+  const newMap = realmsDoc(['alpha', 'beta'], (name) => (name === 'alpha' ? '/hearths/alpha/forge.db' : '/hearths/beta/new.db'))
+  const read = runViewDoc({ seq: 12 })
+  read.summary = { ...read.summary, run_id: held.run_id }
+  const brokkr = stubBrokkr([
+    // Seven reads resolve the old map: the first snapshot, the poll's fleet and
+    // its fence, the second snapshot's fleet and fence. The eighth is the
+    // held inspect's fence, after beta moved.
+    { match: ['realms'], responses: [...Array.from({ length: 7 }, () => json(oldMap)), json(newMap)] },
+    { match: ['runs', '--db=/hearths/alpha/forge.db'], responses: [json(windowOf([held], null))] },
+    { match: ['runs', '--db=/hearths/beta/forge.db'], responses: [json(windowOf([beta], null))] },
+    { match: ['runs', '--db=/hearths/beta/new.db'], responses: [json(windowOf([beta], null))] },
+    { match: ['inspect'], responses: [json(read), { ...json(read), sleep_ms: 700 }] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const client = peer()
+  client.receive = poller.attach(client)
+  client.receive({ type: 'watch', view: 'realm', realm: 'alpha', run: { realm: 'alpha', run_id: held.run_id } })
+  await until(() => client.sent.length > 0, 'the first client’s snapshot')
+  client.sent.length = 0
+  const ticking = poller.tick()
+  await until(() => callsOf(brokkr, 'inspect') >= 2, 'the poll’s held inspect')
+  // The second snapshot installs its fleet and paints itself while the first
+  // poll still waits; the held inspect's fence then resolves the moved map.
+  const second = await attached(poller, { view: 'realm', realm: 'beta', run: null })
+  await ticking
+  return { brokkr, client, second }
+}
+
+test('review 907p6 finding 1: a poll withholds a newer installed fleet its own last map contradicts', async () => {
+  const { brokkr, client, second } = await overlappingPoll()
+  const painted = second.sent.find((message) => message.type === 'snapshot')
+  assert.equal(painted?.fleet.hearths.find((hearth) => hearth.realm === 'beta').journal, '/hearths/beta/forge.db', 'the second client painted the old world before the move')
+  assert.equal(callsOf(brokkr, 'realms'), 8, 'the poll’s held inspect is fenced by the moved map')
+  assert.deepEqual(client.sent, [], 'the poll paints nothing from the newer fleet the moved map contradicts')
+})
+
+test('review 907p6 finding 2: a fleet installed while one snapshot is withheld is owed to every client', async () => {
+  const alpha12 = { ...runOf('alpha', 0), seq: 12 }
+  const alpha13 = { ...alpha12, seq: 13 }
+  const beta = { ...runOf('beta', 0), seq: 25 }
+  const map = realmsMap('/hearths/alpha/forge.db')
+  const read = runViewDoc({ seq: 13 })
+  read.summary = { ...read.summary, run_id: alpha13.run_id }
+  const brokkr = stubBrokkr([
+    // The second snapshot's inspect fence is refused once; every later read
+    // resolves the same map.
+    { match: ['realms'], responses: [json(map), json(map), json(map), json(map), { stderr: 'transient realms read failure', code: 1 }, json(map)] },
+    { match: ['runs', '--db=/hearths/alpha/forge.db'], responses: [json(windowOf([alpha12], null)), json(windowOf([alpha13], null))] },
+    { match: ['runs', '--db=/hearths/beta/forge.db'], responses: [json(windowOf([beta], null))] },
+    { match: ['inspect'], responses: [json(read)] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const first = await attached(poller, { view: 'realm', realm: 'alpha', run: null })
+  assert.equal(first.sent[0].fleet.hearths.find((hearth) => hearth.realm === 'alpha').runs[0].seq, 12, 'the first client painted the fleet before alpha advanced')
+  first.sent.length = 0
+  const second = peer()
+  second.receive = poller.attach(second)
+  second.receive({ type: 'watch', view: 'realm', realm: 'alpha', run: { realm: 'alpha', run_id: alpha13.run_id } })
+  await until(() => callsOf(brokkr, 'realms') >= 5, 'the withheld second snapshot')
+  assert.deepEqual(second.sent, [], 'the withheld snapshot paints nothing')
+  assert.deepEqual(first.sent, [], 'the second client’s install paints the first client nothing')
+  await poller.tick()
+  const fleet = first.sent.find((message) => message.type === 'fleet')
+  assert.ok(fleet, 'the next successful poll sends the first client the fleet the install superseded')
+  assert.equal(fleet.fleet.hearths.find((hearth) => hearth.realm === 'alpha').runs[0].seq, 13, 'the first client is owed the installed fleet')
+})
+
+test('review 907p6 finding 2b: a withheld snapshot of an unchanged fleet still owes its client that fleet', async () => {
+  const held = { ...runOf('alpha', 0), seq: 12 }
+  const beta = { ...runOf('beta', 0), seq: 25 }
+  const map = realmsMap('/hearths/alpha/forge.db')
+  const read = runViewDoc({ seq: 12 })
+  read.summary = { ...read.summary, run_id: held.run_id }
+  const brokkr = stubBrokkr([
+    // The second client's snapshot reads the fleet the first already
+    // installed, so nothing changes; its inspect fence is refused once.
+    { match: ['realms'], responses: [json(map), json(map), json(map), json(map), { stderr: 'transient realms read failure', code: 1 }, json(map)] },
+    { match: ['runs', '--db=/hearths/alpha/forge.db'], responses: [json(windowOf([held], null))] },
+    { match: ['runs', '--db=/hearths/beta/forge.db'], responses: [json(windowOf([beta], null))] },
+    { match: ['inspect'], responses: [json(read)] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const first = await attached(poller, { view: 'realm', realm: 'alpha', run: null })
+  assert.equal(first.sent[0].fleet.hearths.find((hearth) => hearth.realm === 'alpha').runs[0].seq, 12, 'the first client installed the fleet')
+  const second = peer()
+  second.receive = poller.attach(second)
+  second.receive({ type: 'watch', view: 'realm', realm: 'alpha', run: { realm: 'alpha', run_id: held.run_id } })
+  await until(() => callsOf(brokkr, 'realms') >= 5, 'the withheld unchanged snapshot')
+  assert.deepEqual(second.sent, [], 'the withheld snapshot paints nothing')
+  await poller.tick()
+  const fleet = second.sent.find((message) => message.type === 'fleet')
+  assert.ok(fleet, 'the next successful poll sends the fleet the unchanged snapshot withheld')
+  assert.equal(fleet.fleet.hearths.find((hearth) => hearth.realm === 'alpha').runs[0].seq, 12, 'the client is owed the fleet already installed')
+})
+
 test('review 907p6: every publishing path withholds a fleet one moved map contradicts', async () => {
   const heldAlpha = runningOf('alpha', 0, 12)
   const heldBeta = runningOf('beta', 0, 12)
@@ -908,6 +1013,14 @@ test('review 907p6: every publishing path withholds a fleet one moved map contra
         client.sent.length = 0
         await poller.tick()
         assert.equal(callsOf(brokkr, 'realms'), 6, 'the poll’s step fences read the moved map')
+        return client
+      },
+    },
+    {
+      name: 'poll over a newer install',
+      async run() {
+        const { brokkr, client } = await overlappingPoll()
+        assert.equal(callsOf(brokkr, 'realms'), 8, 'the poll’s held inspect is fenced by the moved map')
         return client
       },
     },

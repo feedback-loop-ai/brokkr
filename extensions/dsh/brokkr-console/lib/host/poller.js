@@ -321,11 +321,21 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     const text = JSON.stringify(fleet)
     const changed = text !== state.fleetText
     Object.assign(state, { fleet, fleetText: text })
+    // A changed fleet is owed to every client until it is sent to that
+    // client: the snapshot that installed it paints only its own, so an
+    // install must mark them all here, one home (R-2, ruling 5).
+    if (changed) for (const client of clients) client.owed = true
     return { changed }
   }
 
-  /** Send `client` the fleet, clear its owed mark: the caller has passed the one publication gate (M2, R-2). */
-  function sendFleet(client) {
+  /**
+   * Send `client` the fleet only while `seen`, this path's latest map, still
+   * names every hearth in it and every `target` the caller read; clear the
+   * owed mark on a send. Every fleet send passes the one gate here, so a new
+   * path cannot publish without it (M2, ruling 5).
+   */
+  function sendFleet(seen, client, targets = []) {
+    if (!publishable(seen, state.fleet, targets)) return
     client.owed = false
     client.peer.send({ type: 'fleet', fleet: state.fleet })
   }
@@ -383,7 +393,7 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     }
     state.extras.set(key, { realm: hearth.realm, journal: hearth.journal, from: kept?.from ?? cursor, runs, next: read.value.next })
     state.fleetText = JSON.stringify(state.fleet)
-    for (const client of clients) sendFleet(client)
+    for (const client of clients) sendFleet(seen, client, [first])
   }
 
   /**
@@ -591,20 +601,18 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
       if (reach.length === 0) continue
       updates.push([reach, read.run, read.target, read.source])
     }
-    if (dropped) {
-      // A fleet installed while the dropped read was in flight is the
-      // current world: paint it, but nothing the read held or sent (M4).
-      const newer = state.installed !== generation
-      return { patched: newer, updates: [], dropped: !newer }
-    }
     // A later fence read can resolve a map that contradicts an earlier read
     // in this poll: the fleet or a queued row then belongs to a journal its
     // realm no longer names, and none of the poll's world may paint (M2).
-    // The next poll reads the new world whole.
+    // A dropped read withholds its page the same way (F1-A). A fleet installed
+    // while those reads were in flight is the current world: it goes to the
+    // send's one gate, but nothing the poll read publishes (M4). Otherwise the
+    // next successful poll reads the new world whole, and every client the
+    // install superseded is already owed it.
     const targets = [...holds.map(([target]) => target), ...updates.map(([, , target]) => target)]
-    if (!publishable(seen, state.fleet, targets)) {
-      const newer = state.installed !== generation
-      return { patched: newer, updates: [], dropped: !newer }
+    if (dropped || !publishable(seen, state.fleet, targets)) {
+      if (state.installed !== generation) return { patched: true, updates: [], targets: [] }
+      return { withheld: true, updates: [] }
     }
     let patched = false
     for (const [target, row] of holds) if (holdRow(target, row) !== false) patched = true
@@ -642,15 +650,13 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
       const seen = {}
       const fleetRead = await readFleet(seen)
       if (fleetRead.dropped) return
-      const { patched, updates, dropped } = await pushRuns(before, seen)
-      if (dropped) {
-        // The poll installed a fleet it then withheld: every client is owed
-        // it, so the next successful poll sends it whatever `changed` says.
-        if (fleetRead.changed) for (const client of clients) client.owed = true
-        return
-      }
+      const { patched, updates, withheld, targets = [] } = await pushRuns(before, seen)
+      // A withheld poll paints nothing; a fleet installed while it read is
+      // already owed to every client by `readFleet`, so the next successful
+      // poll sends it whatever `changed` says (R-2, M2).
+      if (withheld) return
       const fleetMoved = fleetRead.changed || patched
-      for (const client of clients) if (fleetMoved || client.owed) sendFleet(client)
+      for (const client of clients) if (fleetMoved || client.owed) sendFleet(seen, client, targets)
       for (const [watchers, run, target, source] of updates) sendRun(seen, watchers, run, target, source)
       const onOverview = [...clients].filter((client) => client.watch.view === 'realms')
       if (onOverview.length === 0) return
