@@ -1,6 +1,6 @@
 # 0102 — A stop with no ending stands as stopping, not running
 
-Status: proposed
+Status: accepted — operator ruled in chat 2026-10-31, "go with recommended on all the rulings" (https://github.com/feedback-loop-ai/brokkr/issues/909#issuecomment-6542490360)
 Date: 2026-10-29
 
 Built: built
@@ -68,3 +68,14 @@ command or its seq.
 Not this story: whether `stop` itself should write the ending when it can
 prove no driver holds the run (decision 0029's fence, the U8e lease
 work). That is a separate design question for the operator.
+
+## Ruled (operator, in chat, 2026-10-31)
+
+"go with recommended on all the rulings" (https://github.com/feedback-loop-ai/brokkr/issues/909#issuecomment-6542490360),
+on PR #926: the decision is accepted as built, with ruling 3 widened. The
+summary row carries a second nullable column, `stop_folded_seq`, beside
+`stop_accepted_seq`: the stamp that the stop columns were written at the
+folded head. The `run_summary_stopping` trigger sends behind a row that a
+writer from before the columns folded, so the open's backfill refolds it.
+`DATABASE_SCHEMA` still does not move. Every other ruling stands as
+written.

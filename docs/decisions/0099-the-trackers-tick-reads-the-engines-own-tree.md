@@ -1,6 +1,6 @@
 # 0099 — The tracker's tick reads the engine's own tree; admission and the kill read the full table
 
-Status: proposed
+Status: accepted — operator ruled in chat 2026-10-31, "go with recommended everywhere" (https://github.com/feedback-loop-ai/brokkr/issues/918#issuecomment-6542700271)
 Date: 2026-10-29
 Built: built
 
