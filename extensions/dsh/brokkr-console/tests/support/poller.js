@@ -41,6 +41,7 @@ export async function attached(poller, watch) {
 
 export function polled(fleets, ask = undefined, inspections = [json(runViewDoc())]) {
   const brokkr = stubBrokkr([
+    { match: ['realms'], responses: [json(realmsDoc(['brokkr']))] },
     { match: ['runs'], responses: fleets },
     { match: ['inspect'], responses: inspections },
     { match: ['queue'], responses: [json([])] },
@@ -67,7 +68,13 @@ export async function refusedHint(journal) {
   const words = 'brokkr inspect was refused: the journal could not be read'
   const world = fleetDoc([['Project Alpha', [row({ seq: 12 })]]])
   world.realms[0].journal = journal
+  const realms = {
+    journal: './.forge/forge.db',
+    map: './realms.json',
+    realms: [{ default_branch: 'main', head: '0000000', journal, name: 'Project Alpha', path: '../Project Alpha' }],
+  }
   const brokkr = stubBrokkr([
+    { match: ['realms'], responses: [json(realms)] },
     { match: ['runs'], responses: [json(world)] },
     { match: ['inspect'], responses: [{ stderr: words, code: 1 }] },
   ])

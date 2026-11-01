@@ -105,17 +105,24 @@ async function hearthsOf(brokkr, workspace) {
 }
 
 /**
- * Whether a one-realm map still names `journal`. A map's journal is named in
- * the read's argv, but the map can be repointed between the read and its
- * publication: the label is only the realm's journal while the map names it
- * on both sides (F1). A map that moved, vanished or grew another hearth
- * cannot confirm any result read from it, and none is painted.
+ * Whether a world re-read after a read still names the journal that read
+ * used. A map's journal must be one of the hearths the map now names; a
+ * no-map world's `null` journal is a shape of its own, and a map appearing
+ * beside it means the journal changed (F1). One re-read fences one read,
+ * whatever the world's shape.
+ */
+const namedBy = (hearths, journal) => journal === null
+  ? hearths === null
+  : hearths !== null && hearths.some((hearth) => hearth.journal === journal)
+
+/**
+ * Whether the map re-read after a read still names the journal that read
+ * used. One `brokkr realms` per read is the fence's accepted cost; a map
+ * read that fails outright confirms no journal at all.
  */
 async function stillNamed(brokkr, workspace, journal) {
-  if (journal === null) return true
   try {
-    const hearths = await hearthsOf(brokkr, workspace)
-    return hearths !== null && hearths.length === 1 && hearths[0].journal === journal
+    return namedBy(await hearthsOf(brokkr, workspace), journal)
   } catch {
     return false
   }
@@ -138,7 +145,7 @@ async function settled(read) {
  */
 export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
   const clients = new Set()
-  const state = { fleet: null, extras: new Map(), repin: new Set(), fleetText: null, oneMap: false, shown: [], day: null, overviewText: null, timer: null, busy: false, generation: 0, installed: 0 }
+  const state = { fleet: null, extras: new Map(), repin: new Set(), fleetText: null, shown: [], day: null, overviewText: null, timer: null, busy: false, generation: 0, installed: 0 }
 
   /** Whether the journal `target` was read from is still the one its realm names (M4). */
   function current(target) {
@@ -234,14 +241,15 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     // journal the realm no longer names: only a read at least as new as the
     // installed one may install, and the older result paints nothing (M4).
     if (generation <= state.installed) return { changed: false }
-    // A one-hearth map's no-`--db` page is only its journal's while the map
-    // still names it; a map that moved makes the page unlabelable (F1).
-    if (hearths !== null && hearths.length === 1 && !(await stillNamed(brokkr, workspace, hearths[0].journal))) {
-      return { changed: false, dropped: true }
-    }
+    // Every page was read from a journal this poll resolved: re-read the map
+    // once and keep the whole fleet only while each read's journal is still
+    // its hearth's (F1). A no-map world is a shape of its own, so a map that
+    // appeared mid-read drops the pages read from the default journal.
+    const after = await hearthsOf(brokkr, workspace)
+    const used = hearths === null || hearths.length === 0 ? [null] : hearths.map((hearth) => hearth.journal)
+    if (!used.every((journal) => namedBy(after, journal))) return { changed: false, dropped: true }
     if (generation <= state.installed) return { changed: false }
     state.installed = generation
-    state.oneMap = hearths !== null && hearths.length === 1
     // The latest first page's running rows, before any retained page is
     // merged: each is inspected on every poll, whatever the held pages say.
     const shown = []
@@ -291,10 +299,11 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     // A map names its journal even when it names one realm; a no-map world
     // alone keeps part 1's no-`--db` argv.
     const read = await settled(() => brokkr.fleetPage(first.journal, cursor))
-    // A poll may have replaced the fleet, or a one-hearth map may have moved,
-    // while this page was in flight: a result read from a journal the realm
-    // no longer names is dropped, and nothing is painted from it (M4, F1).
-    if (state.oneMap && !(await stillNamed(brokkr, workspace, first.journal))) return
+    // A poll may have replaced the fleet, or the map may have moved, while
+    // this page was in flight: the map is re-read after the page, and a
+    // result read from a journal the world no longer names is dropped
+    // (M4, F1).
+    if (!(await stillNamed(brokkr, workspace, first.journal))) return
     const hearth = state.fleet?.hearths.find((each) => each.realm === realm)
     if (hearth === undefined || hearth.journal !== first.journal) return
     if (read.refused !== undefined) {
@@ -346,6 +355,12 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
       return { target: null, source, run: { ...ref, view: null, listed: false } }
     }
     const read = await settled(() => brokkr.inspect(target))
+    // The map can move while the inspect is in flight, in a world of any
+    // shape: the result is published only while the journal it opened is
+    // still the one its realm names (F1).
+    if (!(await stillNamed(brokkr, workspace, target.journal))) {
+      return { target, source: target, run: { ...ref, view: null }, dropped: true }
+    }
     const run = read.refused === undefined
       ? { ...ref, view: read.value ?? null }
       : { ...ref, view: null, refused: read.refused, hint: brokkr.inspectHint(target) }
@@ -367,6 +382,10 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     if (held !== null && !moved(held, summary)) return null
     if (held !== null && held.seq !== null && summary.seq < held.seq) return null
     const read = await settled(() => brokkr.runRow(target))
+    // The one-run row is fenced like every other read: the map is re-read
+    // after it, and a row from a journal the world no longer names is
+    // neither held nor sent (F1).
+    if (!(await stillNamed(brokkr, workspace, target.journal))) return null
     if (read.refused !== undefined || !current(target) || read.value.run_id !== target.run_id) return null
     return read.value
   }
@@ -419,15 +438,13 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
       let row = null
       if (watch.run !== null) {
         const read = await runOf(watch.run)
+        if (read.dropped) return
         target = read.target
         source = read.source
         run = read.run
         if (target !== null && run.view?.summary !== null && run.view?.summary !== undefined) row = await rowFor(target, run.view.summary)
       }
       const overviewRead = watch.view === 'realms' ? await overview(fleetRead.changed) : null
-      // A one-hearth map that moved while these no-`--db` reads were in
-      // flight cannot label any of them; nothing is painted (F1).
-      if (state.oneMap && !(await stillNamed(brokkr, workspace, state.fleet?.hearths[0]?.journal))) return
       // A snapshot whose journal the realm no longer names, whose fleet no
       // longer holds an absence, or whose watch has been replaced paints
       // nothing, not even the current fleet it was read beside (M4, F3).
@@ -467,8 +484,16 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     const generation = state.installed
     const holds = []
     const updates = []
+    let dropped = false
     for (const [key, { ref, watchers }] of reads) {
       const read = await runOf(ref)
+      // A read from a journal the world no longer names is never held or
+      // sent; the poll's own page is withheld with it unless a newer fleet
+      // has already replaced that world (F1, M4).
+      if (read.dropped) {
+        dropped = true
+        continue
+      }
       const summary = read.run.view?.summary ?? null
       if (read.target !== null && summary !== null) {
         const row = await rowFor(read.target, summary)
@@ -487,10 +512,12 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
       if (reach.length === 0) continue
       updates.push([reach, read.run, read.target, read.source])
     }
-    // Every no-`--db` read above is labeled by this one-hearth map; a map
-    // that moved while they were in flight makes all of them unlabelable
-    // (F1). Nothing is held or sent from an unconfirmed read.
-    if (state.oneMap && !(await stillNamed(brokkr, workspace, state.fleet?.hearths[0]?.journal))) return { patched: false, updates: [], dropped: true }
+    if (dropped) {
+      // A fleet installed while the dropped read was in flight is the
+      // current world: paint it, but nothing the read held or sent (M4).
+      const newer = state.installed !== generation
+      return { patched: newer, updates: [], dropped: !newer }
+    }
     let patched = false
     for (const [target, row] of holds) if (holdRow(target, row) !== false) patched = true
     // A fleet installed while these reads were in flight is the current one:

@@ -12,7 +12,7 @@ import { configFrom } from '../lib/host/config.js'
 import { pollerOf } from '../lib/host/poller.js'
 import { fleetOf, ONE_HEARTH } from '../lib/host/readouts.js'
 import { findAll, textOf } from './support/client.js'
-import { RUN, OTHER, attached, fleetAt, openedPage, pasted, polled, heard, refusedHint, runOf, windowOf } from './support/poller.js'
+import { RUN, OTHER, attached, fleetAt, openedPage, pasted, polled, heard, realmsDoc, refusedHint, runOf, windowOf } from './support/poller.js'
 import { analyticsDoc, fleetDoc, json, row, runViewDoc, stubBrokkr } from './support/world.js'
 
 test('an open run is re-read on every poll, and only for the client that has it open', async () => {
@@ -71,6 +71,7 @@ test('a refused read reaches the open client as Brokkr’s words and the command
   const words = 'brokkr inspect was refused: the journal moved beneath the read'
   const hint = `brokkr inspect --run=${RUN} --db=/hearths/brokkr/forge.db`
   const brokkr = stubBrokkr([
+    { match: ['realms'], responses: [json(realmsDoc(['brokkr']))] },
     { match: ['runs'], responses: [fleetAt(12), fleetAt(13)] },
     { match: ['inspect'], responses: [{ stderr: words, code: 1 }] },
   ])
@@ -90,6 +91,7 @@ test('a run absent from the fleet reaches the open client as not listed, in the 
   const other = row({ run_id: OTHER, seq: 3, title: 'Lane detection v2' })
   const without = json(fleetDoc([['brokkr', [other]]]))
   const brokkr = stubBrokkr([
+    { match: ['realms'], responses: [json(realmsDoc(['brokkr']))] },
     { match: ['runs'], responses: [fleetAt(12), without] },
     { match: ['inspect'], responses: [json(runViewDoc())] },
   ])
@@ -110,6 +112,7 @@ test('the runner’s own output bound reaches the run page as Brokkr’s refusal
   const words = 'brokkr inspect printed more than the console reads'
   const hint = `brokkr inspect --run=${RUN} --db=/hearths/brokkr/forge.db`
   const brokkr = stubBrokkr([
+    { match: ['realms'], responses: [json(realmsDoc(['brokkr']))] },
     { match: ['runs'], responses: [fleetAt(12)] },
     { match: ['inspect'], responses: [{ bytes: 8193 }] },
   ], { maxBytes: 8192 })

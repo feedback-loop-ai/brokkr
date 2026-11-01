@@ -201,7 +201,7 @@ test('chief C3: a single mapped hearth owns its pages by journal and keeps the n
   const brokkr = stubBrokkr([
     {
       match: ['realms'],
-      responses: [json(realmsFor('/old/forge.db')), json(realmsFor('/old/forge.db')), json(realmsFor('/old/forge.db')), json(realmsFor('/old/forge.db')), json(realmsFor('/new/forge.db'))],
+      responses: [json(realmsFor('/old/forge.db')), json(realmsFor('/old/forge.db')), json(realmsFor('/old/forge.db')), json(realmsFor('/new/forge.db'))],
     },
     { match: ['runs'], responses: [json(oldFirst), json(oldOnly), json(newFirst)] },
   ])
