@@ -30,6 +30,9 @@ const whole = (hearth) => hearth.retained !== true && hearth.detail === null && 
 /** A fault in the console itself, which no readout explains: DSH's log shows it. */
 const report = (error) => console.error('[brokkr-console]', error)
 
+/** A fenced row read's marker: the row is not merely "not due", it may not publish. */
+const DROPPED = Symbol('dropped')
+
 /** Each listed run's head, by realm and run id, from the fleet a poll is about to replace. */
 function headsOf(fleet) {
   const heads = new Map()
@@ -101,28 +104,33 @@ async function hearthsOf(brokkr, workspace) {
     if (held === undefined) byJournal.set(journal, { journal, names: [realm.name] })
     else held.names.push(realm.name)
   }
-  return [...byJournal.values()].map(({ journal, names }) => ({ realm: names.join('+'), journal }))
+  return [...byJournal.values()].map(({ journal, names }) => ({ realm: names.join('+'), journal, names }))
 }
+
+/** The realm names a hearth's joined label covers: Brokkr's names hold no `+`. */
+const realmNamesOf = (realm) => realm.split('+')
 
 /**
  * Whether a world re-read after a read still names the journal that read
- * used. A map's journal must be one of the hearths the map now names; a
- * no-map world's `null` journal is a shape of its own, and a map appearing
- * beside it means the journal changed (F1). One re-read fences one read,
- * whatever the world's shape.
+ * used under one of the realm names the read covered. The journal must be
+ * that realm's hearth's, not merely one the map names elsewhere: another
+ * realm may take the journal over while this one moves (F1-B). A no-map
+ * world's `null` journal is a shape of its own, and a map appearing beside
+ * it means the journal changed (F1). One re-read fences one read, whatever
+ * the world's shape.
  */
-const namedBy = (hearths, journal) => journal === null
+const namedBy = (hearths, journal, names) => journal === null
   ? hearths === null
-  : hearths !== null && hearths.some((hearth) => hearth.journal === journal)
+  : hearths !== null && hearths.some((hearth) => hearth.journal === journal && names.some((name) => hearth.names.includes(name)))
 
 /**
  * Whether the map re-read after a read still names the journal that read
- * used. One `brokkr realms` per read is the fence's accepted cost; a map
- * read that fails outright confirms no journal at all.
+ * used for its realm. One `brokkr realms` per read is the fence's accepted
+ * cost; a map read that fails outright confirms no journal at all.
  */
-async function stillNamed(brokkr, workspace, journal) {
+async function stillNamed(brokkr, workspace, journal, realm) {
   try {
-    return namedBy(await hearthsOf(brokkr, workspace), journal)
+    return namedBy(await hearthsOf(brokkr, workspace), journal, realmNamesOf(realm))
   } catch {
     return false
   }
@@ -246,8 +254,8 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     // its hearth's (F1). A no-map world is a shape of its own, so a map that
     // appeared mid-read drops the pages read from the default journal.
     const after = await hearthsOf(brokkr, workspace)
-    const used = hearths === null || hearths.length === 0 ? [null] : hearths.map((hearth) => hearth.journal)
-    if (!used.every((journal) => namedBy(after, journal))) return { changed: false, dropped: true }
+    const used = hearths === null || hearths.length === 0 ? [{ journal: null, realm: ONE_HEARTH }] : hearths
+    if (!used.every((hearth) => namedBy(after, hearth.journal, hearth.names))) return { changed: false, dropped: true }
     if (generation <= state.installed) return { changed: false }
     state.installed = generation
     // The latest first page's running rows, before any retained page is
@@ -303,7 +311,7 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     // this page was in flight: the map is re-read after the page, and a
     // result read from a journal the world no longer names is dropped
     // (M4, F1).
-    if (!(await stillNamed(brokkr, workspace, first.journal))) return
+    if (!(await stillNamed(brokkr, workspace, first.journal, first.realm))) return
     const hearth = state.fleet?.hearths.find((each) => each.realm === realm)
     if (hearth === undefined || hearth.journal !== first.journal) return
     if (read.refused !== undefined) {
@@ -358,7 +366,7 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     // The map can move while the inspect is in flight, in a world of any
     // shape: the result is published only while the journal it opened is
     // still the one its realm names (F1).
-    if (!(await stillNamed(brokkr, workspace, target.journal))) {
+    if (!(await stillNamed(brokkr, workspace, target.journal, target.realm))) {
       return { target, source: target, run: { ...ref, view: null }, dropped: true }
     }
     const run = read.refused === undefined
@@ -370,10 +378,12 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
   /**
    * The served row for `target` when a fresh summary shows the held row
    * moved, or when a partial listing left the run out; `null` when no row is
-   * due. Brokkr's one derivation is read whole; this host derives none of
-   * its standing, verdict or text (M1-M3). The row is not held here: a
-   * one-hearth map confirms the journal after every no-`--db` read, and only
-   * then may a caller hold the row (F1).
+   * due, and `DROPPED` when the journal it was read from is no longer the
+   * realm's, so the caller withholds what it was about to publish. Brokkr's
+   * one derivation is read whole; this host derives none of its standing,
+   * verdict or text (M1-M3). The row is not held here: the map confirms the
+   * journal after every read, whatever the world's shape, and only then may
+   * a caller hold the row (F1).
    */
   async function rowFor(target, summary) {
     const hearth = state.fleet?.hearths.find((each) => each.realm === target.realm && each.journal === target.journal)
@@ -383,9 +393,9 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     if (held !== null && held.seq !== null && summary.seq < held.seq) return null
     const read = await settled(() => brokkr.runRow(target))
     // The one-run row is fenced like every other read: the map is re-read
-    // after it, and a row from a journal the world no longer names is
-    // neither held nor sent (F1).
-    if (!(await stillNamed(brokkr, workspace, target.journal))) return null
+    // after it, and a row from a journal the realm no longer names is
+    // neither held nor sent (F1, F1-A).
+    if (!(await stillNamed(brokkr, workspace, target.journal, target.realm))) return DROPPED
     if (read.refused !== undefined || !current(target) || read.value.run_id !== target.run_id) return null
     return read.value
   }
@@ -442,7 +452,12 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
         target = read.target
         source = read.source
         run = read.run
-        if (target !== null && run.view?.summary !== null && run.view?.summary !== undefined) row = await rowFor(target, run.view.summary)
+        if (target !== null && run.view?.summary !== null && run.view?.summary !== undefined) {
+          row = await rowFor(target, run.view.summary)
+          // The row's own journal moved: nothing this snapshot read may paint,
+          // not even the fleet or the inspect it was read beside (F1-A).
+          if (row === DROPPED) return
+        }
       }
       const overviewRead = watch.view === 'realms' ? await overview(fleetRead.changed) : null
       // A snapshot whose journal the realm no longer names, whose fleet no
@@ -497,6 +512,13 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
       const summary = read.run.view?.summary ?? null
       if (read.target !== null && summary !== null) {
         const row = await rowFor(read.target, summary)
+        // A row fenced by its own journal read withholds the poll's page and
+        // the inspect it was read beside, exactly as a dropped inspect does
+        // (F1-A); a newer installed fleet stays the exception below.
+        if (row === DROPPED) {
+          dropped = true
+          continue
+        }
         if (row !== null) holds.push([read.target, row])
       }
       if (watchers.length === 0) continue
