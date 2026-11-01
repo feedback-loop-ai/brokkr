@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 use super::{FolderSeatRefusal, Shape, Side};
 use crate::argv::Executable;
 use crate::bundle::{Bundle, CompileError, Invocation, SeatBody};
+use crate::places::places_tests::clean_git_config;
 use crate::places::{Layout, Origin, Shelves};
 use brokkr_core::realms::Boundary;
 
@@ -200,6 +201,7 @@ fn script_at(dir: &Path) -> String {
 /// and recorded as a layer of origin `folder`. Nothing is composed.
 #[test]
 fn a_folder_seat_takes_the_folders_driver_and_hands_and_pins_its_layer() {
+    clean_git_config!();
     let folder = Folder::new();
     let leaf = folder.recipe(json!({"verify": from_folder()}));
     let bundle = compile(&leaf, &folder.shelves()).unwrap();
@@ -240,6 +242,7 @@ fn a_folder_seat_takes_the_folders_driver_and_hands_and_pins_its_layer() {
 /// of another shape with no hands refuses as refusal 2.
 #[test]
 fn a_folder_seat_whose_declaration_has_no_hands_refuses() {
+    clean_git_config!();
     let folder = Folder::new();
     let mut declared = verify_seat(json!({}), folder_hands());
     for key in ["class", "hands"] {
@@ -286,6 +289,7 @@ fn a_folder_seat_whose_declaration_has_no_hands_refuses() {
 /// compiles: its script, its box, no folder layer and no `@folder/` key.
 #[test]
 fn with_no_folder_the_recipes_own_seat_stands() {
+    clean_git_config!();
     let folder = Folder::new();
     let leaf = folder.recipe(json!({"verify": from_folder()}));
     let bundle = compile(&leaf, &Shelves::default()).unwrap();
@@ -304,6 +308,7 @@ fn with_no_folder_the_recipes_own_seat_stands() {
 /// folder's layer is pinned under `@folder/starter`.
 #[test]
 fn in_a_folder_fasts_verify_and_ship_are_the_folders_own() {
+    clean_git_config!();
     let folder = Folder::new();
     let limits = json!({"max_attempts": 1, "timeout_seconds": 60});
     let mut ship = verify_seat(limits.clone(), folder_hands());
@@ -357,6 +362,7 @@ fn in_a_folder_fasts_verify_and_ship_are_the_folders_own() {
 /// resume's comparison names.
 #[test]
 fn an_edit_to_the_folder_moves_the_recipes_digest_by_its_folder_key() {
+    clean_git_config!();
     let folder = Folder::new();
     let leaf = folder.recipe(json!({"verify": from_folder()}));
     let compiled = || compile(&leaf, &folder.shelves()).unwrap();
@@ -388,6 +394,7 @@ fn an_edit_to_the_folder_moves_the_recipes_digest_by_its_folder_key() {
 /// `@compose/` does: the key is computed, never read from disk.
 #[test]
 fn a_recipe_file_in_the_folder_namespace_refuses() {
+    clean_git_config!();
     let folder = Folder::new();
     let leaf = folder.recipe(json!({"verify": from_folder()}));
     std::fs::create_dir_all(leaf.join("@folder")).unwrap();
@@ -419,6 +426,7 @@ fn word_refusal(word: &str) -> (FolderSeatRefusal, String) {
 /// folder or out of one.
 #[test]
 fn a_from_other_than_folder_refuses() {
+    clean_git_config!();
     let folder = Folder::new();
     let mut seat = from_folder();
     seat["from"] = json!("repo");
@@ -434,6 +442,7 @@ fn a_from_other_than_folder_refuses() {
 /// its keys are read.
 #[test]
 fn a_folder_declaration_whose_from_is_another_word_refuses() {
+    clean_git_config!();
     let folder = Folder::new();
     let leaf = folder.recipe(json!({"verify": from_folder()}));
     for (word, written) in [
@@ -461,6 +470,7 @@ fn a_folder_declaration_whose_from_is_another_word_refuses() {
 /// a recipe whose seat says it takes that declaration's driver and hands.
 #[test]
 fn a_folder_declaration_that_says_folder_is_taken_in_both_compiles() {
+    clean_git_config!();
     let folder = Folder::new();
     let dir = folder.folder().canonicalize().unwrap();
     let limits = json!({"max_attempts": 2, "timeout_seconds": 3600});
@@ -489,6 +499,7 @@ const NO_OWN_DRIVER: &str = "bundle: seat 'verify' says \"from\": \"folder\" and
 /// compile with no folder runs, in a folder or out of one.
 #[test]
 fn a_folder_seat_with_no_driver_of_its_own_refuses() {
+    clean_git_config!();
     let folder = Folder::new();
     let mut seat = from_folder();
     seat.as_object_mut().unwrap().remove("driver");
@@ -513,6 +524,7 @@ fn a_folder_seat_with_no_driver_of_its_own_refuses() {
 /// likes, as it may with no folder.
 #[test]
 fn a_folder_seat_whose_own_driver_a_compile_with_no_folder_refuses_refuses() {
+    clean_git_config!();
     let folder = Folder::new();
     let pinned = from_folder()["driver"]["command"].clone();
     let unpinned = json!(["{brokkr}", "driver", "exec", "--", "bash", "-c", "true"]);
@@ -576,6 +588,7 @@ fn a_folder_seat_whose_own_driver_a_compile_with_no_folder_refuses_refuses() {
 /// refusal 4's text, and out of one with its own.
 #[test]
 fn under_a_box_a_folder_seat_is_held_to_the_whole_compile_with_no_folder() {
+    clean_git_config!();
     let folder = Folder::new();
     let boxed = |leaf: &Path, shelves: &Shelves| compile_under(Boundary::Namespace, leaf, shelves);
     let mut seat = from_folder();
@@ -641,6 +654,7 @@ fn child(folder: &Folder) -> PathBuf {
 /// carries the chain's note.
 #[test]
 fn in_a_composed_child_refusal_four_rises_unwrapped_and_others_carry_the_note() {
+    clean_git_config!();
     let folder = Folder::new();
     let leaf = child(&folder);
     for driver in [None, Some(Value::Null)] {
@@ -672,6 +686,7 @@ fn in_a_composed_child_refusal_four_rises_unwrapped_and_others_carry_the_note() 
 /// declaration is sound, as the seats compile after the resolver.
 #[test]
 fn refusal_four_follows_the_folders_refusals_unless_no_driver_is_declared() {
+    clean_git_config!();
     let folder = Folder::new();
     let seatless = json!({"name": "starter", "policy": "policy.json", "seats": {}});
     let raw = || {
@@ -748,6 +763,7 @@ fn refusal_four_follows_the_folders_refusals_unless_no_driver_is_declared() {
 /// recipe (in a folder or out of one) or by the folder's declaration.
 #[test]
 fn a_key_a_folder_seat_is_not_read_for_refuses_on_either_side() {
+    clean_git_config!();
     let folder = Folder::new();
     let mut seat = from_folder();
     seat["role"] = json!("roles/verify.md");
@@ -780,6 +796,7 @@ fn a_key_a_folder_seat_is_not_read_for_refuses_on_either_side() {
 /// Refusal 1: the folder bundle declares no such seat.
 #[test]
 fn a_folder_that_declares_no_such_seat_refuses() {
+    clean_git_config!();
     let folder = Folder::new();
     folder.write_folder(&json!({"name": "starter", "policy": "policy.json", "seats": {}}));
     let leaf = folder.recipe(json!({"verify": from_folder()}));
@@ -811,6 +828,7 @@ const NOT_ITS_OWN_SCRIPT: &str = "bundle: seat 'verify' is the folder's own (dec
 /// script, whether a raw process or an exec of text.
 #[test]
 fn a_folder_seat_that_is_not_an_exec_of_its_own_script_refuses() {
+    clean_git_config!();
     let folder = Folder::new();
     let leaf = folder.recipe(json!({"verify": from_folder()}));
     let raw = json!(["bash", "./scripts/verify-seat.sh"]);
@@ -840,6 +858,7 @@ const DIFFERS: &str = "bundle: seat 'verify' is the folder's own (decision 0091)
 /// as written and in order.
 #[test]
 fn a_folder_seat_of_another_shape_refuses() {
+    clean_git_config!();
     let folder = Folder::new();
     let leaf = folder.recipe(json!({"verify": from_folder()}));
     let mut declared = verify_seat(json!({}), folder_hands());
@@ -865,6 +884,7 @@ fn a_folder_seat_of_another_shape_refuses() {
 /// with a folder or with none.
 #[test]
 fn a_folder_bundle_taking_its_bases_folder_seat_refuses() {
+    clean_git_config!();
     let folder = Folder::new();
     folder.recipe(json!({"verify": from_folder()}));
     folder.write_folder(&json!({"name": "starter", "extends": "fixture"}));
@@ -905,6 +925,7 @@ fn a_folder_bundle_taking_its_bases_folder_seat_refuses() {
 /// no `@folder/` key and no layer added.
 #[test]
 fn a_folder_already_composed_is_pinned_as_its_layer() {
+    clean_git_config!();
     let folder = Folder::new();
     let dir = folder.folder().canonicalize().unwrap();
     let mine = folder.personal.join("mine");

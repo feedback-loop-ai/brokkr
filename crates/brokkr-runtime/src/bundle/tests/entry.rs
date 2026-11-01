@@ -1,5 +1,6 @@
 use super::*;
 use crate::bundle::entry::{admit, admitted, EntryRefusal};
+use crate::places::places_tests::clean_git_config;
 
 /// A synthetic gate road, with a work seat only on a return.
 fn recipe() -> (Value, Value) {
@@ -419,6 +420,7 @@ fn entry_refusal_text_names_each_witness() {
 
 #[test]
 fn shipped_refusals_name_the_written_work_site_and_first_missing_source() {
+    clean_git_config!();
     let root = workspace_root();
     let compile = |name| {
         Bundle::compile_with(
@@ -780,6 +782,7 @@ fn counted_phase_order_and_change_rank_keep_their_witnesses() {
 
 #[test]
 fn dialect_gate_checks_follow_only_forward_roads_to_work() {
+    clean_git_config!();
     let root = workspace_root();
     let mut bundle = Bundle::compile_with(
         &root.join("recipes/triage"),

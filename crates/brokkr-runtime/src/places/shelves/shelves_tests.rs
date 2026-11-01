@@ -10,6 +10,7 @@ use serde_json::json;
 use super::{Named, Origin, ShelfRefusal, Shelves};
 use crate::bundle::compose::{resolve_unsealed, Resolved};
 use crate::bundle::CompileError;
+use crate::places::places_tests::clean_git_config;
 use crate::places::{Layout, PlacesError};
 
 /// A folder repository at `repo` and the personal shelf at `personal`,
@@ -120,6 +121,7 @@ fn refused(result: Result<Resolved, CompileError>) -> CompileError {
 /// Without the shelves it reads its own shelf alone, where `fast` is not.
 #[test]
 fn a_personal_recipe_composes_over_a_project_one() {
+    clean_git_config!();
     let shelved = Shelved::new(None);
     let mine = recipe(&shelved.personal.join("mine"), "mine", Some("fast"));
     let resolved = shelved.resolve(&mine).unwrap();
@@ -139,6 +141,7 @@ fn a_personal_recipe_composes_over_a_project_one() {
 /// it where the workspace has no folder.
 #[test]
 fn a_personal_recipe_composes_over_the_folders_bundle() {
+    clean_git_config!();
     let shelved = Shelved::new(None);
     let mine = recipe(&shelved.personal.join("mine"), "mine", Some(".brokkr"));
     let resolved = shelved.resolve(&mine).unwrap();
@@ -177,6 +180,7 @@ fn a_personal_recipe_composes_over_the_folders_bundle() {
 /// with its own text, naming both paths (ruling 3).
 #[test]
 fn a_project_recipe_naming_a_personal_one_refuses() {
+    clean_git_config!();
     let shelved = Shelved::new(None);
     recipe(&shelved.personal.join("mine"), "mine", None);
     let team = recipe(&shelved.project("team"), "team", Some("mine"));
@@ -198,6 +202,7 @@ fn a_project_recipe_naming_a_personal_one_refuses() {
 /// refuses with its own text, naming both paths (ruling 3).
 #[test]
 fn the_folders_bundle_naming_a_personal_recipe_refuses() {
+    clean_git_config!();
     let shelved = Shelved::new(Some("mine"));
     recipe(&shelved.personal.join("mine"), "mine", None);
     let folder = shelved.repo.join(".brokkr");
@@ -222,6 +227,7 @@ fn the_folders_bundle_naming_a_personal_recipe_refuses() {
 /// recipe reads its own shelf alone, so the same name composes there.
 #[test]
 fn a_base_on_both_shelves_refuses_before_either_is_read() {
+    clean_git_config!();
     let shelved = Shelved::new(None);
     std::fs::create_dir(shelved.personal.join("fast")).unwrap();
     let mine = recipe(&shelved.personal.join("mine"), "mine", Some("fast"));
@@ -251,6 +257,7 @@ fn a_personal_recipe_reads_its_own_shelf() {
     let shelved = Shelved::new(None);
     let own = recipe(&shelved.personal.join("own"), "own", None);
     let mine = recipe(&shelved.personal.join("mine"), "mine", Some("own"));
+    clean_git_config!();
     let resolved = shelved.resolve(&mine).unwrap();
     assert_eq!(resolved.roots, [mine.clone(), own.clone()]);
     assert_eq!(resolved.origins, [Origin::Personal, Origin::Personal]);
@@ -289,6 +296,7 @@ fn a_personal_recipe_reads_its_own_shelf() {
 /// taken, or the project's missing base is no recipe.
 #[test]
 fn an_unreadable_shelf_refuses_every_read_of_it() {
+    clean_git_config!();
     let shelved = Shelved::new(None);
     let own = recipe(&shelved.personal.join("own"), "own", None);
     let mine = recipe(&shelved.personal.join("mine"), "mine", Some("own"));
@@ -391,6 +399,7 @@ fn a_folder_bundle_beside_an_unreadable_root_refuses() {
 /// workspace's own shelf, which holds no `quick`, each reads otherwise.
 #[test]
 fn a_selected_project_shelf_is_the_one_composed_across() {
+    clean_git_config!();
     let shelved = Shelved::new(None);
     let own = shelved.repo.join("own");
     let quick = recipe(&own.join("quick"), "quick", None);

@@ -10,24 +10,13 @@ use std::path::{Path, PathBuf};
 
 // The fixture's git runs with the host's own configuration isolated, so a
 // global or system `core.excludesFile` cannot decide what this test pins
-// (#908, fix round 908e).
-use crate::places::places_tests::{in_clean_git_config, run as git_run, test_repository};
+// (#908, fix round 908e); a test whose repository must answer for itself
+// runs again in a child where command-scope settings are gone (#936).
+use crate::places::places_tests::{clean_git_config, run as git_run, test_repository};
 
 /// The child-process marker carrying the fixture root whose compile runs
 /// under the hostile global configuration.
 const HOSTILE_GLOBAL: &str = "BROKKR_WALK_908_HOSTILE_GLOBAL";
-
-/// The name this binary's harness runs `test` by.
-fn exact_name(test: &str) -> String {
-    format!("{}::{test}", module_path!().split_once("::").unwrap().1)
-}
-
-/// Whether this process is the child that runs `test` alone with the host's
-/// git command-scope configuration cleared; when it is not, `test` was run
-/// so and passed, and the caller returns ([`in_clean_git_config`]).
-fn isolated(test: &str) -> bool {
-    in_clean_git_config(&exact_name(test))
-}
 
 fn git(dir: &Path, args: &[&str]) {
     let out = git_run(dir, args);
@@ -161,9 +150,7 @@ fn ignored_charter(bundle: &Path, relative: &str) -> String {
 
 #[test]
 fn a_repository_root_bundle_pins_neither_git_nor_an_ignored_tree() {
-    if !isolated("a_repository_root_bundle_pins_neither_git_nor_an_ignored_tree") {
-        return;
-    }
+    clean_git_config!();
     let fixture = Fixture::new();
     ignored_repository(&fixture);
     let compiled = stable_despite(&fixture, "target/artifact");
@@ -187,9 +174,7 @@ fn pinned_neither_git_nor_target(compiled: &Bundle) {
 /// `target/`, which is how this was found.
 #[test]
 fn a_bundle_inside_an_ignored_tree_of_its_repository_pins_its_own_files() {
-    if !isolated("a_bundle_inside_an_ignored_tree_of_its_repository_pins_its_own_files") {
-        return;
-    }
+    clean_git_config!();
     let fixture = Fixture::new();
     std::fs::write(fixture.root.join(".gitignore"), "scratch/\ntarget/\n").unwrap();
     test_repository(&fixture.root);
@@ -223,15 +208,16 @@ fn a_bundle_inside_an_ignored_tree_of_its_repository_pins_its_own_files() {
 /// can see it.
 #[test]
 fn a_repository_root_bundle_pins_neither_git_nor_an_ignored_tree_under_a_hostile_global() {
-    let this = exact_name(
-        "a_repository_root_bundle_pins_neither_git_nor_an_ignored_tree_under_a_hostile_global",
-    );
-    if !in_clean_git_config(&this) {
-        return;
-    }
+    clean_git_config!();
     if std::env::var_os(HOSTILE_GLOBAL).is_some() {
         return pinned_under_hostile_global();
     }
+    // The grandchild this test spawns runs this test by the name libtest
+    // gave its thread, as the helper does (#936).
+    let this = std::thread::current()
+        .name()
+        .expect("libtest names a test's thread after the test")
+        .to_owned();
     let fixture = Fixture::new();
     ignored_repository(&fixture);
     std::fs::write(fixture.root.join("target/artifact"), "bytes").unwrap();
@@ -285,9 +271,7 @@ fn hostile_global(fixture: &Fixture) -> (PathBuf, PathBuf) {
 
 #[test]
 fn a_nested_tree_git_ignores_is_skipped_at_any_depth() {
-    if !isolated("a_nested_tree_git_ignores_is_skipped_at_any_depth") {
-        return;
-    }
+    clean_git_config!();
     let fixture = Fixture::new();
     ignored_repository(&fixture);
     std::fs::create_dir_all(fixture.root.join("nested/target")).unwrap();
@@ -299,9 +283,7 @@ fn a_nested_tree_git_ignores_is_skipped_at_any_depth() {
 
 #[test]
 fn a_charter_inside_an_ignored_tree_is_refused_by_name() {
-    if !isolated("a_charter_inside_an_ignored_tree_is_refused_by_name") {
-        return;
-    }
+    clean_git_config!();
     let fixture = Fixture::new();
     ignored_repository(&fixture);
     std::fs::write(fixture.root.join("target/role.md"), "# role").unwrap();
@@ -313,9 +295,7 @@ fn a_charter_inside_an_ignored_tree_is_refused_by_name() {
 
 #[test]
 fn a_charter_inside_a_nested_ignored_tree_is_refused_by_name() {
-    if !isolated("a_charter_inside_a_nested_ignored_tree_is_refused_by_name") {
-        return;
-    }
+    clean_git_config!();
     let fixture = Fixture::new();
     ignored_repository(&fixture);
     std::fs::create_dir_all(fixture.root.join("nested/target")).unwrap();
@@ -331,9 +311,7 @@ fn a_charter_inside_a_nested_ignored_tree_is_refused_by_name() {
 
 #[test]
 fn a_second_name_inside_an_ignored_tree_is_refused_by_name() {
-    if !isolated("a_second_name_inside_an_ignored_tree_is_refused_by_name") {
-        return;
-    }
+    clean_git_config!();
     for relative in ["target/role.md", "nested/target/role.md"] {
         let fixture = Fixture::new();
         ignored_repository(&fixture);
@@ -404,9 +382,7 @@ fn a_pinned_script_lookup_that_cannot_ask_git_refuses_by_name() {
 
 #[test]
 fn a_pinned_script_inside_an_ignored_tree_is_refused_by_name() {
-    if !isolated("a_pinned_script_inside_an_ignored_tree_is_refused_by_name") {
-        return;
-    }
+    clean_git_config!();
     let fixture = Fixture::new();
     ignored_repository(&fixture);
     for relative in ["target/run.sh", "nested/target/run.sh"] {
@@ -456,9 +432,7 @@ fn a_bundle_outside_a_work_tree_pins_as_before_minus_git() {
 
 #[test]
 fn a_git_answer_that_cannot_be_read_refuses_the_bundle_by_name() {
-    if !isolated("a_git_answer_that_cannot_be_read_refuses_the_bundle_by_name") {
-        return;
-    }
+    clean_git_config!();
     let fixture = Fixture::new();
     ignored_repository(&fixture);
     let compiled = stable_despite(&fixture, "target/artifact");
@@ -489,9 +463,7 @@ fn a_git_answer_that_cannot_be_read_refuses_the_bundle_by_name() {
 
 #[test]
 fn git_metadata_under_a_work_tree_is_refused_by_its_own_reason() {
-    if !isolated("git_metadata_under_a_work_tree_is_refused_by_its_own_reason") {
-        return;
-    }
+    clean_git_config!();
     let fixture = Fixture::new();
     ignored_repository(&fixture);
     std::fs::write(fixture.root.join(".git/role.md"), "# role").unwrap();
@@ -513,9 +485,7 @@ fn git_metadata_under_a_work_tree_is_refused_by_its_own_reason() {
 
 #[test]
 fn a_bundle_inside_git_metadata_is_no_work_tree() {
-    if !isolated("a_bundle_inside_git_metadata_is_no_work_tree") {
-        return;
-    }
+    clean_git_config!();
     let fixture = Fixture::new();
     ignored_repository(&fixture);
     let inside = fixture.root.join(".git/bundle");
@@ -549,9 +519,7 @@ fn a_git_that_cannot_be_asked_refuses_by_name() {
 
 #[test]
 fn a_check_ignore_failure_refuses_by_name_with_gits_own_words() {
-    if !isolated("a_check_ignore_failure_refuses_by_name_with_gits_own_words") {
-        return;
-    }
+    clean_git_config!();
     let fixture = Fixture::new();
     unreadable_index(&fixture);
     // A real git failure, not a pathspec: check-ignore answers an error
@@ -575,9 +543,7 @@ fn a_check_ignore_failure_refuses_by_name_with_gits_own_words() {
 /// with git's own words, and never pins or skips an entry by guessing.
 #[test]
 fn a_check_ignore_failure_during_the_walk_refuses_by_name() {
-    if !isolated("a_check_ignore_failure_during_the_walk_refuses_by_name") {
-        return;
-    }
+    clean_git_config!();
     let fixture = Fixture::new();
     test_repository(&fixture.root);
     std::fs::write(fixture.root.join("tracked"), "bytes").unwrap();
@@ -594,9 +560,7 @@ fn a_check_ignore_failure_during_the_walk_refuses_by_name() {
 
 #[test]
 fn a_pathspec_shaped_name_is_judged_literally() {
-    if !isolated("a_pathspec_shaped_name_is_judged_literally") {
-        return;
-    }
+    clean_git_config!();
     let fixture = Fixture::new();
     ignored_repository(&fixture);
     // `:(exclude)x` used to be pathspec magic to git, which answered an
@@ -613,9 +577,7 @@ fn a_pathspec_shaped_name_is_judged_literally() {
 
 #[test]
 fn a_name_beginning_with_a_colon_is_judged_literally() {
-    if !isolated("a_name_beginning_with_a_colon_is_judged_literally") {
-        return;
-    }
+    clean_git_config!();
     let fixture = Fixture::new();
     test_repository(&fixture.root);
     // `foo` is ignored, but the file the walk names is `:foo`: judged as a
@@ -631,9 +593,7 @@ fn a_name_beginning_with_a_colon_is_judged_literally() {
 
 #[test]
 fn a_charter_under_a_colon_pathspec_is_refused_by_name() {
-    if !isolated("a_charter_under_a_colon_pathspec_is_refused_by_name") {
-        return;
-    }
+    clean_git_config!();
     let fixture = Fixture::new();
     test_repository(&fixture.root);
     // `.gitignore` ignores the literal directory `:roles/`; judged as a

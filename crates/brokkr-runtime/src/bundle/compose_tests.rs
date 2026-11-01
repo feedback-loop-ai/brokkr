@@ -1,7 +1,6 @@
 //! Composition proof (decision 0017). The resolver is a pure function
-//! over recipe sources, so every test here is a library of small JSON
-//! documents on disk and an assertion about the ONE flat bundle they
-//! resolve to — or about the refusal that names the file and the key.
+//! over recipe sources, so every test is a library of small JSON documents
+//! and the ONE flat bundle they resolve to, or the refusal that names it.
 use super::compose::resolve;
 use super::*;
 use serde_json::json;
@@ -1075,7 +1074,7 @@ fn workspace() -> PathBuf {
 
 #[test]
 fn recipes_that_opted_into_nothing_keep_their_digests() {
-    // AC-21, the hard regression.
+    crate::places::places_tests::clean_git_config!(); // AC-21, the hard regression.
     let pinned = witnesses::Witnesses::load(&workspace()).bundles;
     for path in UNCOMPOSED {
         let digest = &pinned[path];
@@ -1148,6 +1147,7 @@ fn the_chain_rides_in_the_manifest_and_a_base_change_moves_the_digest() {
 
 #[test]
 fn a_composed_bundles_manifest_is_pinned() {
+    crate::places::places_tests::clean_git_config!();
     // Decision 0041 ruling 7 retires the crew recipes into triage cases;
     // night-shift remains a recipe because its limits and dsh lane differ.
     let compiled = |path: &str| {
