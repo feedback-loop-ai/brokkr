@@ -362,7 +362,7 @@ fn scroll(offset: &mut usize, len: usize, step: Step) {
 /// level is a paged stream whose rows continue past the window, while the
 /// findings column is held whole and stops at its last drawn line.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Paging {
+pub(super) enum Paging {
     Absolute,
     Held,
 }
@@ -378,7 +378,7 @@ enum Paging {
 /// it when a page follows, so a page can be scrolled past its oldest row
 /// (decision 0089 slice 3). One coordinate, translated once into the
 /// window (R1).
-fn scroll_paged(
+pub(super) fn scroll_paged(
     offset: &mut usize,
     start: usize,
     len: usize,
@@ -395,7 +395,9 @@ fn scroll_paged(
     let stream_end = stream_end_of(end, more, window_end);
     match paging {
         Paging::Absolute => scroll_absolute(offset, step, more, stream_end),
-        Paging::Held => scroll_held(offset, step, more, stream_end, window_end),
+        // A column held whole is a paragraph, not a rank: its end is the
+        // window's, so no read's rank narrows it.
+        Paging::Held => scroll_held(offset, step, more, window_end),
     }
 }
 
@@ -451,13 +453,13 @@ fn scroll_absolute(offset: &mut usize, step: Step, more: bool, stream_end: usize
 /// asks the page that follows it, and a page step stops at the window's
 /// last line or asks one line past it when a page follows (decision 0089
 /// slice 3).
-fn scroll_held(offset: &mut usize, step: Step, more: bool, stream_end: usize, window_end: usize) {
+fn scroll_held(offset: &mut usize, step: Step, more: bool, window_end: usize) {
     match step {
         Step::Top => *offset = 0,
-        Step::Bottom => *offset = end_target(more, stream_end),
-        Step::Up if *offset == 0 => *offset = end_target(more, stream_end),
+        Step::Bottom => *offset = end_target(more, window_end),
+        Step::Up if *offset == 0 => *offset = end_target(more, window_end),
         Step::Up => *offset = offset.saturating_sub(1),
-        Step::Down => held_down(offset, more, stream_end, window_end),
+        Step::Down => held_down(offset, more, window_end),
         // A held column's page step stops at the window's last line, or
         // asks one line past it when a page follows.
         Step::PageDown => {
@@ -477,16 +479,14 @@ fn scroll_held(offset: &mut usize, step: Step, more: bool, stream_end: usize, wi
 /// says a page follows it, so the page can be asked for; at the stream's
 /// current end it is the stream's top, never the held window's first row
 /// (M1, R3).
-fn held_down(offset: &mut usize, more: bool, stream_end: usize, window_end: usize) {
+fn held_down(offset: &mut usize, more: bool, window_end: usize) {
+    // A paragraph's stream end is its window's: one row past the last
+    // painted line asks the page that follows, or returns to the top.
     if offset.saturating_add(1) >= window_end {
         *offset = match more {
             true => window_end,
             false => 0,
         };
-        return;
-    }
-    if offset.saturating_add(1) >= stream_end {
-        *offset = 0;
         return;
     }
     *offset = offset.saturating_add(1);
@@ -500,10 +500,9 @@ fn held_down(offset: &mut usize, more: bool, stream_end: usize, window_end: usiz
 /// the console keeps asking for (M1, decision 0071 ruling 5).
 pub(super) fn live_position(tui: &Tui, views: &Views, laid: &Laid) -> Option<isize> {
     let rows = laid.rows.len().checked_sub(1)?;
-    if rows == 0
-        || tui.live_offset < views.start
-        || tui.live_offset.saturating_sub(views.start) >= rows
-    {
+    // `rows == 0` is already `offset - start >= rows`: the window has no
+    // row to stand in, so the check below refuses it without a second arm.
+    if tui.live_offset < views.start || tui.live_offset.saturating_sub(views.start) >= rows {
         return None;
     }
     let row = tui.live_offset - views.start;
@@ -518,7 +517,7 @@ pub(super) fn live_position(tui: &Tui, views: &Views, laid: &Laid) -> Option<isi
 /// wraps at a known end, and a step inside the window is one drawn line
 /// (R1). A step that would leave it is held before this runs, so it never
 /// has to carry a distance across a page (decision 0071 ruling 5).
-fn scroll_live(tui: &mut Tui, views: &Views, laid: &Laid, step: Step, more: bool) {
+pub(super) fn scroll_live(tui: &mut Tui, views: &Views, laid: &Laid, step: Step, more: bool) {
     let rows = laid.rows.len().saturating_sub(1);
     if rows == 0 {
         tui.live_offset = 0;
@@ -526,7 +525,25 @@ fn scroll_live(tui: &mut Tui, views: &Views, laid: &Laid, step: Step, more: bool
         return;
     }
     let end = laid.rows[rows] as isize;
+    let at = live_position(tui, views, laid);
     match step {
+        Step::Up if at == Some(0) => {
+            // The held window is the stream's top (`can_move`), so `Up`
+            // asks the absolute end; `settle_end` resolves it.
+            tui.live_offset = usize::MAX;
+            tui.live_line = 0;
+            return;
+        }
+        Step::Down if at == Some(end - 1) => {
+            // The held window is the stream's end (`can_move`), so `Down`
+            // is its top, as the whole read's is.
+            tui.live_offset = 0;
+            tui.live_line = 0;
+            return;
+        }
+        _ => {}
+    }
+    let next = match step {
         Step::Top => {
             tui.live_offset = 0;
             tui.live_line = 0;
@@ -541,31 +558,13 @@ fn scroll_live(tui: &mut Tui, views: &Views, laid: &Laid, step: Step, more: bool
             }
             return;
         }
-        Step::Up if live_position(tui, views, laid) == Some(0) => {
-            // The held window is the stream's top (`can_move`), so `Up`
-            // asks the absolute end; `settle_end` resolves it.
-            tui.live_offset = usize::MAX;
-            tui.live_line = 0;
-            return;
-        }
-        Step::Down if live_position(tui, views, laid) == Some(end - 1) => {
-            // The held window is the stream's end (`can_move`), so `Down`
-            // is its top, as the whole read's is.
-            tui.live_offset = 0;
-            tui.live_line = 0;
-            return;
-        }
-        _ => {}
-    }
-    let Some(at) = live_position(tui, views, laid) else {
-        return;
+        Step::Up => at.map(|at| at - 1),
+        Step::Down => at.map(|at| at + 1),
+        Step::PageUp => at.map(|at| (at - PAGE as isize).max(0)),
+        Step::PageDown => at.map(|at| (at + PAGE as isize).min(end - 1)),
     };
-    let next = match step {
-        Step::Up => at - 1,
-        Step::Down => at + 1,
-        Step::PageUp => (at - PAGE as isize).max(0),
-        Step::PageDown => (at + PAGE as isize).min(end - 1),
-        Step::Top | Step::Bottom => unreachable!(),
+    let Some(next) = next else {
+        return;
     };
     place_live(tui, views, laid, next as usize);
 }

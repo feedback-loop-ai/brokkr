@@ -315,6 +315,9 @@ pub(crate) fn participant_level(tui: &mut Tui, key: &str) {
 }
 
 #[cfg(test)]
+mod coverage_tests;
+
+#[cfg(test)]
 mod held_tests;
 
 #[cfg(test)]

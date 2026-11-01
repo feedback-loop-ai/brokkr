@@ -365,7 +365,7 @@ fn sideways(tui: &mut Tui, views: &Views, direction: Step) {
 /// What movement a key names on a paged checkpoint window, if any. Only a
 /// list that is a page of a longer stream can be moved against a window
 /// the console does not yet hold; every other movement is exact at once.
-fn page_step(tui: &Tui, views: &Views, key: Key) -> Option<Step> {
+pub(super) fn page_step(tui: &Tui, views: &Views, key: Key) -> Option<Step> {
     if !paged_window(tui, views) {
         return None;
     }

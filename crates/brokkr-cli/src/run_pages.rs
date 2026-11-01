@@ -352,40 +352,56 @@ impl Shown {
         let Held::Paged(frame, held) = &self.read else {
             return true;
         };
-        if matches!(asked, Console::Run) {
-            return true;
-        }
-        let Some(view) = frame.view() else {
-            return false;
-        };
         match asked {
             Console::Run => true,
-            Console::Detail => {
-                let rows_held: usize = held.pages.values().map(|page| page.rows.len()).sum();
-                let start = held_start(held);
-                let more = held.pages.values().any(|page| page.next.is_some());
-                let end = start + rows_held;
-                let covers = match rows {
-                    usize::MAX => !more,
-                    rows => end >= rows || !more,
-                };
-                covers && start <= offset
-            }
-            Console::Participant(key) => {
-                let shown = view.participants.iter().any(|part| part.key == *key);
-                if !shown {
-                    return false;
-                }
-                held.get(key).is_some_and(|page| {
-                    let end = match rows {
-                        usize::MAX => page.next.is_none(),
-                        rows => page.seen() >= rows || page.next.is_none(),
-                    };
-                    end && page.start <= offset
-                })
-            }
+            Console::Detail => detail_covers(frame, held, rows, offset),
+            Console::Participant(key) => participant_covers(frame, held, key, rows, offset),
         }
     }
+}
+
+/// Whether a held detail page reaches `rows` from the screen's `offset`:
+/// the frame must compose, and the page's rank must reach the rows the
+/// pane draws and start at or above its first (M3).
+fn detail_covers(frame: &Frame, held: &Checkpoints, rows: usize, offset: usize) -> bool {
+    let Some(_view) = frame.view() else {
+        return false;
+    };
+    let rows_held: usize = held.pages.values().map(|page| page.rows.len()).sum();
+    let start = held_start(held);
+    let more = held.pages.values().any(|page| page.next.is_some());
+    let end = start + rows_held;
+    let covers = match rows {
+        usize::MAX => !more,
+        rows => end >= rows || !more,
+    };
+    covers && start <= offset
+}
+
+/// Whether a held participant page reaches `rows` from the screen's
+/// `offset`, and the frame still paints that participant: a page for a
+/// participant the frame no longer shows covers nothing (ruling 5).
+fn participant_covers(
+    frame: &Frame,
+    held: &Checkpoints,
+    key: &str,
+    rows: usize,
+    offset: usize,
+) -> bool {
+    let Some(view) = frame.view() else {
+        return false;
+    };
+    let shown = view.participants.iter().any(|part| part.key == key);
+    if !shown {
+        return false;
+    }
+    held.get(key).is_some_and(|page| {
+        let end = match rows {
+            usize::MAX => page.next.is_none(),
+            rows => page.seen() >= rows || page.next.is_none(),
+        };
+        end && page.start <= offset
+    })
 }
 
 /// One run in one store, the pair every read of a frame names.
@@ -553,20 +569,13 @@ fn read_at(
     landed: &[EventEnvelope],
 ) -> Result<(Shown, usize), StoreError> {
     let screen = asked.screen();
-    let read = match &screen {
-        // The run level takes ruling 8's whole read where the frame does
-        // not compose: a folded journal can hold a key two participants
-        // make, which the whole view collapses and the composed one
-        // declines (R6).
-        Screen::Run => match Frame::read(reader.store, reader.run, &at)? {
-            Some(frame) if frame.view().is_some() => Some(Held::Paged(frame, Checkpoints::new())),
-            _ => None,
-        },
-        Screen::Detail | Screen::Participant(_) => {
-            paged_at(reader, &at, held, &screen, reading, landed)?
-                .map(|(frame, checkpoints)| Held::Paged(frame, checkpoints))
-        }
-    };
+    // The run level takes ruling 8's whole read where the frame does not
+    // compose: a folded journal can hold a key two participants make,
+    // which the whole view collapses and the composed one declines (R6).
+    // Every screen reads through the one paged reader; its run arm holds
+    // the frame and no checkpoint.
+    let read = paged_at(reader, &at, held, &screen, reading, landed)?
+        .map(|(frame, checkpoints)| Held::Paged(frame, checkpoints));
     let (read, loaded) = match read {
         Some(read) => (read, 0),
         None => whole_read(reader.store, reader.run)?,
@@ -610,14 +619,6 @@ fn paged_at(
     let Some(view) = frame.view() else {
         return Ok(None);
     };
-    if matches!(screen, Screen::Run) {
-        return Ok(Some((frame, Checkpoints::new())));
-    }
-    let keys = match screen {
-        Screen::Detail => live_keys(&view, &frame.state),
-        Screen::Participant(key) => vec![key.clone()],
-        Screen::Run => Vec::new(),
-    };
     let fetch = Fetch {
         store: reader.store,
         run: reader.run,
@@ -631,11 +632,14 @@ fn paged_at(
     let seats: BTreeMap<String, (String, Option<String>)> =
         seat_keys(&frame.seats).into_iter().collect();
     let checkpoints = match screen {
+        // The run level reads the frame and no checkpoint.
+        Screen::Run => return Ok(Some((frame, Checkpoints::new()))),
         // One window cut across every member's stream at one seq boundary,
         // so the merged live column is contiguous (R1). A moved head or a
         // window that dropped its newer prefix is read from the newest
         // page again; a carried read keeps its absolute prefix (F1, F4).
         Screen::Detail => {
+            let keys = live_keys(&view, &frame.state);
             let Some(checkpoints) = detail_checkpoints(&fetch, &keys, &seats, held, offset)? else {
                 return Ok(None);
             };
@@ -647,7 +651,6 @@ fn paged_at(
             };
             checkpoints
         }
-        Screen::Run => Checkpoints::new(),
     };
     Ok(Some((frame, checkpoints)))
 }

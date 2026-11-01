@@ -101,6 +101,29 @@ fn retried() -> Vec<Event> {
     events
 }
 
+/// `retried` opened, then moved past its opening by one checkpoint of
+/// its retry: the head the read no longer stands at.
+fn past_opening(store: &mut Store) -> Opened {
+    let opened = opened(store, retried());
+    let (event_type, payload) = turn("fx", "b", None, 51);
+    store
+        .append_next("r", event_type, payload, None, None)
+        .unwrap();
+    opened
+}
+
+/// The forward page `after` of the run at `opened` once the index row at
+/// `seq` is deleted: the read the index can no longer stand behind.
+fn kept_after_index_delete(dir: &tempfile::TempDir, opened: &Opened, seq: u64) -> SeatRead<u64> {
+    let path = dir.path().join("forge.db");
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    let gone = format!("DELETE FROM event_index WHERE run_id = 'r' AND seq = {seq}");
+    assert_eq!(conn.execute(&gone, []).unwrap(), 1);
+    drop(conn);
+    let store = Store::open_read_only(&path).unwrap();
+    from_page(&store, opened, ("fx", None), Some(64))
+}
+
 /// The seqs of `whole`'s checkpoints `member` recorded, oldest first.
 fn checkpoint_seqs(whole: &[EventEnvelope], member: Option<&str>) -> Vec<u64> {
     let named = whole.iter().filter(|event| {
@@ -264,11 +287,7 @@ fn a_start_the_page_cannot_read_is_refused() {
 #[test]
 fn a_run_past_its_opening_is_said_so() {
     let (_dir, mut store) = store();
-    let opened = opened(&mut store, retried());
-    let (event_type, payload) = turn("fx", "b", None, 51);
-    store
-        .append_next("r", event_type, payload, None, None)
-        .unwrap();
+    let opened = past_opening(&mut store);
     assert_eq!(page(&store, &opened, ("fx", None), None), SeatRead::Kept);
     let reopened = store.open_run("r").unwrap();
     let SeatRead::Current(seqs, _) = page(&store, &reopened, ("fx", None), None) else {
@@ -573,4 +592,113 @@ fn a_forward_page_is_one_read_transaction() {
         Some(true),
         "the row-maker stands in a read transaction"
     );
+}
+
+/// A forward page skips an attempt wholly below its cursor and reads the
+/// one that reaches past it: the streams are filtered above the cursor,
+/// never read below it.
+#[test]
+fn a_forward_page_skips_an_attempt_below_its_cursor() {
+    let (_dir, mut store) = store();
+    let opened = opened(&mut store, retried());
+    assert_eq!(opened.seq, 125);
+    assert_eq!(
+        from_page(&store, &opened, ("fx", None), Some(64)),
+        SeatRead::Current((76..=125).collect(), None),
+        "the retry's own 50 rows, oldest first from its first checkpoint"
+    );
+}
+
+/// A cursor at the stream's newest checkpoint still reads a page: the
+/// streams reach past it, and their rows stand past it, so the page is
+/// empty rather than no page at all.
+#[test]
+fn a_forward_page_after_the_last_row_is_empty() {
+    let (_dir, mut store) = store();
+    let opened = opened(&mut store, retried());
+    assert_eq!(
+        from_page(&store, &opened, ("fx", None), Some(125)),
+        SeatRead::Current(Vec::new(), None)
+    );
+}
+
+/// A member's forward page does not ask the seat's own interleave check:
+/// its stream is already the member's, and a member's page is exact.
+#[test]
+fn a_member_s_forward_page_is_not_interleaved() {
+    let (_dir, mut store) = store();
+    let opened = opened(&mut store, retried());
+    assert_eq!(
+        from_page(&store, &opened, ("fx", Some("m")), None),
+        SeatRead::Current((66..=75).collect(), None)
+    );
+}
+
+/// A run that moved past its opening is read the kept way forward too:
+/// the seat rows and its head no longer stand at the opening (H2).
+#[test]
+fn a_forward_page_past_its_opening_reads_the_kept_way() {
+    let (_dir, mut store) = store();
+    let opened = past_opening(&mut store);
+    assert_eq!(
+        from_page(&store, &opened, ("fx", None), None),
+        SeatRead::Kept
+    );
+}
+
+/// A forward page whose index no longer holds its stream's last row does
+/// not stand for its row: the read takes the kept way, never a short page
+/// (H2, M6).
+#[test]
+fn a_forward_index_missing_its_last_row_reads_the_kept_way() {
+    let (dir, mut store) = store();
+    let opened = opened(&mut store, retried());
+    assert_eq!(opened.seq, 125);
+    drop(store);
+    assert_eq!(kept_after_index_delete(&dir, &opened, 125), SeatRead::Kept);
+}
+
+/// A checkpoint whose attempt never started is not a stream the rows
+/// stand for: the forward read takes the kept way rather than a page
+/// whose start it cannot name.
+#[test]
+fn a_checkpoint_without_its_start_reads_the_kept_way() {
+    let (_dir, mut store) = store();
+    let mut events = vec![asked("fx"), started("fx", "a")];
+    events.extend((1..=10).map(|at| turn("fx", "a", None, at)));
+    events.push(turn("fx", "b", None, 1));
+    let opened = opened(&mut store, events);
+    assert_eq!(
+        from_page(&store, &opened, ("fx", None), None),
+        SeatRead::Kept
+    );
+}
+
+/// A seat row whose digest is not its values does not stand for its
+/// stream: the forward read takes the kept way before it pages (M6).
+#[test]
+fn a_forward_row_whose_digest_is_not_its_reads_the_kept_way() {
+    let (dir, mut store) = store();
+    let opened = opened(&mut store, ten());
+    drop(store);
+    let conn = rusqlite::Connection::open(dir.path().join("forge.db")).unwrap();
+    let corrupt = "UPDATE seat_summary SET digest = 'not its values' WHERE run_id = 'r'";
+    assert!(conn.execute(corrupt, []).unwrap() > 0);
+    drop(conn);
+    let store = Store::open_read_only(&dir.path().join("forge.db")).unwrap();
+    assert_eq!(
+        from_page(&store, &opened, ("fx", None), None),
+        SeatRead::Kept
+    );
+}
+
+/// A forward index missing the stream's first row begins below its row's
+/// first checkpoint: no page of it stands for the row, so the read is the
+/// kept one (H2, M6).
+#[test]
+fn a_forward_index_missing_its_first_row_reads_the_kept_way() {
+    let (dir, mut store) = store();
+    let opened = opened(&mut store, retried());
+    drop(store);
+    assert_eq!(kept_after_index_delete(&dir, &opened, 76), SeatRead::Kept);
 }

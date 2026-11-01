@@ -13,7 +13,9 @@
 
 mod console_end;
 mod display_clamp;
+mod fetch_edges;
 mod held_view;
+mod paged_reads;
 
 use std::path::Path;
 

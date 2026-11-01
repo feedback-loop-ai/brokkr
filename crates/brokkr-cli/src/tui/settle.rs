@@ -129,6 +129,13 @@ fn last_live_line(tui: &Tui, views: &Views) -> usize {
     let Some(laid) = laid_live(tui, views) else {
         return 0;
     };
+    last_line_of(&laid, tui, views)
+}
+
+/// [`last_live_line`] over a laid window: the last drawn line of the row
+/// the cursor is on, none for a screen that is not a stream or a window
+/// with no row.
+pub(super) fn last_line_of(laid: &Laid, tui: &Tui, views: &Views) -> usize {
     if !laid.streamed {
         return 0;
     }
@@ -161,44 +168,41 @@ pub(super) fn paged_window(tui: &Tui, views: &Views) -> bool {
 /// the keys behind it waiting (decision 0071 ruling 5).
 pub(super) fn can_move(tui: &Tui, views: &Views, step: Step) -> bool {
     match tui.level {
-        Level::Runs if paged_window(tui, views) => live_can(tui, views, step),
+        Level::Runs if focused(tui, views) == FleetColumn::Live => match laid_live(tui, views) {
+            Some(laid) if laid.streamed => live_can(tui, views, &laid, step),
+            _ => true,
+        },
+        Level::Runs => true,
         // The participant level moves in the stream's own integer
         // coordinate, so a step is exact even when the pane displays a
         // narrowed page: it never needs the window it has not yet read.
-        _ => true,
+        Level::Run | Level::Participant => true,
     }
 }
 
-pub(super) fn live_can(tui: &Tui, views: &Views, step: Step) -> bool {
-    let Some(laid) = laid_live(tui, views) else {
-        return true;
-    };
-    if !laid.streamed || laid.rows.len() < 2 {
-        return true;
-    }
-    // The top and the end are the stream's, not the held window's: they
-    // need no saved continuation, and a resize that removed one must not
-    // hold `g` or `G` (M3).
-    if matches!(step, Step::Top | Step::Bottom) {
+pub(super) fn live_can(tui: &Tui, views: &Views, laid: &Laid, step: Step) -> bool {
+    if laid.rows.len() < 2 {
         return true;
     }
     let end = laid.rows[laid.rows.len() - 1] as isize;
-    let Some(at) = live_position(tui, views, &laid) else {
-        return false;
-    };
+    // The top and the end are the stream's, not the held window's: they
+    // need no saved continuation, and a resize that removed one must not
+    // hold `g` or `G` (M3). Every other step needs the cursor's place in
+    // the laid window and refuses to move without it.
+    let at = live_position(tui, views, laid);
     match step {
         Step::Top | Step::Bottom => true,
-        Step::Up => at > 0 || views.start == 0,
-        Step::Down => at + 1 < end || !views.more,
-        Step::PageUp => at >= PAGE as isize || views.start == 0,
-        Step::PageDown => at + (PAGE as isize) < end || !views.more,
+        Step::Up => at.is_some_and(|at| at > 0 || views.start == 0),
+        Step::Down => at.is_some_and(|at| at + 1 < end || !views.more),
+        Step::PageUp => at.is_some_and(|at| at >= PAGE as isize || views.start == 0),
+        Step::PageDown => at.is_some_and(|at| at + (PAGE as isize) < end || !views.more),
     }
 }
 
 /// The rank the next read must hold for `step`, asked from the cursor in
 /// the direction the step goes: the window that answers holds the cursor
 /// and the destination, and no drawn line of either is assumed (ruling 5).
-fn ask_want(tui: &Tui, step: Step) -> usize {
+pub(super) fn ask_want(tui: &Tui, step: Step) -> usize {
     let height = usize::from(tui.height);
     match step {
         Step::Up | Step::PageUp => tui.live_offset.saturating_add(1).saturating_sub(height),
@@ -271,7 +275,7 @@ pub(super) fn cancel_end(tui: &mut Tui, origin: HeldOrigin) {
 
 /// Whether the cursor is in the answered window, so the next held key can
 /// be applied against it. A move that leaves it asks the next read.
-fn in_window(tui: &Tui, views: &Views) -> bool {
+pub(super) fn in_window(tui: &Tui, views: &Views) -> bool {
     match tui.level {
         Level::Participant if tui.pane == 0 => seat_of(tui, views).is_none_or(|part| {
             tui.offset >= views.start
@@ -287,7 +291,7 @@ fn in_window(tui: &Tui, views: &Views) -> bool {
 /// count, and the last leaves the queue. The application consumed is the
 /// one an answer just resolved, so the rest of the run no longer carries
 /// its end marker.
-fn consumed(tui: &mut Tui) {
+pub(super) fn consumed(tui: &mut Tui) {
     if let Some(entry) = tui.held.first_mut() {
         entry.count -= 1;
         entry.end = None;
@@ -336,9 +340,10 @@ pub(super) fn flush_held(tui: &mut Tui, views: &Views) {
             // that names the end resolves the step now through the one
             // resolution path, consuming the owner, so the keys behind it
             // keep their order in the same flush.
-            if let Some(head) = tui.held.first_mut() {
-                head.end = Some(origin);
-            }
+            tui.held
+                .first_mut()
+                .expect("the loop's head is still held")
+                .end = Some(origin);
             if views.end.is_none() {
                 tui.want = Some(usize::MAX);
                 return;

@@ -33,6 +33,10 @@ pub(super) struct Fetch<'a> {
 /// One page of checkpoints, oldest first, and its cursor for the next page.
 pub(super) type Fetched = (Vec<(u64, CheckpointRow)>, Option<u64>);
 
+/// Pages after the one crossing the display rank, each with its newer
+/// cursor: the frame's drawable suffix, kept from the scan that read them.
+type EdgePages = Vec<(Vec<(u64, CheckpointRow)>, Option<u64>)>;
+
 /// Keep `item` among the window's last `window` rows, dropping the oldest
 /// as the merge passes it (F4).
 fn bury(buffer: &mut VecDeque<Item>, item: Item, window: usize) {
@@ -191,14 +195,29 @@ impl Fetch<'_> {
         };
         let mut total = rows.len();
         let mut edge = None;
+        // The pages after the edge, kept only within the bound the frame's
+        // drawable suffix names, so the extension below is the same pages
+        // the scan just read rather than a second trip to a head a writer
+        // may have moved (R3).
+        let mut after_edge: EdgePages = Vec::new();
+        let mut after_len = 0usize;
+        let bound = PAGE.saturating_add(self.limit());
         while let Some(after) = next {
             let Some((below, newer)) = self.read_after(seat, Some(after))? else {
                 return Ok(None);
             };
             let start = total;
             total += below.len();
-            if start <= DISPLAY_RANK && DISPLAY_RANK < total {
-                edge = Some((below.clone(), start, newer));
+            if edge.is_none() {
+                // Before the edge, every page starts at or below the
+                // display rank: the pages are contiguous and each counts
+                // its checkpoints, so `total` crosses it exactly once.
+                if DISPLAY_RANK < total {
+                    edge = Some((below.clone(), start, newer));
+                }
+            } else if after_len < bound {
+                after_len = after_len.saturating_add(below.len());
+                after_edge.push((below.clone(), newer));
             }
             rows = below;
             next = newer;
@@ -208,12 +227,10 @@ impl Fetch<'_> {
                 let start = total.saturating_sub(rows.len());
                 (rows, start, None)
             }
-            false => {
-                let Some((rows, start, newer)) = edge else {
-                    return Ok(None);
-                };
-                (rows, start, newer)
-            }
+            // The pages are contiguous and each counts its checkpoints,
+            // so a total past the display rank can only have a page that
+            // crosses it: the edge above is some.
+            false => edge.expect("a page crosses the display rank"),
         };
         // The pane paints from the narrowed rank at the column's width, so
         // the page must hold the rows below it that the frame draws. The
@@ -221,15 +238,8 @@ impl Fetch<'_> {
         // million rows still holds one page and the rows it paints (R3).
         let shown = total.saturating_sub(1).min(DISPLAY_RANK);
         let wanted = shown.saturating_sub(start).saturating_add(self.limit());
-        while rows.len() < wanted {
-            let Some(after) = next else {
-                break;
-            };
-            let Some((more, newer)) = self.read_after(seat, Some(after))? else {
-                return Ok(None);
-            };
-            if more.is_empty() {
-                next = None;
+        for (more, newer) in after_edge {
+            if rows.len() >= wanted {
                 break;
             }
             rows.extend(more);
@@ -365,9 +375,9 @@ impl Fetch<'_> {
             if !more {
                 break;
             }
-            let Some(pick) = Self::next_stream(streams) else {
-                break;
-            };
+            // A ready top-up names a stream: it is true only where one has
+            // an unread row, which `next_stream` finds.
+            let pick = Self::next_stream(streams).expect("a ready merge names a stream");
             let stream = &mut streams[pick];
             stream.at -= 1;
             stream.pulled += 1;
@@ -513,10 +523,8 @@ impl Fetch<'_> {
             let Some((rows, newer)) = self.read_after(seat, Some(after))? else {
                 return Ok(None);
             };
-            if rows.is_empty() {
-                page.next = None;
-                break;
-            }
+            // A page with no rows is the stream's end: the store hands no
+            // newer cursor with it, so the next turn of the loop stops.
             page.rows.extend(rows);
             page.next = newer;
             if end.is_some() {

@@ -427,3 +427,43 @@ fn a_read_that_panics_unwinds_the_shell_with_its_own_words() {
         Some(&"the journal reader broke")
     );
 }
+
+/// A read's answer is graded against the whole ask: a switch between the
+/// RUN level and the detail's is the shell leaving the screen the read was
+/// made for, so its frame is dropped and the new screen's is shown (#744).
+#[test]
+fn a_run_level_switch_drops_the_answer_for_the_old_screen() {
+    let asked: Arc<Mutex<Vec<bool>>> = Arc::new(Mutex::new(Vec::new()));
+    let (_, gate) = channel::<()>();
+    let source = {
+        let asked = Arc::clone(&asked);
+        move |ask: Ask| -> Result<Refreshed> {
+            let level = ask.run_level;
+            asked.lock().unwrap().push(level);
+            let _ = gate.recv();
+            Ok(Some(Views {
+                note: Some(if level { "run level" } else { "detail" }.to_string()),
+                ..Views::empty()
+            }))
+        }
+    };
+    let before = || {
+        let mut ask = asking(0, Some("a"), None, false, false);
+        ask.run_level = false;
+        ask
+    };
+    let after = || {
+        let mut ask = asking(0, Some("a"), None, false, false);
+        ask.run_level = true;
+        ask
+    };
+    let shown = behind(source, |source| {
+        assert!(pending(source(before())), "the detail read is sent");
+        arrived(source, &after)
+    });
+    assert_eq!(
+        shown.note.as_deref(),
+        Some("run level"),
+        "only the run level's frame is shown"
+    );
+}

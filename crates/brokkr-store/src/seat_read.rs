@@ -314,11 +314,12 @@ impl Store {
             after => after.saturating_add(1),
         };
         found.truncate(CHECKPOINT_PAGE);
-        if seat.1.is_none() && low != 0 {
-            if let Some(high) = reach {
-                if self.interleaved(run_id, &streams, Some(high.saturating_add(1)), low)? {
-                    return Ok(SeatRead::Kept);
-                }
+        if seat.1.is_none() {
+            // A kept page is nonempty: `found_after` refuses an empty one,
+            // so its reach is some.
+            let high = reach.expect("a kept page has a row");
+            if self.interleaved(run_id, &streams, Some(high.saturating_add(1)), low)? {
+                return Ok(SeatRead::Kept);
             }
         }
         let Some(since) = self.since(run_id, opened, seat.0, &streams, &found)? else {
@@ -522,9 +523,8 @@ impl Store {
     ) -> Result<Option<Vec<Found>>, StoreError> {
         let mut found: Vec<Found> = Vec::new();
         for (at, stream) in streams.iter().enumerate() {
-            if stream.last <= after {
-                continue;
-            }
+            // Every stream `streams_after` kept has a checkpoint above
+            // `after`, so no stream here is wholly below the cursor.
             let low = stream.first.max(after.saturating_add(1));
             let Some(seqs) = self.streamed_after(run_id, member, stream, low)? else {
                 return Ok(None);
