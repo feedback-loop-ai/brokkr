@@ -712,6 +712,7 @@ fn a_path_sqlite_cannot_name_is_refused_by_name() {
         panic!("a path SQLite cannot name is refused by name: {refused:?}");
     };
     assert_eq!(found, to);
+    assert_absent(&to);
 }
 
 #[test]

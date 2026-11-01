@@ -293,13 +293,7 @@ fn backup_through(
     options: BackupOptions<'_>,
     publish: &mut dyn FnMut(&Path, &Path) -> std::io::Result<()>,
 ) -> Result<Backup, BackupError> {
-    let to = options.to;
-    // SQLite names a file by UTF-8 text alone, so a destination it cannot
-    // name is refused before anything is created. Asked later, macOS's
-    // filesystem refuses such a directory first, as a bare I/O error.
-    if to.to_str().is_none() {
-        return Err(BackupError::UnnameablePath(to.to_path_buf()));
-    }
+    let to = &literal::nameable(options.to)?;
     prepare_directory(to)?;
     let scratch = Scratch::in_directory(to);
     let temporary = vacuum_into(store, &scratch)?;
@@ -354,6 +348,7 @@ fn restore_through(
     to: &Path,
     publish: &mut dyn FnMut(&Path, &Path) -> std::io::Result<()>,
 ) -> Result<Restored, BackupError> {
+    let (from, to) = (&literal::literal(from)?, &literal::literal(to)?);
     refuse_existing(to)?;
     let inventory = read_inventory(from)?;
     let source = from.join(SNAPSHOT_FILE);
@@ -604,6 +599,8 @@ fn schemas_of(store: &Store, projection: u32) -> Result<Schemas, BackupError> {
 /// attempt left behind fails as a refusal, never as a second snapshot.
 fn vacuum_into(store: &Store, scratch: &Scratch) -> Result<PathBuf, BackupError> {
     let temporary = scratch.path("snapshot.db");
+    // `literal::nameable` refused any other destination first; bound by
+    // a_path_sqlite_cannot_name_is_refused_by_name.
     let named = temporary
         .to_str()
         .expect("a destination SQLite can name, joined with an ASCII file name");
@@ -794,6 +791,7 @@ impl Drop for Temp {
 }
 
 mod consistency;
+mod literal;
 
 #[cfg(test)]
 mod tests;
