@@ -107,6 +107,11 @@ printf 'end %s\n' "$*" >> "$dir/events"
 exit "$status"
 "#;
 
+/// A stand-in for `uname`: the host system `STUB_UNAME` names, Linux unless
+/// it names another, so a run reads the same on every host these tests run
+/// on.
+const UNAME: &str = "#!/usr/bin/env bash\nprintf '%s\\n' \"${STUB_UNAME:-Linux}\"\n";
+
 /// A scratch directory with the stub as `cargo` in its `bin/`, `metadata`
 /// as the stub's answer and `script` as the shard script.
 struct Scratch {
@@ -119,9 +124,11 @@ impl Scratch {
         for sub in ["bin", "tmp"] {
             std::fs::create_dir(dir.path().join(sub)).expect("scratch directory");
         }
-        let cargo = dir.path().join("bin/cargo");
-        std::fs::write(&cargo, STUB).expect("stub cargo");
-        std::fs::set_permissions(&cargo, std::fs::Permissions::from_mode(0o755)).expect("mode");
+        for (name, stub) in [("cargo", STUB), ("uname", UNAME)] {
+            let path = dir.path().join("bin").join(name);
+            std::fs::write(&path, stub).expect("stub");
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("mode");
+        }
         let metadata = serde_json::to_string(metadata).expect("metadata serializes");
         std::fs::write(dir.path().join("metadata.json"), metadata).expect("metadata");
         std::fs::write(dir.path().join("test-shards.sh"), script).expect("script");
@@ -234,6 +241,10 @@ const SHARDS: [&str; 8] = [
 
 /// Where [`NAMES`] holds the doctests, which the coverage mode never runs.
 const DOCTESTS: usize = 5;
+
+/// Where [`NAMES`] holds the broker's enabled suite, which only Linux
+/// compiles, so a macOS host never runs it.
+const LINUX_ONLY: usize = 6;
 
 /// The real tree's shards are its whole suite, each target once: the
 /// plan passes the partition check in both modes and prints each shard's
@@ -959,7 +970,7 @@ const MACHINES: [(&str, &[usize]); 7] = [
     ("linux/3", &[4]),
     ("linux/4", &[6]),
     ("linux/5", &[7]),
-    ("macos/1", &[0, 1, 2, 5, 6, 7]),
+    ("macos/1", &[0, 1, 2, 5, 7]),
     ("macos/2", &[3, 4]),
 ];
 
@@ -999,17 +1010,17 @@ fn a_machine_runs_only_its_shards_one_after_another_in_plan_order() {
             "{stdout}"
         );
     }
-    for system in ["linux", "macos"] {
+    for (system, never) in [("linux", None), ("macos", Some(LINUX_ONLY))] {
         let mut placed: Vec<usize> = MACHINES
             .iter()
             .filter(|(machine, _)| machine.starts_with(system))
             .flat_map(|(_, indices)| indices.iter().copied())
             .collect();
         placed.sort_unstable();
+        let compiled: Vec<usize> = (0..NAMES.len()).filter(|&at| Some(at) != never).collect();
         assert_eq!(
-            placed,
-            (0..NAMES.len()).collect::<Vec<_>>(),
-            "{system} runs every shard once"
+            placed, compiled,
+            "{system} runs every shard it compiles once"
         );
     }
 }
@@ -1127,4 +1138,29 @@ fn the_test_jobs_machines_are_the_layouts() {
         })
         .collect();
     assert_eq!(listed, laid_out);
+}
+
+/// A run on a macOS host, naming no machine, runs every shard but the one
+/// macOS never compiles, which its layout marks `-`; a Linux host runs them
+/// all.
+#[test]
+fn a_host_runs_every_shard_its_system_compiles() {
+    let real = metadata();
+    for (host, shards) in [
+        ("Linux", SHARDS.to_vec()),
+        (
+            "Darwin",
+            SHARDS
+                .iter()
+                .enumerate()
+                .filter(|&(at, _)| at != LINUX_ONLY)
+                .map(|(_, shard)| *shard)
+                .collect(),
+        ),
+    ] {
+        let scratch = Scratch::new(&real, &script());
+        let run = scratch.run(&["test"], &[("STUB_UNAME", host)]);
+        assert_eq!(run.status.code(), Some(0), "{host}: {run:?}");
+        assert_eq!(scratch.events(), one_after_another(TEST, &shards), "{host}");
+    }
 }

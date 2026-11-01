@@ -70,7 +70,9 @@ usage() {
 # Hosted runners took about 11, 3, 1, 4, 13, 0 and 20 minutes (the
 # broker's two together) for them on Linux, half as long again under
 # coverage, and 9, 8, 3, 19 (the two heap shards together), 0 and 0 on
-# macOS, where the broker's boundary proofs skip (2026-11-01).
+# macOS, where the broker's boundary proofs skip (2026-11-01). The broker's
+# enabled suite is Linux's alone (`#![cfg(target_os = "linux")]`), so macOS
+# never runs its shard, whose filter would match nothing there.
 shard_name=()
 shard_linux=()
 shard_macos=()
@@ -90,7 +92,7 @@ shard 'the other own-process binaries' 2 2 bin:brokkr test:driver_conformance te
   test:seatbelt_lifetime_probe test:summary_heap test:heap_open test:heap_costs
 shard 'the fleet, run and seat heap views' 3 2 test:heap_fleet test:heap_run_view test:heap_seat_view
 shard 'the doctests' 2 1 doc
-shard "capability_broker's enabled suite, alone" 4 1 test:it only:capability_broker::enabled::
+shard "capability_broker's enabled suite, alone" 4 - test:it only:capability_broker::enabled::
 shard "capability_broker, its enabled suite skipped, alone" 5 1 test:it only:capability_broker:: skip:capability_broker::enabled::
 
 # The machine this run is, read once and unset (above).
@@ -147,14 +149,15 @@ machine_of() {
   esac
 }
 # Each system's layout over the shards this mode plans: every machine is a
-# number from 1, and the machines run from 1 with none left empty, so a
-# machine the test job lists runs something and no shard waits on a machine
-# no job is.
+# number from 1, or `-` for a shard whose tests that system never compiles,
+# and the machines run from 1 with none left empty, so a machine the test
+# job lists runs something and no shard waits on a machine no job is.
 for system in linux macos; do
   highest=0
   used=' '
   for index in "${planned[@]}"; do
     number="$(machine_of "$system" "$index")"
+    if [ "$number" = - ]; then continue; fi
     [[ "$number" =~ ^[1-9][0-9]?$ ]] ||
       refuse "${shard_name[$index]} names the $system machine '$number', which is not a number from 1"
     used+="$number "
@@ -164,12 +167,21 @@ for system in linux macos; do
     [[ "$used" == *" $number "* ]] || refuse "the $system layout leaves machine $number with no shard"
   done
 done
-# The shards this run runs: the named machine's, or every planned one. The
-# report's build is every machine's, so it names none.
+# The shards this run runs: the named machine's, or every planned one this
+# host's system compiles. The report's build is every machine's, so it
+# names none.
 if [ "$mode" = coverage-build ] && [ -n "$machine" ]; then
   refuse "coverage-build builds for the gate's report, and BROKKR_TEST_MACHINE names $machine"
 fi
-running=("${planned[@]}")
+case "$(uname -s)" in
+  Linux) host=linux ;;
+  Darwin) host=macos ;;
+  *) host='' ;;
+esac
+running=()
+for index in "${planned[@]}"; do
+  if [ -z "$host" ] || [ "$(machine_of "$host" "$index")" != - ]; then running+=("$index"); fi
+done
 if [ -n "$machine" ]; then
   [[ "$machine" =~ ^(linux|macos)/([1-9][0-9]?)$ ]] ||
     refuse "BROKKR_TEST_MACHINE '$machine' is not linux/<n> or macos/<n>"
