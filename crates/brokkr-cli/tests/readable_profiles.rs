@@ -63,7 +63,7 @@ impl Scratch {
 }
 
 /// The names in `dir`, sorted, or none when it is not there.
-fn names(dir: &Path) -> Vec<String> {
+pub(crate) fn names(dir: &Path) -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(dir)
         .map(|entries| {
             entries
@@ -81,7 +81,8 @@ fn names(dir: &Path) -> Vec<String> {
     names
 }
 
-fn stderr(output: &Output) -> String {
+/// What a script printed to stderr.
+pub(crate) fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
@@ -166,26 +167,37 @@ fn a_run_with_no_readable_profile_or_none_at_all_is_refused() {
     }
 }
 
-/// The gate reads its profiles after every shard has run and before its
-/// first report, and the list of what it left out lands in the evidence the
-/// coverage job uploads.
+/// The gate reads its profiles after the shards and before its first
+/// report, through one function, and the list of what it left out lands in
+/// the evidence the coverage job uploads.
 #[test]
 fn the_exact_gate_reads_each_profile_between_the_shards_and_the_report() {
-    let gate = std::fs::read_to_string(workspace().join("scripts/coverage-exact.sh"))
-        .expect("the exact gate");
-    let at = |what: &str| {
-        gate.find(what)
-            .unwrap_or_else(|| panic!("coverage-exact.sh has no {what:?}"))
-    };
-    let shards = at("bash scripts/test-shards.sh coverage");
-    let read = at("bash scripts/readable-profiles.sh");
+    let gate = exact_gate();
+    let at = |what: &str| first(&gate, what);
+    let defined = at("read_profiles() {");
+    let script = at("bash scripts/readable-profiles.sh");
+    let shards = at(r#"bash scripts/test-shards.sh coverage "$nightly""#);
     let report = at("llvm-cov report");
+    assert!(defined < script && script < shards && shards < report);
+    let called: Vec<&str> = gate[shards..report]
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("read_profiles "))
+        .collect();
+    assert!(!called.is_empty(), "the gate never reads its profiles");
     assert!(
-        shards < read && read < report,
-        "shards, then the read, then the report"
+        called.contains(&"read_profiles target/coverage/unreadable-profiles.txt"),
+        "the list of profiles left out is in the uploaded evidence: {called:?}"
     );
-    assert!(
-        gate[read..report].contains("target/coverage/unreadable-profiles.txt"),
-        "the list of profiles left out is in the uploaded evidence"
-    );
+}
+
+/// `scripts/coverage-exact.sh`, whose order these tests read.
+pub(crate) fn exact_gate() -> String {
+    std::fs::read_to_string(workspace().join("scripts/coverage-exact.sh")).expect("the exact gate")
+}
+
+/// Where `what` first stands in the exact gate's text.
+pub(crate) fn first(gate: &str, what: &str) -> usize {
+    gate.find(what)
+        .unwrap_or_else(|| panic!("coverage-exact.sh has no {what:?}"))
 }

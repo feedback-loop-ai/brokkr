@@ -19,6 +19,23 @@ elif [[ "$#" -ne 0 ]]; then
   refuse 'usage: scripts/coverage-exact.sh [--parallel-heaps]'
 fi
 
+# The machines the coverage job spreads the shards over (operator ruling
+# 2026-11-01), as scripts/test-shards.sh lays them out. A run whose
+# BROKKR_TEST_MACHINE names a machine measures that machine's shards, writes
+# its merged profile and a manifest naming the machine and the candidate to
+# BROKKR_COVERAGE_PROFILES, and stops: the report is another run's. A run
+# with BROKKR_COVERAGE_PROFILES alone is that report: it builds the same
+# instrumented binaries, runs no shard, and merges every machine's profile
+# from that directory, refusing one that is not this candidate's, a machine
+# measured twice and a machine missing. With neither, one run measures
+# every shard and reports, as a local run does. Every check below runs in
+# all three.
+machine="${BROKKR_TEST_MACHINE:-}"
+profiles_dir="${BROKKR_COVERAGE_PROFILES:-}"
+if [[ -n "$machine" && -z "$profiles_dir" ]]; then
+  refuse "BROKKR_TEST_MACHINE names $machine, and BROKKR_COVERAGE_PROFILES names nowhere for its profile"
+fi
+
 for tool in jq perl; do
   command -v "$tool" >/dev/null 2>&1 || refuse "$tool is required for exact integer verification"
 done
@@ -224,6 +241,14 @@ key_shape='^nightly-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9a-f]{16}-[0-9a-f]{16}$'
 targets="$(jq -c '(.workspace_root + "/") as $root
   | [.packages[] | {name, targets: [.targets[] | {name, kind, path: (.src_path | ltrimstr($root))}]}]' <<<"$metadata")"
 key="$nightly-$(sha256 < Cargo.lock)-$(printf '%s' "$targets" | sha256)"
+# What a machine's profile is bound to: the checked-out source tree, which
+# must be the commit's alone, and the cache key, which names the pinned
+# nightly, the lockfile and the workspace's target set.
+if [[ -n "$profiles_dir" ]]; then
+  [[ -z "$(git status --porcelain --untracked-files=no)" ]] ||
+    refuse 'a split run measures a commit, and this checkout has changes the commit does not'
+  candidate="$(git rev-parse 'HEAD^{tree}')-$key"
+fi
 [[ "$key" =~ $key_shape ]] || refuse "the cache key '$key' does not have the key's shape"
 mkdir -p "$cache_dir"
 
@@ -410,24 +435,66 @@ merged_only_this_run() {
   fi
 }
 
-# The instrumented suite runs as the test jobs' does (#633): each test
-# target exactly once, one shard after another, capability_broker last,
-# every profile into this one target. The report then merges them all, so
-# every check below reads the union, as it read the one run before.
-bash scripts/test-shards.sh coverage "$nightly" ${heap_args[@]+"${heap_args[@]}"} 9>&-
+host="$(rustc "+$nightly" -vV | sed -n 's/^host: //p')"
+profdata="$(rustc "+$nightly" --print sysroot)/lib/rustlib/$host/bin/llvm-profdata"
 # A profile its process died writing fails the whole merge, so each is read
 # on its own first, and one no reader can parse is left out and named, in
 # the evidence too (operator ruling 2026-11-01). Leaving one out can only
 # lower what the report counts, so the gate below still refuses a miss.
-host="$(rustc "+$nightly" -vV | sed -n 's/^host: //p')"
-bash scripts/readable-profiles.sh \
-  "$(rustc "+$nightly" --print sysroot)/lib/rustlib/$host/bin/llvm-profdata" \
-  "$CARGO_LLVM_COV_TARGET_DIR" "$run_name" "$forge_coverage_dir/unreadable" \
-  target/coverage/unreadable-profiles.txt
+read_profiles() {
+  bash scripts/readable-profiles.sh "$profdata" "$CARGO_LLVM_COV_TARGET_DIR" "$run_name" \
+    "$forge_coverage_dir/unreadable" "$1"
+}
+
+if [[ -z "$profiles_dir" || -n "$machine" ]]; then
+  # The instrumented suite runs as the test jobs' does (#633): each test
+  # target exactly once, one shard after another, every profile into this
+  # one target, on one machine or on all. The report then merges them all,
+  # so every check below reads the union, as it read the one run before.
+  bash scripts/test-shards.sh coverage "$nightly" ${heap_args[@]+"${heap_args[@]}"} 9>&-
+else
+  # The report runs no shard: the shard script's own build step builds the
+  # binaries every machine measured, with nothing run but libtest's list.
+  bash scripts/test-shards.sh coverage-build "$nightly" 9>&-
+fi
+
+if [[ -n "$machine" ]]; then
+  # A machine hands the report its profiles merged, and its evidence.
+  read_profiles "$profiles_dir/unreadable-profiles.txt"
+  bash scripts/machine-profiles.sh write "$profdata" "$CARGO_LLVM_COV_TARGET_DIR" "$run_name" \
+    "$machine" "$candidate" "$profiles_dir"
+  exit 0
+fi
+
+if [[ -n "$profiles_dir" ]]; then
+  # Every Linux machine of the layout, each exactly once, each this
+  # candidate's, joins this run's profiles; their evidence comes first.
+  laid_out=()
+  while IFS= read -r laid; do laid_out+=("$laid"); done < <(
+    bash scripts/test-shards.sh machines coverage | sed -n 's|^\(linux/[0-9][0-9]*\): .*|\1|p'
+  )
+  [[ "${#laid_out[@]}" -gt 0 ]] || refuse 'the shard script lays out no Linux machine to merge'
+  bash scripts/machine-profiles.sh read "$profiles_dir" "$candidate" "$CARGO_LLVM_COV_TARGET_DIR" \
+    "$run_name" target/coverage/unreadable-profiles.txt "${laid_out[@]}"
+  read_profiles "$forge_coverage_dir/report-unreadable.txt"
+  cat "$forge_coverage_dir/report-unreadable.txt" >>target/coverage/unreadable-profiles.txt
+else
+  read_profiles target/coverage/unreadable-profiles.txt
+fi
+
 rm -f "$profile_list"
-cargo "+$nightly" llvm-cov report "${report_flags[@]}" --branch --json \
-  --output-path "$forge_coverage_dir/coverage.json" 9>&-
+if ! cargo "+$nightly" llvm-cov report "${report_flags[@]}" --branch --json \
+  --output-path "$forge_coverage_dir/coverage.json" 9>&- 2>"$forge_coverage_dir/report.err"; then
+  cat "$forge_coverage_dir/report.err" >&2
+  refuse 'cargo-llvm-cov could not write the report'
+fi
+cat "$forge_coverage_dir/report.err" >&2
 merged_only_this_run
+# A profile measured on a build other than this one reads as mismatched,
+# and its regions as missed: the build is refused by name, not as a miss.
+if grep -q 'mismatched data' "$forge_coverage_dir/report.err"; then
+  refuse 'a profile was measured on another build than the one the report reads'
+fi
 
 # Preserve the complete report before evaluating the threshold. A red exact
 # gate must still leave operators enough evidence to see and burn down every

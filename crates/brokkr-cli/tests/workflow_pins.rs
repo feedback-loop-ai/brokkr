@@ -1335,7 +1335,7 @@ fn bubblewrap_is_built_once_from_a_tarball_verified_by_digest() {
 
 /// A system set prepared in the background is protected only once
 /// scripts/test-shards.sh has waited on it (#647), so only the two jobs
-/// whose next step runs the shards, `engine-machines` and `coverage`, which
+/// whose next step runs the shards, `engine-machines` and `coverage-machines`, which
 /// contributing.rs holds line for line, prepare it so; a job that runs
 /// anything else protects its set in the foreground.
 #[test]
@@ -1589,6 +1589,7 @@ fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
             "engine-machines",
             "engine",
             "seatbelt-lifetime",
+            "coverage-machines",
             "coverage",
             "license-compliance",
             "lint-non-rust",

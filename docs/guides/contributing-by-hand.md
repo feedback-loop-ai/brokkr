@@ -359,6 +359,19 @@ counts regions a skipped boundary proof never enters, so set it as the
 suite above does. This one has its own section:
 [the coverage gate, practically](#the-coverage-gate-practically).
 
+CI measures on the suite's Linux machines (operator ruling 2026-11-01).
+Each `coverage-machines` runner measures its machine's shards, merges its
+profiles into one and hands it on with a manifest naming the machine and
+the candidate: the checked-out tree and the cache key. The gate's own job
+then builds the same instrumented binaries, runs no shard, and merges every
+machine's profile before any check reads them, through
+`scripts/machine-profiles.sh`. A machine missing or measured twice, one the
+layout does not name and one that measured another candidate are refused,
+and so is a profile measured on another build, which would otherwise read
+as a miss. The gate runs whatever the machines ended with and refuses
+unless each passed. A local run, naming no machine, measures every shard
+and reports in one.
+
 One operational note before you run it. The script builds a second,
 instrumented copy of the workspace, and a checked copy of its production
 targets, and keeps both warm between runs in a directory it owns:

@@ -63,6 +63,7 @@ mod init_doctor;
 mod init_stacks;
 #[path = "layering/main.rs"]
 mod layering;
+mod machine_profiles;
 mod machine_proof;
 mod muninn;
 mod mutants_gate;
