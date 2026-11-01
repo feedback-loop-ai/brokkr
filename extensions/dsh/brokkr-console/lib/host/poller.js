@@ -14,7 +14,7 @@
 import { realpath } from 'node:fs/promises'
 import { isAbsolute, resolve } from 'node:path'
 
-import { ONE_HEARTH, REALM_BOUND, ReadoutRefused } from './readouts.js'
+import { ONE_HEARTH, isHearthLabel, namesOfHearth, ReadoutRefused } from './readouts.js'
 
 const VIEWS = ['none', 'realms', 'realm', 'analytics']
 
@@ -54,7 +54,7 @@ function watchOf(message) {
   if (!VIEWS.includes(message.view)) return null
   const run = message.run
   const named = message.realm
-  const realm = typeof named === 'string' && named.length <= REALM_BOUND ? named : typeof run?.realm === 'string' ? run.realm : null
+  const realm = isHearthLabel(named) ? named : typeof run?.realm === 'string' ? run.realm : null
   if (run === null || run === undefined) return { view: message.view, run: null, realm }
   if (typeof run.realm !== 'string' || typeof run.run_id !== 'string') return null
   return { view: message.view, run: { realm: run.realm, run_id: run.run_id }, realm }
@@ -63,7 +63,7 @@ function watchOf(message) {
 /** A client asking for one hearth's next page, checked; `null` for one the host does not read. */
 function moreOf(message) {
   if (message === null || typeof message !== 'object' || message.type !== 'more') return null
-  return typeof message.realm === 'string' && message.realm.length <= REALM_BOUND ? { realm: message.realm } : null
+  return isHearthLabel(message.realm) ? { realm: message.realm } : null
 }
 
 /**
@@ -107,9 +107,6 @@ async function hearthsOf(brokkr, workspace) {
   return [...byJournal.values()].map(({ journal, names }) => ({ realm: names.join('+'), journal, names }))
 }
 
-/** The realm names a hearth's joined label covers: Brokkr's names hold no `+`. */
-const realmNamesOf = (realm) => realm.split('+')
-
 /**
  * Whether a world re-read after a read still names the journal that read
  * used under every realm name the read covered. A joined hearth publishes
@@ -137,7 +134,7 @@ async function stillNamed(brokkr, workspace, journal, realm, seen = null) {
   try {
     const hearths = await hearthsOf(brokkr, workspace)
     if (seen !== null) seen.map = hearths
-    return namedBy(hearths, journal, realmNamesOf(realm))
+    return namedBy(hearths, journal, namesOfHearth(realm))
   } catch {
     return false
   }
@@ -155,7 +152,7 @@ async function stillNamed(brokkr, workspace, journal, realm, seen = null) {
  */
 function publishable(seen, fleet, targets = []) {
   if (seen.map === undefined) return seen.superseded === true
-  const named = (journal, realm) => namedBy(seen.map, journal, realmNamesOf(realm))
+  const named = (journal, realm) => namedBy(seen.map, journal, namesOfHearth(realm))
   if (!(fleet?.hearths ?? []).every((hearth) => named(hearth.journal, hearth.realm))) return false
   return targets.every((target) => target === null || named(target.journal, target.realm))
 }

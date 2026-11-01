@@ -713,15 +713,7 @@ fn read_surfaces_one_run_row_equals_its_paged_row_and_an_unknown_id_refuses_by_n
 /// no other run beside it.
 #[test]
 fn one_run_read_refuses_a_many_hearth_world_and_prints_its_row_as_text() {
-    let ws = Workspace::new(Some(json!({
-        "schema": "forge.realms/v2",
-        "realms": [
-            {"name": "alpha", "path": ".", "default_branch": "main"},
-            {"name": "beta", "path": ".", "default_branch": "main",
-             "journal": "state/beta.db"},
-        ],
-        "journal": "state/world.db",
-    })));
+    let ws = Workspace::new(Some(two_hearth_map()));
     let world = ws.path().join("state/world.db");
     journal_run(&world, "solo-run", false);
     journal_run(&world, "other-run", false);
@@ -757,15 +749,7 @@ fn one_run_read_refuses_a_many_hearth_world_and_prints_its_row_as_text() {
 /// listing collapsed the whole hearth to a detail line.
 #[test]
 fn one_broken_chain_is_one_quarantined_row_in_every_runs_listing() {
-    let ws = Workspace::new(Some(json!({
-        "schema": "forge.realms/v2",
-        "realms": [
-            {"name": "alpha", "path": ".", "default_branch": "main"},
-            {"name": "beta", "path": ".", "default_branch": "main",
-             "journal": "state/beta.db"},
-        ],
-        "journal": "state/world.db",
-    })));
+    let ws = Workspace::new(Some(two_hearth_map()));
     let world = ws.path().join("state/world.db");
     journal_run(&world, "healthy", false);
     journal_run(&world, "broken", true);
@@ -1521,4 +1505,17 @@ fn the_repository_carries_the_bootstrap_map() {
     let world = brokkr_runtime::World::load(&dir.path().join("realms.json")).unwrap();
     assert_eq!(world.journal(), dir.path().join(".forge/forge.db"));
     assert_eq!(world.realm_for(dir.path()).unwrap().name, "brokkr");
+}
+
+/// A world of two hearths, `alpha` on the world's journal and `beta` on its
+/// own: the shape a `--run` must refuse to page, because it names two.
+fn two_hearth_map() -> Value {
+    let mut map = map_over(".");
+    map["schema"] = json!("forge.realms/v2");
+    map["realms"] = json!([
+        {"name": "alpha", "path": ".", "default_branch": "main"},
+        {"name": "beta", "path": ".", "default_branch": "main",
+         "journal": "state/beta.db"},
+    ]);
+    map
 }

@@ -51,12 +51,15 @@ test('with no turns, Brokkr’s word for why is kept and nothing is invented', (
  * watching peer, as the page's socket reads it before the page asks for a
  * transcript. Polling is set far off so the listing is read exactly once.
  */
-async function hosted(rules) {
-  // A coherent one-realm map: the listing's journal is the one `realms`
-  // names, so the snapshot's gate can label the fleet it paints.
+async function hosted(rules, world = {}) {
+  // A coherent map: the listing's journal is the one `realms` names, so the
+  // snapshot's gate can label the fleet it paints.
+  const names = world.names ?? ['brokkr']
+  const journalOf = world.journalOf ?? ((name) => `/hearths/${name}/forge.db`)
+  const fleet = world.fleet ?? fleetDoc([['brokkr', [row()]]])
   const brokkr = stubBrokkr([
-    { match: ['realms'], responses: [json(realmsDoc(['brokkr']))] },
-    { match: ['runs'], responses: [json(fleetDoc([['brokkr', [row()]]]))] },
+    { match: ['realms'], responses: [json(realmsDoc(names, journalOf))] },
+    { match: ['runs'], responses: [json(fleet)] },
     ...rules,
   ])
   const host = stubHost()
@@ -106,6 +109,23 @@ test('a transcript is read against the listing’s journal, each value a flag, a
   const answer = await ask({ realm: 'brokkr', run: RUN, seat: SEAT })
   assert.deepEqual([answer.status, JSON.parse(answer.body)], [200, transcriptOf(doc())])
   assert.deepEqual(calls(), ['realms --json', 'runs --json --db=/hearths/brokkr/forge.db --limit=100', 'realms --json', `transcript --run=${RUN} --db=/hearths/brokkr/forge.db --seat=${SEAT} --json`])
+})
+
+test('a joined hearth label the host publishes is a realm the transcript may name', async () => {
+  const names = ['a'.repeat(128), 'b'.repeat(128)]
+  const label = names.join('+')
+  const { ask, calls } = await hosted(
+    [{ match: ['transcript'], responses: [json(doc())] }],
+    { names, journalOf: () => '/hearths/shared.db', fleet: fleetDoc([['alpha', [row()]]]) },
+  )
+  const answer = await ask({ realm: label, run: RUN, seat: SEAT })
+  assert.deepEqual([answer.status, JSON.parse(answer.body)], [200, transcriptOf(doc())])
+  assert.deepEqual(calls(), [
+    'realms --json',
+    'runs --json --db=/hearths/shared.db --limit=100',
+    'realms --json',
+    `transcript --run=${RUN} --db=/hearths/shared.db --seat=${SEAT} --json`,
+  ])
 })
 
 test('a readout Brokkr refuses reaches the page as its own words', async () => {

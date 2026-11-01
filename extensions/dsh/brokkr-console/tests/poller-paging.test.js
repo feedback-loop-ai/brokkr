@@ -450,3 +450,39 @@ test('a paged open run pushes one update for one head change across four polls',
   }
   assert.deepEqual(pushes, [1, 0, 0, 0])
 })
+
+/** A joined hearth label of `lengths`-sized names sharing one journal, read a window and then its last page. */
+async function pagedJoined(lengths) {
+  const names = lengths.map((length, index) => String.fromCharCode(97 + index).repeat(length))
+  const label = names.join('+')
+  const firstPage = windowOf(Array.from({ length: FLEET_WINDOW }, (_, index) => runOf('alpha', index)), `needs-you:${FLEET_WINDOW}:alpha-run-0099`)
+  const lastPage = windowOf([runOf('alpha', FLEET_WINDOW)], null)
+  const brokkr = stubBrokkr([
+    { match: ['realms'], responses: [json(realmsDoc(names, () => '/hearths/shared.db'))] },
+    { match: ['runs', '--db=/hearths/shared.db'], responses: [json(firstPage), json(lastPage), json(firstPage)] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const client = await attached(poller, { view: 'realm', realm: label, run: null })
+  // The fleet is painted by reference and the next page mutates it, so the
+  // first screen is read before `more` runs.
+  const screen = client.sent.splice(0)[0].fleet.hearths.map((hearth) => [hearth.realm, hearth.runs.length, hearth.next])
+  client.receive({ type: 'more', realm: label })
+  const more = await heard(client)
+  return { label, firstPage, screen, more, poller, client, reads: brokkr.calls().filter((argv) => argv[0] === 'runs') }
+}
+
+test('the bound is a realm name’s, not the joined hearth label’s: labels of 256 and 257 characters both page and are kept', async () => {
+  for (const lengths of [[127, 128], [128, 128]]) {
+    const { label, firstPage, screen, more, poller, client, reads } = await pagedJoined(lengths)
+    assert.equal(label.length, lengths[0] + 1 + lengths[1])
+    assert.deepEqual(screen, [[label, FLEET_WINDOW, firstPage.next]])
+    assert.deepEqual(more.fleet.hearths.map((hearth) => [hearth.realm, hearth.runs.length, hearth.next]), [[label, FLEET_WINDOW + 1, null]])
+    assert.deepEqual(reads.at(-1), ['runs', '--json', '--db=/hearths/shared.db', `--limit=${FLEET_WINDOW}`, `--after=${firstPage.next}`])
+
+    // A refresh keeps the page while the label the host published is on screen.
+    await poller.tick()
+    client.receive({ type: 'watch', view: 'realm', realm: label, run: null })
+    const refreshed = await heard(client)
+    assert.deepEqual(refreshed.fleet.hearths.map((hearth) => [hearth.realm, hearth.runs.length, hearth.next]), [[label, FLEET_WINDOW + 1, null]])
+  }
+})

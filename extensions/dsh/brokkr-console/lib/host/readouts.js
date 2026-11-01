@@ -16,8 +16,21 @@ const MUNINN_RECORD_VERSION = 1
 /** The label a one-hearth world's runs go under: its listing names no realm. */
 export const ONE_HEARTH = 'this workspace'
 
-/** The most characters a realm name may hold, on every wire the console reads or is asked. */
+/** The most characters one realm name may hold, on every wire the console reads or is asked. */
 export const REALM_BOUND = 256
+
+/** Whether `value` is one realm name: 1 to `REALM_BOUND` characters. */
+export const isRealmName = (value) => typeof value === 'string' && value.length > 0 && value.length <= REALM_BOUND
+
+/** The realm names a hearth's joined label covers: Brokkr's names hold no `+`. */
+export const namesOfHearth = (realm) => realm.split('+')
+
+/**
+ * Whether `value` is a hearth label: one or more realm names joined by `+`,
+ * as Brokkr's `Hearth::label` writes them. The bound is each name's, never
+ * the label's, because several bounded names make a longer one.
+ */
+export const isHearthLabel = (value) => typeof value === 'string' && namesOfHearth(value).every(isRealmName)
 
 const STANDINGS = ['quarantined', 'parked', 'running', 'stopping', 'shipped', 'stopped', 'operator_stopped']
 const COMMANDS = ['retry', 'stop', 'resume', 'conclude']
