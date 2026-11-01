@@ -23,7 +23,7 @@ mod own_home;
 
 #[path = "support/git.rs"]
 mod git;
-use git::test_repository;
+use git::{in_clean_git_config, test_repository};
 
 static CWD: Mutex<()> = Mutex::new(());
 
@@ -380,6 +380,9 @@ fn a_folder_replaced_after_queueing_refuses_the_start() {
 /// never judged from the nested folder or from the library beside it.
 #[test]
 fn a_nested_folder_made_after_queueing_refuses_the_start() {
+    if !in_clean_git_config() {
+        return;
+    }
     let fleet = Fleet::new();
     let (library, src, payload) = fleet.queued_from_src();
     let _standing = Standing::in_dir(&fleet.workspace("b"));
@@ -419,6 +422,9 @@ fn refused_as_nested(error: &LaunchError, path: &Path, root: &Path) {
 /// the link's own name has no `.brokkr` above it.
 #[test]
 fn a_workspace_linked_after_queueing_is_judged_where_it_stands() {
+    if !in_clean_git_config() {
+        return;
+    }
     let fleet = Fleet::new();
     let (library, src, payload) = fleet.queued_from_src();
     let (other, real) = (library.join("other"), library.join("other/deep"));
@@ -478,6 +484,9 @@ fn shelved(fleet: &Fleet) -> (PathBuf, PathBuf) {
 #[test]
 fn a_rebuilt_entry_is_refused_by_each_shelf_refusal_before_a_journal_is_opened() {
     let test = "a_rebuilt_entry_is_refused_by_each_shelf_refusal_before_a_journal_is_opened";
+    if !in_clean_git_config() {
+        return;
+    }
     if !own_home::in_own_home(test) {
         return;
     }
@@ -539,6 +548,9 @@ fn a_rebuilt_entry_is_refused_by_each_shelf_refusal_before_a_journal_is_opened()
 #[test]
 fn a_rebuilt_entry_on_a_shelf_this_process_does_not_place_is_refused() {
     let test = "a_rebuilt_entry_on_a_shelf_this_process_does_not_place_is_refused";
+    if !in_clean_git_config() {
+        return;
+    }
     if !own_home::in_own_home(test) {
         return;
     }

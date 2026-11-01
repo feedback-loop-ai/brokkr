@@ -9,6 +9,7 @@
 //! vendor's name, a vendor's name would have got into the engine.
 
 use super::*;
+use crate::places::places_tests::clean_git_config;
 use pin_walk_tests::typed_seats;
 use serde_json::json;
 
@@ -2707,6 +2708,7 @@ fn an_unboxed_exec_site_with_hands_is_admitted_only_when_it_names_a_pinned_scrip
 /// name order).
 #[test]
 fn the_shipped_exec_gates_compile_unboxed_when_they_name_their_own_pinned_scripts() {
+    clean_git_config!();
     let root = workspace();
     let resolved = super::compose::resolve(&root.join("recipes/self")).unwrap();
     let self_dir = &resolved.roots[resolved.seat_origin["verify"]];
@@ -3833,6 +3835,7 @@ fn assert_refused_at_the_dialect_step(relative: &str, refusal: &str) {
 #[test]
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured() {
+    clean_git_config!();
     let root = workspace();
     let dialect = Dialect::load(&root.join("dialects/openspec.json"))
         .unwrap()
@@ -4003,6 +4006,7 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
 /// reported unmet, never papered over by widening the rule.
 #[test]
 fn a_measured_claude_gap_is_reported_not_papered_over() {
+    clean_git_config!();
     let root = workspace();
     let dialect = Dialect::load(&root.join("dialects/openspec.json"))
         .unwrap()
@@ -4492,6 +4496,7 @@ fn a_seat_with_hands_is_refused_under_namespace_naming_the_providers_measured_re
 /// or invents a writable Claude fragment to make it compile.
 #[test]
 fn the_shipped_engine_smith_is_refused_under_harness_at_its_claude_link() {
+    clean_git_config!();
     let fixture = Fixture::new();
     let agents = workspace().join("agents");
     let seat = boxed_seat("implementer-engine", "work");

@@ -7,6 +7,7 @@
 use super::*;
 use crate::agents::LibraryError;
 use crate::bundle::{Bundle, Invocation, SeatBody};
+use crate::places::places_tests::clean_git_config;
 use serde_json::json;
 use std::path::{Path, PathBuf};
 
@@ -519,6 +520,7 @@ fn an_adapter_fragment_that_names_a_model_flag_is_refused_at_load() {
 /// adapters with claude's tail carrying `--fallback-model` refuses both.
 #[test]
 fn a_shipped_recipe_is_refused_once_its_adapter_tail_names_a_model() {
+    clean_git_config!();
     let root = shipped();
     let copy = shipped_adapters_with(|adapter| {
         if adapter["provider"] == "claude" {
@@ -856,6 +858,7 @@ fn shipped() -> PathBuf {
 /// shipped recipe: each compiles as it did, with no office listed.
 #[test]
 fn every_shipped_model_is_promoted_and_every_shipped_recipe_still_compiles() {
+    clean_git_config!();
     let root = shipped();
     let adapters = Adapters::load(&root.join("adapters")).unwrap();
     for adapter in adapters.providers() {
@@ -874,6 +877,7 @@ fn every_shipped_model_is_promoted_and_every_shipped_recipe_still_compiles() {
 /// and that recipe is refused at its first site.
 #[test]
 fn a_shipped_recipe_is_refused_once_a_model_it_hires_turns_provisional() {
+    clean_git_config!();
     let root = shipped();
     let copy = shipped_adapters_with(|adapter| {
         if adapter["provider"] == "claude" {
@@ -913,6 +917,7 @@ fn a_shipped_recipe_is_refused_once_a_model_it_hires_turns_provisional() {
 /// declared id, the dsh lanes `spark-glm/GLM-5.3-Flash-EXL3` (#532).
 #[test]
 fn every_shipped_recipe_compiles_beside_a_provisional_model_it_does_not_hire() {
+    clean_git_config!();
     let copy = shipped_adapters_with(|adapter| {
         if adapter["provider"] == "dsh" {
             let id = adapter["models"]["studio-pro"].clone();

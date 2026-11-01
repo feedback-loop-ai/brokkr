@@ -2,7 +2,19 @@ use std::path::{Path, PathBuf};
 
 #[path = "../../tests/support/git.rs"]
 mod git;
-pub(crate) use git::{run, test_repository};
+pub(crate) use git::{in_clean_git_config, run, test_repository};
+
+/// Run the calling test again in a clean child, returning here in the
+/// parent ([`in_clean_git_config`]). One line, so a repeated guard makes no
+/// clone and costs a file already over its ceiling the fewest lines (#936).
+macro_rules! clean_git_config {
+    () => {
+        if !$crate::places::places_tests::in_clean_git_config() {
+            return;
+        }
+    };
+}
+pub(crate) use clean_git_config;
 
 use super::{
     base_library, default_map, folder, library, run_local, state_of, unpinned_reason, Kind, Layout,
@@ -428,6 +440,7 @@ fn folder_root() -> (tempfile::TempDir, PathBuf) {
 /// root's own `.brokkr` each pin their `state/`.
 #[test]
 fn only_a_folder_bundle_skips_its_state() {
+    clean_git_config!();
     let (_dir, root) = folder_root();
     let (folder, library) = (root.join(".brokkr"), root.join("recipes/state"));
     assert!(skips(&folder, "state"));
@@ -447,6 +460,7 @@ fn only_a_folder_bundle_skips_its_state() {
 /// a library's recipe, and a library root's own `.brokkr`, pin theirs.
 #[test]
 fn only_a_folder_bundle_skips_its_shelf() {
+    clean_git_config!();
     let (_dir, root) = folder_root();
     let (folder, recipe) = (root.join(".brokkr"), root.join("recipes/x"));
     assert!(skips(&folder, "recipes"));
@@ -495,6 +509,7 @@ fn only_a_folder_bundle_composes_from_its_shelf() {
 /// root does, skips the case.
 #[test]
 fn a_folder_bundle_whose_layout_cannot_be_read_refuses_a_base() {
+    clean_git_config!();
     let (_dir, root) = folder_root();
     plant_library(&root);
     let (recipes, folder) = (root.join("recipes"), root.join(".brokkr"));

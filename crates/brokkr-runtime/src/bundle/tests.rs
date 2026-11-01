@@ -2,6 +2,7 @@ mod entry;
 mod walk_908;
 use super::*;
 use crate::argv::tests::ENGINE;
+use crate::places::places_tests::clean_git_config;
 use serde_json::json;
 use std::collections::BTreeMap;
 
@@ -919,6 +920,7 @@ fn role_secret_command_and_confinement_boundaries_are_explicit() {
 /// bundle still compiles.
 #[test]
 fn driver_confine_is_refused_by_name_in_a_bundle_and_beside_an_agent() {
+    clean_git_config!();
     let fixture = Fixture::new();
     let mut config = Fixture::config();
     config["seats"]["work"]["driver"] =
