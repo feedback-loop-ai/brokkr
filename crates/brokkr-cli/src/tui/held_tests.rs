@@ -1,6 +1,8 @@
 //! The shell settles held movement only on a successful read (#753 fix
 //! round 753c6): a transient error keeps the frame and the queue, and the
-//! next answer lands the key. Split from `tests.rs` to keep that file
+//! next answer lands the key. A view that leaves the frame takes the
+//! movement pressed on it, with its unresolved end, before the level
+//! moves (#753 landings' M1). Split from `tests.rs` to keep that file
 //! within its baseline (decision 0071 ruling 4).
 
 use super::tests::{at_seats, journal, over_fleet, script, test_ops, TERMINAL};
@@ -74,5 +76,105 @@ fn chief_753c6_transient_error_preserves_held_down() {
     assert_eq!(
         tui.offset, 2,
         "the Down waits for a successful answer, then lands"
+    );
+}
+
+/// The participant level's first page over `events`, the end still beyond
+/// it: the window a held `G` asks its unresolved marker against.
+fn first_page(events: &[EventEnvelope]) -> Views {
+    let folded = brokkr_core::fold::fold(events);
+    let mut views = over_fleet(Some(brokkr_view::run_view(events, folded.as_ref().ok())));
+    views.start = 0;
+    views.more = true;
+    views.end = None;
+    views
+}
+
+/// The console's participant level on `seat`, its cursor at `rank`.
+fn participant_at(seat: &str, rank: usize) -> Tui {
+    let mut tui = Tui::new(Some("run-7".to_string()));
+    participant_level(&mut tui, seat);
+    (tui.width, tui.height) = (80, 30);
+    tui.offset = rank;
+    tui
+}
+
+/// The landings' M1 (rulings 5 and 9): a `G` held on a seat that the
+/// answered frame no longer carries is dropped with its view. Its
+/// unresolved end is cancelled against the participant rank it replaced
+/// before the level leaves that seat, so the `Esc` that follows walks to
+/// the fleet's top, never restoring the old rank onto its dashboard. The
+/// chief's rank is the first checkpoint's; the review's is a real
+/// journal's hundredth.
+#[test]
+fn chief_and_review_vanished_seat_cancels_held_end_before_escape() {
+    use crate::tui::{bottom_key, escape_key, settle_when};
+    let old_events = journal("eff-i");
+    let old = first_page(&old_events);
+    let replacement = first_page(&old_events[..2]);
+    assert!(
+        replacement
+            .run
+            .as_ref()
+            .is_some_and(|run| run.participants.is_empty()),
+        "the replacement frame keeps the run and loses the seat"
+    );
+    for origin in [1, 100] {
+        let mut tui = participant_at("eff-i", origin);
+        tui.pending = true;
+        bottom_key(&mut tui, &old);
+        settle_when(&mut tui, &old, true);
+        assert_eq!(tui.offset, usize::MAX, "{origin}: G asks the absolute end");
+        assert!(
+            tui.held.first().is_some_and(|held| held.end.is_some()),
+            "{origin}: G owns the unresolved end"
+        );
+        settle_when(&mut tui, &replacement, true);
+        assert_eq!(tui.level, Level::Run, "{origin}: the seat vanished");
+        assert!(
+            tui.held.is_empty(),
+            "{origin}: the held end leaves with its seat"
+        );
+        assert_eq!(
+            tui.offset, origin,
+            "{origin}: cancelled against the view it was pressed on"
+        );
+        escape_key(&mut tui, &replacement);
+        assert_eq!(
+            (tui.level, tui.offset),
+            (Level::Runs, 0),
+            "{origin}: the dashboard is not scrolled by the cancelled end"
+        );
+    }
+}
+
+/// The landings' M1 in the run-vanish shape (rulings 5 and 9): the open
+/// run leaves the fleet's frame while a held `G` still owns its marker.
+/// The queue is dropped, and its end cancelled against the participant
+/// rank, before the level moves, so the fleet draws at its top instead of
+/// the stale marker's row on the next tick.
+#[test]
+fn chief_landing_vanished_run_cancels_held_end_before_the_fleet_draws() {
+    use crate::tui::{bottom_key, settle_when};
+    let old_events = journal("eff-i");
+    let old = first_page(&old_events);
+    let mut gone = over_fleet(None);
+    gone.runs.runs.retain(|row| key_of(row) != "run-7");
+    gone.runs.count = gone.runs.runs.len();
+    let mut tui = participant_at("eff-i", 0);
+    tui.pending = true;
+    bottom_key(&mut tui, &old);
+    settle_when(&mut tui, &old, true);
+    assert_eq!(tui.offset, usize::MAX, "G asks the absolute end");
+    settle_when(&mut tui, &gone, true);
+    assert_eq!(tui.run, None, "the run vanished");
+    assert_eq!(tui.level, Level::Runs, "the fleet is drawn");
+    assert!(
+        tui.held.is_empty(),
+        "the held end leaves with the run that vanished"
+    );
+    assert_eq!(
+        tui.offset, 0,
+        "the fleet is not scrolled by the cancelled end"
     );
 }

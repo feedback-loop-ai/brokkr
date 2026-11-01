@@ -229,7 +229,8 @@ impl Fetch<'_> {
             }
             // The pages are contiguous and each counts its checkpoints,
             // so a total past the display rank can only have a page that
-            // crosses it: the edge above is some.
+            // crosses it: the edge above is some. The crossing is driven
+            // by `the_participant_s_end_keeps_today_s_narrowed_display_rank`.
             false => edge.expect("a page crosses the display rank"),
         };
         // The pane paints from the narrowed rank at the column's width, so
@@ -376,7 +377,8 @@ impl Fetch<'_> {
                 break;
             }
             // A ready top-up names a stream: it is true only where one has
-            // an unread row, which `next_stream` finds.
+            // an unread row, which `next_stream` finds. The refill control
+            // is `a_scrolled_detail_window_refills_on_a_landing`.
             let pick = Self::next_stream(streams).expect("a ready merge names a stream");
             let stream = &mut streams[pick];
             stream.at -= 1;

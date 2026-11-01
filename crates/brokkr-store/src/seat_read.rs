@@ -316,7 +316,8 @@ impl Store {
         found.truncate(CHECKPOINT_PAGE);
         if seat.1.is_none() {
             // A kept page is nonempty: `found_after` refuses an empty one,
-            // so its reach is some.
+            // so its reach is some. The refusal control is
+            // `a_forward_index_missing_its_last_row_reads_the_kept_way`.
             let high = reach.expect("a kept page has a row");
             if self.interleaved(run_id, &streams, Some(high.saturating_add(1)), low)? {
                 return Ok(SeatRead::Kept);

@@ -339,7 +339,10 @@ pub(super) fn flush_held(tui: &mut Tui, views: &Views) {
             // would lose a movement the whole read makes (M2). An answer
             // that names the end resolves the step now through the one
             // resolution path, consuming the owner, so the keys behind it
-            // keep their order in the same flush.
+            // keep their order in the same flush. The loop's head is the
+            // one it names, so `first_mut` always has a head; the held end's
+            // application is driven by
+            // `chief_landing_held_end_owns_the_movement_after_its_first_answer`.
             tui.held
                 .first_mut()
                 .expect("the loop's head is still held")
@@ -392,6 +395,11 @@ pub(crate) fn settle_when(tui: &mut Tui, views: &Views, answered: bool) {
     if seat_of(tui, views).is_none() {
         tui.seat = None;
         if tui.level == Level::Participant {
+            // The seat that left takes the movement pressed on it with it:
+            // its unresolved end is cancelled against the participant view
+            // before the level moves, so no later key applies it to the
+            // fleet (M1, decision 0071 ruling 5).
+            drop_held(tui);
             tui.level = Level::Run;
             tui.pane = 1;
         }
@@ -411,6 +419,11 @@ pub(crate) fn settle_when(tui: &mut Tui, views: &Views, answered: bool) {
         Some(_) | None => false,
     };
     if vanished {
+        // The run that vanished takes the movement pressed on it with it:
+        // its unresolved end is cancelled against the view it was pressed
+        // on before the level moves, so no later key applies it to the
+        // fleet (M1, decision 0071 ruling 5).
+        drop_held(tui);
         tui.run = None;
         tui.level = Level::Runs;
         tui.pane = 0;
