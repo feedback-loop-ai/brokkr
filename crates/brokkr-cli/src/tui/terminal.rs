@@ -80,7 +80,7 @@ pub(crate) fn refuse(is_tty: bool, size: (u16, u16), db_is_file: bool) -> Option
             "`brokkr tui` needs a terminal and stdout is not one; {instead}"
         ));
     }
-    if size.0 < MIN_WIDTH || size.1 < MIN_HEIGHT {
+    if !fits(size.0, size.1) {
         return Some(format!(
             "this terminal is {}×{}, below the {MIN_WIDTH}×{MIN_HEIGHT} `brokkr tui` needs; {instead}",
             size.0, size.1
@@ -451,7 +451,7 @@ where
 /// a notice either way stays pending until a frame paints it uncovered
 /// (M2, decision 0071 rulings 5 and 9).
 pub(super) fn drawn(tui: &mut Tui, size: (u16, u16)) {
-    if size.0 >= MIN_WIDTH && size.1 >= MIN_HEIGHT && !tui.help && tui.reading.is_none() {
+    if fits(size.0, size.1) && !tui.help && tui.reading.is_none() {
         tui.notice = None;
     }
 }

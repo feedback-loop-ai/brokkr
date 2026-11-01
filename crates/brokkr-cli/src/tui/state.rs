@@ -333,12 +333,14 @@ pub(crate) struct HeldView {
     pane: usize,
     selected: Option<String>,
     column: FleetColumn,
+    fits: bool,
 }
 
 /// The view `tui` is showing under `views`: the fields a held movement
 /// belongs to. `selected` is the fleet's selected run and `column` the
 /// pane the keys move, so a reselected fleet or a column a narrowed frame
-/// no longer draws is a different view.
+/// no longer draws is a different view; `fits` is [`fits`] of the frame,
+/// so a frame too small to draw any pane is a different view too.
 pub(crate) fn held_view(tui: &Tui, views: &Views) -> HeldView {
     HeldView {
         tab: tui.tab,
@@ -348,6 +350,7 @@ pub(crate) fn held_view(tui: &Tui, views: &Views) -> HeldView {
         pane: tui.pane,
         selected: selected_run(tui, views).map(|row| key_of(row).to_string()),
         column: focused(tui, views),
+        fits: fits(tui.width, tui.height),
     }
 }
 

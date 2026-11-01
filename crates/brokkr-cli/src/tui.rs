@@ -71,6 +71,15 @@ use brokkr_view::transcript::{BlockKind, TranscriptRead, Turn, Unavailable};
 pub(crate) const MIN_WIDTH: u16 = 60;
 pub(crate) const MIN_HEIGHT: u16 = 12;
 
+/// Whether a frame of `width` x `height` holds the console at all. Below
+/// either minimum the frame paints only "this terminal is too small", so
+/// every pane is off it: the one test the painter, the startup refusal,
+/// the status line's notice and a held movement's view all ask (753cL3's
+/// C1, decision 0071 rulings 5 and 9).
+pub(crate) fn fits(width: u16, height: u16) -> bool {
+    width >= MIN_WIDTH && height >= MIN_HEIGHT
+}
+
 /// The input poll. Latency is bounded by the keypress, not the tick: an
 /// operator holding `j` must not feel a quarter-second sleep.
 const TICK: Duration = Duration::from_millis(250);

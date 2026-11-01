@@ -6,7 +6,7 @@ use super::*;
 
 pub(crate) fn draw(frame: &mut Frame, tui: &Tui, views: &Views) {
     let area = frame.area();
-    if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
+    if !fits(area.width, area.height) {
         draw_too_small(frame, area);
         return;
     }

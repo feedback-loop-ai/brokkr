@@ -182,26 +182,40 @@ fn chief_753c6_hidden_pane_does_not_move_fleet() {
 /// answer lands. The cursor stays at (0, 0) with nothing held.
 #[test]
 fn chief_landing_hidden_then_shown_drops_held_movement() {
-    use crate::tui::down_key;
-    let run = "chief hidden and back";
-    let (_dir, db, _events, whole_views) = console_of(run, panel_with(run, 50, 50, None));
-    let (mut tui, views) = live_at(&db, run, 0, 375, 30, &whole_views.now);
-    tui.pending = true;
-    down_key(&mut tui, &views);
-    assert_eq!(tui.held.len(), 1, "the live column's Down is held");
-    hide_and_settle(&mut tui, &views);
     assert_eq!(
-        widen_and_answer(&db, run, &mut tui, &whole_views.now),
+        held_down_hidden_by("chief hidden and back", (80, 30)),
         (0, 0),
         "the answer moves nothing the hidden pane held"
     );
 }
 
+/// The panel's live column at (0, 0) at 375x30 holds one `Down` while its
+/// read is out; the frame is resized to `hide`, which draws no live
+/// column, and settles unanswered; restored to 375x30, the read answers.
+/// Where the answer leaves the cursor.
+fn held_down_hidden_by(run: &str, hide: (u16, u16)) -> (usize, usize) {
+    use crate::tui::down_key;
+    let (_dir, db, _events, whole_views) = console_of(run, panel_with(run, 50, 50, None));
+    let (mut tui, views) = live_at(&db, run, 0, 375, 30, &whole_views.now);
+    tui.pending = true;
+    down_key(&mut tui, &views);
+    assert_eq!(tui.held.len(), 1, "the live column's Down is held");
+    resize_and_settle(&mut tui, &views, hide);
+    restore_and_answer(&db, run, &mut tui, &whole_views.now, (375, 30))
+}
+
 /// Narrow the frame so the live column leaves it, and settle the read
 /// still out: the hidden pane's queue is dropped, never revived.
 fn hide_and_settle(tui: &mut Tui, views: &Views) {
+    let height = tui.height;
+    resize_and_settle(tui, views, (80, height));
+}
+
+/// Resize the frame to `size`, which no longer draws the live column, and
+/// settle the read still out: the hidden pane's queue is dropped.
+fn resize_and_settle(tui: &mut Tui, views: &Views, (width, height): (u16, u16)) {
     use crate::tui::settle_when;
-    tui.width = 80;
+    (tui.width, tui.height) = (width, height);
     settle_when(tui, views, false);
     assert!(tui.held.is_empty(), "the hidden pane's queue is dropped");
 }
@@ -210,11 +224,41 @@ fn hide_and_settle(tui: &mut Tui, views: &Views) {
 /// left the live column: the frame a hidden pane's cancelled queue must
 /// not move.
 fn widen_and_answer(db: &Path, run: &str, tui: &mut Tui, now: &str) -> (usize, usize) {
+    let height = tui.height;
+    restore_and_answer(db, run, tui, now, (375, height))
+}
+
+/// Restore the frame to `size`, let the read answer, and return where the
+/// answer left the live column.
+fn restore_and_answer(
+    db: &Path,
+    run: &str,
+    tui: &mut Tui,
+    now: &str,
+    (width, height): (u16, u16),
+) -> (usize, usize) {
     use crate::tui::settle_when;
-    tui.width = 375;
+    (tui.width, tui.height) = (width, height);
     let answer = live_read(db, run, tui, now);
     settle_when(tui, &answer, true);
     (tui.live_offset, tui.live_line)
+}
+
+/// 753cL3's C1 (decision 0071 rulings 5 and 9): a frame shorter than
+/// `MIN_HEIGHT` draws no pane at all, only "this terminal is too small",
+/// so the live column has left it as surely as a narrowed frame's. The
+/// panel's live column at (0, 0) at 375x30 holds a `Down`; the frame
+/// shrinks to `MIN_HEIGHT - 1` while the read is still out, and grows back
+/// to 30 before the answer lands. The cursor stays at (0, 0) with nothing
+/// held, as the width case above does.
+#[test]
+fn chief_landing_too_short_then_shown_drops_held_movement() {
+    use crate::tui::MIN_HEIGHT;
+    assert_eq!(
+        held_down_hidden_by("chief too short and back", (375, MIN_HEIGHT - 1)),
+        (0, 0),
+        "the answer moves nothing the too-short frame held"
+    );
 }
 
 /// M1 (rulings 5 and 9): a resize that removes the saved continuation
