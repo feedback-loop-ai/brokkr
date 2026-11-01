@@ -282,8 +282,9 @@ and
 A `brokkr driver dsh` model session was tried after the compile:
 `provider 'dsh'` refused the measured `spark-glm` route entry with
 `baseURL leaves the closed endpoint grammar`, because the driver's
-validated route overlay admits only `https://` and the route is
-`http://spark:8888/v1`; the overlay grammar also requires a
+validated route overlay admits only `https://` and the `spark-glm`
+route's `baseURL` is an `http://` single-label endpoint; the overlay
+grammar also requires a
 `reasoningEfforts` level on the model item, which `spark-glm`'s
 effortless route does not declare. Every other measured route is keyed,
 and this seat must not read a key. The real dsh model run recorded above
