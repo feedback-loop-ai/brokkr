@@ -752,3 +752,185 @@ test('review residual M2: a poll withholds a fleet its own last map read already
   assert.deepEqual([beta?.journal, beta?.runs[0].seq], ['/hearths/beta/forge.db', 12], 'the unchanged hearth is still read')
   assert.equal(realms(), 10, 'the next poll adds one map read per read again')
 })
+
+/** The two-hearth map that moves beta to new.db on the `move`th `realms` read; alpha stays on old.db. */
+function movedMap(move) {
+  const oldMap = realmsMap('/hearths/alpha/old.db')
+  const newMap = realmsDoc(['alpha', 'beta'], (name) => (name === 'alpha' ? '/hearths/alpha/old.db' : '/hearths/beta/new.db'))
+  return Array.from({ length: 16 }, (_, index) => json(index + 1 < move ? oldMap : newMap))
+}
+
+/** A poller over `rules` with a peer watching `watch`, its host messages recorded. */
+function watching(rules, watch) {
+  const brokkr = stubBrokkr(rules)
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const client = peer()
+  client.receive = poller.attach(client)
+  client.receive({ type: 'watch', ...watch })
+  return { brokkr, poller, client }
+}
+
+/** Wait until `done`, then let any last paint land. */
+async function until(done, what) {
+  for (let waited = 0; !done(); waited += 10) {
+    assert.ok(waited < 10_000, `${what} did not settle within 10s`)
+    await new Promise((wake) => setTimeout(wake, 10))
+  }
+  await new Promise((wake) => setTimeout(wake, 100))
+}
+
+/** The calls of one verb the stub Brokkr answered. */
+const callsOf = (brokkr, verb) => brokkr.calls().filter((argv) => argv[0] === verb).length
+
+/** The moved-map world's rules: alpha and beta pages, and the inspect answers. */
+function movedRules({ move, alpha, beta, inspect = [] }) {
+  return [
+    { match: ['realms'], responses: movedMap(move) },
+    { match: ['runs', '--db=/hearths/alpha/old.db'], responses: alpha.map(json) },
+    { match: ['runs', '--db=/hearths/beta/forge.db'], responses: beta.map(json) },
+    ...(inspect.length === 0 ? [] : [{ match: ['inspect'], responses: inspect.map(json) }]),
+  ]
+}
+
+test('review 907p6 R-1(a): a snapshot withholds a fleet its own last map read contradicts', async () => {
+  const heldAlpha = runningOf('alpha', 0, 12)
+  const heldBeta = runningOf('beta', 0, 25)
+  const inspect = runningRead(12)
+  inspect.summary = { ...inspect.summary, run_id: heldAlpha.run_id }
+  const { brokkr, client } = watching(
+    movedRules({ move: 3, alpha: [windowOf([heldAlpha], null)], beta: [windowOf([heldBeta], null)], inspect: [inspect] }),
+    { view: 'realm', realm: 'alpha', run: { realm: 'alpha', run_id: heldAlpha.run_id } },
+  )
+  await until(() => callsOf(brokkr, 'realms') >= 3, 'the snapshot’s map reads')
+  assert.equal(callsOf(brokkr, 'realms'), 3, 'the fleet, its fence and the inspect read one map each')
+  assert.deepEqual(client.sent, [], 'a fleet beta left behind paints nothing')
+})
+
+test('review 907p6 R-1(b): Show more withholds a fleet whose other hearth moved', async () => {
+  const cursor = 'needs-you:1:alpha-run-0000'
+  const { brokkr, client } = watching(
+    movedRules({
+      move: 3,
+      alpha: [windowOf([runOf('alpha', 0)], cursor), windowOf([runOf('alpha', 1)], null)],
+      beta: [windowOf([runOf('beta', 0)], null)],
+    }),
+    { view: 'realm', realm: 'alpha', run: null },
+  )
+  await until(() => client.sent.length > 0, 'the snapshot')
+  client.sent.length = 0
+  client.receive({ type: 'more', realm: 'alpha' })
+  await until(() => callsOf(brokkr, 'realms') >= 3 && brokkr.calls().some((argv) => argv.some((word) => word.startsWith('--after='))), 'the Show more page')
+  assert.equal(callsOf(brokkr, 'realms'), 3, 'the snapshot and the page each read the map once more')
+  assert.deepEqual(client.sent, [], 'the paged fleet beta left behind paints nothing')
+})
+
+test('review 907p6 R-2: a withheld snapshot leaves its client owed the fleet the next poll sends', async () => {
+  const heldAlpha = { ...runOf('alpha', 0), seq: 12 }
+  const heldBeta = { ...runOf('beta', 0), seq: 25 }
+  const map = realmsMap('/hearths/alpha/forge.db')
+  const inspect = runViewDoc({ seq: 12 })
+  inspect.summary = { ...inspect.summary, run_id: heldAlpha.run_id }
+  const { brokkr, poller, client } = watching(
+    [
+      { match: ['realms'], responses: [json(map), json(map), { stderr: 'transient realms read failure', code: 1 }, json(map), json(map), json(map)] },
+      { match: ['runs', '--db=/hearths/alpha/forge.db'], responses: [json(windowOf([heldAlpha], null))] },
+      { match: ['runs', '--db=/hearths/beta/forge.db'], responses: [json(windowOf([heldBeta], null))] },
+      { match: ['inspect'], responses: [json(inspect)] },
+    ],
+    { view: 'realm', realm: 'alpha', run: { realm: 'alpha', run_id: heldAlpha.run_id } },
+  )
+  await until(() => callsOf(brokkr, 'realms') >= 3, 'the withheld snapshot')
+  assert.equal(callsOf(brokkr, 'realms'), 3, 'the snapshot reads the map twice and the inspect fence once')
+  assert.deepEqual(client.sent, [], 'the failed fence paints no snapshot')
+  client.sent.length = 0
+  await poller.tick()
+  assert.equal(callsOf(brokkr, 'realms'), 6, 'the poll reads the map for the fleet, its fence and the inspect fence')
+  const fleet = client.sent.find((message) => message.type === 'fleet')
+  assert.ok(fleet, 'the next successful poll sends the withheld fleet')
+  assert.deepEqual(
+    fleet.fleet.hearths.map((hearth) => [hearth.realm, hearth.journal]),
+    [['alpha', '/hearths/alpha/forge.db'], ['beta', '/hearths/beta/forge.db']],
+    'the client is owed the fleet installed while its snapshot was withheld',
+  )
+})
+
+test('review 907p6: every publishing path withholds a fleet one moved map contradicts', async () => {
+  const heldAlpha = runningOf('alpha', 0, 12)
+  const heldBeta = runningOf('beta', 0, 12)
+  const parkedBeta = { ...runOf('beta', 0), seq: 12 }
+  const readOf = (run, seq) => {
+    const read = runningRead(seq)
+    read.summary = { ...read.summary, run_id: run.run_id }
+    return read
+  }
+  const paths = [
+    {
+      name: 'snapshot',
+      async run() {
+        const { brokkr, client } = watching(
+          movedRules({ move: 3, alpha: [windowOf([heldAlpha], null)], beta: [windowOf([heldBeta], null)], inspect: [readOf(heldAlpha, 12)] }),
+          { view: 'realm', realm: 'alpha', run: { realm: 'alpha', run_id: heldAlpha.run_id } },
+        )
+        await until(() => callsOf(brokkr, 'realms') >= 3, 'the snapshot')
+        return client
+      },
+    },
+    {
+      name: 'Show more',
+      async run() {
+        const cursor = 'needs-you:1:alpha-run-0000'
+        const { brokkr, client } = watching(
+          movedRules({
+            move: 3,
+            alpha: [windowOf([runOf('alpha', 0)], cursor), windowOf([runOf('alpha', 1)], null)],
+            beta: [windowOf([runOf('beta', 0)], null)],
+          }),
+          { view: 'realm', realm: 'alpha', run: null },
+        )
+        await until(() => client.sent.length > 0, 'the snapshot')
+        client.sent.length = 0
+        client.receive({ type: 'more', realm: 'alpha' })
+        await until(() => callsOf(brokkr, 'realms') >= 3, 'the Show more page')
+        return client
+      },
+    },
+    {
+      name: 'poll',
+      async run() {
+        const { brokkr, poller, client } = watching(
+          [
+            { match: ['runs', `--run=${heldAlpha.run_id}`], responses: [json(oneRow({ ...heldAlpha, seq: 13 }))] },
+            ...movedRules({ move: 6, alpha: [windowOf([heldAlpha], null)], beta: [windowOf([parkedBeta], null)], inspect: [readOf(heldAlpha, 13)] }),
+          ],
+          { view: 'realm', realm: 'alpha', run: null },
+        )
+        await until(() => client.sent.length > 0, 'the snapshot')
+        client.sent.length = 0
+        await poller.tick()
+        assert.equal(callsOf(brokkr, 'realms'), 6, 'the poll’s step fences read the moved map')
+        return client
+      },
+    },
+    {
+      name: 'open run’s row',
+      async run() {
+        const { brokkr, poller, client } = watching(
+          [
+            { match: ['runs', `--run=${heldAlpha.run_id}`], responses: [json(oneRow({ ...heldAlpha, seq: 13 }))] },
+            ...movedRules({ move: 7, alpha: [windowOf([heldAlpha], null)], beta: [windowOf([parkedBeta], null)], inspect: [readOf(heldAlpha, 12), readOf(heldAlpha, 13)] }),
+          ],
+          { view: 'realm', realm: 'alpha', run: { realm: 'alpha', run_id: heldAlpha.run_id } },
+        )
+        await until(() => client.sent.length > 0, 'the snapshot')
+        client.sent.length = 0
+        await poller.tick()
+        assert.equal(callsOf(brokkr, 'realms'), 7, 'the poll’s row fence reads the moved map')
+        return client
+      },
+    },
+  ]
+  for (const path of paths) {
+    const client = await path.run()
+    assert.deepEqual(client.sent, [], `${path.name} paints nothing from the moved map`)
+  }
+})

@@ -8,6 +8,7 @@ import { test } from 'node:test'
 
 import { apply } from '../lib/index.js'
 import { ReadoutRefused, transcriptOf } from '../lib/host/readouts.js'
+import { realmsDoc } from './support/poller.js'
 import { clientFrame, fleetDoc, json, request, row, stubBrokkr, stubHost, withEnv, WS_KEY } from './support/world.js'
 
 const RUN = row().run_id
@@ -51,7 +52,13 @@ test('with no turns, Brokkr’s word for why is kept and nothing is invented', (
  * transcript. Polling is set far off so the listing is read exactly once.
  */
 async function hosted(rules) {
-  const brokkr = stubBrokkr([{ match: ['runs'], responses: [json(fleetDoc([['brokkr', [row()]]]))] }, ...rules])
+  // A coherent one-realm map: the listing's journal is the one `realms`
+  // names, so the snapshot's gate can label the fleet it paints.
+  const brokkr = stubBrokkr([
+    { match: ['realms'], responses: [json(realmsDoc(['brokkr']))] },
+    { match: ['runs'], responses: [json(fleetDoc([['brokkr', [row()]]]))] },
+    ...rules,
+  ])
   const host = stubHost()
   await withEnv({ BROKKR_CONSOLE_BROKKR: brokkr.program, BROKKR_STUB_DIR: brokkr.dir, BROKKR_CONSOLE_POLL_MS: '600000' }, () => apply(host.ctx))
   const socket = new EventEmitter()
@@ -82,7 +89,7 @@ test('a run or seat outside the id grammar, or a realm past its bound, is refuse
     const answer = await ask(query)
     assert.deepEqual([answer.status, JSON.parse(answer.body)], [400, { error: 'a transcript is asked for by realm, run and seat' }], JSON.stringify(query))
   }
-  assert.deepEqual(calls(), ['realms --json', 'runs --json --limit=100', 'realms --json'])
+  assert.deepEqual(calls(), ['realms --json', 'runs --json --db=/hearths/brokkr/forge.db --limit=100', 'realms --json'])
 })
 
 test('a run the listing does not hold in that realm is refused, and nothing runs', async () => {
@@ -91,14 +98,14 @@ test('a run the listing does not hold in that realm is refused, and nothing runs
     const answer = await ask(query)
     assert.deepEqual([answer.status, JSON.parse(answer.body)], [400, { error: 'Brokkr no longer lists this run' }], JSON.stringify(query))
   }
-  assert.deepEqual(calls(), ['realms --json', 'runs --json --limit=100', 'realms --json'])
+  assert.deepEqual(calls(), ['realms --json', 'runs --json --db=/hearths/brokkr/forge.db --limit=100', 'realms --json'])
 })
 
 test('a transcript is read against the listing’s journal, each value a flag, and reaches the page as the console read it', async () => {
   const { ask, calls } = await hosted([{ match: ['transcript'], responses: [json(doc())] }])
   const answer = await ask({ realm: 'brokkr', run: RUN, seat: SEAT })
   assert.deepEqual([answer.status, JSON.parse(answer.body)], [200, transcriptOf(doc())])
-  assert.deepEqual(calls(), ['realms --json', 'runs --json --limit=100', 'realms --json', `transcript --run=${RUN} --db=/hearths/brokkr/forge.db --seat=${SEAT} --json`])
+  assert.deepEqual(calls(), ['realms --json', 'runs --json --db=/hearths/brokkr/forge.db --limit=100', 'realms --json', `transcript --run=${RUN} --db=/hearths/brokkr/forge.db --seat=${SEAT} --json`])
 })
 
 test('a readout Brokkr refuses reaches the page as its own words', async () => {
