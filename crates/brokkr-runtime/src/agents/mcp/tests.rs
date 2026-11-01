@@ -1091,9 +1091,9 @@ fn handless(body: &mut Value) {
 /// ruling 2026-10-26): those lines quote D07's canaries, and none borrows
 /// D10's candidate hands row. Each line cites its cells, and no other
 /// shape, no Claude result and no hands follow from them. The boxed cold
-/// shape is #896's, on 0.2.1-rc.2: ambient unmeasured on the same route
-/// scope, the other three measured from tool rows and the box, which no
-/// route composes.
+/// and replacement shapes are #896's, on 0.2.1-rc.2: ambient measured on
+/// an engine-only home, the other three measured from tool rows and the
+/// box, which no route composes.
 #[test]
 fn dsh_declares_only_its_own_cold_and_replacement_shapes_and_inherits_nothing() {
     let adapters = Adapters::load(&shipped()).expect("the shipped adapters load");
@@ -1102,13 +1102,15 @@ fn dsh_declares_only_its_own_cold_and_replacement_shapes_and_inherits_nothing() 
     let cold = shape(McpInvocation::Cold, McpHands::NoHands);
     let replacement = shape(McpInvocation::Replacement, McpHands::NoHands);
     let boxed = shape(McpInvocation::Cold, McpHands::Boxed);
+    let boxed_replacement = shape(McpInvocation::Replacement, McpHands::Boxed);
     assert_eq!(
         declaration(&dsh.mcp),
         (
             m,
             vec![
-                (boxed.clone(), "0.2.1-rc.2".into(), [d, m, m, m]),
+                (boxed.clone(), "0.2.1-rc.2".into(), [m, m, m, m]),
                 (cold.clone(), "0.1.5-rc.1".into(), [m, d, u, m]),
+                (boxed_replacement.clone(), "0.2.1-rc.2".into(), [m, m, m, m]),
                 (replacement.clone(), "0.2.1-rc.2".into(), [m, d, d, d]),
             ]
         )
@@ -1138,14 +1140,13 @@ fn dsh_declares_only_its_own_cold_and_replacement_shapes_and_inherits_nothing() 
     let absent = [
         macos(&boxed),
         shape(McpInvocation::Cold, McpHands::Harness),
-        shape(McpInvocation::Replacement, McpHands::Boxed),
         shape(resume("headless-work"), McpHands::NoHands),
         macos(&cold),
         macos(&replacement),
     ]
     .map(|shape| dsh.mcp.isolation(&shape));
     let none = every(&McpAxis::Unmeasured(McpUnmeasured::Absent));
-    assert_eq!(absent, [(); 6].map(|()| none.clone()));
+    assert_eq!(absent, [(); 5].map(|()| none.clone()));
     let headless = dsh.resume.shape("headless-work").unwrap();
     assert_eq!(
         (dsh.hands.as_deref(), headless.status),

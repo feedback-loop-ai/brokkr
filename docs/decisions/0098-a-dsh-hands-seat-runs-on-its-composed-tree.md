@@ -2,7 +2,7 @@
 
 Status: accepted — operator ruled 2026-10-29 (#896, https://github.com/feedback-loop-ai/brokkr/issues/896#issuecomment-6491164088), as written, with ruling 2's probe-to-spawn residual accepted until decision 0065 slice two's U9b1
 Date: 2026-10-26
-Built: partial (#896) — the one hands overlay, the composed-tree check and its measured allowlist, the typed office access and its carrier, the activation refusal and the partial-enforcement report are built; the engine-only home (decision 0065 slice two's U9b1) and the read-only `HandsSpec` are unbuilt
+Built: partial (#896) — the one hands overlay, the composed-tree check and its measured allowlist, the typed office access and its carrier, the activation refusal, the partial-enforcement report and, for a boxed dsh hands seat on Linux, the engine-only home are built; the read-only `HandsSpec` is unbuilt. Linux closes ruling 2's probe-to-spawn residual on that home; macOS keeps it, where the fence stands
 
 ## Context
 
@@ -45,9 +45,9 @@ This decision records the round-two semantics; the operator accepted it on
    measured effectful rows must read `disabled: true`; a repeated id, a
    second MCP client, an enabled effectful row, a dump that cannot be read and
    a `--dump-config` that fails all refuse, each naming the row where one is
-   known. The version pin stays beside the check. No engine-only `DSH_HOME`
-   is built for hands seats in this round; that is decision 0065 slice two's
-   U9b1, and the standing fence still serves the operator's home.
+   known. The version pin stays beside the check. On Linux this round now
+   builds the engine-only `DSH_HOME` for the measured boxed hands shape; on
+   macOS the fence stands and the operator's home still serves it.
 
    *Residual, accepted by the operator 2026-10-29 ([#896](https://github.com/feedback-loop-ai/brokkr/issues/896#issuecomment-6491164088)):* the
    check and the session each read the operator's home, one after the
@@ -55,9 +55,10 @@ This decision records the round-two semantics; the operator accepted it on
    to that home between the probe and the spawn is therefore served without
    being measured, and a healthy extra server prints none of the words
    ruling 4 refuses. The home is the operator's own, and such a change is
-   outside the threat model of 2026-09-26. U9b1's engine-only home closes it
-   by construction: the probe and the session then read one home that
-   Brokkr made.
+   outside the threat model of 2026-09-26. On Linux U9b1's engine-only home
+   closes it by construction: the probe and the session then read one home
+   that Brokkr made. On macOS the fence still stands and the shape is
+   served the operator's home, so the residual remains there.
 
 3. **An office's access is typed data, not its gate class.** An office may
    declare `access`, `read-only` or `writes`, beside its hands. Absent is

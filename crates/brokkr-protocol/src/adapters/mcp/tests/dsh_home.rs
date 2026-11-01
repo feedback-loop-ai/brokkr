@@ -486,13 +486,14 @@ fn missing_evidence_and_a_worktree_credential_file_refuse_before_staging() {
             "{pinned}"
         );
     }
-    // Sealed hands do not make a hands set dsh can serve.
+    // The boxed hands set is the one non-empty set an engine-only home was
+    // measured with (#896), so it is served as it stands.
     let mut boxed = base.clone();
     boxed[SERVING_INPUTS] = boxed_inputs();
     let boxed = intended(boxed, "hands", cold_only());
     assert_eq!(
         isolated("dsh", &Edge::new(&boxed), &[], false).map(|isolated| isolated.argv),
-        Err(unmeasured("hands"))
+        Ok(Vec::new())
     );
     std::fs::write(homes.work.join(".env"), "").unwrap();
     assert_eq!(
@@ -510,6 +511,55 @@ fn missing_evidence_and_a_worktree_credential_file_refuse_before_staging() {
     );
     let as_before = launch("deepseek-flash", &base, None).unwrap();
     assert_eq!(as_before.home, DshHome::Operator(homes.operator.clone()));
+}
+
+/// #896: the boxed hands set is the one non-empty set an engine-only dsh
+/// home was measured with, so `admits` admits it cold and as an offer's
+/// replacement, and the public home decision serves the launch from that
+/// home. A set carrying a broker, or one that serves no model, is still
+/// refused under the hands cause; a refusal here refuses the launch, by
+/// the same name.
+#[test]
+fn a_dsh_hands_set_is_the_only_non_empty_set_admitted() {
+    use crate::native_controls::{SealedAssessment, SealedBroker, SealedServers};
+    use crate::{dsh_served, DshServed};
+    let measured = || SealedIsolation {
+        cold: SealedAssessment::Measured,
+        replacement: SealedAssessment::Measured,
+        ..SealedIsolation::default()
+    };
+    let hands = SealedIsolation {
+        servers: SealedServers::Hands,
+        ..measured()
+    };
+    assert_eq!(hands.admits("dsh", false), Ok(()));
+    assert_eq!(hands.admits("dsh", true), Ok(()));
+    assert_eq!(
+        dsh_served(Some(&hands), false, Some("deepseek-official"), false),
+        Ok(DshServed::Engine)
+    );
+    let broker = SealedBroker {
+        capability: "web-search".into(),
+        plan: "/w/plan.json".into(),
+        plan_digest: "00".into(),
+        removals: Vec::new(),
+    };
+    for servers in [
+        SealedServers::Brokered(vec![broker]),
+        SealedServers::NoModelSurface,
+    ] {
+        let refused = SealedIsolation {
+            servers,
+            ..measured()
+        };
+        assert_eq!(
+            refused.admits("dsh", false),
+            Err(StrictCause::Unmeasured {
+                provider: "dsh".into(),
+                shape: "hands".into()
+            })
+        );
+    }
 }
 
 /// The routes are judged where the seat's argv is: each qualified route on
