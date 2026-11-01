@@ -403,7 +403,7 @@ test('review R3: an unchanged first-page open run pushes no fleet and reuses the
   assert.deepEqual([pushes(realms), pushes(watcher), analytics()], [0, 0, before])
 })
 
-test('review R3: an unchanged open run a partial page omits also pushes no fleet', async () => {
+test('review R3: a partial page’s omitted run owes one fleet and then pushes no more', async () => {
   const page = windowOf([runOf('alpha', 0)], 'needs-you:1:alpha-run-0000')
   const missing = 'alpha-run-0100'
   const held = runningOf('alpha', 100, 12)
@@ -422,8 +422,17 @@ test('review R3: an unchanged open run a partial page omits also pushes no fleet
   const before = analytics()
   realms.sent.length = 0
   watcher.sent.length = 0
-  for (let poll = 0; poll < 3; poll += 1) await poller.tick()
   const pushes = (client) => client.sent.filter((message) => message.type === 'fleet').length
+  // The watcher's snapshot held the omitted run into the shared fleet, so the
+  // realms client is owed that one changed fleet; once it lands, the unchanged
+  // open run pushes no more.
+  await poller.tick()
+  const owed = realms.sent.find((message) => message.type === 'fleet')
+  assert.deepEqual(owed?.fleet.hearths[0].runs.map((row) => row.run_id), ['alpha-run-0000', missing], 'the realms client is owed the row the snapshot held')
+  assert.equal(pushes(watcher), 0, 'the watcher already painted the row')
+  realms.sent.length = 0
+  watcher.sent.length = 0
+  for (let poll = 0; poll < 2; poll += 1) await poller.tick()
   assert.deepEqual([pushes(realms), pushes(watcher), analytics()], [0, 0, before])
 })
 

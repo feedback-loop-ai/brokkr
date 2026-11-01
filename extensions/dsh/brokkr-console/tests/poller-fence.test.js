@@ -959,6 +959,47 @@ test('review 907p6 finding 2b: a withheld snapshot of an unchanged fleet still o
   assert.equal(fleet.fleet.hearths.find((hearth) => hearth.realm === 'alpha').runs[0].seq, 12, 'the client is owed the fleet already installed')
 })
 
+test('review 907p6 reforge: a snapshot’s retained-page row patch is owed to every other client', async () => {
+  const cursor = 'needs-you:1:alpha-run-0000'
+  const held = runOf('alpha', 0)
+  const paged = { ...runOf('alpha', 1), seq: 12 }
+  const advanced = { ...paged, seq: 13 }
+  const beta = runOf('beta', 0)
+  const map = realmsMap('/hearths/alpha/forge.db')
+  const read = runViewDoc({ seq: 13 })
+  read.summary = { ...read.summary, run_id: paged.run_id }
+  const brokkr = stubBrokkr([
+    { match: ['realms'], responses: [json(map)] },
+    { match: ['runs', `--after=${cursor}`], responses: [json(windowOf([paged], null))] },
+    { match: ['runs', `--run=${paged.run_id}`], responses: [json(oneRow(advanced))] },
+    { match: ['runs', '--db=/hearths/alpha/forge.db'], responses: [json(windowOf([held], cursor))] },
+    { match: ['runs', '--db=/hearths/beta/forge.db'], responses: [json(windowOf([beta], null))] },
+    { match: ['inspect'], responses: [json(read)] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const first = await attached(poller, { view: 'realm', realm: 'alpha', run: null })
+  first.sent.length = 0
+  first.receive({ type: 'more', realm: 'alpha' })
+  const pagedFleet = await heard(first)
+  assert.equal(pagedFleet.fleet.hearths.find((hearth) => hearth.realm === 'alpha').runs.at(-1).seq, 12, 'the first client paged alpha-run-0001 at its old head')
+
+  const second = peer()
+  second.receive = poller.attach(second)
+  second.receive({ type: 'watch', view: 'realm', realm: 'alpha', run: { realm: 'alpha', run_id: paged.run_id } })
+  await until(() => second.sent.some((message) => message.type === 'snapshot'), 'the second client’s snapshot')
+  const painted = second.sent.find((message) => message.type === 'snapshot')
+  assert.equal(painted.fleet.hearths.find((hearth) => hearth.realm === 'alpha').runs.at(-1).seq, 13, 'the snapshot paints the moved row')
+  assert.deepEqual(first.sent, [], 'the snapshot paints the first client nothing')
+
+  const before = callsOf(brokkr, 'realms')
+  first.sent.length = 0
+  await poller.tick()
+  assert.equal(callsOf(brokkr, 'realms') - before, 3, 'the poll reads the map for the fleet, its fence and the watched run’s fence')
+  const fleet = first.sent.find((message) => message.type === 'fleet')
+  assert.ok(fleet, 'the next poll sends the first client the fleet the snapshot patched')
+  assert.equal(fleet.fleet.hearths.find((hearth) => hearth.realm === 'alpha').runs.at(-1).seq, 13, 'the first client is owed the patched fleet')
+})
+
 test('review 907p6: every publishing path withholds a fleet one moved map contradicts', async () => {
   const heldAlpha = runningOf('alpha', 0, 12)
   const heldBeta = runningOf('beta', 0, 12)

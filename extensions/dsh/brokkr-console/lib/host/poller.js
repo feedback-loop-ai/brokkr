@@ -190,6 +190,16 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
   const staleAbsence = (source) => source === null || source.generation !== state.installed
 
   /**
+   * Mark every client owed the installed fleet until it is sent to that
+   * client. A changed install and a row held into the shared fleet are both
+   * changes no snapshot may paint for one client alone, so each marks all
+   * (R-2, ruling 5).
+   */
+  function oweAll() {
+    for (const client of clients) client.owed = true
+  }
+
+  /**
    * A run's journal from the latest fleet, or `null` when the listing is
    * whole and does not hold it. A page that says more or behind cannot show
    * a run was dropped: the run is read through the journal its realm names.
@@ -324,7 +334,7 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     // A changed fleet is owed to every client until it is sent to that
     // client: the snapshot that installed it paints only its own, so an
     // install must mark them all here, one home (R-2, ruling 5).
-    if (changed) for (const client of clients) client.owed = true
+    if (changed) oweAll()
     return { changed }
   }
 
@@ -456,7 +466,10 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
    * Replace the fleet's row for `target` whole with `row`, the one Brokkr
    * served, adding it where a partial listing left the run out. A whole
    * listing that omits the run still says the run is gone; a retained page
-   * never does (M5). An older read never replaces a newer head.
+   * never does (M5). An older read never replaces a newer head. A row held
+   * into the shared fleet is owed to every client, exactly as an install is:
+   * the next poll may find the fleet unchanged and install nothing, so the
+   * mutation marks them here (R-2, ruling 5).
    */
   function holdRow(target, row) {
     const hearth = state.fleet?.hearths.find((each) => each.realm === target.realm && each.journal === target.journal)
@@ -466,6 +479,7 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
       if (whole(hearth)) return false
       hearth.runs.push(row)
       state.fleetText = JSON.stringify(state.fleet)
+      oweAll()
       return 'added'
     }
     const held = hearth.runs[index]
@@ -478,6 +492,7 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
       if (at !== -1) extra.runs[at] = row
     }
     state.fleetText = JSON.stringify(state.fleet)
+    oweAll()
     return 'patched'
   }
 
