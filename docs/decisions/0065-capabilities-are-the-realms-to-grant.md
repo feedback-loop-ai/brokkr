@@ -3,7 +3,7 @@
 Status: accepted (operator ruled in chat, 2026-09-21)
 Date: 2026-09-21
 
-Built: unbuilt (#319) — the draft rebuild of slice one
+Built: partial (#467) — slice one merged 2026-10-01 (#319, 7c92e45da); slice two lands unit by unit, U0b through U9b1b merged by 2026-11-01 (#933), and its remaining units are tasked in the openspec change decision-0065-capabilities-slice-two
 Amends: 0016
 Amended by: 0077, 0090
 
