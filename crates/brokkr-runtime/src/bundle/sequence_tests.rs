@@ -253,6 +253,26 @@ fn sequence_seat(results: Value) -> Value {
     sequence_seat_declaring(json!(["a", "hold"]), results)
 }
 
+/// A two-member panel for a `unanimous-pass` final step.
+fn unanimous_panel() -> Value {
+    json!({
+        "one": {"role": "roles/role.md", "driver": {"command": ["driver"]}},
+        "two": {"role": "roles/role.md", "driver": {"command": ["driver"]}},
+    })
+}
+
+/// The `pass`/`fail` arms a `unanimous-pass` final step can reach, plus
+/// `extra`, an arm only a declared word (or an earlier ending) could reach.
+fn panel_rules(extra: Value) -> Value {
+    json!([
+        {"id": "REVIEW-PASS", "from": "review", "result": "pass",
+         "next": "done", "reason": "pass"},
+        {"id": "REVIEW-FAIL", "from": "review", "result": "fail",
+         "next": "stop", "severity": "hard", "reason": "fail"},
+        extra,
+    ])
+}
+
 fn sequence_seat_declaring(first: Value, results: Value) -> Value {
     json!({
         "results": results,
@@ -534,24 +554,17 @@ fn an_arm_only_an_unreachable_later_step_can_emit_is_refused() {
 /// refused exactly as a single final step's unreachable arm is.
 #[test]
 fn a_table_arm_no_reachable_step_or_aggregate_can_emit_is_refused() {
-    let rules = json!([
-        {"id": "REVIEW-PASS", "from": "review", "result": "pass",
-         "next": "done", "reason": "pass"},
-        {"id": "REVIEW-FAIL", "from": "review", "result": "fail",
-         "next": "stop", "severity": "hard", "reason": "fail"},
-        {"id": "REVIEW-GHOST", "from": "review", "result": "ghost",
-         "next": "done", "reason": "only a reachable step may spell this"},
-    ]);
+    let rules = panel_rules(json!({
+        "id": "REVIEW-GHOST", "from": "review", "result": "ghost",
+        "next": "done", "reason": "only a reachable step may spell this"
+    }));
     let seat = |first: Value| {
         json!({
             "results": ["pass", "fail", "ghost"],
             "sequence": [
                 {"name": "first", "results": first,
                  "role": "roles/role.md", "driver": {"command": ["driver"]}},
-                {"name": "last", "aggregate": "unanimous-pass", "panel": {
-                    "one": {"role": "roles/role.md", "driver": {"command": ["driver"]}},
-                    "two": {"role": "roles/role.md", "driver": {"command": ["driver"]}},
-                }},
+                {"name": "last", "aggregate": "unanimous-pass", "panel": unanimous_panel()},
             ],
         })
     };
@@ -578,4 +591,97 @@ fn a_table_arm_no_reachable_step_or_aggregate_can_emit_is_refused() {
         ),
         "the final step is the unanimous-pass panel the arm cannot reach"
     );
+}
+
+/// An impassable middle step makes every later step unreachable, so a word
+/// only a later step could emit must not suppress the earlier step's
+/// ending: the engine would stop at the barrier and never reach the tail.
+/// The compiled set follows the reachable suffix, so `a` ends `first`
+/// (decision 0050, ruling 7).
+#[test]
+fn an_unreachable_later_step_does_not_hide_an_earlier_ending() {
+    let rules = json!([
+        {"id": "REVIEW-A", "from": "review", "result": "a", "next": "done",
+         "reason": "a"},
+        {"id": "REVIEW-HOLD", "from": "review", "result": "hold", "next": "stop",
+         "severity": "hard", "reason": "hold"},
+    ]);
+    let seats = json!({
+        "work": single_seat(&["complete"]),
+        "review": {
+            "results": ["a", "hold"],
+            "sequence": [
+                {"name": "first", "results": ["a", "continue"],
+                 "role": "roles/role.md", "driver": {"command": ["driver"]}},
+                {"name": "barrier", "results": ["hold"],
+                 "role": "roles/role.md", "driver": {"command": ["driver"]}},
+                {"name": "last",
+                 "role": "roles/role.md", "driver": {"command": ["driver"]}},
+            ],
+        },
+    });
+    let dir = fixture_with_seats(policy(rules), seats);
+    let steps = compiled_steps(
+        dir.path(),
+        "the earlier ending is not hidden by the unreachable tail",
+    );
+    assert_eq!(
+        steps[0].ends_on,
+        vec!["a".to_string()],
+        "the barrier ends every run before `last`, so `a` has no reachable later emitter"
+    );
+    assert_eq!(
+        steps[1].ends_on,
+        vec!["hold".to_string()],
+        "the barrier's only word is the hard stop"
+    );
+}
+
+/// The `__member-schema-invalid__` marker is the aggregate's fail-closed
+/// poison, never a reportable word: a seat or a step that declares it is
+/// refused by name, so `Aggregate::emits` never has to admit a word the
+/// aggregate can return but no declared-results check could lawfully pass.
+#[test]
+fn a_declared_member_schema_marker_is_refused_by_name() {
+    let rules = panel_rules(json!({
+        "id": "REVIEW-MARKER", "from": "review", "result": "__member-schema-invalid__",
+        "next": "done", "reason": "the marker is never a reportable result"
+    }));
+    let panel = unanimous_panel();
+    let seat = json!({
+        "results": ["pass", "fail", "__member-schema-invalid__"],
+        "sequence": [
+            {"name": "first", "results": ["continue"],
+             "role": "roles/role.md", "driver": {"command": ["driver"]}},
+            {"name": "last", "aggregate": "unanimous-pass", "panel": panel.clone()},
+        ],
+    });
+    let dir = fixture(policy(rules.clone()), seat);
+    assert_marker_refusal(compile(dir.path()), "seat 'review'");
+
+    let step_seat = json!({
+        "results": ["pass", "fail"],
+        "sequence": [
+            {"name": "first", "results": ["__member-schema-invalid__"],
+             "role": "roles/role.md", "driver": {"command": ["driver"]}},
+            {"name": "last", "aggregate": "unanimous-pass", "panel": panel},
+        ],
+    });
+    let dir = fixture(policy(rules), step_seat);
+    assert_marker_refusal(compile(dir.path()), "sequence step 'review:first'");
+}
+
+/// The whole marker-declaration refusal, naming the word by name.
+fn assert_marker_refusal(compiled: Result<Bundle, CompileError>, what: &str) {
+    match compiled {
+        Err(CompileError::Invalid(text)) => assert_eq!(
+            text,
+            format!(
+                "{what} may not declare '__member-schema-invalid__': a malformed panel \
+                 member's marker is never a reportable result"
+            ),
+        ),
+        Err(other) => panic!("expected CompileError::Invalid, got {other:?}"),
+        Ok(_) => panic!("the declared marker is refused"),
+    }
 }

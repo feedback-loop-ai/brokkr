@@ -271,24 +271,26 @@ Alternatives weighed:
 7. **The sequence's endings are compiled, and the constitution crosses
    into it.** For every non-final step the compiler computes `ends_on`:
    the words in the seat's vocabulary the step may report that no later
-   step can emit, pinned on the compiled step; the executor ends the
-   sequence on a word in `ends_on` and never compares vocabularies at run
-   time. Compile refuses a table arm for the phase whose word no step the
-   sequence can reach can emit — the reverse of the coverage rule that
-   stands today, where a step every result of which ends the sequence
-   makes its later steps unreachable. And a non-final step whose result is
-   in the seat's *hard* vocabulary — a word whose every table arm is
-   `hard` and goes to a phase that stops the run (the terminal `stop`,
-   the engine's own test) — ends the sequence with that
-   word wherever it is reported: a panel's `security-hold` is the
-   machine's. The chief's charter floor stays as prose and stops being
-   the only defence.
+   step the sequence can reach can emit, pinned on the compiled step; the
+   executor ends the sequence on a word in `ends_on` and never compares
+   vocabularies at run time. Compile refuses a table arm for the phase
+   whose word no step the sequence can reach can emit — the reverse of
+   the coverage rule that stands today, where a step every result of
+   which ends the sequence makes its later steps unreachable. And a
+   non-final step whose result is in the seat's *hard* vocabulary — a
+   word whose every table arm is `hard` and goes to a phase that stops
+   the run (the terminal `stop`, the engine's own test) — ends the
+   sequence with that word wherever it is reported: a panel's
+   `security-hold` is the machine's. The chief's charter floor stays as
+   prose and stops being the only defence.
 
    **Enforcement binding:** the sequence parser in
    `crates/brokkr-runtime/src/bundle/sequence.rs` (`parse_sequence`,
    `stamp_endings`, `hard_results`, which asks `stops_run`, the one test
    the engine's `request_or_finish` also calls, whether an arm's
-   destination stops the run; `refuse_unreachable`: the reachable set
+   destination stops the run; `stamp_sequence`/`reachable_after`, which
+   unions only the later steps the run can reach before one every result
+   of which ends the sequence; `refuse_unreachable`: the reachable set
    is the final step's results plus every non-final step's compiled
    `ends_on`, walked until a step every result of which ends the sequence,
    since a middle step's plain checkpoint never reaches the
@@ -301,7 +303,11 @@ Alternatives weighed:
    error); `crates/brokkr-runtime/src/bundle/sequence_tests.rs` — the
    compiled set equals the old run-time rule plus the hard words for every
    shipped sequence, an unreachable arm is refused naming the rule and the
-   word, and a manifest without endings recompiles to the same set;
+   word, an impassable middle step does not hide an earlier ending
+   (`an_unreachable_later_step_does_not_hide_an_earlier_ending`), a declared
+   `__member-schema-invalid__` is refused by name
+   (`a_declared_member_schema_marker_is_refused_by_name`), and a manifest
+   without endings recompiles to the same set;
    `crates/brokkr-runtime/tests/crucible_review_sequence.rs` — a panel
    reporting `security-hold` under a chief that would rule `clean` ends the
    effect at `security-hold` and the run stops, while a non-hard `residual`

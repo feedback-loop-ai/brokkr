@@ -5,6 +5,8 @@
 use brokkr_core::policy::SEVERITY_ORDER;
 use serde_json::{json, Map, Value};
 
+use super::CompileError;
+
 /// Deterministic, order-independent aggregation rules — a closed
 /// vocabulary, like conditions: named in data, implemented in the
 /// engine, never arbitrary code.
@@ -20,6 +22,11 @@ pub enum Aggregate {
 impl Aggregate {
     /// Every aggregate, in the order its vocabulary is named.
     const ALL: [Aggregate; 2] = [Aggregate::UnanimousPass, Aggregate::ReviewPanel];
+
+    /// The marker a panel emits for a member payload with no readable
+    /// result string: the aggregate's fail-closed poison, never a result
+    /// a seat or step may declare (decision 0050, ruling 7).
+    pub(super) const MEMBER_SCHEMA_INVALID: &'static str = "__member-schema-invalid__";
 
     /// The word a bundle writes for this aggregate, and its manifest
     /// records.
@@ -42,6 +49,28 @@ impl Aggregate {
         Aggregate::ALL.map(Aggregate::word).join(", ")
     }
 
+    /// Refuse a declared vocabulary that names
+    /// [`MEMBER_SCHEMA_INVALID`](Self::MEMBER_SCHEMA_INVALID). The marker
+    /// is the aggregate's poison for a malformed member, not a result a
+    /// step can report, so refusing it where the vocabulary is declared
+    /// keeps `emits` honest and a table arm for it unreachable.
+    pub(super) fn refuse_member_marker(
+        declared: &[String],
+        what: &str,
+    ) -> Result<(), CompileError> {
+        if declared
+            .iter()
+            .any(|word| word == Self::MEMBER_SCHEMA_INVALID)
+        {
+            return Err(CompileError::Invalid(format!(
+                "{what} may not declare '{}': a malformed panel member's marker is \
+                 never a reportable result",
+                Self::MEMBER_SCHEMA_INVALID
+            )));
+        }
+        Ok(())
+    }
+
     /// The results a declaring vocabulary must cover: every word the
     /// aggregate is required to be able to return. For `unanimous-pass`
     /// that is its own two words; for `review-panel` it is the three
@@ -55,15 +84,18 @@ impl Aggregate {
     }
 
     /// The table words [`Aggregate::aggregate_results`] can emit for a
-    /// step whose declared results are `declared`. `unanimous-pass`
-    /// emits exactly `pass`/`fail`, which is all `unanimous_pass` can
-    /// return for valid members. `review-panel` returns the worst
-    /// member's word verbatim, so it emits every word the step DECLARES,
-    /// including one beyond the aggregate's required results.
+    /// step whose declared results are `declared`, and which the step's
+    /// declared-results check admits. `unanimous-pass` emits exactly
+    /// `pass`/`fail`, which is all `unanimous_pass` can return for valid
+    /// members. `review-panel` returns the worst member's word verbatim,
+    /// so it emits every word the step DECLARES, including one beyond the
+    /// aggregate's required results.
     ///
     /// A member payload with no readable result string becomes the
-    /// `__member-schema-invalid__` marker, which no declared vocabulary
-    /// admits. A `review-panel` member word the step does not declare is
+    /// [`MEMBER_SCHEMA_INVALID`](Self::MEMBER_SCHEMA_INVALID) marker,
+    /// which [`refuse_member_marker`](Self::refuse_member_marker) refuses
+    /// wherever a vocabulary is declared, so no panel emits it to the
+    /// table. A `review-panel` member word the step does not declare is
     /// likewise not emittable: at a non-final step `vocabulary_problem`
     /// fails the attempt (0006-retryable), and only the final step's
     /// word reaches decide(), whose declared-results check parks it.
@@ -87,7 +119,7 @@ impl Aggregate {
         let Some(read) = Verdicts::read(members) else {
             let evidence: Map<String, Value> = members.iter().cloned().collect();
             return json!({
-                "result": "__member-schema-invalid__",
+                "result": Aggregate::MEMBER_SCHEMA_INVALID,
                 "notes": {"members": Value::Object(evidence)},
             });
         };
@@ -139,7 +171,7 @@ fn unanimous_pass(parsed: &[(&str, &str, &Value)], meta: Value) -> Value {
     // so decide() parks with the member evidence.
     if parsed.iter().any(|(_, r, _)| *r != "pass" && *r != "fail") {
         return json!({
-            "result": "__member-schema-invalid__",
+            "result": Aggregate::MEMBER_SCHEMA_INVALID,
             "notes": meta,
         });
     }

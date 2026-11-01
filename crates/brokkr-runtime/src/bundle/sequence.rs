@@ -102,7 +102,7 @@ pub(super) fn step_results(
     if final_step {
         Ok(at.results.to_vec())
     } else if step_raw.get("results").is_some() {
-        step_raw
+        let values = step_raw
             .get("results")
             .and_then(Value::as_array)
             .map(|values| {
@@ -117,7 +117,9 @@ pub(super) fn step_results(
                 CompileError::Invalid(format!(
                     "sequence step '{what}' needs its own non-empty 'results' vocabulary"
                 ))
-            })
+            })?;
+        Aggregate::refuse_member_marker(&values, &format!("sequence step '{what}'"))?;
+        Ok(values)
     } else if let Some(aggregate) = step_raw
         .get("aggregate")
         .and_then(Value::as_str)
@@ -403,22 +405,31 @@ fn stamp_sequence(
 ) -> Result<(), CompileError> {
     let hard = hard_results(machine, phase);
     let last = steps.len().saturating_sub(1);
-    for index in 0..last {
-        let (before, later) = steps.split_at_mut(index + 1);
-        let step = &mut before[index];
-        let words = emittable(step);
-        step.ends_on = endings(&words, later, seat_results, &hard);
-        step.hard_results = words
-            .iter()
-            .filter(|word| hard.contains(*word))
-            .cloned()
-            .collect();
+    let emittables: Vec<BTreeSet<String>> = steps.iter().map(emittable).collect();
+    // Endings depend on the endings of the steps after them: whether a
+    // later step is reachable at all turns on whether the steps before it
+    // have a word that lets the run continue. Compute from the end back.
+    let mut endings: Vec<Vec<String>> = vec![Vec::new(); steps.len()];
+    let mut passable = vec![false; steps.len()];
+    for index in (0..last).rev() {
+        let later = reachable_after(&emittables, &passable, index, last);
+        let ends = endings_of(&emittables[index], &later, seat_results, &hard);
+        passable[index] = emittables[index].iter().any(|word| !ends.contains(word));
+        endings[index] = ends;
     }
     // The final step (the schema gives a sequence at least one) ends the
     // sequence by definition, so it holds no endings of its own.
-    for step in steps.iter_mut().skip(last) {
-        step.ends_on.clear();
-        step.hard_results.clear();
+    for (index, step) in steps.iter_mut().enumerate() {
+        step.ends_on = std::mem::take(&mut endings[index]);
+        step.hard_results = if index == last {
+            Vec::new()
+        } else {
+            emittables[index]
+                .iter()
+                .filter(|word| hard.contains(*word))
+                .cloned()
+                .collect()
+        };
     }
     refuse_unreachable(machine, bundle, phase, steps)
 }
@@ -429,8 +440,8 @@ fn stamp_sequence(
 /// worst member's word is returned verbatim — and every other step's
 /// declared results. A panel's `results` is the vocabulary it declares (the
 /// seat's own for the final step), which may be wider than the aggregate's
-/// required results, but never wider than what the aggregate itself can
-/// return (decision 0050, ruling 7).
+/// required results and, for `unanimous-pass`, wider than what the
+/// aggregate emits; `emits` narrows it (decision 0050, ruling 7).
 fn emittable(step: &SequenceStep) -> BTreeSet<String> {
     match &step.body {
         StepBody::Invocation(Invocation::Panel { aggregate, .. }) => aggregate
@@ -444,16 +455,37 @@ fn emittable(step: &SequenceStep) -> BTreeSet<String> {
     }
 }
 
+/// The words the engine could still report after step `index`: every later
+/// step it can reach, up to and including the first step every word of
+/// which ends the sequence. A step is reachable while the steps between it
+/// and `index` each emit at least one word that does not end them; the
+/// impassable step itself runs and ends, so its words count and nothing
+/// after it does.
+fn reachable_after(
+    emittables: &[BTreeSet<String>],
+    passable: &[bool],
+    index: usize,
+    last: usize,
+) -> BTreeSet<String> {
+    let mut later = BTreeSet::new();
+    for step in (index + 1)..=last {
+        later.extend(emittables[step].iter().cloned());
+        if step == last || !passable[step] {
+            break;
+        }
+    }
+    later
+}
+
 /// The words `words` holds that end a sequence at a non-final step: the
-/// seat's words no later step can emit, and every hard word the step can
-/// report even when a later step can emit it too.
-fn endings(
+/// seat's words no reachable later step can emit, and every hard word the
+/// step can report even when a later step can emit it too.
+fn endings_of(
     words: &BTreeSet<String>,
-    later: &[SequenceStep],
+    later: &BTreeSet<String>,
     seat_results: &[String],
     hard: &BTreeSet<String>,
 ) -> Vec<String> {
-    let later: BTreeSet<String> = later.iter().flat_map(emittable).collect();
     let mut ends: BTreeSet<String> = words
         .iter()
         .filter(|word| seat_results.contains(*word) && !later.contains(*word))

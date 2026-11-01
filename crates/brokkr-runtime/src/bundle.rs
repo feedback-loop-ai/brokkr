@@ -276,11 +276,11 @@ pub struct SequenceStep {
     pub results: Vec<String>,
     pub body: StepBody,
     /// The words this non-final step reports that end the sequence
-    /// (decision 0050, ruling 7): the seat's words no later step can emit,
-    /// plus the phase's hard words. Derived at compile from the words the
-    /// step can emit, the seat's vocabulary and the composed table; never
-    /// serialized, and recomputed at compile and on resume.
-    /// Empty for the final step, which ends the sequence by definition.
+    /// (decision 0050, ruling 7): the seat's words no later step the
+    /// sequence can reach can emit, plus the phase's hard words. Derived
+    /// at compile from the step's words, the seat's vocabulary and the
+    /// composed table; never serialized, recomputed at compile and on
+    /// resume. Empty for the final step, which ends the sequence.
     pub ends_on: Vec<String>,
     /// The subset of `ends_on` that is the phase's hard vocabulary, so the
     /// journal can say a hard word ended the sequence rather than an

@@ -62,8 +62,8 @@ struct Carried {
     prior_results: Map<String, Value>,
     /// The change a dialect step's `{change}` expands to.
     nearest_change: Option<String>,
-    /// A deterministic dialect check's failing step and result, which the
-    /// final step may not contradict.
+    /// A deterministic dialect check's failing step and result, which
+    /// neither an early ending nor the final step may contradict.
     deterministic_failure: Option<(String, String)>,
 }
 
