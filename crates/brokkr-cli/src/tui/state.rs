@@ -399,6 +399,11 @@ pub(crate) struct Tui {
     /// Scroll within the reader, in wrapped lines.
     pub read_offset: usize,
     pub status: Option<String>,
+    /// A sentence a key must still show after a frame answers in the same
+    /// tick: the held queue's overflow notice, which `arrive` would
+    /// otherwise overwrite with a frame's own note before the draw (M2).
+    /// The shell clears it once the frame carrying it has been drawn.
+    pub notice: Option<String>,
     pub ticks: usize,
     /// Consumed by the shell: `r`, a level change, or the first frame.
     pub force: bool,
@@ -501,6 +506,7 @@ impl Tui {
             reading_transcript: false,
             read_offset: 0,
             status: None,
+            notice: None,
             ticks: 0,
             force: true,
             all: false,

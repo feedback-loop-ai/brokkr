@@ -178,3 +178,69 @@ fn chief_landing_vanished_run_cancels_held_end_before_the_fleet_draws() {
         "the fleet is not scrolled by the cancelled end"
     );
 }
+
+/// M2 (rulings 5 and 9): the queue's overflow notice survives the frame
+/// that answers before the next draw. At the participant level, 65
+/// alternating keys overflow the 64-run bound while the read is out; the
+/// answering frame carries no note of its own, and the frame drawn after
+/// it still says the oldest run was dropped. The retained 64 keys end at
+/// 1, where the whole read's 65 end at 0: the dropped run is the oldest.
+#[test]
+fn chief_753c9_overflow_notice_survives_the_answering_frame() {
+    let _serialized = TERMINAL.lock().unwrap_or_else(|error| error.into_inner());
+    let events = journal("eff-i");
+    let mut tui = Tui::new(Some("run-7".to_string()));
+    participant_level(&mut tui, "eff-i");
+    (tui.width, tui.height) = (80, 30);
+    tui.offset = 1;
+    // Alternating runs, starting and ending Up: each is its own run, so
+    // the sixty-fifth overflows the 64-run bound and drops the first Up.
+    // A leading unbound character lets the first frame arrive before the
+    // keys, as the shell's first read does, so the seat is held.
+    let mut keys = vec![Key::Char('z')];
+    keys.extend((0..=HELD_BOUND).map(|index| match index % 2 {
+        0 => Key::Up,
+        _ => Key::Down,
+    }));
+    script(&keys);
+    let answers = events.clone();
+    let mut call = 0usize;
+    let mut source = move |_ask: Ask| -> Polled {
+        call += 1;
+        if (2..=HELD_BOUND + 2).contains(&call) {
+            // Every movement key is pressed while these reads are out.
+            Polled::Pending
+        } else {
+            // The first frame opens the seat; the last lands before the
+            // next draw and says nothing of its own, so `arrive` would
+            // overwrite the notice.
+            Ok(Some(participant_views(&answers, 2))).into()
+        }
+    };
+    let mut terminal = Terminal::new(TestBackend::new(80, 30)).unwrap();
+    drive(
+        &mut terminal,
+        &test_ops(),
+        &mut source,
+        &mut tui,
+        HELD_BOUND + 3,
+    )
+    .unwrap();
+    assert_eq!(
+        tui.offset, 1,
+        "the oldest run was dropped: the retained 64 end at 1, the whole read's 65 at 0"
+    );
+    assert!(tui.notice.is_none(), "the draw consumed the notice");
+    assert_eq!(tui.status, None, "the answering frame said nothing");
+    let drawn: String = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(
+        drawn.contains("held movement keys dropped: the queue is full"),
+        "the overflow notice is on the frame: {drawn}"
+    );
+}

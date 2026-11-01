@@ -169,6 +169,64 @@ fn a_carried_window_without_an_older_cursor_stops_at_its_start() {
     assert_eq!(total, 5, "the rank the window already holds");
 }
 
+/// M1 (ruling 9): a backward jump from the stream's last window to its
+/// head holds one window, not every page between. The carried page is the
+/// one a deep step read ([950, 1000)); `g` asks for row 0, the backward
+/// read retains only the window the caller will hold, and its forward
+/// cursor names that window's last row. The page is still the whole
+/// read's, and the stream's known end survives the cut.
+#[test]
+fn a_backward_jump_holds_the_window_not_the_stream() {
+    let run = "backward window";
+    let journal = Journal::of(at_work(run, 1_000, true), run);
+    let seqs: Vec<u64> = checkpoints(&journal.events)
+        .iter()
+        .map(|event| event.seq)
+        .collect();
+    assert_eq!(seqs.len(), 1_000, "the journal holds the stream");
+    let deep = journal.fetch(run, 24, 950, &[]);
+    let head = journal.fetch(run, 24, 0, &[]);
+    let carried_page = || {
+        let (page, total) = deep
+            .participant(("eff", None), None)
+            .unwrap()
+            .expect("the deep page reads");
+        assert_eq!(page.start, 950, "the carried page is the deep one");
+        assert_eq!(total, Some(1_000), "the deep read reached the end");
+        page
+    };
+    // The bound itself: after the backward read the retained rows are the
+    // caller's window, never the thousand rows between it and the end.
+    let mut page = carried_page();
+    assert!(head
+        .extend_back(("eff", None), &mut page)
+        .unwrap()
+        .is_some());
+    assert_eq!(page.rows.len(), WINDOW, "the retained rows are one window");
+    assert_eq!(
+        page.next,
+        Some(seqs[WINDOW - 1]),
+        "the forward cursor is the window's last row"
+    );
+    // The whole read's window, through the participant read the shell
+    // makes: the same rows, and the end the carried page already knew.
+    let (window, total) = head
+        .participant(("eff", None), Some(carried_page()))
+        .unwrap()
+        .expect("the head page reads");
+    let held: Vec<u64> = window.rows.iter().map(|(seq, _)| *seq).collect();
+    assert_eq!(
+        held,
+        seqs[..WINDOW],
+        "the jump's rows are the whole read's first window"
+    );
+    assert_eq!(
+        total,
+        Some(1_000),
+        "the known end survives the backward cut"
+    );
+}
+
 /// An older page that holds no checkpoint is the stream's oldest row: the
 /// window drops the cursor rather than asking again.
 #[test]

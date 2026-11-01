@@ -430,9 +430,9 @@ where
         if unwound(&tui.watched) {
             return Ok(Closed::Ended);
         }
-        // The same measurement draws the frame, its footer and the keys
-        // below, so all of them agree on one size.
+        // The same measurement draws the frame, its footer and the keys.
         terminal.draw(|frame| draw(frame, tui, &views))?;
+        drawn(tui, size);
         if (ops.poll)(TICK)? {
             if let Some(closed) = closed_by(tui, &views, (ops.read)()?) {
                 return Ok(closed);
@@ -442,6 +442,16 @@ where
     }
     // Only a test bounds the loop; one that ran out closes as `q` would.
     Ok(Closed::Quit)
+}
+
+/// A frame has been drawn at `size`: a notice a key set has now been seen
+/// once, so the next frame's sentence may take the status line. A frame
+/// too small to hold the status line draws no notice, so it stays pending
+/// until a frame does (M2).
+fn drawn(tui: &mut Tui, size: (u16, u16)) {
+    if size.0 >= MIN_WIDTH && size.1 >= MIN_HEIGHT {
+        tui.notice = None;
+    }
 }
 
 /// One session of the console on a terminal: every environment fact and

@@ -75,6 +75,10 @@ impl Fetch<'_> {
             // and read forward, whatever page was held before.
             return self.participant_whole(seat);
         }
+        // The carried page may already reach the stream's end. The
+        // backward read drops the rows above the window, so the end's
+        // rank is read here, before that cut (M1, R3, F1).
+        let known = page.next.is_none().then(|| page.seen());
         let Some(()) = self.extend_back(seat, &mut page)? else {
             return Ok(None);
         };
@@ -85,10 +89,10 @@ impl Fetch<'_> {
         let Some(()) = self.extend_after(seat, &mut page, Some(end))? else {
             return Ok(None);
         };
-        // The read reached the stream's end before the window was cut:
-        // that is the stream's whole rank, whatever the narrowed display
-        // page asked for (R3, F1).
-        let total = page.next.is_none().then(|| page.seen());
+        // The read reached the stream's end before the window was cut, or
+        // the page it started from already did: that is the stream's whole
+        // rank, whatever the narrowed display page asked for (R3, F1).
+        let total = known.or_else(|| page.next.is_none().then(|| page.seen()));
         if page.seen() > end {
             let keep = end.saturating_sub(page.start);
             page.rows.truncate(keep);
@@ -153,12 +157,24 @@ impl Fetch<'_> {
     }
 
     /// Extend the page back to the scroll's row, one older page at a time,
-    /// stopping at the stream's oldest row or a page the store keeps.
-    fn extend_back(
+    /// stopping at the stream's oldest row or a page the store keeps. The
+    /// rows past the window the caller will hold are dropped as the older
+    /// pages are prepended, so a jump from the stream's end to its head
+    /// holds one window rather than every page between (M1, ruling 9): a
+    /// page wholly above that window carries only its rank until the read
+    /// reaches it.
+    /// The bound is driven by
+    /// `a_backward_jump_holds_the_window_not_the_stream`.
+    pub(super) fn extend_back(
         &self,
         seat: (&str, Option<&str>),
         page: &mut Page,
     ) -> Result<Option<()>, StoreError> {
+        let end = self.offset.saturating_add(WINDOW).max(self.limit());
+        // Whether rows above the window have already been dropped: once
+        // they have, the forward cursor is the last kept row even when the
+        // pages below it fill the window exactly.
+        let mut cut = false;
         while page.start > self.offset {
             let Some(before) = page.older else {
                 break;
@@ -175,6 +191,18 @@ impl Fetch<'_> {
             held.append(&mut page.rows);
             page.rows = held;
             page.older = older;
+            if page.start >= end {
+                // Every retained row is still past the window; keep the
+                // rank and the older cursor, not the rows above it.
+                cut |= !page.rows.is_empty();
+                page.rows.clear();
+            } else if cut || page.seen() > end {
+                // The window's end is now inside the retained rows: cut
+                // the suffix and resume the forward read from its last
+                // kept row.
+                page.rows.truncate(end - page.start);
+                page.next = page.rows.last().map(|(seq, _)| *seq);
+            }
         }
         Ok(Some(()))
     }

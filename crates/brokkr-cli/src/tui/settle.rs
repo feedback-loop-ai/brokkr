@@ -239,7 +239,11 @@ pub(crate) fn hold(tui: &mut Tui, step: Step) {
             cancel_end(tui, origin);
             tui.want = None;
         }
-        tui.status = Some("held movement keys dropped: the queue is full".to_string());
+        let notice = "held movement keys dropped: the queue is full".to_string();
+        // The frame answering before the next draw may carry its own
+        // sentence; this one must still be seen once (M2).
+        tui.notice = Some(notice.clone());
+        tui.status = Some(notice);
     }
     tui.held.push(Held {
         step,
