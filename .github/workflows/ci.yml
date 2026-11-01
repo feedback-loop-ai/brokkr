@@ -180,21 +180,40 @@ jobs:
         working-directory: extensions/dsh/brokkr-console
         run: npm test
 
-  engine:
-    name: test (${{ matrix.os }})
+  # The suite's machines (operator ruling 2026-11-01): one runner ran every
+  # shard one after another, and a hosted merge-queue run took 57 minutes
+  # on Linux and 42 on macOS, past 75 on a slow runner. Each machine below
+  # runs the shards scripts/test-shards.sh lays on it, still one after
+  # another, so a shard never shares its runner, and the machines run at
+  # once. `test (ubuntu-latest)` and `test (macos-latest)` are the `engine`
+  # job's verdicts over them, so the checks main requires keep their names.
+  engine-machines:
+    name: test (${{ matrix.os }}) on ${{ matrix.machine }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            machine: linux/1
+          - os: ubuntu-latest
+            machine: linux/2
+          - os: ubuntu-latest
+            machine: linux/3
+          - os: ubuntu-latest
+            machine: linux/4
+          - os: ubuntu-latest
+            machine: linux/5
+          - os: macos-latest
+            machine: macos/1
+          - os: macos-latest
+            machine: macos/2
     runs-on: ${{ fromJSON(matrix.os == 'ubuntu-latest' && vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-engine"]' || format('["{0}"]', matrix.os)) }}
-    # 75, not the usual 20 (operator rulings 2026-10-09, 2026-10-15 and
-    # 2026-10-26): decision 0065 slice two's broker boundary proofs grew the
-    # Linux run to 18-20 minutes, then to 26-27, and a run with every test
-    # passed was cancelled at 30 (#701), as a merge group's had dropped #598
-    # from the queue. The merge queue's hosted runs then took 26-42 minutes,
-    # and decision 0089's heap tests carried #888's past 45, which dropped it
-    # from the queue three times; 75 matches the exact coverage gate's (#887).
-    timeout-minutes: 90
+    # 45, not the usual 20 (operator rulings 2026-10-09 to 2026-11-01): a
+    # machine's shards took about 20 minutes on a hosted runner, and its
+    # build and setup 3 to 5, and a slow hosted runner is a third slower.
+    # One runner running every shard took 57 minutes and was cancelled at
+    # 75 on a slow one (#940).
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -225,6 +244,9 @@ jobs:
       # single-test heap binaries run together, with every child joined.
       - run: bash scripts/test-shards.sh test --parallel-heaps
         env:
+          # The machine whose shards this runner runs; a local run, with
+          # none named, runs every shard.
+          BROKKR_TEST_MACHINE: ${{ matrix.machine }}
           # The protected set's directory, empty where the step was skipped
           # (macOS), so nothing waits there (#647).
           BROKKR_SYSTEM_SET: ${{ steps.bubblewrap.outputs.system-set }}
@@ -249,7 +271,7 @@ jobs:
       # it explicitly with `--ignored --exact`. The report-content checks make a
       # mis-selection or an empty report a failure rather than a silent pass.
       - name: R3 native startup gate
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && matrix.machine == 'macos/1'
         run: |
           set -euo pipefail
           sw_vers
@@ -262,7 +284,7 @@ jobs:
           grep -Eq 'test result: ok\. 1 passed' target/r3-startup.log
           grep -q 'Gate A startup verdict' target/r3-startup-report.txt
       - name: R3 native diagnostics
-        if: always() && runner.os == 'macOS'
+        if: always() && runner.os == 'macOS' && matrix.machine == 'macos/1'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: r3-native-diagnostics
@@ -274,6 +296,27 @@ jobs:
         run: |
           cargo run --locked -p brokkr-cli -- compile --bundle recipes/self
           cargo run --locked -p brokkr-cli -- compile --bundle recipes/verify
+
+  # The checks main requires for the suite: each system's verdict over the
+  # machines above. It runs whatever they ended with, `always()`, because a
+  # skipped job reports success to a required check: a machine that failed,
+  # was cancelled or never ran fails both verdicts, and the machine's own
+  # job names which.
+  engine:
+    name: test (${{ matrix.os }})
+    needs: engine-machines
+    if: always()
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: every machine ran its shards and passed
+        env:
+          MACHINES: ${{ needs.engine-machines.result }}
+        run: test "$MACHINES" = success
 
   # Gate A is a hard gate in `test (macos-latest)`: it passes, so it
   # protects a solved property. Gate B reports while #269 is open. The
@@ -323,15 +366,23 @@ jobs:
             target/r3-lifetime-report.txt
           if-no-files-found: warn
 
-  coverage:
-    name: exact coverage gate
+  # The exact gate's machines (operator ruling 2026-11-01): one runner ran
+  # every instrumented shard one after another, 46 to 66 minutes on a
+  # hosted runner, past 75 on a slow one. Each machine measures the shards
+  # scripts/test-shards.sh lays on it, one after another, and hands the
+  # report its merged profile; the machines run at once.
+  coverage-machines:
+    name: exact coverage on ${{ matrix.machine }}
+    strategy:
+      fail-fast: false
+      matrix:
+        machine: [linux/1, linux/2, linux/3, linux/4, linux/5]
     runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-coverage"]' || '["ubuntu-latest"]') }}
-    # 45, not the usual 20 (operator rulings 2026-10-07 and 2026-10-15):
-    # the broker's boundary proofs each wait out its fixed 30 s startup
-    # deadline, which the design forbids shortening for tests, so the
-    # instrumented run outgrew 20 minutes, then reached 28 of 30, and a
-    # merge group's run was cancelled at 30.
-    timeout-minutes: 90
+    # 45, not the usual 20: a machine's instrumented shards took up to about
+    # 20 minutes on a hosted runner, its build and setup about 5, and a slow
+    # hosted runner is a third slower (operator rulings 2026-10-07 to
+    # 2026-11-01).
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -386,13 +437,96 @@ jobs:
         with:
           protect-system-tree: 'background'
           cache-build: 'true'
-      - name: prove literal nonzero 100% source-line/branch/function coverage
+      - name: measure this machine's shards
         run: bash scripts/coverage-exact.sh --parallel-heaps
         env:
+          # The machine whose shards this runner measures, and where its
+          # merged profile and manifest go for the report.
+          BROKKR_TEST_MACHINE: ${{ matrix.machine }}
+          BROKKR_COVERAGE_PROFILES: target/coverage-machine
           BROKKR_SYSTEM_SET: ${{ steps.bubblewrap.outputs.system-set }}
           # The exact gate counts regions a skipped proof never enters, so
           # this job must run the boundary proofs for real too
           # (decision 0054 ruling 9).
+          BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage-machine-${{ strategy.job-index }}
+          path: target/coverage-machine/
+          if-no-files-found: error
+          retention-days: 1
+
+  # The exact gate itself: every machine's profile, merged over the same
+  # instrumented build, and judged whole. It runs whatever the machines
+  # ended with, `always()`, because a skipped job reports success to a
+  # required check, and refuses unless every machine passed.
+  coverage:
+    name: exact coverage gate
+    needs: coverage-machines
+    if: always()
+    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-coverage"]' || '["ubuntu-latest"]') }}
+    # 30, not the usual 20: it rebuilds the instrumented binaries, about 5
+    # minutes on a hosted runner, then runs the ratchets.
+    timeout-minutes: 30
+    steps:
+      - name: every machine measured its shards
+        env:
+          MACHINES: ${{ needs.coverage-machines.result }}
+        run: test "$MACHINES" = success
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+          clean: ${{ runner.environment != 'self-hosted' }}
+      - uses: ./.github/actions/local-runner
+        if: runner.environment == 'self-hosted'
+      # The exact gate demands literal 100%, so its compiler is pinned like
+      # every other tool CI installs: a nightly release changes the
+      # instrumented line, branch and function set, and an unpinned one
+      # turns "a test is missing" and "the compiler moved" into the same
+      # red. Bumping the pin is its own change, with the numbers in it.
+      # The measuring tool is pinned the same way, in the file beside it:
+      # its default ignore regex decides which files are test harness
+      # (issue #340). RUSTUP_TOOLCHAIN makes this job's every cargo the
+      # pin, where rust-toolchain.toml would otherwise select stable.
+      - name: the pinned coverage toolchain and its measuring tool
+        id: nightly
+        run: |
+          echo "toolchain=$(tr -d '[:space:]' < rust-nightly-version.txt)" >> "$GITHUB_OUTPUT"
+          echo "cargo_llvm_cov=$(tr -d '[:space:]' < cargo-llvm-cov-version.txt)" >> "$GITHUB_OUTPUT"
+          echo "RUSTUP_TOOLCHAIN=$(tr -d '[:space:]' < rust-nightly-version.txt)" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: ${{ steps.nightly.outputs.toolchain }}
+          components: llvm-tools-preview, rustfmt, clippy
+      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: cargo-llvm-cov@${{ steps.nightly.outputs.cargo_llvm_cov }}
+          # A version the pinned manifest lacks fails here rather than
+          # installing through cargo-binstall, unchecked (#339).
+          fallback: none
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: runner.environment != 'self-hosted'
+      # The instrumented dependency build and the production check, kept
+      # warm between runs (issue #341). coverage-exact.sh keys its own
+      # directory by the nightly, the lockfile and the workspace's target set,
+      # and drops every workspace artifact before it measures, so a restored
+      # cache never reaches the report. This key is coarser: it cannot see
+      # the target set, so a restored cache may hold only a stale key, which
+      # the script replaces with a cold build and prunes.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        if: runner.environment != 'self-hosted'
+        with:
+          path: ~/.cache/brokkr-coverage-cache
+          key: brokkr-coverage-${{ runner.os }}-${{ hashFiles('rust-nightly-version.txt', 'cargo-llvm-cov-version.txt', 'Cargo.lock', 'Cargo.toml', 'crates/*/Cargo.toml') }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: coverage-machine-*
+          path: target/coverage-machines
+      - name: prove literal nonzero 100% source-line/branch/function coverage
+        run: bash scripts/coverage-exact.sh --parallel-heaps
+        env:
+          # Every machine's merged profile, each in its own directory.
+          BROKKR_COVERAGE_PROFILES: target/coverage-machines
           BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
       # Issue #338: the complexity ratchet reads the LCOV the gate just
       # wrote, and the public-API ratchet runs on the same pinned nightly.

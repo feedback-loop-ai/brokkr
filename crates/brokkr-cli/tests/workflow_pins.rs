@@ -1335,7 +1335,7 @@ fn bubblewrap_is_built_once_from_a_tarball_verified_by_digest() {
 
 /// A system set prepared in the background is protected only once
 /// scripts/test-shards.sh has waited on it (#647), so only the two jobs
-/// whose next step runs the shards, `engine` and `coverage`, which
+/// whose next step runs the shards, `engine-machines` and `coverage-machines`, which
 /// contributing.rs holds line for line, prepare it so; a job that runs
 /// anything else protects its set in the foreground.
 #[test]
@@ -1586,8 +1586,10 @@ fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
             "msrv",
             "quality",
             "plugin-tests",
+            "engine-machines",
             "engine",
             "seatbelt-lifetime",
+            "coverage-machines",
             "coverage",
             "license-compliance",
             "lint-non-rust",
@@ -1626,8 +1628,10 @@ fn ci_cancels_superseded_runs_bounds_every_job_and_builds_once() {
     }
 
     let gate_b = "native_lifetime_feasibility_probe";
-    assert!(!job("engine").contains(gate_b), "Gate B is back in engine");
-    assert!(!job("engine").contains("continue-on-error"), "engine");
+    for suite in ["engine-machines", "engine"] {
+        assert!(!job(suite).contains(gate_b), "Gate B is back in {suite}");
+        assert!(!job(suite).contains("continue-on-error"), "{suite}");
+    }
     assert!(job("seatbelt-lifetime").contains(gate_b));
     assert!(job("seatbelt-lifetime").contains("    runs-on: macos-latest\n"));
 }

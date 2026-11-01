@@ -56,7 +56,8 @@ fn metadata() -> Metadata {
 /// other call is recorded, and a shard's call prints one libtest summary.
 /// A shard's call also records `start` and `end` with its arguments in
 /// `events`, and takes a moment between them, so two shards run at once
-/// show as interleaved. `STUB_FAIL` names a word whose shard fails,
+/// show as interleaved, and records in `machine` the BROKKR_TEST_MACHINE it
+/// inherited, or `unset`. `STUB_FAIL` names a word whose shard fails,
 /// `STUB_EMPTY` one whose shard runs no test, `STUB_PLANT` one whose shard
 /// prints `STUB_LINES` in place of its summary and exits 0, and
 /// `STUB_KILL` one whose shard kills its runner, the script's subshell,
@@ -77,6 +78,7 @@ summary() {
 }
 names() { local word="$1"; shift; [ -n "$word" ] && [[ " $* " == *" $word "* ]]; }
 printf 'start %s\n' "$*" >> "$dir/events"
+printf '%s\n' "${BROKKR_TEST_MACHINE-unset}" >> "$dir/machine"
 sh -c 'kill -INT $$; exit 0'
 printf '%s %s\n' "$?" "$*" >> "$dir/signals"
 sleep 0.2
@@ -105,6 +107,11 @@ printf 'end %s\n' "$*" >> "$dir/events"
 exit "$status"
 "#;
 
+/// A stand-in for `uname`: the host system `STUB_UNAME` names, Linux unless
+/// it names another, so a run reads the same on every host these tests run
+/// on.
+const UNAME: &str = "#!/usr/bin/env bash\nprintf '%s\\n' \"${STUB_UNAME:-Linux}\"\n";
+
 /// A scratch directory with the stub as `cargo` in its `bin/`, `metadata`
 /// as the stub's answer and `script` as the shard script.
 struct Scratch {
@@ -117,9 +124,11 @@ impl Scratch {
         for sub in ["bin", "tmp"] {
             std::fs::create_dir(dir.path().join(sub)).expect("scratch directory");
         }
-        let cargo = dir.path().join("bin/cargo");
-        std::fs::write(&cargo, STUB).expect("stub cargo");
-        std::fs::set_permissions(&cargo, std::fs::Permissions::from_mode(0o755)).expect("mode");
+        for (name, stub) in [("cargo", STUB), ("uname", UNAME)] {
+            let path = dir.path().join("bin").join(name);
+            std::fs::write(&path, stub).expect("stub");
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("mode");
+        }
         let metadata = serde_json::to_string(metadata).expect("metadata serializes");
         std::fs::write(dir.path().join("metadata.json"), metadata).expect("metadata");
         std::fs::write(dir.path().join("test-shards.sh"), script).expect("script");
@@ -150,6 +159,7 @@ impl Scratch {
             .env("TMPDIR", self.dir.path().join("tmp"))
             .env_remove("BROKKR_SYSTEM_SET")
             .env_remove("BROKKR_SYSTEM_SET_WAIT_SECONDS")
+            .env_remove("BROKKR_TEST_MACHINE")
             .envs(env.iter().copied());
         command
     }
@@ -204,27 +214,37 @@ const MODES: [(&[&str], &str, &str); 2] = [
 ];
 
 /// The shards' names, in plan order.
-const NAMES: [&str; 6] = [
+const NAMES: [&str; 8] = [
     "every library",
     "the it binaries, capability_broker skipped",
     "the heap measurements",
     "the other own-process binaries",
+    "the fleet, run and seat heap views",
     "the doctests",
-    "capability_broker, alone",
+    "capability_broker's enabled suite, alone",
+    "capability_broker, its enabled suite skipped, alone",
 ];
 
 /// The test mode's shard commands after `cargo`, as the plan prints them.
-const SHARDS: [&str; 6] = [
+const SHARDS: [&str; 8] = [
     "--lib",
     "--test it -- --skip capability_broker::",
     "--test heap_claude --test heap_codex --test heap_dsh",
     "--bin brokkr --test driver_conformance --test transcript_surfaces --test hands_exits \
      --test secret_drop --test capability_launch --test operated_repo --test queued_launch \
-     --test seatbelt_lifetime_probe --test summary_heap --test heap_fleet --test heap_open \
-     --test heap_run_view --test heap_seat_view --test heap_costs",
+     --test seatbelt_lifetime_probe --test summary_heap --test heap_open --test heap_costs",
+    "--test heap_fleet --test heap_run_view --test heap_seat_view",
     "--doc",
-    "--test it -- capability_broker::",
+    "--test it -- capability_broker::enabled::",
+    "--test it -- capability_broker:: --skip capability_broker::enabled::",
 ];
+
+/// Where [`NAMES`] holds the doctests, which the coverage mode never runs.
+const DOCTESTS: usize = 5;
+
+/// Where [`NAMES`] holds the broker's enabled suite, which only Linux
+/// compiles, so a macOS host never runs it.
+const LINUX_ONLY: usize = 6;
 
 /// The real tree's shards are its whole suite, each target once: the
 /// plan passes the partition check in both modes and prints each shard's
@@ -239,11 +259,15 @@ fn the_real_trees_shards_are_its_whole_suite() {
         .collect();
     for (mode, expected) in [
         ("test", plan.concat()),
-        ("coverage", [&plan[..4], &plan[5..]].concat().concat()),
+        (
+            "coverage",
+            [&plan[..DOCTESTS], &plan[DOCTESTS + 1..]].concat().concat(),
+        ),
     ] {
         let run = Command::new("bash")
             .args([SCRIPT, "plan", mode])
             .current_dir(workspace())
+            .env_remove("BROKKR_TEST_MACHINE")
             .output()
             .expect("the plan runs");
         assert_eq!(run.status.code(), Some(0), "{mode}: {run:?}");
@@ -337,8 +361,8 @@ fn a_target_no_shard_runs_or_two_shards_run_is_refused_by_name() {
         ],
     );
     let split = table.replace(
-        "skip:capability_broker::",
-        "skip:capability_broker::observer::",
+        "2 1 test:it skip:capability_broker::\n",
+        "2 1 test:it skip:capability_broker::observer::\n",
     );
     let unsplit: Vec<String> = [
         "brokkr-core",
@@ -351,8 +375,10 @@ fn a_target_no_shard_runs_or_two_shards_run_is_refused_by_name() {
     .map(|package| {
         format!(
             "{package} test it does not run exactly once: the it binaries, capability_broker \
-                 skipped (skip:capability_broker::observer::), capability_broker, alone \
-                 (only:capability_broker::)"
+                 skipped (skip:capability_broker::observer::), capability_broker's enabled \
+                 suite, alone (only:capability_broker::enabled::), capability_broker, its \
+                 enabled suite skipped, alone (only:capability_broker:: \
+                 skip:capability_broker::enabled::)"
         )
     })
     .collect();
@@ -399,7 +425,11 @@ fn a_target_no_shard_runs_or_two_shards_run_is_refused_by_name() {
 #[test]
 fn every_shard_runs_alone_one_after_another_in_plan_order() {
     let real = metadata();
-    let coverage_shards: Vec<&str> = SHARDS[..4].iter().chain(&SHARDS[5..]).copied().collect();
+    let coverage_shards: Vec<&str> = SHARDS[..DOCTESTS]
+        .iter()
+        .chain(&SHARDS[DOCTESTS + 1..])
+        .copied()
+        .collect();
     for ((args, prefix, build), shards) in MODES.into_iter().zip([SHARDS.to_vec(), coverage_shards])
     {
         let scratch = Scratch::new(&real, &script());
@@ -418,7 +448,9 @@ fn every_shard_runs_alone_one_after_another_in_plan_order() {
         assert_eq!(scratch.calls(), calls, "{args:?}");
         let stdout = String::from_utf8_lossy(&run.stdout);
         assert!(
-            stdout.contains("test shards: capability_broker, alone: exit 0 after "),
+            stdout.contains(
+                "test shards: capability_broker, its enabled suite skipped, alone: exit 0 after "
+            ),
             "{stdout}"
         );
         // A settled run removes its work directory: nothing is left in TMPDIR.
@@ -476,7 +508,8 @@ fn a_failed_shard_or_an_empty_filter_fails_the_run_after_every_shard() {
         ),
         (
             ("STUB_EMPTY", "-- capability_broker::"),
-            "test shards: capability_broker, alone executed no test, so its filter matches none\n",
+            "test shards: capability_broker, its enabled suite skipped, alone executed no test, \
+             so its filter matches none\n",
         ),
     ] {
         refused_after_every_shard(&real, &[env], refusal);
@@ -504,13 +537,15 @@ const UNKNOWN: &str = "test result: UNKNOWN. unreadable\n";
 /// or only one the grammar cannot read.
 #[test]
 fn every_shards_summaries_are_read_and_an_unread_or_missing_one_refuses() {
+    // The broker's narrower shard skips too; this names only `it`'s first.
+    const SKIPPED: &str = "--skip capability_broker::";
     let real = metadata();
     let unread = "printed a test result: summary the guard cannot read, so no test is \
                   shown to have run";
     let skipped = "the it binaries, capability_broker skipped";
     for (word, lines, shard, refusal) in [
-        ("--skip", [UNREAD, ONE_TEST].concat(), skipped, unread),
-        ("--skip", [ONE_TEST, UNKNOWN].concat(), skipped, unread),
+        (SKIPPED, [UNREAD, ONE_TEST].concat(), skipped, unread),
+        (SKIPPED, [ONE_TEST, UNKNOWN].concat(), skipped, unread),
         (
             "--lib",
             "running the library\n".to_string(),
@@ -585,7 +620,7 @@ fn a_shard_whose_runner_dies_unrecorded_is_refused_and_its_logs_are_kept() {
         shown.as_str(),
         "\n==> every library: exit 0 after ",
         "test shards: the heap measurements: no exit status recorded\n",
-        "test shards: capability_broker, alone: not started\n",
+        "test shards: capability_broker, its enabled suite skipped, alone: not started\n",
     ] {
         assert!(stdout.contains(line), "{line}\n{stdout}");
     }
@@ -866,5 +901,266 @@ fn parallel_heap_opt_in_replaces_only_the_heap_command_in_both_modes() {
             .flat_map(|command| [format!("start {command}"), format!("end {command}")])
             .collect();
         assert_eq!(scratch.events(), events);
+    }
+}
+
+/// Each package's `it` binary, as the partition check names it.
+const IT_PACKAGES: [&str; 5] = [
+    "brokkr-core",
+    "brokkr-store",
+    "brokkr-runtime",
+    "brokkr-view",
+    "brokkr-cli",
+];
+
+/// The broker's tests split three ways, `skip:F`, `only:F skip:G` and
+/// `only:G`, only where G extends F and the narrower shard filters G: a
+/// skip that does not extend its shard's filter is refused as more than one
+/// filter, and a narrower shard that filters another part leaves G's tests
+/// to no shard, which is refused for every `it` binary.
+#[test]
+fn a_narrower_skip_must_extend_its_filter_and_its_part_keep_a_shard() {
+    let real = metadata();
+    let table = script();
+    let skip = "only:capability_broker:: skip:capability_broker::enabled::";
+    let narrower = "test:it only:capability_broker::enabled::";
+    assert_eq!(table.matches(skip).count(), 1, "the broker's narrower skip");
+    assert_eq!(
+        table.matches(narrower).count(),
+        1,
+        "the broker's narrower shard"
+    );
+    let unread = |package: &str, rest: &str, filters: &str| {
+        format!(
+            "{package} test it does not run exactly once: the it binaries, capability_broker \
+             skipped (skip:capability_broker::), capability_broker's enabled suite, alone \
+             ({rest}), capability_broker, its enabled suite skipped, alone ({filters})"
+        )
+    };
+    let elsewhere = "only:capability_broker:: skip:hands::";
+    let mut problems = vec![format!(
+        "capability_broker, its enabled suite skipped, alone: more than one filter: {elsewhere}"
+    )];
+    problems.extend(
+        IT_PACKAGES
+            .iter()
+            .map(|package| unread(package, "only:capability_broker::enabled::", elsewhere)),
+    );
+    assert_refused(
+        &real,
+        &table.replace(skip, elsewhere),
+        &problems.iter().map(String::as_str).collect::<Vec<_>>(),
+    );
+    let another: Vec<String> = IT_PACKAGES
+        .iter()
+        .map(|package| unread(package, "only:capability_broker::serving::", skip))
+        .collect();
+    assert_refused(
+        &real,
+        &table.replace(narrower, "test:it only:capability_broker::serving::"),
+        &another.iter().map(String::as_str).collect::<Vec<_>>(),
+    );
+}
+
+/// Each machine of each system's layout, and the shards it runs, by their
+/// place in [`NAMES`]: every shard sits on exactly one machine of each.
+const MACHINES: [(&str, &[usize]); 7] = [
+    ("linux/1", &[0]),
+    ("linux/2", &[1, 2, 3, 5]),
+    ("linux/3", &[4]),
+    ("linux/4", &[6]),
+    ("linux/5", &[7]),
+    ("macos/1", &[0, 1, 2, 5, 7]),
+    ("macos/2", &[3, 4]),
+];
+
+/// A run whose BROKKR_TEST_MACHINE names a machine builds every binary and
+/// runs that machine's shards alone, one after another in plan order, and
+/// no shard's command inherits the variable.
+#[test]
+fn a_machine_runs_only_its_shards_one_after_another_in_plan_order() {
+    let real = metadata();
+    for (machine, indices) in MACHINES {
+        let shards: Vec<&str> = indices.iter().map(|&at| SHARDS[at]).collect();
+        let scratch = Scratch::new(&real, &script());
+        let run = scratch.run(&["test"], &[("BROKKR_TEST_MACHINE", machine)]);
+        assert_eq!(run.status.code(), Some(0), "{machine}: {run:?}");
+        assert_eq!(
+            scratch.events(),
+            one_after_another(TEST, &shards),
+            "{machine}"
+        );
+        let calls: Vec<String> = ["--no-run"]
+            .iter()
+            .chain(&shards)
+            .map(|shard| format!("{TEST} {shard}"))
+            .collect();
+        assert_eq!(scratch.calls(), calls, "{machine}");
+        assert_eq!(
+            scratch.lines("machine"),
+            vec!["unset"; shards.len()],
+            "{machine}: a shard inherited the machine"
+        );
+        let stdout = String::from_utf8_lossy(&run.stdout);
+        assert!(
+            stdout.contains(&format!(
+                "test shards: machine {machine} runs {} of the 8 shards\n",
+                shards.len()
+            )),
+            "{stdout}"
+        );
+    }
+    for (system, never) in [("linux", None), ("macos", Some(LINUX_ONLY))] {
+        let mut placed: Vec<usize> = MACHINES
+            .iter()
+            .filter(|(machine, _)| machine.starts_with(system))
+            .flat_map(|(_, indices)| indices.iter().copied())
+            .collect();
+        placed.sort_unstable();
+        let compiled: Vec<usize> = (0..NAMES.len()).filter(|&at| Some(at) != never).collect();
+        assert_eq!(
+            placed, compiled,
+            "{system} runs every shard it compiles once"
+        );
+    }
+}
+
+/// A machine named in a form the layouts do not use, or one no shard runs
+/// on, is refused before anything is built or run.
+#[test]
+fn a_machine_no_shard_runs_on_or_one_not_named_so_is_refused() {
+    let real = metadata();
+    for (machine, refusal) in [
+        (
+            "linux/6",
+            "test shards: BROKKR_TEST_MACHINE names linux/6, which runs no shard\n",
+        ),
+        (
+            "windows/1",
+            "test shards: BROKKR_TEST_MACHINE 'windows/1' is not linux/<n> or macos/<n>\n",
+        ),
+        (
+            "linux/0",
+            "test shards: BROKKR_TEST_MACHINE 'linux/0' is not linux/<n> or macos/<n>\n",
+        ),
+        (
+            "linux/1 ",
+            "test shards: BROKKR_TEST_MACHINE 'linux/1 ' is not linux/<n> or macos/<n>\n",
+        ),
+    ] {
+        let scratch = Scratch::new(&real, &script());
+        let run = scratch.run(&["test"], &[("BROKKR_TEST_MACHINE", machine)]);
+        assert_eq!(run.status.code(), Some(1), "{machine:?}: {run:?}");
+        assert_eq!(String::from_utf8_lossy(&run.stderr), refusal, "{machine:?}");
+        assert_eq!(scratch.calls(), Vec::<String>::new(), "{machine:?}");
+    }
+}
+
+/// A layout that leaves a machine empty, or names a machine by anything
+/// but a number from 1, is refused by name in every mode, before anything
+/// is built or run.
+#[test]
+fn a_layout_with_an_empty_machine_or_an_unnumbered_one_is_refused() {
+    let real = metadata();
+    let table = script();
+    let line = "skipped, alone\" 5 1 test:it";
+    assert_eq!(table.matches(line).count(), 1, "the last shard's line");
+    for (planted, refusal) in [
+        (
+            "skipped, alone\" 6 1 test:it",
+            "test shards: the linux layout leaves machine 5 with no shard\n",
+        ),
+        (
+            "skipped, alone\" 5 x test:it",
+            "test shards: capability_broker, its enabled suite skipped, alone names the macos \
+             machine 'x', which is not a number from 1\n",
+        ),
+    ] {
+        let scratch = Scratch::new(&real, &table.replace(line, planted));
+        for args in [
+            &["test"][..],
+            &["plan", "test"][..],
+            &["machines", "test"][..],
+        ] {
+            let run = scratch.run(args, &[]);
+            assert_eq!(run.status.code(), Some(1), "{planted} {args:?}: {run:?}");
+            assert_eq!(
+                String::from_utf8_lossy(&run.stderr),
+                refusal,
+                "{planted} {args:?}"
+            );
+        }
+        assert_eq!(scratch.calls(), Vec::<String>::new(), "{planted}");
+    }
+}
+
+/// The test job runs exactly the layouts' machines: ci.yml's
+/// `engine-machines` matrix names each machine the script lays out, in
+/// order, each on its own system's runner, and the script prints each
+/// machine's shards as [`MACHINES`] holds them.
+#[test]
+fn the_test_jobs_machines_are_the_layouts() {
+    let run = Command::new("bash")
+        .args([SCRIPT, "machines", "test"])
+        .current_dir(workspace())
+        .env_remove("BROKKR_TEST_MACHINE")
+        .output()
+        .expect("the machines print");
+    assert_eq!(run.status.code(), Some(0), "{run:?}");
+    let expected: String = MACHINES
+        .iter()
+        .map(|(machine, indices)| {
+            let names: Vec<&str> = indices.iter().map(|&at| NAMES[at]).collect();
+            format!("{machine}: {}\n", names.join(" | "))
+        })
+        .collect();
+    assert_eq!(String::from_utf8_lossy(&run.stdout), expected);
+
+    let workflow =
+        std::fs::read_to_string(workspace().join(".github/workflows/ci.yml")).expect("ci.yml");
+    let body = crate::workflow::jobs(&workflow)
+        .into_iter()
+        .find_map(|(id, body)| (id == "engine-machines").then_some(body))
+        .expect("ci.yml's engine-machines job");
+    let lines: Vec<&str> = body.lines().map(str::trim).collect();
+    let listed: Vec<(&str, &str)> = lines
+        .windows(2)
+        .filter_map(|pair| {
+            let os = pair[0].strip_prefix("- os: ")?;
+            Some((os, pair[1].strip_prefix("machine: ")?))
+        })
+        .collect();
+    let laid_out: Vec<(&str, &str)> = MACHINES
+        .iter()
+        .map(|(machine, _)| match machine.starts_with("linux/") {
+            true => ("ubuntu-latest", *machine),
+            false => ("macos-latest", *machine),
+        })
+        .collect();
+    assert_eq!(listed, laid_out);
+}
+
+/// A run on a macOS host, naming no machine, runs every shard but the one
+/// macOS never compiles, which its layout marks `-`; a Linux host runs them
+/// all.
+#[test]
+fn a_host_runs_every_shard_its_system_compiles() {
+    let real = metadata();
+    for (host, shards) in [
+        ("Linux", SHARDS.to_vec()),
+        (
+            "Darwin",
+            SHARDS
+                .iter()
+                .enumerate()
+                .filter(|&(at, _)| at != LINUX_ONLY)
+                .map(|(_, shard)| *shard)
+                .collect(),
+        ),
+    ] {
+        let scratch = Scratch::new(&real, &script());
+        let run = scratch.run(&["test"], &[("STUB_UNAME", host)]);
+        assert_eq!(run.status.code(), Some(0), "{host}: {run:?}");
+        assert_eq!(scratch.events(), one_after_another(TEST, &shards), "{host}");
     }
 }

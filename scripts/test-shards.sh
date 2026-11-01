@@ -7,18 +7,31 @@
 # tests their margins on hosted runners (operator ruling 2026-10-11).
 # The run fails when any shard fails, and only after every shard has run.
 #
+# The test jobs spread the shards over machines (operator ruling
+# 2026-11-01): each shard names its machine in each system's layout, and a
+# run whose BROKKR_TEST_MACHINE names one, `linux/<n>` or `macos/<n>`, runs
+# that machine's shards alone, one after another as above, so a shard still
+# never shares its runner. Unset, every shard runs, as a local run does. The
+# variable is read once and unset, so no test a shard runs inherits it. Each
+# system's machines are numbered from 1 with none left empty, which is
+# checked before anything runs.
+#
 #   scripts/test-shards.sh test [--parallel-heaps]     the test jobs' suite, doctests included
 #   scripts/test-shards.sh coverage <nightly> [--parallel-heaps]   the exact coverage gate's instrumented run
+#   scripts/test-shards.sh coverage-build <nightly>   that run's build alone, for the gate's report
 #   scripts/test-shards.sh plan test|coverage   the partition check and each shard's command
+#   scripts/test-shards.sh machines test|coverage   each machine and the shards it runs
 #
 # Every shard selects workspace-wide (`--workspace --all-features`), never by
 # package: Cargo unifies features over the selected packages, so a shard of
 # one package would build, and test, another binary than the suite does.
 # capability_broker's real-box tests are deadline-bound by design and must
 # not share the runner with another heavy binary, so they are their own
-# shard, the last; the shard before runs `it` with them skipped. A libtest
+# shards, the last; the shard before runs `it` with them skipped. A libtest
 # `--skip F` and the filter `F` select complementary tests, so that split
-# runs each of `it`'s tests exactly once.
+# runs each of `it`'s tests exactly once. The broker's tests split once more
+# the same way: `only:F skip:G` and `only:G`, where G extends F, so a test
+# whose name holds G holds F too, and each runs in exactly one of the three.
 #
 # Before anything runs, the shards are held to `cargo metadata`: every test
 # target `cargo test --workspace` runs (every target with `test = true`,
@@ -45,30 +58,46 @@ refuse() {
 }
 
 usage() {
-  printf 'test shards: usage: %s test [--parallel-heaps] | coverage <nightly> [--parallel-heaps] | plan test|coverage\n' "$0" >&2
+  printf 'test shards: usage: %s test [--parallel-heaps] | coverage <nightly> [--parallel-heaps] | coverage-build <nightly> | plan test|coverage | machines test|coverage\n' "$0" >&2
   exit 2
 }
 
-# The shards, in the order they run. A selector is `lib` (every library's
-# unit tests), `bin:<name>`, `test:<name>` or `doc` (every library's
-# doctests, alone in its shard); `skip:<filter>` and `only:<filter>` pass
-# libtest a skip or a filter.
+# The shards, in the order they run, each with its machine on Linux and on
+# macOS. A selector is `lib` (every library's unit tests), `bin:<name>`,
+# `test:<name>` or `doc` (every library's doctests, alone in its shard);
+# `skip:<filter>` and `only:<filter>` pass libtest a skip or a filter, and
+# a shard may pass both, `only:F skip:G`, where G extends F.
+# Hosted runners took about 11, 3, 1, 4, 13, 0 and 20 minutes (the
+# broker's two together) for them on Linux, half as long again under
+# coverage, and 9, 8, 3, 19 (the two heap shards together), 0 and 0 on
+# macOS, where the broker's boundary proofs skip (2026-11-01). The broker's
+# enabled suite is Linux's alone (`#![cfg(target_os = "linux")]`), so macOS
+# never runs its shard, whose filter would match nothing there.
 shard_name=()
+shard_linux=()
+shard_macos=()
 shard_selectors=()
 shard() {
   shard_name+=("$1")
-  shift
+  shard_linux+=("$2")
+  shard_macos+=("$3")
+  shift 3
   shard_selectors+=("$*")
 }
-shard 'every library' lib
-shard "the it binaries, capability_broker skipped" test:it skip:capability_broker::
-shard 'the heap measurements' test:heap_claude test:heap_codex test:heap_dsh
-shard 'the other own-process binaries' bin:brokkr test:driver_conformance test:transcript_surfaces \
+shard 'every library' 1 1 lib
+shard "the it binaries, capability_broker skipped" 2 1 test:it skip:capability_broker::
+shard 'the heap measurements' 2 1 test:heap_claude test:heap_codex test:heap_dsh
+shard 'the other own-process binaries' 2 2 bin:brokkr test:driver_conformance test:transcript_surfaces \
   test:hands_exits test:secret_drop test:capability_launch test:operated_repo test:queued_launch \
-  test:seatbelt_lifetime_probe test:summary_heap test:heap_fleet test:heap_open test:heap_run_view \
-  test:heap_seat_view test:heap_costs
-shard 'the doctests' doc
-shard 'capability_broker, alone' test:it only:capability_broker::
+  test:seatbelt_lifetime_probe test:summary_heap test:heap_open test:heap_costs
+shard 'the fleet, run and seat heap views' 3 2 test:heap_fleet test:heap_run_view test:heap_seat_view
+shard 'the doctests' 2 1 doc
+shard "capability_broker's enabled suite, alone" 4 - test:it only:capability_broker::enabled::
+shard "capability_broker, its enabled suite skipped, alone" 5 1 test:it only:capability_broker:: skip:capability_broker::enabled::
+
+# The machine this run is, read once and unset (above).
+machine="${BROKKR_TEST_MACHINE:-}"
+unset BROKKR_TEST_MACHINE
 
 parallel_heaps=false
 if [ "$#" -gt 0 ] && [ "${!#}" = --parallel-heaps ]; then
@@ -82,8 +111,9 @@ case "$mode" in
     prefix=(cargo test --workspace --all-features --locked --no-fail-fast)
     doctests=true
     ;;
-  coverage)
+  coverage | coverage-build)
     [ "$#" -eq 2 ] || usage
+    [ "$mode" = coverage ] || ! "$parallel_heaps" || usage
     [[ "$2" =~ ^nightly-[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || refuse "the coverage toolchain '$2' is not nightly-YYYY-MM-DD"
     # cargo-llvm-cov runs no doctests unless asked, and the gate never asks.
     # `--no-fail-fast` runs a shard's every binary past a failing one, as
@@ -91,7 +121,7 @@ case "$mode" in
     prefix=(cargo "+$2" llvm-cov --no-report --workspace --all-features --locked --branch --no-fail-fast)
     doctests=false
     ;;
-  plan)
+  plan | machines)
     ! "$parallel_heaps" || usage
     [ "$#" -eq 2 ] || usage
     case "$2" in
@@ -110,6 +140,58 @@ for index in "${!shard_name[@]}"; do
   if [ "${shard_selectors[$index]}" = doc ] && ! "$doctests"; then continue; fi
   planned+=("$index")
 done
+
+# The machine shard $2 runs on in system $1's layout.
+machine_of() {
+  case "$1" in
+    linux) printf '%s' "${shard_linux[$2]}" ;;
+    macos) printf '%s' "${shard_macos[$2]}" ;;
+  esac
+}
+# Each system's layout over the shards this mode plans: every machine is a
+# number from 1, or `-` for a shard whose tests that system never compiles,
+# and the machines run from 1 with none left empty, so a machine the test
+# job lists runs something and no shard waits on a machine no job is.
+for system in linux macos; do
+  highest=0
+  used=' '
+  for index in "${planned[@]}"; do
+    number="$(machine_of "$system" "$index")"
+    if [ "$number" = - ]; then continue; fi
+    [[ "$number" =~ ^[1-9][0-9]?$ ]] ||
+      refuse "${shard_name[$index]} names the $system machine '$number', which is not a number from 1"
+    used+="$number "
+    if [ "$number" -gt "$highest" ]; then highest="$number"; fi
+  done
+  for ((number = 1; number <= highest; number++)); do
+    [[ "$used" == *" $number "* ]] || refuse "the $system layout leaves machine $number with no shard"
+  done
+done
+# The shards this run runs: the named machine's, or every planned one this
+# host's system compiles. The report's build is every machine's, so it
+# names none.
+if [ "$mode" = coverage-build ] && [ -n "$machine" ]; then
+  refuse "coverage-build builds for the gate's report, and BROKKR_TEST_MACHINE names $machine"
+fi
+case "$(uname -s)" in
+  Linux) host=linux ;;
+  Darwin) host=macos ;;
+  *) host='' ;;
+esac
+running=()
+for index in "${planned[@]}"; do
+  if [ -z "$host" ] || [ "$(machine_of "$host" "$index")" != - ]; then running+=("$index"); fi
+done
+if [ -n "$machine" ]; then
+  [[ "$machine" =~ ^(linux|macos)/([1-9][0-9]?)$ ]] ||
+    refuse "BROKKR_TEST_MACHINE '$machine' is not linux/<n> or macos/<n>"
+  system="${BASH_REMATCH[1]}" number="${BASH_REMATCH[2]}"
+  running=()
+  for index in "${planned[@]}"; do
+    if [ "$(machine_of "$system" "$index")" = "$number" ]; then running+=("$index"); fi
+  done
+  [ "${#running[@]}" -gt 0 ] || refuse "BROKKR_TEST_MACHINE names $machine, which runs no shard"
+fi
 
 for tool in jq cargo; do
   command -v "$tool" >/dev/null 2>&1 || refuse "$tool is required to hold the shards to the workspace"
@@ -146,15 +228,22 @@ problems="$(jq -r --argjson doctests "$doctests" '
   | [$ARGS.positional[] | split("\t") | {shard: .[0], words: (.[1] | split(" "))}] as $shards
   | [$shards[] | .shard as $shard
       | ([.words[] | select(startswith("skip:") or startswith("only:"))]) as $filters
-      | (if ($filters | length) > 1 then "\($shard): more than one filter: \($filters | join(" "))"
-         else empty end),
+      | (if ($filters | length) < 2 then empty
+         elif ($filters | length) == 2 and ($filters[0] | startswith("only:"))
+              and ($filters[1] | startswith("skip:"))
+              and (($filters[1] | ltrimstr("skip:")) as $narrower
+                   | ($filters[0] | ltrimstr("only:")) as $wider
+                   | ($narrower | startswith($wider)) and $narrower != $wider)
+         then empty
+         else "\($shard): more than one filter: \($filters | join(" "))" end),
         (.words[] | select((startswith("skip:") or startswith("only:")) | not) as $word
           | ($word | capture("^(?<kind>bin|test):(?<name>[A-Za-z0-9_-]+)$") // null) as $named
           | if $word == "lib" or $word == "doc" or $named != null then empty
             else "\($shard): a selector the plan cannot read: \($word)" end)]
     as $unread
   | [$shards[] | .shard as $shard
-      | ([.words[] | select(startswith("skip:") or startswith("only:"))] | first // "none") as $filter
+      | ([.words[] | select(startswith("skip:") or startswith("only:"))] | join(" ")
+         | if . == "" then "none" else . end) as $filter
       | .words[] | select((startswith("skip:") or startswith("only:")) | not) as $word
       | ($word | capture("^(?<kind>bin|test):(?<name>.*)$") // null) as $named
       | [if $word == "lib" then $targets[] | select(.kind == "lib") | "\(.package) lib \(.name)"
@@ -177,6 +266,13 @@ problems="$(jq -r --argjson doctests "$doctests" '
         elif $filters == ["none"] then empty
         elif ($filters | length) == 2 and ($filters[0] | startswith("only:"))
              and $filters[1] == "skip:\($filters[0] | ltrimstr("only:"))" then empty
+        # `only:F skip:G`, `only:G` and `skip:F`, sorted: the space sorts first.
+        elif ($filters | length) == 3 and ($filters[2] | startswith("skip:"))
+             and ($filters[1] | startswith("only:"))
+             and (($filters[2] | ltrimstr("skip:")) as $wider
+                  | ($filters[1] | ltrimstr("only:")) as $narrower
+                  | ($narrower | startswith($wider)) and $narrower != $wider
+                    and $filters[0] == "only:\($wider) skip:\($narrower)") then empty
         else "\($unit) does not run exactly once: \($runs | map("\(.shard) (\(.filter))") | join(", "))"
         end)
 ' --args "${plan_lines[@]}" <<<"$metadata")" || refuse 'cargo metadata could not be read'
@@ -195,8 +291,8 @@ argv_of() {
       doc) argv+=(--doc) ;;
       # `bin:<name>` passes `--bin <name>`, `test:<name>` the test target.
       bin:* | test:*) argv+=("--${word%%:*}" "${word#*:}") ;;
-      skip:*) libtest=(--skip "${word#skip:}") ;;
-      only:*) libtest=("${word#only:}") ;;
+      skip:*) libtest+=(--skip "${word#skip:}") ;;
+      only:*) libtest+=("${word#only:}") ;;
     esac
   done
   if [ "${#libtest[@]}" -gt 0 ]; then argv+=(-- "${libtest[@]}"); fi
@@ -208,6 +304,26 @@ if [ "$mode" = plan ]; then
     printf '%s:%s\n' "${shard_name[$index]}" "$(printf ' %s' "${argv[@]}")"
   done
   exit 0
+fi
+if [ "$mode" = machines ]; then
+  for system in linux macos; do
+    number=1
+    while :; do
+      names=''
+      for index in "${planned[@]}"; do
+        if [ "$(machine_of "$system" "$index")" = "$number" ]; then
+          names+="${names:+ | }${shard_name[$index]}"
+        fi
+      done
+      [ -n "$names" ] || break
+      printf '%s/%s: %s\n' "$system" "$number" "$names"
+      number=$((number + 1))
+    done
+  done
+  exit 0
+fi
+if [ -n "$machine" ]; then
+  printf 'test shards: machine %s runs %s of the %s shards\n' "$machine" "${#running[@]}" "${#planned[@]}"
 fi
 
 # Every test binary is built once, before any shard runs, so a compile
@@ -221,6 +337,8 @@ if [ "$mode" = test ]; then
 else
   "${prefix[@]}" -- --list >/dev/null
 fi
+# The gate's report builds what every machine measured, and runs no shard.
+if [ "$mode" = coverage-build ]; then exit 0; fi
 
 # The protected system set the broker's boundary proofs read, prepared in
 # the background while the build ran (#647): where setup-bubblewrap's
@@ -353,7 +471,7 @@ run_shard() {
   if [ -n "$refusal" ]; then failed+=("${shard_name[$index]} $refusal"); fi
 }
 
-for index in "${planned[@]}"; do
+for index in "${running[@]}"; do
   if ! "$lost"; then
     run_shard "$index"
     continue
@@ -364,7 +482,7 @@ done
 if ! "$lost"; then settled=true; fi
 
 printf '\n'
-for index in "${planned[@]}"; do
+for index in "${running[@]}"; do
   case "${shard_status[$index]}" in
     none) printf 'test shards: %s: no exit status recorded\n' "${shard_name[$index]}" ;;
     unstarted) printf 'test shards: %s: not started\n' "${shard_name[$index]}" ;;
