@@ -446,10 +446,12 @@ where
 
 /// A frame has been drawn at `size`: a notice a key set has now been seen
 /// once, so the next frame's sentence may take the status line. A frame
-/// too small to hold the status line draws no notice, so it stays pending
-/// until a frame does (M2).
-fn drawn(tui: &mut Tui, size: (u16, u16)) {
-    if size.0 >= MIN_WIDTH && size.1 >= MIN_HEIGHT {
+/// too small to hold the status line draws no notice, and one whose help
+/// or reader overlay clears the whole frame covers it after it is painted;
+/// a notice either way stays pending until a frame paints it uncovered
+/// (M2, decision 0071 rulings 5 and 9).
+pub(super) fn drawn(tui: &mut Tui, size: (u16, u16)) {
+    if size.0 >= MIN_WIDTH && size.1 >= MIN_HEIGHT && !tui.help && tui.reading.is_none() {
         tui.notice = None;
     }
 }

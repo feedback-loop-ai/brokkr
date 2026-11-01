@@ -204,25 +204,6 @@ pub(crate) enum Console {
     Participant(String),
 }
 
-impl Console {
-    /// The screen this ask paints, and so the page it reads.
-    fn screen(&self) -> Screen {
-        match self {
-            Console::Run => Screen::Run,
-            Console::Detail => Screen::Detail,
-            Console::Participant(key) => Screen::Participant(key.clone()),
-        }
-    }
-}
-
-/// The console's screens whose frame is read at a verified head.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Screen {
-    Run,
-    Detail,
-    Participant(String),
-}
-
 /// The run the console shows: the head it was read at, what was asked, and
 /// what was read, from which each frame derives its view. A frame whose
 /// head stands reads nothing more ([`console`]).
@@ -555,8 +536,8 @@ fn opened(reader: Reader, asked: Console, reading: Reading) -> Result<(Shown, us
     Ok((shown, verified + loaded))
 }
 
-/// `run`'s view at `at`, a head verified, as `screen` reads it: the frame,
-/// and the page each participant the screen shows holds, extended by the
+/// `run`'s view at `at`, a head verified, as `asked` reads it: the frame,
+/// and the page each participant the ask shows holds, extended by the
 /// checkpoints `landed` since those held, and how many events a whole read
 /// loaded: through the pages, or whole where a read it makes is kept or
 /// does not compose (ruling 8).
@@ -568,13 +549,12 @@ fn read_at(
     reading: Reading,
     landed: &[EventEnvelope],
 ) -> Result<(Shown, usize), StoreError> {
-    let screen = asked.screen();
     // The run level takes ruling 8's whole read where the frame does not
     // compose: a folded journal can hold a key two participants make,
     // which the whole view collapses and the composed one declines (R6).
     // Every screen reads through the one paged reader; its run arm holds
     // the frame and no checkpoint.
-    let read = paged_at(reader, &at, held, &screen, reading, landed)?
+    let read = paged_at(reader, &at, held, &asked, reading, landed)?
         .map(|(frame, checkpoints)| Held::Paged(frame, checkpoints));
     let (read, loaded) = match read {
         Some(read) => (read, 0),
@@ -597,14 +577,14 @@ fn whole_read(store: &Store, run: &str) -> Result<(Held, usize), StoreError> {
     Ok((Held::Whole(events, state), loaded))
 }
 
-/// One read's frame and a page of each participant `screen` shows, extended
+/// One read's frame and a page of each participant `asked` shows, extended
 /// by `landed` and by the pages `rows` asks. None where the frame does not
 /// compose, a participant names no seat row, or the store keeps a page.
 fn paged_at(
     reader: Reader,
     at: &Opened,
     held: Checkpoints,
-    screen: &Screen,
+    asked: &Console,
     reading: Reading,
     landed: &[EventEnvelope],
 ) -> Result<Option<(Frame, Checkpoints)>, StoreError> {
@@ -631,21 +611,21 @@ fn paged_at(
     };
     let seats: BTreeMap<String, (String, Option<String>)> =
         seat_keys(&frame.seats).into_iter().collect();
-    let checkpoints = match screen {
+    let checkpoints = match asked {
         // The run level reads the frame and no checkpoint.
-        Screen::Run => return Ok(Some((frame, Checkpoints::new()))),
+        Console::Run => return Ok(Some((frame, Checkpoints::new()))),
         // One window cut across every member's stream at one seq boundary,
         // so the merged live column is contiguous (R1). A moved head or a
         // window that dropped its newer prefix is read from the newest
         // page again; a carried read keeps its absolute prefix (F1, F4).
-        Screen::Detail => {
+        Console::Detail => {
             let keys = live_keys(&view, &frame.state);
             let Some(checkpoints) = detail_checkpoints(&fetch, &keys, &seats, held, offset)? else {
                 return Ok(None);
             };
             checkpoints
         }
-        Screen::Participant(key) => {
+        Console::Participant(key) => {
             let Some(checkpoints) = participant_checkpoints(&fetch, &seats, held, key)? else {
                 return Ok(None);
             };

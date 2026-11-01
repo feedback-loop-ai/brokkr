@@ -213,7 +213,8 @@ fn participant_footer(tui: &Tui, views: &Views, tail: &str) -> String {
 /// standing still.
 pub(super) fn status_line(tui: &Tui) -> String {
     // A notice a key set in the same tick outlives the answer that
-    // arrived before the draw; the shell clears it once drawn (M2).
+    // arrived before the draw; the shell clears it once a frame paints it
+    // uncovered (M2).
     if let Some(notice) = &tui.notice {
         return notice.clone();
     }

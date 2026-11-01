@@ -21,6 +21,71 @@ fn participant_views(events: &[EventEnvelope], end: usize) -> Views {
     views
 }
 
+/// The fixture participant level at rank 1 on the 80x30 frame both
+/// overflow tests press their keys on.
+fn overflow_tui() -> Tui {
+    let mut tui = Tui::new(Some("run-7".to_string()));
+    participant_level(&mut tui, "eff-i");
+    (tui.width, tui.height) = (80, 30);
+    tui.offset = 1;
+    tui
+}
+
+/// The sixty-five alternating runs, starting and ending Up, that overflow
+/// the 64-run bound by one: no two adjacent keys share a run.
+fn overflow_keys() -> Vec<Key> {
+    (0..=HELD_BOUND)
+        .map(|index| match index % 2 {
+            0 => Key::Up,
+            _ => Key::Down,
+        })
+        .collect()
+}
+
+/// A source that leaves the reads in `pending` out and answers every other
+/// call with `views` at its second checkpoint, so a test presses keys while
+/// the read is out and sees the frame that answers them.
+fn answering(
+    events: &[EventEnvelope],
+    pending: std::ops::RangeInclusive<usize>,
+    views: fn(&[EventEnvelope], usize) -> Views,
+) -> impl FnMut(Ask) -> Polled {
+    let answers = events.to_vec();
+    let mut call = 0usize;
+    move |_ask: Ask| -> Polled {
+        call += 1;
+        if pending.contains(&call) {
+            Polled::Pending
+        } else {
+            Ok(Some(views(&answers, 2))).into()
+        }
+    }
+}
+
+/// Drive `tui` against `source` on the 80x30 frame the overflow tests draw,
+/// returning the terminal whose buffer holds the last frame.
+fn overflow_drive(
+    tui: &mut Tui,
+    source: &mut impl FnMut(Ask) -> Polled,
+    max: usize,
+) -> Terminal<TestBackend> {
+    let mut terminal = Terminal::new(TestBackend::new(80, 30)).unwrap();
+    drive(&mut terminal, &test_ops(), source, tui, max).unwrap();
+    terminal
+}
+
+/// Whether the overflow notice is on `terminal`'s last drawn frame.
+fn overflow_notice_drawn(terminal: &Terminal<TestBackend>) -> bool {
+    let drawn: String = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    drawn.contains("held movement keys dropped: the queue is full")
+}
+
 /// M2 (rulings 5 and 9): a failed read is not an answer. The participant
 /// pane holds two checkpoints and a `Down` waits while a read is out; the
 /// error arrives and then a three-checkpoint frame. The cursor reaches 2
@@ -189,58 +254,97 @@ fn chief_landing_vanished_run_cancels_held_end_before_the_fleet_draws() {
 fn chief_753c9_overflow_notice_survives_the_answering_frame() {
     let _serialized = TERMINAL.lock().unwrap_or_else(|error| error.into_inner());
     let events = journal("eff-i");
-    let mut tui = Tui::new(Some("run-7".to_string()));
-    participant_level(&mut tui, "eff-i");
-    (tui.width, tui.height) = (80, 30);
-    tui.offset = 1;
-    // Alternating runs, starting and ending Up: each is its own run, so
-    // the sixty-fifth overflows the 64-run bound and drops the first Up.
+    let mut tui = overflow_tui();
     // A leading unbound character lets the first frame arrive before the
     // keys, as the shell's first read does, so the seat is held.
     let mut keys = vec![Key::Char('z')];
-    keys.extend((0..=HELD_BOUND).map(|index| match index % 2 {
-        0 => Key::Up,
-        _ => Key::Down,
-    }));
+    keys.extend(overflow_keys());
     script(&keys);
-    let answers = events.clone();
-    let mut call = 0usize;
-    let mut source = move |_ask: Ask| -> Polled {
-        call += 1;
-        if (2..=HELD_BOUND + 2).contains(&call) {
-            // Every movement key is pressed while these reads are out.
-            Polled::Pending
-        } else {
-            // The first frame opens the seat; the last lands before the
-            // next draw and says nothing of its own, so `arrive` would
-            // overwrite the notice.
-            Ok(Some(participant_views(&answers, 2))).into()
-        }
-    };
-    let mut terminal = Terminal::new(TestBackend::new(80, 30)).unwrap();
-    drive(
-        &mut terminal,
-        &test_ops(),
-        &mut source,
-        &mut tui,
-        HELD_BOUND + 3,
-    )
-    .unwrap();
+    let mut source = answering(&events, 2..=HELD_BOUND + 2, participant_views);
+    let terminal = overflow_drive(&mut tui, &mut source, HELD_BOUND + 3);
     assert_eq!(
         tui.offset, 1,
         "the oldest run was dropped: the retained 64 end at 1, the whole read's 65 at 0"
     );
     assert!(tui.notice.is_none(), "the draw consumed the notice");
     assert_eq!(tui.status, None, "the answering frame said nothing");
-    let drawn: String = terminal
-        .backend()
-        .buffer()
-        .content()
-        .iter()
-        .map(|cell| cell.symbol())
-        .collect();
     assert!(
-        drawn.contains("held movement keys dropped: the queue is full"),
-        "the overflow notice is on the frame: {drawn}"
+        overflow_notice_drawn(&terminal),
+        "the overflow notice is on the frame"
+    );
+}
+
+/// The review's A1 (rulings 5 and 9): a frame whose status line the help
+/// overlay covers does not consume the overflow notice. Help is open when
+/// the sixty-fifth alternating key overflows the 64-run bound while the
+/// read is out; the answering frame carries no note, and the frame drawn
+/// after help closes still paints the notice. The retained 64 keys end at
+/// 1, where the whole read's 65 end at 0.
+#[test]
+fn review_753c9_overflow_notice_waits_for_the_uncovered_status_line() {
+    let _serialized = TERMINAL.lock().unwrap_or_else(|error| error.into_inner());
+    let events = journal("eff-i");
+    let mut tui = overflow_tui();
+    // `?` opens help before the keys; the second `?` closes it after the
+    // answering frame, so the frame after it paints the notice help
+    // covered. The unbound `z` lets the first frame arrive, as the shell's
+    // first read does, so the seat is held.
+    let mut keys = vec![Key::Char('?'), Key::Char('z')];
+    keys.extend(overflow_keys());
+    keys.extend([Key::Char('?'), Key::Quit]);
+    script(&keys);
+    let mut source = answering(&events, 3..=HELD_BOUND + 3, participant_views);
+    let terminal = overflow_drive(&mut tui, &mut source, HELD_BOUND + 5);
+    assert_eq!(
+        tui.offset, 1,
+        "the oldest run was dropped: the retained 64 end at 1, the whole read's 65 at 0"
+    );
+    assert!(
+        tui.notice.is_none(),
+        "the uncovered frame consumed the notice"
+    );
+    assert!(
+        overflow_notice_drawn(&terminal),
+        "the overflow notice is on the frame"
+    );
+}
+
+/// The review's A1 extension (rulings 5 and 9): the shell consumes a
+/// notice only on a frame that paints the status line uncovered. A frame
+/// too narrow or too short for the line, and one whose help or reader
+/// overlay clears the whole frame after painting it, all leave the notice
+/// pending; only the final case consumes it.
+#[test]
+fn review_753c9_only_an_uncovered_frame_consumes_the_notice() {
+    let mut tui = Tui::new(None);
+    let mut frame = |size: (u16, u16), help: bool, reading: bool| {
+        tui.notice = Some("held movement keys dropped: the queue is full".to_string());
+        tui.help = help;
+        tui.reading = match reading {
+            true => Some("a row".to_string()),
+            false => None,
+        };
+        drawn(&mut tui, size);
+        tui.notice.is_none()
+    };
+    assert!(
+        !frame((MIN_WIDTH - 1, MIN_HEIGHT), false, false),
+        "a narrow frame paints no status line"
+    );
+    assert!(
+        !frame((MIN_WIDTH, MIN_HEIGHT - 1), false, false),
+        "a short frame paints no status line"
+    );
+    assert!(
+        !frame((MIN_WIDTH, MIN_HEIGHT), true, false),
+        "help covers the status line"
+    );
+    assert!(
+        !frame((MIN_WIDTH, MIN_HEIGHT), false, true),
+        "the reader covers the status line"
+    );
+    assert!(
+        frame((MIN_WIDTH, MIN_HEIGHT), false, false),
+        "an uncovered frame consumes the notice"
     );
 }
