@@ -466,7 +466,7 @@
    235 crates/brokkr-cli/tests/capability_broker/enabled/reach.rs
    409 crates/brokkr-cli/tests/capability_broker/enabled/sites.rs
    201 crates/brokkr-cli/tests/capability_broker/enabled/transport.rs
-   579 crates/brokkr-cli/tests/capability_broker/enabled/windows.rs
+   686 crates/brokkr-cli/tests/capability_broker/enabled/windows.rs
    994 crates/brokkr-cli/tests/capability_broker/handoff.rs
   1028 crates/brokkr-cli/tests/capability_broker/ledger.rs
   1047 crates/brokkr-cli/tests/capability_broker/observer.rs
