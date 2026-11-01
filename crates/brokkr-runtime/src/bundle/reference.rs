@@ -185,6 +185,7 @@ pub(super) fn bind_charter(
         agent: resolution.agent.clone(),
         reference: source.reference.clone(),
         digest: source.digest.clone(),
+        bytes: bound.bytes.len() as u64,
         held: bound.held,
     };
     Ok((pin, read))

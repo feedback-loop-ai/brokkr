@@ -27,7 +27,7 @@ impl Shelved {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
         let (repo, personal) = (root.join("repo"), root.join("config/brokkr/recipes"));
-        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        crate::places::places_tests::test_repository(&repo);
         std::fs::create_dir_all(&personal).unwrap();
         recipe(&repo.join(".brokkr"), "folder", folder_extends);
         recipe(&repo.join(".brokkr/recipes/fast"), "fast", None);
@@ -155,7 +155,7 @@ fn a_personal_recipe_composes_over_the_folders_bundle() {
     assert_eq!(refused(shelved.resolve(&team)).to_string(), reserved);
 
     let bare = shelved.repo.with_file_name("bare");
-    std::fs::create_dir_all(bare.join(".git")).unwrap();
+    crate::places::places_tests::test_repository(&bare);
     let shelves = Shelves::of(
         &Layout::discover(&bare).unwrap(),
         None,
