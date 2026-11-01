@@ -538,7 +538,12 @@ pub(crate) fn verdict_of(facts: Option<Facts<'_>>, residual: Option<Severity>) -
     };
     let detail = match standing {
         Standing::Stopping => facts.stop_accepted_seq.map(stopping_detail),
-        _ => None,
+        Standing::Quarantined
+        | Standing::Parked
+        | Standing::Running
+        | Standing::Shipped
+        | Standing::Stopped
+        | Standing::OperatorStopped => None,
     };
     Verdict {
         standing,
