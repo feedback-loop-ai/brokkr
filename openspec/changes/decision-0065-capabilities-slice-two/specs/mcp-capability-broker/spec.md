@@ -20,6 +20,13 @@ independent unsupervised sibling or ship a third-party capability server.
 Each server SHALL be named exactly `cap-<capability>`, with no truncation,
 normalization or suffix inferred from model text. Hands remains `brokkr`.
 Unrepresentable or colliding identifiers SHALL refuse before launch.
+Where the harness reads a tool allow list, as Claude's grammar does, the
+launch SHALL allow each served broker by its one served name,
+`mcp__cap-<capability>`, once, in sealed order, after the hands tool, so a
+headless seat may call what its broker admits; the broker SHALL remain the one
+gate on which of its tools run. A launch whose allow list names a `cap-`
+server the set does not seal, or omits one it seals, SHALL refuse before any
+spawn, and a launch holding no broker SHALL keep every byte of its argv.
 The final check SHALL parse the actual complete command/configuration and
 compare executable, arguments, server names, permitted tools and isolation
 against independently sealed typed intent, not against a recomposition of

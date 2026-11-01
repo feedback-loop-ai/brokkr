@@ -146,7 +146,7 @@ fn resolved(
     } = listing;
     // W is the site's typed hands' own tool, and nothing without
     // them; T is what the engine lowered from its typed allow.
-    let hands_tools: Vec<String> = match typed_hands {
+    let mut hands_tools: Vec<String> = match typed_hands {
         0 => Vec::new(),
         _ => vec![format!(
             "mcp__{}__{}",
@@ -154,6 +154,19 @@ fn resolved(
             crate::hands::TOOL_NAME
         )],
     };
+    // W also admits each broker the hands contribution's own MCP
+    // document serves, by its served name (U9b1d; ruling R4). This is
+    // the one reading of a spelling D6 allows, and only of that
+    // document: the final check before spawn binds it to the sealed
+    // set (`final_set`) and binds the allow list to the same set's
+    // brokers (`allowed`), so no unsealed server is ever admitted.
+    hands_tools.extend(
+        (seat.nodes.iter())
+            .filter(|node| listing.origin(node) == LimitOrigin::Hands)
+            .filter(|node| node.name() == "--mcp-config")
+            .flat_map(|node| &node.values)
+            .flat_map(|document| super::mcp::brokered(document)),
+    );
     let limits: Vec<Limit> = seat
         .lists(ListKind::Include)
         .map(|node| (listing.origin(node), node))

@@ -123,7 +123,7 @@ echo >&2"#;
 
 /// The second grant `more-docs`, of the worker, through a dialect of its own
 /// whose server runs `script` from its own package.
-fn second_server(world: &World, script: &str) {
+pub(super) fn second_server(world: &World, script: &str) {
     let program = world.base.join("opt/more/bin/more-mcp");
     put(&program, script);
     super::chmod(&program, 0o755);

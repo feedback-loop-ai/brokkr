@@ -28,9 +28,11 @@ pub use config::Bound;
 pub(crate) use config::{carried, feature, isolation, isolation_options, profile, rendered};
 pub(crate) use config::{pinned, Pins, Unisolated};
 pub use inline::{judge_inline_codex_command, judge_inline_codex_launch};
+pub use managed::{managed_patterns, managed_separator};
 
 mod config;
 mod inline;
+mod managed;
 
 /// How many argv tokens one option's value occupies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1317,79 +1319,6 @@ pub fn inline_codex_denials(argv: &[String]) -> Vec<&'static str> {
                 .and_then(|admitted| admitted.denies)
         })
         .collect()
-}
-
-/// The separators a managed tool list may be joined with. A comma is what
-/// the shipped mappings declare; Claude's own splitter also splits at a
-/// space outside parentheses, so a space is not a separator the engine
-/// may join with.
-pub fn managed_separator(separator: &str) -> Result<char, &'static str> {
-    match separator {
-        "," => Ok(','),
-        _ => Err("is not the one separator a managed tool list is joined with, ','"),
-    }
-}
-
-/// The bounds of a managed tool list.
-const PATTERNS_MAX: usize = 64;
-const TOOL_NAME_MAX: usize = 128;
-const SPECIFIER_MAX: usize = 256;
-
-/// The patterns of one MANAGED tool-list value — a list the engine
-/// composes — or the fixed cause it is refused for (rebuild unit 10;
-/// design D6). The empty value is an explicit empty list, distinct from
-/// no list. Otherwise the value is patterns joined by single commas, each
-/// a plain tool name (ASCII letters, digits and `_`, leading with a
-/// letter) optionally followed by one parenthesized specifier. The
-/// specifier may hold spaces, `:`, `*`, `/` and `.`, but no parenthesis,
-/// comma, quote, backslash or control character, because each is a place
-/// where this reading and the harness's own splitter could disagree. A
-/// wildcard never stands in a tool name, an empty pattern (a doubled,
-/// leading or trailing comma) refuses, and so does a space outside the
-/// parentheses. The cause never echoes the value.
-pub fn managed_patterns(value: &str) -> Result<Vec<&str>, &'static str> {
-    const EMPTY: &str = "joins an empty pattern: a doubled, leading or trailing separator";
-    const NAME: &str = "names a tool that is not a plain name of ASCII letters, digits and '_' \
-                        leading with a letter, within 128 bytes";
-    const SPECIFIER: &str = "carries a specifier that is not one parenthesized, nonempty run \
-                             within 256 bytes without a parenthesis, comma, quote, backslash or \
-                             control character";
-    const COUNT: &str = "joins more than 64 patterns";
-    if value.is_empty() {
-        return Ok(Vec::new());
-    }
-    let patterns: Vec<&str> = value.split(',').collect();
-    if patterns.len() > PATTERNS_MAX {
-        return Err(COUNT);
-    }
-    for pattern in &patterns {
-        if pattern.is_empty() {
-            return Err(EMPTY);
-        }
-        let (name, specifier) = match pattern.split_once('(') {
-            Some((name, rest)) => (name, Some(rest)),
-            None => (*pattern, None),
-        };
-        if name.is_empty()
-            || name.len() > TOOL_NAME_MAX
-            || !name.starts_with(|c: char| c.is_ascii_alphabetic())
-            || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-        {
-            return Err(NAME);
-        }
-        if let Some(rest) = specifier {
-            let inner = rest.strip_suffix(')').ok_or(SPECIFIER)?;
-            if inner.is_empty()
-                || inner.len() > SPECIFIER_MAX
-                || inner
-                    .chars()
-                    .any(|c| matches!(c, '(' | ')' | ',' | '"' | '\'' | '\\') || c.is_control())
-            {
-                return Err(SPECIFIER);
-            }
-        }
-    }
-    Ok(patterns)
 }
 
 /// A tool pattern's name: `WebFetch(domain:example.org)` names `WebFetch`.

@@ -163,6 +163,18 @@ impl SealedBroker {
     pub(crate) fn server(capability: &str) -> Option<String> {
         bare(capability).then(|| format!("cap-{capability}"))
     }
+
+    /// The names Claude's allow list grants `brokers` by (U9b1d; MB1): each
+    /// broker's one served name, `mcp__cap-<capability>`, once, in sealed
+    /// order, which admits that server's tools; the broker stays the one
+    /// gate on which of them run (MB3). The set's builder writes them
+    /// ([`Servers::expand`]) and the final check binds a launch's allow
+    /// list to them. `None` where a capability is not one bare name.
+    pub(crate) fn allowance(brokers: &[SealedBroker]) -> Option<Vec<String>> {
+        (brokers.iter())
+            .map(|broker| Some(format!("mcp__{}", Self::server(&broker.capability)?)))
+            .collect()
+    }
 }
 
 /// One server of the engine's set, by what it serves.
@@ -334,7 +346,11 @@ impl<'a> Servers<'a> {
     /// whole set's document, `{hands_args_toml}` to the hands server's
     /// arguments as a TOML array of [`toml_basic`] strings and `{brokkr}`,
     /// which stands in a TOML basic string, to the executable that string
-    /// encodes (rebuild unit 13-fix-c, R2). A set without the box's hands
+    /// encodes (rebuild unit 13-fix-c, R2). Beside brokers, the value of
+    /// the fragment's allow list also names each broker's server
+    /// ([`SealedBroker::allowance`]; U9b1d), after what it allowed, so a
+    /// headless seat may call what its broker admits; a set without brokers
+    /// keeps every byte. A set without the box's hands
     /// serves no hands fragment, so nothing. `None` where the executable,
     /// the workdir, the artifact root or a path of the sealed reach is not
     /// UTF-8, since no provider value represents that path exactly and a
@@ -349,20 +365,17 @@ impl<'a> Servers<'a> {
         hands.artifacts.to_str()?;
         serde_json::to_string(hands.sealed).ok()?;
         let document = document(hands.brokkr, &self.named()?).to_string();
+        let allowance = SealedBroker::allowance(self.brokers)?;
         let quoted: Vec<String> = (Owed::Hands(hands).args().iter())
             .map(|arg| format!("\"{}\"", toml_basic(arg)))
             .collect();
         let (arguments, command) = (format!("[{}]", quoted.join(",")), toml_basic(brokkr));
-        Some(
-            fragment
-                .iter()
-                .map(|part| {
-                    part.replace("{hands_mcp_json}", &document)
-                        .replace("{hands_args_toml}", &arguments)
-                        .replace("{brokkr}", &command)
-                })
-                .collect(),
-        )
+        let expanded = (fragment.iter()).map(|part| {
+            part.replace("{hands_mcp_json}", &document)
+                .replace("{hands_args_toml}", &arguments)
+                .replace("{brokkr}", &command)
+        });
+        Some(allowing(fragment, expanded.collect(), &allowance))
     }
 
     /// Whether `controls`, the MCP options of one command at `harness`,
@@ -421,6 +434,27 @@ impl<'a> Servers<'a> {
     }
 }
 
+/// `expanded`, `fragment`'s parts with the engine's tokens expanded, with
+/// `allowance` joined after the value of each allow list `fragment` writes
+/// as an option and its own value, as Claude's grammar reads one
+/// (`--allowedTools`; U9b1d). Brokers ride only Claude's grammar, which
+/// LaneTally's wrapper shares; a fragment writing no such list, as Codex's
+/// and dsh's write none, keeps its parts, and an empty `allowance` changes
+/// no byte.
+fn allowing(fragment: &[String], mut expanded: Vec<String>, allowance: &[String]) -> Vec<String> {
+    for (at, flag) in fragment.iter().enumerate() {
+        let allows = grammar::list_of("claude", flag) == Some(ListKind::Allow);
+        if let (true, Some(value)) = (allows, expanded.get_mut(at + 1)) {
+            let allowed = (Some(value.as_str())
+                .filter(|value| !value.is_empty())
+                .into_iter())
+            .chain(allowance.iter().map(String::as_str));
+            *value = allowed.collect::<Vec<_>>().join(",");
+        }
+    }
+    expanded
+}
+
 /// Whether one control of a command at `harness` is an MCP option: strict
 /// MCP or a document for Claude's grammar, and an assignment into the
 /// `mcp_servers` table for Codex.
@@ -469,6 +503,19 @@ fn read(harness: &str, controls: &[(&str, &Vec<String>)]) -> Option<BTreeMap<Str
         "codex" => codex_entries(controls),
         _ => None,
     }
+}
+
+/// The brokers one Claude-grammar MCP `document` serves, each by the name
+/// the allow list grants it, `mcp__cap-<capability>`, read as [`read`]
+/// reads a document: nothing where it is not one closed table naming each
+/// server once (U9b1d; ruling R4). Only the hands contribution's own
+/// document is read so, which the final check binds to the sealed set.
+pub(super) fn brokered(document: &str) -> Vec<String> {
+    let servers = serde_json::from_str::<Document>(document).map(|read| read.servers.0);
+    (servers.into_iter().flat_map(BTreeMap::into_keys))
+        .filter(|name| name.strip_prefix("cap-").is_some_and(bare))
+        .map(|name| format!("mcp__{name}"))
+        .collect()
 }
 
 /// An MCP document as a Claude-grammar harness reads it: one closed table.
