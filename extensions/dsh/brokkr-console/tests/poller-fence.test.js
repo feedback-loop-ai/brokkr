@@ -1,0 +1,505 @@
+// The journal fence: a result publishes only while the journal it was read
+// from is still the one its realm names, whatever the world's shape. A map
+// moved, vanished or appeared while a read was in flight makes that read
+// unlabelable. The fixtures these tests share live in tests/support/poller.js.
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+
+import { brokkrOf } from '../lib/host/brokkr.js'
+import { FLEET_WINDOW } from '../lib/host/config.js'
+import { pollerOf } from '../lib/host/poller.js'
+import { ONE_HEARTH } from '../lib/host/readouts.js'
+import { buttons, findAll, mountClient, textOf } from './support/client.js'
+import { attached, heard, oneRow, peer, realmsDoc, runOf, runningOf, runningRead, windowOf } from './support/poller.js'
+import { json, row, runViewDoc, stubBrokkr } from './support/world.js'
+
+test('chief F4: changing a realm journal discards pages read from its old journal', async () => {
+  const names = ['alpha', 'beta']
+  const realmsWith = (journal) => ({
+    journal: './.forge/forge.db',
+    map: './realms.json',
+    realms: names.map((name) => ({ default_branch: 'main', head: '0000000', journal: name === 'alpha' ? journal : `/hearths/${name}/forge.db`, name, path: `../${name}` })),
+  })
+  const cursor = 'needs-you:1:alpha-run-0000'
+  const oldFirst = windowOf([runOf('alpha', 0)], cursor)
+  const oldOnly = windowOf([runOf('alpha', 1)], null)
+  const newFirst = windowOf([runOf('alpha', 2)], cursor)
+  const beta = windowOf([runOf('beta', 0)], null)
+  const brokkr = stubBrokkr([
+    { match: ['realms'], responses: [json(realmsWith('/hearths/alpha/forge.db')), json(realmsWith('/hearths/alpha-new/forge.db')), json(realmsWith('/hearths/alpha-new/forge.db'))] },
+    { match: ['runs', '--db=/hearths/alpha/forge.db'], responses: [json(oldFirst), json(oldOnly)] },
+    { match: ['runs', '--db=/hearths/alpha-new/forge.db'], responses: [json(newFirst)] },
+    { match: ['runs', '--db=/hearths/beta/forge.db'], responses: [json(beta)] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const host = await attached(poller, { view: 'realm', realm: 'alpha', run: null })
+  host.sent.length = 0
+  host.receive({ type: 'more', realm: 'alpha' })
+  const more = await heard(host)
+  assert.ok(more.fleet.hearths.find((hearth) => hearth.realm === 'alpha').runs.some((row) => row.run_id === 'alpha-run-0001'))
+
+  const readings = []
+  host.sent.length = 0
+  await poller.tick()
+  readings.push((await heard(host)).fleet)
+  // The second poll need not push an unchanged fleet; a watch reads the state it settled on.
+  host.sent.length = 0
+  await poller.tick()
+  host.receive({ type: 'watch', view: 'realm', realm: 'alpha', run: null })
+  readings.push((await heard(host)).fleet)
+  for (const fleet of readings) {
+    const alpha = fleet.hearths.find((hearth) => hearth.realm === 'alpha')
+    assert.deepEqual(alpha.runs.map((row) => row.run_id), ['alpha-run-0002'])
+    assert.equal(alpha.next, cursor)
+  }
+
+  const painted = mountClient('main')
+  painted.push({ type: 'snapshot', ask: false, fleet: readings.at(-1), overview: null, run: null })
+  buttons(painted.tree()).find((button) => textOf(button).startsWith('alpha')).props.onClick()
+  const runs = findAll(painted.tree(), (node) => node.props['aria-label'] === 'Runs')[0]
+  assert.ok(buttons(runs).some((button) => textOf(button) === 'Show more runs'))
+})
+
+test('review M4: an inspect from a replaced journal publishes nothing', async () => {
+  const runId = 'alpha-run-0000'
+  const rowAt = (seq) => ({ ...row({ run_id: runId, title: 'alpha run 0', feature: 'alpha run 0' }), seq })
+  const oldPage = windowOf([rowAt(12)], null)
+  const newPage = windowOf([rowAt(25)], null)
+  const betaPage = windowOf([runOf('beta', 0)], null)
+  const world = (journal) => ({
+    journal: './.forge/forge.db',
+    map: './realms.json',
+    realms: ['alpha', 'beta'].map((name) => ({ default_branch: 'main', head: '0000000', journal: name === 'alpha' ? journal : '/hearths/beta/forge.db', name, path: `../${name}` })),
+  })
+  const oldRead = runViewDoc({ seq: 12 })
+  oldRead.summary = { ...oldRead.summary, run_id: runId }
+  const newRead = runViewDoc({ seq: 25 })
+  newRead.summary = { ...newRead.summary, run_id: runId }
+  const brokkr = stubBrokkr([
+    { match: ['realms'], responses: [json(world('/hearths/alpha/old.db')), json(world('/hearths/alpha/new.db')), json(world('/hearths/alpha/new.db'))] },
+    { match: ['runs', '--db=/hearths/alpha/old.db'], responses: [json(oldPage)] },
+    { match: ['runs', '--db=/hearths/alpha/new.db'], responses: [json(newPage)] },
+    { match: ['runs', '--db=/hearths/beta/forge.db'], responses: [json(betaPage)] },
+    { match: ['inspect'], responses: [{ ...json(oldRead), sleep_ms: 700 }, json(newRead)] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const client = peer()
+  client.receive = poller.attach(client)
+  const inspections = () => brokkr.calls().filter((argv) => argv[0] === 'inspect').length
+  client.receive({ type: 'watch', view: 'realm', realm: 'alpha', run: { realm: 'alpha', run_id: runId } })
+  for (let waited = 0; inspections() === 0; waited += 10) {
+    assert.ok(waited < 10_000, 'the old journal’s inspect did not start within 10s')
+    await new Promise((wake) => setTimeout(wake, 10))
+  }
+  client.receive({ type: 'watch', view: 'realm', realm: 'alpha', run: { realm: 'alpha', run_id: runId } })
+  for (let waited = 0; client.sent.length === 0; waited += 10) {
+    assert.ok(waited < 10_000, 'the new journal’s snapshot did not arrive within 10s')
+    await new Promise((wake) => setTimeout(wake, 10))
+  }
+  await new Promise((wake) => setTimeout(wake, 900))
+
+  assert.equal(client.sent.length, 1, 'the obsolete snapshot paints nothing')
+  const [snapshot] = client.sent
+  const alpha = snapshot.fleet.hearths.find((hearth) => hearth.realm === 'alpha')
+  assert.deepEqual([alpha.journal, alpha.runs[0].seq, snapshot.run.view.summary.seq], ['/hearths/alpha/new.db', 25, 25])
+})
+
+test('review M4: a delayed run-row read from a replaced journal paints no snapshot', async () => {
+  const watched = { ...runOf('alpha', 0), seq: 12 }
+  const oldPage = windowOf([watched], null)
+  const newPage = windowOf([{ ...watched, seq: 25 }], null)
+  const betaPage = windowOf([runOf('beta', 0)], null)
+  const world = (journal) => ({
+    journal: './.forge/forge.db',
+    map: './realms.json',
+    realms: ['alpha', 'beta'].map((name) => ({ default_branch: 'main', head: '0000000', journal: name === 'alpha' ? journal : '/hearths/beta/forge.db', name, path: `../${name}` })),
+  })
+  const oldRead = runViewDoc({ seq: 13 })
+  oldRead.summary = { ...oldRead.summary, run_id: watched.run_id }
+  const newRead = runViewDoc({ seq: 25 })
+  newRead.summary = { ...newRead.summary, run_id: watched.run_id }
+  const brokkr = stubBrokkr([
+    { match: ['runs', `--run=${watched.run_id}`], responses: [{ ...json(oneRow({ ...watched, seq: 13 })), sleep_ms: 700 }] },
+    { match: ['runs', '--db=/hearths/alpha/old.db'], responses: [json(oldPage)] },
+    { match: ['runs', '--db=/hearths/alpha/new.db'], responses: [json(newPage)] },
+    { match: ['runs', '--db=/hearths/beta/forge.db'], responses: [json(betaPage)] },
+    { match: ['realms'], responses: [json(world('/hearths/alpha/old.db')), json(world('/hearths/alpha/new.db')), json(world('/hearths/alpha/new.db'))] },
+    { match: ['inspect'], responses: [json(oldRead), json(newRead)] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const client = peer()
+  client.receive = poller.attach(client)
+  client.receive({ type: 'watch', view: 'realm', realm: 'alpha', run: { realm: 'alpha', run_id: watched.run_id } })
+  const started = () => brokkr.calls().some((argv) => argv[0] === 'runs' && argv.includes(`--run=${watched.run_id}`))
+  for (let waited = 0; !started(); waited += 10) {
+    assert.ok(waited < 10_000, 'the old journal’s run-row read did not start within 10s')
+    await new Promise((wake) => setTimeout(wake, 10))
+  }
+
+  // The realm moves to a new journal while the old row is still held open.
+  client.sent.length = 0
+  await poller.tick()
+  const moved = client.sent.find((message) => message.type === 'run')
+  assert.equal(moved?.run.view.summary.seq, 25, 'the current journal’s read reaches the client')
+
+  await new Promise((wake) => setTimeout(wake, 900))
+  assert.deepEqual(client.sent.filter((message) => message.type === 'snapshot'), [], 'the obsolete snapshot paints nothing')
+  assert.deepEqual(client.sent.filter((message) => message.type === 'run' && message.run.view.summary.seq === 13), [], 'the old journal’s row never reaches the client')
+})
+
+test('review M4: a delayed first page cannot roll a repointed realm back', async () => {
+  const oldPage = windowOf([{ ...runOf('alpha', 0), seq: 12 }], null)
+  const newPage = windowOf([{ ...runOf('alpha', 0), seq: 25 }], null)
+  const world = (journal) => ({
+    journal: './.forge/forge.db',
+    map: './realms.json',
+    realms: [{ default_branch: 'main', head: '0000000', journal, name: 'alpha', path: '../alpha' }],
+  })
+  const brokkr = stubBrokkr([
+    { match: ['runs'], responses: [{ ...json(oldPage), sleep_ms: 700 }, json(newPage)] },
+    { match: ['realms'], responses: [json(world('/hearths/alpha/old.db')), json(world('/hearths/alpha/new.db')), json(world('/hearths/alpha/new.db'))] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const first = peer()
+  first.receive = poller.attach(first)
+  first.receive({ type: 'watch', view: 'realm', realm: 'alpha', run: null })
+  const pages = () => brokkr.calls().filter((argv) => argv[0] === 'runs').length
+  for (let waited = 0; pages() === 0; waited += 10) {
+    assert.ok(waited < 10_000, 'the old first page did not start within 10s')
+    await new Promise((wake) => setTimeout(wake, 10))
+  }
+
+  // A second client reads the realm after the journal moved, before the first
+  // page read under the old journal lands.
+  const second = await attached(poller, { view: 'realm', realm: 'alpha', run: null })
+  assert.equal(second.sent[0].fleet.hearths[0].journal, '/hearths/alpha/new.db')
+  await new Promise((wake) => setTimeout(wake, 900))
+  assert.equal(first.sent.length, 1, 'the delayed page paints one snapshot, not a rollback')
+  assert.deepEqual(first.sent[0].fleet.hearths.map((hearth) => [hearth.journal, hearth.runs[0].seq]), [['/hearths/alpha/new.db', 25]])
+})
+
+test('review M4: a Show more page from a replaced journal paints nothing', async () => {
+  const cursor = 'needs-you:1:alpha-run-0000'
+  const first = windowOf([{ ...runOf('alpha', 0), seq: 12 }], cursor)
+  const second = windowOf([runOf('alpha', 1)], null)
+  const fresh = windowOf([{ ...runOf('alpha', 2), seq: 25 }], cursor)
+  const world = (journal) => ({
+    journal: './.forge/forge.db',
+    map: './realms.json',
+    realms: [{ default_branch: 'main', head: '0000000', journal, name: 'alpha', path: '../alpha' }],
+  })
+  const brokkr = stubBrokkr([
+    { match: ['runs'], responses: [json(first), { ...json(second), sleep_ms: 700 }, json(fresh)] },
+    { match: ['realms'], responses: [json(world('/hearths/alpha/old.db')), json(world('/hearths/alpha/old.db')), json(world('/hearths/alpha/old.db')), json(world('/hearths/alpha/new.db'))] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const client = await attached(poller, { view: 'realm', realm: 'alpha', run: null })
+  client.sent.length = 0
+  client.receive({ type: 'more', realm: 'alpha' })
+  const reads = () => brokkr.calls().filter((argv) => argv[0] === 'runs').length
+  for (let waited = 0; reads() < 2; waited += 10) {
+    assert.ok(waited < 10_000, 'the Show more page did not start within 10s')
+    await new Promise((wake) => setTimeout(wake, 10))
+  }
+
+  // The realm moves to a new journal with the same cursor while the old
+  // journal’s page is still in flight.
+  await poller.tick()
+  client.sent.length = 0
+  await new Promise((wake) => setTimeout(wake, 900))
+  assert.deepEqual(client.sent, [], 'the replaced journal’s page paints nothing')
+})
+
+test('review M4: a poll’s queued update from a replaced journal reaches no client', async () => {
+  const watched = runningOf('alpha', 0, 12)
+  const other = runningOf('alpha', 1, 12)
+  const oldPage = windowOf([watched, other], null)
+  const newPage = windowOf([{ ...watched, seq: 25 }, other], null)
+  const betaPage = windowOf([runOf('beta', 0)], null)
+  const world = (journal) => ({
+    journal: './.forge/forge.db',
+    map: './realms.json',
+    realms: ['alpha', 'beta'].map((name) => ({ default_branch: 'main', head: '0000000', journal: name === 'alpha' ? journal : '/hearths/beta/forge.db', name, path: `../${name}` })),
+  })
+  const held = runningRead(12)
+  held.summary = { ...held.summary, run_id: watched.run_id }
+  const moved = runningRead(13)
+  moved.summary = { ...moved.summary, run_id: watched.run_id }
+  const late = runningRead(12)
+  late.summary = { ...late.summary, run_id: other.run_id }
+  const brokkr = stubBrokkr([
+    { match: ['runs', `--run=${watched.run_id}`], responses: [json(oneRow({ ...watched, seq: 13 }))] },
+    { match: ['runs', '--db=/hearths/alpha/old.db'], responses: [json(oldPage)] },
+    { match: ['runs', '--db=/hearths/alpha/new.db'], responses: [json(newPage)] },
+    { match: ['runs', '--db=/hearths/beta/forge.db'], responses: [json(betaPage)] },
+    {
+      match: ['realms'],
+      responses: [json(world('/hearths/alpha/old.db')), json(world('/hearths/alpha/old.db')), json(world('/hearths/alpha/new.db')), json(world('/hearths/alpha/new.db'))],
+    },
+    { match: ['inspect'], responses: [json(held), json(moved), { ...json(late), sleep_ms: 700 }] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const client = await attached(poller, { view: 'realm', realm: 'alpha', run: { realm: 'alpha', run_id: watched.run_id } })
+  const inspections = () => brokkr.calls().filter((argv) => argv[0] === 'inspect').length
+
+  // A poll queues the watched run's moved read, then waits on the other
+  // first-page running run before it can send anything.
+  const ticking = poller.tick()
+  for (let waited = 0; inspections() < 3; waited += 10) {
+    assert.ok(waited < 10_000, 'the poll’s second run did not start within 10s')
+    await new Promise((wake) => setTimeout(wake, 10))
+  }
+  client.sent.length = 0
+
+  // The realm moves to a new journal while the poll waits.
+  const second = await attached(poller, { view: 'realm', realm: 'alpha', run: null })
+  assert.equal(second.sent[0].fleet.hearths.find((hearth) => hearth.realm === 'alpha').journal, '/hearths/alpha/new.db')
+  await ticking
+
+  assert.deepEqual(client.sent.filter((message) => message.type === 'run'), [], 'the queued old-journal update reaches no client')
+  const fleet = client.sent.find((message) => message.type === 'fleet')?.fleet
+  assert.equal(fleet?.hearths.find((hearth) => hearth.realm === 'alpha').journal, '/hearths/alpha/new.db', 'the poll paints the current journal')
+})
+
+test('review M4: a newer watch drops the snapshot its older watch read', async () => {
+  const oldPage = windowOf([{ ...runOf('alpha', 0), seq: 12 }], null)
+  const newPage = windowOf([{ ...runOf('alpha', 0), seq: 25 }], null)
+  const world = (journal) => ({
+    journal: './.forge/forge.db',
+    map: './realms.json',
+    realms: [{ default_branch: 'main', head: '0000000', journal, name: 'alpha', path: '../alpha' }],
+  })
+  const brokkr = stubBrokkr([
+    { match: ['runs'], responses: [{ ...json(oldPage), sleep_ms: 700 }, json(newPage)] },
+    { match: ['realms'], responses: [json(world('/hearths/alpha/old.db')), json(world('/hearths/alpha/new.db')), json(world('/hearths/alpha/new.db'))] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const client = peer()
+  client.receive = poller.attach(client)
+  client.receive({ type: 'watch', view: 'realm', realm: 'alpha', run: null })
+  const pages = () => brokkr.calls().filter((argv) => argv[0] === 'runs').length
+  for (let waited = 0; pages() === 0; waited += 10) {
+    assert.ok(waited < 10_000, 'the old first page did not start within 10s')
+    await new Promise((wake) => setTimeout(wake, 10))
+  }
+
+  // The operator asks again before the first page lands: the newer watch is
+  // the one that paints.
+  client.receive({ type: 'watch', view: 'realm', realm: 'alpha', run: null })
+  for (let waited = 0; client.sent.length === 0; waited += 10) {
+    assert.ok(waited < 10_000, 'the new journal’s snapshot did not arrive within 10s')
+    await new Promise((wake) => setTimeout(wake, 10))
+  }
+  await new Promise((wake) => setTimeout(wake, 900))
+  assert.equal(client.sent.length, 1, 'the replaced watch paints one snapshot')
+  assert.deepEqual(client.sent[0].fleet.hearths.map((hearth) => [hearth.journal, hearth.runs[0].seq]), [['/hearths/alpha/new.db', 25]])
+})
+
+test('review F1: a one-realm map names its realm journal, not the map’s world journal', async () => {
+  const page = windowOf([runOf('alpha', 0)], null)
+  const realms = {
+    journal: './.forge/world.db',
+    map: './realms.json',
+    realms: [{ default_branch: 'main', head: '0000000', journal: '/hearths/alpha/realm.db', name: 'alpha', path: '../alpha' }],
+  }
+  const brokkr = stubBrokkr([
+    { match: ['realms'], responses: [json(realms)] },
+    { match: ['runs'], responses: [json(page)] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const client = await attached(poller, { view: 'realm', realm: 'alpha', run: null })
+  assert.deepEqual(
+    brokkr.calls().filter((argv) => argv[0] === 'runs'),
+    [['runs', '--json', '--db=/hearths/alpha/realm.db', `--limit=${FLEET_WINDOW}`]],
+  )
+  assert.equal(client.sent[0].fleet.hearths[0].journal, '/hearths/alpha/realm.db')
+})
+
+test('review F1: a one-realm map repointed before the inspect paints no snapshot from the old journal', async () => {
+  const runId = 'alpha-run-0000'
+  const oldPage = windowOf([{ ...runOf('alpha', 0), seq: 12 }], null)
+  const newPage = windowOf([{ ...runOf('alpha', 0), seq: 25 }], null)
+  const world = (journal) => ({
+    journal: './.forge/forge.db',
+    map: './realms.json',
+    realms: [{ default_branch: 'main', head: '0000000', journal, name: 'alpha', path: '../alpha' }],
+  })
+  const newRead = runViewDoc({ seq: 25 })
+  newRead.summary = { ...newRead.summary, run_id: runId }
+  const served = row({ run_id: runId, title: 'alpha run 0', feature: 'alpha run 0', seq: 25 })
+  const brokkr = stubBrokkr([
+    { match: ['realms'], responses: [json(world('/hearths/alpha/old.db')), json(world('/hearths/alpha/old.db')), json(world('/hearths/alpha/new.db'))] },
+    { match: ['runs', `--run=${runId}`], responses: [json(oneRow(served))] },
+    { match: ['runs'], responses: [json(oldPage), json(newPage)] },
+    { match: ['inspect'], responses: [json(newRead), json(newRead)] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const client = peer()
+  client.receive = poller.attach(client)
+  client.receive({ type: 'watch', view: 'realm', realm: 'alpha', run: { realm: 'alpha', run_id: runId } })
+  const calls = (verb) => brokkr.calls().filter((argv) => argv[0] === verb).length
+  for (let waited = 0; calls('inspect') === 0 || (calls('realms') < 3 && client.sent.length === 0); waited += 10) {
+    assert.ok(waited < 10_000, 'the old journal’s inspect and its map re-read did not finish within 10s')
+    await new Promise((wake) => setTimeout(wake, 10))
+  }
+  await new Promise((wake) => setTimeout(wake, 50))
+
+  // The map moved before the inspect, so its new-journal view cannot be
+  // painted under the old fleet: the snapshot is dropped whole.
+  assert.deepEqual(client.sent, [], 'the repointed read paints nothing')
+  await poller.tick()
+  assert.equal(client.sent.filter((message) => message.type === 'snapshot').length, 0, 'no snapshot labels the old journal')
+  const fleet = client.sent.find((message) => message.type === 'fleet')?.fleet
+  assert.deepEqual(
+    [fleet?.hearths[0].journal, fleet?.hearths[0].runs[0].seq],
+    ['/hearths/alpha/new.db', 25],
+    'the next poll paints the journal the run is now read from',
+  )
+})
+
+test('review F1: a poll whose one-realm map moves while it reads paints nothing', async () => {
+  const runId = 'alpha-run-0000'
+  const oldPage = windowOf([{ ...runningOf('alpha', 0, 12) }], null)
+  const movedPage = windowOf([{ ...runningOf('alpha', 0, 13) }], null)
+  const world = (journal) => ({
+    journal: './.forge/forge.db',
+    map: './realms.json',
+    realms: [{ default_branch: 'main', head: '0000000', journal, name: 'alpha', path: '../alpha' }],
+  })
+  const oldRead = runningRead(12)
+  oldRead.summary = { ...oldRead.summary, run_id: runId }
+  const movedRead = runningRead(13)
+  movedRead.summary = { ...movedRead.summary, run_id: runId }
+  const brokkr = stubBrokkr([
+    { match: ['realms'], responses: [json(world('/hearths/alpha/old.db')), json(world('/hearths/alpha/old.db')), json(world('/hearths/alpha/old.db')), json(world('/hearths/alpha/old.db')), json(world('/hearths/alpha/old.db')), json(world('/hearths/alpha/new.db'))] },
+    { match: ['runs'], responses: [json(oldPage), json(movedPage)] },
+    { match: ['inspect'], responses: [json(oldRead), { ...json(movedRead), sleep_ms: 500 }] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const client = await attached(poller, { view: 'realm', realm: 'alpha', run: { realm: 'alpha', run_id: runId } })
+  client.sent.length = 0
+  const inspections = () => brokkr.calls().filter((argv) => argv[0] === 'inspect').length
+
+  // The poll reads a moved head, then the map moves while its inspect is in
+  // flight: the poll's own page and runs are no longer labelable.
+  const ticking = poller.tick()
+  for (let waited = 0; inspections() < 2; waited += 10) {
+    assert.ok(waited < 10_000, 'the poll’s inspect did not start within 10s')
+    await new Promise((wake) => setTimeout(wake, 10))
+  }
+  await ticking
+  assert.deepEqual(client.sent, [], 'the moved map’s poll paints nothing')
+})
+
+test('review F1: a one-realm map repointed while a Show more page is in flight paints nothing', async () => {
+  const cursor = 'needs-you:1:alpha-run-0000'
+  const first = windowOf([{ ...runOf('alpha', 0), seq: 12 }], cursor)
+  const second = windowOf([runOf('alpha', 1)], null)
+  const world = (journal) => ({
+    journal: './.forge/forge.db',
+    map: './realms.json',
+    realms: [{ default_branch: 'main', head: '0000000', journal, name: 'alpha', path: '../alpha' }],
+  })
+  const brokkr = stubBrokkr([
+    { match: ['runs'], responses: [json(first), { ...json(second), sleep_ms: 500 }] },
+    { match: ['realms'], responses: [json(world('/hearths/alpha/old.db')), json(world('/hearths/alpha/old.db')), json(world('/hearths/alpha/old.db')), json(world('/hearths/alpha/new.db'))] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const client = await attached(poller, { view: 'realm', realm: 'alpha', run: null })
+  client.sent.length = 0
+  client.receive({ type: 'more', realm: 'alpha' })
+  const reads = () => brokkr.calls().filter((argv) => argv[0] === 'runs').length
+  for (let waited = 0; reads() < 2; waited += 10) {
+    assert.ok(waited < 10_000, 'the Show more page did not start within 10s')
+    await new Promise((wake) => setTimeout(wake, 10))
+  }
+
+  // The map moves while the page is in flight; its rows cannot be appended
+  // under the old journal, even though the cached fleet still names it.
+  await new Promise((wake) => setTimeout(wake, 700))
+  assert.deepEqual(client.sent, [], 'the moved map’s page paints nothing')
+})
+
+test('review F2: a replaced watch’s refused fleet read paints no error banner', async () => {
+  const words = 'brokkr runs was refused: the journal could not be read'
+  const page = windowOf([runOf('alpha', 0)], null)
+  const brokkr = stubBrokkr([
+    { match: ['runs'], responses: [{ stderr: words, code: 1, sleep_ms: 700 }, json(page)] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const client = peer()
+  client.receive = poller.attach(client)
+  client.receive({ type: 'watch', view: 'realm', realm: ONE_HEARTH, run: null })
+  const reads = () => brokkr.calls().filter((argv) => argv[0] === 'runs').length
+  for (let waited = 0; reads() === 0; waited += 10) {
+    assert.ok(waited < 10_000, 'the refused fleet read did not start within 10s')
+    await new Promise((wake) => setTimeout(wake, 10))
+  }
+
+  // A newer watch answers while the older watch’s read is still refused.
+  client.receive({ type: 'watch', view: 'realm', realm: ONE_HEARTH, run: null })
+  for (let waited = 0; client.sent.length === 0; waited += 10) {
+    assert.ok(waited < 10_000, 'the newer watch’s snapshot did not arrive within 10s')
+    await new Promise((wake) => setTimeout(wake, 10))
+  }
+  await new Promise((wake) => setTimeout(wake, 900))
+  assert.deepEqual(client.sent.map((message) => message.type), ['snapshot'], 'the replaced watch paints no error beside it')
+  assert.equal(client.sent[0].fleet.hearths[0].runs.length, 1)
+})
+
+test('review F2: a one-hearth world’s refused fleet read keeps its detail, not an error banner', async () => {
+  const words = 'brokkr runs was refused: the journal could not be read'
+  const brokkr = stubBrokkr([{ match: ['runs'], responses: [{ stderr: words, code: 1 }] }])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const client = await attached(poller, { view: 'realm', realm: ONE_HEARTH, run: null })
+  assert.deepEqual(client.sent.map((message) => message.type), ['snapshot'])
+  const hearth = client.sent[0].fleet.hearths[0]
+  assert.deepEqual([hearth.realm, hearth.detail, hearth.runs.length, hearth.next], [ONE_HEARTH, words, 0, null])
+})
+
+test('review F3: an absence from a fleet this poll has replaced reaches no client', async () => {
+  const goneId = 'alpha-run-0000'
+  const slowId = 'alpha-run-0001'
+  const gone = { ...runOf('alpha', 0), run_id: goneId, seq: 12 }
+  const slow = runningOf('alpha', 1, 12)
+  const page1 = windowOf([gone, slow], null)
+  const page2 = windowOf([slow], null)
+  const page3 = windowOf([{ ...gone, seq: 25 }, slow], null)
+  const realms = {
+    journal: './.forge/forge.db',
+    map: './realms.json',
+    realms: [{ default_branch: 'main', head: '0000000', journal: '/hearths/alpha/forge.db', name: 'alpha', path: '../alpha' }],
+  }
+  const goneRead = runViewDoc({ seq: 12 })
+  goneRead.summary = { ...goneRead.summary, run_id: goneId }
+  const slowRead = runningRead(13)
+  slowRead.summary = { ...slowRead.summary, run_id: slowId }
+  const servedSlow = runningOf('alpha', 1, 13)
+  const brokkr = stubBrokkr([
+    { match: ['runs', `--run=${slowId}`], responses: [json(oneRow(servedSlow))] },
+    { match: ['runs'], responses: [json(page1), json(page2), json(page3)] },
+    { match: ['realms'], responses: [json(realms)] },
+    { match: ['inspect'], responses: [json(goneRead), { ...json(slowRead), sleep_ms: 500 }, json(slowRead)] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const client = await attached(poller, { view: 'realm', realm: 'alpha', run: { realm: 'alpha', run_id: goneId } })
+  client.sent.length = 0
+  const inspections = () => brokkr.calls().filter((argv) => argv[0] === 'inspect').length
+
+  // This poll lists the run gone, then waits on the other running run.
+  const ticking = poller.tick()
+  for (let waited = 0; inspections() < 2; waited += 10) {
+    assert.ok(waited < 10_000, 'the poll’s second run did not start within 10s')
+    await new Promise((wake) => setTimeout(wake, 10))
+  }
+
+  // A second client’s snapshot installs a fleet that lists the run again
+  // while the first poll is still deciding its absence.
+  const second = await attached(poller, { view: 'realm', realm: 'alpha', run: { realm: 'alpha', run_id: slowId } })
+  assert.ok(second.sent[0].fleet.hearths[0].runs.some((row) => row.run_id === goneId), 'the newer fleet lists the run')
+  await ticking
+
+  assert.deepEqual(client.sent.filter((message) => message.type === 'run' && message.run.listed === false), [], 'the stale absence reaches no client')
+  const fleet = client.sent.find((message) => message.type === 'fleet')?.fleet
+  assert.ok(fleet?.hearths[0].runs.some((row) => row.run_id === goneId), 'the fleet still lists the run')
+})
