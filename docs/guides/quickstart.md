@@ -436,6 +436,50 @@ refuses before it creates anything: ``no .brokkr/ folder from <cwd> up to
 <root>, and <root> is not a recipe library (decision 0083); nothing was
 created: run `brokkr init .` from <root>``.
 
+#### A personal map lives outside the repository
+
+A map that is yours, not the repository's, lives outside the worktree,
+beside the personal recipe shelf: `$XDG_CONFIG_HOME/brokkr/realms/<name>.json`,
+else `$HOME/.config/brokkr/realms/<name>.json` (decision
+[0101](../decisions/0101-personal-realms-and-adapters-live-outside-the-tracked-tree.md)
+ruling 1). Nothing finds it by lookup. `--realms <path>` names it, and
+the named map is read alone: it is never merged with the project's map,
+and it is not a fallback when it is missing or malformed — that refuses.
+If both exist, only the named one is a candidate.
+
+`--realms` is on every verb that opens a journal or a world today: `run`
+and `queue add`; `resume` and `rerun`; `doctor`; `realms`; the readouts
+`runs`, `inspect`, `transcript`, `seats`, `watch`, `costs`, `ledger`,
+`compare`, `analytics` and `graph`; the operator verbs `anchor`, `replay`,
+`conclude`, `operator`, `export`, `import` and `bridge`; `keep-refs
+plant`, `keep-refs list` and `keep-refs delete`; `queue list`, `queue
+judge`, `queue move`, `queue hold`, `queue release`, `queue repin` and
+`queue drop`; `ui`, `tui` and `muninn run`. `compile` and `recipes show`
+do not take it yet.
+
+Moving a project map out of the repository is the migration 0101 rules.
+Copy the project's map (`realms.json`, or a folder's
+`.brokkr/realms.json`) to the personal path, then make its paths reach
+this repository: a map's realm path and its journal (the world `journal`,
+or a realm's own) are read relative to the map file's directory, so write
+them as absolute paths, or as paths relative to the personal map's
+directory that reach this repository — otherwise `.forge/forge.db` lands
+under the personal directory. Keep `house` repository-relative — this repository's
+`docs/house-rules.md` for its realm. A named dialect such as `openspec`
+is looked up at
+`<personal>/dialects/openspec.json`: either copy `dialects/openspec.json`
+and its prompt directory beside the personal map, or write the path form
+`dialects/openspec.json`, which resolves inside the realm and reads the
+tracked file. A map that declares `capabilities` carries its
+`capabilities/` and `dialects/tools/` trees beside itself too; crossings
+need no move.
+
+A personal map's paths and credentials never go into the tracked
+`realms.json` or a bundle (ruling 8). A map field stores no secret value:
+credentials stay names under the existing secret bindings (decision
+[0012](../decisions/0012-sealed-secret-bindings.md)) in the
+operator-side store, never in the map.
+
 The run drives real agent sessions to completion in the foreground, and on
 a terminal it shows the TUI's run view while it does: `q` closes the view
 and leaves the run driving. Watch it from a second terminal too:
