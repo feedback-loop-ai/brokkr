@@ -38,7 +38,9 @@
 //! the session, as does one left untaken once the harness has ended its
 //! input. A fatal ending fails the active call and ends the session with
 //! its cause, as does a harness that ends while a call is active; a
-//! record that cannot be made ends it before anything acts on it.
+//! record that cannot be made ends it before anything acts on it. A harness
+//! that hangs up by a signal ends its input so too, once its active call,
+//! still heard, has ended (U9b1e).
 
 use std::fmt::Display;
 use std::io::{ErrorKind, Read, Write};
@@ -134,6 +136,10 @@ fn fault(code: i64, message: &dyn Display) -> Reply {
     })
 }
 
+/// The harness as a session serves it: its input, its output, and whether
+/// a signal hung up on it (U9b1e), which ends its input as a closed one does.
+type Harness<'h, R, W> = (R, W, &'h dyn Fn() -> bool);
+
 /// The one forwarded call: its acceptance, the harness's id for it and the
 /// broker's, its absolute deadline, and whether the harness cancelled it.
 struct Active {
@@ -163,13 +169,15 @@ struct Session<'s, 'l, 'g, W, E> {
     full: Option<Instant>,
     delivery: Delivery,
     attempt: Startup<'s>,
+    hung_up: &'s dyn Fn() -> bool,
     call: Duration,
     active: Option<Active>,
 }
 
 /// Serve the harness's requests on `harness` over the initialized
 /// `server`, its `catalog` and the plan `plan`, recording each call in
-/// `ledger`, until the harness ends its input or its output; or the cause
+/// `ledger`, until the harness ends its input or its output, or hangs up
+/// by the signal `harness` reads beside its input ([`Session::asked`]); or the cause
 /// that ended the session first. The `attempt`'s deadline and cancellation
 /// are read before every step, idle or not, and bound every call's
 /// deadline and every frame's. What still waits for the harness then is
@@ -191,7 +199,7 @@ pub(in crate::broker) fn served<'b>(
     started: (Server<'_>, Catalog),
     plan: &Plan,
     ledger: &mut Ledger<'b>,
-    harness: (impl Read + AsFd, impl Write + AsFd),
+    harness: Harness<'_, impl Read + AsFd, impl Write + AsFd>,
     attempt: Startup<'_>,
     edge: Edge<'_, 'b, impl Read + AsFd>,
 ) -> Result<(), Ended> {
@@ -213,7 +221,7 @@ pub(super) fn served_within<'b>(
     (server, catalog): (Server<'_>, Catalog),
     plan: &Plan,
     ledger: &mut Ledger<'b>,
-    (input, output): (impl Read + AsFd, impl Write + AsFd),
+    (input, output, hung_up): Harness<'_, impl Read + AsFd, impl Write + AsFd>,
     attempt: Startup<'_>,
     edge: Edge<'_, 'b, impl Read + AsFd>,
 ) -> Result<(), Ended> {
@@ -237,6 +245,7 @@ pub(super) fn served_within<'b>(
         full: None,
         delivery: Delivery::Open,
         attempt,
+        hung_up,
         call,
         active: None,
     };
@@ -286,7 +295,8 @@ impl<'s, W: Write + AsFd, E: Read + AsFd> Session<'s, '_, '_, W, E> {
 
     /// The harness has ended, by closing its input or its output, politely
     /// or because it was killed and its exit closed them (operator ruling
-    /// 2026-10-18, item 6): a call still active is failed, its Terminal
+    /// 2026-10-18, item 6), or by a signal, once its active call ended
+    /// ([`Session::asked`]): a call still active is failed, its Terminal
     /// recorded, and the session ends with MB5's cancellation cause, the
     /// attempt's timeout, so its ledger ends with that Terminal and a
     /// Failed closure, never unfinished; with no call active, it ends
@@ -301,11 +311,15 @@ impl<'s, W: Write + AsFd, E: Read + AsFd> Session<'s, '_, '_, W, E> {
     /// Read the harness's next frame from `harness`, unless what waits for
     /// it has no room ([`Session::untaken`]), and take it: a request
     /// handled, an oversized frame refused. Whether the turn read nothing;
-    /// or none once the harness has ended its input.
+    /// or none once the harness has ended its input. A harness that hung up
+    /// by a signal is read no more, and has ended its input once no call is
+    /// active: an active one is still heard until its answer, its deadline,
+    /// or the attempt's end, which a second signal brings (CR3, CR4; U9b1e).
     fn asked(&mut self, harness: &mut Lines<impl Read + AsFd>) -> Result<Option<bool>, Ended> {
-        let asked = match self.untaken() {
-            false => harness.next(REQUEST_MAX),
-            true => Line::Quiet,
+        let asked = match (self.untaken(), (self.hung_up)()) {
+            (_, true) => return Ok(self.active.is_some().then_some(true)),
+            (false, false) => harness.next(REQUEST_MAX),
+            (true, false) => Line::Quiet,
         };
         match asked {
             Line::Frame(frame) => self.requested(&frame).map(|()| Some(false)),

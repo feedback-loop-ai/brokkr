@@ -28,6 +28,7 @@ use crate::broker::session::stderr::Drain;
 use crate::broker::session::{Ended, Startup};
 
 mod delivery;
+mod hangup;
 mod masking;
 mod retention;
 
@@ -778,22 +779,25 @@ struct Ran {
 
 /// What a test session's output edge holds: the plan it serves, the
 /// secrets bound to it, what its server writes on its standard error
-/// before ending it, and how its ledger retains responses, if it does.
+/// before ending it, how its ledger retains responses, if it does, and
+/// whether a signal hung up on its harness (U9b1e).
 struct Beside {
     plan: Plan,
     bindings: Vec<BoundSecret>,
     stderr: Vec<u8>,
     retain: Option<retention::Retain>,
+    hung_up: &'static dyn Fn() -> bool,
 }
 
 impl Beside {
-    /// The test plan, no secret bound and nothing on standard error.
+    /// The test plan, no secret bound, nothing on standard error, no signal.
     fn plain() -> Beside {
         Beside {
             plan: plan(),
             bindings: Vec::new(),
             stderr: Vec::new(),
             retain: None,
+            hung_up: &live,
         }
     }
 }
@@ -850,6 +854,7 @@ fn edged(
         bindings,
         stderr,
         retain,
+        hung_up,
     }: Beside,
     conversation: impl FnOnce(&mut Harness) + Send + 'static,
 ) -> Ran {
@@ -888,7 +893,7 @@ fn edged(
         };
         conversation(&mut harness);
     });
-    let harness = (asked, answers);
+    let harness = (asked, answers, hung_up);
     // Bound once its bindings are looked up, before its server starts, as
     // `serve`'s binder binds it; its standard error drained from its start,
     // and its tail kept once it ends, as `serving` drains and keeps it.

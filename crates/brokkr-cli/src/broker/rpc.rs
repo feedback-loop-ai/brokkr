@@ -648,17 +648,22 @@ pub(in crate::broker) fn serving(
         bindings,
         said,
     }: Bound<'_, '_>,
-    (plan, startup): (&Plan, Startup<'_>),
+    (plan, startup, ending): (&Plan, Startup<'_>, Ending<'_>),
 ) -> Result<(), Ended> {
     let mut stderr = Drain::new(errors, bindings);
     let edge = output::Edge {
         bindings,
         stderr: &mut stderr,
     };
-    let ended = initialized(link, ledger, edge, (plan, startup), held_apart);
+    let ended = initialized(link, ledger, edge, (plan, startup, ending), held_apart);
     said.borrow_mut().extend(stderr.tail());
     ended
 }
+
+/// How a served session's harness ends it beside its input (U9b1e): the
+/// attempt's cancellation once it is served, which a second signal sets,
+/// and whether a signal hung up on it, which reads as its input's end.
+pub(in crate::broker) type Ending<'a> = (&'a (dyn Fn() -> bool + Sync), &'a dyn Fn() -> bool);
 
 /// The broker's own standard input and output, each through a descriptor
 /// of its own, or why that could not be set up.
@@ -685,8 +690,9 @@ const SERVING: std::time::Duration = std::time::Duration::from_secs(100 * 365 * 
 /// The session's server [`started`] for the plan `plan` within `startup`,
 /// its standard error drained beside it, and the harness served over the
 /// broker's own standard input and output ([`calls::served`]) until it
-/// ends, under the attempt's cancellation and no deadline of the
-/// startup's ([`SERVING`]).
+/// ends, by its input or by the `ending` signal, under the attempt's
+/// cancellation `ending` holds and no deadline of the startup's
+/// ([`SERVING`]).
 /// A fatal ending of the server's initialization stays the session's
 /// cause. Standard input this process cannot hold apart ([`Stdio`], set up
 /// by `stdio`) is the protocol's cause; standard output, a stream that
@@ -695,15 +701,22 @@ fn initialized<'b>(
     link: Link<'_>,
     ledger: &mut Ledger<'b>,
     edge: output::Edge<'_, 'b, impl Read + AsFd>,
-    (plan, startup): (&Plan, Startup<'_>),
+    (plan, startup, (cut, hung_up)): (&Plan, Startup<'_>, Ending<'_>),
     stdio: impl FnOnce() -> Stdio,
 ) -> Result<(), Ended> {
     let started = started(link, plan, startup, &mut *edge.stderr).map_err(Ended::Failed)?;
     let (input, output) = stdio();
     let input = input.or(Err(Ended::Failed(PROTOCOL)))?;
     let output = output.or(Err(Ended::Failed(UNDELIVERED)))?;
-    let attempt = (std::time::Instant::now() + SERVING, startup.1);
-    calls::served(started, plan, ledger, (input, output), attempt, edge)
+    let attempt = (std::time::Instant::now() + SERVING, cut);
+    calls::served(
+        started,
+        plan,
+        ledger,
+        (input, output, hung_up),
+        attempt,
+        edge,
+    )
 }
 
 /// The admitted box's server, over its stdio `link`, initialized within

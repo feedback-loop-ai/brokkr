@@ -75,9 +75,12 @@ ratatui = { workspace = true }
 # and `std` (#508) raise SIGINT when the run view reads Ctrl+C as a key
 # and report a refusal as an io::Error; the engine's process module
 # already builds rustix with both. `thread` (U9b1b's ruling F1) sets a
-# driver's no_new_privs.
+# driver's no_new_privs. `signal-hook` (U9b1e) lets `broker serve` count the
+# SIGINT or SIGTERM its harness ends it by, so it closes its ledger: a direct
+# edge to the version brokkr-protocol already holds; no registry version moves.
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1.1.4", default-features = false, features = ["event", "fs", "net", "process", "std", "thread"] }
+signal-hook = "0.3.18"
 
 [dev-dependencies]
 brokkr-store = { workspace = true, features = ["test-support"] }

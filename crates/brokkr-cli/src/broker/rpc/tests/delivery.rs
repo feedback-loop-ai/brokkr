@@ -20,14 +20,18 @@ use super::super::calls::{served, served_within, Delivery, Outbox};
 use super::super::output::Edge;
 use super::super::pieces::tests::{held, refusing, sink, Sink};
 use super::super::pieces::Pieces;
+use super::super::Ending;
 use super::super::{initialized, started, Fatal, ATOMIC, REQUEST_MAX, RESPONSE_MAX, UNDELIVERED};
 use super::retention::Retain;
 use super::{admitted, answering_with, call, cancelled_behind, conversed, forwarded, idle_timeout};
-use super::{answer, mcp_but, tools, within, Harness, Script, Then, DIGEST};
+use super::{answer, live, mcp_but, tools, within, Harness, Script, Then, DIGEST};
 use super::{fake, lookup_failed, mcp, passed, ping_sized, pipe, request, result, session, silent};
 use crate::broker::session::lifetime::settled;
 use crate::broker::session::stderr::Drain;
 use crate::broker::session::Ended;
+
+/// A served session no signal ends.
+const UNSIGNALLED: Ending<'static> = (&live, &live);
 
 #[test]
 fn what_waits_for_the_harness_is_bounded_and_taken_whole_in_order() {
@@ -340,7 +344,7 @@ fn a_harness_output_that_cannot_be_set_up_ends_the_session_undelivered() {
             true => (held(), unheld()),
             false => (unheld(), held()),
         };
-        let attempt = (&plan, within(Duration::from_secs(10)));
+        let attempt = (&plan, within(Duration::from_secs(10)), UNSIGNALLED);
         let ended = initialized((&mut to, &mut from), &mut ledger, edge, attempt, stdio);
         let ended = settled(ledger, ended);
         drop((to, from));
@@ -432,7 +436,14 @@ pub(super) fn heard(
         bindings: &[],
         stderr: &mut stderr,
     };
-    let ended = served(started, &plan, &mut ledger, (asked, short), attempt, edge);
+    let ended = served(
+        started,
+        &plan,
+        &mut ledger,
+        (asked, short, &live),
+        attempt,
+        edge,
+    );
     let ended = settled(ledger, ended);
     drop((input, output, to));
     let frames = server.join().unwrap().0;
@@ -615,7 +626,7 @@ fn a_turn_that_writes_part_of_an_answer_never_waits() {
         started,
         &plan,
         &mut ledger,
-        (asked, taking),
+        (asked, taking, &live),
         attempt,
         edge,
     );
@@ -661,7 +672,7 @@ fn a_retained_plan_is_initialized_and_served_as_any_other() {
         stderr: &mut stderr,
     };
     let link = (&mut input, &mut output);
-    let attempt = (&plan, within(Duration::from_secs(10)));
+    let attempt = (&plan, within(Duration::from_secs(10)), UNSIGNALLED);
     let null = |write| {
         std::fs::File::options()
             .write(write)
