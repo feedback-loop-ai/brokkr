@@ -1077,7 +1077,7 @@ fn the_composed_tree_check_refuses_a_failed_or_oversized_dump() {
 /// The masked `spark-glm` provider entry the driver's closed route grammar
 /// admits: `https://` and a reasoning level, neither of which the real
 /// route's endpoint uses. The launch test never dials it.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 const SPARK_GLM_ROUTE: &str = "\
 - id: llm-pi-ai
   config:
@@ -1095,7 +1095,7 @@ const SPARK_GLM_ROUTE: &str = "\
 /// The measured 99 rows as `--dump-config` writes them, with the ten
 /// effectful rows disabled, so the composed-tree gate reads the measured
 /// composition.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn measured_dump() -> String {
     use super::composition::MEASURED_COMPOSITION;
     MEASURED_COMPOSITION
@@ -1113,7 +1113,7 @@ fn measured_dump() -> String {
 /// A provider shim that records the engine-only home, the working
 /// directory and (for the session) the one `--patch` overlay, and prints
 /// `dump` for the composition probe.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn probe_shim(
     root: &std::path::Path,
     dump: &std::path::Path,
@@ -1149,7 +1149,7 @@ exit 0
 
 /// The sealed inputs for the boxed hands office, with `servers` as the
 /// intent and the route claim the driver reads.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn boxed_hands_input(work: &std::path::Path, digest: &str, servers: Value) -> Value {
     let mut input = sealed(SealedBoundary::Namespace, Some("writes"));
     input["workdir"] = json!(work.to_str().unwrap());
@@ -1161,11 +1161,54 @@ fn boxed_hands_input(work: &std::path::Path, digest: &str, servers: Value) -> Va
     input
 }
 
+/// The server rows the overlay's one `- insert:` item carries, parsed from
+/// the nested list's `id` and `name` lines. The launch test reads a row's
+/// fields here rather than counting a word in the text.
+#[cfg(target_os = "linux")]
+fn inserted_server_rows(overlay: &str) -> Vec<(String, String)> {
+    let mut rows = Vec::new();
+    let mut insert = false;
+    let mut row: Option<(String, String)> = None;
+    for line in overlay.lines() {
+        let body = line.trim_start_matches(' ');
+        if body.is_empty() {
+            continue;
+        }
+        let indent = line.len() - body.len();
+        match (indent, body) {
+            (0, _) => {
+                if let Some(row) = row.take() {
+                    rows.push(row);
+                }
+                insert = body == "- insert:";
+            }
+            (4, body) if insert => {
+                if let Some(id) = body.strip_prefix("- id: ") {
+                    if let Some(row) = row.replace((id.to_string(), String::new())) {
+                        rows.push(row);
+                    }
+                }
+            }
+            (6, body) if insert => {
+                if let (Some((_, name)), Some(value)) = (row.as_mut(), body.strip_prefix("name: "))
+                {
+                    *name = value.trim_matches('\'').to_string();
+                }
+            }
+            _ => {}
+        }
+    }
+    if let Some(row) = row.take() {
+        rows.push(row);
+    }
+    rows
+}
+
 /// The shim's two blocks: the composition probe and the session read the
 /// same engine-only home and working directory, and the session's one
 /// overlay carries the measured hands rows and the route entry.
-#[cfg(unix)]
-fn assert_probe_and_session(observed: &str, staged: &str, work: &std::path::Path) {
+#[cfg(target_os = "linux")]
+fn assert_probe_and_session(observed: &str, staged: &Path, work: &Path) {
     let blocks: Vec<&str> = observed.split("--\n").filter(|b| !b.is_empty()).collect();
     assert_eq!(blocks.len(), 2, "the probe and the session: {observed}");
     for block in &blocks {
@@ -1175,13 +1218,11 @@ fn assert_probe_and_session(observed: &str, staged: &str, work: &std::path::Path
                 .find_map(|l| l.strip_prefix(prefix))
                 .unwrap_or_else(|| panic!("{prefix} in {block}"))
         };
-        assert_eq!(line("home="), staged);
-        assert_eq!(line("cwd="), work.to_str().unwrap());
+        assert_eq!(Path::new(line("home=")), staged);
+        assert_eq!(Path::new(line("cwd=")), work);
     }
     let overlay = blocks[1];
     for row in [
-        "- id: brokkr-hands",
-        "name: '@deepseek-ai/dsh-mcp-client'",
         "- id: tool-bash",
         "- id: sandbox-policy",
         "mode: workspace-write",
@@ -1189,11 +1230,10 @@ fn assert_probe_and_session(observed: &str, staged: &str, work: &std::path::Path
     ] {
         assert!(overlay.contains(row), "missing {row:?} in {overlay}");
     }
-    assert_eq!(overlay.matches("brokkr-hands").count(), 1, "{overlay}");
     assert_eq!(
-        overlay.matches("@deepseek-ai/dsh-mcp-client").count(),
-        1,
-        "{overlay}"
+        inserted_server_rows(overlay),
+        vec![(super::HANDS_ID.to_string(), super::MCP_CLIENT.to_string())],
+        "the overlay inserts Brokkr's one server row: {overlay}"
     );
 }
 
@@ -1204,8 +1244,10 @@ fn assert_probe_and_session(observed: &str, staged: &str, work: &std::path::Path
 /// route claim, the one composed overlay and the composed-tree gate
 /// together; the provider is a shim, and the measured 99 rows are the
 /// round-2 dump. The real dsh tool listing is the recorded run in
-/// `docs/evidence/adapters/dsh-boxed-hands.md`.
-#[cfg(unix)]
+/// `docs/evidence/adapters/dsh-boxed-hands.md`. Only Linux seals this
+/// shape: no engine-only home is measured on macOS, so the test runs where
+/// its seal is real.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_boxed_dsh_hands_launch_is_served_from_the_engine_only_home() {
     use super::super::dsh_launch::invoke_dsh_launch_observed;
@@ -1247,15 +1289,17 @@ fn a_boxed_dsh_hands_launch_is_served_from_the_engine_only_home() {
         |_| panic!("a cold seat recomputes no composite"),
     )
     .expect("the measured boxed hands shape is admitted cold");
-    let staged = launch
-        .home
-        .child_home()
-        .expect("a boxed hands seat is served an engine-only home")
-        .to_string();
+    let staged = std::path::PathBuf::from(
+        launch
+            .home
+            .child_home()
+            .expect("a boxed hands seat is served an engine-only home"),
+    );
     let base = home.join(".local/state/brokkr/dsh-homes");
     assert!(
-        staged.starts_with(base.to_str().unwrap()),
-        "the engine-only home is not under {base:?}: {staged}"
+        staged.starts_with(&base),
+        "the engine-only home is not under {base:?}: {}",
+        staged.display()
     );
     let mut command = launch.command.clone();
     command.push("the task".to_string());
@@ -1297,9 +1341,15 @@ fn a_boxed_dsh_hands_launch_is_served_from_the_engine_only_home() {
     )
     .err()
     .expect("a second sealed server refuses the launch");
-    assert!(
-        refused.contains("for 'brokers'"),
-        "the second server refuses by name: {refused}"
+    // This is `isolated()`'s brokers check, which runs before `admits`.
+    // The `admits` Brokered arm is bound by the unit test
+    // `a_dsh_hands_set_is_the_only_non_empty_set_admitted` in
+    // `adapters/mcp/tests/dsh_home.rs`.
+    assert_eq!(
+        refused,
+        "refusing to invoke the agent CLI: provider 'dsh' has no measured strict MCP \
+         configuration for 'brokers'",
+        "the second server refuses by name"
     );
     assert!(!observe.exists(), "a brokered set spawns no child");
 }

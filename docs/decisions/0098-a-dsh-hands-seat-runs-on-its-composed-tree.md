@@ -1,6 +1,7 @@
 # 0098 — A dsh hands seat runs on the composed tree it measured, fails closed without its tool, and takes its access from its office
 
 Status: accepted — operator ruled 2026-10-29 (#896, https://github.com/feedback-loop-ai/brokkr/issues/896#issuecomment-6491164088), as written, with ruling 2's probe-to-spawn residual accepted until decision 0065 slice two's U9b1
+Amendment (proposed, 2026-11-01, #896): the Built line and ruling 2's residual text are proposed: Linux closes the probe-to-spawn residual on the engine-only home, and macOS keeps it.
 Date: 2026-10-26
 Built: partial (#896) — the one hands overlay, the composed-tree check and its measured allowlist, the typed office access and its carrier, the activation refusal, the partial-enforcement report and, for a boxed dsh hands seat on Linux, the engine-only home are built; the read-only `HandsSpec` is unbuilt. Linux closes ruling 2's probe-to-spawn residual on that home; macOS keeps it, where the fence stands
 
