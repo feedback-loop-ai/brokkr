@@ -106,8 +106,10 @@ Trusting `failOnStartupError` alone is refused by measurement: it changed no
 exit status and no warning. Reading only the version pin is refused by the
 same measurement: an ambient home composes beside the pin. Serving the
 operator's home without reading what it composed is the fail-open path this
-round closes. A new engine-only home is the sturdier fix, but it belongs to
-decision 0065 slice two's U9b1 and is not built beside that session's files.
+round closes. A new engine-only home is the sturdier fix: decision 0065
+slice two's U9b1 built it for the measured boxed dsh hands shape on Linux,
+and macOS keeps the standing fence and the operator's home until boxing
+exists there.
 
 The cost is one `--dump-config` per launch (0.06–0.07 s, about 64 MB, no model
 call) and a 99-pair allowlist that moves when dsh moves. A release whose
@@ -129,6 +131,8 @@ brokkr-store and brokkr-view are unmoved. Adapter `dsh.json` and eight office
 definitions move their bundles' witness digests, re-pinned from the suite's
 reported values. Linux and macOS are the supported hosts; production remains
 Rust. The tree carries the overlay, the composed-tree check, the access
-carrier, the activation refusal and this record; the engine-only home
-(decision 0065 slice two's U9b1) and the read-only `HandsSpec` remain owed,
-so the decision is built in part. The operator accepted it on 2026-10-29.
+carrier, the activation refusal and this record; the engine-only home is
+built for the measured boxed dsh hands shape on Linux (macOS keeps the
+operator's home under the standing fence), and the read-only `HandsSpec`
+remains owed, so the decision is built in part. The operator accepted it on
+2026-10-29.

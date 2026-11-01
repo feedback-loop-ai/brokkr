@@ -140,16 +140,16 @@
           "host": "linux"
         },
         "ambient": {
-          "measured": "#896 (2026-11-01, dsh 0.2.1-rc.2, Linux, spark-glm): after a first boxed hands run in the workdir, a fresh engine-only DSH_HOME replacement (dsh's resume unmeasured, so the offer is declined) started no ambient sentinel, composed the measured 99 rows with one brokkr-hands client, and listed mcp__brokkr__workspace; unchanged under no_new_privs (docs/evidence/adapters/dsh-boxed-hands.md)"
+          "measured": "#896 (2026-11-01, dsh 0.2.1-rc.2, Linux, spark-glm): after a first boxed hands run in the workdir, a fresh engine-only DSH_HOME replacement (dsh's resume unmeasured, so the offer is declined) started no ambient sentinel, composed the measured 99 rows with one brokkr-hands client, and listed mcp__brokkr__workspace (docs/evidence/adapters/dsh-boxed-hands.md)"
         },
         "native_write": {
-          "measured": "#896 the same boxed hands overlay as the cold boxed shape: the ten effectful rows are disabled, 12 bookkeeping tools remain, each disabled row read disabled: true, and sandbox-policy follows the office's access (docs/evidence/adapters/dsh-boxed-hands.md; round 2's ten-row measurement)"
+          "unmeasured": "#896 (2026-11-01, dsh 0.2.1-rc.2, Linux, spark-glm): the replacement run composed and listed the engine's tool but re-measured none of the ten hands rows or their disabled state, so this shape borrows nothing from the cold boxed shape's round 2 measurement (docs/evidence/adapters/dsh-boxed-hands.md)"
         },
         "store_read": {
-          "measured": "#896 the same boxed hands overlay as the cold boxed shape: the hands rows compose no native read, search or shell tool and mcp-resources reaches only the seat's one MCP server, so the store is the cold shape's (docs/evidence/adapters/dsh-boxed-hands.md; round 2)"
+          "unmeasured": "#896 (2026-11-01, dsh 0.2.1-rc.2, Linux, spark-glm): the replacement run read no store canary, so this shape borrows nothing from the cold boxed shape's U0b D10-p5 store measurement (docs/evidence/adapters/dsh-boxed-hands.md)"
         },
         "process_read": {
-          "measured": "#896 the same boxed hands overlay as the cold boxed shape: the hands rows compose no native shell, so the process namespace is the cold shape's (docs/evidence/adapters/dsh-boxed-hands.md; U0b D10-p5)"
+          "unmeasured": "#896 (2026-11-01, dsh 0.2.1-rc.2, Linux, spark-glm): the replacement run read no process canary, so this shape borrows nothing from the cold boxed shape's U0b D10-p5 process measurement (docs/evidence/adapters/dsh-boxed-hands.md)"
         }
       }
     ]

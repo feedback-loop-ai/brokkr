@@ -517,8 +517,9 @@ fn missing_evidence_and_a_worktree_credential_file_refuse_before_staging() {
 /// home was measured with, so `admits` admits it cold and as an offer's
 /// replacement, and the public home decision serves the launch from that
 /// home. A set carrying a broker, or one that serves no model, is still
-/// refused under the hands cause; a refusal here refuses the launch, by
-/// the same name.
+/// refused under the hands cause; a real launch refuses those earlier, the
+/// brokered set for 'brokers' at the isolation intent and the modelless one
+/// as not sealed, so this refusal is the last line rather than the first.
 #[test]
 fn a_dsh_hands_set_is_the_only_non_empty_set_admitted() {
     use crate::native_controls::{SealedAssessment, SealedBroker, SealedServers};

@@ -1073,3 +1073,233 @@ fn the_composed_tree_check_refuses_a_failed_or_oversized_dump() {
     assert_eq!(shapeless, Composition::Unreadable);
     assert_eq!(shapeless.to_string(), UNREADABLE);
 }
+
+/// The masked `spark-glm` provider entry the driver's closed route grammar
+/// admits: `https://` and a reasoning level, neither of which the real
+/// route's endpoint uses. The launch test never dials it.
+#[cfg(unix)]
+const SPARK_GLM_ROUTE: &str = "\
+- id: llm-pi-ai
+  config:
+    providers:
+      spark-glm:
+        apiKeyEnv: SPARK_API_KEY
+        api: openai-completions
+        baseURL: https://spark.invalid:8888/v1
+        models:
+          - id: GLM-5.3-Flash-EXL3
+            reasoningEfforts:
+              low: low
+";
+
+/// The measured 99 rows as `--dump-config` writes them, with the ten
+/// effectful rows disabled, so the composed-tree gate reads the measured
+/// composition.
+#[cfg(unix)]
+fn measured_dump() -> String {
+    use super::composition::MEASURED_COMPOSITION;
+    MEASURED_COMPOSITION
+        .iter()
+        .map(|(id, name)| {
+            let disabled = super::DISABLED_ROWS.contains(id);
+            format!(
+                "- id: {id}\n  name: '{name}'\n{}",
+                if disabled { "  disabled: true\n" } else { "" }
+            )
+        })
+        .collect()
+}
+
+/// A provider shim that records the engine-only home, the working
+/// directory and (for the session) the one `--patch` overlay, and prints
+/// `dump` for the composition probe.
+#[cfg(unix)]
+fn probe_shim(
+    root: &std::path::Path,
+    dump: &std::path::Path,
+    observe: &std::path::Path,
+) -> std::path::PathBuf {
+    let script = r#"#!/bin/sh
+case "$1" in
+  --version|-V|-v) printf '0.2.1-rc.2\n'; exit 0 ;;
+esac
+probe=0
+for a in "$@"; do
+  [ "$a" = --dump-config ] && probe=1
+done
+{
+  printf 'home=%s\n' "${DSH_HOME-<unset>}"
+  printf 'cwd=%s\n' "$(pwd)"
+  if [ "$probe" = 0 ]; then
+    prev=
+    for a in "$@"; do
+      [ "$prev" = --patch ] && cat "$a"
+      prev=$a
+    done
+  fi
+  printf '%s\n' '--'
+} >> 'OBSERVE'
+[ "$probe" = 1 ] && cat 'DUMP'
+exit 0
+"#
+    .replace("DUMP", dump.to_str().unwrap())
+    .replace("OBSERVE", observe.to_str().unwrap());
+    super::super::tests::executable(root, "dsh", &script)
+}
+
+/// The sealed inputs for the boxed hands office, with `servers` as the
+/// intent and the route claim the driver reads.
+#[cfg(unix)]
+fn boxed_hands_input(work: &std::path::Path, digest: &str, servers: Value) -> Value {
+    let mut input = sealed(SealedBoundary::Namespace, Some("writes"));
+    input["workdir"] = json!(work.to_str().unwrap());
+    input["serving_inputs"]["isolation"]["fence"] = json!("lifted");
+    input["serving_inputs"]["isolation"]["cold"] = json!("measured");
+    input["serving_inputs"]["isolation"]["replacement"] = json!("measured");
+    input["serving_inputs"]["isolation"]["servers"] = servers;
+    input["resume_context"] = json!({"route_overlay": {"value": "route.yml", "digest": digest}});
+    input
+}
+
+/// The shim's two blocks: the composition probe and the session read the
+/// same engine-only home and working directory, and the session's one
+/// overlay carries the measured hands rows and the route entry.
+#[cfg(unix)]
+fn assert_probe_and_session(observed: &str, staged: &str, work: &std::path::Path) {
+    let blocks: Vec<&str> = observed.split("--\n").filter(|b| !b.is_empty()).collect();
+    assert_eq!(blocks.len(), 2, "the probe and the session: {observed}");
+    for block in &blocks {
+        let line = |prefix: &str| {
+            block
+                .lines()
+                .find_map(|l| l.strip_prefix(prefix))
+                .unwrap_or_else(|| panic!("{prefix} in {block}"))
+        };
+        assert_eq!(line("home="), staged);
+        assert_eq!(line("cwd="), work.to_str().unwrap());
+    }
+    let overlay = blocks[1];
+    for row in [
+        "- id: brokkr-hands",
+        "name: '@deepseek-ai/dsh-mcp-client'",
+        "- id: tool-bash",
+        "- id: sandbox-policy",
+        "mode: workspace-write",
+        "spark-glm",
+    ] {
+        assert!(overlay.contains(row), "missing {row:?} in {overlay}");
+    }
+    assert_eq!(overlay.matches("brokkr-hands").count(), 1, "{overlay}");
+    assert_eq!(
+        overlay.matches("@deepseek-ai/dsh-mcp-client").count(),
+        1,
+        "{overlay}"
+    );
+}
+
+/// #896 review finding 3: the boxed hands launch is served from an
+/// engine-only home, and a set carrying a second sealed server is refused
+/// at that launch by name. `dsh_launch_with` is the function the driver's
+/// start runs before it spawns, so this exercises the home decision, the
+/// route claim, the one composed overlay and the composed-tree gate
+/// together; the provider is a shim, and the measured 99 rows are the
+/// round-2 dump. The real dsh tool listing is the recorded run in
+/// `docs/evidence/adapters/dsh-boxed-hands.md`.
+#[cfg(unix)]
+#[test]
+fn a_boxed_dsh_hands_launch_is_served_from_the_engine_only_home() {
+    use super::super::dsh_launch::invoke_dsh_launch_observed;
+    use sha2::Digest as _;
+
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let observe = root.join("observe");
+    let home = root.join("home");
+    let work = root.join("work");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&work).unwrap();
+    std::fs::write(work.join("route.yml"), SPARK_GLM_ROUTE).unwrap();
+    let digest = {
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(SPARK_GLM_ROUTE.as_bytes());
+        hex::encode(hasher.finalize())
+    };
+    let dump = root.join("measured.yml");
+    std::fs::write(&dump, measured_dump()).unwrap();
+    let shim = probe_shim(&root, &dump, &observe);
+    env.set("BROKKR_DSH_BIN", &shim);
+    env.set("HOME", &home);
+    env.remove("DSH_HOME");
+    let extra = s(&[
+        "--model",
+        "spark-glm/GLM-5.3-Flash-EXL3",
+        "--patch",
+        "route.yml",
+    ]);
+
+    let launch = super::super::dsh_launch_with(
+        shim.to_str().unwrap(),
+        &extra,
+        work.to_str().unwrap(),
+        None,
+        &boxed_hands_input(&work, &digest, json!("hands")),
+        |_| panic!("a cold seat recomputes no composite"),
+    )
+    .expect("the measured boxed hands shape is admitted cold");
+    let staged = launch
+        .home
+        .child_home()
+        .expect("a boxed hands seat is served an engine-only home")
+        .to_string();
+    let base = home.join(".local/state/brokkr/dsh-homes");
+    assert!(
+        staged.starts_with(base.to_str().unwrap()),
+        "the engine-only home is not under {base:?}: {staged}"
+    );
+    let mut command = launch.command.clone();
+    command.push("the task".to_string());
+    let mut emit = |_: &Value| {};
+    let mut observer = |_: &crate::adapters::DshObservation| {};
+    invoke_dsh_launch_observed(
+        launch,
+        command,
+        work.to_str().unwrap(),
+        &[],
+        &mut emit,
+        |child| child.wait().map(|status| Some(status.code().unwrap_or(0))),
+        &mut observer,
+    )
+    .expect("the measured composition is admitted and the shim runs");
+
+    let observed = std::fs::read_to_string(&observe).expect("the shim recorded its launch");
+    assert_probe_and_session(&observed, &staged, &work);
+
+    // A set carrying a second sealed server is refused by name before any
+    // home is staged or any child spawns.
+    std::fs::remove_file(&observe).unwrap();
+    let refused = super::super::dsh_launch_with(
+        shim.to_str().unwrap(),
+        &extra,
+        work.to_str().unwrap(),
+        None,
+        &boxed_hands_input(
+            &work,
+            &digest,
+            json!({"brokered": [{
+                "capability": "web-search",
+                "plan": "/w/plan.json",
+                "plan_digest": "00",
+                "removals": [],
+            }]}),
+        ),
+        |_| panic!("a refused launch recomputes no composite"),
+    )
+    .err()
+    .expect("a second sealed server refuses the launch");
+    assert!(
+        refused.contains("for 'brokers'"),
+        "the second server refuses by name: {refused}"
+    );
+    assert!(!observe.exists(), "a brokered set spawns no child");
+}

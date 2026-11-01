@@ -6,6 +6,9 @@ use super::*;
 /// because the boxed cold and replacement shapes' ambient axes are measured
 /// on an engine-only home. Before this unit the same compile refused
 /// `provider 'dsh' has no measured strict MCP configuration for 'cold'`.
+/// The boxed shapes are measured on Linux alone, and macOS's fence stands,
+/// so the test runs nowhere else and asserts no macOS result.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_boxed_dsh_hands_office_compiles_past_the_lifted_fence() {
     let fixture = Fixture::new();

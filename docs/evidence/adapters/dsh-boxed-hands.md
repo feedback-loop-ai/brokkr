@@ -70,7 +70,8 @@ final: POS-DONE
 ```
 
 The control binds the method: a sentinel at either layer is composed
-into the tree (99 + 2 rows) and started by the session, twice each
+into the tree (98 → 100 rows; the engine-only home's 99 is the shipped
+98 plus the engine's one row) and started by the session, twice each
 (dsh's negotiation probe, then the serving process).
 
 ### Fresh engine-only home: neither planted sentinel, the engine row loads
@@ -138,9 +139,11 @@ first=99 replacement=99 identical=True
 ```
 
 The replacement's composed tree is the same measured 99 rows and the
-same one `brokkr-hands` client, and its engine row loads. The overlay is
-the same boxed hands overlay, so the other three axes are the cold boxed
-shape's.
+same one `brokkr-hands` client, and its engine row loads. This run
+measured the replacement's ambient axis alone; the other three axes are
+recorded unmeasured for the replacement shape, borrowing nothing from the
+cold boxed shape, because a shape measures each axis on its own and this
+one re-ran neither the ten hands rows nor a store or process canary.
 
 ## (b) The same launch under `setpriv --no-new-privs`
 
@@ -246,11 +249,47 @@ exit=0
 "digest": "87853bb1c130d2e1f09873bd4037f9f2116d4b656a1028a7e83da9ade38f91eb",
 ```
 
-The launch itself is (a)'s real engine row, and the two measured shapes
-are held by
+### The launch path on that home
+
+The launch is held by
+`adapters::dsh_hands::tests::a_boxed_dsh_hands_launch_is_served_from_the_engine_only_home`,
+which calls `dsh_launch_with` (the function `brokkr driver dsh` runs inside
+a start) with the engine's sealed serving inputs, a lifted fence and a
+`writes` office, over a provider shim:
+
+```console
+$ cargo test -p brokkr-protocol --lib --locked -- \
+    a_boxed_dsh_hands_launch_is_served_from_the_engine_only_home
+test adapters::dsh_hands::tests::a_boxed_dsh_hands_launch_is_served_from_the_engine_only_home ... ok
+```
+
+It asserts that the launch is served an engine-only home under
+`$HOME/.local/state/brokkr/dsh-homes/engine-home-*` (never the operator's
+home), that the composition probe and the session read that one home and
+the one working directory, that the one `--patch` overlay carries the ten
+disabled hands rows, `sandbox-policy: workspace-write`, one
+`brokkr-hands` `dsh-mcp-client` row and the route provider, and that the
+probe's 99 measured rows are admitted. A set carrying a broker is refused
+at the same launch by name, `for 'brokers'`, and spawns no child.
+
+The compile side is held by
 `bundle::model_policy_tests::dsh_hands_tests::a_boxed_dsh_hands_office_compiles_past_the_lifted_fence`
 and
 `agents::mcp::tests::dsh_declares_only_its_own_cold_and_replacement_shapes_and_inherits_nothing`.
+
+### Why no model session through `brokkr driver dsh`
+
+A `brokkr driver dsh` model session was tried after the compile:
+`provider 'dsh'` refused the measured `spark-glm` route entry with
+`baseURL leaves the closed endpoint grammar`, because the driver's
+validated route overlay admits only `https://` and the route is
+`http://spark:8888/v1`; the overlay grammar also requires a
+`reasoningEfforts` level on the model item, which `spark-glm`'s
+effortless route does not declare. Every other measured route is keyed,
+and this seat must not read a key. The real dsh model run recorded above
+is therefore the direct invocation, not the driver; the driver's own
+launch path is the test. The route/driver mismatch is an ask for the
+operator (see the PR), not a change made here.
 
 ## Sentinels and controls
 
@@ -265,11 +304,20 @@ and
 | `setpriv --no-new-privs` | the same tree, the same tool, no refusal |
 | `landlock-run --probe` with and without the flag | `landlock: fully enforced` in both |
 | native bash under the flag | completes, no `SANDBOX_UNAVAILABLE`, no partial line |
+| `dsh_launch_with` on the sealed inputs | an engine-only home, one overlay, the measured 99 rows, one `brokkr-hands` |
+| a brokered set at that launch | refused by name, `for 'brokers'`, no child |
 
 ## Still unmeasured
 
 - A live `mcp__brokkr__workspace` call through this driver: the model
   listed the tool; it did not call it.
+- A model session through `brokkr driver dsh` on `spark-glm`: the
+  driver's route-overlay grammar refuses the measured http endpoint and
+  requires a reasoning level the route does not declare; every keyed
+  route needs a key this seat must not read.
+- The replacement's `native_write`, `store_read` and `process_read`: the
+  replacement run composed and listed but re-measured none of them, so
+  `adapters/dsh.json` records them unmeasured for that shape.
 - macOS, on every figure (decision 0063 keeps it a supported host; the
   fence stands there).
 - Route scope: a shape carries no route, as the earlier shapes say.
