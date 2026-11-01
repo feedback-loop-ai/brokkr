@@ -215,6 +215,7 @@ struct WorkflowLeg {
 /// One step a leg takes: the variables it sets (its job's first), and
 /// every line it runs: its one-line command, or each code line of its
 /// multi-line block.
+#[derive(Clone)]
 struct Step {
     env: Vec<(String, String)>,
     lines: Vec<String>,
@@ -299,7 +300,8 @@ enum Line {
     /// request's merge commit, the macOS host report and its check for
     /// `/usr/bin/sandbox-exec`, the coverage job's pin reads and its
     /// cargo-public-api install (`the_by_hand_tool_versions_are_the_pins`
-    /// holds its version), and every line of `delivered by brokkr`, which
+    /// holds its version), the suite's verdict over its machines (a local
+    /// run is one machine), and every line of `delivered by brokkr`, which
     /// has no local form: it judges a pull request's own evidence with its
     /// base branch's verifier.
     Unwritten(&'static str),
@@ -348,7 +350,12 @@ const LEG_LINES: [(&str, &[Line]); 12] = [
     ),
     (
         "test (ubuntu-latest)",
-        &[Line::Written, Line::Written, Line::Written],
+        &[
+            Line::Written,
+            Line::Written,
+            Line::Written,
+            Line::Unwritten(r#"test "$MACHINES" = success"#),
+        ],
     ),
     (
         "test (macos-latest)",
@@ -363,6 +370,7 @@ const LEG_LINES: [(&str, &[Line]); 12] = [
             Line::Written,
             Line::Written,
             Line::Written,
+            Line::Unwritten(r#"test "$MACHINES" = success"#),
         ],
     ),
     (
@@ -426,7 +434,7 @@ enum Local {
 /// variable no row has ruled on fails the test rather than dropping out of
 /// the guide. A step no row writes, such as each of `delivered by
 /// brokkr`'s, has its variables held word for word by `JOB_LINES`.
-const LOCAL_ENV: [(&str, Local); 7] = [
+const LOCAL_ENV: [(&str, Local); 8] = [
     ("BROKKR_REQUIRE_BOUNDARY_EVIDENCE", Local::Carried),
     ("BROKKR_SUPPRESSION_BASE", Local::Carried),
     ("PR_BODY", Local::Carried),
@@ -439,6 +447,9 @@ const LOCAL_ENV: [(&str, Local); 7] = [
     // The protected set's directory exists only where CI's setup step
     // prepared it in the background (#647); a local run waits on nothing.
     ("BROKKR_SYSTEM_SET", Local::Omitted),
+    // The machine a test job's runner is; a local run, naming none, runs
+    // every machine's shards.
+    ("BROKKR_TEST_MACHINE", Local::Omitted),
 ];
 
 /// A variable's value on a local run of `runner`'s leg: a literal
@@ -481,12 +492,33 @@ fn env_map(lines: &[&str]) -> Vec<(String, String)> {
         .collect()
 }
 
+/// The required checks that are verdicts over another job's machines, as
+/// (the verdict's job, the machines' job): a verdict's leg runs every step
+/// its machines run, on its system, and then its own, so its row writes
+/// what a local run of the whole suite runs.
+const VERDICTS: [(&str, &str); 1] = [("engine", "engine-machines")];
+
 fn workflow_legs(root: &Path, file: &'static str) -> Vec<WorkflowLeg> {
     let text = std::fs::read_to_string(root.join(".github/workflows").join(file)).unwrap();
-    workflow::jobs(&text)
+    let mut legs: Vec<WorkflowLeg> = workflow::jobs(&text)
         .into_iter()
         .flat_map(|(id, body)| job_legs(file, &id, &body.lines().collect::<Vec<_>>()))
-        .collect()
+        .collect();
+    for (verdict, machines) in VERDICTS {
+        let steps: Vec<(&'static str, Vec<Step>)> = legs
+            .iter()
+            .filter(|leg| leg.id == machines)
+            .map(|leg| (leg.runner, leg.steps.clone()))
+            .collect();
+        for leg in legs.iter_mut().filter(|leg| leg.id == verdict) {
+            let (_, ran) = steps
+                .iter()
+                .find(|(runner, _)| *runner == leg.runner)
+                .unwrap_or_else(|| panic!("{file}'s {machines} has no {} machine", leg.runner));
+            leg.steps.splice(0..0, ran.iter().cloned());
+        }
+    }
+    legs
 }
 
 fn job_legs(file: &'static str, id: &str, body: &[&str]) -> Vec<WorkflowLeg> {
@@ -495,11 +527,20 @@ fn job_legs(file: &'static str, id: &str, body: &[&str]) -> Vec<WorkflowLeg> {
         .unwrap_or_else(|| panic!("{file}'s {id} has no name"))
         .trim_matches('\'');
     let runs_on = field("    runs-on: ").unwrap_or_else(|| panic!("{file}'s {id} has no runner"));
+    // A matrix lists its systems, or names one per included machine.
+    let mut included: Vec<&str> = body
+        .iter()
+        .filter_map(|line| line.trim().strip_prefix("- os: "))
+        .collect();
+    included.dedup();
     let oses: Vec<&str> = body
         .iter()
         .find_map(|line| line.trim().strip_prefix("os: ["))
         .map_or_else(
-            || vec![runs_on],
+            || match included.is_empty() {
+                true => vec![runs_on],
+                false => included.clone(),
+            },
             |list| list.trim_end_matches(']').split(", ").collect(),
         );
     let steps = job_steps(body);
@@ -1018,7 +1059,8 @@ fn contributing_lists_the_checks_branch_protection_requires() {
 }
 
 /// Every line of each job behind the twelve checks, in `MAIN_REQUIRES`'s
-/// order, as its workflow writes it, but for comments, blank lines and the
+/// order, each job a required job `needs:` held just before it, as its
+/// workflow writes it, but for comments, blank lines and the
 /// value of a `run:` or `command:` key, whose lines `LEG_LINES` holds. A
 /// skipped step or job reports success, which satisfies a required check,
 /// and a runner, an action, an input or a variable changed alters what a
@@ -1027,7 +1069,7 @@ fn contributing_lists_the_checks_branch_protection_requires() {
 /// `env:` line added, dropped or changed fails the test. A line changed
 /// here is a line to re-read in the guide's row and the sections it links.
 /// A line that is a key of `SHARED_STEPS` stands for that step's lines.
-const JOB_LINES: [(&str, &str); 11] = [
+const JOB_LINES: [(&str, &str); 12] = [
     (
         "delivered-by-brokkr",
         r#"
@@ -1108,15 +1150,25 @@ const JOB_LINES: [(&str, &str); 11] = [
 "#,
     ),
     (
-        "engine",
+        "engine-machines",
         r#"
-    name: test (${{ matrix.os }})
+    name: test (${{ matrix.os }}) on ${{ matrix.machine }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            machine: linux/1
+          - os: ubuntu-latest
+            machine: linux/2
+          - os: ubuntu-latest
+            machine: linux/3
+          - os: macos-latest
+            machine: macos/1
+          - os: macos-latest
+            machine: macos/2
     runs-on: ${{ fromJSON(matrix.os == 'ubuntu-latest' && vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-engine"]' || format('["{0}"]', matrix.os)) }}
-    timeout-minutes: 90
+    timeout-minutes: 45
     steps:
 <local checkout>
 <stable toolchain>
@@ -1131,13 +1183,14 @@ const JOB_LINES: [(&str, &str); 11] = [
           cache-build: 'true'
       - run:
         env:
+          BROKKR_TEST_MACHINE: ${{ matrix.machine }}
           BROKKR_SYSTEM_SET: ${{ steps.bubblewrap.outputs.system-set }}
           BROKKR_REQUIRE_BOUNDARY_EVIDENCE: ${{ runner.os == 'Linux' && '1' || '' }}
       - name: R3 native startup gate
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && matrix.machine == 'macos/1'
         run:
       - name: R3 native diagnostics
-        if: always() && runner.os == 'macOS'
+        if: always() && runner.os == 'macOS' && matrix.machine == 'macos/1'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: r3-native-diagnostics
@@ -1146,6 +1199,25 @@ const JOB_LINES: [(&str, &str); 11] = [
             target/r3-startup-report.txt
           if-no-files-found: warn
       - name: self and verify bundles compile under the constitutional lint
+        run:
+"#,
+    ),
+    (
+        "engine",
+        r#"
+    name: test (${{ matrix.os }})
+    needs: engine-machines
+    if: always()
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: every machine ran its shards and passed
+        env:
+          MACHINES: ${{ needs.engine-machines.result }}
         run:
 "#,
     ),
@@ -1443,7 +1515,8 @@ fn held_lines(body: &str) -> Vec<&str> {
 /// A skipped step or job reports success, which satisfies a required
 /// check, so the jobs behind the twelve are held whole: each workflow's
 /// top-level keys (a workflow-wide `defaults:` or `env:` would reach every
-/// step), and every line of each required job, as `JOB_LINES` holds it.
+/// step), and every line of each required job and of each job it needs,
+/// whose result it reports, as `JOB_LINES` holds it.
 #[test]
 fn the_required_jobs_run_every_step_unsoftened() {
     let root = workspace();
@@ -1466,22 +1539,33 @@ fn the_required_jobs_run_every_step_unsoftened() {
             .collect();
         assert_eq!(keys, top, "{file}'s top-level keys");
     }
-    let mut required: Vec<(&str, &str)> = MAIN_REQUIRES
-        .iter()
-        .map(|&(_, id, file)| (id, file))
-        .collect();
-    required.dedup();
-    let held: Vec<&str> = JOB_LINES.iter().map(|(id, _)| *id).collect();
-    let ids: Vec<&str> = required.iter().map(|(id, _)| *id).collect();
-    assert_eq!(
-        held, ids,
-        "JOB_LINES holds each required job once, in order"
-    );
-    for ((id, file), (_, lines)) in required.into_iter().zip(JOB_LINES) {
-        let body = workflow::jobs(&read(file))
+    let body_of = |id: &str, file: &str| {
+        workflow::jobs(&read(file))
             .into_iter()
             .find_map(|(job, body)| (job == id).then_some(body))
-            .unwrap_or_else(|| panic!("{file} has no {id} job"));
+            .unwrap_or_else(|| panic!("{file} has no {id} job"))
+    };
+    let mut required: Vec<(String, &str)> = Vec::new();
+    for &(_, id, file) in &MAIN_REQUIRES {
+        if required.last().is_some_and(|(last, _)| last == id) {
+            continue;
+        }
+        let body = body_of(id, file);
+        let needed = body
+            .lines()
+            .find_map(|line| line.strip_prefix("    needs: "))
+            .map(str::to_string);
+        required.extend(needed.map(|needed| (needed, file)));
+        required.push((id.to_string(), file));
+    }
+    let held: Vec<&str> = JOB_LINES.iter().map(|(id, _)| *id).collect();
+    let ids: Vec<&str> = required.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(
+        held, ids,
+        "JOB_LINES holds each required job and each job it needs once, in order"
+    );
+    for ((id, file), (_, lines)) in required.into_iter().zip(JOB_LINES) {
+        let body = body_of(&id, file);
         assert_eq!(
             held_lines(&body),
             expected_lines(lines),
@@ -1507,7 +1591,7 @@ enum InTheQueue {
 
 /// The `if:` conditions this test reads, and what each does in a merge
 /// group. Any other condition fails the test rather than being guessed at.
-const CONDITIONS: [(&str, InTheQueue); 9] = [
+const CONDITIONS: [(&str, InTheQueue); 11] = [
     (
         "github.event_name == 'pull_request'",
         InTheQueue::PullRequestOnly,
@@ -1528,11 +1612,21 @@ const CONDITIONS: [(&str, InTheQueue); 9] = [
     ("runner.os == 'macOS'", InTheQueue::Runs),
     ("always()", InTheQueue::Runs),
     ("always() && runner.os == 'macOS'", InTheQueue::Runs),
+    // The macOS startup gate runs on one of the suite's machines, the
+    // first; the queue runs every machine.
+    (
+        "runner.os == 'macOS' && matrix.machine == 'macos/1'",
+        InTheQueue::Runs,
+    ),
+    (
+        "always() && runner.os == 'macOS' && matrix.machine == 'macos/1'",
+        InTheQueue::Runs,
+    ),
 ];
 
 /// Every job of the workflows the required checks live in, in file order,
 /// and what it does in a merge group.
-const JOBS_IN_THE_QUEUE: [(&str, &str, InTheQueue); 21] = [
+const JOBS_IN_THE_QUEUE: [(&str, &str, InTheQueue); 22] = [
     // It judges the run that the pull request's own description names for
     // its own head (decisions 0033, 0038), and a merge group carries no
     // description, labels or head repository. The queue lands that head's
@@ -1543,6 +1637,8 @@ const JOBS_IN_THE_QUEUE: [(&str, &str, InTheQueue); 21] = [
     // The console plugin's tests (decision 0085 ruling 5) test the landed
     // bytes like the Rust suite does.
     ("ci.yml", "plugin-tests", InTheQueue::Runs),
+    ("ci.yml", "engine-machines", InTheQueue::Runs),
+    // The suite's verdicts run whatever the machines ended with.
     ("ci.yml", "engine", InTheQueue::Runs),
     ("ci.yml", "seatbelt-lifetime", InTheQueue::Runs),
     ("ci.yml", "coverage", InTheQueue::Runs),

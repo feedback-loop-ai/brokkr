@@ -236,7 +236,20 @@ whose system tree is already root-owned and protected, and probe a real
 bubblewrap namespace before running the same tests. They clean the checkout while preserving its real `target` directory
 and skip hosted cache transfers.
 `BROKKR_LOCAL_CI=false` selects hosted execution for new runs; fork pull
-requests and macOS always use hosted runners. A plain cargo test runs the same
+requests and macOS always use hosted runners.
+
+CI spreads the shards over machines (operator ruling 2026-11-01): three
+Linux runners and two macOS runners, each running the shards the script
+lays on it, still one after another, while the machines run at once. The
+`engine-machines` job names each runner's machine in `BROKKR_TEST_MACHINE`
+(`linux/2`, `macos/1`), and the script's `machines` mode prints each
+machine and its shards. The two test checks are the `engine` job's
+verdicts over every machine: one machine that fails, is cancelled or never
+runs fails both, and its own job, named for its system and its machine,
+names it. A local run names no machine and runs every shard, which is what
+the two checks prove together.
+Each system's machines are numbered from 1 with none empty, and a machine
+named any other way is refused before anything is built. A plain cargo test runs the same
 tests, also one binary after another. On Linux,
 install bubblewrap first: the
 hands tests build a real namespace (decision 0043), and a boundary proof

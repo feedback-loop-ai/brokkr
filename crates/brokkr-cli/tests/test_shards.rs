@@ -56,7 +56,8 @@ fn metadata() -> Metadata {
 /// other call is recorded, and a shard's call prints one libtest summary.
 /// A shard's call also records `start` and `end` with its arguments in
 /// `events`, and takes a moment between them, so two shards run at once
-/// show as interleaved. `STUB_FAIL` names a word whose shard fails,
+/// show as interleaved, and records in `machine` the BROKKR_TEST_MACHINE it
+/// inherited, or `unset`. `STUB_FAIL` names a word whose shard fails,
 /// `STUB_EMPTY` one whose shard runs no test, `STUB_PLANT` one whose shard
 /// prints `STUB_LINES` in place of its summary and exits 0, and
 /// `STUB_KILL` one whose shard kills its runner, the script's subshell,
@@ -77,6 +78,7 @@ summary() {
 }
 names() { local word="$1"; shift; [ -n "$word" ] && [[ " $* " == *" $word "* ]]; }
 printf 'start %s\n' "$*" >> "$dir/events"
+printf '%s\n' "${BROKKR_TEST_MACHINE-unset}" >> "$dir/machine"
 sh -c 'kill -INT $$; exit 0'
 printf '%s %s\n' "$?" "$*" >> "$dir/signals"
 sleep 0.2
@@ -150,6 +152,7 @@ impl Scratch {
             .env("TMPDIR", self.dir.path().join("tmp"))
             .env_remove("BROKKR_SYSTEM_SET")
             .env_remove("BROKKR_SYSTEM_SET_WAIT_SECONDS")
+            .env_remove("BROKKR_TEST_MACHINE")
             .envs(env.iter().copied());
         command
     }
@@ -244,6 +247,7 @@ fn the_real_trees_shards_are_its_whole_suite() {
         let run = Command::new("bash")
             .args([SCRIPT, "plan", mode])
             .current_dir(workspace())
+            .env_remove("BROKKR_TEST_MACHINE")
             .output()
             .expect("the plan runs");
         assert_eq!(run.status.code(), Some(0), "{mode}: {run:?}");
@@ -867,4 +871,176 @@ fn parallel_heap_opt_in_replaces_only_the_heap_command_in_both_modes() {
             .collect();
         assert_eq!(scratch.events(), events);
     }
+}
+
+/// Each machine of each system's layout, and the shards it runs, by their
+/// place in [`NAMES`]: every shard sits on exactly one machine of each.
+const MACHINES: [(&str, &[usize]); 5] = [
+    ("linux/1", &[0]),
+    ("linux/2", &[1, 2, 3, 4]),
+    ("linux/3", &[5]),
+    ("macos/1", &[0, 1, 2, 4, 5]),
+    ("macos/2", &[3]),
+];
+
+/// A run whose BROKKR_TEST_MACHINE names a machine builds every binary and
+/// runs that machine's shards alone, one after another in plan order, and
+/// no shard's command inherits the variable.
+#[test]
+fn a_machine_runs_only_its_shards_one_after_another_in_plan_order() {
+    let real = metadata();
+    for (machine, indices) in MACHINES {
+        let shards: Vec<&str> = indices.iter().map(|&at| SHARDS[at]).collect();
+        let scratch = Scratch::new(&real, &script());
+        let run = scratch.run(&["test"], &[("BROKKR_TEST_MACHINE", machine)]);
+        assert_eq!(run.status.code(), Some(0), "{machine}: {run:?}");
+        assert_eq!(
+            scratch.events(),
+            one_after_another(TEST, &shards),
+            "{machine}"
+        );
+        let calls: Vec<String> = ["--no-run"]
+            .iter()
+            .chain(&shards)
+            .map(|shard| format!("{TEST} {shard}"))
+            .collect();
+        assert_eq!(scratch.calls(), calls, "{machine}");
+        assert_eq!(
+            scratch.lines("machine"),
+            vec!["unset"; shards.len()],
+            "{machine}: a shard inherited the machine"
+        );
+        let stdout = String::from_utf8_lossy(&run.stdout);
+        assert!(
+            stdout.contains(&format!(
+                "test shards: machine {machine} runs {} of the 6 shards\n",
+                shards.len()
+            )),
+            "{stdout}"
+        );
+    }
+    for system in ["linux", "macos"] {
+        let mut placed: Vec<usize> = MACHINES
+            .iter()
+            .filter(|(machine, _)| machine.starts_with(system))
+            .flat_map(|(_, indices)| indices.iter().copied())
+            .collect();
+        placed.sort_unstable();
+        assert_eq!(placed, [0, 1, 2, 3, 4, 5], "{system} runs every shard once");
+    }
+}
+
+/// A machine named in a form the layouts do not use, or one no shard runs
+/// on, is refused before anything is built or run.
+#[test]
+fn a_machine_no_shard_runs_on_or_one_not_named_so_is_refused() {
+    let real = metadata();
+    for (machine, refusal) in [
+        (
+            "linux/4",
+            "test shards: BROKKR_TEST_MACHINE names linux/4, which runs no shard\n",
+        ),
+        (
+            "windows/1",
+            "test shards: BROKKR_TEST_MACHINE 'windows/1' is not linux/<n> or macos/<n>\n",
+        ),
+        (
+            "linux/0",
+            "test shards: BROKKR_TEST_MACHINE 'linux/0' is not linux/<n> or macos/<n>\n",
+        ),
+        (
+            "linux/1 ",
+            "test shards: BROKKR_TEST_MACHINE 'linux/1 ' is not linux/<n> or macos/<n>\n",
+        ),
+    ] {
+        let scratch = Scratch::new(&real, &script());
+        let run = scratch.run(&["test"], &[("BROKKR_TEST_MACHINE", machine)]);
+        assert_eq!(run.status.code(), Some(1), "{machine:?}: {run:?}");
+        assert_eq!(String::from_utf8_lossy(&run.stderr), refusal, "{machine:?}");
+        assert_eq!(scratch.calls(), Vec::<String>::new(), "{machine:?}");
+    }
+}
+
+/// A layout that leaves a machine empty, or names a machine by anything
+/// but a number from 1, is refused by name in every mode, before anything
+/// is built or run.
+#[test]
+fn a_layout_with_an_empty_machine_or_an_unnumbered_one_is_refused() {
+    let real = metadata();
+    let table = script();
+    let line = "shard 'capability_broker, alone' 3 1 test:it only:capability_broker::";
+    assert_eq!(table.matches(line).count(), 1, "the broker's shard line");
+    for (planted, refusal) in [
+        (
+            "shard 'capability_broker, alone' 4 1 test:it only:capability_broker::",
+            "test shards: the linux layout leaves machine 3 with no shard\n",
+        ),
+        (
+            "shard 'capability_broker, alone' 3 x test:it only:capability_broker::",
+            "test shards: capability_broker, alone names the macos machine 'x', which is not \
+             a number from 1\n",
+        ),
+    ] {
+        let scratch = Scratch::new(&real, &table.replace(line, planted));
+        for args in [
+            &["test"][..],
+            &["plan", "test"][..],
+            &["machines", "test"][..],
+        ] {
+            let run = scratch.run(args, &[]);
+            assert_eq!(run.status.code(), Some(1), "{planted} {args:?}: {run:?}");
+            assert_eq!(
+                String::from_utf8_lossy(&run.stderr),
+                refusal,
+                "{planted} {args:?}"
+            );
+        }
+        assert_eq!(scratch.calls(), Vec::<String>::new(), "{planted}");
+    }
+}
+
+/// The test job runs exactly the layouts' machines: ci.yml's
+/// `engine-machines` matrix names each machine the script lays out, in
+/// order, each on its own system's runner, and the script prints each
+/// machine's shards as [`MACHINES`] holds them.
+#[test]
+fn the_test_jobs_machines_are_the_layouts() {
+    let run = Command::new("bash")
+        .args([SCRIPT, "machines", "test"])
+        .current_dir(workspace())
+        .env_remove("BROKKR_TEST_MACHINE")
+        .output()
+        .expect("the machines print");
+    assert_eq!(run.status.code(), Some(0), "{run:?}");
+    let expected: String = MACHINES
+        .iter()
+        .map(|(machine, indices)| {
+            let names: Vec<&str> = indices.iter().map(|&at| NAMES[at]).collect();
+            format!("{machine}: {}\n", names.join(" | "))
+        })
+        .collect();
+    assert_eq!(String::from_utf8_lossy(&run.stdout), expected);
+
+    let workflow =
+        std::fs::read_to_string(workspace().join(".github/workflows/ci.yml")).expect("ci.yml");
+    let body = crate::workflow::jobs(&workflow)
+        .into_iter()
+        .find_map(|(id, body)| (id == "engine-machines").then_some(body))
+        .expect("ci.yml's engine-machines job");
+    let lines: Vec<&str> = body.lines().map(str::trim).collect();
+    let listed: Vec<(&str, &str)> = lines
+        .windows(2)
+        .filter_map(|pair| {
+            let os = pair[0].strip_prefix("- os: ")?;
+            Some((os, pair[1].strip_prefix("machine: ")?))
+        })
+        .collect();
+    let laid_out: Vec<(&str, &str)> = MACHINES
+        .iter()
+        .map(|(machine, _)| match machine.starts_with("linux/") {
+            true => ("ubuntu-latest", *machine),
+            false => ("macos-latest", *machine),
+        })
+        .collect();
+    assert_eq!(listed, laid_out);
 }

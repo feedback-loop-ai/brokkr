@@ -180,21 +180,36 @@ jobs:
         working-directory: extensions/dsh/brokkr-console
         run: npm test
 
-  engine:
-    name: test (${{ matrix.os }})
+  # The suite's machines (operator ruling 2026-11-01): one runner ran every
+  # shard one after another, and a hosted merge-queue run took 57 minutes
+  # on Linux and 42 on macOS, past 75 on a slow runner. Each machine below
+  # runs the shards scripts/test-shards.sh lays on it, still one after
+  # another, so a shard never shares its runner, and the machines run at
+  # once. `test (ubuntu-latest)` and `test (macos-latest)` are the `engine`
+  # job's verdicts over them, so the checks main requires keep their names.
+  engine-machines:
+    name: test (${{ matrix.os }}) on ${{ matrix.machine }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            machine: linux/1
+          - os: ubuntu-latest
+            machine: linux/2
+          - os: ubuntu-latest
+            machine: linux/3
+          - os: macos-latest
+            machine: macos/1
+          - os: macos-latest
+            machine: macos/2
     runs-on: ${{ fromJSON(matrix.os == 'ubuntu-latest' && vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-engine"]' || format('["{0}"]', matrix.os)) }}
-    # 75, not the usual 20 (operator rulings 2026-10-09, 2026-10-15 and
-    # 2026-10-26): decision 0065 slice two's broker boundary proofs grew the
-    # Linux run to 18-20 minutes, then to 26-27, and a run with every test
-    # passed was cancelled at 30 (#701), as a merge group's had dropped #598
-    # from the queue. The merge queue's hosted runs then took 26-42 minutes,
-    # and decision 0089's heap tests carried #888's past 45, which dropped it
-    # from the queue three times; 75 matches the exact coverage gate's (#887).
-    timeout-minutes: 90
+    # 45, not the usual 20 (operator rulings 2026-10-09 to 2026-11-01): a
+    # machine's shards took about 20 minutes on a hosted runner, and its
+    # build and setup 3 to 5, and a slow hosted runner is a third slower.
+    # One runner running every shard took 57 minutes and was cancelled at
+    # 75 on a slow one (#940).
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -225,6 +240,9 @@ jobs:
       # single-test heap binaries run together, with every child joined.
       - run: bash scripts/test-shards.sh test --parallel-heaps
         env:
+          # The machine whose shards this runner runs; a local run, with
+          # none named, runs every shard.
+          BROKKR_TEST_MACHINE: ${{ matrix.machine }}
           # The protected set's directory, empty where the step was skipped
           # (macOS), so nothing waits there (#647).
           BROKKR_SYSTEM_SET: ${{ steps.bubblewrap.outputs.system-set }}
@@ -249,7 +267,7 @@ jobs:
       # it explicitly with `--ignored --exact`. The report-content checks make a
       # mis-selection or an empty report a failure rather than a silent pass.
       - name: R3 native startup gate
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && matrix.machine == 'macos/1'
         run: |
           set -euo pipefail
           sw_vers
@@ -262,7 +280,7 @@ jobs:
           grep -Eq 'test result: ok\. 1 passed' target/r3-startup.log
           grep -q 'Gate A startup verdict' target/r3-startup-report.txt
       - name: R3 native diagnostics
-        if: always() && runner.os == 'macOS'
+        if: always() && runner.os == 'macOS' && matrix.machine == 'macos/1'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: r3-native-diagnostics
@@ -274,6 +292,27 @@ jobs:
         run: |
           cargo run --locked -p brokkr-cli -- compile --bundle recipes/self
           cargo run --locked -p brokkr-cli -- compile --bundle recipes/verify
+
+  # The checks main requires for the suite: each system's verdict over the
+  # machines above. It runs whatever they ended with, `always()`, because a
+  # skipped job reports success to a required check: a machine that failed,
+  # was cancelled or never ran fails both verdicts, and the machine's own
+  # job names which.
+  engine:
+    name: test (${{ matrix.os }})
+    needs: engine-machines
+    if: always()
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: every machine ran its shards and passed
+        env:
+          MACHINES: ${{ needs.engine-machines.result }}
+        run: test "$MACHINES" = success
 
   # Gate A is a hard gate in `test (macos-latest)`: it passes, so it
   # protects a solved property. Gate B reports while #269 is open. The
