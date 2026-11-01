@@ -460,6 +460,7 @@ fi
 
 if [[ -n "$machine" ]]; then
   # A machine hands the report its profiles merged, and its evidence.
+  mkdir -p "$profiles_dir"
   read_profiles "$profiles_dir/unreadable-profiles.txt"
   bash scripts/machine-profiles.sh write "$profdata" "$CARGO_LLVM_COV_TARGET_DIR" "$run_name" \
     "$machine" "$candidate" "$profiles_dir"
