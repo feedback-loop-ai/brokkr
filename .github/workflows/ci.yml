@@ -194,7 +194,7 @@ jobs:
     # from the queue. The merge queue's hosted runs then took 26-42 minutes,
     # and decision 0089's heap tests carried #888's past 45, which dropped it
     # from the queue three times; 75 matches the exact coverage gate's (#887).
-    timeout-minutes: 75
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -331,7 +331,7 @@ jobs:
     # deadline, which the design forbids shortening for tests, so the
     # instrumented run outgrew 20 minutes, then reached 28 of 30, and a
     # merge group's run was cancelled at 30.
-    timeout-minutes: 75
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:

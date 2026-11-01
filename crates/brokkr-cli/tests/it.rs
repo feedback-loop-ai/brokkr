@@ -72,6 +72,7 @@ mod portable_recipes;
 mod private_hosts;
 mod provenance;
 mod ratchets;
+mod readable_profiles;
 mod realms;
 mod recipes;
 mod rename_guard;

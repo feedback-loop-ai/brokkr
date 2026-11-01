@@ -415,6 +415,15 @@ merged_only_this_run() {
 # every profile into this one target. The report then merges them all, so
 # every check below reads the union, as it read the one run before.
 bash scripts/test-shards.sh coverage "$nightly" ${heap_args[@]+"${heap_args[@]}"} 9>&-
+# A profile its process died writing fails the whole merge, so each is read
+# on its own first, and one no reader can parse is left out and named, in
+# the evidence too (operator ruling 2026-11-01). Leaving one out can only
+# lower what the report counts, so the gate below still refuses a miss.
+host="$(rustc "+$nightly" -vV | sed -n 's/^host: //p')"
+bash scripts/readable-profiles.sh \
+  "$(rustc "+$nightly" --print sysroot)/lib/rustlib/$host/bin/llvm-profdata" \
+  "$CARGO_LLVM_COV_TARGET_DIR" "$run_name" "$forge_coverage_dir/unreadable" \
+  target/coverage/unreadable-profiles.txt
 rm -f "$profile_list"
 cargo "+$nightly" llvm-cov report "${report_flags[@]}" --branch --json \
   --output-path "$forge_coverage_dir/coverage.json" 9>&-

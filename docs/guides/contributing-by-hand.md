@@ -620,6 +620,7 @@ leaves you everything you need:
 | `target/coverage/coverage-summary.json` | The three counted pairs. This is what the gate compares. |
 | `target/coverage/lcov.info` | The canonical LCOV records the gate folds — grep it for the misses. |
 | `target/coverage/coverage-exact.json` | The full LLVM JSON report. |
+| `target/coverage/unreadable-profiles.txt` | Each profile left out of the merge because `llvm-profdata` could not read it, with the reader's words; empty on most runs. |
 
 CI uploads that directory as the `coverage-exact` artifact on every run,
 pass or fail.
@@ -748,6 +749,21 @@ earlier run wrote after this run's clean, is refused:
 ```
 coverage refusal: the production check reused a build it did not make
 coverage refusal: the merge read a profile from another run
+```
+
+**A profile no reader can parse.** A process killed while it writes its
+profile leaves a file `llvm-profdata` cannot read, and one such file would
+fail the whole merge. `scripts/readable-profiles.sh` reads each of this
+run's profiles on its own first, moves an unreadable one aside and names it,
+on stderr and in `target/coverage/unreadable-profiles.txt` (operator ruling
+2026-11-01). Leaving a profile out can only lower what the report counts,
+because what must be covered comes from the instrumented binaries, so a
+region only that process reached reads as missed and the gate refuses it.
+A run that wrote no profile, or none that can be read, is refused:
+
+```
+readable profiles: left out forge-coverage.AbC123-4242-1.profraw, which llvm-profdata cannot read: error: forge-coverage.AbC123-4242-1.profraw: invalid instrumentation profile data (file header is corrupt)
+readable profiles: none of this run's 3 profiles can be read
 ```
 
 **A production target or source the report would drop.** A `[[bin]]` or
