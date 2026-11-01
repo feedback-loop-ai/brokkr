@@ -294,6 +294,12 @@ fn backup_through(
     publish: &mut dyn FnMut(&Path, &Path) -> std::io::Result<()>,
 ) -> Result<Backup, BackupError> {
     let to = options.to;
+    // SQLite names a file by UTF-8 text alone, so a destination it cannot
+    // name is refused before anything is created. Asked later, macOS's
+    // filesystem refuses such a directory first, as a bare I/O error.
+    if to.to_str().is_none() {
+        return Err(BackupError::UnnameablePath(to.to_path_buf()));
+    }
     prepare_directory(to)?;
     let scratch = Scratch::in_directory(to);
     let temporary = vacuum_into(store, &scratch)?;
@@ -600,7 +606,7 @@ fn vacuum_into(store: &Store, scratch: &Scratch) -> Result<PathBuf, BackupError>
     let temporary = scratch.path("snapshot.db");
     let named = temporary
         .to_str()
-        .ok_or_else(|| BackupError::UnnameablePath(scratch.dir.clone()))?;
+        .expect("a destination SQLite can name, joined with an ASCII file name");
     patiently("backup", store.patience, || {
         Ok(store.conn.execute("VACUUM INTO ?1", params![named])?)
     })?;
