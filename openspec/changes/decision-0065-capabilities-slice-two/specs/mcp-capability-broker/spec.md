@@ -365,8 +365,15 @@ SHALL not create another authority channel; unadmitted methods refuse
 "MCP method is not admitted by this broker". The admitted protocol is MCP 2025-06-18 over newline-delimited JSON-RPC 2.0.
 Initialize, initialized notification, ping, tools/list, tools/call and local
 cancellation handling are the only admitted operations; no server-initiated
-request is forwarded to the harness. Unknown protocol versions refuse "MCP
-protocol version is not supported by this broker". Bounds are 1 MiB per
+request is forwarded to the harness. A harness initialize asking another
+protocol version SHALL be answered with the broker's own 2025-06-18 result, as
+MCP 2025-06-18's version negotiation requires
+(https://modelcontextprotocol.io/specification/2025-06-18/basic/lifecycle),
+and the session SHALL stay at 2025-06-18: its admitted operations, refusals
+and bounds are unchanged. An initialize whose protocolVersion is missing or
+not a string refuses "MCP tool call request is invalid". A child server
+answering initialize with another protocol version refuses "MCP protocol
+version is not supported by this broker". Bounds are 1 MiB per
 request, 8 MiB per response/canonical artifact, JSON depth 64, 1,024 catalog
 tools over at most 32 pages, one forwarded call at a time per broker, 30 s
 initialize/list and 120 s per call (all also bounded by the attempt deadline).
@@ -416,8 +423,9 @@ alone SHALL remain a call outcome, not a fatal session failure.
 
 #### Scenario: Protocol and resource bounds refuse exactly
 
-- **WHEN** a caller selects another protocol version, exceeds the request/depth bound, or calls concurrently while one call is active
-- **THEN** it receives respectively the unsupported-version, request-limit or active-call cause above, without forwarding that call
+- **WHEN** a caller exceeds the request/depth bound, calls concurrently while one call is active, or initializes with no string protocol version
+- **THEN** it receives respectively the request-limit, active-call or invalid-request cause above, without forwarding that call
+- **AND** a caller asking another protocol version is answered with 2025-06-18, lists exactly the granted tools and completes a granted call, while a method 2025-06-18 does not admit still refuses "MCP method is not admitted by this broker"; a child server answering another version receives the unsupported-version cause
 - **AND** catalog overflow, more than 32 pages or a repeated cursor returns the catalog-limit cause; exact-limit positive controls still work
 - **AND** invalid tool vocabulary or parameter shape refuses "MCP tool call request is invalid" before acceptance; a valid bounded concurrent call has one recorded refused outcome and no child forwarding
 

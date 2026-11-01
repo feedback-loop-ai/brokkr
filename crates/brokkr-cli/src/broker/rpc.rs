@@ -120,7 +120,9 @@ impl Display for Fatal {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Fatal::Failed(failure) => failure.fmt(formatter),
-            Fatal::Unsupported => Refused::Version.fmt(formatter),
+            Fatal::Unsupported => {
+                formatter.write_str("MCP protocol version is not supported by this broker")
+            }
             Fatal::Missing(tool) => {
                 write!(formatter, "MCP server does not offer granted tool '{tool}'")
             }
@@ -141,7 +143,6 @@ enum Refused {
     Limit,
     Invalid,
     Active,
-    Version,
     Budget,
 }
 
@@ -150,7 +151,7 @@ impl Refused {
     fn code(&self) -> i64 {
         match self {
             Refused::Method => -32601,
-            Refused::Ungranted { .. } | Refused::Version => -32602,
+            Refused::Ungranted { .. } => -32602,
             Refused::Limit | Refused::Invalid | Refused::Active => -32600,
             Refused::Budget => -32603,
         }
@@ -168,9 +169,6 @@ impl Display for Refused {
             Refused::Limit => formatter.write_str("MCP request exceeds the broker limit"),
             Refused::Invalid => formatter.write_str("MCP tool call request is invalid"),
             Refused::Active => formatter.write_str("MCP broker already has an active call"),
-            Refused::Version => {
-                formatter.write_str("MCP protocol version is not supported by this broker")
-            }
             Refused::Budget => formatter.write_str("capability evidence budget is exhausted"),
         }
     }

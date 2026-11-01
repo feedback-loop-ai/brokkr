@@ -2,7 +2,8 @@
 //! CR3, SC4), which `serve` takes up once its server has initialized
 //! (U6f1b). The harness's
 //! frames are read whole, at most 1 MiB and 64 deep, and each is checked
-//! before anything is recorded: initialize at MB3's version, ping and the
+//! before anything is recorded: initialize, answered at MB3's version
+//! whatever version it asks for (U9b1c), ping and the
 //! filtered listing are answered here, a cancellation of the active call
 //! is passed on, notifications are taken, and any other method refused. A
 //! tools/call naming a tool in seat-record's vocabulary within SC4's 256
@@ -449,8 +450,7 @@ impl<'s, W: Write + AsFd, E: Read + AsFd> Session<'s, '_, '_, W, E> {
             Err((id, refused)) => return self.refuse(id.as_ref(), &refused),
         };
         match request {
-            Request::Initialize(id, version) if version == VERSION => self.greet(&id),
-            Request::Initialize(id, _) => self.refuse(Some(&id), &Refused::Version),
+            Request::Initialize(id) => self.greet(&id),
             Request::Ping(id) => self.tell(Some(&id), Reply::Result(json!({}))),
             Request::List(id) => self.listing(&id),
             Request::Call(id, called) => self.call(id, called),
@@ -464,7 +464,9 @@ impl<'s, W: Write + AsFd, E: Read + AsFd> Session<'s, '_, '_, W, E> {
     }
 
     /// Answer the harness's initialize `id` as the plan's server, at MB3's
-    /// version and the dialect's pinned one, offering tools alone.
+    /// version and the dialect's pinned one, offering tools alone: MB3's
+    /// version whatever version it asked, as MCP 2025-06-18's lifecycle
+    /// negotiates one (U9b1c), and the session held to it.
     fn greet(&mut self, id: &Id) -> Result<(), Ended> {
         let server = json!({"name": self.plan.server, "version": self.plan.dialect.version});
         let tools = json!({"tools": {}});

@@ -740,10 +740,25 @@ fn resolved(
     }
 }
 
+/// The driver's own cause for the brokered `set` where its `harness` carries
+/// no broker (U7d, U9b1c; SI2): Claude's fragment carries them, while Codex's
+/// fragment and dsh's engine-only home do not, so the driver refuses such a
+/// set for either whichever way the fence stands. Any other set meets none.
+fn unbrokered(set: McpIntent, harness: &str) -> Option<StrictCause> {
+    let carried = match AdapterKind::parse(harness) {
+        Some(AdapterKind::Codex | AdapterKind::Dsh) => false,
+        Some(AdapterKind::Claude | AdapterKind::Lanetally | AdapterKind::Exec) | None => true,
+    };
+    let (provider, shape) = (harness.to_string(), "brokers".to_string());
+    (set == McpIntent::Brokered && !carried).then_some(StrictCause::Unmeasured { provider, shape })
+}
+
 /// `asks` resolved by `resolve` against each serving in order, each outcome
-/// then given its own MCP contribution by its `sites` entry and judged by
-/// that serving's SI2 verdict in `strict`, or the first refusal; the
-/// records are kept beside the outcomes, which way the fence stands.
+/// then given its own MCP contribution by its `sites` entry, refused past
+/// the fence where its brokered set rides a harness carrying no broker
+/// ([`unbrokered`]), and judged by that serving's SI2 verdict in `strict`,
+/// or the first refusal; the records are kept beside the outcomes, which
+/// way the fence stands.
 fn sealed(
     authority: &Authority,
     (asks, resolve): (SiteAsks, Resolve<'_>),
@@ -758,6 +773,9 @@ fn sealed(
     for ((serving, site), verdict) in servings.iter().zip(sites).zip(strict) {
         let mut outcome = resolve(&asks, serving)?;
         (site.contribute(who, &asks.asks, &mut outcome)).map_err(|cause| refused(&cause))?;
+        let set = site.intent.map(|intent| intent.brokering(Some(&outcome)));
+        let brokers = set.and_then(|set| unbrokered(set, serving.harness));
+        (authority.fence.admit(brokers)).map_err(|cause| refused(&cause))?;
         outcomes.push(outcome);
         (authority.fence.admit(verdict.clone())).map_err(|cause| refused(&cause))?;
         records.push(site.strict);

@@ -11,7 +11,8 @@
 //! Linux only, as a server box is; macOS's refusal is `capability_broker`'s
 //! `the_compile_fence_refuses_an_unused_mcp_grant_only_where_it_stands`.
 //! Children: `transport` (42.2), `matrix`, `reach`, `sites`, `boxes` and
-//! `windows` (46.1), `lifetime` (46.2's two worktrees), `dispatch` (ruling 21).
+//! `windows` (46.1), `lifetime` (46.2's two worktrees), `dispatch` (ruling 21),
+//! `negotiation` (U9b1c's 46.3).
 //!
 //! The engine runs here as an operator runs it, with no wrapper: `brokkr
 //! driver` sets `no_new_privs` on itself before it spawns a brokered harness
@@ -25,6 +26,7 @@ mod boxes;
 mod dispatch;
 mod lifetime;
 mod matrix;
+mod negotiation;
 mod reach;
 mod sites;
 mod transport;

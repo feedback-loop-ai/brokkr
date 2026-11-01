@@ -368,7 +368,8 @@ was ticked before the first review on a test that began no call; it now meets it
 the engine's timeout proved through real dispatch at every window but `Handoff`, which only the
 startup deadline ends, so the claim above that each window ends three ways stops short of
 `Handoff`. By operator ruling 2026-10-31 ("B") U9b1b lands by hand with 46.1 open, and U9b1c
-proves both `Handoff` cases, with their compiling removals, and ticks it. 46.2 stays unticked: its non-host work is
+proves both `Handoff` cases, with their compiling removals, and ticks it. 46.1 closed there, in
+U9b1c's 46.5 ([U9b1c.md](U9b1c.md)). 46.2 stays unticked: its non-host work is
 done above, audit included, and by its own last sentence "missing host evidence leaves this task
 pending".
 

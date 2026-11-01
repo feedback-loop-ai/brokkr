@@ -274,11 +274,6 @@ fn each_cause_reads_in_mb3s_words_and_latches_through_the_ledgers_own() {
             -32600,
             "MCP broker already has an active call",
         ),
-        (
-            Refused::Version,
-            -32602,
-            "MCP protocol version is not supported by this broker",
-        ),
     ];
     for (refused, code, text) in refused {
         assert_eq!(
@@ -1030,7 +1025,6 @@ fn exchange(frames: Vec<Value>, answers: Vec<Value>) -> impl FnOnce(&mut Harness
 
 #[test]
 fn the_harness_is_answered_here_and_its_granted_call_forwarded_once_recorded() {
-    let version = "MCP protocol version is not supported by this broker";
     let greeting = json!({"protocolVersion": "2025-06-18", "capabilities": {"tools": {}},
                           "serverInfo": {"name": "cap-library-docs", "version": "1.4.2"}});
     let asked = vec![
@@ -1043,13 +1037,15 @@ fn the_harness_is_answered_here_and_its_granted_call_forwarded_once_recorded() {
         request(json!("p"), "ping", json!({})),
         request(json!(1), "tools/list", json!({})),
         request(json!(2), "resources/list", json!({})),
+        // MCP's negotiation: another version is answered with MB3's.
         request(
             json!(3),
             "initialize",
-            json!({"protocolVersion": "2024-11-05"}),
+            json!({"protocolVersion": "2025-11-25"}),
         ),
         json!({"jsonrpc": "2.0", "id": 4, "method": "initialize"}),
         request(json!(5), "initialize", json!(["2025-06-18"])),
+        request(json!(6), "initialize", json!({"protocolVersion": 7})),
         request(
             json!("c"),
             "tools/call",
@@ -1057,7 +1053,7 @@ fn the_harness_is_answered_here_and_its_granted_call_forwarded_once_recorded() {
         ),
     ];
     let answers = vec![
-        result(&json!(0), greeting),
+        result(&json!(0), greeting.clone()),
         result(&json!("p"), json!({})),
         result(&json!(1), json!({"tools": granted()})),
         refusal(
@@ -1065,9 +1061,10 @@ fn the_harness_is_answered_here_and_its_granted_call_forwarded_once_recorded() {
             -32601,
             "MCP method is not admitted by this broker",
         ),
-        refusal(json!(3), -32602, version),
+        result(&json!(3), greeting),
         refusal(json!(4), -32600, "MCP tool call request is invalid"),
         refusal(json!(5), -32600, "MCP tool call request is invalid"),
+        refusal(json!(6), -32600, "MCP tool call request is invalid"),
         echoed("c", "lookup"),
     ];
     // The call, asked last, is answered once the server has answered it.

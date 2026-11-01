@@ -1,10 +1,11 @@
 //! Task 46.1's bounded startup and its cancellation, through real dispatch
-//! (U9b1b; MB3, MB5): each window of a broker's startup but `Handoff` held, then
-//! ended three ways; `Handoff` only by the deadline, the other two are U9b1c's.
+//! (U9b1b, and U9b1c's 46.5 at `Handoff`; MB3, MB5): each window of a broker's
+//! startup held, then ended three ways.
 //!
 //! The harness's death, the broker's own sign of cancellation, its input kept
 //! open past it by a process of another session, so EOF on that input is not
-//! what ends it. The broker ends within seconds. What it left is bounded, not
+//! what ends it. The broker ends within seconds, and wherever the startup
+//! deadline still stands, before that deadline would. What it left is bounded, not
 //! exact: its ledger is a prefix of the window's records, closed on the window's
 //! disposition only where it closed at all, as the engine's sweep may kill it
 //! first; and the run parks on the window's cause or on a driver's lost result,
@@ -19,7 +20,9 @@
 //!
 //! Every way, nothing that stood below the broker remains, its private mounts
 //! gone with the last process of their namespaces, and pre-secret windows keep
-//! the store unread.
+//! the store unread. A process the tracer holds in its delayed exec at `Handoff`
+//! ends only with the delay, which bounds its settlement wherever the tracer
+//! outlives the broker.
 
 use std::path::PathBuf;
 use std::process::{Child, Stdio};
@@ -52,6 +55,9 @@ const PATIENCE: Duration = Duration::from_secs(90);
 /// How long a window's broker, and then everything below it, is given to end
 /// once its end is due: seconds, on a hosted runner as on a quiet host.
 const TEARDOWN: Duration = Duration::from_secs(30);
+
+/// MB3's startup deadline, which no window here moves.
+const STARTUP: Duration = Duration::from_secs(30);
 
 /// A window of a broker's startup, held open.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -137,6 +143,28 @@ impl Window {
         }
     }
 
+    /// How much longer than [`TEARDOWN`] what stood below the broker may take
+    /// to settle: at `Handoff` the tracer delays the exec at its entry, and a
+    /// process killed in that delay ends only with it, wherever the tracer
+    /// outlives the broker; elsewhere no delay holds a process.
+    fn delayed(self) -> Duration {
+        match self {
+            Window::Handoff => Duration::from_millis(u64::from(HELD_MS)),
+            Window::Observation
+            | Window::Entry
+            | Window::StoreRead
+            | Window::Initialization
+            | Window::Call => Duration::ZERO,
+        }
+    }
+
+    /// Whether MB3's startup deadline still stands in this window, so that only
+    /// a broker ended before it was ended by something else: every window but
+    /// a call's, which its own deadline bounds.
+    fn starting(self) -> bool {
+        self != Window::Call
+    }
+
     /// Whether a server's box stands in this window.
     fn boxed(self) -> bool {
         self != Window::Observation
@@ -191,6 +219,48 @@ fn mount_space(pid: i32) -> Option<PathBuf> {
     std::fs::read_link(format!("/proc/{pid}/ns/mnt")).ok()
 }
 
+/// The number Linux gives `execve` on this architecture, as
+/// `/proc/<pid>/syscall` names a process's current call.
+#[cfg(target_arch = "x86_64")]
+const EXECVE: &str = "59";
+#[cfg(not(target_arch = "x86_64"))]
+const EXECVE: &str = "221";
+
+/// What `pid`'s descriptors from `from` up refer to.
+fn descriptors(pid: i32, from: u32) -> Vec<PathBuf> {
+    let Ok(open) = std::fs::read_dir(format!("/proc/{pid}/fd")) else {
+        return Vec::new();
+    };
+    let open = open.flatten().filter(|entry| {
+        let number = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse().ok());
+        number.is_some_and(|number: u32| number >= from)
+    });
+    open.filter_map(|entry| std::fs::read_link(entry.path()).ok())
+        .collect()
+}
+
+/// Whether `Handoff` is held below `broker`: the bootstrap stopped by the
+/// tracer inside its `execve` of the server, which it enters only once it has
+/// received the binding frame whole and then its end, its control and ready
+/// pipes given up; and holding past its standard streams exactly one
+/// descriptor, a pipe the broker holds too, its status pipe, open.
+fn exec_held(broker: i32) -> bool {
+    let theirs = descriptors(broker, 0);
+    below(broker).into_iter().any(|pid| {
+        let call = std::fs::read_to_string(format!("/proc/{pid}/syscall")).unwrap_or_default();
+        let traced = status(pid).is_some_and(|(state, _, _)| state == 't');
+        let open = descriptors(pid, 3);
+        let piped = open
+            .iter()
+            .all(|held| held.to_string_lossy().starts_with("pipe:"));
+        let status_pipe = open.len() == 1 && piped && theirs.contains(&open[0]);
+        traced && call.split(' ').next() == Some(EXECVE) && status_pipe
+    })
+}
+
 /// Waits until `window` is held below `broker`.
 fn held(world: &World, window: Window, broker: i32, reads: &mut dyn FnMut() -> usize) {
     let until = Instant::now() + PATIENCE;
@@ -211,7 +281,12 @@ fn held(world: &World, window: Window, broker: i32, reads: &mut dyn FnMut() -> u
                 std::thread::sleep(Duration::from_millis(200));
                 first && stopped()
             }
-            Window::StoreRead | Window::Handoff => reads() > 0,
+            Window::StoreRead => reads() > 0,
+            Window::Handoff => {
+                let first = reads() > 0 && exec_held(broker);
+                std::thread::sleep(Duration::from_millis(200));
+                first && exec_held(broker)
+            }
             Window::Initialization => holding(),
             Window::Call => {
                 let config = world.bin("config.json");
@@ -307,14 +382,23 @@ impl Standing {
         })
     }
 
-    /// Waits for the broker's end, within `bound`.
-    fn broker_ended(&self, bound: Duration) {
+    /// Waits for the broker's end, within `bound`: when it was seen ended.
+    fn broker_ended(&self, bound: Duration) -> SystemTime {
         let begun = Instant::now();
         while status(self.broker).is_some_and(|(state, _, _)| state != 'Z') {
             let taken = begun.elapsed();
             assert!(taken < bound, "{:?}: {taken:?}", self.window);
             std::thread::sleep(Duration::from_millis(10));
         }
+        SystemTime::now()
+    }
+
+    /// How long after the harness started, and its broker with it, `at` came.
+    fn lasted(&self, at: SystemTime) -> Duration {
+        let times = std::fs::read_to_string(self.world.bin("times")).unwrap();
+        let begun: u64 = times.lines().next().unwrap().parse().unwrap();
+        let harness = SystemTime::UNIX_EPOCH + Duration::from_nanos(begun);
+        at.duration_since(harness).unwrap()
     }
 
     /// Nothing of the window remains within `bound`: its private mounts, gone
@@ -343,8 +427,8 @@ impl Standing {
     }
 
     /// Whether the store was read, and the server's program, however it ended;
-    /// each window's own, held to its table.
-    fn reads_held(self) {
+    /// each window's own, held to its table; and the world, to look at again.
+    fn reads_held(self) -> World {
         let window = self.window;
         let (_, read) = window.expected();
         let reads = self.seen + self.lookups.lookups();
@@ -360,6 +444,7 @@ impl Standing {
             1,
             "{window:?}: the harness started once"
         );
+        self.world
     }
 
     /// The broker's ledger, its records' kinds and its last disposition.
@@ -391,18 +476,24 @@ impl Standing {
     }
 }
 
-/// The proof of a harness's death at `window`: see the module's text.
-fn cancelled_at(window: Window) {
-    let Some(mut standing) = Standing::at(window, |world| {
+/// The proof of a harness's death at `window`: see the module's text. Its
+/// world and how the run ended, for a window's own proof beside it.
+fn cancelled_at(window: Window) -> Option<(World, Ended)> {
+    let mut standing = Standing::at(window, |world| {
         put(&world.bin("keep-input"), "");
-    }) else {
-        return;
-    };
+    })?;
     killed(standing.harness);
     let keeper = pid_in(&standing.world, "keeper.pid");
-    standing.broker_ended(TEARDOWN);
+    let gone = standing.broker_ended(TEARDOWN);
+    // TEARDOWN is MB3's whole startup, so only the broker's lifetime tells the
+    // harness's death from the deadline it would otherwise have met.
+    let lasted = standing.lasted(gone);
+    assert!(
+        !window.starting() || lasted < STARTUP,
+        "{window:?}: the broker lasted {lasted:?}"
+    );
     killed(keeper);
-    standing.settled(TEARDOWN);
+    standing.settled(TEARDOWN + window.delayed());
     let ended = standing.engine_ended();
     // The broker's own record, closed on the window's cause, or a prefix of it
     // where the engine's sweep of the attempt's tree killed it before it closed.
@@ -424,7 +515,7 @@ fn cancelled_at(window: Window) {
         ended.status == "awaiting_operator" && (parked == cause || parked.ends_with(lost)),
         "{window:?} {ended:?}"
     );
-    standing.reads_held();
+    Some((standing.reads_held(), ended))
 }
 
 #[test]
@@ -440,6 +531,21 @@ fn a_harness_dying_at_a_standing_box_ends_its_broker_unread() {
 #[test]
 fn a_harness_dying_at_a_held_store_read_ends_its_broker() {
     cancelled_at(Window::StoreRead);
+}
+
+/// At `Handoff`, the window [`exec_held`] establishes, the harness's death
+/// ends the broker before its startup deadline could, and `inspect` keeps the
+/// seat's report of success from standing, with no call of the attempt.
+#[test]
+fn a_harness_dying_at_a_held_handoff_ends_its_broker_before_its_deadline() {
+    let Some((world, ended)) = cancelled_at(Window::Handoff) else {
+        return;
+    };
+    let seat = world.inspected(&ended.run)["dashboard"]["last_seat"].clone();
+    assert_eq!(
+        (&seat["seat"], &seat["result"], world.calls(&ended.run)),
+        (&json!("work"), &Value::Null, vec![])
+    );
 }
 
 #[test]
@@ -500,6 +606,11 @@ fn the_engines_timeout_at_a_held_store_read_ends_it() {
 }
 
 #[test]
+fn the_engines_timeout_at_a_held_handoff_ends_it() {
+    timed_out_at(Window::Handoff, &[]);
+}
+
+#[test]
 fn the_engines_timeout_during_initialization_ends_it() {
     timed_out_at(Window::Initialization, &[]);
 }
@@ -523,8 +634,7 @@ fn expired_at(window: Window) {
     standing.world.unserialized();
     // The broker's end by its own state: a process held in the tracer's delay is
     // reaped only with the delay's end, which is the hold's and not the deadline's.
-    standing.broker_ended(PATIENCE);
-    let at = SystemTime::now();
+    let at = standing.broker_ended(PATIENCE);
     let ended = standing.engine_ended();
     let (cause, _) = window.expected();
     assert_eq!(
@@ -534,13 +644,10 @@ fn expired_at(window: Window) {
     );
     let world = &standing.world;
     assert_eq!(world.broker_code(), Some(1), "{window:?}");
-    let times = std::fs::read_to_string(world.bin("times")).unwrap();
-    let begun: u64 = times.lines().next().unwrap().parse().unwrap();
-    let harness = SystemTime::UNIX_EPOCH + Duration::from_nanos(begun);
-    let lasted = at.duration_since(harness).unwrap();
+    let lasted = standing.lasted(at);
     let released = Duration::from_millis(u64::from(HELD_MS));
     assert!(
-        lasted >= Duration::from_secs(30) && lasted < released,
+        lasted >= STARTUP && lasted < released,
         "{window:?}: {lasted:?}"
     );
     assert_eq!(world.calls(&ended.run), [], "{window:?}");
