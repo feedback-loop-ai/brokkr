@@ -31,12 +31,13 @@ struct Asked {
     _keyed: Keyed,
 }
 
-/// A harness's initialize parameters: the version it asks for, beside
-/// whatever else it says.
+/// A harness's initialize parameters: the version it asks for, which must
+/// be a string, whatever it names, beside whatever else it says. MB3's
+/// version answers any (U9b1c), as MCP's version negotiation has it.
 #[derive(Deserialize)]
 struct Greeting {
     #[serde(rename = "protocolVersion")]
-    version: String,
+    _version: String,
     #[serde(flatten)]
     _keyed: Keyed,
 }
@@ -68,7 +69,7 @@ pub(super) struct Called {
 
 /// A harness request, checked whole.
 pub(super) enum Request {
-    Initialize(Id, String),
+    Initialize(Id),
     Ping(Id),
     List(Id),
     Call(Id, Called),
@@ -81,7 +82,7 @@ impl Request {
     /// The id the harness would be answered by, none for a notification.
     pub(super) fn id(&self) -> Option<&Id> {
         match self {
-            Request::Initialize(id, _) | Request::Ping(id) | Request::List(id) => Some(id),
+            Request::Initialize(id) | Request::Ping(id) | Request::List(id) => Some(id),
             Request::Call(id, _) | Request::Other(id) => Some(id),
             Request::Cancel(_) | Request::Told => None,
         }
@@ -105,7 +106,7 @@ pub(super) fn decoded(bytes: &[u8]) -> Result<Request, (Option<Id>, Refused)> {
         }
         (_, None) => Ok(Request::Told),
         ("initialize", Some(id)) => match Greeting::deserialize(params) {
-            Ok(greeting) => Ok(Request::Initialize(id, greeting.version)),
+            Ok(_) => Ok(Request::Initialize(id)),
             Err(_) => Err((Some(id), Refused::Invalid)),
         },
         ("ping", Some(id)) => Ok(Request::Ping(id)),

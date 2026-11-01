@@ -9,10 +9,10 @@
    657 crates/brokkr-cli/src/broker/bootstrap.rs
    105 crates/brokkr-cli/src/broker/bootstrap/handshake.rs
    399 crates/brokkr-cli/src/broker/output.rs
-   786 crates/brokkr-cli/src/broker/rpc.rs
-   693 crates/brokkr-cli/src/broker/rpc/calls.rs
+   784 crates/brokkr-cli/src/broker/rpc.rs
+   695 crates/brokkr-cli/src/broker/rpc/calls.rs
     85 crates/brokkr-cli/src/broker/rpc/calls/outbox.rs
-   139 crates/brokkr-cli/src/broker/rpc/calls/request.rs
+   140 crates/brokkr-cli/src/broker/rpc/calls/request.rs
    216 crates/brokkr-cli/src/broker/rpc/pieces.rs
    777 crates/brokkr-cli/src/broker/session.rs
    314 crates/brokkr-cli/src/broker/session/lifetime.rs
@@ -375,7 +375,7 @@
    368 crates/brokkr-cli/src/boundary/tests.rs
    872 crates/brokkr-cli/src/broker/bootstrap/tests.rs
    406 crates/brokkr-cli/src/broker/rpc/pieces/tests.rs
-  1986 crates/brokkr-cli/src/broker/rpc/tests.rs
+  1995 crates/brokkr-cli/src/broker/rpc/tests.rs
    658 crates/brokkr-cli/src/broker/rpc/tests/delivery.rs
   1508 crates/brokkr-cli/src/broker/rpc/tests/masking.rs
    403 crates/brokkr-cli/src/broker/rpc/tests/retention.rs
@@ -457,11 +457,12 @@
    504 crates/brokkr-cli/tests/capability_artifacts.rs
   2000 crates/brokkr-cli/tests/capability_broker.rs
    462 crates/brokkr-cli/tests/capability_broker/cleanup.rs
-   689 crates/brokkr-cli/tests/capability_broker/enabled.rs
+   691 crates/brokkr-cli/tests/capability_broker/enabled.rs
    342 crates/brokkr-cli/tests/capability_broker/enabled/boxes.rs
    241 crates/brokkr-cli/tests/capability_broker/enabled/dispatch.rs
    269 crates/brokkr-cli/tests/capability_broker/enabled/lifetime.rs
    440 crates/brokkr-cli/tests/capability_broker/enabled/matrix.rs
+    82 crates/brokkr-cli/tests/capability_broker/enabled/negotiation.rs
    235 crates/brokkr-cli/tests/capability_broker/enabled/reach.rs
    409 crates/brokkr-cli/tests/capability_broker/enabled/sites.rs
    201 crates/brokkr-cli/tests/capability_broker/enabled/transport.rs
