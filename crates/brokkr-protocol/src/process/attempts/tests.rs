@@ -621,6 +621,42 @@ fn only_an_open_attempt_knows_its_group_by_its_bare_pid() {
     );
 }
 
+/// #918: the registry knows an identity by exactly the set that holds it:
+/// the engine itself, what it owns, and a closed attempt's `before`,
+/// `recorded` and `doubted` identities. Each arm is asked directly, so its
+/// coverage never waits on a process-driven tick's timing, and an identity
+/// no set holds is unknown.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_registry_knows_each_identity_by_the_set_that_holds_it() {
+    let before = row(1_000_000_011, GROUP, GROUP);
+    let recorded = row(1_000_000_012, GROUP, GROUP);
+    let doubted = row(1_000_000_013, GROUP, GROUP);
+    let unowned = row(1_000_000_014, me(), 1_000_000_014);
+    let mut attempt = closed(
+        GROUP,
+        std::slice::from_ref(&recorded),
+        std::slice::from_ref(&before),
+    );
+    attempt.doubted = ids([&doubted]);
+    let mut registry = registry([attempt]);
+    registry.unowned = ids([&unowned]);
+    let engine = row(me(), 1, me());
+    for (known, set) in [
+        (&engine, "the engine"),
+        (&unowned, "unowned"),
+        (&before, "before"),
+        (&recorded, "recorded"),
+        (&doubted, "doubted"),
+    ] {
+        assert!(registry.knows(&known.id), "{set} was not known");
+    }
+    assert!(
+        !registry.knows(&row(STRANGER, 1, STRANGER).id),
+        "an identity no set holds was known"
+    );
+}
+
 /// #918e: a walk that cannot complete forgets the last walk and reads the
 /// table on that tick. A failed read leaves the snapshot owed; a healthy
 /// one answers it, and the next walk, having no memory to compare, reads
