@@ -380,7 +380,7 @@ pub(crate) fn holds<'a>(
 /// been migrated. A pure read: it asks `sqlite_master` whether `meta`
 /// exists rather than provoking a "no such table" error, so it is safe
 /// on a virgin file and takes no write lock on an established one.
-fn schema_version(conn: &Connection) -> Result<Option<u32>, StoreError> {
+pub(crate) fn schema_version(conn: &Connection) -> Result<Option<u32>, StoreError> {
     let has_meta = conn
         .query_row(
             "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'",

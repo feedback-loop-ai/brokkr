@@ -1350,9 +1350,9 @@
       "file": "./crates/brokkr-cli/src/lib.rs",
       "function": "run_with",
       "line": 1879,
-      "cyclomatic": 35.0,
+      "cyclomatic": 37.0,
       "coverage": 100.0,
-      "crap": 35.0
+      "crap": 37.0
     },
     {
       "file": "./crates/brokkr-cli/src/lib.rs",

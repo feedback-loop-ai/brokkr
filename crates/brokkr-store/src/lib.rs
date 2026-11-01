@@ -72,6 +72,7 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 mod acknowledgement;
+pub mod backup;
 mod chain;
 mod event_index;
 mod import;
@@ -91,7 +92,6 @@ mod start;
 mod summary;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
-
 pub use acknowledgement::Acknowledgement;
 pub use chain::{Chain, Rows};
 pub use event_index::IndexFault;

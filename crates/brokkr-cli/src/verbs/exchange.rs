@@ -12,7 +12,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 
 use crate::cli_args::{AnchorArgs, BridgeArgs, ExportArgs, ImportArgs, VerifyRunArgs};
-use crate::{journal_of, manifest_beside, open_journal, render, selector, summarize, Access, Exit};
+use crate::{journal_of, open_journal, render, selector, summarize, Access, Exit};
 
 /// `brokkr anchor`: plant the journal head in refs/forge/<run>, or verify
 /// the one planted with `--check`.
@@ -200,6 +200,20 @@ fn verified(state: &RunState) -> Verified {
         chain: "verified",
         state: summarize(state),
     }
+}
+
+/// The pinned manifest an export wrote beside its journal, named the
+/// way `Cmd::Export` names it: `<run>.ndjson` is paired with
+/// `<run>.manifest.json`, and — since the stem carries the marker —
+/// `<run>.redacted.ndjson` with `<run>.redacted.manifest.json`, so a
+/// redacted pair can be named in full and refused by name.
+fn manifest_beside(journal: &Path) -> std::path::PathBuf {
+    let stem = journal
+        .file_stem()
+        .unwrap_or(journal.as_os_str())
+        .to_string_lossy()
+        .to_string();
+    journal.with_file_name(format!("{stem}.manifest.json"))
 }
 
 /// `brokkr bridge`: synchronize a Looper-bound run, once or following,

@@ -1,5 +1,86 @@
 # produced by quality/measure.sh with cargo-public-api 0.52.0 on nightly-2026-09-05, -sss
 pub mod brokkr_store
+pub mod brokkr_store::backup
+pub enum brokkr_store::backup::BackupError
+pub brokkr_store::backup::BackupError::BackupDestinationNotDirectory(std::path::PathBuf)
+pub brokkr_store::backup::BackupError::BackupDestinationNotEmpty(std::path::PathBuf)
+pub brokkr_store::backup::BackupError::BoundaryRun
+pub brokkr_store::backup::BackupError::BoundaryRun::found: alloc::string::String
+pub brokkr_store::backup::BackupError::BoundaryRun::inventory: alloc::string::String
+pub brokkr_store::backup::BackupError::Chain
+pub brokkr_store::backup::BackupError::Chain::run_id: alloc::string::String
+pub brokkr_store::backup::BackupError::Chain::source: brokkr_core::envelope::ChainError
+pub brokkr_store::backup::BackupError::ChecksumMismatch
+pub brokkr_store::backup::BackupError::ChecksumMismatch::found: alloc::string::String
+pub brokkr_store::backup::BackupError::ChecksumMismatch::inventory: alloc::string::String
+pub brokkr_store::backup::BackupError::CountsMismatch
+pub brokkr_store::backup::BackupError::CountsMismatch::found_events: u64
+pub brokkr_store::backup::BackupError::CountsMismatch::found_runs: u64
+pub brokkr_store::backup::BackupError::CountsMismatch::inventory_events: u64
+pub brokkr_store::backup::BackupError::CountsMismatch::inventory_runs: u64
+pub brokkr_store::backup::BackupError::HeadMismatch
+pub brokkr_store::backup::BackupError::HeadMismatch::found_head: alloc::string::String
+pub brokkr_store::backup::BackupError::HeadMismatch::found_seq: u64
+pub brokkr_store::backup::BackupError::HeadMismatch::inventory_head: alloc::string::String
+pub brokkr_store::backup::BackupError::HeadMismatch::inventory_seq: u64
+pub brokkr_store::backup::BackupError::HeadMismatch::run_id: alloc::string::String
+pub brokkr_store::backup::BackupError::Integrity
+pub brokkr_store::backup::BackupError::Integrity::reported: alloc::string::String
+pub brokkr_store::backup::BackupError::InvalidInventory
+pub brokkr_store::backup::BackupError::InvalidInventory::source: serde_json::error::Error
+pub brokkr_store::backup::BackupError::Io(core::io::error::Error)
+pub brokkr_store::backup::BackupError::Json(serde_json::error::Error)
+pub brokkr_store::backup::BackupError::MissingInventory(std::path::PathBuf)
+pub brokkr_store::backup::BackupError::MissingSnapshot(std::path::PathBuf)
+pub brokkr_store::backup::BackupError::ProjectionDisagreement
+pub brokkr_store::backup::BackupError::ProjectionDisagreement::first: alloc::string::String
+pub brokkr_store::backup::BackupError::RestoreDestinationExists(std::path::PathBuf)
+pub brokkr_store::backup::BackupError::RowMismatch
+pub brokkr_store::backup::BackupError::RowMismatch::expected: alloc::string::String
+pub brokkr_store::backup::BackupError::RowMismatch::field: brokkr_store::backup::RowField
+pub brokkr_store::backup::BackupError::RowMismatch::found: alloc::string::String
+pub brokkr_store::backup::BackupError::RowMismatch::run_id: alloc::string::String
+pub brokkr_store::backup::BackupError::RowMismatch::seq: i64
+pub brokkr_store::backup::BackupError::SizeMismatch
+pub brokkr_store::backup::BackupError::SizeMismatch::found: u64
+pub brokkr_store::backup::BackupError::SizeMismatch::inventory: u64
+pub brokkr_store::backup::BackupError::Sqlite(rusqlite::error::Error)
+pub brokkr_store::backup::BackupError::Store(brokkr_store::StoreError)
+pub brokkr_store::backup::BackupError::UnknownFormat
+pub brokkr_store::backup::BackupError::UnknownFormat::found: alloc::string::String
+pub brokkr_store::backup::BackupError::UnnameablePath(std::path::PathBuf)
+pub brokkr_store::backup::BackupError::UnownedEvents
+pub brokkr_store::backup::BackupError::UnownedEvents::count: u64
+pub brokkr_store::backup::BackupError::UnownedEvents::run_id: alloc::string::String
+pub brokkr_store::backup::BackupError::UnownedEvents::seq: i64
+pub brokkr_store::backup::BackupError::UnreadableInventory
+pub brokkr_store::backup::BackupError::UnreadableInventory::path: std::path::PathBuf
+pub brokkr_store::backup::BackupError::UnreadableInventory::source: core::io::error::Error
+pub brokkr_store::backup::BackupError::UnrecordedSchema
+pub brokkr_store::backup::BackupError::UnrecordedSchema::key: &'static str
+pub enum brokkr_store::backup::RowField
+pub brokkr_store::backup::RowField::EventHash
+pub brokkr_store::backup::RowField::RunId
+pub brokkr_store::backup::RowField::Seq
+impl core::fmt::Display for brokkr_store::backup::RowField
+pub fn brokkr_store::backup::RowField::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct brokkr_store::backup::Backup
+pub brokkr_store::backup::Backup::bytes: u64
+pub brokkr_store::backup::Backup::events: u64
+pub brokkr_store::backup::Backup::runs: u64
+pub brokkr_store::backup::Backup::sha256: alloc::string::String
+pub brokkr_store::backup::Backup::to: std::path::PathBuf
+pub struct brokkr_store::backup::BackupOptions<'a>
+pub brokkr_store::backup::BackupOptions::now: &'a str
+pub brokkr_store::backup::BackupOptions::projection: u32
+pub brokkr_store::backup::BackupOptions::to: &'a std::path::Path
+pub struct brokkr_store::backup::Restored
+pub brokkr_store::backup::Restored::events: u64
+pub brokkr_store::backup::Restored::runs: u64
+pub brokkr_store::backup::Restored::to: std::path::PathBuf
+pub const brokkr_store::backup::JOURNAL_BACKUP_FORMAT: &str
+pub fn brokkr_store::backup::backup(&brokkr_store::Store, brokkr_store::backup::BackupOptions<'_>) -> core::result::Result<brokkr_store::backup::Backup, brokkr_store::backup::BackupError>
+pub fn brokkr_store::backup::restore(&std::path::Path, &std::path::Path) -> core::result::Result<brokkr_store::backup::Restored, brokkr_store::backup::BackupError>
 pub enum brokkr_store::Disagreement
 pub brokkr_store::Disagreement::Column
 pub brokkr_store::Disagreement::Column::column: &'static str
