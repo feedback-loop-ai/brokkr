@@ -144,7 +144,7 @@ fn masked_by(plan: super::Plan) -> Beside {
         retain: retained(&plan),
         plan,
         bindings: bound(),
-        stderr: Vec::new(),
+        ..Beside::plain()
     }
 }
 
@@ -807,7 +807,7 @@ fn a_bound_number_spelled_otherwise_fails_its_forwarded_call_unmasked() {
             retain: retention::retained(&plan),
             plan,
             bindings: bound_as(&[("NUMBER", value)]),
-            stderr: Vec::new(),
+            ..Beside::plain()
         };
         let body = format!(r#"{{"content":[],"structuredContent":{{"n":{said}}}}}"#);
         let script = written(move |id| frame(id, &body), 0);
@@ -911,7 +911,7 @@ fn beside(named: &[(&str, &str)]) -> Beside {
         plan: plan(),
         bindings: bound_as(named),
         stderr: Vec::new(),
-        retain: None,
+        ..Beside::plain()
     }
 }
 

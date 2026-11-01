@@ -635,6 +635,23 @@ fn expired_at(window: Window) {
     // The broker's end by its own state: a process held in the tracer's delay is
     // reaped only with the delay's end, which is the hold's and not the deadline's.
     let at = standing.broker_ended(PATIENCE);
+    let lasted = standing.lasted(at);
+    let released = Duration::from_millis(u64::from(HELD_MS));
+    assert!(
+        lasted >= STARTUP && lasted < released,
+        "{window:?}: {lasted:?}"
+    );
+    closed_on_its_cause(&mut standing);
+    // A process killed in the tracer's delay ends with the delay's end.
+    standing.settled(Duration::from_secs(40));
+    standing.reads_held();
+}
+
+/// The run of a broker ended at its window with its harness alive: parked on
+/// the window's exact cause past the harness's report of success, the broker
+/// exiting 1, its ledger closed on that cause, and no call row.
+fn closed_on_its_cause(standing: &mut Standing) {
+    let window = standing.window;
     let ended = standing.engine_ended();
     let (cause, _) = window.expected();
     assert_eq!(
@@ -644,20 +661,39 @@ fn expired_at(window: Window) {
     );
     let world = &standing.world;
     assert_eq!(world.broker_code(), Some(1), "{window:?}");
-    let lasted = standing.lasted(at);
-    let released = Duration::from_millis(u64::from(HELD_MS));
-    assert!(
-        lasted >= STARTUP && lasted < released,
-        "{window:?}: {lasted:?}"
-    );
     assert_eq!(world.calls(&ended.run), [], "{window:?}");
     let (kinds, disposition) = standing.ledger();
     let (want, closed) = window.ledger();
     let kept: Vec<&str> = kinds.iter().map(String::as_str).collect();
     assert_eq!((&kept[..], disposition), (want, closed), "{window:?}");
-    // A process killed in the tracer's delay ends with the delay's end.
-    standing.settled(Duration::from_secs(40));
+}
+
+/// The proof of a signal at `window`, before the broker serves (U9b1e): its
+/// harness's SIGINT ends the startup at once, closed on the window's exact
+/// cause as its deadline would close it 30 s on, nothing read past the window
+/// and no call row; the harness alive, its input open.
+fn signalled_at(window: Window) {
+    let Some(mut standing) = Standing::at(window, |_| {}) else {
+        return;
+    };
+    kill_process(Pid::from_raw(standing.broker).unwrap(), Signal::INT).unwrap();
+    let sent = Instant::now();
+    standing.broker_ended(TEARDOWN);
+    let took = sent.elapsed();
+    assert!(took < Duration::from_secs(10), "{window:?}: {took:?}");
+    closed_on_its_cause(&mut standing);
+    standing.settled(TEARDOWN);
     standing.reads_held();
+}
+
+#[test]
+fn a_signal_at_a_brokers_observation_ends_it_by_its_identity_cause_unread() {
+    signalled_at(Window::Observation);
+}
+
+#[test]
+fn a_signal_at_a_standing_box_ends_it_by_its_establishment_cause_unread() {
+    signalled_at(Window::Entry);
 }
 
 #[test]

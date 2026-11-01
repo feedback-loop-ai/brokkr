@@ -33,6 +33,7 @@ use super::stderr::{self, Said};
 use super::{bound, observed, readiness, screened, Startup, STARTUP};
 use crate::broker::rpc::pieces::Put;
 use crate::broker::rpc::{self, Fatal};
+use crate::broker::Signalled;
 use crate::exit::Exit;
 
 /// The plan `locator` names, bound to this attempt at `digest` and checked
@@ -49,12 +50,19 @@ use crate::exit::Exit;
 /// session's server's tail is written before its ledger closes
 /// ([`Held::delivered`]), and what the broker says of a failed one after,
 /// last, while its bindings are held ([`Held::reported`]): the exit code.
-pub(in crate::broker) fn serve(locator: &Path, digest: &str) -> ExitCode {
+/// A harness that ends the session by a signal (U9b1e) cancels its startup,
+/// which ends with that stage's own cause, or hangs up on its serving as a
+/// closed input does ([`rpc::Ending`]); a second signal then cancels what
+/// that ending still waits for, as the starter's end does.
+pub(in crate::broker) fn serve(locator: &Path, digest: &str, signalled: &Signalled) -> ExitCode {
     let deadline = Instant::now() + STARTUP;
     let parent = rustix::process::getppid();
-    let cancelled = || rustix::process::getppid() != parent;
+    let orphaned = || rustix::process::getppid() != parent;
+    let cancelled = || orphaned() | signalled.at_least(1);
+    let cut = || orphaned() | signalled.at_least(2);
+    let hung_up = || signalled.at_least(1);
     let startup: Startup<'_> = (deadline, &cancelled);
-    let tell = |said: &[Said]| stderr::told(said, &cancelled);
+    let tell = |said: &[Said]| stderr::told(said, &cut);
     let held = Held::default();
     let ended = bound(locator, digest).map_err(Ended::from);
     let ended = ended.and_then(|(layout, plan, attempt)| {
@@ -70,7 +78,10 @@ pub(in crate::broker) fn serve(locator: &Path, digest: &str) -> ExitCode {
                 (&plan, digest),
                 startup,
                 bind,
-                |link, errors, bound| rpc::serving(link, errors, bound, (&plan, startup)),
+                |link, errors, bound| {
+                    let ending: rpc::Ending<'_> = (&cut, &hung_up);
+                    rpc::serving(link, errors, bound, (&plan, startup, ending))
+                },
             )
         })
     });

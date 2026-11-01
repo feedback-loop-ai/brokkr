@@ -27,6 +27,13 @@
 //! refused with SD3's retention cause before any MCP message is exchanged
 //! with its server, until U8b builds retention; decision 0065's compile
 //! fence still refuses every MCP grant.
+//!
+//! A harness may end `serve` by an interrupt or a termination signal, as
+//! Claude Code ends every MCP server it started with SIGINT, rather than by
+//! closing its standard input (U9b1e; CR3). Either signal is then its harness
+//! ending the session: [`Signalled`] only counts what arrives, on a pipe the
+//! session reads beside its own work, and the session ends as a closed input
+//! ends it, its ledger closed by the one writer it has.
 
 mod bootstrap;
 mod rpc;
@@ -35,10 +42,40 @@ mod survey;
 
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::{Mutex, PoisonError};
 
 use brokkr_core::canonical;
+use signal_hook::consts::{SIGINT, SIGTERM};
+use signal_hook::iterator::Signals;
 
 use crate::cli_args::{BrokerCmd, BrokerServeArgs};
+
+/// The signals by which a harness ends `serve`'s session.
+const ENDING: [i32; 2] = [SIGINT, SIGTERM];
+
+/// How many of [`ENDING`]'s signals have reached `serve`: each arrival
+/// written to signal-hook's own pipe by its handler, which does nothing
+/// else, and counted only when the session asks, on whichever of its
+/// threads asks. Two arrivals of one signal before it asks are one. Where
+/// the handlers cannot be installed, none is counted and a signal ends the
+/// process as it did before, leaving its ledger unclosed, which CR3
+/// refuses.
+struct Signalled(Mutex<(Option<Signals>, usize)>);
+
+impl Signalled {
+    /// [`ENDING`]'s handlers installed, before anything of the plan is read.
+    fn observed() -> Signalled {
+        Signalled(Mutex::new((Signals::new(ENDING).ok(), 0)))
+    }
+
+    /// Whether at least `times` signals have arrived.
+    fn at_least(&self, times: usize) -> bool {
+        let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let (signals, seen) = &mut *held;
+        *seen += signals.iter_mut().flat_map(Signals::pending).count();
+        *seen >= times
+    }
+}
 
 /// The longest plan locator taken, in bytes: macOS's `PATH_MAX`, the
 /// smaller of the two supported hosts' (decision 0063).
@@ -119,7 +156,7 @@ fn canonical_home(home: &Path) -> Option<PathBuf> {
 pub(crate) fn run(command: BrokerCmd) -> anyhow::Result<ExitCode> {
     match command {
         BrokerCmd::Serve(BrokerServeArgs { plan, plan_digest }) => {
-            Ok(session::serve(&plan, &plan_digest))
+            Ok(session::serve(&plan, &plan_digest, &Signalled::observed()))
         }
         BrokerCmd::Observe(BrokerServeArgs { plan, plan_digest }) => {
             session::observe(&plan, &plan_digest)?;

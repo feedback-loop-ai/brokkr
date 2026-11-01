@@ -12,7 +12,8 @@
 //! `the_compile_fence_refuses_an_unused_mcp_grant_only_where_it_stands`.
 //! Children: `transport` (42.2), `matrix`, `reach`, `sites`, `boxes` and
 //! `windows` (46.1), `lifetime` (46.2's two worktrees), `dispatch` (ruling 21),
-//! `negotiation` (U9b1c's 46.3), `allowance` (U9b1d's 46.6).
+//! `negotiation` (U9b1c's 46.3), `allowance` (U9b1d's 46.6), `signals` (U9b1e's
+//! 46.8).
 //!
 //! The engine runs here as an operator runs it, with no wrapper: `brokkr
 //! driver` sets `no_new_privs` on itself before it spawns a brokered harness
@@ -29,6 +30,7 @@ mod lifetime;
 mod matrix;
 mod negotiation;
 mod reach;
+mod signals;
 mod sites;
 mod transport;
 mod windows;
@@ -81,7 +83,11 @@ const FRAMES: &str = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{
 /// process of another session hold the broker's input open past this harness's
 /// death; `loader` exports the host's loader environment to the broker. Where
 /// `frames2` stands, a second broker, `cap-more-docs`, is told those frames
-/// while the first stands.
+/// while the first stands. Where `mid-call` stands, it stops talking once its
+/// call's Started is in the ledger, as `kill-broker` does, and kills nothing.
+/// Where `signal` holds signal names, it sends each to the broker in turn, a
+/// second apart, as Claude Code 2.1.316 ends an MCP server by SIGINT, keeping
+/// the broker's input open until it ends, or for 20 s, when it kills it.
 const HARNESS: &str = r#"#!/bin/sh
 here=$(dirname "$0")
 case "$1" in --version) echo '2.1.308 (Claude Code)'; exit 0;; esac
@@ -106,7 +112,7 @@ talk() {
   while IFS= read -r frame; do
     printf '%s\n' "$frame" >&3 2>/dev/null || break
     case "$frame" in
-      *tools/call*) if [ -e "$here/kill-broker" ]; then
+      *tools/call*) if [ -e "$here/kill-broker" ] || [ -e "$here/mid-call" ]; then
           tries=0
           until grep -q '"started"' "$plan.ledger" 2> /dev/null || [ "$tries" -gt 1200 ]; do
             sleep 0.05; tries=$((tries + 1))
@@ -148,11 +154,20 @@ if [ -n "$plan" ]; then
   fi
   echo "$$" > "$here/harness.pid"
   while [ -e "$here/hold" ]; do sleep 0.05; done
+  if [ -s "$here/signal" ]; then
+    for signal in $(cat "$here/signal"); do
+      [ -n "$waited" ] && sleep 1
+      date +%s%N >> "$here/signalled"; kill -"$signal" "$child"; waited=1
+    done
+    (tries=0; until [ -e "$here/ended.$$" ] || [ "$tries" -gt 400 ]; do sleep 0.05; tries=$((tries + 1)); done
+     [ -e "$here/ended.$$" ] || kill -9 "$child") > /dev/null 2>&1 < /dev/null &
+    wait "$child"
+    echo "$?" > "$here/broker.code"; date +%s%N > "$here/ended.$$"
+  fi
   exec 3>&-
   while IFS= read -r answer <&4; do printf '%s\n' "$answer" >> "$here/heard"; done
   exec 4<&-
-  wait "$child"
-  echo "$?" > "$here/broker.code"
+  [ -n "$waited" ] || { wait "$child"; echo "$?" > "$here/broker.code"; }
   cp "$plan" "$here/plan.kept"
   cp "$plan.ledger" "$here/ledger.kept"
   rm -f "$in" "$out" "$in.2" "$out.2"
