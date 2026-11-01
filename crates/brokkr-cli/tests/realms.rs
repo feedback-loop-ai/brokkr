@@ -707,6 +707,49 @@ fn read_surfaces_one_run_row_equals_its_paged_row_and_an_unknown_id_refuses_by_n
     assert!(stderr.contains("run 'absent' not found"), "{stderr}");
 }
 
+/// `--run` reads one hearth's run, so a world of several hearths refuses
+/// it by name, as it refuses `--limit` and `--after`; on one hearth and
+/// without `--json`, the one row prints as the listing's table does, with
+/// no other run beside it.
+#[test]
+fn one_run_read_refuses_a_many_hearth_world_and_prints_its_row_as_text() {
+    let ws = Workspace::new(Some(json!({
+        "schema": "forge.realms/v2",
+        "realms": [
+            {"name": "alpha", "path": ".", "default_branch": "main"},
+            {"name": "beta", "path": ".", "default_branch": "main",
+             "journal": "state/beta.db"},
+        ],
+        "journal": "state/world.db",
+    })));
+    let world = ws.path().join("state/world.db");
+    journal_run(&world, "solo-run", false);
+    journal_run(&world, "other-run", false);
+    journal_run(&ws.path().join("state/beta.db"), "beta-run", false);
+
+    let (code, out, stderr) = ws.run(&["runs", "--run", "solo-run"]);
+    assert_ne!(code, Some(0), "{out}");
+    assert!(
+        stderr.contains(
+            "--limit, --after and --run page one hearth's runs, and this world has 2 hearths: \
+             name one journal with --db"
+        ),
+        "{stderr}"
+    );
+
+    let (code, text, stderr) = ws.run(&["runs", "--run", "solo-run", "--db", "state/world.db"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    assert!(
+        serde_json::from_str::<Value>(&text).is_err(),
+        "a table, not JSON: {text}"
+    );
+    assert!(text.contains("solo-run"), "{text}");
+    assert!(
+        !text.contains("other-run") && !text.contains("beta-run"),
+        "{text}"
+    );
+}
+
 /// One broken chain (#377), through the shipped binary: `runs` lists
 /// every healthy run and one quarantined row naming the broken run, the
 /// same way whether its journal is the world's only hearth or one of
