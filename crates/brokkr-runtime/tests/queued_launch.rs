@@ -23,7 +23,7 @@ mod own_home;
 
 #[path = "support/git.rs"]
 mod git;
-use git::test_repository;
+use git::{in_clean_git_config, test_repository};
 
 static CWD: Mutex<()> = Mutex::new(());
 
@@ -380,6 +380,10 @@ fn a_folder_replaced_after_queueing_refuses_the_start() {
 /// never judged from the nested folder or from the library beside it.
 #[test]
 fn a_nested_folder_made_after_queueing_refuses_the_start() {
+    let test = "a_nested_folder_made_after_queueing_refuses_the_start";
+    if !in_clean_git_config(test) {
+        return;
+    }
     let fleet = Fleet::new();
     let (library, src, payload) = fleet.queued_from_src();
     let _standing = Standing::in_dir(&fleet.workspace("b"));
