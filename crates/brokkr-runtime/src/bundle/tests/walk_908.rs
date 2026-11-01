@@ -187,6 +187,9 @@ fn pinned_neither_git_nor_target(compiled: &Bundle) {
 /// `target/`, which is how this was found.
 #[test]
 fn a_bundle_inside_an_ignored_tree_of_its_repository_pins_its_own_files() {
+    if !isolated("a_bundle_inside_an_ignored_tree_of_its_repository_pins_its_own_files") {
+        return;
+    }
     let fixture = Fixture::new();
     std::fs::write(fixture.root.join(".gitignore"), "scratch/\ntarget/\n").unwrap();
     test_repository(&fixture.root);
@@ -510,6 +513,9 @@ fn git_metadata_under_a_work_tree_is_refused_by_its_own_reason() {
 
 #[test]
 fn a_bundle_inside_git_metadata_is_no_work_tree() {
+    if !isolated("a_bundle_inside_git_metadata_is_no_work_tree") {
+        return;
+    }
     let fixture = Fixture::new();
     ignored_repository(&fixture);
     let inside = fixture.root.join(".git/bundle");
@@ -543,6 +549,9 @@ fn a_git_that_cannot_be_asked_refuses_by_name() {
 
 #[test]
 fn a_check_ignore_failure_refuses_by_name_with_gits_own_words() {
+    if !isolated("a_check_ignore_failure_refuses_by_name_with_gits_own_words") {
+        return;
+    }
     let fixture = Fixture::new();
     unreadable_index(&fixture);
     // A real git failure, not a pathspec: check-ignore answers an error
