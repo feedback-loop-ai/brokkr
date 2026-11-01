@@ -1,4 +1,5 @@
 mod attempt_correlation;
+mod early_ending;
 mod entry;
 use super::boundary_tests::sealed_tests::{boxed, boxed_a, REACH_ARG};
 use super::conclude_tests::invariant;
