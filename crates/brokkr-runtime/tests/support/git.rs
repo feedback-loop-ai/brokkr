@@ -32,6 +32,12 @@ pub(crate) fn in_clean_git_config(test: &str) -> bool {
     }
     let mut child = Command::new(std::env::current_exe().unwrap());
     child.args(["--exact", test, "--nocapture", "--test-threads=1"]);
+    // A test binary moves the process's working directory in some suites
+    // (queued_launch's `Standing`), and a sibling may have moved it into a
+    // fixture this process then drops before the child starts. The child
+    // gets a directory that outlives every test instead of that inherited
+    // cwd (#936).
+    child.current_dir(env!("CARGO_MANIFEST_DIR"));
     child.env(CLEAN, "1");
     for (key, _) in std::env::vars_os() {
         let key = key.to_string_lossy();
