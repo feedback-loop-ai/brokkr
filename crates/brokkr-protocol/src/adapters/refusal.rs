@@ -177,7 +177,7 @@ impl AdapterKind {
     /// The provider name the adapter's declaration uses, which is the one
     /// a typed refusal carries (decision 0103 ruling 1(a)). It is filled
     /// from the adapter, never read off a harness's prose.
-    pub fn provider_name(self) -> &'static str {
+    pub(crate) fn provider_name(self) -> &'static str {
         match self {
             AdapterKind::Claude => "claude",
             AdapterKind::Lanetally => "lanetally",

@@ -69,6 +69,7 @@ fn a_readable_refusal_is_carried_as_the_typed_object() {
 #[test]
 fn a_present_but_malformed_refusal_refuses_by_name_never_as_absent() {
     for (refusal, named) in [
+        (serde_json::Value::Null, "not an object"),
         (
             serde_json::json!({"class": "invented", "provider": "claude", "route": null,
                 "words": "w"}),
@@ -115,7 +116,7 @@ fn a_supports_probe_is_not_the_advertisement_and_a_probe_is_refused() {
     assert_eq!(
         report.outcome,
         AttemptOutcome::Failed {
-            error: "driver does not advertise the probe; ...".into()
+            error: "driver does not advertise the probe; refusing to probe it".into()
         }
     );
     assert!(!report.accepted, "no start was sent");

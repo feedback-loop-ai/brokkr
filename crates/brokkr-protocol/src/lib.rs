@@ -142,7 +142,8 @@ impl PreSessionRefusal {
     /// Read one present refusal object at the edge. Every malformed shape
     /// is refused by name, never read as absent (decision 0103 ruling
     /// 1(a)); an unresolved route is the explicit `null`, not a missing
-    /// key.
+    /// key. Each field has its own reader, so the closed shape stays under
+    /// the house complexity ceiling (decision 0071 ruling 4).
     pub(crate) fn read(value: &serde_json::Value) -> Result<PreSessionRefusal, RefusalError> {
         let object = value.as_object().ok_or(RefusalError::Object)?;
         for key in object.keys() {
@@ -153,57 +154,13 @@ impl PreSessionRefusal {
                 return Err(RefusalError::Unknown(DRIVER_REFUSAL_SCHEMA));
             }
         }
-        let class = match object.get("class").and_then(serde_json::Value::as_str) {
-            Some("rate_limit") => RefusalClass::RateLimit,
-            Some("other") => RefusalClass::Other,
-            _ => return Err(RefusalError::Class),
-        };
-        let provider = object
-            .get("provider")
-            .and_then(serde_json::Value::as_str)
-            .filter(|provider| refusal_identifier(provider))
-            .ok_or(RefusalError::Provider)?;
-        let route = match object.get("route") {
-            None => return Err(RefusalError::Route),
-            Some(serde_json::Value::Null) => None,
-            Some(serde_json::Value::String(route)) if refusal_identifier(route) => {
-                Some(route.clone())
-            }
-            Some(_) => return Err(RefusalError::RouteForm),
-        };
-        let words = object
-            .get("words")
-            .and_then(serde_json::Value::as_str)
-            .filter(|words| !words.is_empty() && words.chars().count() <= REFUSAL_WORDS_LIMIT)
-            .ok_or(RefusalError::Words)?;
-        let status = match object.get("status") {
-            None => None,
-            Some(value) => {
-                let status = value.as_i64().ok_or(RefusalError::Status)?;
-                if !(100..=599).contains(&status) {
-                    return Err(RefusalError::Status);
-                }
-                Some(status)
-            }
-        };
-        let retry_after_seconds = match object.get("retry_after_seconds") {
-            None => None,
-            Some(value) => {
-                let seconds = value.as_i64().ok_or(RefusalError::RetryAfter)?;
-                let seconds = u64::try_from(seconds)
-                    .ok()
-                    .filter(|seconds| *seconds > 0)
-                    .ok_or(RefusalError::RetryAfter)?;
-                Some(seconds)
-            }
-        };
         Ok(PreSessionRefusal {
-            class,
-            provider: provider.to_string(),
-            route,
-            words: words.to_string(),
-            status,
-            retry_after_seconds,
+            class: refusal_class(object)?,
+            provider: refusal_provider(object)?,
+            route: refusal_route(object)?,
+            words: refusal_words(object)?,
+            status: refusal_status(object)?,
+            retry_after_seconds: refusal_retry_after_seconds(object)?,
         })
     }
 
@@ -232,6 +189,79 @@ impl PreSessionRefusal {
     }
 }
 
+type RefusalObject = serde_json::Map<String, serde_json::Value>;
+
+/// The refusal's closed class (decision 0103 ruling 1(a)).
+fn refusal_class(object: &RefusalObject) -> Result<RefusalClass, RefusalError> {
+    match object.get("class").and_then(serde_json::Value::as_str) {
+        Some("rate_limit") => Ok(RefusalClass::RateLimit),
+        Some("other") => Ok(RefusalClass::Other),
+        _ => Err(RefusalError::Class),
+    }
+}
+
+/// The provider the launch facts resolved, never one read from prose.
+fn refusal_provider(object: &RefusalObject) -> Result<String, RefusalError> {
+    object
+        .get("provider")
+        .and_then(serde_json::Value::as_str)
+        .filter(|provider| refusal_identifier(provider))
+        .map(str::to_string)
+        .ok_or(RefusalError::Provider)
+}
+
+/// The route the launch facts resolved, or the explicit `null` for none.
+fn refusal_route(object: &RefusalObject) -> Result<Option<String>, RefusalError> {
+    match object.get("route") {
+        None => Err(RefusalError::Route),
+        Some(serde_json::Value::Null) => Ok(None),
+        Some(serde_json::Value::String(route)) if refusal_identifier(route) => {
+            Ok(Some(route.clone()))
+        }
+        Some(_) => Err(RefusalError::RouteForm),
+    }
+}
+
+/// The provider's bounded evidence.
+fn refusal_words(object: &RefusalObject) -> Result<String, RefusalError> {
+    object
+        .get("words")
+        .and_then(serde_json::Value::as_str)
+        .filter(|words| !words.is_empty() && words.chars().count() <= REFUSAL_WORDS_LIMIT)
+        .map(str::to_string)
+        .ok_or(RefusalError::Words)
+}
+
+/// The optional HTTP status, present only where the provider gave one.
+fn refusal_status(object: &RefusalObject) -> Result<Option<i64>, RefusalError> {
+    match object.get("status") {
+        None => Ok(None),
+        Some(value) => {
+            let status = value.as_i64().ok_or(RefusalError::Status)?;
+            if (100..=599).contains(&status) {
+                Ok(Some(status))
+            } else {
+                Err(RefusalError::Status)
+            }
+        }
+    }
+}
+
+/// The optional positive whole number of seconds a wait needs.
+fn refusal_retry_after_seconds(object: &RefusalObject) -> Result<Option<u64>, RefusalError> {
+    match object.get("retry_after_seconds") {
+        None => Ok(None),
+        Some(value) => {
+            let seconds = value.as_i64().ok_or(RefusalError::RetryAfter)?;
+            u64::try_from(seconds)
+                .ok()
+                .filter(|seconds| *seconds > 0)
+                .map(Some)
+                .ok_or(RefusalError::RetryAfter)
+        }
+    }
+}
+
 /// A provider, route or other wire identifier: 1–80 ASCII characters,
 /// alphanumeric first, then alphanumerics, underscores, hyphens and dots.
 /// The error never echoes the value, so this is a shape test only.
@@ -256,6 +286,21 @@ impl<'de> Deserialize<'de> for PreSessionRefusal {
         let value = serde_json::Value::deserialize(deserializer)?;
         PreSessionRefusal::read(&value).map_err(serde::de::Error::custom)
     }
+}
+
+/// Read `Body::Result`'s optional `refusal` field exactly when the key is
+/// present. Handing every present value to [`PreSessionRefusal::read`]
+/// keeps `null` and every other non-object a named refusal instead of
+/// letting serde's `Option` read them as absent (decision 0103 ruling
+/// 1(a)). A missing key still takes the field's `default`.
+fn read_present_refusal<'de, D>(deserializer: D) -> Result<Option<PreSessionRefusal>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    PreSessionRefusal::read(&value)
+        .map(Some)
+        .map_err(serde::de::Error::custom)
 }
 
 /// A typed probe marker (decision 0103 ruling 4(a)). It is written as
@@ -359,9 +404,13 @@ pub enum Body {
         /// Decision 0103 ruling 1(a): the one typed provider refusal this
         /// invocation classified before its first turn, present only under
         /// `driver-refusal/v1`. Absent reads as no typed refusal and the
-        /// engine keeps today's path; a present object that cannot be read
-        /// is refused by name.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        /// engine keeps today's path; a present value that cannot be read
+        /// is refused by name, `null` included.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "read_present_refusal"
+        )]
         refusal: Option<PreSessionRefusal>,
     },
     Cancelled {

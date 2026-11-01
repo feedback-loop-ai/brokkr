@@ -53,11 +53,11 @@ mod tree;
 use attempts::{Attempt, Unspawned};
 pub(crate) use launched::Launched;
 use limits::{Exceeded, Frame, Limits, Retained, STDOUT_LINES};
+use outcome::{reached, refuse_foreign, unread};
 // A test seam, hidden from documentation and outside the supported
 // surface: the probe's tests and the runtime engine's play a test whose
 // launches must see no other test's orphan through this one helper.
 #[doc(hidden)]
-use outcome::{reached, refuse_foreign, unread};
 pub use own_engine::in_its_own_engine;
 pub use tree::Unsettled;
 use tree::{Bounds, Host};
@@ -345,8 +345,10 @@ impl DriverProcess {
     /// Mark this invocation as a probe (decision 0103 ruling 4(a)). The
     /// driver must have advertised it; one that did not is refused the
     /// probe by name before any `start` is sent. The engine's use of the
-    /// probe is a later slice; this is the transport's half.
-    pub fn probing(mut self) -> Self {
+    /// probe is a later slice; this is the transport's half, proved by the
+    /// transport's refusal tests until that slice calls it.
+    #[cfg(test)]
+    pub(crate) fn probing(mut self) -> Self {
         self.probe = true;
         self
     }
@@ -621,7 +623,7 @@ impl DriverProcess {
         // optional `probe` field, never a `supports` entry.
         if self.probe && !advertised {
             return self.end(
-                Ended::Failed("driver does not advertise the probe; ...".into()),
+                Ended::Failed("driver does not advertise the probe; refusing to probe it".into()),
                 account,
             );
         }

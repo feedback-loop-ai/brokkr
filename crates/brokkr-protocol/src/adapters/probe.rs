@@ -47,6 +47,12 @@ impl ProbeAnswer {
         self.requested
     }
 
+    /// Has the first answer been admitted? The adapter stops its harness
+    /// at that point (decision 0103 ruling 4(a)).
+    pub(super) fn answered(&self) -> bool {
+        self.answer.is_some()
+    }
+
     /// Admit this event's checkpoints if it is the adapter's answer. The
     /// first answer latches; a later one is not admitted.
     pub(super) fn admit(&mut self, kind: AdapterKind, event: &Value, emitted: &[Value]) {
@@ -135,9 +141,12 @@ pub(super) fn pinned_model(extra: &[String]) -> Option<&str> {
     None
 }
 
-/// Report a probe's one answer, or say it has none. The answer is the
-/// checkpoint the model-output event emitted; `accepted` alone is never
-/// one (decision 0103 ruling 4(a)).
+/// Report a probe's one answer, or its typed refusal, or say it has
+/// neither. The answer is the checkpoint the model-output event emitted;
+/// `accepted` alone is never one (decision 0103 ruling 4(a)). A refusal
+/// before any answer travels exactly as an ordinary attempt's does, so a
+/// rate-limited probe is not erased into "no answer" (decision 0103
+/// ruling 1(a)).
 pub(super) fn report_answer(
     send: &mut impl FnMut(crate::Body),
     kind: AdapterKind,
@@ -145,6 +154,7 @@ pub(super) fn report_answer(
     effect_id: String,
     attempt_id: String,
     answer: Option<Value>,
+    refusal: Option<crate::PreSessionRefusal>,
 ) {
     match answer {
         Some(answer) => {
@@ -169,7 +179,7 @@ pub(super) fn report_answer(
             });
         }
         None => send(crate::Body::Result {
-            refusal: None,
+            refusal,
             effect_id,
             attempt_id,
             status: crate::ResultStatus::Failed,

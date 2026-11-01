@@ -822,6 +822,16 @@ fn spawn_fed(
     Ok((child, stderr))
 }
 
+/// End a probe's harness at its first answer and reap it. A harness that
+/// ended on its own is reaped just the same, so the answer stands whichever
+/// way it ended (decision 0103 ruling 4(a)). Its stderr is not waited for:
+/// a descendant that inherited the pipe is ended with the driver's own
+/// tree, and waiting here would reintroduce the hang the stop removes.
+fn stop_harness(child: &mut std::process::Child) -> Result<std::process::ExitStatus, String> {
+    let _ = child.kill();
+    io_context(child.wait(), "agent CLI did not conclude")
+}
+
 fn run_cli(
     command: &[String],
     stdin_payload: Option<&str>,
@@ -2338,13 +2348,19 @@ const DSH_POLL_IDLE: std::time::Duration = std::time::Duration::from_millis(25);
 /// invisible seat this whole driver change exists to end. The buffered
 /// path this loop replaced surfaced such a failure as `agent CLI did not
 /// conclude`; so does this one.
+/// `drain` returns whether the probe admitted its first answer, in which
+/// case the harness is stopped at once and the answer's exit code stands
+/// (decision 0103 ruling 4(a)); no later pass can admit a second.
 fn poll_until_exit(
-    mut wait: impl FnMut() -> std::io::Result<Option<i32>>,
-    mut drain: impl FnMut(),
+    child: &mut std::process::Child,
+    mut wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
+    mut drain: impl FnMut() -> bool,
 ) -> Result<i32, String> {
     loop {
-        let finished = io_context(wait(), "agent CLI did not conclude")?;
-        drain();
+        let finished = io_context(wait(child), "agent CLI did not conclude")?;
+        if drain() {
+            return Ok(lost::exit_code(stop_harness(child)?));
+        }
         if let Some(code) = finished {
             return Ok(code);
         }
@@ -2416,6 +2432,7 @@ fn invoke_stream_json(
     // by whether any work began — `run_seat` reads that from the
     // checkpoints, not from where the classifier stopped.
     let mut refusal: Option<PreSessionRefusal> = None;
+    let mut stopped = false;
     let status = {
         let mut watch = |data: &Value| hold.observe(data, emit);
         for line in std::io::BufReader::new(stdout).lines() {
@@ -2443,16 +2460,32 @@ fn invoke_stream_json(
                     )
                 });
             refusal = refusal.or(classified);
+            // The answer is the probe's whole report: stop the harness
+            // here instead of folding to EOF and waiting out a hang.
+            if probe.answered() {
+                stopped = true;
+                break;
+            }
         }
-        let status = io_context(child.wait(), "agent CLI did not conclude")?;
+        let status = if stopped {
+            stop_harness(&mut child)?
+        } else {
+            io_context(child.wait(), "agent CLI did not conclude")?
+        };
         transcript.finish(&mut session_meta, &mut watch);
         status
+    };
+    let stderr = if stopped {
+        drop(stderr_thread);
+        String::new()
+    } else {
+        secret::mask_text(&stderr_thread.join().unwrap_or_default(), bindings)
     };
     Ok(Invocation {
         exit_code: lost::exit_code(status),
         session_meta,
         stdout: String::new(),
-        stderr: secret::mask_text(&stderr_thread.join().unwrap_or_default(), bindings),
+        stderr,
         state: None,
         refusal,
         answer: probe.take(),
@@ -3597,6 +3630,7 @@ fn invoke_codex(
     // and — as in the claude arm — it keeps folding the rest of the
     // stream so a session that recovered keeps its thread id and totals.
     let mut refusal: Option<PreSessionRefusal> = None;
+    let mut stopped = false;
     let status = {
         let mut watch = |data: &Value| hold.observe(data, emit);
         for line in std::io::BufReader::new(child.stdout.take().expect("piped")).lines() {
@@ -3624,11 +3658,26 @@ fn invoke_codex(
                     },
                 );
                 refusal = refusal.or(classified);
+                // The answer is the probe's whole report: stop the harness
+                // here instead of folding to EOF and waiting out a hang.
+                if probe_bound.answered() {
+                    stopped = true;
+                    break;
+                }
             }
         }
-        io_context(child.wait(), "agent CLI did not conclude")?
+        if stopped {
+            stop_harness(&mut child)?
+        } else {
+            io_context(child.wait(), "agent CLI did not conclude")?
+        }
     };
-    let stderr = secret::mask_text(&stderr_thread.join().unwrap_or_default(), bindings);
+    let stderr = if stopped {
+        drop(stderr_thread);
+        String::new()
+    } else {
+        secret::mask_text(&stderr_thread.join().unwrap_or_default(), bindings)
+    };
     // An attempt that concluded without ever reaching a `turn.completed`
     // — a release that folds none, or a codex that exits before its
     // first turn finishes — has read the thread record not at all. Ask
@@ -4760,7 +4809,8 @@ fn invoke_dsh_shipped(
     let mut turns = 0u64;
     let mut tail = DshTail::default();
     let exit_code = poll_until_exit(
-        || wait(&mut child),
+        &mut child,
+        |child| wait(child),
         || {
             DshFold::new(
                 &mut tail,
@@ -4771,10 +4821,18 @@ fn invoke_dsh_shipped(
                 bindings,
                 &mut *probe,
             )
-            .drain(emit)
+            .drain(emit);
+            probe.answered()
         },
     )?;
-    finish_dsh(session_meta, exit_code, stderr_thread, bindings)
+    let stderr_thread = (!probe.answered()).then_some(stderr_thread);
+    finish_dsh(
+        session_meta,
+        exit_code,
+        stderr_thread,
+        probe.take(),
+        bindings,
+    )
 }
 
 /// The qualified `--output-format stream-json` exchange (task 8.8(d)):
@@ -4800,6 +4858,7 @@ fn invoke_dsh_stream_json(
     let stdout = child.stdout.take().expect("piped");
     let mut turns = 0u64;
     let mut tail = DshTail::default();
+    let mut stopped = false;
     for line in std::io::BufReader::new(stdout).lines() {
         // EVERY exit from a line has a disposition (design D7). A line is
         // decoded before the store behind it is observed, so a valid init
@@ -4851,13 +4910,23 @@ fn invoke_dsh_stream_json(
                 &mut *probe,
             )
             .drain(emit);
+            // The answer is the probe's whole report: stop the harness
+            // here instead of reading to EOF and waiting out a hang.
+            if probe.answered() {
+                stopped = true;
+                break;
+            }
         }
     }
-    let status = io_context(child.wait(), "agent CLI did not conclude")?;
+    let status = if stopped {
+        stop_harness(&mut child)?
+    } else {
+        io_context(child.wait(), "agent CLI did not conclude")?
+    };
     // A clean end of stream adds no confirmation fact and clears nothing:
     // this settle reads the store only while the confirmation is pending.
     watch.settle(DshStreamLine::End, hold, session_meta, emit, observer);
-    if watch.may_fold() {
+    if !stopped && watch.may_fold() {
         DshFold::new(
             &mut tail,
             &launch.root,
@@ -4869,10 +4938,12 @@ fn invoke_dsh_stream_json(
         )
         .drain(emit);
     }
+    let stderr_thread = (!stopped).then_some(stderr_thread);
     finish_dsh(
         session_meta,
         lost::exit_code(status),
         stderr_thread,
+        probe.take(),
         bindings,
     )
 }
@@ -5323,13 +5394,17 @@ struct DshRun {
 }
 
 /// The common tail of both dsh invocations: the harness and profile the
-/// lane always is, and the redacted stderr. No pin lands in `session_meta`:
-/// `model` there is only ever what the transcript said served (decision
-/// 0031).
+/// lane always is, the redacted stderr, and the first probe answer when
+/// there was one. No pin lands in `session_meta`: `model` there is only
+/// ever what the transcript said served (decision 0031). `stderr_thread`
+/// is `None` when a probe stopped the harness at its answer, because the
+/// answer is the whole report and a descendant's inherited pipe must not
+/// reintroduce the hang the stop removes.
 fn finish_dsh(
     session_meta: &mut Map<String, Value>,
     exit_code: i32,
-    stderr_thread: std::thread::JoinHandle<Vec<u8>>,
+    stderr_thread: Option<std::thread::JoinHandle<Vec<u8>>>,
+    answer: Option<Value>,
     bindings: &[secret::BoundSecret],
 ) -> Result<DshRun, String> {
     session_meta.insert("harness".into(), Value::String("deepseek".into()));
@@ -5342,7 +5417,9 @@ fn finish_dsh(
     // dsh classifies nothing here and a refusal before its first turn
     // follows decision 0006 unchanged; the guide says so beside claude
     // and codex.
-    let raw = stderr_thread.join().unwrap_or_default();
+    let raw = stderr_thread
+        .map(|thread| thread.join().unwrap_or_default())
+        .unwrap_or_default();
     // Classified ONCE, from the child's own bytes, before masking or
     // reasoning redaction can rewrite the marker words the gate reads
     // (#896 H1; decision 0098 ruling 4). The raw text goes no further.
@@ -5354,7 +5431,7 @@ fn finish_dsh(
     // through.
     Ok(DshRun {
         invocation: Invocation {
-            answer: None,
+            answer,
             exit_code,
             session_meta: session_meta.clone(),
             stdout: String::new(),
@@ -6284,6 +6361,19 @@ fn run_seat(
     })
 }
 
+/// The one choke point a refusal's evidence passes through before it
+/// crosses the driver boundary (decision 0012): every invocation path,
+/// ordinary seat and probe alike, reports its refusal through this.
+fn masked_refusal(
+    refusal: Option<PreSessionRefusal>,
+    bindings: &[secret::BoundSecret],
+) -> Option<PreSessionRefusal> {
+    refusal.map(|refusal| {
+        let words = secret::mask_text(refusal.words().as_bytes(), bindings);
+        refusal.with_words(words)
+    })
+}
+
 /// `run_seat` over the ONE thing it delegates: the invocation itself.
 /// Everything else a seat's terminal result turns on lives in this body —
 /// the prompt and secret bindings, decision 0053's checkpoint buffer, the
@@ -6460,15 +6550,21 @@ fn run_seat_with(
             return;
         }
     };
-    // A probe reports its one answer, or says it has none.
+    // A probe reports its one answer, its typed refusal, or neither. Its
+    // refusal travels exactly as an ordinary attempt's does (decision 0103
+    // rulings 1(a) and 4(a)).
     if probe {
+        let Invocation {
+            answer, refusal, ..
+        } = invocation;
         probe::report_answer(
             send,
             kind,
             &bindings,
             effect_id,
             attempt_id,
-            invocation.answer,
+            answer,
+            masked_refusal(refusal, &bindings),
         );
         return;
     }
@@ -6489,10 +6585,7 @@ fn run_seat_with(
     for value in session_meta.values_mut() {
         secret::mask_json(value, &bindings);
     }
-    let refusal = refusal.map(|refusal| {
-        let words = secret::mask_text(refusal.words().as_bytes(), &bindings);
-        refusal.with_words(words)
-    });
+    let refusal = masked_refusal(refusal, &bindings);
     // A provider refusal before the first turn is a determinate failure
     // to start (decision 0053): `result: failed`, no `accepted`, no
     // checkpoint, and the reason is the result's error so the journal

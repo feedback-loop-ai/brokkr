@@ -46,6 +46,243 @@ fn seat_start(dir: &std::path::Path) -> Value {
     })
 }
 
+/// A dsh shim that writes one `assistant/message` into the transcript
+/// under the seat overlay's root, exactly as the shipped headless runner
+/// does. The caller appends how the child ends.
+#[cfg(unix)]
+fn dsh_probe_answer_script() -> String {
+    let mut script = String::from(
+        r#"#!/bin/sh
+while [ "$1" != --patch ] && [ $# -gt 0 ]; do shift; done
+shift
+root=$(awk -F"'" '/^    root: /{print $2}' "$1")
+d="$root/--project--/session-fake"
+mkdir -p "$d"
+f="$d/session.v3.jsonl"
+printf '{"type":"session","version":0,"id":"session-fake-1","cwd":"/w"}\n' > "$f"
+"#,
+    );
+    script.push_str(
+        r#"printf '{"type":"assistant/message","data":{"turn":1,"step":1,"message":{"source":{"model":"served-by-dsh"}},"usage":{"inputTokens":10,"outputTokens":2}}}\n' >> "$f"
+"#,
+    );
+    script
+}
+
+/// A harness that answers its adapter once and then hangs until `release`
+/// exists. The file exists only so a probe that fails to stop can be let
+/// go and its failure asserted, rather than hanging the suite.
+#[cfg(unix)]
+fn answer_then_hang_script(kind: AdapterKind, release: &std::path::Path) -> String {
+    let head = match kind {
+        AdapterKind::Claude => {
+            r#"#!/bin/sh
+cat >/dev/null
+printf '%s\n' '{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"answered"}]}}'
+"#
+            .to_string()
+        }
+        AdapterKind::Codex => {
+            r#"#!/bin/sh
+cat >/dev/null
+printf '%s\n' '{"type":"thread.started","thread_id":"t1"}'
+printf '%s\n' '{"type":"turn.started"}'
+printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"answered"}}'
+"#
+            .to_string()
+        }
+        AdapterKind::Dsh => dsh_probe_answer_script(),
+        AdapterKind::Lanetally | AdapterKind::Exec => {
+            unreachable!("the probe answers on claude, codex and dsh")
+        }
+    };
+    format!(
+        "{head}while [ ! -f '{}' ]; do sleep 0.02; done\n",
+        release.display()
+    )
+}
+
+/// Run one probe in a thread and wait no longer than `bound` for it. On a
+/// timeout the release file lets the hung shim end, the thread is joined,
+/// and the caller's elapsed assertion fails with the late report in hand.
+#[cfg(unix)]
+fn run_probe_before(
+    kind: AdapterKind,
+    extra: &[String],
+    start: &Value,
+    bound: std::time::Duration,
+    release: &std::path::Path,
+) -> (Vec<Body>, std::time::Duration) {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let start = start.clone();
+    let extra = extra.to_vec();
+    let handle = std::thread::spawn(move || {
+        let began = std::time::Instant::now();
+        let mut messages = Vec::new();
+        run_seat(kind, &extra, &start, None, &mut |body| messages.push(body));
+        let _ = tx.send((messages, began.elapsed()));
+    });
+    match rx.recv_timeout(bound) {
+        Ok(done) => {
+            handle.join().unwrap();
+            done
+        }
+        Err(_) => {
+            std::fs::write(release, b"").unwrap();
+            handle.join().unwrap();
+            rx.recv().unwrap()
+        }
+    }
+}
+
+/// A probe's answer is its whole report: the harness is stopped there, so
+/// an answer followed by a hang is reported succeeded, on every adapter
+/// whose stream can answer (decision 0103 ruling 4(a)).
+#[cfg(unix)]
+#[test]
+fn a_probe_that_answers_then_hangs_reports_its_answer() {
+    let mut env = EnvGuard::lock();
+    let bound = std::time::Duration::from_secs(5);
+    for kind in [AdapterKind::Claude, AdapterKind::Codex, AdapterKind::Dsh] {
+        let dir = tempfile::tempdir().unwrap();
+        let release = dir.path().join("release");
+        let shim = executable(
+            dir.path(),
+            &format!("{kind:?}-answer-then-hang"),
+            &answer_then_hang_script(kind, &release),
+        );
+        let extra = match kind {
+            AdapterKind::Claude => {
+                env.set("BROKKR_CLAUDE_BIN", &shim);
+                vec!["--model".to_string(), "anthropic/claude-x".to_string()]
+            }
+            AdapterKind::Codex => {
+                env.set("BROKKR_CODEX_BIN", &shim);
+                Vec::new()
+            }
+            AdapterKind::Dsh => {
+                env.set("BROKKR_DSH_BIN", &shim);
+                env.set("DSH_HOME", dir.path());
+                Vec::new()
+            }
+            AdapterKind::Lanetally | AdapterKind::Exec => {
+                unreachable!("the probe answers on claude, codex and dsh")
+            }
+        };
+        let mut start = seat_start(dir.path());
+        start["probe"] = json!(true);
+        let (messages, elapsed) = run_probe_before(kind, &extra, &start, bound, &release);
+        assert!(
+            elapsed < bound,
+            "{kind:?}: the probe waited for the harness to end: {elapsed:?}; {messages:?}"
+        );
+        let Body::Result {
+            status: ResultStatus::Succeeded,
+            result: Some(answer),
+            refusal: None,
+            ..
+        } = messages.last().unwrap()
+        else {
+            panic!("{kind:?}: the answer is the whole report: {messages:?}")
+        };
+        assert_eq!(answer["turn"], json!(1), "{kind:?}: {answer}");
+    }
+}
+
+/// A probe refused `rate_limit` before any answer carries that refusal,
+/// typed, exactly as an ordinary attempt does (decision 0103 rulings 1(a)
+/// and 4(a)); it is never erased into "ended without an answer".
+#[cfg(unix)]
+#[test]
+fn a_probe_refused_rate_limit_reports_that_refusal() {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let shim = executable(
+        dir.path(),
+        "claude-probe-refused",
+        r#"#!/bin/sh
+cat >/dev/null
+printf '%s\n' '{"type":"rate_limit_event","apiErrorStatus":429,"message":"You have reached your limit"}'
+"#,
+    );
+    env.set("BROKKR_CLAUDE_BIN", &shim);
+    let extra = ["--model".to_string(), "anthropic/claude-x".to_string()];
+    let mut start = seat_start(dir.path());
+    start["probe"] = json!(true);
+    let mut messages = Vec::new();
+    run_seat(AdapterKind::Claude, &extra, &start, None, &mut |body| {
+        messages.push(body)
+    });
+    assert!(
+        !messages
+            .iter()
+            .any(|body| matches!(body, Body::Accepted { .. } | Body::Checkpoint { .. })),
+        "a probe refusal accepts or checkpoints nothing: {messages:?}"
+    );
+    let result = messages.last().unwrap();
+    let Body::Result {
+        status,
+        refusal,
+        error,
+        ..
+    } = result
+    else {
+        panic!("the probe reports its typed refusal: {messages:?}")
+    };
+    assert_eq!(*status, ResultStatus::Failed);
+    let refusal = refusal
+        .as_ref()
+        .expect("the probe reports its typed refusal");
+    let error = error.as_deref().expect("the probe states why it ended");
+    assert_eq!(refusal.class(), RefusalClass::RateLimit);
+    assert_eq!(refusal.provider(), "claude");
+    assert_eq!(refusal.route(), Some("anthropic"));
+    assert!(refusal.words().contains("HTTP 429"), "{refusal}");
+    assert!(
+        refusal.words().contains("You have reached your limit"),
+        "{refusal}"
+    );
+    assert_eq!(error, "probe ended without an answer");
+}
+
+/// dsh's one model-output event answers a probe and the answer is carried
+/// on the report; dsh still classifies no refusal (decision 0103 ruling
+/// 4(a); decision 0053's dsh gap stays).
+#[cfg(unix)]
+#[test]
+fn a_dsh_probe_that_answers_reports_succeeded_with_that_answer() {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let shim = executable(
+        dir.path(),
+        "dsh-probe-answer",
+        &format!("{}exit 0\n", dsh_probe_answer_script()),
+    );
+    env.set("BROKKR_DSH_BIN", &shim);
+    env.set("DSH_HOME", dir.path());
+    let mut start = seat_start(dir.path());
+    start["probe"] = json!(true);
+    let mut messages = Vec::new();
+    run_seat(AdapterKind::Dsh, &[], &start, None, &mut |body| {
+        messages.push(body)
+    });
+    let report = messages.last().unwrap();
+    let Body::Result {
+        status,
+        result: answer,
+        refusal,
+        ..
+    } = report
+    else {
+        panic!("a dsh probe reports its answer: {messages:?}")
+    };
+    assert_eq!(*status, ResultStatus::Succeeded);
+    assert!(refusal.is_none(), "dsh still classifies no refusal");
+    let answer = answer.as_ref().expect("the dsh answer is carried");
+    assert_eq!(answer["step"], json!("seat-turn"), "{answer}");
+    assert_eq!(answer["turn"], json!(1), "{answer}");
+}
+
 #[cfg(unix)]
 #[test]
 fn a_fake_adapter_refuses_with_a_rate_limit_and_answers_on_the_next_attempt() {
@@ -221,7 +458,7 @@ fn a_probe_that_starts_then_errors_has_no_answer() {
 #[test]
 fn dsh_s_refusal_stays_none() {
     let stderr = std::thread::spawn(|| b"429 Too Many Requests: rate limit".to_vec());
-    let run = finish_dsh(&mut Map::new(), 1, stderr, &[]).unwrap();
+    let run = finish_dsh(&mut Map::new(), 1, Some(stderr), None, &[]).unwrap();
     assert_eq!(run.invocation.refusal, None);
 }
 

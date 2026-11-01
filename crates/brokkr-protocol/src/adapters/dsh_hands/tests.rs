@@ -838,7 +838,8 @@ fn a_bound_secret_never_hides_a_startup_refusal_or_appears_in_the_stderr() {
         let run = super::super::finish_dsh(
             &mut serde_json::Map::new(),
             0,
-            std::thread::spawn(move || raw),
+            Some(std::thread::spawn(move || raw)),
+            None,
             std::slice::from_ref(&bound),
         )
         .unwrap();
