@@ -201,6 +201,7 @@ and the release window in that ruling's slice 2.
 | `forge.phase-machine/v2` | `contracts/phase-machine.v2.schema.json` | input | 0022 | shipped recipes/fast/policy.json | label brokkr_core::policy::TABLE_SCHEMA_V2 | current | | decision |
 | `event-envelope/v1` | `contracts/event-envelope.v1.schema.json` | journal | 0003 | engine crates/brokkr-core/src/envelope.rs | load brokkr_core::envelope::verify_chain | current | | |
 | `forge-driver/v1` | `contracts/driver-protocol.v1.schema.json` | input | 0003 | drivers | label brokkr_protocol::PROTO | current | | decision |
+| `driver-refusal/v1` | `contracts/driver-refusal.v1.schema.json` | input | 0103 | drivers | label brokkr_protocol::DRIVER_REFUSAL_SCHEMA | current | | decision |
 | `forge-dispatch/v2` | `contracts/dispatch-envelope.v2.schema.json` | input | no decision (PR #28), enacted, pending acceptance | Looper | label brokkr_core::dispatch::DISPATCH_SCHEMA_V2 | current | | decision |
 | `effect-provenance/v1` | `contracts/effect-provenance.v1.schema.json` | journal | 0016 | engine crates/brokkr-runtime/src/engine.rs | load brokkr_core::seat::row::Seats::note | current | | |
 | `effect-boundary/v1` | `contracts/effect-boundary.v1.schema.json` | journal | 0046 | engine crates/brokkr-runtime/src/engine.rs | load brokkr_core::seat::boundary_entries | current | | |

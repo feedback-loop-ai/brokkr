@@ -36,7 +36,6 @@ fn machine() -> Machine {
     }))
     .unwrap()
 }
-
 /// A hand-built fixture link whose whole argv its adapter's template
 /// supplied, with no local limits and no hands (design D5.7): the origin
 /// the fixture DECLARES for the argv it spells, not one recovered from a
@@ -891,6 +890,7 @@ pub(super) fn report(outcome: AttemptOutcome, stderr: &str) -> AttemptReport {
     AttemptReport {
         outcome,
         refused: None,
+        refusal: None,
         cleanup: Cleanup::Settled,
         session_ref: Some("session".into()),
         checkpoints: vec![json!({"step":"inner"})],
@@ -904,21 +904,33 @@ pub(super) fn wire(body: Body) -> String {
     serde_json::to_string(&Message::new(body)).unwrap()
 }
 
+/// The capabilities every scripted driver in these tests sends: no
+/// optional vocabulary, and no probe advertisement.
+pub(super) fn capabilities() -> String {
+    wire(Body::Capabilities {
+        probe: None,
+        driver: "test".into(),
+        version: "1".into(),
+        supports: vec![],
+    })
+}
+
+/// One scripted `accepted`, with this driver's fixed session or none.
+pub(super) fn accepted(effect_id: &str, attempt_id: &str, session: Option<&str>) -> String {
+    wire(Body::Accepted {
+        effect_id: effect_id.into(),
+        attempt_id: attempt_id.into(),
+        session_ref: session.map(str::to_string),
+    })
+}
+
 pub(super) fn driver_command(
     effect_id: &str,
     attempt_id: &str,
     outcome: AttemptOutcome,
 ) -> Vec<String> {
-    let capabilities = wire(Body::Capabilities {
-        driver: "test".into(),
-        version: "1".into(),
-        supports: vec![],
-    });
-    let accepted = wire(Body::Accepted {
-        effect_id: effect_id.into(),
-        attempt_id: attempt_id.into(),
-        session_ref: Some("session".into()),
-    });
+    let capabilities = capabilities();
+    let accepted = accepted(effect_id, attempt_id, Some("session"));
     let checkpoint = wire(Body::Checkpoint {
         effect_id: effect_id.into(),
         attempt_id: attempt_id.into(),
@@ -931,6 +943,7 @@ pub(super) fn driver_command(
     }
     .map(|(status, result, error)| {
         wire(Body::Result {
+            refusal: None,
             effect_id: effect_id.into(),
             attempt_id: attempt_id.into(),
             status,
@@ -3358,16 +3371,8 @@ fn selected_ship_site_receives_the_runtime_journal_bind() {
 }
 
 pub(super) fn two_checkpoint_command(effect_id: &str, attempt_id: &str) -> Vec<String> {
-    let capabilities = wire(Body::Capabilities {
-        driver: "test".into(),
-        version: "1".into(),
-        supports: vec![],
-    });
-    let accepted = wire(Body::Accepted {
-        effect_id: effect_id.into(),
-        attempt_id: attempt_id.into(),
-        session_ref: None,
-    });
+    let capabilities = capabilities();
+    let accepted = accepted(effect_id, attempt_id, None);
     let first = wire(Body::Checkpoint {
         effect_id: effect_id.into(),
         attempt_id: attempt_id.into(),
@@ -3379,6 +3384,7 @@ pub(super) fn two_checkpoint_command(effect_id: &str, attempt_id: &str) -> Vec<S
         data: json!({"step":"second"}),
     });
     let terminal = wire(Body::Result {
+        refusal: None,
         effect_id: effect_id.into(),
         attempt_id: attempt_id.into(),
         status: ResultStatus::Succeeded,
@@ -4497,17 +4503,10 @@ pub(super) fn capturing_driver_command(
     capture: &Path,
     result: Value,
 ) -> Vec<String> {
-    let capabilities = wire(Body::Capabilities {
-        driver: "test".into(),
-        version: "1".into(),
-        supports: vec![],
-    });
-    let accepted = wire(Body::Accepted {
-        effect_id: effect_id.into(),
-        attempt_id: attempt_id.into(),
-        session_ref: Some("session".into()),
-    });
+    let capabilities = capabilities();
+    let accepted = accepted(effect_id, attempt_id, Some("session"));
     let terminal = wire(Body::Result {
+        refusal: None,
         effect_id: effect_id.into(),
         attempt_id: attempt_id.into(),
         status: ResultStatus::Succeeded,
@@ -5732,16 +5731,8 @@ pub(super) fn checkpointing_command(
     checkpoints: &[Value],
     outcome: AttemptOutcome,
 ) -> Vec<String> {
-    let capabilities = wire(Body::Capabilities {
-        driver: "test".into(),
-        version: "1".into(),
-        supports: vec![],
-    });
-    let accepted = wire(Body::Accepted {
-        effect_id: effect_id.into(),
-        attempt_id: attempt_id.into(),
-        session_ref: Some("session".into()),
-    });
+    let capabilities = capabilities();
+    let accepted = accepted(effect_id, attempt_id, Some("session"));
     let mut script = format!(
         "read -r line; printf '%s\\n' '{capabilities}'; read -r line; printf '%s\\n' '{accepted}'"
     );
@@ -5755,6 +5746,7 @@ pub(super) fn checkpointing_command(
     }
     let terminal = match outcome {
         AttemptOutcome::Succeeded { result } => Some(wire(Body::Result {
+            refusal: None,
             effect_id: effect_id.into(),
             attempt_id: attempt_id.into(),
             status: ResultStatus::Succeeded,
@@ -5762,6 +5754,7 @@ pub(super) fn checkpointing_command(
             error: None,
         })),
         AttemptOutcome::Failed { error } => Some(wire(Body::Result {
+            refusal: None,
             effect_id: effect_id.into(),
             attempt_id: attempt_id.into(),
             status: ResultStatus::Failed,

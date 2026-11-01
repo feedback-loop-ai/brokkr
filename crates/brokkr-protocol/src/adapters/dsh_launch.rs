@@ -12,13 +12,14 @@ use super::*;
 pub(super) fn invoke_dsh_launch_observed(
     mut launch: DshLaunch,
     command: Vec<String>,
-    workdir: &str,
     bindings: &[secret::BoundSecret],
+    probe: &mut ProbeAnswer,
     emit: &mut impl FnMut(&Value),
     wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
     observer: &mut impl FnMut(&DshObservation),
 ) -> Result<Invocation, String> {
-    refused_before_spawn(&launch, workdir, bindings).map_err(|refusal| refusal.to_string())?;
+    let workdir = launch.workdir.clone();
+    refused_before_spawn(&launch, &workdir, bindings).map_err(|refusal| refusal.to_string())?;
     let transcript = Transcript::dsh(&launch.home);
     let staged = launch.staged.take();
     let mut session_meta = Map::new();
@@ -63,8 +64,8 @@ pub(super) fn invoke_dsh_launch_observed(
         invoke_dsh_stream_json(
             &command,
             &launch,
-            workdir,
             bindings,
+            probe,
             &mut watch,
             &mut hold,
             &mut session_meta,
@@ -74,10 +75,10 @@ pub(super) fn invoke_dsh_launch_observed(
     } else {
         invoke_dsh_shipped(
             &command,
-            workdir,
             &launch,
             bindings,
             wait,
+            probe,
             &mut session_meta,
             emit,
         )
@@ -182,6 +183,7 @@ mod tests {
             first_seq: None,
             locator: "seat".to_string(),
             root: root.clone(),
+            workdir: ".".to_string(),
             overlay: dsh_seat_overlay_with(None, None, &root, None, None).unwrap(),
             effortless: true,
             facts: crate::hands::GitFacts::default(),
@@ -224,8 +226,8 @@ mod tests {
         let problem = invoke_dsh_launch_observed(
             launch,
             vec!["/nonexistent/dsh".to_string()],
-            dir.path().to_str().unwrap(),
             &[],
+            &mut ProbeAnswer::new(false),
             &mut emit,
             wait,
             &mut observer,

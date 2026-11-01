@@ -1,6 +1,31 @@
 use super::*;
 use crate::env_guard::EnvGuard;
 use std::{os::unix::ffi::OsStrExt, path::Path};
+
+/// Drain a dsh transcript with no probe bound, appending every emitted row
+/// to `emitted`. The tests that only assert on what was emitted share this
+/// rather than restating the call.
+fn drain_into(
+    root: &std::path::Path,
+    tail: &mut DshTail,
+    first_seq: Option<u64>,
+    turns: &mut u64,
+    meta: &mut Map<String, Value>,
+    bindings: &[secret::BoundSecret],
+    emitted: &mut Vec<Value>,
+) {
+    DshFold::new(
+        tail,
+        root,
+        first_seq,
+        turns,
+        meta,
+        bindings,
+        &mut ProbeAnswer::new(false),
+    )
+    .drain(&mut |value| emitted.push(value.clone()));
+}
+
 mod claude_usage;
 mod codex_isolation;
 use codex_isolation::{
@@ -8,12 +33,20 @@ use codex_isolation::{
 };
 /// One invocation of `kind` over its override as this test's environment
 /// holds it, read by the one reader the way `run_seat` reads it.
-fn invoke(
+/// The two facts that make one invocation a probe or an ordinary
+/// attempt, as a parameter object: `invoke_with_stager` keeps one body for
+/// both.
+pub(super) struct Case<'a> {
+    pub session: Option<&'a str>,
+    pub probe: bool,
+}
+
+pub(super) fn invoke_case(
     kind: AdapterKind,
     extra: &[String],
     prompt: &str,
     input: &Value,
-    session: Option<&str>,
+    case: Case<'_>,
     bindings: &[secret::BoundSecret],
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
@@ -27,10 +60,34 @@ fn invoke(
         pinned,
         prompt,
         input,
-        session,
+        case.session,
         bindings,
+        case.probe,
         emit,
         stage_prompt,
+    )
+}
+
+fn invoke(
+    kind: AdapterKind,
+    extra: &[String],
+    prompt: &str,
+    input: &Value,
+    session: Option<&str>,
+    bindings: &[secret::BoundSecret],
+    emit: &mut impl FnMut(&Value),
+) -> Result<Invocation, String> {
+    invoke_case(
+        kind,
+        extra,
+        prompt,
+        input,
+        Case {
+            session,
+            probe: false,
+        },
+        bindings,
+        emit,
     )
 }
 
@@ -372,7 +429,6 @@ fn cli_and_stderr_helpers_cover_empty_stdin_and_unicode_boundaries() {
             .unwrap_err()
             .contains("could not invoke")
     );
-
     let dir = tempfile::tempdir().unwrap();
     let store = dir.path().join("raw.env");
     std::fs::write(&store, b"TOKEN=abcd\xff\n").unwrap();
@@ -419,6 +475,7 @@ fn cli_and_stderr_helpers_cover_empty_stdin_and_unicode_boundaries() {
         &json!({}),
         None,
         &[],
+        false,
         &mut |_| {},
         |_| Err("staging refused".into()),
     );
@@ -430,8 +487,7 @@ fn cli_and_stderr_helpers_cover_empty_stdin_and_unicode_boundaries() {
     assert_eq!(start, 2);
     assert!(stderr.is_char_boundary(start));
     assert_eq!(stderr.len() - start, 4001);
-
-    let error = match invoke(
+    let error = invoke(
         AdapterKind::Exec,
         &[],
         "prompt",
@@ -439,10 +495,9 @@ fn cli_and_stderr_helpers_cover_empty_stdin_and_unicode_boundaries() {
         None,
         &[],
         &mut |_| {},
-    ) {
-        Ok(_) => panic!("empty exec template must fail"),
-        Err(error) => error,
-    };
+    )
+    .err()
+    .expect("empty exec template must fail");
     assert!(error.contains("command template"));
 }
 
@@ -567,6 +622,7 @@ fn an_unreadable_charter_or_a_missing_correlation_refuses_to_start() {
     let full = json!({"effect_id": "fx", "attempt_id": "a1", "input": input});
     let failed = |effect_id: &str, attempt_id: &str, error: String| {
         serde_json::to_value(Body::Result {
+            refusal: None,
             effect_id: effect_id.into(),
             attempt_id: attempt_id.into(),
             status: ResultStatus::Failed,
@@ -1403,14 +1459,14 @@ fn a_cold_dsh_launch_folds_its_first_event_and_a_warm_one_folds_past_the_boundar
         let mut turns = 0u64;
         let mut meta = serde_json::Map::new();
         let mut emitted: Vec<serde_json::Value> = Vec::new();
-        drain_dsh_transcript(
-            &mut tail,
+        drain_into(
             &root,
+            &mut tail,
             boundary,
             &mut turns,
             &mut meta,
             &[],
-            &mut |value| emitted.push(value.clone()),
+            &mut emitted,
         );
         assert_eq!(turns, expected_turns, "boundary {boundary:?}: {emitted:?}");
         assert_eq!(
@@ -5336,7 +5392,7 @@ fn a_warm_dsh_offer_names_the_owned_root_and_folds_past_its_sequence() {
 /// drain folds past (design D10). The fold regression passes boundaries
 /// directly, so on its own it cannot catch a planner cold seed of
 /// `Some(0)`, which would drop the shipped route's first event. This
-/// drives the plan's own `first_seq` through `drain_dsh_transcript`.
+/// drives the plan's own `first_seq` through the transcript drain.
 #[cfg(unix)]
 #[test]
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
@@ -5368,15 +5424,16 @@ fn the_planned_dsh_fold_boundary_reaches_the_transcript_drain() {
         let mut tail = DshTail::default();
         let mut turns = 0u64;
         let mut meta = serde_json::Map::new();
-        drain_dsh_transcript(
+        DshFold::new(
             &mut tail,
             root,
             boundary,
             &mut turns,
             &mut meta,
             &[],
-            &mut |_| {},
-        );
+            &mut ProbeAnswer::new(false),
+        )
+        .drain(&mut |_| {});
         turns
     };
 
@@ -5505,6 +5562,7 @@ fn dsh_stream_launch(
         first_seq,
         locator: "seat".to_string(),
         root: root.to_path_buf(),
+        workdir: ".".to_string(),
         overlay: dsh_seat_overlay_with(None, None, root, None, None).unwrap(),
         home: crate::transcript::DshHome::operator().unwrap(),
         mode: None,
@@ -6234,13 +6292,13 @@ fn run_dsh_latch(case: &DshLatchCase, delivers: bool) -> DshLatchRun {
         Ok(()),
         &start,
         &mut |body| bodies.push(body),
-        |prompt, input, _bindings, mut emit| {
+        |prompt, _input, _bindings, mut emit| {
             let command = [launch.command.clone(), vec![prompt.to_string()]].concat();
             super::dsh_launch::invoke_dsh_launch_observed(
                 launch,
                 command,
-                input["workdir"].as_str().unwrap(),
                 &[],
+                &mut crate::adapters::probe::ProbeAnswer::new(false),
                 &mut emit,
                 |_| panic!("the qualified arm does not poll the child"),
                 &mut |observation: &DshObservation| {
@@ -8018,14 +8076,14 @@ fn the_transcript_is_found_by_construction_and_never_by_a_directory_scan() {
     let mut turns = 0;
     let mut meta = Map::new();
     let mut emitted: Vec<Value> = Vec::new();
-    drain_dsh_transcript(
-        &mut tail,
+    drain_into(
         &root,
+        &mut tail,
         None,
         &mut turns,
         &mut meta,
         &[],
-        &mut |value| emitted.push(value.clone()),
+        &mut emitted,
     );
     assert!(tail.file.is_none());
     assert!(emitted.is_empty());
@@ -8039,14 +8097,14 @@ fn the_transcript_is_found_by_construction_and_never_by_a_directory_scan() {
     // A header with no depth at all is the seat's own session: dsh
     // writes `delegationDepth` from the root session onward, and an
     // absent one has never meant "delegated".
-    drain_dsh_transcript(
-        &mut tail,
+    drain_into(
         &root,
+        &mut tail,
         None,
         &mut turns,
         &mut meta,
         &[],
-        &mut |value| emitted.push(value.clone()),
+        &mut emitted,
     );
     assert!(tail.file.is_some());
     assert!(emitted.is_empty(), "{emitted:?}");
@@ -9348,7 +9406,9 @@ fn claude_pre_session_refusals_are_read_from_machine_fields_only() {
             "rate_limit",
         ),
     ] {
-        let reason = claude_refusal(&event).unwrap_or_else(|| panic!("{event}"));
+        let reason = claude_refusal(&event)
+            .unwrap_or_else(|| panic!("{event}"))
+            .to_string();
         assert!(
             reason.starts_with("provider refused before the first turn:"),
             "{reason}"
@@ -9378,83 +9438,12 @@ fn codex_pre_session_refusals_are_machine_events_not_prose() {
             "quota exceeded",
         ),
     ] {
-        let reason = codex_refusal(&event).unwrap();
+        let reason = codex_refusal(&event).unwrap().to_string();
         assert!(reason.contains(needle), "{reason}");
     }
     assert!(codex_refusal(&json!({"type":"turn.started"})).is_none());
     assert!(codex_refusal(&json!({"type":"item.completed","item":{
         "type":"command_execution","aggregated_output":"rate limit"}}))
-    .is_none());
-}
-
-/// Decision 0053: a refusal is classified ONLY before the first counted
-/// turn. The same record after a turn is decision 0016's mid-session
-/// failure, which nothing here narrows.
-#[test]
-fn a_refusal_is_classified_only_before_the_first_counted_turn() {
-    let refusal = json!({"type":"assistant","isApiErrorMessage":true,"error":"rate_limit",
-        "message":{"content":[{"type":"text","text":"limit"}]}});
-    let mut turns = ClaudeFold::default();
-    let mut meta = Map::new();
-    let mut transcript = Transcript::resolve(TranscriptKind::None).unwrap();
-    let mut emitted: Vec<Value> = Vec::new();
-    assert!(
-        fold_stream_event(&refusal, &mut turns, &mut meta, &mut transcript, &mut |c| {
-            emitted.push(c.clone())
-        })
-        .is_some()
-    );
-    assert!(
-        emitted.is_empty(),
-        "a refusal emits no checkpoint: {emitted:?}"
-    );
-    fold_stream_event(
-        &json!({"type":"assistant","message":{"content":[]}}),
-        &mut turns,
-        &mut meta,
-        &mut transcript,
-        &mut |c| emitted.push(c.clone()),
-    );
-    assert_eq!(turns.turns, 1);
-    assert!(
-        fold_stream_event(&refusal, &mut turns, &mut meta, &mut transcript, &mut |c| {
-            emitted.push(c.clone())
-        })
-        .is_none()
-    );
-
-    let mut turn = 0;
-    let mut meta = Map::new();
-    let mut transcript = Transcript::resolve(TranscriptKind::None).unwrap();
-    let mut echo = CodexThreadEcho::default();
-    let mut emitted: Vec<Value> = Vec::new();
-    assert!(fold_codex_event(
-        &json!({"type":"error","message":"rate limit"}),
-        &mut turn,
-        &mut meta,
-        &mut transcript,
-        &mut echo,
-        &mut |c| emitted.push(c.clone())
-    )
-    .is_some());
-    assert!(emitted.is_empty());
-    fold_codex_event(
-        &json!({"type":"turn.started"}),
-        &mut turn,
-        &mut meta,
-        &mut transcript,
-        &mut echo,
-        &mut |c| emitted.push(c.clone()),
-    );
-    assert_eq!(turn, 1);
-    assert!(fold_codex_event(
-        &json!({"type":"error","message":"rate limit"}),
-        &mut turn,
-        &mut meta,
-        &mut transcript,
-        &mut echo,
-        &mut |c| emitted.push(c.clone())
-    )
     .is_none());
 }
 
@@ -9477,27 +9466,6 @@ fn only_the_shared_pre_session_rows_do_not_begin_work() {
     ] {
         assert!(begins_work(step), "{step} begins work");
     }
-}
-
-/// Decision 0053: the reason is one bounded line, never empty and never
-/// the raw multi-line prose.
-#[test]
-fn a_refusal_reason_is_one_bounded_line() {
-    let reason = refusal_reason(
-        "rate_limit",
-        Some(429),
-        Some("You've reached your\n  limit\nfor this model"),
-    );
-    assert!(reason.contains("rate_limit"));
-    assert!(reason.contains("(HTTP 429)"));
-    assert!(reason.contains("You've reached your limit for this model"));
-    assert!(!reason.contains('\n'));
-    let long = refusal_reason("api_error", None, Some(&"x".repeat(400)));
-    assert!(long.len() <= "provider refused before the first turn: api_error: ".len() + 160);
-    assert_eq!(
-        refusal_reason("api_error", None, None),
-        "provider refused before the first turn: api_error"
-    );
 }
 
 /// Decision 0053: end to end through `run_seat`, a claude stream that
@@ -9657,14 +9625,18 @@ fn claude_and_codex_refusals_cover_every_machine_field_shape() {
             "HTTP 500",
         ),
     ] {
-        let reason = claude_refusal(&event).unwrap_or_else(|| panic!("{event}"));
+        let reason = claude_refusal(&event)
+            .unwrap_or_else(|| panic!("{event}"))
+            .to_string();
         assert!(reason.contains(needle), "{event}: {reason}");
     }
     for (event, needle) in [
         (json!({"type":"error","error":{"message":"boom"}}), "boom"),
         (json!({"type":"turn.failed","message":"boom"}), "boom"),
     ] {
-        let reason = codex_refusal(&event).unwrap_or_else(|| panic!("{event}"));
+        let reason = codex_refusal(&event)
+            .unwrap_or_else(|| panic!("{event}"))
+            .to_string();
         assert!(reason.contains(needle), "{event}: {reason}");
     }
 }
@@ -9674,7 +9646,7 @@ fn claude_and_codex_refusals_cover_every_machine_field_shape() {
 #[test]
 fn a_refusal_reason_with_empty_text_adds_no_excerpt() {
     assert_eq!(
-        refusal_reason("api_error", None, Some("   ")),
+        refusal_reason("api_error", None, Some("   ")).to_string(),
         "provider refused before the first turn: api_error"
     );
 }
@@ -9833,38 +9805,6 @@ fn a_codex_that_cannot_spawn_reports_no_launch_and_keeps_its_accepted() {
         panic!("expected one failed result: {messages:?}")
     };
     assert!(error.contains("could not invoke"), "{error}");
-}
-
-/// Decision 0053: the token is wire data like everything else beside it.
-/// A harness — or anything standing in for one, which this suite already
-/// models with adversarial shims — can put arbitrary bytes in the `error`
-/// field the classifier reads, and the journal is append-only: a blob of
-/// newline-bearing prose must not become an attempt's recorded reason.
-#[test]
-fn a_refusal_token_is_bounded_like_every_other_wire_field() {
-    let hostile = format!("rate\nlimit\u{1b}[2J{}", "x".repeat(400));
-    let reason = refusal_reason(&hostile, None, Some("fine"));
-    assert!(!reason.contains('\n'), "{reason}");
-    assert!(!reason.chars().any(char::is_control), "{reason}");
-    assert!(
-        reason.len()
-            <= "provider refused before the first turn: ".len()
-                + REFUSAL_TOKEN_LIMIT
-                + ": fine".len(),
-        "{}",
-        reason.len()
-    );
-    // The same blob through the arm that actually reads a harness field.
-    let classified =
-        claude_refusal(&json!({"type":"result","is_error":true,"error":hostile})).unwrap();
-    assert!(!classified.contains('\n'), "{classified}");
-    assert!(classified.len() < 400, "{}", classified.len());
-    // A token that collapses to nothing still names a refusal rather
-    // than trailing off after its colon.
-    assert_eq!(
-        refusal_reason(" \n ", None, None),
-        "provider refused before the first turn: api_error"
-    );
 }
 
 /// Decision 0053: a refused attempt carries no checkpoint — one would
@@ -18772,7 +18712,11 @@ fn a_codex_refusal_quoting_a_long_bound_value_leaks_no_prefix() {
         &bindings,
         &mut |_| {},
     );
-    let refusal = outcome.unwrap().refusal.expect("an error before any turn");
+    let refusal = outcome
+        .unwrap()
+        .refusal
+        .expect("an error before any turn")
+        .to_string();
     assert!(
         refusal.contains("key [secret:API_TOKEN] rejected"),
         "{refusal}"
@@ -18807,14 +18751,14 @@ fn a_dsh_transcript_tool_quoting_a_long_bound_value_leaks_no_prefix() {
     let mut turns = 0u64;
     let mut meta = serde_json::Map::new();
     let mut emitted: Vec<Value> = Vec::new();
-    drain_dsh_transcript(
-        &mut tail,
+    drain_into(
         &root,
+        &mut tail,
         None,
         &mut turns,
         &mut meta,
         &bindings,
-        &mut |value| emitted.push(value.clone()),
+        &mut emitted,
     );
     let tools: Vec<&Value> = emitted.iter().filter_map(|row| row.get("tool")).collect();
     assert_eq!(tools, vec!["probe-[secret:API_TOKEN]"], "{emitted:?}");

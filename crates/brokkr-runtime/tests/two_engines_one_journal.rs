@@ -135,6 +135,7 @@ fn two_engines_driver_child() {
         return;
     }
     say(Body::Capabilities {
+        probe: None,
         driver: "two-engines".into(),
         version: "1".into(),
         supports: Vec::new(),
@@ -179,6 +180,7 @@ fn two_engines_driver_child() {
         _ => "clean",
     };
     say(Body::Result {
+        refusal: None,
         effect_id,
         attempt_id,
         status: ResultStatus::Succeeded,

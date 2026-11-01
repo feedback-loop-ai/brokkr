@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/driver-refusal.v1.json",
+  "title": "Forge driver refusal v1 (an additive extension of forge-driver/v1)",
+  "description": "Decision 0103 ruling 1(a) and ruling 4(a): the optional, absent-by-default additions a forge-driver/v1 driver may send. A `result` may carry one typed `refusal` object — the closed class, the provider and route the driver already resolved, the provider's bounded evidence, and an optional HTTP status and retry-after. A `capabilities` message and a `start` may each carry `probe: true`: the driver runs a one-turn probe, and the engine asks for one. The protocol word stays forge-driver/v1 and the message family gains optional fields an old reader ignores; `probe` is never a `supports` entry, whose list the frozen v1 schema closes to resume, checkpoint and cancel. An unresolved route is the explicit null, never a missing key. A present object that cannot be read refuses by name, never as absent.",
+  "type": "object",
+  "properties": {
+    "refusal": {
+      "$ref": "#/definitions/refusal",
+      "description": "Present on `result` only, and at most once per invocation. Absent means the driver classified no typed refusal and the engine keeps its untyped path."
+    },
+    "probe": {
+      "const": true,
+      "description": "Present on `capabilities` as the driver's advertisement that it can run a one-turn probe, and on `start` as the engine's request that this invocation is one. Never written as false: an absent field is the only absence."
+    }
+  },
+  "definitions": {
+    "refusal": {
+      "type": "object",
+      "required": ["class", "provider", "route", "words"],
+      "additionalProperties": false,
+      "properties": {
+        "class": {
+          "enum": ["rate_limit", "other"],
+          "description": "The closed machine class. `rate_limit` is the provider's pre-session rate limit; every other refusal is `other` and parks rather than waiting."
+        },
+        "provider": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$",
+          "description": "The provider name the adapter's declaration uses (claude, lanetally, codex, dsh, exec, ...), filled from the adapter and never parsed from prose."
+        },
+        "route": {
+          "type": ["string", "null"],
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$",
+          "description": "The route the driver serves the pinned model on, from the same rule the driver reads (`brokkr-protocol`'s adapters/served_route.rs). Null is a typed absence: the route could not be resolved, and the engine parks naming it rather than recording a provider-wide cool-down."
+        },
+        "words": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300,
+          "description": "The provider's bounded evidence line: its machine token when it gave one, the HTTP status when it gave that, and a short excerpt of its prose when it gave that. One line, clamped, never a transcript."
+        },
+        "status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599,
+          "description": "The HTTP status the provider's refusal carried, when it carried one."
+        },
+        "retry_after_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The provider's own retry-after in whole seconds, when measured. Zero, a negative and a fraction are refused, never read as no retry-after."
+        }
+      }
+    }
+  }
+}

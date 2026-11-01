@@ -28,8 +28,11 @@ mod dsh_effort;
 mod dsh_hands;
 mod dsh_launch;
 mod dsh_stderr;
+mod exec;
 mod lost;
 mod mcp;
+mod probe;
+mod refusal;
 mod route_overlay;
 mod served_route;
 mod start;
@@ -51,11 +54,15 @@ use crate::native_controls::grammar::Bound;
 use crate::overrides::{Override, OverrideError};
 use crate::secret;
 use crate::transcript::{dsh_transcript_root_under, Kind as TranscriptKind, Transcript};
-use crate::{Body, Message, ResultStatus};
+use crate::{Body, Message, PreSessionRefusal, Probe, ResultStatus};
 use capability_calls::Observation;
 use claude_fold::ClaudeFold;
 use dsh_stderr::redact_dsh_reasoning;
 use mcp::served;
+use probe::{pinned_model, seat_row, ProbeAnswer};
+#[cfg(test)]
+use refusal::refusal_reason;
+use refusal::{bounded_wire_line, claude_refusal, codex_refusal, REFUSAL_TOKEN_LIMIT};
 #[cfg(test)]
 use start::serve_io;
 use start::{start_prompt, Confine};
@@ -491,8 +498,9 @@ struct Invocation {
     stderr: String,
     state: Option<String>,
     /// A provider refusal the harness recorded BEFORE its first turn
-    /// (decision 0053). `Some(reason)` is a candidate refusal to start:
-    /// no turn had opened when it was classified, so — IF no work began
+    /// (decision 0053), typed where the text is built (decision 0103
+    /// ruling 1(a)). `Some(refusal)` is a candidate refusal to start: no
+    /// turn had opened when it was classified, so — IF no work began
     /// afterwards — no work exists for a different model to fail to
     /// inherit, and the attempt is reported with `result: failed` and NO
     /// `accepted` so the engine's structural fail-to-start predicate can
@@ -503,7 +511,11 @@ struct Invocation {
     /// The "if" is `run_seat`'s to settle, not the fold's: a harness may
     /// report an error and then go on to work, and a session that worked
     /// is not one that refused to start.
-    refusal: Option<String>,
+    refusal: Option<PreSessionRefusal>,
+    /// A probe's first answer, and the only one this invocation admits
+    /// (decision 0103 ruling 4(a)). `None` on every ordinary attempt and
+    /// on a probe that ended without one.
+    answer: Option<Value>,
     /// How this invocation ended against the session it was launched for
     /// (proposed decision 0056 ruling 7, design D7). `run_seat` refuses
     /// to accept a successful seat from an unsettled rejoin even when the
@@ -788,6 +800,26 @@ fn spawn_piped(
 ) -> Result<std::process::Child, String> {
     let piped = Stdio::piped;
     spawn_harness(command, workdir, piped(), piped(), &[], bindings)
+}
+
+/// Spawn a harness with `prompt` on its stdin, its stdin closed, and its
+/// stderr drained on its own thread. The two stream folds share this
+/// prologue so neither can differ from the other in how it feeds a child.
+fn spawn_fed(
+    command: &[String],
+    prompt: &str,
+    workdir: &str,
+    bindings: &[secret::BoundSecret],
+) -> Result<(std::process::Child, std::thread::JoinHandle<Vec<u8>>), String> {
+    let mut child = spawn_piped(command, workdir, bindings)?;
+    let mut stdin = child.stdin.take().expect("piped");
+    io_context(
+        stdin.write_all(prompt.as_bytes()),
+        "could not write the prompt",
+    )?;
+    drop(stdin);
+    let stderr = drain_stderr(&mut child);
+    Ok((child, stderr))
 }
 
 fn run_cli(
@@ -1398,159 +1430,6 @@ fn recordable_digest(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-/// One line of wire text, whitespace-collapsed and clamped: every field
-/// a refusal reason quotes comes off the harness's stream, so it is
-/// arbitrary-length and may carry newlines. The journal is append-only
-/// and every readout renders what lands in it, so a reason is bounded
-/// here rather than trusted — the same discipline as the ≤80-char tool
-/// names and targets and the 4000-byte stderr tail. Control characters
-/// go with the newlines: a terminal escape belongs in a record no more
-/// than a line break does.
-fn bounded_wire_line(text: &str, limit: usize) -> String {
-    text.chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .chars()
-        .take(limit)
-        .collect()
-}
-
-/// The token's own bound. A machine token is a short identifier
-/// (`rate_limit`, `authentication_error`); the checkpoint bound for a
-/// harness-supplied name governs it too.
-const REFUSAL_TOKEN_LIMIT: usize = 80;
-
-/// And the excerpt's, which may be a sentence.
-const REFUSAL_TEXT_LIMIT: usize = 160;
-
-/// Bound one refusal reason for the journal: a single line, clamped, and
-/// never empty. The reason is the provider's own machine token when it
-/// gave one, the HTTP status when it gave that, and a short excerpt of
-/// its prose when it gave that — the same evidence a stderr tail already
-/// carries on a failed attempt, and nothing executable is derived from it.
-///
-/// The token is bounded exactly like the excerpt. It is read from the
-/// harness's stream, so "the provider's own token" is only ever a claim
-/// about where the bytes came from: a harness emitting a 200KB
-/// newline-bearing `error` must not put that in a durable record.
-fn refusal_reason(token: &str, status: Option<i64>, text: Option<&str>) -> String {
-    let token = bounded_wire_line(token, REFUSAL_TOKEN_LIMIT);
-    // Never empty: a refusal with no token at all is still a refusal,
-    // and an empty one would leave the line dangling after its colon.
-    let token = if token.is_empty() {
-        "api_error"
-    } else {
-        &token
-    };
-    let mut reason = format!("provider refused before the first turn: {token}");
-    if let Some(status) = status {
-        reason.push_str(&format!(" (HTTP {status})"));
-    }
-    if let Some(text) = text {
-        let excerpt = bounded_wire_line(text, REFUSAL_TEXT_LIMIT);
-        if !excerpt.is_empty() {
-            reason.push_str(": ");
-            reason.push_str(&excerpt);
-        }
-    }
-    reason
-}
-
-/// The claude (and, byte-for-byte, lanetally) stream-json record of a
-/// provider refusal. Three measured shapes, all meaning the request was
-/// rejected before any inference (decision 0053):
-///
-/// - the synthetic assistant message #68816 records, carrying
-///   `isApiErrorMessage: true` and an `error` token (`rate_limit`,
-///   `authentication_error`, …) beside an ordinary terminal
-///   `stop_reason: "stop_sequence"` — the shape the #219 run measured,
-///   and the reason a `type` test alone cannot see it;
-/// - the error `result` #79500 records, `is_error: true` with the prose
-///   in `result` and no turn behind it;
-/// - the `rate_limit_event` lifecycle message newer CLIs emit.
-///
-/// A record with none of those fields is an ordinary turn and is never
-/// read here; nothing in this classifier looks at a model's prose.
-fn claude_refusal(event: &Value) -> Option<String> {
-    match event.get("type").and_then(Value::as_str) {
-        Some("rate_limit_event") => Some(refusal_reason(
-            "rate_limit",
-            event.get("apiErrorStatus").and_then(Value::as_i64),
-            event
-                .get("message")
-                .and_then(Value::as_str)
-                .or_else(|| event.get("error").and_then(Value::as_str)),
-        )),
-        Some("assistant") => {
-            let api_error = event
-                .get("isApiErrorMessage")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-                || event.get("error").and_then(Value::as_str).is_some();
-            api_error.then(|| {
-                refusal_reason(
-                    event
-                        .get("error")
-                        .and_then(Value::as_str)
-                        .unwrap_or("api_error"),
-                    event.get("apiErrorStatus").and_then(Value::as_i64),
-                    event
-                        .pointer("/message/content/0/text")
-                        .and_then(Value::as_str),
-                )
-            })
-        }
-        Some("result") => {
-            let is_error = event
-                .get("is_error")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-                || event.get("error").and_then(Value::as_str).is_some();
-            is_error.then(|| {
-                refusal_reason(
-                    event
-                        .get("error")
-                        .and_then(Value::as_str)
-                        .unwrap_or("api_error"),
-                    event.get("apiErrorStatus").and_then(Value::as_i64),
-                    event.get("result").and_then(Value::as_str),
-                )
-            })
-        }
-        _ => None,
-    }
-}
-
-/// The codex `exec --json` record of a pre-session refusal: the harness's
-/// own machine-readable `error` event, or a `turn.failed` that arrived
-/// before any `turn.started`. Codex puts the provider's message in
-/// `message` on the one and under `error.message` on the other; neither
-/// is model prose, and a record with any other type is never read here.
-fn codex_refusal(event: &Value) -> Option<String> {
-    match event.get("type").and_then(Value::as_str) {
-        Some("error") => Some(refusal_reason(
-            "api_error",
-            None,
-            event
-                .get("message")
-                .and_then(Value::as_str)
-                .or_else(|| event.pointer("/error/message").and_then(Value::as_str)),
-        )),
-        Some("turn.failed") => Some(refusal_reason(
-            "api_error",
-            None,
-            event
-                .pointer("/error/message")
-                .and_then(Value::as_str)
-                .or_else(|| event.get("message").and_then(Value::as_str)),
-        )),
-        _ => None,
-    }
-}
-
 /// One parsed claude stream-json line folded into the seat's telemetry:
 /// `system`/`init` and `result` feed `session_meta`; each `tool_use`
 /// block of an `assistant` message becomes one seat-turn checkpoint,
@@ -1567,7 +1446,7 @@ fn fold_stream_event(
     session_meta: &mut Map<String, Value>,
     transcript: &mut Transcript,
     emit: &mut impl FnMut(&Value),
-) -> Option<String> {
+) -> Option<PreSessionRefusal> {
     // Decision 0053: a provider refusal is not a turn. It is classified
     // ONLY before the first real turn; once one has been counted the
     // session has opened and decision 0016's mid-session boundary holds
@@ -1892,7 +1771,7 @@ fn fold_codex_event(
     transcript: &mut Transcript,
     echo: &mut CodexThreadEcho,
     emit: &mut impl FnMut(&Value),
-) -> Option<String> {
+) -> Option<PreSessionRefusal> {
     // Decision 0053: an error codex reported before its first `turn.started`
     // is a refusal to start, not a turn. After the first turn the boundary
     // is decision 0016's, unchanged.
@@ -2344,50 +2223,100 @@ struct DshTail {
     pending: Vec<u8>,
 }
 
-/// Fold whatever the child has appended since the last pass. Called
-/// while the process still runs, so a partly-written last line stays in
-/// `pending` until its newline arrives; a line that is not JSON is
-/// noise, dropped, never repaired (decision 0001).
-///
-/// TRUST BOUNDARY, and it is weaker than claude's. Claude's stream-json
-/// arrives on a pipe only the child holds; this is an ordinary file in a
-/// directory the seat's own agent can write to, and the driver publishes
-/// its relative path in the shared transcript locator. An agent with
-/// filesystem tools can therefore append lines this fold will believe —
-/// a forged session header can make it follow the wrong file below that
-/// seat-owned root, and forged `assistant/message` lines can inflate the
-/// turn and token counts. That is accepted, not overlooked: such an
-/// agent is already trusted with the working tree, the fold clamps every
-/// value it takes (≤80-char tool names and u64 counts) and derives
-/// nothing executable from any of them, so the worst case is wrong
-/// telemetry in the journal, never an injection or a control-flow
-/// decision. A driver whose harness offers a real stdout stream should
-/// use it rather than inherit this.
-fn drain_dsh_transcript(
-    tail: &mut DshTail,
-    root: &std::path::Path,
+/// The dsh transcript fold's per-invocation state as one parameter
+/// object: where the transcript is read from, how far it has been read,
+/// the turn count and session metadata it fills, the secrets it masks,
+/// and the invocation's probe bound (decision 0103 ruling 4(a)).
+struct DshFold<'a> {
+    tail: &'a mut DshTail,
+    root: &'a std::path::Path,
     first_seq: Option<u64>,
-    turns: &mut u64,
-    session_meta: &mut Map<String, Value>,
-    bindings: &[secret::BoundSecret],
-    emit: &mut impl FnMut(&Value),
-) {
-    if tail.file.is_none() {
-        tail.file = find_dsh_transcript(root).and_then(|path| std::fs::File::open(path).ok());
+    turns: &'a mut u64,
+    session_meta: &'a mut Map<String, Value>,
+    bindings: &'a [secret::BoundSecret],
+    probe: &'a mut ProbeAnswer,
+}
+
+impl<'a> DshFold<'a> {
+    fn new(
+        tail: &'a mut DshTail,
+        root: &'a std::path::Path,
+        first_seq: Option<u64>,
+        turns: &'a mut u64,
+        session_meta: &'a mut Map<String, Value>,
+        bindings: &'a [secret::BoundSecret],
+        probe: &'a mut ProbeAnswer,
+    ) -> Self {
+        Self {
+            tail,
+            root,
+            first_seq,
+            turns,
+            session_meta,
+            bindings,
+            probe,
+        }
     }
-    let Some(file) = tail.file.as_mut() else {
-        return;
-    };
-    let mut chunk = Vec::new();
-    let _ = file.read_to_end(&mut chunk);
-    tail.pending.extend_from_slice(&chunk);
-    while let Some(index) = tail.pending.iter().position(|byte| *byte == b'\n') {
-        let line: Vec<u8> = tail.pending.drain(..=index).collect();
-        let Ok(mut event) = serde_json::from_slice::<Value>(&line) else {
-            continue;
+}
+
+impl DshFold<'_> {
+    /// Fold whatever the child has appended since the last pass. Called
+    /// while the process still runs, so a partly-written last line stays in
+    /// `pending` until its newline arrives; a line that is not JSON is
+    /// noise, dropped, never repaired (decision 0001).
+    ///
+    /// TRUST BOUNDARY, and it is weaker than claude's. Claude's stream-json
+    /// arrives on a pipe only the child holds; this is an ordinary file in a
+    /// directory the seat's own agent can write to, and the driver publishes
+    /// its relative path in the shared transcript locator. An agent with
+    /// filesystem tools can therefore append lines this fold will believe —
+    /// a forged session header can make it follow the wrong file below that
+    /// seat-owned root, and forged `assistant/message` lines can inflate the
+    /// turn and token counts. That is accepted, not overlooked: such an
+    /// agent is already trusted with the working tree, the fold clamps every
+    /// value it takes (≤80-char tool names and u64 counts) and derives
+    /// nothing executable from any of them, so the worst case is wrong
+    /// telemetry in the journal, never an injection or a control-flow
+    /// decision. A driver whose harness offers a real stdout stream should
+    /// use it rather than inherit this.
+    ///
+    /// The probe bound (decision 0103 ruling 4(a)): an `assistant/message`
+    /// is dsh's model-output answer, and the first one is admitted while a
+    /// later one is not.
+    fn drain(&mut self, emit: &mut impl FnMut(&Value)) {
+        if self.tail.file.is_none() {
+            self.tail.file =
+                find_dsh_transcript(self.root).and_then(|path| std::fs::File::open(path).ok());
+        }
+        let Some(file) = self.tail.file.as_mut() else {
+            return;
         };
-        secret::mask_json(&mut event, bindings);
-        fold_dsh_event(&event, first_seq, turns, session_meta, emit);
+        let mut chunk = Vec::new();
+        let _ = file.read_to_end(&mut chunk);
+        self.tail.pending.extend_from_slice(&chunk);
+        while let Some(index) = self.tail.pending.iter().position(|byte| *byte == b'\n') {
+            let line: Vec<u8> = self.tail.pending.drain(..=index).collect();
+            let Ok(mut event) = serde_json::from_slice::<Value>(&line) else {
+                continue;
+            };
+            secret::mask_json(&mut event, self.bindings);
+            let answer_event = self.probe.requested() && probe::is_answer(AdapterKind::Dsh, &event);
+            let mut emitted: Vec<Value> = Vec::new();
+            let mut capture = |data: &Value| {
+                if answer_event {
+                    emitted.push(data.clone());
+                }
+                emit(data);
+            };
+            fold_dsh_event(
+                &event,
+                self.first_seq,
+                self.turns,
+                self.session_meta,
+                &mut capture,
+            );
+            self.probe.admit(AdapterKind::Dsh, &event, &emitted);
+        }
     }
 }
 
@@ -2469,20 +2398,13 @@ fn invoke_stream_json(
     workdir: &str,
     bindings: &[secret::BoundSecret],
     hold: &mut LaunchHold,
+    probe: &mut ProbeAnswer,
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
     let mut transcript = Transcript::resolve(TranscriptKind::ClaudeSession)?;
     // Read before the process can write to the transcript it resumes.
     let mut fold = ClaudeFold::rejoining(transcript.home(), hold.plan.rejoining.as_deref());
-    let mut child = spawn_piped(command, workdir, bindings)?;
-    {
-        let mut stdin = child.stdin.take().expect("piped");
-        io_context(
-            stdin.write_all(prompt.as_bytes()),
-            "could not write the prompt",
-        )?;
-    }
-    let stderr_thread = drain_stderr(&mut child);
+    let (mut child, stderr_thread) = spawn_fed(command, prompt, workdir, bindings)?;
     let stdout = child.stdout.take().expect("piped");
     let mut session_meta = Map::new();
     // Decision 0053: the FIRST pre-turn refusal is the one reported, and
@@ -2493,7 +2415,7 @@ fn invoke_stream_json(
     // (decision 0030). Whether the refusal ends the attempt is settled
     // by whether any work began — `run_seat` reads that from the
     // checkpoints, not from where the classifier stopped.
-    let mut refusal: Option<String> = None;
+    let mut refusal: Option<PreSessionRefusal> = None;
     let status = {
         let mut watch = |data: &Value| hold.observe(data, emit);
         for line in std::io::BufReader::new(stdout).lines() {
@@ -2506,13 +2428,20 @@ fn invoke_stream_json(
             // Masked before the fold clamps or rewrites anything it takes
             // (decision 0012, layer 5): see `secret::mask_json`.
             secret::mask_json(&mut event, bindings);
-            let classified = fold_stream_event(
-                &event,
-                &mut fold,
-                &mut session_meta,
-                &mut transcript,
-                &mut watch,
-            );
+            // Decision 0103 ruling 4(a): a probe admits the first
+            // model-output answer and no second, captured on the same
+            // fold that builds its checkpoint.
+            let classified =
+                probe::fold_capturing(probe, AdapterKind::Claude, &event, &mut watch, |emit| {
+                    let mut adapted = |data: &Value| emit(data);
+                    fold_stream_event(
+                        &event,
+                        &mut fold,
+                        &mut session_meta,
+                        &mut transcript,
+                        &mut adapted,
+                    )
+                });
             refusal = refusal.or(classified);
         }
         let status = io_context(child.wait(), "agent CLI did not conclude")?;
@@ -2526,6 +2455,7 @@ fn invoke_stream_json(
         stderr: secret::mask_text(&stderr_thread.join().unwrap_or_default(), bindings),
         state: None,
         refusal,
+        answer: probe.take(),
         launch: LaunchTerminal::Cold,
     })
 }
@@ -3652,17 +3582,11 @@ fn invoke_codex(
     workdir: &str,
     bindings: &[secret::BoundSecret],
     hold: &mut LaunchHold,
+    probe_bound: &mut ProbeAnswer,
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
     let mut transcript = Transcript::resolve(TranscriptKind::CodexThread)?;
-    let mut child = spawn_piped(command, workdir, bindings)?;
-    let mut stdin = child.stdin.take().expect("piped");
-    io_context(
-        stdin.write_all(prompt.as_bytes()),
-        "could not write the prompt",
-    )?;
-    drop(stdin);
-    let stderr_thread = drain_stderr(&mut child);
+    let (mut child, stderr_thread) = spawn_fed(command, prompt, workdir, bindings)?;
     let mut session_meta = Map::new();
     let mut turn = 0;
     let mut echo = CodexThreadEcho::default();
@@ -3672,20 +3596,32 @@ fn invoke_codex(
     // mid-session failure, so the fold classifies only at `turn == 0`,
     // and — as in the claude arm — it keeps folding the rest of the
     // stream so a session that recovered keeps its thread id and totals.
-    let mut refusal: Option<String> = None;
+    let mut refusal: Option<PreSessionRefusal> = None;
     let status = {
         let mut watch = |data: &Value| hold.observe(data, emit);
         for line in std::io::BufReader::new(child.stdout.take().expect("piped")).lines() {
             let Ok(line) = line else { break };
             if let Ok(mut event) = serde_json::from_str::<Value>(&line) {
                 secret::mask_json(&mut event, bindings);
-                let classified = fold_codex_event(
+                // Decision 0103 ruling 4(a): only `item.completed` whose
+                // `item.type` is `agent_message` answers a probe;
+                // `turn.started` does not.
+                let classified = probe::fold_capturing(
+                    probe_bound,
+                    AdapterKind::Codex,
                     &event,
-                    &mut turn,
-                    &mut session_meta,
-                    &mut transcript,
-                    &mut echo,
                     &mut watch,
+                    |emit| {
+                        let mut adapted = |data: &Value| emit(data);
+                        fold_codex_event(
+                            &event,
+                            &mut turn,
+                            &mut session_meta,
+                            &mut transcript,
+                            &mut echo,
+                            &mut adapted,
+                        )
+                    },
                 );
                 refusal = refusal.or(classified);
             }
@@ -3738,6 +3674,7 @@ fn invoke_codex(
         stderr,
         state: None,
         refusal,
+        answer: probe_bound.take(),
         launch: LaunchTerminal::Cold,
     })
 }
@@ -3758,22 +3695,34 @@ fn invoke_codex(
 fn invoke_dsh(
     pinned: Pinned<'_>,
     prompt: &str,
-    workdir: &str,
     input: &Value,
     session: Option<&str>,
     bindings: &[secret::BoundSecret],
+    probe: &mut ProbeAnswer,
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
-    let launch = dsh_launch(pinned.binary, pinned.extra, workdir, session, input)?;
-    let command = dsh_served(pinned.binary, &launch, pinned.extra, prompt, workdir, input)?;
+    let workdir = input
+        .get("workdir")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let launch = dsh_launch(pinned.binary, pinned.extra, &workdir, session, input)?;
+    let command = dsh_served(
+        pinned.binary,
+        &launch,
+        pinned.extra,
+        prompt,
+        &workdir,
+        input,
+    )?;
     let wait = |child: &mut std::process::Child| {
         child.try_wait().map(|status| status.map(lost::exit_code))
     };
     dsh_launch::invoke_dsh_launch_observed(
         launch,
         command,
-        workdir,
         bindings,
+        probe,
         emit,
         wait,
         &mut |_| {},
@@ -4218,6 +4167,9 @@ struct DshLaunch {
     locator: String,
     /// The absolute retained root the transcript fold follows.
     root: std::path::PathBuf,
+    /// The working directory the child runs in, kept with the plan so the
+    /// invocation that serves it need not restate it.
+    workdir: String,
     /// Held for the child's lifetime; dropping it removes the staged file.
     /// Its path is the overlay the final check serves (`dsh_served`).
     overlay: DshSeatOverlay,
@@ -4531,6 +4483,7 @@ fn dsh_launch_with(
         first_seq,
         locator,
         root,
+        workdir: workdir.to_string(),
         overlay,
         effortless: effort.is_none(),
         facts,
@@ -4737,7 +4690,7 @@ pub fn dsh_cold_command(
 /// and a seat that spins in silence forever, so it is reachable here.
 #[cfg(test)]
 fn invoke_dsh_launch(
-    launch: DshLaunch,
+    mut launch: DshLaunch,
     prompt: &str,
     workdir: &str,
     bindings: &[secret::BoundSecret],
@@ -4746,11 +4699,13 @@ fn invoke_dsh_launch(
 ) -> Result<Invocation, String> {
     let mut command = launch.command.clone();
     command.push(prompt.to_string());
+    let mut probe = ProbeAnswer::new(false);
+    launch.workdir = workdir.to_string();
     dsh_launch::invoke_dsh_launch_observed(
         launch,
         command,
-        workdir,
         bindings,
+        &mut probe,
         emit,
         wait,
         &mut |_| {},
@@ -4793,28 +4748,30 @@ fn dsh_child_env(launch: &DshLaunch) -> Vec<(&str, &str)> {
 /// plugin appends as the session runs.
 fn invoke_dsh_shipped(
     command: &[String],
-    workdir: &str,
     launch: &DshLaunch,
     bindings: &[secret::BoundSecret],
     mut wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
+    probe: &mut ProbeAnswer,
     session_meta: &mut Map<String, Value>,
     emit: &mut impl FnMut(&Value),
 ) -> Result<DshRun, String> {
-    let (mut child, stderr_thread) = spawn_dsh(command, workdir, Stdio::null(), launch, bindings)?;
+    let (mut child, stderr_thread) =
+        spawn_dsh(command, &launch.workdir, Stdio::null(), launch, bindings)?;
     let mut turns = 0u64;
     let mut tail = DshTail::default();
     let exit_code = poll_until_exit(
         || wait(&mut child),
         || {
-            drain_dsh_transcript(
+            DshFold::new(
                 &mut tail,
                 &launch.root,
                 launch.first_seq,
                 &mut turns,
-                session_meta,
+                &mut *session_meta,
                 bindings,
-                emit,
+                &mut *probe,
             )
+            .drain(emit)
         },
     )?;
     finish_dsh(session_meta, exit_code, stderr_thread, bindings)
@@ -4830,15 +4787,16 @@ fn invoke_dsh_shipped(
 fn invoke_dsh_stream_json(
     command: &[String],
     launch: &DshLaunch,
-    workdir: &str,
     bindings: &[secret::BoundSecret],
+    probe: &mut ProbeAnswer,
     watch: &mut DshRootWatch,
     hold: &mut LaunchHold,
     session_meta: &mut Map<String, Value>,
     emit: &mut impl FnMut(&Value),
     observer: &mut impl FnMut(&DshObservation),
 ) -> Result<DshRun, String> {
-    let (mut child, stderr_thread) = spawn_dsh(command, workdir, Stdio::piped(), launch, bindings)?;
+    let (mut child, stderr_thread) =
+        spawn_dsh(command, &launch.workdir, Stdio::piped(), launch, bindings)?;
     let stdout = child.stdout.take().expect("piped");
     let mut turns = 0u64;
     let mut tail = DshTail::default();
@@ -4883,15 +4841,16 @@ fn invoke_dsh_stream_json(
         // between the settle and the drain would put it there anyway.
         watch.settle(read, hold, session_meta, emit, observer);
         if read == DshStreamLine::Event && watch.may_fold() {
-            drain_dsh_transcript(
+            DshFold::new(
                 &mut tail,
                 &launch.root,
                 launch.first_seq,
                 &mut turns,
-                session_meta,
+                &mut *session_meta,
                 bindings,
-                emit,
-            );
+                &mut *probe,
+            )
+            .drain(emit);
         }
     }
     let status = io_context(child.wait(), "agent CLI did not conclude")?;
@@ -4899,15 +4858,16 @@ fn invoke_dsh_stream_json(
     // this settle reads the store only while the confirmation is pending.
     watch.settle(DshStreamLine::End, hold, session_meta, emit, observer);
     if watch.may_fold() {
-        drain_dsh_transcript(
+        DshFold::new(
             &mut tail,
             &launch.root,
             launch.first_seq,
             &mut turns,
-            session_meta,
+            &mut *session_meta,
             bindings,
-            emit,
-        );
+            &mut *probe,
+        )
+        .drain(emit);
     }
     finish_dsh(
         session_meta,
@@ -5394,6 +5354,7 @@ fn finish_dsh(
     // through.
     Ok(DshRun {
         invocation: Invocation {
+            answer: None,
             exit_code,
             session_meta: session_meta.clone(),
             stdout: String::new(),
@@ -5429,8 +5390,9 @@ fn invoke_with_stager(
     input: &Value,
     session: Option<&str>,
     bindings: &[secret::BoundSecret],
+    probe: bool,
     emit: &mut impl FnMut(&Value),
-    mut stage: impl FnMut(&str) -> Result<tempfile::NamedTempFile, String>,
+    stage: impl FnMut(&str) -> Result<tempfile::NamedTempFile, String>,
 ) -> Result<Invocation, String> {
     let Pinned { binary: bin, extra } = pinned;
     // MB4: every spawn of this attempt, probe and model alike, removes its sealed names.
@@ -5440,7 +5402,8 @@ fn invoke_with_stager(
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    match kind {
+    let mut probe = ProbeAnswer::new(probe);
+    let invocation = match kind {
         // Same harness, same stream: LaneTally's wrapper is
         // argv-compatible with claude (including stream-json), so the
         // only differences ARE the binary and the shape it is measured
@@ -5455,8 +5418,9 @@ fn invoke_with_stager(
             let plan = claude_launch(bin, extra, session, input, shape, None)?;
             let command = plan.command.clone();
             let mut hold = LaunchHold::new("claude", plan);
-            let mut invocation =
-                invoke_stream_json(&command, prompt, &workdir, bindings, &mut hold, emit)?;
+            let mut invocation = invoke_stream_json(
+                &command, prompt, &workdir, bindings, &mut hold, &mut probe, emit,
+            )?;
             hold.finish(emit);
             invocation.launch = hold.terminal();
             Ok(invocation)
@@ -5466,8 +5430,9 @@ fn invoke_with_stager(
                 codex::launch_on_host(bin, extra, &workdir, session, input, codex::present)?;
             let command = plan.command.clone();
             let mut hold = LaunchHold::new("codex", plan);
-            let mut invocation =
-                invoke_codex(&command, prompt, &workdir, bindings, &mut hold, emit)?;
+            let mut invocation = invoke_codex(
+                &command, prompt, &workdir, bindings, &mut hold, &mut probe, emit,
+            )?;
             hold.finish(emit);
             invocation.launch = hold.terminal();
             // Ruling 8's ONE pre-work replacement, and only on evidence
@@ -5486,7 +5451,8 @@ fn invoke_with_stager(
             // the seat is never charged twice for one attempt. A signal is
             // no non-zero exit: the killed rejoin may have acted, so it
             // ends lost and is never replaced (`lost`).
-            if hold.unconfirmed_rejoin()
+            if !probe.requested()
+                && hold.unconfirmed_rejoin()
                 && !hold.began_work
                 && lost::exited_non_zero(invocation.exit_code)
                 && !delivered_result(input)
@@ -5506,84 +5472,39 @@ fn invoke_with_stager(
                     LaunchPlan::cold(validated_cold, "codex-thread", Some("harness-refused"));
                 let command = cold.command.clone();
                 let mut replacement = LaunchHold::new("codex", cold);
-                let mut outcome =
-                    invoke_codex(&command, prompt, &workdir, bindings, &mut replacement, emit)?;
+                let mut outcome = invoke_codex(
+                    &command,
+                    prompt,
+                    &workdir,
+                    bindings,
+                    &mut replacement,
+                    &mut probe,
+                    emit,
+                )?;
                 replacement.finish(emit);
                 outcome.launch = replacement.terminal();
                 // No recursion: a failed replacement reports its own
                 // outcome, whatever that is.
-                return Ok(outcome);
-            }
-            Ok(invocation)
-        }
-        AdapterKind::Dsh => invoke_dsh(pinned, prompt, &workdir, input, session, bindings, emit),
-        AdapterKind::Exec => {
-            if extra.is_empty() {
-                return Err("exec driver needs a command template after '--'".to_string());
-            }
-            // Exec has no model turn and therefore no tool target in the
-            // seat record. Its unresolved command remains pinned in the
-            // bundle manifest; no command-shaped prose enters a checkpoint.
-            let mut session_meta = Map::new();
-            Transcript::resolve(TranscriptKind::None)?.finish(&mut session_meta, emit);
-            emit(&json!({"step": "exec-started"}));
-            let mut prompt_file: Option<tempfile::NamedTempFile> = None;
-            if extra.iter().any(|part| part.contains("{prompt_file}")) {
-                prompt_file = Some(stage(prompt)?);
-            }
-            let prompt_path = prompt_file
-                .as_ref()
-                .map(|f| f.path().to_string_lossy().into_owned())
-                .unwrap_or_default();
-            let command: Vec<String> = extra
-                .iter()
-                .map(|part| resolve_exec_part(part, &workdir, &prompt_path, bindings))
-                .collect();
-            let stdin_payload = if prompt_file.is_none() {
-                Some(prompt)
+                Ok(outcome)
             } else {
-                None
-            };
-            let out = run_cli(&command, stdin_payload, &workdir, bindings)?;
-            // Known-plaintext masking choke point (decision 0012, layer
-            // 5), on RAW captured bytes before any string conversion.
-            // stdout is captured-and-dropped today; stderr is re-emitted
-            // by run_seat and journaled as the stderr tail on failure —
-            // the path that fires exactly when a credentialed command
-            // prints the offending header.
-            let stderr = secret::mask_bytes(&out.stderr, bindings);
-            let stdout = secret::mask_bytes(&out.stdout, bindings);
-            let state = input
-                .pointer("/dialect_exec/state")
-                .and_then(Value::as_array)
-                .filter(|argv| !argv.is_empty())
-                .map(|argv| {
-                    let argv = argv
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .map(str::to_string)
-                        .collect::<Vec<_>>();
-                    run_cli(&argv, None, &workdir, bindings).map(|output| {
-                        let bytes = secret::mask_bytes(&output.stdout, bindings);
-                        String::from_utf8_lossy(&bytes).into_owned()
-                    })
-                })
-                .transpose()?;
-            Ok(Invocation {
-                exit_code: lost::exit_code(out.status),
-                session_meta,
-                stdout: String::from_utf8_lossy(&stdout).into_owned(),
-                stderr: String::from_utf8_lossy(&stderr).into_owned(),
-                state,
-                // Decision 0053: exec has no model turn and no provider
-                // to refuse it. Its failures are the script's own, and
-                // an inline exec site carries an empty chain anyway, so
-                // there is no fallback for a refusal to reach.
-                refusal: None,
-                launch: LaunchTerminal::Cold,
-            })
+                Ok(invocation)
+            }
         }
+        AdapterKind::Dsh => invoke_dsh(pinned, prompt, input, session, bindings, &mut probe, emit),
+        AdapterKind::Exec => {
+            exec::invoke_exec(extra, prompt, &workdir, input, bindings, emit, stage)
+        }
+    }?;
+    // Decision 0103 ruling 1(a): the provider and route are filled from
+    // the adapter and the launch facts the driver already resolved. A
+    // bare model id on a driver with no default route is a typed
+    // absence, never a guess.
+    let route = pinned_model(extra).and_then(|model| kind.served_route(model));
+    let mut invocation = invocation;
+    if let Some(refusal) = invocation.refusal.take() {
+        invocation.refusal = Some(refusal.attributed(kind.provider_name(), route));
     }
+    Ok(invocation)
 }
 
 /// One pinned model, as dsh addresses it: a provider route in the
@@ -6332,6 +6253,10 @@ fn run_seat(
     let pin = crate::overrides::read(Override::of_driver(kind));
     let gate = pin.clone().map(drop);
     let binary = pin.unwrap_or_default();
+    // A malformed marker never reaches here: `run_seat_with` refuses it
+    // before it invokes anything, so this is only the present-and-true
+    // case.
+    let probe = matches!(probe::requested(start), Ok(true));
     lost::answered(send, |mut send| {
         run_seat_with(
             kind,
@@ -6350,6 +6275,7 @@ fn run_seat(
                     input,
                     session,
                     bound,
+                    probe,
                     &mut emit,
                     stage_prompt,
                 )
@@ -6380,6 +6306,16 @@ fn run_seat_with(
     let input = start.get("input").cloned().unwrap_or(json!({}));
     let effect_id = start["effect_id"].as_str().unwrap_or("").to_string();
     let attempt_id = start["attempt_id"].as_str().unwrap_or("").to_string();
+    // Decision 0103 ruling 4(a): a start's probe marker is typed here,
+    // before anything launches. A present field that is not the marker is
+    // refused by name, never read as an ordinary attempt.
+    let probe = match probe::requested(start) {
+        Ok(probe) => probe,
+        Err(refusal) => {
+            probe::refused_start(send, effect_id, attempt_id, refusal.to_string());
+            return;
+        }
+    };
     // #372: a start with no correlation, a retired override (#355) or a
     // model seat whose charter cannot be read launches nothing. The refusal
     // is `result: failed` with NO `accepted` and NO checkpoint — decision
@@ -6388,13 +6324,7 @@ fn run_seat_with(
     let prompt = match start_prompt(&effect_id, &attempt_id, gate, &input, kind) {
         Ok(prompt) => prompt,
         Err(refusal) => {
-            send(Body::Result {
-                effect_id,
-                attempt_id,
-                status: ResultStatus::Failed,
-                result: None,
-                error: Some(refusal.to_string()),
-            });
+            probe::refused_start(send, effect_id, attempt_id, refusal.to_string());
             return;
         }
     };
@@ -6453,18 +6383,7 @@ fn run_seat_with(
                 // exactly as it always was, so the fail-to-start boundary
                 // moves for a provider refusal and for nothing else. The
                 // driver has not spawned, so no turn can have begun.
-                send(Body::Accepted {
-                    effect_id: effect_id.clone(),
-                    attempt_id: attempt_id.clone(),
-                    session_ref: None,
-                });
-                send(Body::Result {
-                    effect_id,
-                    attempt_id,
-                    status: ResultStatus::Failed,
-                    result: None,
-                    error: Some(error),
-                });
+                probe::determinate_failure(send, &effect_id, &attempt_id, error);
                 return;
             }
         }
@@ -6478,18 +6397,7 @@ fn run_seat_with(
     // spawned, so no turn can have begun.
     if input.get("native_controls").is_some() {
         if let Err(error) = crate::native_controls::verified_role(&input) {
-            send(Body::Accepted {
-                effect_id: effect_id.clone(),
-                attempt_id: attempt_id.clone(),
-                session_ref: None,
-            });
-            send(Body::Result {
-                effect_id,
-                attempt_id,
-                status: ResultStatus::Failed,
-                result: None,
-                error: Some(error),
-            });
+            probe::determinate_failure(send, &effect_id, &attempt_id, error);
             return;
         }
     }
@@ -6497,68 +6405,27 @@ fn run_seat_with(
     // stream-json becomes a live protocol checkpoint on this attempt.
     lost::invoking();
     let invocation = match invoke(&prompt, &input, &bindings, &mut |data: &Value| {
-        let mut data = data.clone();
-        // Masking choke point for the model harnesses (decision 0012,
-        // layer 5): a checkpoint is folded from the child's stdout, so a
-        // bound value the seat echoed must not reach the journal through
-        // it. Masked on the parsed strings — see `secret::mask_json`.
-        if !bindings.is_empty() {
-            secret::mask_json(&mut data, &bindings);
+        // A probe's rows are not streamed: its one answer is reported
+        // after the invocation, as the checkpoint that answer emitted
+        // (decision 0103 ruling 4(a)). Streaming a `turn.started` here
+        // would make it look like an answer.
+        if probe {
+            return;
         }
-        // Every fold emits a JSON object and the seat record (0034)
-        // is defined on objects, so there is no non-object
-        // checkpoint to branch on.
-        let checkpoint = data
-            .as_object_mut()
-            .expect("driver checkpoints are JSON objects");
-        checkpoint.entry("model").or_insert_with(|| {
-            Value::String(
-                if kind == AdapterKind::Exec {
-                    MODEL_NOT_APPLICABLE
-                } else {
-                    MODEL_NOT_REPORTED
-                }
-                .to_string(),
-            )
-        });
-        // The same default, one field over (decision 0035 ruling 3).
-        // A fold that read its harness's echo has already written
-        // the level; this is what every other row says — `not
-        // applicable` for exec, which has no model turn, and `not
-        // reported` for a row its harness echoed no level for: the
-        // rows before the first request goes out, and every row of
-        // a lane that echoes nothing at all.
-        checkpoint.entry("effort").or_insert_with(|| {
-            Value::String(
-                if kind == AdapterKind::Exec {
-                    EFFORT_NOT_APPLICABLE
-                } else {
-                    EFFORT_NOT_REPORTED
-                }
-                .to_string(),
-            )
-        });
+        let data = seat_row(kind, &bindings, data);
         let starts = data
             .get("step")
             .and_then(Value::as_str)
             .is_some_and(begins_work);
         if began_work || starts {
             began_work = true;
-            if !accepted_sent {
-                accepted_sent = true;
-                send(Body::Accepted {
-                    effect_id: effect_id.clone(),
-                    attempt_id: attempt_id.clone(),
-                    session_ref: None,
-                });
-            }
-            for row in buffered.drain(..) {
-                send(Body::Checkpoint {
-                    effect_id: effect_id.clone(),
-                    attempt_id: attempt_id.clone(),
-                    data: row,
-                });
-            }
+            probe::accept_and_flush(
+                send,
+                &effect_id,
+                &attempt_id,
+                &mut accepted_sent,
+                &mut buffered,
+            );
             send(Body::Checkpoint {
                 effect_id: effect_id.clone(),
                 attempt_id: attempt_id.clone(),
@@ -6573,8 +6440,9 @@ fn run_seat_with(
             // A driver that could not be invoked at all never opened a
             // turn, but it is not a CLASSIFIED provider refusal: keep
             // `accepted` exactly as it always was, so only the refusal
-            // moves the fail-to-start boundary.
-            if !accepted_sent {
+            // moves the fail-to-start boundary. A probe admits no
+            // `accepted`, so its failure carries none.
+            if !accepted_sent && !probe {
                 send(Body::Accepted {
                     effect_id: effect_id.clone(),
                     attempt_id: attempt_id.clone(),
@@ -6592,6 +6460,18 @@ fn run_seat_with(
             return;
         }
     };
+    // A probe reports its one answer, or says it has none.
+    if probe {
+        probe::report_answer(
+            send,
+            kind,
+            &bindings,
+            effect_id,
+            attempt_id,
+            invocation.answer,
+        );
+        return;
+    }
     let Invocation {
         exit_code,
         mut session_meta,
@@ -6599,6 +6479,7 @@ fn run_seat_with(
         stderr,
         state,
         refusal,
+        answer: _,
         launch,
     } = invocation;
     // The same choke point for what the folds kept aside: the session
@@ -6608,7 +6489,10 @@ fn run_seat_with(
     for value in session_meta.values_mut() {
         secret::mask_json(value, &bindings);
     }
-    let refusal = refusal.map(|reason| secret::mask_text(reason.as_bytes(), &bindings));
+    let refusal = refusal.map(|refusal| {
+        let words = secret::mask_text(refusal.words().as_bytes(), &bindings);
+        refusal.with_words(words)
+    });
     // A provider refusal before the first turn is a determinate failure
     // to start (decision 0053): `result: failed`, no `accepted`, no
     // checkpoint, and the reason is the result's error so the journal
@@ -6637,35 +6521,30 @@ fn run_seat_with(
     if let Some(reason) = lost::refusal_to_start(refusal, worked, exit_code, launch) {
         let stderr_tail_start = stderr_tail_start(&stderr);
         eprint!("{}", &stderr[stderr_tail_start..]);
+        let error = match transcript_locator(&session_meta) {
+            Some(locator) => format!("{reason} [transcript {locator}]"),
+            None => reason.to_string(),
+        };
         send(Body::Result {
+            refusal: Some(reason),
             effect_id,
             attempt_id,
             status: ResultStatus::Failed,
             result: None,
-            error: Some(match transcript_locator(&session_meta) {
-                Some(locator) => format!("{reason} [transcript {locator}]"),
-                None => reason,
-            }),
+            error: Some(error),
         });
         return;
     }
     // Every non-refusal path reports `accepted` exactly as it always
     // did, flushing the pre-session rows buffered while the session was
     // opening.
-    if !accepted_sent {
-        send(Body::Accepted {
-            effect_id: effect_id.clone(),
-            attempt_id: attempt_id.clone(),
-            session_ref: None,
-        });
-        for row in buffered.drain(..) {
-            send(Body::Checkpoint {
-                effect_id: effect_id.clone(),
-                attempt_id: attempt_id.clone(),
-                data: row,
-            });
-        }
-    }
+    probe::accept_and_flush(
+        send,
+        &effect_id,
+        &attempt_id,
+        &mut accepted_sent,
+        &mut buffered,
+    );
     // A rejoin that never confirmed the exact offered root — or that
     // named a DIFFERENT one — has an unknown session, whatever the
     // process exited with and whatever it wrote. Design D7: a missing
@@ -6755,6 +6634,7 @@ fn run_seat_with(
             result["state"] = Value::String(state);
         }
         send(Body::Result {
+            refusal: None,
             effect_id,
             attempt_id,
             status: ResultStatus::Succeeded,
@@ -6766,6 +6646,7 @@ fn run_seat_with(
 
     if exit_code != 0 {
         send(Body::Result {
+            refusal: None,
             effect_id,
             attempt_id,
             status: ResultStatus::Failed,
@@ -6813,6 +6694,7 @@ fn run_seat_with(
         }
     }
     send(Body::Result {
+        refusal: None,
         effect_id,
         attempt_id,
         status: ResultStatus::Succeeded,
@@ -6899,6 +6781,9 @@ fn serve_with(
                     driver: kind.driver_name(),
                     version: ADAPTER_VERSION.to_string(),
                     supports: kind.supports(),
+                    // Decision 0103 ruling 4(a): an optional field on the
+                    // capabilities message, never a `supports` entry.
+                    probe: kind.advertises_probe().then_some(Probe),
                 })
             }
             Some("resume") => {
@@ -6921,6 +6806,7 @@ fn serve_with(
                     // A poisoned exchange or an unconfined driver launches no
                     // provider, and says so: determinate under decision 0006.
                     Err(refused) => send(Body::Result {
+                        refusal: None,
                         effect_id,
                         attempt_id,
                         status: ResultStatus::Failed,
@@ -6949,6 +6835,9 @@ pub fn serve(kind: AdapterKind, extra: Vec<String>, confine: Confine) -> std::io
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+#[cfg(test)]
+mod probe_tests;
 
 #[cfg(test)]
 mod notice_tests;

@@ -363,6 +363,26 @@ parks (never converted to success or silently retried as the same attempt).
 `resume` is offered only when `capabilities.supports` includes `"resume"`
 and the recorded `session_ref` matches.
 
+Decision 0103 adds one extension file and changes none of the bytes above:
+
+| Contract | File | Consumers |
+|---|---|---|
+| Driver refusal and probe extension | `driver-refusal.v1.schema.json` | brokkr-protocol (the driver and the transport), every driver that classifies a pre-session refusal |
+
+`driver-refusal/v1` publishes the optional, absent-by-default additions to
+`forge-driver/v1`. A `result` may carry one typed `refusal` object: the
+closed class `rate_limit | other`, the provider and route the driver
+already resolved, the provider's bounded evidence, and an optional HTTP
+status and `retry_after_seconds`. A `capabilities` message and a `start`
+may each carry `probe: true` — the driver's advertisement that it can run a
+one-turn probe, and the engine's request for one. The protocol word stays
+`forge-driver/v1` (`brokkr_protocol::PROTO`), and no manifest moves: the
+family gains optional fields an old reader ignores. The advertisement is
+never a `supports` entry — that list is closed by the frozen v1 schema to
+`resume`, `checkpoint` and `cancel`. An unresolved route is the explicit
+`null`, never a missing key, and a present object that cannot be read
+refuses by name instead of reading as no refusal.
+
 ## Run manifest
 
 Pins the exact bundle a run executes: engine version, `event_schema`,

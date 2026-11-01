@@ -661,8 +661,8 @@ fn invoke_hands(
     let result = super::super::dsh_launch::invoke_dsh_launch_observed(
         launch,
         command,
-        workdir,
         bindings,
+        &mut crate::adapters::probe::ProbeAnswer::new(false),
         &mut |_| {},
         |child| child.wait().map(|status| Some(status.code().unwrap_or(0))),
         &mut |_| {},

@@ -98,12 +98,14 @@ fn run_fake_session(
         match message.body {
             Body::Hello { .. } => {
                 send(Body::Capabilities {
+                    probe: None,
                     driver: "fake".into(),
                     version: env!("CARGO_PKG_VERSION").into(),
                     supports: vec!["cancel".into()],
                 })?;
             }
             Body::Start {
+                probe: None,
                 effect_id,
                 attempt_id,
                 seat,
@@ -171,6 +173,7 @@ fn run_fake_session(
                             result["seat_input"] = input;
                         }
                         send(Body::Result {
+                            refusal: None,
                             effect_id,
                             attempt_id,
                             status: ResultStatus::Succeeded,
@@ -180,6 +183,7 @@ fn run_fake_session(
                     }
                     "fail" => {
                         send(Body::Result {
+                            refusal: None,
                             effect_id,
                             attempt_id,
                             status: ResultStatus::Failed,

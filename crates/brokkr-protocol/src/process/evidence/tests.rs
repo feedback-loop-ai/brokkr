@@ -70,6 +70,7 @@ fn a_message_is_named_by_its_wire_type_alone() {
             engine_version: "0".into(),
         },
         Body::Start {
+            probe: None,
             effect_id: effect_id.clone(),
             attempt_id: attempt_id.clone(),
             seat: "seat".into(),
@@ -85,6 +86,7 @@ fn a_message_is_named_by_its_wire_type_alone() {
         },
         Body::Shutdown,
         Body::Capabilities {
+            probe: None,
             driver: "driver".into(),
             version: "1".into(),
             supports: Vec::new(),
@@ -100,6 +102,7 @@ fn a_message_is_named_by_its_wire_type_alone() {
             data: serde_json::json!({}),
         },
         Body::Result {
+            refusal: None,
             effect_id: effect_id.clone(),
             attempt_id,
             status: ResultStatus::Failed,

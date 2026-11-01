@@ -34,22 +34,30 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::{AttemptOutcome, AttemptReport, Body, Cleanup, Message, ResultStatus, PROTO};
-
+#[cfg(test)]
+use crate::ResultStatus;
+use crate::{
+    AttemptOutcome, AttemptReport, Body, Cleanup, Message, PreSessionRefusal, Probe, PROTO,
+};
 mod attempts;
 mod evidence;
+mod launched;
 mod limits;
+mod outcome;
 mod own_engine;
 mod queue;
+mod refusal;
 mod table;
 mod tree;
 
 use attempts::{Attempt, Unspawned};
+pub(crate) use launched::Launched;
 use limits::{Exceeded, Frame, Limits, Retained, STDOUT_LINES};
 // A test seam, hidden from documentation and outside the supported
 // surface: the probe's tests and the runtime engine's play a test whose
 // launches must see no other test's orphan through this one helper.
 #[doc(hidden)]
+use outcome::{reached, refuse_foreign, unread};
 pub use own_engine::in_its_own_engine;
 pub use tree::Unsettled;
 use tree::{Bounds, Host};
@@ -130,6 +138,7 @@ enum Ended {
 struct Account {
     accepted: bool,
     session_ref: Option<String>,
+    refusal: Option<PreSessionRefusal>,
     retained: Retained,
 }
 
@@ -143,6 +152,10 @@ pub struct DriverProcess {
     refused: Refused,
     stderr: mpsc::Receiver<String>,
     timed_out: Arc<AtomicBool>,
+    /// Decision 0103 ruling 4(a): this invocation is a one-turn probe.
+    /// `start` carries the marker, and only a driver that advertised it
+    /// is ever sent one.
+    probe: bool,
     /// Dropping the sender disarms the watchdog; `finish` joins the
     /// thread before it reaps, so no kill can land after the reap.
     watchdog: Option<(mpsc::Sender<()>, JoinHandle<()>)>,
@@ -319,6 +332,7 @@ impl DriverProcess {
             refused,
             stderr,
             timed_out,
+            probe: false,
             watchdog,
             deadline,
             started: Instant::now(),
@@ -326,6 +340,15 @@ impl DriverProcess {
             limits,
             host,
         })
+    }
+
+    /// Mark this invocation as a probe (decision 0103 ruling 4(a)). The
+    /// driver must have advertised it; one that did not is refused the
+    /// probe by name before any `start` is sent. The engine's use of the
+    /// probe is a later slice; this is the transport's half.
+    pub fn probing(mut self) -> Self {
+        self.probe = true;
+        self
     }
 
     fn send(&mut self, body: Body) -> std::io::Result<()> {
@@ -375,8 +398,18 @@ impl DriverProcess {
             if line.trim().is_empty() {
                 continue;
             }
-            let message = serde_json::from_str::<Message>(&line)
-                .map_err(|e| Ended::Failed(evidence::unreadable(&e, &line)))?;
+            let message = match serde_json::from_str::<Message>(&line) {
+                Ok(message) => message,
+                Err(error) => {
+                    // A present refusal object that cannot be read refuses
+                    // by name, never as absent (decision 0103 ruling 1(a)).
+                    // The generic unreadable report names no field.
+                    if let Some(named) = refusal::malformed(&line) {
+                        return Err(Ended::Failed(named));
+                    }
+                    return Err(Ended::Failed(evidence::unreadable(&error, &line)));
+                }
+            };
             if message.proto != PROTO {
                 return Err(Ended::Failed(evidence::mismatch(
                     "driver spoke another protocol",
@@ -414,6 +447,7 @@ impl DriverProcess {
         session_ref: Option<String>,
         checkpoints: Vec<Value>,
         accepted: bool,
+        refusal: Option<PreSessionRefusal>,
     ) -> AttemptReport {
         // Disarm the watchdog and wait it out before shutdown, so a slow
         // exit is not killed by it and no kill lands after the reap.
@@ -446,6 +480,7 @@ impl DriverProcess {
         AttemptReport {
             outcome,
             refused: None,
+            refusal: refusal.map(Box::new),
             cleanup: match ended {
                 Ok(()) => Cleanup::Settled,
                 Err(reason) => Cleanup::Unresolved { reason },
@@ -564,20 +599,32 @@ impl DriverProcess {
             let ended = self.unsent(format!("could not greet driver: {e}"));
             return self.end(ended, account);
         }
-        let supports = match self.recv() {
+        let (supports, advertised) = match self.recv() {
             Ok((
                 Message {
-                    body: Body::Capabilities { supports, .. },
+                    body:
+                        Body::Capabilities {
+                            supports, probe, ..
+                        },
                     ..
                 },
                 _,
-            )) => supports,
+            )) => (supports, probe.is_some()),
             Ok((other, _)) => fail!(
                 "expected capabilities, got a {}",
                 evidence::of_type(&other.body)
             ),
             Err(ended) => return self.end(ended, account),
         };
+        // Decision 0103 ruling 4(a): a driver that does not advertise the
+        // probe is refused a probe, by name. The advertisement is the
+        // optional `probe` field, never a `supports` entry.
+        if self.probe && !advertised {
+            return self.end(
+                Ended::Failed("driver does not advertise the probe; ...".into()),
+                account,
+            );
+        }
         if let Some(session_ref) =
             offered.filter(|_| supports.iter().any(|feature| feature == "resume"))
         {
@@ -595,6 +642,7 @@ impl DriverProcess {
             attempt_id: attempt_id.to_string(),
             seat: seat.to_string(),
             input,
+            probe: self.probe.then_some(Probe),
         }) {
             let ended = self.unsent(format!("could not send start: {e}"));
             return self.end(ended, account);
@@ -653,6 +701,7 @@ impl DriverProcess {
                     }
                 }
                 Body::Result {
+                    refusal,
                     effect_id: eid,
                     attempt_id: aid,
                     status,
@@ -663,6 +712,7 @@ impl DriverProcess {
                     {
                         return ended;
                     }
+                    account.refusal = refusal;
                     return Ended::Reached(reached(status, result, error));
                 }
                 other => {
@@ -686,6 +736,7 @@ impl DriverProcess {
         let Account {
             accepted,
             session_ref,
+            refusal,
             retained,
         } = account;
         let standing = match ended {
@@ -695,90 +746,24 @@ impl DriverProcess {
             Ended::Reached(standing) => standing,
             Ended::Exceeded(exceeded) => Standing::Final(exceeded.outcome()),
         };
-        self.finish(standing, session_ref, retained.checkpoints, accepted)
+        self.finish(
+            standing,
+            session_ref,
+            retained.checkpoints,
+            accepted,
+            refusal,
+        )
     }
 
     /// End an attempt the driver broke off with a protocol violation.
     fn broken(self, outcome: AttemptOutcome, accepted: bool) -> AttemptReport {
-        self.finish(Standing::Yielding(outcome), None, Vec::new(), accepted)
-    }
-}
-
-/// The end of a message after `start` that is not this invocation's:
-/// `said` of a foreign effect, or, the effect being this one, of a
-/// foreign attempt (decision 0096 rulings 1 and 3). `current` is the
-/// pair `start` carried, local to the invocation: a session a driver
-/// resumed grants its earlier attempt nothing. The effect is judged
-/// first, so a message foreign in both reads as it always did, and the
-/// foreign bytes are described, never quoted. `None` admits a message
-/// that is the current attempt's in both.
-fn refuse_foreign(said: &str, current: (&str, &str), received: (&str, &str)) -> Option<Ended> {
-    let (identity, held, want) = match (received.0 == current.0, received.1 == current.1) {
-        (false, false) | (false, true) => ("effect", received.0, current.0),
-        (true, false) => ("attempt", received.1, current.1),
-        (true, true) => return None,
-    };
-    let said = format!("{said} {identity}");
-    let field = format!("{identity}_id");
-    Some(Ended::Unread(evidence::mismatch(&said, &field, held, want)))
-}
-
-/// An end after `start` that read no result: whatever the driver said
-/// instead, what the attempt did is unknown, so it parks rather than
-/// retries (decision 0006's 2026-10-11 addendum, ruling 1).
-fn unread(error: &str) -> AttemptOutcome {
-    AttemptOutcome::Indeterminate {
-        reason: format!(
-            "{error}; no result was read after start, and what the attempt did is unknown"
-        ),
-    }
-}
-
-/// The outcome a driver's result reached. A success with no payload
-/// carries no result of the executor's, so it is an end with none read,
-/// and a line the reader refused outranks it (decision 0079 ruling 3).
-fn reached(status: ResultStatus, result: Option<Value>, error: Option<String>) -> Standing {
-    match status {
-        ResultStatus::Succeeded => match result {
-            Some(result) => Standing::Final(AttemptOutcome::Succeeded { result }),
-            None => Standing::Yielding(unread("succeeded result carried no payload")),
-        },
-        ResultStatus::Failed => Standing::Final(AttemptOutcome::Failed {
-            error: error.unwrap_or_else(|| "driver reported failure".into()),
-        }),
-    }
-}
-
-/// A process run to its exit or a deadline outside the driver protocol:
-/// the harness probe's launch (#484). It is one of the engine's live
-/// attempts, so the tracker neither reaps it nor takes it for a stray
-/// (`attempts`), and its tree ends as a driver's does (`tree::end`).
-pub(crate) struct Launched {
-    pub(crate) child: Child,
-    attempt: Attempt,
-}
-
-impl Launched {
-    /// Spawn `builder`, leading a session of its own (`attempts`).
-    pub(crate) fn spawn(builder: &mut Command) -> std::io::Result<Self> {
-        let (child, attempt) = Attempt::spawn(builder, Host::REAL)?;
-        Ok(Launched { child, attempt })
-    }
-
-    /// Has the leader exited? Observed without reaping it, so the group
-    /// id stays the launch's.
-    pub(crate) fn exited(&self) -> bool {
-        tree::exited(rustix::process::Pid::from_child(&self.child))
-    }
-
-    /// End the tree now: the group and every descendant recorded under
-    /// it killed, the leader reaped, and the table read settled. The
-    /// leader's exit code, `None` for a signal.
-    pub(crate) fn end(mut self) -> Result<Option<i32>, Unsettled> {
-        let (now, bounds) = (Instant::now(), &Bounds::DEFAULT);
-        tree::end(&mut self.child, &self.attempt, now, bounds, Host::REAL)?;
-        let status = self.child.wait().ok();
-        Ok(status.as_ref().and_then(std::process::ExitStatus::code))
+        self.finish(
+            Standing::Yielding(outcome),
+            None,
+            Vec::new(),
+            accepted,
+            None,
+        )
     }
 }
 

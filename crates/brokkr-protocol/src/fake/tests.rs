@@ -7,6 +7,7 @@ fn wire(body: Body) -> String {
 
 fn start(seat: &str) -> Body {
     Body::Start {
+        probe: None,
         effect_id: "effect".into(),
         attempt_id: "attempt".into(),
         seat: seat.into(),
@@ -111,6 +112,7 @@ fn fake_session_covers_noise_handshake_cancel_shutdown_and_eof() {
     assert!(session(&json!({}), "", || {}).is_empty());
     assert!(session(&json!({}), "{\"type\":\"unknown\"}\n", || {}).is_empty());
     let ignored = wire(Body::Capabilities {
+        probe: None,
         driver: "peer".into(),
         version: "1".into(),
         supports: vec![],

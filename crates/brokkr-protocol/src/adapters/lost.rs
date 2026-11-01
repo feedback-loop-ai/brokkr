@@ -54,6 +54,7 @@ pub(super) fn invocation_failed(
         return;
     }
     send(Body::Result {
+        refusal: None,
         effect_id,
         attempt_id,
         status: ResultStatus::Failed,
@@ -84,11 +85,11 @@ pub(super) fn exited_non_zero(exit_code: i32) -> bool {
 /// signal ended, or a rejoin nobody confirmed, left no result whatever
 /// its stream said, so it ends lost and is never retried as a refusal.
 pub(super) fn refusal_to_start(
-    refusal: Option<String>,
+    refusal: Option<crate::PreSessionRefusal>,
     worked: bool,
     exit_code: i32,
     launch: LaunchTerminal,
-) -> Option<String> {
+) -> Option<crate::PreSessionRefusal> {
     refusal.filter(|_| !worked && exit_code != SIGNALLED && !launch.is_unsettled())
 }
 

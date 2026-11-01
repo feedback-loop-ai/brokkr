@@ -26,6 +26,7 @@ impl Scripted {
     fn new(conclusion: Body, checkpoints: Vec<Value>) -> Scripted {
         let dir = tempfile::tempdir().unwrap();
         let capabilities = wire(Body::Capabilities {
+            probe: None,
             driver: "test".into(),
             version: "1".into(),
             supports: Vec::new(),
@@ -73,6 +74,7 @@ impl Scripted {
 
 fn concluded(status: ResultStatus, result: Option<Value>, error: Option<String>) -> Body {
     Body::Result {
+        refusal: None,
         effect_id: EID.into(),
         attempt_id: AID.into(),
         status,

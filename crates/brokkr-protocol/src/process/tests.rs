@@ -3,6 +3,7 @@ use rustix::process::Pid;
 use serde_json::json;
 
 mod attempt_correlation;
+mod refusal_tests;
 mod tracker_scope;
 
 /// `test` of this module, played in an engine of its own: the full test
@@ -101,6 +102,7 @@ fn process_with_writer(writer: impl std::io::Write + Send + 'static) -> DriverPr
 
 fn capabilities() -> String {
     wire(Body::Capabilities {
+        probe: None,
         driver: "test".into(),
         version: "1".into(),
         supports: Vec::new(),
@@ -230,6 +232,7 @@ fn attempt_loop_refuses_foreign_and_malformed_terminal_messages() {
         ),
         (
             Body::Result {
+                refusal: None,
                 effect_id: "foreign".into(),
                 attempt_id: "attempt".into(),
                 status: ResultStatus::Succeeded,
@@ -255,6 +258,7 @@ fn attempt_loop_refuses_foreign_and_malformed_terminal_messages() {
     }
 
     let no_payload = Body::Result {
+        refusal: None,
         effect_id: "effect".into(),
         attempt_id: "attempt".into(),
         status: ResultStatus::Succeeded,
@@ -272,6 +276,7 @@ fn attempt_loop_refuses_foreign_and_malformed_terminal_messages() {
     );
 
     let failed = Body::Result {
+        refusal: None,
         effect_id: "effect".into(),
         attempt_id: "attempt".into(),
         status: ResultStatus::Failed,
@@ -353,6 +358,7 @@ fn pipe_and_stdout_failures_are_terminal_reports() {
 #[test]
 fn a_protocol_violation_after_start_is_indeterminate() {
     let foreign = wire(Body::Result {
+        refusal: None,
         effect_id: "other".into(),
         attempt_id: "attempt".into(),
         status: ResultStatus::Succeeded,
@@ -459,6 +465,7 @@ fn a_refused_driver_field_is_never_copied_into_the_outcome() {
         foreign(
             "result for foreign effect",
             Body::Result {
+                refusal: None,
                 effect_id: MARKER.into(),
                 attempt_id: "attempt".into(),
                 status: ResultStatus::Succeeded,
@@ -555,6 +562,7 @@ fn the_deadline_kill_unblocks_a_stalled_driver_tree() {
 #[test]
 fn an_offered_session_reaches_only_a_driver_that_declared_resume() {
     let advertising = wire(Body::Capabilities {
+        probe: None,
         driver: "test".into(),
         version: "1".into(),
         supports: vec!["resume".into()],
@@ -605,6 +613,7 @@ fn a_broken_pipe_at_the_offer_is_a_determinate_failure() {
     let script = format!(
         "printf '%s\\n' '{}'",
         wire(Body::Capabilities {
+            probe: None,
             driver: "test".into(),
             version: "1".into(),
             supports: vec!["resume".into()],
@@ -699,6 +708,7 @@ fn accepted() -> String {
 
 pub(super) fn succeeded() -> String {
     wire(Body::Result {
+        refusal: None,
         effect_id: "effect".into(),
         attempt_id: "attempt".into(),
         status: ResultStatus::Succeeded,
@@ -1121,6 +1131,7 @@ fn an_unresolved_cleanup_is_acted_on_as_indeterminate() {
     let report = |outcome: AttemptOutcome, cleanup: Cleanup| AttemptReport {
         outcome,
         refused: None,
+        refusal: None,
         cleanup,
         session_ref: None,
         checkpoints: Vec::new(),
@@ -1823,6 +1834,7 @@ fn a_driver_that_stops_reading_cannot_hold_the_shutdown_write() {
     let line = |body: Body| wire(body).len() + 1;
     let start = |pad: &str| {
         line(Body::Start {
+            probe: None,
             effect_id: "effect".into(),
             attempt_id: "attempt".into(),
             seat: "seat".into(),

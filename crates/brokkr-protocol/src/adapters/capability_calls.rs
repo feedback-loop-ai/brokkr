@@ -86,7 +86,7 @@ impl Observation {
     /// One Codex `item.started` or `item.completed` event. The pair shares
     /// its item id; counting it once is not this reading's to decide.
     pub(super) fn codex(event: &Value) -> Observation {
-        let tool = match text(event, "/item/type") {
+        let tool = match codex_item_type(event) {
             Some(kind) if kind == CODEX_MCP_ITEM => {
                 match (text(event, "/item/server"), text(event, "/item/tool")) {
                     (Some(server), Some(tool)) if !server.is_empty() && !tool.is_empty() => {
@@ -154,6 +154,13 @@ fn text(value: &Value, pointer: &str) -> Option<String> {
         .pointer(pointer)
         .and_then(Value::as_str)
         .map(str::to_string)
+}
+
+/// The category a Codex `item.*` event names (`agent_message`,
+/// `command_execution`, `mcp_tool_call`, …), read once here for both the
+/// observation and the probe's answer bound (decision 0103 ruling 4(a)).
+pub(super) fn codex_item_type(event: &Value) -> Option<String> {
+    text(event, "/item/type")
 }
 
 /// A Claude or dsh tool name. One under the MCP prefix is an MCP call, split

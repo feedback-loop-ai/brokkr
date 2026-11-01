@@ -92,6 +92,7 @@ mod tests {
 
     fn failed(exit_code: i32, stderr: &str) -> Invocation {
         Invocation {
+            answer: None,
             exit_code,
             session_meta: Map::new(),
             stdout: String::new(),
