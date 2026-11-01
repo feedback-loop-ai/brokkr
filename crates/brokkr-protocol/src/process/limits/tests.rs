@@ -191,6 +191,11 @@ fn a_line_one_byte_past_the_frame_limit_ends_the_attempt_indeterminate() {
 /// bounded, and the attempt ends.
 #[test]
 fn an_endless_line_with_no_newline_is_refused_and_its_driver_ended() {
+    if !in_its_own_engine(
+        "process::limits::tests::an_endless_line_with_no_newline_is_refused_and_its_driver_ended",
+    ) {
+        return;
+    }
     let started = Instant::now();
     let (report, _) =
         Driver::playing(Vec::new()).attempt_then(framing(512), b"", "; exec cat /dev/zero");
@@ -256,6 +261,11 @@ fn a_refused_line_outranks_the_deadline_while_a_checkpoint_is_journaled() {
 /// failure.
 #[test]
 fn a_refused_line_outranks_a_start_the_driver_never_read() {
+    if !in_its_own_engine(
+        "process::limits::tests::a_refused_line_outranks_a_start_the_driver_never_read",
+    ) {
+        return;
+    }
     let script = format!("{}; head -c 4096 /dev/zero", accepting());
     let input = json!({ "pad": "x".repeat(4 * 1024 * 1024) });
     let ended = [framing(4096), framing(512)].map(|limits| {
@@ -429,6 +439,11 @@ fn invalid_utf8_is_a_failure_within_the_limit_and_refused_past_it() {
 /// driver writes after its result is not protocol, whatever its length.
 #[test]
 fn a_result_past_the_frame_limit_ends_the_attempt_indeterminate() {
+    if !in_its_own_engine(
+        "process::limits::tests::a_result_past_the_frame_limit_ends_the_attempt_indeterminate",
+    ) {
+        return;
+    }
     let frame = result(400);
     let limit = frame.len() - 1;
     let reached = AttemptOutcome::Succeeded {
