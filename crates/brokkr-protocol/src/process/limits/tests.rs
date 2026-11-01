@@ -11,7 +11,7 @@ use serde_json::json;
 
 use super::*;
 use crate::process::tests::{accepting, command, lost_after_start, succeeded};
-use crate::process::{DriverProcess, Host, SpawnEnv};
+use crate::process::{in_its_own_engine, DriverProcess, Host, SpawnEnv};
 use crate::{AttemptReport, Body, Cleanup, Message, ResultStatus, PROTO};
 
 const PAST: &str = "; the driver was ended, and what it did is unknown";
@@ -161,6 +161,11 @@ fn frame_exceeded(limit: usize, first: &str, sha256: &str) -> AttemptOutcome {
 /// keeps the checkpoint it would have been.
 #[test]
 fn a_line_one_byte_past_the_frame_limit_ends_the_attempt_indeterminate() {
+    if !in_its_own_engine(
+        "process::limits::tests::a_line_one_byte_past_the_frame_limit_ends_the_attempt_indeterminate",
+    ) {
+        return;
+    }
     let frame = checkpoint(300);
     let limit = frame.len() - 1;
     let driver = Driver::playing(vec![frame, the_result()]);
@@ -209,6 +214,11 @@ fn an_endless_line_with_no_newline_is_refused_and_its_driver_ended() {
 /// may safely repeat.
 #[test]
 fn a_refused_line_outranks_the_deadline_while_a_checkpoint_is_journaled() {
+    if !in_its_own_engine(
+        "process::limits::tests::a_refused_line_outranks_the_deadline_while_a_checkpoint_is_journaled",
+    ) {
+        return;
+    }
     let deadline = Duration::from_secs(1);
     let played = [checkpoint(8), vec![b'x'; 513]].concat();
     let driver = Driver::playing(vec![played]);

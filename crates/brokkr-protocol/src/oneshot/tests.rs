@@ -1,6 +1,7 @@
 use super::*;
 use serde_json::json;
 
+use crate::process::in_its_own_engine;
 use crate::{Body, Message, ResultStatus};
 
 /// The literals the scripted driver rewrites with the effect and attempt
@@ -86,6 +87,9 @@ fn seconds(count: u64) -> Duration {
 
 #[test]
 fn a_produced_attempt_carries_its_result_and_checkpoints() {
+    if !in_its_own_engine("oneshot::tests::a_produced_attempt_carries_its_result_and_checkpoints") {
+        return;
+    }
     let driver = Scripted::new(
         concluded(
             ResultStatus::Succeeded,
@@ -118,6 +122,10 @@ fn a_produced_attempt_carries_its_result_and_checkpoints() {
 
 #[test]
 fn a_failed_a_silent_and_an_unspawnable_driver_all_refuse() {
+    if !in_its_own_engine("oneshot::tests::a_failed_a_silent_and_an_unspawnable_driver_all_refuse")
+    {
+        return;
+    }
     let driver = Scripted::new(
         concluded(
             ResultStatus::Failed,
