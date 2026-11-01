@@ -131,8 +131,8 @@ fn an_unopened_roots_path_keeps_boxed_writers_on_every_host() {
     assert_eq!(keep(&open(&work, ["run-w", "w1"]), &records), Ok(()));
     for spelled in [Path::new(""), Path::new(".")] {
         let nameless = coordination(spelled);
-        let unproved = Unknown::Unmounted(nameless.clone());
-        assert_eq!(keep(&of(&work), &nameless), Err(unproved), "{spelled:?}");
+        let refused = keep(&of(&work), &nameless);
+        assert_eq!(refused, Err(Unknown::Homeless), "{spelled:?}");
         assert_eq!(keep(&open(&work, ["run-w", "w1"]), &nameless), Ok(()));
     }
 }

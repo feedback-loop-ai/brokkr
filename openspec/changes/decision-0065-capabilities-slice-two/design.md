@@ -1419,7 +1419,7 @@ witness/compose pins accompany only rows that change their inputs.
 | U1d5 | U1d4 | Record Codex's boxed replacement; 5.7–5.8 | `adapters/codex.json`; `crates/brokkr-cli/src/init/adapters.rs` |
 | U1d6 | U1d5 | Record dsh's replacement on the keyed routes; 5.9–5.10 | `adapters/dsh.json`; `crates/brokkr-cli/src/init/adapters.rs` |
 | U9b1a | U1d3, U8e3, U8h, U8i, U8j, U8k, U1d4, U1d5, U1d6 | Lift the MCP compile fence where the namespace path is proved; no task (42.2, 46.1–46.2 are U9b1b's) | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs`; `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/broker/terminal.rs`; `crates/brokkr-runtime/src/engine/isolation.rs` |
-| U9b1b | U9b1a | Prove the enabled namespace path end to end; 42.2, 46.1–46.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs`; `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/broker/terminal.rs`; `crates/brokkr-runtime/src/engine/isolation.rs` |
+| U9b1b | U9b1a | Prove the enabled namespace path end to end; 42.2, 46.1–46.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs`; `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/broker/terminal.rs`; `crates/brokkr-runtime/src/engine/isolation.rs`; `crates/brokkr-cli/src/verbs/setup.rs`; `crates/brokkr-cli/Cargo.toml` (F1, 2026-10-31) |
 | U9b2 | U9b1b | Publish implemented scope and contract guidance; 47.1–47.2 | None |
 | U8m | U8h | Redact doctor's server words and refuse a storeless boxed writer; 47.3–47.4 | `crates/brokkr-cli/src/doctor/capabilities/mcp.rs`; `crates/brokkr-runtime/src/engine/boxed.rs` |
 | U10a | U9b2, U8m | Audit removals and run final candidate gates; 48.1–49.2 | None |
@@ -2485,6 +2485,12 @@ U9b1b closes tasks 42.2, 46.1 and 46.2 on U9b1a's tree, in the scope of U9b1's t
 - exact coverage and the crap ratchet over the lift.
 
 A defect the matrix finds in U9b1a's code is fixed in the row's files, under U9b1's rulings. Owning tests: as U9b1.
+
+Controller rulings 2026-10-31 on U9b1b's first run (under the operator's standing ruling of 2026-10-28, each finding's recommended option; run 0065-slice-two-unit-u9b1b-see-th-9ea6406d stopped IMPL-BLOCKED after an oversized visit):
+
+- F1. Production never set `no_new_privs` on a harness, so on an ordinary Linux host MB3 refused an MCP seat under a plain `brokkr run` ("MCP server box filesystem identity is not protected") before any lookup. `brokkr driver` now sets `no_new_privs` on itself, through rustix's safe `thread::set_no_new_privs`, before it spawns a harness the engine brokers MCP for, on Linux. A driver that cannot set it refuses the launch. A launch with no brokered MCP is unchanged, and a seat that no `brokkr driver` starts keeps today's refusal. `crates/brokkr-cli/src/verbs/setup.rs` and `crates/brokkr-cli/Cargo.toml` (the `thread` feature on brokkr-cli's rustix; the lockfile does not move) join this row. Where the driver can learn of a brokered launch only through `crates/brokkr-protocol/src/adapters.rs`'s `serve`, that file joins too, size-neutral. Ruling 21's second case is then proved through real dispatch with no `setpriv` wrapper, and the fix has its own compiling removal recorded. Before this PR lands, the controller runs a real Claude and a real Codex harness through a brokered launch under the flag on a Linux host. A harness that breaks under it returns to the operator as a finding.
+- F5. The real broker and bootstrap never write invalid status tags or a malformed complete frame, so those rows of 42.2 and of MB4's complete-frame matrix are proved at the private seams. 42.2 and 46.2 accept those seams.
+- F6. A seat whose own writable reach covers its server's program is refused first by the lease's identity cause, not by MB3's "launch resolves inside seat-writable reach" entry. Both refuse with zero lookups. MB3's table in `specs/mcp-capability-broker/spec.md` records that order.
 
 ### U9b2 — Publish implemented scope and contract guidance
 

@@ -36,7 +36,7 @@ use serde_json::{json, Value};
 const COORDINATION: &str = ".local/state/brokkr/capabilities";
 
 /// A work seat, then the review it leads to.
-const POLICY: &str = r#"{"phases": ["work", "review", "done"], "initial": "work",
+pub(crate) const POLICY: &str = r#"{"phases": ["work", "review", "done"], "initial": "work",
   "terminal": ["done"],
   "rules": [{"id": "WORK", "from": "work", "result": "complete", "next": "review", "reason": "w"},
             {"id": "CLEAN", "from": "review", "result": "clean", "next": "done", "reason": "r"}]}"#;

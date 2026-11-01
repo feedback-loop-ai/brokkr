@@ -85,12 +85,15 @@ struct Seen {
     chain: Vec<(u64, u64)>,
 }
 
+/// The object at `at`, by its device and inode, where anything stands there.
+fn identity(at: &Path) -> Option<(u64, u64)> {
+    let found = std::fs::metadata(at).ok()?;
+    Some((found.dev(), found.ino()))
+}
+
 impl Seen {
     fn of(path: &Path) -> Option<Seen> {
-        let chain = path.ancestors().map(|at| {
-            let found = std::fs::metadata(at).ok()?;
-            Some((found.dev(), found.ino()))
-        });
+        let chain = path.ancestors().map(identity);
         Some(Seen {
             chain: chain.collect::<Option<_>>()?,
         })
@@ -339,10 +342,6 @@ pub(super) fn covers_spelled(writable: &Path, root: &Path) -> bool {
         at.join(rest)
     };
     let (writes, root) = (whole(writable), whole(root));
-    let identity = |at: &Path| {
-        let found = std::fs::metadata(at).ok()?;
-        Some((found.dev(), found.ino()))
-    };
     let own = identity(&writes);
     let above = root
         .ancestors()

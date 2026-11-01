@@ -38,7 +38,8 @@ use thiserror::Error;
 use super::{dispatch_driver, CapabilityAdapters, CompileError, SeatClass, SiteFacts};
 use crate::agents::ResumeStatus;
 use crate::agents::{Adapter, Candidate, Composition, Lowering, Uncarried};
-use crate::agents::{McpAxis, McpHands, McpHost, McpInvocation, McpShape, McpUnmeasured};
+use crate::agents::{McpAxis, McpHands, McpHost, McpInvocation, McpIsolation};
+use crate::agents::{McpShape, McpUnmeasured};
 use crate::capabilities::{
     Authority, Implementation, McpFence, NativeInventory, Outcome, Requests, Serving, SiteAsks,
     SiteCapabilities, Strength, OPAQUE_HARNESS,
@@ -132,7 +133,7 @@ fn strictness(
     adapter: Option<&Adapter>,
 ) -> Vec<(McpShape, McpAxis)> {
     let hands = match intent {
-        Some(McpIntent::Hands | McpIntent::Brokered) => McpHands::Boxed,
+        Some(McpIntent::Hands | McpIntent::NetworkedHands | McpIntent::Brokered) => McpHands::Boxed,
         Some(McpIntent::Empty) if harnessed => McpHands::Harness,
         Some(McpIntent::Empty) => McpHands::NoHands,
         Some(McpIntent::NoModelSurface) | None => return Vec::new(),
@@ -173,6 +174,9 @@ pub(crate) enum McpIntent {
     Empty,
     /// The engine's hands server alone.
     Hands,
+    /// An inline site's [`McpIntent::Hands`], whose spec asks the network:
+    /// the one set MB2 refuses an MCP holding beside by that fact.
+    NetworkedHands,
     /// The hands server and, beside it, one broker per MCP holding the
     /// serving's outcome brokers (U7d2; MB1): never composed, only read by
     /// the engine from a hands set against its holdings
@@ -211,6 +215,7 @@ impl McpIntent {
                 | AdapterKind::Dsh,
             )
             | None => match hands {
+                Some(spec) if spec.network => McpIntent::NetworkedHands,
                 Some(_) => McpIntent::Hands,
                 None => McpIntent::Empty,
             },
@@ -247,11 +252,14 @@ impl McpIntent {
         let first = servers.peek().map(|(capability, _)| capability.to_string());
         match (self, first) {
             (McpIntent::Empty, None) => Ok(McpContribution::Empty),
-            (McpIntent::Hands | McpIntent::Brokered, None) => Ok(McpContribution::Hands),
+            (McpIntent::Hands | McpIntent::NetworkedHands | McpIntent::Brokered, None) => {
+                Ok(McpContribution::Hands)
+            }
             (McpIntent::NoModelSurface, None) => Ok(McpContribution::NoModelSurface),
             (McpIntent::Hands | McpIntent::Brokered, Some(_)) => Ok(McpContribution::Brokered(
                 servers.map(|(_, server)| server).collect(),
             )),
+            (McpIntent::NetworkedHands, Some(first)) => Err(Unservable::NetworkedHands(first)),
             (McpIntent::Empty, Some(first)) => Err(Unservable::NoHands(first)),
             (McpIntent::NoModelSurface, Some(first)) => Err(Unservable::NoModelChannel(first)),
         }
@@ -292,8 +300,18 @@ pub(crate) enum McpContribution<'a> {
 pub(crate) enum Unservable {
     #[error("MCP capability '{0}' requires workspace hands at this site")]
     NoHands(String),
+    #[error("MCP capability '{0}' requires workspace hands with network false")]
+    NetworkedHands(String),
     #[error("MCP capability '{0}' requires a model harness with an engine-owned MCP channel")]
     NoModelChannel(String),
+    #[error(
+        "MCP capability '{0}' cannot protect broker evidence from this provider's native tools"
+    )]
+    EvidenceUnprotected(String),
+    #[error(
+        "MCP capability '{0}' cannot protect its secret bindings from this provider's native tools"
+    )]
+    SecretsUnprotected(String),
     #[error("requires capability '{capability}' through dialect '{dialect}', but {cause}")]
     Uncarried {
         capability: String,
@@ -313,22 +331,64 @@ fn representable(server: &str) -> bool {
 
 /// One serving as the capability pass judges its MCP facts: the set it
 /// intends, `None` where it composed nothing and launches nothing; the
-/// adapter answering for its provider, `None` for an opaque command; and
-/// its SI2 record ([`strictness`]).
+/// adapter answering for its provider, `None` for an opaque command; its
+/// SI2 record ([`strictness`]); and whether its hands ask the network.
 pub(super) struct McpSite<'a> {
     pub(super) intent: Option<McpIntent>,
     pub(super) adapter: Option<&'a Adapter>,
     pub(super) strict: Vec<(McpShape, McpAxis)>,
+    pub(super) networked: bool,
+}
+
+/// Whether `axis` of every shape in `served` is measured on `adapter`.
+fn proved(
+    adapter: &Adapter,
+    served: &[(McpShape, McpAxis)],
+    axis: impl Fn(&McpIsolation) -> &McpAxis,
+) -> bool {
+    served.iter().all(|(shape, _)| {
+        let isolation = adapter.mcp.isolation(shape);
+        matches!(axis(&isolation), McpAxis::Measured { .. })
+    })
 }
 
 impl McpSite<'_> {
+    /// MB2's two measured facts on every shape this serving is served as: its
+    /// provider's native tools confined from the evidence of `first`, its first
+    /// holding, and, for a holding binding a secret, kept from the store and the
+    /// server's process.
+    fn protects(
+        &self,
+        adapter: &Adapter,
+        first: &str,
+        outcome: &Outcome,
+    ) -> Result<(), Unservable> {
+        if !proved(adapter, &self.strict, |isolation| &isolation.native_write) {
+            return Err(Unservable::EvidenceUnprotected(first.to_string()));
+        }
+        let secret_bearing = (outcome.held.iter()).find(|(_, holding)| {
+            matches!(&holding.implementation, Implementation::Mcp { secrets, .. } if !secrets.is_empty())
+        });
+        let kept = proved(adapter, &self.strict, |isolation| &isolation.store_read)
+            && proved(adapter, &self.strict, |isolation| &isolation.process_read);
+        match (kept, secret_bearing) {
+            (false, Some((capability, _))) => {
+                Err(Unservable::SecretsUnprotected(capability.clone()))
+            }
+            (true, _) | (false, None) => Ok(()),
+        }
+    }
+
     /// MB1 and MB2 at this serving alone (U7b), once `outcome` is resolved
-    /// for it: an MCP holding needs the hands server and a model channel
-    /// whatever its strength; then its provider's own measured carriage,
-    /// which a `requires` ask refuses on and a `wants` drops by, the dropped
-    /// holding contributing nothing; then each server's exact name. The
-    /// adapter, set and outcome are this serving's own, so a fallback never
-    /// borrows another's holdings, carriage or set.
+    /// for it. Whatever an MCP holding's strength, in MB2's order: hands
+    /// with the network off, the hands server and a model channel, measured
+    /// native-write confinement on every shape it is served as, and, for a
+    /// holding that binds secrets, measured store and process read isolation
+    /// on each. Then its provider's own measured carriage, which a `requires`
+    /// ask refuses on and a `wants` drops by, the dropped holding contributing
+    /// nothing; then each server's exact name. The adapter, set and outcome
+    /// are this serving's own, so a fallback never borrows another's holdings,
+    /// carriage or set.
     pub(super) fn contribute(
         &self,
         who: Site<'_>,
@@ -345,10 +405,14 @@ impl McpSite<'_> {
         let Some((first, _)) = held.first() else {
             return Ok(());
         };
+        if self.networked && intent != McpIntent::Empty {
+            return Err(Unservable::NetworkedHands(first.clone()));
+        }
         intent.contribution(outcome)?;
         let Some(adapter) = self.adapter else {
             return Err(Unservable::NoModelChannel(first.clone()));
         };
+        self.protects(adapter, first, outcome)?;
         if let Err(cause) = adapter.mcp.carries(&outcome.provider) {
             for (capability, dialect) in held {
                 match asks.get(&capability) {
@@ -391,7 +455,12 @@ impl McpSite<'_> {
 /// fragment holds.
 fn typed_hands(intent: Option<McpIntent>, fragment: &[String]) -> usize {
     match intent {
-        Some(McpIntent::Hands | McpIntent::Brokered | McpIntent::NoModelSurface) => fragment.len(),
+        Some(
+            McpIntent::Hands
+            | McpIntent::NetworkedHands
+            | McpIntent::Brokered
+            | McpIntent::NoModelSurface,
+        ) => fragment.len(),
         Some(McpIntent::Empty) | None => 0,
     }
 }
@@ -583,10 +652,17 @@ pub(super) fn candidate_capabilities_with(
         .map(|candidate| {
             let intent = McpIntent::of_candidate(candidate);
             let adapter = adapter(adapters, &candidate.provider);
+            let networked = match &candidate.lowering {
+                Lowering::Composed(composition) => {
+                    (composition.serving.spec.as_ref()).is_some_and(|hands| hands.network)
+                }
+                Lowering::Refused(_) | Lowering::Unavailable => false,
+            };
             McpSite {
                 intent,
                 adapter,
                 strict: strictness(intent, class.is_some(), asks.class, adapter),
+                networked,
             }
         })
         .collect();
@@ -631,6 +707,7 @@ pub(super) fn inline_capabilities(
         intent: inline.intent,
         adapter,
         strict: strictness(inline.intent, false, asks.class, adapter),
+        networked: inline.intent == Some(McpIntent::NetworkedHands),
     };
     let servings = std::slice::from_ref(&serving);
     let resolve: Resolve<'_> = &|asks, serving| resolve(authority, asks, serving);

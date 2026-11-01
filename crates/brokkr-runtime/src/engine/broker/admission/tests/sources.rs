@@ -1754,6 +1754,36 @@ fn a_boxed_writers_reach_of_an_unopened_root_that_cannot_be_proved_is_refused() 
     assert_eq!(keep(&open(&work, ["run-w", "w2"]), &records), Ok(()));
 }
 
+/// U9b1a's final review, L1: where the host names no HOME, `Engine::admit`
+/// has only an empty root to compare, and a boxed writer is refused by that
+/// cause, journaled and holding no lease; the mount table is not blamed.
+#[test]
+fn a_boxed_writer_is_refused_by_its_own_cause_where_the_host_names_no_home() {
+    let host = Host::new();
+    let beside = host.worktree("beside");
+    let (_dir, mut seat, _) = seat_binding(&[&beside]);
+    let observed = crate::engine::broker::observation::Observed {
+        host: Err(crate::engine::broker::Unprovisioned::Root),
+        survey: &crate::engine::broker::surveyed,
+        home: None,
+        open: |_| None,
+    };
+    let body = seat.bundle.seats["work"].clone();
+    let (body, _) = body.body.selected(None).unwrap();
+    let timed = (Instant::now(), Duration::from_secs(30));
+    let ids = ["effect", "attempt", "work"];
+    let admitted = seat.admit(ids, body, &Selection::new(), timed, &observed);
+    assert!(!admitted.unwrap());
+    let (event, payload) = last(&seat);
+    assert_eq!(event, EventType::EffectFailed, "{payload}");
+    assert_eq!(
+        payload["error"],
+        "dispatch refused: MCP server box filesystem identity is not protected: this host names \
+         no HOME, so no boxed writer is proved apart from its coordination root"
+    );
+    assert_eq!(seat.held, None);
+}
+
 /// H3's transition, each step's outcome exact. The walk not protected, the
 /// root-reaching writer is refused, so no such writer is live. The walk then
 /// repaired, as that writer could have done from inside its box: a later
