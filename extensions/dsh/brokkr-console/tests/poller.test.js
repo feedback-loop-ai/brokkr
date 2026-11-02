@@ -208,16 +208,23 @@ test('unchanged Realms snapshots reuse cached day analytics', async () => {
   assert.equal(analytics(), 1)
 })
 
-test('a source pin: the one fleet message under lib is built only inside sendFleet', () => {
+test('a source pin: every world-data message under lib is sent only through publish', () => {
   const root = new URL('../lib/', import.meta.url)
   const files = readdirSync(root, { recursive: true, encoding: 'utf8' }).filter((file) => file.endsWith('.js'))
-  const built = []
+  const sends = []
   for (const file of files) {
     const text = readFileSync(new URL(file, root), 'utf8')
-    for (let at = text.indexOf("type: 'fleet'"); at !== -1; at = text.indexOf("type: 'fleet'", at + 1)) {
+    for (let at = text.indexOf('peer.send('); at !== -1; at = text.indexOf('peer.send(', at + 1)) {
       const before = text.slice(0, at)
-      built.push({ file, sendFleet: before.lastIndexOf('function sendFleet(') > before.lastIndexOf('\n  function ') })
+      const inside = (name) => before.lastIndexOf(`function ${name}(`) > before.lastIndexOf('\n  function ')
+      sends.push({ file, publish: inside('publish'), error: inside('sendError') })
     }
   }
-  assert.deepEqual(built, [{ file: 'host/poller.js', sendFleet: true }])
+  assert.deepEqual(
+    sends.filter((send) => !send.publish && !send.error),
+    [],
+    'every peer.send is inside the one publish function or the error helper',
+  )
+  assert.deepEqual(sends.filter((send) => send.publish), [{ file: 'host/poller.js', publish: true, error: false }], 'one publication function sends world data')
+  assert.deepEqual([...new Set(sends.map((send) => send.file))], ['host/poller.js'], 'no other module sends to a peer')
 })
