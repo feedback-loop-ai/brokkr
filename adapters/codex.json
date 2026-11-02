@@ -190,16 +190,16 @@
           "host": "linux"
         },
         "ambient": {
-          "measured": "U0b X30 (U9c2's rejoin argv) after X30-ctl's positive control, X19 and XA4 (the operator's login): no user, project, plugin or codex_apps server started while the engine answered; X30-plug and X30-user isolate two options; /etc sources were not planted on a rejoin and the enterprise cloud layer is never measured; X20, a rejoin with hands, was not measured"
+          "measured": "U0b X30 (U9c2's rejoin; X30-ctl the control; X30-plug, X30-user isolate two options), X19, XA4 (the operator's login), all read-only, and pass 6's X19w (workspace-write; X13c the control): no user, project, plugin or codex_apps server started while the engine answered; /etc was not planted on a rejoin and the enterprise cloud layer is never measured; X20, a rejoin with hands, was not measured"
         },
         "native_write": {
-          "unmeasured": "U0b measured no workspace-write rejoin, the class this work shape is served: every U0b rejoin (X19, X25, X30, XA4) ran read-only; on those, X25 saw the read-only class re-imposed and X19's second turn context the brokkr profile re-imposed"
+          "unmeasured": "U0b measured this axis on no workspace-write rejoin, the class this work shape is served: every U0b rejoin but ambient's X19w (X19, X25, X30, XA4) ran read-only; on those, X25 saw the read-only class re-imposed and X19's second turn context the brokkr profile re-imposed"
         },
         "store_read": {
-          "unmeasured": "U0b measured no workspace-write rejoin, the class this work shape is served: on the read-only rejoin X25 the re-imposed brokkr profile denied the store at its production path in the workdir, and XA4's turn contexts show the store deny on both turns"
+          "unmeasured": "U0b measured this axis on no workspace-write rejoin, the class this work shape is served: on the read-only rejoin X25 the re-imposed brokkr profile denied the store at its production path in the workdir, and XA4's turn contexts show the store deny on both turns"
         },
         "process_read": {
-          "unmeasured": "U0b measured no workspace-write rejoin, the class this work shape is served: on the read-only rejoin X25 codex's native shell found no process canary"
+          "unmeasured": "U0b measured this axis on no workspace-write rejoin, the class this work shape is served: on the read-only rejoin X25 codex's native shell found no process canary"
         }
       }
     ]

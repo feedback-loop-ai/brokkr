@@ -463,7 +463,7 @@
     89 crates/brokkr-cli/tests/capability_broker/enabled/allowance.rs
    342 crates/brokkr-cli/tests/capability_broker/enabled/boxes.rs
    241 crates/brokkr-cli/tests/capability_broker/enabled/dispatch.rs
-   269 crates/brokkr-cli/tests/capability_broker/enabled/lifetime.rs
+   274 crates/brokkr-cli/tests/capability_broker/enabled/lifetime.rs
    455 crates/brokkr-cli/tests/capability_broker/enabled/matrix.rs
     82 crates/brokkr-cli/tests/capability_broker/enabled/negotiation.rs
    235 crates/brokkr-cli/tests/capability_broker/enabled/reach.rs
@@ -618,7 +618,7 @@
    518 crates/brokkr-protocol/src/hands/tests/sealed.rs
   1134 crates/brokkr-protocol/src/hands/tests/server.rs
   1900 crates/brokkr-protocol/src/hands/tests/sources.rs
-  1267 crates/brokkr-protocol/src/hands/tests/store.rs
+  1276 crates/brokkr-protocol/src/hands/tests/store.rs
     35 crates/brokkr-protocol/src/native_controls/grammar/managed/tests.rs
    309 crates/brokkr-protocol/src/native_controls/mcp/tests.rs
  12555 crates/brokkr-protocol/src/native_controls/tests.rs
@@ -654,7 +654,7 @@
    433 crates/brokkr-runtime/src/agents/charter_data/tests.rs
    241 crates/brokkr-runtime/src/agents/load/overlay/tests.rs
    396 crates/brokkr-runtime/src/agents/load/tests.rs
-  1312 crates/brokkr-runtime/src/agents/mcp/tests.rs
+  1315 crates/brokkr-runtime/src/agents/mcp/tests.rs
   5837 crates/brokkr-runtime/src/agents/tests.rs
     92 crates/brokkr-runtime/src/agents/tests/harness_auth.rs
    399 crates/brokkr-runtime/src/anchor/tests.rs

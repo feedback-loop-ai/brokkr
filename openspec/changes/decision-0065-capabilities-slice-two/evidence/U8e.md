@@ -24,7 +24,13 @@ attempt's drivers, and it reads evidence only once every process the
 attempt owned is proven settled, not only the driver whose report it holds.
 
 The gate in `Engine::fold_with` (`engine/broker/fold.rs`) is widened by one
-fact the lease already carries. Besides this report's `Cleanup::Settled`, no
+fact the lease already carries. (Link added by U10a's audit: what makes the
+broker's supervisor, its bubblewrap and the waiting bootstrap "settled" for
+task 42.1 is U6f2's tasks 32.1 and 32.2, proved in
+[U6f2.md](U6f2.md#real-process-observations) and bound in
+[its Binding section](U6f2.md#binding); `crates/brokkr-protocol/src/process.rs`
+reports `Cleanup::Settled` only once the attempt's process tree has ended,
+and `Cleanup::Unresolved` otherwise.) Besides this report's `Cleanup::Settled`, no
 driver of the attempt may have been witnessed unresolved (`Held::unproven`,
 which #403's `settlement::witnessed` sets the first time any of the
 attempt's drivers ends with its tree not proven over). A panel member that

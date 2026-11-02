@@ -159,6 +159,10 @@ suite runs above.
 | M7, L2: the overlay's lower layer by path again (`Namespace::overlay` records no source) | `a_source_replaced_…`: left `"base\nobserved\ndecoy\nread-only\n0\n1\n2\n3\n"`, so by path the overlay read the decoy. `every_sealed_source_…`: the held list lacked `…/layer`. `an_overlay_over_a_source_sealed_absent_refuses`: built. |
 | M8, L4: the hand-off ignores a failed `close_range` (`(_, true) => Ok(())` in `entry::inherit`) | `a_kernel_without_…`: left `Ok(0)`, right `Err("hands could not spawn bwrap: Invalid argument (os error 22)")`. The launch went ahead without the close-on-exec sweep. |
 
+None of M1 to M8 bound `a_source_that_no_longer_opens_as_sealed_refuses_with_its_exact_cause`
+(`hands/tests/held.rs:116`, `Sealed::opened`), run 2's L2. U10a ran its two
+removals on main 794f7b171 and records them in [U10a.md](U10a.md#c54-the-missing-removal-for-sealedopened).
+
 ## The kernel prerequisite (L4)
 
 The descriptor hand-off (`entry::inherit`, which `Boxed::launch` installs

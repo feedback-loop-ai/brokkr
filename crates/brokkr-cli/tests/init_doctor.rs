@@ -1261,14 +1261,14 @@ fn doctor_reads_the_found_folder_as_its_bundle() {
 }
 
 /// R5 where the map cannot be read at all: what each realm grants is
-/// unknown (design D8), so the folder is compiled under no map in its
-/// place neither given nor found, and its compile is a run's, refused by
-/// the map. `doctor --bundle .brokkr` names that refusal on its bundle
-/// line; with the folder found, the folder line alone names it, and the
-/// report is otherwise the same. No compile is reached past the map: a
-/// folder that would refuse on its own too reads exactly as before.
+/// unknown (design D8), so the folder is never compiled, under no map or
+/// any other; its compile is a run's, refused by the map alone.
+/// `doctor --bundle .brokkr` names that refusal on its bundle line and
+/// reports no compile; with the folder found, the folder line alone names
+/// it, and the report is otherwise the same. No compile is reached past the
+/// map: a folder that would refuse on its own too reads exactly as before.
 #[test]
-fn a_folder_under_a_map_that_cannot_be_read_is_compiled_under_no_map() {
+fn a_folder_under_a_map_that_cannot_be_read_is_refused_by_the_map_alone() {
     let repo = Repo::new();
     assert_eq!(repo.brokkr("", &["init", "."]).code, Some(0));
     let dsh = crate::workspace_root::workspace().join("adapters/dsh.json");
