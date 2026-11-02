@@ -153,5 +153,6 @@ the harness's own authentication names, and a response it cannot mask
 safely, such as a digits-only value left as a bare JSON number. Neither
 changes how the surfaces above mask; the [security
 model](../security-model.md#mcp-capabilities-through-the-broker) says
-which harnesses can hold a keyed MCP grant today (none yet: a Claude
-work seat whose dialect binds a secret is refused at compile).
+which harnesses can hold a keyed MCP grant today (Claude, on a work
+seat with boxed hands, since U1d7, #958; a Claude seat without hands is
+refused at compile).

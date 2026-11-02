@@ -270,13 +270,14 @@ alike, rather than dropping it:
   driver's own cause, "provider '<provider>' has no measured strict MCP
   configuration for 'brokers'" (U9b1c, #940 f63c229ce).
 
-So today a brokered MCP grant works on **Claude** alone. And a Claude
-work seat whose dialect binds a secret still refuses with "cannot
-protect its secret bindings from this provider's native tools",
-because Claude's boxed replacement shape records its store read as
-unmeasured (U9b1b's F10): a keyed MCP server cannot yet be granted to a
-Claude seat, until a later unit records the store-denied
-re-measurement. The dialect itself must be a stdio `argv` with an empty
+So today a brokered MCP grant works on **Claude** alone. A Claude
+work seat with boxed hands whose dialect binds a secret compiles since
+U1d7 (#958, 794f7b171): Claude's boxed replacement shape is recorded
+as measured on Claude Code 2.1.316, its store read denied by the U8h
+box (U0b pass 9), so a keyed MCP server can be granted to such a seat.
+A Claude seat without hands still refuses one with "cannot protect its
+secret bindings from this provider's native tools", because native
+Read reads the store there (U9b1b's F10). The dialect itself must be a stdio `argv` with an empty
 restriction: a URL connection meets "MCP URL connections are not
 implemented in decision 0065 slice two", an `argv` that holds a
 `{{secret:NAME}}` reference meets "MCP connection argv cannot contain
