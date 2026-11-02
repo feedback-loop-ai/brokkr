@@ -250,6 +250,28 @@ function matchingClose(text, open, opener, closer) {
   return -1
 }
 
+/**
+ * Every call of `peer.send`, however it is spelled: whitespace or comments
+ * between the pieces, an optional chain on either side, or a quoted key.
+ */
+function peerSendCalls(text) {
+  const masked = maskedSource(text)
+  const calls = []
+  const dotted = /\bpeer\s*(?:\?\.\s*|\.\s*)send\s*(?:\?\.\s*)?\(/g
+  for (let match = dotted.exec(masked); match !== null; match = dotted.exec(masked)) {
+    calls.push({ at: match.index, open: match.index + match[0].length - 1 })
+  }
+  const bracket = /\bpeer\s*\[[^\]]*\]\s*(?:\?\.\s*)?\(/g
+  for (let match = bracket.exec(masked); match !== null; match = bracket.exec(masked)) {
+    const from = match.index + match[0].indexOf('[') + 1
+    const key = text.slice(from, match.index + match[0].indexOf(']')).trim()
+    if (key === 'send' || key === "'send'" || key === '"send"' || key === '`send`') {
+      calls.push({ at: match.index, open: match.index + match[0].lastIndexOf('(') })
+    }
+  }
+  return calls.sort((left, right) => left.at - right.at)
+}
+
 /** Every named function declaration with the real span of its body. */
 function functionSpans(text) {
   const masked = maskedSource(text)
@@ -275,10 +297,10 @@ test('a source pin: every world-data message under lib is sent only through publ
     const masked = maskedSource(text)
     const spans = functionSpans(text)
     for (const span of spans) declarations.push({ file, name: span.name })
-    for (let at = masked.indexOf('peer.send('); at !== -1; at = masked.indexOf('peer.send(', at + 1)) {
-      const close = matchingClose(masked, at + 'peer.send'.length, '(', ')')
-      const argument = text.slice(at + 'peer.send('.length, close)
-      const enclosing = spans.filter((span) => span.start <= at && at < span.end).map((span) => span.name)
+    for (const call of peerSendCalls(text)) {
+      const close = matchingClose(masked, call.open, '(', ')')
+      const argument = text.slice(call.open + 1, close)
+      const enclosing = spans.filter((span) => span.start <= call.at && call.at < span.end).map((span) => span.name)
       sends.push({
         file,
         inPublish: enclosing.includes('publish'),

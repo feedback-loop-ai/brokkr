@@ -1103,7 +1103,7 @@ function realmsWorlds() {
       name: 'no-map world',
       over: { workspace: noMapFolder(), ask: true },
       rules: () => [
-        { match: ['realms'], responses: [NO_MAP, NO_MAP, NO_MAP, NO_MAP, NO_MAP, NOT_A_MAP, NO_MAP, NO_MAP] },
+        { match: ['realms'], responses: [NO_MAP, NO_MAP, NO_MAP, NO_MAP, NO_MAP, NOT_A_MAP, NO_MAP, NO_MAP, NO_MAP, NO_MAP] },
         { match: ['runs'], responses: [json(noMapPage(12))] },
         { match: ['queue'], responses: [json([])] },
         { match: ['muninn'], responses: [json([])] },
@@ -1122,7 +1122,7 @@ function realmsWorlds() {
           { match: ['runs', '--db=/hearths/alpha/old.db'], responses: [json(windowOf([{ ...runOf('alpha', 0), seq: 12 }], null))] },
           { match: ['runs', '--db=/hearths/beta/forge.db'], responses: [json(windowOf([runOf('beta', 0)], null))] },
           { match: ['runs', '--db=/hearths/beta/new.db'], responses: [json(windowOf([runOf('beta', 0)], null))] },
-          { match: ['realms'], responses: [oldMap, oldMap, oldMap, oldMap, oldMap, newMap, newMap, newMap] },
+          { match: ['realms'], responses: [oldMap, oldMap, oldMap, oldMap, oldMap, newMap, newMap, newMap, newMap, newMap] },
           { match: ['queue'], responses: [json([])] },
           { match: ['muninn'], responses: [json([])] },
           { match: ['analytics'], responses: [json(analyticsDoc())] },
@@ -1152,6 +1152,11 @@ async function assertRealmsRepaid(world) {
   assert.deepEqual(fleet.fleet.hearths.map((hearth) => [hearth.realm, hearth.journal]), world.journals, `${world.name}’s fleet is the world the next poll read`)
   assert.deepEqual([fleet.workspace, fleet.ask], [world.over.workspace, true], `${world.name}’s fleet carries the withheld snapshot’s workspace and ask`)
   assert.deepEqual(overview.overview, primed, `${world.name}’s unchanged overview is repaid, not the fleet alone`)
+  // The paid overview is cleared once repaid: the next unchanged poll must not
+  // send it a second time (R-2).
+  client.sent.length = 0
+  await poller.tick()
+  assert.deepEqual(client.sent, [], `${world.name}’s repaid overview is not sent again unchanged`)
 }
 
 test('review 907p6: every publishing path withholds a fleet one moved map contradicts', async () => {
@@ -1262,6 +1267,43 @@ test('chief H1-A Realms view: unresolved final fence after concurrent install pa
   // repays the overview the withheld tick never sent, and nothing else.
   await poller.tick()
   assert.deepEqual(first.sent.map((message) => message.type), ['overview'], 'the next successful gate repays the withheld overview')
+})
+
+test('chief L1: a withheld overview is repaid after a concurrent install even though its words did not move', async () => {
+  const oldMap = json(realmsMap('/hearths/alpha/forge.db'))
+  const newMap = json(realmsDoc(['alpha', 'beta'], (name) => (name === 'alpha' ? '/hearths/alpha/forge.db' : '/hearths/beta/new.db')))
+  const queued = [{ entry: 1, state: 'admitted', added_at: '2026-10-13T08:30:00Z', launch: { feature: 'queued feature', bundle: { dir: 'self' } }, admission: { standing: 'admissible', reasons: [] } }]
+  const brokkr = stubBrokkr([
+    // Six reads resolve the old map: A's snapshot and the first poll twice
+    // each, the withheld poll's fleet and its fence. B's snapshot then reads
+    // the new map twice and installs it while the withheld poll holds its
+    // queue read; the next poll reads the new map twice more.
+    { match: ['realms'], responses: [...Array.from({ length: 6 }, () => oldMap), newMap, newMap, newMap, newMap] },
+    { match: ['runs', '--db=/hearths/alpha/forge.db'], responses: [json(windowOf([runOf('alpha', 0)], null))] },
+    { match: ['runs', '--db=/hearths/beta/forge.db'], responses: [json(windowOf([runOf('beta', 0)], null))] },
+    { match: ['runs', '--db=/hearths/beta/new.db'], responses: [json(windowOf([runOf('beta', 0)], null))] },
+    { match: ['queue'], responses: [json([]), json([]), { ...json(queued), sleep_ms: 800 }, json(queued)] },
+    { match: ['muninn'], responses: [json([])] },
+    { match: ['analytics'], responses: [json(analyticsDoc())] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const first = await attached(poller, { view: 'realms', run: null })
+  assert.deepEqual(first.sent[0].overview.queue.value, [], 'A’s snapshot primes an empty queue')
+  first.sent.length = 0
+  await poller.tick()
+  assert.deepEqual(first.sent.map((message) => message.type), ['overview'], 'the first poll primes the shared overview')
+  first.sent.length = 0
+
+  const ticking = poller.tick()
+  await until(() => callsOf(brokkr, 'queue') >= 3, 'the withheld poll’s queue read')
+  const second = await attached(poller, { view: 'realm', run: null })
+  assert.equal(second.sent[0].fleet.hearths.find((hearth) => hearth.realm === 'beta').journal, '/hearths/beta/new.db', 'B installs the new map’s fleet')
+  await ticking
+  assert.deepEqual(first.sent, [], 'the overview the old map contradicts is withheld')
+
+  await poller.tick()
+  assert.deepEqual(first.sent.map((message) => message.type), ['fleet', 'overview'], 'the next gate repays the overview even though its words did not move')
+  assert.deepEqual(first.sent[1].overview.queue.value.map((entry) => entry.feature), ['queued feature'], 'the repaid overview carries the queue entry that was withheld')
 })
 
 test('chief confirms adversarial H1-B: ELOOP is not confirmed absence', async () => {
