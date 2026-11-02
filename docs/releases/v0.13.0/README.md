@@ -1,7 +1,7 @@
 # v0.13.0 release handoff
 
 The previous published release is `v0.12.0`, commit `daba0dce`. The
-preparation starts from `CUT_SHA`, CUT_COUNT merged changes later. The
+preparation starts from `4f3dd878`, 330 merged changes later. The
 release pull request records the final candidate commit and its check
 results. [Release description](../v0.13.0.md).
 
@@ -23,7 +23,7 @@ The operator ruled all three on 2026-11-02, and #957 records them:
 - **`hands::box_argv` is removed.** It was deprecated in 0.12.0 as "removed
   in 0.13.0" and retired by U8k (decision 0071 ruling 6).
 
-Both landed in REL13_PR.
+Both landed in [#969](https://github.com/feedback-loop-ai/brokkr/pull/969).
 
 ## Documentation audit
 
@@ -60,8 +60,9 @@ Both landed in REL13_PR.
   No earlier schema, evaluator fixture, `policy/phase-machine.json` or
   reference file changed.
 - **Witness digests:** re-blessed by `BROKKR_BLESS=1 cargo test -p
-  brokkr-runtime --test it witness_digests::` (#358's table). Only the
-  engine version moved them.
+  brokkr-runtime --test it witness_digests::` (#358's table). The engine
+  version moved them all, and the release recipe's example, now naming
+  v0.13.0, moved `recipes/release`'s a second time.
 - **Nix flake:** its version changes only with real release digests, in
   the post-publication channel pull request.
 
