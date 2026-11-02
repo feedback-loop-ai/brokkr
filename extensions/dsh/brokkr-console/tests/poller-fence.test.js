@@ -3,7 +3,7 @@
 // moved, vanished or appeared while a read was in flight makes that read
 // unlabelable. The fixtures these tests share live in tests/support/poller.js.
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -1103,7 +1103,7 @@ const NO_MAP = { stderr: 'brokkr realms was refused: this workspace names no rea
 const NOT_A_MAP = { stdout: 'this is not a realms document' }
 
 /** A no-map world's default-journal page holding the parked run at `seq`. */
-const noMapPage = (seq = 12, over = {}) => windowOf([{ ...runOf('alpha', 0), seq }], null)
+const noMapPage = (seq = 12) => windowOf([{ ...runOf('alpha', 0), seq }], null)
 
 /** A fresh workspace whose map is absent until a test writes one. */
 const noMapFolder = () => mkdtempSync(join(tmpdir(), 'brokkr-console-907p7-'))
@@ -1114,6 +1114,60 @@ function noMapView(runId, seq) {
   view.summary = { ...view.summary, run_id: runId }
   return view
 }
+
+test('chief confirms adversarial H1-A: unresolved final fence after concurrent install paints nothing', async () => {
+  const runId = runOf('alpha', 0).run_id
+  const workspace = noMapFolder()
+  const brokkr = stubBrokkr([
+    // A's snapshot resolves the absent map three times; the poll's fleet and
+    // fence resolve it twice more; B's snapshot, with no open run, twice more;
+    // the poll's held inspect is then fenced by a read that is not a map.
+    { match: ['realms'], responses: [NO_MAP, NO_MAP, NO_MAP, NO_MAP, NO_MAP, NO_MAP, NO_MAP, NOT_A_MAP] },
+    { match: ['runs'], responses: [json(noMapPage(12))] },
+    { match: ['inspect'], responses: [json(noMapView(runId, 12)), { ...json(noMapView(runId, 12)), sleep_ms: 700 }] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000, workspace })
+  const first = peer()
+  first.receive = poller.attach(first)
+  first.receive({ type: 'watch', view: 'realm', realm: ONE_HEARTH, run: { realm: ONE_HEARTH, run_id: runId } })
+  await until(() => first.sent.some((message) => message.type === 'snapshot'), 'A’s snapshot')
+  assert.equal(callsOf(brokkr, 'realms'), 3, 'A’s snapshot resolves the map for its fleet, its fence and its inspect')
+  first.sent.length = 0
+
+  const ticking = poller.tick()
+  await until(() => callsOf(brokkr, 'inspect') >= 2, 'the poll’s held inspect')
+
+  const second = peer()
+  second.receive = poller.attach(second)
+  second.receive({ type: 'watch', view: 'realm', realm: ONE_HEARTH, run: null })
+  await until(() => second.sent.some((message) => message.type === 'snapshot'), 'B’s snapshot')
+  assert.equal(callsOf(brokkr, 'realms'), 7, 'B’s snapshot installs a newer, unchanged fleet while the poll holds its inspect')
+
+  await ticking
+  assert.equal(callsOf(brokkr, 'realms'), 8, 'the poll’s final fence is the read that did not resolve')
+  assert.deepEqual(first.sent, [], 'an unresolved final fence withholds even on the superseded path')
+})
+
+test('chief confirms adversarial H1-B: ELOOP is not confirmed absence', async () => {
+  const runId = runOf('alpha', 0).run_id
+  const workspace = noMapFolder()
+  const brokkr = stubBrokkr([
+    // The snapshot's fleet read and its fence confirm the no-map world; the
+    // inspect's fence, after the map becomes a symlink loop, is a failed read.
+    { match: ['realms'], responses: [NO_MAP, NO_MAP, { stderr: 'realms map read failed: too many levels of symbolic links', code: 1 }] },
+    { match: ['runs'], responses: [json(noMapPage(12))] },
+    { match: ['inspect'], responses: [{ ...json(noMapView(runId, 12)), sleep_ms: 400 }] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000, workspace })
+  const client = peer()
+  client.receive = poller.attach(client)
+  client.receive({ type: 'watch', view: 'realm', realm: ONE_HEARTH, run: { realm: ONE_HEARTH, run_id: runId } })
+  await until(() => callsOf(brokkr, 'realms') >= 2, 'the snapshot’s no-map fleet fence')
+  symlinkSync('realms.json', join(workspace, 'realms.json'))
+  await until(() => callsOf(brokkr, 'realms') >= 3, 'the inspect’s failed fence')
+  assert.deepEqual(client.sent, [], 'a symlink loop is not a confirmed absence')
+  assert.equal(callsOf(brokkr, 'realms'), 3, 'the inspect fence is the read that failed')
+})
 
 test('review 907L H1: a failed map read is not a no-map world', async () => {
   const workspace = noMapFolder()

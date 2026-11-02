@@ -131,14 +131,20 @@ const namedBy = (hearths, journal, names) => journal === null
  * cost; only the confirmed no-map world (`noMapWorld`) confirms a null
  * journal, and every other refusal withholds the publication. The map is
  * kept in `seen`, when a poll keeps one, so every later pending publication
- * can be held to the latest map the poll resolved (M2).
+ * can be held to the latest map the poll resolved (M2). A refused fence
+ * resolves nothing: `seen.unresolved` records it so no earlier map this path
+ * read can stand as the final fence's evidence (H1).
  */
 async function stillNamed(brokkr, workspace, journal, realm, seen = null) {
   try {
     const hearths = await hearthsOf(brokkr, workspace)
-    if (seen !== null) seen.map = hearths
+    if (seen !== null) {
+      seen.map = hearths
+      seen.unresolved = false
+    }
     return namedBy(hearths, journal, namesOfHearth(realm))
   } catch {
+    if (seen !== null) seen.unresolved = true
     return false
   }
 }
@@ -147,13 +153,17 @@ async function stillNamed(brokkr, workspace, journal, realm, seen = null) {
  * The one publication gate: `seen.map` is the latest map this path's own
  * reads resolved. A fleet or a row may publish only while that map still
  * names, for every hearth in the fleet and every target row, the journal it
- * was read from. A path whose own read was superseded by a newer installed
- * fleet has no map of its own to hold; the installed fleet was already
- * fenced by its own read, so a snapshot may paint it as it stands. Any other
- * path that resolved no map publishes nothing. Every publishing path calls
- * this, so a later one cannot keep a private copy of the rule (M2, ruling 5).
+ * was read from. A path whose own last fence was refused or indeterminate
+ * publishes nothing, even when a newer fleet has since installed: its earlier
+ * map is stale evidence, not a fence (H1). A path whose own read was
+ * superseded by a newer installed fleet has no map of its own to hold; the
+ * installed fleet was already fenced by its own read, so a snapshot may paint
+ * it as it stands. Any other path that resolved no map publishes nothing.
+ * Every publishing path calls this, so a later one cannot keep a private copy
+ * of the rule (M2, ruling 5).
  */
 function publishable(seen, fleet, targets = []) {
+  if (seen.unresolved === true) return false
   if (seen.map === undefined) return seen.superseded === true
   const named = (journal, realm) => namedBy(seen.map, journal, namesOfHearth(realm))
   if (!(fleet?.hearths ?? []).every((hearth) => named(hearth.journal, hearth.realm))) return false

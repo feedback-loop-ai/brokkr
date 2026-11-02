@@ -50,15 +50,23 @@ async function mainCheckoutOf(dir) {
  * Whether a refused `brokkr realms` read is the confirmed no-map world: the
  * read failed outright (`failed`, never a timeout, an unstarted call, an
  * overflow or malformed output) and the workspace holds no `realms.json`.
- * Any other refusal is reported, never guessed around. A caller that knows
- * no workspace has no map to find; the console always passes one.
+ * Only ENOENT confirms that the map is absent: a symlink loop, a folder the
+ * process may not enter, a path through a file and every other stat error are
+ * indeterminate, so they withhold rather than guess a world. Any other
+ * refusal is reported, never guessed around. A caller that knows no workspace
+ * has no map to find; the console always passes one.
  * @param {unknown} error the refusal `brokkr.realms()` threw
  * @param {string | null} workspace the folder `realms.json` would be in
  */
 export async function noMapWorld(error, workspace) {
   if (!(error instanceof ReadoutRefused) || error.kind !== 'failed') return false
   if (workspace === null) return true
-  return stat(join(workspace, 'realms.json')).then(() => false, () => true)
+  try {
+    await stat(join(workspace, 'realms.json'))
+    return false
+  } catch (reason) {
+    return reason?.code === 'ENOENT'
+  }
 }
 
 /**

@@ -2,14 +2,15 @@
 // readout: inside a realm's folder, or in a git worktree of one. Nothing
 // else is guessed, and git is never run.
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+import { stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { RequestRefused } from '../lib/host/commands.js'
 import { apply } from '../lib/index.js'
-import { hereOf } from '../lib/host/here.js'
+import { hereOf, noMapWorld } from '../lib/host/here.js'
 import { ONE_HEARTH, ReadoutRefused, realmsOf } from '../lib/host/readouts.js'
 import { json, request, stubBrokkr, stubHost, withEnv } from './support/world.js'
 
@@ -53,6 +54,50 @@ test('with no realms map, the workspace folder is the one hearth', async () => {
   const refused = { realms: async () => { throw new ReadoutRefused('failed', 'no map: this workspace has no realms.json') } }
   const here = hereOf({ brokkr: refused, workspace: brokkr })
   assert.deepEqual(await here(join(brokkr, 'crates')), { realm: ONE_HEARTH })
+})
+
+/** The code a `stat` of `<workspace>/realms.json` raises, so a test plants the error it names. */
+async function statCode(workspace) {
+  try {
+    await stat(join(workspace, 'realms.json'))
+    return 'resolved'
+  } catch (error) {
+    return error.code
+  }
+}
+
+test('ENOENT confirms that the map is absent', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'brokkr-console-here-')))
+  assert.equal(await statCode(root), 'ENOENT')
+  assert.equal(await noMapWorld(new ReadoutRefused('failed', 'realms.json could not be read'), root), true)
+})
+
+test('a symlink loop is not a confirmed absence (ELOOP)', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'brokkr-console-here-')))
+  symlinkSync('realms.json', join(root, 'realms.json'))
+  assert.equal(await statCode(root), 'ELOOP')
+  assert.equal(await noMapWorld(new ReadoutRefused('failed', 'realms.json could not be read'), root), false)
+})
+
+test('a path through a file is not a confirmed absence (ENOTDIR)', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'brokkr-console-here-')))
+  writeFileSync(join(root, 'not-a-folder'), 'x')
+  const workspace = join(root, 'not-a-folder')
+  assert.equal(await statCode(workspace), 'ENOTDIR')
+  assert.equal(await noMapWorld(new ReadoutRefused('failed', 'realms.json could not be read'), workspace), false)
+})
+
+test('an unreadable folder is not a confirmed absence (EACCES)', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'brokkr-console-here-')))
+  const workspace = join(root, 'closed')
+  mkdirSync(workspace)
+  chmodSync(workspace, 0o000)
+  try {
+    assert.equal(await statCode(workspace), 'EACCES')
+    assert.equal(await noMapWorld(new ReadoutRefused('failed', 'realms.json could not be read'), workspace), false)
+  } finally {
+    chmodSync(workspace, 0o700)
+  }
 })
 
 test('a refusal in a workspace that has a realms map is reported, not taken for one hearth', async () => {
