@@ -16,6 +16,7 @@ import { isAbsolute, resolve } from 'node:path'
 
 import { noMapWorld } from './here.js'
 import { ONE_HEARTH, isHearthLabel, namesOfHearth, ReadoutRefused } from './readouts.js'
+import { guardTransport } from './transport.js'
 
 const VIEWS = ['none', 'realms', 'realm', 'analytics']
 
@@ -33,6 +34,9 @@ const report = (error) => console.error('[brokkr-console]', error)
 
 /** A fenced row read's marker: the row is not merely "not due", it may not publish. */
 const DROPPED = Symbol('dropped')
+
+/** Each client's raw send, private to `publish`; the peer itself carries only the guard. */
+const rawSendOf = new WeakMap()
 
 /** Each listed run's head, by realm and run id, from the fleet a poll is about to replace. */
 function headsOf(fleet) {
@@ -367,7 +371,7 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
    */
   function publish(seen, client, message, targets = []) {
     if (!publishable(seen, state.fleet, targets)) return false
-    client.peer.send(message)
+    rawSendOf.get(client)(message)
     return true
   }
 
@@ -766,6 +770,7 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
 
   function attach(peer) {
     const client = { peer, watch: { view: 'none', run: null, realm: null }, runText: new Map(), owed: false, owedSnapshot: false }
+    rawSendOf.set(client, guardTransport(peer))
     clients.add(client)
     peer.onClose = () => {
       clients.delete(client)
