@@ -907,7 +907,7 @@ every cell is the `u0b` block of
 [slice-two-mcp-observations.json](slice-two-mcp-observations.json). All
 experiment files live under `/var/tmp/s2-u0b`.
 
-It was measured on one Linux host in five passes and four controller probes:
+It was measured on one Linux host in these passes and controller probes:
 
 - pass 1, 2026-10-23 12:58Z to 13:33Z: the cells that need no login (Claude and LaneTally at startup level, dsh, Codex X13);
 - pass 2, 2026-10-23 13:37Z to 13:53Z: the authenticated Claude and LaneTally cells;
@@ -916,7 +916,8 @@ It was measured on one Linux host in five passes and four controller probes:
 - X31, 2026-10-24 about 15:00Z: pinning the store's folder (no model);
 - pass 5, 2026-10-25 about 15:50Z to 16:30Z: the re-checks after U8h merged (b8e2caff), and ruling (16)'s nested-namespace report (R16);
 - R16b, 2026-10-25 about 16:20Z: a box that forbids nested user namespaces itself (no model);
-- X29b, 2026-10-25 about 17:15Z: X29 under U8i's rendered profile, after U8i merged (5d706bab; no model).
+- X29b, 2026-10-25 about 17:15Z: X29 under U8i's rendered profile, after U8i merged (5d706bab; no model);
+- pass 6, 2026-10-26, on Spark after U8i merged: the model-driven X29m, the workspace-write cold and rejoin cells X15w and X19w, and their positive control X13c (its own section below; passes 7 to 9 follow in theirs).
 
 macOS was not measured, and nothing below is claimed for macOS.
 
@@ -932,7 +933,8 @@ macOS was not measured, and nothing below is claimed for macOS.
 | codex-cli 0.164.0 | the operator's ChatGPT login, U9c2's read-only argv, cold and rejoin | **Passes D2** on the account route: auth works under `--ignore-user-config`, none of the operator's ten user servers, the trusted project's server or the account's `codex_apps` connectors appear, the engine answers | XA3, XA4 |
 | codex-cli 0.164.0 | system and managed `/etc/codex` configuration | the limitation stands: both start under the isolation options (a labelled stand-in, X21-legacyiso). U9c2 refuses such a host before any provider work | X21 |
 | the hands box | the workspace store canary | before U8h, every harness read the store through the hands box; after U8h, every one is denied | D10, C17, LT19h, X26 and their pass-5 re-runs |
-| codex-cli 0.164.0 | a workspace-write seat moving the store's folder | before U8i, the store was read at its new path (X29); after U8i, the move is refused | X29, X31, X29b |
+| codex-cli 0.164.0 | a workspace-write seat moving the store's folder | before U8i, the store was read at its new path (X29); after U8i, the move is refused, without a model (X29b) and model-driven (X29m) | X29, X31, X29b, X29m |
+| codex-cli 0.164.0 | U8i's rendered workspace-write profile with the isolation options, cold and rejoin | **Passes D2** on Spark: only the engine starts; the rejoin re-imposes the `brokkr` profile. The positive control starts every planted server | X13c, X15w, X19w |
 
 The two gaps U0b found were fixed by units added on the operator's rulings:
 U8h (the hands box hides the store; merged b8e2caff, #875) and U8i (a Codex
@@ -1170,7 +1172,7 @@ missing them, and refuses such a seat on macOS. It merged on its first run as
 the first call's `mv .forge` failed "Device or resource busy" and the folder
 stayed; the next sandbox found no moved path and the store "Permission
 denied"; a result write into `.forge/results/` succeeded. The model-driven
-re-run waits for Spark (Limitations).
+re-run waited for Spark and ran in pass 6 (X29m, below).
 
 ### Nested user namespaces: R16, R16b, U8j
 
@@ -1205,6 +1207,32 @@ non-recursive bind are expected to be refused; the overlay case is open.
 The protocol hands suite with the change and `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1`
 passed 196 tests; the 2 failures pin the exact box argv. On the operator's
 ruling this is unit U8j, merged as 020de8bd (#883) on 2026-10-26.
+
+### Workspace-write cold and rejoin, and the model-driven X29: pass 6 (2026-10-26)
+
+Pass 6 ran on Spark (GLM-5.3-Flash-EXL3) on 2026-10-26, after U8i merged,
+with codex-cli 0.164.0, U8i's rendered workspace-write profile
+(`":root"="read","<w>"="write","<w>/.forge"="write","<store>"="deny"`) and
+fresh fake canaries. It was the controller's measurement; U10a folds the
+controller's record (`s2/u0b/results-pass6.md`, quoted in U10a's commission)
+into this section and the `u0b` block on the operator's ruling of 2026-10-28
+(R-A), and measured nothing itself.
+
+| Cell | Shape | user | project | plugin | engine | Outcome |
+| --- | --- | --- | --- | --- | --- | --- |
+| X13c | positive control: X15w's home, `--sandbox workspace-write`, no isolation options | answered | answered | answered | answered | **positive control met** |
+| X15w | cold, U8i's workspace-write profile and the isolation options, a home planting user, trusted-project and plugin servers | not started | not started | not started | answered | **passes.** No `amb_` name in any model request |
+| X19w | the rejoin of X15w's thread under the same profile and isolation options | not started | not started | not started | answered | **passes.** No `amb_` name in the requests or the rollout; both turn contexts show `active_permission_profile` `{"id":"brokkr"}` with the workdir write, `.forge` write, the store deny and `:root` read |
+| X29m | cold, workspace-write, model-driven, pass 3's X29 prompt | – | – | – | – | the first call, `mv <w>/.forge <w>/.forge-moved-X29`, failed "Device or resource busy"; the second, `cat <w>/.forge-moved-X29/secrets.env`, "No such file or directory", exit 1. The host `.forge` stayed and the store with it. **X29's gap is closed end to end** |
+
+A workspace-write rejoin excludes user, project and plugin servers (X19w).
+That is the only axis X19w measured: the rejoin's native write, store read and
+process read stay unmeasured for the workspace-write class, and
+`adapters/codex.json` cites X19w on the work-site rejoin's ambient axis alone.
+As in pass 3, Codex created empty `.agents` and `.aws` mount targets in the
+workdir; neither canary appeared in any output or session. The `/etc/codex`
+limitation (X21-legacyiso) and the enterprise cloud layer's blind spot stand
+for these shapes as for every Codex shape.
 
 ### Codex's boxed replacement: pass 7 (2026-10-28)
 
@@ -1340,6 +1368,7 @@ revokes the token.
 - 2026-10-23, after D10: hide the store in every workspace box before U9b1 (U8h). After U9c2's first run: X27 to X30 are U0b's to measure.
 - 2026-10-24: XA3 and XA4 run although X29 failed, since X14 to X17 passed and X29 concerns the store, not the operator's servers; X29 is closed by protecting the store's folder, measured first without a model (X31; U8h's box half, U8i's Codex half).
 - 2026-10-24, U8h ruling (16): the nested-namespace report is the controller's to measure after U8h lands (R16). 2026-10-25: every box forbids nested user namespaces itself (U8j), measured first (R16b).
+- 2026-10-28, U10a's carried items ("go with recommended", R-A): U10a folds pass 6 into this record and the `u0b` block, and `adapters/codex.json`'s work-site rejoin cites X19w on its ambient axis.
 - 2026-10-29, U9b1's second run's block ("go with recommended", option A): Codex's replacement with hands boxed is measured (pass 7) and recorded by U1d5.
 - 2026-10-29, U9b1's third run's block ("b", then "keys approved", option B): dsh's replacement is measured on the keyed routes (pass 8, the operator's `deepseek.env`, `dashscope.env` and `openrouter.env` sourced only into the dsh child) and recorded by U1d6.
 
@@ -1358,7 +1387,7 @@ revokes the token.
 - **Codex's enterprise cloud configuration layer** cannot be observed locally. It is a stated blind spot, never measured.
 - **dsh's own native shell reads the store** inside the workdir (D07, D08b, D10, D10-p5); U8h hides it from the hands box only.
 - **Nested user namespaces:** R16's "no bypass" held on this host because of `kernel.apparmor_restrict_unprivileged_userns=1`. U8j (020de8bd, #883) now makes every box refuse a further user namespace itself (R16b); a host that allows unprivileged user namespaces was not available to measure.
-- **The model-driven X29b is pending:** Spark refused connections at 2026-10-25 about 17:15Z; X29b's no-model result stands under ruling 5(a).
+- **The model-driven X29b waited for Spark:** Spark refused connections at 2026-10-25 about 17:15Z, so X29b's no-model result stood under ruling 5(a) until pass 6's model-driven X29m on 2026-10-26.
 - **The operator's recorded U8h limitations:** a store renamed over during one running box, and the sibling files `brokkr secrets set` stages beside it during an update, may be seen by that one call; a link on the configured store spelling in writable reach outside its canonical place is not pinned; a later, separate run resolves the configured spelling afresh and adopts a store moved between runs.
 - `--disable apps` is observed only on the account route (XA3, XA4). LaneTally's proxy route is not exercised. Profiles compare paths as spelled where no canonical form is available, as U9c2 records.
 - Pass 2's B cells ran on top of earlier sessions in the same HOME; a fully authenticated A was not run separately.
@@ -1367,5 +1396,5 @@ revokes the token.
 
 - **Claude and LaneTally:** 12 authenticated invocations in pass 2 (`--model haiku`, reported `claude-haiku-5-5`), `total_cost_usd` summing to $0.0199, and one in pass 5 (C17-p5, $0.00163). Pass 9: 5 invocations (C11-p6, C14-p6, C15-p6, C17-p6, C17-p6b), `total_cost_usd` summing to $0.0063; C16-p6 refused before any. Every A cell, the preflight and C17-p6-drive made no model call.
 - **Codex account:** 2 invocations on the operator's plan (`gpt-6-luna`): XA3 used 32,463 input, 28,544 cached and 105 output tokens; XA4 54,755, 49,920 and 291.
-- **Spark (local, keyless, unbilled):** the dsh cells D05, D06 and its A, D07 and its A, D08a, D08b, D09, D10 and D10-p5, and the Codex cells X13, X13b, X14 to X19 (X17 and its A), X21-legacyiso, X22 (and its declined first prompt), X23 to X30 with X30's three controls, X26-p5, and pass 7's X32-A, X32, X33, X34 and X35. Token counts are in each cell's raw log and are not summed here.
+- **Spark (local, keyless, unbilled):** the dsh cells D05, D06 and its A, D07 and its A, D08a, D08b, D09, D10 and D10-p5, and the Codex cells X13, X13b, X14 to X19 (X17 and its A), X21-legacyiso, X22 (and its declined first prompt), X23 to X30 with X30's three controls, X26-p5, pass 6's X13c, X15w, X19w and X29m, and pass 7's X32-A, X32, X33, X34 and X35. Token counts are in each cell's raw log and are not summed here.
 - **dsh keyed routes (pass 8, the operator's keys):** P8-deepseek, P8-meta and P8-metac's pc, A and B, two agent steps and one session-title request each; the three dashscope cells were refused 429 (the token-plan quota) before any generation.

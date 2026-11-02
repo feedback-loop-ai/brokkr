@@ -489,9 +489,11 @@ ignored). The last production edit moved the three initialisers within
 `engine.rs`'s struct literals. The brokkr-runtime suites ran again after it,
 with the same counts. The protocol, brokkr-cli and seatbelt suites ran
 before it. The protocol crate does not build `engine.rs`. Workspace clippy
-and the format check ran after it. The other CLI
-integration binaries (`acknowledge` through `writer_lease`) were not run in
-run 6. No known load flake fired, and no git step failed for an author
+and the format check ran after it. (Corrected by U10a's audit: this file
+first said the other CLI integration binaries, `acknowledge` through
+`writer_lease`, were not run in run 6. They are not separate binaries but
+modules of the CLI `it` binary, registered in `crates/brokkr-cli/tests/it.rs`
+at U8h's merge b8e2caff8 as today, so they ran within `it`'s 801 above.) No known load flake fired, and no git step failed for an author
 identity.
 
 Run 6's return, after its last code edit: the format check, workspace

@@ -669,8 +669,8 @@ fn resume(name: &str) -> McpInvocation {
 /// boxed, harness and none, so no Codex ambient line is an unsupported
 /// cause, and its pass 7 the boxed replacement. Each verdict rests on its own shape and version (operator
 /// ruling 2026-10-26): Codex's `work-site` rejoin, served workspace-write,
-/// keeps write, store and process unmeasured, U0b having rejoined read-only
-/// alone. Claude's boxed replacement is pass 9's, every axis on 2.1.316 (U1d7).
+/// keeps write, store and process unmeasured, U0b's one workspace-write
+/// rejoin (pass 6's X19w) having measured ambient servers alone. Claude's boxed replacement is pass 9's, every axis on 2.1.316 (U1d7).
 #[test]
 fn the_shipped_declarations_pin_only_what_u0_and_u0b_observed() {
     let [claude, codex, lanetally] = shipped_support();
@@ -759,9 +759,10 @@ fn process(isolation: &McpIsolation) -> &McpAxis {
 /// U1d3 (SI1): U0b's scopes and limitations ride in the verdicts they
 /// qualify, word for word: every Codex ambient line U0b measured names the
 /// enterprise cloud layer as never measured, and each cold or replacement
-/// one the /etc/codex refusal; the rejoin names X20, and each of its
-/// unmeasured write, store and process lines that U0b rejoined read-only
-/// alone, quoting what that rejoin saw; the store lines that rest on X29b
+/// one the /etc/codex refusal; the rejoin names X20 and pass 6's
+/// workspace-write X19w, and each of its unmeasured write, store and process
+/// lines that U0b measured it on no workspace-write rejoin, quoting what the
+/// read-only rejoins saw; the store lines that rest on X29b
 /// say it ran without a model and that the model-driven run is pending;
 /// Claude's boxed store line quotes pass 9's two denials, the mask and U8h's
 /// recorded limits; and nothing claims macOS.
@@ -775,7 +776,9 @@ fn u0b_scopes_and_limitations_ride_in_the_verdicts_they_qualify() {
     let etc = "so U9c2 refuses such a host";
     let x29b = "without a model (ruling 5(a))";
     let pending = "the model-driven X29b is pending";
-    let read_only = "U0b measured no workspace-write rejoin, the class this work shape is served";
+    let read_only =
+        "U0b measured this axis on no workspace-write rejoin, the class this work shape is served";
+    let x19w = "pass 6's X19w (workspace-write; X13c the control)";
     let rejoin = || shape(resume("work-site"), NoHands);
     let required = [
         (text(&codex, shape(Cold, Boxed), ambient), vec![etc]),
@@ -800,7 +803,7 @@ fn u0b_scopes_and_limitations_ride_in_the_verdicts_they_qualify() {
         ),
         (
             text(&codex, rejoin(), ambient),
-            vec![cloud, "X20, a rejoin with hands, was not measured"],
+            vec![cloud, "X20, a rejoin with hands, was not measured", x19w],
         ),
         (
             text(&codex, rejoin(), write),

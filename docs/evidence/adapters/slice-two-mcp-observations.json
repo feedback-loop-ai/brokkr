@@ -3007,7 +3007,7 @@
     "record": "decision 0065 slice two, unit U0b: every shape a seat can be served as (replacement, Codex isolation options and profile, hands box, store at the production path)",
     "change": "openspec/changes/decision-0065-capabilities-slice-two",
     "narrative": "docs/evidence/adapters/slice-two-mcp-isolation.md, section U0b",
-    "ruled": "operator, in chat, 2026-10-23 (1(a), 2 option M, 3(a), 4(a), 5(a), 6(a)); 2026-10-24 (XA3/XA4 now; X29 closed by protecting the store's folder); 2026-10-25 (U8j); 2026-10-29 (pass 7: Codex's boxed replacement, U1d5); 2026-10-29 (pass 8: dsh's replacement on the keyed routes, keys approved, U1d6)",
+    "ruled": "operator, in chat, 2026-10-23 (1(a), 2 option M, 3(a), 4(a), 5(a), 6(a)); 2026-10-24 (XA3/XA4 now; X29 closed by protecting the store's folder); 2026-10-25 (U8j); 2026-10-28 (R-A: U10a folds pass 6, and codex.json's work-site rejoin cites X19w on its ambient axis); 2026-10-29 (pass 7: Codex's boxed replacement, U1d5); 2026-10-29 (pass 8: dsh's replacement on the keyed routes, keys approved, U1d6)",
     "measured": {
       "pass_1": "2026-10-23T12:58Z to 13:33Z",
       "pass_2": "2026-10-23T13:37Z to 13:53Z",
@@ -3017,6 +3017,7 @@
       "pass_5": "2026-10-25T15:50Z to 16:30Z (about)",
       "r16b": "2026-10-25T16:20Z (about)",
       "x29b": "2026-10-25T17:15Z (about)",
+      "pass_6": "2026-10-26 (the controller's record, s2/u0b/results-pass6.md, as quoted in U10a's commission; folded by U10a, which measured nothing)",
       "pass_7": "2026-10-28T22:39Z to 22:42Z",
       "pass_8": "2026-10-29T06:42:03Z to 06:43:27Z"
     },
@@ -3091,8 +3092,12 @@
         "cells": "D10, C17, LT19h, X26, and their -p5 re-runs"
       },
       "codex_store_folder": {
-        "status": "moved and read before U8i (X29); move refused under U8i's rendered profile (X29b, no model)",
-        "cells": "X29, X31, X29b"
+        "status": "moved and read before U8i (X29); move refused under U8i's rendered profile (X29b, no model; X29m, model-driven)",
+        "cells": "X29, X31, X29b, X29m"
+      },
+      "codex_workspace_write_cold_and_rejoin": {
+        "status": "passes on Spark under U8i's rendered workspace-write profile and the isolation options: only the engine starts, cold and on the rejoin; the rejoin's native write, store read and process read are not measured",
+        "cells": "X13c, X15w, X19w"
       }
     },
     "cells": [
@@ -3915,6 +3920,68 @@
         "note": null
       },
       {
+        "id": "X13c",
+        "harness": "codex-cli 0.164.0 on Spark",
+        "pass": 6,
+        "shape": "positive control: X15w's home (user, trusted-project and plugin servers planted), no isolation options",
+        "candidate": "--sandbox workspace-write",
+        "ambient_sentinels": {
+          "user": "answered",
+          "project": "answered",
+          "plugin": "answered",
+          "system": "-",
+          "managed": "-"
+        },
+        "engine_sentinel": "answered",
+        "outcome": "positive control met",
+        "note": null
+      },
+      {
+        "id": "X15w",
+        "harness": "codex-cli 0.164.0 on Spark",
+        "pass": 6,
+        "shape": "cold, workspace-write, a home planting user, trusted-project and plugin servers",
+        "candidate": "U8i's rendered workspace-write profile (\":root\"=\"read\",\"<w>\"=\"write\",\"<w>/.forge\"=\"write\",\"<store>\"=\"deny\") and the isolation options",
+        "ambient_sentinels": {
+          "user": "not_started",
+          "project": "not_started",
+          "plugin": "not_started",
+          "system": "-",
+          "managed": "-"
+        },
+        "engine_sentinel": "answered",
+        "outcome": "passes; only the engine sentinel started and answered; no amb_ name in any model request",
+        "note": "Codex created empty .agents and .aws mount targets in the workdir, as in pass 3"
+      },
+      {
+        "id": "X19w",
+        "harness": "codex-cli 0.164.0 on Spark",
+        "pass": 6,
+        "shape": "rejoin of X15w's thread",
+        "candidate": "U8i's rendered workspace-write profile and the isolation options",
+        "ambient_sentinels": {
+          "user": "not_started",
+          "project": "not_started",
+          "plugin": "not_started",
+          "system": "-",
+          "managed": "-"
+        },
+        "engine_sentinel": "answered",
+        "outcome": "passes; only the engine sentinel; no amb_ in the requests or the rollout; both turn contexts active_permission_profile {\"id\":\"brokkr\"} with the workdir write, .forge write, the store deny and :root read",
+        "note": "measures the ambient axis of a workspace-write rejoin only; native write, store read and process read on that rejoin are not measured"
+      },
+      {
+        "id": "X29m",
+        "harness": "codex-cli 0.164.0 on Spark",
+        "pass": 6,
+        "shape": "cold, workspace-write, model-driven, pass 3's X29 prompt: move the store's folder then read",
+        "candidate": "U8i's rendered workspace-write profile",
+        "ambient_sentinels": null,
+        "engine_sentinel": "n/a",
+        "outcome": "closed end to end: call 1 mv <w>/.forge <w>/.forge-moved-X29 failed Device or resource busy; call 2 cat <w>/.forge-moved-X29/secrets.env failed No such file or directory, exit 1; the host .forge unmoved and the store present",
+        "note": null
+      },
+      {
         "id": "X32-A",
         "harness": "codex-cli 0.164.0 on Spark",
         "pass": 7,
@@ -4339,7 +4406,8 @@
           "folder_bound_onto_itself": "move EBUSY; store masked"
         },
         "u8i": "merged 5d706bab (#880): workspace-write profiles pin every folder between the root and an in-root store, compared canonically; a profile missing them refuses; macOS refuses such a seat",
-        "x29b": "no model, U8i's rendered shape: mv .forge EBUSY; next sandbox: moved path absent, store Permission denied; result write ok; the model-driven re-run waits for Spark"
+        "x29b": "no model, U8i's rendered shape: mv .forge EBUSY; next sandbox: moved path absent, store Permission denied; result write ok; the model-driven re-run waited for Spark and ran as pass 6's X29m",
+      "x29m": "pass 6, model-driven, U8i's rendered profile: mv .forge Device or resource busy; cat at the moved path No such file or directory, exit 1; host .forge unmoved, store present"
       },
       "d10_u8h": {
         "before": "D10, C17, LT19, LT19h, X26 read the store through the hands box",
@@ -4389,7 +4457,7 @@
       "Codex's enterprise cloud configuration layer: a stated blind spot, never measured",
       "dsh's own native shell reads the store inside the workdir (D07, D08b, D10, D10-p5); U8h hides it from the hands box only",
       "R16's no-bypass holds on this host because of kernel.apparmor_restrict_unprivileged_userns=1 until U8j lands; the overlay case is unmeasured without it",
-      "the model-driven X29b waits for Spark (refused connections at 2026-10-25T17:15Z); the no-model X29b stands under ruling 5(a)",
+      "the model-driven X29b waited for Spark (refused connections at 2026-10-25T17:15Z); the no-model X29b stood under ruling 5(a) until pass 6's model-driven X29m on 2026-10-26",
       "the operator's recorded U8h limitations: a store renamed over during one running box and brokkr secrets set's staged sibling files may be seen by that one call; a link on the configured store spelling in writable reach outside its canonical place is not pinned; a later separate run resolves the configured spelling afresh",
       "--disable apps observed only on the account route; LaneTally's proxy route not exercised; pass 2's B cells ran on top of earlier sessions in the same HOME"
     ],
@@ -4449,7 +4517,11 @@
         "X30-ctl",
         "X30-plug",
         "X30-user",
-        "X30"
+        "X30",
+        "X13c",
+        "X15w",
+        "X19w",
+        "X29m"
       ],
       "spark_tokens": "in each cell's raw log; not summed"
     }

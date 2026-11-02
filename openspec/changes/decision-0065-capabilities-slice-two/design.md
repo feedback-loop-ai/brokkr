@@ -1426,8 +1426,9 @@ witness/compose pins accompany only rows that change their inputs.
 | U9b1e | U9b1d | The broker closes its ledger when its harness ends it by signal; 46.8–46.9 | `crates/brokkr-cli/src/broker.rs`; `crates/brokkr-cli/src/broker/session.rs`; `crates/brokkr-cli/src/broker/rpc.rs`; `crates/brokkr-cli/Cargo.toml` and one `Cargo.lock` line (R6) |
 | U9b2 | U9b1b, U9b1c, U9b1d, U9b1e | Publish implemented scope and contract guidance; 47.1–47.2 | None |
 | U8m | U8h | Redact doctor's server words and refuse a storeless boxed writer; 47.3–47.4 | `crates/brokkr-cli/src/doctor/capabilities/mcp.rs`; `crates/brokkr-runtime/src/engine/boxed.rs` |
-| U10a | U9b2, U8m, U1d7 | Audit removals and run final candidate gates; 48.1–49.2 | None |
-| U10b | U10a | Fold the change and hand off; 49.3 | None |
+| U10a | U9b2, U8m, U1d7 | Audit removals; its tasks close with U10a2 (R7) | `adapters/codex.json`; `crates/brokkr-runtime/tests/witnesses.json`; `docs/evidence/adapters/slice-two-mcp-isolation.md`; `docs/evidence/adapters/slice-two-mcp-observations.json` |
+| U10a2 | U10a | Repair the audit's missing proofs and run the final gates; 48.1–49.2, 8.1–8.2 | `crates/brokkr-cli/tests/capability_broker/enabled/` (new child modules); `crates/brokkr-cli/tests/init_doctor.rs`; `crates/brokkr-cli/tests/init_stacks.rs` |
+| U10b | U10a2 | Fold the change and hand off; 49.3 | None |
 
 ### U0 — Measure isolation and telemetry
 
@@ -2604,6 +2605,8 @@ Audit requirement/task/test mapping, each compiling removal/restored pass, no ne
 Closes tasks 48.1 and 48.2; requirements [SD4](specs/slice-two-delivery/spec.md), [SD2](specs/slice-two-delivery/spec.md).
 Proof: All 26 requirement IDs covered; typed refusal text pins once per module; no frozen fixture regeneration or recording gaps.
 
+Operator rulings 2026-10-28 on U10a's carried items (in chat, "go with recommended", R-A and R-D on the controller's audit of the items carried to U10a): (1) U10a folds U0b's pass 6 (X29m, X15w, X19w, X13c, measured 2026-10-26 on Spark after U8i) into `docs/evidence/adapters/slice-two-mcp-isolation.md`'s U0b section and the `u0b` block of `docs/evidence/adapters/slice-two-mcp-observations.json`, and has `adapters/codex.json`'s work-site rejoin cite X19w on its `ambient` axis; `crates/brokkr-runtime/tests/witnesses.json` re-blesses the one digest that moves. These four files join this row for that alone. (2) Every other carried code debt is recorded in U10a's hand-off with its status and file:line, and fixed only where it is a missing proof in an owning suite; the controller opens grouped follow-up issues for the rest once U10a lands. U8m closed C38 and C42 before this unit.
+
 Owning tests: `crates/brokkr-runtime/tests/capability_broker_launch.rs`, `crates/brokkr-runtime/tests/capability_ledger.rs`, `crates/brokkr-cli/tests/capability_broker.rs`, `crates/brokkr-cli/tests/capability_artifacts.rs`, `crates/brokkr-runtime/tests/frozen_contracts.rs`.
 
 Run the complete D10 validation set on the restored final candidate, obtain external exact coverage and Linux/macOS/remote results naming its head; keep missing results pending.
@@ -2611,9 +2614,26 @@ Run the complete D10 validation set on the restored final candidate, obtain exte
 Closes tasks 49.1 and 49.2; requirements [SD4](specs/slice-two-delivery/spec.md), [SD1](specs/slice-two-delivery/spec.md).
 Proof: Literal nonzero covered/total equality for lines/branches/functions, pinned compiler agreement, self/verify compiles, measured identities and signed merge-queue delivery; never push from a seat.
 
+Controller ruling R7 2026-11-02 (under the operator's standing ruling of 2026-10-28, option (a) of U10a's run 1, the split it proposed): U10a lands its branch: the audit of every slice-two unit (evidence/U10a.md), the R-A fold of U0b pass 6 with codex.json's X19w citation and its moved witnesses, C54's removals, the C36, C44 and C55 test repairs, the whole typed reach refusal in enabled/lifetime.rs, and the evidence corrections. The proofs 48.1 says to repair, which the audit found missing, are U10a2's, and so are tasks 48.1–48.2, 49.1–49.2 and 8.1–8.2, with the final gates on the final candidate. Reading those gaps as 46.2's open remainder would waive 48.1's rule, which is the operator's to grant, and is not taken.
+
 Owning tests: `crates/brokkr-runtime/tests/witness_digests.rs`, `crates/brokkr-runtime/src/bundle/compose_tests.rs`.
 
 Split from U10a (operator ruling 2026-10-12); U10b folds the change last.
+
+### U10a2 — Repair the audit's missing proofs and run the final gates
+
+U10a's audit (evidence/U10a.md, "Boxed-server scenario map and H1–H7" and "Missing proofs the audit found") found proofs that 48.1 says to repair, never to declare: map rows 2 (SC1 observations against sealed authority), 4 (runtime arguments do not widen binds), 13 (public certificates, not private TLS), 20 (a store under a read-only bind) and 32 (SD3 direct invocation) have no repetition through real dispatch; rows 7, 11, 12, 21, 25, 27 and 29 are repeated only in part; H2's native alias creation and H6's StoreInBox and read-only bind have no repetition through dispatch; the post-lookup rows leave out the store-lookup count the map's preamble requires (enabled/transport.rs, enabled/reach.rs, enabled/lifetime.rs); 8.1–8.2's matrix (init_doctor.rs and init_stacks.rs for fresh Claude, Codex and dsh with mandatory admission active) has not run switched on; and 16 typed refusal texts are pinned in more than one test module (ruling 8).
+
+U10a2 repairs each, as new real-dispatch tests in new child modules of `crates/brokkr-cli/tests/capability_broker/enabled.rs` (tests/capability_broker.rs is at its 2,000-line ceiling), each with an independent compiling removal and a restored pass; runs 8.1–8.2's matrix switched on; and folds each multiply pinned text to one pin per module. The store-lookup count is the lower bound the existing inotify `Reads` counter (readiness.rs) can prove, since it merges identical reads in a row: a row refused before the lookup asserts exactly zero reads, and a post-lookup row asserts at least one. A production counter is not added. H5's host proof (admission/tests/coordination.rs) is the controller's host evidence: U10a2 records it pending until the controller's run names its head. U10a2 then ticks 48.1–48.2 and 8.1–8.2, and runs 49.1–49.2 on the final candidate: the complete D10 set, external exact coverage and Linux, macOS and remote results naming that head, the merge queue's sharded run included, any missing result kept pending.
+
+Files: new child modules of `crates/brokkr-cli/tests/capability_broker/enabled.rs` and that file's module lines; `crates/brokkr-cli/tests/capability_broker.rs` and `crates/brokkr-cli/tests/capability_broker/ledger.rs` for pin folding only, neither growing; `crates/brokkr-cli/tests/init_doctor.rs` and `crates/brokkr-cli/tests/init_stacks.rs` for 8.1–8.2; the enabled suite's fixture harness where a row needs it. No production code, no adapter, no public item. If a repair needs a production change, that is a finding with options and the recommended one.
+
+Closes tasks 48.1, 48.2, 49.1, 49.2, 8.1 and 8.2; requirements [SD4](specs/slice-two-delivery/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD1](specs/slice-two-delivery/spec.md), [SI2](specs/strict-mcp-isolation/spec.md), [MB3](specs/mcp-capability-broker/spec.md).
+Proof: each repaired row and H2/H6 repetition through the real binary with its exact cause and counter, an independent compiling removal failing its own test and the restored pass; 8.1–8.2's matrix switched on; one pin per module for every typed text; the final gates naming the final candidate's head.
+
+Controller ruling R7 2026-11-02 (above, in U10a): this unit lands after U10a and before U10b.
+
+Owning tests: `crates/brokkr-cli/tests/capability_broker/enabled.rs` and its child modules, `crates/brokkr-cli/tests/init_doctor.rs`, `crates/brokkr-cli/tests/init_stacks.rs`.
 
 ### U10b — Fold the change and hand off
 

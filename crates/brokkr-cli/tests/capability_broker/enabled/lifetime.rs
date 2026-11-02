@@ -99,16 +99,23 @@ fn awaited(what: &str, holds: impl Fn() -> bool) {
     }
 }
 
-/// The refusal a reaching writer takes beside the first world's admission.
-fn refused_for_reach(ended: &Ended, package: &Path) {
-    let cause = ended.cause.clone().unwrap_or_default();
+/// The cause a run is refused with when `writer`'s `work` site can write the
+/// first world's server `package`: MB3's identity cause, naming the writer and
+/// the server's executable it reaches.
+fn reach_cause(package: &Path, writer: &str) -> String {
+    format!(
+        "dispatch refused: MCP server box filesystem identity is not protected: site 'work' of \
+         run '{writer}' can write '{}', which an MCP server's box or lease rests on",
+        package.join("bin/docs-mcp").display()
+    )
+}
+
+/// The refusal a run takes beside a reaching `writer`: parked on the exact cause.
+fn refused_for_reach(ended: &Ended, package: &Path, writer: &str) {
+    let cause = reach_cause(package, writer);
     assert_eq!(
-        (
-            ended.status.as_str(),
-            cause.starts_with("dispatch refused:"),
-            cause.contains(package.to_str().unwrap()),
-        ),
-        ("awaiting_operator", true, true),
+        (ended.status.as_str(), ended.cause.as_deref()),
+        ("awaiting_operator", Some(cause.as_str())),
         "{ended:?}"
     );
 }
@@ -123,7 +130,7 @@ fn a_writer_arriving_beside_a_serving_broker_is_refused_and_the_session_stands()
     let second = Second::new(&world, &world.base.join("opt/docs"));
     let first = world.held_serving();
     let refused = second.run();
-    refused_for_reach(&refused, &world.base.join("opt/docs"));
+    refused_for_reach(&refused, &world.base.join("opt/docs"), &refused.run);
     assert!(!second.live.exists(), "its seat never started");
     std::fs::remove_file(world.bin("hold")).unwrap();
     let out = first.wait_with_output().unwrap();
@@ -141,14 +148,15 @@ fn a_server_arriving_beside_a_running_writer_is_refused_with_no_lookup_or_start(
         return;
     };
     let second = Second::new(&world, &world.base.join("opt/docs"));
-    let mut writer = second.start();
+    let writer = second.start();
     awaited("the writer's seat", || second.live.exists());
     let reads = world.store_reads();
     let refused = world.run();
-    refused_for_reach(&refused, &world.base.join("opt/docs"));
     assert_eq!((reads.lookups(), world.starts()), (0, 0));
     std::fs::write(&second.release, "").unwrap();
-    assert_eq!(writer.wait().unwrap().code(), Some(0));
+    let out = writer.wait_with_output().unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    refused_for_reach(&refused, &world.base.join("opt/docs"), &ended(out).run);
 }
 
 /// Simultaneous admission is atomic: of a server and a writer that reaches it,
@@ -181,11 +189,8 @@ fn a_server_and_a_writer_started_together_are_never_both_admitted() {
         (first.join().unwrap(), writer.join().unwrap())
     });
     assert!(!both, "both admitted, live at once: {one:?} {two:?}");
-    let refused = |run: &Ended| {
-        run.cause
-            .as_deref()
-            .is_some_and(|cause| cause.starts_with("dispatch refused:"))
-    };
+    let cause = reach_cause(&world.base.join("opt/docs"), &two.run);
+    let refused = |run: &Ended| run.cause.as_deref() == Some(cause.as_str());
     let completed = [&one, &two].map(|run| run.status == "completed");
     assert_ne!(completed, [true, true], "{one:?} {two:?}");
     assert!(refused(&one) || refused(&two), "{one:?} {two:?}");
@@ -202,7 +207,7 @@ fn a_killed_engines_reservation_refuses_a_later_writer_through_an_uncertain_sett
     let second = Second::new(&world, &world.base.join("opt/docs"));
     let run = super::killed(world.held_serving());
     let refused = second.run();
-    refused_for_reach(&refused, &world.base.join("opt/docs"));
+    refused_for_reach(&refused, &world.base.join("opt/docs"), &refused.run);
     assert!(!second.live.exists());
     std::fs::remove_file(world.bin("hold")).unwrap();
     awaited("the harness to end", || world.broker_code().is_some());
@@ -210,7 +215,7 @@ fn a_killed_engines_reservation_refuses_a_later_writer_through_an_uncertain_sett
     let parked = ended(resumed);
     assert_eq!(parked.status, "awaiting_operator", "{parked:?}");
     let refused = second.run();
-    refused_for_reach(&refused, &world.base.join("opt/docs"));
+    refused_for_reach(&refused, &world.base.join("opt/docs"), &refused.run);
     assert!(!second.live.exists());
 }
 

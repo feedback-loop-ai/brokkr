@@ -624,23 +624,31 @@ fn planned(
 
 /// Every filesystem step in a box's `argv` before the command, in order,
 /// each its flag and the arguments it takes: an overlay's source with the
-/// layers and destination that follow it.
+/// layers and destination that follow it. Every other option is stepped
+/// over by the arguments it takes, and a token the parity does not know
+/// fails it, so a step the description lacks cannot hide among them.
 fn emitted(argv: &[String]) -> Vec<&[String]> {
     let end = argv.iter().position(|part| part == "--").unwrap();
-    let (mut steps, mut at) = (Vec::new(), 0);
+    let (mut steps, mut at) = (Vec::new(), 1);
     while at < end {
-        let taken = match argv[at].as_str() {
-            "--proc" | "--dev" | "--dir" | "--tmpfs" => 2,
-            "--bind" | "--bind-try" | "--bind-fd" | "--ro-bind" | "--ro-bind-try" => 3,
-            "--ro-bind-fd" => 3,
-            "--overlay-src" if argv[at + 2] == "--overlay" => 6,
-            "--overlay-src" => 4,
-            _ => {
-                at += 1;
-                continue;
+        let (taken, step) = match argv[at].as_str() {
+            "--proc" | "--dev" | "--dir" | "--tmpfs" => (2, true),
+            "--bind" | "--bind-try" | "--bind-fd" | "--ro-bind" | "--ro-bind-try" => (3, true),
+            "--ro-bind-fd" => (3, true),
+            "--overlay-src" if argv[at + 2] == "--overlay" => (6, true),
+            "--overlay-src" => (4, true),
+            "--unshare-user" | "--disable-userns" | "--assert-userns-disabled" => (1, false),
+            "--unshare-pid" | "--unshare-ipc" | "--unshare-uts" | "--unshare-cgroup-try" => {
+                (1, false)
             }
+            "--unshare-net" | "--die-with-parent" | "--new-session" | "--clearenv" => (1, false),
+            "--cap-drop" | "--chdir" | "--perms" => (2, false),
+            "--setenv" => (3, false),
+            other => panic!("{other} is no option the parity knows: {argv:?}"),
         };
-        steps.push(&argv[at..at + taken]);
+        if step {
+            steps.push(&argv[at..at + taken]);
+        }
         at += taken;
     }
     steps
@@ -652,9 +660,10 @@ fn position(argv: &str, part: String) -> usize {
 }
 
 /// The argv's pin of the folder `at` onto itself, from the handle opened
-/// beneath the source that holds it (U8k).
+/// beneath the source that holds it (U8k): the same writable mount by
+/// handle as a sealed source's, [`fd`].
 fn pin(at: &Path) -> String {
-    format!("--bind-fd {a} {a}", a = at.display())
+    fd(at)
 }
 
 /// The argv's writable mount of the sealed source `at` at its own path,
