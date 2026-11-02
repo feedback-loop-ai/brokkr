@@ -103,7 +103,7 @@ pub struct CapabilityCall {
 /// exactly when `cell` is, with [`UNRECORDED`]; `response` is present
 /// exactly when the call cites a digest, and otherwise says which of
 /// the two absences the journal holds.
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct CallEvidence {
     pub call: Option<CapabilityCall>,
     pub cell: Cell,

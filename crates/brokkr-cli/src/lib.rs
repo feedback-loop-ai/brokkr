@@ -43,9 +43,11 @@ mod verbs;
 // fleet budgets read, and the bytes its `costs` and `compare` budgets do.
 #[doc(hidden)]
 pub use crate::budget_frame::{
-    compare_for_budget, costs_for_budget, fleet_frame_for_budget, fleet_listing_for_budget,
-    fleet_page_for_budget, fleet_window_for_budget, fleet_world_listing_for_budget,
-    run_frame_for_budget, run_readout_for_budget, FleetScroll, FleetWindow,
+    compare_for_budget, console_detail_view_for_budget, console_run_level_for_budget,
+    console_run_view_for_budget, costs_for_budget, fleet_frame_for_budget,
+    fleet_listing_for_budget, fleet_page_for_budget, fleet_window_for_budget,
+    fleet_world_listing_for_budget, run_frame_for_budget, run_readout_for_budget, FleetScroll,
+    FleetWindow,
 };
 #[doc(hidden)]
 pub use crate::tui::transcript_surfaces_for_test;

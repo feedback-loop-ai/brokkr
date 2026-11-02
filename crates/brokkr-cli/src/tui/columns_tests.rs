@@ -577,6 +577,24 @@ fn every_width_shares_the_whole_frame_and_holds_each_column_it_draws() {
     }
 }
 
+/// A live page moves one past its held end on `PageDown`, so the shell
+/// asks the page after it (decision 0089 slice 3); without that a bounded
+/// page could never be scrolled past its oldest row.
+#[test]
+fn a_live_page_moves_one_past_its_last_row_to_ask_the_next() {
+    let mut views = fleet_reading(held_view());
+    views.more = true;
+    let mut tui = selecting(HELD);
+    apply(&mut tui, &views, Key::Tab);
+    apply(&mut tui, &views, Key::Tab);
+    let (_, live) = live_text(&views, HELD, 111);
+    tui.live_offset = live.len() - 1;
+    apply(&mut tui, &views, Key::PageDown);
+    assert_eq!(tui.live_offset, live.len(), "one past the held page");
+    apply(&mut tui, &views, Key::PageUp);
+    assert_eq!(tui.live_offset, live.len() - 1, "back onto its last row");
+}
+
 /// `Tab` cycles the focus through the columns on the frame, and the list
 /// keys scroll the focused one: the dashboard's and the live column's
 /// scrolls are their own, and moving the list reads the next run from
@@ -1081,6 +1099,55 @@ fn a_stale_run_opened_in_place_names_no_seat_at_work() {
         frame.contains("phase review · seat — · attempt —"),
         "{frame}"
     );
+}
+
+thread_local! {
+    /// How many frames the answer-tick test's terminal has measured.
+    static ANSWER_TICK_SIZES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// M1 (rulings 5 and 9; decision 0088 ruling 4): the answer tick
+/// measures the terminal before it settles the held movement, so a
+/// column the new frame no longer draws is not moved. The live column at
+/// (0, 0) of 375x30 holds a `Down` while the read is out; the answer
+/// arrives in a frame 80 wide, which hides the column, and the whole
+/// read's move is no move at all: the cursor stays at (0, 0).
+#[test]
+fn chief_landing_answer_tick_measures_the_frame_before_settling() {
+    let _serialized = TERMINAL.lock().unwrap_or_else(|error| error.into_inner());
+    ANSWER_TICK_SIZES.with(|sizes| sizes.set(0));
+    let mut tui = selecting(REVIEWING);
+    tui.pane = 2;
+    (tui.width, tui.height) = (375, 30);
+    script(&[Key::Char('z'), Key::Down, Key::Quit]);
+    let ops = test_ops();
+    let mut calls = 0usize;
+    let mut source = move |_ask: Ask| -> Polled {
+        calls += 1;
+        match calls {
+            2 => Polled::Pending,
+            _ => Ok(Some(fleet_reading(reviewing_view()))).into(),
+        }
+    };
+    let mut terminal = Terminal::new(TestBackend::new(375, 30)).unwrap();
+    // The terminal at 375 wide while the read is out, and 80 on the
+    // answer tick: the frame the held movement is settled against.
+    let mut measure = |_terminal: &Terminal<TestBackend>| {
+        let call = ANSWER_TICK_SIZES.with(|sizes| {
+            let seen = sizes.get();
+            sizes.set(seen + 1);
+            seen
+        });
+        Ok((if call < 2 { 375 } else { 80 }, 30))
+    };
+    let closed = drive_with(&mut terminal, &ops, &mut source, &mut tui, 4, &mut measure).unwrap();
+    assert_eq!(closed, Closed::Quit);
+    assert_eq!(
+        (tui.live_offset, tui.live_line),
+        (0, 0),
+        "the hidden column's held Down moves nothing"
+    );
+    assert!(tui.held.is_empty(), "the hidden column's queue is dropped");
 }
 
 /// A column whose text shrinks under its scroll still draws its end: `G`

@@ -184,20 +184,41 @@ pub(super) fn notes_of(views: &Views, row: &RunRow) -> Option<(String, String)> 
 /// Lines to draw: each text with its style, before it is wrapped.
 type Texts = Vec<(String, Style)>;
 
+/// `text`, its style and the drawn line each of its rows starts at.
+pub(super) struct Laid {
+    pub title: String,
+    pub lines: Vec<Line<'static>>,
+    /// The drawn line each row of `texts` starts at, and the line after the
+    /// last: one row may wrap to several lines, so a row offset is not a
+    /// line offset (R1, decision 0089 ruling 9).
+    pub rows: Vec<usize>,
+    /// Whether one text is one checkpoint row, as the live column's are.
+    pub streamed: bool,
+}
+
 /// `texts` wrapped at `columns`, sanitized before they are measured so a
 /// line is as wide as what it draws; a blank line stays one line.
 pub(super) fn wrapped(texts: Texts, columns: usize) -> Vec<Line<'static>> {
-    texts
-        .into_iter()
-        .flat_map(|(text, style)| {
-            let parts = brokkr_view::wrap(&safe(&text), columns);
-            let blank = parts.is_empty().then(String::new);
+    wrapped_rows(texts, columns).0
+}
+
+/// [`wrapped`], and where each text's drawn lines begin.
+fn wrapped_rows(texts: Texts, columns: usize) -> (Vec<Line<'static>>, Vec<usize>) {
+    let mut lines = Vec::new();
+    let mut rows = Vec::new();
+    for (text, style) in texts {
+        rows.push(lines.len());
+        let parts = brokkr_view::wrap(&safe(&text), columns);
+        let blank = parts.is_empty().then(String::new);
+        lines.extend(
             parts
                 .into_iter()
                 .chain(blank)
-                .map(move |part| line(&part, style))
-        })
-        .collect()
+                .map(|part| line(&part, style)),
+        );
+    }
+    rows.push(lines.len());
+    (lines, rows)
 }
 
 /// A heading over a dashboard section, after a blank line.
@@ -441,17 +462,37 @@ fn commission(tui: &Tui, row: &RunRow, columns: usize) -> Texts {
 /// wrapped at `columns`. A running run streams the checkpoints of the
 /// seat the fold names, newest first; a finished or stale one shows its
 /// last review's findings, or else its last seat's notes, whole.
+#[cfg(test)]
 pub(super) fn live_column(
     views: &Views,
     row: &RunRow,
     columns: usize,
 ) -> (String, Vec<Line<'static>>) {
+    let laid = live_layout(views, row, columns);
+    (laid.title, laid.lines)
+}
+
+/// [`live_column`] with the drawn line each checkpoint row starts at: the
+/// live column's offset is in rows, and a row may wrap (R1).
+pub(super) fn live_layout(views: &Views, row: &RunRow, columns: usize) -> Laid {
     let view = view_of(views, row);
-    let (title, texts) = match third_of(row, &views.now) {
-        Third::Live => streamed(view, row, &views.now),
-        Third::Findings => found(view, row),
+    let (title, texts, streamed) = match third_of(row, &views.now) {
+        Third::Live => {
+            let (title, texts) = streamed(view, row, &views.now);
+            (title, texts, true)
+        }
+        Third::Findings => {
+            let (title, texts) = found(view, row);
+            (title, texts, false)
+        }
     };
-    (title, wrapped(texts, columns))
+    let (lines, rows) = wrapped_rows(texts, columns);
+    Laid {
+        title,
+        lines,
+        rows,
+        streamed,
+    }
 }
 
 /// What the line says where the frame holds no view of the run yet.
@@ -528,10 +569,32 @@ pub(super) fn draw_dashboard(
 /// The live or findings column, scrolled to `tui.live_offset`.
 pub(super) fn draw_live(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, row: &RunRow) {
     let inner = Block::default().borders(Borders::ALL).inner(area);
-    let (title, lines) = live_column(views, row, usize::from(inner.width));
-    let block = pane(&title, focused(tui, views) == FleetColumn::Live);
+    let laid = live_layout(views, row, usize::from(inner.width));
+    let block = pane(&laid.title, focused(tui, views) == FleetColumn::Live);
     frame.render_widget(block, area);
-    frame.render_widget(Paragraph::new(scrolled(lines, tui.live_offset)), inner);
+    let lines = laid.lines;
+    let from = match laid.streamed {
+        // The offset is a checkpoint row in the stream; the window holds a
+        // slice of those rows, and the draw translates once to drawn
+        // lines, a wrapped row costing as many as it fills (R1).
+        true => {
+            let rows = laid.rows.len().saturating_sub(1);
+            let row = tui
+                .live_offset
+                .saturating_sub(views.start)
+                .min(rows.saturating_sub(1));
+            let first = laid.rows.get(row).copied().unwrap_or(lines.len());
+            let next = laid.rows.get(row + 1).copied().unwrap_or(lines.len());
+            // The row's own first drawn line plus where within the row the
+            // viewport stands, so a wrapped continuation is reachable by
+            // one Down (R1, F3).
+            (first + tui.live_line).min(next)
+        }
+        false => tui.live_offset.min(lines.len().saturating_sub(1)),
+    };
+    let from = from.min(lines.len().saturating_sub(1));
+    let lines: Vec<Line<'static>> = lines.into_iter().skip(from).collect();
+    frame.render_widget(Paragraph::new(lines), inner);
 }
 
 /// `lines` from `offset`, held to the last of them: a column whose text

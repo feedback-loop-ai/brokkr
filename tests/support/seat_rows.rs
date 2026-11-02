@@ -18,32 +18,7 @@
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use serde_json::{json, Value};
 
-use super::envelope_builder::EnvelopeBuilder;
-
-/// The stamp of the event at `seq`: one second apart.
-pub(crate) fn at(seq: u64) -> String {
-    format!("2026-01-01T00:00:{seq:02}Z")
-}
-
-/// A journal of `events`, each at its seq and stamp from 1.
-pub(crate) fn journal(events: Vec<(EventType, Value)>) -> Vec<EventEnvelope> {
-    let seqs = 1u64..;
-    let events = seqs.zip(events);
-    events
-        .map(|(seq, (event_type, payload))| {
-            EnvelopeBuilder::new(event_type, payload)
-                .seq(seq)
-                .at(at(seq))
-                .build()
-        })
-        .collect()
-}
-
-/// A checkpoint of effect `effect`'s attempt `attempt`.
-pub(crate) fn checkpoint(effect: &str, attempt: &str, checkpoint: Value) -> (EventType, Value) {
-    let payload = json!({"effect_id": effect, "attempt_id": attempt, "checkpoint": checkpoint});
-    (EventType::EffectCheckpointed, payload)
-}
+pub(crate) use super::seat_steps::{checkpoint, journal};
 
 /// A seat whose first attempt fails and whose retry succeeds, each
 /// reporting a cost: its second attempt's first turn repeats the first

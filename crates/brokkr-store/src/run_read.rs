@@ -117,11 +117,7 @@ impl Store {
         before: Option<u64>,
         mut rows: impl FnMut(&mut dyn Iterator<Item = EventEnvelope>) -> R,
     ) -> Result<SeatRead<T>, StoreError> {
-        patiently("load", self.patience, || {
-            let _snapshot = self.conn.unchecked_transaction()?;
-            if !self.headed_at(run_id, opened)? {
-                return Ok(SeatRead::Kept);
-            }
+        self.seat_at(run_id, opened, || {
             self.seat_page(run_id, opened, seat, before, &mut rows)
         })
     }

@@ -80,7 +80,7 @@ pub(crate) fn refuse(is_tty: bool, size: (u16, u16), db_is_file: bool) -> Option
             "`brokkr tui` needs a terminal and stdout is not one; {instead}"
         ));
     }
-    if size.0 < MIN_WIDTH || size.1 < MIN_HEIGHT {
+    if !fits(size.0, size.1) {
         return Some(format!(
             "this terminal is {}×{}, below the {MIN_WIDTH}×{MIN_HEIGHT} `brokkr tui` needs; {instead}",
             size.0, size.1
@@ -327,11 +327,39 @@ where
     // A backend's own error reaches the operator through `anyhow`.
     B::Error: std::error::Error + Send + Sync + 'static,
 {
+    drive_with(
+        terminal,
+        ops,
+        source,
+        tui,
+        max_iterations,
+        &mut |terminal| {
+            let size = terminal.size()?;
+            Ok((size.width, size.height))
+        },
+    )
+}
+
+/// [`drive`], with the tick's frame size measured by `measure` instead of
+/// the backend. Production measures the terminal itself; a test can
+/// resize between reads without a second drive loop or a second loop
+/// body.
+pub(super) fn drive_with<B: Backend, P: Into<Polled>, M>(
+    terminal: &mut Terminal<B>,
+    ops: &TerminalOps,
+    source: &mut dyn FnMut(Ask) -> P,
+    tui: &mut Tui,
+    max_iterations: usize,
+    measure: &mut M,
+) -> Result<Closed>
+where
+    // A backend's own error reaches the operator through `anyhow`.
+    B::Error: std::error::Error + Send + Sync + 'static,
+    M: FnMut(&Terminal<B>) -> Result<(u16, u16)>,
+{
     let mut views = Views::empty();
     // What `views` was read for: a frame is never drawn under the tab,
-    // the run or the participant of another (#744). The empty frame holds
-    // nothing of anything, so it stands for what is first asked, and no
-    // participant is asked about over a frame that lists none.
+    // run or participant of another (#744); the empty frame asks first.
     let mut shown = ReadFor {
         tab: tui.tab,
         run: asked_run(tui, &views),
@@ -350,25 +378,45 @@ where
         let ask = Ask {
             run: asked.as_deref(),
             subject,
+            // The RUN level paints the graph, the seats and the trail and
+            // no checkpoint: it reads the frame alone (decision 0089
+            // slice 3).
+            run_level: tui.level == Level::Run,
             force: std::mem::take(&mut tui.force),
             fleet: tui.ticks.is_multiple_of(RUNS_REFRESH_TICKS),
             // Only the ACTIVE hearth is ever asked about, so an inactive
             // tab's journal is neither polled nor opened.
             tab: tui.tab,
             window: asked_window(tui),
+            live_rows: asked_rows(tui),
+            live_offset: ask_offset(tui),
         };
-        // A read still out (`Polled::Pending`) is neither read nor
-        // refused: the give-up bound counts reads.
+        // A read still out is neither read nor refused; a failed read is
+        // no answer either, so the keys wait for a successful one (M2).
+        let mut answered = false;
         if let Polled::Answered(answer) = source(ask).into() {
             let key = vanishing_key.as_deref();
+            let succeeded = answer.is_ok();
             if taken(tui, &mut views, *answer, key, &mut failures)? {
                 shown = asking.clone();
             }
+            answered = succeeded;
+        } else {
+            tui.pending = true;
         }
         // What the shell has left behind: until what it asks about now
         // answers, the frame draws none of it.
         held_to(tui, &mut views, &mut shown, asking);
-        settle(tui, &views);
+        // Measured before the answer is settled, so a held movement is
+        // applied against the frame the operator is looking at: whether
+        // its column is still drawn and how its row wraps are the size's
+        // facts, not the previous frame's (M1, decision 0088 ruling 4).
+        let size = measure(terminal)?;
+        (tui.width, tui.height) = size;
+        // A page request the keys parked is resolved only against the
+        // frame that answers it; the frame held while a read is out is not
+        // that answer (R4).
+        settle_when(tui, &views, answered);
         // Ruled over the frame just read, so the frame that first shows
         // the run settled is drawn, and keyed, as ended. The next frame
         // reads the journal as the run left it, and stays until a key
@@ -382,11 +430,9 @@ where
         if unwound(&tui.watched) {
             return Ok(Closed::Ended);
         }
-        // Measured before the draw, so the frame, its footer and the keys
-        // below are pressed against one size.
-        let size = terminal.size()?;
-        (tui.width, tui.height) = (size.width, size.height);
+        // The same measurement draws the frame, its footer and the keys.
         terminal.draw(|frame| draw(frame, tui, &views))?;
+        drawn(tui, size);
         if (ops.poll)(TICK)? {
             if let Some(closed) = closed_by(tui, &views, (ops.read)()?) {
                 return Ok(closed);
@@ -396,6 +442,18 @@ where
     }
     // Only a test bounds the loop; one that ran out closes as `q` would.
     Ok(Closed::Quit)
+}
+
+/// A frame has been drawn at `size`: a notice a key set has now been seen
+/// once, so the next frame's sentence may take the status line. A frame
+/// too small to hold the status line draws no notice, and one whose help
+/// or reader overlay clears the whole frame covers it after it is painted;
+/// a notice either way stays pending until a frame paints it uncovered
+/// (M2, decision 0071 rulings 5 and 9).
+pub(super) fn drawn(tui: &mut Tui, size: (u16, u16)) {
+    if fits(size.0, size.1) && !tui.help && tui.reading.is_none() {
+        tui.notice = None;
+    }
 }
 
 /// One session of the console on a terminal: every environment fact and

@@ -1300,10 +1300,13 @@ fn forced_frames(db: &std::path::Path) -> impl FnMut(&Tui) -> Views + '_ {
         let ask = Ask {
             run: tui.run.as_deref(),
             subject: None,
+            run_level: false,
             force: true,
             fleet: true,
             tab: 0,
             window: asked_window(tui),
+            live_rows: asked_rows(tui),
+            live_offset: 0,
         };
         read(ask).unwrap().expect("a forced read draws a frame")
     }

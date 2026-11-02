@@ -13,10 +13,14 @@
 mod budgets;
 #[path = "../../../tests/support/composed_read.rs"]
 mod composed_read;
+#[path = "../../../tests/support/envelope.rs"]
+mod envelope_builder;
 #[path = "heap/grown.rs"]
 mod grown;
 #[path = "heap/measure.rs"]
 mod measure;
+#[path = "../../../tests/support/seat_steps.rs"]
+mod seat_steps;
 #[path = "heap/stretched.rs"]
 mod stretched;
 
@@ -294,9 +298,15 @@ fn first_page_stretched() -> Vec<EventEnvelope> {
 /// What `db`'s terminal frame cost, from its read-only open to its painted
 /// text, holding that it paints `shown`.
 fn framed(db: &Path, shown: &str) -> Screen {
+    framed_by(db, shown, |db| readout(db, false))
+}
+
+/// What `paint` cost painting `db`'s run, from its read-only open to its
+/// painted text, holding that it paints `shown`.
+fn framed_by(db: &Path, shown: &str, paint: impl Fn(&Path) -> String) -> Screen {
     let (base, _) = sqlite_memory(true);
     let mut painted = None;
-    let brokkr = peak_of(|| painted = Some(readout(db, false)));
+    let brokkr = peak_of(|| painted = Some(paint(db)));
     let (_, high) = sqlite_memory(false);
     assert_eq!(painted.as_deref(), Some(shown), "the frame of {db:?}");
     Screen {
@@ -370,5 +380,258 @@ fn the_run_s_terminal_frame_holds_its_trail_and_no_checkpoint() {
         "{} bytes with {} checkpoints of a mebibyte among the first 50 events, past the budget {brokkr} and the one checkpoint the opening verifies at a time: the frame holds a journal page it does not paint",
         paged.brokkr,
         checkpoints.count()
+    );
+}
+
+/// The console's clock for its run level: a frame paints the run's age at
+/// it, the same for both reads.
+const CONSOLE_NOW: &str = "2026-10-26T00:00:00Z";
+
+/// What the console's run level paints of the grown run in the journal at
+/// `db`, first painted after the run is selected, read as the console
+/// reads it, or with `whole` read whole as before the pages (decision 0089
+/// slice 3).
+fn console_level(db: &Path, whole: bool) -> String {
+    brokkr_cli::console_run_level_for_budget(db, grown::RUN, CONSOLE_NOW, whole).unwrap()
+}
+
+/// What the console reads of the grown run in the journal at `db` for its
+/// run level, as text: its event count, its journal's rows and each
+/// participant's checkpoints, which no seat at work gives a page of.
+fn console_read(db: &Path) -> String {
+    let view = brokkr_cli::console_run_view_for_budget(db, grown::RUN).unwrap();
+    let checkpoints = view.participants.iter().map(|part| part.checkpoints.len());
+    let checkpoints: Vec<usize> = checkpoints.collect();
+    format!(
+        "{} {} {checkpoints:?}",
+        view.event_count,
+        view.journal.len()
+    )
+}
+
+/// Ruling 9 on the console's run level (decision 0089 slice 3): selecting
+/// the grown run, the console opens it and reads one read's trail and seat
+/// rows, no seat at work, so no checkpoint page, and composes its view:
+/// from its read-only open, Brokkr's peak is the same to the byte in a
+/// journal of 10,000 events and one of 1,000,000, within ruling 9's 256
+/// KiB and the run's control envelopes, and SQLite's within the run view's
+/// cap. Painted at 160x48, the frame is today's, the run read whole; its
+/// peak, ratatui's buffers on top, is reported, since two paints of one
+/// view lay a table out by ratatui's solver, which moves its peak by a few
+/// hundred bytes between them. The first paint's wall time, read and
+/// painted, is reported against ruling 9's 50 ms and today's, read whole;
+/// none is gated.
+#[test]
+fn the_console_s_run_level_holds_its_trail_and_no_checkpoint() {
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
+    let dir = tempfile::tempdir().unwrap();
+    let (run, [small_db, large_db]) = grown_journals(dir.path());
+    let read = format!("{} 17 [0, 0, 0]", grown::EVENTS);
+    assert_eq!(console_read(&small_db), read);
+    let (small, large) = (
+        framed_by(&small_db, &read, console_read),
+        framed_by(&large_db, &read, console_read),
+    );
+    let shown = console_level(&small_db, false);
+    assert_eq!(shown, console_level(&small_db, true), "today's frame");
+    let level = |db: &Path| console_level(db, false);
+    let painted = [&small_db, &large_db].map(|db| framed_by(db, &shown, level));
+    eprintln!(
+        "the console's run level read: small {small:?}; large {large:?}; painted: {painted:?}"
+    );
+    let paged = median_micros(|| assert_eq!(level(&small_db), shown));
+    let whole = median_micros(|| drop(console_level(&small_db, true)));
+    let alone = median_micros(|| assert_eq!(console_read(&small_db), read));
+    eprintln!("the console's run level, read and painted, median of 11: {paged} us through its pages ({alone} us of it the read), {whole} us read whole as before; ruling 9's first screen is 50,000 us");
+    println!("wall\tconsole-run-level\t{paged}");
+    assert_eq!(
+        large.brokkr, small.brokkr,
+        "1,000,000 events against 10,000"
+    );
+    let control = control_bytes(&run);
+    let sqlite = budgets::budget_named("run-view-sqlite");
+    for (name, level) in [("10,000", small), ("1,000,000", large)] {
+        assert!(
+            level.brokkr <= 256 * 1024 + control,
+            "{name}: {} bytes, past ruling 9's 256 KiB and the {control} bytes of the run's control envelopes",
+            level.brokkr
+        );
+        assert!(
+            level.sqlite <= sqlite,
+            "{name}: SQLite's {} bytes; the budget is {sqlite}",
+            level.sqlite
+        );
+    }
+}
+
+/// The grown run at work: cut where its second seat, the longest-running,
+/// succeeds, so that seat is at work with every checkpoint the grown run
+/// gives it, as a run the console selects mid-seat stands.
+fn at_work() -> Vec<EventEnvelope> {
+    let mut events = grown::journal();
+    let mut succeeded = events
+        .iter()
+        .enumerate()
+        .filter(|(_, event)| event.event_type == EventType::EffectSucceeded);
+    let (cut, _) = succeeded
+        .nth(1)
+        .expect("the grown run's second seat succeeds");
+    events.truncate(cut);
+    grown::chained(events)
+}
+
+/// The checkpoints of `run`'s seat at work: every one after its last start.
+fn stream_of(run: &[EventEnvelope]) -> &[EventEnvelope] {
+    let started = run
+        .iter()
+        .rposition(|event| event.event_type == EventType::EffectStarted);
+    &run[started.expect("the seat at work started") + 1..]
+}
+
+/// What the console's run level holds of a run at work (decision 0089
+/// slice 3, as the operator ruled on 2026-10-26): selecting the grown run
+/// cut mid-seat, its longest-running seat at work with 4,675 checkpoints,
+/// the console opens it and reads one read's trail and seat rows, and no
+/// checkpoint of that seat at all, and composes its view. From its
+/// read-only open, Brokkr's peak is the same to the byte beside the
+/// generated runs of a journal of 10,000 events and of one of 1,000,000,
+/// within ruling 9's 256 KiB and the run's control envelopes, and never
+/// with the seat's stream; SQLite's within the run view's cap. Its peak is
+/// reported beside today's, the run read whole. Painted at 160x48 at the
+/// seat's last checkpoint, the frame is today's; its wall time, read and
+/// painted, is reported against ruling 9's 50 ms and today's; none is
+/// gated.
+#[test]
+fn the_console_s_run_level_at_work_holds_its_seat_s_stream() {
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
+    let dir = tempfile::tempdir().unwrap();
+    let run = at_work();
+    let stream = stream_of(&run);
+    let [small_db, large_db] = [("small.db", 10_000), ("large.db", 1_000_000)]
+        .map(|(name, events)| journal(dir.path(), name, events, &run));
+    let trail = run
+        .iter()
+        .filter(|event| event.event_type != EventType::EffectCheckpointed);
+    let read = format!("{} {} [0, 0]", run.len(), trail.count());
+    assert_eq!(console_read(&small_db), read);
+    let (small, large) = (
+        framed_by(&small_db, &read, console_read),
+        framed_by(&large_db, &read, console_read),
+    );
+    eprintln!("the console's run level at work: small {small:?}; large {large:?}");
+    let now = &run[run.len() - 1].recorded_at;
+    let level = |db: &Path, whole| {
+        brokkr_cli::console_run_level_for_budget(db, grown::RUN, now, whole).unwrap()
+    };
+    let shown = level(&small_db, false);
+    assert_eq!(shown, level(&small_db, true), "today's frame");
+    let paged = median_micros(|| assert_eq!(level(&small_db, false), shown));
+    let whole = median_micros(|| drop(level(&small_db, true)));
+    eprintln!("the console's run level at work, read and painted, median of 11: {paged} us through the pages, {whole} us read whole as before; ruling 9's first screen is 50,000 us");
+    println!("wall\tconsole-run-level-at-work\t{paged}");
+    assert_eq!(
+        large.brokkr, small.brokkr,
+        "1,000,000 events against 10,000"
+    );
+    let control = control_bytes(&run);
+    let sqlite = budgets::budget_named("run-view-sqlite");
+    let (envelopes, rows) = (envelope_bytes(stream, |_| true), stream.len() as u64);
+    let today = peak_of(|| drop(read_whole(&small_db)));
+    eprintln!(
+        "the seat's {rows} checkpoints: {envelopes} bytes of envelopes; the peak {} bytes, {} a checkpoint; read whole as before, {today} bytes",
+        small.brokkr,
+        small.brokkr / rows
+    );
+    for (name, level) in [("10,000", small), ("1,000,000", large)] {
+        assert!(
+            level.brokkr <= 256 * 1024 + control,
+            "{name}: {} bytes, past ruling 9's 256 KiB and the {control} bytes of the run's control envelopes: the run level holds its seat's stream",
+            level.brokkr
+        );
+        assert!(
+            level.sqlite <= sqlite,
+            "{name}: SQLite's {} bytes; the budget is {sqlite}",
+            level.sqlite
+        );
+    }
+}
+
+/// A run at work with `checkpoints` checkpoints of its one seat, chained:
+/// the journal the detail pane's merge is measured over.
+fn working(checkpoints: u64) -> Vec<EventEnvelope> {
+    let mut steps = vec![
+        (
+            EventType::RunStarted,
+            json!({"feature": "the detail pane's run"}),
+        ),
+        (EventType::PhaseEntered, json!({"phase": "work"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "detail-eff", "seat": "detail", "phase": "measure"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "detail-eff", "attempt_id": "detail-att"}),
+        ),
+    ];
+    for turn in 1..=checkpoints {
+        steps.push(seat_steps::checkpoint(
+            "detail-eff",
+            "detail-att",
+            json!({"step": "seat-turn", "turn": turn}),
+        ));
+    }
+    grown::chained(seat_steps::journal(steps))
+}
+
+/// The detail pane's merge holds a window, not the depth it read (F4,
+/// decision 0089 ruling 9): a fresh ask 200 rows deep and one 10,000 deep
+/// over 10,000 checkpoints, and one 100,000 deep over 100,000, hold the
+/// same Brokkr peak however far the scroll has gone; the rows above the
+/// window are counted and dropped as they arrive, never held as a prefix.
+#[test]
+fn the_detail_pane_holds_a_window_however_deep_the_scroll() {
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
+    let dir = tempfile::tempdir().unwrap();
+    let small_events = working(10_000);
+    let large_events = working(100_000);
+    let small = stretched::journal(dir.path(), "detail-small.db", 10_000, &small_events);
+    let large = stretched::journal(dir.path(), "detail-large.db", 1_000_000, &large_events);
+    // A writable open catches the projections up, so the console reads the
+    // pages the journal holds rather than falling back to the run whole.
+    drop(Store::open(&small).unwrap());
+    drop(Store::open(&large).unwrap());
+    // Painted once unmeasured, so what a process allocates once and keeps
+    // is allocated before any peak is measured.
+    let warm = brokkr_cli::console_detail_view_for_budget(&small, "run", 200).unwrap();
+    let warm_rows: usize = warm
+        .participants
+        .iter()
+        .map(|part| part.checkpoints.len())
+        .sum();
+    eprintln!("the detail warm read holds {warm_rows} checkpoints");
+    drop(warm);
+    let shallow = peak_of(|| {
+        drop(brokkr_cli::console_detail_view_for_budget(&small, "run", 200).unwrap());
+    });
+    let deep = peak_of(|| {
+        drop(brokkr_cli::console_detail_view_for_budget(&small, "run", 10_000).unwrap());
+    });
+    let deepest = peak_of(|| {
+        drop(brokkr_cli::console_detail_view_for_budget(&large, "run", 100_000).unwrap());
+    });
+    eprintln!("the detail pane: 200 rows {shallow} B; 10,000 {deep} B; 100,000 {deepest} B");
+    println!("heap\tdetail-window\t{}", shallow.max(deep).max(deepest));
+    assert!(
+        deep <= shallow + 256 * 1024,
+        "10,000 rows held {} bytes against {} at 200: the merge kept the depth",
+        deep,
+        shallow
+    );
+    assert!(
+        deepest <= shallow + 256 * 1024,
+        "100,000 rows held {} bytes against {} at 200: the merge kept the depth",
+        deepest,
+        shallow
     );
 }

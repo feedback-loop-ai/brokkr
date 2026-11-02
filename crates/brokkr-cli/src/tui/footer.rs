@@ -213,6 +213,12 @@ fn participant_footer(tui: &Tui, views: &Views, tail: &str) -> String {
 /// line, always drawn: an operator must be able to see WHY a frame is
 /// standing still.
 pub(super) fn status_line(tui: &Tui) -> String {
+    // A notice a key set in the same tick outlives the answer that
+    // arrived before the draw; the shell clears it once a frame paints it
+    // uncovered (M2).
+    if let Some(notice) = &tui.notice {
+        return notice.clone();
+    }
     if let Some(status) = &tui.status {
         return status.clone();
     }

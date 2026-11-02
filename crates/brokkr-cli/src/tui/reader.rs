@@ -56,10 +56,13 @@ type Answer = (Asked, std::thread::Result<Result<Refreshed>>);
 struct Asked {
     run: Option<String>,
     subject: Option<Subject>,
+    run_level: bool,
     force: bool,
     fleet: bool,
     tab: usize,
     window: Window,
+    live_rows: usize,
+    live_offset: usize,
 }
 
 impl Asked {
@@ -67,10 +70,13 @@ impl Asked {
         Asked {
             run: ask.run.map(str::to_string),
             subject: ask.subject.clone(),
+            run_level: ask.run_level,
             force: ask.force,
             fleet: ask.fleet,
             tab: ask.tab,
             window: ask.window.clone(),
+            live_rows: ask.live_rows,
+            live_offset: ask.live_offset,
         }
     }
 
@@ -78,17 +84,27 @@ impl Asked {
         Ask {
             run: self.run.as_deref(),
             subject: self.subject.clone(),
+            run_level: self.run_level,
             force: self.force,
             fleet: self.fleet,
             tab: self.tab,
             window: self.window.clone(),
+            live_rows: self.live_rows,
+            live_offset: self.live_offset,
         }
     }
 
     /// Whether a frame read for `self` is a frame of what `other` asks
-    /// about: the same hearth, run and participant.
+    /// about: the same hearth, run, participant, screen and page. A page
+    /// read at another offset does not answer the move that asked for
+    /// this one, however much of the same screen it holds (R4).
     fn frames(&self, other: &Asked) -> bool {
-        self.tab == other.tab && self.run == other.run && self.subject == other.subject
+        self.tab == other.tab
+            && self.run == other.run
+            && self.subject == other.subject
+            && self.run_level == other.run_level
+            && self.live_rows == other.live_rows
+            && self.live_offset == other.live_offset
     }
 
     /// `self`, still owing what `earlier` asked and no read has answered.
@@ -146,5 +162,36 @@ impl Reader {
             }
         }
         polled
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A frame read for another page of the same screen is not the answer
+    /// to this one: the ask's row count and offset are part of what it was
+    /// read for, so a move that changed them waits for its own read (R4).
+    #[test]
+    fn an_answer_for_another_page_is_not_a_frame_of_this_one() {
+        let ask = Ask {
+            run: Some("run-7"),
+            subject: None,
+            run_level: false,
+            force: true,
+            fleet: false,
+            tab: 0,
+            window: Window::default(),
+            live_rows: 30,
+            live_offset: 0,
+        };
+        let page = Asked::of(&ask);
+        let mut other = Asked::of(&ask);
+        other.live_offset = 50;
+        assert!(!page.frames(&other), "another offset is another page");
+        other.live_offset = page.live_offset;
+        assert!(page.frames(&other), "the same page answers");
+        other.live_rows = 31;
+        assert!(!page.frames(&other), "another row count is another page");
     }
 }

@@ -103,9 +103,17 @@ pub(super) fn draw_participant(
         Paragraph::new(head_lines(views, part)).block(pane("seat", false)),
         head,
     );
+    let offset = usize::from(offset_for(tui, 0)).saturating_sub(views.start);
+    let lines = checkpoint_lines(part);
+    // The window reads oldest first, as the pane always painted: its first
+    // row is the scroll's row, translated once into the held window. The
+    // bordered paragraph draws two rows fewer than the pane it fills, so
+    // the viewport is that inner height and the newest row stays reachable
+    // (R1, F2, F3; decision 0089, amended 2026-10-28).
+    let from = offset.min(lines.len().saturating_sub(1));
     frame.render_widget(
-        Paragraph::new(checkpoint_lines(part))
-            .scroll((offset_for(tui, 0), 0))
+        Paragraph::new(lines)
+            .scroll((u16::try_from(from).unwrap_or(u16::MAX), 0))
             .block(pane("checkpoints", tui.pane == 0)),
         stream,
     );
@@ -186,7 +194,11 @@ fn head_lines(views: &Views, part: &Participant) -> Vec<Line<'static>> {
     lines
 }
 
-/// The checkpoint pane: one line per checkpoint the seat recorded.
+/// The checkpoint pane: one line per checkpoint the seat recorded, oldest
+/// first as the whole read paints it; the page itself is read from the
+/// participant's oldest row forward (decision 0089 ruling 9, amended
+/// 2026-10-28). The pane scrolls down into newer rows, so its offset is a
+/// row in the stream, translated once into the window (R1/R2).
 fn checkpoint_lines(part: &Participant) -> Vec<Line<'static>> {
     part.checkpoints
         .iter()
@@ -237,7 +249,7 @@ fn transcript_pane(tui: &Tui, views: &Views) -> (Vec<Line<'static>>, usize) {
 /// The scroll of the focused pane only: the other pane keeps its top.
 pub(super) fn offset_for(tui: &Tui, pane: usize) -> u16 {
     match tui.pane == pane {
-        true => u16::try_from(tui.offset).unwrap_or(u16::MAX),
+        true => u16::try_from(tui.offset.min(DISPLAY_RANK)).unwrap_or(u16::MAX),
         false => 0,
     }
 }

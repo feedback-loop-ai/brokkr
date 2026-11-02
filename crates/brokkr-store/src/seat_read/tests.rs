@@ -11,8 +11,8 @@ use serde_json::{json, Value};
 
 use super::{reaches, Stream, ATTEMPT, FIRST, LAST, LEAST, MEMBER, NEXT, SINCE, STREAMS};
 use crate::event_index::STREAM;
-use crate::test_support::plan;
-use crate::tests::store;
+use crate::test_support::{plan, unindex};
+use crate::tests::{plant_unfenced, store};
 use crate::{Opened, SeatRead, Store, StoreError};
 
 /// An event of run `r`: its type and its payload.
@@ -56,6 +56,13 @@ fn opened(store: &mut Store, events: Vec<Event>) -> Opened {
     store.open_run("r").unwrap()
 }
 
+/// A seat asked and started, then ten of its own turns: seqs 5 to 14.
+fn ten() -> Vec<Event> {
+    let mut events = vec![asked("fx"), started("fx", "a")];
+    events.extend((1..=10).map(|at| turn("fx", "a", None, at)));
+    events
+}
+
 /// A page of `seat`'s checkpoints below `before`, each by its seq.
 fn page(
     store: &Store,
@@ -64,6 +71,20 @@ fn page(
     before: Option<u64>,
 ) -> SeatRead<u64> {
     let read = store.seat_read("r", opened, seat, before, |_| {
+        |event: &EventEnvelope| event.seq
+    });
+    read.unwrap()
+}
+
+/// A page of `seat`'s checkpoints after `after`, oldest first, each by its
+/// seq.
+fn from_page(
+    store: &Store,
+    opened: &Opened,
+    seat: (&str, Option<&str>),
+    after: Option<u64>,
+) -> SeatRead<u64> {
+    let read = store.seat_from("r", opened, seat, after, &mut |_| {
         |event: &EventEnvelope| event.seq
     });
     read.unwrap()
@@ -80,27 +101,47 @@ fn retried() -> Vec<Event> {
     events
 }
 
-#[test]
-fn a_participant_s_checkpoints_are_read_a_page_at_a_time_newest_first() {
-    let (_dir, mut store) = store();
-    let opened = opened(&mut store, retried());
-    assert_eq!(opened.seq, 125);
-    let whole = store.load("r").unwrap();
-    let theirs = |member: Option<&str>| -> Vec<u64> {
-        let named = whole.iter().filter(|event| {
-            event.event_type == EventType::EffectCheckpointed
-                && event.payload["checkpoint"]["member"].as_str() == member
-        });
-        named.map(|event| event.seq).rev().collect()
-    };
-    let (own, members) = (theirs(None), theirs(Some("m")));
-    assert_eq!((own.len(), members.len()), (110, 10));
-    // Each page is asked below the cursor the one before handed over,
-    // until a page hands none; the seat's own pages hold both attempts'.
+/// `retried` opened, then moved past its opening by one checkpoint of
+/// its retry: the head the read no longer stands at.
+fn past_opening(store: &mut Store) -> Opened {
+    let opened = opened(store, retried());
+    let (event_type, payload) = turn("fx", "b", None, 51);
+    store
+        .append_next("r", event_type, payload, None, None)
+        .unwrap();
+    opened
+}
+
+/// The forward page `after` of the run at `opened` once the index row at
+/// `seq` is deleted: the read the index can no longer stand behind.
+fn kept_after_index_delete(dir: &tempfile::TempDir, opened: &Opened, seq: u64) -> SeatRead<u64> {
+    let path = dir.path().join("forge.db");
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    let gone = format!("DELETE FROM event_index WHERE run_id = 'r' AND seq = {seq}");
+    assert_eq!(conn.execute(&gone, []).unwrap(), 1);
+    drop(conn);
+    let store = Store::open_read_only(&path).unwrap();
+    from_page(&store, opened, ("fx", None), Some(64))
+}
+
+/// The seqs of `whole`'s checkpoints `member` recorded, oldest first.
+fn checkpoint_seqs(whole: &[EventEnvelope], member: Option<&str>) -> Vec<u64> {
+    let named = whole.iter().filter(|event| {
+        event.event_type == EventType::EffectCheckpointed
+            && event.payload["checkpoint"]["member"].as_str() == member
+    });
+    named.map(|event| event.seq).collect()
+}
+
+/// `seat`'s pages from `store`, newest first below the cursor until a page
+/// hands none: the pages and their cursors, each cursor the page's
+/// outermost seq where it is full.
+fn pages(store: &Store, opened: &Opened, seat: (&str, Option<&str>)) -> Vec<Vec<u64>> {
     let mut pages = Vec::new();
-    let mut before = None;
+    let mut cursor = None;
     loop {
-        let SeatRead::Current(seqs, next) = page(&store, &opened, ("fx", None), before) else {
+        let read = page(store, opened, seat, cursor);
+        let SeatRead::Current(seqs, next) = read else {
             panic!("r's seat read as kept");
         };
         assert_eq!(next, (seqs.len() == 50).then(|| *seqs.last().unwrap()));
@@ -108,8 +149,25 @@ fn a_participant_s_checkpoints_are_read_a_page_at_a_time_newest_first() {
         if next.is_none() {
             break;
         }
-        before = next;
+        cursor = next;
     }
+    pages
+}
+
+#[test]
+fn a_participant_s_checkpoints_are_read_a_page_at_a_time_newest_first() {
+    let (_dir, mut store) = store();
+    let opened = opened(&mut store, retried());
+    assert_eq!(opened.seq, 125);
+    let whole = store.load("r").unwrap();
+    let mut own = checkpoint_seqs(&whole, None);
+    let mut members = checkpoint_seqs(&whole, Some("m"));
+    assert_eq!((own.len(), members.len()), (110, 10));
+    own.reverse();
+    members.reverse();
+    // Each page is asked below the cursor the one before handed over,
+    // until a page hands none; the seat's own pages hold both attempts'.
+    let pages = pages(&store, &opened, ("fx", None));
     let lengths: Vec<usize> = pages.iter().map(Vec::len).collect();
     assert_eq!(lengths, [50, 50, 10]);
     assert_eq!(pages.concat(), own);
@@ -229,11 +287,7 @@ fn a_start_the_page_cannot_read_is_refused() {
 #[test]
 fn a_run_past_its_opening_is_said_so() {
     let (_dir, mut store) = store();
-    let opened = opened(&mut store, retried());
-    let (event_type, payload) = turn("fx", "b", None, 51);
-    store
-        .append_next("r", event_type, payload, None, None)
-        .unwrap();
+    let opened = past_opening(&mut store);
     assert_eq!(page(&store, &opened, ("fx", None), None), SeatRead::Kept);
     let reopened = store.open_run("r").unwrap();
     let SeatRead::Current(seqs, _) = page(&store, &reopened, ("fx", None), None) else {
@@ -437,4 +491,214 @@ fn a_stream_and_its_members_search_the_stream_index() {
         ],
         [[members], [members]]
     );
+}
+
+/// The forward page is a page and the lookahead before it is cut: a
+/// member's record at the boundary is examined, so the page that would
+/// step over it reads the kept way (H1).
+#[test]
+fn the_forward_page_checks_the_record_at_its_boundary() {
+    let (_dir, mut store) = store();
+    let mut events = vec![asked("fx"), started("fx", "a")];
+    events.extend((1..=50).map(|at| turn("fx", "a", None, at)));
+    events.push((
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "attempt_id": "a", "result": {"member": "m"}}),
+    ));
+    events.extend((51..=100).map(|at| turn("fx", "a", None, at)));
+    let opened = opened(&mut store, events);
+    assert_eq!(opened.seq, 105, "the record stands at seq 55");
+    assert_eq!(
+        [
+            from_page(&store, &opened, ("fx", None), None),
+            from_page(&store, &opened, ("fx", None), Some(54)),
+        ],
+        [SeatRead::Kept, SeatRead::Kept],
+        "the page and the page resumed past its cursor"
+    );
+    assert_eq!(
+        page(&store, &opened, ("fx", None), None),
+        SeatRead::Kept,
+        "the backward reader refuses the same journal"
+    );
+}
+
+/// A plain forward run is still paged, not refused, at 100 checkpoints:
+/// two full pages and the cursor between them (H1's control).
+#[test]
+fn a_hundred_checkpoints_page_forward_without_a_refusal() {
+    let (_dir, mut store) = store();
+    let mut events = vec![asked("fx"), started("fx", "a")];
+    events.extend((1..=100).map(|at| turn("fx", "a", None, at)));
+    let opened = opened(&mut store, events);
+    assert_eq!(
+        from_page(&store, &opened, ("fx", None), None),
+        SeatRead::Current((5..=54).collect(), Some(54))
+    );
+    assert_eq!(
+        from_page(&store, &opened, ("fx", None), Some(54)),
+        SeatRead::Current((55..=104).collect(), None)
+    );
+}
+
+/// The forward page stands at the head its opening verified: an older
+/// writer's append past it leaves the seat rows where they stood, and the
+/// page reads the kept way rather than the stale rows (H2).
+#[test]
+fn a_forward_page_reads_at_the_head_its_opening_verified() {
+    let (_dir, mut store) = store();
+    let opened = opened(&mut store, ten());
+    assert_eq!(opened.seq, 14);
+    let (event_type, payload) = turn("fx", "a", None, 11);
+    plant_unfenced(&mut store, "r", event_type, payload);
+    assert_eq!(
+        from_page(&store, &opened, ("fx", None), None),
+        SeatRead::Kept
+    );
+}
+
+/// A forward page falls back when the event index is gone, as the
+/// backward page does, rather than failing on the missing table (H2).
+#[test]
+fn a_forward_page_falls_back_when_the_index_is_gone() {
+    let (_dir, mut store) = store();
+    let opened = opened(&mut store, ten());
+    let path = store.path().to_path_buf();
+    drop(store);
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    unindex(&conn).unwrap();
+    drop(conn);
+    let store = Store::open_read_only(&path).unwrap();
+    assert_eq!(
+        from_page(&store, &opened, ("fx", None), None),
+        SeatRead::Kept
+    );
+}
+
+/// The forward page is read inside one read transaction, as the backward
+/// page is: the row-maker sees the connection out of autocommit (H2).
+#[test]
+fn a_forward_page_is_one_read_transaction() {
+    let (_dir, mut store) = store();
+    let opened = opened(&mut store, ten());
+    let mut saw = None;
+    let read = store.seat_from("r", &opened, ("fx", None), None, &mut |_| {
+        saw = Some(!store.conn.is_autocommit());
+        |event: &EventEnvelope| event.seq
+    });
+    assert!(matches!(read, Ok(SeatRead::Current(..))), "{read:?}");
+    assert_eq!(
+        saw,
+        Some(true),
+        "the row-maker stands in a read transaction"
+    );
+}
+
+/// A forward page skips an attempt wholly below its cursor and reads the
+/// one that reaches past it: the streams are filtered above the cursor,
+/// never read below it.
+#[test]
+fn a_forward_page_skips_an_attempt_below_its_cursor() {
+    let (_dir, mut store) = store();
+    let opened = opened(&mut store, retried());
+    assert_eq!(opened.seq, 125);
+    assert_eq!(
+        from_page(&store, &opened, ("fx", None), Some(64)),
+        SeatRead::Current((76..=125).collect(), None),
+        "the retry's own 50 rows, oldest first from its first checkpoint"
+    );
+}
+
+/// A cursor at the stream's newest checkpoint still reads a page: the
+/// streams reach past it, and their rows stand past it, so the page is
+/// empty rather than no page at all.
+#[test]
+fn a_forward_page_after_the_last_row_is_empty() {
+    let (_dir, mut store) = store();
+    let opened = opened(&mut store, retried());
+    assert_eq!(
+        from_page(&store, &opened, ("fx", None), Some(125)),
+        SeatRead::Current(Vec::new(), None)
+    );
+}
+
+/// A member's forward page does not ask the seat's own interleave check:
+/// its stream is already the member's, and a member's page is exact.
+#[test]
+fn a_member_s_forward_page_is_not_interleaved() {
+    let (_dir, mut store) = store();
+    let opened = opened(&mut store, retried());
+    assert_eq!(
+        from_page(&store, &opened, ("fx", Some("m")), None),
+        SeatRead::Current((66..=75).collect(), None)
+    );
+}
+
+/// A run that moved past its opening is read the kept way forward too:
+/// the seat rows and its head no longer stand at the opening (H2).
+#[test]
+fn a_forward_page_past_its_opening_reads_the_kept_way() {
+    let (_dir, mut store) = store();
+    let opened = past_opening(&mut store);
+    assert_eq!(
+        from_page(&store, &opened, ("fx", None), None),
+        SeatRead::Kept
+    );
+}
+
+/// A forward page whose index no longer holds its stream's last row does
+/// not stand for its row: the read takes the kept way, never a short page
+/// (H2, M6).
+#[test]
+fn a_forward_index_missing_its_last_row_reads_the_kept_way() {
+    let (dir, mut store) = store();
+    let opened = opened(&mut store, retried());
+    assert_eq!(opened.seq, 125);
+    drop(store);
+    assert_eq!(kept_after_index_delete(&dir, &opened, 125), SeatRead::Kept);
+}
+
+/// A checkpoint whose attempt never started is not a stream the rows
+/// stand for: the forward read takes the kept way rather than a page
+/// whose start it cannot name.
+#[test]
+fn a_checkpoint_without_its_start_reads_the_kept_way() {
+    let (_dir, mut store) = store();
+    let mut events = vec![asked("fx"), started("fx", "a")];
+    events.extend((1..=10).map(|at| turn("fx", "a", None, at)));
+    events.push(turn("fx", "b", None, 1));
+    let opened = opened(&mut store, events);
+    assert_eq!(
+        from_page(&store, &opened, ("fx", None), None),
+        SeatRead::Kept
+    );
+}
+
+/// A seat row whose digest is not its values does not stand for its
+/// stream: the forward read takes the kept way before it pages (M6).
+#[test]
+fn a_forward_row_whose_digest_is_not_its_reads_the_kept_way() {
+    let (dir, mut store) = store();
+    let opened = opened(&mut store, ten());
+    drop(store);
+    let conn = rusqlite::Connection::open(dir.path().join("forge.db")).unwrap();
+    let corrupt = "UPDATE seat_summary SET digest = 'not its values' WHERE run_id = 'r'";
+    assert!(conn.execute(corrupt, []).unwrap() > 0);
+    drop(conn);
+    let store = Store::open_read_only(&dir.path().join("forge.db")).unwrap();
+    assert_eq!(
+        from_page(&store, &opened, ("fx", None), None),
+        SeatRead::Kept
+    );
+}
+
+/// A forward index missing the stream's first row begins below its row's
+/// first checkpoint: no page of it stands for the row, so the read is the
+/// kept one (H2, M6).
+#[test]
+fn a_forward_index_missing_its_first_row_reads_the_kept_way() {
+    let (dir, mut store) = store();
+    let opened = opened(&mut store, retried());
+    drop(store);
+    assert_eq!(kept_after_index_delete(&dir, &opened, 76), SeatRead::Kept);
 }

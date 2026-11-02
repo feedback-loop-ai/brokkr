@@ -30,6 +30,8 @@ pub(crate) mod journals;
 pub(crate) mod planted;
 #[path = "../../../tests/support/seat_read.rs"]
 mod seat_read;
+#[path = "../../../tests/support/seat_steps.rs"]
+mod seat_steps;
 
 /// The checkpoints one page holds (ruling 7).
 const PAGE: usize = 50;

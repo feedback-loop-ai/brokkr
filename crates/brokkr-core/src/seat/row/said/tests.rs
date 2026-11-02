@@ -2,7 +2,8 @@ use serde_json::json;
 
 use super::*;
 use crate::envelope::{EventEnvelope, EventType};
-use crate::seat::row::tests::journals::{self, at, checkpoint, journal};
+use crate::seat::row::tests::journals::{self, checkpoint, journal};
+use crate::seat::row::tests::seat_steps::at;
 use crate::seat::row::{facts, SeatFacts};
 use crate::summary::Account;
 

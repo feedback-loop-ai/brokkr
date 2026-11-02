@@ -29,7 +29,7 @@ pub(crate) enum Flow {
     Quit,
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Step {
     Up,
     Down,
@@ -249,6 +249,7 @@ pub(super) fn ascend(tui: &mut Tui) {
             // fleet reads its selection from the top.
             tui.offset = 0;
             tui.live_offset = 0;
+            tui.live_line = 0;
             tui.force = true;
         }
         Level::Runs => {}
@@ -361,12 +362,75 @@ fn sideways(tui: &mut Tui, views: &Views, direction: Step) {
     }
 }
 
+/// What movement a key names on a paged checkpoint window, if any. Only a
+/// list that is a page of a longer stream can be moved against a window
+/// the console does not yet hold; every other movement is exact at once.
+pub(super) fn page_step(tui: &Tui, views: &Views, key: Key) -> Option<Step> {
+    if !paged_window(tui, views) {
+        return None;
+    }
+    match key {
+        Key::Up => Some(Step::Up),
+        Key::Down => Some(Step::Down),
+        Key::PageUp => Some(Step::PageUp),
+        Key::PageDown => Some(Step::PageDown),
+        Key::Char('j') if !tui.typing => Some(Step::Down),
+        Key::Char('k') if !tui.typing => Some(Step::Up),
+        Key::Char('g') if !tui.typing => Some(Step::Top),
+        Key::Char('G') if !tui.typing => Some(Step::Bottom),
+        _ => None,
+    }
+}
+
+/// Drop the held movement of the view the operator has left. A run that
+/// already asked for the absolute end puts its cursor back where the
+/// operator left it, so a dropped key moves nothing and no later answer
+/// resolves it (M1).
+pub(super) fn drop_held(tui: &mut Tui) {
+    if let Some(origin) = tui.held.first().and_then(|held| held.end) {
+        cancel_end(tui, origin);
+    }
+    tui.held.clear();
+    tui.held_for = None;
+    tui.want = None;
+}
+
 /// The pure state machine: view models plus a key, in; a flow, out. No
-/// terminal, no store, no I/O.
+/// terminal, no store, no I/O. A paged movement is held while its read is
+/// out or while it would leave the held window, and applied by
+/// [`flush_held`] when the answer lands (decision 0071 ruling 5). Every
+/// other key acts at once; it drops the held movement only when it has
+/// changed the view the movement belongs to, so a refresh, help or an
+/// unbound character leaves the queue waiting for its answer (M1).
 pub(crate) fn apply(tui: &mut Tui, views: &Views, key: Key) -> Flow {
     if tui.reading.is_some() {
+        drop_held(tui);
         return read_key(tui, key);
     }
+    match page_step(tui, views, key) {
+        // The keys behind the head keep their order: a movement on a paged
+        // window waits while any earlier one does, and so does one that
+        // would leave the held window.
+        Some(step) if tui.pending || !tui.held.is_empty() || !can_move(tui, views, step) => {
+            if tui.held.is_empty() {
+                tui.held_for = Some(held_view(tui, views));
+            }
+            hold(tui, step);
+            Flow::Continue
+        }
+        Some(_) => apply_key(tui, views, key),
+        None => {
+            let before = held_view(tui, views);
+            let flow = apply_key(tui, views, key);
+            if !tui.held.is_empty() && held_view(tui, views) != before {
+                drop_held(tui);
+            }
+            flow
+        }
+    }
+}
+
+fn apply_key(tui: &mut Tui, views: &Views, key: Key) -> Flow {
     match key {
         Key::Quit => return Flow::Quit,
         Key::Char(character) => return typed(tui, views, character),

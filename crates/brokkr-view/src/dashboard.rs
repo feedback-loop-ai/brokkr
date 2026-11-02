@@ -15,7 +15,8 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::{
-    display_or_mark, field, fmt_dur, joined, js, result_token, truthy, CheckpointRow, RunView,
+    display_or_mark, field, fmt_dur, joined, js, result_token, truthy, CheckpointRow, Participant,
+    RunView,
 };
 
 /// The phase whose seat reports a run's findings.
@@ -365,23 +366,35 @@ fn panel_notes(map: &Map<String, Value>) -> String {
     lines.collect::<Vec<_>>().join("\n")
 }
 
+/// The participants of the seat the fold names as at work: the seat's own
+/// and every member's, while they work. The one set the live column paints
+/// and its reader counts (F4, ruling 5).
+pub fn working_participants<'a>(view: &'a RunView, seat: &str) -> Vec<&'a Participant> {
+    view.participants
+        .iter()
+        .filter(|part| {
+            let member = part.label.strip_prefix(seat);
+            part.working && member.is_some_and(|rest| rest.is_empty() || rest.starts_with(':'))
+        })
+        .collect()
+}
+
 /// The checkpoints of the seat the fold names as at work, newest first,
 /// each with the label of the participant that recorded it: the seat's
 /// own and every member's, while they work.
 pub fn working_checkpoints<'a>(view: &'a RunView, seat: &str) -> Vec<(&'a str, &'a CheckpointRow)> {
-    let working = view.participants.iter().filter(|part| {
-        let member = part.label.strip_prefix(seat);
-        part.working && member.is_some_and(|rest| rest.is_empty() || rest.starts_with(':'))
-    });
-    let mut rows: Vec<(&str, &CheckpointRow)> = working
+    let mut rows: Vec<(&str, &CheckpointRow)> = working_participants(view, seat)
+        .into_iter()
         .flat_map(|part| {
             part.checkpoints
                 .iter()
                 .map(|row| (part.label.as_str(), row))
         })
         .collect();
-    rows.sort_by(|(_, a), (_, b)| a.recorded_at.cmp(&b.recorded_at));
-    rows.reverse();
+    // Journal order, newest first: a checkpoint's seq is the order every
+    // surface reads its participant in, and a clock that stepped back moves
+    // no row (decision 0089, amended 2026-10-28).
+    rows.sort_by_key(|(_, row)| std::cmp::Reverse(row.seq));
     rows
 }
 

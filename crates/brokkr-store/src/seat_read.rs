@@ -50,18 +50,19 @@ use brokkr_core::seat::row::Datum;
 use rusqlite::{params, OptionalExtension};
 use serde_json::Value;
 
-use crate::event_index::{place, seqs, CHECKPOINT_PAGE, STREAM};
+use crate::event_index::{place, seqs, CHECKPOINT_PAGE, FORWARD, STREAM};
 use crate::seat_summary::effect_rows_at;
-use crate::{Opened, Store, StoreError};
+use crate::{patiently, Opened, Store, StoreError};
 
 /// What the seat view reads of one participant at the head its opening
 /// verified.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SeatRead<T> {
     /// Read at that head: a page of at most 50 of the participant's
-    /// checkpoints, newest first, each the row the caller made of it; and
-    /// the cursor the next, older page is asked before, the seq of this
-    /// page's oldest checkpoint, none where no older one is left.
+    /// checkpoints, in the read's direction (newest first for
+    /// [`Store::seat_read`], oldest first for [`Store::seat_from`]), each
+    /// the row the caller made of it; and the cursor for the next page in
+    /// that direction, none where none is left.
     Current(Vec<T>, Option<u64>),
     /// Not read at that head, for a reason the module names. The reader
     /// reads the run the kept way (ruling 8).
@@ -113,23 +114,34 @@ struct Stream {
 type Found = (u64, usize);
 
 /// What a participant's effect's rows keep of the streams that can reach
-/// the page below `before`, gathered a row at a time ([`Gathered::row`]).
+/// the page below `before`, or above `after`, gathered a row at a time
+/// ([`Gathered::row`]).
 #[derive(Debug)]
 struct Gathered {
     before: Option<u64>,
-    /// The streams that can reach the page, at most [`STREAMS`] and one
-    /// more, as many as their capacity holds.
+    after: Option<u64>,
+    /// The streams that can reach the page, at most [`STREAMS`], as many
+    /// as their capacity holds.
     streams: Vec<Stream>,
     /// Whether a row of the participant that holds checkpoints names no
-    /// attempt, or one a stream kept names, whose stream would hold both;
-    /// or more than [`STREAMS`] streams can reach the page.
+    /// attempt, or one another row already names, whose stream would hold
+    /// both; or more than [`STREAMS`] streams can reach the page.
     refused: bool,
 }
 
 impl Gathered {
     fn below(before: Option<u64>) -> Gathered {
+        Gathered::new(before, None)
+    }
+
+    fn above(after: u64) -> Gathered {
+        Gathered::new(None, Some(after))
+    }
+
+    fn new(before: Option<u64>, after: Option<u64>) -> Gathered {
         Gathered {
             before,
+            after,
             streams: Vec::with_capacity(STREAMS + 1),
             refused: false,
         }
@@ -157,6 +169,13 @@ impl Gathered {
             first: *first as u64,
             last: *last as u64,
         };
+        if let Some(after) = self.after {
+            if stream.last > after {
+                self.streams.push(stream);
+            }
+            self.refused |= self.streams.len() > STREAMS;
+            return;
+        }
         // A stream with no checkpoint below the cursor is none of the
         // page's, and no stream kept holds none: `streamed` reads each from
         // its first checkpoint.
@@ -185,13 +204,31 @@ impl Gathered {
         self.refused |= self.streams.len() > STREAMS;
     }
 
-    /// The streams that can reach the page: none where a row refused them.
+    /// The streams that can reach the page, none where a row refused them.
     fn streams(self) -> Option<Vec<Stream>> {
         (!self.refused).then_some(self.streams)
     }
 }
 
 impl Store {
+    /// `read`, one direction's page at `opened`, inside the one read
+    /// transaction and the one head-and-index check both directions take
+    /// (decision 0089 rulings 7 and 8).
+    pub(crate) fn seat_at<T>(
+        &self,
+        run_id: &str,
+        opened: &Opened,
+        mut read: impl FnMut() -> Result<SeatRead<T>, StoreError>,
+    ) -> Result<SeatRead<T>, StoreError> {
+        patiently("load", self.patience, || {
+            let _snapshot = self.conn.unchecked_transaction()?;
+            if !self.headed_at(run_id, opened)? {
+                return Ok(SeatRead::Kept);
+            }
+            read()
+        })
+    }
+
     /// The page of the participant `seat` below `before`, inside the seat
     /// view's read ([`Store::seat_read`]), at `opened`, the head its
     /// opening verified, which the read stands at.
@@ -209,6 +246,8 @@ impl Store {
         let Some(mut found) = self.found(run_id, seat.1, &mut streams, before)? else {
             return Ok(SeatRead::Kept);
         };
+        let read = found.iter().map(|(_, at)| at + 1).max().unwrap_or(0);
+        streams.truncate(read);
         let cut = found.get(CHECKPOINT_PAGE).map_or(0, |(seq, _)| seq + 1);
         let next = (found.len() > CHECKPOINT_PAGE).then(|| found[CHECKPOINT_PAGE - 1].0);
         found.truncate(CHECKPOINT_PAGE);
@@ -223,6 +262,74 @@ impl Store {
         self.paged(run_id, seat, &found, row, next)
     }
 
+    /// The first page of the participant `seat`'s checkpoints after
+    /// `after`, read through the stream index at `opened`, the head its
+    /// opening verified: oldest first, each the row the caller made of it,
+    /// and the cursor after which the next, newer page is asked, none
+    /// where no newer checkpoint is left. The page the participant level
+    /// opens on, and each page it reads as the operator scrolls down;
+    /// where the streams cannot stand for the participant's checkpoints
+    /// ([`SeatRead::Kept`]) the reader reads the run whole (ruling 8).
+    pub fn seat_from<T, R: FnMut(&EventEnvelope) -> T>(
+        &self,
+        run_id: &str,
+        opened: &Opened,
+        seat: Seat<'_>,
+        after: Option<u64>,
+        rows: &mut impl FnMut(&mut dyn Iterator<Item = EventEnvelope>) -> R,
+    ) -> Result<SeatRead<T>, StoreError> {
+        let after = after.unwrap_or(0);
+        self.seat_at(run_id, opened, || {
+            self.seat_page_after(run_id, opened, seat, after, rows)
+        })
+    }
+
+    /// [`Store::seat_from`]'s page, inside the read [`Store::seat_at`] opens.
+    fn seat_page_after<T, R: FnMut(&EventEnvelope) -> T>(
+        &self,
+        run_id: &str,
+        opened: &Opened,
+        seat: Seat<'_>,
+        after: u64,
+        rows: &mut impl FnMut(&mut dyn Iterator<Item = EventEnvelope>) -> R,
+    ) -> Result<SeatRead<T>, StoreError> {
+        let Some(streams) = self.streams_after(run_id, opened, seat, after)? else {
+            return Ok(SeatRead::Kept);
+        };
+        if streams.is_empty() {
+            return Ok(SeatRead::Current(Vec::new(), None));
+        }
+        let Some(mut found) = self.found_after(run_id, seat.1, &streams, after)? else {
+            return Ok(SeatRead::Kept);
+        };
+        let next = (found.len() > CHECKPOINT_PAGE).then(|| found[CHECKPOINT_PAGE - 1].0);
+        // The reach is the page, the lookahead just past it, and the
+        // interval the cursor traversed to hand that lookahead over:
+        // truncating first would hide a record at the boundary (H1). The
+        // first page starts at its own bottom, a later one at its cursor.
+        let reach = found.get(CHECKPOINT_PAGE).map(|(seq, _)| *seq);
+        let reach = reach.or_else(|| found.last().map(|(seq, _)| *seq));
+        let low = match after {
+            0 => found.first().map_or(0, |(seq, _)| *seq),
+            after => after.saturating_add(1),
+        };
+        found.truncate(CHECKPOINT_PAGE);
+        if seat.1.is_none() {
+            // A kept page is nonempty: `found_after` refuses an empty one,
+            // so its reach is some. The refusal control is
+            // `a_forward_index_missing_its_last_row_reads_the_kept_way`.
+            let high = reach.expect("a kept page has a row");
+            if self.interleaved(run_id, &streams, Some(high.saturating_add(1)), low)? {
+                return Ok(SeatRead::Kept);
+            }
+        }
+        let Some(since) = self.since(run_id, opened, seat.0, &streams, &found)? else {
+            return Ok(SeatRead::Kept);
+        };
+        let row = self.started(run_id, &since, rows)?;
+        self.paged(run_id, seat, &found, row, next)
+    }
+
     /// The streams the effect's rows at `opened` keep of the participant
     /// `seat` that can reach its page below `before` ([`Gathered`]): none
     /// where they read stale, or refuse them.
@@ -230,11 +337,35 @@ impl Store {
         &self,
         run_id: &str,
         opened: &Opened,
-        (effect_id, member): Seat<'_>,
+        seat: Seat<'_>,
         before: Option<u64>,
     ) -> Result<Option<Vec<Stream>>, StoreError> {
+        self.gather(run_id, opened, seat, Gathered::below(before))
+    }
+
+    /// The streams the effect's rows at `opened` keep of the participant
+    /// `seat` that can reach its page above `after` ([`Gathered`]): none
+    /// where they read stale, or refuse them.
+    fn streams_after(
+        &self,
+        run_id: &str,
+        opened: &Opened,
+        seat: Seat<'_>,
+        after: u64,
+    ) -> Result<Option<Vec<Stream>>, StoreError> {
+        self.gather(run_id, opened, seat, Gathered::above(after))
+    }
+
+    /// The streams `gathered` keeps of the participant `seat`'s effect's
+    /// rows at `opened`: none where they read stale, or refuse them.
+    fn gather(
+        &self,
+        run_id: &str,
+        opened: &Opened,
+        (effect_id, member): Seat<'_>,
+        mut gathered: Gathered,
+    ) -> Result<Option<Vec<Stream>>, StoreError> {
         let member = member.map_or(Datum::Null, |member| Datum::Text(member.to_string()));
-        let mut gathered = Gathered::below(before);
         let head = (opened.seq, opened.hash.as_str());
         let read = effect_rows_at(&self.conn, run_id, head, (effect_id, HELD), |data| {
             gathered.row(data, &member);
@@ -331,17 +462,17 @@ impl Store {
     /// kept so as each stream is read, the streams newest first by the
     /// highest seq each is read from, until none left can reach the page
     /// and one more: none where a stream's are not its row's ([`reaches`]).
-    /// `streams` keeps the streams read, in that order.
+    /// `streams` is left in that order, all of it, so the caller can hold
+    /// the page's stamps against the streams below it.
     fn found(
         &self,
         run_id: &str,
         member: Option<&str>,
-        streams: &mut Vec<Stream>,
+        streams: &mut [Stream],
         before: Option<u64>,
     ) -> Result<Option<Vec<Found>>, StoreError> {
         streams.sort_unstable_by_key(|stream| Reverse(upper(stream, before)));
         let mut found: Vec<Found> = Vec::new();
-        let mut read = 0;
         for (at, stream) in streams.iter().enumerate() {
             let upper = upper(stream, before);
             if found
@@ -356,9 +487,7 @@ impl Store {
             found.extend(seqs.into_iter().map(|seq| (seq, at)));
             found.sort_unstable_by(|one, other| other.cmp(one));
             found.truncate(CHECKPOINT_PAGE + 1);
-            read = at + 1;
         }
-        streams.truncate(read);
         Ok(Some(found))
     }
 
@@ -381,6 +510,53 @@ impl Store {
         let bound = params![run_id, stream.attempt, member, first, last, limit];
         let found = seqs(&self.conn, &STREAM, bound)?;
         Ok(reaches(&found, stream, upper).then_some(found))
+    }
+
+    /// The oldest of `streams`' checkpoints above `after`, oldest first,
+    /// a page and one more of them, each with its stream's place: none
+    /// where a stream's are not its row's ([`reaches_after`]).
+    fn found_after(
+        &self,
+        run_id: &str,
+        member: Option<&str>,
+        streams: &[Stream],
+        after: u64,
+    ) -> Result<Option<Vec<Found>>, StoreError> {
+        let mut found: Vec<Found> = Vec::new();
+        for (at, stream) in streams.iter().enumerate() {
+            // Every stream `streams_after` kept has a checkpoint above
+            // `after`, so no stream here is wholly below the cursor.
+            let low = stream.first.max(after.saturating_add(1));
+            let Some(seqs) = self.streamed_after(run_id, member, stream, low)? else {
+                return Ok(None);
+            };
+            found.extend(seqs.into_iter().map(|seq| (seq, at)));
+        }
+        found.sort_unstable();
+        found.truncate(CHECKPOINT_PAGE + 1);
+        Ok(Some(found))
+    }
+
+    /// `stream`'s checkpoints from `low`, oldest first, at most one more
+    /// than a page: none where they are not its row's.
+    fn streamed_after(
+        &self,
+        run_id: &str,
+        member: Option<&str>,
+        stream: &Stream,
+        low: u64,
+    ) -> Result<Option<Vec<u64>>, StoreError> {
+        let limit = CHECKPOINT_PAGE as i64 + 1;
+        let bound = params![
+            run_id,
+            stream.attempt,
+            member,
+            place(low),
+            place(stream.last),
+            limit
+        ];
+        let found = seqs(&self.conn, &FORWARD, bound)?;
+        Ok(reaches_after(&found, stream, low).then_some(found))
     }
 
     /// Whether, within the page's reach of one of `streams`, the seat's
@@ -461,6 +637,15 @@ fn vouched(stream: &Stream, before: Option<u64>) -> usize {
 fn reaches(found: &[u64], stream: &Stream, upper: u64) -> bool {
     let begins = upper < stream.last || found.first() == Some(&stream.last);
     let ends = found.len() > CHECKPOINT_PAGE || found.last() == Some(&stream.first);
+    begins && ends
+}
+
+/// Are `found`, `stream`'s checkpoints read oldest first from `low`, its
+/// row's? They begin at its first checkpoint where the read starts there,
+/// and end at its last where a page does not cut them.
+fn reaches_after(found: &[u64], stream: &Stream, low: u64) -> bool {
+    let begins = low > stream.first || found.first() == Some(&stream.first);
+    let ends = found.len() > CHECKPOINT_PAGE || found.last() == Some(&stream.last);
     begins && ends
 }
 

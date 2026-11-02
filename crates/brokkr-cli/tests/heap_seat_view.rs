@@ -572,7 +572,19 @@ fn spread(
         spread.extend([started, checkpoint]);
     }
     events.splice(from..from, spread);
-    renumbered(events)
+    // The page is the live column's, newest by time as by seq: the spread
+    // renumbers the journal, so stamp it in seq order rather than move a
+    // tail event's clock backwards (that case is `run_pages`').
+    let mut events = renumbered(events);
+    for (at, event) in events.iter_mut().enumerate() {
+        event.recorded_at = format!(
+            "2026-08-30T{:02}:{:02}:{:02}Z",
+            at / 3600,
+            at / 60 % 60,
+            at % 60
+        );
+    }
+    events
 }
 
 /// `start` with one boundary entry, of the harness, whose member is no

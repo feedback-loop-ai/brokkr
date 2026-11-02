@@ -104,6 +104,49 @@ fn the_run_view_is_the_frame_tui_run_draws() {
     assert_eq!(run_view.buffer(), tui_run.buffer());
 }
 
+/// The shell asks for the rows the selected screen shows: the live
+/// column's scroll and the pane's height at the fleet, the participant
+/// pane's at a participant's level, and none at the run level (decision
+/// 0089 slice 3).
+#[test]
+fn the_shell_asks_for_the_rows_the_screen_shows() {
+    let mut tui = Tui::over(None, Vec::new(), 0);
+    tui.height = 20;
+    tui.live_offset = 45;
+    assert_eq!(asked_rows(&tui), 65, "the live column's scroll and height");
+    tui.level = Level::Participant;
+    tui.offset = 30;
+    assert_eq!(asked_rows(&tui), 50, "the participant pane's");
+    tui.level = Level::Run;
+    assert_eq!(asked_rows(&tui), 0, "the run level shows no checkpoint");
+}
+
+/// The shell asks the run level for the frame and the fleet for its page
+/// (decision 0089 slice 3): the source sees `run_level` at the level the
+/// shell is driving.
+#[test]
+fn the_shell_asks_the_run_level_for_its_frame() {
+    let _serialized = TERMINAL.lock().unwrap_or_else(|error| error.into_inner());
+    script(&[]);
+    let mut asked = Vec::new();
+    let mut source = |ask: Ask| {
+        asked.push(ask.run_level);
+        Ok(Some(views()))
+    };
+    let _ = opened("run-7", Watched::Console, &mut source, 2);
+    assert_eq!(asked, [true, true], "the run level");
+    asked.clear();
+    let mut terminal = Terminal::new(TestBackend::new(160, 48)).unwrap();
+    let mut tui = Tui::new(None);
+    script(&[]);
+    let mut source = |ask: Ask| {
+        asked.push(ask.run_level);
+        Ok(Some(views()))
+    };
+    drive(&mut terminal, &test_ops(), &mut source, &mut tui, 2).unwrap();
+    assert_eq!(asked, [false, false], "the fleet");
+}
+
 /// The console's view decides no scope: a frame asks the predicates, and
 /// only a serving surface pays for every scope's membership (#624).
 #[test]
@@ -114,10 +157,13 @@ fn the_console_view_decides_no_scope() {
     let ask = Ask {
         run: Some("run-on-disk"),
         subject: None,
+        run_level: false,
         force: true,
         fleet: false,
         tab: 0,
         window: Default::default(),
+        live_rows: 0,
+        live_offset: 0,
     };
     let views =
         crate::tui_read::tui_views(&db, true, ask, &mut None, &mut None, || NOW.to_string())
