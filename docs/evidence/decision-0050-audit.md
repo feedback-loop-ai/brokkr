@@ -300,19 +300,50 @@ rulings 5 and 7.
 
 ### Ruling 7: the sequence's endings are compiled
 
-- **Today.** The executor in `crates/brokkr-runtime/src/engine.rs`
-  (`let ends_sequence`, line 2469) compares the reported word with the
-  later steps' vocabularies at run time. There is no compiled `ends_on`.
-  Compile does not refuse a table arm whose word no step can reach. A
-  non-final step's hard word does not end the sequence, so a panel's
-  `security-hold` stops the run only if the chief reproduces it. The
-  chief's charter states that floor as prose
-  (`the_chief_charter_states_the_floor_it_may_not_rule_below` in
-  `crates/brokkr-runtime/tests/crucible_review_sequence.rs`).
-- **Gap.** All of it. The hard-word ending is new transition semantics
-  and needs the ruling. The sequence parser lives in
-  `crates/brokkr-runtime/src/bundle.rs`, which is held for #226 and #349.
-  The executor is moving under #288 slice B.
+- **Built (2026-10-30, #429).** The compiler derives every non-final
+  step's `ends_on` — the seat's words no later step can emit, plus the
+  words whose every arm in the phase's composed table is `hard` and goes
+  to a phase that stops the run (`stops_run`: the terminal `stop`, the
+  engine's own test; a `stop` that is not terminal ends nothing) — and
+  holds it on the compiled `SequenceStep`. The executor in
+  `crates/brokkr-runtime/src/engine/sequence.rs` reads that set and
+  compares no vocabularies at run time; a hard word ends the sequence
+  wherever a step reports it, so a panel's `security-hold` no longer
+  waits on the chief. Compile refuses a table arm for the sequence's
+  phase whose word no reachable step can emit, naming the rule and the
+  word; the reachable set is the final step's results plus every non-final
+  step's compiled `ends_on`, walked only until a step every result of
+  which ends the sequence, so a dead step's word and a middle step's
+  checkpoint-only word do not smuggle an arm past it. Every shipped recipe
+  still compiles, so no
+  exemption was needed. An early ending is appended under the same
+  seat-record fence as a final step's result: a hard word whose object the
+  fence refuses fails the attempt naming its step and parks the exhausted
+  run, rather than escaping as an engine error. `ends_on`
+  is derived, never serialized: `Bundle::compile` is the resume path, so
+  a manifest written before the ruling recompiles to the same set.
+  `run-manifest.v14`'s sequence `step` gained nothing.
+- **Enforcement binding.** `crates/brokkr-runtime/src/bundle/sequence.rs`
+  (`stamp_endings`, `hard_results`, `refuse_unreachable` over the final
+  results plus the compiled endings of the steps the sequence can reach)
+  and
+  `crates/brokkr-runtime/src/engine/sequence.rs` (`ends_sequence`,
+  `end_sequence_on`);
+  `crates/brokkr-runtime/src/bundle/sequence_tests.rs` (parity with the
+  old run-time rule plus the hard words over every shipped sequence, the
+  derived-not-serialized recompile, the unreachable arm with a valid
+  counterpart, a middle step's checkpoint-only word still refused, a hard
+  arm that does not stop, and a dead later step's word);
+  `crates/brokkr-runtime/tests/crucible_review_sequence.rs`
+  (the panel's `security-hold` ends the effect at `security-hold` and the
+  run stops; a non-hard `residual` the chief can also emit does not; a
+  hard arm that advances does not skip the final step; an ordinary
+  compiled ending names its step and why; a
+  refused early ending fails and parks; a stored manifest without endings
+  resumes to the derived set);
+  `crates/brokkr-runtime/tests/table_lints.rs` (ruling 5's sequence leg
+  over every composed recipe). The chief's charter floor remains as
+  prose, no longer the only defence.
 
 ## Measured valuation counts
 

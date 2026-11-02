@@ -29,6 +29,9 @@ use crate::bundle::{
 };
 use crate::dialect::DialectPhase;
 
+mod contradiction;
+mod success;
+
 /// Where a step leaves its attempt, at each stage of settling it.
 enum StepVerdict<T> {
     /// The attempt goes on, carrying `T` to the next stage or step.
@@ -59,8 +62,8 @@ struct Carried {
     prior_results: Map<String, Value>,
     /// The change a dialect step's `{change}` expands to.
     nearest_change: Option<String>,
-    /// A deterministic dialect check's failing step and result, which the
-    /// final step may not contradict.
+    /// A deterministic dialect check's failing step and result, which
+    /// neither an early ending nor the final step may contradict.
     deterministic_failure: Option<(String, String)>,
 }
 
@@ -158,21 +161,22 @@ impl SequenceRun<'_> {
         payload
     }
 
-    /// Whether `result`, from a step before the last, names a result the
-    /// seat declares and no remaining step can emit.
-    fn ends_sequence(&self, at: &StepAt, result: &Value) -> bool {
-        result
-            .get("result")
-            .and_then(Value::as_str)
-            .is_some_and(|word| {
-                let seat_declares = self.input["allowed_results"]
-                    .as_array()
-                    .is_some_and(|allowed| allowed.iter().any(|value| value == word));
-                let later_can_emit = self.steps[at.index + 1..]
-                    .iter()
-                    .any(|later| later.results.iter().any(|allowed| allowed == word));
-                seat_declares && !later_can_emit
-            })
+    /// Why `result`, from a step before the last, ends the sequence, when
+    /// it does: `hard-word` for the phase's hard vocabulary, `ends-on` for
+    /// a compiled word no later step can emit. The sets are compiled on
+    /// the step; nothing here compares vocabularies at run time.
+    fn ends_sequence(&self, at: &StepAt, result: &Value) -> Option<&'static str> {
+        let word = result.get("result").and_then(Value::as_str)?;
+        if !at.step.ends_on.iter().any(|ending| ending == word) {
+            return None;
+        }
+        Some(
+            if at.step.hard_results.iter().any(|ending| ending == word) {
+                "hard-word"
+            } else {
+                "ends-on"
+            },
+        )
     }
 }
 
@@ -463,7 +467,9 @@ impl Engine {
             return Ok(StepVerdict::Ended);
         };
         if !run.is_last(at) {
-            let StepVerdict::Goes(()) = self.between_steps(run, at, &result, carried)? else {
+            let StepVerdict::Goes(()) =
+                self.between_steps(run, at, &result, carried, &start_failures)?
+            else {
                 return Ok(StepVerdict::Ended);
             };
         }
@@ -531,24 +537,14 @@ impl Engine {
         at: &StepAt,
         result: &Value,
         carried: &mut Carried,
+        start_failures: &[Site],
     ) -> Result<StepVerdict<()>, EngineError> {
         if let Some(problem) = vocabulary_problem(at.step, result) {
             return self.end_failed(run, run.failed_payload(at, &problem, Vec::new()));
         }
-        // A seat result which no remaining compiled step can emit is
-        // a declared sequence-ending boundary. The comparison is
-        // against the remaining steps' actual vocabularies, not the
-        // enclosing seat vocabulary inherited by the old final-step
-        // representation.
-        if run.ends_sequence(at, result) {
-            return self
-                .append(
-                    EventType::EffectSucceeded,
-                    json!({"effect_id": run.effect_id, "attempt_id": run.attempt_id, "result": result}),
-                    Some(run.attempt_id.to_string()),
-                )
-                .map(|_| StepVerdict::Ended);
-        }
+        // A deterministic dialect check's failure is recorded before any
+        // ending is decided, so an early ending passes the same
+        // contradiction check the final step does.
         let phase = run.phase();
         if matches!(at.step.body, StepBody::Dialect { .. })
             && matches!(
@@ -561,6 +557,12 @@ impl Engine {
                 at.step.name.clone(),
                 result["result"].as_str().unwrap().to_string(),
             ));
+        }
+        // The compiled endings settle a non-final step: an `ends_on` word
+        // the step may report, or a hard word from the phase's table. The
+        // journal names the step and why it ended.
+        if let Some(why) = run.ends_sequence(at, result) {
+            return self.end_sequence_on(run, at, result, why, start_failures, carried);
         }
         Ok(StepVerdict::Goes(()))
     }
@@ -603,18 +605,8 @@ impl Engine {
         carried: &Carried,
         refused: impl FnOnce(String) -> Value,
     ) -> Result<StepVerdict<()>, EngineError> {
-        if let Some((check, failure)) = &carried.deterministic_failure {
-            if result["result"] == dialect_results(run.phase())[0] {
-                return self.end_indeterminate(
-                    run,
-                    at,
-                    &format!(
-                        "result '{}' contradicts deterministic step '{check}' result '{failure}'",
-                        result["result"]
-                    ),
-                    Unproven::Proven,
-                );
-            }
+        if let StepVerdict::Ended = self.refuse_contradiction(run, at, &result, carried)? {
+            return Ok(StepVerdict::Ended);
         }
         self.append_succeeded(run.effect_id, run.attempt_id, result, refused)?;
         Ok(StepVerdict::Ended)
@@ -663,6 +655,37 @@ impl Engine {
         }
         carried.prior_results.insert(at.step.name.clone(), result);
         Ok(StepVerdict::Goes(()))
+    }
+
+    /// End the sequence on a compiled word, journaling the step and why
+    /// beside the result under the same seat-record fence as a final
+    /// step's result (decision 0034). A result that contradicts a
+    /// deterministic dialect check's failure parks here first, exactly as
+    /// it would at the final step.
+    fn end_sequence_on(
+        &mut self,
+        run: &SequenceRun,
+        at: &StepAt,
+        result: &Value,
+        why: &'static str,
+        start_failures: &[Site],
+        carried: &Carried,
+    ) -> Result<StepVerdict<()>, EngineError> {
+        if let StepVerdict::Ended = self.refuse_contradiction(run, at, result, carried)? {
+            return Ok(StepVerdict::Ended);
+        }
+        self.append_succeeded_under_fence(
+            json!({
+                "effect_id": run.effect_id,
+                "attempt_id": run.attempt_id,
+                "result": result,
+                "step": at.step.name,
+                "why": why,
+            }),
+            run.attempt_id,
+            |refusal| run.failed_payload(at, &refusal, start_failures.to_vec()),
+        )?;
+        Ok(StepVerdict::Ended)
     }
 
     /// Journal the attempt's `effect/failed` and end it.

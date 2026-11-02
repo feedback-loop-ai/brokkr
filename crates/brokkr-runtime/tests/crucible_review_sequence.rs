@@ -264,3 +264,921 @@ fn the_panel_prose_path_is_disclosed_where_an_office_is_chosen() {
          the general form of the hazard"
     );
 }
+
+// ── ruling 7's behavioural leg: the machine's floor, not the prose's ───
+
+/// A single-office seat declaring `results`; `sequence_fixture` hires its
+/// office over a scripted driver beside the bundle.
+fn seat(results: &[&str]) -> serde_json::Value {
+    serde_json::json!({
+        "results": results,
+        "agent": "worker",
+    })
+}
+
+/// A two-step review seat: `first`'s office, then the final `last` office,
+/// over the seat's `results`.
+fn review_sequence_seat(results: &[&str], first: &str, last: &str) -> serde_json::Value {
+    serde_json::json!({
+        "results": results,
+        "sequence": [
+            {"name": "first", "results": ["continue", "hold"], "agent": first},
+            {"name": "last", "agent": last},
+        ],
+    })
+}
+
+fn driver(result: &str) -> Vec<String> {
+    let script = format!(
+        r#"read -r hello
+printf '%s\n' '{{"proto":"forge-driver/v1","msg_id":"cap","type":"capabilities","driver":"crucible","version":"1","supports":[]}}'
+read -r start
+effect_id=$(printf '%s' "$start" | sed -n 's/.*"effect_id":"\([^"]*\)".*/\1/p')
+attempt_id=$(printf '%s' "$start" | sed -n 's/.*"attempt_id":"\([^"]*\)".*/\1/p')
+printf '{{"proto":"forge-driver/v1","msg_id":"accepted","type":"accepted","effect_id":"%s","attempt_id":"%s","session_ref":null}}\n' "$effect_id" "$attempt_id"
+printf '{{"proto":"forge-driver/v1","msg_id":"result","type":"result","effect_id":"%s","attempt_id":"%s","status":"succeeded","result":{result},"error":null}}\n' "$effect_id" "$attempt_id"
+read -r done
+"#
+    );
+    vec!["sh".into(), "-c".into(), script]
+}
+
+/// The shipped engine review sequence, its drivers answered by stubs, and
+/// the run starting at review so the sequence is the first effect.
+fn review_bundle(panel: &[(&str, &str)], chief: &str) -> Bundle {
+    let mut bundle = triage();
+    bundle.machine.initial = "review".to_string();
+    let SeatBody::Select { cases, .. } = &mut bundle.seats.get_mut("review").unwrap().body else {
+        panic!("triage review selects by strategy");
+    };
+    let SeatBody::Sequence { mut steps } = cases.remove("engine").expect("the engine case") else {
+        panic!("triage's engine review is a sequence");
+    };
+    for step in &mut steps {
+        match step.name.as_str() {
+            "positions" => {
+                let StepBody::Invocation(Invocation::Panel { members, .. }) = &mut step.body else {
+                    panic!("'positions' is a panel");
+                };
+                for member in members {
+                    let result = panel
+                        .iter()
+                        .find(|(name, _)| *name == member.name)
+                        .map(|(_, result)| *result)
+                        .unwrap_or(r#"{"result":"clean"}"#);
+                    member.command = driver(result);
+                    member.candidates.clear();
+                    member.role_path = PathBuf::new();
+                }
+            }
+            "chief" => {
+                let StepBody::Invocation(Invocation::Single {
+                    command,
+                    candidates,
+                    ..
+                }) = &mut step.body
+                else {
+                    panic!("'chief' is a single step");
+                };
+                *command = driver(chief);
+                candidates.clear();
+                if let StepBody::Invocation(Invocation::Single { role_path, .. }) = &mut step.body {
+                    *role_path = PathBuf::new();
+                }
+            }
+            other => panic!("unexpected review step {other:?}"),
+        }
+    }
+    bundle.seats.get_mut("review").unwrap().body = SeatBody::Sequence { steps };
+    bundle
+}
+
+/// Start `bundle` at its initial phase, drive it, and return the journal,
+/// the run id, and the end it reached.
+fn drive(
+    bundle: Bundle,
+) -> (
+    Vec<brokkr_core::envelope::EventEnvelope>,
+    String,
+    brokkr_runtime::DriveEnd,
+) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = brokkr_store::Store::open(&dir.path().join("forge.db")).unwrap();
+    let mut engine = brokkr_runtime::Engine::start(store, bundle, "feature", Some(workspace()))
+        .expect("the run starts");
+    let run_id = engine.run_id.clone();
+    let end = engine.drive().expect("the sequence runs");
+    (engine.store.load(&run_id).unwrap(), run_id, end)
+}
+
+/// Whether the journal checkpointed `step`.
+fn checkpointed(events: &[brokkr_core::envelope::EventEnvelope], step: &str) -> bool {
+    events.iter().any(|event| {
+        event.event_type == brokkr_core::envelope::EventType::EffectCheckpointed
+            && event.payload["checkpoint"]["step_name"] == step
+    })
+}
+
+/// The journal's one successful effect, which settles a sequence.
+fn effect_succeeded(
+    events: &[brokkr_core::envelope::EventEnvelope],
+) -> &brokkr_core::envelope::EventEnvelope {
+    events
+        .iter()
+        .find(|event| event.event_type == brokkr_core::envelope::EventType::EffectSucceeded)
+        .expect("the sequence concludes on its final step")
+}
+
+fn events(
+    panel: &[(&str, &str)],
+    chief: &str,
+) -> (Vec<brokkr_core::envelope::EventEnvelope>, String) {
+    let (events, run_id, _) = drive(review_bundle(panel, chief));
+    (events, run_id)
+}
+
+fn panel<'a>(results: &'a [(&'a str, &'a str)]) -> Vec<(&'a str, &'a str)> {
+    let mut panel = vec![
+        ("adversarial", r#"{"result":"clean"}"#),
+        ("correctness", r#"{"result":"clean"}"#),
+        ("security", r#"{"result":"clean"}"#),
+        ("spec-compliance", r#"{"result":"clean"}"#),
+    ];
+    for (name, result) in results {
+        panel.retain(|(key, _)| key != name);
+        panel.push((name, *result));
+    }
+    panel
+}
+
+/// A panel's `security-hold` is the machine's: the sequence ends at the
+/// panel step with that word, the chief never rules it down, and the run
+/// stops under the hard rule.
+#[test]
+fn a_panel_security_hold_ends_the_sequence_before_the_chief_rules() {
+    let test =
+        "crucible_review_sequence::a_panel_security_hold_ends_the_sequence_before_the_chief_rules";
+    if !crate::own_home::in_own_home(test) {
+        return;
+    }
+    let panel = panel(&[(
+        "security",
+        r#"{"result":"security-hold","inputs":{"has_security_residual":true,"max_residual_severity":"critical"}}"#,
+    )]);
+    let (events, _) = events(
+        &panel,
+        r#"{"result":"clean","inputs":{"fixes_applied":false}}"#,
+    );
+    let succeeded = events
+        .iter()
+        .find(|event| event.event_type == brokkr_core::envelope::EventType::EffectSucceeded)
+        .expect("the panel's ending succeeds the effect");
+    assert_eq!(
+        succeeded.payload["result"]["result"], "security-hold",
+        "the panel's worst member is the effect's result"
+    );
+    assert_eq!(
+        succeeded.payload["step"], "positions",
+        "the journal names the step that ended the sequence"
+    );
+    assert_eq!(
+        succeeded.payload["why"], "hard-word",
+        "the journal says the table's hard vocabulary ended it"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| { event.payload["checkpoint"]["step_name"] == "chief" }),
+        "the chief never ran"
+    );
+    let decided = events
+        .iter()
+        .rev()
+        .find(|event| event.event_type == brokkr_core::envelope::EventType::TransitionDecided)
+        .expect("the machine rules on the ending");
+    assert_eq!(decided.payload["next"], "stop", "security-hold hard stops");
+}
+
+/// A non-hard word the chief can also emit does not end the sequence:
+/// the panel checkpoints, the chief runs, and the chief's result is the
+/// effect's.
+#[test]
+fn a_panel_non_hard_word_does_not_end_the_sequence() {
+    let test = "crucible_review_sequence::a_panel_non_hard_word_does_not_end_the_sequence";
+    if !crate::own_home::in_own_home(test) {
+        return;
+    }
+    let panel = panel(&[(
+        "correctness",
+        r#"{"result":"residual","inputs":{"has_security_residual":false,"max_residual_severity":"low"}}"#,
+    )]);
+    let (events, _) = events(
+        &panel,
+        r#"{"result":"clean","inputs":{"fixes_applied":false}}"#,
+    );
+    assert!(
+        events.iter().any(|event| {
+            event.event_type == brokkr_core::envelope::EventType::EffectCheckpointed
+                && event.payload["checkpoint"]["step_name"] == "positions"
+        }),
+        "the panel's residual is carried to the chief, not treated as an ending"
+    );
+    let succeeded = effect_succeeded(&events);
+    assert_eq!(
+        succeeded.payload["result"]["result"], "clean",
+        "the chief's result, not the panel's residual, is the seat's result"
+    );
+}
+
+/// An early ending is appended under the same seat-record fence as a final
+/// step's result. A hard word that carries a field the contract refuses
+/// therefore fails the attempt — naming the step — and the exhausted
+/// attempt parks, instead of the refusal escaping as an engine error.
+#[test]
+fn a_refused_early_ending_is_the_attempts_failure_and_parks() {
+    let test = "crucible_review_sequence::a_refused_early_ending_is_the_attempts_failure_and_parks";
+    if !crate::own_home::in_own_home(test) {
+        return;
+    }
+    let mut bundle = review_bundle(
+        &panel(&[]),
+        r#"{"result":"clean","inputs":{"fixes_applied":false}}"#,
+    );
+    bundle.seats.get_mut("review").unwrap().limits.max_attempts = 1;
+    let SeatBody::Sequence { steps } = &mut bundle.seats.get_mut("review").unwrap().body else {
+        panic!("triage's engine review is a sequence");
+    };
+    let StepBody::Invocation(Invocation::Panel { .. }) = &steps[0].body else {
+        panic!("'positions' is a panel");
+    };
+    // The hard word the panel can report, carrying a key the seat-record
+    // contract does not admit: the fence refuses the effect's success.
+    steps[0].body = StepBody::Invocation(Invocation::Single {
+        role_path: PathBuf::new(),
+        command: driver(r#"{"result":"security-hold","commits":["see branch"]}"#),
+        candidates: Vec::new(),
+        written: Vec::new(),
+        class: (),
+    });
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = brokkr_store::Store::open(&dir.path().join("forge.db")).unwrap();
+    let mut engine = brokkr_runtime::Engine::start(store, bundle, "feature", Some(workspace()))
+        .expect("the run starts at review");
+    let run_id = engine.run_id.clone();
+    let end = engine
+        .drive()
+        .expect("a refused ending is the attempt's failure, never an engine error");
+    let events = engine.store.load(&run_id).unwrap();
+
+    let failed = events
+        .iter()
+        .find(|event| event.event_type == brokkr_core::envelope::EventType::EffectFailed)
+        .expect("effect/failed names the refused ending");
+    let error = failed.payload["error"].as_str().unwrap();
+    assert!(error.contains("positions"), "{error}");
+    assert!(
+        error.contains("violates contracts/seat-record.v"),
+        "{error}"
+    );
+    assert!(
+        !error.contains("see branch"),
+        "the fence does not echo the refused value: {error}"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| event.event_type == brokkr_core::envelope::EventType::EffectSucceeded),
+        "no result escaped the fence"
+    );
+    let parked = events
+        .iter()
+        .find(|event| event.event_type == brokkr_core::envelope::EventType::RunParked)
+        .expect("the exhausted attempt parks");
+    let reason = parked.payload["reason"].as_str().unwrap();
+    assert!(reason.contains("failed 1 of 1 attempt"), "{reason}");
+    assert_eq!(
+        end.state.run.status(),
+        brokkr_core::Status::AwaitingOperator
+    );
+}
+
+/// A run pinned before the endings were compiled carries the same manifest
+/// the compiler writes today — no `ends_on`, no `hard_results`. Resume
+/// recompiles the recipe (the production path) and derives the endings
+/// again, so the resumed run still ends on the panel's hard word.
+#[test]
+fn a_stored_manifest_without_endings_resumes_with_the_derived_endings() {
+    let test = "crucible_review_sequence::\
+                a_stored_manifest_without_endings_resumes_with_the_derived_endings";
+    if !crate::own_home::in_own_home(test) {
+        return;
+    }
+    let security = panel(&[(
+        "security",
+        r#"{"result":"security-hold","inputs":{"has_security_residual":true,"max_residual_severity":"critical"}}"#,
+    )]);
+    let chief = r#"{"result":"clean","inputs":{"fixes_applied":false}}"#;
+    let dir = tempfile::tempdir().unwrap();
+    let database = dir.path().join("forge.db");
+
+    // Pin the run, then let the process go: the manifest is on disk before
+    // any step runs, exactly as a pre-change resume would find it.
+    let started = brokkr_runtime::Engine::start(
+        brokkr_store::Store::open(&database).unwrap(),
+        review_bundle(&security, chief),
+        "feature",
+        Some(workspace()),
+    )
+    .expect("the run starts at review");
+    let run_id = started.run_id.clone();
+    let pinned = started
+        .store
+        .manifest(&run_id)
+        .expect("the run pins its manifest");
+    let pinned = pinned.to_string();
+    assert!(
+        !pinned.contains("ends_on") && !pinned.contains("hard_results"),
+        "the pinned manifest is the pre-change shape: the endings were never serialized"
+    );
+    drop(started);
+
+    // A resume recompiles the pinned recipe; the endings are DERIVED here,
+    // not read back from the manifest.
+    let recompiled = review_bundle(&security, chief);
+    let SeatBody::Sequence { steps } = &recompiled.seats["review"].body else {
+        panic!("triage's engine review is a sequence");
+    };
+    assert_eq!(
+        steps[0].ends_on,
+        vec!["security-hold".to_string()],
+        "the recompiled panel step derives its hard ending"
+    );
+    assert_eq!(
+        steps[0].hard_results,
+        vec!["security-hold".to_string()],
+        "the recompiled panel step names the hard word"
+    );
+    assert!(
+        steps[1].ends_on.is_empty(),
+        "the final step ends by definition and derives no ending"
+    );
+
+    let mut resumed = brokkr_runtime::Engine::resume(
+        brokkr_store::Store::open(&database).unwrap(),
+        recompiled,
+        &run_id,
+        Some(workspace()),
+    )
+    .expect("a manifest without endings admits the recompiled bundle");
+    let end = resumed.drive().expect("the resumed sequence runs");
+    let events = resumed.store.load(&run_id).unwrap();
+
+    let succeeded = events
+        .iter()
+        .find(|event| event.event_type == brokkr_core::envelope::EventType::EffectSucceeded)
+        .expect("the resumed run ends the effect");
+    assert_eq!(
+        succeeded.payload["result"]["result"], "security-hold",
+        "the resumed sequence derives the panel's hard ending"
+    );
+    assert_eq!(
+        succeeded.payload["step"], "positions",
+        "the resumed run names the step that ended it"
+    );
+    assert_eq!(
+        succeeded.payload["why"], "hard-word",
+        "the resumed run reads the table's hard vocabulary"
+    );
+    assert!(
+        !events.iter().any(|event| {
+            event.event_type == brokkr_core::envelope::EventType::EffectCheckpointed
+                && event.payload["checkpoint"]["step_name"] == "chief"
+        }),
+        "the chief never runs on the resumed hard ending"
+    );
+    assert_eq!(end.state.run.status(), brokkr_core::Status::Stopped);
+}
+
+// ── ruling 7's destination leg: a hard severity is not a stop ──────────
+
+/// Write a fixture bundle's policy and seat table, hire each named office
+/// over its scripted driver beside it, and compile against those fixtures.
+fn sequence_fixture(
+    policy: serde_json::Value,
+    seats: serde_json::Value,
+    offices: &[(&str, &[String])],
+) -> (tempfile::TempDir, Bundle) {
+    let dir = tempfile::tempdir().expect("a fixture directory");
+    for (office, driver) in offices {
+        let driver: Vec<&str> = driver.iter().map(String::as_str).collect();
+        crate::office::hire(dir.path(), office, &driver, None);
+    }
+    // The default dialect is read beside the library root, whose parent
+    // is the fixture directory now that the offices stand there.
+    std::os::unix::fs::symlink(workspace().join("dialects"), dir.path().join("dialects"))
+        .expect("the workspace's default dialect tree");
+    let bundle = dir.path().join("bundle");
+    std::fs::create_dir_all(bundle.join("roles")).expect("roles/");
+    std::fs::write(bundle.join("roles/role.md"), "# fixture role\n").expect("role");
+    let policy = serde_json::to_string(&policy).expect("policy json");
+    std::fs::write(bundle.join("policy.json"), policy).expect("policy");
+    let manifest = serde_json::to_string(&serde_json::json!({
+        "name": "sequence-fixture",
+        "policy": "policy.json",
+        "seats": seats,
+    }))
+    .expect("bundle json");
+    std::fs::write(bundle.join("bundle.json"), manifest).expect("bundle");
+    let compiled = Bundle::compile_with(
+        &bundle,
+        &dir.path().join("agents"),
+        &dir.path().join("adapters"),
+    )
+    .expect("the sequence fixture compiles");
+    (dir, compiled)
+}
+
+/// A review fixture's bundle: the `worker` office its reachable-but-unused
+/// seats hire, the first step's office and the final step's.
+fn review_sequence_fixture(
+    policy: serde_json::Value,
+    seats: serde_json::Value,
+    first: &[String],
+    last: &[String],
+) -> (tempfile::TempDir, Bundle) {
+    let worker = crate::office::answering(":", "complete");
+    sequence_fixture(
+        policy,
+        seats,
+        &[("worker", &worker), ("first", first), ("last", last)],
+    )
+}
+
+/// The common preamble of a fixture table that runs a two-step review
+/// sequence: the phases, the work entry into review, and both terminals.
+/// The caller's review arms follow.
+fn review_policy(schema: &str, rules: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "schema": schema,
+        "phases": ["work", "review", "done", "stop"],
+        "initial": "work",
+        "terminal": ["done", "stop"],
+        "rules": std::iter::once(serde_json::json!({
+            "id": "WORK-ENTER", "from": "work", "result": "complete",
+            "next": "review", "reason": "enter review"
+        }))
+        .chain(
+            rules
+                .as_array()
+                .expect("fixture review rules are an array")
+                .iter()
+                .cloned(),
+        )
+        .collect::<Vec<_>>(),
+    })
+}
+
+/// A two-step review sequence over a table whose `hold` arm is `hard` but
+/// advances to `done`, and whose `security-hold` arm is the hard stop.
+/// Both steps inherit the seat's vocabulary, so only the arm's destination
+/// separates the two words.
+fn advancing_hard_bundle(first: &str) -> (tempfile::TempDir, Bundle) {
+    let first = driver(&format!(r#"{{"result":"{first}"}}"#));
+    let last = driver(r#"{"result":"security-hold"}"#);
+    let policy = review_policy(
+        "forge.phase-machine/v1",
+        serde_json::json!([
+            {"id": "REVIEW-HOLD", "from": "review", "result": "hold", "next": "done",
+             "severity": "hard", "reason": "hard severity, but not a stop"},
+            {"id": "REVIEW-STOP", "from": "review", "result": "security-hold",
+             "next": "stop", "severity": "hard", "reason": "the stop"}
+        ]),
+    );
+    let seats = serde_json::json!({
+        "work": seat(&["complete"]),
+        "review": review_sequence_seat(&["hold", "security-hold"], "first", "last"),
+    });
+    let (dir, mut compiled) = review_sequence_fixture(policy, seats, &first, &last);
+    // Compile audits the table from its normal entry; the test starts at
+    // the review sequence it is about, as the shipped review fixtures do.
+    compiled.machine.initial = "review".to_string();
+    (dir, compiled)
+}
+
+/// A table whose `stop` phase is NOT terminal: `review.hold` is a hard arm
+/// to a phase merely named `stop`, which the engine would advance through
+/// rather than stop at. The final step's `refuse` parks the run.
+fn nonterminal_stop_bundle(first: &str) -> (tempfile::TempDir, Bundle) {
+    let first = driver(&format!(r#"{{"result":"{first}"}}"#));
+    let last = driver(r#"{"result":"refuse"}"#);
+    let policy = serde_json::json!({
+        "schema": "forge.phase-machine/v2",
+        "phases": ["work", "review", "stop", "done"],
+        "initial": "work",
+        "terminal": ["done"],
+        "rules": [
+            {"id": "WORK-ENTER", "from": "work", "result": "complete",
+             "next": "review", "reason": "enter review"},
+            {"id": "REVIEW-HOLD", "from": "review", "result": "hold",
+             "next": "stop", "severity": "hard",
+             "reason": "a hard arm to a phase named stop"},
+            {"id": "REVIEW-REFUSE", "from": "review", "result": "refuse",
+             "park": true, "reason": "the operator's"},
+            {"id": "STOP-COMPLETE", "from": "stop", "result": "complete",
+             "next": "done", "reason": "the stop phase advances"},
+        ],
+    });
+    let seats = serde_json::json!({
+        "work": seat(&["complete"]),
+        "stop": seat(&["complete"]),
+        "review": review_sequence_seat(&["hold", "refuse"], "first", "last"),
+    });
+    let (dir, mut compiled) = review_sequence_fixture(policy, seats, &first, &last);
+    compiled.machine.initial = "review".to_string();
+    (dir, compiled)
+}
+
+/// A hard arm to a phase named `stop` that is not terminal is not the
+/// engine's stop: the chief's `hold` is a checkpoint, the final step runs,
+/// and its refusal parks the run instead of `stop.complete` completing it.
+#[test]
+fn chief_a_nonterminal_stop_does_not_skip_the_refusal() {
+    let test = "crucible_review_sequence::chief_a_nonterminal_stop_does_not_skip_the_refusal";
+    if !crate::own_home::in_own_home(test) {
+        return;
+    }
+    let (_fixture, bundle) = nonterminal_stop_bundle("hold");
+    let (events, _, end) = drive(bundle);
+
+    assert!(
+        checkpointed(&events, "first"),
+        "a hard arm to a nonterminal `stop` is a checkpoint, not an ending"
+    );
+    let succeeded = effect_succeeded(&events);
+    assert_eq!(
+        succeeded.payload["result"]["result"], "refuse",
+        "the final step runs and its refusing result is the effect's"
+    );
+    assert!(
+        succeeded.payload.get("step").is_none(),
+        "the final step settles the effect; no early ending skipped it"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| event.event_type == brokkr_core::envelope::EventType::RunParked),
+        "the refusal parks the run"
+    );
+    assert_eq!(
+        end.state.run.status(),
+        brokkr_core::Status::AwaitingOperator
+    );
+}
+
+/// The control for the test above: the same table and final refusal, reached
+/// through the checkpoint-only `continue`, still parks. The refusal is
+/// reachable, so the first test fails only when `hold` wrongly ends.
+#[test]
+fn chief_checkpoint_reaches_final_refusal_control() {
+    let test = "crucible_review_sequence::chief_checkpoint_reaches_final_refusal_control";
+    if !crate::own_home::in_own_home(test) {
+        return;
+    }
+    let (_fixture, bundle) = nonterminal_stop_bundle("continue");
+    let (events, _, end) = drive(bundle);
+
+    assert!(
+        checkpointed(&events, "first"),
+        "`continue` is checkpoint-only"
+    );
+    let succeeded = effect_succeeded(&events);
+    assert_eq!(
+        succeeded.payload["result"]["result"], "refuse",
+        "the final step's refusing result is the effect's"
+    );
+    assert!(
+        succeeded.payload.get("step").is_none(),
+        "the final step settles the effect"
+    );
+    assert_eq!(
+        end.state.run.status(),
+        brokkr_core::Status::AwaitingOperator
+    );
+}
+
+/// A hard severity that advances to a non-stop terminal must not end the
+/// sequence. The first step checkpoints, the final step runs, and its
+/// refusing result stops the run.
+#[test]
+fn a_hard_arm_that_does_not_stop_does_not_skip_the_final_step() {
+    let test = "crucible_review_sequence::\
+                a_hard_arm_that_does_not_stop_does_not_skip_the_final_step";
+    if !crate::own_home::in_own_home(test) {
+        return;
+    }
+    let (_fixture, bundle) = advancing_hard_bundle("hold");
+    let (events, _, end) = drive(bundle);
+
+    assert!(
+        checkpointed(&events, "first"),
+        "the advancing hard word is a checkpoint, not an ending"
+    );
+    let succeeded = effect_succeeded(&events);
+    assert_eq!(
+        succeeded.payload["result"]["result"], "security-hold",
+        "the final step's refusing result is the effect's"
+    );
+    assert!(
+        succeeded.payload.get("step").is_none(),
+        "the final step settles the effect; no early ending skipped it"
+    );
+    let decided = events
+        .iter()
+        .rev()
+        .find(|event| event.event_type == brokkr_core::envelope::EventType::TransitionDecided)
+        .expect("the machine rules on the final result");
+    assert_eq!(decided.payload["next"], "stop", "the refusal stops the run");
+    assert_eq!(end.state.run.status(), brokkr_core::Status::Stopped);
+}
+
+/// A `specify` sequence whose first step can report `upstream`, a seat
+/// word its final dialect step cannot emit. `continue` is checkpoint-only,
+/// so the final step is reachable and the table's arms are all admitted at
+/// compile.
+fn ordinary_ending_bundle() -> (tempfile::TempDir, Bundle) {
+    let author = driver(r#"{"result":"upstream"}"#);
+    let worker = crate::office::answering(":", "complete");
+    let policy = serde_json::json!({
+        "schema": "forge.phase-machine/v1",
+        "phases": ["specify", "review", "done", "stop"],
+        "initial": "specify",
+        "terminal": ["done", "stop"],
+        "rules": [
+            {"id": "SPECIFY-DRAFTED", "from": "specify", "result": "drafted",
+             "next": "review", "reason": "drafted"},
+            {"id": "SPECIFY-UPSTREAM", "from": "specify", "result": "upstream",
+             "next": "stop", "reason": "upstream"},
+            {"id": "SPECIFY-FAIL", "from": "specify", "result": "fail",
+             "next": "review", "reason": "fail"},
+            {"id": "REVIEW-CLEAN", "from": "review", "result": "clean",
+             "next": "done", "reason": "clean"}
+        ],
+    });
+    let seats = serde_json::json!({
+        "specify": {
+            "results": ["drafted", "fail", "upstream"],
+            "sequence": [
+                {"name": "author", "results": ["continue", "upstream"],
+                 "agent": "author"},
+                {"name": "validate", "dialect": "validate"},
+            ],
+        },
+        "review": {"results": ["clean"], "agent": "worker"},
+    });
+    sequence_fixture(policy, seats, &[("author", &author), ("worker", &worker)])
+}
+
+/// A `specify` fixture compiles an ordinary ending: `upstream` is a seat
+/// word no later step emits, while the final dialect step emits only
+/// `drafted`/`fail`. The executor names the step and the compiled ending in
+/// the journal.
+#[test]
+fn an_ordinary_compiled_ending_names_its_step_and_why() {
+    let test = "crucible_review_sequence::an_ordinary_compiled_ending_names_its_step_and_why";
+    if !crate::own_home::in_own_home(test) {
+        return;
+    }
+    let (_fixture, bundle) = ordinary_ending_bundle();
+    let SeatBody::Sequence { steps } = &bundle.seats["specify"].body else {
+        panic!("the fixture is a sequence");
+    };
+    assert_eq!(
+        steps[0].ends_on,
+        vec!["upstream".to_string()],
+        "`upstream` is compiled as an ordinary ending; `continue` is checkpoint-only"
+    );
+    assert!(
+        steps[0].hard_results.is_empty(),
+        "`upstream` is not the phase's hard vocabulary"
+    );
+
+    let (events, _, _) = drive(bundle);
+
+    let succeeded = events
+        .iter()
+        .find(|event| event.event_type == brokkr_core::envelope::EventType::EffectSucceeded)
+        .unwrap_or_else(|| panic!("no effect succeeded: {events:#?}"));
+    assert_eq!(succeeded.payload["result"]["result"], "upstream");
+    assert_eq!(
+        succeeded.payload["step"], "author",
+        "the journal names the step that ended the sequence"
+    );
+    assert_eq!(
+        succeeded.payload["why"], "ends-on",
+        "the journal says a compiled ending, not the hard vocabulary, ended it"
+    );
+}
+
+/// A v2 review fixture whose final step is a `unanimous-pass` panel. The
+/// seat declares `refuse` because the table has a REVIEW-REFUSE arm, but
+/// the panel's aggregate can emit only `pass`/`fail`: the earlier refusal
+/// is a word no later step can repeat.
+fn final_panel_that_cannot_refuse_bundle() -> (tempfile::TempDir, Bundle) {
+    let first = driver(r#"{"result":"refuse"}"#);
+    let panel = crate::office::answering(":", "pass");
+    let policy = review_policy(
+        "forge.phase-machine/v2",
+        serde_json::json!([
+            {"id": "REVIEW-PASS", "from": "review", "result": "pass",
+             "next": "done", "reason": "the panel passes"},
+            {"id": "REVIEW-FAIL", "from": "review", "result": "fail",
+             "next": "stop", "severity": "hard", "reason": "the panel fails"},
+            {"id": "REVIEW-REFUSE", "from": "review", "result": "refuse",
+             "park": true, "reason": "the operator's"},
+        ]),
+    );
+    let seats = serde_json::json!({
+        "work": seat(&["complete"]),
+        "review": {
+            "results": ["pass", "fail", "refuse"],
+            "sequence": [
+                {"name": "first", "results": ["continue", "refuse"],
+                 "agent": "first"},
+                {"name": "last", "aggregate": "unanimous-pass", "panel": {
+                    "one": {"agent": "last"},
+                    "two": {"agent": "last"},
+                }},
+            ],
+        },
+    });
+    let (dir, mut compiled) = review_sequence_fixture(policy, seats, &first, &panel);
+    compiled.machine.initial = "review".to_string();
+    (dir, compiled)
+}
+
+/// The final panel inherits the seat's vocabulary, but `unanimous-pass` can
+/// emit only `pass` or `fail`. The first step's `refuse` is therefore an
+/// ending no later step can emit: the refusal settles the effect at
+/// `first`, and REVIEW-REFUSE parks the run instead of the final pass
+/// completing it.
+#[test]
+fn a_final_panel_that_cannot_emit_refuse_lets_an_earlier_refuse_end_the_sequence() {
+    let test = "crucible_review_sequence::\
+                a_final_panel_that_cannot_emit_refuse_lets_an_earlier_refuse_end_the_sequence";
+    if !crate::own_home::in_own_home(test) {
+        return;
+    }
+    let (_fixture, bundle) = final_panel_that_cannot_refuse_bundle();
+    let SeatBody::Sequence { steps } = &bundle.seats["review"].body else {
+        panic!("the fixture is a sequence");
+    };
+    assert_eq!(
+        steps[0].ends_on,
+        vec!["refuse".to_string()],
+        "the final panel cannot emit `refuse`, so the earlier refusal ends the sequence"
+    );
+    assert!(
+        steps[0].hard_results.is_empty(),
+        "`refuse` parks; it is not the phase's hard vocabulary"
+    );
+
+    let (events, _, end) = drive(bundle);
+
+    assert!(
+        !checkpointed(&events, "first"),
+        "the refusal is an ending, not a checkpoint"
+    );
+    let succeeded = effect_succeeded(&events);
+    assert_eq!(
+        succeeded.payload["result"]["result"], "refuse",
+        "the operator's refusal is the effect's result"
+    );
+    assert_eq!(
+        succeeded.payload["step"], "first",
+        "the journal names the step that ended the sequence"
+    );
+    assert_eq!(
+        succeeded.payload["why"], "ends-on",
+        "the journal says a compiled ending, not the hard vocabulary, ended it"
+    );
+    let decided = events
+        .iter()
+        .rev()
+        .find(|event| event.event_type == brokkr_core::envelope::EventType::TransitionDecided)
+        .expect("the machine rules on the ending");
+    assert_eq!(
+        decided.payload["rule_id"], "REVIEW-REFUSE",
+        "the operator's refusal rule decides the ending"
+    );
+    assert_eq!(
+        decided.payload["next"],
+        serde_json::Value::Null,
+        "a parking rule takes no transition"
+    );
+    assert_eq!(
+        end.state.run.status(),
+        brokkr_core::Status::AwaitingOperator
+    );
+}
+
+/// A v2 review fixture whose non-final step is a `review-panel` declaring
+/// the panel's three required words AND `hold`. Both members report `hold`,
+/// which `review_panel` returns verbatim, so the step's aggregate emits a
+/// word beyond its required results.
+fn review_panel_declaring_a_hard_word_bundle() -> (tempfile::TempDir, Bundle) {
+    let member = driver(r#"{"result":"hold"}"#);
+    let last = driver(r#"{"result":"clean"}"#);
+    let policy = review_policy(
+        "forge.phase-machine/v2",
+        serde_json::json!([
+            {"id": "REVIEW-CLEAN", "from": "review", "result": "clean",
+             "next": "done", "reason": "the final clean"},
+            {"id": "REVIEW-RESIDUAL", "from": "review", "result": "residual",
+             "park": true, "reason": "the residual is the operator's"},
+            {"id": "REVIEW-SECURITY-HOLD", "from": "review", "result": "security-hold",
+             "next": "stop", "severity": "hard", "reason": "the security stop"},
+            {"id": "REVIEW-HOLD", "from": "review", "result": "hold",
+             "next": "stop", "severity": "hard", "reason": "the declared stop"},
+        ]),
+    );
+    let seats = serde_json::json!({
+        "work": seat(&["complete"]),
+        "review": {
+            "results": ["clean", "residual", "security-hold", "hold"],
+            "sequence": [
+                {"name": "first", "aggregate": "review-panel",
+                 "results": ["clean", "residual", "security-hold", "hold"],
+                 "panel": {
+                     "one": {"agent": "member"},
+                     "two": {"agent": "member"},
+                 }},
+                {"name": "last", "agent": "last"},
+            ],
+        },
+    });
+    let worker = crate::office::answering(":", "complete");
+    let (dir, mut compiled) = sequence_fixture(
+        policy,
+        seats,
+        &[("worker", &worker), ("member", &member), ("last", &last)],
+    );
+    compiled.machine.initial = "review".to_string();
+    (dir, compiled)
+}
+
+/// Decision 0050 ruling 7: a `review-panel` returns the worst member's word
+/// verbatim, so the words a panel step can emit are the words it DECLARES,
+/// not only the aggregate's three required results. A declared `hold` the
+/// table makes a hard stop must therefore end the sequence at the panel
+/// step; the final step's `clean` never settles it and the run stops.
+#[test]
+fn a_review_panel_step_ends_on_a_declared_hard_word_beyond_its_required_results() {
+    let test = "crucible_review_sequence::\
+                a_review_panel_step_ends_on_a_declared_hard_word_beyond_its_required_results";
+    if !crate::own_home::in_own_home(test) {
+        return;
+    }
+    let (_fixture, bundle) = review_panel_declaring_a_hard_word_bundle();
+    let SeatBody::Sequence { steps } = &bundle.seats["review"].body else {
+        panic!("the fixture is a sequence");
+    };
+    assert_eq!(
+        steps[0].ends_on,
+        vec!["hold".to_string(), "security-hold".to_string()],
+        "the panel can report every declared word, so the declared hard `hold` ends the first step"
+    );
+    assert_eq!(
+        steps[0].hard_results,
+        vec!["hold".to_string(), "security-hold".to_string()],
+        "both hard stops are the panel step's hard vocabulary"
+    );
+
+    let (events, _, end) = drive(bundle);
+
+    assert!(
+        !checkpointed(&events, "first"),
+        "the supplied `hold` is an ending, not a checkpoint"
+    );
+    let succeeded = effect_succeeded(&events);
+    assert_eq!(
+        succeeded.payload["result"]["result"], "hold",
+        "the panel's supplied declared word is the effect's result"
+    );
+    assert_eq!(
+        succeeded.payload["step"], "first",
+        "the journal names the panel step that ended the sequence"
+    );
+    assert_eq!(
+        succeeded.payload["why"], "hard-word",
+        "the journal says the table's hard vocabulary ended it"
+    );
+    assert!(
+        !events.iter().any(|event| {
+            event.event_type == brokkr_core::envelope::EventType::EffectCheckpointed
+                && event.payload["checkpoint"]["step_name"] == "last"
+        }),
+        "the final clean step never runs"
+    );
+    assert_eq!(end.state.run.status(), brokkr_core::Status::Stopped);
+}

@@ -25,23 +25,25 @@ pub(super) fn typed_seats(seats: &Value) -> BTreeMap<String, Seat> {
         let panel = raw.get("panel").and_then(Value::as_object);
         panel.map(|panel| panel.iter().map(member).collect::<Vec<_>>())
     };
-    let step = |(index, raw): (usize, &Value)| SequenceStep {
-        name: step_label(index, raw),
-        class: SeatClass::Work,
-        results: Vec::new(),
-        body: match members(raw) {
-            Some(members) => StepBody::Invocation(Invocation::Panel {
-                members,
-                aggregate: Aggregate::UnanimousPass,
-            }),
-            None => StepBody::Invocation(Invocation::Single {
-                role_path: PathBuf::new(),
-                command: Vec::new(),
-                candidates: Vec::new(),
-                written: written(raw),
-                class: (),
-            }),
-        },
+    let step = |(index, raw): (usize, &Value)| {
+        uncompiled_sequence_step! {
+            name: step_label(index, raw),
+            class: SeatClass::Work,
+            results: Vec::new(),
+            body: match members(raw) {
+                Some(members) => StepBody::Invocation(Invocation::Panel {
+                    members,
+                    aggregate: Aggregate::UnanimousPass,
+                }),
+                None => StepBody::Invocation(Invocation::Single {
+                    role_path: PathBuf::new(),
+                    command: Vec::new(),
+                    candidates: Vec::new(),
+                    written: written(raw),
+                    class: (),
+                }),
+            },
+        }
     };
     let body = |raw: &Value| match (members(raw), raw.get("sequence")) {
         (Some(members), _) => SeatBody::Invocation(Invocation::Panel {

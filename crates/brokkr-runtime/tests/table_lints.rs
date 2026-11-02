@@ -37,6 +37,7 @@ use brokkr_core::policy::audit::{Finding, Refusal, Setting, SWEEP_BUDGET};
 use brokkr_core::policy::{Machine, Outcome, PolicyError};
 use brokkr_runtime::bundle::compose::resolve;
 use brokkr_runtime::bundle::is_engine_owned;
+use brokkr_runtime::{Bundle, SeatBody, SequenceStep};
 use serde_json::{json, Value};
 
 fn workspace() -> PathBuf {
@@ -770,4 +771,97 @@ fn admitted_gate_entries_are_derived_from_each_shipped_recipe() {
             }
         }
     }
+}
+
+/// Ruling 5's sequence leg (decision 0050, ruling 7): a `security-hold`
+/// any step of a shipped sequence can report is a hard stop, both in the
+/// composed table and in the compiled endings, so a panel's word ends the
+/// sequence where the chief's prose no longer has to.
+#[test]
+fn security_hold_rules_a_hard_stop_from_every_step_of_every_shipped_sequence() {
+    fn hard_words(machine: &Machine, phase: &str) -> BTreeSet<String> {
+        // The production predicate lives in bundle/sequence.rs; this check
+        // spells the destination independently so a severity-only copy
+        // cannot agree with itself.
+        let is_hard_stop = |rule: &brokkr_core::policy::Rule| {
+            rule.severity == "hard"
+                && rule.next.as_deref().is_some_and(|next| {
+                    next == "stop" && machine.terminal.iter().any(|terminal| terminal == next)
+                })
+        };
+        let mut words: BTreeMap<&str, bool> = BTreeMap::new();
+        for rule in machine.rules.iter().filter(|rule| rule.from == phase) {
+            words
+                .entry(rule.result.as_str())
+                .and_modify(|hard| *hard &= is_hard_stop(rule))
+                .or_insert_with(|| is_hard_stop(rule));
+        }
+        words
+            .into_iter()
+            .filter(|(_, hard)| *hard)
+            .map(|(word, _)| word.to_string())
+            .collect()
+    }
+
+    fn collect<'a>(
+        phase: &'a str,
+        body: &'a SeatBody,
+        out: &mut Vec<(&'a str, &'a [SequenceStep])>,
+    ) {
+        match body {
+            SeatBody::Invocation(_) => {}
+            SeatBody::Sequence { steps } => out.push((phase, steps)),
+            SeatBody::Select { cases, default } => {
+                for case in cases.values() {
+                    collect(phase, case, out);
+                }
+                if let Some(default) = default.as_deref() {
+                    collect(phase, default, out);
+                }
+            }
+        }
+    }
+
+    let root = workspace();
+    let recipes = std::fs::read_dir(root.join("recipes"))
+        .expect("recipes/ is readable")
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.join("bundle.json").is_file())
+        .collect::<Vec<_>>();
+    let mut found = 0;
+    for dir in recipes {
+        let recipe = format!("recipes/{}", dir.file_name().unwrap().to_string_lossy());
+        let bundle = Bundle::compile_with(&dir, &root.join("agents"), &root.join("adapters"))
+            .unwrap_or_else(|error| panic!("{recipe} compiles: {error}"));
+        let mut sequences = Vec::new();
+        for (phase, seat) in &bundle.seats {
+            collect(phase, &seat.body, &mut sequences);
+        }
+        for (phase, steps) in sequences {
+            let hard = hard_words(&bundle.machine, phase);
+            for (index, step) in steps.iter().enumerate() {
+                if !step.results.iter().any(|word| word == "security-hold") {
+                    continue;
+                }
+                found += 1;
+                assert!(
+                    hard.contains("security-hold"),
+                    "{recipe} {phase}:{} can report security-hold but its table arms are not all hard",
+                    step.name
+                );
+                if index + 1 < steps.len() {
+                    assert!(
+                        step.ends_on.iter().any(|word| word == "security-hold"),
+                        "{recipe} {phase}:{} can report security-hold but does not compile it as an ending",
+                        step.name
+                    );
+                }
+            }
+        }
+    }
+    assert!(
+        found > 0,
+        "no shipped sequence reports security-hold; the property would be vacuous"
+    );
 }

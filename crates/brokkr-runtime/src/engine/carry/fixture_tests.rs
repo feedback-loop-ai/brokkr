@@ -18,7 +18,7 @@ pub(crate) fn lost() -> AttemptOutcome {
 
 /// A review-panel step whose members report the outcomes given, in declared order.
 pub(crate) fn panel_step(name: &str, members: Vec<(&str, AttemptOutcome)>) -> SequenceStep {
-    SequenceStep {
+    uncompiled_sequence_step! {
         name: name.into(),
         class: SeatClass::Work,
         results: vec!["clean".into(), "residual".into(), "security-hold".into()],
@@ -34,7 +34,7 @@ pub(crate) fn panel_step(name: &str, members: Vec<(&str, AttemptOutcome)>) -> Se
 
 /// A single-driver step reporting `outcome`.
 pub(crate) fn single_step(name: &str, outcome: AttemptOutcome) -> SequenceStep {
-    SequenceStep {
+    uncompiled_sequence_step! {
         name: name.into(),
         class: SeatClass::Work,
         results: vec![],

@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::agents::{Candidate, HarnessHands};
-use crate::bundle::{PanelMember, SequenceStep};
+use crate::bundle::PanelMember;
 
 use super::tests::{engine, single_body, templated};
 use crate::envelope_builder::EnvelopeBuilder;
@@ -118,13 +118,13 @@ fn invocation_sites_name_every_shape_the_engine_can_run() {
 
     let sequence = SeatBody::Sequence {
         steps: vec![
-            SequenceStep {
+            uncompiled_sequence_step! {
                 name: "one".into(),
                 results: vec!["one-result".into()],
                 class: SeatClass::Work,
                 body: StepBody::Invocation(worker(())),
             },
-            SequenceStep {
+            uncompiled_sequence_step! {
                 name: "two".into(),
                 results: vec!["two-result".into()],
                 class: SeatClass::Work,

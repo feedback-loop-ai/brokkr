@@ -30,8 +30,8 @@ use uuid::Uuid;
 use crate::agents::{Candidate, Lowering, ResultDoor};
 use crate::argv::Executable;
 use crate::bundle::{
-    charters_as_started, charters_intact, Bundle, CharterPin, ExecutableBody, HandsState, Seat,
-    SeatBody, SeatClass, SiteFacts, StepBody, ENGINE_VERSION,
+    charters_as_started, charters_intact, sequence::stops_run, Bundle, CharterPin, ExecutableBody,
+    HandsState, Seat, SeatBody, SeatClass, SiteFacts, StepBody, ENGINE_VERSION,
 };
 use crate::phase_name;
 // The test modules reach these through `use super::*`.
@@ -891,7 +891,7 @@ impl Engine {
     fn request_or_finish(&mut self, state: &RunState) -> Result<(), EngineError> {
         let phase = phase_of(state, "RequestEffect with no phase")?;
         if self.bundle.machine.terminal.contains(&phase) {
-            if phase == "stop" {
+            if stops_run(&self.bundle.machine, &phase) {
                 let reason = state
                     .last_decision
                     .as_ref()
@@ -1564,22 +1564,11 @@ impl Engine {
         result: Value,
         failed: impl FnOnce(String) -> Value,
     ) -> Result<(), EngineError> {
-        match self.append(
-            EventType::EffectSucceeded,
+        self.append_succeeded_under_fence(
             json!({"effect_id": effect_id, "attempt_id": attempt_id, "result": result}),
-            Some(attempt_id.to_string()),
-        ) {
-            Ok(_) => Ok(()),
-            Err(EngineError::Store(StoreError::SeatRecord(refusal))) => {
-                self.append(
-                    EventType::EffectFailed,
-                    failed(refusal.to_string()),
-                    Some(attempt_id.to_string()),
-                )?;
-                Ok(())
-            }
-            Err(error) => Err(error),
-        }
+            attempt_id,
+            failed,
+        )
     }
 }
 

@@ -3,16 +3,20 @@
 //! shape (the dialect step's its own), and its class. `parse_sequence` reads
 //! as their sequence.
 
+use std::collections::BTreeSet;
+
+use brokkr_core::policy::{Machine, Rule};
 use brokkr_protocol::hands::HandsSpec;
 use serde_json::Value;
 
 use super::charters::parse_role;
+use super::gate::{self, GateAssessment, WorkSite};
 use super::parse::{SeatScope, SiteCompiler};
-use super::site_form::{StepShape, STEP};
+use super::site_form::{classify, StepShape, STEP};
 use super::{
-    command_parts, dialect_gate_site, dialect_results, parse_command, record_inline_tools,
-    refuse_class_without_a_driver, resolve_reference, Aggregate, CompileError, DialectExecution,
-    Invocation, SeatClass, SequenceStep, StepBody,
+    command_parts, dialect_gate_site, dialect_results, parse_class, parse_command,
+    record_inline_tools, refuse_class_without_a_driver, resolve_reference, Aggregate, CompileError,
+    DialectExecution, Invocation, SeatBody, SeatClass, SequenceStep, StepBody,
 };
 use crate::dialect::DialectPhase;
 
@@ -98,7 +102,7 @@ pub(super) fn step_results(
     if final_step {
         Ok(at.results.to_vec())
     } else if step_raw.get("results").is_some() {
-        step_raw
+        let values = step_raw
             .get("results")
             .and_then(Value::as_array)
             .map(|values| {
@@ -113,7 +117,9 @@ pub(super) fn step_results(
                 CompileError::Invalid(format!(
                     "sequence step '{what}' needs its own non-empty 'results' vocabulary"
                 ))
-            })
+            })?;
+        Aggregate::refuse_member_marker(&values, &format!("sequence step '{what}'"))?;
+        Ok(values)
     } else if let Some(aggregate) = step_raw
         .get("aggregate")
         .and_then(Value::as_str)
@@ -308,4 +314,258 @@ pub(super) fn step_class(
         }
         StepBody::Dialect { .. } => SeatClass::Gate,
     })
+}
+
+/// Parse a sequence body: named steps, each a single driver or a panel,
+/// run serially inside one effect. At least two steps (a one-step
+/// sequence is a single seat); names unique case-insensitively. Beside them,
+/// `has_gate`: every step, a dialect one or an unsupplied check too, WROTE `gate`.
+pub(super) fn parse_sequence(
+    compiler: &mut SiteCompiler<'_>,
+    at: SeatScope<'_>,
+    phase: &str,
+    raw: &Value,
+) -> Result<(Vec<SequenceStep>, GateAssessment), CompileError> {
+    let steps_raw = sequence_steps(phase, raw)?;
+    let mut steps: Vec<SequenceStep> = Vec::with_capacity(steps_raw.len());
+    let mut whole_gate = GateAssessment::AllGate;
+    for (index, step_raw) in steps_raw.iter().enumerate() {
+        let name = step_name(phase, index, step_raw, &steps)?;
+        let what = format!("{phase}:{name}");
+        let shape = classify(&what, step_raw, &STEP)?;
+        let step = StepAt {
+            phase,
+            name,
+            what: &what,
+            raw: step_raw,
+        };
+        let step_results = step_results(at, step, index + 1 == steps_raw.len())?;
+        let written = (shape == StepShape::Dialect)
+            .then(|| parse_class(&what, step_raw).unwrap_or(SeatClass::Work));
+        let parsed = step_body(compiler, at, step, shape, step_results)?;
+        if written == Some(SeatClass::Work) {
+            whole_gate.first_work(WorkSite {
+                path: vec![name.into()],
+                compiled: parsed.is_some(),
+            });
+        }
+        let Some(parsed) = parsed else { continue };
+        let class = step_class(compiler, at, step, &parsed.body, parsed.hands)?;
+        if written.is_none() {
+            if let GateAssessment::ContainsWork(site) =
+                gate::step_assessment(name, class, &parsed.body)
+            {
+                whole_gate.first_work(site);
+            }
+        }
+        steps.push(SequenceStep {
+            name: name.to_string(),
+            class,
+            results: parsed.results,
+            body: parsed.body,
+            ends_on: Vec::new(),
+            hard_results: Vec::new(),
+        });
+    }
+    Ok((steps, whole_gate))
+}
+
+/// Derive every sequence step's compiled endings, and refuse a table arm
+/// whose word no step of the sequence can emit (decision 0050, ruling 7).
+pub(super) fn stamp_endings(
+    machine: &Machine,
+    bundle: &str,
+    phase: &str,
+    seat_results: &[String],
+    body: &mut SeatBody,
+) -> Result<(), CompileError> {
+    match body {
+        SeatBody::Invocation(_) => Ok(()),
+        SeatBody::Sequence { steps } => stamp_sequence(machine, bundle, phase, seat_results, steps),
+        SeatBody::Select { cases, default } => {
+            for case in cases.values_mut() {
+                stamp_endings(machine, bundle, phase, seat_results, case)?;
+            }
+            if let Some(default) = default.as_deref_mut() {
+                stamp_endings(machine, bundle, phase, seat_results, default)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+/// A sequence's compiled endings: each non-final step's ending words, and
+/// the arms its phase's table holds that the sequence cannot reach.
+fn stamp_sequence(
+    machine: &Machine,
+    bundle: &str,
+    phase: &str,
+    seat_results: &[String],
+    steps: &mut [SequenceStep],
+) -> Result<(), CompileError> {
+    let hard = hard_results(machine, phase);
+    let last = steps.len().saturating_sub(1);
+    let emittables: Vec<BTreeSet<String>> = steps.iter().map(emittable).collect();
+    // Endings depend on the endings of the steps after them: whether a
+    // later step is reachable at all turns on whether the steps before it
+    // have a word that lets the run continue. Compute from the end back.
+    let mut endings: Vec<Vec<String>> = vec![Vec::new(); steps.len()];
+    let mut passable = vec![false; steps.len()];
+    for index in (0..last).rev() {
+        let later = reachable_after(&emittables, &passable, index, last);
+        let ends = endings_of(&emittables[index], &later, seat_results, &hard);
+        passable[index] = emittables[index].iter().any(|word| !ends.contains(word));
+        endings[index] = ends;
+    }
+    // The final step (the schema gives a sequence at least one) ends the
+    // sequence by definition, so it holds no endings of its own.
+    for (index, step) in steps.iter_mut().enumerate() {
+        step.ends_on = std::mem::take(&mut endings[index]);
+        step.hard_results = if index == last {
+            Vec::new()
+        } else {
+            emittables[index]
+                .iter()
+                .filter(|word| hard.contains(*word))
+                .cloned()
+                .collect()
+        };
+    }
+    refuse_unreachable(machine, bundle, phase, steps)
+}
+
+/// The words a step can report to the composed table: a panel step's
+/// declared results narrowed to what its aggregate can emit — `pass`/`fail`
+/// for `unanimous-pass`, and every declared word for `review-panel`, whose
+/// worst member's word is returned verbatim — and every other step's
+/// declared results. A panel's `results` is the vocabulary it declares (the
+/// seat's own for the final step), which may be wider than the aggregate's
+/// required results and, for `unanimous-pass`, wider than what the
+/// aggregate emits; `emits` narrows it (decision 0050, ruling 7).
+fn emittable(step: &SequenceStep) -> BTreeSet<String> {
+    match &step.body {
+        StepBody::Invocation(Invocation::Panel { aggregate, .. }) => aggregate
+            .emits(&step.results)
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
+        StepBody::Invocation(Invocation::Single { .. }) | StepBody::Dialect { .. } => {
+            step.results.iter().cloned().collect()
+        }
+    }
+}
+
+/// The words the engine could still report after step `index`: every later
+/// step it can reach, up to and including the first step every word of
+/// which ends the sequence. A step is reachable while the steps between it
+/// and `index` each emit at least one word that does not end them; the
+/// impassable step itself runs and ends, so its words count and nothing
+/// after it does.
+fn reachable_after(
+    emittables: &[BTreeSet<String>],
+    passable: &[bool],
+    index: usize,
+    last: usize,
+) -> BTreeSet<String> {
+    let mut later = BTreeSet::new();
+    for step in (index + 1)..=last {
+        later.extend(emittables[step].iter().cloned());
+        if step == last || !passable[step] {
+            break;
+        }
+    }
+    later
+}
+
+/// The words `words` holds that end a sequence at a non-final step: the
+/// seat's words no reachable later step can emit, and every hard word the
+/// step can report even when a later step can emit it too.
+fn endings_of(
+    words: &BTreeSet<String>,
+    later: &BTreeSet<String>,
+    seat_results: &[String],
+    hard: &BTreeSet<String>,
+) -> Vec<String> {
+    let mut ends: BTreeSet<String> = words
+        .iter()
+        .filter(|word| seat_results.contains(*word) && !later.contains(*word))
+        .cloned()
+        .collect();
+    ends.extend(words.iter().filter(|word| hard.contains(*word)).cloned());
+    ends.into_iter().collect()
+}
+
+/// Whether entering `phase` stops the run: it is terminal AND it is the
+/// stopped terminal. This is the engine's own test (`request_or_finish`),
+/// named once so the compiler cannot call a hard arm to a phase merely
+/// NAMED `stop` a stop. Both callers read it here.
+pub(crate) fn stops_run(machine: &Machine, phase: &str) -> bool {
+    machine.terminal.iter().any(|terminal| terminal == phase) && phase == "stop"
+}
+
+/// Whether this table arm is a hard stop: hard severity AND a destination
+/// the engine stops at, because `Machine::evaluate` follows `next` and the
+/// engine tells a stopped run from a completed one by the terminal phase,
+/// not by severity. A hard arm that advances to `done` ends nothing.
+fn is_hard_stop(machine: &Machine, rule: &Rule) -> bool {
+    rule.severity == "hard"
+        && rule
+            .next
+            .as_deref()
+            .is_some_and(|next| stops_run(machine, next))
+}
+
+/// The phase's hard vocabulary: every word whose every arm in the composed
+/// table is hard and stops the run, as `stops_run` reads its destination
+/// (decision 0050, ruling 7).
+pub(super) fn hard_results(machine: &Machine, phase: &str) -> BTreeSet<String> {
+    let mut words: std::collections::BTreeMap<&str, bool> = std::collections::BTreeMap::new();
+    for rule in machine.rules.iter().filter(|rule| rule.from == phase) {
+        words
+            .entry(rule.result.as_str())
+            .and_modify(|hard| *hard &= is_hard_stop(machine, rule))
+            .or_insert_with(|| is_hard_stop(machine, rule));
+    }
+    words
+        .into_iter()
+        .filter(|(_, hard)| *hard)
+        .map(|(word, _)| word.to_string())
+        .collect()
+}
+
+/// Refuse a table arm for `phase` whose word no step the sequence can reach
+/// can emit, naming the rule and the word (decision 0050, ruling 7). A
+/// middle step's word reaches the table only through a compiled ending: its
+/// plain checkpoint is context for the later steps, never the effect's
+/// result. The walk stops at a step every emittable result of which ends
+/// the sequence: no later step runs, so none of their words admits an arm.
+fn refuse_unreachable(
+    machine: &Machine,
+    bundle: &str,
+    phase: &str,
+    steps: &[SequenceStep],
+) -> Result<(), CompileError> {
+    let last = steps.len().saturating_sub(1);
+    let mut reachable: BTreeSet<String> = BTreeSet::new();
+    for (index, step) in steps.iter().enumerate() {
+        let words = emittable(step);
+        if index == last {
+            reachable.extend(words);
+            continue;
+        }
+        reachable.extend(step.ends_on.iter().cloned());
+        if words.iter().all(|word| step.ends_on.contains(word)) {
+            break;
+        }
+    }
+    for rule in machine.rules.iter().filter(|rule| rule.from == phase) {
+        if !reachable.contains(rule.result.as_str()) {
+            return Err(CompileError::Invalid(format!(
+                "bundle '{bundle}' sequence for phase '{phase}' cannot emit table arm '{}' \
+                 result '{}': no step of the sequence can report it",
+                rule.id, rule.result
+            )));
+        }
+    }
+    Ok(())
 }

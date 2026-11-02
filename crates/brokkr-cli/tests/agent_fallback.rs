@@ -473,7 +473,7 @@ fn a_sequence_reports_its_agent_step_and_its_inline_step_separately() {
     .unwrap();
     ws.bundle(json!({
         "implement": {
-            "results": ["complete"],
+            "results": ["complete", "pass", "fail"],
             "limits": {"max_attempts": 1, "timeout_seconds": 60},
             "sequence": [
                 {"name": "think", "results": ["complete", "broken"], "agent": "thinker"},
@@ -606,7 +606,7 @@ fn a_sequence_step_that_never_accepts_advances_its_own_chain_index() {
     ws.agent("thinker", json!(["rude-model", "third"]), None);
     ws.bundle(json!({
         "implement": {
-            "results": ["complete"],
+            "results": ["complete", "pass", "fail"],
             "limits": {"max_attempts": 2, "timeout_seconds": 60},
             "sequence": [
                 {"name": "think", "results": ["complete", "broken"], "agent": "thinker"},

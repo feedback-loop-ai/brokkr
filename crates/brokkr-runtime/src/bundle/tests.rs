@@ -291,7 +291,7 @@ fn dialect_sites_and_verify_composition_cover_every_body_boundary() {
     assert_eq!(steps.last().unwrap().results, ["pass", "fail"]);
     assert_eq!(
         body_manifest(&SeatBody::Sequence {
-            steps: vec![SequenceStep {
+            steps: vec![uncompiled_sequence_step! {
                 name: "dialect".into(),
                 results: vec!["drafted".into()],
                 class: SeatClass::Gate,

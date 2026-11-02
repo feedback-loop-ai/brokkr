@@ -19,6 +19,20 @@ use brokkr_core::realms::Boundary;
 use serde_json::{json, Map, Value};
 use thiserror::Error;
 
+/// A `SequenceStep` a test writes by hand, with no compiled endings: a
+/// step the compiler never saw has none (decision 0050, ruling 7). The
+/// `#[macro_use]` on the module imports it for every in-crate test.
+#[cfg(test)]
+macro_rules! uncompiled_sequence_step {
+    ($($field:tt)*) => {
+        $crate::bundle::SequenceStep {
+            $($field)*
+            ends_on: Vec::new(),
+            hard_results: Vec::new(),
+        }
+    };
+}
+
 mod aggregate;
 mod assemble;
 mod capability_record;
@@ -39,7 +53,7 @@ mod pins;
 mod reference;
 mod route_policy;
 mod sandbox;
-mod sequence;
+pub(crate) mod sequence;
 mod site_form;
 mod site_key;
 mod survey;
@@ -60,12 +74,14 @@ use model_policy::{command_pins_model, effort_exempt};
 use model_policy::{enforce_model_pins, inline_route_pin, model_unpinned, route_pin};
 use model_policy::{ModelPin, MODEL_FLAG};
 use opened::Opened;
-use parse::{SeatScope, SiteCompiler};
+#[cfg(test)]
+use parse::SeatScope;
+use parse::SiteCompiler;
 use reference::{agent_name, bind_charter, judge_mapped_hands, resolved_candidates, ReferenceAt};
 use route_policy::{judge_link, RouteLink};
 use sandbox::{inline_codex_fragment, judge_sandbox_link, refuse_authored_sandbox, SandboxAsk};
-use sequence::{sequence_steps, step_body, step_class, step_name, step_results, StepAt};
-use site_form::{classify, SiteRole, StepShape, STEP};
+use sequence::parse_sequence;
+use site_form::SiteRole;
 #[cfg(test)]
 use site_form::{refuse_amendments, refuse_boundary_key, refuse_confine};
 pub(crate) use site_key::SiteKey;
@@ -259,6 +275,17 @@ pub struct SequenceStep {
     /// seat boundary and therefore receives the seat's vocabulary.
     pub results: Vec<String>,
     pub body: StepBody,
+    /// The words this non-final step reports that end the sequence
+    /// (decision 0050, ruling 7): the seat's words no later step the
+    /// sequence can reach can emit, plus the phase's hard words. Derived
+    /// at compile from the step's words, the seat's vocabulary and the
+    /// composed table; never serialized, recomputed at compile and on
+    /// resume. Empty for the final step, which ends the sequence.
+    pub ends_on: Vec<String>,
+    /// The subset of `ends_on` that is the phase's hard vocabulary, so the
+    /// journal can say a hard word ended the sequence rather than an
+    /// unreachable one.
+    pub hard_results: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -963,6 +990,17 @@ impl Bundle {
         let compile = &mut survey::Refusals::Compile;
         seated.settle(&table.machine, adapters_root, compile)?;
         seated.wrap(wrapped_verify, compile)?;
+        // Every compiled step's endings, after the dialect wrapper has
+        // written the synthetic verify sequence (decision 0050, ruling 7).
+        for (phase, seat) in &mut seated.seats {
+            sequence::stamp_endings(
+                &table.machine,
+                &resolved.name,
+                phase,
+                &seat.results,
+                &mut seat.body,
+            )?;
+        }
         let assemble::Seated {
             boundary,
             agents,
@@ -3988,58 +4026,6 @@ fn parse_limits(phase: &str, raw: &Value) -> Result<Limits, CompileError> {
     Ok(limits)
 }
 
-/// Parse a sequence body: named steps, each a single driver or a panel,
-/// run serially inside one effect. At least two steps (a one-step
-/// sequence is a single seat); names unique case-insensitively. Beside them,
-/// `has_gate`: every step, a dialect one or an unsupplied check too, WROTE `gate`.
-fn parse_sequence(
-    compiler: &mut SiteCompiler<'_>,
-    at: SeatScope<'_>,
-    phase: &str,
-    raw: &Value,
-) -> Result<(Vec<SequenceStep>, GateAssessment), CompileError> {
-    let steps_raw = sequence_steps(phase, raw)?;
-    let mut steps: Vec<SequenceStep> = Vec::with_capacity(steps_raw.len());
-    let mut whole_gate = GateAssessment::AllGate;
-    for (index, step_raw) in steps_raw.iter().enumerate() {
-        let name = step_name(phase, index, step_raw, &steps)?;
-        let what = format!("{phase}:{name}");
-        let shape = classify(&what, step_raw, &STEP)?;
-        let step = StepAt {
-            phase,
-            name,
-            what: &what,
-            raw: step_raw,
-        };
-        let step_results = step_results(at, step, index + 1 == steps_raw.len())?;
-        let written = (shape == StepShape::Dialect)
-            .then(|| parse_class(&what, step_raw).unwrap_or(SeatClass::Work));
-        let parsed = step_body(compiler, at, step, shape, step_results)?;
-        if written == Some(SeatClass::Work) {
-            whole_gate.first_work(WorkSite {
-                path: vec![name.into()],
-                compiled: parsed.is_some(),
-            });
-        }
-        let Some(parsed) = parsed else { continue };
-        let class = step_class(compiler, at, step, &parsed.body, parsed.hands)?;
-        if written.is_none() {
-            if let GateAssessment::ContainsWork(site) =
-                gate::step_assessment(name, class, &parsed.body)
-            {
-                whole_gate.first_work(site);
-            }
-        }
-        steps.push(SequenceStep {
-            name: name.to_string(),
-            class,
-            results: parsed.results,
-            body: parsed.body,
-        });
-    }
-    Ok((steps, whole_gate))
-}
-
 /// The charters a compile bound, each kept with the layer that declared it
 /// until that layer's identity is sealed from its buffer (design D7).
 type Charters = std::cell::RefCell<Vec<compose::CharterRead>>;
@@ -4525,6 +4511,9 @@ mod compose_tests;
 
 #[cfg(test)]
 mod model_policy_tests;
+
+#[cfg(test)]
+mod sequence_tests;
 
 #[cfg(test)]
 pub(crate) mod secret_binding_tests;

@@ -48,7 +48,7 @@ fn panel<C>(aggregate: Aggregate) -> Invocation<C> {
 }
 
 fn step(name: &str, results: &[&str], body: Invocation<()>) -> SequenceStep {
-    SequenceStep {
+    uncompiled_sequence_step! {
         name: name.into(),
         class: SeatClass::Work,
         results: results.iter().map(|result| result.to_string()).collect(),

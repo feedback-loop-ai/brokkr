@@ -623,7 +623,7 @@ fn identity_names_both_ends_in_source_order_before_the_tree_and_inputs() {
 #[test]
 fn narrow_reaches_the_first_step_or_the_selected_case_and_leaves_other_bodies_whole() {
     use super::fixture_tests::{body, clean, panel_step};
-    use crate::bundle::{DialectExecution, SeatClass, SequenceStep};
+    use crate::bundle::{DialectExecution, SeatClass};
     let tags = [Tag("a".into()), Tag("b".into())];
     let plan = CarryPlan::new(
         &tags,
@@ -672,7 +672,7 @@ fn narrow_reaches_the_first_step_or_the_selected_case_and_leaves_other_bodies_wh
     let mut none = SeatBody::Sequence { steps: vec![] };
     plan.narrow(&mut none, None);
     assert!(matches!(&none, SeatBody::Sequence { steps } if steps.is_empty()));
-    let dialect = SequenceStep {
+    let dialect = uncompiled_sequence_step! {
         name: "check".into(),
         class: SeatClass::Work,
         results: vec![],

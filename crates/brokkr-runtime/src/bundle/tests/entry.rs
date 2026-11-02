@@ -206,11 +206,13 @@ fn dialect(argv: &[&str]) -> StepBody {
 fn check_judge(check: &[&str], judge: &[&str]) -> SeatBody {
     let steps = [("check", check), ("judge", judge)]
         .into_iter()
-        .map(|(name, argv)| SequenceStep {
-            name: name.into(),
-            class: SeatClass::Gate,
-            results: vec!["clean".into()],
-            body: dialect(argv),
+        .map(|(name, argv)| {
+            uncompiled_sequence_step! {
+                name: name.into(),
+                class: SeatClass::Gate,
+                results: vec!["clean".into()],
+                body: dialect(argv),
+            }
         })
         .collect();
     SeatBody::Sequence { steps }
@@ -572,7 +574,7 @@ fn strategy_groups_use_result_key_order_and_selectors_rank_first() {
 
 fn change_step(bundle: &mut Bundle, phase: &str) {
     bundle.seats.get_mut(phase).unwrap().body = SeatBody::Sequence {
-        steps: vec![SequenceStep {
+        steps: vec![uncompiled_sequence_step! {
             name: "check".into(),
             class: SeatClass::Gate,
             results: vec!["clean".into()],

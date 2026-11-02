@@ -21,10 +21,10 @@ use super::{
     enforce_model_policy, fold_driver_facts, is_engine_owned, owner_index, parse_limits,
     parse_secrets, phases, pins, record_capabilities, record_hands, record_judged_tools,
     refuse_aliasing_sites, refuse_class_without_a_driver, refuse_global_aliasing,
-    relocate_verify_facts, resolved_hands, site_facts, CapabilityWalk, CharterPins, Charters,
-    CompileError, Dialect, DialectExecution, ExecutableBody, Invocation, LibraryRead, Limits,
-    Opened, ResolvedSeat, Seat, SeatBody, SeatClass, SequenceStep, SiteFacts, SiteKey, SiteLaw,
-    StepBody,
+    relocate_verify_facts, resolved_hands, site_facts, Aggregate, CapabilityWalk, CharterPins,
+    Charters, CompileError, Dialect, DialectExecution, ExecutableBody, Invocation, LibraryRead,
+    Limits, Opened, ResolvedSeat, Seat, SeatBody, SeatClass, SequenceStep, SiteFacts, SiteKey,
+    SiteLaw, StepBody,
 };
 use crate::agents::EgressClass;
 use crate::argv::Executable;
@@ -215,6 +215,7 @@ fn seat_results(machine: &Machine, phase: &str, raw: &Value) -> Result<Vec<Strin
         .ok_or_else(|| {
             CompileError::Invalid(format!("seat '{phase}' needs non-empty 'results'"))
         })?;
+    Aggregate::refuse_member_marker(&results, &format!("seat '{phase}'"))?;
     for result in &results {
         let covered = machine
             .rules
@@ -494,6 +495,8 @@ impl Seated<'_, '_> {
             class: SeatClass::of(self.seats[verify].has_gate()),
             results: self.seats[verify].results.clone(),
             body: prior_body,
+            ends_on: Vec::new(),
+            hard_results: Vec::new(),
         };
         self.seats.get_mut(verify).expect("parsed above").body = SeatBody::Sequence {
             steps: vec![
@@ -511,6 +514,8 @@ impl Seated<'_, '_> {
                             state: command.state.clone(),
                         },
                     },
+                    ends_on: Vec::new(),
+                    hard_results: Vec::new(),
                 },
             ],
         };
