@@ -1,6 +1,6 @@
 # 0100 — A journal's backup is one consistent snapshot with a versioned inventory
 
-Status: proposed
+Status: accepted — operator ruled in chat 2026-11-01, "go with recommended on #943" (https://github.com/feedback-loop-ai/brokkr/issues/431#issuecomment-6556152545)
 Date: 2026-10-26
 Built: partial (#431)
 
@@ -190,3 +190,26 @@ A storage format that needs the whole database in one file is the reason
 `VACUUM INTO` is the recommended snapshot: it is the SQLite-supported way
 to produce one consistent file while writers run. The later slices remain
 pending, so the `Built:` marker is `partial (#431)`.
+
+## Ruled (operator, in chat, 2026-11-01)
+
+"go with recommended on #943" (https://github.com/feedback-loop-ai/brokkr/issues/431#issuecomment-6556152545),
+on PR #943's asks: the decision is accepted as proposed.
+- **Later slices, carried by #431:**
+  - Git objects and the `refs/forge` anchors;
+  - artifacts outside the journal;
+  - retention, with a dry-run inventory;
+  - the measured offline restore drill;
+  - upgrade and downgrade across the contract window (#361), then
+    signing and anchoring.
+- **Accepted as built:**
+  - a backup refuses a source holding an unowned event;
+  - a restore verifies the snapshot against its inventory, and does not
+    authenticate it;
+  - the public backup API.
+
+As built in #943, each verb also binds its paths to one literal identity
+before SQLite or the filesystem sees them. The bundled SQLite reads a name
+beginning `file:` as a URI (landing 431L4's finding), so without that
+binding the checks above and the publication could name different files.
+The same exposure on the CLI's other journal paths is #954.

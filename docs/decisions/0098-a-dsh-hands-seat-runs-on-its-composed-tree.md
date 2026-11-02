@@ -1,7 +1,6 @@
 # 0098 — A dsh hands seat runs on the composed tree it measured, fails closed without its tool, and takes its access from its office
 
 Status: accepted — operator ruled 2026-10-29 (#896, https://github.com/feedback-loop-ai/brokkr/issues/896#issuecomment-6491164088), as written, with ruling 2's probe-to-spawn residual accepted until decision 0065 slice two's U9b1
-Amendment (proposed, 2026-11-01, #896): the Built line and ruling 2's residual text are proposed: Linux closes the probe-to-spawn residual on the engine-only home, and macOS keeps it.
 Date: 2026-10-26
 Built: partial (#896) — the one hands overlay, the composed-tree check and its measured allowlist, the typed office access and its carrier, the activation refusal, the partial-enforcement report and, for a boxed dsh hands seat on Linux, the engine-only home are built; the read-only `HandsSpec` is unbuilt. Linux closes ruling 2's probe-to-spawn residual on that home; macOS keeps it, where the fence stands
 
@@ -137,3 +136,29 @@ built for the measured boxed dsh hands shape on Linux (macOS keeps the
 operator's home under the standing fence), and the read-only `HandsSpec`
 remains owed, so the decision is built in part. The operator accepted it on
 2026-10-29.
+
+## Addendum — 2026-11-01, Linux closes ruling 2's probe-to-spawn residual on the engine-only home (#896), accepted 2026-11-01
+
+Addendum status: accepted (operator, 2026-11-01)
+
+The operator accepted this addendum in chat on 2026-11-01, "go with
+recommended on all the rulings" (#896,
+https://github.com/feedback-loop-ai/brokkr/issues/896#issuecomment-6562444364),
+with PR #951's asks. #951 (8a6f90a73) built the engine-only `DSH_HOME` for
+the measured boxed dsh hands shape on Linux, and edited this decision in
+five places to say so:
+- **the Built line:** the engine-only home is built for a boxed dsh hands
+  seat on Linux;
+- **ruling 2's body:** this round now builds that home on Linux, and on
+  macOS the fence stands and the operator's home still serves the shape;
+- **ruling 2's residual:** on Linux the engine-only home closes the
+  probe-to-spawn residual by construction, and on macOS the residual
+  remains;
+- **the alternatives:** U9b1 built the sturdier fix for the measured boxed
+  shape on Linux, and macOS keeps the fence until boxing exists there;
+- **the closing paragraph:** the engine-only home is built on Linux, and
+  the read-only `HandsSpec` remains owed, so the decision stays built in
+  part.
+
+No other ruling moves. The measurement behind it is
+docs/evidence/adapters/dsh-boxed-hands.md.
