@@ -169,6 +169,54 @@ fn a_carried_window_without_an_older_cursor_stops_at_its_start() {
     assert_eq!(total, 5, "the rank the window already holds");
 }
 
+/// A run at work whose one participant holds a thousand checkpoints, and
+/// their seqs in order: the stream both backward-read cases scroll.
+fn thousand_checkpoints(run: &str) -> (Journal, Vec<u64>) {
+    let journal = Journal::of(at_work(run, 1_000, true), run);
+    let seqs = checkpoints(&journal.events)
+        .iter()
+        .map(|event| event.seq)
+        .collect();
+    (journal, seqs)
+}
+
+/// The backward read's first older page already crosses the window's end,
+/// with nothing cut before it (753cL4's host coverage: `extend_back`'s
+/// `cut || page.seen() > end` second arm). The carried page is the stream's
+/// last, [950, 1000), and the scroll asks for row 740, so the window ends at
+/// 940, inside the rows the first prepended page brings in. The suffix past
+/// 940 is cut there, and the forward cursor names row 939, the window's last.
+#[test]
+fn a_backward_read_whose_first_page_crosses_the_window_end_cuts_there() {
+    let run = "backward crossing";
+    let (journal, seqs) = thousand_checkpoints(run);
+    let (mut page, _) = journal
+        .fetch(run, 24, 950, &[])
+        .participant(("eff", None), None)
+        .unwrap()
+        .expect("the deep page reads");
+    assert_eq!(
+        (page.start, page.seen()),
+        (950, 1_000),
+        "the carried page is the stream's last"
+    );
+    let back = journal.fetch(run, 24, 740, &[]);
+    assert!(back
+        .extend_back(("eff", None), &mut page)
+        .unwrap()
+        .is_some());
+    assert_eq!(
+        page.seen(),
+        740 + WINDOW,
+        "the rows end at the window's end"
+    );
+    assert_eq!(
+        page.next,
+        Some(seqs[740 + WINDOW - 1]),
+        "the forward cursor is the window's last row"
+    );
+}
+
 /// M1 (ruling 9): a backward jump from the stream's last window to its
 /// head holds one window, not every page between. The carried page is the
 /// one a deep step read ([950, 1000)); `g` asks for row 0, the backward
@@ -178,11 +226,7 @@ fn a_carried_window_without_an_older_cursor_stops_at_its_start() {
 #[test]
 fn a_backward_jump_holds_the_window_not_the_stream() {
     let run = "backward window";
-    let journal = Journal::of(at_work(run, 1_000, true), run);
-    let seqs: Vec<u64> = checkpoints(&journal.events)
-        .iter()
-        .map(|event| event.seq)
-        .collect();
+    let (journal, seqs) = thousand_checkpoints(run);
     assert_eq!(seqs.len(), 1_000, "the journal holds the stream");
     let deep = journal.fetch(run, 24, 950, &[]);
     let head = journal.fetch(run, 24, 0, &[]);
