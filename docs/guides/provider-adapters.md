@@ -633,7 +633,8 @@ flags to express it. `restrictions` says whether a grant's restriction
 object can reach the harness at all: `unsupported` with its reason, or an
 argv template carrying exactly one `{restrictions_json}` slot, filled with
 the canonical JSON of the whole validated object as one argument value —
-never shell text. **Slice one carries only the empty restriction.** No
+never shell text. **Slices one and two carry only the empty
+restriction**, for a provider-native grant and an MCP one alike. No
 provider restriction transport has been measured, so a nonempty
 restriction cannot be expressed on any candidate, a declared transport
 included: a `requires` of such a grant refuses compilation and a `wants`
@@ -790,9 +791,9 @@ and what such a driver then does is its own.
 
 | Adapter | Native capabilities | What is established, and what is not |
 |---|---|---|
-| `codex` | `web-search` → `web_search`; ON is the cold default, OFF is `-c web_search="disabled"` | Measured by the controller on codex-cli 0.154.0, **cold `codex exec` only** (`.forge/tasks/controller-codex-web-search-switch-2026-09-21.json`). Unmeasured: whether OFF or ON holds on a RESUMED session (the pair is composed there all the same), any `web_search` value other than `"disabled"`, the interactive `--search` flag under `exec`, other versions, profile and `config.toml` precedence, and whether an ambient MCP server in the operator's codex configuration is excluded. It is one measured capability, not an exhaustive inventory. |
+| `codex` | `web-search` → `web_search`; ON is the cold default, OFF is `-c web_search="disabled"` | Measured by the controller on codex-cli 0.154.0, **cold `codex exec` only** (`.forge/tasks/controller-codex-web-search-switch-2026-09-21.json`). Unmeasured: whether OFF or ON holds on a RESUMED session (the pair is composed there all the same), any `web_search` value other than `"disabled"`, the interactive `--search` flag under `exec`, other versions, and profile and `config.toml` precedence. Whether an ambient MCP server in the operator's codex configuration is excluded is a separate, MCP fact, measured on 0.164.0 ([measured MCP isolation](#measured-mcp-isolation)). It is one measured capability, not an exhaustive inventory. |
 | `claude` | `web-search` → `WebSearch`, `web-fetch` → `WebFetch`; ON admits the tool to the engine's lists, OFF denies it by name | Adapter data and argv composition only. That a boxed seat's empty `--tools` list under `--strict-mcp-config` leaves no native tool is a declaration, not a live measurement; ON beside the hands tool and OFF on an unboxed seat are both unmeasured live. |
-| `dsh` | `unmeasured` | `mcp` and `tool_permissions` being unsupported shows only that Brokkr cannot narrow dsh's tools. It does not show dsh has no native egress — `recipes/research-dsh/README.md` records that its headless profile ships web fetch ON — and no OFF control has been declared or measured. Nothing is granted through dsh and no denial is claimed. |
+| `dsh` | `unmeasured` | `tool_permissions` being unsupported shows that Brokkr cannot narrow dsh's tools, and its `mcp` facts measure the engine's server channel and MCP isolation only ([measured MCP isolation](#measured-mcp-isolation)). Neither shows dsh has no native egress — `recipes/research-dsh/README.md` records that its headless profile ships web fetch ON — and no OFF control has been declared or measured. Nothing is granted through dsh and no denial is claimed. |
 | `lanetally` | `unmeasured` | The wrapper forwards argv to claude, and forwarding is not confinement. Claude's declarations and evidence are not inherited. |
 | `exec` | `unmeasured` | The engine cannot certify what an arbitrary child program reaches. Its hands, boundary and command authority are decisions 0043 and 0046's, unchanged. |
 
@@ -814,6 +815,35 @@ seat's arguments, model pins, typed tools or hands assessed. A seat's own
 plan is judged when its bundle compiles, which `brokkr doctor --bundle`
 does. Nothing is run to say any of this, and an admitted plan is
 composition, not a live measurement.
+
+## Measured MCP isolation
+
+An adapter's `mcp` declares two facts (decision 0065 slice two, U1b to
+U1d6). `carriage` says whether the harness can load a server the
+engine writes. `shapes` lists each way a seat can be launched (`cold`,
+`replacement` or a named resume, with hands `boxed`, `harness` or
+`none`), each measured on one harness, binary, version and host, with
+four axes: `ambient` (whether the operator's own MCP configuration is
+shut out), `native_write`, `store_read` and `process_read`. On Linux
+the compile demands measured isolation for every shape a seat can
+actually be served as: cold, the replacement of a work seat, and each
+resume its adapter declares `supported` (SI2). Every shape below was
+measured on Linux. None was measured on macOS, where the MCP fence
+stands and nothing here is claimed. The evidence is
+[`docs/evidence/adapters/slice-two-mcp-isolation.md`](../evidence/adapters/slice-two-mcp-isolation.md).
+
+| Adapter | Shapes and the version each was measured on | What is not measured |
+|---|---|---|
+| `claude` | Cold, boxed and without hands: Claude Code 2.1.287 (U0). Replacement, boxed and without hands: 2.1.308 (U0b). The post-U8h hands canary, C17-p5, ran on 2.1.310. | The boxed replacement's `store_read` and the unboxed shapes' process reads. Without hands, store read is `unsupported`, and native write is `unsupported` cold and unmeasured on replacement. So a Claude work seat whose MCP dialect binds a secret refuses at compile (U9b1b's F10). The brokered grant's end-to-end run on 2.1.316 (U9b1d, U9b1e) is the controller's check, not a shape measurement. |
+| `codex` | Every cold and replacement shape, boxed, `harness` and without hands, and the `work-site` resume: codex-cli 0.164.0 (U0b, recorded by U1d3 to U1d5). Codex launches under `--ignore-user-config --disable apps --disable plugins` and the engine's store-denying `brokkr` permission profile (U9c2). | The `work-site` resume's store, native-write and process axes. Codex loads `/etc/codex/config.toml` and `/etc/codex/managed_config.toml` whatever it is passed, so a host holding either refuses every Codex seat. Codex's enterprise cloud configuration layer cannot be observed locally and is never measured. |
+| `dsh` | Cold without hands: 0.1.5-rc.1 (U0, U0c). Replacement without hands: 0.2.1-rc.2 (U0b D06, and pass 8 on the keyed routes). Cold and replacement with boxed hands: 0.2.1-rc.2 (#896). | The replacements' native-write, store and process axes, and the cold no-hands shape's native write (its store read is `unsupported`). A shape carries no route scope: its record names the routes it was measured on, and `spark` was never qualified (U0c). |
+| `lanetally` | Cold and replacement without hands, through the wrapper itself: launcher sha256 `b886c95ab275956bfef3ba0d9e6c617ec0878abdbddbd7369d2fe27903205dfb` running LaneTally's session-wrapper.sh at 4614bb7, sha256 `ecac09b98a39eeb618812e4d5838c35f0b9ed48482d345befed4f198fbc325d7`, over Claude Code 2.1.287 (cold) and 2.1.308 (replacement). | Process reads; store read is `unsupported`, and native write is `unsupported` cold and unmeasured on replacement. A different wrapper is a different measurement. |
+| `exec` | `inapplicable`: no model MCP surface. | — |
+
+A shape's `measured_on.version` is not compared with the version of
+the harness installed: a measurement stays applied after the binary
+changes. After upgrading a harness, measure it again with `brokkr
+probe harness` and update its adapter's shapes before relying on them.
 
 ## Resume — what has been measured, per named shape
 

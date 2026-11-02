@@ -117,8 +117,9 @@ compilation naming the agent, the provider and the capability, so
 provider can express is pre-approval, not a boundary: on claude it
 becomes `--allowedTools`, which pre-approves the named tools and removes
 none, so an unboxed claude seat also has Claude Code's other default
-tools under the operator's own permission settings, and the operator's
-MCP servers ([security model](../security-model.md)). What the engine
+tools under the operator's own permission settings, and, where the
+engine does not give it its strict empty MCP set (off Linux), the
+operator's MCP servers ([security model](../security-model.md)). What the engine
 does switch off by name is each native power the realm does not grant
 (see [capabilities](#capabilities)). A capability the realm does not
 grant refuses compilation when the office `requires` it, and when the
@@ -270,7 +271,8 @@ What a seat HOLDS is what its office asks for, minus what the seat
 subtracts, intersected with what the realm grants to that office — once
 per provider candidate, so a fallback link never borrows its primary's
 holding. The grant itself is the realm's: see the `capabilities` map in
-`realms.json` (`forge.realms/v6`) and
+`realms.json` (`forge.realms/v6` or later, and `forge.realms/v8` for a
+grant's `retain: false` veto) and
 [provider adapters](provider-adapters.md#native-capabilities) for the
 powers a harness already has.
 
@@ -278,6 +280,14 @@ powers a harness already has.
 read is refused non-empty — required or optional, served by the adapter
 or not — because a server an office could name would be a door a pulled
 bundle could open. The empty list every shipped agent writes stays valid.
+An office reaches an MCP server only the way it reaches any other
+capability: it asks for the capability by name, and the realm grants it
+through an `mcp` tool dialect, whose server Brokkr's broker runs in a
+box of its own. On Linux such a holding needs a Claude seat with
+workspace hands in a `namespace` realm, a stdio dialect binding no
+secret, and an empty restriction; anything else refuses or drops at
+compile with its exact cause, and on macOS every `mcp` grant still
+refuses ([security model](../security-model.md#mcp-capabilities-through-the-broker)).
 Nor may `tools.allow` name a provider's own network tool: on Claude,
 `webfetch` and `websearch` map to `WebFetch` and `WebSearch`, tools of the
 adapter's declared native capabilities, and an allow entry that maps to
@@ -303,11 +313,14 @@ compile, whatever it says (operator ruling 1 of 2026-09-23; see
 composed command is parsed back before the launch and compared with the
 plan (ruling 2).
 
-**What slice one does not do.** MCP brokers and an `mcp` grant, gate-class
-capability rules, attributing a tool checkpoint to a capability or
-dialect, retained results, and capability comparisons in `brokkr compare`
-are decision 0065's slices two and three; an `mcp` grant is refused
-today. No provider restriction transport has been measured, so a grant's
+**What slices one and two do not do.** Slice two built the MCP broker,
+the gate-class capability rules (a gate office cannot hold a capability
+of class `writes`), the attribution of a brokered call to its
+capability and dialect in seat-record v6, and retained responses
+(decision 0065 slice two, U9b1a to U9b1e); the limits it shipped with
+are the [security model's](../security-model.md#mcp-capabilities-through-the-broker).
+Capability comparisons in `brokkr compare` are slice three's. No
+provider restriction transport has been measured, so a grant's
 nonempty restriction is refused for a `requires` and dropped, with the
 capability OFF, for a `wants` (operator addendum of 2026-09-25). A
 composed ON or OFF is composition, and it is a live measurement only

@@ -95,3 +95,63 @@ store lives elsewhere — `--secrets-file`, or a `--db` or `--repo` that
 puts the journal in a different directory from the default store — is
 masked only against whatever the store beside
 its journal holds.
+
+## The store and the box
+
+Decision 0065's slice two keeps the store out of a boxed seat's reach.
+What follows applies to both defaults, `.brokkr/state/secrets.env` and
+a library's `.forge/secrets.env`, and to a `--secrets-file`: the
+ordinary store path is unsafe wherever hands could reach it.
+
+Every workspace box hides the store at the one canonical place the
+engine resolves once per run and keeps, by mounting `/dev/null` over it,
+so a read inside the box reports "Permission denied". It pins every
+folder between a writable mount and the store, and the artifact root's
+folders, so that neither can be moved from inside, and it refuses,
+before the command runs, a store it cannot hide that way (U8h,
+b8e2caff). Each refusal begins "secrets store cannot be hidden from
+workspace hands" and names the case: a store that is not one regular
+file of one link its user owns, one that grants its group or others
+access, one whose real path is not valid UTF-8, one inside the
+artifact root, a symbolic link that comes to lie on the sealed path,
+and a configured spelling that no longer leads to its sealed place
+("the configured store '…' no longer leads to its sealed place '…'").
+A Codex seat of the `workspace-write` class writes each folder
+between its workspace root and a store inside that root as its own
+pin in its permission profile, and on macOS a sealed `workspace-write`
+Codex launch whose store lies inside its root is refused (U8i,
+5d706bab).
+
+What that still leaves exposed, as U8h records:
+
+- a store that `brokkr secrets set` or `rm` renames over during one
+  running box is visible to that one call, and so are the sibling
+  `.secrets.env.*` files `secrets set` stages beside it during the
+  update; every later box hides the store again;
+- a symbolic link on the configured store spelling that lies in
+  writable reach, off the canonical place, is not pinned: a boxed call
+  can retarget it, and the next spawn then refuses;
+- a later, separate run resolves the configured spelling afresh, and
+  adopts a store moved between runs at its new place;
+- dsh's own native shell runs outside the box, so it can read a store
+  inside its workdir.
+
+**A seat holding an MCP grant needs its store outside the worktree.**
+The broker reads the dialect's declared secrets from the store, so a
+store the seat's hands can reach is refused before any lookup with "MCP
+secret store is reachable by workspace hands", and the default store
+inside the worktree is such a store (U9b1b's F2). Keep that run's store
+outside the worktree, and name it to both verbs: `brokkr secrets set
+--secrets-file ~/.config/brokkr/my-app.secrets.env DOCS_TOKEN`, with
+the value on stdin, writes it `0600`, and `brokkr run --secrets-file
+~/.config/brokkr/my-app.secrets.env --feature …` reads it.
+
+A dialect's secret names follow the same grammar as a seat's, and the
+broker adds its own refusals on top: a name that collides with the
+server box's fixed environment (`HOME`, `TMPDIR` and the rest) or with
+the harness's own authentication names, and a response it cannot mask
+safely, such as a digits-only value left as a bare JSON number. Neither
+changes how the surfaces above mask; the [security
+model](../security-model.md#mcp-capabilities-through-the-broker) says
+which harnesses can hold a keyed MCP grant today (none yet: a Claude
+work seat whose dialect binds a secret is refused at compile).

@@ -77,15 +77,46 @@ struct Rendered {
     notes: Vec<String>,
 }
 
-/// The flag a legacy declaration names, not whether the seat reaches MCP:
-/// the operator's own configuration reaches it either way. Typed facts
-/// (decision 0065 slice two, U1b) name no flag.
-fn mcp_flag(mcp: &McpSupport) -> String {
-    match mcp {
-        McpSupport::Legacy { flag: Some(flag) } => format!("`{flag}`"),
-        McpSupport::Legacy { flag: None }
-        | McpSupport::Inapplicable { .. }
-        | McpSupport::Declared { .. } => "none".to_string(),
+/// The options through which Brokkr passes a seat its MCP servers: a legacy
+/// declaration's flag, or each option of the adapter's `hands` fragment,
+/// where the hands server and every brokered server ride (U7d, U9b1d), that
+/// its harness's grammar reads as loading a server or as an MCP control,
+/// and each Codex assignment into `mcp_servers`, named by its server.
+fn mcp_flag(provider: &str, mcp: &McpSupport, hands: Option<&[String]>) -> String {
+    use brokkr_protocol::native_controls::grammar::{config_key, grammar, Effect, Power};
+    let fragment = match (mcp, hands) {
+        (McpSupport::Legacy { flag: Some(flag) }, _) => return format!("`{flag}`"),
+        (McpSupport::Legacy { flag: None }, _) => return "none".to_string(),
+        (McpSupport::Inapplicable { .. }, _) => return "none: no model MCP surface".to_string(),
+        (McpSupport::Declared { .. }, None) => return "none: no hands fragment".to_string(),
+        (McpSupport::Declared { .. }, Some(fragment)) => fragment,
+    };
+    let specs = grammar(provider).map_or(&[][..], |grammar| grammar.options);
+    let mut flags: Vec<String> = Vec::new();
+    for (at, token) in fragment.iter().enumerate() {
+        let spec = specs
+            .iter()
+            .find(|spec| spec.canonical == token || spec.aliases.contains(&token.as_str()));
+        let flag = match spec.map(|spec| &spec.effect) {
+            Some(Effect::Load | Effect::Control(Power::Mcp)) => format!("`{token}`"),
+            Some(Effect::Config) => match fragment.get(at + 1).map(|value| config_key(value)) {
+                Some(key) if key.starts_with("mcp_servers.") => {
+                    format!(
+                        "`{token} mcp_servers.{}.*`",
+                        key.split('.').nth(1).unwrap_or_default()
+                    )
+                }
+                _ => continue,
+            },
+            _ => continue,
+        };
+        if !flags.contains(&flag) {
+            flags.push(flag);
+        }
+    }
+    match flags.is_empty() {
+        true => "none: its hands fragment passes none".to_string(),
+        false => words(&flags),
     }
 }
 
@@ -181,7 +212,7 @@ fn render(adapter: &Adapter, dialects: &[ToolDialect]) -> Rendered {
         }
         (None, None) => "no".to_string(),
     };
-    let mcp = mcp_flag(mcp);
+    let mcp = mcp_flag(provider, mcp, hands.as_deref());
     let boxed = match (hands, hands_gap) {
         (Some(_), _) => "yes".to_string(),
         (None, Some(gap)) => {
@@ -421,19 +452,20 @@ fn evidence_axes(evidence: &ResumeEvidence) -> String {
     names(&axes)
 }
 
-/// The MCP column's name: the flag Brokkr can pass, never whether a seat
-/// reaches MCP servers, which the operator's own configuration decides.
+/// The MCP column's name: the options Brokkr passes, never whether a seat
+/// may hold a brokered grant, which the security model says.
 const MCP_COLUMN: &str = "MCP flag Brokkr passes";
 
 /// The MCP column's legend, which the page carries word for word.
-const MCP_LEGEND: &str = "the flag through which Brokkr passes a seat MCP servers, not \
-    whether the seat reaches MCP servers. Under decision 0065 no agent names a server, so \
-    the only one Brokkr passes is a boxed seat's `workspace`, through its hands fragment. \
-    The operator's own \
-    configuration still reaches every Codex seat, boxed or not, through \
-    `~/.codex/config.toml`, and every unboxed claude seat, through their Claude Code \
-    configuration. Only the boxed claude fragment passes `--strict-mcp-config`, which shuts \
-    those out.";
+const MCP_LEGEND: &str = "the options of the adapter's boxed hands fragment through which \
+    Brokkr passes a seat its MCP servers: the hands server and, beside it, each brokered \
+    capability's server. The cell is a configuration fact, not which harness may hold a \
+    brokered grant: only Claude's fragment carries a broker, and a brokered grant on Codex \
+    or dsh refuses at compile. Beside the fragment, the engine gives a Claude or LaneTally \
+    seat without hands `--strict-mcp-config` and an empty `--mcp-config` where its shape's \
+    isolation is measured, which is on Linux, and a Codex seat `--ignore-user-config \
+    --disable apps --disable plugins` (U9c2); dsh carries its servers in an engine-only \
+    home, not its argv.";
 
 /// Every shipped tool dialect, through the engine's own loader.
 fn shipped_dialects() -> Vec<ToolDialect> {

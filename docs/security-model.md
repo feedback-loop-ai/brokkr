@@ -27,7 +27,7 @@ and a realm that names none gets `namespace`:
 
 | Boundary | What stands around a seat that declares hands today |
 |---|---|
-| `namespace` | Brokkr's box, built by bubblewrap 0.11 or newer. Linux only, WSL2 included. |
+| `namespace` | Brokkr's box, built by bubblewrap 0.11 or newer on Linux 5.11 or newer. Linux only, WSL2 included. |
 | `seatbelt` | **Refused.** macOS's `sandbox-exec` box is not built. |
 | `container` | **Refused.** The container box is not built. |
 | `harness` | Nothing of Brokkr's. A model seat's harness sandbox stands only where its adapter declares a fragment for the seat's class, as that fragment addresses it (the status page's *Own sandbox for* column). An `exec` seat's script runs unboxed in a rebuilt environment. |
@@ -77,11 +77,32 @@ also keeps Codex's native shell, read-only and outside the box (see
 below). A dsh seat, whose adapter cannot express boxed hands, never
 reaches the box.
 
-- **Namespaces.** `box_argv` passes `--unshare-pid`, `--unshare-ipc`,
-  `--unshare-uts` and `--unshare-cgroup-try`, and `--unshare-net` unless
-  the seat's hands grant the network. The user and mount namespaces are
-  bubblewrap's own. `--die-with-parent` ends the box with its caller,
-  and `--new-session` detaches it from the caller's terminal.
+- **Namespaces.** The workspace box is built by `Namespace::open` and
+  launched by `execute` and `run_boxed` (`hands.rs`); `box_argv` is
+  retired, refuses every call and is removed in 0.13.0 (U8k). Every
+  box, workspace and MCP server alike, opens with `--unshare-user
+  --disable-userns --assert-userns-disabled`: a user namespace of its
+  own in which no further one can be made, so a nested `unshare -U` or
+  bubblewrap meets the box's own limit; a bubblewrap that cannot
+  disable them refuses the option and the box does not start (U8j,
+  `hands/namespace/isolation.rs`). Then `--unshare-pid`, `--unshare-ipc`,
+  `--unshare-uts` and `--unshare-cgroup-try`, and `--unshare-net`
+  unless the seat's hands grant the network. `--die-with-parent` ends
+  the box with its caller, and `--new-session` detaches it from the
+  caller's terminal.
+- **What is observed is what is mounted.** Every sealed source, Git's
+  config, the store's folder pins, the artifact root and an overlay's
+  lower layer is mounted from the handle opened at the box's last
+  observation, `--bind-fd` where it is writable and `--ro-bind-fd`
+  where it is not (U8k, `hands/namespace/held.rs`), so a path swapped
+  after the check is not what the box sees. Handing those descriptors
+  to bubblewrap uses `close_range` with `CLOSE_RANGE_CLOEXEC`, which
+  needs Linux 5.11 or newer. On an older kernel every boxed launch
+  fails before bubblewrap runs, with `hands could not spawn bwrap:
+  Invalid argument (os error 22)` (5.9 and 5.10) or `hands could not
+  spawn bwrap: Function not implemented (os error 38)` (before 5.9)
+  (`hands/namespace/entry.rs`; pinned by
+  `a_kernel_without_close_range_s_close_on_exec_form_fails_the_launch`).
 - **Capabilities.** `--cap-drop ALL`. Nothing is added back.
 - **Environment.** `--clearenv`, then a fixed set: a private `HOME`,
   `USER`, `TMPDIR` and `PATH`, `C.UTF-8`, `CI=true`,
@@ -111,7 +132,9 @@ one). `parse_tools` in `crates/brokkr-runtime/src/agents/load.rs` reads three ke
 other: `tools.allow`, an ordered list of names from the adapter's map;
 `tools.sandbox`, one of `read-only`, `workspace-write` and
 `danger-full-access`; and `tools.mcp`, which must be empty, because an
-agent no longer names an MCP server. There is no `tools.deny` in this
+agent no longer names an MCP server: one reaches a seat only through
+the realm's grant, served by Brokkr's broker
+([below](#mcp-capabilities-through-the-broker)). There is no `tools.deny` in this
 build. A site may subtract from its office's list and narrow its class,
 and widening either is refused (`LocalTools::narrow`, `agents.rs`).
 
@@ -127,7 +150,7 @@ What each harness makes of them:
 
 | Harness | `tools.allow` | `tools.sandbox` | What actually removes or confines |
 |---|---|---|---|
-| `claude` | `--allowedTools`, from the adapter's `tool_permissions` map (`lower_allow`, `agents.rs`). This is pre-approval: it removes no tool. A name that maps to `WebSearch` or `WebFetch` is refused (`native_alias`). On a seat without hands, where the list is lowered directly, an explicitly empty list is refused too; beside hands the list is dormant and passes no flag (decision 0043 ruling 2), and only a name mapped onto a native tool is refused (`agents.rs`). | Refused: a class is admitted only where an engine fragment already expresses it, and only Codex's do (`admit_local_sandbox`, `bundle.rs`). | On the boxed path, the hands fragment's `--tools ""` removes Claude Code's own tools and the engine fills that include list with the tools of the native powers the seat holds and nothing else, so a seat with no grant keeps only `workspace` (`final_tools`, `native_controls.rs`); `--strict-mcp-config` shuts out the operator's MCP servers (`adapters/claude.json`). On every seat, `--disallowedTools` names each native power the seat does not hold. |
+| `claude` | `--allowedTools`, from the adapter's `tool_permissions` map (`lower_allow`, `agents.rs`). This is pre-approval: it removes no tool. A name that maps to `WebSearch` or `WebFetch` is refused (`native_alias`). On a seat without hands, where the list is lowered directly, an explicitly empty list is refused too; beside hands the list is dormant and passes no flag (decision 0043 ruling 2), and only a name mapped onto a native tool is refused (`agents.rs`). | Refused: a class is admitted only where an engine fragment already expresses it, and only Codex's do (`admit_local_sandbox`, `bundle.rs`). | On the boxed path, the hands fragment's `--tools ""` removes Claude Code's own tools and the engine fills that include list with the tools of the native powers the seat holds and nothing else, so a seat with no grant keeps only `workspace` (`final_tools`, `native_controls.rs`); `--strict-mcp-config` shuts out the operator's MCP servers (`adapters/claude.json`), as the empty set the engine adds does for a seat without hands on Linux. On every seat, `--disallowedTools` names each native power the seat does not hold. |
 | `codex` | Refused on a seat without hands: Codex maps no tool name, so the list cannot be expressed (`lower_allow`). Beside hands the list is dormant and passes no flag (decision 0043 ruling 2), and no name of it can map onto a native tool. | Admitted only where an engine fragment expresses exactly that class. A seat with hands: `read-only` when boxed and for a gate under `harness`, `workspace-write` for a work seat under `harness` (`admitted_sandbox`, `bundle.rs`); a class on an agent-resolved seat without hands is refused. An inline seat without hands whose command dispatches codex, under every boundary: `read-only` for a gate and `workspace-write` for a work seat (`lower_inline_sandbox`, `bundle.rs`). Every other shape, `danger-full-access` among them, is refused, never clamped. | `--sandbox read-only` on the boxed path, and the `hands.harness` fragments' `--sandbox` classes under `harness` and on an inline seat's typed class, the gate's with `--output-last-message` into the engine-owned result path (`adapters/codex.json`). On every seat, `-c web_search="disabled"` unless the seat holds `web-search`. |
 | `lanetally` | Refused at compile while its native inventory is unmeasured (operator ruling R5 of 2026-09-29; `Authority::resolve`, `capabilities.rs`). | Refused, as for claude. | Nothing of Brokkr's. LaneTally takes no boxed hands and no native control. |
 | `dsh` | Refused: dsh maps no tool name. | Refused. | dsh's own sandbox, which the driver's runner refines (`dsh_sandbox.rs`). No typed tool reaches it. |
@@ -144,12 +167,24 @@ and the operator's own settings.
 A seat holds a capability, such as `web-search` or `web-fetch`, only
 when three things agree: its office asks for it by name under
 `capabilities`, the seat does not subtract it, and the realm grants it
-to that office in `realms.json`'s `forge.realms/v6` `capabilities` map,
-through a tool dialect (decision 0065 rulings 1, 3 and 5;
+to that office in `realms.json`'s `capabilities` map (`forge.realms/v6`
+or later), through a tool dialect (decision 0065 rulings 1, 3 and 5;
 `Authority::resolve`, `capabilities.rs`). A recipe or an agent only
 asks. A `requires` the realm does not grant refuses the compile, and a
 `wants` is dropped, with a notice in the run manifest and in the seat's
-prompt. This repository's own `realms.json` grants nothing.
+prompt. Capabilities are off by default: no older realm file is read
+as granting anything, no earlier run is grandfathered into a holding,
+and a grant the seat cannot hold refuses or drops rather than being
+reconciled into something narrower. A grant's dialect is either
+provider-native (the harness's own search or fetch) or `mcp`, a server
+Brokkr's broker runs ([below](#mcp-capabilities-through-the-broker)).
+`forge.realms/v8` adds one reserved grant key, `retain`, which only
+`false` may fill: the realm's veto of an MCP dialect's `retained`
+response, never a demand for it; omitting it inherits the dialect's
+declaration. In a v6 or v7 file a `retain` key is still an ordinary
+restriction, never the veto, so moving to the veto means moving the
+file to v8 ([contracts](../contracts/README.md)). This repository's own
+`realms.json` grants nothing.
 
 A harness's own powers are declared in its adapter's
 `native_capabilities` (decision 0065 ruling 4; `NativeInventory`,
@@ -199,6 +234,240 @@ or a record without its plan. A driver run by hand, with no plan, is
 served as composed, and this check gives it no guarantee. A harness with
 no modelled grammar, `exec` or a custom driver, has no final command the
 check can read.
+
+## MCP capabilities through the broker
+
+Decision 0065's slice two serves a realm's `mcp` grant through
+`brokkr broker serve`, which runs the dialect's server in a namespace
+box of its own (decision 0077; `crates/brokkr-cli/src/broker.rs`,
+`crates/brokkr-runtime/src/engine/broker.rs`,
+`crates/brokkr-protocol/src/hands/namespace.rs`). Everything below is
+what the merged code does and what the slice's evidence under
+`openspec/changes/decision-0065-capabilities-slice-two/evidence/`
+measured; what was not measured is said so.
+
+**Where a grant can be held.** The compile fence is lifted on Linux
+only (`McpFence::current`, `bundle/mcp.rs`; U9b1a, f0e0c9645). On macOS
+every `mcp` grant, used or not, still refuses the compile: "realm
+'<realm>' grants capability '<capability>' through dialect '<dialect>'
+of kind 'mcp', whose broker support is not implemented until decision
+0065 slice two". On Linux a seat holds one only where every check of
+MB2 passes (`bundle/mcp.rs`); each refuses a `requires` and a `wants`
+alike, rather than dropping it:
+
+- the site has workspace hands in a `namespace` realm: "MCP capability
+  '<capability>' requires workspace hands at this site", which is also
+  what a seat without hands, or under `harness` or `open`, meets;
+- those hands keep the network off: "… requires workspace hands with
+  network false";
+- the harness can keep the broker's evidence, and for a holding that
+  binds secrets the store, from its own native tools: "… cannot
+  protect broker evidence from this provider's native tools" and "…
+  cannot protect its secret bindings from this provider's native
+  tools";
+- the harness's hands fragment carries a broker, which only Claude's
+  does: a brokered grant on Codex or dsh refuses at compile with the
+  driver's own cause, "provider '<provider>' has no measured strict MCP
+  configuration for 'brokers'" (U9b1c, #940 f63c229ce).
+
+So today a brokered MCP grant works on **Claude** alone. And a Claude
+work seat whose dialect binds a secret still refuses with "cannot
+protect its secret bindings from this provider's native tools",
+because Claude's boxed replacement shape records its store read as
+unmeasured (U9b1b's F10): a keyed MCP server cannot yet be granted to a
+Claude seat, until a later unit records the store-denied
+re-measurement. The dialect itself must be a stdio `argv` with an empty
+restriction: a URL connection meets "MCP URL connections are not
+implemented in decision 0065 slice two", an `argv` that holds a
+`{{secret:NAME}}` reference meets "MCP connection argv cannot contain
+secret references; declare environment bindings in secrets", and a
+nonempty restriction meets "MCP nonempty restrictions are deferred to
+the restriction-transport slice". A `requires` refuses with these, a
+`wants` drops, and a valid grant no seat uses stays inactive. Neither
+cause changes `forge.tool-dialect/v1`: a reference is still valid data
+there, and a value reaches the server through its environment alone.
+
+**What a Claude seat is launched with.** Its hands server and one
+broker per holding, served as `cap-<capability>`, ride the one
+`--mcp-config` document under `--strict-mcp-config`, and the launch's
+`--allowedTools` names each broker once, as `mcp__cap-<capability>`, in
+sealed order after the hands tool (U9b1d, #952 6071d04df). The final
+check refuses a launch whose allow list names a `mcp__cap-` server the
+set does not seal, or leaves one out. The broker is still the one gate
+on which tools run: it lists and admits only the grant's tools, and
+refuses any other call with "tool '<tool>' is not granted to capability
+'<capability>'". It answers an `initialize` asking any protocol version
+with its own, 2025-06-18, and refuses a method that version does not
+admit with "MCP method is not admitted by this broker" (U9b1c). It
+takes its harness's SIGINT or SIGTERM as the session's end and closes
+its ledger, as Claude Code 2.1.316 ends every MCP server (U9b1e, #955
+3bb0e566c). With both, the controller's check on Claude Code 2.1.316
+saw a real seat holding a brokered grant complete its run, the call
+settled `succeeded` and its response read back through `brokkr inspect
+--capability-call`, also with the native `web-search` granted beside
+it (`evidence/U9b1d.md`, `evidence/U9b1e.md`). The suites' harness is a
+deterministic fixture: it proves the engine's path, and a real
+harness's isolation is the U0 and U0b measurements', never the
+fixture's.
+
+**What the host must have.** Before it spawns a harness the engine
+brokers for, `brokkr driver` sets `no_new_privs` on itself (U9b1b's
+F1); on an ordinary Linux host there is nothing to do, and a driver
+that cannot set it refuses: "seat refused to start: its driver could
+not set no_new_privs before a harness the engine brokers MCP for: …". A
+host whose `/proc/sys/dev/tty/legacy_tiocsti` is not `0` refuses before
+any server starts: "MCP servers cannot start: the host's
+/proc/sys/dev/tty/legacy_tiocsti is absent, unreadable or not "0"". The
+store must lie outside the seat's reach, which the default store inside
+the worktree does not ([secrets](guides/secrets.md)). And a boxed
+project at or above `HOME` is refused, because its writable reach holds
+the coordination root under `~/.local/state/brokkr/capabilities`: the
+cause ends "can write '<root>', which an MCP server's box or lease rests
+on" (U9b1a).
+
+**The server's box.** The broker resolves the server's program as
+written when absolute, and a bare name only on
+`/usr/local/bin:/usr/bin:/bin`. The installed-entry layout it mounts is
+deliberately conservative: a program in a system `bin` or `sbin`
+directory is its own one-file tree, and any other program's package
+root is its directory, or the one above when that is named `bin` or
+`sbin`; a root of `/`, `HOME` or an ancestor of `HOME` refuses. That
+tree is mounted read-only and nothing beside it, so a server that loads
+code from elsewhere fails inside its box rather than being given more
+(`ServerProgram::resolve`, `hands/namespace.rs`). Its sources are
+protected: no seat may be able to write the program or its tree, which
+may hold no multiply-linked file and must keep the identity observed at
+admission, refused by "MCP server launch resolves inside seat-writable
+reach", "MCP server box bind overlaps seat reach", "MCP server box
+program tree contains a multiply-linked file" and "MCP server box
+filesystem identity is not protected". A seat whose own writable reach
+covers its server's program meets the lease's identity cause first
+(U9b1b's F6). The box starts from `--clearenv` with a fixed
+environment, `PATH`, `HOME=/runtime/home`, `TMPDIR=/tmp`, `USER`,
+`LOGNAME`, `LANG` and `LC_ALL`, beside the dialect's declared secrets,
+and a private `0700` tmpfs at `/runtime/home` and `/tmp` for each
+server. The host-side launcher carries no secret and no code-loading
+name: a declared loading binding such as `PYTHONPATH` reaches only the
+confined server, at its exec, and a host name past the fixed set
+refuses "MCP server box could not be established". Only
+`/etc/ssl/certs` of the TLS configuration is mounted, never
+`/etc/ssl/private`.
+
+A dedicated installation is still not a credential check or a history
+check. Admission discovers no credential the server's tree holds, and
+masks only the values the dialect declares; it does not prove the
+installed bytes were not planted earlier, by a seat or by anything else
+on the host, and a pinned version is not provenance. Install a server
+for Brokkr in a place of its own that holds no credential.
+
+**Networks.** The hands and the server have separate networks: the
+hands stay `network: false` whatever the server is given. A dialect
+whose egress is `local` gets a network namespace of its own; one that
+is `contracted` or `uncontracted` shares the host's network, with only
+`/etc/resolv.conf` mounted for it (`network`,
+`crates/brokkr-runtime/src/capabilities/binding.rs`).
+A shared network reaches the host's loopback services and Linux
+abstract Unix sockets as the host does: that is a declared reach, not a
+filter, and there is no allow-list of hosts.
+
+**Refused before the secret lookup, or failed after it.** Every box
+admission refusal (layout, reach, links, identity, the store's reach,
+the startup keys below, the terminal check and coordination) comes
+before any store lookup and any server start, and the engine journals
+the attempt's failure with its exact cause. Past the lookup the causes
+are later ones: "MCP server secret environment could not be delivered",
+"MCP server could not start inside its box", and, once it runs, "MCP
+server version does not match the dialect's pinned version", "MCP
+server protocol is invalid" or "MCP server call timed out". A broker
+session's failure is durable: its ledger latches the first fatal cause
+in its closing record, the engine reads the ledger only once the
+attempt's processes are proven settled, and a failed close fails the
+attempt with that cause even when the harness reported success
+(`engine/broker/fold.rs`). A ledger left without its close refuses
+"broker ledger lifecycle is invalid".
+
+**Masking and the fixed startup keys.** The broker masks every bound
+value in a server's response, and refuses one it cannot mask safely, a
+value left in a JSON number, in the response's structure or in its id: "MCP
+response cannot be safely masked" fails the call and retains nothing. A
+dialect secret named `HOME`, `TMPDIR`, `USER`, `LOGNAME`, `LANG` or
+`LC_ALL` collides with the box's fixed environment and refuses "MCP
+server startup inputs are not protected from seat writes" before any
+lookup; one the harness authenticates by, Claude's cloud credential
+names among them, refuses "MCP secret binding '<name>' collides with
+harness authentication". These are the broker's checks. The shared
+secret grammar is unchanged (`[A-Z][A-Z0-9_]*`, with `PATH`, `IFS`,
+`LD_PRELOAD`, `LD_LIBRARY_PATH` and `BROKKR_` refused first), and so is
+the legacy `mask_json` every other surface uses, which still leaves a
+digits-only value carried as a bare JSON number unrewritten (below).
+
+**Retained responses.** A dialect that declares `retained: true`, in a
+realm that does not veto it, has each response kept. Run-manifest v12
+records the held capability's implementation and its retention as
+declared, the realm's `inherit` or `veto`, and effective. The broker
+publishes a response under the run's `artifacts/sha256/<hex>` before
+anything cites it, and only once the attempt's processes are proven
+settled, before its result is admitted, does the engine append one
+`capability-call-settled` checkpoint per accepted call, carrying
+seat-record v6's capability, dialect, tool, call id, state and, for an
+answered retained call, the response's digest. Those checkpoints are
+therefore late: they appear when the attempt settles, not as the call
+happens. A retained response proves what the server answered and the
+broker prepared, never that the harness or the model received it.
+`brokkr inspect --run <run> --capability-call <id>` prints the call and
+the verified bytes, and `--json` both. The budgets are fixed: 256 MiB
+of retained responses per attempt, shared equally by its retaining
+plans with an 8 MiB floor, so more than 32 retaining slots refuse;
+8 MiB per response; 4,096 calls and 64 MiB per ledger. An exhausted
+share refuses the next call before it is forwarded, "capability
+evidence budget is exhausted", and nothing is evicted.
+
+**Evidence is protected, and runs are serialized.** Every run takes an
+exclusive lease on its canonical worktree, and so on the artifact root
+beside it; a second run there refuses "run '<run>' holds this worktree,
+its writers not proven settled" until the first's writers are proven
+settled. An artifact root that once protected evidence stays protected
+from every later writer of any worktree on the host. Where evidence is
+at stake (the incoming attempt protects some, a standing one does, or
+such a historical root exists), a writer that can reach it refuses with
+"dispatch refused: capability evidence root cannot be protected from
+every managed writer: …", and a writer Brokkr cannot box refuses with
+"site '<site>' of run '<run>' writes outside a workspace box, which
+cannot be kept from protected evidence or the coordination root". With
+nothing at stake, an unboxed writer is admitted as before (operator
+ruling of 2026-10-29; `engine/broker/exclusion.rs`).
+
+Separately, a broker reserves its server's sources in the coordination
+root, across every worktree on the host, until its attempt's processes
+are proven settled; neither an engine's death nor a free lock releases
+the reservation. A writer of any worktree that could write a reserved
+source refuses with MB3's identity cause, and a boxed writer whose
+reach covers the coordination root refuses on every run (U9b1a). A
+record this build cannot read refuses rather than being guessed at:
+"the protected inventory holds an unknown participant at '<path>'", or
+one in another build's format, which names concluding its run with the
+build that wrote it. A survivor not proven settled keeps its
+reservation; `brokkr operator release` is the operator's attestation
+for a run whose attempts ended with no such proof.
+
+**Quiesce older writers before you rely on this.** An engine older than
+this build takes no lease, so this one cannot see it, and upgrading the
+binary does not stop an engine already running. Before a run that
+retains evidence, let every older Brokkr engine finish, and stop any
+other writer whose reach could overlap a server's sources or an
+artifact root: a different worktree does not rule that overlap out.
+
+**Startup budgets.** A broker's start, its host survey included, has
+one 30 s bound; observing its sources is bounded at 1,000,000 entries,
+depth 64, 40 link hops and 65,536 mount records, and a call at 1 MiB
+of request, 8 MiB of response and 120 s. Each retaining member of a
+panel surveys the host inside that one bound, so a large panel parks
+under load with "MCP server box survey did not answer before its
+startup deadline": U9b1b measured a 32-member panel parking at a load
+near 6 and an 8-member one near 20 (`evidence/U9b1b.md`, F8). Judge
+those budgets on a release build: in the controller's SD4 samples of
+2026-10-31 a debug build's start was much slower on aarch64, because
+provisioning hashes the whole running binary.
 
 ## What the box does not do
 
@@ -255,8 +524,10 @@ check can read.
   every claude seat, naming each native power the seat does not hold.
   So what such a seat may run is decided by Claude Code's permission
   model and the operator's own Claude Code permission settings, less
-  `WebSearch` and `WebFetch`, and the operator's MCP servers reach it
-  ([#467](https://github.com/feedback-loop-ai/brokkr/issues/467)).
+  `WebSearch` and `WebFetch`; the operator's MCP servers are shut out
+  only where the engine gives the seat its strict empty set, on Linux
+  ([below](#what-brokkr-does-not-enforce);
+  [#467](https://github.com/feedback-loop-ai/brokkr/issues/467)).
   The `recipes/verify` review seat is the same: unboxed, `acceptEdits`,
   with `cargo`, `git`, `ls`, `rg`, `gh pr view` and `gh run view`
   pre-approved. So are `recipes/fast`'s own inline implement and review
@@ -268,8 +539,8 @@ check can read.
 - **An unboxed claude seat with no tool list keeps Claude Code's other
   defaults.** Brokkr passes no `--tools`, no `--settings` and no
   `--setting-sources`, so the seat has Claude Code's default tools,
-  subject to the operator's own permission settings, and the operator's
-  MCP servers. Only `WebSearch` and `WebFetch` are denied by name, unless
+  subject to the operator's own permission settings, and, off Linux, the
+  operator's MCP servers. Only `WebSearch` and `WebFetch` are denied by name, unless
   the realm grants them. The shipped `triage` gate is such a seat.
 - **The `harness` boundary is the harness's word.** Codex restricts by
   sandbox class (`read-only`, `workspace-write`), not by tool, and
@@ -290,15 +561,25 @@ check can read.
 ## What Brokkr does not enforce
 
 - **The operator's own MCP servers and settings.** Decision 0065 ruling
-  6 says a harness's own MCP configuration is never inherited. The code
-  does not yet hold that: an unboxed claude seat gets no
-  `--strict-mcp-config` (`adapters/claude.json` passes it only in
-  `hands.workspace`), so it starts every server in the operator's
-  user-scope Claude Code configuration, with their credentials, and
-  every claude seat, boxed or not, loads the operator's settings,
-  `CLAUDE.md` and hooks. No Codex fragment clears the `mcp_servers` in
-  `~/.codex/config.toml`, so every Codex seat starts them
-  ([#467](https://github.com/feedback-loop-ai/brokkr/issues/467)).
+  6 says a harness's own MCP configuration is never inherited. On
+  Linux the engine now holds that for the launches it seals, where the
+  seat's shape is measured: a Claude or LaneTally seat without hands is
+  given `--strict-mcp-config` and an empty `--mcp-config`
+  (`with_empty_set`, `crates/brokkr-protocol/src/adapters/mcp.rs`), a
+  boxed one its fragment's,
+  and a Codex seat `--ignore-user-config --disable apps --disable
+  plugins` (U9c2). What U0 and U0b measured those against is in
+  [provider adapters](guides/provider-adapters.md#measured-mcp-isolation).
+  It does not hold everywhere. On macOS, where no shape is measured, a
+  claude seat without hands is served as before and starts the
+  operator's user-scope servers; a driver run by hand is served as composed; beside
+  `/etc/claude-code/managed-mcp.json` Claude Code itself refuses the
+  strict flag (U0 C07), and Brokkr refuses a Codex seat on a host
+  holding `/etc/codex/config.toml` or `/etc/codex/managed_config.toml`,
+  so neither is excluded; and Codex's enterprise cloud configuration
+  was never measured. Every claude seat,
+  boxed or not, still loads the operator's settings, `CLAUDE.md` and
+  hooks ([#467](https://github.com/feedback-loop-ai/brokkr/issues/467)).
 - **Messages from other sessions.** A claude seat is a headless Claude
   Code session, and on a host that runs other interactive sessions it is
   reachable by their cross-session messages: an input channel outside
@@ -326,7 +607,14 @@ Bundles and journals carry secret **names** only (decision 0012).
   is refused on read. Names match `[A-Z][A-Z0-9_]*`. `PATH`, `IFS`,
   `LD_PRELOAD`, `LD_LIBRARY_PATH` and every `BROKKR_` name are refused.
   So is a value shorter than four bytes, and one shorter than eight
-  draws a warning.
+  draws a warning. Every workspace box hides the store and pins the
+  folders around it, and refuses a store it cannot place safely; the
+  [secrets guide](guides/secrets.md#the-store-and-the-box) says what
+  it refuses and what is still exposed.
+- **An MCP server's secrets** are the names its dialect declares,
+  read from the store by the broker after its box is admitted and
+  handed to the server's environment inside the box, never the
+  seat's ([above](#mcp-capabilities-through-the-broker)).
 - **A seat declares** the names it binds in its `secrets` list, and
   compilation refuses a `{{secret:NAME}}` reference the seat did not
   declare.
@@ -352,7 +640,8 @@ Bundles and journals carry secret **names** only (decision 0012).
   is not masked in the journal, even when the harness inherited it from
   the environment. The harness's own session file on
   disk holds what the model echoed, in plaintext. A digits-only value
-  carried as a bare JSON number is not rewritten. An encoding of an
+  carried as a bare JSON number is not rewritten (the broker instead
+  refuses such a value in a server's response). An encoding of an
   encoding is not matched. A read surface masks only the current values
   of the store beside the journal, so a rotated value, or a store kept
   elsewhere, is shown as written.
@@ -410,8 +699,9 @@ an instruction:
 - **dsh turns on `web_search` and `web_fetch` in every seat**, and its
   unmeasured inventory means Brokkr switches neither off
   ([#462](https://github.com/feedback-loop-ai/brokkr/issues/462)).
-- **Brokkr bounds neither a tool-less claude seat's other tools nor the
-  MCP servers and settings of an unboxed claude seat or any Codex seat**
+- **Brokkr bounds neither a tool-less claude seat's other tools nor any
+  claude seat's settings, and it shuts out the operator's MCP servers
+  only on Linux, for a launch it seals**
   ([#467](https://github.com/feedback-loop-ai/brokkr/issues/467)), as
   [what Brokkr does not enforce](#what-brokkr-does-not-enforce) states.
 - **A seat can receive another session's messages**

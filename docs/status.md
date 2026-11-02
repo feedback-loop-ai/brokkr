@@ -43,15 +43,17 @@ they are read in the adapter file, not here.
   harness whose native inventory is unmeasured, a typed list is refused
   at compile (the operator's ruling R5 of 2026-09-29). Codex maps no
   tool name; its typed `tools.sandbox` names a sandbox class instead.
-- **MCP flag Brokkr passes**: the flag through which Brokkr passes a
-  seat MCP servers, not whether the seat reaches MCP servers. Under
-  decision 0065 no agent names a server, so the only one Brokkr passes
-  is a boxed seat's `workspace`, through its hands fragment. The
-  operator's own configuration still
-  reaches every Codex seat, boxed or not, through
-  `~/.codex/config.toml`, and every unboxed claude seat, through their
-  Claude Code configuration. Only the boxed claude fragment passes
-  `--strict-mcp-config`, which shuts those out.
+- **MCP flag Brokkr passes**: the options of the adapter's boxed hands
+  fragment through which Brokkr passes a seat its MCP servers: the
+  hands server and, beside it, each brokered capability's server. The
+  cell is a configuration fact, not which harness may hold a brokered
+  grant: only Claude's fragment carries a broker, and a brokered grant
+  on Codex or dsh refuses at compile. Beside the fragment, the engine
+  gives a Claude or LaneTally seat without hands `--strict-mcp-config`
+  and an empty `--mcp-config` where its shape's isolation is measured,
+  which is on Linux, and a Codex seat `--ignore-user-config --disable
+  apps --disable plugins` (U9c2); dsh carries its servers in an
+  engine-only home, not its argv.
 - **Boxed hands**: whether the harness can put its hands in Brokkr's
   box (decision 0043). A boxed Codex seat keeps Codex's native shell,
   read-only and outside the box, so it can still read the host,
@@ -73,11 +75,11 @@ they are read in the adapter file, not here.
 <!-- adapter-matrix:start -->
 | Harness | Trust | Egress | Holds a model gate | Efforts | Tool allow-list | MCP flag Brokkr passes | Boxed hands | Own sandbox for | Resume shapes |
 |---|---|---|---|---|---|---|---|---|---|
-| `claude` | trusted | contracted | yes: `fable`, `opus` | low, medium, high, xhigh, max | `cargo`, `codex`, `dsh`, `gh-pr-view`, `gh-run-view`, `git`, `ls`, `mkdir`, `node`, `npm`, `npx`, `rg`, `specify`, `webfetch` (refused: native `web-fetch`), `websearch` (refused: native `web-search`) | none | yes | — | `boxed-workspace`: unmeasured (2.1.266); classes `work`; boundaries `namespace`, `seatbelt`, `container`; hands `boxed`; evidence `interface` |
-| `codex` | trusted | uncontracted | yes: `astra`, `sol` | none, minimal, low, medium, high, xhigh, max | no (measured) | none | yes | gate, work | `work-site`: supported (0.154.0); classes `work`; boundaries `harness`, `not applicable`; hands `none`; evidence `interface`, `restrictions`, `root`, `accounting` |
-| `dsh` | untrusted | uncontracted; `spark`: local; `spark-glm`: local | no: untrusted | low, medium, high, xhigh; none on `spark`, `spark-glm` | no (measured) | none | yes | — | `headless-work`: unmeasured (0.1.5-rc.1); classes `work`; boundaries `not applicable`; hands `none`; evidence `interface` |
-| `exec` | untrusted | contracted | no: untrusted | — | no | none | yes | — | — |
-| `lanetally` | untrusted | uncontracted | no: untrusted | low, medium, high, xhigh, max | no: refused while the native inventory is unmeasured | none | no (measured) | — | `wrapper-work-site`: unmeasured (version unknown); classes `work`; boundaries `harness`, `open`, `not applicable`; hands `none`; evidence — |
+| `claude` | trusted | contracted | yes: `fable`, `opus` | low, medium, high, xhigh, max | `cargo`, `codex`, `dsh`, `gh-pr-view`, `gh-run-view`, `git`, `ls`, `mkdir`, `node`, `npm`, `npx`, `rg`, `specify`, `webfetch` (refused: native `web-fetch`), `websearch` (refused: native `web-search`) | `--strict-mcp-config`, `--mcp-config` | yes | — | `boxed-workspace`: unmeasured (2.1.266); classes `work`; boundaries `namespace`, `seatbelt`, `container`; hands `boxed`; evidence `interface` |
+| `codex` | trusted | uncontracted | yes: `astra`, `sol` | none, minimal, low, medium, high, xhigh, max | no (measured) | `-c mcp_servers.brokkr.*` | yes | gate, work | `work-site`: supported (0.154.0); classes `work`; boundaries `harness`, `not applicable`; hands `none`; evidence `interface`, `restrictions`, `root`, `accounting` |
+| `dsh` | untrusted | uncontracted; `spark`: local; `spark-glm`: local | no: untrusted | low, medium, high, xhigh; none on `spark`, `spark-glm` | no (measured) | none: its hands fragment passes none | yes | — | `headless-work`: unmeasured (0.1.5-rc.1); classes `work`; boundaries `not applicable`; hands `none`; evidence `interface` |
+| `exec` | untrusted | contracted | no: untrusted | — | no | none: no model MCP surface | yes | — | — |
+| `lanetally` | untrusted | uncontracted | no: untrusted | low, medium, high, xhigh, max | no: refused while the native inventory is unmeasured | none: no hands fragment | no (measured) | — | `wrapper-work-site`: unmeasured (version unknown); classes `work`; boundaries `harness`, `open`, `not applicable`; hands `none`; evidence — |
 <!-- adapter-matrix:end -->
 
 ### Measured gaps
@@ -102,7 +104,7 @@ A native power is one the provider or the harness runs itself, such as
 Codex's server-side web search or Claude Code's `WebSearch` and
 `WebFetch`, so no box confines it. Decision 0065 ruling 4 turns each one
 off in every seat the realm does not grant it. A realm grants one in
-`realms.json`'s `forge.realms/v6` `capabilities` map, through a tool
+`realms.json`'s `capabilities` map (`forge.realms/v6` or later), through a tool
 dialect under [`dialects/tools/`](../dialects/tools/). A grant with no
 `offices` list reaches every office that asks, one with `"offices": []`
 reaches none, and one with a list reaches only the offices it names
@@ -231,10 +233,15 @@ seat at launch.
   switches off only the native powers it names. A claude seat whose
   agent lists no tools and declares no hands, such as the `triage`
   gate, keeps Claude Code's other default tools under the operator's
-  own permission settings. An unboxed claude seat starts every MCP
+  own permission settings, and every claude seat loads the operator's
+  settings, `CLAUDE.md` and hooks. On Linux the engine shuts the
+  operator's MCP servers out of the launches it seals for claude,
+  codex or dsh, and for LaneTally, by the options and the engine-only
+  dsh home the [MCP flag legend](#what-each-adapter-declares) names;
+  on macOS, where
+  no shape is measured, an unboxed claude seat still starts every MCP
   server in the operator's user-scope configuration, with its
-  credentials. A Codex seat, boxed or not, starts the MCP servers in
-  `~/.codex/config.toml`
+  credentials
   ([#467](https://github.com/feedback-loop-ai/brokkr/issues/467)).
 - **Seats can receive cross-session messages.** On a host that runs
   other interactive Claude Code sessions, a claude seat is reachable by

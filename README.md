@@ -39,7 +39,7 @@ On Windows, use WSL2: it is Linux, and every Linux row above serves it (decision
 Sixty seconds from a fresh machine to a lit run, then five minutes to a completed run. Both budgets are measured in CI on Ubuntu and macOS by [`scripts/bootstrap-bench.sh`](scripts/bootstrap-bench.sh), which prints what it mocks. You need:
 
 - **Every host:** `git`, `bash`, a git repository you are willing to let an agent edit, and `claude` or `codex` on `PATH`. `init` scaffolds for the first of `claude`, `codex` or `dsh` it finds, or for the one `--cli` names. `dsh` alone is not enough: it cannot hold the review gate, because its adapter is untrusted and names no judges, so a dsh scaffold keeps the reviewer on `claude`.
-- **Linux:** bubblewrap (`bwrap`) 0.11 or newer on `PATH`, with unprivileged user namespaces allowed. The scaffold's verify and ship gates run boxed under the default `namespace` boundary. A codex scaffold's model seats run their commands in that box too.
+- **Linux:** bubblewrap (`bwrap`) 0.11 or newer on `PATH`, with unprivileged user namespaces allowed, on Linux 5.11 or newer, whose `close_range` with `CLOSE_RANGE_CLOEXEC` the box needs; an older kernel fails every boxed launch with `hands could not spawn bwrap: Invalid argument (os error 22)` (or `Function not implemented (os error 38)` before 5.9). The scaffold's verify and ship gates run boxed under the default `namespace` boundary. A codex scaffold's model seats run their commands in that box too.
 - **macOS:** nothing more. `init` declares the `harness` boundary, because `namespace` is Linux-only, so verify and ship run their pinned scripts unboxed.
 
 ```mermaid

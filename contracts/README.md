@@ -692,7 +692,16 @@ is decision 0036's separate vocabulary and absent reads `uncontracted`.
 The `mcp` kind is whole as DATA in this slice and refused as a grant:
 brokers, gate rules, checkpoint attribution and retained results are
 decision 0065's slice two. Brokkr ships dialect files for provider-native
-capabilities only, and no MCP server.
+capabilities only, and no MCP server. Slice two built those on Linux and
+left this file's bytes alone: since U9b1a an `mcp` grant compiles there,
+on a seat its broker can serve, and still refuses on macOS. A v1 `argv`
+that holds a declared secret reference stays valid data but is not
+executed ("MCP connection argv cannot contain secret references; declare
+environment bindings in secrets"), a `url` connection is refused as
+unbuilt ("MCP URL connections are not implemented in decision 0065 slice
+two"), and the `retained` property's own description, "built by a later
+slice", is history: slice two built retention
+([security model](../docs/security-model.md#mcp-capabilities-through-the-broker)).
 
 `run-manifest.v11` is `v10` plus one REQUIRED property, `capabilities`:
 the operated realm, every grant it declares (used or not, restrictions as
@@ -761,9 +770,12 @@ of any value stays the dialect's restriction, exactly as before: an older
 map never acquires the veto by spelling alone, and moving to v8 is an
 explicit edit that changes the pinned grant. A v8 map that writes no
 `retain` reads exactly as the same map under v7, `provisional_offices`
-and v6's refusal of a key written twice included. Reading the veto into a
-run's held capability, and a dialect restriction schema that claims
-`retain` under a v8 grant, are the runtime's later work in this slice.
+and v6's refusal of a key written twice included. The runtime now reads
+the veto into a run's held capability (`Retention`,
+`capabilities/binding.rs`), and refuses a v8 grant whose dialect's
+restriction schema names `retain` directly: "tool dialect '<dialect>'
+restriction schema redefines reserved grant key 'retain'"
+(`capabilities/dialect.rs`).
 
 Decision 0065's slice two (SC3 and CR1, U5f) adds one more file and changes
 none of the bytes above — `run-manifest.v11`'s included, which is now
@@ -790,9 +802,11 @@ so a changed declaration moves the digest even under a veto that keeps
 the effect false. A manifest whose candidates hold nothing reads the same
 under v11 and v12, and a v11 holding is not a v12 one: a run pinned under
 v11 with a holding meets the existing resume refusal, which names
-capabilities, and is never rewritten. Every `mcp` grant still refuses
-the compile until slice two's enabling unit, so today only provider-native
-holdings are written.
+capabilities, and is never rewritten. Until slice two's enabling unit
+every `mcp` grant refused the compile, so only provider-native holdings
+were written; since U9b1a an `mcp` holding is written on Linux, and on
+macOS, where the grant still refuses, provider-native holdings remain the
+only ones.
 
 Decision 0065's slice two (CC3 and SC4, capability-call attribution) adds
 one more file and changes none of the bytes above — `seat-record.v5`'s
@@ -812,9 +826,10 @@ reported, which claims no completion, or one of a broker call's settled
 outcomes `succeeded`, `failed`, `refused` and `interrupted`; a broker's
 private `started` record is never a public checkpoint and is refused here.
 `response_sha256` is 64 lowercase hex characters and rides only beside
-`succeeded` or `failed`. The engine still has to establish effective
-retention and the published artifact before it writes one; this file judges
-the shape alone. A private observation, a partial group or any other key is
+`succeeded` or `failed`. This file judges the shape alone: the engine
+writes a digest only once it has established the holding's effective
+retention and published the artifact the digest names, after the
+attempt's processes are proven settled (`engine/capability_calls.rs`). A private observation, a partial group or any other key is
 refused by the closed checkpoint.
 
 Both widenings are scoped on the group, so every valid v5 record is a valid
@@ -832,9 +847,10 @@ verification alike. 0.12 is the development line on main after the 0.12.0
 tag when v6 landed; `engine` carries no position within a line, and the
 tagged 0.12.0 engine wrote no attribution field, so every row it wrote reads
 under v6 exactly as it did under v5. A pre-release or build of a line is
-that line, and a malformed or missing engine reads as v1, as before. Until
-the engine's attribution consumers land, drivers keep writing legacy rows,
-and those append, export and verify unchanged.
+that line, and a malformed or missing engine reads as v1, as before.
+Drivers keep writing legacy rows for unattributed tools, and those append,
+export and verify unchanged; the engine writes one settled attributed
+checkpoint, `capability-call-settled`, per brokered call it folds.
 
 Decision 0068's capacity half (#430's third slice, the operator's ruling
 of 2026-10-10, option B) adds one file and changes none of the bytes above:
