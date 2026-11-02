@@ -5,6 +5,17 @@ use serde_json::json;
 mod attempt_correlation;
 mod tracker_scope;
 
+/// `test` of this module, played in an engine of its own: the full test
+/// path [`in_its_own_engine`] re-executes. A module-local guard because
+/// eight three-line guards would breach the test file's 2,000-line ceiling.
+macro_rules! own_engine {
+    ($test:literal) => {
+        if !in_its_own_engine(concat!("process::tests::", $test)) {
+            return;
+        }
+    };
+}
+
 pub(super) fn command(script: &str) -> Vec<String> {
     vec!["sh".into(), "-c".into(), script.into()]
 }
@@ -627,6 +638,7 @@ fn a_broken_pipe_at_the_offer_is_a_determinate_failure() {
 /// repeat (decision 0006's 2026-10-11 addendum, ruling 6).
 #[test]
 fn a_deadline_kill_during_the_start_write_is_the_deadlines_end() {
+    own_engine!("a_deadline_kill_during_the_start_write_is_the_deadlines_end");
     let dir = tempfile::tempdir().unwrap();
     // A start larger than a pipe holds, of which the driver reads a little.
     let driver = command(&format!(
@@ -885,6 +897,7 @@ impl Seats {
 /// overlap them; and the grandchild's marker stops moving.
 #[test]
 fn a_deadline_kill_ends_every_descendant_before_the_report_returns() {
+    own_engine!("a_deadline_kill_ends_every_descendant_before_the_report_returns");
     let seats = Seats::new();
     let driver = seats.driver("seat", &accepting(), "read -r never");
     let report = attempt(spawned(&driver, &seats.dir, Some(Duration::from_secs(1))));
@@ -964,6 +977,7 @@ fn a_driver_that_lingers_after_its_last_word_is_ended_within_the_grace() {
 /// deadline and not when the grandchild would have finished.
 #[test]
 fn a_grandchild_holding_the_pipes_does_not_outlast_the_deadline() {
+    own_engine!("a_grandchild_holding_the_pipes_does_not_outlast_the_deadline");
     let driver = command(&format!(
         "read -r hello; {}; sleep 10 & sleep 10",
         accepting()
@@ -986,6 +1000,7 @@ fn a_grandchild_holding_the_pipes_does_not_outlast_the_deadline() {
 /// beside it: the report never certifies the attempt (#403).
 #[test]
 fn an_attempt_whose_end_cannot_be_proven_parks() {
+    own_engine!("an_attempt_whose_end_cannot_be_proven_parks");
     let held = |process: &mut DriverProcess| process.bounds.drain = Duration::from_millis(200);
     let mut process = spawned(
         &command("read -r hello; read -r never"),
@@ -1177,6 +1192,7 @@ fn an_unresolved_cleanup_is_acted_on_as_indeterminate() {
 /// other's deadline kill, and then finishes on its own terms.
 #[test]
 fn a_concurrent_run_in_the_same_directory_is_never_signalled() {
+    own_engine!("a_concurrent_run_in_the_same_directory_is_never_signalled");
     let seats = Seats::new();
     let dir = seats.dir.clone();
     let done = seats.file("a", "done");
@@ -1609,6 +1625,7 @@ fn an_engine_that_inherited_hangup_ignored_runs_on_through_one() {
 /// returns, and the kill is certified only because it is gone.
 #[test]
 fn a_deadline_kill_ends_a_descendant_that_left_the_group_and_its_pipes() {
+    own_engine!("a_deadline_kill_ends_a_descendant_that_left_the_group_and_its_pipes");
     let seats = Seats::new();
     let driver = seats.role_driver("seat", "detached", &accepting(), "read -r never");
     let report = attempt(spawned(&driver, &seats.dir, Some(Duration::from_secs(3))));
@@ -1632,6 +1649,7 @@ fn a_deadline_kill_ends_a_descendant_that_left_the_group_and_its_pipes() {
 #[cfg(target_os = "linux")]
 #[test]
 fn a_running_driver_adopts_its_trees_orphans() {
+    own_engine!("a_running_driver_adopts_its_trees_orphans");
     let seats = Seats::new();
     let orphan = seats.file("seat", "orphan");
     let driver = command(&format!(
@@ -1801,6 +1819,7 @@ fn measured_pipe() -> (std::io::PipeReader, std::io::PipeWriter, usize) {
 /// write blocks, and the report still returns within the grace.
 #[test]
 fn a_driver_that_stops_reading_cannot_hold_the_shutdown_write() {
+    own_engine!("a_driver_that_stops_reading_cannot_hold_the_shutdown_write");
     let line = |body: Body| wire(body).len() + 1;
     let start = |pad: &str| {
         line(Body::Start {
@@ -1868,6 +1887,7 @@ fn a_driver_that_stops_reading_cannot_hold_the_shutdown_write() {
 /// the drain reports the pipe held without consuming what is ready.
 #[test]
 fn stdout_is_not_read_past_its_bound_whatever_is_ready() {
+    own_engine!("stdout_is_not_read_past_its_bound_whatever_is_ready");
     let mut process = spawned(
         &command("read -r hello"),
         std::path::Path::new("."),

@@ -10,6 +10,13 @@ use super::*;
 #[cfg(target_os = "linux")]
 #[test]
 fn a_detached_descendant_whose_parent_exits_between_ticks_is_ended_with_its_attempt() {
+    // `own_engine!` is declared after this module's `mod` line, so the
+    // full path is spelled out here.
+    if !in_its_own_engine(
+        "process::tests::tracker_scope::a_detached_descendant_whose_parent_exits_between_ticks_is_ended_with_its_attempt",
+    ) {
+        return;
+    }
     let seats = Seats::new();
     let grandchild_file = seats.file("seat", "grandchild");
     let marker = seats.file("seat", "marker");
