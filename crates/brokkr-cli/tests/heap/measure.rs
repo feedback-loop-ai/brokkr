@@ -21,9 +21,14 @@ thread_local! {
 /// allocations to dhat and every other thread's to the system.
 struct Measured;
 
-// SAFETY: each method forwards the layout, pointer and size it was handed
-// to the allocator the calling thread is measured by, unchanged, so a
-// block is freed by the allocator that made it.
+// SAFETY: every block is the system allocator's, whichever side made it.
+// dhat 0.3.3's `Alloc` (the version Cargo.lock pins) makes, grows and frees
+// each block through `System` and only records it, so a block made inside a
+// window and freed after it, or the reverse, is still freed by `System`.
+// dhat ignores a free of a block it did not record, treats a realloc of one
+// as a fresh allocation, and guards its own bookkeeping with `IgnoreAllocs`,
+// so routing by `MEASURING` never corrupts its tables. A dhat that stopped
+// delegating to `System` would break this.
 unsafe impl GlobalAlloc for Measured {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         unsafe {
