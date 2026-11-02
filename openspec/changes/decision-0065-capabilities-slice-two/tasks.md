@@ -148,6 +148,13 @@ Dependencies: U1d5. Files and scope: [U1d6](design.md#u1d6--record-dshs-replacem
 - [x] 5.9 (U1d6; [SI1](specs/strict-mcp-isolation/spec.md), [SI2](specs/strict-mcp-isolation/spec.md)) Record dsh's replacement with hands none as ambient-measured from U0b D06 and pass 8's P8-deepseek-B, P8-dashscope-B, P8-meta-B and P8-metac-B (dsh 0.2.1-rc.2, Linux) in the shipped adapter and the init scaffold's copy. Verify: The ambient axis matches the cells; the other axes are unchanged; the scaffold copy matches; the moved witness row is listed.
 - [x] 5.10 (U1d6; [SI2](specs/strict-mcp-isolation/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record exact assertions and the re-blessed witness row. Apply the shared verification duty above.
 
+## 5e. U1d7 — Record Claude's boxed replacement on 2.1.316
+
+Dependencies: U9b1e. Files and scope: [U1d7](design.md#u1d7--record-claudes-boxed-replacement-on-21316) (controller ruling 2026-11-01 under the operator's standing ruling of 2026-10-28).
+
+- [x] 5.11 (U1d7; [SI1](specs/strict-mcp-isolation/spec.md), [SI2](specs/strict-mcp-isolation/spec.md), [MB2](specs/mcp-capability-broker/spec.md)) Record Claude's boxed replacement shape as measured on Claude Code 2.1.316 from U0b pass 9's C11-p6, C14-p6, C15-p6, C16-p6, C17-p6, C17-p6b and C17-p6-drive in the shipped adapter, with pass 9 added to the U0b evidence. Verify: Every axis matches the cells; `store_read` is measured; init parity holds; the moved witness row is listed; a Claude work seat binding a secret compiles.
+- [x] 5.12 (U1d7; [SI2](specs/strict-mcp-isolation/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record exact assertions and the re-blessed witness row. Apply the shared verification duty above.
+
 ## 6. U1e — Record dsh and exec declarations
 
 Dependencies: U1d, U1c2. Files and scope: [design.md](design.md#slice-two-units).
@@ -673,7 +680,7 @@ Dependencies: U8h. Files and scope: [U8m](design.md#u8m--redact-doctors-server-w
 
 ## 48. U10a — Audit every removal proof and scope
 
-Dependencies: U9b2 and U8m. Files and scope: [design.md](design.md#u10a--audit-removals-and-run-final-candidate-gates) (operator ruling 2026-10-12).
+Dependencies: U9b2, U8m and U1d7. Files and scope: [design.md](design.md#u10a--audit-removals-and-run-final-candidate-gates) (operator ruling 2026-10-12).
 
 - [ ] 48.1 (U10a; [SD4](specs/slice-two-delivery/spec.md), [SD2](specs/slice-two-delivery/spec.md)) Audit requirement/task/test mapping, each compiling removal/restored pass, no new suppression/clone/unused API and frozen bytes against each unit's main. Repair a missing proof in its assigned suite, not by declaring it proved. Audit every row of the boxed-server scenario map against its actual typed assertion, lookup/start/call counters, independent compiling removal and restored pass, including the integrated U9b repetition. Reconcile H1–H7 with D5's remaining checks; a documentary disposition closes no runtime security finding. Verify: All 26 requirement IDs covered; typed refusal text pins once per module; no frozen fixture regeneration or unrecorded windows.
 - [ ] 48.2 (U10a; [SD4](specs/slice-two-delivery/spec.md), [SD2](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 48.1. Apply the shared verification duty above.

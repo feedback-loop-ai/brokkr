@@ -945,7 +945,7 @@ merged as 020de8bd (#883) on 2026-10-26.
 | Item | Value |
 | --- | --- |
 | Host | Ubuntu 25.10, kernel 6.17.0-41-generic, x86_64 (U0's host) |
-| Claude Code | **2.1.308** in passes 1 and 2 (`~/.local/bin/claude` -> `versions/2.1.308`; the init event's `claude_code_version`); **2.1.310** in pass 5. The plan had assumed 2.1.299 |
+| Claude Code | **2.1.308** in passes 1 and 2 (`~/.local/bin/claude` -> `versions/2.1.308`; the init event's `claude_code_version`); **2.1.310** in pass 5; **2.1.316** in pass 9. The plan had assumed 2.1.299 |
 | LaneTally | `~/.local/bin/claude-lanetally` (sha256 b886c95a…) and `session-wrapper.sh` (sha256 ecac09b9…), both identical to U0's; the child is the Claude above |
 | Codex | **codex-cli 0.164.0** (volta `@openai/codex`, installed 2026-10-23 13:08:05Z). Every rollout records `cli_version` 0.164.0. Pass 1's record first labelled X13 as 0.162.1; X13 started 13:27:08Z, after the upgrade, and its rollout records 0.164.0, which this record corrects. U9c2's own measurements and code comments name 0.162.1 |
 | dsh | launcher 0.2.1-rc.2, `@deepseek-ai/dsh-mcp-client` 0.2.1-rc.2 (volta image) |
@@ -1286,6 +1286,54 @@ ambient axis is measured on every route the cold shape is qualified on;
 process axes are not re-measured here; SI2's compile check reads the ambient
 axis alone.
 
+### Claude's boxed replacement on 2.1.316: pass 9 (2026-11-01)
+
+Under the controller's ruling of 2026-11-01 on U9b1b's finding F10 (option
+(a), under the operator's standing ruling of 2026-10-28), pass 9 re-measured
+every axis of Claude's boxed replacement shape on the current Claude Code. The
+shape had been measured on 2.1.308 with its store read unmeasured: C17 read
+the store before U8h, and C17-p5 was denied it after U8h on 2.1.310, not the
+shape's version. Claude Code **2.1.316** (the init event's
+`claude_code_version` in every authenticated cell), `--model haiku`
+(reported `claude-haiku-5-5`), Linux, 2026-11-01 16:25Z to 16:34Z. The cells
+carry the suffix `p6`. The method is pass 2's for C11, C14 and C15 (A then B,
+the cold argv in the same HOME and workdir; each A killed at 45 s, exit 125,
+with no model call) and pass 5's for C17. The hands server is pass 2's
+`brokkr-main-ac54b857` for C14 and C15, and for C17 and the drive the U8h box
+`~/.cache/forge-fires/bin/brokkr-main-b8e2caff-u0b` (sha256 85eb17d6…,
+"brokkr 0.12.0") with pass 5's sealed `--reach`, the store place
+`<proj>/.forge/secrets.env`. A fresh fake store canary at that path (0600,
+one link) and a process canary in the engine sentinel's environment were
+planted, and both removed after the cells.
+
+| Cell | Shape | user | project | plugin | engine | Outcome |
+| --- | --- | --- | --- | --- | --- | --- |
+| C11-p6 | A→B, positive control, no strict flag | answered | answered | answered | none | the three planted servers connected and each logged one `tools/call`; 28 tools. **Positive control met** |
+| C14-p6 | A→B, `--tools '' --strict-mcp-config`, the hands fragment inline | not started | not started | not started | none | `brokkr` only, one tool, `mcp__brokkr__workspace`; `HANDS-OK`. **Passes** |
+| C15-p6 | A→B, the hands plus engine, inline | not started | not started | not started | answered | `brokkr` and `engine` only; `SENTINEL-engine-ANSWERED` and `HANDS-OK`. **Passes** |
+| C16-p6 | C15-p6's argv with `/etc/claude-code/managed-mcp.json` planted inside `with-etc.sh` | not started | not started | not started | not started | refused, exit 1: "You cannot use --strict-mcp-config when an enterprise MCP config is present". **Fails closed** |
+| C17-p6 | A→B, C15-p6's shape with the U8h box and its sealed reach, the canaries planted | not started | not started | not started | answered | through Claude's own call of the hands tool: the store **denied**, "Permission denied (os error 13)"; 4 numeric `/proc` entries; a write outside the workdir printed `HANDS-WRITE-OK` and left no file on the host. The model left out the `/proc/*/environ` canary grep. The host store unchanged (0600, one link) |
+| C17-p6b | C17-p6 again | not started | not started | not started | answered | the model left out the store read and the canary grep; 4 `/proc` entries; the outside write printed OK and was not on the host |
+| C17-p6-drive | no model (ruling 5(a)): the same hands argv driven over MCP stdio while a host engine sentinel holds the process canary | — | — | — | — | the store read: "Permission denied (os error 13)", its path in the box `crw-rw-rw- 1,3` (the `/dev/null` mask); the canary grep over `/proc/[0-9]*/environ`: **0** processes; `/proc`: 4 entries |
+
+Verdicts for the shape on 2.1.316, which U1d7 records in `adapters/claude.json`:
+ambient measured (C11-p6's control, C14-p6, C15-p6, C16-p6); native write
+measured (C14-p6's single tool source, the outside write of C17-p6 and
+C17-p6b); store read **measured** (C17-p6 and C17-p6-drive, the host store
+unchanged, U8h's recorded limits below standing); process read measured (4
+`/proc` entries, none carrying the canary the host sentinel held). With the
+store read measured, MB2 serves a Claude work seat whose dialect binds a
+secret, which F10 refused; every other MB2 refusal stands.
+
+Token handling: the operator's new setup-token, one 0600 file under
+`~/.config`, was sourced into each authenticated B cell's child only by
+pass 2's `clean-exec.sh`; each `argv.txt` holds only the file's path. A first
+save returned "401 OAuth access token is invalid" and the operator re-saved
+it. The controller's `scan-token.py` (the value on stdin from the file, counts
+only) found 0 exact matches over the pass's results, homes, logs and scripts;
+every init reports `apiKeySource: "none"`. The operator deletes the file and
+revokes the token.
+
 ### Operator rulings (in chat; the operator's, not the controller's)
 
 - 2026-10-23: (1(a)) re-run the cold cells at startup level on the installed versions; (2) option M: the operator mints a subscription setup-token, loaded only into the authenticated Claude and LaneTally children; (3(a)) XA3 and XA4 on the operator's ChatGPT login and real `CODEX_HOME`, only after the Spark Codex cells pass, config.toml hashed before and after; (4(a)) D09 and D10 run with a constructed hands row, labelled a candidate; (5(a)) where the model declines to attempt a read, the harness's own sandbox measured without a model is accepted, recorded as such; (6(a)) one by-hand evidence pull request after the Codex cells.
@@ -1317,7 +1365,7 @@ axis alone.
 
 ### Model calls
 
-- **Claude and LaneTally:** 12 authenticated invocations in pass 2 (`--model haiku`, reported `claude-haiku-5-5`), `total_cost_usd` summing to $0.0199, and one in pass 5 (C17-p5, $0.00163). Every A cell and the preflight made no model call.
+- **Claude and LaneTally:** 12 authenticated invocations in pass 2 (`--model haiku`, reported `claude-haiku-5-5`), `total_cost_usd` summing to $0.0199, and one in pass 5 (C17-p5, $0.00163). Pass 9: 5 invocations (C11-p6, C14-p6, C15-p6, C17-p6, C17-p6b), `total_cost_usd` summing to $0.0063; C16-p6 refused before any. Every A cell, the preflight and C17-p6-drive made no model call.
 - **Codex account:** 2 invocations on the operator's plan (`gpt-6-luna`): XA3 used 32,463 input, 28,544 cached and 105 output tokens; XA4 54,755, 49,920 and 291.
 - **Spark (local, keyless, unbilled):** the dsh cells D05, D06 and its A, D07 and its A, D08a, D08b, D09, D10 and D10-p5, and the Codex cells X13, X13b, X14 to X19 (X17 and its A), X21-legacyiso, X22 (and its declined first prompt), X23 to X30 with X30's three controls, X26-p5, and pass 7's X32-A, X32, X33, X34 and X35. Token counts are in each cell's raw log and are not summed here.
 - **dsh keyed routes (pass 8, the operator's keys):** P8-deepseek, P8-meta and P8-metac's pc, A and B, two agent steps and one session-title request each; the three dashscope cells were refused 429 (the token-plan quota) before any generation.

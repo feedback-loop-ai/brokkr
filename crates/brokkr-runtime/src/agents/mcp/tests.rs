@@ -670,8 +670,7 @@ fn resume(name: &str) -> McpInvocation {
 /// cause, and its pass 7 the boxed replacement. Each verdict rests on its own shape and version (operator
 /// ruling 2026-10-26): Codex's `work-site` rejoin, served workspace-write,
 /// keeps write, store and process unmeasured, U0b having rejoined read-only
-/// alone, and Claude's boxed replacement on 2.1.308 keeps its store
-/// unmeasured, its after-U8h denial (C17-p5) being 2.1.310's.
+/// alone. Claude's boxed replacement is pass 9's, every axis on 2.1.316 (U1d7).
 #[test]
 fn the_shipped_declarations_pin_only_what_u0_and_u0b_observed() {
     let [claude, codex, lanetally] = shipped_support();
@@ -697,7 +696,7 @@ fn the_shipped_declarations_pin_only_what_u0_and_u0b_observed() {
                 vec![
                     row(Cold, Boxed, "2.1.287", [m, m, m, m]),
                     row(Cold, NoHands, "2.1.287", [m, u, u, d]),
-                    row(Replacement, Boxed, "2.1.308", [m, m, d, m]),
+                    row(Replacement, Boxed, "2.1.316", [m, m, m, m]),
                     row(Replacement, NoHands, "2.1.308", [m, d, u, d]),
                 ]
             ),
@@ -764,8 +763,8 @@ fn process(isolation: &McpIsolation) -> &McpAxis {
 /// unmeasured write, store and process lines that U0b rejoined read-only
 /// alone, quoting what that rejoin saw; the store lines that rest on X29b
 /// say it ran without a model and that the model-driven run is pending;
-/// Claude's boxed store line quotes C17's read and C17-p5's 2.1.310 denial
-/// with U8h's recorded limits; and nothing claims macOS.
+/// Claude's boxed store line quotes pass 9's two denials, the mask and U8h's
+/// recorded limits; and nothing claims macOS.
 #[test]
 fn u0b_scopes_and_limitations_ride_in_the_verdicts_they_qualify() {
     let [claude, codex, lanetally] = shipped_support();
@@ -832,8 +831,8 @@ fn u0b_scopes_and_limitations_ride_in_the_verdicts_they_qualify() {
         (
             text(&claude, shape(Replacement, Boxed), store),
             vec![
-                "C17 (2.1.308, before U8h) read the 0600 store",
-                "on claude 2.1.310, not this shape's 2.1.308",
+                "through claude's own hands call (C17-p6) and with no model (C17-p6-drive)",
+                "crw-rw-rw- 1,3, the /dev/null mask; the host store unchanged",
                 "cross-run limits stand",
             ],
         ),
