@@ -1,10 +1,82 @@
 //! The two counters a readout's live heap is read by (decision 0089 ruling
-//! 9): dhat sees Rust's global allocator alone, and SQLite allocates beside
-//! it, so SQLite's share is read from its own high-water. Shared by the
-//! heap binaries that read the journal, and each binary's allocator.
+//! 9): dhat sees the measuring thread's Rust allocations alone, and SQLite
+//! allocates beside it, so SQLite's share is read from its own high-water.
+//! Shared by the heap binaries that read the journal, and each binary's
+//! allocator.
+
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::cell::Cell;
+
+thread_local! {
+    /// Whether this thread is the one [`peak_of`] measures.
+    static MEASURING: Cell<bool> = const { Cell::new(false) };
+}
+
+/// dhat sees the measuring thread's allocations alone. It counts every
+/// thread's, and libtest allocates its own "has been running for over 60
+/// seconds" warning on the harness's thread at the 60-second mark: a
+/// window that spans it reads the warning's bytes as the readout's, which
+/// moved one hosted run's peak 622 B (#965). The read is the measuring
+/// thread's and no other thread's, so the allocator sends that thread's
+/// allocations to dhat and every other thread's to the system.
+struct Measured;
+
+// SAFETY: each method forwards the layout, pointer and size it was handed
+// to the allocator the calling thread is measured by, unchanged, so a
+// block is freed by the allocator that made it.
+unsafe impl GlobalAlloc for Measured {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        unsafe {
+            if MEASURING.get() {
+                dhat::Alloc.alloc(layout)
+            } else {
+                System.alloc(layout)
+            }
+        }
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        unsafe {
+            if MEASURING.get() {
+                dhat::Alloc.dealloc(ptr, layout)
+            } else {
+                System.dealloc(ptr, layout)
+            }
+        }
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        unsafe {
+            if MEASURING.get() {
+                dhat::Alloc.realloc(ptr, layout, new_size)
+            } else {
+                System.realloc(ptr, layout, new_size)
+            }
+        }
+    }
+}
 
 #[global_allocator]
-static ALLOC: dhat::Alloc = dhat::Alloc;
+static ALLOC: Measured = Measured;
+
+/// The measuring thread's window, closed when it drops however `read`
+/// ends.
+struct Window;
+
+impl Window {
+    /// Opens this thread's window: its allocations are the measured read's
+    /// until the window drops.
+    fn open() -> Self {
+        MEASURING.with(|measuring| measuring.set(true));
+        Self
+    }
+}
+
+impl Drop for Window {
+    fn drop(&mut self) {
+        MEASURING.with(|measuring| measuring.set(false));
+    }
+}
 
 /// SQLite's budget on every host, 500 KiB: the fleet's by the operator's
 /// ruling of 2026-10-21 on #753, the cap itself and not a measured peak
@@ -46,10 +118,13 @@ pub(crate) fn sqlite_memory(reset: bool) -> (i64, i64) {
     (current, high)
 }
 
-/// Brokkr's peak heap while `read` runs, under dhat.
+/// Brokkr's peak heap while `read` runs, under dhat, on this thread alone.
 pub(crate) fn peak_of(read: impl FnOnce()) -> u64 {
     let profiler = dhat::Profiler::builder().testing().build();
-    read();
+    {
+        let _window = Window::open();
+        read();
+    }
     let peak = dhat::HeapStats::get().max_bytes as u64;
     drop(profiler);
     peak

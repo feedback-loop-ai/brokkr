@@ -25,7 +25,7 @@ mod seat_steps;
 mod stretched;
 
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Barrier, Mutex, PoisonError};
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_store::test_support::trail_plan;
@@ -86,6 +86,33 @@ fn grown_journals(dir: &Path) -> (Vec<EventEnvelope>, [PathBuf; 2]) {
 /// dhat allows one profiler per process, so this binary's measurements
 /// are made one at a time.
 static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+/// A peak is the measuring thread's alone: `peak_of` measures the read and
+/// no other thread's allocations, so libtest's own warning, allocated on
+/// its thread at the 60-second mark (622 B on hosted CI, #965), cannot move
+/// it. Another thread's 64 KiB is held through the window and moves it by
+/// nothing; an allocator that counted every thread would show all of it.
+#[test]
+fn a_peak_is_the_measuring_thread_s_alone() {
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
+    let (begin, allocated, done) = (Barrier::new(2), Barrier::new(2), Barrier::new(2));
+    let peak = std::thread::scope(|scope| {
+        scope.spawn(|| {
+            begin.wait();
+            let held = vec![0u8; 64 * 1024];
+            allocated.wait();
+            done.wait();
+            drop(held);
+        });
+        let peak = peak_of(|| {
+            begin.wait();
+            allocated.wait();
+        });
+        done.wait();
+        peak
+    });
+    assert_eq!(peak, 0, "another thread's 64 KiB was the read's peak");
+}
 
 /// What the first screen cost, from its read-only open to its composed
 /// view: Brokkr's peak heap under dhat, and SQLite's high-water above
