@@ -18,12 +18,14 @@
 //! seen unlocked: it is built under a name the reaper does not read and
 //! renamed into place once its lock is held.
 //!
-//! A tree with NO lock file is kept and said, never reaped: it was left
-//! by a server from before #415, which took no lock. The operator's
-//! ruling of 2026-09-28 allowed reaping one only through the one-release
-//! transition from 0.12.0 until 0.13.0, which has ended. A lock the
-//! reaper cannot probe is no answer: it keeps the tree and says why. A
-//! tree it would reap but cannot remove it keeps and says too (#620).
+//! A tree with NO lock file is kept and said, never reaped, whatever its
+//! pid reads here: it was left by a server from before #415, which took
+//! no lock, and a pid that reads live may be reused or belong to another
+//! namespace. The operator's ruling of 2026-09-28 allowed reaping one
+//! only through the one-release transition from 0.12.0 until 0.13.0,
+//! which has ended. A lock the reaper cannot probe is no answer: it
+//! keeps the tree and says why. A tree it would reap but cannot remove
+//! it keeps and says too (#620).
 
 use std::ffi::CStr;
 use std::fmt;
@@ -349,29 +351,34 @@ fn reap_dead_sessions_in(tmp: &Path, lock: Flock) -> Reaped {
         .flatten()
         .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
         .map(|entry| entry.path())
-        .filter(|tree| dead_owner(tree));
-    for tree in trees {
+        .filter_map(|tree| {
+            let pid = owner_pid(tree.file_name()?.to_str()?)?;
+            let dead = !alive(pid);
+            // A lockless tree is read whatever its pid answers: the pid
+            // may be reused here or be a foreign namespace's, and the
+            // tree is kept and said, never reaped.
+            (dead || lockless(&tree)).then_some((tree, dead))
+        });
+    for (tree, dead) in trees {
         match probe(&tree, lock) {
-            Probe::Free => match remove_tree(&tree) {
+            Probe::Free if dead => match remove_tree(&tree) {
                 Ok(()) => reaped.removed.push(tree),
                 Err(error) => reaped
                     .kept
                     .push((tree, Kept::Unremovable(Unremovable(error)))),
             },
-            Probe::Held => {}
+            Probe::Free | Probe::Held => {}
             Probe::Unprobed(why) => reaped.kept.push((tree, Kept::Unprobed(why))),
         }
     }
     reaped
 }
 
-/// A tree this module named, whose owner pid is dead. A name it did not
-/// write never has one.
-fn dead_owner(tree: &Path) -> bool {
-    tree.file_name()
-        .and_then(|name| name.to_str())
-        .and_then(owner_pid)
-        .is_some_and(|pid| !alive(pid))
+/// Whether a tree whose name the reaper read holds no lock file: a
+/// server from before #415 left it. A failed stat is not a missing lock;
+/// `probe` says what it met.
+fn lockless(tree: &Path) -> bool {
+    matches!(rustix::fs::lstat(tree.join(LOCK)), Err(Errno::NOENT))
 }
 
 /// The pid in `brokkr-hands-<label>-<pid>-<uuid>`.

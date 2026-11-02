@@ -391,14 +391,18 @@ fn only_a_tree_whose_owner_is_dead_and_unlocked_is_reaped() {
     let serve = unheld(tmp.path(), "serve", &dead);
     let exec = unheld(tmp.path(), "exec", &dead);
     let (_held, foreign) = held_under(tmp.path(), &dead);
+    // A live owner holds its lock; a lockless tree is said whoever its
+    // pid names, so a live name alone is not a fixture.
+    let (_mine_owner, mine_tree) = held_under(tmp.path(), &mine);
+    let (_one_owner, one_tree) = held_under(tmp.path(), "1");
     // A lock that cannot be opened is not an answer.
     let unreadable = planted(tmp.path(), "serve", &dead);
     std::os::unix::fs::symlink(LOCK, unreadable.join(LOCK)).unwrap();
     let kept = [
         foreign,
         unreadable.clone(),
-        planted(tmp.path(), "serve", &mine),
-        planted(tmp.path(), "serve", "1"),
+        mine_tree,
+        one_tree,
         planted(tmp.path(), "serve", "0"),
         planted(tmp.path(), "serve", "pid"),
         tmp.path()
@@ -441,23 +445,54 @@ fn only_a_tree_whose_owner_is_dead_and_unlocked_is_reaped() {
 }
 
 /// The lockless transition's end, the operator's ruling of 2026-09-28:
-/// a tree with no lock file whose pid reads dead is kept and said, never
-/// reaped, and a tree whose pid reads dead but whose lock is held is kept.
+/// a tree with no lock file is kept and said, never reaped, whatever its
+/// pid reads: dead here, live here, or a foreign namespace's whose pid
+/// collides with a live one here. A tree whose pid reads dead but whose
+/// lock is held is kept.
 #[test]
-fn a_lockless_dead_tree_is_kept_and_said_and_a_held_one_kept() {
+fn a_lockless_tree_is_kept_and_said_and_a_held_one_kept() {
     let tmp = tempfile::tempdir().unwrap();
     let dead = dead_pid().to_string();
-    let lockless = planted(tmp.path(), "serve", &dead);
+    let mine = std::process::id().to_string();
+    let mut lockless = vec![
+        planted(tmp.path(), "serve", &dead),
+        planted(tmp.path(), "serve", &mine),
+        // pid 1 is live here; a foreign namespace's tree can carry the
+        // same number and be dead there, so the name is no evidence.
+        planted(tmp.path(), "serve", "1"),
+    ];
     let (_held, locked) = held_under(tmp.path(), &dead);
+    for tree in &lockless {
+        std::fs::write(tree.join("call"), "").unwrap();
+    }
+    let mut reaped = reap_dead_sessions_in(tmp.path(), flock);
+    reaped.kept.sort_by(|a, b| a.0.cmp(&b.0));
+    lockless.sort();
+    let expected: Vec<_> = lockless
+        .iter()
+        .map(|tree| (tree.clone(), Kept::Unprobed(Unprobed::NoLock)))
+        .collect();
     assert_eq!(
-        reap_dead_sessions_in(tmp.path(), flock).to_string(),
-        format!(
-            "hands: kept {}: its lock cannot be probed: it holds no lock file; \
-             trees from before #415 are no longer reaped (0.13.0)\n",
-            lockless.display()
-        )
+        reaped,
+        Reaped {
+            removed: Vec::new(),
+            kept: expected,
+        }
     );
-    assert!(lockless.is_dir());
+    let lines: String = lockless
+        .iter()
+        .map(|tree| {
+            format!(
+                "hands: kept {}: its lock cannot be probed: it holds no lock file; \
+                 trees from before #415 are no longer reaped (0.13.0)\n",
+                tree.display()
+            )
+        })
+        .collect();
+    assert_eq!(reaped.to_string(), lines);
+    for tree in &lockless {
+        assert!(tree.join("call").is_file(), "{}", tree.display());
+    }
     assert!(locked.join(LOCK).is_file());
 }
 
