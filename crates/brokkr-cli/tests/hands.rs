@@ -290,6 +290,8 @@ fn a_hostile_tree_name_is_said_sanitized() {
         "brokkr-hands-x\nhands: reaped FORGED\r\n-{dead}-{uuid}"
     ));
     std::fs::create_dir_all(&line_break).unwrap();
+    unheld(&esc_bidi);
+    unheld(&line_break);
 
     let bundle = reap_bundle(tmp.path());
     let started = start_run(tmp.path(), &bundle);
@@ -323,6 +325,13 @@ fn a_hostile_tree_name_is_said_sanitized() {
     );
 }
 
+/// A dead owner's lock file outlives it, and the reaper reads one no
+/// process holds as free. A tree with no lock file at all is kept and
+/// said, never reaped (0.13.0), so a reaping test plants this.
+fn unheld(tree: &Path) {
+    std::fs::write(tree.join(".owner.lock"), "").unwrap();
+}
+
 fn mode(path: &Path, bits: u32) {
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(bits)).unwrap();
@@ -340,6 +349,7 @@ fn an_unremovable_dead_tree_is_said_at_the_start() {
     let sealed = tree.join("sealed");
     std::fs::create_dir_all(&sealed).unwrap();
     std::fs::write(sealed.join("call"), "").unwrap();
+    unheld(&tree);
     mode(&sealed, 0o500);
 
     let bundle = reap_bundle(tmp.path());

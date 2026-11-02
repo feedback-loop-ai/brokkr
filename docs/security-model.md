@@ -78,8 +78,8 @@ below). A dsh seat, whose adapter cannot express boxed hands, never
 reaches the box.
 
 - **Namespaces.** The workspace box is built by `Namespace::open` and
-  launched by `execute` and `run_boxed` (`hands.rs`); `box_argv` is
-  retired, refuses every call and is removed in 0.13.0 (U8k). Every
+  launched by `execute` and `run_boxed` (`hands.rs`); `box_argv`,
+  retired in 0.12.0 (U8k), is removed in 0.13.0. Every
   box, workspace and MCP server alike, opens with `--unshare-user
   --disable-userns --assert-userns-disabled`: a user namespace of its
   own in which no further one can be made, so a nested `unshare -U` or

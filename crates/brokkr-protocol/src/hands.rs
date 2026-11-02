@@ -322,39 +322,6 @@ pub const HOST_TOOLCHAIN_BINDS: &[&str] = &[
     "/etc/ld.so.conf.d",
 ];
 
-/// The bubblewrap argv for one boxed command: the namespace, the binds,
-/// the environment, then `--` and the command, each input as the private
-/// `Workspace` names it. Retired (U8k, decision 0071 ruling 6): each sealed
-/// source is mounted by a descriptor, which would close as this returned, so
-/// it refuses every call with [`std::io::ErrorKind::Unsupported`] and its
-/// exact cause. [`execute`] and [`run_boxed`] launch the box holding them.
-#[deprecated(
-    since = "0.12.0",
-    note = "its argv names descriptors closed as it returns; launch the box through \
-            `execute` or `run_boxed`, which hold them; removed in 0.13.0"
-)]
-#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
-pub fn box_argv(
-    _spec: &HandsSpec,
-    _workdir: &Path,
-    _artifacts: &Path,
-    _sealed: &Sealed,
-    _scratch: &Path,
-    _writes: OverlayWrites<'_>,
-    _identity: &[(String, String)],
-    _bundle_root: Option<&Path>,
-    _command: &[String],
-) -> std::io::Result<Vec<String>> {
-    Err(std::io::Error::new(
-        std::io::ErrorKind::Unsupported,
-        RETIRED_BOX_ARGV,
-    ))
-}
-
-/// Why the retired [`box_argv`] refuses every call (U8k, ruling 6).
-const RETIRED_BOX_ARGV: &str = "hands::box_argv is retired: its argv would name descriptors \
-     closed as it returns; launch the box through `execute` or `run_boxed`, which hold them";
-
 /// The engine's own uid and gid: what the box maps to `runner`, and what
 /// the unboxed network prefix maps root back to (decision 0046 ruling 4).
 pub fn ids() -> (u32, u32) {

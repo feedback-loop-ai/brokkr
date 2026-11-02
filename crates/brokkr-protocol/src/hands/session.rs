@@ -18,15 +18,14 @@
 //! seen unlocked: it is built under a name the reaper does not read and
 //! renamed into place once its lock is held.
 //!
-//! A tree with NO lock file is not protected. It was left by a server
-//! from before #415, which took no lock, and it is reaped when its
-//! recorded pid reads dead here. That covers a live pre-#415 server in a
-//! foreign pid namespace sharing the temporary directory: its tree can be
-//! removed under it. The operator's ruling of 2026-09-28 accepted that
-//! risk for a one-release transition, from 0.12.0 until 0.13.0 ends it;
-//! from then on a lockless tree is kept and said, never reaped. A lock
-//! the reaper cannot probe is no answer: it keeps the tree and says why.
-//! A tree it would reap but cannot remove it keeps and says too (#620).
+//! A tree with NO lock file is kept and said, never reaped, whatever its
+//! pid reads here: it was left by a server from before #415, which took
+//! no lock, and a pid that reads live may be reused or belong to another
+//! namespace. The operator's ruling of 2026-09-28 allowed reaping one
+//! only through the one-release transition from 0.12.0 until 0.13.0,
+//! which has ended. A lock the reaper cannot probe is no answer: it
+//! keeps the tree and says why. A tree it would reap but cannot remove
+//! it keeps and says too (#620).
 
 use std::ffi::CStr;
 use std::fmt;
@@ -318,6 +317,8 @@ impl Eq for Unremovable {}
 /// Why the reaper could not tell whether a tree's lock is held.
 #[derive(Debug, Error, PartialEq, Eq)]
 enum Unprobed {
+    #[error("it holds no lock file; trees from before #415 are no longer reaped (0.13.0)")]
+    NoLock,
     #[error("{LOCK} is not a regular file")]
     NotRegular,
     #[error("reading {LOCK}: {}", said(*.0))]
@@ -350,29 +351,42 @@ fn reap_dead_sessions_in(tmp: &Path, lock: Flock) -> Reaped {
         .flatten()
         .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
         .map(|entry| entry.path())
-        .filter(|tree| dead_owner(tree));
-    for tree in trees {
+        .filter_map(|tree| {
+            let pid = owner_pid(tree.file_name()?.to_str()?)?;
+            let dead = !alive(pid);
+            // A lockless tree is read whatever its pid answers: the pid
+            // may be reused here or be a foreign namespace's, and the
+            // tree is kept and said, never reaped.
+            (dead || lockless(&tree)).then_some((tree, dead))
+        });
+    for (tree, dead) in trees {
         match probe(&tree, lock) {
-            Probe::Free => match remove_tree(&tree) {
+            Probe::Unprobed(why) => reaped.kept.push((tree, Kept::Unprobed(why))),
+            answered if reapable(&answered, dead) => match remove_tree(&tree) {
                 Ok(()) => reaped.removed.push(tree),
                 Err(error) => reaped
                     .kept
                     .push((tree, Kept::Unremovable(Unremovable(error)))),
             },
-            Probe::Held => {}
-            Probe::Unprobed(why) => reaped.kept.push((tree, Kept::Unprobed(why))),
+            Probe::Free | Probe::Held => {}
         }
     }
     reaped
 }
 
-/// A tree this module named, whose owner pid is dead. A name it did not
-/// write never has one.
-fn dead_owner(tree: &Path) -> bool {
-    tree.file_name()
-        .and_then(|name| name.to_str())
-        .and_then(owner_pid)
-        .is_some_and(|pid| !alive(pid))
+/// Only a dead owner's free tree is removed. A live pid's tree reaches the
+/// probe only by holding no lock file, and its lock can answer free only if
+/// its server writes the lock between the two reads; it is still never
+/// removed.
+fn reapable(answered: &Probe, dead: bool) -> bool {
+    dead && *answered == Probe::Free
+}
+
+/// Whether a tree whose name the reaper read holds no lock file: a
+/// server from before #415 left it. A failed stat is not a missing lock;
+/// `probe` says what it met.
+fn lockless(tree: &Path) -> bool {
+    matches!(rustix::fs::lstat(tree.join(LOCK)), Err(Errno::NOENT))
 }
 
 /// The pid in `brokkr-hands-<label>-<pid>-<uuid>`.
@@ -408,19 +422,16 @@ fn zombie(_: Pid) -> bool {
 }
 
 /// Whether a process holds the tree's lock. A tree with no lock file was
-/// left by a pre-#415 server, which took no lock, and reads as free: it
-/// is NOT protected, and a live one in a foreign pid namespace sharing the
-/// temporary directory, whose pid reads dead here, loses its tree. The
-/// operator's ruling of 2026-09-28 accepted that for one release; 0.13.0
-/// ends the transition and keeps and says a lockless tree. A lock file
-/// that is not a regular file, or that cannot be read, opened or locked
-/// for any reason but another's hold, is no answer. Nothing here blocks:
-/// the file is opened non-blocking, never through a symlink.
+/// left by a pre-#415 server, which took no lock, and is kept and said:
+/// the operator's ruling of 2026-09-28 reaped one only through 0.13.0,
+/// the transition's end. A lock file that is not a regular file, or that
+/// cannot be read, opened or locked for any reason but another's hold, is
+/// no answer. Nothing here blocks: the file is opened non-blocking, never
+/// through a symlink.
 fn probe(tree: &Path, lock: Flock) -> Probe {
     let path = tree.join(LOCK);
     match rustix::fs::lstat(&path) {
-        // TODO(0.13.0, #415): the lockless transition ends; keep and say.
-        Err(Errno::NOENT) => return Probe::Free,
+        Err(Errno::NOENT) => return Probe::Unprobed(Unprobed::NoLock),
         Err(errno) => return Probe::Unprobed(Unprobed::Stat(errno)),
         Ok(stat) if FileType::from_raw_mode(stat.st_mode) != FileType::RegularFile => {
             return Probe::Unprobed(Unprobed::NotRegular)

@@ -8028,14 +8028,6 @@
     },
     {
       "file": "./crates/brokkr-protocol/src/hands.rs",
-      "function": "box_argv",
-      "line": 417,
-      "cyclomatic": 26.0,
-      "coverage": 100.0,
-      "crap": 26.0
-    },
-    {
-      "file": "./crates/brokkr-protocol/src/hands.rs",
       "function": "bwrap_on",
       "line": 866,
       "cyclomatic": 3.0,
