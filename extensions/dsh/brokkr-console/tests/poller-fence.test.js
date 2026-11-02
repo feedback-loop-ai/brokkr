@@ -1007,7 +1007,8 @@ test('review 907p6 reforge: a snapshot’s retained-page row patch is owed to ev
   assert.equal(fleet.fleet.hearths.find((hearth) => hearth.realm === 'alpha').runs.at(-1).seq, 13, 'the first client is owed the patched fleet')
 })
 
-test('review 907p6: every publishing path withholds a fleet one moved map contradicts', async () => {
+/** Every path that publishes a fleet, each behind a moved map. */
+function publishingPaths() {
   const heldAlpha = runningOf('alpha', 0, 12)
   const heldBeta = runningOf('beta', 0, 12)
   const parkedBeta = { ...runOf('beta', 0), seq: 12 }
@@ -1016,7 +1017,7 @@ test('review 907p6: every publishing path withholds a fleet one moved map contra
     read.summary = { ...read.summary, run_id: run.run_id }
     return read
   }
-  const paths = [
+  return [
     {
       name: 'snapshot',
       async run() {
@@ -1090,16 +1091,14 @@ test('review 907p6: every publishing path withholds a fleet one moved map contra
       },
     },
   ]
-  for (const path of paths) {
-    const client = await path.run()
-    assert.deepEqual(client.sent, [], `${path.name} paints nothing from the moved map`)
-  }
+}
 
-  // A realms-view payload carries the overview and the snapshot's workspace
-  // and ask beside the fleet. The failed paths above paint nothing; the next
-  // successful gate repays the whole withheld payload, overview included,
-  // even when its words did not move (R-2, ruling 5).
-  const realmsPaths = [
+/**
+ * A realms-view payload carries the overview and the snapshot's workspace and
+ * ask beside the fleet: the no-map (unresolved) and mapped (moved) worlds.
+ */
+function realmsWorlds() {
+  return [
     {
       name: 'no-map world',
       over: { workspace: noMapFolder(), ask: true },
@@ -1133,24 +1132,37 @@ test('review 907p6: every publishing path withholds a fleet one moved map contra
       journals: [['alpha', '/hearths/alpha/old.db'], ['beta', '/hearths/beta/new.db']],
     },
   ]
-  for (const world of realmsPaths) {
-    const { brokkr, poller, client } = watching(world.rules(), world.watch, world.over)
-    await until(() => client.sent.some((message) => message.type === 'snapshot'), `${world.name}’s priming snapshot`)
-    client.sent.length = 0
-    await poller.tick()
-    assert.deepEqual(client.sent.map((message) => message.type), ['overview'], `${world.name} primes the shared overview`)
-    const primed = client.sent[0].overview
-    client.sent.length = 0
-    client.receive({ type: 'watch', ...world.watch })
-    await until(() => callsOf(brokkr, 'realms') >= 6, `${world.name}’s withheld realms snapshot`)
-    assert.deepEqual(client.sent, [], `${world.name}’s realms snapshot behind a moved or unresolved map paints nothing`)
-    await poller.tick()
-    assert.deepEqual(client.sent.map((message) => message.type), ['fleet', 'overview'], `${world.name}’s withheld realms payload is repaid whole`)
-    const [fleet, overview] = client.sent
-    assert.deepEqual(fleet.fleet.hearths.map((hearth) => [hearth.realm, hearth.journal]), world.journals, `${world.name}’s fleet is the world the next poll read`)
-    assert.deepEqual([fleet.workspace, fleet.ask], [world.over.workspace, true], `${world.name}’s fleet carries the withheld snapshot’s workspace and ask`)
-    assert.deepEqual(overview.overview, primed, `${world.name}’s unchanged overview is repaid, not the fleet alone`)
+}
+
+/** A withheld realms payload is repaid whole: fleet, workspace and ask, then overview. */
+async function assertRealmsRepaid(world) {
+  const { brokkr, poller, client } = watching(world.rules(), world.watch, world.over)
+  await until(() => client.sent.some((message) => message.type === 'snapshot'), `${world.name}’s priming snapshot`)
+  client.sent.length = 0
+  await poller.tick()
+  assert.deepEqual(client.sent.map((message) => message.type), ['overview'], `${world.name} primes the shared overview`)
+  const primed = client.sent[0].overview
+  client.sent.length = 0
+  client.receive({ type: 'watch', ...world.watch })
+  await until(() => callsOf(brokkr, 'realms') >= 6, `${world.name}’s withheld realms snapshot`)
+  assert.deepEqual(client.sent, [], `${world.name}’s realms snapshot behind a moved or unresolved map paints nothing`)
+  await poller.tick()
+  assert.deepEqual(client.sent.map((message) => message.type), ['fleet', 'overview'], `${world.name}’s withheld realms payload is repaid whole`)
+  const [fleet, overview] = client.sent
+  assert.deepEqual(fleet.fleet.hearths.map((hearth) => [hearth.realm, hearth.journal]), world.journals, `${world.name}’s fleet is the world the next poll read`)
+  assert.deepEqual([fleet.workspace, fleet.ask], [world.over.workspace, true], `${world.name}’s fleet carries the withheld snapshot’s workspace and ask`)
+  assert.deepEqual(overview.overview, primed, `${world.name}’s unchanged overview is repaid, not the fleet alone`)
+}
+
+test('review 907p6: every publishing path withholds a fleet one moved map contradicts', async () => {
+  for (const path of publishingPaths()) {
+    const client = await path.run()
+    assert.deepEqual(client.sent, [], `${path.name} paints nothing from the moved map`)
   }
+  // The failed paths above paint nothing; the next successful gate repays the
+  // whole withheld payload, overview included, even when its words did not
+  // move (R-2, ruling 5).
+  for (const world of realmsWorlds()) await assertRealmsRepaid(world)
 })
 
 // The no-map world is a confirmed absence only when the map read failed and

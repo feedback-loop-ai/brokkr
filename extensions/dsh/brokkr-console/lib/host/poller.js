@@ -546,6 +546,51 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     return { queue: await settled(brokkr.queue), muninn: await settled(brokkr.muninn), day: state.day }
   }
 
+  // Send the overview to the Realms-view clients owed it: a withheld snapshot's
+  // overview is repaid even when its words did not move, and the shared text
+  // advances only once every owed client received it (R-2).
+  async function publishOverview(seen, fleetChanged) {
+    const onOverview = [...clients].filter((client) => client.watch.view === 'realms')
+    if (onOverview.length === 0) return
+    const next = await overview(fleetChanged)
+    const text = JSON.stringify(next)
+    const moved = text !== state.overviewText
+    const owesSnapshot = (client) => client.owedSnapshot && !client.owed
+    if (!moved && !onOverview.some(owesSnapshot)) return
+    let paid = true
+    for (const client of onOverview) {
+      if (!moved && !owesSnapshot(client)) continue
+      if (!publish(seen, client, { type: 'overview', overview: next })) {
+        paid = false
+        continue
+      }
+      if (owesSnapshot(client)) client.owedSnapshot = false
+    }
+    if (paid) state.overviewText = text
+  }
+
+  // Whether a snapshot read beside `watch` may paint: a newer watch, a moved
+  // journal, a stale absence or a contradicting map withholds it whole
+  // (M4, F1-A, F3, M2).
+  function snapshotPaints(seen, client, watch, target, source, run) {
+    if (client.watch !== watch) return false
+    if (target !== null && !current(target)) return false
+    if (target === null && run?.listed === false && staleAbsence(source)) return false
+    return publishable(seen, state.fleet, target === null ? [] : [target])
+  }
+
+  // Hold the snapshot's moved row and send the whole snapshot through the one
+  // publication; only a sent snapshot clears the owed marks, so a withheld one
+  // is repaid whole by the next successful gate (R-2, ruling 5).
+  function sendSnapshot(seen, client, watch, painted) {
+    const { target, row, run, overview: read } = painted
+    if (row !== null) holdRow(target, row)
+    if (!publish(seen, client, { type: 'snapshot', workspace, ask, fleet: state.fleet, overview: read, run }, target === null ? [] : [target])) return
+    if (watch.run !== null) client.runText.set(keyOf(watch.run.realm, watch.run.run_id), JSON.stringify(run))
+    client.owed = false
+    client.owedSnapshot = false
+  }
+
   async function snapshot(client) {
     // The watch this snapshot answers, held across every await: a newer watch
     // from the same client makes this snapshot obsolete, its failure included
@@ -582,21 +627,11 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
         }
       }
       const overviewRead = watch.view === 'realms' ? await overview(fleetRead.changed) : null
-      // A snapshot whose journal the realm no longer names, whose fleet no
-      // longer holds an absence, or whose watch has been replaced paints
-      // nothing, not even the current fleet it was read beside (M4, F3).
-      if (client.watch !== watch) return
-      if (target !== null && !current(target)) return
-      if (target === null && run?.listed === false && staleAbsence(source)) return
-      // The last map any of this snapshot's reads resolved still names every
-      // hearth it carries and the run it paints; otherwise nothing paints and
-      // the client stays owed (M2).
-      if (!publishable(seen, state.fleet, target === null ? [] : [target])) return
-      if (row !== null) holdRow(target, row)
-      if (!publish(seen, client, { type: 'snapshot', workspace, ask, fleet: state.fleet, overview: overviewRead, run }, target === null ? [] : [target])) return
-      if (watch.run !== null) client.runText.set(keyOf(watch.run.realm, watch.run.run_id), JSON.stringify(run))
-      client.owed = false
-      client.owedSnapshot = false
+      // Nothing this snapshot read paints when its watch was replaced, its
+      // run's journal moved, its absence is stale, or its last map
+      // contradicts the fleet; the client stays owed (M4, F1-A, F3, M2).
+      if (!snapshotPaints(seen, client, watch, target, source, run)) return
+      sendSnapshot(seen, client, watch, { target, row, run, overview: overviewRead })
     } catch (error) {
       if (!(error instanceof ReadoutRefused)) throw error
       // A refused read from a watch already replaced is not this client's
@@ -633,8 +668,9 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     for (const [key, { ref, watchers }] of reads) {
       const read = await runOf(ref, seen)
       // A read from a journal the world no longer names is never held or
-      // sent; the poll's own page is withheld with it unless a newer fleet
-      // has already replaced that world (F1, M4).
+      // sent, and it ends the whole tick: a newer fleet installed meanwhile is
+      // no exception, because its own install already marked every client
+      // owed and the next successful gate pays it (F1, M4, R-2).
       if (read.dropped) {
         dropped = true
         continue
@@ -643,8 +679,9 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
       if (read.target !== null && summary !== null) {
         const row = await rowFor(read.target, summary, seen)
         // A row fenced by its own journal read withholds the poll's page and
-        // the inspect it was read beside, exactly as a dropped inspect does
-        // (F1-A); a newer installed fleet stays the exception below.
+        // the inspect it was read beside, exactly as a dropped inspect does:
+        // no newer installed fleet is an exception, and the tick returns
+        // withheld below (F1-A).
         if (row === DROPPED) {
           dropped = true
           continue
@@ -718,29 +755,7 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
       const fleetMoved = fleetRead.changed || patched
       for (const client of clients) if (fleetMoved || client.owed) sendFleet(seen, client, targets)
       for (const [watchers, run, target, source] of updates) sendRun(seen, watchers, run, target, source)
-      const onOverview = [...clients].filter((client) => client.watch.view === 'realms')
-      if (onOverview.length === 0) return
-      const next = await overview(fleetRead.changed)
-      const text = JSON.stringify(next)
-      const moved = text !== state.overviewText
-      // A realms-view client whose snapshot was withheld is owed the overview
-      // even when its text did not move, once its fleet message (which carried
-      // the snapshot's workspace and ask) has been sent (R-2).
-      const owesSnapshot = (client) => client.owedSnapshot && !client.owed
-      if (!moved && !onOverview.some(owesSnapshot)) return
-      let paid = true
-      for (const client of onOverview) {
-        if (!moved && !owesSnapshot(client)) continue
-        if (!publish(seen, client, { type: 'overview', overview: next })) {
-          paid = false
-          continue
-        }
-        if (owesSnapshot(client)) client.owedSnapshot = false
-      }
-      // The shared text moves only once every client that was owed it has
-      // received it: a withheld overview is repaid by the next successful
-      // gate, even when its words did not change (R-2).
-      if (paid) state.overviewText = text
+      await publishOverview(seen, fleetRead.changed)
     } catch (error) {
       if (!(error instanceof ReadoutRefused)) throw error
       for (const client of clients) sendError(client, error.message)

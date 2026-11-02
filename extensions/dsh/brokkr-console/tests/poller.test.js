@@ -208,23 +208,94 @@ test('unchanged Realms snapshots reuse cached day analytics', async () => {
   assert.equal(analytics(), 1)
 })
 
+/** `text` with comments and string literals blanked, so neither can fake code. */
+function maskedSource(text) {
+  const masked = text.split('')
+  const blank = (from, to) => {
+    for (let at = from; at < to; at += 1) if (masked[at] !== '\n') masked[at] = ' '
+  }
+  for (let at = 0; at < text.length; at += 1) {
+    const char = text[at]
+    if (char === "'" || char === '"' || char === '`') {
+      let end = at + 1
+      while (end < text.length) {
+        if (text[end] === '\\') { end += 2; continue }
+        if (text[end] === char) { end += 1; break }
+        end += 1
+      }
+      blank(at, end)
+      at = end - 1
+    } else if (char === '/' && text[at + 1] === '/') {
+      const line = text.indexOf('\n', at)
+      const end = line === -1 ? text.length : line
+      blank(at, end)
+      at = end - 1
+    } else if (char === '/' && text[at + 1] === '*') {
+      const close = text.indexOf('*/', at + 2)
+      const end = close === -1 ? text.length : close + 2
+      blank(at, end)
+      at = end - 1
+    }
+  }
+  return masked.join('')
+}
+
+/** The index of the bracket closing the one at `open`, or -1. */
+function matchingClose(text, open, opener, closer) {
+  let depth = 0
+  for (let at = open; at < text.length; at += 1) {
+    if (text[at] === opener) depth += 1
+    else if (text[at] === closer && --depth === 0) return at
+  }
+  return -1
+}
+
+/** Every named function declaration with the real span of its body. */
+function functionSpans(text) {
+  const masked = maskedSource(text)
+  const declaration = /(?:^|[^\w$])(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/g
+  const spans = []
+  for (let match = declaration.exec(masked); match !== null; match = declaration.exec(masked)) {
+    const open = masked.indexOf('(', match.index + match[0].length - 1)
+    const close = matchingClose(masked, open, '(', ')')
+    const body = close === -1 ? -1 : masked.indexOf('{', close + 1)
+    const end = body === -1 ? -1 : matchingClose(masked, body, '{', '}')
+    if (end !== -1) spans.push({ name: match[1], start: match.index, end })
+  }
+  return spans
+}
+
 test('a source pin: every world-data message under lib is sent only through publish', () => {
   const root = new URL('../lib/', import.meta.url)
   const files = readdirSync(root, { recursive: true, encoding: 'utf8' }).filter((file) => file.endsWith('.js'))
+  const declarations = []
   const sends = []
   for (const file of files) {
     const text = readFileSync(new URL(file, root), 'utf8')
-    for (let at = text.indexOf('peer.send('); at !== -1; at = text.indexOf('peer.send(', at + 1)) {
-      const before = text.slice(0, at)
-      const inside = (name) => before.lastIndexOf(`function ${name}(`) > before.lastIndexOf('\n  function ')
-      sends.push({ file, publish: inside('publish'), error: inside('sendError') })
+    const masked = maskedSource(text)
+    const spans = functionSpans(text)
+    for (const span of spans) declarations.push({ file, name: span.name })
+    for (let at = masked.indexOf('peer.send('); at !== -1; at = masked.indexOf('peer.send(', at + 1)) {
+      const close = matchingClose(masked, at + 'peer.send'.length, '(', ')')
+      const argument = text.slice(at + 'peer.send('.length, close)
+      const enclosing = spans.filter((span) => span.start <= at && at < span.end).map((span) => span.name)
+      sends.push({
+        file,
+        inPublish: enclosing.includes('publish'),
+        inError: enclosing.includes('sendError'),
+        type: argument.match(/type\s*:\s*(['"])([^'"]+)\1/)?.[2] ?? null,
+        worldField: /\b(?:fleet|overview|run|workspace|ask)\s*:/.test(argument),
+        argument: argument.trim(),
+      })
     }
   }
   assert.deepEqual(
-    sends.filter((send) => !send.publish && !send.error),
-    [],
-    'every peer.send is inside the one publish function or the error helper',
+    declarations.filter(({ name }) => name === 'publish' || name === 'sendError').map(({ file, name }) => `${file}:${name}`),
+    ['host/poller.js:publish', 'host/poller.js:sendError'],
+    'the one publication and its error helper are each declared once, under poller.js',
   )
-  assert.deepEqual(sends.filter((send) => send.publish), [{ file: 'host/poller.js', publish: true, error: false }], 'one publication function sends world data')
-  assert.deepEqual([...new Set(sends.map((send) => send.file))], ['host/poller.js'], 'no other module sends to a peer')
+  assert.deepEqual(sends.filter((send) => !send.inPublish && !send.inError), [], 'every peer.send is inside the one publish function or the error helper')
+  assert.deepEqual(sends.filter((send) => send.inPublish).map(({ file, argument }) => [file, argument]), [['host/poller.js', 'message']], 'one publication function sends the message it was given')
+  assert.deepEqual(sends.filter((send) => send.inError).map(({ type, worldField }) => [type, worldField]), [['error', false]], 'the error helper carries only a console error, never world data')
+  assert.deepEqual([...new Set(sends.map(({ file }) => file))], ['host/poller.js'], 'no other module sends to a peer')
 })
