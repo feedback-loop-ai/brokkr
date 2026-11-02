@@ -170,8 +170,9 @@ fn result(id: &Value, result: Value) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "result": result})
 }
 
-/// The error answering `id`.
-fn refusal(id: Value, code: i64, message: &str) -> Value {
+/// The error answering `id`, in the words of the cause `message` is.
+fn refusal(id: Value, code: i64, message: impl std::fmt::Display) -> Value {
+    let message = message.to_string();
     json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
 }
 
@@ -282,12 +283,13 @@ fn each_cause_reads_in_mb3s_words_and_latches_through_the_ledgers_own() {
             (code, text.to_string())
         );
     }
+    let carried = Fatal::Failed(Failure::Timeout);
+    assert_eq!(
+        Ended::Failed(carried.clone()).to_string(),
+        Failure::Timeout.to_string()
+    );
+    assert_eq!(carried.failure(), Failure::Timeout);
     let fatal = [
-        (
-            Fatal::Failed(Failure::Timeout),
-            Failure::Timeout,
-            "MCP server call timed out",
-        ),
         (
             Fatal::Unsupported,
             Failure::Protocol,
@@ -1122,8 +1124,8 @@ fn an_ungranted_call_is_recorded_refused_and_an_invalid_one_refused_unrecorded()
     let meta = json!({"name": "lookup", "_meta": {"progressToken": 1}});
     asked.push(request(json!("m"), "tools/call", meta));
     let mut answers = vec![
-        refusal(json!("1"), -32602, &ungranted("admin")),
-        refusal(json!("2"), -32602, &ungranted(&named)),
+        refusal(json!("1"), -32602, ungranted("admin")),
+        refusal(json!("2"), -32602, ungranted(&named)),
         refusal(json!("3"), -32600, limit),
     ];
     answers.extend(shapes.iter().map(|_| refusal(json!("s"), -32600, invalid)));
@@ -1274,17 +1276,18 @@ fn answering(said: impl Fn(&Value) -> Vec<Value> + Send + 'static) -> Script {
 
 /// What the harness hears of a call `1` of `lookup` the session ends with
 /// `cause`: the session's error, then the broker's end.
-fn ended_with(cause: &'static str) -> impl FnOnce(&mut Harness) + Send {
+fn ended_with(cause: impl std::fmt::Display) -> impl FnOnce(&mut Harness) + Send {
+    let cause = cause.to_string();
     move |harness| {
         harness.send(&call("1", "lookup"));
-        assert_eq!(harness.next(), Some(refusal(json!("1"), -32603, cause)));
+        assert_eq!(harness.next(), Some(refusal(json!("1"), -32603, &cause)));
         assert_eq!(harness.next(), None);
     }
 }
 
 #[test]
 fn a_mismatched_or_late_response_ends_the_session_and_forwards_nothing() {
-    let protocol = "MCP server protocol is invalid";
+    let protocol = Failure::Protocol;
     let answered = |id: Value| move |_: &Value| vec![result(&id, json!({"content": []}))];
     let said = |frame: Value| answering(move |_| vec![frame.clone()]);
     let body = |body: Value| said(result(&json!(3), body));
@@ -1333,7 +1336,7 @@ fn a_mismatched_or_late_response_ends_the_session_and_forwards_nothing() {
     for (case, script) in cases {
         lookup_failed(
             case,
-            conversed(script, ended_with(protocol)),
+            conversed(script, ended_with(protocol.clone())),
             Failure::Protocol,
         );
     }
@@ -1381,7 +1384,7 @@ fn no_traffic_extends_a_calls_deadline_and_none_spends_past_its_budget() {
             flooding(frame.clone()),
             None,
             within(Duration::from_millis(800)),
-            ended_with("MCP server call timed out"),
+            ended_with(Failure::Timeout),
         );
         let taken = begun.elapsed();
         lookup_failed("flooded", ran, Failure::Timeout);
@@ -1390,10 +1393,7 @@ fn no_traffic_extends_a_calls_deadline_and_none_spends_past_its_budget() {
     // Frames that answer nothing, past the operation's budget.
     let pad = "x".repeat(64 << 10);
     let notice = json!({"jsonrpc": "2.0", "method": "notifications/message", "params": {"p": pad}});
-    let ran = conversed(
-        flooding(notice),
-        ended_with("MCP server response exceeds the broker limit"),
-    );
+    let ran = conversed(flooding(notice), ended_with(Failure::Response));
     lookup_failed("over budget", ran, Failure::Response);
     // The listing spends its whole budget, and the call its own whole one.
     let spending = mcp_but(|frame, output| {
@@ -1506,13 +1506,13 @@ fn a_server_that_takes_no_call_ends_it() {
     let gone = mcp_but(|frame, _| {
         (frame["method"] == "tools/list").then(|| Then::Gone(answer(frame).unwrap()))
     });
-    let ran = conversed(gone, ended_with("MCP server protocol is invalid"));
+    let ran = conversed(gone, ended_with(Failure::Protocol));
     lookup_failed("closing", ran, Failure::Protocol);
     // Its input held unread once it has listed: a call larger than its
     // pipe holds is not taken by the attempt's deadline.
     let conversation = move |harness: &mut Harness| {
         harness.send(&large());
-        let timed_out = refusal(json!("1"), -32603, "MCP server call timed out");
+        let timed_out = refusal(json!("1"), -32603, Failure::Timeout);
         assert_eq!(harness.next(), Some(timed_out));
     };
     let ran = session(
@@ -1552,25 +1552,24 @@ fn a_servers_requests_during_a_call_are_answered_by_the_broker_alone() {
 
 #[test]
 fn no_call_is_forwarded_or_delivered_unrecorded() {
-    let unrecorded = "broker call could not be recorded";
     let unrecordable = Err(Ended::Unrecorded(Unrecorded::Record));
     let unclosed = |calls| (owned(calls), None, Some(Invalid::Lifecycle));
     // The Opened is the first append: a Started not made is acted on
     // nowhere, and records nothing after it.
     let ten = || within(Duration::from_secs(10));
-    let ran = session(mcp(), Some(2), ten(), ended_with(unrecorded));
+    let ran = session(mcp(), Some(2), ten(), ended_with(Unrecorded::Record));
     assert_eq!(ran.ended, unrecordable);
     assert_eq!(ran.frames, initialization());
     assert_eq!(ran.proved, unclosed(vec![]));
     // A Terminal not made: forwarded, but its answer never delivered.
-    let ran = session(mcp(), Some(3), ten(), ended_with(unrecorded));
+    let ran = session(mcp(), Some(3), ten(), ended_with(Unrecorded::Record));
     assert_eq!(ran.ended, unrecordable);
     assert_eq!(ran.frames.len(), 4);
     assert_eq!(ran.proved, unclosed(vec![("lookup", None)]));
     // A refused Terminal not made: its refusal never delivered.
     let refusing = |harness: &mut Harness| {
         harness.send(&call("1", "admin"));
-        let unrecorded = refusal(json!("1"), -32603, "broker call could not be recorded");
+        let unrecorded = refusal(json!("1"), -32603, Unrecorded::Record);
         assert_eq!(harness.next(), Some(unrecorded));
         assert_eq!(harness.next(), None);
     };
@@ -1581,7 +1580,7 @@ fn no_call_is_forwarded_or_delivered_unrecorded() {
     // call could not be recorded, and the session's cause is still its
     // own.
     let mismatched = answering(|_| vec![result(&json!("3"), json!({}))]);
-    let ran = session(mismatched, Some(3), ten(), ended_with(unrecorded));
+    let ran = session(mismatched, Some(3), ten(), ended_with(Unrecorded::Record));
     assert_eq!(
         ran.ended,
         Err(Ended::Failed(Fatal::Failed(Failure::Protocol)))
@@ -1620,11 +1619,7 @@ fn at_the_call_bound_every_accepted_call_is_kept_and_the_harness_still_read() {
     // failing the active call, of which the harness is told.
     let ping = request(json!("p"), "ping", json!({}));
     let pong = result(&json!("p"), json!({}));
-    let limit = refusal(
-        json!("last"),
-        -32603,
-        "broker ledger exceeds the attempt limit",
-    );
+    let limit = refusal(json!("last"), -32603, Failure::Limit);
     let cases = [
         (
             vec![ping.clone()],
@@ -1796,7 +1791,7 @@ fn an_answer_that_with_the_callers_own_id_passes_mb3s_bound_ends_the_session() {
     let size = RESPONSE_MAX - (32 << 10);
     let body = text(size - text(0).to_string().len());
     let lookup = |id: Value| request(id, "tools/call", json!({"name": "lookup", "arguments": {}}));
-    let limit = |id: Value| refusal(id, -32603, "MCP server response exceeds the broker limit");
+    let limit = |id: Value| refusal(id, -32603, Failure::Response);
     let (list_at, call_at) = (id(catalog, 0), id(size, 0));
     let (list_over, call_over) = (id(catalog, 1), id(size, 1));
     let (listed, answered) = (json!({"tools": tools.clone()}), body.clone());

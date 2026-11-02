@@ -371,18 +371,6 @@ fn each_provisioning_refusal_says_its_own_words() {
             "capability 'library-docs' carries no admitted MCP seal to provision a plan from",
         ),
         (
-            Unprovisioned::Box(Refusal::ProgramTree),
-            "MCP server box program tree cannot be resolved",
-        ),
-        (
-            Unprovisioned::Box(Refusal::Linked),
-            "MCP server box program tree contains a multiply-linked file",
-        ),
-        (
-            Unprovisioned::Unread(Unread::Malformed),
-            "MCP server survey request is not one closed record",
-        ),
-        (
             Unprovisioned::Expired,
             "MCP server box survey did not answer before its startup deadline",
         ),
@@ -418,6 +406,16 @@ fn each_provisioning_refusal_says_its_own_words() {
     for (cause, words) in said {
         assert_eq!(cause.to_string(), words);
     }
+    // A box's or the survey's refusal says its own words, pinned once where
+    // it is defined.
+    for refusal in [Refusal::ProgramTree, Refusal::Linked] {
+        assert_eq!(
+            Unprovisioned::Box(refusal.clone()).to_string(),
+            refusal.to_string()
+        );
+    }
+    let unread = Unprovisioned::Unread(Unread::Malformed);
+    assert_eq!(unread.to_string(), Unread::Malformed.to_string());
 }
 
 /// The plan the fixture's retaining package server is sealed into, for

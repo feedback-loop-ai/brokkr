@@ -75,7 +75,7 @@ fn a_live_half_record_is_not_read_while_any_driver_of_its_attempt_is_unresolved(
     let mut settled = Site::folding();
     settled.laid(&Fault::Partial.ledger(&settled));
     let folded = settled.fold(succeeded());
-    let cause = "broker ledger ends in a partial record";
+    let cause = &Invalid::Partial.to_string();
     assert_eq!(folded.settled_outcome(), failed(cause));
     let rows = [
         row(1, "lookup", "succeeded"),
@@ -154,7 +154,7 @@ fn every_panel_member_is_settled_by_its_own_broker_calls() {
         ("docs".to_string(), succeeded()),
         (
             "wiki".to_string(),
-            failed("MCP server box could not be established"),
+            failed(&Refusal::Establishment.to_string()),
         ),
         (
             "notes".to_string(),
@@ -220,7 +220,7 @@ fn a_successful_harness_fails_with_its_brokers_observed_stage_cause() {
     let mut site = Site::new(false, argv);
     site.laid(&Fault::Unclosed.ledger(&site));
     let last = concluded(&mut site, Duration::from_secs(10)).unwrap();
-    let cause = json!("broker ledger lifecycle is invalid; stderr tail: ");
+    let cause = json!(format!("{}; stderr tail: ", Invalid::Lifecycle));
     assert_eq!(
         (last.event_type, &last.payload["error"]),
         (EventType::EffectFailed, &cause)
@@ -320,10 +320,8 @@ fn an_attempt_its_engine_could_not_conclude_is_restarted_indeterminate_without_a
         ledger.close().unwrap();
     });
     let folded = died.fold(succeeded());
-    assert_eq!(
-        folded.settled_outcome(),
-        failed("MCP server protocol is invalid")
-    );
+    let protocol = Failure::Protocol.to_string();
+    assert_eq!(folded.settled_outcome(), failed(&protocol));
     let (ledger, held) = (fs::read(died.ledger()).unwrap(), died.engine.held.clone());
     restarted(&mut died);
     assert_eq!(died.rows(), [row(1, "lookup", "succeeded")]);

@@ -13,7 +13,8 @@
 //! Children: `transport` (42.2), `matrix`, `reach`, `sites`, `boxes` and
 //! `windows` (46.1), `lifetime` (46.2's two worktrees), `dispatch` (ruling 21),
 //! `negotiation` (U9b1c's 46.3), `allowance` (U9b1d's 46.6), `signals` (U9b1e's
-//! 46.8).
+//! 46.8), and U10a2's repairs of the scenario map (48.1): `authority`, `bounds`,
+//! `confined`, `links` and `stores`.
 //!
 //! The engine runs here as an operator runs it, with no wrapper: `brokkr
 //! driver` sets `no_new_privs` on itself before it spawns a brokered harness
@@ -24,14 +25,19 @@
 #![cfg(target_os = "linux")]
 
 mod allowance;
+mod authority;
+mod bounds;
 mod boxes;
+mod confined;
 mod dispatch;
 mod lifetime;
+mod links;
 mod matrix;
 mod negotiation;
 mod reach;
 mod signals;
 mod sites;
+mod stores;
 mod transport;
 mod windows;
 
@@ -46,6 +52,11 @@ use crate::capability_broker::readiness::Reads;
 /// The value the fixture's store binds to `DOCS_TOKEN`: no other byte of a
 /// run spells it.
 const TOKEN: &str = "u9b1b-canary-Wm4Rt";
+
+/// The retention budget's refusal, the engine's at the attempt's door and the
+/// broker's at a call past it: one text, pinned here once, as each of its two
+/// homes is private to its crate.
+const BUDGET: &str = "capability evidence budget is exhausted";
 
 /// What a server says until it has listed its tools, at its pinned version
 /// with the tools granted, waiting then for its first call.
@@ -295,6 +306,16 @@ impl World {
 
     fn frames(&self, frames: &str) {
         put(&self.bin("frames"), frames);
+    }
+
+    /// The harness runs `script` before it starts its broker, as `sh` handed
+    /// the broker's words, `$5` the plan's path, and then runs them: where a
+    /// test acts between the engine's admission and the broker's own.
+    fn before_broker(&self, script: &str) {
+        let tamper = self.bin("tamper");
+        put(&tamper, format!("#!/bin/sh\n{script}\nexec \"$@\"\n"));
+        chmod(&tamper, 0o755);
+        put(&self.bin("wrap"), tamper.to_str().unwrap());
     }
 
     /// The installed server's program.

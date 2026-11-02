@@ -134,8 +134,8 @@ fn a_source_that_no_longer_opens_as_sealed_refuses_with_its_exact_cause() {
     let kind = std::io::ErrorKind::NotFound;
     assert_eq!(opened(), Err(Drifted::Unopened(tools.clone(), kind)));
     let text = format!(
-        "MCP server box filesystem identity is not protected: '{}', which the box is built \
-         from, cannot be opened to be mounted: entity not found",
+        "{}: '{}', which the box is built from, cannot be opened to be mounted: entity not found",
+        crate::broker::Refusal::Identity,
         tools.display()
     );
     assert_eq!(Drifted::Unopened(tools.clone(), kind).to_string(), text);
@@ -320,8 +320,8 @@ fn git_s_config_the_box_cannot_hold_on_the_retained_directory_refuses() {
     std::os::unix::fs::symlink(&aside, &config).unwrap();
     assert_eq!(built(), Err(Drifted::Unheld(config.clone())));
     let text = format!(
-        "MCP server box filesystem identity is not protected: '{}', which the box holds \
-         read-only, is not one regular file",
+        "{}: '{}', which the box holds read-only, is not one regular file",
+        crate::broker::Refusal::Identity,
         config.display()
     );
     assert_eq!(Drifted::Unheld(config.clone()).to_string(), text);

@@ -374,8 +374,9 @@ fn refused_at_the_door(host: &Host, home: &Path) {
     let bundle = host.bundle("coordination", &[home], &touch);
     let (run, events) = host.ran(&attacked, &bundle);
     let refused = format!(
-        "dispatch refused: MCP server box filesystem identity is not protected: site 'work' of \
-         run '{run}' can write '{}', which an MCP server's box or lease rests on",
+        "dispatch refused: {}: site 'work' of run '{run}' can write '{}', which an MCP server's \
+         box or lease rests on",
+        brokkr_protocol::broker::Refusal::Identity,
         host.coordination().display()
     );
     assert_eq!(failures(&events), [refused]);

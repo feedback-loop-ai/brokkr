@@ -166,7 +166,8 @@ fn written(said: impl Fn(&Value) -> String + Send + 'static, at: usize) -> Scrip
 }
 
 /// The harness's request `id` failed with the session's `cause`.
-fn told(id: Value, cause: &str) -> Value {
+fn told(id: Value, cause: impl std::fmt::Display) -> Value {
+    let cause = cause.to_string();
     json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32603, "message": cause}})
 }
 
@@ -196,7 +197,7 @@ fn fault(error: &str) -> Reply {
 /// The session `ran`, whose harness heard `line`, failed its one call with
 /// MB4's cause; `case` names it.
 fn masking_failed<C: std::fmt::Debug + PartialEq>(case: C, ran: &Ran, line: &[u8]) {
-    let told = told(json!("1"), "MCP response cannot be safely masked");
+    let told = told(json!("1"), Failure::Masking);
     assert_eq!((&case, read(line)), (&case, told));
     let failure = failed(vec![("lookup", Some(Outcome::Failed))], Failure::Masking);
     let ended = Err(Ended::Failed(MASKING));
@@ -284,7 +285,7 @@ fn a_digits_only_canary_as_a_bare_number_fails_its_forwarded_call_unmasked() {
         let pause = Duration::from_millis(300);
         let script = answering_with(tools(), body);
         let (ran, lines) = heard(script, beside, (pause, vec![call("1", "lookup")], 1));
-        let cause = "MCP response cannot be safely masked";
+        let cause = Failure::Masking.to_string();
         masking_failed(retained, &ran, &lines[0]);
         let tail = labelled("starting [secret:DOCS_PIN]\nlast [secret:DOCS_TOKEN]\n");
         assert_eq!(String::from_utf8(ran.diagnostics.clone()).unwrap(), tail);
@@ -375,7 +376,7 @@ fn answered_as(result: &'static str) -> (Ran, Value) {
 /// The session `ran`, whose harness heard `answer`, failed its one call
 /// with the protocol cause.
 fn protocol_failed((ran, answer): (Ran, Value)) {
-    assert_eq!(answer, told(json!("1"), "MCP server protocol is invalid"));
+    assert_eq!(answer, told(json!("1"), Failure::Protocol));
     let failure = failed(vec![("lookup", Some(Outcome::Failed))], Failure::Protocol);
     assert_eq!(
         (ran.ended, ran.proved),
@@ -536,7 +537,7 @@ fn a_response_id_holding_a_bound_value_ends_the_session_masked_and_is_copied_now
         let mut expected = vec![answered];
         let mut calls = vec![("lookup", Some(Outcome::Succeeded))];
         if count == 2 {
-            expected.push(told(json!("2"), "MCP response cannot be safely masked"));
+            expected.push(told(json!("2"), Failure::Masking));
             calls.push(("lookup", Some(Outcome::Failed)));
         }
         let heard: Vec<Value> = lines.iter().map(|line| read(line)).collect();
@@ -958,7 +959,7 @@ fn a_harness_id_is_guarded_as_it_arrives_whatever_it_writes() {
     let conversation = move |harness: &mut Harness| {
         harness.send(&call("1", "lookup"));
         harness.send(&unsafe_ping);
-        let cause = "MCP response cannot be safely masked";
+        let cause = Failure::Masking.to_string();
         assert_eq!(harness.next(), Some(told(json!("1"), cause)));
         assert_eq!(harness.next(), None);
     };
@@ -1160,10 +1161,7 @@ fn a_record_the_ledgers_guard_refuses_ends_the_session_with_the_masking_cause() 
         beside(&[("STATE", "succeeded")]),
         (Duration::ZERO, frames, 1),
     );
-    assert_eq!(
-        read(&lines[0]),
-        told(json!("1"), "MCP response cannot be safely masked")
-    );
+    assert_eq!(read(&lines[0]), told(json!("1"), Failure::Masking));
     let ended = Err(Ended::Failed(MASKING));
     let calls = vec![("lookup".to_string(), None)];
     assert_eq!(
@@ -1181,8 +1179,8 @@ fn a_tool_name_holding_a_bound_value_reaches_no_record_refusal_or_frame() {
     // session ends with it. Neither the ledger nor the frame holds it.
     let frames = vec![call("1", CANARY)];
     let (ran, lines) = heard(mcp(), masked_by(plan()), (Duration::ZERO, frames, 1));
-    let cause = "MCP response cannot be safely masked";
-    assert_eq!(read(&lines[0]), told(json!("1"), cause));
+    let cause = Failure::Masking.to_string();
+    assert_eq!(read(&lines[0]), told(json!("1"), &cause));
     let refused = Some(Outcome::Refused(Denial::Ungranted));
     let failure = failed(vec![("[secret:DOCS_PIN]", refused)], Failure::Masking);
     let ended = Err(Ended::Failed(MASKING));
@@ -1487,7 +1485,7 @@ fn a_ledger_record_the_guard_refuses_ends_the_session_masked_on_every_path() {
             .map(|(tool, outcome)| (tool.to_string(), outcome));
         (calls.collect::<Vec<_>>(), None, Some(Invalid::Lifecycle))
     };
-    let cause = "MCP response cannot be safely masked";
+    let cause = Failure::Masking.to_string();
     let script = written(|id| frame(id, r#"{"content":"x"}"#), 0);
     let frames = vec![call("1", "lookup")];
     let state = beside(&[("STATE", "failed")]);

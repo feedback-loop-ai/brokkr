@@ -367,14 +367,11 @@ fn a_peer_that_moves_the_journal_refuses_the_restarts_end() {
 #[test]
 fn a_restart_finds_a_lost_commit_and_fails_with_the_sessions_exact_cause() {
     let cases = [
-        (2, Failure::Protocol, "MCP server protocol is invalid"),
-        (
-            0,
-            Failure::Refused(Refusal::Establishment),
-            "MCP server box could not be established",
-        ),
+        (2, Failure::Protocol),
+        (0, Failure::Refused(Refusal::Establishment)),
     ];
-    for (calls, failure, cause) in cases {
+    for (calls, failure) in cases {
+        let cause = &failure.to_string();
         let mut site = Site::folding();
         site.serve(|mut ledger| {
             answered(&mut ledger, calls);
@@ -413,15 +410,12 @@ fn a_restart_names_the_exact_cause_its_calls_leave() {
         ledger.close().unwrap();
     });
     made(&two.attempt.dir().join("plan-1.json.ledger"), &wiki);
-    let failed = ending(
-        EventType::EffectFailed,
-        "error",
-        "MCP server protocol is invalid",
-    );
+    let protocol = Failure::Protocol.to_string();
+    let failed = ending(EventType::EffectFailed, "error", &protocol);
 
     let partial = Site::folding();
     partial.laid(&Fault::Partial.ledger(&partial));
-    let reason = format!("{RESTARTED}: broker ledger ends in a partial record");
+    let reason = format!("{RESTARTED}: {}", Invalid::Partial);
     let refused = ending(EventType::EffectIndeterminate, "reason", &reason);
 
     let cases = [

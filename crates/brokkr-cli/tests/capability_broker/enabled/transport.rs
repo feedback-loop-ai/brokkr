@@ -7,17 +7,20 @@
 
 use std::time::{Duration, Instant};
 
-use brokkr_protocol::broker::ledger::Failure;
+use brokkr_protocol::broker::ledger::{Failure, Invalid};
 use brokkr_protocol::broker::Refusal;
 use serde_json::{json, Value};
 
 use super::{answering, World, STARTS};
 
 /// The harness's report, overruled by `cause`, with no call row and the
-/// harness having run once; and `inspect` of the parked run says the same,
-/// executing nothing. `resume`'s half is the restart tests' below.
+/// harness having run once, the store looked up (at least once: identical
+/// reads in a row are seen as one); and `inspect` of the parked run says the
+/// same, executing nothing. `resume`'s half is the restart tests' below.
 fn parked_by(world: &World, cause: String) {
+    let looked = world.store_reads();
     let ended = world.run();
+    assert!(looked.lookups() >= 1, "past the store's lookup");
     assert_eq!(
         (ended.status.as_str(), ended.phase.as_str(), &ended.cause),
         ("awaiting_operator", "work", &Some(cause)),
@@ -44,7 +47,9 @@ fn parked_by(world: &World, cause: String) {
 /// no lease and no proof of settlement: its harness's success stands for
 /// nothing, no call is invented, and nothing starts again.
 fn restarted_after(world: &World, closed: &Value) {
+    let looked = world.store_reads();
     let run = super::killed(world.held_serving());
+    assert!(looked.lookups() >= 1, "past the store's lookup");
     let held = Instant::now() + Duration::from_secs(90);
     let reservations = world.base.join("home/.local/state/brokkr/capabilities");
     let reserved = |root: &std::path::Path| {
@@ -178,13 +183,13 @@ fn a_closed_that_cannot_persist_reads_as_the_lifecycle_refusal_and_no_invented_c
     // The server holds the call, so the broker dies with it begun.
     world.server(&format!("{STARTS}sleep 30\n"));
     std::fs::write(world.bin("kill-broker"), "").unwrap();
+    let looked = world.store_reads();
     let ended = world.run();
+    assert!(looked.lookups() >= 1, "past the store's lookup");
+    let lifecycle = Invalid::Lifecycle.to_string();
     assert_eq!(
         (ended.status.as_str(), ended.cause.as_deref()),
-        (
-            "awaiting_operator",
-            Some("broker ledger lifecycle is invalid")
-        ),
+        ("awaiting_operator", Some(lifecycle.as_str())),
         "{ended:?}"
     );
     assert_eq!(world.broker_code(), Some(137));

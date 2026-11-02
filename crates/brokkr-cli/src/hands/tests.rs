@@ -29,7 +29,7 @@ fn a_reach_that_does_not_read_refuses_both_verbs_before_any_box() {
         spec: "\"workspace\"".to_string(),
         command: vec!["true".to_string()],
     };
-    let cause = "--reach: MCP server box filesystem identity is not protected";
+    let cause = format!("--reach: {}", brokkr_protocol::broker::Refusal::Identity);
     let serve = run_with(serve, unreached).unwrap_err().to_string();
     assert_eq!(
         serve,
@@ -68,8 +68,8 @@ fn a_reach_sealed_without_the_store_refuses_both_verbs_before_any_box() {
         command: vec!["true".to_string()],
     };
     let refused = format!(
-        "--reach: MCP server box filesystem identity is not protected: missing field `store` at \
-         line 1 column {}",
+        "--reach: {}: missing field `store` at line 1 column {}",
+        brokkr_protocol::broker::Refusal::Identity,
         legacy.len()
     );
     assert_eq!(run_with(serve, unreached).unwrap_err().to_string(), refused);

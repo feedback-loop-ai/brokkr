@@ -104,8 +104,9 @@ fn awaited(what: &str, holds: impl Fn() -> bool) {
 /// the server's executable it reaches.
 fn reach_cause(package: &Path, writer: &str) -> String {
     format!(
-        "dispatch refused: MCP server box filesystem identity is not protected: site 'work' of \
-         run '{writer}' can write '{}', which an MCP server's box or lease rests on",
+        "dispatch refused: {}: site 'work' of run '{writer}' can write '{}', which an MCP \
+         server's box or lease rests on",
+        brokkr_protocol::broker::Refusal::Identity,
         package.join("bin/docs-mcp").display()
     )
 }
@@ -128,10 +129,12 @@ fn a_writer_arriving_beside_a_serving_broker_is_refused_and_the_session_stands()
         return;
     };
     let second = Second::new(&world, &world.base.join("opt/docs"));
+    let looked = world.store_reads();
     let first = world.held_serving();
     let refused = second.run();
     refused_for_reach(&refused, &world.base.join("opt/docs"), &refused.run);
     assert!(!second.live.exists(), "its seat never started");
+    assert!(looked.lookups() >= 1, "the serving one is past its lookup");
     std::fs::remove_file(world.bin("hold")).unwrap();
     let out = first.wait_with_output().unwrap();
     let done = ended(out);
@@ -204,8 +207,10 @@ fn a_killed_engines_reservation_refuses_a_later_writer_through_an_uncertain_sett
     let Some(world) = World::new() else {
         return;
     };
+    let looked = world.store_reads();
     let second = Second::new(&world, &world.base.join("opt/docs"));
     let run = super::killed(world.held_serving());
+    assert!(looked.lookups() >= 1, "the killed one is past its lookup");
     let refused = second.run();
     refused_for_reach(&refused, &world.base.join("opt/docs"), &refused.run);
     assert!(!second.live.exists());

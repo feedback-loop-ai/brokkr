@@ -121,21 +121,26 @@ fn a_singleton_system_entry_is_served_beside_the_systems_hard_links() {
     assert_eq!(world.broker_code(), Some(0));
 }
 
-/// A store that stands but binds nothing the plan declares, and one that does
-/// not stand, are the one absence to the binding: decision 0012's own cause,
-/// naming the binding and the store, before any server starts.
+/// A store that stands but binds nothing the plan declares, empty or holding
+/// another name, and one that does not stand, are the one absence to the
+/// binding: decision 0012's own cause, naming the binding and the store, past
+/// its lookup and before any server starts. The lookup is counted where the
+/// store holds bytes to read: a read of an empty file is no `ACCESS` event, and
+/// a missing one holds no watch.
 #[test]
 fn an_empty_or_missing_store_starts_no_server() {
-    for missing in [false, true] {
+    for held in [Some(""), Some("OTHER_TOKEN=x\n"), None] {
         let Some(world) = World::new() else {
             return;
         };
         let started = world.server_reads();
         let store = world.secrets();
-        match missing {
-            true => std::fs::remove_file(&store).unwrap(),
-            false => world.store(""),
+        match held {
+            None => std::fs::remove_file(&store).unwrap(),
+            Some(bytes) => world.store(bytes),
         }
+        let looked = held.filter(|bytes| !bytes.is_empty());
+        let looked = looked.map(|_| world.store_reads());
         let cause = format!(
             "secret 'DOCS_TOKEN' is not in the store at {} (brokkr secrets set DOCS_TOKEN)",
             store.display()
@@ -146,6 +151,9 @@ fn an_empty_or_missing_store_starts_no_server() {
             ("awaiting_operator", Some(cause.as_str())),
             "{ended:?}"
         );
+        if let Some(looked) = looked {
+            assert!(looked.lookups() >= 1, "past the store's lookup");
+        }
         assert_eq!(started.lookups(), 0, "no server start");
         assert_eq!(world.calls(&ended.run), []);
     }

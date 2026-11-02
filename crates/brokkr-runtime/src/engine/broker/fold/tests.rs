@@ -405,9 +405,11 @@ fn a_failed_zero_call_session_fails_a_successful_harness_with_its_exact_cause() 
         ledger.close().unwrap();
     });
     let settled = site.fold(failed("the seat gave up"));
-    let both =
-        "MCP server could not start inside its box; the driver then failed: the seat gave up";
-    assert_eq!(settled.settled_outcome(), failed(both));
+    let both = format!(
+        "{}; the driver then failed: the seat gave up",
+        Refusal::Exec
+    );
+    assert_eq!(settled.settled_outcome(), failed(&both));
 }
 
 /// CR4's harness that ignores its broker: a pinned-version mismatch before
@@ -417,20 +419,13 @@ fn a_failed_zero_call_session_fails_a_successful_harness_with_its_exact_cause() 
 /// exactly 0, 1 and 4,096 checkpoints, and no 4,097th.
 #[test]
 fn version_protocol_and_capacity_endings_keep_their_causes_despite_complete_calls() {
-    let cases: [(u64, Failure, &str); 3] = [
-        (
-            0,
-            Failure::Version,
-            "MCP server version does not match the dialect's pinned version",
-        ),
-        (1, Failure::Protocol, "MCP server protocol is invalid"),
-        (
-            4096,
-            Failure::Limit,
-            "broker ledger exceeds the attempt limit",
-        ),
+    let cases = [
+        (0, Failure::Version),
+        (1, Failure::Protocol),
+        (4096, Failure::Limit),
     ];
-    for (calls, failure, cause) in cases {
+    for (calls, failure) in cases {
+        let cause = failure.to_string();
         let mut site = Site::folding();
         site.serve(|mut ledger| {
             answered(&mut ledger, calls);
@@ -442,7 +437,7 @@ fn version_protocol_and_capacity_endings_keep_their_causes_despite_complete_call
             ledger.close().unwrap();
         });
         let settled = site.fold(succeeded());
-        assert_eq!(settled.settled_outcome(), failed(cause));
+        assert_eq!(settled.settled_outcome(), failed(&cause));
         let rows = site.rows();
         let expected: Vec<Value> = (1..=calls).map(|n| row(n, "lookup", "succeeded")).collect();
         assert_eq!(rows.len() as u64, calls, "{cause}");
@@ -480,44 +475,21 @@ fn a_ledger_that_does_not_verify_keeps_its_verified_calls_with_its_exact_cause()
             row(2, "lookup", "interrupted"),
         ]
     };
-    let cases: [(Fault, Vec<Value>, &str); 7] = [
-        (
-            Fault::Partial,
-            interrupted(),
-            "broker ledger ends in a partial record",
-        ),
-        (
-            Fault::Malformed,
-            first(),
-            "broker ledger record is malformed",
-        ),
-        (
-            Fault::Gap,
-            first(),
-            "broker ledger sequence is not contiguous",
-        ),
-        (
-            Fault::Owner,
-            vec![],
-            "broker ledger owner does not match this attempt",
-        ),
-        (Fault::Order, vec![], "broker ledger lifecycle is invalid"),
-        (
-            Fault::Conflict,
-            first(),
-            "broker ledger contains a conflicting duplicate",
-        ),
-        (
-            Fault::Unclosed,
-            first(),
-            "broker ledger lifecycle is invalid",
-        ),
+    let cases: [(Fault, Vec<Value>, Invalid); 7] = [
+        (Fault::Partial, interrupted(), Invalid::Partial),
+        (Fault::Malformed, first(), Invalid::Malformed),
+        (Fault::Gap, first(), Invalid::Gap),
+        (Fault::Owner, vec![], Invalid::Owner),
+        (Fault::Order, vec![], Invalid::Lifecycle),
+        (Fault::Conflict, first(), Invalid::Conflict),
+        (Fault::Unclosed, first(), Invalid::Lifecycle),
     ];
     for (fault, rows, cause) in cases {
         let mut site = Site::folding();
         site.laid(&fault.ledger(&site));
         let settled = site.fold(succeeded());
-        assert_eq!(settled.settled_outcome(), failed(cause), "{fault:?}");
+        let cause = cause.to_string();
+        assert_eq!(settled.settled_outcome(), failed(&cause), "{fault:?}");
         assert_eq!(site.rows(), rows, "{fault:?}");
     }
 }
@@ -735,7 +707,7 @@ fn a_commit_whose_acknowledgement_was_lost_is_found_and_never_appended_twice() {
 }
 
 /// The conflicting duplicate's cause (CR3).
-const CONFLICT: &str = "broker ledger contains a conflicting duplicate";
+const CONFLICT: Invalid = Invalid::Conflict;
 
 /// `row` with its digest `sha256`.
 fn citing(mut row: Value, sha256: &str) -> Value {
@@ -768,7 +740,12 @@ fn every_journaled_payload_of_a_derived_call_is_compared_whole() {
         let run = site.engine.run_id.clone();
         committed(&mut site.engine.store, &run, &journaled);
         let settled = site.fold(succeeded());
-        assert_eq!(settled.settled_outcome(), failed(CONFLICT), "{journaled:?}");
+        let conflict = CONFLICT.to_string();
+        assert_eq!(
+            settled.settled_outcome(),
+            failed(&conflict),
+            "{journaled:?}"
+        );
         assert_eq!(site.rows(), journaled, "{journaled:?}");
     }
 }
@@ -1096,8 +1073,8 @@ fn a_dispatched_driver_is_settled_by_its_broker_calls_before_its_result_is_admit
         assert_eq!(rows.len(), attributed + 1, "{ended:?}: the telemetry row");
         if ended == EventType::EffectFailed {
             let error = last.payload["error"].as_str().unwrap();
-            let cause = "MCP server could not start inside its box; stderr tail: ";
-            assert!(error.starts_with(cause), "{error}");
+            let cause = format!("{}; stderr tail: ", Refusal::Exec);
+            assert!(error.starts_with(&cause), "{error}");
         }
     }
 }

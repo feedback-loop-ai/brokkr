@@ -498,8 +498,11 @@ fn a_reseal_whose_last_sync_fails_reports_itself_committed() {
 #[test]
 fn a_failed_settlement_says_whether_its_lease_was_released() {
     let cause = || Unadmitted::Identity(Unknown::Unsynced);
-    let mb3 = "dispatch refused: MCP server box filesystem identity is not protected: the \
-               attempt's reservation was committed, but its directory was not proven synced";
+    let mb3 = format!(
+        "dispatch refused: {}: the attempt's reservation was committed, but its directory was \
+         not proven synced",
+        brokkr_protocol::broker::Refusal::Identity
+    );
     let standing = "the attempt's writer lease stands, for its settlement was not sealed";
     let released = "the attempt's writer lease was released, but a seal of its reservation \
                     was not proven durable";

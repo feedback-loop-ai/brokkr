@@ -598,7 +598,10 @@ fn alone(test: &str) -> bool {
 fn every_refusal_reads_as_its_cause() {
     let (cr2, mb3) = (
         "dispatch refused: capability evidence root cannot be protected from every managed writer",
-        "dispatch refused: MCP server box filesystem identity is not protected",
+        format!(
+            "dispatch refused: {}",
+            brokkr_protocol::broker::Refusal::Identity
+        ),
     );
     let path = PathBuf::from("/r");
     let cases = [

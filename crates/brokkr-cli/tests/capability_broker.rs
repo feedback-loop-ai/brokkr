@@ -367,10 +367,7 @@ fn a_manual_invocation_with_a_real_file_and_its_digest_is_unbound() {
         &digest,
     ]);
     assert_eq!(ran.code, Some(1));
-    assert_eq!(
-        ran.stderr,
-        "error: broker plan is not bound to this attempt\n"
-    );
+    assert_eq!(ran.stderr, format!("error: {}\n", Refusal::Unbound));
     assert_eq!(ran.stdout, "");
     // The locator's server was never started.
     assert!(!marker.exists());
@@ -431,13 +428,8 @@ fn the_plan_locator_and_digest_are_bounded_where_they_are_parsed() {
         );
     }
     // At the bound the locator parses, and the plan is still unbound.
-    assert_eq!(
-        refused(&longest, DIGEST),
-        (
-            Some(1),
-            "error: broker plan is not bound to this attempt".to_string()
-        )
-    );
+    let unbound = format!("error: {}", Refusal::Unbound);
+    assert_eq!(refused(&longest, DIGEST), (Some(1), unbound));
 }
 
 #[test]

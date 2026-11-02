@@ -603,9 +603,13 @@ name, clearance, mode and read-isolation checks, plus the new owner-bound
 identity checks. The current pathname metadata/read pair is not an identity
 proof: the eventual read SHALL consume the admitted no-follow file descriptor,
 with the same parser and mode checks, not resolve the path again. If the store
-does not exist, even for a secret-free dialect, this slice SHALL refuse
-"MCP server box filesystem identity is not protected" before lookup; an empty
-protected operator store is the supported secret-free control. No store is
+does not exist at admission, even for a secret-free dialect, this slice SHALL
+refuse "MCP server box filesystem identity is not protected" before lookup; an
+empty protected operator store is the supported secret-free control. Before
+admission the engine makes a store missing at dispatch one empty file only its
+owner may read or write, in its existing folder (U8h, operator ruling 2 of
+2026-10-23; controller ruling R8 2026-11-02), so this refusal is reached when the
+store goes missing after the engine made or found it. No store is
 created by admission and no value is read merely to classify a failure. The store SHALL never
 be mounted, even through a system/program subtree, nested mount, symlink or
 bind alias. Metadata-only checks SHALL compare the store's owner-rooted
@@ -710,8 +714,9 @@ shared encoding definitions. Exact-number preservation is a separate check.
 
 #### Scenario: Store identity is admitted even without declared values
 
-- **WHEN** a secret-free dialect names a missing store, or a store/ancestor is replaced between admission and delivery
+- **WHEN** a secret-free dialect's store goes missing after the engine's dispatch made or found it, or a store/ancestor is replaced between admission and delivery
 - **THEN** launch refuses "MCP server box filesystem identity is not protected" before value lookup, and creates neither a store nor a server
+- **AND** a store missing at dispatch is made empty, mode 0600, by the engine before admission (U8h), and the secret-free seat is served with zero value lookups
 - **AND** an existing protected empty store outside all mounts allows the secret-free control with zero value lookups; a declared binding is read from the already admitted descriptor with the unchanged mode/parser/name diagnostics
 
 #### Scenario: The environment handoff has one bounded meaning
