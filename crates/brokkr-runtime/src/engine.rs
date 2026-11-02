@@ -929,8 +929,7 @@ impl Engine {
     /// stand under the operated repository, would compose
     /// `./.forge/results/<effect>.json` and the seat would refuse its own
     /// result path in a fraction of a second, before running a gate,
-    /// with no transcript to say why. `box_argv` resolves the same
-    /// relative prefix for the same reason. Symlinks stay as the host
+    /// with no transcript to say why. Symlinks stay as the host
     /// spells them; a path that cannot be resolved at all is threaded as
     /// written, which is what the driver would have received anyway.
     fn workdir(&self) -> PathBuf {

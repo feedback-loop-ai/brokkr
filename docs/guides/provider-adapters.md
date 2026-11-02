@@ -1132,8 +1132,8 @@ consequences.
 Brokkr's own `namespace` boundary is wider here and knowingly so: decision
 0043 ruling 6 binds a linked worktree's whole shared `.git` read-write,
 which leaves the shared ref store, the shared object store and the
-per-worktree pointers writable. That is recorded as a known-open path at
-`box_argv` and in 0054's consequences; narrowing it is a change under
+per-worktree pointers writable. That is recorded as a known-open path in
+the hands box's binds and in 0054's consequences; narrowing it is a change under
 0043 with its own number.
 
 The driver also passes the absolute `bwrap` it probed and the two staged
