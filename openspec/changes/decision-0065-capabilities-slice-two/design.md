@@ -2561,6 +2561,8 @@ Guide edits require coherence with the enabling proof, not behavior-mirroring te
 
 Documents/evidence: `docs/guides/agent-library.md`, `docs/guides/provider-adapters.md`, `docs/guides/recipe-authoring.md`, `docs/guides/secrets.md`, `docs/security-model.md`, `docs/status.md`, `docs/reference/cli.md`, `contracts/README.md`.
 
+Operator ruling 2026-10-28 on U9b2's documents (in chat, "go with recommended", R-C): `README.md` joins these documents for one line only, naming the workspace box's kernel prerequisite (U8k's descriptor hand-off uses `close_range` with `CLOSE_RANGE_CLOEXEC`, Linux 5.11 or newer) beside bubblewrap's, with the exact diagnostic an older kernel gives.
+
 ### U8m — Redact doctor's server words and refuse a storeless boxed writer
 
 Two security LOWs carried to U10a close here. (1) `brokkr doctor` prints a declared MCP server's whole stdio argv and its URL verbatim (`server_words`, `crates/brokkr-cli/src/doctor/capabilities/mcp.rs` ~:118-123), so a credential an operator put in an argument or in a URL's user, query or fragment would reach doctor's output. Doctor names the program and how many arguments follow, and a URL by its scheme, host, port and path only, with an exact marker for what it withheld, and never prints an argument value or a URL's userinfo, query or fragment. (2) The engine's preparation of a boxed launch (`Engine::prepared`, `crates/brokkr-runtime/src/engine/boxed.rs` ~:113-133) compares the store a boxed writer's sealed reach names only when it names one, so a reach sealed with an explicit null store, or no reach sealed for the hands, passes; it now refuses with one exact cause before the box is built. Doctor's and the probe's own seals, which pass no store by design, are not boxed writers and are unchanged.
