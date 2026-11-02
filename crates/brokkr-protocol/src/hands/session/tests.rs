@@ -444,6 +444,18 @@ fn only_a_tree_whose_owner_is_dead_and_unlocked_is_reaped() {
     );
 }
 
+/// A live owner's tree is never removed, even when its lock answers free:
+/// a server that writes its lock file between the reaper's lockless read
+/// and its probe leaves exactly that, and no planted tree can stand in for
+/// the race. Only a dead owner's free tree is reapable.
+#[test]
+fn a_live_owner_s_free_tree_is_never_reapable() {
+    assert!(!reapable(&Probe::Free, false));
+    assert!(!reapable(&Probe::Held, true));
+    assert!(!reapable(&Probe::Held, false));
+    assert!(reapable(&Probe::Free, true));
+}
+
 /// The lockless transition's end, the operator's ruling of 2026-09-28:
 /// a tree with no lock file is kept and said, never reaped, whatever its
 /// pid reads: dead here, live here, or a foreign namespace's whose pid

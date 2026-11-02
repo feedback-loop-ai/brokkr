@@ -361,17 +361,25 @@ fn reap_dead_sessions_in(tmp: &Path, lock: Flock) -> Reaped {
         });
     for (tree, dead) in trees {
         match probe(&tree, lock) {
-            Probe::Free if dead => match remove_tree(&tree) {
+            Probe::Unprobed(why) => reaped.kept.push((tree, Kept::Unprobed(why))),
+            answered if reapable(&answered, dead) => match remove_tree(&tree) {
                 Ok(()) => reaped.removed.push(tree),
                 Err(error) => reaped
                     .kept
                     .push((tree, Kept::Unremovable(Unremovable(error)))),
             },
             Probe::Free | Probe::Held => {}
-            Probe::Unprobed(why) => reaped.kept.push((tree, Kept::Unprobed(why))),
         }
     }
     reaped
+}
+
+/// Only a dead owner's free tree is removed. A live pid's tree reaches the
+/// probe only by holding no lock file, and its lock can answer free only if
+/// its server writes the lock between the two reads; it is still never
+/// removed.
+fn reapable(answered: &Probe, dead: bool) -> bool {
+    dead && *answered == Probe::Free
 }
 
 /// Whether a tree whose name the reaper read holds no lock file: a
