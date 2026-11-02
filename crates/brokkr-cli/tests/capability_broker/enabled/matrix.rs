@@ -288,27 +288,42 @@ fn a_secret_free_holding_needs_no_secret_read_proof() {
     assert_eq!(world.calls(&ended.run).len(), 1);
 }
 
-/// The shipped Claude adapter as it stands: its boxed replacement's store read
-/// is unmeasured (U0b C17, the evidence's F10), so a work seat binding a secret
-/// refuses, while the same seat binding none is served. No fixture fact stands
-/// in here, as the world's other tests have one.
+/// The shipped Claude adapter as U1d7 records it: U0b pass 9 measured its boxed
+/// replacement's store read on 2.1.316, so a work seat binding a secret is
+/// served where U9b1b's F10 refused it. Given the store read its native
+/// replacement records instead (U0b C18, unsupported), the same seat refuses.
 #[test]
-fn the_shipped_claude_adapter_serves_a_secret_free_work_seat_and_refuses_a_secret_bearing_one() {
+fn the_shipped_claude_adapter_serves_a_secret_bearing_work_seat_a_native_store_read_refuses() {
     let secrets = "MCP capability 'library-docs' cannot protect its secret bindings from this provider's native tools";
-    for bound in [true, false] {
+    for native in [false, true] {
         let Some(world) = World::new() else {
             return;
         };
         let shipped =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../adapters/claude.json");
+        let mut adapter: Value = serde_json::from_slice(&std::fs::read(shipped).unwrap()).unwrap();
+        let shapes = adapter["mcp"]["shapes"].as_array_mut().unwrap();
+        let replacement = |hands: &str| {
+            let served =
+                |shape: &Value| shape["invocation"] == "replacement" && shape["hands"] == hands;
+            shapes.iter().position(served).unwrap()
+        };
+        let (boxed, none) = (replacement("boxed"), replacement("none"));
+        let unsupported = shapes[none]["store_read"].clone();
+        assert_eq!(
+            unsupported.as_object().unwrap().keys().collect::<Vec<_>>(),
+            ["unsupported"]
+        );
+        if native {
+            shapes[boxed]["store_read"] = unsupported;
+        }
         put(
             &world.repo.join(".brokkr/adapters/claude.json"),
-            std::fs::read(shipped).unwrap(),
+            adapter.to_string(),
         );
-        match bound {
+        match native {
             true => refused_at_compile(&world, "worker", secrets),
             false => {
-                world.dialect(&json!({"secrets": []}));
                 let ended = world.completes();
                 assert_eq!(world.calls(&ended.run).len(), 1);
             }

@@ -1418,6 +1418,7 @@ witness/compose pins accompany only rows that change their inputs.
 | U1d4 | U1d3 | Record Codex's shapes without hands; 5.5–5.6 | `adapters/codex.json`; `crates/brokkr-cli/src/init/adapters.rs` |
 | U1d5 | U1d4 | Record Codex's boxed replacement; 5.7–5.8 | `adapters/codex.json`; `crates/brokkr-cli/src/init/adapters.rs` |
 | U1d6 | U1d5 | Record dsh's replacement on the keyed routes; 5.9–5.10 | `adapters/dsh.json`; `crates/brokkr-cli/src/init/adapters.rs` |
+| U1d7 | U9b1e | Record Claude's boxed replacement on 2.1.316; 5.11–5.12 | `adapters/claude.json`; `crates/brokkr-runtime/tests/witnesses.json`; `docs/evidence/adapters/slice-two-mcp-isolation.md` |
 | U9b1a | U1d3, U8e3, U8h, U8i, U8j, U8k, U1d4, U1d5, U1d6 | Lift the MCP compile fence where the namespace path is proved; no task (42.2, 46.1–46.2 are U9b1b's) | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs`; `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/broker/terminal.rs`; `crates/brokkr-runtime/src/engine/isolation.rs` |
 | U9b1b | U9b1a | Prove the enabled namespace path end to end; 42.2, 46.1–46.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs`; `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/broker/terminal.rs`; `crates/brokkr-runtime/src/engine/isolation.rs`; `crates/brokkr-cli/src/verbs/setup.rs`; `crates/brokkr-cli/Cargo.toml` (F1, 2026-10-31) |
 | U9b1c | U9b1b | Negotiate the MCP protocol version and refuse unbrokerable grants at compile; 46.3–46.5 | `crates/brokkr-cli/src/broker/rpc/calls.rs`; `crates/brokkr-cli/src/broker/rpc.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs`; `crates/brokkr-cli/tests/capability_broker/enabled/windows.rs` |
@@ -1425,7 +1426,7 @@ witness/compose pins accompany only rows that change their inputs.
 | U9b1e | U9b1d | The broker closes its ledger when its harness ends it by signal; 46.8–46.9 | `crates/brokkr-cli/src/broker.rs`; `crates/brokkr-cli/src/broker/session.rs`; `crates/brokkr-cli/src/broker/rpc.rs`; `crates/brokkr-cli/Cargo.toml` and one `Cargo.lock` line (R6) |
 | U9b2 | U9b1b, U9b1c, U9b1d, U9b1e | Publish implemented scope and contract guidance; 47.1–47.2 | None |
 | U8m | U8h | Redact doctor's server words and refuse a storeless boxed writer; 47.3–47.4 | `crates/brokkr-cli/src/doctor/capabilities/mcp.rs`; `crates/brokkr-runtime/src/engine/boxed.rs` |
-| U10a | U9b2, U8m | Audit removals and run final candidate gates; 48.1–49.2 | None |
+| U10a | U9b2, U8m, U1d7 | Audit removals and run final candidate gates; 48.1–49.2 | None |
 | U10b | U10a | Fold the change and hand off; 49.3 | None |
 
 ### U0 — Measure isolation and telemetry
@@ -1531,6 +1532,26 @@ Proof: the replacement's ambient axis matches D06 and pass 8's cells; the init s
 Operator ruling 2026-10-29 (in chat, "b" and "keys approved", on U9b1's third run's block, option B): dsh's replacement is measured on the keyed routes (U0b pass 8, the operator's env files sourced only into the dsh child) and recorded by U1d6 before U9b1; no public API rise; any other file comes back to the operator.
 
 Owning tests: `crates/brokkr-cli/tests/init_doctor.rs`, `crates/brokkr-runtime/tests/witness_digests.rs`.
+
+### U1d7 — Record Claude's boxed replacement on 2.1.316
+
+U9b1b's F10 refuses a Claude work seat whose dialect binds a secret at compile ("MCP capability … cannot protect its secret bindings from this provider's native tools"), because Claude's boxed replacement shape (`adapters/claude.json` `mcp.shapes[2]`, measured on 2.1.308) records `store_read` unmeasured: U0b C17 read the store before U8h, and C17-p5 was denied it after U8h on 2.1.310, not the shape's version. The controller's ruling on F10, option (a), re-measured the whole shape on the current Claude Code. U0b pass 9 (2026-11-01, Claude Code 2.1.316, haiku, the U8h box `brokkr-main-b8e2caff-u0b` with its sealed reach, the operator's setup-token sourced into each cell's child only):
+
+- ambient: C11-p6's positive control started the planted user, project and plugin servers. Under the inline hands fragment, C14-p6 (hands) and C15-p6 (hands and engine) started no planted server while hands and the engine answered. With a managed MCP file, C16-p6 refused before any start ("You cannot use --strict-mcp-config when an enterprise MCP config is present").
+- native_write: under `--tools ''` the brokkr server was the only tool source (C14-p6). A hands write outside the workdir printed OK in the box and left no file on the host (C17-p6, C17-p6b).
+- store_read: the hands box denied the 0600 store at its production path, "Permission denied (os error 13)" (C17-p6, through Claude's own call of the hands tool; C17-p6-drive with no model, where the path reads `crw-rw-rw- 1,3`, the `/dev/null` mask). The host store was unchanged. U8h's recorded rename-over, update-window, configured-link and cross-run limits stand.
+- process_read: the box held 4 numeric `/proc` entries (C17-p6), and none carried the canary one host process held (C17-p6-drive).
+
+U1d7 records the shape as measured on 2.1.316 from those cells, each axis citing them, in the shipped declaration (the init scaffold's claude declares no hands, so it carries no boxed shape and does not move), re-blesses the witness digest that moves, and adds pass 9's cells to the U0b section of the slice-two isolation evidence. With `store_read` measured, a Claude work seat whose dialect binds a secret compiles, as MB2 and F10 say once the axis is measured; every other refusal (network, evidence, a native shape whose `store_read` is unsupported) stands.
+
+Files: `adapters/claude.json` (`mcp.shapes[2]` only), `crates/brokkr-runtime/tests/witnesses.json`, `docs/evidence/adapters/slice-two-mcp-isolation.md` (the U0b section). No other shape, no other adapter, no code change and no public item.
+
+Closes tasks 5.11 and 5.12; requirements [SI1](specs/strict-mcp-isolation/spec.md), [SI2](specs/strict-mcp-isolation/spec.md), [MB2](specs/mcp-capability-broker/spec.md).
+Proof: each axis of the shape matches pass 9's cells; `init_doctor` parity still holds (the scaffold carries no boxed Claude shape); the moved witness row is listed; a Claude work seat whose dialect binds a secret now compiles where F10 refused it, and a native Claude shape binding one still refuses.
+
+Controller ruling 2026-11-01 (under the operator's standing ruling of 2026-10-28, option (a) of U9b1b's finding F10): this data unit lands after U9b2 and before U10a; any other file comes back to the operator. Until it lands, no house realm grants a secret-bearing MCP server.
+
+Owning tests: `crates/brokkr-cli/tests/init_doctor.rs`, `crates/brokkr-runtime/tests/witness_digests.rs`, and the bundle MCP tests that hold F10's refusal.
 
 ### U1e — Record dsh and exec declarations
 
