@@ -57,7 +57,7 @@ window.__ModuleLoader__.load({
         case 'snapshot':
           return emit({ fleet: message.fleet, overview: message.overview, run: message.run, error: null, workspace: message.workspace ?? store.state.workspace, ask: message.ask === true })
         case 'fleet':
-          return emit({ fleet: message.fleet, error: null })
+          return emit({ fleet: message.fleet, error: null, ...(message.workspace === undefined ? {} : { workspace: message.workspace, ask: message.ask === true }) })
         case 'overview':
           return emit({ overview: message.overview })
         case 'run':

@@ -3,6 +3,9 @@
 // moved, vanished or appeared while a read was in flight makes that read
 // unlabelable. The fixtures these tests share live in tests/support/poller.js.
 import assert from 'node:assert/strict'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { brokkrOf } from '../lib/host/brokkr.js'
@@ -11,7 +14,7 @@ import { pollerOf } from '../lib/host/poller.js'
 import { ONE_HEARTH } from '../lib/host/readouts.js'
 import { buttons, findAll, mountClient, textOf } from './support/client.js'
 import { attached, heard, oneRow, peer, realmsDoc, realmsMap, runOf, runningOf, runningRead, windowOf } from './support/poller.js'
-import { json, row, runViewDoc, stubBrokkr } from './support/world.js'
+import { analyticsDoc, json, row, runViewDoc, stubBrokkr } from './support/world.js'
 
 test('chief F4: changing a realm journal discards pages read from its old journal', async () => {
   const names = ['alpha', 'beta']
@@ -761,9 +764,9 @@ function movedMap(move) {
 }
 
 /** A poller over `rules` with a peer watching `watch`, its host messages recorded. */
-function watching(rules, watch) {
+function watching(rules, watch, over = {}) {
   const brokkr = stubBrokkr(rules)
-  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000, ...over })
   const client = peer()
   client.receive = poller.attach(client)
   client.receive({ type: 'watch', ...watch })
@@ -1087,4 +1090,152 @@ test('review 907p6: every publishing path withholds a fleet one moved map contra
     const client = await path.run()
     assert.deepEqual(client.sent, [], `${path.name} paints nothing from the moved map`)
   }
+})
+
+// The no-map world is a confirmed absence only when the map read failed and
+// no `realms.json` is on disk (here.js's one rule); any other refusal at a
+// fence withholds the publication and leaves the client owed.
+
+/** A `brokkr realms` refusal that says the workspace names no map. */
+const NO_MAP = { stderr: 'brokkr realms was refused: this workspace names no realms map', code: 1 }
+
+/** A map read that did not resolve: a successful process whose output is not the readout. */
+const NOT_A_MAP = { stdout: 'this is not a realms document' }
+
+/** A no-map world's default-journal page holding the parked run at `seq`. */
+const noMapPage = (seq = 12, over = {}) => windowOf([{ ...runOf('alpha', 0), seq }], null)
+
+/** A fresh workspace whose map is absent until a test writes one. */
+const noMapFolder = () => mkdtempSync(join(tmpdir(), 'brokkr-console-907p7-'))
+
+/** The run view of `runId` at `seq`, as the no-map world's inspect serves it. */
+function noMapView(runId, seq) {
+  const view = runViewDoc({ seq })
+  view.summary = { ...view.summary, run_id: runId }
+  return view
+}
+
+test('review 907L H1: a failed map read is not a no-map world', async () => {
+  const workspace = noMapFolder()
+  const runId = runOf('alpha', 0).run_id
+  const brokkr = stubBrokkr([
+    // The first two reads confirm the no-map world; the inspect's fence is a
+    // failed read while a map is on disk, which the console must report.
+    { match: ['realms'], responses: [NO_MAP, NO_MAP, { stderr: 'realms map read failed: permission denied', code: 1, sleep_ms: 300 }] },
+    { match: ['runs'], responses: [json(noMapPage())] },
+    { match: ['inspect'], responses: [json(noMapView(runId, 12))] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000, workspace })
+  const client = peer()
+  client.receive = poller.attach(client)
+  client.receive({ type: 'watch', view: 'realm', realm: ONE_HEARTH, run: { realm: ONE_HEARTH, run_id: runId } })
+  await until(() => callsOf(brokkr, 'realms') >= 3, 'the refused inspect fence')
+  writeFileSync(join(workspace, 'realms.json'), '{"schema": "forge.realms/v3", "realms": []}')
+  await new Promise((wake) => setTimeout(wake, 500))
+  assert.deepEqual(client.sent, [], 'a failed map read is not a confirmed no-map world')
+  assert.equal(callsOf(brokkr, 'realms'), 3, 'the inspect fence is the read that failed')
+})
+
+test('review 907p7 H1: a snapshot paints nothing when its open run’s fence is not a map', async () => {
+  const runId = runOf('alpha', 0).run_id
+  const { brokkr, client } = watching(
+    [
+      { match: ['realms'], responses: [NO_MAP, NO_MAP, NOT_A_MAP] },
+      { match: ['runs'], responses: [json(noMapPage())] },
+      { match: ['inspect'], responses: [json(noMapView(runId, 12))] },
+    ],
+    { view: 'realm', realm: ONE_HEARTH, run: { realm: ONE_HEARTH, run_id: runId } },
+    { workspace: noMapFolder() },
+  )
+  await until(() => callsOf(brokkr, 'realms') >= 3, 'the snapshot’s refused fence')
+  assert.deepEqual(client.sent, [], 'a snapshot paints nothing behind a fence that did not resolve')
+})
+
+test('review 907p7 H1: a poll withholds a no-map fleet whose run fence is not a map', async () => {
+  const runId = runOf('alpha', 0).run_id
+  const { brokkr, poller, client } = watching(
+    [
+      // The snapshot resolves the no-map world three times; the poll’s fleet
+      // and its run fence follow, and the run fence is the read that fails.
+      { match: ['realms'], responses: [NO_MAP, NO_MAP, NO_MAP, NO_MAP, NO_MAP, NOT_A_MAP] },
+      { match: ['runs'], responses: [json(noMapPage(12)), json(noMapPage(13))] },
+      { match: ['inspect'], responses: [json(noMapView(runId, 12)), json(noMapView(runId, 13))] },
+    ],
+    { view: 'realm', realm: ONE_HEARTH, run: { realm: ONE_HEARTH, run_id: runId } },
+    { workspace: noMapFolder() },
+  )
+  await until(() => client.sent.length > 0, 'the snapshot')
+  assert.deepEqual(client.sent.map((message) => message.type), ['snapshot'])
+  client.sent.length = 0
+  await poller.tick()
+  assert.deepEqual(client.sent, [], 'a poll paints nothing behind a fence that did not resolve')
+  assert.equal(callsOf(brokkr, 'realms'), 6, 'the poll’s run fence is the read that failed')
+})
+
+test('review 907p7 H1: Show more withholds a no-map page whose fence is not a map', async () => {
+  const cursor = 'needs-you:1:alpha-run-0000'
+  const { brokkr, client } = watching(
+    [
+      { match: ['realms'], responses: [NO_MAP, NO_MAP, NOT_A_MAP] },
+      { match: ['runs', `--after=${cursor}`], responses: [json(windowOf([{ ...runOf('alpha', 1), seq: 13 }], null))] },
+      { match: ['runs'], responses: [json(windowOf([{ ...runOf('alpha', 0), seq: 12 }], cursor))] },
+    ],
+    { view: 'realm', realm: ONE_HEARTH, run: null },
+    { workspace: noMapFolder() },
+  )
+  await until(() => client.sent.length > 0, 'the snapshot')
+  client.sent.length = 0
+  client.receive({ type: 'more', realm: ONE_HEARTH })
+  await until(() => callsOf(brokkr, 'realms') >= 3, 'the page’s refused fence')
+  assert.deepEqual(client.sent, [], 'Show more paints nothing behind a fence that did not resolve')
+})
+
+test('review 907p7 H1: the open run’s row withholds a no-map snapshot whose row fence is not a map', async () => {
+  const runId = runOf('alpha', 0).run_id
+  const held = { ...runOf('alpha', 0), seq: 12 }
+  const { brokkr, client } = watching(
+    [
+      // The snapshot resolves the no-map world for the fleet, its fence and
+      // the inspect; the row read after the moved inspect is the failed fence.
+      { match: ['realms'], responses: [NO_MAP, NO_MAP, NO_MAP, NOT_A_MAP] },
+      { match: ['runs', `--run=${runId}`], responses: [json(oneRow({ ...held, seq: 13 }))] },
+      { match: ['runs'], responses: [json(windowOf([held], null))] },
+      { match: ['inspect'], responses: [json(noMapView(runId, 13))] },
+    ],
+    { view: 'realm', realm: ONE_HEARTH, run: { realm: ONE_HEARTH, run_id: runId } },
+    { workspace: noMapFolder() },
+  )
+  await until(() => callsOf(brokkr, 'realms') >= 4, 'the row’s refused fence')
+  assert.deepEqual(client.sent, [], 'the open run’s row paints nothing behind a fence that did not resolve')
+})
+
+test('review 907p7 low 1: a withheld snapshot owes the overview, workspace and ask, not the fleet alone', async () => {
+  const held = { ...runOf('alpha', 0), seq: 12 }
+  const map = realmsDoc(['alpha'], () => '/hearths/alpha/forge.db')
+  const brokkr = stubBrokkr([
+    // A's snapshot and its priming poll resolve the map four times; B's
+    // snapshot reads it twice more and its fleet fence is refused once.
+    { match: ['realms'], responses: [json(map), json(map), json(map), json(map), json(map), { stdout: 'not JSON' }, json(map), json(map)] },
+    { match: ['runs'], responses: [json(windowOf([held], null))] },
+    { match: ['queue'], responses: [json([])] },
+    { match: ['muninn'], responses: [json([])] },
+    { match: ['analytics'], responses: [json(analyticsDoc())] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000, workspace: '/workspace', ask: true })
+  const first = await attached(poller, { view: 'realms', run: null })
+  const primed = first.sent[0].overview
+  first.sent.length = 0
+  await poller.tick()
+  assert.deepEqual(first.sent.map((message) => message.type), ['overview'], 'the first realms client primes the shared overview')
+
+  const second = peer()
+  second.receive = poller.attach(second)
+  second.receive({ type: 'watch', view: 'realms', run: null })
+  await until(() => callsOf(brokkr, 'realms') >= 6, 'the withheld second snapshot')
+  assert.deepEqual(second.sent, [], 'the withheld snapshot paints nothing')
+  await poller.tick()
+  assert.deepEqual(second.sent.map((message) => message.type), ['fleet', 'overview'], 'the whole withheld snapshot is repaid, not the fleet alone')
+  const [fleet, overview] = second.sent
+  assert.deepEqual([fleet.workspace, fleet.ask], ['/workspace', true], 'the fleet carries the snapshot’s workspace and ask')
+  assert.deepEqual(overview.overview, primed, 'the unchanged overview is repaid to the client that never saw it')
 })

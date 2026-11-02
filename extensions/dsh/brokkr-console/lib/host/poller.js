@@ -14,6 +14,7 @@
 import { realpath } from 'node:fs/promises'
 import { isAbsolute, resolve } from 'node:path'
 
+import { noMapWorld } from './here.js'
 import { ONE_HEARTH, isHearthLabel, namesOfHearth, ReadoutRefused } from './readouts.js'
 
 const VIEWS = ['none', 'realms', 'realm', 'analytics']
@@ -87,14 +88,15 @@ async function identityOf(journal, workspace) {
 /**
  * The hearths `brokkr realms --json` names, one per distinct journal, each
  * under the realm names sharing it (Brokkr's `a+b` label and map order);
- * `null` when the workspace has no map and is the one hearth it always was.
+ * `null` only for the confirmed no-map world (`noMapWorld`, the one rule
+ * `here.js` owns), never for a read that did not resolve a map.
  */
 async function hearthsOf(brokkr, workspace) {
   let realms
   try {
     realms = await brokkr.realms()
   } catch (error) {
-    if (error instanceof ReadoutRefused) return null
+    if (await noMapWorld(error, workspace)) return null
     throw error
   }
   const byJournal = new Map()
@@ -126,9 +128,10 @@ const namedBy = (hearths, journal, names) => journal === null
 /**
  * Whether the map re-read after a read still names the journal that read
  * used for its realm. One `brokkr realms` per read is the fence's accepted
- * cost; a map read that fails outright confirms no journal at all. The map
- * is kept in `seen`, when a poll keeps one, so every later pending
- * publication can be held to the latest map the poll resolved (M2).
+ * cost; only the confirmed no-map world (`noMapWorld`) confirms a null
+ * journal, and every other refusal withholds the publication. The map is
+ * kept in `seen`, when a poll keeps one, so every later pending publication
+ * can be held to the latest map the poll resolved (M2).
  */
 async function stillNamed(brokkr, workspace, journal, realm, seen = null) {
   try {
@@ -288,8 +291,16 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     // Every page was read from a journal this poll resolved: re-read the map
     // once and keep the whole fleet only while each read's journal is still
     // its hearth's (F1). A no-map world is a shape of its own, so a map that
-    // appeared mid-read drops the pages read from the default journal.
-    const after = await hearthsOf(brokkr, workspace)
+    // appeared mid-read drops the pages read from the default journal. A map
+    // read that does not resolve drops the poll's pages the same way: only the
+    // confirmed no-map shape may stand for a null journal.
+    let after
+    try {
+      after = await hearthsOf(brokkr, workspace)
+    } catch (error) {
+      if (!(error instanceof ReadoutRefused)) throw error
+      return { changed: false, dropped: true }
+    }
     if (seen !== null) seen.map = after
     const used = hearths === null || hearths.length === 0 ? [{ journal: null, realm: ONE_HEARTH }] : hearths
     if (!used.every((hearth) => namedBy(after, hearth.journal, hearth.names))) return { changed: false, dropped: true }
@@ -338,13 +349,18 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
   /**
    * Send `client` the fleet only while `seen`, this path's latest map, still
    * names every hearth in it and every `target` the caller read; clear the
-   * owed mark on a send. Every fleet send passes the one gate here, so a new
-   * path cannot publish without it (M2, ruling 5).
+   * owed mark on a send. A client whose snapshot was withheld also receives
+   * the snapshot's workspace and ask setting here, since a fleet message is
+   * sent to every view; its overview is repaid by the poll's overview send.
+   * Every fleet send passes the one gate here, so a new path cannot publish
+   * without it (M2, ruling 5).
    */
   function sendFleet(seen, client, targets = []) {
     if (!publishable(seen, state.fleet, targets)) return
     client.owed = false
-    client.peer.send({ type: 'fleet', fleet: state.fleet })
+    const snapshot = client.owedSnapshot ? { workspace, ask } : {}
+    if (client.owedSnapshot && client.watch.view !== 'realms') client.owedSnapshot = false
+    client.peer.send({ type: 'fleet', fleet: state.fleet, ...snapshot })
   }
 
   /**
@@ -503,10 +519,12 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     // from the same client makes this snapshot obsolete, its failure included
     // (M4, F2).
     const watch = client.watch
-    // A snapshot that cannot paint leaves this client owed the fleet it was
-    // read beside; a successful snapshot clears the mark, so the next
-    // successful poll sends the withheld fleet whatever `changed` says (R-2).
+    // A snapshot that cannot paint leaves this client owed the whole snapshot
+    // it was read beside: the fleet, its overview, and the workspace and ask
+    // setting only a snapshot carried. A successful snapshot clears the mark,
+    // so the next successful poll repays them whatever `changed` says (R-2).
     client.owed = true
+    client.owedSnapshot = true
     try {
       // Every read this snapshot makes keeps the map its fence resolves in
       // `seen`; the one gate below holds the fleet and the open run to the
@@ -545,6 +563,7 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
       if (row !== null) holdRow(target, row)
       if (watch.run !== null) client.runText.set(keyOf(watch.run.realm, watch.run.run_id), JSON.stringify(run))
       client.owed = false
+      client.owedSnapshot = false
       client.peer.send({ type: 'snapshot', workspace, ask, fleet: state.fleet, overview: overviewRead, run })
     } catch (error) {
       if (!(error instanceof ReadoutRefused)) throw error
@@ -637,13 +656,14 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
    * Send `run` only to the watchers that still have it open, never to a
    * client that has moved to another run, and only while the journal it was
    * read from is still the one its realm names (M4); an absence is sent only
-   * while the fleet it was decided from is still installed (F3). The row
-   * passes the one publication gate against the poll's latest map as well, so
-   * no row leaves the host through a private check (M2). A message is
-   * recorded as painted only here, so a dropped read cannot mask a later one.
+   * while the fleet it was decided from is still installed (F3). The open
+   * run's row is gated as part of the poll's payload: `pushRuns` held it to
+   * the poll's latest map before queueing this send, so no second gate is
+   * written here (M2, ruling 5). A message is recorded as painted only here,
+   * so a dropped read cannot mask a later one.
    */
-  function sendRun(seen, watchers, run, target, source) {
-    if (target === null ? staleAbsence(source) : !current(target) || !publishable(seen, null, [target])) return
+  function sendRun(watchers, run, target, source) {
+    if (target === null ? staleAbsence(source) : !current(target)) return
     for (const client of watchers) {
       const watched = client.watch.run
       if (watched === null || watched.realm !== run.realm || watched.run_id !== run.run_id) continue
@@ -669,14 +689,23 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
       if (withheld) return
       const fleetMoved = fleetRead.changed || patched
       for (const client of clients) if (fleetMoved || client.owed) sendFleet(seen, client, targets)
-      for (const [watchers, run, target, source] of updates) sendRun(seen, watchers, run, target, source)
+      for (const [watchers, run, target, source] of updates) sendRun(watchers, run, target, source)
       const onOverview = [...clients].filter((client) => client.watch.view === 'realms')
       if (onOverview.length === 0) return
       const next = await overview(fleetRead.changed)
       const text = JSON.stringify(next)
-      if (text === state.overviewText) return
+      const moved = text !== state.overviewText
+      // A realms-view client whose snapshot was withheld is owed the overview
+      // even when its text did not move, once its fleet message (which carried
+      // the snapshot's workspace and ask) has been sent (R-2).
+      const owesSnapshot = (client) => client.owedSnapshot && !client.owed
+      if (!moved && !onOverview.some(owesSnapshot)) return
       state.overviewText = text
-      for (const client of onOverview) client.peer.send({ type: 'overview', overview: next })
+      for (const client of onOverview) {
+        if (!moved && !owesSnapshot(client)) continue
+        if (owesSnapshot(client)) client.owedSnapshot = false
+        client.peer.send({ type: 'overview', overview: next })
+      }
     } catch (error) {
       if (!(error instanceof ReadoutRefused)) throw error
       for (const client of clients) client.peer.send({ type: 'error', message: error.message })
@@ -686,7 +715,7 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
   }
 
   function attach(peer) {
-    const client = { peer, watch: { view: 'none', run: null, realm: null }, runText: new Map(), owed: false }
+    const client = { peer, watch: { view: 'none', run: null, realm: null }, runText: new Map(), owed: false, owedSnapshot: false }
     clients.add(client)
     peer.onClose = () => {
       clients.delete(client)

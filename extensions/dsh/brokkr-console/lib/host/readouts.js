@@ -402,7 +402,6 @@ function summary(value, path) {
     standing: word(value.standing, STANDINGS, `${path}.standing`),
     detail: optText(value.detail, `${path}.detail`),
     phase: optText(value.phase, `${path}.phase`),
-    feature: optText(value.feature, `${path}.feature`),
     park_reason: optText(value.park_reason, `${path}.park_reason`),
   }
 }
@@ -413,7 +412,6 @@ export function runViewOf(doc) {
   const ruling = maybe(doc.ruling, 'ruling', (value, path) => ({
     rule_id: text(object(value, path).rule_id, `${path}.rule_id`),
     from: text(value.from, `${path}.from`),
-    next: text(value.next, `${path}.next`),
   }))
   return {
     summary: maybe(doc.summary, 'summary', summary),

@@ -128,3 +128,10 @@ test('a run view summary keeps the shared standing, its word and its why (#909)'
   const summary = runViewOf(doc).summary
   assert.deepEqual([summary.status, summary.status_word, summary.standing, summary.detail], ['running', 'stopping', 'stopping', detail])
 })
+
+test('an inspect field no surface paints is left unread: no summary feature and no ruling next', () => {
+  const view = runViewOf(runViewDoc())
+  assert.equal('feature' in view.summary, false)
+  assert.equal('next' in view.ruling, false)
+  assert.equal('from' in view.ruling, true)
+})

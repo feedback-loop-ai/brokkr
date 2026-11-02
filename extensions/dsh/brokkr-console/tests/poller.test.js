@@ -3,7 +3,7 @@
 // client on the Realms view; a refused read reaches the page as Brokkr's own
 // words. The fixtures these tests share live in tests/support/poller.js.
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { test } from 'node:test'
 
 import { brokkrOf } from '../lib/host/brokkr.js'
@@ -206,4 +206,18 @@ test('unchanged Realms snapshots reuse cached day analytics', async () => {
   client.receive({ type: 'watch', view: 'realms', run: null })
   assert.equal((await heard(client)).type, 'snapshot')
   assert.equal(analytics(), 1)
+})
+
+test('a source pin: the one fleet message under lib is built only inside sendFleet', () => {
+  const root = new URL('../lib/', import.meta.url)
+  const files = readdirSync(root, { recursive: true, encoding: 'utf8' }).filter((file) => file.endsWith('.js'))
+  const built = []
+  for (const file of files) {
+    const text = readFileSync(new URL(file, root), 'utf8')
+    for (let at = text.indexOf("type: 'fleet'"); at !== -1; at = text.indexOf("type: 'fleet'", at + 1)) {
+      const before = text.slice(0, at)
+      built.push({ file, sendFleet: before.lastIndexOf('function sendFleet(') > before.lastIndexOf('\n  function ') })
+    }
+  }
+  assert.deepEqual(built, [{ file: 'host/poller.js', sendFleet: true }])
 })
