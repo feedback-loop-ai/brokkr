@@ -36,6 +36,7 @@ mod refusal;
 mod route_overlay;
 mod served_route;
 mod start;
+mod stderr;
 // Design D6 (b) seals the producer: the seams, the structured
 // observation, its error and the one entry point. Every parser, hasher,
 // serializer and injected helper stays private to `composite`, so no
@@ -66,6 +67,7 @@ use refusal::{bounded_wire_line, claude_refusal, codex_refusal, REFUSAL_TOKEN_LI
 #[cfg(test)]
 use start::serve_io;
 use start::{start_prompt, Confine};
+use stderr::{drain_stderr, StderrCapture};
 
 const ADAPTER_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const MODEL_NOT_REPORTED: &str = "not reported";
@@ -718,19 +720,6 @@ fn write_prompt(writer: &mut impl Write, payload: &str) -> Result<(), String> {
     )
 }
 
-/// Drain a child's stderr on its own thread, so a chatty session cannot
-/// deadlock the stdout stream being folded live. The bytes come back
-/// raw: known-plaintext masking (decision 0012, layer 5) runs on them
-/// before any string conversion, in [`secret::mask_text`].
-fn drain_stderr(child: &mut std::process::Child) -> std::thread::JoinHandle<Vec<u8>> {
-    let mut pipe = child.stderr.take().expect("piped");
-    std::thread::spawn(move || {
-        let mut captured = Vec::new();
-        let _ = pipe.read_to_end(&mut captured);
-        captured
-    })
-}
-
 /// Why the one harness spawn builder could not build a command: an argv
 /// with no program, or the secret injector's own refusal, carried rather
 /// than stringified (#896 round 4; decision 0071 ruling 8).
@@ -810,7 +799,7 @@ fn spawn_fed(
     prompt: &str,
     workdir: &str,
     bindings: &[secret::BoundSecret],
-) -> Result<(std::process::Child, std::thread::JoinHandle<Vec<u8>>), String> {
+) -> Result<(std::process::Child, StderrCapture), String> {
     let mut child = spawn_piped(command, workdir, bindings)?;
     let mut stdin = child.stdin.take().expect("piped");
     io_context(
@@ -827,9 +816,11 @@ fn spawn_fed(
 /// way it ended (decision 0103 ruling 4(a)). Its stderr is not waited for:
 /// a descendant that inherited the pipe is ended with the driver's own
 /// tree, and waiting here would reintroduce the hang the stop removes.
-fn stop_harness(child: &mut std::process::Child) -> Result<std::process::ExitStatus, String> {
+/// Its one wait failure is typed and converted at the existing text
+/// boundary (#430 L3; decision 0071 ruling 8).
+fn stop_harness(child: &mut std::process::Child) -> std::io::Result<std::process::ExitStatus> {
     let _ = child.kill();
-    io_context(child.wait(), "agent CLI did not conclude")
+    child.wait()
 }
 
 fn run_cli(
@@ -2359,7 +2350,10 @@ fn poll_until_exit(
     loop {
         let finished = io_context(wait(child), "agent CLI did not conclude")?;
         if drain() {
-            return Ok(lost::exit_code(stop_harness(child)?));
+            return Ok(lost::exit_code(io_context(
+                stop_harness(child),
+                "agent CLI did not conclude",
+            )?));
         }
         if let Some(code) = finished {
             return Ok(code);
@@ -2468,19 +2462,19 @@ fn invoke_stream_json(
             }
         }
         let status = if stopped {
-            stop_harness(&mut child)?
+            io_context(stop_harness(&mut child), "agent CLI did not conclude")?
         } else {
             io_context(child.wait(), "agent CLI did not conclude")?
         };
         transcript.finish(&mut session_meta, &mut watch);
         status
     };
-    let stderr = if stopped {
-        drop(stderr_thread);
-        String::new()
+    let raw = if stopped {
+        stderr_thread.settle()
     } else {
-        secret::mask_text(&stderr_thread.join().unwrap_or_default(), bindings)
+        stderr_thread.finish()
     };
+    let stderr = secret::mask_text(&raw, bindings);
     Ok(Invocation {
         exit_code: lost::exit_code(status),
         session_meta,
@@ -3667,17 +3661,17 @@ fn invoke_codex(
             }
         }
         if stopped {
-            stop_harness(&mut child)?
+            io_context(stop_harness(&mut child), "agent CLI did not conclude")?
         } else {
             io_context(child.wait(), "agent CLI did not conclude")?
         }
     };
-    let stderr = if stopped {
-        drop(stderr_thread);
-        String::new()
+    let raw = if stopped {
+        stderr_thread.settle()
     } else {
-        secret::mask_text(&stderr_thread.join().unwrap_or_default(), bindings)
+        stderr_thread.finish()
     };
+    let stderr = secret::mask_text(&raw, bindings);
     // An attempt that concluded without ever reaching a `turn.completed`
     // — a release that folds none, or a codex that exits before its
     // first turn finishes — has read the thread record not at all. Ask
@@ -4769,7 +4763,7 @@ fn spawn_dsh(
     stdout: Stdio,
     launch: &DshLaunch,
     bindings: &[secret::BoundSecret],
-) -> Result<(std::process::Child, std::thread::JoinHandle<Vec<u8>>), String> {
+) -> Result<(std::process::Child, StderrCapture), String> {
     let env = dsh_child_env(launch);
     let mut child = spawn_harness(command, workdir, Stdio::null(), stdout, &env, bindings)?;
     let stderr_thread = drain_stderr(&mut child);
@@ -4812,27 +4806,23 @@ fn invoke_dsh_shipped(
         &mut child,
         |child| wait(child),
         || {
-            DshFold::new(
-                &mut tail,
-                &launch.root,
-                launch.first_seq,
-                &mut turns,
-                &mut *session_meta,
-                bindings,
-                &mut *probe,
-            )
-            .drain(emit);
+            dsh_launch::DshFoldState {
+                tail: &mut tail,
+                turns: &mut turns,
+                session_meta,
+                probe,
+            }
+            .drain(launch, bindings, emit);
             probe.answered()
         },
     )?;
-    let stderr_thread = (!probe.answered()).then_some(stderr_thread);
-    finish_dsh(
-        session_meta,
-        exit_code,
-        stderr_thread,
-        probe.take(),
-        bindings,
-    )
+    let stopped = probe.answered();
+    let raw = if stopped {
+        stderr_thread.settle()
+    } else {
+        stderr_thread.finish()
+    };
+    finish_dsh(session_meta, exit_code, raw, probe.take(), bindings)
 }
 
 /// The qualified `--output-format stream-json` exchange (task 8.8(d)):
@@ -4859,59 +4849,70 @@ fn invoke_dsh_stream_json(
     let mut turns = 0u64;
     let mut tail = DshTail::default();
     let mut stopped = false;
-    for line in std::io::BufReader::new(stdout).lines() {
-        // EVERY exit from a line has a disposition (design D7). A line is
-        // decoded before the store behind it is observed, so a valid init
-        // event is heard first: the session's current activity may already
-        // be stored by the time this driver consumes the init that
-        // preceded it. A line that could not be read ends the stream, and
-        // one that is not JSON is skipped, exactly as before — but on a
-        // rejoin neither leaves without the watcher's ruling on it, and
-        // the settle behind the child's exit cannot rescue either.
-        let Ok(line) = line else {
-            watch.unread(DshStreamLine::Unreadable);
-            watch.settle(
-                DshStreamLine::Unreadable,
-                hold,
-                session_meta,
-                emit,
-                observer,
-            );
-            break;
-        };
-        let read = match serde_json::from_str::<Value>(&line) {
-            Ok(mut event) => {
-                secret::mask_json(&mut event, bindings);
-                fold_dsh_stream_event(&event, watch, hold, session_meta, emit);
-                DshStreamLine::Event
+    // Read stdout on its own thread so the loop can poll between lines (M2).
+    let (lines, reads) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in std::io::BufReader::new(stdout).lines() {
+            if lines.send(line).is_err() {
+                return;
             }
-            Err(_) => {
-                watch.unread(DshStreamLine::Malformed);
-                DshStreamLine::Malformed
+        }
+    });
+    loop {
+        let read = match reads.recv_timeout(DSH_POLL_IDLE) {
+            Ok(Ok(line)) => {
+                // Decode a line before the store behind it (design D7).
+                let read = fold_dsh_line(line, watch, hold, session_meta, bindings, emit);
+                // Settle before every drain; never drain while the hold is
+                // closed (design D7, task 7.4).
+                watch.settle(read, hold, session_meta, emit, observer);
+                read
             }
+            Ok(Err(_)) => {
+                watch.unread(DshStreamLine::Unreadable);
+                watch.settle(
+                    DshStreamLine::Unreadable,
+                    hold,
+                    session_meta,
+                    emit,
+                    observer,
+                );
+                break;
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                // A probe polls the transcript between lines (0103 4(a); M2).
+                if !probe.requested() {
+                    continue;
+                }
+                if watch.confirming() && watch.named_the_offer && !watch.settled {
+                    watch.settle(DshStreamLine::Idle, hold, session_meta, emit, observer);
+                }
+                if watch.may_fold() {
+                    dsh_launch::DshFoldState {
+                        tail: &mut tail,
+                        turns: &mut turns,
+                        session_meta,
+                        probe,
+                    }
+                    .drain(launch, bindings, emit);
+                    if probe.answered() {
+                        stopped = true;
+                        break;
+                    }
+                }
+                continue;
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         };
-        // Every drain is preceded by the settle that could release the
-        // hold, and NO drain happens while the hold is still closed. That
-        // is both halves of design D7's order: a confirmed rejoin's
-        // locator and launch rows reach the journal before the first work
-        // row (task 7.4), and an unconfirmed one publishes no work row at
-        // all — a fold running ahead of the confirmation would address a
-        // session this driver cannot yet name, and an append landing
-        // between the settle and the drain would put it there anyway.
-        watch.settle(read, hold, session_meta, emit, observer);
         if read == DshStreamLine::Event && watch.may_fold() {
-            DshFold::new(
-                &mut tail,
-                &launch.root,
-                launch.first_seq,
-                &mut turns,
-                &mut *session_meta,
-                bindings,
-                &mut *probe,
-            )
-            .drain(emit);
-            // The answer is the probe's whole report: stop the harness
-            // here instead of reading to EOF and waiting out a hang.
+            dsh_launch::DshFoldState {
+                tail: &mut tail,
+                turns: &mut turns,
+                session_meta,
+                probe,
+            }
+            .drain(launch, bindings, emit);
+            // The answer is the whole report: stop here, not at EOF.
             if probe.answered() {
                 stopped = true;
                 break;
@@ -4919,30 +4920,30 @@ fn invoke_dsh_stream_json(
         }
     }
     let status = if stopped {
-        stop_harness(&mut child)?
+        io_context(stop_harness(&mut child), "agent CLI did not conclude")?
     } else {
         io_context(child.wait(), "agent CLI did not conclude")?
     };
-    // A clean end of stream adds no confirmation fact and clears nothing:
-    // this settle reads the store only while the confirmation is pending.
+    // A clean end adds no confirmation fact and clears nothing.
     watch.settle(DshStreamLine::End, hold, session_meta, emit, observer);
     if !stopped && watch.may_fold() {
-        DshFold::new(
-            &mut tail,
-            &launch.root,
-            launch.first_seq,
-            &mut turns,
-            &mut *session_meta,
-            bindings,
-            &mut *probe,
-        )
-        .drain(emit);
+        dsh_launch::DshFoldState {
+            tail: &mut tail,
+            turns: &mut turns,
+            session_meta,
+            probe,
+        }
+        .drain(launch, bindings, emit);
     }
-    let stderr_thread = (!stopped).then_some(stderr_thread);
+    let raw = if stopped {
+        stderr_thread.settle()
+    } else {
+        stderr_thread.finish()
+    };
     finish_dsh(
         session_meta,
         lost::exit_code(status),
-        stderr_thread,
+        raw,
         probe.take(),
         bindings,
     )
@@ -4977,6 +4978,25 @@ fn fold_dsh_stream_event(
     watch.named(id, hold, emit);
 }
 
+/// Decode one stdout line, hear an init event before the store behind it is
+/// observed, and return the reading the settle and drain act on.
+fn fold_dsh_line(
+    line: String,
+    watch: &mut DshRootWatch,
+    hold: &mut LaunchHold,
+    session_meta: &mut Map<String, Value>,
+    bindings: &[secret::BoundSecret],
+    emit: &mut impl FnMut(&Value),
+) -> DshStreamLine {
+    let Ok(mut event) = serde_json::from_str::<Value>(&line) else {
+        watch.unread(DshStreamLine::Malformed);
+        return DshStreamLine::Malformed;
+    };
+    secret::mask_json(&mut event, bindings);
+    fold_dsh_stream_event(&event, watch, hold, session_meta, emit);
+    DshStreamLine::Event
+}
+
 /// Which reading of the stream-json child an observation sits behind. The
 /// watcher treats a line it could not decode differently on either side of
 /// the init event, so the kind travels with the observation it produced.
@@ -4988,6 +5008,8 @@ enum DshStreamLine {
     Malformed,
     /// A line the reader could not return at all (non-UTF-8 stdout).
     Unreadable,
+    /// A poll between stdout lines (430s4a3 M2).
+    Idle,
     /// The settle behind the child's exit.
     End,
 }
@@ -5396,14 +5418,13 @@ struct DshRun {
 /// The common tail of both dsh invocations: the harness and profile the
 /// lane always is, the redacted stderr, and the first probe answer when
 /// there was one. No pin lands in `session_meta`: `model` there is only
-/// ever what the transcript said served (decision 0031). `stderr_thread`
-/// is `None` when a probe stopped the harness at its answer, because the
-/// answer is the whole report and a descendant's inherited pipe must not
-/// reintroduce the hang the stop removes.
+/// ever what the transcript said served (decision 0031). The RAW stderr is
+/// what the caller kept on every stopped path, so an answer never erases a
+/// startup refusal (fix round 430s4a3 H1; decision 0098 ruling 4).
 fn finish_dsh(
     session_meta: &mut Map<String, Value>,
     exit_code: i32,
-    stderr_thread: Option<std::thread::JoinHandle<Vec<u8>>>,
+    raw: Vec<u8>,
     answer: Option<Value>,
     bindings: &[secret::BoundSecret],
 ) -> Result<DshRun, String> {
@@ -5417,9 +5438,6 @@ fn finish_dsh(
     // dsh classifies nothing here and a refusal before its first turn
     // follows decision 0006 unchanged; the guide says so beside claude
     // and codex.
-    let raw = stderr_thread
-        .map(|thread| thread.join().unwrap_or_default())
-        .unwrap_or_default();
     // Classified ONCE, from the child's own bytes, before masking or
     // reasoning redaction can rewrite the marker words the gate reads
     // (#896 H1; decision 0098 ruling 4). The raw text goes no further.

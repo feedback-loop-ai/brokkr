@@ -292,15 +292,14 @@ impl<'de> Deserialize<'de> for PreSessionRefusal {
 /// present. Handing every present value to [`PreSessionRefusal::read`]
 /// keeps `null` and every other non-object a named refusal instead of
 /// letting serde's `Option` read them as absent (decision 0103 ruling
-/// 1(a)). A missing key still takes the field's `default`.
+/// 1(a)). A missing key still takes the field's `default`. The impl is the
+/// one reader, so this field never restates its body (#430 L4; decision
+/// 0071 rulings 5 and 6).
 fn read_present_refusal<'de, D>(deserializer: D) -> Result<Option<PreSessionRefusal>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let value = serde_json::Value::deserialize(deserializer)?;
-    PreSessionRefusal::read(&value)
-        .map(Some)
-        .map_err(serde::de::Error::custom)
+    PreSessionRefusal::deserialize(deserializer).map(Some)
 }
 
 /// A typed probe marker (decision 0103 ruling 4(a)). It is written as

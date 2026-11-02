@@ -617,10 +617,10 @@ done
 exit 0
 "#;
 
-/// A fake dsh whose session prints the measured activation warning after a
-/// valid composition, or the report `BROKKR_TEST_DSH_REPORT` names when a
-/// test needs a marker a bound secret masks (#896 H1).
-const WARNING_DSH: &str = r#"#!/bin/sh
+/// The measured fake dsh's pre-session prefix: its version banner and the
+/// composition dump `--dump-config` reads. Each fake appends its own body.
+#[cfg(unix)]
+const DSH_PREFIX: &str = r#"#!/bin/sh
 case "$1" in
   --version|-V|-v) printf '0.2.1-rc.2\n'; exit 0 ;;
 esac
@@ -630,7 +630,12 @@ for a in "$@"; do
     exit 0
   fi
 done
-if [ -n "${BROKKR_TEST_DSH_REPORT-}" ]; then
+"#;
+
+/// A fake dsh whose session prints the measured activation warning after a
+/// valid composition, or the report `BROKKR_TEST_DSH_REPORT` names when a
+/// test needs a marker a bound secret masks (#896 H1).
+const WARNING_DSH_TAIL: &str = r#"if [ -n "${BROKKR_TEST_DSH_REPORT-}" ]; then
   printf '%s\n' "$BROKKR_TEST_DSH_REPORT" >&2
 else
   printf '%s\n' 'dsh: warning: 1 entry did not activate' \
@@ -649,6 +654,7 @@ fn invoke_hands(
     workdir: &str,
     mut input: Value,
     bindings: &[crate::secret::BoundSecret],
+    probe: bool,
 ) -> (Option<String>, Result<super::super::Invocation, String>) {
     input["workdir"] = json!(workdir);
     let launch = super::super::dsh_launch_with(dsh, &[], workdir, None, &input, |_| {
@@ -662,7 +668,7 @@ fn invoke_hands(
         launch,
         command,
         bindings,
-        &mut crate::adapters::probe::ProbeAnswer::new(false),
+        &mut crate::adapters::probe::ProbeAnswer::new(probe),
         &mut |_| {},
         |child| child.wait().map(|status| Some(status.code().unwrap_or(0))),
         &mut |_| {},
@@ -685,13 +691,18 @@ fn launch_reporting(
         Some(report) => env.set("BROKKR_TEST_DSH_REPORT", report),
         None => env.remove("BROKKR_TEST_DSH_REPORT"),
     }
-    let fake = super::super::tests::executable(dir.path(), "dsh", WARNING_DSH);
+    let fake = super::super::tests::executable(
+        dir.path(),
+        "dsh",
+        &format!("{DSH_PREFIX}{WARNING_DSH_TAIL}"),
+    );
     let workdir = dir.path().to_str().unwrap();
     invoke_hands(
         fake.to_str().unwrap(),
         workdir,
         sealed(SealedBoundary::Namespace, Some("read-only")),
         bindings,
+        false,
     )
     .1
 }
@@ -726,7 +737,7 @@ fn a_launch_composes_under_the_sessions_own_environment_and_directory() {
         "removals": ["LIBRARY_DOCS_TOKEN"],
     }]});
     let _removing = super::super::mcp::Removing::attempt(&removals);
-    let (child_home, invocation) = invoke_hands(fake.to_str().unwrap(), workdir, input, &[]);
+    let (child_home, invocation) = invoke_hands(fake.to_str().unwrap(), workdir, input, &[], false);
     invocation.unwrap();
     let expected_home = child_home.unwrap_or_else(|| home.to_string_lossy().into_owned());
     let observed = std::fs::read_to_string(&log).unwrap();
@@ -838,7 +849,7 @@ fn a_bound_secret_never_hides_a_startup_refusal_or_appears_in_the_stderr() {
         let run = super::super::finish_dsh(
             &mut serde_json::Map::new(),
             0,
-            Some(std::thread::spawn(move || raw)),
+            raw,
             None,
             std::slice::from_ref(&bound),
         )
@@ -855,6 +866,66 @@ fn a_bound_secret_never_hides_a_startup_refusal_or_appears_in_the_stderr() {
             "the exposed stderr never carries the value: {}",
             run.invocation.stderr
         );
+    }
+}
+
+/// A fake dsh the H1 case drives: its measured composition on
+/// `--dump-config`, dsh's startup report on stderr from
+/// `BROKKR_TEST_DSH_REPORT`, and then a valid session header plus one
+/// `assistant/message` answer under the seat overlay's own root. It exits
+/// after the answer, so the probe's own stop is what the run proves.
+#[cfg(unix)]
+const PROBE_ANSWER_DSH_TAIL: &str = r#"printf '%s\n' "${BROKKR_TEST_DSH_REPORT-dsh: warning: 1 entry did not activate}" >&2
+while [ "$1" != --patch ] && [ $# -gt 0 ]; do shift; done
+shift
+root=$(awk -F"'" '/^    root: /{print $2}' "$1")
+d="$root/--project--/session-fake"
+mkdir -p "$d"
+f="$d/session.v3.jsonl"
+printf '{"type":"session","version":0,"id":"session-fake-1","cwd":"/w"}\n' > "$f"
+printf '{"type":"assistant/message","data":{"turn":1,"step":1,"message":{"source":{"model":"served-by-dsh"}},"usage":{"inputTokens":10,"outputTokens":2}}}\n' >> "$f"
+"#;
+
+/// #430 H1 (decision 0098 ruling 4; decision 0071 rulings 3 and 9): a
+/// probe's answer must not erase dsh's startup refusal. The stopped path
+/// used to hand `finish_dsh` no stderr, which `startup_report` classified
+/// as full enforcement, so the startup gate passed over the warning dsh
+/// had already written. The same case is refused through the one gate for
+/// both refusal classes.
+#[cfg(unix)]
+#[test]
+fn review_a_dsh_probe_answer_must_not_erase_its_startup_refusal() {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    env.set("DSH_HOME", dir.path());
+    for (report, expected) in [
+        (
+            "dsh: warning: 1 entry did not activate",
+            ReportRefusal::NotActivated,
+        ),
+        (
+            "HarnessError: SANDBOX_UNAVAILABLE",
+            ReportRefusal::SandboxUnavailable,
+        ),
+    ] {
+        env.set("BROKKR_TEST_DSH_REPORT", report);
+        let fake = super::super::tests::executable(
+            dir.path(),
+            "dsh",
+            &format!("{DSH_PREFIX}{PROBE_ANSWER_DSH_TAIL}"),
+        );
+        let workdir = dir.path().to_str().unwrap();
+        let problem = invoke_hands(
+            fake.to_str().unwrap(),
+            workdir,
+            sealed(SealedBoundary::Namespace, Some("read-only")),
+            &[],
+            true,
+        )
+        .1
+        .err()
+        .expect("the stopped probe's startup report still refuses the launch");
+        assert_eq!(problem, expected.to_string(), "{report}");
     }
 }
 

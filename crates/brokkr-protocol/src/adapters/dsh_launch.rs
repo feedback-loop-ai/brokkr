@@ -4,6 +4,38 @@
 
 use super::*;
 
+/// The per-invocation transcript fold state both dsh routes share, as one
+/// parameter object so a drain call is never a seven-argument list.
+pub(super) struct DshFoldState<'a> {
+    pub(super) tail: &'a mut DshTail,
+    pub(super) turns: &'a mut u64,
+    pub(super) session_meta: &'a mut Map<String, Value>,
+    pub(super) probe: &'a mut ProbeAnswer,
+}
+
+impl DshFoldState<'_> {
+    /// Fold whatever the transcript has appended through the invocation's
+    /// one probe bound. Both routes share this so a pass cannot differ from
+    /// the other in which boundary it reads or which answer it admits.
+    pub(super) fn drain(
+        &mut self,
+        launch: &DshLaunch,
+        bindings: &[secret::BoundSecret],
+        emit: &mut impl FnMut(&Value),
+    ) {
+        DshFold::new(
+            self.tail,
+            &launch.root,
+            launch.first_seq,
+            self.turns,
+            self.session_meta,
+            bindings,
+            self.probe,
+        )
+        .drain(emit);
+    }
+}
+
 /// `invoke_dsh_launch` with this ONE invocation's observer of the
 /// confirmation's completed observations, spawning exactly `command`.
 /// Production watches nothing; a test reads here exactly what the watcher

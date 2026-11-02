@@ -189,6 +189,54 @@ fn a_probe_that_answers_then_hangs_reports_its_answer() {
     }
 }
 
+/// #430 H1: a probe stopped at its answer keeps the stderr the harness
+/// already wrote. The stop removed the hang, not the evidence; a route
+/// that discarded the bytes lost what the journal is owed.
+#[cfg(unix)]
+#[test]
+fn a_stopped_probe_keeps_its_stderr() {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let cases = [
+        (
+            AdapterKind::Claude,
+            r#"#!/bin/sh
+cat >/dev/null
+printf 'wrapper said this\n' >&2
+printf '%s\n' '{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"answered"}]}}'
+"#,
+        ),
+        (
+            AdapterKind::Codex,
+            r#"#!/bin/sh
+cat >/dev/null
+printf 'wrapper said this\n' >&2
+printf '%s\n' '{"type":"thread.started","thread_id":"t1"}'
+printf '%s\n' '{"type":"turn.started"}'
+printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"answered"}}'
+"#,
+        ),
+    ];
+    for (kind, script) in cases {
+        let shim = executable(dir.path(), &format!("{kind:?}-stopped-stderr"), script);
+        match kind {
+            AdapterKind::Claude => env.set("BROKKR_CLAUDE_BIN", &shim),
+            AdapterKind::Codex => env.set("BROKKR_CODEX_BIN", &shim),
+            AdapterKind::Lanetally | AdapterKind::Dsh | AdapterKind::Exec => {
+                unreachable!("the stop's stderr is proven on claude and codex")
+            }
+        }
+        let invocation =
+            invoke_probe(kind, &[], "prompt", &json!({"workdir": dir.path()}), &[]).unwrap();
+        assert!(invocation.answer.is_some(), "{kind:?}: the probe answered");
+        assert!(
+            invocation.stderr.contains("wrapper said this"),
+            "{kind:?}: the stopped probe kept its stderr: {}",
+            invocation.stderr
+        );
+    }
+}
+
 /// A probe refused `rate_limit` before any answer carries that refusal,
 /// typed, exactly as an ordinary attempt does (decision 0103 rulings 1(a)
 /// and 4(a)); it is never erased into "ended without an answer".
@@ -457,8 +505,8 @@ fn a_probe_that_starts_then_errors_has_no_answer() {
 
 #[test]
 fn dsh_s_refusal_stays_none() {
-    let stderr = std::thread::spawn(|| b"429 Too Many Requests: rate limit".to_vec());
-    let run = finish_dsh(&mut Map::new(), 1, Some(stderr), None, &[]).unwrap();
+    let raw = b"429 Too Many Requests: rate limit".to_vec();
+    let run = finish_dsh(&mut Map::new(), 1, raw, None, &[]).unwrap();
     assert_eq!(run.invocation.refusal, None);
 }
 
