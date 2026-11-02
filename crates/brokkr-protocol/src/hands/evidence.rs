@@ -9,10 +9,11 @@
 //! and no writable or overlay mount the box would make is the root, holds
 //! it or lies inside it, judged by device and inode on the canonical path.
 //! The worktree alone may hold it, at the root's own spelling and through
-//! directories of their own. Then `box_argv` mounts each directory between
-//! the worktree and the root at its own path, so no write in the box
-//! renames it, and the root read-only after every writable mount. A root
-//! outside the worktree is mounted nowhere, so the box cannot reach it.
+//! directories of their own. Then the box's argv builder mounts each
+//! directory between the worktree and the root at its own path, so no
+//! write in the box renames it, and the root read-only after every
+//! writable mount. A root outside the worktree is mounted nowhere, so the
+//! box cannot reach it.
 //! Each is a mount that must be made: a box bubblewrap cannot build
 //! refuses, never runs unprotected.
 //!
@@ -153,9 +154,9 @@ pub(super) use verdict::{reached, wanted};
 #[cfg(test)]
 thread_local! {
     /// A test's step at the start of [`Protected::confirm`], the one place
-    /// inside `box_argv` where the world can change between the observation
-    /// and its confirmation (L1): a test that changes it there fails where
-    /// the production call is removed.
+    /// inside the box's argv builder where the world can change between the
+    /// observation and its confirmation (L1): a test that changes it there
+    /// fails where the production call is removed.
     pub(super) static CONFIRMING: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
         const { std::cell::RefCell::new(None) };
 }

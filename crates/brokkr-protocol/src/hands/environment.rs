@@ -1,6 +1,6 @@
 //! The workspace box's environment, moved out of `hands.rs` by decision
 //! 0065 slice two, U8a, to make room for the evidence protection beside
-//! `box_argv` (operator ruling of 2026-10-09).
+//! the box's argv builder (operator ruling of 2026-10-09).
 
 use std::path::Path;
 

@@ -14,6 +14,16 @@ fn planted(tmp: &Path, label: &str, pid: &str) -> PathBuf {
     tree
 }
 
+/// A tree named as a session names it, planted with a lock file no process
+/// holds: what a dead owner leaves when its lock file outlives it. The
+/// reaper reads it as free; a tree with no lock file at all is no longer
+/// reaped (0.13.0).
+fn unheld(tmp: &Path, label: &str, pid: &str) -> PathBuf {
+    let tree = planted(tmp, label, pid);
+    std::fs::write(tree.join(LOCK), "").unwrap();
+    tree
+}
+
 /// A live session whose tree is renamed to record `pid`, as a live owner
 /// whose pid reads dead here looks: its lock still holds. The session is
 /// returned so the lock lives as long as the caller keeps it.
@@ -258,7 +268,7 @@ fn a_lock_create_that_fails_for_want_of_a_descriptor_leaves_no_staging_directory
 #[test]
 fn a_hostile_name_is_sanitized_before_the_lines_are_joined() {
     let tmp = tempfile::tempdir().unwrap();
-    let tree = planted(tmp.path(), "x\r\nforged line", &dead_pid().to_string());
+    let tree = unheld(tmp.path(), "x\r\nforged line", &dead_pid().to_string());
     let reaped = reap_dead_sessions_in(tmp.path(), flock);
     let said: String = tree
         .file_name()
@@ -378,9 +388,8 @@ fn only_a_tree_whose_owner_is_dead_and_unlocked_is_reaped() {
     let tmp = tempfile::tempdir().unwrap();
     let dead = dead_pid().to_string();
     let mine = std::process::id().to_string();
-    let unowned = planted(tmp.path(), "serve", &dead);
-    let unheld = planted(tmp.path(), "exec", &dead);
-    std::fs::write(unheld.join(LOCK), "").unwrap();
+    let serve = unheld(tmp.path(), "serve", &dead);
+    let exec = unheld(tmp.path(), "exec", &dead);
     let (_held, foreign) = held_under(tmp.path(), &dead);
     // A lock that cannot be opened is not an answer.
     let unreadable = planted(tmp.path(), "serve", &dead);
@@ -409,7 +418,7 @@ fn only_a_tree_whose_owner_is_dead_and_unlocked_is_reaped() {
 
     let mut reaped = reap_dead_sessions_in(tmp.path(), flock);
     reaped.removed.sort();
-    let mut expected = vec![unowned, unheld];
+    let mut expected = vec![serve, exec];
     expected.sort();
     assert_eq!(
         reaped,
@@ -431,12 +440,11 @@ fn only_a_tree_whose_owner_is_dead_and_unlocked_is_reaped() {
     );
 }
 
-/// The one-release lockless transition, the operator's ruling of
-/// 2026-09-28 that 0.13.0 ends: a tree with no lock file whose pid reads
-/// dead is reaped, and a tree whose pid reads dead but whose lock is held
-/// is kept.
+/// The lockless transition's end, the operator's ruling of 2026-09-28:
+/// a tree with no lock file whose pid reads dead is kept and said, never
+/// reaped, and a tree whose pid reads dead but whose lock is held is kept.
 #[test]
-fn until_0_13_0_a_lockless_dead_tree_is_reaped_and_a_held_one_kept() {
+fn a_lockless_dead_tree_is_kept_and_said_and_a_held_one_kept() {
     let tmp = tempfile::tempdir().unwrap();
     let dead = dead_pid().to_string();
     let lockless = planted(tmp.path(), "serve", &dead);
@@ -444,11 +452,12 @@ fn until_0_13_0_a_lockless_dead_tree_is_reaped_and_a_held_one_kept() {
     assert_eq!(
         reap_dead_sessions_in(tmp.path(), flock).to_string(),
         format!(
-            "hands: reaped {}: its owner is dead and holds no lock\n",
+            "hands: kept {}: its lock cannot be probed: it holds no lock file; \
+             trees from before #415 are no longer reaped (0.13.0)\n",
             lockless.display()
         )
     );
-    assert!(!lockless.exists());
+    assert!(lockless.is_dir());
     assert!(locked.join(LOCK).is_file());
 }
 
@@ -482,12 +491,12 @@ fn set_mode(path: &Path, bits: u32) {
 fn a_free_tree_that_cannot_be_removed_is_kept_and_said() {
     let tmp = tempfile::tempdir().unwrap();
     let dead = dead_pid().to_string();
-    let tree = planted(tmp.path(), "exec", &dead);
+    let tree = unheld(tmp.path(), "exec", &dead);
     let sealed = tree.join("sealed");
     std::fs::create_dir(&sealed).unwrap();
     std::fs::write(sealed.join("call"), "").unwrap();
     set_mode(&sealed, 0o500);
-    let unlistable = planted(tmp.path(), "serve", &dead);
+    let unlistable = unheld(tmp.path(), "serve", &dead);
     set_mode(&unlistable, 0o300);
 
     let mut reaped = reap_dead_sessions_in(tmp.path(), flock);
@@ -539,7 +548,7 @@ fn sealed_overlay_work(tree: &Path, layer: &str) -> PathBuf {
 #[test]
 fn a_tree_whose_overlay_work_is_sealed_is_removed() {
     let tmp = tempfile::tempdir().unwrap();
-    let tree = planted(tmp.path(), "exec", &dead_pid().to_string());
+    let tree = unheld(tmp.path(), "exec", &dead_pid().to_string());
     sealed_overlay_work(&tree, "0");
     set_mode(&sealed_overlay_work(&tree, "1"), 0o200);
     std::fs::write(tree.join("overlay").join("2"), "").unwrap();
@@ -566,7 +575,7 @@ fn a_tree_whose_overlay_work_is_sealed_is_removed() {
 #[test]
 fn the_overlay_walk_changes_only_the_work_directories() {
     let tmp = tempfile::tempdir().unwrap();
-    let tree = planted(tmp.path(), "exec", &dead_pid().to_string());
+    let tree = unheld(tmp.path(), "exec", &dead_pid().to_string());
     sealed_overlay_work(&tree, "0");
     let beside = tree.join("work").join("work");
     let upper = tree.join("overlay").join("0").join("upper").join("sealed");
@@ -604,7 +613,7 @@ fn the_overlay_walk_follows_no_symlink_out_of_the_tree() {
     std::fs::create_dir(&outside).unwrap();
     std::fs::write(outside.join("kept"), "").unwrap();
     set_mode(&outside, 0o500);
-    let tree = planted(tmp.path(), "exec", &dead_pid().to_string());
+    let tree = unheld(tmp.path(), "exec", &dead_pid().to_string());
     let work = tree.join("overlay").join("0").join("work");
     std::fs::create_dir_all(&work).unwrap();
     std::os::unix::fs::symlink(&outside, work.join("work")).unwrap();

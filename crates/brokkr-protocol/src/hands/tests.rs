@@ -1835,9 +1835,9 @@ fn the_unboxed_environment_has_exact_keys_on_both_platforms() {
 const UMASK_RECORD: &str = "BROKKR_HANDS_TEST_UMASK_RECORD";
 
 /// The part this test binary plays when the umask control re-executes it
-/// (#570): it drives `box_argv` over a scratch tree under whatever umask
-/// the exec'ing shell set and writes the two private dirs' modes down.
-/// Run on its own, it plays none.
+/// (#570): it drives `workspace_argv` over a scratch tree under whatever
+/// umask the exec'ing shell set and writes the two private dirs' modes
+/// down. Run on its own, it plays none.
 #[test]
 #[ignore = "played only when a test re-executes this binary"]
 fn umask_role() {
@@ -1882,8 +1882,8 @@ fn box_argv_narrows_private_dirs_that_already_exist() {
     assert_eq!(private_modes(dir.path()), "700 700\n");
 }
 
-/// #570, the removal control that needs no namespace: it is `box_argv`
-/// itself, not the running box, that makes the private home and tmp
+/// #570, the removal control that needs no namespace: it is the box's
+/// argv builder, not the running box, that makes the private home and tmp
 /// owner-only, so the pin holds on every host. The caller's umask is 002
 /// only in the child shell that execs this binary — never in this test
 /// process, where it would race every parallel test — and the modes come
