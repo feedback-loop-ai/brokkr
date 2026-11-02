@@ -784,3 +784,22 @@ fn review_qualified_probe_stdout_noise_does_not_delay_transcript_answer() {
     });
     assert_answered_under(report, std::time::Duration::from_secs(1), "stdout noise");
 }
+
+/// #430 M1 (returned review, decision 0103 ruling 4(a); decision 0071
+/// ruling 9): a stdout line the driver cannot decode ends DECODING, not
+/// the transcript's wait. The old route broke its loop at the unreadable
+/// line and then waited out the child, so an answer appended while that
+/// child slept was reported only at its exit.
+#[cfg(unix)]
+#[test]
+fn review_qualified_probe_unreadable_stdout_does_not_delay_transcript_answer() {
+    let dir = tempfile::tempdir().unwrap();
+    let report = run_qualified_probe(dir.path(), "dsh-qualified-probe-unreadable", |file| {
+        dsh_probe_body(file, "printf '\\377\\n'\nsleep 0.2\n")
+    });
+    assert_answered_under(
+        report,
+        std::time::Duration::from_secs(1),
+        "stdout's unreadable line",
+    );
+}

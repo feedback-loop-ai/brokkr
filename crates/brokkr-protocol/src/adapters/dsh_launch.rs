@@ -165,12 +165,11 @@ struct DshStreamState<'a> {
 }
 
 /// What one pass over the qualified child found: an answer, an ordinary
-/// tick, a child that ended, or a stdout line that could not be read.
+/// tick, or a child that ended.
 enum DshPass {
     Answered,
     Continue,
     Exited(std::process::ExitStatus),
-    Unreadable,
 }
 
 impl DshStreamState<'_> {
@@ -224,9 +223,10 @@ impl DshStreamState<'_> {
     }
 
     /// One pass over stdout and the transcript. `open` flips false at
-    /// stdout's clean end, and a closed stdout still ticks on the
-    /// transcript alone: an answer never waits for stdout to speak (fix
-    /// round 430s4a3 M2; decision 0103 ruling 4(a)).
+    /// stdout's clean end or on a line the reader cannot decode, and a
+    /// closed stdout still ticks on the transcript alone: an answer never
+    /// waits for stdout to speak (fix round 430s4a3 M2 and M1; decision
+    /// 0103 ruling 4(a)).
     fn pass(
         &mut self,
         open: &mut bool,
@@ -255,7 +255,10 @@ impl DshStreamState<'_> {
                 Ok(Err(_)) => {
                     self.watch.unread(DshStreamLine::Unreadable);
                     self.settle(DshStreamLine::Unreadable, emit, observer);
-                    return Ok(DshPass::Unreadable);
+                    // The stream ends here, but stdout closing never ends
+                    // the transcript's wait (fix round 430s4a3 M1).
+                    *open = false;
+                    None
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
@@ -347,7 +350,6 @@ fn invoke_dsh_stream_json(
                 exited = Some(status);
                 break;
             }
-            DshPass::Unreadable => break,
         }
     }
     let status = if stopped {
