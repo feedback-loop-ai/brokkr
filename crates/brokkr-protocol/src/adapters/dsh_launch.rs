@@ -234,7 +234,7 @@ impl DshStreamState<'_> {
         child: &mut std::process::Child,
         emit: &mut impl FnMut(&Value),
         observer: &mut impl FnMut(&DshObservation),
-    ) -> Result<DshPass, String> {
+    ) -> Result<DshPass, std::io::Error> {
         let read = if *open {
             match reads.recv_timeout(DSH_POLL_IDLE) {
                 Ok(Ok(line)) => {
@@ -272,14 +272,24 @@ impl DshStreamState<'_> {
         };
         let answered = match read {
             Some(DshStreamLine::Event) => self.drain(emit),
-            _ => self.poll(emit, observer),
+            // Every other reading — noise, an unreadable line, an idle
+            // tick, the settle behind an exit, or no line at all — polls
+            // the transcript. Enumerated so a new reading needs its own
+            // disposition (#430 L3; decision 0071 ruling 2).
+            Some(
+                DshStreamLine::Malformed
+                | DshStreamLine::Unreadable
+                | DshStreamLine::Idle
+                | DshStreamLine::End,
+            )
+            | None => self.poll(emit, observer),
         };
         // The answer is the whole report: stop here, not at EOF.
         if answered {
             return Ok(DshPass::Answered);
         }
         if !*open {
-            if let Some(status) = io_context(child.try_wait(), "agent CLI did not conclude")? {
+            if let Some(status) = child.try_wait()? {
                 return Ok(DshPass::Exited(status));
             }
         }
@@ -318,7 +328,16 @@ fn invoke_dsh_stream_json(
     let (lines, reads) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         for line in std::io::BufReader::new(stdout).lines() {
+            let failed = line.is_err();
             if lines.send(line).is_err() {
+                return;
+            }
+            // A line the reader could not return ends stdout here, after
+            // sending it: the thread returns, dropping the pipe, so a
+            // child that keeps writing meets a closed stdout instead of
+            // filling a channel nothing reads (#430 M1; decision 0103
+            // ruling 4(a)).
+            if failed {
                 return;
             }
         }
@@ -337,38 +356,33 @@ fn invoke_dsh_stream_json(
     // sleeps): once it is closed, the transcript alone carries the answer
     // and the child's own exit ends the wait.
     let mut open = true;
-    let mut exited = None;
     let mut stopped = false;
-    loop {
-        match state.pass(&mut open, &reads, &mut child, emit, observer)? {
+    // Every exit from this loop either answered or saw the child's status,
+    // so the ONE status comes out of the loop and no wait after it is
+    // unreachable.
+    let status = loop {
+        match io_context(
+            state.pass(&mut open, &reads, &mut child, emit, observer),
+            "agent CLI did not conclude",
+        )? {
             DshPass::Continue => {}
             DshPass::Answered => {
                 stopped = true;
-                break;
+                break conclude_harness(&mut child)?;
             }
-            DshPass::Exited(status) => {
-                exited = Some(status);
-                break;
-            }
+            DshPass::Exited(status) => break status,
         }
-    }
-    let status = if stopped {
-        conclude_harness(&mut child)?
-    } else if let Some(status) = exited {
-        status
-    } else {
-        io_context(child.wait(), "agent CLI did not conclude")?
     };
     // A clean end adds no confirmation fact and clears nothing.
     state.settle(DshStreamLine::End, emit, observer);
     if !stopped {
         state.drain(emit);
     }
-    let raw = stderr_thread.take(stopped);
+    let captured = stderr_thread.take(stopped);
     finish_dsh(
         state.session_meta,
         lost::exit_code(status),
-        raw,
+        captured,
         state.probe.take(),
         bindings,
     )

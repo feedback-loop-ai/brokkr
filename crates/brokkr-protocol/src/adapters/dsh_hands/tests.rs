@@ -440,6 +440,11 @@ fn the_workspace_server_row_carries_the_measured_transport_and_startup_policy() 
     assert!(server.contains("failOnStartupError: true"), "{server}");
 }
 
+/// A complete stderr capture of `raw`, through the one capture loop.
+fn captured(raw: Vec<u8>) -> super::super::stderr::CapturedStderr {
+    super::super::stderr::capture_reader(std::io::Cursor::new(raw)).take(false)
+}
+
 /// dsh's measured startup report: an entry that did not activate, or a
 /// sandbox that cannot confine, fails the seat closed; the launcher's
 /// partial line is carried, and a clean start adds nothing.
@@ -475,7 +480,9 @@ fn the_dsh_startup_report_fails_closed_and_carries_partial() {
     let mut meta = serde_json::Map::new();
     assert_eq!(
         startup_gate(
-            startup_report(b"landlock-run: partial enforcement (older Landlock ABI)\n"),
+            startup_report(&captured(
+                b"landlock-run: partial enforcement (older Landlock ABI)\n".to_vec(),
+            )),
             &mut meta,
             Mode::ReadOnly
         ),
@@ -485,7 +492,7 @@ fn the_dsh_startup_report_fails_closed_and_carries_partial() {
     assert_eq!(meta["step_name"], json!(report::PARTIAL));
     assert_eq!(
         startup_gate(
-            startup_report(warning.as_bytes()),
+            startup_report(&captured(warning.as_bytes().to_vec())),
             &mut serde_json::Map::new(),
             Mode::WorkspaceWrite
         ),
@@ -525,6 +532,87 @@ fn the_dsh_startup_report_fails_closed_and_carries_partial() {
         ReportRefusal::SandboxUnavailable.to_string(),
         "refusing the dsh seat: dsh reported SANDBOX_UNAVAILABLE (no sandbox backend is usable on \
          this host), so a call it could not confine is never admitted (#896 D4)"
+    );
+}
+
+/// One prepared step in the test reader below.
+enum Step {
+    Data(&'static [u8]),
+    Error(std::io::ErrorKind),
+}
+
+/// A stderr seam that returns prepared steps, one read call each, so a
+/// capture can meet an interrupted and a failed read without a real pipe.
+struct ReadSteps(std::collections::VecDeque<Step>);
+
+impl ReadSteps {
+    fn new(steps: impl IntoIterator<Item = Step>) -> Self {
+        Self(steps.into_iter().collect())
+    }
+}
+
+impl std::io::Read for ReadSteps {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        match self.0.pop_front() {
+            Some(Step::Data(bytes)) => {
+                buffer[..bytes.len()].copy_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            Some(Step::Error(kind)) => Err(std::io::Error::new(kind, "stderr seam failed")),
+            None => Ok(0),
+        }
+    }
+}
+
+/// Drive one seam capture through `finish_dsh` and hand back what the
+/// startup gate reads beside the evidence stderr.
+fn captured_run(steps: impl IntoIterator<Item = Step>) -> (Startup, String) {
+    let capture = super::super::stderr::capture_reader(ReadSteps::new(steps));
+    let run = super::super::finish_dsh(
+        &mut serde_json::Map::new(),
+        0,
+        capture.take(false),
+        None,
+        &[],
+    )
+    .unwrap();
+    (run.startup, run.invocation.stderr)
+}
+
+/// #430 H1 (decision 0098 ruling 4; decision 0071 rulings 3 and 9): an
+/// interrupted stderr read is retried, not taken for EOF, so the startup
+/// warning behind it still refuses the seat.
+#[test]
+fn review_an_interrupted_stderr_read_must_not_erase_dsh_startup_refusal() {
+    let (startup, _) = captured_run([
+        Step::Error(std::io::ErrorKind::Interrupted),
+        Step::Data(b"dsh: warning: 1 entry did not activate\n"),
+    ]);
+    assert_eq!(
+        startup_gate(startup, &mut serde_json::Map::new(), Mode::ReadOnly),
+        Err(ReportRefusal::NotActivated)
+    );
+}
+
+/// #430 H1: a non-interrupted read error ends the capture UNREADABLE, not
+/// at EOF; dsh's start refuses, naming the error, even though the warning
+/// the seam held next was never returned.
+#[test]
+fn review_an_unreadable_stderr_capture_must_refuse_dsh_startup() {
+    let (startup, stderr) = captured_run([
+        Step::Error(std::io::ErrorKind::PermissionDenied),
+        Step::Data(b"dsh: warning: 1 entry did not activate\n"),
+    ]);
+    let refusal = startup_gate(startup, &mut serde_json::Map::new(), Mode::ReadOnly)
+        .expect_err("an unreadable capture never passes dsh's startup gate");
+    assert!(matches!(refusal, ReportRefusal::UnreadableCapture(_)));
+    assert!(
+        refusal.to_string().contains("stderr seam failed"),
+        "the refusal names the error: {refusal}"
+    );
+    assert!(
+        stderr.contains("stderr capture ended unreadable"),
+        "the unreadable capture is named in the evidence: {stderr}"
     );
 }
 
@@ -849,7 +937,7 @@ fn a_bound_secret_never_hides_a_startup_refusal_or_appears_in_the_stderr() {
         let run = super::super::finish_dsh(
             &mut serde_json::Map::new(),
             0,
-            raw,
+            captured(raw),
             None,
             std::slice::from_ref(&bound),
         )

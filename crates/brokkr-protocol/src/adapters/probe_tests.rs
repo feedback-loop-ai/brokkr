@@ -237,6 +237,29 @@ printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"a
     }
 }
 
+/// #430 H1: a stopped probe whose stderr reader failed records that
+/// failure in its evidence through the same `evidence` the claude and
+/// codex stops call, never as a clean end.
+#[test]
+fn review_an_unreadable_stderr_capture_is_named_in_a_stopped_probes_evidence() {
+    struct Failed;
+    impl std::io::Read for Failed {
+        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "stderr seam failed",
+            ))
+        }
+    }
+    let evidence = super::stderr::capture_reader(Failed)
+        .take(true)
+        .evidence(|_| String::new());
+    assert!(
+        evidence.contains("stderr capture ended unreadable"),
+        "the stopped capture's failure is named: {evidence:?}"
+    );
+}
+
 /// A probe refused `rate_limit` before any answer carries that refusal,
 /// typed, exactly as an ordinary attempt does (decision 0103 rulings 1(a)
 /// and 4(a)); it is never erased into "ended without an answer".
@@ -506,7 +529,8 @@ fn a_probe_that_starts_then_errors_has_no_answer() {
 #[test]
 fn dsh_s_refusal_stays_none() {
     let raw = b"429 Too Many Requests: rate limit".to_vec();
-    let run = finish_dsh(&mut Map::new(), 1, raw, None, &[]).unwrap();
+    let captured = super::stderr::capture_reader(std::io::Cursor::new(raw)).take(false);
+    let run = finish_dsh(&mut Map::new(), 1, captured, None, &[]).unwrap();
     assert_eq!(run.invocation.refusal, None);
 }
 
@@ -703,6 +727,7 @@ fn dsh_probe_body(file: &std::path::Path, before_answer: &str) -> String {
 fn run_qualified_probe(
     dir: &std::path::Path,
     name: &str,
+    requested: bool,
     body: impl FnOnce(&std::path::Path) -> String,
 ) -> (Invocation, std::time::Duration) {
     let root = dir.join("seat");
@@ -716,7 +741,7 @@ fn run_qualified_probe(
         launch,
         command,
         &[],
-        &mut ProbeAnswer::new(true),
+        &mut ProbeAnswer::new(requested),
         &mut |_| {},
         |_| panic!("the qualified arm does not poll the child"),
         &mut |_| {},
@@ -750,7 +775,7 @@ fn assert_answered_under(
 #[test]
 fn a_qualified_dsh_probe_that_answers_then_hangs_reports_its_answer() {
     let dir = tempfile::tempdir().unwrap();
-    let report = run_qualified_probe(dir.path(), "dsh-qualified-probe-answer", |file| {
+    let report = run_qualified_probe(dir.path(), "dsh-qualified-probe-answer", true, |file| {
         dsh_probe_body(file, "sleep 0.2\n")
     });
     assert_answered_under(report, std::time::Duration::from_secs(1), "stdout silence");
@@ -763,7 +788,7 @@ fn a_qualified_dsh_probe_that_answers_then_hangs_reports_its_answer() {
 #[test]
 fn review_qualified_probe_stdout_eof_does_not_delay_transcript_answer() {
     let dir = tempfile::tempdir().unwrap();
-    let report = run_qualified_probe(dir.path(), "dsh-qualified-probe-eof", |file| {
+    let report = run_qualified_probe(dir.path(), "dsh-qualified-probe-eof", true, |file| {
         dsh_probe_body(file, "exec 1>&-\nsleep 0.2\n")
     });
     assert_answered_under(report, std::time::Duration::from_secs(1), "stdout EOF");
@@ -776,7 +801,7 @@ fn review_qualified_probe_stdout_eof_does_not_delay_transcript_answer() {
 #[test]
 fn review_qualified_probe_stdout_noise_does_not_delay_transcript_answer() {
     let dir = tempfile::tempdir().unwrap();
-    let report = run_qualified_probe(dir.path(), "dsh-qualified-probe-noise", |file| {
+    let report = run_qualified_probe(dir.path(), "dsh-qualified-probe-noise", true, |file| {
         dsh_probe_body(
             file,
             "( i=0; while [ $i -lt 100 ]; do printf 'not a stream line\\n'; sleep 0.02; i=$((i+1)); done ) &\nsleep 0.2\n",
@@ -794,7 +819,7 @@ fn review_qualified_probe_stdout_noise_does_not_delay_transcript_answer() {
 #[test]
 fn review_qualified_probe_unreadable_stdout_does_not_delay_transcript_answer() {
     let dir = tempfile::tempdir().unwrap();
-    let report = run_qualified_probe(dir.path(), "dsh-qualified-probe-unreadable", |file| {
+    let report = run_qualified_probe(dir.path(), "dsh-qualified-probe-unreadable", true, |file| {
         dsh_probe_body(file, "printf '\\377\\n'\nsleep 0.2\n")
     });
     assert_answered_under(
@@ -802,4 +827,32 @@ fn review_qualified_probe_unreadable_stdout_does_not_delay_transcript_answer() {
         std::time::Duration::from_secs(1),
         "stdout's unreadable line",
     );
+}
+
+/// #430 M1 (decision 0103 ruling 4(a); decision 0071 ruling 9): an
+/// unreadable stdout line closes stdout for the reader too. The old reader
+/// kept reading and filling a channel no one drained, so the child ran on
+/// to its sleep; now its next write meets a closed pipe and it exits.
+#[cfg(unix)]
+#[test]
+fn review_ordinary_qualified_dsh_closes_stdout_after_an_unreadable_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let (invocation, elapsed) = run_qualified_probe(
+        dir.path(),
+        "dsh-qualified-probe-closes-stdout",
+        false,
+        |file| {
+            dsh_probe_body(
+                file,
+                "set -e\nprintf '\\377\\n'\nsleep 0.1\n\
+                 i=0\nwhile [ $i -lt 10000 ]; do printf 'progress %s\\n' \"$i\"; i=$((i+1)); done\n\
+                 sleep 2\n",
+            )
+        },
+    );
+    assert!(
+        elapsed < std::time::Duration::from_secs(1),
+        "the reader did not close stdout at the unreadable line: {elapsed:?}"
+    );
+    assert_eq!(invocation.answer, None, "no probe was requested");
 }

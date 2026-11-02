@@ -67,7 +67,7 @@ use refusal::{bounded_wire_line, claude_refusal, codex_refusal, REFUSAL_TOKEN_LI
 #[cfg(test)]
 use start::serve_io;
 use start::{start_prompt, Confine};
-use stderr::{drain_stderr, StderrCapture};
+use stderr::{drain_stderr, CapturedStderr, StderrCapture};
 
 const ADAPTER_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const MODEL_NOT_REPORTED: &str = "not reported";
@@ -2473,8 +2473,8 @@ fn invoke_stream_json(
         transcript.finish(&mut session_meta, &mut watch);
         status
     };
-    let raw = stderr_thread.take(stopped);
-    let stderr = secret::mask_text(&raw, bindings);
+    let captured = stderr_thread.take(stopped);
+    let stderr = captured.evidence(|raw| secret::mask_text(raw, bindings));
     Ok(Invocation {
         exit_code: lost::exit_code(status),
         session_meta,
@@ -3666,8 +3666,8 @@ fn invoke_codex(
             io_context(child.wait(), "agent CLI did not conclude")?
         }
     };
-    let raw = stderr_thread.take(stopped);
-    let stderr = secret::mask_text(&raw, bindings);
+    let captured = stderr_thread.take(stopped);
+    let stderr = captured.evidence(|raw| secret::mask_text(raw, bindings));
     // An attempt that concluded without ever reaching a `turn.completed`
     // — a release that folds none, or a codex that exits before its
     // first turn finishes — has read the thread record not at all. Ask
@@ -4813,8 +4813,8 @@ fn invoke_dsh_shipped(
         },
     )?;
     let stopped = probe.answered();
-    let raw = stderr_thread.take(stopped);
-    finish_dsh(session_meta, exit_code, raw, probe.take(), bindings)
+    let captured = stderr_thread.take(stopped);
+    finish_dsh(session_meta, exit_code, captured, probe.take(), bindings)
 }
 
 /// One line of the plugin's stream-json envelope. The init event names the
@@ -5292,7 +5292,7 @@ struct DshRun {
 fn finish_dsh(
     session_meta: &mut Map<String, Value>,
     exit_code: i32,
-    raw: Vec<u8>,
+    captured: CapturedStderr,
     answer: Option<Value>,
     bindings: &[secret::BoundSecret],
 ) -> Result<DshRun, String> {
@@ -5309,8 +5309,8 @@ fn finish_dsh(
     // Classified ONCE, from the child's own bytes, before masking or
     // reasoning redaction can rewrite the marker words the gate reads
     // (#896 H1; decision 0098 ruling 4). The raw text goes no further.
-    let startup = dsh_hands::startup_report(&raw);
-    let stderr = redact_dsh_reasoning(&secret::mask_text(&raw, bindings));
+    let startup = dsh_hands::startup_report(&captured);
+    let stderr = captured.evidence(|raw| redact_dsh_reasoning(&secret::mask_text(raw, bindings)));
     // The promotion that moves the seat's commits out of the private
     // store happens in `invoke_dsh_launch_observed`, which owns the store
     // for the seat's whole life and is the one place both routes return

@@ -15,6 +15,7 @@
 //! (docs/evidence/adapters/dsh-hands-round2/report-words.txt).
 
 use super::super::dsh_stderr::before_reasoning;
+use super::super::stderr::Unreadable;
 use super::{HANDS_ID, MCP_CLIENT};
 use thiserror::Error;
 
@@ -40,7 +41,7 @@ pub(crate) enum Enforcement {
 }
 
 /// Why the seat fails closed on the startup dsh reported.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub(crate) enum ReportRefusal {
     #[error(
         "refusing the dsh seat: the hands row '{HANDS_ID}' did not activate, so the seat's one \
@@ -52,6 +53,11 @@ pub(crate) enum ReportRefusal {
          on this host), so a call it could not confine is never admitted (#896 D4)"
     )]
     SandboxUnavailable,
+    #[error(
+        "refusing the dsh seat: its startup stderr capture ended unreadable ({0}), so a warning \
+         dsh wrote cannot be ruled out; failing closed on what cannot be read (#430 H1)"
+    )]
+    UnreadableCapture(Unreadable),
 }
 
 /// Read the stderr dsh wrote before its session: an unavailable sandbox
