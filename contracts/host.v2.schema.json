@@ -1,0 +1,109 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/host.v2.json",
+  "title": "Forge host configuration v2",
+  "description": "One machine's capacity for runs the dispatcher admits (decision 0068 ruling 3 and ruling 5's data; the operator's ruling of 2026-10-10, option B), and the cool-down bounds a rate-limit refusal waits (decision 0103 ruling 3). It belongs to the machine, never to a realm: one scratch disk, one set of provider accounts and its own local hardware, whichever realm a run operates. Brokkr reads it from $XDG_CONFIG_HOME/brokkr/host.json, else $HOME/.config/brokkr/host.json. Every ceiling and every cool-down number is a positive integer; zero, a negative and an overflowing value are refused, never read as unlimited. Every object is closed. The cool-downs block is optional; were it absent, a rate-limit refusal parks as today. Its default_seconds and max_seconds are required when it is present, and its providers and their routes may override either number. Every provider or route it names must already be declared under the capacity block's providers; JSON Schema cannot say so, and the loader refuses it. A route without its own number takes its provider's, and a provider without its own takes the block's. The 7200-second cap is the shipped seats' longest attempt deadline, under the fleet's staleness bound. What the host demands of containment is a closed enum: best-effort by default, or required, which this loader refuses because decision 0080 is not built yet (#472).",
+  "type": "object",
+  "required": ["schema", "providers", "floors", "boxed_builds"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "forge.host/v2" },
+    "providers": {
+      "type": "object",
+      "description": "Provider name, as an adapter's provider field names it (claude, codex, dsh, exec, ...), to its concurrency ceiling. A provider a queued run would seat that is not named here holds the run undeclared.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["ceiling"],
+        "additionalProperties": false,
+        "properties": {
+          "ceiling": { "$ref": "#/definitions/ceiling", "description": "The running runs that seat this provider, each counted once, below which another may start. A seat on a shared-local route of the provider is not counted here." },
+          "routes": {
+            "type": "object",
+            "description": "Route name, the route a seat's driver serves the concrete model id the adapter maps on: the id's prefix before its first / (decision 0036 ruling 2), else the driver's default route (dsh serves a bare id on deepseek-official), to its ceiling and class. A route a queued run would seat that is not named here holds the run undeclared.",
+            "additionalProperties": { "$ref": "#/definitions/route" }
+          }
+        }
+      }
+    },
+    "floors": {
+      "type": "array",
+      "minItems": 1,
+      "description": "The free-space floors every run that starts must find held, judged in this order; the first unmet one is the reason recorded. Each floor is judged by its own number, though another on the same filesystem holds. Two floors naming the same place or the same path are refused by the loader, which JSON Schema cannot say.",
+      "items": { "$ref": "#/definitions/floor" }
+    },
+    "boxed_builds": {
+      "type": "object",
+      "required": ["ceiling"],
+      "additionalProperties": false,
+      "properties": {
+        "ceiling": { "$ref": "#/definitions/ceiling", "description": "The running runs that build behind a boxed boundary (namespace, seatbelt or container) below which another boxed run may start." }
+      }
+    },
+    "cooldowns": {
+      "type": "object",
+      "description": "The cool-down bounds a provider's rate-limit refusal waits (decision 0103 ruling 3). Both numbers are required here. A provider or route named under providers takes the block's number unless it overrides it; a route takes its provider's. The loader refuses a default above its maximum because JSON Schema cannot compare two fields, and refuses a provider or route the capacity block does not declare because that is another block. All numbers are seconds, from 1 to 7200.",
+      "required": ["default_seconds", "max_seconds"],
+      "additionalProperties": false,
+      "properties": {
+        "default_seconds": { "$ref": "#/definitions/cooldown_seconds", "description": "The wait a rate-limit refusal observes when the provider gives no retry-after, unless the site overrides it." },
+        "max_seconds": { "$ref": "#/definitions/cooldown_seconds", "description": "The longest wait or accumulated episode one effect may suffer before it parks. No greater than 7200: the shipped seats' longest attempt deadline, under the fleet's staleness bound." },
+        "providers": {
+          "type": "object",
+          "description": "Provider name to the numbers it overrides for every route under it. A name not under the capacity block's providers is refused by the loader.",
+          "additionalProperties": { "$ref": "#/definitions/provider_cooldown" }
+        }
+      }
+    },
+    "containment": {
+      "enum": ["best-effort", "required"],
+      "default": "best-effort",
+      "description": "What the host demands of an attempt's containment (decision 0080 ruling 6). best-effort, the default, takes the first rung the ladder finds, polling included. required refuses every run and resume where neither delegated nor scope is offered; decision 0080 is not built yet (#472), so this loader refuses required rather than letting a host believe it holds containment it does not get."
+    }
+  },
+  "definitions": {
+    "ceiling": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+    "cooldown_seconds": { "type": "integer", "minimum": 1, "maximum": 7200 },
+    "floor": {
+      "type": "object",
+      "required": ["floor_bytes"],
+      "additionalProperties": false,
+      "oneOf": [{ "required": ["path"] }, { "required": ["place"] }],
+      "description": "Exactly one of path and place.",
+      "properties": {
+        "floor_bytes": { "type": "integer", "minimum": 1, "maximum": 18446744073709551615, "description": "The free bytes the filesystem this floor names must hold for another run to start." },
+        "path": { "type": "string", "pattern": "^/", "description": "An absolute path whose filesystem is measured. A path not made yet is measured on the filesystem that would hold it; one through a link that dangles or loops cannot be measured." },
+        "place": { "enum": ["seat-scratch", "temp"], "description": "seat-scratch: the .forge/scratch directory of the repository the queued run operates, where its seats' scratch trees are made. temp: the host's temp directory, where boxed seats' private /tmp and HOME and the oneshot and probe scratch are made." }
+      }
+    },
+    "route": {
+      "type": "object",
+      "required": ["ceiling", "class"],
+      "additionalProperties": false,
+      "properties": {
+        "ceiling": { "$ref": "#/definitions/ceiling" },
+        "class": { "enum": ["cloud", "shared-local"], "description": "cloud: behind a provider account, counted against this ceiling and the provider's. shared-local: on local hardware the machine shares with other work (decision 0068 ruling 5), counted against this ceiling in place of the provider's." }
+      }
+    },
+    "provider_cooldown": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "default_seconds": { "$ref": "#/definitions/cooldown_seconds", "description": "The wait this provider's sites observe unless a route overrides it. Absent, the block's number applies." },
+        "max_seconds": { "$ref": "#/definitions/cooldown_seconds", "description": "The longest wait this provider's sites may suffer. Absent, the block's number applies." },
+        "routes": {
+          "type": "object",
+          "description": "Route name to the numbers it overrides. A name not under this provider's capacity routes is refused by the loader.",
+          "additionalProperties": { "$ref": "#/definitions/route_cooldown" }
+        }
+      }
+    },
+    "route_cooldown": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "default_seconds": { "$ref": "#/definitions/cooldown_seconds", "description": "The wait this route observes. Absent, its provider's number applies." },
+        "max_seconds": { "$ref": "#/definitions/cooldown_seconds", "description": "The longest wait this route may suffer. Absent, its provider's number applies." }
+      }
+    }
+  }
+}

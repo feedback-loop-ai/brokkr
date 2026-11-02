@@ -112,7 +112,7 @@ fn the_contract_and_the_loader_admit_and_refuse_the_same_files() {
     ];
     let refused = [
         with("/cooldowns", json!({})),
-        with("/schema", json!("forge.host/v2")),
+        with("/schema", json!("forge.host/v3")),
         with("/providers/claude", json!({"ceiling": 0})),
         with("/providers/claude", json!({"ceiling": -1})),
         with("/providers/claude", json!({"ceiling": 4_294_967_296_u64})),
@@ -199,15 +199,221 @@ fn the_lifecycle_row_names_the_reader_and_a_v1_file_loads() {
     let row = crate::contract_lifecycle::row("contracts/host.v1.schema.json");
     assert_eq!(row.version, "forge.host/v1");
     assert_eq!(row.reader, "load brokkr_runtime::admission::host::read");
+    let host = file_loaded(
+        r#"{"schema":"forge.host/v1","providers":{},"floors":[{"place":"temp","floor_bytes":1}],"boxed_builds":{"ceiling":1}}"#,
+    );
+    assert_eq!(host.providers.len(), 0);
+}
+
+/// The capacity block every v2 test below reads, with two declared
+/// providers and two routes on `dsh`.
+const PROVIDERS: &str = r#""dsh":{"ceiling":1,"routes":{"r":{"ceiling":1,"class":"cloud"},"s":{"ceiling":1,"class":"cloud"}}},"codex":{"ceiling":1}"#;
+
+/// A `forge.host/v2` file with the capacity block above and `extra`, the
+/// cooldowns or containment block as the test writes it.
+fn v2(extra: &str) -> String {
+    format!(
+        r#"{{"schema":"forge.host/v2","providers":{{{PROVIDERS}}},"floors":[{{"place":"temp","floor_bytes":1}}],"boxed_builds":{{"ceiling":1}}{extra}}}"#
+    )
+}
+
+/// A v2 file carrying one cooldowns block.
+fn cooled(block: &str) -> String {
+    v2(&format!(r#","cooldowns":{block}"#))
+}
+
+/// A file the loader reads.
+fn loaded(text: &str) -> HostConfig {
+    config(text.as_bytes()).unwrap_or_else(|problem| panic!("{text} was refused: {problem}"))
+}
+
+/// A host file written with `text` and read through the loader's path.
+fn file_loaded(text: &str) -> HostConfig {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("host.json");
-    std::fs::write(
-        &file,
-        r#"{"schema":"forge.host/v1","providers":{},"floors":[{"place":"temp","floor_bytes":1}],"boxed_builds":{"ceiling":1}}"#,
-    )
-    .unwrap();
+    std::fs::write(&file, text).unwrap();
     match read(&file).unwrap() {
-        Hosting::Declared(host) => assert_eq!(host.providers.len(), 0),
-        other => panic!("a v1 host file did not load: {other:?}"),
+        Hosting::Declared(host) => host,
+        other => panic!("a host file did not load: {other:?}"),
     }
+}
+
+/// A file the loader refuses, and why.
+fn refused(text: &str) -> Problem {
+    match config(text.as_bytes()) {
+        Err(problem) => problem,
+        Ok(_) => panic!("the loader admitted {text}"),
+    }
+}
+
+/// A site's inherited bounds, as the loader would hand them on.
+fn bounds(host: &HostConfig, provider: &str, route: Option<&str>) -> Option<(u32, u32)> {
+    host.cooldown(provider, route)
+        .map(|bounds| (bounds.default_seconds.get(), bounds.max_seconds.get()))
+}
+
+#[test]
+fn a_v1_file_reads_as_no_cool_downs() {
+    let text = r#"{"schema":"forge.host/v1","providers":{"dsh":{"ceiling":1,"routes":{"r":{"ceiling":1,"class":"cloud"}}}},"floors":[{"place":"temp","floor_bytes":1}],"boxed_builds":{"ceiling":1}}"#;
+    let host = loaded(text);
+    assert_eq!(bounds(&host, "dsh", None), None);
+    assert_eq!(bounds(&host, "dsh", Some("r")), None);
+    assert_eq!(bounds(&host, "codex", None), None);
+}
+
+#[test]
+fn a_v2_block_reads_and_a_route_and_provider_inherit_what_they_leave_out() {
+    let block = r#"{"default_seconds":10,"max_seconds":60,"providers":{"dsh":{"default_seconds":20,"routes":{"r":{"max_seconds":30}}}}}"#;
+    let host = loaded(&cooled(block));
+    // The provider overrides its default, and takes the block's maximum.
+    assert_eq!(bounds(&host, "dsh", None), Some((20, 60)));
+    // The route overrides its maximum, and takes its provider's default.
+    assert_eq!(bounds(&host, "dsh", Some("r")), Some((20, 30)));
+    // A route with nothing of its own takes its provider.
+    assert_eq!(bounds(&host, "dsh", Some("s")), Some((20, 60)));
+    // A provider with nothing of its own takes the block.
+    assert_eq!(bounds(&host, "codex", None), Some((10, 60)));
+}
+
+#[test]
+fn a_v2_cool_down_outside_its_limits_refuses_naming_the_site_and_field() {
+    let cases = [
+        (
+            cooled(r#"{"default_seconds":300,"max_seconds":7201}"#),
+            "the cool-down max_seconds of the cooldowns block is 7201, past the 7200-second maximum",
+        ),
+        (
+            cooled(r#"{"default_seconds":20,"max_seconds":10}"#),
+            "the cool-down default_seconds of the cooldowns block is 20, above its max_seconds 10",
+        ),
+        (
+            cooled(r#"{"default_seconds":0,"max_seconds":10}"#),
+            "the cool-down default_seconds of the cooldowns block is zero",
+        ),
+        (
+            cooled(r#"{"default_seconds":10,"max_seconds":0}"#),
+            "the cool-down max_seconds of the cooldowns block is zero",
+        ),
+        (
+            cooled(
+                r#"{"default_seconds":10,"max_seconds":60,"providers":{"claude":{}}}"#,
+            ),
+            "the cool-down provider 'claude' is not declared under providers",
+        ),
+        (
+            cooled(
+                r#"{"default_seconds":10,"max_seconds":60,"providers":{"dsh":{"routes":{"second":{}}}}}"#,
+            ),
+            "the cool-down route 'second' of provider 'dsh' is not declared under providers",
+        ),
+        (
+            cooled(
+                r#"{"default_seconds":10,"max_seconds":60,"providers":{"dsh":{"max_seconds":30,"routes":{"r":{"default_seconds":40}}}}}"#,
+            ),
+            "the cool-down default_seconds of route 'r' of provider 'dsh' is 40, above its max_seconds 30",
+        ),
+    ];
+    for (text, said) in cases {
+        assert_eq!(refused(&text).to_string(), said, "{text}");
+    }
+}
+
+#[test]
+fn a_v2_cool_down_block_refuses_an_unknown_key() {
+    let text = cooled(r#"{"default_seconds":10,"max_seconds":60,"pause":1}"#);
+    let Problem::Shape(error) = refused(&text) else {
+        panic!("an unknown key was not read as the contract's shape");
+    };
+    assert_eq!(
+        error.to_string(),
+        "unknown field `pause`, expected one of `default_seconds`, `max_seconds`, `providers` at line 1 column 292"
+    );
+    let mut host: Value = serde_json::from_str(&text).unwrap();
+    host["cooldowns"].as_object_mut().unwrap().remove("pause");
+    host["cooldowns"]["routes"] = json!({"r": {"wait": 1}});
+    assert!(serde_json::from_value::<HostConfig>(host).is_err());
+}
+
+#[test]
+fn a_v2_containment_is_best_effort_unless_required() {
+    assert_eq!(
+        loaded(&v2(r#","containment":"best-effort""#)).cooldown("dsh", None),
+        None
+    );
+    assert_eq!(
+        refused(&v2(r#","containment":"required""#)).to_string(),
+        "containment required is decision 0080's, not built yet (#472)"
+    );
+    let Problem::Shape(error) = refused(&v2(r#","containment":"strict""#)) else {
+        panic!("an unknown containment value was not read as the contract's shape");
+    };
+    assert!(
+        error.to_string().contains("unknown variant `strict`"),
+        "{error}"
+    );
+}
+
+#[test]
+fn the_v2_contract_and_the_loader_admit_and_refuse_the_same_shape() {
+    let contract =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../contracts/host.v2.schema.json");
+    let schema: Value = serde_json::from_slice(&std::fs::read(contract).unwrap()).unwrap();
+    let validator = jsonschema::draft7::new(&schema).unwrap();
+    let minimal = json!({"schema": "forge.host/v2", "providers": {},
+                         "floors": [{"place": "temp", "floor_bytes": 1}],
+                         "boxed_builds": {"ceiling": 1}});
+    assert!(validator.is_valid(&minimal), "a minimal v2 host");
+    let full = cooled(
+        r#"{"default_seconds":10,"max_seconds":60,"providers":{"dsh":{"routes":{"r":{"max_seconds":30}}}}}"#,
+    );
+    assert!(validator.is_valid(&serde_json::from_str::<Value>(&full).unwrap()));
+    for (pointer, value) in [
+        ("/containment", json!("best-effort")),
+        // `required` is a legal v2 value; the loader refuses it because
+        // decision 0080 is not built, which the contract cannot say.
+        ("/containment", json!("required")),
+    ] {
+        let mut host = minimal.clone();
+        host[pointer.trim_start_matches('/')] = value;
+        assert!(validator.is_valid(&host), "{pointer}");
+    }
+    for (pointer, value) in [
+        ("/cooldowns", json!({})),
+        (
+            "/cooldowns",
+            json!({"default_seconds": 10, "max_seconds": 7201}),
+        ),
+        (
+            "/cooldowns",
+            json!({"default_seconds": 0, "max_seconds": 1}),
+        ),
+        (
+            "/cooldowns",
+            json!({"default_seconds": 1, "max_seconds": 1, "pause": 1}),
+        ),
+        ("/containment", json!("strict")),
+    ] {
+        let mut host = minimal.clone();
+        host[pointer.trim_start_matches('/')] = value;
+        assert!(!validator.is_valid(&host), "{pointer}");
+    }
+}
+
+/// Decision 0103 ruling 3's `forge.host/v2` row names this crate's private
+/// reader, and the reader admits an instance of the version.
+#[test]
+fn the_lifecycle_row_names_the_reader_and_a_v2_file_loads() {
+    let row = crate::contract_lifecycle::row("contracts/host.v2.schema.json");
+    assert_eq!(row.version, "forge.host/v2");
+    assert_eq!(row.reader, "load brokkr_runtime::admission::host::read");
+    let host = file_loaded(
+        r#"{"schema":"forge.host/v2","providers":{},"floors":[{"place":"temp","floor_bytes":1}],"boxed_builds":{"ceiling":1},"cooldowns":{"default_seconds":10,"max_seconds":60}}"#,
+    );
+    assert_eq!(
+        host.cooldown("dsh", None),
+        Some(Bounds {
+            default_seconds: NonZeroU32::new(10).unwrap(),
+            max_seconds: NonZeroU32::new(60).unwrap(),
+        })
+    );
 }

@@ -443,7 +443,7 @@ fn an_invalid_host_configuration_refuses_the_pass_naming_the_problem() {
         host
     };
     let mut unknown = valid.clone();
-    unknown["cooldowns"] = json!({});
+    unknown["pause"] = json!({});
     let mut keyed = valid.clone();
     keyed["providers"]["alpha"]["burst"] = json!(2);
     let mut unfloored = valid.clone();
@@ -458,7 +458,7 @@ fn an_invalid_host_configuration_refuses_the_pass_naming_the_problem() {
         with("/floors", json!([floor(1), floor(2)]))
     };
     let cases = [
-        (unknown, "unknown field `cooldowns`, expected one of `schema`, `providers`, `floors`, `boxed_builds` at line 1 column 41"),
+        (unknown, "unknown field `pause`, expected one of `schema`, `providers`, `floors`, `boxed_builds`, `cooldowns`, `containment` at line 1 column 92"),
         (keyed, "unknown field `burst`, expected `ceiling` or `routes` at line 1 column 114"),
         (with("/providers/alpha/ceiling", json!(0)), "invalid value: integer `0`, expected a nonzero u32 at line 1 column 118"),
         (with("/providers/alpha/ceiling", json!(-1)), "invalid value: integer `-1`, expected a nonzero u32 at line 1 column 119"),
@@ -475,7 +475,7 @@ fn an_invalid_host_configuration_refuses_the_pass_naming_the_problem() {
         (with("/floors/0", json!({"floor_bytes": 1, "place": "temp", "size": 1})), "unknown field `size`, expected one of `floor_bytes`, `path`, `place` at line 1 column 78"),
         (twice(json!({"place": "temp"})), "the floor at place 'temp' is written twice at line 1 column 106"),
         (twice(json!({"path": "/var/tmp"})), "the floor at path '/var/tmp' is written twice at line 1 column 112"),
-        (with("/schema", json!("forge.host/v2")), "unknown variant `forge.host/v2`, expected `forge.host/v1` at line 1 column 178"),
+        (with("/schema", json!("forge.host/v3")), "unknown variant `forge.host/v3`, expected `forge.host/v1` or `forge.host/v2` at line 1 column 178"),
         (with("/providers/beta/routes", json!({"spark-glm": route(1, "local")})), "unknown variant `local`, expected `cloud` or `shared-local` at line 1 column 190"),
     ];
     let said: Vec<String> = cases

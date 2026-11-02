@@ -182,6 +182,12 @@ const FROZEN: [(&str, &str); 31] = [
         "contracts/run-manifest.v9.schema.json",
         "c046add105f94efccba9a4d688016eadc8f2933bdbfe70a9f625991e46878a71",
     ),
+    // Decision 0103 ruling 3 lands `forge.host/v2` beside v1, which is
+    // frozen from here: the loader keeps reading both.
+    (
+        "contracts/host.v1.schema.json",
+        "81eadfe6d066be359f1eb2d38b9a4d5ba94c42b7c6a9929fb31a31af6fa6a2d0",
+    ),
 ];
 
 #[test]
@@ -865,6 +871,50 @@ fn the_host_contract_lands_as_its_own_first_version() {
     assert!(
         !validator.is_valid(&map),
         "a realms version under the host schema"
+    );
+}
+
+/// Decision 0103 ruling 3 lands `forge.host/v2` beside v1, whose bytes are
+/// pinned above: v2 is v1 plus the optional `cooldowns` block and decision
+/// 0080 ruling 6's `containment` field, and no other clause moves.
+#[test]
+fn the_host_v2_contract_lands_beside_v1_with_cool_downs_and_containment() {
+    use serde_json::json;
+    assert_eq!(
+        titled("contracts/host.v2.schema.json"),
+        "Forge host configuration v2"
+    );
+    let [v2, v1] = published(["host.v2", "host.v1"]);
+    let mut carried = v1["properties"].clone();
+    for key in ["schema", "cooldowns", "containment"] {
+        carried[key] = v2["properties"][key].clone();
+    }
+    assert_eq!(carried, v2["properties"], "v2 moved a property v1 defines");
+    for key in ["required", "additionalProperties", "type"] {
+        assert_eq!(v2[key], v1[key], "{key} moved between v1 and v2");
+    }
+
+    let validator = contract("contracts/host.v2.schema.json");
+    let host = json!({"schema": "forge.host/v2",
+        "providers": {"dsh": {"ceiling": 1, "routes": {"spark-glm": {"ceiling": 1,
+                                                                      "class": "shared-local"}}}},
+        "floors": [{"place": "seat-scratch", "floor_bytes": 1}], "boxed_builds": {"ceiling": 1},
+        "cooldowns": {"default_seconds": 10, "max_seconds": 60,
+                      "providers": {"dsh": {"routes": {"spark-glm": {"max_seconds": 30}}}}},
+        "containment": "best-effort"});
+    assert!(validator.is_valid(&host), "a v2 host configuration");
+    let mut map = host.clone();
+    map["schema"] = json!("forge.host/v1");
+    assert!(!validator.is_valid(&map), "a v1 label under the v2 schema");
+    map["schema"] = json!("forge.host/v2");
+    map["cooldowns"]["routes"] = json!({"spark-glm": {"wait": 1}});
+    assert!(
+        !validator.is_valid(&map),
+        "an unknown key inside a v2 cool-downs block"
+    );
+    assert!(
+        !contract("contracts/host.v1.schema.json").is_valid(&host),
+        "the frozen v1 schema admitted a v2 host"
     );
 }
 
