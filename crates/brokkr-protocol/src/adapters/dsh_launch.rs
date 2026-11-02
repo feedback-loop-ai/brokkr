@@ -149,6 +149,229 @@ pub(super) fn invoke_dsh_launch_observed(
     Ok(invocation)
 }
 
+/// One qualified invocation's live state: the launch, the root watch, the
+/// launch hold, the transcript fold and the probe. A parameter object, so
+/// the between-lines poll is one call rather than an eight-argument list
+/// (decision 0071 rulings 4 and 10).
+struct DshStreamState<'a> {
+    launch: &'a DshLaunch,
+    bindings: &'a [secret::BoundSecret],
+    watch: &'a mut DshRootWatch,
+    hold: &'a mut LaunchHold,
+    tail: &'a mut DshTail,
+    turns: &'a mut u64,
+    session_meta: &'a mut Map<String, Value>,
+    probe: &'a mut ProbeAnswer,
+}
+
+/// What one pass over the qualified child found: an answer, an ordinary
+/// tick, a child that ended, or a stdout line that could not be read.
+enum DshPass {
+    Answered,
+    Continue,
+    Exited(std::process::ExitStatus),
+    Unreadable,
+}
+
+impl DshStreamState<'_> {
+    /// The watcher's settle with this invocation's own hold and metadata.
+    fn settle(
+        &mut self,
+        line: DshStreamLine,
+        emit: &mut impl FnMut(&Value),
+        observer: &mut impl FnMut(&DshObservation),
+    ) {
+        self.watch.settle(
+            line,
+            &mut *self.hold,
+            &mut *self.session_meta,
+            emit,
+            observer,
+        );
+    }
+
+    /// Fold whatever the transcript appended, when the hold permits it.
+    /// Returns whether the probe admitted its first answer.
+    fn drain(&mut self, emit: &mut impl FnMut(&Value)) -> bool {
+        if self.watch.may_fold() {
+            DshFoldState {
+                tail: &mut *self.tail,
+                turns: &mut *self.turns,
+                session_meta: &mut *self.session_meta,
+                probe: &mut *self.probe,
+            }
+            .drain(self.launch, self.bindings, emit);
+        }
+        self.probe.answered()
+    }
+
+    /// Poll the transcript between stdout lines: settle a held root once
+    /// its init event named the offer, then fold at the shipped route's
+    /// cadence. An answer never waits for stdout to speak (fix round
+    /// 430s4a3 M2; decision 0103 ruling 4(a)).
+    fn poll(
+        &mut self,
+        emit: &mut impl FnMut(&Value),
+        observer: &mut impl FnMut(&DshObservation),
+    ) -> bool {
+        if !self.probe.requested() {
+            return false;
+        }
+        if self.watch.confirming() && self.watch.named_the_offer && !self.watch.settled {
+            self.settle(DshStreamLine::Idle, emit, observer);
+        }
+        self.drain(emit)
+    }
+
+    /// One pass over stdout and the transcript. `open` flips false at
+    /// stdout's clean end, and a closed stdout still ticks on the
+    /// transcript alone: an answer never waits for stdout to speak (fix
+    /// round 430s4a3 M2; decision 0103 ruling 4(a)).
+    fn pass(
+        &mut self,
+        open: &mut bool,
+        reads: &std::sync::mpsc::Receiver<std::io::Result<String>>,
+        child: &mut std::process::Child,
+        emit: &mut impl FnMut(&Value),
+        observer: &mut impl FnMut(&DshObservation),
+    ) -> Result<DshPass, String> {
+        let read = if *open {
+            match reads.recv_timeout(DSH_POLL_IDLE) {
+                Ok(Ok(line)) => {
+                    // Decode a line before the store behind it (design D7).
+                    let read = fold_dsh_line(
+                        line,
+                        &mut *self.watch,
+                        &mut *self.hold,
+                        &mut *self.session_meta,
+                        self.bindings,
+                        emit,
+                    );
+                    // Settle before every drain; never drain while the hold
+                    // is closed (design D7, task 7.4).
+                    self.settle(read, emit, observer);
+                    Some(read)
+                }
+                Ok(Err(_)) => {
+                    self.watch.unread(DshStreamLine::Unreadable);
+                    self.settle(DshStreamLine::Unreadable, emit, observer);
+                    return Ok(DshPass::Unreadable);
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    *open = false;
+                    None
+                }
+            }
+        } else {
+            std::thread::sleep(DSH_POLL_IDLE);
+            None
+        };
+        let answered = match read {
+            Some(DshStreamLine::Event) => self.drain(emit),
+            _ => self.poll(emit, observer),
+        };
+        // The answer is the whole report: stop here, not at EOF.
+        if answered {
+            return Ok(DshPass::Answered);
+        }
+        if !*open {
+            if let Some(status) = io_context(child.try_wait(), "agent CLI did not conclude")? {
+                return Ok(DshPass::Exited(status));
+            }
+        }
+        Ok(DshPass::Continue)
+    }
+}
+
+/// The qualified `--output-format stream-json` exchange (task 8.8(d)):
+/// stdout is the pinned plugin's two-event envelope, whose
+/// post-`await agents.resume` init event is the ONLY root confirmation this
+/// driver accepts. The retained transcript is folded alongside it, only
+/// past the offered root's own sequence boundary, so a warm session never
+/// re-counts its restored history.
+///
+/// stdout is read on its own thread, and the transcript is polled on EVERY
+/// pass — a decoded line, noise, silence or EOF — so a probe reports its
+/// answer at the answer rather than at stdout's end (fix round 430s4a3 M2;
+/// decision 0103 ruling 4(a)).
+#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
+fn invoke_dsh_stream_json(
+    command: &[String],
+    launch: &DshLaunch,
+    bindings: &[secret::BoundSecret],
+    probe: &mut ProbeAnswer,
+    watch: &mut DshRootWatch,
+    hold: &mut LaunchHold,
+    session_meta: &mut Map<String, Value>,
+    emit: &mut impl FnMut(&Value),
+    observer: &mut impl FnMut(&DshObservation),
+) -> Result<DshRun, String> {
+    let (mut child, stderr_thread) =
+        spawn_dsh(command, &launch.workdir, Stdio::piped(), launch, bindings)?;
+    let stdout = child.stdout.take().expect("piped");
+    let mut turns = 0u64;
+    let mut tail = DshTail::default();
+    let (lines, reads) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in std::io::BufReader::new(stdout).lines() {
+            if lines.send(line).is_err() {
+                return;
+            }
+        }
+    });
+    let mut state = DshStreamState {
+        launch,
+        bindings,
+        watch,
+        hold,
+        tail: &mut tail,
+        turns: &mut turns,
+        session_meta,
+        probe,
+    };
+    // stdout may close before the child does (or stay open while it
+    // sleeps): once it is closed, the transcript alone carries the answer
+    // and the child's own exit ends the wait.
+    let mut open = true;
+    let mut exited = None;
+    let mut stopped = false;
+    loop {
+        match state.pass(&mut open, &reads, &mut child, emit, observer)? {
+            DshPass::Continue => {}
+            DshPass::Answered => {
+                stopped = true;
+                break;
+            }
+            DshPass::Exited(status) => {
+                exited = Some(status);
+                break;
+            }
+            DshPass::Unreadable => break,
+        }
+    }
+    let status = if stopped {
+        conclude_harness(&mut child)?
+    } else if let Some(status) = exited {
+        status
+    } else {
+        io_context(child.wait(), "agent CLI did not conclude")?
+    };
+    // A clean end adds no confirmation fact and clears nothing.
+    state.settle(DshStreamLine::End, emit, observer);
+    if !stopped {
+        state.drain(emit);
+    }
+    let raw = stderr_thread.take(stopped);
+    finish_dsh(
+        state.session_meta,
+        lost::exit_code(status),
+        raw,
+        state.probe.take(),
+        bindings,
+    )
+}
+
 /// Why a launch is refused before any row names its home or any child
 /// spawns: the home's own refusal, the probe's argv refusal, or a composed
 /// tree that does not hold (#896; decision 0071 ruling 8).

@@ -71,10 +71,22 @@ pub(super) fn drain_stderr(child: &mut std::process::Child) -> StderrCapture {
 }
 
 impl StderrCapture {
+    /// Take the stderr one invocation keeps: bounded when the probe stopped
+    /// its harness, complete when the harness ended on its own. The one
+    /// home of the stopped/ended disposition (#430 L3; decision 0071
+    /// ruling 5).
+    pub(super) fn take(self, stopped: bool) -> Vec<u8> {
+        if stopped {
+            self.settle()
+        } else {
+            self.finish()
+        }
+    }
+
     /// Wait a bounded moment for the reader to reach EOF, then take what it
     /// has. The reader is detached, not joined: a descendant still holding
     /// the inherited pipe must not hold this driver.
-    pub(super) fn settle(mut self) -> Vec<u8> {
+    fn settle(mut self) -> Vec<u8> {
         let state = self.buffer.state.lock().expect("stderr buffer");
         let (state, _) = self
             .buffer
@@ -89,7 +101,7 @@ impl StderrCapture {
 
     /// Wait for the reader to reach EOF and take everything it read. Used
     /// where the harness was not stopped, so its pipe is expected to close.
-    pub(super) fn finish(mut self) -> Vec<u8> {
+    fn finish(mut self) -> Vec<u8> {
         if let Some(reader) = self.reader.take() {
             let _ = reader.join();
         }

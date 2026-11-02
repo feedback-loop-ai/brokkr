@@ -823,6 +823,13 @@ fn stop_harness(child: &mut std::process::Child) -> std::io::Result<std::process
     child.wait()
 }
 
+/// [`stop_harness`] at the ONE existing text boundary: every stopped route
+/// converts its typed wait failure here, so the operator's words have one
+/// home (#430 L3; decision 0071 rulings 5 and 8).
+fn conclude_harness(child: &mut std::process::Child) -> Result<std::process::ExitStatus, String> {
+    io_context(stop_harness(child), "agent CLI did not conclude")
+}
+
 fn run_cli(
     command: &[String],
     stdin_payload: Option<&str>,
@@ -2350,10 +2357,7 @@ fn poll_until_exit(
     loop {
         let finished = io_context(wait(child), "agent CLI did not conclude")?;
         if drain() {
-            return Ok(lost::exit_code(io_context(
-                stop_harness(child),
-                "agent CLI did not conclude",
-            )?));
+            return Ok(lost::exit_code(conclude_harness(child)?));
         }
         if let Some(code) = finished {
             return Ok(code);
@@ -2462,18 +2466,14 @@ fn invoke_stream_json(
             }
         }
         let status = if stopped {
-            io_context(stop_harness(&mut child), "agent CLI did not conclude")?
+            conclude_harness(&mut child)?
         } else {
             io_context(child.wait(), "agent CLI did not conclude")?
         };
         transcript.finish(&mut session_meta, &mut watch);
         status
     };
-    let raw = if stopped {
-        stderr_thread.settle()
-    } else {
-        stderr_thread.finish()
-    };
+    let raw = stderr_thread.take(stopped);
     let stderr = secret::mask_text(&raw, bindings);
     Ok(Invocation {
         exit_code: lost::exit_code(status),
@@ -3661,16 +3661,12 @@ fn invoke_codex(
             }
         }
         if stopped {
-            io_context(stop_harness(&mut child), "agent CLI did not conclude")?
+            conclude_harness(&mut child)?
         } else {
             io_context(child.wait(), "agent CLI did not conclude")?
         }
     };
-    let raw = if stopped {
-        stderr_thread.settle()
-    } else {
-        stderr_thread.finish()
-    };
+    let raw = stderr_thread.take(stopped);
     let stderr = secret::mask_text(&raw, bindings);
     // An attempt that concluded without ever reaching a `turn.completed`
     // — a release that folds none, or a codex that exits before its
@@ -4817,136 +4813,8 @@ fn invoke_dsh_shipped(
         },
     )?;
     let stopped = probe.answered();
-    let raw = if stopped {
-        stderr_thread.settle()
-    } else {
-        stderr_thread.finish()
-    };
+    let raw = stderr_thread.take(stopped);
     finish_dsh(session_meta, exit_code, raw, probe.take(), bindings)
-}
-
-/// The qualified `--output-format stream-json` exchange (task 8.8(d)):
-/// stdout is the pinned plugin's two-event envelope, whose
-/// post-`await agents.resume` init event is the ONLY root confirmation this
-/// driver accepts. The retained transcript is folded alongside it, only
-/// past the offered root's own sequence boundary, so a warm session never
-/// re-counts its restored history.
-#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
-fn invoke_dsh_stream_json(
-    command: &[String],
-    launch: &DshLaunch,
-    bindings: &[secret::BoundSecret],
-    probe: &mut ProbeAnswer,
-    watch: &mut DshRootWatch,
-    hold: &mut LaunchHold,
-    session_meta: &mut Map<String, Value>,
-    emit: &mut impl FnMut(&Value),
-    observer: &mut impl FnMut(&DshObservation),
-) -> Result<DshRun, String> {
-    let (mut child, stderr_thread) =
-        spawn_dsh(command, &launch.workdir, Stdio::piped(), launch, bindings)?;
-    let stdout = child.stdout.take().expect("piped");
-    let mut turns = 0u64;
-    let mut tail = DshTail::default();
-    let mut stopped = false;
-    // Read stdout on its own thread so the loop can poll between lines (M2).
-    let (lines, reads) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        for line in std::io::BufReader::new(stdout).lines() {
-            if lines.send(line).is_err() {
-                return;
-            }
-        }
-    });
-    loop {
-        let read = match reads.recv_timeout(DSH_POLL_IDLE) {
-            Ok(Ok(line)) => {
-                // Decode a line before the store behind it (design D7).
-                let read = fold_dsh_line(line, watch, hold, session_meta, bindings, emit);
-                // Settle before every drain; never drain while the hold is
-                // closed (design D7, task 7.4).
-                watch.settle(read, hold, session_meta, emit, observer);
-                read
-            }
-            Ok(Err(_)) => {
-                watch.unread(DshStreamLine::Unreadable);
-                watch.settle(
-                    DshStreamLine::Unreadable,
-                    hold,
-                    session_meta,
-                    emit,
-                    observer,
-                );
-                break;
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                // A probe polls the transcript between lines (0103 4(a); M2).
-                if !probe.requested() {
-                    continue;
-                }
-                if watch.confirming() && watch.named_the_offer && !watch.settled {
-                    watch.settle(DshStreamLine::Idle, hold, session_meta, emit, observer);
-                }
-                if watch.may_fold() {
-                    dsh_launch::DshFoldState {
-                        tail: &mut tail,
-                        turns: &mut turns,
-                        session_meta,
-                        probe,
-                    }
-                    .drain(launch, bindings, emit);
-                    if probe.answered() {
-                        stopped = true;
-                        break;
-                    }
-                }
-                continue;
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-        };
-        if read == DshStreamLine::Event && watch.may_fold() {
-            dsh_launch::DshFoldState {
-                tail: &mut tail,
-                turns: &mut turns,
-                session_meta,
-                probe,
-            }
-            .drain(launch, bindings, emit);
-            // The answer is the whole report: stop here, not at EOF.
-            if probe.answered() {
-                stopped = true;
-                break;
-            }
-        }
-    }
-    let status = if stopped {
-        io_context(stop_harness(&mut child), "agent CLI did not conclude")?
-    } else {
-        io_context(child.wait(), "agent CLI did not conclude")?
-    };
-    // A clean end adds no confirmation fact and clears nothing.
-    watch.settle(DshStreamLine::End, hold, session_meta, emit, observer);
-    if !stopped && watch.may_fold() {
-        dsh_launch::DshFoldState {
-            tail: &mut tail,
-            turns: &mut turns,
-            session_meta,
-            probe,
-        }
-        .drain(launch, bindings, emit);
-    }
-    let raw = if stopped {
-        stderr_thread.settle()
-    } else {
-        stderr_thread.finish()
-    };
-    finish_dsh(
-        session_meta,
-        lost::exit_code(status),
-        raw,
-        probe.take(),
-        bindings,
-    )
 }
 
 /// One line of the plugin's stream-json envelope. The init event names the

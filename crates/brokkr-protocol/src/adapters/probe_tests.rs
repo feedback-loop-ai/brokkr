@@ -671,3 +671,116 @@ fn a_refusal_is_classified_only_before_the_first_counted_turn() {
     )
     .is_none());
 }
+
+/// The valid session header and one `assistant/message` answer appended to
+/// `file`, as the headless runner writes them once turn 1 completes.
+#[cfg(unix)]
+fn dsh_append_answer(file: &std::path::Path) -> String {
+    format!(
+        "printf '{{\"type\":\"session\",\"version\":3,\"id\":\"session-1\",\"delegationDepth\":0}}\\n' > '{file}'\n\
+         printf '{{\"type\":\"assistant/message\",\"seq\":0,\"data\":{{\"message\":{{\"source\":{{\"model\":\"deepseek-flash\"}}}},\"usage\":{{\"inputTokens\":5,\"outputTokens\":2}}}}}}\\n' >> '{file}'\n",
+        file = file.display(),
+    )
+}
+
+/// One qualified probe shim: the init event, then `before_answer` (what
+/// stdout does before the transcript moves), then the answer and a hang.
+#[cfg(unix)]
+fn dsh_probe_body(file: &std::path::Path, before_answer: &str) -> String {
+    format!(
+        "#!/bin/sh\n\
+         printf '%s\\n' '{{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-1\"}}'\n\
+         {before_answer}\
+         {answer}\
+         sleep 2\n",
+        answer = dsh_append_answer(file),
+    )
+}
+
+/// Drive one qualified cold probe whose shim is `body` and report what it
+/// answered beside the wall time.
+#[cfg(unix)]
+fn run_qualified_probe(
+    dir: &std::path::Path,
+    name: &str,
+    body: impl FnOnce(&std::path::Path) -> String,
+) -> (Invocation, std::time::Duration) {
+    let root = dir.join("seat");
+    let transcript = root.join("--w--").join("session-1").join(DSH_TRANSCRIPT);
+    std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+    let shim = executable(dir, name, &body(&transcript));
+    let launch = super::tests::dsh_stream_launch(&shim, &root, None, None);
+    let command = [launch.command.clone(), vec!["the prompt".to_string()]].concat();
+    let began = std::time::Instant::now();
+    let invocation = super::dsh_launch::invoke_dsh_launch_observed(
+        launch,
+        command,
+        &[],
+        &mut ProbeAnswer::new(true),
+        &mut |_| {},
+        |_| panic!("the qualified arm does not poll the child"),
+        &mut |_| {},
+    )
+    .expect("the qualified probe reports");
+    (invocation, began.elapsed())
+}
+
+/// A qualified probe must report its turn-1 answer inside `bound`; the
+/// `waited` phrase names what stdout was doing so a failure reads as the
+/// delay it was.
+#[cfg(unix)]
+fn assert_answered_under(
+    (invocation, elapsed): (Invocation, std::time::Duration),
+    bound: std::time::Duration,
+    waited: &str,
+) {
+    assert!(
+        elapsed < bound,
+        "the probe waited for {waited}: {elapsed:?}"
+    );
+    let answer = invocation.answer.expect("the probe reports its answer");
+    assert_eq!(answer["step"], json!("seat-turn"), "{answer}");
+    assert_eq!(answer["turn"], json!(1), "{answer}");
+}
+
+/// #430 M2 (decision 0103 ruling 4(a); decision 0071 ruling 9): a probe
+/// whose answer is appended while stdout stays silent must report at the
+/// answer, not wait for the child to end.
+#[cfg(unix)]
+#[test]
+fn a_qualified_dsh_probe_that_answers_then_hangs_reports_its_answer() {
+    let dir = tempfile::tempdir().unwrap();
+    let report = run_qualified_probe(dir.path(), "dsh-qualified-probe-answer", |file| {
+        dsh_probe_body(file, "sleep 0.2\n")
+    });
+    assert_answered_under(report, std::time::Duration::from_secs(1), "stdout silence");
+}
+
+/// #430 M2 (review finding, decision 0103 ruling 4(a)): stdout closing
+/// before the child does must not delay the transcript's answer. The old
+/// route broke its loop at stdout EOF and then waited out the child.
+#[cfg(unix)]
+#[test]
+fn review_qualified_probe_stdout_eof_does_not_delay_transcript_answer() {
+    let dir = tempfile::tempdir().unwrap();
+    let report = run_qualified_probe(dir.path(), "dsh-qualified-probe-eof", |file| {
+        dsh_probe_body(file, "exec 1>&-\nsleep 0.2\n")
+    });
+    assert_answered_under(report, std::time::Duration::from_secs(1), "stdout EOF");
+}
+
+/// #430 M2 (review finding, decision 0103 ruling 4(a)): stdout noise must
+/// not delay the transcript's answer either. The old route polled only on
+/// a receive timeout, so a line every 20 ms held the transcript off.
+#[cfg(unix)]
+#[test]
+fn review_qualified_probe_stdout_noise_does_not_delay_transcript_answer() {
+    let dir = tempfile::tempdir().unwrap();
+    let report = run_qualified_probe(dir.path(), "dsh-qualified-probe-noise", |file| {
+        dsh_probe_body(
+            file,
+            "( i=0; while [ $i -lt 100 ]; do printf 'not a stream line\\n'; sleep 0.02; i=$((i+1)); done ) &\nsleep 0.2\n",
+        )
+    });
+    assert_answered_under(report, std::time::Duration::from_secs(1), "stdout noise");
+}

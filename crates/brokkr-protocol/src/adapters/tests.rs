@@ -5543,7 +5543,7 @@ fn the_planned_dsh_fold_boundary_reaches_the_transcript_drain() {
 /// the Pass C confirmation cases drive production's own
 /// `invoke_dsh_launch` without an installed provider.
 #[cfg(unix)]
-fn dsh_stream_launch(
+pub(super) fn dsh_stream_launch(
     shim: &std::path::Path,
     root: &std::path::Path,
     rejoining: Option<&str>,
@@ -5602,53 +5602,6 @@ fn transcript_rows(emitted: &[Value]) -> Vec<&Value> {
         .iter()
         .filter(|row| row["step"] == "transcript")
         .collect()
-}
-
-/// #430 M2 (decision 0103 ruling 4(a); decision 0071 ruling 9): the
-/// qualified route drains its transcript only after a decoded stdout line,
-/// so a probe whose answer is appended while stdout stays silent waits for
-/// EOF. A probe must report its answer at the answer.
-#[cfg(unix)]
-#[test]
-fn a_qualified_dsh_probe_that_answers_then_hangs_reports_its_answer() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join("seat");
-    let transcript = root.join("--w--").join("session-1").join(DSH_TRANSCRIPT);
-    std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
-    let shim = executable(
-        dir.path(),
-        "dsh-qualified-probe-answer",
-        &format!(
-            "#!/bin/sh\n\
-             printf '%s\\n' '{{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"session-1\"}}'\n\
-             sleep 0.2\n\
-             printf '{{\"type\":\"session\",\"version\":3,\"id\":\"session-1\",\"delegationDepth\":0}}\\n' > '{file}'\n\
-             printf '{{\"type\":\"assistant/message\",\"seq\":0,\"data\":{{\"message\":{{\"source\":{{\"model\":\"deepseek-flash\"}}}},\"usage\":{{\"inputTokens\":5,\"outputTokens\":2}}}}}}\\n' >> '{file}'\n\
-             sleep 2\n",
-            file = transcript.display(),
-        ),
-    );
-    let launch = dsh_stream_launch(&shim, &root, None, None);
-    let command = [launch.command.clone(), vec!["the prompt".to_string()]].concat();
-    let began = std::time::Instant::now();
-    let invocation = super::dsh_launch::invoke_dsh_launch_observed(
-        launch,
-        command,
-        &[],
-        &mut ProbeAnswer::new(true),
-        &mut |_| {},
-        |_| panic!("the qualified arm does not poll the child"),
-        &mut |_| {},
-    )
-    .expect("the qualified probe reports");
-    let elapsed = began.elapsed();
-    assert!(
-        elapsed < std::time::Duration::from_secs(1),
-        "the probe waited for stdout EOF: {elapsed:?}"
-    );
-    let answer = invocation.answer.expect("the probe reports its answer");
-    assert_eq!(answer["step"], json!("seat-turn"), "{answer}");
-    assert_eq!(answer["turn"], json!(1), "{answer}");
 }
 
 /// The DSH arm of LE1/AS1: the request-derived `session_id` is the value
