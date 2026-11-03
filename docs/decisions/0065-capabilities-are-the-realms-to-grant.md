@@ -3,7 +3,7 @@
 Status: accepted (operator ruled in chat, 2026-09-21)
 Date: 2026-09-21
 
-Built: partial (#467) — slice one merged 2026-10-01 (#319, 7c92e45da); slice two lands unit by unit, U0b through U9b1b merged by 2026-11-01 (#933), and its remaining units are tasked in the openspec change decision-0065-capabilities-slice-two
+Built: partial (#467) — slice one merged 2026-10-01 (#319, 7c92e45da); slice two merged 2026-11-03, its change folded into the living specs as `openspec/changes/archive/2026-11-03-decision-0065-capabilities-slice-two` (#986, 0dbdae650); slice three is unbuilt
 Amends: 0016
 Amended by: 0077, 0090
 
