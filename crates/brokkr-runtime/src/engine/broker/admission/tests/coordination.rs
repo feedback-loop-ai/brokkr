@@ -956,19 +956,22 @@ fn a_bind_alias_of_protected_evidence_is_refused() {
     std::fs::create_dir_all(artifacts(&host.worktree("kept"))).unwrap();
     std::fs::create_dir_all(host.worktree("other").join("holder/alias")).unwrap();
     let name = "engine::broker::admission::tests::coordination::a_bind_alias_of_protected_evidence_is_refused";
-    let status = Command::new("unshare")
+    let ran = Command::new("unshare")
         .args(["--user", "--map-root-user", "--mount", "--"])
         .arg(std::env::current_exe().unwrap())
         .args(["--exact", name, "--nocapture", "--test-threads=1"])
         .env(ALIASED, host.dir.path())
-        .status();
+        .output();
     if !host.dir.path().join("entered").exists() {
         let reason = "a_bind_alias_of_protected_evidence_is_refused: no user and mount namespace";
         return brokkr_protocol::hands::skip_boundary_proof(required, reason);
     }
+    let ran = ran.unwrap();
+    let said = String::from_utf8_lossy(&ran.stdout);
+    let told = String::from_utf8_lossy(&ran.stderr);
     assert!(
-        status.unwrap().success(),
-        "the proof in its namespace failed"
+        ran.status.success(),
+        "the proof in its namespace failed: {said}{told}"
     );
 }
 
