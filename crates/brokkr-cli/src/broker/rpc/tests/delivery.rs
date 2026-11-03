@@ -198,7 +198,7 @@ fn an_output_that_takes_a_piece_short_ends_the_session_as_a_delivery_failure() {
         assert_eq!((full, pinged(full, short)), (full, expected));
     }
     let said = UNDELIVERED.to_string();
-    assert_eq!(said, "MCP broker output could not be delivered");
+    assert_eq!(said, Failure::Undelivered.to_string());
 }
 
 #[test]
@@ -480,7 +480,7 @@ fn an_answer_with_512_bytes_and_no_safe_point_ends_the_session_masked() {
     let body = json!({"content": [{"type": "text", "text": digits}]});
     let ran = conversed(answering_with(tools(), body), move |harness| {
         harness.send(&call("1", "lookup"));
-        let cause = "MCP response cannot be safely masked";
+        let cause = Failure::Masking.to_string();
         let told =
             json!({"jsonrpc": "2.0", "id": "1", "error": {"code": -32603, "message": cause}});
         assert_eq!(harness.next(), Some(told));

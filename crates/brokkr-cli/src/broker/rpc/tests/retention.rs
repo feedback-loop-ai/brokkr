@@ -259,7 +259,7 @@ fn a_retained_response_whose_delivery_fails_stays_staged_and_cited_and_is_never_
 
 /// The harness's refusal of call `id` for the budget.
 fn exhausted(id: &str) -> Value {
-    refusal(json!(id), -32603, "capability evidence budget is exhausted")
+    refusal(json!(id), -32603, super::super::Refused::Budget)
 }
 
 /// What a well-behaved server answers a call of `lookup` with, delivered.
@@ -353,7 +353,7 @@ fn a_stage_or_terminal_that_cannot_be_made_delivers_nothing_and_leaves_the_call_
     // The Terminal's append fails after its stage: the staged bytes remain,
     // proving no result, and the same. Either way the call stays begun for
     // settlement, which reads it interrupted, and the session is unclosed.
-    let unrecorded = refusal(json!("1"), -32603, "broker call could not be recorded");
+    let unrecorded = refusal(json!("1"), -32603, Unrecorded::Record);
     for (case, retain, failing, stages) in [
         ("stage", retain(1, Some(1)), None, 0),
         ("terminal", retain(1, None), Some(3), 1),
@@ -384,7 +384,7 @@ fn a_harness_that_ends_during_a_call_fails_it_and_the_session_with_its_cancellat
     // killed, its output closed too, leaves no unfinished ledger: the call
     // fails with its Terminal, and the session closes Failed with MB5's
     // cancellation cause, the attempt's timeout.
-    let timed_out = refusal(json!("1"), -32603, "MCP server call timed out");
+    let timed_out = refusal(json!("1"), -32603, Failure::Timeout);
     let polite = move |harness: &mut Harness| {
         harness.send(&call("1", "lookup"));
         drop(harness.to.take());

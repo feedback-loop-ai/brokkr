@@ -328,7 +328,7 @@ done
         states.iter().filter(|state| *state == "succeeded").count(),
         16
     );
-    let exhausted = "capability evidence budget is exhausted";
+    let exhausted = super::BUDGET;
     let heard = std::fs::read_to_string(world.bin("heard")).unwrap();
     let last = heard.lines().find(|line| line.contains(r#""id":"c16""#));
     assert!(last.unwrap().contains(exhausted), "{}", last.unwrap().len());

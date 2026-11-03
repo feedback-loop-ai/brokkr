@@ -172,7 +172,7 @@ fn a_session_closes_clean_only_once_its_standard_error_took_every_piece_whole() 
     let failed: fn() -> Result<(), Ended> = || Err(Ended::Failed(Fatal::Failed(Failure::Protocol)));
     let (whole, short, closed) = ((ATOMIC, usize::MAX), (3, usize::MAX), (ATOMIC, 0));
     let tail = "server says\n";
-    let last = format!("{tail}error: MCP server protocol is invalid\n");
+    let last = format!("{tail}error: {}\n", Failure::Protocol);
     let failure = |cause| Some(Disposition::Failed(cause));
     let (success, exit_failed) = (ExitCode::SUCCESS, ExitCode::from(1));
     for (case, ended, sink, expected) in [

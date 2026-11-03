@@ -213,10 +213,7 @@ fn more_retaining_members_than_the_budget_shares_refuse_before_anything_starts()
     let ended = world.run();
     assert_eq!(
         (ended.status.as_str(), ended.cause.as_deref()),
-        (
-            "awaiting_operator",
-            Some("capability evidence budget is exhausted")
-        ),
+        ("awaiting_operator", Some(super::BUDGET)),
         "{ended:?}"
     );
     assert_eq!((reads.lookups(), world.starts()), (0, 0));

@@ -46,14 +46,14 @@ fn a_line_is_sanitized_for_display_before_it_is_masked_and_guarded() {
 fn the_last_line_is_rendered_whole_and_written_only_by_known_bindings() {
     let protocol = || Err(Ended::Failed(Fatal::Failed(Failure::Protocol)));
     let error = bound("DOCS_TOKEN", "error");
-    let masked = "[secret:DOCS_TOKEN]: MCP server protocol is invalid\n";
+    let masked = format!("[secret:DOCS_TOKEN]: {}\n", Failure::Protocol);
     let (code, said) = last(protocol(), Some(&error));
     assert_eq!(
         (code, text(said)),
         (ExitCode::from(1), Some(masked.to_owned()))
     );
     // None looked up: the line as any failed command prints it.
-    let plain = "error: MCP server protocol is invalid\n";
+    let plain = format!("error: {}\n", Failure::Protocol);
     let (code, said) = last(protocol(), Some(&[]));
     assert_eq!(
         (code, text(said)),

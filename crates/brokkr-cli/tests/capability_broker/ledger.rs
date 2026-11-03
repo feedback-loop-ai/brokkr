@@ -136,33 +136,18 @@ fn ended(tool: &str, outcome: Outcome) -> (String, Option<Outcome>) {
 
 #[test]
 fn each_ledger_cause_reads_in_cr3s_words() {
-    let texts: [(&dyn std::error::Error, &str); 18] = [
+    let texts: [(&dyn std::error::Error, &str); 12] = [
         (&Unrecorded::Reopened, "broker plan has already been opened"),
         (&Unrecorded::Record, "broker call could not be recorded"),
-        (
-            &Unrecorded::Limit,
-            "broker ledger exceeds the attempt limit",
-        ),
-        (&Unrecorded::Masking, "MCP response cannot be safely masked"),
         (
             &Failure::Version,
             "MCP server version does not match the dialect's pinned version",
         ),
         (&Failure::Protocol, "MCP server protocol is invalid"),
-        (
-            &Failure::Response,
-            "MCP server response exceeds the broker limit",
-        ),
-        (&Failure::Timeout, "MCP server call timed out"),
-        (&Failure::Masking, "MCP response cannot be safely masked"),
         (&Failure::Limit, "broker ledger exceeds the attempt limit"),
         (
             &Failure::Undelivered,
             "MCP broker output could not be delivered",
-        ),
-        (
-            &Failure::Refused(Refusal::Establishment),
-            "MCP server box could not be established",
         ),
         (&Invalid::Lifecycle, "broker ledger lifecycle is invalid"),
         (
@@ -179,6 +164,20 @@ fn each_ledger_cause_reads_in_cr3s_words() {
     ];
     for (cause, text) in texts {
         assert_eq!(cause.to_string(), text);
+    }
+    let carried: [(&dyn std::error::Error, &dyn std::error::Error); 6] = [
+        (&Unrecorded::Limit, &Failure::Limit),
+        (&Unrecorded::Masking, &Failure::Masking),
+        (&Failure::Response, &Refusal::Response),
+        (&Failure::Timeout, &Refusal::Timeout),
+        (&Failure::Masking, &Refusal::Masking),
+        (
+            &Failure::Refused(Refusal::Establishment),
+            &Refusal::Establishment,
+        ),
+    ];
+    for (cause, carried) in carried {
+        assert_eq!(cause.to_string(), carried.to_string());
     }
 }
 

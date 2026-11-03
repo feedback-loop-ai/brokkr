@@ -1778,8 +1778,11 @@ fn a_boxed_writer_is_refused_by_its_own_cause_where_the_host_names_no_home() {
     assert_eq!(event, EventType::EffectFailed, "{payload}");
     assert_eq!(
         payload["error"],
-        "dispatch refused: MCP server box filesystem identity is not protected: this host names \
-         no HOME, so no boxed writer is proved apart from its coordination root"
+        format!(
+            "dispatch refused: {}: this host names no HOME, so no boxed writer is proved apart \
+             from its coordination root",
+            brokkr_protocol::broker::Refusal::Identity
+        )
     );
     assert_eq!(seat.held, None);
 }

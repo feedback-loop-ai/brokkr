@@ -160,9 +160,11 @@ fn a_box_whose_hands_were_sealed_nothing_refuses_its_spawn() {
         None,
         "",
     );
-    let text = "dispatch refused: MCP server box filesystem identity is not protected: the box's \
-                reach was not sealed at admission, or is not UTF-8, so no box of these hands is \
-                built from it (U8a2c)";
+    let text = format!(
+        "dispatch refused: {}: the box's reach was not sealed at admission, or is not UTF-8, so \
+         no box of these hands is built from it (U8a2c)",
+        brokkr_protocol::broker::Refusal::Identity
+    );
     assert_eq!(Unnamed::Unsealed.to_string(), text);
     let storeless = Some(Unprepared::Storeless.to_string());
     assert_eq!(spawn.refusal, storeless);

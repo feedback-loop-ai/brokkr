@@ -17,8 +17,9 @@ use super::*;
 /// it was sealed, in the words a workspace call and an exec return it.
 fn moved(path: &Path) -> String {
     format!(
-        "hands namespace: MCP server box filesystem identity is not protected: '{}', which the \
-         box is built from, no longer resolves as it was sealed",
+        "hands namespace: {}: '{}', which the box is built from, no longer resolves as it was \
+         sealed",
+        crate::broker::Refusal::Identity,
         path.display()
     )
 }
@@ -168,8 +169,10 @@ fn a_reach_that_does_not_seal_the_box_refuses_it() {
         drifted_of(built(&none, &work, &nothing, dir.path())),
         Drifted::Unsealed
     );
-    let text = "MCP server box filesystem identity is not protected: the box's reach was never \
-                sealed for the hands it declares";
+    let text = format!(
+        "{}: the box's reach was never sealed for the hands it declares",
+        crate::broker::Refusal::Identity
+    );
     assert_eq!(Drifted::Unsealed.to_string(), text);
 }
 

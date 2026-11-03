@@ -24,7 +24,9 @@ use super::{admitted, scratch, sealed, Fixture};
 use super::{Path, PathBuf, PermissionsExt};
 
 /// What `broker serve` says of a plan the attempt's inventory does not pin.
-const UNBOUND: &str = "error: broker plan is not bound to this attempt\n";
+fn unbound() -> String {
+    format!("error: {}\n", brokkr_protocol::broker::Refusal::Unbound)
+}
 
 /// Whether the test `test` of this module runs here, in an engine of its
 /// own (#403): the test binary's engine tracks every other test's live
@@ -465,7 +467,7 @@ fn the_real_survey_provisions_from_an_unconfined_engine_and_the_broker_binds_its
     assert_eq!(plan.intent.excluded.store, store);
     let pin = &inventory.plans[0];
     let serve = || served(&brokkr, &home, &pin.locator, &pin.digest);
-    let unbound = (Some(1), UNBOUND.to_string());
+    let unbound = (Some(1), unbound());
     let bytes = std::fs::read(&pin.locator).unwrap();
     std::fs::write(&pin.locator, [&bytes[..], b" "].concat()).unwrap();
     assert_eq!(serve(), unbound, "a substituted plan");
@@ -477,7 +479,7 @@ fn the_real_survey_provisions_from_an_unconfined_engine_and_the_broker_binds_its
     std::fs::write(&pins, pinned).unwrap();
     std::fs::set_permissions(&pins, std::fs::Permissions::from_mode(0o600)).unwrap();
     let (_, said) = serve();
-    assert_ne!(said, UNBOUND);
+    assert_ne!(said, unbound.1);
     let ledger = control.join("plan-0.json.ledger");
     assert!(ledger.exists(), "the bound plan's ledger: {said}");
 }

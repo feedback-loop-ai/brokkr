@@ -199,12 +199,14 @@ fn a_harness_that_ends_its_input_during_a_call_leaves_its_ledger_finished_and_fa
     };
     let ran = talking(&sealed, &digest, &greeting(), 2).ended();
     assert!(within(|| boxed(&sealed).is_empty()));
-    let told = r#"{"jsonrpc":"2.0","id":"c","error":{"code":-32603,"message":"MCP server call timed out"}}"#;
+    let timeout = Refusal::Timeout;
+    let told =
+        format!(r#"{{"jsonrpc":"2.0","id":"c","error":{{"code":-32603,"message":"{timeout}"}}}}"#);
     let (code, frames, rest, said) = ran;
-    let cause = "error: MCP server call timed out\n";
+    let cause = format!("error: {timeout}\n");
     assert_eq!(
         (code, frames.len(), rest, said),
-        (Some(1), 2, format!("{told}\n"), cause.into())
+        (Some(1), 2, format!("{told}\n"), cause)
     );
     let failed = vec![("resolve".to_string(), Some(Outcome::Failed))];
     let finished = (failed, Some(Disposition::Failed(Failure::Timeout)), None);
@@ -690,19 +692,15 @@ fn the_brokers_last_line_is_masked_whole_or_replaced_while_its_bindings_are_held
     // line is written at all, nor the closure, which holds that value too,
     // and the exit code alone says it failed.
     let corrupt = "read -r line\necho 'this is no frame'\nread -r line\n";
+    let protocol = Failure::Protocol.to_string();
+    let masked = format!("[secret:DOCS_TOKEN]: {protocol}\n");
+    let cause = format!(
+        "error: {}\n",
+        protocol.replace("invalid", "[secret:DOCS_TOKEN]")
+    );
     let cases = [
-        (
-            "error",
-            corrupt,
-            "DOCS_TOKEN=error\n",
-            "[secret:DOCS_TOKEN]: MCP server protocol is invalid\n",
-        ),
-        (
-            "cause",
-            corrupt,
-            "DOCS_TOKEN=invalid\n",
-            "error: MCP server protocol is [secret:DOCS_TOKEN]\n",
-        ),
+        ("error", corrupt, "DOCS_TOKEN=error\n", masked.as_str()),
+        ("cause", corrupt, "DOCS_TOKEN=invalid\n", cause.as_str()),
         (
             "digits",
             SPEAKS,

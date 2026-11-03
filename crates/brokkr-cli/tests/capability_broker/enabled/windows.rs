@@ -28,7 +28,7 @@ use std::path::PathBuf;
 use std::process::{Child, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 
-use brokkr_protocol::broker::ledger::Failure;
+use brokkr_protocol::broker::ledger::{Failure, Invalid};
 use brokkr_protocol::broker::Refusal;
 use rustix::process::{kill_process, Pid, Signal};
 use serde_json::{json, Value};
@@ -137,7 +137,7 @@ impl Window {
         match self {
             Window::Observation => (Refusal::Identity.to_string(), false),
             Window::Entry => (Refusal::Establishment.to_string(), false),
-            Window::StoreRead => ("broker ledger lifecycle is invalid".to_string(), true),
+            Window::StoreRead => (Invalid::Lifecycle.to_string(), true),
             Window::Handoff => (Refusal::Handoff.to_string(), true),
             Window::Initialization | Window::Call => (Failure::Timeout.to_string(), true),
         }
