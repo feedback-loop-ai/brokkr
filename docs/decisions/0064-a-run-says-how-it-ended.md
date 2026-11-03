@@ -281,9 +281,9 @@ operator's host under the-forge's `.forge/tools/`
 (`journal-model-ledger.py`, `journal-economics.py`); the counts are
 dated 2026-09-21 and will drift as the journal grows.
 
-## Addendum — 2026-11-03, proposed: the endings against what was built since, and the slices that build them (#317)
+## Addendum — 2026-11-03, the endings against what was built since, and the slices that build them (#317), ruled
 
-Addendum status: proposed
+Addendum status: accepted (operator, 2026-11-03: "accept all", https://github.com/feedback-loop-ai/brokkr/pull/981#issuecomment-6597953409)
 
 Rulings 1 to 7 above were accepted on 2026-09-21 and have not been built.
 Since then, decisions 0089, 0092, 0094, 0102 and 0103 and 0006's
@@ -681,6 +681,8 @@ the header's count would grow and never fall. Two readings:
 | ledger counts and exclusions (ruling 7) | `analytics/figures.rs:28-38`, `analytics/recipes.rs:79`, `graph/figures.rs:421-423`, `compare.rs:250`; issue #271's corpus has no code yet |
 
 ### Rulings
+
+The operator accepted all seven on 2026-11-03, each as recommended.
 
 1. **The derivation is choice 1 (a).** It is an ordered table over
    (`from`, `result`), with `ship`'s dirty stops as `blocked`, no
