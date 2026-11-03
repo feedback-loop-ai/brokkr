@@ -28,7 +28,8 @@ use std::io::{self, ErrorKind};
 use std::num::{NonZeroU32, NonZeroU64};
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::de::{self, Unexpected, Visitor};
+use serde::{Deserialize, Deserializer};
 use thiserror::Error;
 
 use crate::capabilities::manifest::present;
@@ -121,13 +122,59 @@ struct Overrides {
     max_seconds: Option<NonZeroU32>,
 }
 
+/// A number the contract calls an integer. JSON Schema's `integer` admits
+/// any number with no fractional part, so `10.0` and `6e1` are the same
+/// integers here as `10` and `60`; refusing them would refuse a file the
+/// published schema admits (decision 0071 ruling 3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Integral(u32);
+
+impl<'de> Deserialize<'de> for Integral {
+    fn deserialize<D>(deserializer: D) -> Result<Integral, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct IntegralVisitor;
+
+        impl<'de> Visitor<'de> for IntegralVisitor {
+            type Value = Integral;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("an integer from 0 to 4294967295")
+            }
+
+            fn visit_u64<E: de::Error>(self, value: u64) -> Result<Integral, E> {
+                u32::try_from(value)
+                    .map(Integral)
+                    .map_err(|_| E::invalid_value(Unexpected::Unsigned(value), &self))
+            }
+
+            fn visit_i64<E: de::Error>(self, value: i64) -> Result<Integral, E> {
+                u32::try_from(value)
+                    .map(Integral)
+                    .map_err(|_| E::invalid_value(Unexpected::Signed(value), &self))
+            }
+
+            fn visit_f64<E: de::Error>(self, value: f64) -> Result<Integral, E> {
+                if value.fract() == 0.0 && (0.0..=f64::from(u32::MAX)).contains(&value) {
+                    Ok(Integral(value as u32))
+                } else {
+                    Err(E::invalid_value(Unexpected::Float(value), &self))
+                }
+            }
+        }
+
+        deserializer.deserialize_any(IntegralVisitor)
+    }
+}
+
 /// A cool-downs block as the file writes it, before its values are
 /// checked.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WrittenCooldowns {
-    default_seconds: u32,
-    max_seconds: u32,
+    default_seconds: Integral,
+    max_seconds: Integral,
     #[serde(default)]
     providers: BTreeMap<String, WrittenProviderCooldowns>,
 }
@@ -137,9 +184,9 @@ struct WrittenCooldowns {
 #[serde(deny_unknown_fields)]
 struct WrittenProviderCooldowns {
     #[serde(default, deserialize_with = "present")]
-    default_seconds: Option<u32>,
+    default_seconds: Option<Integral>,
     #[serde(default, deserialize_with = "present")]
-    max_seconds: Option<u32>,
+    max_seconds: Option<Integral>,
     #[serde(default)]
     routes: BTreeMap<String, WrittenOverrides>,
 }
@@ -150,9 +197,9 @@ struct WrittenProviderCooldowns {
 #[serde(deny_unknown_fields)]
 struct WrittenOverrides {
     #[serde(default, deserialize_with = "present")]
-    default_seconds: Option<u32>,
+    default_seconds: Option<Integral>,
     #[serde(default, deserialize_with = "present")]
-    max_seconds: Option<u32>,
+    max_seconds: Option<Integral>,
 }
 
 /// A site a cool-down refusal names.
@@ -179,8 +226,8 @@ impl TryFrom<WrittenCooldowns> for Cooldowns {
     type Error = Problem;
 
     fn try_from(written: WrittenCooldowns) -> Result<Cooldowns, Problem> {
-        let default_seconds = positive(written.default_seconds, Site::Block, "default_seconds")?;
-        let max_seconds = capped(written.max_seconds, Site::Block)?;
+        let default_seconds = positive(written.default_seconds.0, Site::Block, "default_seconds")?;
+        let max_seconds = capped(written.max_seconds.0, Site::Block)?;
         let mut providers = BTreeMap::new();
         for (name, provider) in written.providers {
             let site = Site::Provider(&name);
@@ -215,11 +262,11 @@ impl Overrides {
     fn read(written: WrittenOverrides, site: Site<'_>) -> Result<Overrides, Problem> {
         let default_seconds = written
             .default_seconds
-            .map(|value| positive(value, site, "default_seconds"))
+            .map(|value| positive(value.0, site, "default_seconds"))
             .transpose()?;
         let max_seconds = written
             .max_seconds
-            .map(|value| capped(value, site))
+            .map(|value| capped(value.0, site))
             .transpose()?;
         Ok(Overrides {
             default_seconds,

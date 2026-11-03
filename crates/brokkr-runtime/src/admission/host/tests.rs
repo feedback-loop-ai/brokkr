@@ -77,12 +77,18 @@ fn guide_sample() -> Value {
     serde_json::from_str(&format!("{{\n  \"schema\": \"forge.host/v1\"{rest}")).unwrap()
 }
 
+/// The published contract `name`, judged by its own JSON Schema.
+fn contract_validator(name: &str) -> jsonschema::Validator {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../contracts")
+        .join(name);
+    let schema: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    jsonschema::draft7::new(&schema).unwrap()
+}
+
 #[test]
 fn the_contract_and_the_loader_admit_and_refuse_the_same_files() {
-    let contract =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../contracts/host.v1.schema.json");
-    let schema: Value = serde_json::from_slice(&std::fs::read(contract).unwrap()).unwrap();
-    let validator = jsonschema::draft7::new(&schema).unwrap();
+    let validator = contract_validator("host.v1.schema.json");
     let minimal = json!({"schema": "forge.host/v1", "providers": {},
                          "floors": [{"place": "temp", "floor_bytes": 1}],
                          "boxed_builds": {"ceiling": 1}});
@@ -291,6 +297,15 @@ fn refused(text: &str) -> Problem {
     }
 }
 
+/// Decision 0071 rulings 8 and 9: a refusal's typed cause and its fields,
+/// then its exact words. A problem carrying the same text but another
+/// variant fails here.
+fn refused_as(text: &str, cause: impl FnOnce(&Problem) -> bool, said: &str) {
+    let problem = refused(text);
+    assert!(cause(&problem), "{text}: expected {said}, got {problem:?}");
+    assert_eq!(problem.to_string(), said, "{text}");
+}
+
 /// A site's inherited bounds, as the loader would hand them on.
 fn bounds(host: &HostConfig, provider: &str, route: Option<&str>) -> Option<(u32, u32)> {
     host.cooldown(provider, route)
@@ -320,70 +335,207 @@ fn a_v2_block_reads_and_a_route_and_provider_inherit_what_they_leave_out() {
     assert_eq!(bounds(&host, "codex", None), Some((10, 60)));
 }
 
+/// Decision 0071 ruling 3 and task judgment 1: JSON Schema's `integer`
+/// admits a number with no fractional part, so `10.0` and `6e1` pass the v2
+/// contract and the loader reads the same bounds instead of refusing the
+/// shape. Each of the six new numeric fields is reached.
 #[test]
-fn a_v2_cool_down_outside_its_limits_refuses_naming_the_site_and_field() {
+fn schema_integral_notation_reads_as_the_same_bounds() {
+    let validator = contract_validator("host.v2.schema.json");
     let cases = [
         (
-            cooled(r#"{"default_seconds":300,"max_seconds":7201}"#),
-            "the cool-down max_seconds of the cooldowns block is 7201, past the 7200-second maximum",
+            "block default_seconds",
+            r#"{"default_seconds":10.0,"max_seconds":60}"#,
+            None,
+            (10, 60),
         ),
         (
-            cooled(r#"{"default_seconds":20,"max_seconds":10}"#),
-            "the cool-down default_seconds of the cooldowns block is 20, above its max_seconds 10",
+            "block max_seconds",
+            r#"{"default_seconds":10,"max_seconds":6e1}"#,
+            None,
+            (10, 60),
         ),
         (
-            cooled(r#"{"default_seconds":0,"max_seconds":10}"#),
-            "the cool-down default_seconds of the cooldowns block is zero",
+            "provider default_seconds",
+            r#"{"default_seconds":10,"max_seconds":60,"providers":{"dsh":{"default_seconds":2e1}}}"#,
+            Some("dsh"),
+            (20, 60),
         ),
         (
-            cooled(r#"{"default_seconds":10,"max_seconds":0}"#),
-            "the cool-down max_seconds of the cooldowns block is zero",
+            "provider max_seconds",
+            r#"{"default_seconds":10,"max_seconds":60,"providers":{"dsh":{"max_seconds":30.0}}}"#,
+            Some("dsh"),
+            (10, 30),
         ),
         (
-            cooled(
-                r#"{"default_seconds":10,"max_seconds":60,"providers":{"claude":{}}}"#,
-            ),
-            "the cool-down provider 'claude' is not declared under providers",
+            "route default_seconds",
+            r#"{"default_seconds":10,"max_seconds":60,"providers":{"dsh":{"default_seconds":20,"routes":{"r":{"default_seconds":3.0e1}}}}}"#,
+            Some("r"),
+            (30, 60),
         ),
         (
-            cooled(
-                r#"{"default_seconds":10,"max_seconds":60,"providers":{"dsh":{"routes":{"second":{}}}}}"#,
-            ),
-            "the cool-down route 'second' of provider 'dsh' is not declared under providers",
-        ),
-        (
-            cooled(
-                r#"{"default_seconds":10,"max_seconds":60,"providers":{"dsh":{"max_seconds":30,"routes":{"r":{"default_seconds":40}}}}}"#,
-            ),
-            "the cool-down default_seconds of route 'r' of provider 'dsh' is 40, above its max_seconds 30",
+            "route max_seconds",
+            r#"{"default_seconds":10,"max_seconds":60,"providers":{"dsh":{"routes":{"r":{"default_seconds":20,"max_seconds":45.0}}}}}"#,
+            Some("r"),
+            (20, 45),
         ),
     ];
-    for (text, said) in cases {
-        assert_eq!(refused(&text).to_string(), said, "{text}");
+    for (name, block, route, expected) in cases {
+        let text = cooled(block);
+        let host: Value = serde_json::from_str(&text).unwrap();
+        assert!(
+            validator.is_valid(&host),
+            "{name}: the schema refused integral notation"
+        );
+        let host = loaded(&text);
+        assert_eq!(bounds(&host, "dsh", route), Some(expected), "{name}");
     }
+}
+
+#[test]
+fn a_v2_cool_down_outside_its_limits_refuses_naming_the_site_and_field() {
+    refused_as(
+        &cooled(r#"{"default_seconds":300,"max_seconds":7201}"#),
+        |problem| {
+            matches!(
+                problem,
+                Problem::AboveMaximum { site, value, maximum }
+                    if site == "the cooldowns block" && *value == 7201 && *maximum == 7200
+            )
+        },
+        "the cool-down max_seconds of the cooldowns block is 7201, past the 7200-second maximum",
+    );
+    refused_as(
+        &cooled(r#"{"default_seconds":20,"max_seconds":10}"#),
+        |problem| {
+            matches!(
+                problem,
+                Problem::DefaultAboveMaximum { site, default, max }
+                    if site == "the cooldowns block" && *default == 20 && *max == 10
+            )
+        },
+        "the cool-down default_seconds of the cooldowns block is 20, above its max_seconds 10",
+    );
+    refused_as(
+        &cooled(r#"{"default_seconds":0,"max_seconds":10}"#),
+        |problem| {
+            matches!(
+                problem,
+                Problem::Zero { site, field }
+                    if site == "the cooldowns block" && *field == "default_seconds"
+            )
+        },
+        "the cool-down default_seconds of the cooldowns block is zero",
+    );
+    refused_as(
+        &cooled(r#"{"default_seconds":10,"max_seconds":0}"#),
+        |problem| {
+            matches!(
+                problem,
+                Problem::Zero { site, field }
+                    if site == "the cooldowns block" && *field == "max_seconds"
+            )
+        },
+        "the cool-down max_seconds of the cooldowns block is zero",
+    );
+    refused_as(
+        &cooled(r#"{"default_seconds":10,"max_seconds":60,"providers":{"claude":{}}}"#),
+        |problem| matches!(problem, Problem::ProviderUndeclared(provider) if provider == "claude"),
+        "the cool-down provider 'claude' is not declared under providers",
+    );
+    refused_as(
+        &cooled(
+            r#"{"default_seconds":10,"max_seconds":60,"providers":{"dsh":{"routes":{"second":{}}}}}"#,
+        ),
+        |problem| {
+            matches!(
+                problem,
+                Problem::RouteUndeclared { provider, route }
+                    if provider == "dsh" && route == "second"
+            )
+        },
+        "the cool-down route 'second' of provider 'dsh' is not declared under providers",
+    );
+    refused_as(
+        &cooled(
+            r#"{"default_seconds":10,"max_seconds":60,"providers":{"dsh":{"max_seconds":30,"routes":{"r":{"default_seconds":40}}}}}"#,
+        ),
+        |problem| {
+            matches!(
+                problem,
+                Problem::DefaultAboveMaximum { site, default, max }
+                    if site == "route 'r' of provider 'dsh'"
+                        && *default == 40
+                        && *max == 30
+            )
+        },
+        "the cool-down default_seconds of route 'r' of provider 'dsh' is 40, above its max_seconds 30",
+    );
+}
+
+/// A site's inherited default is held to its own maximum, as its own
+/// default is held to an inherited maximum.
+#[test]
+fn an_inherited_cool_down_default_outside_its_limits_refuses_naming_the_site() {
+    refused_as(
+        &cooled(
+            r#"{"default_seconds":40,"max_seconds":60,"providers":{"dsh":{"max_seconds":30}}}"#,
+        ),
+        |problem| {
+            matches!(
+                problem,
+                Problem::DefaultAboveMaximum { site, default, max }
+                    if site == "provider 'dsh'" && *default == 40 && *max == 30
+            )
+        },
+        "the cool-down default_seconds of provider 'dsh' is 40, above its max_seconds 30",
+    );
+    let text = cooled(
+        r#"{"default_seconds":10,"max_seconds":60,"providers":{"dsh":{"default_seconds":50,"routes":{"r":{"max_seconds":40}}}}}"#,
+    );
+    match refused(&text) {
+        Problem::DefaultAboveMaximum { site, default, max } => {
+            assert_eq!(site, "route 'r' of provider 'dsh'");
+            assert_eq!((default, max), (50, 40));
+        }
+        other => panic!("a route's inherited default was not held to its maximum: {other:?}"),
+    }
+    assert_eq!(
+        refused(&text).to_string(),
+        "the cool-down default_seconds of route 'r' of provider 'dsh' is 50, above its max_seconds 40"
+    );
 }
 
 /// A provider's own numbers are held to the block's limits too, and its
 /// refusal names the provider, as the block's and a route's name theirs.
 #[test]
 fn a_providers_cool_down_outside_its_limits_refuses_naming_the_provider() {
-    let cases = [
-        (
-            cooled(
-                r#"{"default_seconds":10,"max_seconds":60,"providers":{"dsh":{"default_seconds":0}}}"#,
-            ),
-            "the cool-down default_seconds of provider 'dsh' is zero",
+    refused_as(
+        &cooled(
+            r#"{"default_seconds":10,"max_seconds":60,"providers":{"dsh":{"default_seconds":0}}}"#,
         ),
-        (
-            cooled(
-                r#"{"default_seconds":10,"max_seconds":60,"providers":{"dsh":{"max_seconds":7201}}}"#,
-            ),
-            "the cool-down max_seconds of provider 'dsh' is 7201, past the 7200-second maximum",
+        |problem| {
+            matches!(
+                problem,
+                Problem::Zero { site, field }
+                    if site == "provider 'dsh'" && *field == "default_seconds"
+            )
+        },
+        "the cool-down default_seconds of provider 'dsh' is zero",
+    );
+    refused_as(
+        &cooled(
+            r#"{"default_seconds":10,"max_seconds":60,"providers":{"dsh":{"max_seconds":7201}}}"#,
         ),
-    ];
-    for (text, said) in cases {
-        assert_eq!(refused(&text).to_string(), said, "{text}");
-    }
+        |problem| {
+            matches!(
+                problem,
+                Problem::AboveMaximum { site, value, maximum }
+                    if site == "provider 'dsh'" && *value == 7201 && *maximum == 7200
+            )
+        },
+        "the cool-down max_seconds of provider 'dsh' is 7201, past the 7200-second maximum",
+    );
 }
 
 /// A v1 file that declares a cooldowns block is refused by its typed
@@ -414,10 +566,16 @@ fn a_v2_cool_down_block_refuses_an_unknown_key() {
         error.to_string(),
         "unknown field `pause`, expected one of `default_seconds`, `max_seconds`, `providers` at line 1 column 292"
     );
-    let mut host: Value = serde_json::from_str(&text).unwrap();
-    host["cooldowns"].as_object_mut().unwrap().remove("pause");
-    host["cooldowns"]["routes"] = json!({"r": {"wait": 1}});
-    assert!(serde_json::from_value::<HostConfig>(host).is_err());
+    let text = cooled(
+        r#"{"default_seconds":10,"max_seconds":60,"providers":{"dsh":{"routes":{"r":{"wait":1}}}}}"#,
+    );
+    let Problem::Shape(error) = refused(&text) else {
+        panic!("an unknown route key was not read as the contract's shape");
+    };
+    assert_eq!(
+        error.to_string(),
+        "unknown field `wait`, expected `default_seconds` or `max_seconds` at line 1 column 326"
+    );
 }
 
 #[test]
@@ -426,25 +584,23 @@ fn a_v2_containment_is_best_effort_unless_required() {
         loaded(&v2(r#","containment":"best-effort""#)).cooldown("dsh", None),
         None
     );
-    assert_eq!(
-        refused(&v2(r#","containment":"required""#)).to_string(),
-        "containment required is decision 0080's, not built yet (#472)"
+    refused_as(
+        &v2(r#","containment":"required""#),
+        |problem| matches!(problem, Problem::ContainmentRequired),
+        "containment required is decision 0080's, not built yet (#472)",
     );
     let Problem::Shape(error) = refused(&v2(r#","containment":"strict""#)) else {
         panic!("an unknown containment value was not read as the contract's shape");
     };
-    assert!(
-        error.to_string().contains("unknown variant `strict`"),
-        "{error}"
+    assert_eq!(
+        error.to_string(),
+        "unknown variant `strict`, expected `best-effort` or `required` at line 1 column 256"
     );
 }
 
 #[test]
 fn the_v2_contract_and_the_loader_admit_and_refuse_the_same_shape() {
-    let contract =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../contracts/host.v2.schema.json");
-    let schema: Value = serde_json::from_slice(&std::fs::read(contract).unwrap()).unwrap();
-    let validator = jsonschema::draft7::new(&schema).unwrap();
+    let validator = contract_validator("host.v2.schema.json");
     let minimal = json!({"schema": "forge.host/v2", "providers": {},
                          "floors": [{"place": "temp", "floor_bytes": 1}],
                          "boxed_builds": {"ceiling": 1}});
@@ -486,19 +642,12 @@ fn the_v2_contract_and_the_loader_admit_and_refuse_the_same_shape() {
 }
 
 /// H1: a present `null` is a value written empty, never an absent
-/// declaration. Every null site the published contract refuses, and the two
-/// v2-only keys a v1 file may not hold, refuses through the loader too; one
-/// table drives both, so schema and loader agree by construction.
+/// declaration. Every optional site the published contract refuses, and the
+/// two v2-only keys a v1 file may not hold, refuses through the loader too;
+/// one table drives both, so schema and loader agree by construction.
 #[test]
 fn chief_null_declarations_are_refused_by_reader_and_schema() {
-    let contract = |name: &str| {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../contracts")
-            .join(name);
-        serde_json::from_slice::<Value>(&std::fs::read(path).unwrap()).unwrap()
-    };
-    let valid =
-        |schema: &Value, host: &Value| jsonschema::draft7::new(schema).unwrap().is_valid(host);
+    let valid = |name: &str, host: &Value| contract_validator(name).is_valid(host);
     let base = |schema: &str| {
         json!({
             "schema": schema,
@@ -525,6 +674,7 @@ fn chief_null_declarations_are_refused_by_reader_and_schema() {
         json!({"default_seconds": 10, "max_seconds": 60, "providers": {}}),
     );
     let with_providers = |providers: Value| set(block.clone(), "/cooldowns/providers", providers);
+    let v2_case = |name: &'static str, host: Value| (name, "host.v2.schema.json", host);
     let cases = [
         (
             "v1 cooldowns:null",
@@ -536,41 +686,40 @@ fn chief_null_declarations_are_refused_by_reader_and_schema() {
             "host.v1.schema.json",
             insert(v1_host.clone(), "containment", Value::Null),
         ),
-        (
+        v2_case(
             "v2 cooldowns:null",
-            "host.v2.schema.json",
             insert(v2_host.clone(), "cooldowns", Value::Null),
         ),
-        (
+        v2_case(
             "v2 containment:null",
-            "host.v2.schema.json",
             insert(v2_host.clone(), "containment", Value::Null),
         ),
-        (
+        v2_case("v2 cooldowns providers:null", with_providers(Value::Null)),
+        v2_case(
+            "v2 provider routes:null",
+            with_providers(json!({"dsh": {"routes": null}})),
+        ),
+        v2_case(
             "v2 provider default_seconds:null",
-            "host.v2.schema.json",
             with_providers(json!({"dsh": {"default_seconds": null}})),
         ),
-        (
+        v2_case(
             "v2 provider max_seconds:null",
-            "host.v2.schema.json",
             with_providers(json!({"dsh": {"max_seconds": null}})),
         ),
-        (
+        v2_case(
             "v2 route default_seconds:null",
-            "host.v2.schema.json",
             with_providers(json!({"dsh": {"routes": {"r": {"default_seconds": null}}}})),
         ),
-        (
+        v2_case(
             "v2 route max_seconds:null",
-            "host.v2.schema.json",
             with_providers(json!({"dsh": {"routes": {"r": {"max_seconds": null}}}})),
         ),
     ];
     let mut admitted = Vec::new();
     for (name, contract_name, host) in cases {
         assert!(
-            !valid(&contract(contract_name), &host),
+            !valid(contract_name, &host),
             "{name}: the schema admitted a present null"
         );
         match host_read(&host.to_string()).2 {
