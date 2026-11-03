@@ -14,7 +14,7 @@
 //! drives its own run, and the parent then reads every chain back.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::EventType;
@@ -109,13 +109,17 @@ fn parallel_processes_writing_different_runs_share_one_journal() {
                 ])
                 .env(DB_VAR, &db)
                 .env(RUN_VAR, format!("run-{writer}"))
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
                 .spawn()
                 .expect("the test binary re-executes")
         })
         .collect();
-    for (writer, mut child) in children.into_iter().enumerate() {
-        let status = child.wait().expect("child writer is waitable");
-        assert!(status.success(), "writer {writer} failed: {status}");
+    for (writer, child) in children.into_iter().enumerate() {
+        let ran = child.wait_with_output().expect("child writer is waitable");
+        let said = String::from_utf8_lossy(&ran.stdout);
+        let told = String::from_utf8_lossy(&ran.stderr);
+        assert!(ran.status.success(), "writer {writer} failed: {said}{told}");
     }
 
     let reader = Store::open(&db).unwrap();

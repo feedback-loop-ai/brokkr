@@ -616,7 +616,7 @@ fn a_bind_alias_attacker_is_refused_on_the_dispatch_path() {
     let bwrap = brokkr_protocol::hands::require_bwrap().unwrap();
     let name =
         format!("engine::capability_tests::provision_tests::brokered_tests::writers_tests::{test}");
-    let status = std::process::Command::new(bwrap)
+    let ran = std::process::Command::new(bwrap)
         .args(["--dev-bind", "/", "/", "--bind"])
         .arg(&forge)
         .arg(root.join("alias"))
@@ -624,14 +624,17 @@ fn a_bind_alias_attacker_is_refused_on_the_dispatch_path() {
         .arg(std::env::current_exe().unwrap())
         .args(["--exact", &name, "--nocapture", "--test-threads=1"])
         .env(ALIASED, &root)
-        .status();
+        .output()
+        .unwrap();
     assert!(
         root.join("entered").exists(),
         "the proof ran in its namespace"
     );
+    let said = String::from_utf8_lossy(&ran.stdout);
+    let told = String::from_utf8_lossy(&ran.stderr);
     assert!(
-        status.unwrap().success(),
-        "the proof in its namespace failed"
+        ran.status.success(),
+        "the proof in its namespace failed: {said}{told}"
     );
 }
 
