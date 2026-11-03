@@ -4,7 +4,8 @@
 //! reread paints is the whole read's. Split from `console_end.rs` to keep
 //! that file within its ceiling (decision 0071 ruling 4).
 
-use super::console_end::{far_work_of, first_turn, participant_page};
+use super::console_end::{first_turn, participant_page};
+use super::far_work::far_work_of;
 use super::*;
 
 /// L1 (rulings 5 and 9): from logical rank 65,530 of 66,000 checkpoints
@@ -15,19 +16,18 @@ use super::*;
 #[test]
 fn chief_review_display_clamp_keeps_frame_after_page_down() {
     use crate::tui::{page_key, settle_end};
-    let (_dir, db, events) = far_work_of("chief display clamp", 66_000);
-    let run = "chief display clamp";
+    let far = far_work_of(66_000);
+    let (run, db, events, whole) = (far.run, &far.db, &far.events, &far.whole);
     let now = events.last().unwrap().recorded_at.clone();
-    let whole = brokkr_view::run_view(&events, fold(&events).as_ref().ok());
-    let (mut tui, subject) = participant_console(run, &whole);
+    let (mut tui, subject) = participant_console(run, whole);
     tui.offset = 65_530;
-    let views = participant_page(&db, run, &subject, &tui);
+    let views = participant_page(db, run, &subject, &tui);
     assert_eq!(views.start, 65_530, "the rank's own page");
     for _ in 0..4 {
         page_key(&mut tui, &views, true);
     }
     assert_eq!(tui.offset, 65_570, "four page steps keep the logical rank");
-    let mut views = participant_page(&db, run, &subject, &tui);
+    let mut views = participant_page(db, run, &subject, &tui);
     views.now = now;
     settle_end(&mut tui, &views);
     assert_eq!(tui.offset, 65_570, "the reread keeps the logical rank");
@@ -41,5 +41,5 @@ fn chief_review_display_clamp_keeps_frame_after_page_down() {
         Some("65536"),
         "the display starts at today's clamped rank"
     );
-    let _ = participant_frame_whole_read(&db, run, &events, subject, 65_570, &tui, &views);
+    let _ = participant_frame_whole_read(run, whole, far.whole_views(), 65_570, &tui, &views);
 }
