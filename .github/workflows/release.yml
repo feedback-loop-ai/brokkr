@@ -32,8 +32,14 @@ jobs:
       # quickstart bench drives them, so the release's own admission needs the
       # same bubblewrap CI installs — the release workflow had not run since
       # v0.8.0, before boxed hands, and v0.9.0's first cut refused here.
+      # Decision 0065 slice two: the broker's boundary proofs need the runner's
+      # system set protected, as CI and mutants.yml prepare it; v0.13.0's
+      # first cut ran them against the image's set and every real box refused
+      # "MCP server box filesystem identity is not protected".
       - name: bubblewrap for the boxed seats
         uses: ./.github/actions/setup-bubblewrap
+        with:
+          protect-system-tree: 'true'
       - name: tag matches the workspace release version
         shell: bash
         run: |
@@ -41,7 +47,13 @@ jobs:
           test "${GITHUB_REF_NAME}" = "${expected}"
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-      - run: cargo test --workspace --all-features --locked
+      # The suite CI runs, as CI runs it: each test target once, as shards one
+      # after another, capability_broker's deadline-bound real boxes alone and
+      # last (#633), and a skipped boundary proof a failure (decision 0054
+      # ruling 9).
+      - run: bash scripts/test-shards.sh test
+        env:
+          BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
       - name: producer and frozen-contract release verification
         run: |
           cargo run --locked -p brokkr-cli -- compile --bundle recipes/self
@@ -81,10 +93,18 @@ jobs:
           # installing through cargo-binstall, unchecked (#339).
           fallback: none
       # Decision 0043: the shipped verify and ship seats are boxed exec, so
-      # the release's coverage needs the same bubblewrap CI installs.
+      # the release's coverage needs the same bubblewrap CI installs, with the
+      # system set protected for the broker's boundary proofs (decision 0065
+      # slice two), as CI's coverage machines prepare it.
       - name: bubblewrap for the boxed seats
         uses: ./.github/actions/setup-bubblewrap
+        with:
+          protect-system-tree: 'true'
+      # The exact gate counts regions a skipped proof never enters, so the
+      # boundary proofs run for real here too (decision 0054 ruling 9).
       - run: bash scripts/coverage-exact.sh
+        env:
+          BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
 
   build:
     name: build (${{ matrix.name }})
