@@ -28,7 +28,7 @@ mod world_tests;
 pub(crate) use brokkr_view::{AHEAD_ROWS, PAGE_ROWS};
 pub(crate) use kept::{Journal, KeptFleet};
 pub(crate) use listing::{cursor, list_hearth, Called, PageRefused};
-pub(crate) use page::{refused_row, Ask, Pages};
+pub(crate) use page::{one, refused_row, Ask, Pages};
 pub(crate) use world::list_world;
 
 /// Why a listed run carries no state, and where its citation points.

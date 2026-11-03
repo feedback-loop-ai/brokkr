@@ -2,7 +2,7 @@
 // $BROKKR_STUB_DIR and appends each argv it was called with to `calls.ndjson`
 // there. A rule answers the first argv holding every word of its `match`;
 // its `responses` are used in order, the last one repeating.
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const dir = process.env.BROKKR_STUB_DIR
@@ -15,11 +15,17 @@ if (index === -1) {
   process.stderr.write(`stub: no rule for ${argv.join(' ')}\n`)
   process.exit(97)
 }
-const countsPath = join(dir, 'counts.json')
+// One counter per rule: a fleet's hearths are read at once, and two rules'
+// counters must not overwrite each other's read-modify-write.
+const countsPath = join(dir, `counts-${index}.json`)
 const counts = existsSync(countsPath) ? JSON.parse(readFileSync(countsPath, 'utf8')) : {}
 const used = counts[index] ?? 0
 counts[index] = used + 1
-writeFileSync(countsPath, JSON.stringify(counts))
+// A rename is atomic, so a reader never sees the truncate between writes: a
+// fleet's hearths are read at once, and one stub must not parse another's half.
+const written = `${countsPath}.${process.pid}`
+writeFileSync(written, JSON.stringify(counts))
+renameSync(written, countsPath)
 
 const responses = script.rules[index].responses
 const response = responses[Math.min(used, responses.length - 1)]

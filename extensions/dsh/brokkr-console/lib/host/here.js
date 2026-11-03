@@ -47,6 +47,29 @@ async function mainCheckoutOf(dir) {
 }
 
 /**
+ * Whether a refused `brokkr realms` read is the confirmed no-map world: the
+ * read failed outright (`failed`, never a timeout, an unstarted call, an
+ * overflow or malformed output) and the workspace holds no `realms.json`.
+ * Only ENOENT confirms that the map is absent: a symlink loop, a folder the
+ * process may not enter, a path through a file and every other stat error are
+ * indeterminate, so they withhold rather than guess a world. Any other
+ * refusal is reported, never guessed around. A caller that knows no workspace
+ * has no map to find; the console always passes one.
+ * @param {unknown} error the refusal `brokkr.realms()` threw
+ * @param {string | null} workspace the folder `realms.json` would be in
+ */
+export async function noMapWorld(error, workspace) {
+  if (!(error instanceof ReadoutRefused) || error.kind !== 'failed') return false
+  if (workspace === null) return true
+  try {
+    await stat(join(workspace, 'realms.json'))
+    return false
+  } catch (reason) {
+    return reason?.code === 'ENOENT'
+  }
+}
+
+/**
  * `realmAt(dir)`: `{realm}`, the realm `dir` belongs to as the map names
  * it, or `null` when it belongs to none. In a workspace with no
  * `realms.json`, where `brokkr realms` refuses, the workspace's folder is the
@@ -62,9 +85,8 @@ export function hereOf({ brokkr, workspace }) {
     try {
       realms = await brokkr.realms()
     } catch (error) {
-      // Only a workspace with no realms map is one hearth; any other refusal is reported, never guessed around.
-      const mapped = await stat(join(workspace, 'realms.json')).then(() => true, () => false)
-      if (!(error instanceof ReadoutRefused) || error.kind !== 'failed' || mapped) throw error
+      // Only the one no-map shape is one hearth; any other refusal is reported, never guessed around.
+      if (!(await noMapWorld(error, workspace))) throw error
       realms = [{ name: ONE_HEARTH, path: '.' }]
     }
     const roots = (await Promise.all(realms.map(async (realm) => ({ name: realm.name, root: await real(resolve(workspace, realm.path)) }))))

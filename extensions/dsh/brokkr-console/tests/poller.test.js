@@ -1,8 +1,8 @@
-// Live refresh (design D5): a run is re-read only when its head moved, only
-// for the client that has it open; the overview's readouts go only to a
-// client on the Realms view; a client that reconnects gets a full snapshot.
+// Live refresh (design D5): every open run is re-read on every poll, only
+// for the clients that have it open; the overview's readouts go only to a
+// client on the Realms view; a refused read reaches the page as Brokkr's own
+// words. The fixtures these tests share live in tests/support/poller.js.
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { test } from 'node:test'
 
@@ -10,82 +10,46 @@ import { brokkrOf } from '../lib/host/brokkr.js'
 import { configFrom } from '../lib/host/config.js'
 import { pollerOf } from '../lib/host/poller.js'
 import { fleetOf, ONE_HEARTH } from '../lib/host/readouts.js'
-import { findAll, openedOn, textOf } from './support/client.js'
+import { WORLD_DATA_TYPES, WorldDataRefused } from '../lib/host/transport.js'
+import { findAll, textOf } from './support/client.js'
+import { RUN, OTHER, attached, fleetAt, openedPage, pasted, polled, heard, realmsDoc, refusedHint, runOf, windowOf } from './support/poller.js'
 import { analyticsDoc, fleetDoc, json, row, runViewDoc, stubBrokkr } from './support/world.js'
 
-const RUN = row().run_id
-const OTHER = 'lane-detection-v2-77aa01bc'
-
-const fleetAt = (seq, other = 3) => json(fleetDoc([['brokkr', [row({ seq }), row({ run_id: OTHER, seq: other, title: 'Lane detection v2' })]]]))
-
-/** Wait until `client` has been sent its snapshot, then hand it back. */
-async function settle(client) {
-  for (let waited = 0; client.sent.length === 0; waited += 50) {
-    assert.ok(waited < 10_000, 'no snapshot within 10s')
-    await new Promise((wake) => setTimeout(wake, 50))
-  }
-  return client
-}
-
-function polled(fleets, ask = undefined) {
-  const brokkr = stubBrokkr([
-    { match: ['runs'], responses: fleets },
-    { match: ['inspect'], responses: [json(runViewDoc())] },
-    { match: ['queue'], responses: [json([])] },
-    { match: ['muninn'], responses: [json([])] },
-    { match: ['analytics'], responses: [json(analyticsDoc())] },
-  ])
-  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000, ...(ask === undefined ? {} : { ask }) })
-  const peer = () => {
-    const sent = []
-    return { sent, send: (message) => sent.push(message), onClose: () => {} }
-  }
-  return { poller, peer, settle, calls: () => brokkr.calls().map((argv) => argv[0]) }
-}
-
-test('a run is re-read only when its head moved, and only for the client that has it open', async () => {
-  const { poller, peer, settle, calls } = polled([fleetAt(12), fleetAt(12), fleetAt(12, 4), fleetAt(13, 4)])
-  const open = peer()
-  const elsewhere = peer()
-  poller.attach(open)({ type: 'watch', view: 'realm', run: { realm: 'brokkr', run_id: RUN } })
-  await settle(open)
-  poller.attach(elsewhere)({ type: 'watch', view: 'analytics', run: null })
-  await settle(elsewhere)
+test('an open run is re-read on every poll, and only for the client that has it open', async () => {
+  const { poller, calls } = polled(
+    [fleetAt(12), fleetAt(12), fleetAt(12, 4), fleetAt(13, 4)],
+    undefined,
+    [12, 12, 13].map((seq) => json(runViewDoc({ seq }))),
+  )
+  const open = await attached(poller, { view: 'realm', run: { realm: 'brokkr', run_id: RUN } })
+  const elsewhere = await attached(poller, { view: 'analytics', run: null })
   const before = calls().filter((verb) => verb === 'inspect').length
   open.sent.length = 0
   elsewhere.sent.length = 0
 
-  await poller.tick() // only the other run moved
-  assert.equal(calls().filter((verb) => verb === 'inspect').length, before)
+  await poller.tick() // only the other run moved; the open run is still read
+  assert.equal(calls().filter((verb) => verb === 'inspect').length, before + 1)
   assert.deepEqual(open.sent.map((message) => message.type), ['fleet'])
 
   await poller.tick() // the open run moved
-  assert.equal(calls().filter((verb) => verb === 'inspect').length, before + 1)
+  assert.equal(calls().filter((verb) => verb === 'inspect').length, before + 2)
   assert.deepEqual(open.sent.map((message) => message.type), ['fleet', 'fleet', 'run'])
   assert.deepEqual(elsewhere.sent.map((message) => message.type), ['fleet', 'fleet'])
 })
 
 test('the overview’s readouts go only to a client on the Realms view', async () => {
-  const { poller, peer, settle } = polled([fleetAt(12), fleetAt(13)])
-  const realms = peer()
-  const realm = peer()
-  poller.attach(realms)({ type: 'watch', view: 'realms', run: null })
-  await settle(realms)
-  poller.attach(realm)({ type: 'watch', view: 'realm', run: null })
-  await settle(realm)
+  const { poller } = polled([fleetAt(12), fleetAt(13)])
+  const realms = await attached(poller, { view: 'realms', run: null })
+  const realm = await attached(poller, { view: 'realm', run: null })
   assert.deepEqual([realms.sent[0].type, realms.sent[0].overview === null], ['snapshot', false])
   assert.deepEqual([realm.sent[0].type, realm.sent[0].overview], ['snapshot', null])
 })
 
 test('a client that reconnects receives the current snapshot, its open run included', async () => {
-  const { poller, peer, settle } = polled([fleetAt(12), fleetAt(14)])
-  const first = peer()
-  poller.attach(first)({ type: 'watch', view: 'realm', run: { realm: 'brokkr', run_id: RUN } })
-  await settle(first)
+  const { poller } = polled([fleetAt(12), fleetAt(14)])
+  const first = await attached(poller, { view: 'realm', run: { realm: 'brokkr', run_id: RUN } })
   first.onClose()
-  const again = peer()
-  poller.attach(again)({ type: 'watch', view: 'realm', run: { realm: 'brokkr', run_id: RUN } })
-  await settle(again)
+  const again = await attached(poller, { view: 'realm', run: { realm: 'brokkr', run_id: RUN } })
   const [snapshot] = again.sent
   assert.deepEqual(
     [snapshot.type, snapshot.fleet.hearths[0].runs[0].seq, snapshot.run.run_id, snapshot.run.view.summary.seq],
@@ -97,53 +61,17 @@ test('the question boxes are off unless BROKKR_CONSOLE_ASK is 1, and the snapsho
   assert.deepEqual(['', '0', 'yes', '1'].map((value) => configFrom({ BROKKR_CONSOLE_ASK: value }, '/w').ask), [false, false, false, true])
   assert.equal(configFrom({}, '/w').ask, false)
   for (const [ask, carried] of [[undefined, false], [true, true]]) {
-    const { poller, peer, settle } = polled([fleetAt(12)], ask)
-    const client = peer()
-    poller.attach(client)({ type: 'watch', view: 'realms', run: null })
-    await settle(client)
+    const { poller } = polled([fleetAt(12)], ask)
+    const client = await attached(poller, { view: 'realms', run: null })
     assert.equal(client.sent[0].ask, carried)
   }
 })
-
-/** Attach a client watching `watch` to `poller`, and wait for its first message. */
-async function attached(poller, watch) {
-  const sent = []
-  const client = { sent, send: (message) => sent.push(message), onClose: () => {} }
-  poller.attach(client)({ type: 'watch', ...watch })
-  return settle(client)
-}
-
-/** The argv a POSIX shell hands `brokkr` for a pasted hint: the function only prints them. */
-function pasted(hint) {
-  return execFileSync('bash', ['-c', `brokkr() { printf '%s\\n' "$@"; }; ${hint}`], { encoding: 'utf8' }).trimEnd().split('\n')
-}
-
-/** The browser half opened on the parked run, painting the host's `run` message. */
-function openedPage(fleetView, run, realm = 'brokkr') {
-  const page = openedOn(fleetView, realm)
-  page.push({ type: 'run', run })
-  return page
-}
-
-/** A refused inspect for the parked run in the many-hearth world whose journal is `journal`, read and painted. */
-async function refusedHint(journal) {
-  const words = 'brokkr inspect was refused: the journal could not be read'
-  const many = fleetDoc([['Project Alpha', [row({ seq: 12 })]], ['looper', [row({ run_id: OTHER, seq: 3, title: 'Lane detection v2' })]]])
-  many.realms[0].journal = journal
-  const brokkr = stubBrokkr([
-    { match: ['runs'], responses: [json(many)] },
-    { match: ['inspect'], responses: [{ stderr: words, code: 1 }] },
-  ])
-  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
-  const client = await attached(poller, { view: 'realm', run: { realm: 'Project Alpha', run_id: RUN } })
-  const run = client.sent[0].run
-  return { run, page: openedPage(fleetOf(many), run, 'Project Alpha'), brokkr }
-}
 
 test('a refused read reaches the open client as Brokkr’s words and the command the console ran, in the snapshot and after the head moves', async () => {
   const words = 'brokkr inspect was refused: the journal moved beneath the read'
   const hint = `brokkr inspect --run=${RUN} --db=/hearths/brokkr/forge.db`
   const brokkr = stubBrokkr([
+    { match: ['realms'], responses: [json(realmsDoc(['brokkr']))] },
     { match: ['runs'], responses: [fleetAt(12), fleetAt(13)] },
     { match: ['inspect'], responses: [{ stderr: words, code: 1 }] },
   ])
@@ -163,6 +91,7 @@ test('a run absent from the fleet reaches the open client as not listed, in the 
   const other = row({ run_id: OTHER, seq: 3, title: 'Lane detection v2' })
   const without = json(fleetDoc([['brokkr', [other]]]))
   const brokkr = stubBrokkr([
+    { match: ['realms'], responses: [json(realmsDoc(['brokkr']))] },
     { match: ['runs'], responses: [fleetAt(12), without] },
     { match: ['inspect'], responses: [json(runViewDoc())] },
   ])
@@ -183,6 +112,7 @@ test('the runner’s own output bound reaches the run page as Brokkr’s refusal
   const words = 'brokkr inspect printed more than the console reads'
   const hint = `brokkr inspect --run=${RUN} --db=/hearths/brokkr/forge.db`
   const brokkr = stubBrokkr([
+    { match: ['realms'], responses: [json(realmsDoc(['brokkr']))] },
     { match: ['runs'], responses: [fleetAt(12)] },
     { match: ['inspect'], responses: [{ bytes: 8193 }] },
   ], { maxBytes: 8192 })
@@ -259,4 +189,57 @@ test('a refused-run hint keeps shell syntax in its journal path inert', async ()
   assert.equal(existsSync('pwned'), false)
   const painted = findAll(page.tree(), (node) => String(node.props.className).includes('bk-hint') && textOf(node) === run.hint).map(textOf)
   assert.deepEqual(painted, [run.hint])
+})
+
+test('unchanged Realms snapshots reuse cached day analytics', async () => {
+  const brokkr = stubBrokkr([
+    { match: ['runs'], responses: [json(windowOf([runOf('alpha', 0)], null))] },
+    { match: ['queue'], responses: [json([])] },
+    { match: ['muninn'], responses: [json([])] },
+    { match: ['analytics'], responses: [json(analyticsDoc())] },
+  ])
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const client = await attached(poller, { view: 'realms', run: null })
+  const analytics = () => brokkr.calls().filter((argv) => argv[0] === 'analytics').length
+  assert.equal(analytics(), 1)
+
+  client.sent.length = 0
+  client.receive({ type: 'watch', view: 'realms', run: null })
+  assert.equal((await heard(client)).type, 'snapshot')
+  assert.equal(analytics(), 1)
+})
+
+test('M1: a world-data send outside publish is refused at the transport, however it is spelled', async () => {
+  const { poller } = polled([fleetAt(12)])
+  const peer = await attached(poller, { view: 'realms', run: null })
+  const painted = peer.sent.length
+  // The chief’s direct and interpolated forms, an optional computed chain, and
+  // the aliased call that lost its receiver, all reach the same facade.
+  const spellings = [
+    ['direct', (message) => peer.send(message)],
+    ['interpolated', (message) => `${peer.send(message)}`],
+    ['optional computed', (message) => peer?.['send'](message)],
+    ['interpolated computed', (message) => `${peer?.['send'](message)}`],
+    ['aliased', (message) => { const send = peer.send; return send(message) }],
+  ]
+  const messages = [
+    ...WORLD_DATA_TYPES.map((type) => ({ type })),
+    // A type outside the list is still world data when it carries a world field.
+    { type: 'harbour', fleet: { hearths: [] } },
+    { type: 'settings', workspace: '/w', ask: true },
+    { type: 'notes', overview: {}, run: { run_id: RUN } },
+  ]
+  const unrefused = []
+  for (const [spelling, send] of spellings) {
+    for (const message of messages) {
+      try {
+        send(message)
+        unrefused.push(`${spelling}: ${message.type} was not refused by name`)
+      } catch (error) {
+        if (!(error instanceof WorldDataRefused && error.name === 'WorldDataRefused')) unrefused.push(`${spelling}: ${message.type} threw ${error?.name ?? typeof error}`)
+      }
+    }
+  }
+  assert.deepEqual(unrefused, [], 'every world-data send is refused by name, whatever its spelling')
+  assert.equal(peer.sent.length, painted, 'a refused send painted nothing')
 })

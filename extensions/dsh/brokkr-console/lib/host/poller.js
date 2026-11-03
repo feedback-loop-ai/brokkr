@@ -1,37 +1,174 @@
-// Live refresh (design D5). While a client is connected, the host reads the
-// fleet every few seconds. A run is re-read only when its head moved, and
-// only for a client that has it open. The fleet is pushed whole when it
-// changed: it is one readout over every hearth, and the panel-list count on
-// every page reads every hearth. The overview's own readouts (the queue,
-// Muninn's record and the last day's figures) go only to a client on the
-// Realms view. A client that connects or changes what it watches gets a full
-// snapshot. Nothing here touches a run: closing the panel only stops reading.
-import { ReadoutRefused } from './readouts.js'
+// Live refresh (design D5). While a client is connected, the host reads the fleet every few seconds. Every
+// open run is re-read by `inspect` on every poll, and so is every running run the latest first page shows,
+// whether a retained page holds it or not: a page never says a run was dropped. A run's row is read whole
+// from Brokkr's one derivation (`runs --run`), never derived here, and it is fenced by the journal it was
+// read from: a result from a journal the realm no longer names paints nothing. The fleet is pushed whole
+// when it changed: it is one readout over every hearth, and the panel-list count on every page reads every
+// hearth. The overview's own readouts (the queue, Muninn's record and the last day's figures) go only to a
+// client on the Realms view. A client that connects or changes what it watches gets a full snapshot. Nothing
+// here touches a run: closing the panel only stops reading.
+import { realpath } from 'node:fs/promises'
+import { isAbsolute, resolve } from 'node:path'
+
+import { noMapWorld } from './here.js'
+import { ONE_HEARTH, isHearthLabel, namesOfHearth, ReadoutRefused } from './readouts.js'
+import { PeerRegistered, publisherFor } from './transport.js'
 
 const VIEWS = ['none', 'realms', 'realm', 'analytics']
 
 const keyOf = (realm, runId) => `${realm}\u0000${runId}`
 
+/**
+ * Whether a hearth's listing is the whole hearth: no later page, no run
+ * behind, no retained page, no refusal. A page kept from an older read is
+ * still one page, so its last page states no whole fleet (M5).
+ */
+const whole = (hearth) => hearth.retained !== true && hearth.detail === null && (hearth.next === null || hearth.next === undefined) && hearth.behind === 0
+
 /** A fault in the console itself, which no readout explains: DSH's log shows it. */
 const report = (error) => console.error('[brokkr-console]', error)
 
-/** Each listed run's head, by realm and run id. */
+/** A fenced row read's marker: the row is not merely "not due", it may not publish. */
+const DROPPED = Symbol('dropped')
+
+/** Each client's publish path, private to `publish`; `registered` holds attached peers, so a second registration refuses. */
+const publishSendOf = new WeakMap()
+const registered = new WeakSet()
+
+/** Each listed run's head, by realm and run id, from the fleet a poll is about to replace. */
 function headsOf(fleet) {
   const heads = new Map()
-  for (const hearth of fleet.hearths) {
+  for (const hearth of fleet?.hearths ?? []) {
     for (const row of hearth.runs) heads.set(keyOf(hearth.realm, row.run_id), row.seq)
   }
   return heads
 }
+
+/** The key a retained page is held by: the realm and the journal it was read from. */
+const pageKey = (realm, journal) => `${realm}\u0000${journal}`
+
+/** Whether a fresh inspect summary shows the held row moved: its head, phase or standing. */
+const moved = (row, summary) => row.seq !== summary.seq || row.phase !== summary.phase || row.verdict.standing !== summary.standing
 
 /** A watch message, checked; `null` for one the host does not read. */
 function watchOf(message) {
   if (message === null || typeof message !== 'object' || message.type !== 'watch') return null
   if (!VIEWS.includes(message.view)) return null
   const run = message.run
-  if (run === null || run === undefined) return { view: message.view, run: null }
+  const named = message.realm
+  const realm = isHearthLabel(named) ? named : typeof run?.realm === 'string' ? run.realm : null
+  if (run === null || run === undefined) return { view: message.view, run: null, realm }
   if (typeof run.realm !== 'string' || typeof run.run_id !== 'string') return null
-  return { view: message.view, run: { realm: run.realm, run_id: run.run_id } }
+  return { view: message.view, run: { realm: run.realm, run_id: run.run_id }, realm }
+}
+
+/** A client asking for one hearth's next page, checked; `null` for one the host does not read. */
+function moreOf(message) {
+  if (message === null || typeof message !== 'object' || message.type !== 'more') return null
+  return isHearthLabel(message.realm) ? { realm: message.realm } : null
+}
+
+/**
+ * A journal's identity as Brokkr's `World::hearths` reads it: its canonical
+ * path, or its resolved path when the file does not exist yet, so two realm
+ * rows naming one journal through different spellings are one hearth. The
+ * named path is handed to the OS as written (only made absolute), never
+ * normalized first: a symlink followed by `..` must resolve at the kernel,
+ * as `realpathSync.native` and Rust's `canonicalize` both do.
+ */
+async function identityOf(journal, workspace) {
+  const base = workspace ?? process.cwd()
+  const named = isAbsolute(journal) ? journal : `${base}/${journal}`
+  try {
+    return await realpath(named)
+  } catch {
+    return resolve(base, journal)
+  }
+}
+
+/**
+ * The hearths `brokkr realms --json` names, one per distinct journal, each
+ * under the realm names sharing it (Brokkr's `a+b` label and map order);
+ * `null` only for the confirmed no-map world (`noMapWorld`, the one rule
+ * `here.js` owns), never for a read that did not resolve a map.
+ */
+async function hearthsOf(brokkr, workspace) {
+  let realms
+  try {
+    realms = await brokkr.realms()
+  } catch (error) {
+    if (await noMapWorld(error, workspace)) return null
+    throw error
+  }
+  const byJournal = new Map()
+  for (const realm of realms) {
+    const journal = await identityOf(realm.journal, workspace)
+    const held = byJournal.get(journal)
+    if (held === undefined) byJournal.set(journal, { journal, names: [realm.name] })
+    else held.names.push(realm.name)
+  }
+  return [...byJournal.values()].map(({ journal, names }) => ({ realm: names.join('+'), journal, names }))
+}
+
+/**
+ * Whether a world re-read after a read still names the journal that read
+ * used under every realm name the read covered. A joined hearth publishes
+ * under the label all its names make, so every one of them must still bind
+ * that journal: beta naming old.db does not keep a read labelable as
+ * alpha+beta once alpha has moved (M1). The journal must be that realm's
+ * hearth's, not merely one the map names elsewhere: another realm may take
+ * the journal over while this one moves (F1-B). A no-map world's `null`
+ * journal is a shape of its own, and a map appearing beside it means the
+ * journal changed (F1). One re-read fences one read, whatever the world's
+ * shape.
+ */
+const namedBy = (hearths, journal, names) => journal === null
+  ? hearths === null
+  : hearths !== null && names.every((name) => hearths.some((hearth) => hearth.journal === journal && hearth.names.includes(name)))
+
+/**
+ * Whether the map re-read after a read still names the journal that read
+ * used for its realm. One `brokkr realms` per read is the fence's accepted
+ * cost; only the confirmed no-map world (`noMapWorld`) confirms a null
+ * journal, and every other refusal withholds the publication. The map is
+ * kept in `seen`, when a poll keeps one, so every later pending publication
+ * can be held to the latest map the poll resolved (M2). A refused fence
+ * resolves nothing: `seen.unresolved` records it so no earlier map this path
+ * read can stand as the final fence's evidence (H1).
+ */
+async function stillNamed(brokkr, workspace, journal, realm, seen = null) {
+  try {
+    const hearths = await hearthsOf(brokkr, workspace)
+    if (seen !== null) {
+      seen.map = hearths
+      seen.unresolved = false
+    }
+    return namedBy(hearths, journal, namesOfHearth(realm))
+  } catch {
+    if (seen !== null) seen.unresolved = true
+    return false
+  }
+}
+
+/**
+ * The one publication gate: `seen.map` is the latest map this path's own
+ * reads resolved. A fleet or a row may publish only while that map still
+ * names, for every hearth in the fleet and every target row, the journal it
+ * was read from. A path whose own last fence was refused or indeterminate
+ * publishes nothing, even when a newer fleet has since installed: its earlier
+ * map is stale evidence, not a fence (H1). A path whose own read was
+ * superseded by a newer installed fleet has no map of its own to hold; the
+ * installed fleet was already fenced by its own read, so a snapshot may paint
+ * it as it stands. Any other path that resolved no map publishes nothing.
+ * Every publishing path calls this, so a later one cannot keep a private copy
+ * of the rule (M2, ruling 5).
+ */
+function publishable(seen, fleet, targets = []) {
+  if (seen.unresolved === true) return false
+  if (seen.map === undefined) return seen.superseded === true
+  const named = (journal, realm) => namedBy(seen.map, journal, namesOfHearth(realm))
+  if (!(fleet?.hearths ?? []).every((hearth) => named(hearth.journal, hearth.realm))) return false
+  return targets.every((target) => target === null || named(target.journal, target.realm))
 }
 
 /** `{value}` when the readout parsed, `{refused}` with its text when Brokkr's answer was refused. */
@@ -51,35 +188,358 @@ async function settled(read) {
  */
 export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
   const clients = new Set()
-  const state = { fleet: null, heads: new Map(), fleetText: null, day: null, overviewText: null, timer: null, busy: false }
+  const state = { fleet: null, extras: new Map(), repin: new Set(), fleetText: null, shown: [], day: null, overviewText: null, timer: null, busy: false, generation: 0, installed: 0 }
 
-  function locate(realm, runId) {
-    const hearth = state.fleet?.hearths.find((each) => each.realm === realm)
-    if (hearth === undefined || !hearth.runs.some((row) => row.run_id === runId)) return null
-    return { run_id: runId, journal: hearth.journal }
+  /** Whether the journal `target` was read from is still the one its realm names (M4). */
+  function current(target) {
+    if (target === null) return false
+    const hearth = state.fleet?.hearths.find((each) => each.realm === target.realm)
+    return hearth !== undefined && hearth.journal === target.journal
   }
 
-  /** Read the fleet; whether it differs from the last one read. */
-  async function readFleet() {
-    const fleet = await brokkr.fleet()
-    const text = JSON.stringify(fleet)
-    const changed = text !== state.fleetText
-    Object.assign(state, { fleet, fleetText: text })
-    return changed
+  /** Whether an absence was decided against the fleet still installed (F3). */
+  const staleAbsence = (source) => source === null || source.generation !== state.installed
+
+  /**
+   * Mark every client owed the installed fleet until it is sent to that
+   * client. A changed install and a row held into the shared fleet are both
+   * changes no snapshot may paint for one client alone, so each marks all
+   * (R-2, ruling 5).
+   */
+  function oweAll() {
+    for (const client of clients) client.owed = true
   }
 
   /**
-   * A listed run's view; a refused read's own words and the command that reads
-   * it beside `view: null`; or `listed: false` when the fleet no longer holds
-   * the run, which is a fact about the run rather than a read still in flight.
+   * A run's journal from the latest fleet, or `null` when the listing is
+   * whole and does not hold it. A page that says more or behind cannot show
+   * a run was dropped: the run is read through the journal its realm names.
    */
-  async function runOf(ref) {
+  function locate(realm, runId) {
+    const hearth = state.fleet?.hearths.find((each) => each.realm === realm)
+    if (hearth === undefined) return null
+    if (whole(hearth) && !hearth.runs.some((row) => row.run_id === runId)) return null
+    // A map's journal is named in the argv even when it names one realm:
+    // without `--db` Brokkr opens the map's world journal, not this realm's
+    // own. A no-map world has no journal to name and keeps part 1's argv.
+    return { realm, run_id: runId, journal: hearth.journal, db: hearth.journal }
+  }
+
+  /** The realms whose hearths a client has on screen: what a refresh keeps paged into. */
+  function watched() {
+    const realms = new Set()
+    for (const client of clients) if (client.watch.realm !== null) realms.add(client.watch.realm)
+    return realms
+  }
+
+  /**
+   * Each hearth's first page, named by the journal the map gives that
+   * hearth; a hearth Brokkr cannot read keeps its refusal. Only a world
+   * with no map is read without `--db` (part 1's hint rule): a map, even
+   * one naming a single realm, names the realm's journal, and a no-`--db`
+   * read would open the map's world journal instead.
+   */
+  async function readHearths(hearths) {
+    if (hearths === null || hearths.length === 0) {
+      // A one-hearth world keeps the same shape as any other: a refused read
+      // is a hearth's own detail, not an error banner beside the fleet (F2).
+      const read = await settled(() => brokkr.fleetPage(null))
+      return {
+        hearths: [read.refused === undefined
+          ? { ...read.value, detail: null }
+          : { realm: ONE_HEARTH, journal: null, detail: read.refused, runs: [], next: null, behind: 0 }],
+      }
+    }
+    const each = async (hearth) => {
+      const read = await settled(() => brokkr.fleetPage(hearth.journal))
+      return read.refused === undefined
+        ? { ...read.value, realm: hearth.realm, journal: hearth.journal, detail: null }
+        : { realm: hearth.realm, journal: hearth.journal, detail: read.refused, runs: [], next: null, behind: 0 }
+    }
+    return { hearths: await Promise.all(hearths.map(each)) }
+  }
+
+  /**
+   * A partial listing that omits an open run cannot say it was dropped: its
+   * row is carried from the fleet this poll is about to replace, under the
+   * same journal. A whole listing does say it is gone, and a changed journal
+   * owns none of the pages read from the old one.
+   */
+  function pinOpen(fleet) {
+    for (const client of clients) {
+      const ref = client.watch.run
+      if (ref === null) continue
+      const hearth = fleet.hearths.find((each) => each.realm === ref.realm)
+      if (hearth === undefined || hearth.detail !== null || whole(hearth)) continue
+      if (hearth.runs.some((row) => row.run_id === ref.run_id)) continue
+      const before = state.fleet?.hearths.find((each) => each.realm === ref.realm && each.journal === hearth.journal)
+      const held = before?.runs.find((row) => row.run_id === ref.run_id)
+      if (held !== undefined) hearth.runs.push(held)
+    }
+  }
+
+  /**
+   * Read the fleet and say whether it differs from the last one read. Every
+   * poll reads each hearth's first page only; the pages an operator paged
+   * into are kept for the hearth on screen, keyed by its realm and journal,
+   * while the first page still ends where they began, and let go otherwise.
+   * An open run is never taken from or closed by this listing: it is read by
+   * `inspect` in the poll that follows.
+   */
+  async function readFleet(seen = null) {
+    const generation = ++state.generation
+    const hearths = await hearthsOf(brokkr, workspace)
+    const fleet = await readHearths(hearths)
+    // A page read before a newer one landed cannot roll the fleet back to a
+    // journal the realm no longer names: only a read at least as new as the
+    // installed one may install, and the older result paints nothing (M4).
+    // A snapshot that answers this read paints the installed fleet, which a
+    // newer read already fenced, so its gate has no map of its own to hold.
+    if (generation <= state.installed) {
+      if (seen !== null) seen.superseded = true
+      return { changed: false }
+    }
+    // Every page was read from a journal this poll resolved: re-read the map
+    // once and keep the whole fleet only while each read's journal is still
+    // its hearth's (F1). A no-map world is a shape of its own, so a map that
+    // appeared mid-read drops the pages read from the default journal. A map
+    // read that does not resolve drops the poll's pages the same way: only the
+    // confirmed no-map shape may stand for a null journal.
+    let after
+    try {
+      after = await hearthsOf(brokkr, workspace)
+    } catch (error) {
+      if (!(error instanceof ReadoutRefused)) throw error
+      return { changed: false, dropped: true }
+    }
+    if (seen !== null) seen.map = after
+    const used = hearths === null || hearths.length === 0 ? [{ journal: null, realm: ONE_HEARTH }] : hearths
+    if (!used.every((hearth) => namedBy(after, hearth.journal, hearth.names))) return { changed: false, dropped: true }
+    if (generation <= state.installed) return { changed: false }
+    state.installed = generation
+    // The latest first page's running rows, before any retained page is
+    // merged: each is inspected on every poll, whatever the held pages say.
+    const shown = []
+    for (const hearth of fleet.hearths) {
+      if (hearth.detail !== null) continue
+      for (const row of hearth.runs) {
+        if (row.verdict.standing === 'running') shown.push({ realm: hearth.realm, run_id: row.run_id })
+      }
+    }
+    state.shown = shown
+    const onScreen = watched()
+    const repin = new Set()
+    for (const [key, extra] of [...state.extras]) {
+      const hearth = fleet.hearths.find((each) => each.realm === extra.realm && each.journal === extra.journal)
+      if (!onScreen.has(extra.realm) || hearth === undefined || hearth.next !== extra.from) {
+        for (const row of extra.runs) repin.add(keyOf(extra.realm, row.run_id))
+        state.extras.delete(key)
+        continue
+      }
+      const listed = new Set(hearth.runs.map((row) => row.run_id))
+      for (const row of extra.runs) {
+        if (listed.has(row.run_id)) continue
+        listed.add(row.run_id)
+        hearth.runs.push(row)
+      }
+      hearth.next = extra.next
+      hearth.retained = true
+    }
+    pinOpen(fleet)
+    state.repin = repin
+    const text = JSON.stringify(fleet)
+    const changed = text !== state.fleetText
+    Object.assign(state, { fleet, fleetText: text })
+    // A changed fleet is owed to every client until it is sent to that
+    // client: the snapshot that installed it paints only its own, so an
+    // install must mark them all here, one home (R-2, ruling 5).
+    if (changed) oweAll()
+    return { changed }
+  }
+
+  /**
+   * The one publication: every message carrying world-derived data is sent
+   * here, and only while `seen`, this path's latest map, still names every
+   * hearth in the fleet and every `target` it carries. A withheld message
+   * returns false and leaves the caller's owed marks standing, so the next
+   * successful gate repays the whole withheld publication. A console error
+   * carries no world data and is sent by `sendError`, outside this gate
+   * (M2, ruling 5).
+   */
+  function publish(seen, client, message, targets = []) {
+    if (!publishable(seen, state.fleet, targets)) return false
+    publishSendOf.get(client)(message)
+    return true
+  }
+
+  /** A console refusal's own words: no world data, so it is not published. */
+  function sendError(client, message) {
+    client.peer.send({ type: 'error', message })
+  }
+
+  /**
+   * Send `client` the fleet only while `seen`, this path's latest map, still
+   * names every hearth in it and every `target` the caller read; clear the
+   * owed mark on a send. A client whose snapshot was withheld also receives
+   * the snapshot's workspace and ask setting here, since a fleet message is
+   * sent to every view; its overview is repaid by the poll's overview send.
+   * Every fleet send passes the one publication, so a new path cannot publish
+   * without the gate (M2, ruling 5).
+   */
+  function sendFleet(seen, client, targets = []) {
+    const snapshot = client.owedSnapshot ? { workspace, ask } : {}
+    if (!publish(seen, client, { type: 'fleet', fleet: state.fleet, ...snapshot }, targets)) {
+      client.owed = true
+      return
+    }
+    client.owed = false
+    if (client.owedSnapshot && client.watch.view !== 'realms') client.owedSnapshot = false
+  }
+
+  /**
+   * Read the page after `realm`'s `next`, append it to that hearth, and push
+   * the fleet: the operator asked for more, and a poll keeps it only while
+   * this realm is on screen. A second request for the page another request
+   * already read appends nothing, and no row is listed twice. The page is
+   * appended only after the one gate holds the whole fleet to the map this
+   * request's own reads resolved (M2).
+   */
+  async function morePage(realm) {
+    const first = state.fleet?.hearths.find((each) => each.realm === realm)
+    if (first === undefined || first.next === null || first.next === undefined) return
+    const cursor = first.next
+    // A map names its journal even when it names one realm; a no-map world
+    // alone keeps part 1's no-`--db` argv.
+    const read = await settled(() => brokkr.fleetPage(first.journal, cursor))
+    // A poll may have replaced the fleet, or the map may have moved, while
+    // this page was in flight: the map is re-read after the page, and a
+    // result read from a journal the world no longer names is dropped
+    // (M4, F1).
+    const seen = {}
+    if (!(await stillNamed(brokkr, workspace, first.journal, first.realm, seen))) return
+    const hearth = state.fleet?.hearths.find((each) => each.realm === realm)
+    if (hearth === undefined || hearth.journal !== first.journal) return
+    if (read.refused !== undefined) {
+      for (const client of clients) sendError(client, read.refused)
+      return
+    }
+    if (hearth.next !== cursor) return
+    // The page's own journal is fenced; the fleet it is appended to is held
+    // to the same map before anything is mutated or painted.
+    if (!publishable(seen, state.fleet, [first])) return
+    const listed = new Set(hearth.runs.map((row) => row.run_id))
+    const added = []
+    for (const row of read.value.runs) {
+      if (listed.has(row.run_id)) continue
+      listed.add(row.run_id)
+      added.push(row)
+    }
+    hearth.runs.push(...added)
+    hearth.next = read.value.next
+    hearth.behind = read.value.behind
+    hearth.retained = true
+    const key = pageKey(hearth.realm, hearth.journal)
+    const kept = state.extras.get(key)
+    const runs = [...(kept?.runs ?? [])]
+    const held = new Set(runs.map((row) => row.run_id))
+    for (const row of read.value.runs) {
+      if (held.has(row.run_id)) continue
+      held.add(row.run_id)
+      runs.push(row)
+    }
+    state.extras.set(key, { realm: hearth.realm, journal: hearth.journal, from: kept?.from ?? cursor, runs, next: read.value.next })
+    state.fleetText = JSON.stringify(state.fleet)
+    for (const client of clients) sendFleet(seen, client, [first])
+  }
+
+  /**
+   * An open run's view and the journal identity it was read from; a refused
+   * read's own words and the command that reads it beside `view: null`; or
+   * `listed: false` when the whole listing no longer holds the run, which is
+   * a fact about the run rather than a read still in flight. The target is
+   * captured before the await, so a watch that moves while the read is in
+   * flight cannot repoint this result at another run.
+   */
+  async function runOf(ref, seen = null) {
     const target = locate(ref.realm, ref.run_id)
-    if (target === null) return { ...ref, view: null, listed: false }
+    if (target === null) {
+      // An absence is a fact about the fleet this read stands on, not about a
+      // journal: it carries that fleet's generation, and it publishes only
+      // while that generation is still the installed one (F3).
+      const hearth = state.fleet?.hearths.find((each) => each.realm === ref.realm)
+      const source = { realm: ref.realm, run_id: ref.run_id, journal: hearth?.journal ?? null, generation: state.installed }
+      return { target: null, source, run: { ...ref, view: null, listed: false } }
+    }
     const read = await settled(() => brokkr.inspect(target))
-    return read.refused === undefined
+    // The map can move while the inspect is in flight, in a world of any
+    // shape: the result is published only while the journal it opened is
+    // still the one its realm names (F1).
+    if (!(await stillNamed(brokkr, workspace, target.journal, target.realm, seen))) {
+      return { target, source: target, run: { ...ref, view: null }, dropped: true }
+    }
+    const run = read.refused === undefined
       ? { ...ref, view: read.value ?? null }
       : { ...ref, view: null, refused: read.refused, hint: brokkr.inspectHint(target) }
+    return { target, source: target, run }
+  }
+
+  /**
+   * The served row for `target` when a fresh summary shows the held row
+   * moved, or when a partial listing left the run out; `null` when no row is
+   * due, and `DROPPED` when the journal it was read from is no longer the
+   * realm's, so the caller withholds what it was about to publish. Brokkr's
+   * one derivation is read whole; this host derives none of its standing,
+   * verdict or text (M1-M3). The row is not held here: the map confirms the
+   * journal after every read, whatever the world's shape, and only then may
+   * a caller hold the row (F1).
+   */
+  async function rowFor(target, summary, seen = null) {
+    const hearth = state.fleet?.hearths.find((each) => each.realm === target.realm && each.journal === target.journal)
+    if (hearth === undefined || hearth.detail !== null) return null
+    const held = hearth.runs.find((each) => each.run_id === target.run_id) ?? null
+    if (held !== null && !moved(held, summary)) return null
+    if (held !== null && held.seq !== null && summary.seq < held.seq) return null
+    const read = await settled(() => brokkr.runRow(target))
+    // The one-run row is fenced like every other read: the map is re-read
+    // after it, and a row from a journal the realm no longer names is
+    // neither held nor sent (F1, F1-A).
+    if (!(await stillNamed(brokkr, workspace, target.journal, target.realm, seen))) return DROPPED
+    if (read.refused !== undefined || !current(target) || read.value.run_id !== target.run_id) return null
+    return read.value
+  }
+
+  /**
+   * Replace the fleet's row for `target` whole with `row`, the one Brokkr
+   * served, adding it where a partial listing left the run out. A whole
+   * listing that omits the run still says the run is gone; a retained page
+   * never does (M5). An older read never replaces a newer head. A row held
+   * into the shared fleet is owed to every client, exactly as an install is:
+   * the next poll may find the fleet unchanged and install nothing, so the
+   * mutation marks them here (R-2, ruling 5).
+   */
+  function holdRow(target, row) {
+    const hearth = state.fleet?.hearths.find((each) => each.realm === target.realm && each.journal === target.journal)
+    if (hearth === undefined || hearth.detail !== null) return false
+    const index = hearth.runs.findIndex((each) => each.run_id === target.run_id)
+    if (index === -1) {
+      if (whole(hearth)) return false
+      hearth.runs.push(row)
+      state.fleetText = JSON.stringify(state.fleet)
+      oweAll()
+      return 'added'
+    }
+    const held = hearth.runs[index]
+    if (held.seq !== null && row.seq !== null && row.seq < held.seq) return false
+    if (JSON.stringify(row) === JSON.stringify(held)) return false
+    hearth.runs[index] = row
+    for (const extra of state.extras.values()) {
+      if (extra.realm !== target.realm || extra.journal !== target.journal) continue
+      const at = extra.runs.findIndex((each) => each.run_id === target.run_id)
+      if (at !== -1) extra.runs[at] = row
+    }
+    state.fleetText = JSON.stringify(state.fleet)
+    oweAll()
+    return 'patched'
   }
 
   async function overview(fleetMoved) {
@@ -87,37 +547,194 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     return { queue: await settled(brokkr.queue), muninn: await settled(brokkr.muninn), day: state.day }
   }
 
+  // Send the overview to the Realms-view clients owed it: a withheld snapshot's
+  // overview is repaid even when its words did not move, and the shared text
+  // advances only once every owed client received it (R-2).
+  async function publishOverview(seen, fleetChanged) {
+    const onOverview = [...clients].filter((client) => client.watch.view === 'realms')
+    if (onOverview.length === 0) return
+    const next = await overview(fleetChanged)
+    const text = JSON.stringify(next)
+    const moved = text !== state.overviewText
+    const owesSnapshot = (client) => client.owedSnapshot && !client.owed
+    if (!moved && !onOverview.some(owesSnapshot)) return
+    let paid = true
+    for (const client of onOverview) {
+      if (!moved && !owesSnapshot(client)) continue
+      if (!publish(seen, client, { type: 'overview', overview: next })) {
+        paid = false
+        continue
+      }
+      if (owesSnapshot(client)) client.owedSnapshot = false
+    }
+    if (paid) state.overviewText = text
+  }
+
+  // Whether a snapshot read beside `watch` may paint: a newer watch, a moved
+  // journal, a stale absence or a contradicting map withholds it whole
+  // (M4, F1-A, F3, M2).
+  function snapshotPaints(seen, client, watch, target, source, run) {
+    if (client.watch !== watch) return false
+    if (target !== null && !current(target)) return false
+    if (target === null && run?.listed === false && staleAbsence(source)) return false
+    return publishable(seen, state.fleet, target === null ? [] : [target])
+  }
+
+  // Hold the snapshot's moved row and send the whole snapshot through the one
+  // publication; only a sent snapshot clears the owed marks, so a withheld one
+  // is repaid whole by the next successful gate (R-2, ruling 5).
+  function sendSnapshot(seen, client, watch, painted) {
+    const { target, row, run, overview: read } = painted
+    if (row !== null) holdRow(target, row)
+    if (!publish(seen, client, { type: 'snapshot', workspace, ask, fleet: state.fleet, overview: read, run }, target === null ? [] : [target])) return
+    if (watch.run !== null) client.runText.set(keyOf(watch.run.realm, watch.run.run_id), JSON.stringify(run))
+    client.owed = false
+    client.owedSnapshot = false
+  }
+
   async function snapshot(client) {
+    // The watch this snapshot answers, held across every await: a newer watch
+    // from the same client makes this snapshot obsolete, its failure included
+    // (M4, F2).
+    const watch = client.watch
+    // A snapshot that cannot paint leaves this client owed the whole snapshot
+    // it was read beside: the fleet, its overview, and the workspace and ask
+    // setting only a snapshot carried. A successful snapshot clears the mark,
+    // so the next successful poll repays them whatever `changed` says (R-2).
+    client.owed = true
+    client.owedSnapshot = true
     try {
-      const moved = await readFleet()
-      state.heads = headsOf(state.fleet)
-      const { view, run } = client.watch
-      client.peer.send({
-        type: 'snapshot',
-        workspace,
-        ask,
-        fleet: state.fleet,
-        overview: view === 'realms' ? await overview(moved) : null,
-        run: run === null ? null : await runOf(run),
-      })
+      // Every read this snapshot makes keeps the map its fence resolves in
+      // `seen`; the one gate below holds the fleet and the open run to the
+      // last of them (M2).
+      const seen = {}
+      const fleetRead = await readFleet(seen)
+      if (fleetRead.dropped) return
+      let run = null
+      let target = null
+      let source = null
+      let row = null
+      if (watch.run !== null) {
+        const read = await runOf(watch.run, seen)
+        if (read.dropped) return
+        target = read.target
+        source = read.source
+        run = read.run
+        if (target !== null && run.view?.summary !== null && run.view?.summary !== undefined) {
+          row = await rowFor(target, run.view.summary, seen)
+          // The row's own journal moved: nothing this snapshot read may paint,
+          // not even the fleet or the inspect it was read beside (F1-A).
+          if (row === DROPPED) return
+        }
+      }
+      const overviewRead = watch.view === 'realms' ? await overview(fleetRead.changed) : null
+      // Nothing this snapshot read paints when its watch was replaced, its
+      // run's journal moved, its absence is stale, or its last map
+      // contradicts the fleet; the client stays owed (M4, F1-A, F3, M2).
+      if (!snapshotPaints(seen, client, watch, target, source, run)) return
+      sendSnapshot(seen, client, watch, { target, row, run, overview: overviewRead })
     } catch (error) {
       if (!(error instanceof ReadoutRefused)) throw error
-      client.peer.send({ type: 'error', message: error.message })
+      // A refused read from a watch already replaced is not this client's
+      // answer: the newer watch owns what it paints (F2).
+      if (client.watch !== watch) return
+      sendError(client, error.message)
     }
   }
 
-  /** Re-read each open run whose head moved, once, for the clients that have it open. */
-  async function pushRuns(before) {
-    const open = new Map()
-    for (const client of clients) {
-      const run = client.watch.run
-      if (run === null) continue
-      const key = keyOf(run.realm, run.run_id)
-      if (state.heads.get(key) !== before.get(key)) open.set(key, [...(open.get(key) ?? []), client])
+  /**
+   * Read every open run and every running run the latest first page shows
+   * once this poll, wherever the fleet holds them: first page, retained
+   * page or neither. A fresh summary opens the run's served row when it
+   * moved, and a message goes only to the clients that have the run open.
+   * A read from a journal the realm no longer names reaches no one (M4);
+   * a retained page never proves a run is gone (M5). `seen` keeps the map
+   * each fence resolves, so the poll's last read rules everything it would
+   * publish, not just the read it fenced (M2).
+   */
+  async function pushRuns(before, seen) {
+    const reads = new Map()
+    const want = (ref, watcher = null) => {
+      const key = keyOf(ref.realm, ref.run_id)
+      const held = reads.get(key)
+      if (held === undefined) reads.set(key, { ref: { realm: ref.realm, run_id: ref.run_id }, watchers: watcher === null ? [] : [watcher] })
+      else if (watcher !== null) held.watchers.push(watcher)
     }
-    for (const watchers of open.values()) {
-      const run = await runOf(watchers[0].watch.run)
-      for (const client of watchers) client.peer.send({ type: 'run', run })
+    for (const client of clients) if (client.watch.run !== null) want(client.watch.run, client)
+    for (const ref of state.shown ?? []) want(ref)
+    const generation = state.installed
+    const holds = []
+    const updates = []
+    let dropped = false
+    for (const [key, { ref, watchers }] of reads) {
+      const read = await runOf(ref, seen)
+      // A read from a journal the world no longer names is never held or
+      // sent, and it ends the whole tick: a newer fleet installed meanwhile is
+      // no exception, because its own install already marked every client
+      // owed and the next successful gate pays it (F1, M4, R-2).
+      if (read.dropped) {
+        dropped = true
+        continue
+      }
+      const summary = read.run.view?.summary ?? null
+      if (read.target !== null && summary !== null) {
+        const row = await rowFor(read.target, summary, seen)
+        // A row fenced by its own journal read withholds the poll's page and
+        // the inspect it was read beside, exactly as a dropped inspect does:
+        // no newer installed fleet is an exception, and the tick returns
+        // withheld below (F1-A).
+        if (row === DROPPED) {
+          dropped = true
+          continue
+        }
+        if (row !== null) holds.push([read.target, row])
+      }
+      if (watchers.length === 0) continue
+      const text = JSON.stringify(read.run)
+      // A refusal has no summary to compare; it is sent again when the
+      // listing's head for this run moved, so a failed read still follows it.
+      // A run put back in the fleet after its page moved is sent once even
+      // when the read itself is unchanged.
+      const seq = read.target === null ? undefined
+        : state.fleet?.hearths.find((each) => each.realm === ref.realm && each.journal === read.target.journal)?.runs.find((each) => each.run_id === ref.run_id)?.seq
+      const refusalMoved = read.run.refused !== undefined && before.get(key) !== seq
+      const reach = watchers.filter((client) => client.runText.get(key) !== text || refusalMoved || state.repin.has(key))
+      if (reach.length === 0) continue
+      updates.push([reach, read.run, read.target, read.source])
+    }
+    // A later fence read can resolve a map that contradicts an earlier read
+    // in this poll: the fleet or a queued row then belongs to a journal its
+    // realm no longer names, and none of the poll's world may paint (M2).
+    // A dropped read withholds its page the same way (F1-A). The whole tick
+    // ends on a failed gate: a newer fleet installed while these reads were in
+    // flight is already owed to every client by its install (R-2), so the next
+    // successful gate pays it, and nothing later in this tick publishes.
+    const targets = [...holds.map(([target]) => target), ...updates.map(([, , target]) => target)]
+    if (dropped || !publishable(seen, state.fleet, targets)) return { withheld: true, updates: [] }
+    let patched = false
+    for (const [target, row] of holds) if (holdRow(target, row) !== false) patched = true
+    // A fleet installed while these reads were in flight is the current one:
+    // paint it even when the poll's own page was unchanged (M4).
+    return { patched: patched || state.installed !== generation, updates }
+  }
+
+  /**
+   * Send `run` only to the watchers that still have it open, never to a
+   * client that has moved to another run, and only while the journal it was
+   * read from is still the one its realm names (M4); an absence is sent only
+   * while the fleet it was decided from is still installed (F3). The run row
+   * is published through the one gate, like the fleet it belongs to; a
+   * withheld row is not recorded as painted, so the next poll sends it again.
+   * A message is recorded as painted only here, so a dropped read cannot mask
+   * a later one.
+   */
+  function sendRun(seen, watchers, run, target, source) {
+    if (target === null ? staleAbsence(source) : !current(target)) return
+    for (const client of watchers) {
+      const watched = client.watch.run
+      if (watched === null || watched.realm !== run.realm || watched.run_id !== run.run_id) continue
+      if (!publish(seen, client, { type: 'run', run }, target === null ? [] : [target])) continue
+      client.runText.set(keyOf(run.realm, run.run_id), JSON.stringify(run))
     }
   }
 
@@ -125,28 +742,35 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     if (state.busy || clients.size === 0) return
     state.busy = true
     try {
-      const before = state.heads
-      const moved = await readFleet()
-      state.heads = headsOf(state.fleet)
-      if (moved) for (const client of clients) client.peer.send({ type: 'fleet', fleet: state.fleet })
-      await pushRuns(before)
-      const onOverview = [...clients].filter((client) => client.watch.view === 'realms')
-      if (onOverview.length === 0) return
-      const next = await overview(moved)
-      const text = JSON.stringify(next)
-      if (text === state.overviewText) return
-      state.overviewText = text
-      for (const client of onOverview) client.peer.send({ type: 'overview', overview: next })
+      const before = headsOf(state.fleet)
+      // The latest map this poll resolved, from the fleet's own fence through
+      // every run fence: one world's shape rules every publication (M2).
+      const seen = {}
+      const fleetRead = await readFleet(seen)
+      if (fleetRead.dropped) return
+      const { patched, updates, withheld, targets = [] } = await pushRuns(before, seen)
+      // A withheld poll paints nothing: its fleet, its rows, the overview and
+      // the snapshot's workspace and ask are repaid whole by the next
+      // successful gate (R-2, M2).
+      if (withheld) return
+      const fleetMoved = fleetRead.changed || patched
+      for (const client of clients) if (fleetMoved || client.owed) sendFleet(seen, client, targets)
+      for (const [watchers, run, target, source] of updates) sendRun(seen, watchers, run, target, source)
+      await publishOverview(seen, fleetRead.changed)
     } catch (error) {
       if (!(error instanceof ReadoutRefused)) throw error
-      for (const client of clients) client.peer.send({ type: 'error', message: error.message })
+      for (const client of clients) sendError(client, error.message)
     } finally {
       state.busy = false
     }
   }
 
-  function attach(peer) {
-    const client = { peer, watch: { view: 'none', run: null } }
+  function attach(peer, takeWriter = peer.takeWriter) {
+    if (registered.has(peer)) throw new PeerRegistered()
+    registered.add(peer)
+    const write = takeWriter()
+    const client = { peer, watch: { view: 'none', run: null, realm: null }, runText: new Map(), owed: false, owedSnapshot: false }
+    publishSendOf.set(client, publisherFor(peer, write))
     clients.add(client)
     peer.onClose = () => {
       clients.delete(client)
@@ -160,6 +784,11 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
       state.timer.unref()
     }
     return (message) => {
+      const more = moreOf(message)
+      if (more !== null) {
+        morePage(more.realm).catch(report)
+        return
+      }
       const watch = watchOf(message)
       if (watch === null) return
       client.watch = watch

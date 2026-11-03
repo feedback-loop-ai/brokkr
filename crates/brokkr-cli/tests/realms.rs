@@ -665,6 +665,91 @@ fn journal_run(db: &Path, run_id: &str, broken: bool) {
     }
 }
 
+/// A one-run read serves the run's own `RunRow`, field for field the row
+/// the paged read lists for it, and refuses an id that names no run by
+/// that name.
+#[test]
+fn read_surfaces_one_run_row_equals_its_paged_row_and_an_unknown_id_refuses_by_name() {
+    let ws = Workspace::new(None);
+    let world = ws.path().join("state/world.db");
+    journal_run(&world, "one", false);
+    journal_run(&world, "two", false);
+    let (code, page, stderr) = ws.run(&["runs", "--json", "--db", "state/world.db"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let page: Value = serde_json::from_str(&page).unwrap();
+    let every = page["runs"].as_array().unwrap();
+    assert_eq!(every.len(), 2, "{page}");
+    for id in ["one", "two"] {
+        let (code, one, stderr) =
+            ws.run(&["runs", "--json", "--run", id, "--db", "state/world.db"]);
+        assert_eq!(code, Some(0), "{stderr}");
+        let view: Value = serde_json::from_str(&one).unwrap();
+        let expected = every
+            .iter()
+            .find(|row| row["run_id"] == id)
+            .unwrap_or_else(|| panic!("{page}"));
+        assert_eq!(view["view_version"], brokkr_view::VIEW_VERSION);
+        assert_eq!(view["count"], 1, "{one}");
+        assert_eq!(view["runs"], json!([expected]), "{one}");
+        assert_eq!(view.get("next"), None, "{one}");
+        assert_eq!(view.get("behind"), None, "{one}");
+    }
+
+    let (code, _, stderr) = ws.run(&[
+        "runs",
+        "--json",
+        "--run",
+        "absent",
+        "--db",
+        "state/world.db",
+    ]);
+    assert_ne!(code, Some(0), "an unknown run is refused");
+    assert!(stderr.contains("run 'absent' not found"), "{stderr}");
+}
+
+/// `--run` reads one hearth's run, so a world of several hearths refuses
+/// it by name, as it refuses `--limit` and `--after`; on one hearth and
+/// without `--json`, the one row prints as the listing's table does, with
+/// no other run beside it.
+#[test]
+fn one_run_read_refuses_a_many_hearth_world_and_prints_its_row_as_text() {
+    let ws = Workspace::new(Some(two_hearth_map()));
+    let world = ws.path().join("state/world.db");
+    journal_run(&world, "solo-run", false);
+    journal_run(&world, "other-run", false);
+    journal_run(&ws.path().join("state/beta.db"), "beta-run", false);
+
+    // Each paging flag alone is refused by name, so each operand of the
+    // refusal's condition is the one that fails it once.
+    for paging in [
+        ["--run", "solo-run"],
+        ["--after", "older:5:solo-run"],
+        ["--limit", "1"],
+    ] {
+        let (code, out, stderr) = ws.run(&["runs", paging[0], paging[1]]);
+        assert_ne!(code, Some(0), "{paging:?}: {out}");
+        assert!(
+            stderr.contains(
+                "--limit, --after and --run page one hearth's runs, and this world has 2 hearths: \
+                 name one journal with --db"
+            ),
+            "{paging:?}: {stderr}"
+        );
+    }
+
+    let (code, text, stderr) = ws.run(&["runs", "--run", "solo-run", "--db", "state/world.db"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    assert!(
+        serde_json::from_str::<Value>(&text).is_err(),
+        "a table, not JSON: {text}"
+    );
+    assert!(text.contains("solo-run"), "{text}");
+    assert!(
+        !text.contains("other-run") && !text.contains("beta-run"),
+        "{text}"
+    );
+}
+
 /// One broken chain (#377), through the shipped binary: `runs` lists
 /// every healthy run and one quarantined row naming the broken run, the
 /// same way whether its journal is the world's only hearth or one of
@@ -672,15 +757,7 @@ fn journal_run(db: &Path, run_id: &str, broken: bool) {
 /// listing collapsed the whole hearth to a detail line.
 #[test]
 fn one_broken_chain_is_one_quarantined_row_in_every_runs_listing() {
-    let ws = Workspace::new(Some(json!({
-        "schema": "forge.realms/v2",
-        "realms": [
-            {"name": "alpha", "path": ".", "default_branch": "main"},
-            {"name": "beta", "path": ".", "default_branch": "main",
-             "journal": "state/beta.db"},
-        ],
-        "journal": "state/world.db",
-    })));
+    let ws = Workspace::new(Some(two_hearth_map()));
     let world = ws.path().join("state/world.db");
     journal_run(&world, "healthy", false);
     journal_run(&world, "broken", true);
@@ -1436,4 +1513,17 @@ fn the_repository_carries_the_bootstrap_map() {
     let world = brokkr_runtime::World::load(&dir.path().join("realms.json")).unwrap();
     assert_eq!(world.journal(), dir.path().join(".forge/forge.db"));
     assert_eq!(world.realm_for(dir.path()).unwrap().name, "brokkr");
+}
+
+/// A world of two hearths, `alpha` on the world's journal and `beta` on its
+/// own: the shape a `--run` must refuse to page, because it names two.
+fn two_hearth_map() -> Value {
+    let mut map = map_over(".");
+    map["schema"] = json!("forge.realms/v2");
+    map["realms"] = json!([
+        {"name": "alpha", "path": ".", "default_branch": "main"},
+        {"name": "beta", "path": ".", "default_branch": "main",
+         "journal": "state/beta.db"},
+    ]);
+    map
 }

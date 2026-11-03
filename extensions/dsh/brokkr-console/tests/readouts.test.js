@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { analyticsOf, fleetOf, graphOf, ONE_HEARTH, ReadoutRefused, runViewOf, VIEW_VERSION } from '../lib/host/readouts.js'
+import { analyticsOf, fleetOf, graphOf, ONE_HEARTH, oneRunOf, ReadoutRefused, runViewOf, VIEW_VERSION } from '../lib/host/readouts.js'
 import { analyticsDoc, fleetDoc, graphDoc, provenance, recipeRow, row, runViewDoc, seat } from './support/world.js'
 
 for (const [what, parse, doc] of [
@@ -65,6 +65,15 @@ test('a one-hearth listing is one hearth with no journal to name', () => {
   assert.deepEqual(fleet.hearths.map((hearth) => [hearth.realm, hearth.journal, hearth.runs.length]), [[ONE_HEARTH, null, 1]])
 })
 
+test('a one-run read is the paged wire holding exactly that row, and no page with another count', () => {
+  const served = row({ run_id: 'only-run', seq: 7 })
+  assert.deepEqual(oneRunOf({ view_version: 28, runs: [served], count: 1 }), fleetOf({ view_version: 28, runs: [served], count: 1 }).hearths[0].runs[0])
+  assert.throws(
+    () => oneRunOf({ view_version: 28, runs: [served, row()], count: 2 }),
+    new ReadoutRefused('shape', 'brokkr runs --run did not list exactly one run'),
+  )
+})
+
 test('a field the console paints that is missing refuses the whole readout', () => {
   const broken = fleetDoc([['brokkr', [{ ...row(), title: undefined }]]])
   assert.throws(() => fleetOf(broken), new ReadoutRefused('shape', 'realms[0].runs[0].title is not text'))
@@ -118,4 +127,11 @@ test('a run view summary keeps the shared standing, its word and its why (#909)'
   const doc = runViewDoc({ summary: { ...runViewDoc().summary, status: 'running', status_word: 'stopping', standing: 'stopping', detail, park_reason: null } })
   const summary = runViewOf(doc).summary
   assert.deepEqual([summary.status, summary.status_word, summary.standing, summary.detail], ['running', 'stopping', 'stopping', detail])
+})
+
+test('an inspect field no surface paints is left unread: no summary feature and no ruling next', () => {
+  const view = runViewOf(runViewDoc())
+  assert.equal('feature' in view.summary, false)
+  assert.equal('next' in view.ruling, false)
+  assert.equal('from' in view.ruling, true)
 })

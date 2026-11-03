@@ -4,8 +4,9 @@
 // realm's listing names (`--db`), never by a path the browser sent. Every
 // value is passed as `--flag=value`, so a value that opens with `-` (a reason
 // can) is never read as a flag.
+import { FLEET_WINDOW } from './config.js'
 import { launch, run } from './runner.js'
-import { analyticsOf, fleetOf, graphOf, jsonOf, muninnOf, queueOf, realmsOf, runViewOf, transcriptReadOf } from './readouts.js'
+import { analyticsOf, fleetOf, graphOf, jsonOf, muninnOf, oneRunOf, pageOf, queueOf, realmsOf, runViewOf, transcriptReadOf } from './readouts.js'
 
 /** The two `brokkr operator` commands the console presses. */
 const OPERATOR = ['retry', 'stop']
@@ -25,10 +26,15 @@ export function resumeSource(override, recipe) {
   return recipe === null || recipe === undefined ? null : flag('recipe', recipe)
 }
 
-/** `--run=<id>`, and `--db=<journal>` for a run in a many-hearth world. */
+/**
+ * `--run=<id>`, and `--db=<journal>` for a run in a many-hearth world. A
+ * target that names `db` keeps its cache journal and its argv apart, so a
+ * one-hearth map can own its retained pages without gaining a `--db`.
+ */
 function runOf(target) {
-  const journal = target.journal === null ? [] : [flag('db', target.journal)]
-  return [flag('run', target.run_id), ...journal]
+  const journal = target.db === undefined ? target.journal : target.db
+  const db = journal === null ? [] : [flag('db', journal)]
+  return [flag('run', target.run_id), ...db]
 }
 
 /** One argv word as a POSIX shell reads it: bare when it can be, else single-quoted. */
@@ -47,6 +53,16 @@ function inspectHint(target) {
 }
 
 /**
+ * One hearth's fleet argv, without `--db` in a one-hearth world (part 1's
+ * hint rule): a window of rows and, when asked, the page after `after`.
+ */
+function fleetArgv(journal, after) {
+  const db = journal === null ? [] : [flag('db', journal)]
+  const page = after === null ? [] : [flag('after', after)]
+  return ['runs', '--json', ...db, flag('limit', FLEET_WINDOW), ...page]
+}
+
+/**
  * The console's view of the `brokkr` binary.
  * @param {object} config the runner's configuration, with `resume` (see config.js)
  */
@@ -54,6 +70,10 @@ export function brokkrOf(config) {
   const read = async (argv, what, parse) => parse(jsonOf(await run(config, argv), what))
   return {
     fleet: () => read(['runs', '--json'], 'brokkr runs', fleetOf),
+    /** One hearth's first page, or the page after `after`, with its `next` and `behind` kept (the fleet read). */
+    fleetPage: (journal = null, after = null) => read(fleetArgv(journal, after), 'brokkr runs', pageOf),
+    /** One run's row, the same page wire the paged read gives, holding that run's `RunRow` whole. */
+    runRow: (target) => read(['runs', '--json', ...runOf(target)], 'brokkr runs', oneRunOf),
     inspect: (target) => read([...inspectArgv(target), '--json'], 'brokkr inspect', runViewOf),
     inspectHint,
     queue: () => read(['queue', 'list', '--json'], 'brokkr queue list', queueOf),

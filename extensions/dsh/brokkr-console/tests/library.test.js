@@ -264,7 +264,7 @@ test('the pulse sits on each live run’s state, and picking it opens that run i
     assert.deepEqual(findAll(pulse, (node) => node.type === 'svg').map((mark) => mark.props.className), ['bk-mark forging'])
   }
   pulses[0].props.onClick()
-  assert.deepEqual(client.sockets[0].sent.at(-1), { type: 'watch', view: 'realm', run: { realm: 'brokkr', run_id: LIVE } })
+  assert.deepEqual(client.sockets[0].sent.at(-1), { type: 'watch', view: 'realm', run: { realm: 'brokkr', run_id: LIVE }, realm: 'brokkr' })
   const text = textOf(client.tree())
   // Opened from the Library, the way back comes first, the realm's runs beside it.
   assert.match(text, /← Library · brokkr \/ selfbrokkr’s runs/)
@@ -278,7 +278,7 @@ test('a run opened from a picked transition brings the operator back to the same
   press(client.tree(), 'the transition verify → stop')
   buttons(labelled(client.tree(), 'The runs that took VERIFY-FAIL')).find((button) => textOf(button) === 'Encrypt the token store').props.onClick()
   await settled()
-  assert.deepEqual(client.sockets[0].sent.at(-1), { type: 'watch', view: 'realm', run: { realm: 'brokkr', run_id: 'encrypt-the-token-store-41d0a9c2' } })
+  assert.deepEqual(client.sockets[0].sent.at(-1), { type: 'watch', view: 'realm', run: { realm: 'brokkr', run_id: 'encrypt-the-token-store-41d0a9c2' }, realm: 'brokkr' })
   const back = buttons(client.tree()).find((button) => textOf(button) === '← Library · brokkr / self')
   back.props.onClick()
   await settled()

@@ -136,7 +136,8 @@ export function runViewDoc(over = {}) {
       detail: null,
       strategy: null,
     },
-    ruling: { rule_id: 'REVIEW-SECURITY-RESIDUAL', severity_class: 'awaiting_operator', from: 'review', next: '', result: null, inputs: [], problem: null, superseded: null },
+    // `next` is absent-on-the-wire as `brokkr inspect --json` states it: `word_or_mark` writes `?` for none, not an empty string.
+    ruling: { rule_id: 'REVIEW-SECURITY-RESIDUAL', severity_class: 'awaiting_operator', from: 'review', next: '?', result: null, inputs: [], problem: null, superseded: null },
     participants: [],
     live: [],
     phases: [{ name: 'implement', strategy: null, visits: 2, current: false, plain: true, columns: [], returns: [{ from: 'review', taken: 1, rules: ['REVIEW-REFORGE'] }] }],

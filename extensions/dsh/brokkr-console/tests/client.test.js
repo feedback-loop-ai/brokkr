@@ -47,6 +47,18 @@ test('the Realms header reads the same count', () => {
   assert.equal(textOf(status), '1 running · 3 waiting on you')
 })
 
+test('a fleet message keeps the workspace and ask a snapshot carried', () => {
+  const client = mountClient('main')
+  const bar = () => findAll(client.tree(), (node) => node.props['aria-label'] === 'Asking about')[0]
+  const input = () => findAll(client.tree(), (node) => node.props['aria-label'] === 'Your question')[0]
+  client.push({ type: 'snapshot', workspace: '/work/alpha', ask: true, fleet: fleet(), overview: null, run: null })
+  client.push({ type: 'fleet', workspace: '/work/alpha', ask: true, fleet: fleet() })
+  assert.deepEqual([bar() !== undefined, input().props.placeholder, input().props.disabled], [true, 'Ask about every realm…', false], 'a fleet carrying them keeps the workspace and ask')
+  client.push({ type: 'fleet', fleet: fleet() })
+  assert.equal(bar() !== undefined, true, 'a fleet without them keeps the ask setting')
+  assert.deepEqual([input().props.placeholder, input().props.disabled], ['Ask about every realm…', false], 'a fleet without them keeps the workspace')
+})
+
 test('a run whose accepted stop has no ending needs you, and is not counted as running (#909)', () => {
   const detail = 'stop accepted at seq 93; no ending written. If no driver is running it, `brokkr conclude` closes it.'
   const stopping = row({ run_id: 'stopping-without-ending-0000aaaa', title: 'Stopping without an ending', verdict: { standing: 'stopping', rule: null, reason: null, text: '', detail } })

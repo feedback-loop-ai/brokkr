@@ -1310,12 +1310,13 @@ fn brokkr_runs_pages_one_hearth_by_a_cursor_it_reads_at_the_edge() {
         json: true,
         limit: Some(2),
         after: None,
+        run: None,
     };
     let refused = crate::verbs::readouts::runs(dir.path(), args).unwrap_err();
     assert_eq!(
         refused.to_string(),
-        "--limit and --after page one hearth's runs, and this world has 2 hearths: name one \
-         journal with --db"
+        "--limit, --after and --run page one hearth's runs, and this world has 2 hearths: name \
+         one journal with --db"
     );
 }
 

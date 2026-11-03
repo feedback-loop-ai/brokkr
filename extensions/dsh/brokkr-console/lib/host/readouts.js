@@ -16,6 +16,22 @@ const MUNINN_RECORD_VERSION = 1
 /** The label a one-hearth world's runs go under: its listing names no realm. */
 export const ONE_HEARTH = 'this workspace'
 
+/** The most characters one realm name may hold, on every wire the console reads or is asked. */
+export const REALM_BOUND = 256
+
+/** Whether `value` is one realm name: 1 to `REALM_BOUND` characters. */
+export const isRealmName = (value) => typeof value === 'string' && value.length > 0 && value.length <= REALM_BOUND
+
+/** The realm names a hearth's joined label covers: Brokkr's names hold no `+`. */
+export const namesOfHearth = (realm) => realm.split('+')
+
+/**
+ * Whether `value` is a hearth label: one or more realm names joined by `+`,
+ * as Brokkr's `Hearth::label` writes them. The bound is each name's, never
+ * the label's, because several bounded names make a longer one.
+ */
+export const isHearthLabel = (value) => typeof value === 'string' && namesOfHearth(value).every(isRealmName)
+
 const STANDINGS = ['quarantined', 'parked', 'running', 'stopping', 'shipped', 'stopped', 'operator_stopped']
 const COMMANDS = ['retry', 'stop', 'resume', 'conclude']
 const ACTIONS = ['dismiss_finding', 'talk_to_reviewer', 'hold', 'answer_here']
@@ -156,13 +172,18 @@ function acknowledgement(value, path) {
 
 /**
  * `brokkr runs --json`: one hearth's `RunsView` or a world's `FleetView`, as
- * the hearths the console lists.
+ * the hearths the console lists. A paged `RunsView` states where its next
+ * page starts and how many runs behind their summary it left unread; that
+ * cursor is kept as the hearth's `next`, `null` when the listing was whole
+ * or its page was the last, and `behind` as the count it states.
  */
 export function fleetOf(doc) {
   versioned(doc, 'brokkr runs')
   const rows = (value, path) => list(value, path, runRow)
+  // A whole listing states no behind count, and none is painted as one.
+  const behind = maybe(doc.behind, 'behind', count) ?? 0
   if (doc.realms === undefined) {
-    return { hearths: [{ realm: ONE_HEARTH, journal: null, detail: null, runs: rows(doc.runs, 'runs') }] }
+    return { hearths: [{ realm: ONE_HEARTH, journal: null, detail: null, runs: rows(doc.runs, 'runs'), next: optText(doc.next, 'next'), behind }] }
   }
   return {
     hearths: list(doc.realms, 'realms', (value, path) => ({
@@ -170,16 +191,33 @@ export function fleetOf(doc) {
       journal: text(value.journal, `${path}.journal`),
       detail: optText(value.detail, `${path}.detail`),
       runs: rows(value.runs, `${path}.runs`),
+      next: null,
+      behind: 0,
     })),
   }
 }
 
-/** `brokkr realms --json`: each realm's name and its folder, as the map names it (relative to the workspace). */
+/** One paged hearth's listing, refused when a `--db` read unexpectedly names more than one hearth. */
+export function pageOf(doc) {
+  const fleet = fleetOf(doc)
+  if (fleet.hearths.length !== 1) throw new ReadoutRefused('shape', 'brokkr runs named more than one hearth for one journal')
+  return fleet.hearths[0]
+}
+
+/** `brokkr runs --json --run <id>`: exactly the one row the paged read lists for that run, in the same page wire. */
+export function oneRunOf(doc) {
+  const page = pageOf(doc)
+  if (page.runs.length !== 1) throw new ReadoutRefused('shape', 'brokkr runs --run did not list exactly one run')
+  return page.runs[0]
+}
+
+/** `brokkr realms --json`: each realm's name, folder and effective journal, as the map names it (relative to the workspace). */
 export function realmsOf(doc) {
   object(doc, 'realms')
   return list(doc.realms, 'realms', (value, path) => ({
     name: text(object(value, path).name, `${path}.name`),
     path: text(value.path, `${path}.path`),
+    journal: text(value.journal, `${path}.journal`),
   }))
 }
 

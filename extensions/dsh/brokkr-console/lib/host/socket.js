@@ -64,9 +64,11 @@ function frames(buffer) {
 }
 
 /**
- * Complete the handshake on `socket` and return a peer that sends JSON and
- * hands each JSON text it receives to `onMessage`; `null` for a request that
- * is not a WebSocket upgrade, which is answered 400.
+ * Complete the handshake on `socket` and return the peer together with the
+ * one-shot capability that yields its framed text writer; `null` for a request
+ * that is not a WebSocket upgrade, which is answered 400. The peer has no send
+ * of its own until the transport installs the guarded facade, so the raw writer
+ * is reachable only by the capability's first holder: every later call throws.
  */
 export function accept(req, socket, head, onMessage) {
   const key = req.headers['sec-websocket-key']
@@ -80,14 +82,20 @@ export function accept(req, socket, head, onMessage) {
   )
   const peer = {
     open: true,
-    send(message) {
-      if (peer.open) socket.write(frame(OP.text, Buffer.from(JSON.stringify(message))))
-    },
     close() {
       if (peer.open) socket.end(frame(OP.close, Buffer.alloc(0)))
       peer.open = false
     },
     onClose: () => {},
+  }
+  let writeText = (text) => {
+    if (peer.open) socket.write(frame(OP.text, Buffer.from(text)))
+  }
+  const takeWriter = () => {
+    if (writeText === null) throw new Error('the raw writer has already been taken')
+    const write = writeText
+    writeText = null
+    return write
   }
   let pending = Buffer.from(head ?? Buffer.alloc(0))
   socket.on('data', (chunk) => {
@@ -116,7 +124,7 @@ export function accept(req, socket, head, onMessage) {
   }
   socket.on('close', closed)
   socket.on('error', closed)
-  return peer
+  return { peer, takeWriter }
 }
 
 function receive(peer, socket, opcode, payload, onMessage) {
