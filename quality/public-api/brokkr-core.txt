@@ -141,6 +141,50 @@ pub const brokkr_core::dispatch::RUN_MANIFEST_SCHEMA_V2: &str
 pub fn brokkr_core::dispatch::build_run_manifest_v2(&serde_json::value::Value, brokkr_core::dispatch::DispatchEnvelopeV2) -> core::result::Result<serde_json::value::Value, brokkr_core::dispatch::DispatchError>
 pub fn brokkr_core::dispatch::bundle_manifest_from_run(&serde_json::value::Value) -> core::result::Result<serde_json::value::Value, brokkr_core::dispatch::DispatchError>
 pub fn brokkr_core::dispatch::dispatch_from_run(&serde_json::value::Value) -> core::result::Result<core::option::Option<brokkr_core::dispatch::DispatchEnvelopeV2>, brokkr_core::dispatch::DispatchError>
+pub mod brokkr_core::ending
+pub enum brokkr_core::ending::Citation
+pub brokkr_core::ending::Citation::Ref(alloc::string::String)
+pub brokkr_core::ending::Citation::Run
+pub brokkr_core::ending::Citation::Run::realm: core::option::Option<alloc::string::String>
+pub brokkr_core::ending::Citation::Run::run_id: alloc::string::String
+pub enum brokkr_core::ending::Ending
+pub brokkr_core::ending::Ending::Blocked
+pub brokkr_core::ending::Ending::DeliveredElsewhere
+pub brokkr_core::ending::Ending::Exhausted
+pub brokkr_core::ending::Ending::Failed
+pub brokkr_core::ending::Ending::Infrastructure
+pub brokkr_core::ending::Ending::OperatorStopped
+pub brokkr_core::ending::Ending::Refused
+pub brokkr_core::ending::Ending::Shipped
+pub brokkr_core::ending::Ending::ShippedFlagged
+pub brokkr_core::ending::Ending::Superseded
+pub brokkr_core::ending::Ending::Unclassified
+pub brokkr_core::ending::Ending::Withdrawn
+impl brokkr_core::ending::Ending
+pub const brokkr_core::ending::Ending::ALL: [brokkr_core::ending::Ending; 12]
+pub fn brokkr_core::ending::Ending::completed(core::option::Option<brokkr_core::policy::RuleSeverity>) -> brokkr_core::ending::Ending
+pub const fn brokkr_core::ending::Ending::gutter(self) -> char
+pub fn brokkr_core::ending::Ending::named(&str) -> core::result::Result<brokkr_core::ending::Ending, brokkr_core::ending::UnknownEnding>
+pub const fn brokkr_core::ending::Ending::operator_owned(self) -> bool
+pub fn brokkr_core::ending::Ending::ruled(&str, &str) -> brokkr_core::ending::Ending
+pub const fn brokkr_core::ending::Ending::tone(self) -> brokkr_core::ending::Tone
+pub const fn brokkr_core::ending::Ending::wants(self) -> core::option::Option<brokkr_core::ending::Wants>
+pub const fn brokkr_core::ending::Ending::word(self) -> &'static str
+pub enum brokkr_core::ending::Tone
+pub brokkr_core::ending::Tone::Cyan
+pub brokkr_core::ending::Tone::Dim
+pub brokkr_core::ending::Tone::Green
+pub brokkr_core::ending::Tone::Red
+pub brokkr_core::ending::Tone::Yellow
+pub enum brokkr_core::ending::Wants
+pub brokkr_core::ending::Wants::Action
+pub brokkr_core::ending::Wants::Ruling
+pub struct brokkr_core::ending::Ended
+pub brokkr_core::ending::Ended::cited: core::option::Option<brokkr_core::ending::Citation>
+pub brokkr_core::ending::Ended::ending: brokkr_core::ending::Ending
+pub struct brokkr_core::ending::UnknownEnding
+pub brokkr_core::ending::UnknownEnding::word: alloc::string::String
+pub fn brokkr_core::ending::ended(&[brokkr_core::envelope::EventEnvelope], &brokkr_core::fold::RunState) -> core::option::Option<brokkr_core::ending::Ended>
 pub mod brokkr_core::entry
 pub enum brokkr_core::entry::EntryRead
 pub brokkr_core::entry::EntryRead::Phase
