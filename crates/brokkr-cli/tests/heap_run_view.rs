@@ -25,7 +25,8 @@ mod seat_steps;
 mod stretched;
 
 use std::path::{Path, PathBuf};
-use std::sync::{Barrier, Mutex, PoisonError};
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Mutex, PoisonError};
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_store::test_support::trail_plan;
@@ -92,23 +93,31 @@ static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
 /// its thread at the 60-second mark (622 B on hosted CI, #965), cannot move
 /// it. Another thread's 64 KiB is held through the window and moves it by
 /// nothing; an allocator that counted every thread would show all of it.
+/// The threads hand off through an atomic stage, never a `Barrier`: on
+/// macOS std's `Mutex` boxes its pthread mutex on first use, so a barrier
+/// first waited on inside the window is the measuring thread's own 64 B.
 #[test]
 fn a_peak_is_the_measuring_thread_s_alone() {
     let _one = ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner);
-    let (begin, allocated, done) = (Barrier::new(2), Barrier::new(2), Barrier::new(2));
+    let stage = AtomicU8::new(0);
+    let reach = |want: u8| {
+        while stage.load(Ordering::Acquire) != want {
+            std::thread::yield_now();
+        }
+    };
     let peak = std::thread::scope(|scope| {
         scope.spawn(|| {
-            begin.wait();
+            reach(1);
             let held = vec![0u8; 64 * 1024];
-            allocated.wait();
-            done.wait();
+            stage.store(2, Ordering::Release);
+            reach(3);
             drop(held);
         });
         let peak = peak_of(|| {
-            begin.wait();
-            allocated.wait();
+            stage.store(1, Ordering::Release);
+            reach(2);
         });
-        done.wait();
+        stage.store(3, Ordering::Release);
         peak
     });
     assert_eq!(peak, 0, "another thread's 64 KiB was the read's peak");
