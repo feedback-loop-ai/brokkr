@@ -14,7 +14,7 @@
 //! `windows` (46.1), `lifetime` (46.2's two worktrees), `dispatch` (ruling 21),
 //! `negotiation` (U9b1c's 46.3), `allowance` (U9b1d's 46.6), `signals` (U9b1e's
 //! 46.8), and U10a2's repairs of the scenario map (48.1): `authority`, `bounds`,
-//! `confined`, `links` and `stores`.
+//! `confined`, `links` and `stores`; and U10a3's row 25, `replacement`.
 //!
 //! The engine runs here as an operator runs it, with no wrapper: `brokkr
 //! driver` sets `no_new_privs` on itself before it spawns a brokered harness
@@ -35,6 +35,7 @@ mod links;
 mod matrix;
 mod negotiation;
 mod reach;
+mod replacement;
 mod signals;
 mod sites;
 mod stores;
@@ -99,6 +100,8 @@ const FRAMES: &str = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{
 /// Where `signal` holds signal names, it sends each to the broker in turn, a
 /// second apart, as Claude Code 2.1.316 ends an MCP server by SIGINT, keeping
 /// the broker's input open until it ends, or for 20 s, when it kills it.
+/// Where `fail-served` stands, it fails once its broker has served it and
+/// ended, as `fail-once` fails before any broker.
 const HARNESS: &str = r#"#!/bin/sh
 here=$(dirname "$0")
 case "$1" in --version) echo '2.1.308 (Claude Code)'; exit 0;; esac
@@ -183,6 +186,7 @@ if [ -n "$plan" ]; then
   cp "$plan.ledger" "$here/ledger.kept"
   rm -f "$in" "$out" "$in.2" "$out.2"
 fi
+[ -e "$here/fail-served" ] && { rm "$here/fail-served"; exit 1; }
 result=$(sed -n "$(wc -l < "$here/starts")p" "$here/results" 2>/dev/null)
 [ -n "$target" ] && printf '{"result": "%s", "notes": "the harness reports success"}' "${result:-complete}" > "$target"
 printf '{"type":"system","subtype":"init","session_id":"harness-1"}\n'

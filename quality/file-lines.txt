@@ -459,7 +459,7 @@
    504 crates/brokkr-cli/tests/capability_artifacts.rs
   1992 crates/brokkr-cli/tests/capability_broker.rs
    462 crates/brokkr-cli/tests/capability_broker/cleanup.rs
-   720 crates/brokkr-cli/tests/capability_broker/enabled.rs
+   724 crates/brokkr-cli/tests/capability_broker/enabled.rs
     89 crates/brokkr-cli/tests/capability_broker/enabled/allowance.rs
     95 crates/brokkr-cli/tests/capability_broker/enabled/authority.rs
     86 crates/brokkr-cli/tests/capability_broker/enabled/bounds.rs
@@ -471,6 +471,7 @@
    455 crates/brokkr-cli/tests/capability_broker/enabled/matrix.rs
     82 crates/brokkr-cli/tests/capability_broker/enabled/negotiation.rs
    243 crates/brokkr-cli/tests/capability_broker/enabled/reach.rs
+    51 crates/brokkr-cli/tests/capability_broker/enabled/replacement.rs
    147 crates/brokkr-cli/tests/capability_broker/enabled/signals.rs
    406 crates/brokkr-cli/tests/capability_broker/enabled/sites.rs
    109 crates/brokkr-cli/tests/capability_broker/enabled/stores.rs

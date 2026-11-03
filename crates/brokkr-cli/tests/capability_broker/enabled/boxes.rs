@@ -18,7 +18,7 @@ sed -n 's/.* \([0-9]*\) -> \(.*\)/\1=\2/p' "$TMPDIR/descriptors" | tr "\n" " " >
 echo >&2"#;
 
 /// The words the server's stderr relays, cut of the relay's framing.
-fn relayed(world: &World, name: &str) -> Vec<String> {
+pub(super) fn relayed(world: &World, name: &str) -> Vec<String> {
     let said = std::fs::read_to_string(world.bin(name)).unwrap();
     let lines = said
         .lines()
