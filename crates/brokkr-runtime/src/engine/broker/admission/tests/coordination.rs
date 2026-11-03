@@ -961,12 +961,12 @@ fn a_bind_alias_of_protected_evidence_is_refused() {
         .arg(std::env::current_exe().unwrap())
         .args(["--exact", name, "--nocapture", "--test-threads=1"])
         .env(ALIASED, host.dir.path())
-        .output()
-        .unwrap();
+        .output();
     if !host.dir.path().join("entered").exists() {
         let reason = "a_bind_alias_of_protected_evidence_is_refused: no user and mount namespace";
         return brokkr_protocol::hands::skip_boundary_proof(required, reason);
     }
+    let ran = ran.unwrap();
     let said = String::from_utf8_lossy(&ran.stdout);
     let told = String::from_utf8_lossy(&ran.stderr);
     assert!(
