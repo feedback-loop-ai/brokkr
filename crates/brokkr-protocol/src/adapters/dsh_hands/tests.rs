@@ -594,6 +594,21 @@ fn review_an_interrupted_stderr_read_must_not_erase_dsh_startup_refusal() {
     );
 }
 
+/// The fourth ending at the gate (430s4a6 R1): an interrupted read retried
+/// into a clean, complete capture lets dsh start. The retry neither refuses
+/// a clean start nor hides a warning (the case above).
+#[test]
+fn chief_review_interrupted_then_complete_stderr_must_allow_dsh_startup() {
+    let (startup, _) = captured_run([
+        Step::Error(std::io::ErrorKind::Interrupted),
+        Step::Data(b"dsh: done\n"),
+    ]);
+    assert_eq!(
+        startup_gate(startup, &mut serde_json::Map::new(), Mode::ReadOnly),
+        Ok(())
+    );
+}
+
 /// #430 H1: a non-interrupted read error ends the capture UNREADABLE, not
 /// at EOF; dsh's start refuses, naming the error, even though the warning
 /// the seam held next was never returned.

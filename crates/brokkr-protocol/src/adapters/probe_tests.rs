@@ -316,6 +316,33 @@ printf '%s\n' '{"type":"rate_limit_event","apiErrorStatus":429,"message":"You ha
     assert_eq!(error, "probe ended without an answer");
 }
 
+/// What a Claude seat pinned to `model` reports when its harness answers
+/// only a 429 `rate_limit_event`.
+#[cfg(unix)]
+fn rate_limited_claude_seat(model: &str) -> Vec<Body> {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let shim = executable(
+        dir.path(),
+        "claude-rate-limited",
+        r#"#!/bin/sh
+cat >/dev/null
+printf '%s\n' '{"type":"rate_limit_event","apiErrorStatus":429,"message":"You have reached your limit"}'
+"#,
+    );
+    env.set("BROKKR_CLAUDE_BIN", &shim);
+    let extra = ["--model".to_string(), model.to_string()];
+    let mut messages = Vec::new();
+    run_seat(
+        AdapterKind::Claude,
+        &extra,
+        &seat_start(dir.path()),
+        None,
+        &mut |body| messages.push(body),
+    );
+    messages
+}
+
 /// #430 L2 (decision 0071 ruling 3): a typed refusal the producer attributed
 /// is always one its own reader accepts. A Claude seat pinned to
 /// `featherless:qwen/qwen3` derives the route `featherless:qwen` (decision
@@ -325,26 +352,7 @@ printf '%s\n' '{"type":"rate_limit_event","apiErrorStatus":429,"message":"You ha
 #[cfg(unix)]
 #[test]
 fn chief_review_attributed_refusal_must_roundtrip_its_own_reader() {
-    let mut env = EnvGuard::lock();
-    let dir = tempfile::tempdir().unwrap();
-    let shim = executable(
-        dir.path(),
-        "claude-colon-route",
-        r#"#!/bin/sh
-cat >/dev/null
-printf '%s\n' '{"type":"rate_limit_event","apiErrorStatus":429,"message":"You have reached your limit"}'
-"#,
-    );
-    env.set("BROKKR_CLAUDE_BIN", &shim);
-    let extra = ["--model".to_string(), "featherless:qwen/qwen3".to_string()];
-    let mut messages = Vec::new();
-    run_seat(
-        AdapterKind::Claude,
-        &extra,
-        &seat_start(dir.path()),
-        None,
-        &mut |body| messages.push(body),
-    );
+    let messages = rate_limited_claude_seat("featherless:qwen/qwen3");
     let Body::Result {
         refusal: Some(refusal),
         ..
@@ -360,6 +368,23 @@ printf '%s\n' '{"type":"rate_limit_event","apiErrorStatus":429,"message":"You ha
         crate::PreSessionRefusal::read(&serialized),
         Ok(refusal.clone()),
         "the producer's refusal survives its own reader: {serialized}"
+    );
+}
+
+/// A refusal whose route the wire's one form cannot carry is refused before
+/// it is emitted: the invocation fails by name, and because the harness was
+/// spawned no result is sent (the engine reads the attempt as lost after its
+/// start), so no refusal reaches the engine rewritten or unreadable (fix
+/// round 430s4a6 L2).
+#[cfg(unix)]
+#[test]
+fn a_refusal_whose_route_the_wire_cannot_carry_fails_the_invocation_by_name() {
+    let messages = rate_limited_claude_seat("bad!route/qwen3");
+    assert!(
+        !messages
+            .iter()
+            .any(|body| matches!(body, Body::Result { .. })),
+        "an unformed route sends no result, and so no refusal: {messages:?}"
     );
 }
 
