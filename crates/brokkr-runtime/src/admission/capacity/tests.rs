@@ -426,8 +426,10 @@ fn an_invalid_host_configuration_refuses_the_pass_naming_the_problem() {
     let refused = |host: Value| {
         let file = fixture.declare(&host);
         let error = passed(&fixture.store, &file).unwrap_err();
+        // Every problem here is one either version's shape may have, so
+        // the refusal uses the version-neutral name.
         let says = format!(
-            "the host configuration at {} is not a valid forge.host/v1 file",
+            "the host configuration at {} is not a valid host configuration file",
             file.display()
         );
         assert!(

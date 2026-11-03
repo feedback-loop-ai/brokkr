@@ -1,6 +1,6 @@
 //! Where the host configuration is found, what the free-space probe
-//! measures, and that the published `forge.host/v1` contract and the
-//! loader refuse and admit the same files.
+//! measures, and that the published `forge.host/v1` and `forge.host/v2`
+//! contracts and the loader refuse and admit the same files.
 
 use std::path::Path;
 
@@ -112,6 +112,7 @@ fn the_contract_and_the_loader_admit_and_refuse_the_same_files() {
     ];
     let refused = [
         with("/cooldowns", json!({})),
+        with("/containment", json!("best-effort")),
         with("/schema", json!("forge.host/v3")),
         with("/providers/claude", json!({"ceiling": 0})),
         with("/providers/claude", json!({"ceiling": -1})),
@@ -143,7 +144,16 @@ fn the_contract_and_the_loader_admit_and_refuse_the_same_files() {
         (validator.is_valid(host), loaded)
     };
     assert_eq!(admitted.each_ref().map(judged), [(true, true); 6]);
-    assert_eq!(refused.each_ref().map(judged), [(false, false); 26]);
+    assert_eq!(refused.each_ref().map(judged), [(false, false); 27]);
+
+    // The v1 refusal of the second v2-only key, bound to its variant and
+    // words: the agreement table above reaches it too, but only checks
+    // that both sides refuse.
+    let text = with("/containment", json!("best-effort")).to_string();
+    assert_eq!(
+        config(text.as_bytes()).unwrap_err().to_string(),
+        "forge.host/v1 declares containment; only forge.host/v2 does"
+    );
 
     // JSON Schema cannot say a key is written once, nor that two floors
     // name one place or path, and its validator reads the last copy of a
@@ -178,6 +188,7 @@ fn a_provider_or_a_route_written_twice_is_refused_naming_the_key() {
             Err(HostError::Invalid {
                 path,
                 source: Problem::Repeated(said),
+                ..
             }) if path == file => said,
             other => panic!("not refused as written twice: {other:?}"),
         }
@@ -396,6 +407,197 @@ fn the_v2_contract_and_the_loader_admit_and_refuse_the_same_shape() {
         let mut host = minimal.clone();
         host[pointer.trim_start_matches('/')] = value;
         assert!(!validator.is_valid(&host), "{pointer}");
+    }
+}
+
+/// H1: a present `null` is a value written empty, never an absent
+/// declaration. Every null site the published contract refuses, and the two
+/// v2-only keys a v1 file may not hold, refuses through the loader too; one
+/// table drives both, so schema and loader agree by construction.
+#[test]
+fn chief_null_declarations_are_refused_by_reader_and_schema() {
+    let contract = |name: &str| {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../contracts")
+            .join(name);
+        serde_json::from_slice::<Value>(&std::fs::read(path).unwrap()).unwrap()
+    };
+    let valid =
+        |schema: &Value, host: &Value| jsonschema::draft7::new(schema).unwrap().is_valid(host);
+    let base = |schema: &str| {
+        json!({
+            "schema": schema,
+            "providers": {
+                "dsh": {"ceiling": 1, "routes": {"r": {"ceiling": 1, "class": "cloud"}}},
+                "codex": {"ceiling": 1}
+            },
+            "floors": [{"place": "temp", "floor_bytes": 1}],
+            "boxed_builds": {"ceiling": 1}
+        })
+    };
+    let (v1_host, v2_host) = (base("forge.host/v1"), base("forge.host/v2"));
+    let insert = |mut host: Value, key: &str, value: Value| {
+        host.as_object_mut().unwrap().insert(key.to_owned(), value);
+        host
+    };
+    let set = |mut host: Value, pointer: &str, value: Value| {
+        *host.pointer_mut(pointer).unwrap() = value;
+        host
+    };
+    let block = insert(
+        v2_host.clone(),
+        "cooldowns",
+        json!({"default_seconds": 10, "max_seconds": 60, "providers": {}}),
+    );
+    let with_providers = |providers: Value| set(block.clone(), "/cooldowns/providers", providers);
+    let cases = [
+        (
+            "v1 cooldowns:null",
+            "host.v1.schema.json",
+            insert(v1_host.clone(), "cooldowns", Value::Null),
+        ),
+        (
+            "v1 containment:null",
+            "host.v1.schema.json",
+            insert(v1_host.clone(), "containment", Value::Null),
+        ),
+        (
+            "v2 cooldowns:null",
+            "host.v2.schema.json",
+            insert(v2_host.clone(), "cooldowns", Value::Null),
+        ),
+        (
+            "v2 containment:null",
+            "host.v2.schema.json",
+            insert(v2_host.clone(), "containment", Value::Null),
+        ),
+        (
+            "v2 provider default_seconds:null",
+            "host.v2.schema.json",
+            with_providers(json!({"dsh": {"default_seconds": null}})),
+        ),
+        (
+            "v2 provider max_seconds:null",
+            "host.v2.schema.json",
+            with_providers(json!({"dsh": {"max_seconds": null}})),
+        ),
+        (
+            "v2 route default_seconds:null",
+            "host.v2.schema.json",
+            with_providers(json!({"dsh": {"routes": {"r": {"default_seconds": null}}}})),
+        ),
+        (
+            "v2 route max_seconds:null",
+            "host.v2.schema.json",
+            with_providers(json!({"dsh": {"routes": {"r": {"max_seconds": null}}}})),
+        ),
+    ];
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("host.json");
+    let mut admitted = Vec::new();
+    for (name, contract_name, host) in cases {
+        assert!(
+            !valid(&contract(contract_name), &host),
+            "{name}: the schema admitted a present null"
+        );
+        std::fs::write(&file, host.to_string()).unwrap();
+        match read(&file) {
+            Err(HostError::Invalid {
+                source: Problem::Shape(_),
+                ..
+            }) => {}
+            Err(other) => panic!("{name}: not a shape refusal: {other:?}"),
+            Ok(_) => admitted.push(name.to_owned()),
+        }
+    }
+    assert_eq!(
+        admitted,
+        Vec::<String>::new(),
+        "a present null read as absent"
+    );
+}
+
+/// L3: a refusal names the version the file itself claims. A v2 cool-down
+/// past its cap says `forge.host/v2`, not v1, and keeps the source's words.
+#[test]
+fn chief_v2_refusal_uses_a_correct_version_label() {
+    let text = cooled(r#"{"default_seconds":10,"max_seconds":7201}"#);
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("host.json");
+    std::fs::write(&file, text).unwrap();
+    let error = read(&file).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "the host configuration at {} is not a valid forge.host/v2 file",
+            file.display()
+        )
+    );
+    let HostError::Invalid { source, .. } = error else {
+        panic!("a v2 cap refusal was not an invalid host: {error:?}");
+    };
+    assert!(
+        matches!(
+            &source,
+            Problem::AboveMaximum {
+                value: 7201,
+                maximum: 7200,
+                ..
+            }
+        ),
+        "{source:?}"
+    );
+    assert_eq!(
+        source.to_string(),
+        "the cool-down max_seconds of the cooldowns block is 7201, past the 7200-second maximum"
+    );
+}
+
+/// Every problem the loader raises names the contract that owns it: v2
+/// where only v2 can raise it, v1 for a v2-only key in v1, and the
+/// version-neutral name where either version's shape may be wrong.
+#[test]
+fn a_refusals_version_is_its_problems_own() {
+    let malformed = serde_json::from_str::<Value>("").unwrap_err();
+    let cases = [
+        (Problem::Shape(malformed), "host configuration"),
+        (Problem::Repeated(String::new()), "host configuration"),
+        (Problem::NotV2("cooldowns"), "forge.host/v1"),
+        (Problem::ContainmentRequired, "forge.host/v2"),
+        (
+            Problem::Zero {
+                site: String::new(),
+                field: "default_seconds",
+            },
+            "forge.host/v2",
+        ),
+        (
+            Problem::AboveMaximum {
+                site: String::new(),
+                value: 7201,
+                maximum: 7200,
+            },
+            "forge.host/v2",
+        ),
+        (
+            Problem::DefaultAboveMaximum {
+                site: String::new(),
+                default: 20,
+                max: 10,
+            },
+            "forge.host/v2",
+        ),
+        (Problem::ProviderUndeclared(String::new()), "forge.host/v2"),
+        (
+            Problem::RouteUndeclared {
+                provider: String::new(),
+                route: String::new(),
+            },
+            "forge.host/v2",
+        ),
+    ];
+    for (problem, contract) in cases {
+        assert_eq!(problem.contract(), contract, "{problem:?}");
     }
 }
 

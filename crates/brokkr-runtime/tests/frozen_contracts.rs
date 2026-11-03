@@ -24,7 +24,7 @@ fn digest(relative: &str) -> String {
 /// Recorded from this tree before the agent library existed, plus the
 /// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
 /// beside it, so "beside, never inside" is machine-checked.
-const FROZEN: [(&str, &str); 31] = [
+const FROZEN: [(&str, &str); 33] = [
     // Decision 0103 (accepted) mints the driver-refusal extension beside
     // the frozen v1 family; its bytes are pinned from here. Fix round
     // 430s4a6 L2 re-pins the unreleased file after the shared route form
@@ -182,11 +182,16 @@ const FROZEN: [(&str, &str); 31] = [
         "contracts/run-manifest.v9.schema.json",
         "c046add105f94efccba9a4d688016eadc8f2933bdbfe70a9f625991e46878a71",
     ),
-    // Decision 0103 ruling 3 lands `forge.host/v2` beside v1, which is
-    // frozen from here: the loader keeps reading both.
+    // Decision 0103 ruling 3 mints `forge.host/v2` beside v1; both
+    // versions' bytes are pinned from birth, so neither shape can move
+    // silently and the loader keeps reading both.
     (
         "contracts/host.v1.schema.json",
         "81eadfe6d066be359f1eb2d38b9a4d5ba94c42b7c6a9929fb31a31af6fa6a2d0",
+    ),
+    (
+        "contracts/host.v2.schema.json",
+        "ba8f41b953ba8fe25f6edaf9cd51c8b8a6a5669540cfcef2a74603389b8b316a",
     ),
 ];
 
@@ -195,6 +200,14 @@ fn the_frozen_contracts_and_the_corpus_keep_their_exact_bytes() {
     for (relative, pinned) in FROZEN {
         assert_eq!(digest(relative), pinned, "{relative} bytes moved");
     }
+    // The newly minted v2 host contract is pinned from birth, so dropping
+    // its digest from `FROZEN` fails here naming the file.
+    assert!(
+        FROZEN
+            .iter()
+            .any(|(relative, _)| *relative == "contracts/host.v2.schema.json"),
+        "contracts/host.v2.schema.json is not pinned in FROZEN"
+    );
     // The production table is read-only too, and it is not a contract
     // file, so it is pinned separately by the same rule.
     assert_eq!(

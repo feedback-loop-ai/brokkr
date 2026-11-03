@@ -293,15 +293,19 @@ say now; a running run whose manifest carries none, one started before
 v13 included, makes every entry wait until it ends.
 
 **The host configuration** belongs to the machine, not to a realm
-(`forge.host/v1`, [the contract](../../contracts/host.v1.schema.json)):
+(`forge.host/v1`, or `forge.host/v2` with cool-down bounds and containment;
+[the v1 contract](../../contracts/host.v1.schema.json), [the v2
+contract](../../contracts/host.v2.schema.json)):
 `$XDG_CONFIG_HOME/brokkr/host.json`, else `$HOME/.config/brokkr/host.json`,
 on Linux and macOS alike. Nothing there and every measured entry waits
 (`no host configuration at <path> declares capacity`); a path that holds
 something unreadable — a link that loops or dangles, a directory, a FIFO
-or a device, never waited on — holds it, naming the error; a file that is not a valid `forge.host/v1` refuses
-the listing, naming the problem, and so does a provider or route written
-twice, naming the key. A provider or route the file does not name waits
-as undeclared, and every ceiling is at least one: there is no unlimited.
+or a device, never waited on — holds it, naming the error; a file that is
+not a valid `forge.host/v1` or `forge.host/v2` refuses the listing, naming
+the problem and, where one version's rules own it, that version, and so
+does a provider or route written twice, naming the key. A provider or
+route the file does not name waits as undeclared, and every ceiling is at
+least one: there is no unlimited.
 
 A machine with two cloud providers and the shared-local Spark route,
 where verification scripts (`exec`) also count:

@@ -1,6 +1,7 @@
 //! The machine's capacity as its operator declares it (decision 0068
-//! ruling 3, and ruling 5's data): `forge.host/v1`, one file per machine
-//! and never a realm's (the operator's ruling of 2026-10-10, option B). A
+//! ruling 3, and ruling 5's data): `forge.host/v1` or `forge.host/v2`,
+//! one file per machine and never a realm's (the operator's ruling of
+//! 2026-10-10, option B). A
 //! machine has one scratch disk, one set of provider accounts and its own
 //! local hardware, whichever realm a run operates, so the tracked realms
 //! map carries none of it (#432).
@@ -10,8 +11,9 @@
 //! capacity undeclared; a path that holds something that cannot be read
 //! (a link that loops or dangles, a directory, a FIFO or a device, a
 //! permission refused) is unreadable, never absent (#430's H5) and never
-//! waited on; and a file read but not a valid
-//! `forge.host/v1` refuses, naming the problem. A ceiling of zero, a
+//! waited on; and a file read but not a valid `forge.host/v1` or
+//! `forge.host/v2` refuses, naming the problem and, where one version's
+//! rules own it, that version. A ceiling of zero, a
 //! negative one and one past `u32` are refused, never read as unlimited,
 //! and so is a provider or route written twice: the ceiling the operator
 //! reads first is the one admission obeys, or none is. The free-space
@@ -66,9 +68,9 @@ struct WrittenHost {
     providers: BTreeMap<String, Provider>,
     floors: Floors,
     boxed_builds: Ceiling,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "present")]
     cooldowns: Option<WrittenCooldowns>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "present")]
     containment: Option<Containment>,
 }
 
@@ -134,9 +136,9 @@ struct WrittenCooldowns {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WrittenProviderCooldowns {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "present")]
     default_seconds: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "present")]
     max_seconds: Option<u32>,
     #[serde(default)]
     routes: BTreeMap<String, WrittenOverrides>,
@@ -147,9 +149,9 @@ struct WrittenProviderCooldowns {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WrittenOverrides {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "present")]
     default_seconds: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "present")]
     max_seconds: Option<u32>,
 }
 
@@ -566,7 +568,11 @@ pub enum HostError {
          directory"
     )]
     Unplaced,
-    #[error("the host configuration at {} is not a valid forge.host/v1 file", path.display())]
+    #[error(
+        "the host configuration at {} is not a valid {} file",
+        path.display(),
+        source.contract()
+    )]
     Invalid {
         path: PathBuf,
         #[source]
@@ -614,6 +620,24 @@ pub enum Problem {
         "the cool-down route '{route}' of provider '{provider}' is not declared under providers"
     )]
     RouteUndeclared { provider: String, route: String },
+}
+
+impl Problem {
+    /// The contract a refusal names: the problem's own version where only
+    /// one version can have it, and the version-neutral name where either
+    /// version's shape may be wrong.
+    fn contract(&self) -> &'static str {
+        match self {
+            Problem::Shape(_) | Problem::Repeated(_) => "host configuration",
+            Problem::NotV2(_) => "forge.host/v1",
+            Problem::ContainmentRequired
+            | Problem::Zero { .. }
+            | Problem::AboveMaximum { .. }
+            | Problem::DefaultAboveMaximum { .. }
+            | Problem::ProviderUndeclared(_)
+            | Problem::RouteUndeclared { .. } => "forge.host/v2",
+        }
+    }
 }
 
 /// Where the machine's host configuration is: `host.json` in the
