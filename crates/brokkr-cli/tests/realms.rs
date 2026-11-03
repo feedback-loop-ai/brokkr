@@ -719,15 +719,23 @@ fn one_run_read_refuses_a_many_hearth_world_and_prints_its_row_as_text() {
     journal_run(&world, "other-run", false);
     journal_run(&ws.path().join("state/beta.db"), "beta-run", false);
 
-    let (code, out, stderr) = ws.run(&["runs", "--run", "solo-run"]);
-    assert_ne!(code, Some(0), "{out}");
-    assert!(
-        stderr.contains(
-            "--limit, --after and --run page one hearth's runs, and this world has 2 hearths: \
-             name one journal with --db"
-        ),
-        "{stderr}"
-    );
+    // Each paging flag alone is refused by name, so each operand of the
+    // refusal's condition is the one that fails it once.
+    for paging in [
+        ["--run", "solo-run"],
+        ["--after", "older:5:solo-run"],
+        ["--limit", "1"],
+    ] {
+        let (code, out, stderr) = ws.run(&["runs", paging[0], paging[1]]);
+        assert_ne!(code, Some(0), "{paging:?}: {out}");
+        assert!(
+            stderr.contains(
+                "--limit, --after and --run page one hearth's runs, and this world has 2 hearths: \
+                 name one journal with --db"
+            ),
+            "{paging:?}: {stderr}"
+        );
+    }
 
     let (code, text, stderr) = ws.run(&["runs", "--run", "solo-run", "--db", "state/world.db"]);
     assert_eq!(code, Some(0), "{stderr}");
