@@ -630,7 +630,8 @@ mod tests {
         let launch =
             crate::adapters::tests::dsh_stream_launch(&shim, &root, Some("session-1"), Some(27));
         let mut pending = DshRootWatch::new(&launch, Transcript::dsh(&launch.home));
-        assert!(pending.confirming() && !pending.settled);
+        assert!(pending.confirming());
+        assert!(!pending.settled);
         pending.named_the_offer = true;
         assert_eq!(poll_once(&launch, &mut pending), (false, 1));
 
