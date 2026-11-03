@@ -358,6 +358,47 @@ fn a_v2_cool_down_outside_its_limits_refuses_naming_the_site_and_field() {
     }
 }
 
+/// A provider's own numbers are held to the block's limits too, and its
+/// refusal names the provider, as the block's and a route's name theirs.
+#[test]
+fn a_providers_cool_down_outside_its_limits_refuses_naming_the_provider() {
+    let cases = [
+        (
+            cooled(
+                r#"{"default_seconds":10,"max_seconds":60,"providers":{"dsh":{"default_seconds":0}}}"#,
+            ),
+            "the cool-down default_seconds of provider 'dsh' is zero",
+        ),
+        (
+            cooled(
+                r#"{"default_seconds":10,"max_seconds":60,"providers":{"dsh":{"max_seconds":7201}}}"#,
+            ),
+            "the cool-down max_seconds of provider 'dsh' is 7201, past the 7200-second maximum",
+        ),
+    ];
+    for (text, said) in cases {
+        assert_eq!(refused(&text).to_string(), said, "{text}");
+    }
+}
+
+/// A v1 file that declares a cooldowns block is refused by its typed
+/// cause: cool-downs are v2's (decision 0103 ruling 3).
+#[test]
+fn a_v1_file_declaring_cool_downs_is_refused_as_not_v2() {
+    let text = format!(
+        r#"{{"schema":"forge.host/v1","providers":{{{PROVIDERS}}},"floors":[{{"place":"temp","floor_bytes":1}}],"boxed_builds":{{"ceiling":1}},"cooldowns":{{"default_seconds":10,"max_seconds":60}}}}"#
+    );
+    let problem = refused(&text);
+    assert!(
+        matches!(problem, Problem::NotV2("cooldowns")),
+        "{problem:?}"
+    );
+    assert_eq!(
+        problem.to_string(),
+        "forge.host/v1 declares cooldowns; only forge.host/v2 does"
+    );
+}
+
 #[test]
 fn a_v2_cool_down_block_refuses_an_unknown_key() {
     let text = cooled(r#"{"default_seconds":10,"max_seconds":60,"pause":1}"#);

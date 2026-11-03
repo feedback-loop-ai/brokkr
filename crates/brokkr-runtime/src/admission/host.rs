@@ -292,7 +292,7 @@ impl HostConfig {
                 .get(name)
                 .ok_or_else(|| Problem::ProviderUndeclared(name.clone()))?;
             if provider.bounds.default_seconds.is_some() || provider.bounds.max_seconds.is_some() {
-                self.check_site(Site::Provider(name))?;
+                self.check_site(name, None)?;
             }
             for route in provider.routes.keys() {
                 if !declared.routes.contains_key(route) {
@@ -301,23 +301,19 @@ impl HostConfig {
                         route: route.clone(),
                     });
                 }
-                self.check_site(Site::Route {
-                    provider: name,
-                    route,
-                })?;
+                self.check_site(name, Some(route))?;
             }
         }
         Ok(())
     }
 
-    /// The site's inherited bounds, refused where its default passes its
-    /// maximum.
-    fn check_site(&self, site: Site<'_>) -> Result<(), Problem> {
-        let (provider, route) = match site {
-            Site::Block => unreachable!("the block is checked directly"),
-            Site::Provider(provider) => (provider, None),
-            Site::Route { provider, route } => (provider, Some(route)),
-        };
+    /// A provider's or a route's inherited bounds, refused where its
+    /// default passes its maximum. The block itself is checked directly.
+    fn check_site(&self, provider: &str, route: Option<&str>) -> Result<(), Problem> {
+        let site = route.map_or(Site::Provider(provider), |route| Site::Route {
+            provider,
+            route,
+        });
         let bounds = self
             .cooldown(provider, route)
             .expect("a cooldown site is inside a cooldowns block");
