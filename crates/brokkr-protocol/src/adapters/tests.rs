@@ -2,6 +2,16 @@ use super::*;
 use crate::env_guard::EnvGuard;
 use std::{os::unix::ffi::OsStrExt, path::Path};
 
+/// The wait every test's poll hands production: one child's exit code as
+/// the driver's own `lost` reads it, so a signal is `-1` here exactly as it
+/// is in the driver. One helper, one home for the rule (fix round 430s4a6
+/// L1; decision 0071 ruling 5).
+pub(super) fn wait_for_exit(child: &mut std::process::Child) -> std::io::Result<Option<i32>> {
+    child
+        .try_wait()
+        .map(|status| status.map(super::lost::exit_code))
+}
+
 /// Drain a dsh transcript with no probe bound, appending every emitted row
 /// to `emitted`. The tests that only assert on what was emitted share this
 /// rather than restating the call.
@@ -5590,7 +5600,7 @@ fn run_dsh_stream(launch: DshLaunch, workdir: &std::path::Path) -> (Invocation, 
         workdir.to_str().unwrap(),
         &[],
         &mut |value| emitted.push(value.clone()),
-        |child| child.try_wait().map(|s| s.map(|s| s.code().unwrap_or(-1))),
+        wait_for_exit,
     )
     .unwrap();
     (invocation, emitted)
@@ -6300,7 +6310,7 @@ fn run_dsh_latch(case: &DshLatchCase, delivers: bool) -> DshLatchRun {
                 &[],
                 &mut crate::adapters::probe::ProbeAnswer::new(false),
                 &mut emit,
-                |child| child.try_wait().map(|s| s.map(|s| s.code().unwrap_or(-1))),
+                wait_for_exit,
                 &mut |observation: &DshObservation| {
                     observations.push(observation.clone());
                     if acknowledged < case.acks && (case.acknowledge)(observation) {
@@ -14185,7 +14195,7 @@ fn a_bound_dsh_route_reaches_neither_the_composite_nor_the_launch_row_nor_the_jo
                     &workdir,
                     &[],
                     &mut |row: &Value| emit(row),
-                    |child| child.try_wait().map(|s| s.map(|s| s.code().unwrap_or(-1))),
+                    wait_for_exit,
                 );
                 stderr = invocation.as_ref().ok().map(|done| done.stderr.clone());
                 invocation
@@ -18392,7 +18402,7 @@ fn a_dsh_seat_receives_its_bindings_and_masks_its_stderr() {
         dir.path().to_str().unwrap(),
         &[binding("API_TOKEN", "tok-3xample-value")],
         &mut |_| {},
-        |child| child.try_wait().map(|s| s.map(|s| s.code().unwrap_or(-1))),
+        wait_for_exit,
     )
     .unwrap();
     assert_eq!(invocation.exit_code, 0, "{}", invocation.stderr);

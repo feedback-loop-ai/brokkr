@@ -316,6 +316,53 @@ printf '%s\n' '{"type":"rate_limit_event","apiErrorStatus":429,"message":"You ha
     assert_eq!(error, "probe ended without an answer");
 }
 
+/// #430 L2 (decision 0071 ruling 3): a typed refusal the producer attributed
+/// is always one its own reader accepts. A Claude seat pinned to
+/// `featherless:qwen/qwen3` derives the route `featherless:qwen` (decision
+/// 0036 ruling 2: the id's prefix before its first `/`), and the serialized
+/// `Body::Result` refusal must read back as the identical typed object, not
+/// as `RouteForm`.
+#[cfg(unix)]
+#[test]
+fn chief_review_attributed_refusal_must_roundtrip_its_own_reader() {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let shim = executable(
+        dir.path(),
+        "claude-colon-route",
+        r#"#!/bin/sh
+cat >/dev/null
+printf '%s\n' '{"type":"rate_limit_event","apiErrorStatus":429,"message":"You have reached your limit"}'
+"#,
+    );
+    env.set("BROKKR_CLAUDE_BIN", &shim);
+    let extra = ["--model".to_string(), "featherless:qwen/qwen3".to_string()];
+    let mut messages = Vec::new();
+    run_seat(
+        AdapterKind::Claude,
+        &extra,
+        &seat_start(dir.path()),
+        None,
+        &mut |body| messages.push(body),
+    );
+    let Body::Result {
+        refusal: Some(refusal),
+        ..
+    } = messages.last().expect("the seat reports its refusal")
+    else {
+        panic!("a classified refusal is carried on the result: {messages:?}");
+    };
+    assert_eq!(refusal.class(), RefusalClass::RateLimit);
+    assert_eq!(refusal.provider(), "claude");
+    assert_eq!(refusal.route(), Some("featherless:qwen"));
+    let serialized = serde_json::to_value(refusal).expect("the refusal serializes");
+    assert_eq!(
+        crate::PreSessionRefusal::read(&serialized),
+        Ok(refusal.clone()),
+        "the producer's refusal survives its own reader: {serialized}"
+    );
+}
+
 /// dsh's one model-output event answers a probe and the answer is carried
 /// on the report; dsh still classifies no refusal (decision 0103 ruling
 /// 4(a); decision 0053's dsh gap stays).
@@ -743,11 +790,7 @@ fn run_qualified_probe(
         &[],
         &mut ProbeAnswer::new(requested),
         &mut |_| {},
-        |child| {
-            child
-                .try_wait()
-                .map(|status| status.map(|status| status.code().unwrap_or(-1)))
-        },
+        super::tests::wait_for_exit,
         &mut |_| {},
     )
     .expect("the qualified probe reports");

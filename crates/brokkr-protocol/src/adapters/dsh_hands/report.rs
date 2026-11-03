@@ -58,6 +58,12 @@ pub(crate) enum ReportRefusal {
          dsh wrote cannot be ruled out; failing closed on what cannot be read (#430 H1)"
     )]
     UnreadableCapture(Unreadable),
+    #[error(
+        "refusing the dsh seat: its startup stderr capture ended incomplete (the reader had not \
+         reached EOF when the settle bound elapsed), so a warning dsh wrote cannot be ruled out; \
+         failing closed on what cannot be read (#430 H1)"
+    )]
+    IncompleteCapture,
 }
 
 /// Read the stderr dsh wrote before its session: an unavailable sandbox

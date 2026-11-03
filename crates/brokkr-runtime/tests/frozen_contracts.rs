@@ -26,10 +26,12 @@ fn digest(relative: &str) -> String {
 /// beside it, so "beside, never inside" is machine-checked.
 const FROZEN: [(&str, &str); 30] = [
     // Decision 0103 (accepted) mints the driver-refusal extension beside
-    // the frozen v1 family; its bytes are pinned from here.
+    // the frozen v1 family; its bytes are pinned from here. Fix round
+    // 430s4a6 L2 re-pins the unreleased file after the shared route form
+    // admits the colon a derived route may carry.
     (
         "contracts/driver-refusal.v1.schema.json",
-        "744d693936f9008249d38bbacd81887157c220109b8dc66e2e151d68749a8e52",
+        "92f02dbd90fa0de181790ba0b5883d0f77f741bc55fcbc1abc72c2421aa49f66",
     ),
     (
         "contracts/panel-carry.v1.schema.json",
@@ -1334,11 +1336,24 @@ fn the_driver_refusal_extension_is_closed_and_its_probe_is_true() {
         }
     })));
     assert!(validator.is_valid(&serde_json::json!({"probe": true})));
+    // Fix round 430s4a6 L2: a route the drivers derive may carry the colon
+    // a pinned model id uses before its first `/` (`featherless:qwen/qwen3`
+    // derives `featherless:qwen`), and the pattern shares that one form.
+    assert!(validator.is_valid(&serde_json::json!({
+        "refusal": {
+            "class": "rate_limit",
+            "provider": "claude",
+            "route": "featherless:qwen",
+            "words": "rate_limit (HTTP 429): slow down"
+        }
+    })));
     for invalid in [
         serde_json::json!({"probe": false}),
         serde_json::json!({"refusal": {"class": "quota", "provider": "claude",
             "route": null, "words": "w"}}),
         serde_json::json!({"refusal": {"class": "rate_limit", "route": null, "words": "w"}}),
+        serde_json::json!({"refusal": {"class": "rate_limit", "provider": "claude",
+            "route": "bad/route", "words": "w"}}),
         serde_json::json!({"refusal": {"class": "rate_limit", "provider": "claude",
             "words": "w"}}),
         serde_json::json!({"refusal": {"class": "rate_limit", "provider": "claude",

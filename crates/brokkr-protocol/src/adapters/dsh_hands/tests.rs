@@ -618,6 +618,90 @@ fn review_an_unreadable_stderr_capture_must_refuse_dsh_startup() {
     );
 }
 
+/// A [`Read`] seam that returns `prefix`, then blocks its second read until
+/// `release` is signalled, then returns `suffix` and EOF. `blocked` tells
+/// the test the reader is inside that second read, so `take(true)` meets a
+/// settled, incomplete capture rather than racing it.
+struct BlockedAfterPrefix {
+    prefix: &'static [u8],
+    suffix: &'static [u8],
+    blocked: std::sync::mpsc::Sender<()>,
+    release: std::sync::mpsc::Receiver<()>,
+    reads: u8,
+}
+
+impl std::io::Read for BlockedAfterPrefix {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        match self.reads {
+            0 => {
+                self.reads = 1;
+                buffer[..self.prefix.len()].copy_from_slice(self.prefix);
+                Ok(self.prefix.len())
+            }
+            1 => {
+                self.reads = 2;
+                let _ = self.blocked.send(());
+                let _ = self.release.recv();
+                buffer[..self.suffix.len()].copy_from_slice(self.suffix);
+                Ok(self.suffix.len())
+            }
+            _ => Ok(0),
+        }
+    }
+}
+
+/// #430 H1, fifth hold on this class (decision 0098 ruling 4; decision 0071
+/// rulings 3 and 9): the bounded settle keeps a descendant-held pipe from
+/// hanging the driver, but the capture it takes is INCOMPLETE, and an
+/// incomplete capture never lets dsh start. The seam returns the warning's
+/// truncated prefix, blocks its next read, and holds the rest back until
+/// released: the gate must refuse, naming the incomplete capture, exactly
+/// as it refuses an unreadable one.
+#[test]
+fn chief_review_incomplete_stderr_must_refuse_dsh_startup() {
+    use super::super::stderr::StderrEnd;
+
+    let (blocked, blocked_rx) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel();
+    let capture = super::super::stderr::capture_reader(BlockedAfterPrefix {
+        prefix: b"dsh: warning: 1 entry did not ",
+        suffix: b"activate\n",
+        blocked,
+        release: release_rx,
+        reads: 0,
+    });
+    blocked_rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("the reader reached its blocked read");
+    let captured = capture.take(true);
+    let incomplete = matches!(captured.end(), StderrEnd::Incomplete);
+    assert!(
+        incomplete,
+        "the settle takes an incomplete capture: {captured:?}"
+    );
+    assert_eq!(captured.bytes(), b"dsh: warning: 1 entry did not ");
+    let refusal = startup_gate(
+        startup_report(&captured),
+        &mut serde_json::Map::new(),
+        Mode::ReadOnly,
+    )
+    .expect_err("an incomplete capture never passes dsh's startup gate");
+    assert!(matches!(refusal, ReportRefusal::IncompleteCapture));
+    assert_eq!(
+        refusal.to_string(),
+        "refusing the dsh seat: its startup stderr capture ended incomplete (the reader had not \
+         reached EOF when the settle bound elapsed), so a warning dsh wrote cannot be ruled out; \
+         failing closed on what cannot be read (#430 H1)"
+    );
+    let evidence = captured.evidence(|_| String::new());
+    assert!(
+        evidence.contains("stderr capture ended incomplete"),
+        "the stopped capture names its incompleteness: {evidence:?}"
+    );
+    // Let the detached reader finish rather than leaving it blocked.
+    release.send(()).expect("the reader is still waiting");
+}
+
 /// #430 H1 (decision 0071 rulings 3 and 9): the evidence line for an
 /// unreadable capture joins whatever partial bytes it kept, adding exactly
 /// one newline only where the kept text does not already end a line. The

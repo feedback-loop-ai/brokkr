@@ -123,11 +123,22 @@ impl PreSessionRefusal {
 
     /// Fill the provider and route from the adapter and launch facts the
     /// driver already resolved. `route` is a typed absence where the
-    /// driver serves the model on none.
-    pub(crate) fn attributed(mut self, provider: &str, route: Option<&str>) -> PreSessionRefusal {
+    /// driver serves the model on none. A route outside the one form
+    /// [`route_form`](crate::adapters::route_form) reads is refused here,
+    /// before emission and by name: the producer never rewrites a route's
+    /// identity, and never emits a refusal its own reader would reject
+    /// (decision 0103 ruling 1(a); decision 0071 ruling 3).
+    pub(crate) fn attributed(
+        mut self,
+        provider: &str,
+        route: Option<&str>,
+    ) -> Result<PreSessionRefusal, RefusalError> {
+        if route.is_some_and(|route| !crate::adapters::route_form(route)) {
+            return Err(RefusalError::RouteForm);
+        }
         self.provider = provider.to_string();
         self.route = route.map(str::to_string);
-        self
+        Ok(self)
     }
 
     /// Replace the bounded evidence with its masked form. It is the same
@@ -205,17 +216,20 @@ fn refusal_provider(object: &RefusalObject) -> Result<String, RefusalError> {
     object
         .get("provider")
         .and_then(serde_json::Value::as_str)
-        .filter(|provider| refusal_identifier(provider))
+        .filter(|provider| provider_identifier(provider))
         .map(str::to_string)
         .ok_or(RefusalError::Provider)
 }
 
 /// The route the launch facts resolved, or the explicit `null` for none.
+/// It is read by the one predicate the producer also validates against, so
+/// a route the drivers derive always reads back (decision 0036 ruling 2;
+/// decision 0103 ruling 1(a)).
 fn refusal_route(object: &RefusalObject) -> Result<Option<String>, RefusalError> {
     match object.get("route") {
         None => Err(RefusalError::Route),
         Some(serde_json::Value::Null) => Ok(None),
-        Some(serde_json::Value::String(route)) if refusal_identifier(route) => {
+        Some(serde_json::Value::String(route)) if crate::adapters::route_form(route) => {
             Ok(Some(route.clone()))
         }
         Some(_) => Err(RefusalError::RouteForm),
@@ -262,10 +276,11 @@ fn refusal_retry_after_seconds(object: &RefusalObject) -> Result<Option<u64>, Re
     }
 }
 
-/// A provider, route or other wire identifier: 1–80 ASCII characters,
-/// alphanumeric first, then alphanumerics, underscores, hyphens and dots.
-/// The error never echoes the value, so this is a shape test only.
-fn refusal_identifier(value: &str) -> bool {
+/// A provider identifier: 1–80 ASCII characters, alphanumeric first, then
+/// alphanumerics, underscores, hyphens and dots. The route's wider form is
+/// [`route_form`](crate::adapters::route_form)'s one home. The error never
+/// echoes the value, so this is a shape test only.
+fn provider_identifier(value: &str) -> bool {
     let mut characters = value.chars();
     matches!(characters.next(), Some(first) if first.is_ascii_alphanumeric())
         && value.len() <= 80

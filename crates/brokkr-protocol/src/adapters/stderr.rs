@@ -2,10 +2,11 @@
 //! thread, the bounded settle a stopped harness gets, and the complete
 //! finish an ended one gets (#430 H1; decision 0098 ruling 4).
 //!
-//! Only EOF is a complete capture. An interrupted read is retried, and any
-//! other read error ends the capture UNREADABLE with the error it met, so
-//! no caller can mistake a failed read for the end of the child's report
-//! (fix round 430s4a4 H1; decision 0071 rulings 3 and 9).
+//! Only EOF is a complete capture. An interrupted read is retried, any
+//! other read error ends the capture UNREADABLE with the error it met, and
+//! a reader still blocked when the bounded settle elapses ends it
+//! INCOMPLETE. No one may mistake either for the end of the child's report
+//! (fix rounds 430s4a4 and 430s4a6 H1; decision 0071 rulings 3 and 9).
 
 use std::io::{ErrorKind, Read};
 use std::sync::{Arc, Condvar, Mutex};
@@ -77,23 +78,41 @@ impl CapturedStderr {
     }
 
     /// The stderr evidence one invocation records: the captured bytes as
-    /// the caller masks them, then, when the reader failed, a line naming
-    /// that failure. A failed capture never reads as a clean end of the
-    /// child's report (#430 H1; decision 0071 rulings 3 and 9).
+    /// the caller masks them, then, when the reader did not reach EOF, a
+    /// line naming how it ended. A failed or bounded capture never reads as
+    /// a clean end of the child's report (#430 H1; decision 0071 rulings 3
+    /// and 9).
     pub(super) fn evidence(&self, mask: impl FnOnce(&[u8]) -> String) -> String {
         let mut text = mask(&self.bytes);
         match &self.end {
             StderrEnd::Unreadable(error) => {
-                if !text.is_empty() && !text.ends_with('\n') {
-                    text.push('\n');
-                }
-                text.push_str(&format!("stderr capture ended unreadable: {error}\n"));
+                join_note(
+                    &mut text,
+                    &format!("stderr capture ended unreadable: {error}"),
+                );
             }
-            // A complete or bounded capture needs no note.
-            StderrEnd::Eof | StderrEnd::Incomplete => {}
+            StderrEnd::Incomplete => {
+                join_note(
+                    &mut text,
+                    "stderr capture ended incomplete: the reader had not reached EOF when the \
+                     settle bound elapsed",
+                );
+            }
+            // A complete capture needs no note.
+            StderrEnd::Eof => {}
         }
         text
     }
+}
+
+/// Append one evidence note as its own line: exactly one newline is added,
+/// and only where the kept text does not already end a line.
+fn join_note(text: &mut String, note: &str) {
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text.push_str(note);
+    text.push('\n');
 }
 
 struct StderrState {

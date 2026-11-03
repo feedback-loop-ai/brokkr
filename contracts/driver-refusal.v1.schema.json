@@ -31,8 +31,8 @@
         },
         "route": {
           "type": ["string", "null"],
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$",
-          "description": "The route the driver serves the pinned model on, from the same rule the driver reads (`brokkr-protocol`'s adapters/served_route.rs). Null is a typed absence: the route could not be resolved, and the engine parks naming it rather than recording a provider-wide cool-down."
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$",
+          "description": "The route the driver serves the pinned model on: the concrete model id's prefix before its first `/` (decision 0036 ruling 2), from the one predicate the producer and this pattern share (`brokkr-protocol`'s adapters/served_route.rs::route_form). Null is a typed absence: the route could not be resolved, and the engine parks naming it rather than recording a provider-wide cool-down."
         },
         "words": {
           "type": "string",

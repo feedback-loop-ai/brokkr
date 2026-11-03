@@ -49,6 +49,7 @@ pub use composite::{
 };
 pub use dsh_hands::ACCESS;
 pub use mcp::{harness_auth, HarnessAuthError, StrictCause};
+pub(crate) use served_route::route_form;
 pub use served_route::split_route;
 
 use crate::dsh_sandbox;
@@ -5463,11 +5464,17 @@ fn invoke_with_stager(
     // Decision 0103 ruling 1(a): the provider and route are filled from
     // the adapter and the launch facts the driver already resolved. A
     // bare model id on a driver with no default route is a typed
-    // absence, never a guess.
+    // absence, never a guess. A route outside the one form the wire reads
+    // refuses the refusal before emission, by name, rather than being
+    // rewritten or sent unreadable (fix round 430s4a6 L2).
     let route = pinned_model(extra).and_then(|model| kind.served_route(model));
     let mut invocation = invocation;
     if let Some(refusal) = invocation.refusal.take() {
-        invocation.refusal = Some(refusal.attributed(kind.provider_name(), route));
+        invocation.refusal = Some(
+            refusal
+                .attributed(kind.provider_name(), route)
+                .map_err(|error| error.to_string())?,
+        );
     }
     Ok(invocation)
 }
