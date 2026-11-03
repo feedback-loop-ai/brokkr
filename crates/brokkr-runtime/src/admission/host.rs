@@ -28,11 +28,13 @@ use std::io::{self, ErrorKind};
 use std::num::{NonZeroU32, NonZeroU64};
 use std::path::{Path, PathBuf};
 
-use serde::de::{self, Unexpected, Visitor};
-use serde::{Deserialize, Deserializer};
+use serde::Deserialize;
 use thiserror::Error;
 
 use crate::capabilities::manifest::present;
+
+mod shape;
+use shape::Integral;
 
 /// A host configuration, read whole: every key known, every ceiling at
 /// least one, and the cool-down bounds v2 may declare resolved through
@@ -64,14 +66,16 @@ enum Schema {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WrittenHost {
-    #[serde(rename = "schema")]
+    #[serde(rename = "schema", deserialize_with = "shape::word")]
     schema: Schema,
+    #[serde(deserialize_with = "shape::strict_map")]
     providers: BTreeMap<String, Provider>,
     floors: Floors,
+    #[serde(deserialize_with = "shape::object")]
     boxed_builds: Ceiling,
-    #[serde(default, deserialize_with = "present")]
+    #[serde(default, deserialize_with = "shape::present_object")]
     cooldowns: Option<WrittenCooldowns>,
-    #[serde(default, deserialize_with = "present")]
+    #[serde(default, deserialize_with = "shape::present_word")]
     containment: Option<Containment>,
 }
 
@@ -122,60 +126,14 @@ struct Overrides {
     max_seconds: Option<NonZeroU32>,
 }
 
-/// A number the contract calls an integer. JSON Schema's `integer` admits
-/// any number with no fractional part, so `10.0` and `6e1` are the same
-/// integers here as `10` and `60`; refusing them would refuse a file the
-/// published schema admits (decision 0071 ruling 3).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Integral(u32);
-
-impl<'de> Deserialize<'de> for Integral {
-    fn deserialize<D>(deserializer: D) -> Result<Integral, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct IntegralVisitor;
-
-        impl<'de> Visitor<'de> for IntegralVisitor {
-            type Value = Integral;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("an integer from 0 to 4294967295")
-            }
-
-            fn visit_u64<E: de::Error>(self, value: u64) -> Result<Integral, E> {
-                u32::try_from(value)
-                    .map(Integral)
-                    .map_err(|_| E::invalid_value(Unexpected::Unsigned(value), &self))
-            }
-
-            fn visit_i64<E: de::Error>(self, value: i64) -> Result<Integral, E> {
-                u32::try_from(value)
-                    .map(Integral)
-                    .map_err(|_| E::invalid_value(Unexpected::Signed(value), &self))
-            }
-
-            fn visit_f64<E: de::Error>(self, value: f64) -> Result<Integral, E> {
-                if value.fract() == 0.0 && (0.0..=f64::from(u32::MAX)).contains(&value) {
-                    Ok(Integral(value as u32))
-                } else {
-                    Err(E::invalid_value(Unexpected::Float(value), &self))
-                }
-            }
-        }
-
-        deserializer.deserialize_any(IntegralVisitor)
-    }
-}
-
 /// A cool-downs block as the file writes it, before its values are
 /// checked.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WrittenCooldowns {
-    default_seconds: Integral,
-    max_seconds: Integral,
-    #[serde(default)]
+    default_seconds: Integral<u32>,
+    max_seconds: Integral<u32>,
+    #[serde(default, deserialize_with = "shape::strict_map")]
     providers: BTreeMap<String, WrittenProviderCooldowns>,
 }
 
@@ -184,10 +142,10 @@ struct WrittenCooldowns {
 #[serde(deny_unknown_fields)]
 struct WrittenProviderCooldowns {
     #[serde(default, deserialize_with = "present")]
-    default_seconds: Option<Integral>,
+    default_seconds: Option<Integral<u32>>,
     #[serde(default, deserialize_with = "present")]
-    max_seconds: Option<Integral>,
-    #[serde(default)]
+    max_seconds: Option<Integral<u32>>,
+    #[serde(default, deserialize_with = "shape::strict_map")]
     routes: BTreeMap<String, WrittenOverrides>,
 }
 
@@ -197,9 +155,9 @@ struct WrittenProviderCooldowns {
 #[serde(deny_unknown_fields)]
 struct WrittenOverrides {
     #[serde(default, deserialize_with = "present")]
-    default_seconds: Option<Integral>,
+    default_seconds: Option<Integral<u32>>,
     #[serde(default, deserialize_with = "present")]
-    max_seconds: Option<Integral>,
+    max_seconds: Option<Integral<u32>>,
 }
 
 /// A site a cool-down refusal names.
@@ -422,8 +380,9 @@ impl TryFrom<WrittenHost> for HostConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Provider {
+    #[serde(deserialize_with = "shape::positive_u32")]
     pub(crate) ceiling: NonZeroU32,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "shape::strict_map")]
     pub(crate) routes: BTreeMap<String, Route>,
 }
 
@@ -431,7 +390,9 @@ pub(crate) struct Provider {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Route {
+    #[serde(deserialize_with = "shape::positive_u32")]
     pub(crate) ceiling: NonZeroU32,
+    #[serde(deserialize_with = "shape::word")]
     pub(crate) class: RouteClass,
 }
 
@@ -482,7 +443,7 @@ impl TryFrom<Vec<Floor>> for Floors {
 /// One free-space floor: the bytes the filesystem it names must hold free
 /// for another run to start.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(try_from = "WrittenFloor")]
+#[serde(try_from = "shape::Object<WrittenFloor>")]
 pub(crate) struct Floor {
     pub(crate) at: At,
     pub(crate) floor_bytes: NonZeroU64,
@@ -493,17 +454,18 @@ pub(crate) struct Floor {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WrittenFloor {
+    #[serde(deserialize_with = "shape::positive_u64")]
     floor_bytes: NonZeroU64,
     #[serde(default, deserialize_with = "present")]
     path: Option<Absolute>,
-    #[serde(default, deserialize_with = "present")]
+    #[serde(default, deserialize_with = "shape::present_word")]
     place: Option<Place>,
 }
 
-impl TryFrom<WrittenFloor> for Floor {
+impl TryFrom<shape::Object<WrittenFloor>> for Floor {
     type Error = Unfloored;
 
-    fn try_from(written: WrittenFloor) -> Result<Floor, Unfloored> {
+    fn try_from(shape::Object(written): shape::Object<WrittenFloor>) -> Result<Floor, Unfloored> {
         let at = match (written.path, written.place) {
             (Some(path), None) => At::Path(path),
             (None, Some(place)) => At::Place(place),
@@ -573,6 +535,7 @@ pub(crate) enum Unfloored {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Ceiling {
+    #[serde(deserialize_with = "shape::positive_u32")]
     pub(crate) ceiling: NonZeroU32,
 }
 
@@ -753,7 +716,7 @@ fn regular(file: &Path) -> io::Result<Vec<u8>> {
 /// The shape is judged first, so its refusal keeps the parser's place in
 /// the file; bytes it admits are UTF-8, so the lossy text is the file.
 fn config(bytes: &[u8]) -> Result<HostConfig, Problem> {
-    let written: WrittenHost = serde_json::from_slice(bytes)?;
+    let shape::Object(written) = serde_json::from_slice::<shape::Object<WrittenHost>>(bytes)?;
     brokkr_core::canonical::parse_strict(&String::from_utf8_lossy(bytes))
         .map_err(Problem::Repeated)?;
     HostConfig::try_from(written)

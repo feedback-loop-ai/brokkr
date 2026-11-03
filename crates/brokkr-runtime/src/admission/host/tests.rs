@@ -266,6 +266,37 @@ fn cooled(block: &str) -> String {
     v2(&format!(r#","cooldowns":{block}"#))
 }
 
+/// A complete capacity block for either schema: two declared providers,
+/// two routes on `dsh`, one floor and a boxed-build ceiling.
+fn capacity(schema: &str) -> Value {
+    json!({
+        "schema": schema,
+        "providers": {
+            "dsh": {"ceiling": 1, "routes": {
+                "r": {"ceiling": 1, "class": "cloud"},
+                "s": {"ceiling": 1, "class": "cloud"}
+            }},
+            "codex": {"ceiling": 1}
+        },
+        "floors": [{"place": "temp", "floor_bytes": 1}],
+        "boxed_builds": {"ceiling": 1}
+    })
+}
+
+/// `host` with the JSON pointer `pointer` set to `value`; a top-level key
+/// the host does not hold yet is inserted.
+fn set(mut host: Value, pointer: &str, value: Value) -> Value {
+    match host.pointer_mut(pointer) {
+        Some(slot) => *slot = value,
+        None => {
+            host.as_object_mut()
+                .unwrap()
+                .insert(pointer.trim_start_matches('/').to_owned(), value);
+        }
+    }
+    host
+}
+
 /// A file the loader reads.
 fn loaded(text: &str) -> HostConfig {
     config(text.as_bytes()).unwrap_or_else(|problem| panic!("{text} was refused: {problem}"))
@@ -648,24 +679,9 @@ fn the_v2_contract_and_the_loader_admit_and_refuse_the_same_shape() {
 #[test]
 fn chief_null_declarations_are_refused_by_reader_and_schema() {
     let valid = |name: &str, host: &Value| contract_validator(name).is_valid(host);
-    let base = |schema: &str| {
-        json!({
-            "schema": schema,
-            "providers": {
-                "dsh": {"ceiling": 1, "routes": {"r": {"ceiling": 1, "class": "cloud"}}},
-                "codex": {"ceiling": 1}
-            },
-            "floors": [{"place": "temp", "floor_bytes": 1}],
-            "boxed_builds": {"ceiling": 1}
-        })
-    };
-    let (v1_host, v2_host) = (base("forge.host/v1"), base("forge.host/v2"));
+    let (v1_host, v2_host) = (capacity("forge.host/v1"), capacity("forge.host/v2"));
     let insert = |mut host: Value, key: &str, value: Value| {
         host.as_object_mut().unwrap().insert(key.to_owned(), value);
-        host
-    };
-    let set = |mut host: Value, pointer: &str, value: Value| {
-        *host.pointer_mut(pointer).unwrap() = value;
         host
     };
     let block = insert(
@@ -837,4 +853,218 @@ fn the_lifecycle_row_names_the_reader_and_a_v2_file_loads() {
             max_seconds: NonZeroU32::new(60).unwrap(),
         })
     );
+}
+
+/// F1 (decision 0071 ruling 3): a closed host enum is its word. serde's
+/// derive also reads the one-key map form (`{"best-effort": null}`), which
+/// both published contracts refuse; the loader must refuse it too, as the
+/// same shape problem. Each of the four host enums is reached.
+#[test]
+fn chief_enum_maps_are_refused_by_reader_and_schema() {
+    let cases = [
+        (
+            "schema",
+            "host.v2.schema.json",
+            set(
+                capacity("forge.host/v2"),
+                "/schema",
+                json!({"forge.host/v2": null}),
+            ),
+        ),
+        (
+            "containment",
+            "host.v2.schema.json",
+            set(
+                capacity("forge.host/v2"),
+                "/containment",
+                json!({"best-effort": null}),
+            ),
+        ),
+        (
+            "route class",
+            "host.v1.schema.json",
+            set(
+                capacity("forge.host/v1"),
+                "/providers/dsh/routes/r/class",
+                json!({"cloud": null}),
+            ),
+        ),
+        (
+            "floor place",
+            "host.v1.schema.json",
+            set(
+                capacity("forge.host/v1"),
+                "/floors/0/place",
+                json!({"temp": null}),
+            ),
+        ),
+    ];
+    for (name, contract, host) in cases {
+        assert!(
+            !contract_validator(contract).is_valid(&host),
+            "{name}: the schema admitted a one-key map"
+        );
+        let Problem::Shape(error) = refused(&host.to_string()) else {
+            panic!("{name}: the loader did not refuse it as a shape");
+        };
+        assert!(
+            error.to_string().contains("expected a string"),
+            "{name}: {error}"
+        );
+    }
+}
+
+/// One integral-notation case: the field's name, the pointer, the number as
+/// written, the capacity it must read as, and where that capacity lands.
+type IntegralCase = (
+    &'static str,
+    &'static str,
+    Value,
+    u64,
+    fn(&HostConfig) -> u64,
+);
+
+/// F2 (decision 0071 ruling 3): JSON Schema's `integer` admits a number
+/// with no fractional part, so `10.0` and `6e1` are the same capacity as
+/// `10` and `60`. Every capacity number reads that way in both versions,
+/// not only the cool-down numbers.
+#[test]
+fn chief_capacity_integral_notation_reads_the_same_capacity() {
+    let cases: [IntegralCase; 4] = [
+        (
+            "provider ceiling",
+            "/providers/dsh/ceiling",
+            json!(10.0),
+            10,
+            |host| u64::from(host.providers["dsh"].ceiling.get()),
+        ),
+        (
+            "route ceiling",
+            "/providers/dsh/routes/r/ceiling",
+            json!(6e1),
+            60,
+            |host| u64::from(host.providers["dsh"].routes["r"].ceiling.get()),
+        ),
+        (
+            "boxed-build ceiling",
+            "/boxed_builds/ceiling",
+            json!(1.0),
+            1,
+            |host| u64::from(host.boxed_builds.ceiling.get()),
+        ),
+        (
+            "floor bytes",
+            "/floors/0/floor_bytes",
+            json!(1e0),
+            1,
+            |host| host.floors.0[0].floor_bytes.get(),
+        ),
+    ];
+    for (schema, contract) in [
+        ("forge.host/v1", "host.v1.schema.json"),
+        ("forge.host/v2", "host.v2.schema.json"),
+    ] {
+        let validator = contract_validator(contract);
+        for (name, pointer, value, expected, read) in &cases {
+            let host = set(capacity(schema), pointer, value.clone());
+            assert!(
+                validator.is_valid(&host),
+                "{schema} {name}: the schema refused integral notation"
+            );
+            let loaded = loaded(&host.to_string());
+            assert_eq!(read(&loaded), *expected, "{schema} {name}");
+        }
+    }
+}
+
+/// F3 (decision 0071 ruling 3): every closed host object is an object.
+/// serde's derived struct reader also reads a sequence positionally, which
+/// the contracts refuse; the loader must refuse it too. Every closed object
+/// in the file, the root and the nested cool-down records included, is
+/// reached.
+#[test]
+fn chief_struct_arrays_are_refused_by_reader_and_schema() {
+    let overrides = |providers: Value| {
+        set(
+            capacity("forge.host/v2"),
+            "/cooldowns",
+            json!({"default_seconds": 10, "max_seconds": 60, "providers": providers}),
+        )
+    };
+    let root = json!([
+        "forge.host/v2",
+        {
+            "dsh": {"ceiling": 1, "routes": {"r": {"ceiling": 1, "class": "cloud"}}},
+            "codex": {"ceiling": 1}
+        },
+        [{"place": "temp", "floor_bytes": 1}],
+        {"ceiling": 1}
+    ]);
+    let cases = [
+        ("root", "host.v2.schema.json", root),
+        (
+            "cooldowns",
+            "host.v2.schema.json",
+            set(capacity("forge.host/v2"), "/cooldowns", json!([10, 60])),
+        ),
+        (
+            "boxed builds",
+            "host.v2.schema.json",
+            set(capacity("forge.host/v2"), "/boxed_builds", json!([1])),
+        ),
+        (
+            "provider",
+            "host.v2.schema.json",
+            set(capacity("forge.host/v2"), "/providers/dsh", json!([1])),
+        ),
+        (
+            "route",
+            "host.v2.schema.json",
+            set(
+                capacity("forge.host/v2"),
+                "/providers/dsh/routes/r",
+                json!([1, "cloud"]),
+            ),
+        ),
+        (
+            "floor",
+            "host.v2.schema.json",
+            set(
+                capacity("forge.host/v2"),
+                "/floors/0",
+                json!([1, "/var/tmp"]),
+            ),
+        ),
+        (
+            "provider cool-down overrides",
+            "host.v2.schema.json",
+            set(
+                overrides(json!({"dsh": {"default_seconds": 20, "max_seconds": 30}})),
+                "/cooldowns/providers/dsh",
+                json!([20, 30]),
+            ),
+        ),
+        (
+            "route cool-down overrides",
+            "host.v2.schema.json",
+            set(
+                overrides(json!({"dsh": {"routes": {"r": {"max_seconds": 1}}}})),
+                "/cooldowns/providers/dsh/routes/r",
+                json!([20, 30]),
+            ),
+        ),
+    ];
+    for (name, contract, host) in cases {
+        assert!(
+            !contract_validator(contract).is_valid(&host),
+            "{name}: the schema admitted a positional array"
+        );
+        let Problem::Shape(error) = refused(&host.to_string()) else {
+            panic!("{name}: the loader did not refuse it as a shape");
+        };
+        assert!(
+            error.to_string().contains("expected a JSON object"),
+            "{name}: {error}"
+        );
+    }
 }
