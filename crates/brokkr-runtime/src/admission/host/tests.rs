@@ -146,15 +146,6 @@ fn the_contract_and_the_loader_admit_and_refuse_the_same_files() {
     assert_eq!(admitted.each_ref().map(judged), [(true, true); 6]);
     assert_eq!(refused.each_ref().map(judged), [(false, false); 27]);
 
-    // The v1 refusal of the second v2-only key, bound to its variant and
-    // words: the agreement table above reaches it too, but only checks
-    // that both sides refuse.
-    let text = with("/containment", json!("best-effort")).to_string();
-    assert_eq!(
-        config(text.as_bytes()).unwrap_err().to_string(),
-        "forge.host/v1 declares containment; only forge.host/v2 does"
-    );
-
     // JSON Schema cannot say a key is written once, nor that two floors
     // name one place or path, and its validator reads the last copy of a
     // key: there the loader is stricter than the contract can be.
@@ -169,6 +160,44 @@ fn the_contract_and_the_loader_admit_and_refuse_the_same_files() {
                       {"path": "/var/tmp", "floor_bytes": 2}])),
     ];
     assert_eq!(repeated.each_ref().map(judged), [(true, false); 2]);
+}
+
+/// Decision 0071 rulings 8 and 9: the v1 refusal of `containment` is bound
+/// to its typed cause before its words. A problem carrying the same text
+/// must fail this case, so the agreement table's `(false, false)` is not its
+/// proof.
+#[test]
+fn chief_v1_containment_refusal_keeps_typed_cause() {
+    let host = json!({
+        "schema": "forge.host/v1",
+        "providers": {},
+        "floors": [{"place": "temp", "floor_bytes": 1}],
+        "boxed_builds": {"ceiling": 1},
+        "containment": "best-effort",
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("host.json");
+    std::fs::write(&file, host.to_string()).unwrap();
+    let refused = read(&file).unwrap_err();
+    let HostError::Invalid { path, source } = &refused else {
+        panic!("a v1 containment was not an invalid host: {refused:?}");
+    };
+    assert_eq!(path, &file);
+    assert!(
+        matches!(source, Problem::NotV2("containment")),
+        "{source:?}"
+    );
+    assert_eq!(
+        refused.to_string(),
+        format!(
+            "the host configuration at {} is not a valid forge.host/v1 file",
+            file.display()
+        )
+    );
+    assert_eq!(
+        source.to_string(),
+        "forge.host/v1 declares containment; only forge.host/v2 does"
+    );
 }
 
 /// A minimal host configuration's text with `providers` written as given.
