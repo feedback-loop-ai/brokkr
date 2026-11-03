@@ -15,7 +15,7 @@ import { pollerOf } from '../lib/host/poller.js'
 import { fleetOf } from '../lib/host/readouts.js'
 import { accept } from '../lib/host/socket.js'
 import * as socket from '../lib/host/socket.js'
-import { guardTransport, PeerRegistered, WORLD_DATA_TYPES, WorldDataRefused } from '../lib/host/transport.js'
+import { guardTransport, PeerRegistered, publisherFor, WORLD_DATA_TYPES, WorldDataRefused } from '../lib/host/transport.js'
 import { fleetAt } from './support/poller.js'
 import { stubBrokkr, WS_KEY } from './support/world.js'
 
@@ -55,7 +55,7 @@ function registered() {
   const accepted = accept({ headers: { upgrade: 'websocket', 'sec-websocket-key': WS_KEY } }, socket, Buffer.alloc(0), (message) => receive(message))
   receive = poller.attach(accepted.peer, accepted.takeWriter)
   const frames = () => written.filter((bytes) => Buffer.isBuffer(bytes)).map(frameText)
-  return { peer: accepted.peer, poller, frames, reads }
+  return { peer: accepted.peer, poller, takeWriter: accepted.takeWriter, frames, reads }
 }
 
 /** Assert `run` refuses with the named variant and `type`, and that nothing was read. */
@@ -146,10 +146,38 @@ test('registering a peer twice refuses and grants nothing', () => {
   assert.throws(() => poller.attach(peer), (error) => {
     assert.ok(error instanceof PeerRegistered)
     assert.equal(error.name, 'PeerRegistered')
+    assert.equal(error.message, 'a peer may be registered with the poller only once')
     return true
   })
   assert.deepEqual(frames(), [])
   assert.deepEqual(reads, [])
+})
+
+test('L2: the raw writer refuses a second take with its complete text', () => {
+  const { takeWriter, frames, reads } = registered()
+  assert.throws(() => takeWriter(), (error) => {
+    assert.equal(error.name, 'Error')
+    assert.equal(error.message, 'the raw writer has already been taken')
+    return error instanceof Error
+  })
+  assert.deepEqual(frames(), [])
+  assert.deepEqual(reads, [])
+})
+
+test('L3: guardTransport refuses a peer without a writer with its complete text', () => {
+  assert.throws(() => guardTransport({}), (error) => {
+    assert.equal(error.name, 'Error')
+    assert.equal(error.message, 'a peer needs a writer to guard')
+    return error instanceof Error
+  })
+})
+
+test('L3: publisherFor refuses a peer without a writer with its complete text', () => {
+  assert.throws(() => publisherFor({}), (error) => {
+    assert.equal(error.name, 'Error')
+    assert.equal(error.message, 'publish needs a peer’s writer')
+    return error instanceof Error
+  })
 })
 
 test('the raw writer is named only by socket.js, which exports no writer', () => {

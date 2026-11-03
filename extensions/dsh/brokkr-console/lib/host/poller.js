@@ -748,13 +748,13 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
       const seen = {}
       const fleetRead = await readFleet(seen)
       if (fleetRead.dropped) return
-      const { patched, updates, withheld, targets = [] } = await pushRuns(before, seen)
+      const { patched, updates, withheld } = await pushRuns(before, seen)
       // A withheld poll paints nothing: its fleet, its rows, the overview and
       // the snapshot's workspace and ask are repaid whole by the next
       // successful gate (R-2, M2).
       if (withheld) return
       const fleetMoved = fleetRead.changed || patched
-      for (const client of clients) if (fleetMoved || client.owed) sendFleet(seen, client, targets)
+      for (const client of clients) if (fleetMoved || client.owed) sendFleet(seen, client)
       for (const [watchers, run, target, source] of updates) sendRun(seen, watchers, run, target, source)
       await publishOverview(seen, fleetRead.changed)
     } catch (error) {
