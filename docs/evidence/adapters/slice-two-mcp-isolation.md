@@ -1,10 +1,10 @@
 # Slice two, U0: MCP isolation and call telemetry
 
-Decision 0065 slice two, unit U0 ([design D2](../../../openspec/changes/decision-0065-capabilities-slice-two/design.md#d2-u0-is-an-experiment-with-an-explicit-decision-rule),
+Decision 0065 slice two, unit U0 ([design D2](../../../openspec/changes/archive/2026-11-03-decision-0065-capabilities-slice-two/design.md#d2-u0-is-an-experiment-with-an-explicit-decision-rule),
 tasks 1.1 and 1.2). This is a measurement record. It changes no production
-default, adapter or test. Requirements: [SI1](../../../openspec/changes/decision-0065-capabilities-slice-two/specs/strict-mcp-isolation/spec.md),
-[MB2](../../../openspec/changes/decision-0065-capabilities-slice-two/specs/mcp-capability-broker/spec.md),
-[SD1](../../../openspec/changes/decision-0065-capabilities-slice-two/specs/slice-two-delivery/spec.md).
+default, adapter or test. Requirements: [SI1](../../../openspec/changes/archive/2026-11-03-decision-0065-capabilities-slice-two/specs/strict-mcp-isolation/spec.md),
+[MB2](../../../openspec/changes/archive/2026-11-03-decision-0065-capabilities-slice-two/specs/mcp-capability-broker/spec.md),
+[SD1](../../../openspec/changes/archive/2026-11-03-decision-0065-capabilities-slice-two/specs/slice-two-delivery/spec.md).
 The machine-readable record of every cell is
 [slice-two-mcp-observations.json](slice-two-mcp-observations.json).
 
@@ -1127,7 +1127,7 @@ nothing in it, and U0's C10 never saw this only because its store sat outside
 the tree. On the operator's ruling the store was hidden in every workspace box
 before U9b1 by a new unit, U8h, which took six runs and merged as b8e2caff
 (#875). Its rulings are recorded in
-[design.md's U8h section](../../../openspec/changes/decision-0065-capabilities-slice-two/design.md#u8h--hide-the-secrets-store-in-every-workspace-box).
+[design.md's U8h section](../../../openspec/changes/archive/2026-11-03-decision-0065-capabilities-slice-two/design.md#u8h--hide-the-secrets-store-in-every-workspace-box).
 
 After U8h:
 

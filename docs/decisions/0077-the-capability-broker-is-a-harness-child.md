@@ -13,7 +13,7 @@ beside the hands server". The operator's R1 of 2026-10-03 requires an explicit
 amendment: the intended authority stands, but that launch ownership does not
 describe the implementation we must extend.
 
-The [operator ruling dated 2026-10-05](../../openspec/changes/decision-0065-capabilities-slice-two/operator-ruling-2026-10-03.md#addendum-2026-10-05-each-mcp-server-runs-in-its-own-box) supplies the amendment: each MCP server runs in its own box.
+The [operator ruling dated 2026-10-05](../../openspec/changes/archive/2026-11-03-decision-0065-capabilities-slice-two/operator-ruling-2026-10-03.md#addendum-2026-10-05-each-mcp-server-runs-in-its-own-box) supplies the amendment: each MCP server runs in its own box.
 
 In the checked source, crates/brokkr-runtime/src/engine.rs:4434–4440 documents the
 harness-spawned hands child. crates/brokkr-protocol/src/hands.rs:1119–1142
@@ -23,16 +23,16 @@ transport's hands. Adding an independently launched engine child would need
 a different transport and supervision arrangement. An engine-authored second
 configuration entry alone would still fail the existing final check.
 
-The [operator record](../../openspec/changes/decision-0065-capabilities-slice-two/operator-ruling-2026-10-03.md)
+The [operator record](../../openspec/changes/archive/2026-11-03-decision-0065-capabilities-slice-two/operator-ruling-2026-10-03.md)
 governs the proposed slice; only the operator accepts this decision. Exact
 admission, refusal and evidence obligations live in the linked change.
-[Reservation and review provenance](../../openspec/changes/decision-0065-capabilities-slice-two/evidence.md#reservation-evidence)
+[Reservation and review provenance](../../openspec/changes/archive/2026-11-03-decision-0065-capabilities-slice-two/evidence.md#reservation-evidence)
 remain in its durable evidence record; concurrent number claims must be
 rechecked before implementation.
 
 The unbuilt marker links open [#467](https://github.com/feedback-loop-ai/brokkr/issues/467),
 the strict MCP prerequisite. The complete work is in
-[the slice-two tasks](../../openspec/changes/decision-0065-capabilities-slice-two/tasks.md).
+[the slice-two tasks](../../openspec/changes/archive/2026-11-03-decision-0065-capabilities-slice-two/tasks.md).
 No runtime protection or decision acceptance is claimed by these documents.
 
 ## Rulings
