@@ -94,13 +94,15 @@ pub(super) fn invoke_dsh_launch_observed(
     // error naming neither (decision 0054 ruling 5).
     let attempt = if launch.stream_json {
         invoke_dsh_stream_json(
-            &command,
-            &launch,
-            bindings,
-            probe,
-            &mut watch,
-            &mut hold,
-            &mut session_meta,
+            DshStreamCall {
+                command: &command,
+                launch: &launch,
+                bindings,
+                probe,
+                watch: &mut watch,
+                hold: &mut hold,
+                session_meta: &mut session_meta,
+            },
             emit,
             observer,
             wait,
@@ -299,6 +301,20 @@ impl DshStreamState<'_> {
     }
 }
 
+/// One qualified stream-json invocation's inputs: the command it spawns,
+/// the launch and bindings it serves, and the mutable state its passes fold
+/// into. A parameter object, so the route takes one bundle rather than ten
+/// positional arguments (decision 0071 rulings 4 and 10).
+struct DshStreamCall<'a> {
+    command: &'a [String],
+    launch: &'a DshLaunch,
+    bindings: &'a [secret::BoundSecret],
+    probe: &'a mut ProbeAnswer,
+    watch: &'a mut DshRootWatch,
+    hold: &'a mut LaunchHold,
+    session_meta: &'a mut Map<String, Value>,
+}
+
 /// The qualified `--output-format stream-json` exchange (task 8.8(d)):
 /// stdout is the pinned plugin's two-event envelope, whose
 /// post-`await agents.resume` init event is the ONLY root confirmation this
@@ -310,19 +326,21 @@ impl DshStreamState<'_> {
 /// pass — a decoded line, noise, silence or EOF — so a probe reports its
 /// answer at the answer rather than at stdout's end (fix round 430s4a3 M2;
 /// decision 0103 ruling 4(a)).
-#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 fn invoke_dsh_stream_json(
-    command: &[String],
-    launch: &DshLaunch,
-    bindings: &[secret::BoundSecret],
-    probe: &mut ProbeAnswer,
-    watch: &mut DshRootWatch,
-    hold: &mut LaunchHold,
-    session_meta: &mut Map<String, Value>,
+    call: DshStreamCall<'_>,
     emit: &mut impl FnMut(&Value),
     observer: &mut impl FnMut(&DshObservation),
     mut wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
 ) -> Result<DshRun, String> {
+    let DshStreamCall {
+        command,
+        launch,
+        bindings,
+        probe,
+        watch,
+        hold,
+        session_meta,
+    } = call;
     let (mut child, stderr_thread) =
         spawn_dsh(command, &launch.workdir, Stdio::piped(), launch, bindings)?;
     let stdout = child.stdout.take().expect("piped");

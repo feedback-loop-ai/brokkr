@@ -243,10 +243,12 @@ fn the_refusal_reader_refuses_every_malformed_field_by_name() {
 #[test]
 fn a_present_false_probe_marker_is_refused() {
     let refused = serde_json::from_str::<Probe>("false").expect_err("false is not the marker");
-    assert!(
-        refused
-            .to_string()
-            .contains("the probe marker is present but not true"),
-        "{refused}"
+    // The serde error is a data error at this edge, and its complete
+    // diagnostic is pinned: a different message or category is a different
+    // contract (#430 M1; decision 0071 rulings 8 and 9).
+    assert_eq!(refused.classify(), serde_json::error::Category::Data);
+    assert_eq!(
+        refused.to_string(),
+        "the probe marker is present but not true"
     );
 }

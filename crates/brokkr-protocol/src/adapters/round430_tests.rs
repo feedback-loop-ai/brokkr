@@ -147,12 +147,21 @@ fn a_rejected_rejoins_cold_replacement_that_cannot_spawn_fails_the_invocation() 
         Err(error) => error,
     };
     assert!(
-        refused.starts_with("could not invoke the agent CLI:"),
-        "the replacement's own spawn error is returned: {refused}"
-    );
-    assert!(
         !shim.exists(),
         "the rejected rejoin ran and took its executable with it"
+    );
+    // The replacement fails at spawn because that path is gone. The same
+    // missing path yields the OS's own typed error here, so the expected
+    // text is the boundary's context plus that error's Display, never a
+    // prefix that could hide a different cause (#430 M1; decision 0071
+    // rulings 8 and 9).
+    let missing = std::process::Command::new(&shim)
+        .spawn()
+        .expect_err("the replacement's path is gone");
+    assert_eq!(missing.kind(), std::io::ErrorKind::NotFound);
+    assert_eq!(
+        refused,
+        format!("could not invoke the agent CLI: {missing}")
     );
 }
 
@@ -188,6 +197,9 @@ fn a_qualified_seat_whose_child_cannot_be_waited_on_concludes_instead_of_spinnin
         Ok(_) => panic!("a child that cannot be waited on is not a success"),
         Err(error) => error,
     };
-    assert!(refused.contains("agent CLI did not conclude"), "{refused}");
-    assert!(refused.contains("no child processes"), "{refused}");
+    // The seam's typed `io::Error` is retained and the ONE text boundary
+    // prints its Display verbatim: pin the whole refusal, not fragments
+    // that a different cause or context could share (#430 M1; decision
+    // 0071 rulings 8 and 9).
+    assert_eq!(refused, "agent CLI did not conclude: no child processes");
 }
