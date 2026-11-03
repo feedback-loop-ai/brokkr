@@ -14,8 +14,8 @@ function opened() {
   socket.write = (bytes) => written.push(['write', Buffer.from(bytes)])
   socket.end = (bytes) => written.push(['end', Buffer.from(bytes ?? '')])
   const heard = []
-  const peer = accept({ headers: { upgrade: 'websocket', 'sec-websocket-key': KEY } }, socket, Buffer.alloc(0), (message) => heard.push(message))
-  return { socket, peer, written, heard }
+  const { peer, takeWriter } = accept({ headers: { upgrade: 'websocket', 'sec-websocket-key': KEY } }, socket, Buffer.alloc(0), (message) => heard.push(message))
+  return { socket, peer, takeWriter, written, heard }
 }
 
 const closedWith = (written) => written.some(([kind, bytes]) => kind === 'end' && (bytes[0] & 0x0f) === 0x8)

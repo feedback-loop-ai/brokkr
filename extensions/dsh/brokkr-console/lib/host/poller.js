@@ -1,22 +1,18 @@
-// Live refresh (design D5). While a client is connected, the host reads the
-// fleet every few seconds. Every open run is re-read by `inspect` on every
-// poll, and so is every running run the latest first page shows, whether a
-// retained page holds it or not: a page never says a run was dropped. A run's
-// row is read whole from Brokkr's one derivation (`runs --run`), never
-// derived here, and it is fenced by the journal it was read from: a result
-// from a journal the realm no longer names paints nothing. The fleet is
-// pushed whole when it changed: it is one readout over every hearth, and the
-// panel-list count on every page reads every hearth. The overview's own
-// readouts (the queue, Muninn's record and the last day's figures) go only to
-// a client on the Realms view. A client that connects or changes what it
-// watches gets a full snapshot. Nothing here touches a run: closing the panel
-// only stops reading.
+// Live refresh (design D5). While a client is connected, the host reads the fleet every few seconds. Every
+// open run is re-read by `inspect` on every poll, and so is every running run the latest first page shows,
+// whether a retained page holds it or not: a page never says a run was dropped. A run's row is read whole
+// from Brokkr's one derivation (`runs --run`), never derived here, and it is fenced by the journal it was
+// read from: a result from a journal the realm no longer names paints nothing. The fleet is pushed whole
+// when it changed: it is one readout over every hearth, and the panel-list count on every page reads every
+// hearth. The overview's own readouts (the queue, Muninn's record and the last day's figures) go only to a
+// client on the Realms view. A client that connects or changes what it watches gets a full snapshot. Nothing
+// here touches a run: closing the panel only stops reading.
 import { realpath } from 'node:fs/promises'
 import { isAbsolute, resolve } from 'node:path'
 
 import { noMapWorld } from './here.js'
 import { ONE_HEARTH, isHearthLabel, namesOfHearth, ReadoutRefused } from './readouts.js'
-import { guardTransport } from './transport.js'
+import { PeerRegistered, publisherFor } from './transport.js'
 
 const VIEWS = ['none', 'realms', 'realm', 'analytics']
 
@@ -35,8 +31,9 @@ const report = (error) => console.error('[brokkr-console]', error)
 /** A fenced row read's marker: the row is not merely "not due", it may not publish. */
 const DROPPED = Symbol('dropped')
 
-/** Each client's publish path, private to `publish`; the peer itself carries only the guard. */
+/** Each client's publish path, private to `publish`; `registered` holds attached peers, so a second registration refuses. */
 const publishSendOf = new WeakMap()
+const registered = new WeakSet()
 
 /** Each listed run's head, by realm and run id, from the fleet a poll is about to replace. */
 function headsOf(fleet) {
@@ -768,9 +765,12 @@ export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
     }
   }
 
-  function attach(peer) {
+  function attach(peer, takeWriter = peer.takeWriter) {
+    if (registered.has(peer)) throw new PeerRegistered()
+    registered.add(peer)
+    const write = takeWriter()
     const client = { peer, watch: { view: 'none', run: null, realm: null }, runText: new Map(), owed: false, owedSnapshot: false }
-    publishSendOf.set(client, guardTransport(peer))
+    publishSendOf.set(client, publisherFor(peer, write))
     clients.add(client)
     peer.onClose = () => {
       clients.delete(client)

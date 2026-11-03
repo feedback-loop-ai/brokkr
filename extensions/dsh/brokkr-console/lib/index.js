@@ -161,8 +161,8 @@ export function apply(ctx) {
   }
   const upgrade = fencedUpgrade(ctx.connection, (req, socket, head) => {
     let receive = () => {}
-    const peer = accept(req, socket, head, (message) => receive(message))
-    if (peer !== null) receive = poller.attach(peer)
+    const accepted = accept(req, socket, head, (message) => receive(message))
+    if (accepted !== null) receive = poller.attach(accepted.peer, accepted.takeWriter)
   })
   ctx.effect(() => ctx.webServer.registerUpgrade({ path: `${BASE}/ws`, handler: upgrade }), `${name}: UPGRADE ${BASE}/ws`)
   // A conversation is told what its Brokkr tab shows before its next turn, never in its message box.

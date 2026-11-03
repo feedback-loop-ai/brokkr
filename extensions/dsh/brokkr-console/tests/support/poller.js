@@ -25,10 +25,17 @@ async function settle(client) {
   return client
 }
 
-/** A connected peer whose every host message is recorded. */
+/** A connected peer whose every host message is recorded as one framed text would be. */
 export function peer() {
   const sent = []
-  return { sent, send: (message) => sent.push(message), onClose: () => {} }
+  let writer = (text) => sent.push(JSON.parse(text))
+  const takeWriter = () => {
+    if (writer === null) throw new Error('the raw writer has already been taken')
+    const write = writer
+    writer = null
+    return write
+  }
+  return { sent, send: (message) => sent.push(message), onClose: () => {}, takeWriter }
 }
 
 /** Attach a client watching `watch` to `poller`, wait for its first message, and hand it back with its inbound channel. */

@@ -3,7 +3,6 @@
 // below, so no spelling of a send outside `publish` can carry a fleet, snapshot,
 // run, overview, workspace or ask. A refused send throws by name; it is never
 // dropped quietly, so the attempt fails closed (M1).
-import { sendText } from './socket.js'
 
 /**
  * Every message type that carries world-derived data. This is the one list:
@@ -20,6 +19,14 @@ export class WorldDataRefused extends Error {
       : `a “${type}” message carries world data and may only be sent by publish`)
     this.name = 'WorldDataRefused'
     this.type = type ?? null
+  }
+}
+
+/** A peer registered with the poller a second time: the registration grants nothing. */
+export class PeerRegistered extends Error {
+  constructor() {
+    super('a peer may be registered with the poller only once')
+    this.name = 'PeerRegistered'
   }
 }
 
@@ -61,24 +68,48 @@ function liveTypeOf(message) {
   }
 }
 
+/** Each peer's guarded facade, so a later guard returns the same one and wraps no other sender. */
+const facades = new WeakMap()
+
 /**
- * Replace `peer.send` with the facade the rest of lib/ sees and hand back the
- * one path `publish` uses. Both serialize `message` once, judge the `type` of
- * that serialized string, and write exactly those bytes: the facade refuses a
- * world-data type, the publish path permits it because publish minted it. A
- * live `type` that differs from the serialized one refuses too, so a getter
- * cannot show the check and the wire different answers.
+ * Serialize `message` once, judge the `type` of that serialized string, and
+ * write exactly those bytes through `write`: an unminted world-data type
+ * refuses, the minted path permits it because `publish` minted it. A live
+ * `type` that differs from the serialized one refuses too, so a getter cannot
+ * show the check and the wire different answers.
  */
-export function guardTransport(peer) {
-  const record = peer.send.bind(peer)
-  const write = (message, minted) => {
-    const wire = wireOf(message)
-    if (!minted && carriesWorldData(wire.value)) throw new WorldDataRefused(wire.value.type)
-    const live = liveTypeOf(message)
-    if (live !== wire.value.type) throw new WorldDataRefused(WORLD_DATA_TYPES.includes(live) ? live : undefined)
-    // Only a test's recording peer lacks the socket's text sink; it records the object itself.
-    if (!sendText(peer, wire.text)) record(message)
-  }
-  peer.send = (message) => write(message, false)
-  return (message) => write(message, true)
+function judged(write, message, minted) {
+  const wire = wireOf(message)
+  if (!minted && carriesWorldData(wire.value)) throw new WorldDataRefused(wire.value.type)
+  const live = liveTypeOf(message)
+  if (live !== wire.value.type) throw new WorldDataRefused(WORLD_DATA_TYPES.includes(live) ? live : undefined)
+  write(wire.text)
+}
+
+/**
+ * Replace `peer.send` with the facade the rest of lib/ sees and return it.
+ * `write` is the raw writer, handed over once by the poller's registration;
+ * only the first guard uses it. A later guard of the same peer returns that
+ * same facade, so re-guarding never grants a sender that bypasses the judgment.
+ */
+export function guardTransport(peer, write) {
+  const held = facades.get(peer)
+  if (held !== undefined) return held
+  const record = typeof peer.send === 'function' ? peer.send.bind(peer) : null
+  const sink = typeof write === 'function' ? write : record
+  if (sink === null) throw new Error('a peer needs a writer to guard')
+  const send = (message) => judged(sink, message, false)
+  peer.send = send
+  facades.set(peer, send)
+  return send
+}
+
+/**
+ * Install the facade on `peer` and return the one publish sender, built from
+ * the raw writer at registration; only `publish` holds it.
+ */
+export function publisherFor(peer, write) {
+  if (typeof write !== 'function') throw new Error('publish needs a peer’s writer')
+  guardTransport(peer, write)
+  return (message) => judged(write, message, true)
 }
