@@ -68,18 +68,19 @@ fn settle_live_end(db: &Path, run: &str, tui: &mut Tui, now: &str) -> Views {
     views
 }
 
-/// The participant level's absolute-end key resolved: the real `G`, the
-/// read it asks, and the rank the read answers at `now`.
+/// The participant level's absolute-end key resolved from `start`, the
+/// level's first page: the real `G`, the read it asks, and the rank the
+/// read answers at `now`.
 fn settle_participant_end(
     db: &Path,
     run: &str,
     subject: &Subject,
     tui: &mut Tui,
+    start: &Views,
     now: &str,
 ) -> Views {
     use crate::tui::{bottom_key, settle_end};
-    let views = participant_page(db, run, subject, tui);
-    bottom_key(tui, &views);
+    bottom_key(tui, start);
     let mut views = participant_page(db, run, subject, tui);
     views.now = now.to_string();
     settle_end(tui, &views);
@@ -614,11 +615,13 @@ fn the_participant_s_end_keeps_today_s_narrowed_display_rank() {
     let (mut tui, subject) = participant_console(run, whole);
     let (mut today, _) = participant_console(run, whole);
     today.offset = u16::MAX as usize;
+    let start = participant_page(db, run, &subject, &tui);
     let views = settle_participant_end(
         db,
         run,
         &subject,
         &mut tui,
+        &start,
         &events.last().unwrap().recorded_at,
     );
     assert_eq!(tui.offset, 65_599, "the stream's logical end");
@@ -793,7 +796,8 @@ fn the_participant_s_end_fills_a_tall_frame() {
     for (height, last) in [(80, "65568"), (100, "65578")] {
         let (mut tui, subject) = participant_console(run, whole);
         tui.height = height;
-        let views = settle_participant_end(db, run, &subject, &mut tui, &now);
+        let start = participant_page(db, run, &subject, &tui);
+        let views = settle_participant_end(db, run, &subject, &mut tui, &start, &now);
         let (mut today, _) = participant_console(run, whole);
         (today.width, today.height) = (80, height);
         today.offset = u16::MAX as usize;
@@ -989,7 +993,8 @@ fn chief_large_end_keeps_logical_movement_for_display() {
     let (run, db, events, whole) = (far.run, &far.db, &far.events, &far.whole);
     let now = events.last().unwrap().recorded_at.clone();
     let (mut tui, subject) = participant_console(run, whole);
-    let views = settle_participant_end(db, run, &subject, &mut tui, &now);
+    let start = participant_page(db, run, &subject, &tui);
+    let views = settle_participant_end(db, run, &subject, &mut tui, &start, &now);
     assert_eq!(tui.offset, 65_599, "the stream's logical end");
     assert_eq!(
         checkpoint_offset(&tui),
@@ -1016,11 +1021,11 @@ fn chief_large_end_keeps_logical_movement_for_display() {
             .any(|line| line.contains("│65536  turn")),
         "the display still starts at turn 65,536"
     );
-    let (mut paged_tui, page_subject) = participant_console(run, whole);
-    let views = settle_participant_end(db, run, &page_subject, &mut paged_tui, &now);
+    let (mut paged_tui, _) = participant_console(run, whole);
+    let views = settle_participant_end(db, run, &subject, &mut paged_tui, &start, &now);
     page_key(&mut paged_tui, &views, false);
     assert_eq!(paged_tui.offset, 65_589, "PageUp keeps the logical rank");
-    let mut views = participant_page(db, run, &page_subject, &paged_tui);
+    let mut views = participant_page(db, run, &subject, &paged_tui);
     views.now = now.clone();
     settle_end(&mut paged_tui, &views);
     let (mut page_today, _) = participant_console(run, whole);
@@ -1210,7 +1215,8 @@ fn gate_review_large_logical_end_is_independent_of_display_page() {
     let (run, db, events, whole) = (far.run, &far.db, &far.events, &far.whole);
     let now = events.last().unwrap().recorded_at.clone();
     let (mut down_tui, down_subject) = participant_console(run, whole);
-    let views = settle_participant_end(db, run, &down_subject, &mut down_tui, &now);
+    let start = participant_page(db, run, &down_subject, &down_tui);
+    let views = settle_participant_end(db, run, &down_subject, &mut down_tui, &start, &now);
     assert_eq!(down_tui.offset, 65_999, "G's logical end");
     assert_eq!(
         (views.start, views.more, views.end),
@@ -1220,7 +1226,7 @@ fn gate_review_large_logical_end_is_independent_of_display_page() {
     down_key(&mut down_tui, &views);
     assert_eq!(down_tui.offset, 0, "Down wraps at the stream's end");
     let (mut tui, subject) = participant_console(run, whole);
-    let views = settle_participant_end(db, run, &subject, &mut tui, &now);
+    let views = settle_participant_end(db, run, &subject, &mut tui, &start, &now);
     assert_eq!(
         checkpoint_offset(&tui),
         u16::MAX as usize,
