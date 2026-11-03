@@ -10,6 +10,17 @@ const MESSAGE_BOUND_BYTES = 64 * 1024
 
 const OP = { text: 0x1, close: 0x8, ping: 0x9, pong: 0xa }
 
+/** Each accepted peer's framed text writer, so the transport can send judged bytes without serializing again. */
+const textSends = new WeakMap()
+
+/** Send already-serialized `text` as one text frame on `peer`; `false` for a peer this module did not accept. */
+export function sendText(peer, text) {
+  const write = textSends.get(peer)
+  if (write === undefined) return false
+  write(text)
+  return true
+}
+
 /** One unmasked server frame. */
 function frame(opcode, payload) {
   const length = payload.length
@@ -78,17 +89,19 @@ export function accept(req, socket, head, onMessage) {
   socket.write(
     ['HTTP/1.1 101 Switching Protocols', 'Upgrade: websocket', 'Connection: Upgrade', `Sec-WebSocket-Accept: ${acceptKey}`, '', ''].join('\r\n'),
   )
+  const writeText = (text) => {
+    if (peer.open) socket.write(frame(OP.text, Buffer.from(text)))
+  }
   const peer = {
     open: true,
-    send(message) {
-      if (peer.open) socket.write(frame(OP.text, Buffer.from(JSON.stringify(message))))
-    },
+    send: (message) => writeText(JSON.stringify(message)),
     close() {
       if (peer.open) socket.end(frame(OP.close, Buffer.alloc(0)))
       peer.open = false
     },
     onClose: () => {},
   }
+  textSends.set(peer, writeText)
   let pending = Buffer.from(head ?? Buffer.alloc(0))
   socket.on('data', (chunk) => {
     // Once closed, nothing more is read or held.
