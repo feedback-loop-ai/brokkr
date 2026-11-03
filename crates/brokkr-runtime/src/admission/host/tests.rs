@@ -175,10 +175,8 @@ fn chief_v1_containment_refusal_keeps_typed_cause() {
         "boxed_builds": {"ceiling": 1},
         "containment": "best-effort",
     });
-    let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("host.json");
-    std::fs::write(&file, host.to_string()).unwrap();
-    let refused = read(&file).unwrap_err();
+    let (_dir, file, read) = host_read(&host.to_string());
+    let refused = read.unwrap_err();
     let HostError::Invalid { path, source } = &refused else {
         panic!("a v1 containment was not an invalid host: {refused:?}");
     };
@@ -267,12 +265,19 @@ fn loaded(text: &str) -> HostConfig {
     config(text.as_bytes()).unwrap_or_else(|problem| panic!("{text} was refused: {problem}"))
 }
 
-/// A host file written with `text` and read through the loader's path.
-fn file_loaded(text: &str) -> HostConfig {
+/// A host file written with `text` in a directory of its own, read
+/// through the loader's path: the directory, the file, and what was read.
+fn host_read(text: &str) -> (tempfile::TempDir, PathBuf, Result<Hosting, HostError>) {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("host.json");
     std::fs::write(&file, text).unwrap();
-    match read(&file).unwrap() {
+    let read = read(&file);
+    (dir, file, read)
+}
+
+/// A host file written with `text` and read through the loader's path.
+fn file_loaded(text: &str) -> HostConfig {
+    match host_read(text).2.unwrap() {
         Hosting::Declared(host) => host,
         other => panic!("a host file did not load: {other:?}"),
     }
@@ -562,16 +567,13 @@ fn chief_null_declarations_are_refused_by_reader_and_schema() {
             with_providers(json!({"dsh": {"routes": {"r": {"max_seconds": null}}}})),
         ),
     ];
-    let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("host.json");
     let mut admitted = Vec::new();
     for (name, contract_name, host) in cases {
         assert!(
             !valid(&contract(contract_name), &host),
             "{name}: the schema admitted a present null"
         );
-        std::fs::write(&file, host.to_string()).unwrap();
-        match read(&file) {
+        match host_read(&host.to_string()).2 {
             Err(HostError::Invalid {
                 source: Problem::Shape(_),
                 ..
@@ -592,10 +594,8 @@ fn chief_null_declarations_are_refused_by_reader_and_schema() {
 #[test]
 fn chief_v2_refusal_uses_a_correct_version_label() {
     let text = cooled(r#"{"default_seconds":10,"max_seconds":7201}"#);
-    let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("host.json");
-    std::fs::write(&file, text).unwrap();
-    let error = read(&file).unwrap_err();
+    let (_dir, file, read) = host_read(&text);
+    let error = read.unwrap_err();
     assert_eq!(
         error.to_string(),
         format!(
