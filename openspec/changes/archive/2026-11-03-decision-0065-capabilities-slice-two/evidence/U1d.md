@@ -19,8 +19,8 @@ set `mcp` to `"unsupported"` because neither shape was measured.
 ## What is declared
 
 Each fact comes from a U0 cell in
-[slice-two-mcp-isolation.md](../../../../docs/evidence/adapters/slice-two-mcp-isolation.md)
-and [its observations](../../../../docs/evidence/adapters/slice-two-mcp-observations.json),
+[slice-two-mcp-isolation.md](../../../../../docs/evidence/adapters/slice-two-mcp-isolation.md)
+and [its observations](../../../../../docs/evidence/adapters/slice-two-mcp-observations.json),
 read cell by cell rather than from a summary. Every shape names the harness
 and binary it was measured under, which are the adapter's own (SI1), with
 host `linux` and the version U0 measured. Every evidence or reason line

@@ -13,7 +13,7 @@ Starting HEAD: `19bca5ff` (U4b, #547); tracked worktree initially clean.
 ## Scope and artifact order
 
 The current seat is specify. Read the rendered instructions and
-[dialect definition](../../../../dialects/openspec.json) through workspace
+[dialect definition](../../../../../dialects/openspec.json) through workspace
 hands: specify owns proposal then capability deltas; council owns design,
 the tasks seat owns tasks, and analysis judges their coherence. Adopted the
 existing change and wrote the proposal first, then its affected deltas.

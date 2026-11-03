@@ -15,7 +15,7 @@ dsh replaces the bare `"unsupported"` with the typed `carriage` and
 `shapes` form U1b's loader decodes. Exec replaces it with the
 `inapplicable` form, which the loader admits for the exec harness alone.
 Every dsh line cites its U0 or U0c cell in
-[slice-two-mcp-isolation.md](../../../../docs/evidence/adapters/slice-two-mcp-isolation.md).
+[slice-two-mcp-isolation.md](../../../../../docs/evidence/adapters/slice-two-mcp-isolation.md).
 
 | Adapter | Item | Declared | Cells |
 | --- | --- | --- | --- |

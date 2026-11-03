@@ -243,7 +243,7 @@ box of its own (decision 0077; `crates/brokkr-cli/src/broker.rs`,
 `crates/brokkr-runtime/src/engine/broker.rs`,
 `crates/brokkr-protocol/src/hands/namespace.rs`). Everything below is
 what the merged code does and what the slice's evidence under
-`openspec/changes/decision-0065-capabilities-slice-two/evidence/`
+`openspec/changes/archive/2026-11-03-decision-0065-capabilities-slice-two/evidence/`
 measured; what was not measured is said so.
 
 **Where a grant can be held.** The compile fence is lifted on Linux

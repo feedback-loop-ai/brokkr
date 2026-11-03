@@ -455,9 +455,9 @@ remote CI are also pending.
 Unit U0 ran D2's matrix on one Linux host from 2026-10-03 11:50Z to
 2026-10-04 00:20Z against claude 2.1.287, the LaneTally wrapper, codex-cli
 0.160.0 and dsh 0.1.5-rc.1. The durable record is
-[slice-two-mcp-isolation.md](../../../docs/evidence/adapters/slice-two-mcp-isolation.md)
+[slice-two-mcp-isolation.md](../../../../docs/evidence/adapters/slice-two-mcp-isolation.md)
 with per-cell data in
-[slice-two-mcp-observations.json](../../../docs/evidence/adapters/slice-two-mcp-observations.json).
+[slice-two-mcp-observations.json](../../../../docs/evidence/adapters/slice-two-mcp-observations.json).
 Verdicts were read from sentinel lifecycle logs and harness-reported tool
 listings, never from model text.
 

@@ -1429,7 +1429,7 @@ witness/compose pins accompany only rows that change their inputs.
 | U10a | U9b2, U8m, U1d7 | Audit removals; its tasks close with U10a2 (R7) | `adapters/codex.json`; `crates/brokkr-runtime/tests/witnesses.json`; `docs/evidence/adapters/slice-two-mcp-isolation.md`; `docs/evidence/adapters/slice-two-mcp-observations.json` |
 | U10a2 | U10a | Repair the audit's missing proofs; 8.1–8.2; its other tasks close with U10a3 and U10b (R8) | `crates/brokkr-cli/tests/capability_broker/enabled/` (new child modules); `crates/brokkr-cli/tests/init_doctor.rs`; `crates/brokkr-cli/tests/init_stacks.rs`; the pin fold's test modules (R8); `quality/file-lines.txt` |
 | U10a3 | U10a2 | Build row 25 and close the audit's proofs; 48.1–48.2 | `crates/brokkr-cli/tests/capability_broker/enabled/` (a new child module) |
-| U10b | U10a3 | Record the final results and fold the change; 49.1–49.3 | None |
+| U10b | U10a3 | Record the final results, close the six owners' tasks (R9) and fold the change; 49.1–49.3 | None |
 
 ### U0 — Measure isolation and telemetry
 
@@ -2662,9 +2662,11 @@ is permitted; final-head evidence must cover the resulting candidate.
 
 Controller ruling R8 2026-11-02: before folding, U10b records 49.1–49.2's external results for U10a3's head from the controller's record of its PR checks and merge-queue run (the sharded engine and coverage machines, the coverage report, macOS, the other CI jobs, signed delivery, H5), with any privileged host evidence F3 names, each missing result kept pending and never inferred, and ticks 49.1–49.2 on what it observes.
 
+Operator ruling R9 2026-11-03 (the operator, in chat, "go with recommended", on U10b's run 1, evidence/U10b.md, option (1)): the six tasks open on their owners' records close before the fold. C64's SD4 samples (evidence/U10a.md, "C64: SD4 samples": the release build's cold and warm admission on Linux x86_64 and aarch64, each within the 10 s observer budget) are filed as task 28.17's host qualification and as 46.2's, which the operator's "B" of 2026-10-31 left open. K7 (`e_phnum > 0` dropped) and F1 (`at least one PT_LOAD` dropped) are accepted as survivors no single removal can kill (evidence/U6c5c.md): item 3's mapped `PT_PHDR` check refuses both images first, and both checks stay because items 1 and 4 name them; with that, 28.9 and 28.10 close on U6c5a–U6c5c's evidence. F5 is accepted as a single-conversion refactor with no behaviour of its own to remove, bound by its source proof (evidence/U6f1a.md); with that, 31.1 and 31.2 close on U6f1a–U6f1b's evidence. U10b ticks 28.9, 28.10, 28.17, 31.1, 31.2 and 46.2, each citing this ruling and its owner's evidence, then folds (49.3). F3's privileged host evidence (R8) stays pending in the hand-off, never inferred.
+
 Closes tasks 49.1–49.3 (49.1–49.2 by R8); requirements [SD1](specs/slice-two-delivery/spec.md),
 [SD4](specs/slice-two-delivery/spec.md) and the
-[archive instruction](../../../dialects/openspec/archive.md).
+[archive instruction](../../../../dialects/openspec/archive.md).
 Proof: Actual archive directory/date, seven exact folded requirement/scenario
 sets and one appended provenance entry each; strict live/archive validation,
 local-link audit, retained evidence.md with file/section links after the move,
