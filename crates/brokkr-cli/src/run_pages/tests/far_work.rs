@@ -3,7 +3,10 @@
 //! 66,000 rows, and planting them again in every test that reads them was
 //! the shard's cost. One `OnceLock` per size holds the planted journal,
 //! its events and their whole view; a test that only reads uses it as it
-//! stands, and a test that appends takes a copy. The three journals are
+//! stands, and a test that appends takes a copy. The participant-level
+//! whole view is lazily built on the first test that compares against it
+//! and shared by every later one at that size, so the console's whole read
+//! runs once per journal rather than once per test. The three journals are
 //! removed at process exit, so a run leaves no fixture behind.
 
 use std::sync::OnceLock;
@@ -28,6 +31,9 @@ pub(super) struct FarWork {
     pub(super) run: &'static str,
     pub(super) events: Vec<EventEnvelope>,
     pub(super) whole: RunView,
+    /// The participant level's whole read, built at most once and borrowed
+    /// by every test that compares a paged frame against it.
+    whole_views: OnceLock<Views>,
 }
 
 impl FarWork {
@@ -43,7 +49,18 @@ impl FarWork {
             run,
             events,
             whole,
+            whole_views: OnceLock::new(),
         }
+    }
+
+    /// The whole read's participant-level views: every checkpoint, at the
+    /// last stamp, the pane painting from its top. The first test at this
+    /// size builds it; every later one reuses the immutable result.
+    pub(super) fn whole_views(&self) -> &Views {
+        self.whole_views.get_or_init(|| {
+            let subject = Subject::of(0, None, self.run.to_string(), &self.whole.participants[0]);
+            participant_whole_views(&self.db, self.run, &self.events, subject)
+        })
     }
 
     /// A per-test copy of the fixture's journal, in its own tempdir: a

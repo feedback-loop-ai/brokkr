@@ -516,24 +516,22 @@ fn participant_whole_views(
 
 /// The participant frame a paged console paints at `offset` equals the
 /// whole read's at the same rank, `paged`'s bytes returned for the control
-/// that reads them.
+/// that reads them. `whole_views` is the shared fixture's whole read, so
+/// the comparison does not rebuild it.
 pub(super) fn participant_frame_whole_read(
-    db: &Path,
     run: &str,
-    events: &[EventEnvelope],
-    subject: Subject,
+    whole: &RunView,
+    whole_views: &Views,
     offset: usize,
     tui: &Tui,
     views: &Views,
 ) -> String {
-    let whole = brokkr_view::run_view(events, fold(events).as_ref().ok());
-    let (mut whole_tui, _) = participant_console(run, &whole);
+    let (mut whole_tui, _) = participant_console(run, whole);
     whole_tui.offset = offset;
-    let whole_views = participant_whole_views(db, run, events, subject);
     let paged = frame_for_test(tui, views, 80, 30);
     assert_eq!(
         paged,
-        frame_for_test(&whole_tui, &whole_views, 80, 30),
+        frame_for_test(&whole_tui, whole_views, 80, 30),
         "the paged frame is the whole read's"
     );
     paged

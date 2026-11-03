@@ -41,5 +41,5 @@ fn chief_review_display_clamp_keeps_frame_after_page_down() {
         Some("65536"),
         "the display starts at today's clamped rank"
     );
-    let _ = participant_frame_whole_read(db, run, events, subject, 65_570, &tui, &views);
+    let _ = participant_frame_whole_read(run, whole, far.whole_views(), 65_570, &tui, &views);
 }

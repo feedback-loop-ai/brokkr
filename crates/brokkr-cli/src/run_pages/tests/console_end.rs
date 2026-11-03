@@ -628,8 +628,8 @@ fn the_participant_s_end_keeps_today_s_narrowed_display_rank() {
         "today's renderer's narrowed display rank"
     );
     let paged = frame_for_test(&tui, &views, 80, 30);
-    let whole_views = participant_whole_views(db, run, events, subject);
-    let expected = frame_for_test(&today, &whole_views, 80, 30);
+    let whole_views = far.whole_views();
+    let expected = frame_for_test(&today, whole_views, 80, 30);
     assert_eq!(paged, expected, "today's frame at the narrowed rank");
     assert!(
         rows_of_text(&paged)
@@ -789,9 +789,7 @@ fn the_participant_s_end_fills_a_tall_frame() {
     let far = far_work();
     let (run, db, events, whole) = (far.run, &far.db, &far.events, &far.whole);
     let now = events.last().unwrap().recorded_at.clone();
-    // The whole read is the same journal at both heights: acquire it once.
-    let (_, subject) = participant_console(run, whole);
-    let whole_views = participant_whole_views(db, run, events, subject);
+    let whole_views = far.whole_views();
     for (height, last) in [(80, "65568"), (100, "65578")] {
         let (mut tui, subject) = participant_console(run, whole);
         tui.height = height;
@@ -800,7 +798,7 @@ fn the_participant_s_end_fills_a_tall_frame() {
         (today.width, today.height) = (80, height);
         today.offset = u16::MAX as usize;
         let paged = frame_for_test(&tui, &views, 80, height);
-        let expected = frame_for_test(&today, &whole_views, 80, height);
+        let expected = frame_for_test(&today, whole_views, 80, height);
         assert_eq!(paged, expected, "height {height}: the whole read's frame");
         let lines = rows_of_text(&paged);
         assert!(
@@ -835,10 +833,10 @@ fn the_participant_s_down_after_a_large_end_wraps_to_the_top() {
     down_key(&mut tui, &views);
     assert_eq!(tui.offset, 0, "Down is the stream's top");
     let (mut whole_tui, _) = participant_console(run, whole);
-    let whole_views = participant_whole_views(db, run, events, subject.clone());
-    bottom_key(&mut whole_tui, &whole_views);
-    settle_end(&mut whole_tui, &whole_views);
-    down_key(&mut whole_tui, &whole_views);
+    let whole_views = far.whole_views();
+    bottom_key(&mut whole_tui, whole_views);
+    settle_end(&mut whole_tui, whole_views);
+    down_key(&mut whole_tui, whole_views);
     assert_eq!(whole_tui.offset, 0, "the whole read's Down");
     let views = participant_page(db, run, &subject, &tui);
     assert_eq!(
@@ -1005,11 +1003,11 @@ fn chief_large_end_keeps_logical_movement_for_display() {
     settle_end(&mut tui, &views);
     let (mut whole_tui, _) = participant_console(run, whole);
     whole_tui.offset = 65_598;
-    let whole_views = participant_whole_views(db, run, events, subject.clone());
+    let whole_views = far.whole_views();
     let paged = frame_for_test(&tui, &views, 80, 30);
     assert_eq!(
         paged,
-        frame_for_test(&whole_tui, &whole_views, 80, 30),
+        frame_for_test(&whole_tui, whole_views, 80, 30),
         "Up paints the whole read's frame"
     );
     assert!(
@@ -1030,7 +1028,7 @@ fn chief_large_end_keeps_logical_movement_for_display() {
     let page_frame = frame_for_test(&paged_tui, &views, 80, 30);
     assert_eq!(
         page_frame,
-        frame_for_test(&page_today, &whole_views, 80, 30),
+        frame_for_test(&page_today, whole_views, 80, 30),
         "PageUp paints the whole read's frame"
     );
     assert!(
@@ -1233,7 +1231,7 @@ fn gate_review_large_logical_end_is_independent_of_display_page() {
     let mut views = participant_page(db, run, &subject, &tui);
     views.now = now.clone();
     settle_end(&mut tui, &views);
-    let paged = participant_frame_whole_read(db, run, events, subject, 65_998, &tui, &views);
+    let paged = participant_frame_whole_read(run, whole, far.whole_views(), 65_998, &tui, &views);
     let starts_at_today = rows_of_text(&paged)
         .into_iter()
         .any(|line| line.contains("│65536  turn"));
@@ -1304,10 +1302,10 @@ fn chief_confirm_large_end_after_reread_wraps() {
     settle_end(&mut tui, &views);
     assert_eq!(tui.offset, 0, "Down wraps at the stream's current end");
     let (mut whole_tui, _) = participant_console(run, whole);
-    let whole_views = participant_whole_views(db, run, events, subject.clone());
+    let whole_views = far.whole_views();
     whole_tui.offset = 65_998;
-    down_key(&mut whole_tui, &whole_views);
-    down_key(&mut whole_tui, &whole_views);
+    down_key(&mut whole_tui, whole_views);
+    down_key(&mut whole_tui, whole_views);
     assert_eq!(whole_tui.offset, 0, "the whole read's end wraps");
 }
 
