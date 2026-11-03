@@ -789,6 +789,9 @@ fn the_participant_s_end_fills_a_tall_frame() {
     let far = far_work();
     let (run, db, events, whole) = (far.run, &far.db, &far.events, &far.whole);
     let now = events.last().unwrap().recorded_at.clone();
+    // The whole read is the same journal at both heights: acquire it once.
+    let (_, subject) = participant_console(run, whole);
+    let whole_views = participant_whole_views(db, run, events, subject);
     for (height, last) in [(80, "65568"), (100, "65578")] {
         let (mut tui, subject) = participant_console(run, whole);
         tui.height = height;
@@ -796,7 +799,6 @@ fn the_participant_s_end_fills_a_tall_frame() {
         let (mut today, _) = participant_console(run, whole);
         (today.width, today.height) = (80, height);
         today.offset = u16::MAX as usize;
-        let whole_views = participant_whole_views(db, run, events, subject);
         let paged = frame_for_test(&tui, &views, 80, height);
         let expected = frame_for_test(&today, &whole_views, 80, height);
         assert_eq!(paged, expected, "height {height}: the whole read's frame");
@@ -1025,11 +1027,10 @@ fn chief_large_end_keeps_logical_movement_for_display() {
     settle_end(&mut paged_tui, &views);
     let (mut page_today, _) = participant_console(run, whole);
     page_today.offset = 65_589;
-    let page_views = participant_whole_views(db, run, events, page_subject);
     let page_frame = frame_for_test(&paged_tui, &views, 80, 30);
     assert_eq!(
         page_frame,
-        frame_for_test(&page_today, &page_views, 80, 30),
+        frame_for_test(&page_today, &whole_views, 80, 30),
         "PageUp paints the whole read's frame"
     );
     assert!(
