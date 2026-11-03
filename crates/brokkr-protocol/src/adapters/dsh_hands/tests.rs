@@ -606,14 +606,42 @@ fn review_an_unreadable_stderr_capture_must_refuse_dsh_startup() {
     let refusal = startup_gate(startup, &mut serde_json::Map::new(), Mode::ReadOnly)
         .expect_err("an unreadable capture never passes dsh's startup gate");
     assert!(matches!(refusal, ReportRefusal::UnreadableCapture(_)));
-    assert!(
-        refusal.to_string().contains("stderr seam failed"),
-        "the refusal names the error: {refusal}"
+    assert_eq!(
+        refusal.to_string(),
+        "refusing the dsh seat: its startup stderr capture ended unreadable (permission denied: \
+         stderr seam failed), so a warning dsh wrote cannot be ruled out; failing closed on what \
+         cannot be read (#430 H1)"
     );
     assert!(
         stderr.contains("stderr capture ended unreadable"),
         "the unreadable capture is named in the evidence: {stderr}"
     );
+}
+
+/// #430 H1 (decision 0071 rulings 3 and 9): the evidence line for an
+/// unreadable capture joins whatever partial bytes it kept, adding exactly
+/// one newline only where the kept text does not already end a line. The
+/// empty and already-terminated captures add none.
+#[test]
+fn an_unreadable_capture_joins_its_partial_bytes_with_one_line() {
+    let note = "stderr capture ended unreadable: permission denied: stderr seam failed\n";
+    let failed = || Step::Error(std::io::ErrorKind::PermissionDenied);
+    for (case, steps, expected) in [
+        ("no bytes", vec![failed()], note.to_string()),
+        (
+            "a partial line",
+            vec![Step::Data(b"partial"), failed()],
+            format!("partial\n{note}"),
+        ),
+        (
+            "a complete line",
+            vec![Step::Data(b"partial\n"), failed()],
+            format!("partial\n{note}"),
+        ),
+    ] {
+        let (_, stderr) = captured_run(steps);
+        assert_eq!(stderr, expected, "{case}");
+    }
 }
 
 /// The composed-tree allowlist is the controller's measured dump, row for

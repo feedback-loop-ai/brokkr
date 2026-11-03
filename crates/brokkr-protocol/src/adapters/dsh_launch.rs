@@ -103,6 +103,7 @@ pub(super) fn invoke_dsh_launch_observed(
             &mut session_meta,
             emit,
             observer,
+            wait,
         )
     } else {
         invoke_dsh_shipped(
@@ -169,7 +170,7 @@ struct DshStreamState<'a> {
 enum DshPass {
     Answered,
     Continue,
-    Exited(std::process::ExitStatus),
+    Exited(i32),
 }
 
 impl DshStreamState<'_> {
@@ -232,6 +233,7 @@ impl DshStreamState<'_> {
         open: &mut bool,
         reads: &std::sync::mpsc::Receiver<std::io::Result<String>>,
         child: &mut std::process::Child,
+        wait: &mut impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
         emit: &mut impl FnMut(&Value),
         observer: &mut impl FnMut(&DshObservation),
     ) -> Result<DshPass, std::io::Error> {
@@ -289,8 +291,8 @@ impl DshStreamState<'_> {
             return Ok(DshPass::Answered);
         }
         if !*open {
-            if let Some(status) = child.try_wait()? {
-                return Ok(DshPass::Exited(status));
+            if let Some(code) = wait(child)? {
+                return Ok(DshPass::Exited(code));
             }
         }
         Ok(DshPass::Continue)
@@ -319,6 +321,7 @@ fn invoke_dsh_stream_json(
     session_meta: &mut Map<String, Value>,
     emit: &mut impl FnMut(&Value),
     observer: &mut impl FnMut(&DshObservation),
+    mut wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
 ) -> Result<DshRun, String> {
     let (mut child, stderr_thread) =
         spawn_dsh(command, &launch.workdir, Stdio::piped(), launch, bindings)?;
@@ -362,15 +365,15 @@ fn invoke_dsh_stream_json(
     // unreachable.
     let status = loop {
         match io_context(
-            state.pass(&mut open, &reads, &mut child, emit, observer),
+            state.pass(&mut open, &reads, &mut child, &mut wait, emit, observer),
             "agent CLI did not conclude",
         )? {
             DshPass::Continue => {}
             DshPass::Answered => {
                 stopped = true;
-                break conclude_harness(&mut child)?;
+                break lost::exit_code(conclude_harness(&mut child)?);
             }
-            DshPass::Exited(status) => break status,
+            DshPass::Exited(code) => break code,
         }
     };
     // A clean end adds no confirmation fact and clears nothing.
@@ -381,7 +384,7 @@ fn invoke_dsh_stream_json(
     let captured = stderr_thread.take(stopped);
     finish_dsh(
         state.session_meta,
-        lost::exit_code(status),
+        status,
         captured,
         state.probe.take(),
         bindings,
@@ -562,6 +565,67 @@ mod tests {
             PreSpawnRefusal::Command(HarnessCommandRefusal::Secret(secret::BindError::NotUtf8(_)))
         ));
         assert_eq!(refused.to_string(), "secret 'TOKEN' is not valid UTF-8");
+    }
+
+    /// The between-lines poll is driven by the watch's three conditions:
+    /// a cold seat has no offer to confirm, a rejoin whose init event has
+    /// not named the offer has nothing to settle, a settled watch is not
+    /// revisited, and only a named, unsettled rejoin settles on the idle
+    /// tick (decision 0103 ruling 4(a); design D7).
+    #[test]
+    fn the_between_lines_poll_settles_only_a_named_unsettled_offer() {
+        fn poll_once(launch: &DshLaunch, watch: &mut DshRootWatch) -> (bool, usize) {
+            let mut hold = LaunchHold::new("deepseek", launch.plan());
+            let mut tail = DshTail::default();
+            let mut turns = 0u64;
+            let mut meta = Map::new();
+            let mut probe = ProbeAnswer::new(true);
+            let mut observed = 0usize;
+            let mut state = DshStreamState {
+                launch,
+                bindings: &[],
+                watch,
+                hold: &mut hold,
+                tail: &mut tail,
+                turns: &mut turns,
+                session_meta: &mut meta,
+                probe: &mut probe,
+            };
+            let answered = state.poll(&mut |_| {}, &mut |_: &DshObservation| {
+                observed += 1;
+            });
+            (answered, observed)
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        crate::adapters::tests::plant_dsh_session(dir.path(), "seat", "--w--", "session-1", 27);
+        let root = dir.path().join("seat");
+        let shim =
+            crate::adapters::tests::executable(dir.path(), "dsh-poll", "#!/bin/sh\nexit 0\n");
+
+        // A cold launch never enters the confirmation poll.
+        let cold = crate::adapters::tests::dsh_stream_launch(&shim, &root, None, None);
+        let mut cold_watch = DshRootWatch::new(&cold, Transcript::dsh(&cold.home));
+        assert_eq!(poll_once(&cold, &mut cold_watch), (false, 0));
+
+        // A named, unsettled rejoin settles on the idle tick.
+        let launch =
+            crate::adapters::tests::dsh_stream_launch(&shim, &root, Some("session-1"), Some(27));
+        let mut pending = DshRootWatch::new(&launch, Transcript::dsh(&launch.home));
+        assert!(pending.confirming() && !pending.settled);
+        pending.named_the_offer = true;
+        assert_eq!(poll_once(&launch, &mut pending), (false, 1));
+
+        // An offer the init event has not named has nothing to settle.
+        let mut unnamed = DshRootWatch::new(&launch, Transcript::dsh(&launch.home));
+        unnamed.named_the_offer = false;
+        assert_eq!(poll_once(&launch, &mut unnamed), (false, 0));
+
+        // A settled watch is terminal: no later idle tick revisits it.
+        let mut settled = DshRootWatch::new(&launch, Transcript::dsh(&launch.home));
+        settled.named_the_offer = true;
+        settled.refuse();
+        assert_eq!(poll_once(&launch, &mut settled), (false, 0));
     }
 
     /// The one harness spawn builder's refusals are typed, carry the

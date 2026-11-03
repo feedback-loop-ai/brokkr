@@ -743,7 +743,11 @@ fn run_qualified_probe(
         &[],
         &mut ProbeAnswer::new(requested),
         &mut |_| {},
-        |_| panic!("the qualified arm does not poll the child"),
+        |child| {
+            child
+                .try_wait()
+                .map(|status| status.map(|status| status.code().unwrap_or(-1)))
+        },
         &mut |_| {},
     )
     .expect("the qualified probe reports");
@@ -855,4 +859,64 @@ fn review_ordinary_qualified_dsh_closes_stdout_after_an_unreadable_line() {
         "the reader did not close stdout at the unreadable line: {elapsed:?}"
     );
     assert_eq!(invocation.answer, None, "no probe was requested");
+}
+
+/// The probe's bound at its own edge (decision 0103 ruling 4(a)): an
+/// unrequested invocation, an event that is not an answer, and a second
+/// answer after the first each admit nothing, and Exec has no model turn to
+/// answer with. The first answer is the whole report.
+#[test]
+fn a_probe_admits_only_the_first_answer_and_exec_has_none() {
+    let answer = json!({
+        "type": "assistant",
+        "message": {"content": [{"type": "text", "text": "answered"}]},
+    });
+    let row = json!({"step": "seat-turn", "turn": 1});
+
+    let mut unrequested = ProbeAnswer::new(false);
+    unrequested.admit(AdapterKind::Claude, &answer, std::slice::from_ref(&row));
+    assert!(
+        !unrequested.answered(),
+        "an ordinary invocation admits no answer"
+    );
+
+    let mut probe = ProbeAnswer::new(true);
+    probe.admit(
+        AdapterKind::Claude,
+        &json!({"type": "system"}),
+        std::slice::from_ref(&row),
+    );
+    assert!(!probe.answered(), "a non-answer event admits nothing");
+    probe.admit(AdapterKind::Claude, &answer, std::slice::from_ref(&row));
+    assert!(probe.answered(), "the first answer is admitted");
+    probe.admit(AdapterKind::Claude, &answer, &[json!({"step": "second"})]);
+    assert_eq!(
+        probe.take(),
+        Some(row),
+        "a later answer never replaces the first"
+    );
+
+    assert!(
+        !super::probe::is_answer(AdapterKind::Exec, &answer),
+        "Exec has no model turn to answer a probe"
+    );
+}
+
+/// A refusal always keeps a bounded, non-empty evidence line (decision
+/// 0103 ruling 1(a); decision 0071 ruling 9): a provider that gave no token
+/// at all is the explicit `api_error`, and the adapter fills its own name.
+#[test]
+fn a_refusal_with_no_token_keeps_a_default_and_each_adapter_names_itself() {
+    let refusal = refusal_reason(" \n\t ", None, None);
+    assert_eq!(refusal.words(), "api_error");
+    assert_eq!(refusal.class(), RefusalClass::Other);
+    for (kind, provider) in [
+        (AdapterKind::Claude, "claude"),
+        (AdapterKind::Lanetally, "lanetally"),
+        (AdapterKind::Codex, "codex"),
+        (AdapterKind::Dsh, "dsh"),
+        (AdapterKind::Exec, "exec"),
+    ] {
+        assert_eq!(kind.provider_name(), provider, "{kind:?}");
+    }
 }

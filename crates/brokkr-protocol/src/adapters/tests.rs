@@ -5590,7 +5590,7 @@ fn run_dsh_stream(launch: DshLaunch, workdir: &std::path::Path) -> (Invocation, 
         workdir.to_str().unwrap(),
         &[],
         &mut |value| emitted.push(value.clone()),
-        |_| panic!("the qualified arm does not poll the child"),
+        |child| child.try_wait().map(|s| s.map(|s| s.code().unwrap_or(-1))),
     )
     .unwrap();
     (invocation, emitted)
@@ -6300,7 +6300,7 @@ fn run_dsh_latch(case: &DshLatchCase, delivers: bool) -> DshLatchRun {
                 &[],
                 &mut crate::adapters::probe::ProbeAnswer::new(false),
                 &mut emit,
-                |_| panic!("the qualified arm does not poll the child"),
+                |child| child.try_wait().map(|s| s.map(|s| s.code().unwrap_or(-1))),
                 &mut |observation: &DshObservation| {
                     observations.push(observation.clone());
                     if acknowledged < case.acks && (case.acknowledge)(observation) {
@@ -14185,11 +14185,7 @@ fn a_bound_dsh_route_reaches_neither_the_composite_nor_the_launch_row_nor_the_jo
                     &workdir,
                     &[],
                     &mut |row: &Value| emit(row),
-                    |child| {
-                        child
-                            .try_wait()
-                            .map(|status| status.map(|status| status.code().unwrap_or(-1)))
-                    },
+                    |child| child.try_wait().map(|s| s.map(|s| s.code().unwrap_or(-1))),
                 );
                 stderr = invocation.as_ref().ok().map(|done| done.stderr.clone());
                 invocation
@@ -18396,7 +18392,7 @@ fn a_dsh_seat_receives_its_bindings_and_masks_its_stderr() {
         dir.path().to_str().unwrap(),
         &[binding("API_TOKEN", "tok-3xample-value")],
         &mut |_| {},
-        |_| panic!("the qualified arm does not poll the child"),
+        |child| child.try_wait().map(|s| s.map(|s| s.code().unwrap_or(-1))),
     )
     .unwrap();
     assert_eq!(invocation.exit_code, 0, "{}", invocation.stderr);

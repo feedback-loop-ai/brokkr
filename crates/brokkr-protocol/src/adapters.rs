@@ -33,6 +33,8 @@ mod lost;
 mod mcp;
 mod probe;
 mod refusal;
+#[cfg(test)]
+mod round430_tests;
 mod route_overlay;
 mod served_route;
 mod start;

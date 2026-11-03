@@ -41,8 +41,6 @@ impl std::fmt::Display for Unreadable {
     }
 }
 
-impl std::error::Error for Unreadable {}
-
 /// How one capture ended. Only EOF is complete; a read failure is named so
 /// a startup classification never reads it as a clean end (#430 H1).
 #[derive(Debug)]
@@ -129,7 +127,7 @@ struct StderrBuffer {
 /// holds the inherited pipe (fix round 430s4a3 H1).
 pub(super) struct StderrCapture {
     buffer: Arc<StderrBuffer>,
-    reader: Option<std::thread::JoinHandle<()>>,
+    reader: std::thread::JoinHandle<()>,
 }
 
 /// Drain a child's stderr on its own thread, so a chatty session cannot
@@ -154,10 +152,7 @@ fn capture(pipe: impl Read + Send + 'static) -> StderrCapture {
     });
     let reader_buffer = Arc::clone(&buffer);
     let reader = std::thread::spawn(move || drain_reader(pipe, &reader_buffer));
-    StderrCapture {
-        buffer,
-        reader: Some(reader),
-    }
+    StderrCapture { buffer, reader }
 }
 
 /// A [`Read`] seam around the capture loop, test-only, so a read failure
@@ -209,7 +204,7 @@ impl StderrCapture {
     /// has. The reader is detached, not joined: a descendant still holding
     /// the inherited pipe must not hold this driver. A reader that has not
     /// ended is named Incomplete, never complete.
-    fn settle(mut self) -> CapturedStderr {
+    fn settle(self) -> CapturedStderr {
         let state = self.buffer.state.lock().expect("stderr buffer");
         let (mut state, _) = self
             .buffer
@@ -219,16 +214,14 @@ impl StderrCapture {
         let bytes = state.bytes.clone();
         let end = state.end();
         drop(state);
-        drop(self.reader.take());
+        drop(self.reader);
         CapturedStderr { bytes, end }
     }
 
     /// Wait for the reader to end and take everything it read. Used where
     /// the harness was not stopped, so its pipe is expected to close.
-    fn finish(mut self) -> CapturedStderr {
-        if let Some(reader) = self.reader.take() {
-            let _ = reader.join();
-        }
+    fn finish(self) -> CapturedStderr {
+        let _ = self.reader.join();
         let mut state = self.buffer.state.lock().expect("stderr buffer");
         let bytes = state.bytes.clone();
         let end = state.end();

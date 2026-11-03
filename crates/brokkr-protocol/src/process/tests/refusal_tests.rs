@@ -159,3 +159,94 @@ fn a_probe_start_carries_the_marker_to_an_advertising_driver() {
         }
     );
 }
+
+/// The refusal object's closed shape is read field by field at the edge
+/// (decision 0103 ruling 1(a); decision 0071 ruling 3): every malformed or
+/// unknown member is refused by the field that carries it, never silently
+/// dropped or read as an absence.
+#[test]
+fn the_refusal_reader_refuses_every_malformed_field_by_name() {
+    use crate::{PreSessionRefusal, RefusalError, DRIVER_REFUSAL_SCHEMA};
+
+    let base = || {
+        serde_json::json!({
+            "class": "rate_limit",
+            "provider": "claude",
+            "route": null,
+            "words": "rate_limit",
+        })
+    };
+    let with = |key: &str, value: serde_json::Value| {
+        let mut object = base();
+        object[key] = value;
+        object
+    };
+    let cases = [
+        (
+            "a member outside the closed schema",
+            with("extra", serde_json::json!(true)),
+            RefusalError::Unknown(DRIVER_REFUSAL_SCHEMA),
+        ),
+        (
+            "a route that is not an identifier",
+            with("route", serde_json::json!("bad/route")),
+            RefusalError::RouteForm,
+        ),
+        (
+            "empty words",
+            with("words", serde_json::json!("")),
+            RefusalError::Words,
+        ),
+        (
+            "words past the bound",
+            with("words", serde_json::json!("w".repeat(301))),
+            RefusalError::Words,
+        ),
+        (
+            "a status below the HTTP range",
+            with("status", serde_json::json!(99)),
+            RefusalError::Status,
+        ),
+        (
+            "a status above the HTTP range",
+            with("status", serde_json::json!(600)),
+            RefusalError::Status,
+        ),
+        (
+            "a provider whose first character is not alphanumeric",
+            with("provider", serde_json::json!("-claude")),
+            RefusalError::Provider,
+        ),
+        (
+            "a provider past the length bound",
+            with("provider", serde_json::json!("c".repeat(81))),
+            RefusalError::Provider,
+        ),
+        (
+            "a provider with a character outside the grammar",
+            with("provider", serde_json::json!("claude/v2")),
+            RefusalError::Provider,
+        ),
+    ];
+    for (case, object, expected) in cases {
+        assert_eq!(
+            PreSessionRefusal::read(&object),
+            Err(expected.clone()),
+            "{case}: {object}"
+        );
+    }
+}
+
+/// The probe marker is a typed `true`, never a doubly-optional boolean
+/// (decision 0103 ruling 4(a)): a present `false` is refused where it is
+/// read, and only an absent field means an ordinary attempt.
+#[test]
+fn a_present_false_probe_marker_is_refused() {
+    let refused = serde_json::from_str::<Probe>("false").expect_err("false is not the marker");
+    assert!(
+        refused
+            .to_string()
+            .contains("the probe marker is present but not true"),
+        "{refused}"
+    );
+}
