@@ -70,7 +70,10 @@ usage() {
 # Hosted runners took about 11, 3, 1, 4, 13, 0 and 20 minutes (the
 # broker's two together) for them on Linux, half as long again under
 # coverage, and 9, 8, 3, 19 (the two heap shards together), 0 and 0 on
-# macOS, where the broker's boundary proofs skip (2026-11-01). The broker's
+# macOS, where the broker's boundary proofs skip (2026-11-01). By 2026-11-02
+# macOS's libraries took 27 minutes and its `it` binaries 10, so macos/1
+# reached its 45-minute limit; the `it` binaries and the heap measurements
+# moved to a third macOS machine (operator ruling 2026-11-03). The broker's
 # enabled suite is Linux's alone (`#![cfg(target_os = "linux")]`), so macOS
 # never runs its shard, whose filter would match nothing there.
 shard_name=()
@@ -85,8 +88,8 @@ shard() {
   shard_selectors+=("$*")
 }
 shard 'every library' 1 1 lib
-shard "the it binaries, capability_broker skipped" 2 1 test:it skip:capability_broker::
-shard 'the heap measurements' 2 1 test:heap_claude test:heap_codex test:heap_dsh
+shard "the it binaries, capability_broker skipped" 2 3 test:it skip:capability_broker::
+shard 'the heap measurements' 2 3 test:heap_claude test:heap_codex test:heap_dsh
 shard 'the other own-process binaries' 2 2 bin:brokkr test:driver_conformance test:transcript_surfaces \
   test:hands_exits test:secret_drop test:capability_launch test:operated_repo test:queued_launch \
   test:seatbelt_lifetime_probe test:summary_heap test:heap_open test:heap_costs

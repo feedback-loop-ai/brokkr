@@ -207,6 +207,8 @@ jobs:
             machine: macos/1
           - os: macos-latest
             machine: macos/2
+          - os: macos-latest
+            machine: macos/3
     runs-on: ${{ fromJSON(matrix.os == 'ubuntu-latest' && vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-engine"]' || format('["{0}"]', matrix.os)) }}
     # 45, not the usual 20 (operator rulings 2026-10-09 to 2026-11-01): a
     # machine's shards took about 20 minutes on a hosted runner, and its

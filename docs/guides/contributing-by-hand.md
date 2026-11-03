@@ -238,8 +238,8 @@ and skip hosted cache transfers.
 `BROKKR_LOCAL_CI=false` selects hosted execution for new runs; fork pull
 requests and macOS always use hosted runners.
 
-CI spreads the shards over machines (operator ruling 2026-11-01): three
-Linux runners and two macOS runners, each running the shards the script
+CI spreads the shards over machines (operator rulings 2026-11-01 and
+2026-11-03): five Linux runners and three macOS runners, each running the shards the script
 lays on it, still one after another, while the machines run at once. The
 `engine-machines` job names each runner's machine in `BROKKR_TEST_MACHINE`
 (`linux/2`, `macos/1`), and the script's `machines` mode prints each
