@@ -8,6 +8,7 @@
 pub mod canonical;
 pub mod decision;
 pub mod dispatch;
+pub mod ending;
 pub mod entry;
 pub mod envelope;
 pub mod event_index;
