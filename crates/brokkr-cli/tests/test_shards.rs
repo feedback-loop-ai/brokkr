@@ -361,8 +361,8 @@ fn a_target_no_shard_runs_or_two_shards_run_is_refused_by_name() {
         ],
     );
     let split = table.replace(
-        "2 1 test:it skip:capability_broker::\n",
-        "2 1 test:it skip:capability_broker::observer::\n",
+        "2 3 test:it skip:capability_broker::\n",
+        "2 3 test:it skip:capability_broker::observer::\n",
     );
     let unsplit: Vec<String> = [
         "brokkr-core",
@@ -964,14 +964,15 @@ fn a_narrower_skip_must_extend_its_filter_and_its_part_keep_a_shard() {
 
 /// Each machine of each system's layout, and the shards it runs, by their
 /// place in [`NAMES`]: every shard sits on exactly one machine of each.
-const MACHINES: [(&str, &[usize]); 7] = [
+const MACHINES: [(&str, &[usize]); 8] = [
     ("linux/1", &[0]),
     ("linux/2", &[1, 2, 3, 5]),
     ("linux/3", &[4]),
     ("linux/4", &[6]),
     ("linux/5", &[7]),
-    ("macos/1", &[0, 1, 2, 5, 7]),
+    ("macos/1", &[0, 5, 7]),
     ("macos/2", &[3, 4]),
+    ("macos/3", &[1, 2]),
 ];
 
 /// A run whose BROKKR_TEST_MACHINE names a machine builds every binary and
