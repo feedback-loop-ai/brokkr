@@ -7,27 +7,40 @@
 
 use super::console_end::{
     console_of, live_at, participant_page, retired_panel, settle_held_live,
-    wrapped_panel_console_of,
+    wrapped_first_turn_console,
 };
 use super::far_work::far_work_of;
 use super::*;
 
-/// The wrapped panel's console at (100, 25): the continuation a widening
-/// removes. The cursor is placed there rather than walked there by
-/// twenty-five `Down`s, each of which lays the whole panel out again; the
-/// movement itself is proven by the window and wrap proofs beside this
-/// one.
+/// The wrapped panel's console at (100, 25): twenty-five real `Down`s
+/// into the row at 375x250, the continuation a widening removes.
 fn wrapped_at_25(db: &Path, run: &str, now: &str) -> (Tui, Views) {
     let (mut tui, views) = live_at(db, run, 100, 375, 250, now);
-    (tui.live_offset, tui.live_line) = (100, 25);
+    twenty_five_downs(&mut tui, &views);
     (tui, views)
 }
 
-/// The whole read at the same (100, 25), for the controls beside it.
+/// The whole read at the same (100, 25), for the controls beside it. The
+/// movement is proven on the paged read's walk; this control places the
+/// cursor, so the proof does not lay the whole panel out twice.
 fn whole_at_25(run: &str) -> Tui {
     let mut tui = live_tui(run, 100, 375, 250);
     (tui.live_offset, tui.live_line) = (100, 25);
     tui
+}
+
+/// The movement the resize proofs start from: twenty-five `Down`s from
+/// the row's start land on (100, 25), one drawn line per press.
+fn twenty_five_downs(tui: &mut Tui, views: &Views) {
+    use crate::tui::down_key;
+    for _ in 0..25 {
+        down_key(tui, views);
+    }
+    assert_eq!(
+        (tui.live_offset, tui.live_line),
+        (100, 25),
+        "twenty-five drawn lines into the row"
+    );
 }
 
 /// Read the page `tui` waits for and settle it until its queue is empty,
@@ -95,7 +108,7 @@ fn chief_753c6_refresh_preserves_held_movement() {
 fn chief_753c6_resize_top_settles() {
     use crate::tui::{settle_when, top_key};
     let run = "chief resize top";
-    let (_dir, db, _events, whole_views) = wrapped_panel_console_of(run, 60);
+    let (_dir, db, _events, whole_views) = wrapped_first_turn_console(run, 51);
     let (mut tui, views) = wrapped_at_25(&db, run, &whole_views.now);
     tui.width = 750;
     top_key(&mut tui, &views);
@@ -262,7 +275,7 @@ fn chief_landing_too_short_then_shown_drops_held_movement() {
 fn chief_gate_resize_down_must_finish() {
     use crate::tui::down_key;
     let run = "chief gate resize down";
-    let (_dir, db, _events, whole_views) = wrapped_panel_console_of(run, 60);
+    let (_dir, db, _events, whole_views) = wrapped_first_turn_console(run, 51);
     let (mut tui, views) = wrapped_at_25(&db, run, &whole_views.now);
     tui.width = 750;
     down_key(&mut tui, &views);
@@ -311,7 +324,7 @@ fn chief_gate_resize_down_must_finish() {
 fn chief_gate_resize_up_must_finish() {
     use crate::tui::up_key;
     let run = "chief gate resize up";
-    let (_dir, db, _events, whole_views) = wrapped_panel_console_of(run, 60);
+    let (_dir, db, _events, whole_views) = wrapped_first_turn_console(run, 51);
     let (mut tui, views) = wrapped_at_25(&db, run, &whole_views.now);
     tui.width = 750;
     up_key(&mut tui, &views);

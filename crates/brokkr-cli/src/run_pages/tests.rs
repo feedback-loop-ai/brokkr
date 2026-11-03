@@ -1728,6 +1728,19 @@ fn panel(run: &str, a_turns: u64, b_turns: u64) -> Vec<EventEnvelope> {
 /// [`panel`] with every checkpoint's target `target`, where it is given,
 /// so a narrow live column wraps the panel's rows.
 fn panel_with(run: &str, a_turns: u64, b_turns: u64, target: Option<&str>) -> Vec<EventEnvelope> {
+    panel_from(run, a_turns, b_turns, 1..=u64::MAX, target)
+}
+
+/// [`panel_with`] with `target` only on the turns in `wrapped`: a proof
+/// that reads one turn's rows needs no other row wrapped, and every
+/// wrapped row is laid out again on each key.
+fn panel_from(
+    run: &str,
+    a_turns: u64,
+    b_turns: u64,
+    wrapped: std::ops::RangeInclusive<u64>,
+    target: Option<&str>,
+) -> Vec<EventEnvelope> {
     let mut steps = in_flight_as(run, "eff", "att");
     steps[3].1["boundary"] = json!([
         {"member": null, "boundary": "harness"},
@@ -1738,7 +1751,7 @@ fn panel_with(run: &str, a_turns: u64, b_turns: u64, target: Option<&str>) -> Ve
         for (member, turns) in [("a", a_turns), ("b", b_turns)] {
             if turn <= turns {
                 let mut checkpoint = json!({"member": member, "step": "seat-turn", "turn": turn});
-                if let Some(target) = target {
+                if let Some(target) = target.filter(|_| wrapped.contains(&turn)) {
                     checkpoint["target"] = json!(target);
                 }
                 steps.push(journals::checkpoint("eff", "att", checkpoint));

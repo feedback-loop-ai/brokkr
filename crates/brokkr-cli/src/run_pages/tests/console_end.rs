@@ -151,6 +151,16 @@ pub(super) fn wrapped_panel_console_of(run: &str, turns: u64) -> ConsoleJournal 
     console_of(run, panel_with(run, turns, turns, Some(&target)))
 }
 
+/// [`wrapped_panel_console_of`] with only the first turn's two rows
+/// wrapped: the newest-first stream's rows 100 and 101, the last rows a
+/// resize proof starts on. Wrapping the rows above them too would make
+/// each of the proof's twenty-five `Down`s lay out rows no assertion
+/// reads.
+pub(super) fn wrapped_first_turn_console(run: &str, turns: u64) -> ConsoleJournal {
+    let target = "x".repeat(3_000);
+    console_of(run, panel_from(run, turns, turns, 1..=1, Some(&target)))
+}
+
 /// The first checkpoint turn a participant-level read paints.
 pub(super) fn first_turn(views: &Views, key: &str) -> Option<String> {
     views
