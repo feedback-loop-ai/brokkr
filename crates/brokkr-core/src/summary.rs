@@ -85,6 +85,13 @@ pub fn feature_line(feature: &str) -> &str {
     cut(first, FEATURE_LINE_BYTES)
 }
 
+/// The phase a `phase/entered` event names, where its payload names one as
+/// text: the one field the parks' and checkpoints' walks and the writer's
+/// phase lookup read of it (decision 0071 ruling 5).
+pub fn entered_phase(event: &EventEnvelope) -> Option<&str> {
+    crate::residual::text(&event.payload, "phase")
+}
+
 /// A value held within its column's bound, and the whole value when the
 /// bound cut it: the column a page selects, and the one last in the row
 /// that keeps the value lossless.

@@ -57,6 +57,7 @@ impl Replay {
                 Account::whole(run_id, &self.events)
             }
         };
+        let account = account.carried();
         let state = account.state().map_err(FoldError::clone)?.clone();
         store.carry(account.clone());
         self.account = Some(account);

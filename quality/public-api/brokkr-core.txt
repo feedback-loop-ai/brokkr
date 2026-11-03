@@ -1146,6 +1146,7 @@ pub const brokkr_core::summary::REFUSAL_BYTES: usize
 pub const brokkr_core::summary::STAMP_BYTES: usize
 pub fn brokkr_core::summary::aggregate(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> brokkr_core::summary::Aggregate
 pub fn brokkr_core::summary::checkpoints(&[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_core::summary::Checkpoint>
+pub fn brokkr_core::summary::entered_phase(&brokkr_core::envelope::EventEnvelope) -> core::option::Option<&str>
 pub fn brokkr_core::summary::feature_line(&str) -> &str
 pub fn brokkr_core::summary::parks(&[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_core::summary::Park>
 pub enum brokkr_core::Cursor

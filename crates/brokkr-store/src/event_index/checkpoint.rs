@@ -25,6 +25,7 @@ use brokkr_core::summary::{Account, Bounded, Checkpoint, NAME_BYTES};
 use rusqlite::types::Value;
 use rusqlite::{params_from_iter, Connection, OptionalExtension};
 
+use super::record;
 use crate::event_index::{finished, mark_finished, CHECKPOINTED};
 use crate::{head_of, patiently, Store, StoreError};
 
@@ -155,6 +156,65 @@ pub(super) fn facts(checkpoint: Option<&Checkpoint>) -> Result<[Value; COLUMNS.l
     ])
 }
 
+/// Whether `event` is a checkpoint whose record finishes a session: its
+/// last `step` text ends "-session-finished", as [`Checkpoint::read`] reads
+/// it. 0 where the record has no step or is no checkpoint.
+pub(super) fn session_finished(event: &str) -> String {
+    let record = record(event);
+    format!(
+        "COALESCE((SELECT CASE WHEN value LIKE '%-session-finished' THEN 1 ELSE 0 END
+              FROM {record} WHERE key = 'step' AND type = 'text'
+              ORDER BY id DESC LIMIT 1), 0)"
+    )
+}
+
+/// The statement that moves the session flag off a site's earlier record
+/// when `event` is a finishing checkpoint, inside the event's own
+/// transaction: it searches the session partial index, never the run's
+/// every event, so a writer from before the facts, whose event the trigger
+/// indexes without them, still keeps the flag current (decision 0089
+/// rulings 4 and 7).
+pub(super) fn session_moved(event: &str, attempt: &str, member: &str) -> String {
+    format!(
+        "UPDATE event_index SET session = 0
+                WHERE run_id = {event}.run_id
+                  AND attempt_id IS {attempt}
+                  AND member IS {member}
+                  AND seq < {event}.seq
+                  AND type = '{CHECKPOINTED}' AND session = 1"
+    )
+}
+
+/// The predicate that names a `phase/entered` event's row on `events`,
+/// guarded so an envelope no reader parses is never extracted: the partial
+/// index and the writer's one phase lookup both read it.
+fn phase_predicate() -> String {
+    format!(
+        "CASE WHEN json_valid(envelope) THEN json_extract(envelope, '$.type') END = '{}'",
+        brokkr_core::EventType::PhaseEntered.as_str()
+    )
+}
+
+/// The index that keys a `phase/entered` event's row on `events`: the phase
+/// lookup reads the run's phase rows alone, never its every event.
+pub(super) fn phase_index() -> String {
+    format!(
+        "CREATE INDEX IF NOT EXISTS event_index_phase ON events (run_id, seq) WHERE {}",
+        phase_predicate()
+    )
+}
+
+/// The last `phase/entered` event before `seq`, by its key: the run's phase
+/// when the event at `seq` was recorded, as brokkr-core's walk reads it.
+pub(super) static PHASE_BEFORE: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT envelope FROM events
+         WHERE run_id = ?1 AND seq < ?2 AND {}
+         ORDER BY seq DESC LIMIT 1",
+        phase_predicate()
+    )
+});
+
 /// The statement that writes one checkpoint's facts, by its key.
 pub(super) static WRITE: LazyLock<String> = LazyLock::new(|| {
     let assignments: Vec<String> = COLUMNS
@@ -195,19 +255,13 @@ pub(crate) fn write_appended(
 }
 
 /// The run's phase when the event at `seq` was recorded: the last
-/// `phase/entered` event before it, read by its key, as brokkr-core's walk
-/// reads it from the events it carries.
+/// `phase/entered` event before it, read by its key through the phase index,
+/// as brokkr-core's walk reads it from the events it carries.
 fn phase_before(conn: &Connection, run_id: &str, seq: u64) -> Result<Option<String>, StoreError> {
     let found: Option<String> = conn
         .query_row(
-            "SELECT envelope FROM events
-             WHERE run_id = ?1 AND seq < ?2 AND json_extract(envelope, '$.type') = ?3
-             ORDER BY seq DESC LIMIT 1",
-            rusqlite::params![
-                run_id,
-                seq as i64,
-                brokkr_core::EventType::PhaseEntered.as_str()
-            ],
+            &PHASE_BEFORE,
+            rusqlite::params![run_id, seq as i64],
             |row| row.get(0),
         )
         .optional()?;
@@ -215,11 +269,7 @@ fn phase_before(conn: &Connection, run_id: &str, seq: u64) -> Result<Option<Stri
         return Ok(None);
     };
     let event: brokkr_core::EventEnvelope = serde_json::from_str(&envelope)?;
-    Ok(event
-        .payload
-        .get("phase")
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_string))
+    Ok(brokkr_core::summary::entered_phase(&event).map(str::to_string))
 }
 
 /// Write the facts of every checkpoint the append `sealed` carries from the
@@ -252,6 +302,18 @@ pub(crate) fn write_all(tx: &Connection, account: &Account) -> Result<(), StoreE
         write(tx, account.run_id(), *seq, &facts)?;
     }
     Ok(())
+}
+
+/// Write every checkpoint row of `account`'s run that brokkr-core's
+/// reading can express, leaving a row whose count the index's signed
+/// columns cannot hold a lag for a reader to read whole and the doctor to
+/// name: a legacy run is refused by name, never by failing the journal's
+/// open (decision 0089 rulings 4 and 8).
+pub(crate) fn write_all_available(tx: &Connection, account: &Account) -> Result<(), StoreError> {
+    match write_all(tx, account) {
+        Ok(()) | Err(StoreError::TokenCountOutOfRange(..)) => Ok(()),
+        Err(error) => Err(error),
+    }
 }
 
 /// One run of the checkpoint backfill, in its own transaction, written only
@@ -347,7 +409,19 @@ impl Store {
             let account = Account::whole(&run_id, &events);
             between(&self.conn);
             let conn = &mut self.conn;
-            let wrote = patiently("checkpoints", self.patience, || once(conn, &account))?;
+            let wrote = match patiently("checkpoints", self.patience, || once(conn, &account)) {
+                Ok(wrote) => wrote,
+                // A legacy checkpoint count the index's signed columns cannot
+                // hold refuses its run by name, leaving its rows for a reader
+                // to read whole and the doctor to name, and the backfill
+                // unfinished rather than failing the whole journal's open
+                // (decision 0089 rulings 4 and 8).
+                Err(StoreError::TokenCountOutOfRange(..)) => {
+                    unfinished = true;
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
             if !wrote {
                 // A peer moved the head while the run was read: the walk
                 // writes nothing for it, and the backfill stays unfinished

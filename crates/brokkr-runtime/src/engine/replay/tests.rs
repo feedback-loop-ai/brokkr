@@ -142,6 +142,52 @@ fn a_turn_hands_the_store_the_account_it_caught_up_to() {
     assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
 }
 
+/// A replay hands the store a trimmed account and keeps none of the
+/// checkpoint history itself, so each turn's clone copies no earlier
+/// checkpoint (decision 0089 ruling 9).
+#[test]
+fn a_replay_keeps_no_checkpoint_history() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    started(&mut store, "r1");
+    requested(&mut store, "r1");
+    store
+        .append_next(
+            "r1",
+            EventType::EffectStarted,
+            json!({"effect_id": "fx", "attempt_id": "a1"}),
+            None,
+            None,
+        )
+        .unwrap();
+    let checkpoint = || {
+        json!({"effect_id": "fx", "attempt_id": "a1",
+            "checkpoint": {"step": "seat-turn", "total_cost_usd": 0.5}})
+    };
+    let mut replay = Replay::default();
+    for _ in 0..2 {
+        store
+            .append_next(
+                "r1",
+                EventType::EffectCheckpointed,
+                checkpoint(),
+                None,
+                Some("a1".into()),
+            )
+            .unwrap();
+        replay.caught_up(&mut store, "r1").unwrap();
+        assert!(
+            replay
+                .account
+                .as_ref()
+                .unwrap()
+                .checkpoint_rows()
+                .is_empty(),
+            "the replay keeps no checkpoint it handed the store"
+        );
+    }
+}
+
 /// A driven seat's turns, one repeating the other's message and each
 /// priced, reach the account the engine carried turn by turn, which
 /// groups its seat rows into the participants its run view shows: what

@@ -41,7 +41,7 @@ use crate::{head_of, patiently, Disagreement, Store, StoreError};
 const BACKFILLED: &str = "event_index_backfill";
 
 const TABLE: [&str; 1] = ["event_index"];
-const INDEXES: [&str; 9] = [
+const INDEXES: [&str; 10] = [
     "event_index_stream",
     "event_index_trail",
     "event_index_cause",
@@ -51,12 +51,14 @@ const INDEXES: [&str; 9] = [
     "event_index_checkpoint",
     "event_index_checkpoint_stale",
     "event_index_checkpoint_session",
+    "event_index_phase",
 ];
-const TRIGGERS: [&str; 4] = [
+const TRIGGERS: [&str; 5] = [
     "event_index_of_an_event",
     "event_index_stamp_bounded",
     "event_index_park_moved",
     "event_index_checkpoint_moved",
+    "event_index_checkpoint_finished",
 ];
 
 mod checkpoint;
@@ -65,7 +67,8 @@ mod park_walk;
 
 use checkpoint::COLUMNS as CHECKPOINT_COLUMNS;
 pub(crate) use checkpoint::{
-    write_all as write_all_checkpoints, write_appended as write_checkpoints, write_sealed,
+    write_all as write_all_checkpoints, write_all_available, write_appended as write_checkpoints,
+    write_sealed,
 };
 pub(crate) use compare::{first_parted, first_unindexed, place, IndexReading};
 use park_walk::ParkWalk;
@@ -136,6 +139,28 @@ fn park_facts(park: Option<&Park>, head: u64) -> [Value; PARK_COLUMNS.len()] {
     ]
 }
 
+/// The `json_each` walk of `event`'s payload entries, guarded so an
+/// envelope no reader parses walks nothing.
+pub(super) fn payload(event: &str) -> String {
+    let envelope = format!("{event}.envelope");
+    format!(
+        "json_each(CASE WHEN json_valid({envelope}) THEN {envelope} ELSE '{{}}' END, '$.payload')"
+    )
+}
+
+/// The payload's checkpoint or result object as a `json_each` walk, the
+/// checkpoint preferred where both stand and its last copy read, as serde
+/// keeps one.
+pub(super) fn record(event: &str) -> String {
+    let payload = payload(event);
+    format!(
+        "(SELECT value AS record, type AS kind FROM {payload}
+              WHERE key IN ('checkpoint', 'result')
+              ORDER BY key = 'checkpoint' DESC, id DESC LIMIT 1),
+         json_each(CASE WHEN kind = 'object' THEN record ELSE '{{}}' END)"
+    )
+}
+
 /// The row an `events` row named `event` projects to, in [`COLUMNS`]'
 /// order, read from its envelope's text as brokkr-core's [`Indexed::of`]
 /// reads the envelope: the type, the payload's attempt, the
@@ -148,15 +173,8 @@ fn park_facts(park: Option<&Park>, head: u64) -> [Value; PARK_COLUMNS.len()] {
 /// the first.
 fn projected(event: &str) -> String {
     let envelope = format!("{event}.envelope");
-    let payload = format!(
-        "json_each(CASE WHEN json_valid({envelope}) THEN {envelope} ELSE '{{}}' END, '$.payload')"
-    );
-    let record = format!(
-        "(SELECT value AS record, type AS kind FROM {payload}
-              WHERE key IN ('checkpoint', 'result')
-              ORDER BY key = 'checkpoint' DESC, id DESC LIMIT 1),
-         json_each(CASE WHEN kind = 'object' THEN record ELSE '{{}}' END)"
-    );
+    let payload = payload(event);
+    let record = record(event);
     format!(
         "{event}.run_id, {event}.seq, {kind}, {attempt}, {member}, {stamp}, {id}",
         kind = text_at(&envelope, "$.type"),
@@ -170,27 +188,28 @@ fn projected(event: &str) -> String {
 /// The last entry named `key` among `entries`, a `json_each` walk, where
 /// that entry is text, else NULL, as serde reads an object that repeats a
 /// key.
-fn last_text(entries: &str, key: &str) -> String {
+pub(super) fn last_text(entries: &str, key: &str) -> String {
     format!(
         "(SELECT CASE WHEN type = 'text' THEN value END FROM {entries}
               WHERE key = '{key}' ORDER BY id DESC LIMIT 1)"
     )
 }
 
-/// The table and its six indexes, `IF NOT EXISTS` throughout so racing
-/// openers agree; the park trigger is dropped and made anew, so a copy
-/// from before the facts index is replaced, and the backfill is marked
+/// The table and its ten indexes, `IF NOT EXISTS` throughout so racing
+/// openers agree; the park and checkpoint triggers are dropped and made
+/// anew, so a copy from before them is replaced, and the backfill is marked
 /// unfinished, so a journal that lost an object is walked again once it
 /// is restored. The stream index keys a seat's checkpoints, `(run_id,
 /// attempt_id, member, seq)`; the trail index holds every event but a
 /// checkpoint; the cause index keys an event by its id, `(run_id,
 /// event_id)`; the park index keys a window's parks, `(span_class,
-/// at_ms)`; and the facts index holds the park rows whose dated facts
+/// at_ms)`; the facts index holds the park rows whose dated facts
 /// are written, so a later event sends those facts behind by searching
-/// the park rows alone ([`park_moved`]), never the run's every event. A
-/// stamp past its bound is cut by a trigger of its own, which fires only
-/// then, after the event's trigger or the backfill inserted the row, so
-/// the event's trigger reads the stamp once.
+/// the park rows alone ([`park_moved`]), never the run's every event; the
+/// checkpoint indexes key a window's checkpoints, a site's session rows and
+/// a run's phase events. A stamp past its bound is cut by a trigger of its
+/// own, which fires only then, after the event's trigger or the backfill
+/// inserted the row, so the event's trigger reads the stamp once.
 fn migration() -> String {
     format!(
         "CREATE TABLE IF NOT EXISTS event_index (
@@ -219,6 +238,7 @@ fn migration() -> String {
         CREATE INDEX IF NOT EXISTS event_index_checkpoint_session
             ON event_index (run_id, attempt_id, member, seq)
             WHERE type = '{CHECKPOINTED}' AND session = 1;
+        {phase_index};
         DROP TRIGGER IF EXISTS event_index_park_moved;
         CREATE TRIGGER event_index_park_moved AFTER INSERT ON events BEGIN
             {moved};
@@ -226,10 +246,13 @@ fn migration() -> String {
         DROP TRIGGER IF EXISTS event_index_checkpoint_moved;
         CREATE TRIGGER event_index_checkpoint_moved AFTER UPDATE OF session ON event_index
             WHEN NEW.type = '{CHECKPOINTED}' AND NEW.session = 1 BEGIN
-            UPDATE event_index SET session = 0
-                WHERE run_id = NEW.run_id AND attempt_id IS NEW.attempt_id
-                  AND member IS NEW.member AND seq < NEW.seq
-                  AND type = '{CHECKPOINTED}' AND session = 1;
+            {checkpoint_moved};
+        END;
+        DROP TRIGGER IF EXISTS event_index_checkpoint_finished;
+        CREATE TRIGGER event_index_checkpoint_finished AFTER INSERT ON events
+            WHEN {event_kind} = '{CHECKPOINTED}' AND {event_attempt} IS NOT NULL
+              AND {finished} = 1 BEGIN
+            {session_moved};
         END;
         CREATE TRIGGER IF NOT EXISTS event_index_of_an_event AFTER INSERT ON events BEGIN
             INSERT OR IGNORE INTO event_index ({COLUMNS}) SELECT {projected};
@@ -246,6 +269,16 @@ fn migration() -> String {
         cut = cut_stamp("NEW.recorded_at"),
         checkpoint_columns = checkpoint::declared(),
         CHECKPOINT_BACKFILLED = checkpoint::BACKFILLED,
+        phase_index = checkpoint::phase_index(),
+        finished = checkpoint::session_finished("NEW"),
+        checkpoint_moved = checkpoint::session_moved("NEW", "NEW.attempt_id", "NEW.member"),
+        session_moved = checkpoint::session_moved(
+            "NEW",
+            &last_text(&payload("NEW"), "attempt_id"),
+            &last_text(&record("NEW"), "member"),
+        ),
+        event_kind = text_at("NEW.envelope", "$.type"),
+        event_attempt = last_text(&payload("NEW"), "attempt_id"),
     )
 }
 
@@ -338,12 +371,20 @@ fn send_parks_behind() -> String {
 /// with the triggers that wrote it, since every row is derived. Its rows
 /// come from the backfill that follows the open, outside this lock.
 pub(crate) fn migrate_index(conn: &Connection) -> Result<(), StoreError> {
-    let missed = !all_present(conn, "trigger", &["event_index_checkpoint_moved"])?;
+    let missed = !all_present(
+        conn,
+        "trigger",
+        &[
+            "event_index_checkpoint_moved",
+            "event_index_checkpoint_finished",
+        ],
+    )?;
     if !base_shaped(conn)? {
         let dropped = conn.execute_batch(
             "DROP TRIGGER IF EXISTS event_index_of_an_event;
              DROP TRIGGER IF EXISTS event_index_park_moved;
              DROP TRIGGER IF EXISTS event_index_checkpoint_moved;
+             DROP TRIGGER IF EXISTS event_index_checkpoint_finished;
              DROP TABLE IF EXISTS event_index;",
         );
         dropped?;

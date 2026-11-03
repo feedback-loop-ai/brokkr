@@ -97,7 +97,7 @@ impl Checking {
     /// The reading carried over `event`, the run's next.
     pub(crate) fn note(&mut self, event: &EventEnvelope) {
         if event.event_type == EventType::PhaseEntered {
-            self.phase = field(&event.payload, "phase").map(str::to_string);
+            self.phase = super::entered_phase(event).map(str::to_string);
             return;
         }
         if event.event_type != EventType::EffectCheckpointed {

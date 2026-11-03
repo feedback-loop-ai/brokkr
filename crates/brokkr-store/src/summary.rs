@@ -30,7 +30,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::acknowledgement::standing;
 use crate::event_index::{
-    finished, first_unindexed, runless, write_all_checkpoints, write_checkpoints, write_parks,
+    finished, first_unindexed, runless, write_all_available, write_checkpoints, write_parks,
     write_sealed, IndexReading,
 };
 use crate::schema::all_present;
@@ -528,7 +528,9 @@ pub(crate) fn refold_once(conn: &mut Connection, account: &Account) -> Result<()
         )?;
         seat_summary::write(&tx, account, None)?;
         write_parks(&tx, account)?;
-        write_all_checkpoints(&tx, account)?;
+        // A legacy checkpoint count the index cannot hold refuses its own
+        // run, not the journal's open.
+        write_all_available(&tx, account)?;
     }
     tx.commit()?;
     Ok(())
@@ -673,7 +675,20 @@ impl Store {
     ) -> Result<(), StoreError> {
         let mut after: Option<String> = None;
         while let Some(run_id) = self.run_after(after.as_deref())? {
-            each(&run_id, self.compared(&run_id, || {})?);
+            let compared = match self.compared(&run_id, || {}) {
+                Ok(compared) => compared,
+                // The run's own projection refusal is its finding, never the
+                // sweep's end: the other runs are still compared and the
+                // doctor still names it (decision 0089 rulings 4 and 8).
+                Err(error @ StoreError::TokenCountOutOfRange(..)) => {
+                    Compared::Disagrees(Disagreement::Unread {
+                        run_id: run_id.clone(),
+                        error,
+                    })
+                }
+                Err(error) => return Err(error),
+            };
+            each(&run_id, compared);
             after = Some(run_id);
         }
         Ok(())

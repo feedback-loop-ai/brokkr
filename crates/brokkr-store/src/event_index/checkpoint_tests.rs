@@ -14,7 +14,8 @@ use rusqlite::params;
 use serde_json::{json, Value as Json};
 
 use crate::test_support::{
-    append, at, every_run_reads_as_its_fold, lags, opened, plant_older_writer, refolded, text,
+    append, at, every_run_reads_as_its_fold, lags, opened, plant_envelope, plant_older_writer,
+    refolded, text,
 };
 use crate::tests::envelope_builder::EnvelopeBuilder;
 use crate::tests::store;
@@ -61,6 +62,28 @@ fn checkpointed_row(store: &mut Store, record: Json) -> Vec<Value> {
         checkpoint(Some("m"), record),
     );
     kept(store, "r", event.seq)
+}
+
+/// `run_id`'s events in seq order from 1, each chained onto the one before:
+/// a test's journal, built the way the store's seal chains it.
+fn chained(run_id: &str, events: Vec<(EventType, Json)>) -> Vec<EventEnvelope> {
+    let mut previous = brokkr_core::canonical::ZERO_HASH.to_string();
+    events
+        .into_iter()
+        .enumerate()
+        .map(|(at, (event_type, payload))| {
+            let seq = at as u64 + 1;
+            let event = EnvelopeBuilder::new(event_type, payload)
+                .run(run_id)
+                .seq(seq)
+                .event_id(format!("{run_id}-{seq}"))
+                .at("2026-01-01T00:00:00Z")
+                .previous(previous.clone())
+                .sealed();
+            previous.clone_from(&event.event_hash);
+            event
+        })
+        .collect()
 }
 
 #[test]
@@ -279,6 +302,40 @@ fn a_site_s_second_session_record_flips_the_first_to_zero() {
     assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
 }
 
+/// A writer from before the facts inserts a finishing record without them:
+/// the trigger moves the earlier flag as the event lands, the new row is a
+/// lag rather than a false disagreement, and the open's walk writes both
+/// (decision 0089 rulings 4 and 7).
+#[test]
+fn an_older_writer_s_second_session_record_moves_the_first_flag() {
+    let (_dir, mut store) = store();
+    let first = one_checkpoint(&mut store, json!({"step": "claude-session-finished"}));
+    let second = EnvelopeBuilder::new(
+        EventType::EffectCheckpointed,
+        checkpoint(Some("m"), json!({"step": "claude-session-finished"})),
+    )
+    .run("r")
+    .seq(first.seq + 1)
+    .event_id("r-older")
+    .at("2026-01-01T00:00:09Z")
+    .previous(first.event_hash.clone())
+    .sealed();
+    plant_envelope(&store.conn, &second).unwrap();
+    // The event's trigger moves the flag; its own row keeps no facts, so
+    // the run is a lag and the doctor names no corruption.
+    assert_eq!(kept(&store, "r", first.seq)[9], Value::Integer(0));
+    assert_eq!(kept(&store, "r", second.seq)[10], Value::Null);
+    assert_eq!(
+        crate::test_support::disagreements(&store),
+        Vec::<String>::new()
+    );
+    lags(&mut store, &["r"]);
+    let store = refolded(store);
+    assert_eq!(kept(&store, "r", first.seq)[9], Value::Integer(0));
+    assert_eq!(kept(&store, "r", second.seq)[9], Value::Integer(1));
+    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+}
+
 /// The session flag's one mover searches the partial index of its site's
 /// later session rows, and the facts' write searches the row's key; no
 /// write walks the run's checkpoints.
@@ -307,6 +364,24 @@ fn the_session_mover_and_the_facts_write_search_their_indexes() {
           attempt_id=? AND member=? AND seq<?)"
         ]
     );
+    let inserted = crate::test_support::trigger_body(
+        &store,
+        "event_index_checkpoint_finished",
+        &[
+            ("NEW.run_id", "'r'"),
+            ("NEW.seq", "1000"),
+            (
+                "NEW.envelope",
+                r#"'{"type":"effect/checkpointed","payload":{"attempt_id":"a",
+                    "checkpoint":{"member":"m","step":"claude-session-finished"}}}'"#,
+            ),
+        ],
+    );
+    assert_eq!(
+        crate::test_support::plan(&store, &inserted, []).unwrap()[0],
+        "SEARCH event_index USING COVERING INDEX event_index_checkpoint_session (run_id=? AND \
+         attempt_id=? AND member=? AND seq<?)"
+    );
 }
 
 /// Appending a checkpoint to a run with N checkpoints visits the same VM
@@ -321,22 +396,18 @@ fn an_appended_checkpoint_visits_the_same_steps_at_every_n() {
     let mut steps = Vec::new();
     for n in [200u64, 400] {
         let run_id = format!("r{n}");
-        let mut previous = brokkr_core::canonical::ZERO_HASH.to_string();
-        let mut events = Vec::new();
-        for seq in 1..=n {
-            let event = EnvelopeBuilder::new(
-                EventType::EffectCheckpointed,
-                checkpoint(Some("m"), json!({"step": "seat-turn"})),
-            )
-            .run(&run_id)
-            .seq(seq)
-            .event_id(format!("{run_id}-{seq}"))
-            .at("2026-01-01T00:00:00Z")
-            .previous(previous.clone())
-            .sealed();
-            previous.clone_from(&event.event_hash);
-            events.push(event);
-        }
+        let events = chained(
+            &run_id,
+            (1..=n)
+                .map(|_| {
+                    (
+                        EventType::EffectCheckpointed,
+                        checkpoint(Some("m"), json!({"step": "seat-turn"})),
+                    )
+                })
+                .collect(),
+        );
+        let previous = events.last().unwrap().event_hash.clone();
         plant_older_writer(&store, &run_id, &events);
         store.checkpoint_behind_with(|_| {}).unwrap();
         let next = EnvelopeBuilder::new(
@@ -377,6 +448,42 @@ fn an_appended_checkpoint_visits_the_same_steps_at_every_n() {
     );
 }
 
+/// A no-carry append's phase lookup is keyed on the phase rows alone:
+/// finding the run's phase behind N checkpoints visits the same VM steps at
+/// every N, never scanning the checkpoints back to the last phase event
+/// (decision 0089 rulings 7 and 9).
+#[test]
+fn the_no_carry_phase_lookup_visits_the_same_steps_at_every_n() {
+    use super::checkpoint::PHASE_BEFORE;
+    use rusqlite::StatementStatus;
+
+    let (_dir, store) = store();
+    let mut steps = Vec::new();
+    for n in [200u64, 400] {
+        let run_id = format!("p{n}");
+        let events = chained(
+            &run_id,
+            std::iter::once((EventType::PhaseEntered, json!({"phase": "implement"})))
+                .chain((2..=n + 1).map(|_| {
+                    (
+                        EventType::EffectCheckpointed,
+                        checkpoint(Some("m"), json!({"step": "seat-turn"})),
+                    )
+                }))
+                .collect(),
+        );
+        plant_older_writer(&store, &run_id, &events);
+        let mut query = store.conn.prepare(&PHASE_BEFORE).unwrap();
+        query.reset_status(StatementStatus::VmStep);
+        let found: Option<String> = query
+            .query_row(params![&run_id, (n + 2) as i64], |row| row.get(0))
+            .unwrap();
+        assert!(found.is_some());
+        steps.push(query.reset_status(StatementStatus::VmStep));
+    }
+    assert_eq!(steps[0], steps[1], "the phase lookup is keyed: {steps:?}");
+}
+
 /// A trigger restored after it was gone reconciles the session flag a
 /// writer moved while it was missing: the repair sends the checkpoints
 /// behind and the open's walk writes their flags again.
@@ -386,7 +493,10 @@ fn restoring_the_checkpoint_trigger_sends_the_facts_it_missed_behind() {
     let first = one_checkpoint(&mut store, json!({"step": "claude-session-finished"}));
     store
         .conn
-        .execute_batch("DROP TRIGGER event_index_checkpoint_moved")
+        .execute_batch(
+            "DROP TRIGGER event_index_checkpoint_moved;
+             DROP TRIGGER event_index_checkpoint_finished",
+        )
         .unwrap();
     let second = append(
         &mut store,
@@ -394,7 +504,7 @@ fn restoring_the_checkpoint_trigger_sends_the_facts_it_missed_behind() {
         EventType::EffectCheckpointed,
         checkpoint(Some("m"), json!({"step": "claude-session-finished"})),
     );
-    // The trigger was gone, so the earlier record still holds the flag.
+    // The triggers were gone, so the earlier record still holds the flag.
     assert_eq!(kept(&store, "r", first.seq)[9], Value::Integer(1));
     assert_eq!(kept(&store, "r", second.seq)[9], Value::Integer(1));
     lags(&mut store, &["r"]);
@@ -596,6 +706,80 @@ fn a_token_count_past_the_index_s_bound_is_refused_by_name() {
         crate::test_support::indexed_seqs(&store, "r", "effect/checkpointed"),
         Vec::<u64>::new()
     );
+}
+
+/// A legacy checkpoint whose token count the index cannot hold refuses its
+/// own run by name: the journal still opens, the healthy run still reads,
+/// and the backfill stays unfinished (decision 0089 rulings 4 and 8).
+#[test]
+fn an_oversized_legacy_checkpoint_does_not_block_the_journal() {
+    let (_dir, mut store) = store();
+    opened(&mut store, "healthy", "implement", &[]);
+    let healthy = append(
+        &mut store,
+        "healthy",
+        EventType::EffectCheckpointed,
+        checkpoint(Some("m"), json!({"step": "seat-turn"})),
+    );
+    let mut record = json!({"member": "m", "step": "seat-turn"});
+    record["input_tokens"] = Json::from(9_223_372_036_854_775_808u64);
+    let mut previous = brokkr_core::canonical::ZERO_HASH.to_string();
+    let mut events = Vec::new();
+    for (seq, event_type, payload) in [
+        (
+            1,
+            EventType::RunStarted,
+            json!({"feature": "a feature", "manifest": {}}),
+        ),
+        (2, EventType::PhaseEntered, json!({"phase": "implement"})),
+        (
+            3,
+            EventType::EffectRequested,
+            json!({"effect_id": "fx", "seat": "implement"}),
+        ),
+        (
+            4,
+            EventType::EffectStarted,
+            json!({"effect_id": "fx", "attempt_id": "a1"}),
+        ),
+        (
+            5,
+            EventType::EffectCheckpointed,
+            checkpoint(Some("m"), record.clone()),
+        ),
+    ] {
+        let event = EnvelopeBuilder::new(event_type, payload)
+            .run("legacy")
+            .seq(seq)
+            .event_id(format!("legacy-{seq}"))
+            .at("2026-01-01T00:00:00Z")
+            .previous(previous)
+            .sealed();
+        previous = event.event_hash.clone();
+        events.push(event);
+    }
+    plant_older_writer(&store, "legacy", &events);
+    let path = store.path().to_path_buf();
+    drop(store);
+    let store = Store::open(&path).unwrap();
+    assert!(!backfilled(&store.conn).unwrap());
+    let named = crate::test_support::disagreements(&store);
+    assert!(
+        named
+            .iter()
+            .any(|found| found.contains("legacy") && found.contains("input_tokens")),
+        "{named:?}"
+    );
+    assert!(
+        !named.iter().any(|found| found.contains("healthy")),
+        "the healthy run still reads: {named:?}"
+    );
+    // The next open refuses the same run by name and still opens.
+    let path = store.path().to_path_buf();
+    drop(store);
+    let store = Store::open(&path).unwrap();
+    assert!(!backfilled(&store.conn).unwrap());
+    assert_eq!(kept(&store, "healthy", healthy.seq)[10], Value::Integer(1));
 }
 
 /// A run a peer moves while the checkpoint backfill reads it is left for
