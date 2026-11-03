@@ -20,7 +20,7 @@ use rusqlite::{params, Connection, ToSql};
 
 use crate::import::INSERT_EVENT;
 use crate::summary::{Compared, Listed};
-use crate::{Disagreement, Store};
+use crate::{Disagreement, IndexFault, Store};
 
 mod generated;
 
@@ -468,4 +468,160 @@ pub fn linked(store: &mut Store, entry: crate::EntryId, run: &str) {
     );
     let claim = claimed.unwrap().unwrap();
     (store.queue_link(claim, crate::Generation(1), run, "test")).unwrap();
+}
+
+/// `columns` of one row of `run_id`, read by its key.
+pub fn kept_facts(store: &Store, run_id: &str, seq: u64, columns: &[&str]) -> Vec<Value> {
+    let select = format!(
+        "SELECT {} FROM event_index WHERE run_id = ?1 AND seq = ?2",
+        columns.join(", ")
+    );
+    store
+        .conn
+        .query_row(&select, params![run_id, seq as i64], |row| {
+            (0..columns.len()).map(|at| row.get(at)).collect()
+        })
+        .unwrap()
+}
+
+/// The event's own time in milliseconds.
+pub fn at(event: &EventEnvelope) -> i64 {
+    brokkr_core::stamp::parse_millis(&event.recorded_at).unwrap()
+}
+
+/// A run created and carried by this store, started under a feature, with
+/// `phase` entered, and then `steps`.
+pub fn opened(
+    store: &mut Store,
+    run_id: &str,
+    phase: &str,
+    steps: &[(EventType, serde_json::Value)],
+) {
+    store
+        .create_run(run_id, "a feature", "self", &serde_json::json!({}))
+        .unwrap();
+    append(
+        store,
+        run_id,
+        EventType::RunStarted,
+        serde_json::json!({"feature": "a feature", "manifest": {}}),
+    );
+    append(
+        store,
+        run_id,
+        EventType::PhaseEntered,
+        serde_json::json!({"phase": phase}),
+    );
+    for (event_type, payload) in steps {
+        append(store, run_id, *event_type, payload.clone());
+    }
+}
+
+/// `store`'s journal opened again read-write, which repairs its projections.
+pub fn refolded(store: Store) -> Store {
+    let path = store.path().to_path_buf();
+    drop(store);
+    Store::open(&path).unwrap()
+}
+
+/// What the doctor's sweep names, as words: empty where every run reads as
+/// its fold.
+pub fn disagreements(store: &Store) -> Vec<String> {
+    store
+        .summary_disagreements()
+        .unwrap()
+        .iter()
+        .map(ToString::to_string)
+        .collect()
+}
+
+/// Every fixture journal planted as an older writer leaves it, each run's
+/// id and events, in name order: the projections' backfills are the
+/// caller's, so each walks only what it keeps.
+pub fn planted_fixtures(store: &Store) -> Vec<(String, Vec<EventEnvelope>)> {
+    fixture_events()
+        .into_iter()
+        .map(|(_, _, events)| {
+            let run_id = events[0].run_id.clone();
+            plant_older_writer(store, &run_id, &events);
+            (run_id, events)
+        })
+        .collect()
+}
+
+/// Edit each of `columns` on `run_id`'s row at `seq` to a value that is
+/// not the one `held` has, assert ruling 4's comparison names that column
+/// or passes it as lagging when it is `behind`, and restore it. The names
+/// are returned in the order they were checked.
+pub fn each_column_named(
+    store: &Store,
+    run_id: &str,
+    seq: u64,
+    columns: &[&str],
+    held: &[Value],
+    behind: Option<&str>,
+) -> Vec<String> {
+    let mut named = Vec::new();
+    for (at, column) in columns.iter().enumerate() {
+        let edit = format!(
+            "UPDATE event_index SET {column} = ?1 WHERE run_id = '{run_id}' AND seq = {seq}"
+        );
+        let wrong = match &held[at] {
+            Value::Text(_) => text("edited"),
+            Value::Real(_) => Value::Real(1.5),
+            Value::Integer(1) => Value::Integer(2),
+            _ => Value::Integer(1),
+        };
+        store.conn.execute(&edit, [&wrong]).unwrap();
+        let read = store.compared(run_id, || {}).unwrap();
+        if Some(*column) == behind {
+            assert!(matches!(read, Compared::Behind), "{column}: {read:?}");
+        } else {
+            match read {
+                Compared::Disagrees(Disagreement::Indexed {
+                    fault: IndexFault::Column(found),
+                    ..
+                }) => assert_eq!(found, *column),
+                other => panic!("{column}: {other:?}"),
+            }
+        }
+        named.push(column.to_string());
+        store.conn.execute(&edit, [&held[at]]).unwrap();
+    }
+    named
+}
+
+/// The seqs of `run_id`'s index rows of `event_type`, in order.
+pub fn indexed_seqs(store: &Store, run_id: &str, event_type: &str) -> Vec<u64> {
+    let mut statement = store
+        .conn
+        .prepare("SELECT seq FROM event_index WHERE run_id = ?1 AND type = ?2 ORDER BY seq")
+        .unwrap();
+    let seqs = statement
+        .query_map(params![run_id, event_type], |row| row.get(0))
+        .unwrap();
+    seqs.map(|seq| seq.unwrap()).collect()
+}
+
+/// The body of the trigger `name`, its `BEGIN`-to-first-statement SQL,
+/// with each `(from, to)` applied: a test's plan is the journal's own
+/// trigger SQL, never a copy.
+pub fn trigger_body(store: &Store, name: &str, bindings: &[(&str, &str)]) -> String {
+    let trigger: String = store
+        .conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?1",
+            [name],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let mut body = trigger
+        .split_once("BEGIN")
+        .and_then(|(_, rest)| rest.split_once(';'))
+        .map(|(update, _)| update.to_string())
+        .unwrap();
+    for (from, to) in bindings {
+        body = body.replace(from, to);
+    }
+    body
 }

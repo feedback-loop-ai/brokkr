@@ -6,62 +6,24 @@
 
 use super::*;
 use brokkr_core::envelope::{ChainError, EventEnvelope, EventType};
-use brokkr_core::stamp::parse_millis;
 use brokkr_core::summary::{parks, Bounded, NAME_BYTES};
 use rusqlite::params;
-use serde_json::{json, Value as Json};
+use serde_json::json;
 
 use super::park_walk::PARK_STALE;
-use super::{index_intact, parked, IndexFault, PARK_COLUMNS};
+use super::{index_intact, parked, PARK_COLUMNS};
 use crate::summary::Compared;
 use crate::test_support::{
-    append, every_run_reads_as_its_fold, fixture_events, lags, plant_envelope, plant_older_writer,
-    text,
+    append, at, disagreements, every_run_reads_as_its_fold, fixture_events, lags, opened,
+    plant_envelope, plant_older_writer, refolded, text,
 };
 use crate::tests::envelope_builder::EnvelopeBuilder;
 use crate::tests::store;
-use crate::{Disagreement, Store, StoreError};
+use crate::{Store, StoreError};
 
-/// A park's dated facts, by their columns' order: `phase`, `at_ms`,
-/// `answered_ms`, `ended_ms`, `span_class`, and the head they cover.
+/// A park's dated facts, by their columns' order.
 fn kept(store: &Store, run_id: &str, seq: u64) -> Vec<Value> {
-    let select = format!(
-        "SELECT {} FROM event_index WHERE run_id = ?1 AND seq = ?2",
-        PARK_COLUMNS.join(", ")
-    );
-    store
-        .conn
-        .query_row(&select, params![run_id, seq as i64], |row| {
-            (0..PARK_COLUMNS.len()).map(|at| row.get(at)).collect()
-        })
-        .unwrap()
-}
-
-fn at(event: &EventEnvelope) -> i64 {
-    parse_millis(&event.recorded_at).unwrap()
-}
-
-/// A run created and carried by this store, started under a feature,
-/// with `phase` entered, and then `steps`.
-fn opened(store: &mut Store, run_id: &str, phase: &str, steps: &[(EventType, Json)]) {
-    store
-        .create_run(run_id, "a feature", "self", &json!({}))
-        .unwrap();
-    append(
-        store,
-        run_id,
-        EventType::RunStarted,
-        json!({"feature": "a feature", "manifest": {}}),
-    );
-    append(
-        store,
-        run_id,
-        EventType::PhaseEntered,
-        json!({"phase": phase}),
-    );
-    for (event_type, payload) in steps {
-        append(store, run_id, *event_type, payload.clone());
-    }
+    crate::test_support::kept_facts(store, run_id, seq, &PARK_COLUMNS)
 }
 
 /// A run with `phase` entered and one park opened by this store, which
@@ -124,13 +86,6 @@ fn plant_before_parks(store: &Store, run_id: &str, events: &[EventEnvelope]) {
     kept_before_parks(store, run_id);
 }
 
-/// `store`'s journal opened again read-write, which repairs its parks.
-fn refolded(store: Store) -> Store {
-    let path = store.path().to_path_buf();
-    drop(store);
-    Store::open(&path).unwrap()
-}
-
 /// A run parked, answered and then moved on by this store: its park is
 /// closed at the move.
 fn parked_and_moved(store: &mut Store) {
@@ -144,17 +99,6 @@ fn parked_and_moved(store: &mut Store) {
             (EventType::PhaseEntered, json!({"phase": "review"})),
         ],
     );
-}
-
-/// What the doctor's sweep names, as words: empty where every run reads as
-/// its fold.
-fn disagreements(store: &Store) -> Vec<String> {
-    store
-        .summary_disagreements()
-        .unwrap()
-        .iter()
-        .map(ToString::to_string)
-        .collect()
 }
 
 /// `run_id` is a lag the doctor passes, never a disagreement, and the next
@@ -266,32 +210,14 @@ fn each_park_column_that_is_not_its_fold_s_is_named() {
     let (_dir, mut store) = store();
     parked_and_moved(&mut store);
     let held = kept(&store, "r", 3);
-    let mut named = Vec::new();
-    for (at, column) in PARK_COLUMNS.iter().enumerate() {
-        let edit = format!("UPDATE event_index SET {column} = ?1 WHERE run_id = 'r' AND seq = 3");
-        let wrong = match &held[at] {
-            Value::Text(_) => text("edited"),
-            Value::Integer(1) => Value::Integer(2),
-            _ => Value::Integer(1),
-        };
-        store.conn.execute(&edit, [&wrong]).unwrap();
-        let read = store.compared("r", || {}).unwrap();
-        if *column == "facts_seq" {
-            // A stamp off the head is a lag, not an edit: the next writable
-            // open refolds the park, so the comparison names it as behind.
-            assert!(matches!(read, Compared::Behind), "{column}: {read:?}");
-        } else {
-            match read {
-                Compared::Disagrees(Disagreement::Indexed {
-                    fault: IndexFault::Column(found),
-                    ..
-                }) => assert_eq!(found, *column),
-                other => panic!("{column}: {other:?}"),
-            }
-        }
-        named.push(column.to_string());
-        store.conn.execute(&edit, [&held[at]]).unwrap();
-    }
+    let named = crate::test_support::each_column_named(
+        &store,
+        "r",
+        3,
+        &PARK_COLUMNS,
+        &held,
+        Some("facts_seq"),
+    );
     assert_eq!(
         named,
         PARK_COLUMNS
@@ -696,24 +622,13 @@ fn an_index_from_before_the_parks_is_made_anew_and_refolded() {
 #[test]
 fn every_fixture_keeps_what_the_parks_read() {
     let (_dir, mut store) = store();
+    let fixtures = crate::test_support::planted_fixtures(&store);
+    store.park_behind_with(|_| {}).unwrap();
     let mut wrong = Vec::new();
-    for (_, _, events) in fixture_events() {
-        let run_id = events[0].run_id.clone();
-        plant_older_writer(&store, &run_id, &events);
-        store.park_behind_with(|_| {}).unwrap();
+    for (run_id, events) in fixtures {
         let expected = parks(&events);
-        let found: Vec<u64> = {
-            let mut statement = store
-                .conn
-                .prepare(
-                    "SELECT seq FROM event_index WHERE run_id = ?1 AND type = 'run/parked'
-                     ORDER BY seq",
-                )
-                .unwrap();
-            let seqs = statement.query_map([&run_id], |row| row.get(0)).unwrap();
-            seqs.map(|seq| seq.unwrap()).collect()
-        };
         let want_seqs: Vec<u64> = expected.iter().map(|park| park.seq).collect();
+        let found = crate::test_support::indexed_seqs(&store, &run_id, "run/parked");
         if found != want_seqs {
             wrong.push(format!("{run_id}: parks {found:?}, read {want_seqs:?}"));
             continue;
@@ -947,22 +862,11 @@ fn sending_a_park_behind_visits_only_the_park_rows() {
     use rusqlite::StatementStatus;
 
     let (_dir, store) = store();
-    let trigger: String = store
-        .conn
-        .query_row(
-            "SELECT sql FROM sqlite_master
-             WHERE type = 'trigger' AND name = 'event_index_park_moved'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    let update = trigger
-        .split_once("BEGIN")
-        .and_then(|(_, rest)| rest.split_once(';'))
-        .map(|(update, _)| update)
-        .unwrap()
-        .replace("NEW.run_id", "'r'")
-        .replace("NEW.seq", "1000");
+    let update = crate::test_support::trigger_body(
+        &store,
+        "event_index_park_moved",
+        &[("NEW.run_id", "'r'"), ("NEW.seq", "1000")],
+    );
     assert_eq!(
         crate::test_support::plan(&store, &update, []).unwrap(),
         [

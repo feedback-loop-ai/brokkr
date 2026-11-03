@@ -1,26 +1,33 @@
 //! Ruling 4's comparison of a run's index rows with its events: the
 //! expected columns of one row at a time, the first seq where a row is
-//! not its event's, and the park facts left for the refold that writes
-//! them.
+//! not its event's, and a park's or a checkpoint's dated facts left for the
+//! refold that writes them.
+
+use std::collections::BTreeMap;
+use std::sync::LazyLock;
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::event_index::Indexed;
-use brokkr_core::summary::Park;
+use brokkr_core::summary::{checkpoints, parks, Checkpoint, Park};
 use rusqlite::types::{Value, ValueRef};
+use rusqlite::Connection;
 
+use super::checkpoint::{facts as checkpoint_facts, row_columns, COLUMNS as CHECKPOINT_COLUMNS};
 use super::{park_facts, IndexFault, PARK_COLUMNS};
 use crate::StoreError;
 
 /// The columns `event` projects to after its key, by name: the event's
-/// own, and the dated facts a park's row keeps, which the `run/parked`
-/// event itself does not state, so `park` is the whole run's reading of
-/// it and `head` the seq that reading covers. A `run/parked` event core
-/// read no park for is one whose stamp did not parse: its row keeps no
-/// dated facts, but it is still processed at `head`, so its `facts_seq`
-/// is the head rather than NULL.
+/// own, the dated facts a park's row keeps and then the dated facts a
+/// checkpoint's row keeps. `park` is the whole run's reading of the event
+/// where it is a `run/parked` row, `checkpoint` the reading where it is an
+/// `effect/checkpointed` row, and `head` the seq the park's reading covers.
+/// A row core read no facts for is one whose stamp did not parse or which
+/// named no attempt: its facts are null, but it is still processed, so a
+/// park's `facts_seq` is the head and a checkpoint's `facts` is 1.
 pub(super) fn projects(
     event: &EventEnvelope,
     park: Option<&Park>,
+    checkpoint: Option<&Checkpoint>,
     head: u64,
 ) -> Vec<(&'static str, Value)> {
     let indexed = Indexed::of(event);
@@ -37,6 +44,23 @@ pub(super) fn projects(
         None if event.event_type == EventType::RunParked => park_facts(None, head),
         None => std::array::from_fn(|_| Value::Null),
     }));
+    let is_checkpoint = checkpoint.is_some() || event.event_type == EventType::EffectCheckpointed;
+    let checkpoint_facts = match checkpoint {
+        Some(checkpoint) => checkpoint_facts(Some(checkpoint)),
+        None if is_checkpoint => checkpoint_facts(None),
+        None => std::array::from_fn(|_| Value::Null),
+    };
+    for (value, column) in checkpoint_facts.into_iter().zip(CHECKPOINT_COLUMNS) {
+        if is_checkpoint && PARK_COLUMNS.contains(&column) {
+            // The time and phase are one column each on the row, a park's
+            // and a checkpoint's; a checkpoint's own facts fill them.
+            if let Some((_, held)) = columns.iter_mut().find(|(name, _)| *name == column) {
+                *held = value;
+            }
+        } else if !PARK_COLUMNS.contains(&column) {
+            columns.push((column, value));
+        }
+    }
     columns
 }
 
@@ -52,8 +76,9 @@ pub(crate) fn first_parted(
 }
 
 /// [`first_parted`], also marking in `stale` a row whose park facts stand
-/// behind its head: its dated columns are not compared, since the refold
-/// that writes them is what a later open does.
+/// behind its head or whose checkpoint facts are not written: its dated
+/// columns are not compared, since the refold that writes them is what a
+/// later open does.
 pub(super) fn first_parted_at(
     mut rows: rusqlite::Rows<'_>,
     mut expected: impl Iterator<Item = (u64, Vec<(&'static str, Value)>)>,
@@ -72,10 +97,21 @@ pub(super) fn first_parted_at(
     }
 }
 
-/// The dated columns a park's row keeps, [`PARK_COLUMNS`], which a stale
-/// stamp leaves for the refold.
-fn dated(column: &str) -> bool {
-    PARK_COLUMNS.contains(&column)
+/// Whether `row` stands behind the marker `name`, the column whose written
+/// value says the facts it covers were computed at the head expected: a
+/// park's `facts_seq`, a checkpoint's `facts`.
+fn behind(
+    expected: &[(&'static str, Value)],
+    row: &rusqlite::Row<'_>,
+    name: &str,
+) -> Result<bool, StoreError> {
+    let Some(at) = expected.iter().position(|(column, _)| *column == name) else {
+        return Ok(false);
+    };
+    if !matches!(expected[at].1, Value::Integer(_)) {
+        return Ok(false);
+    }
+    Ok(row.get_ref(at + 1)? != ValueRef::from(&expected[at].1))
 }
 
 /// Where `row` parts from the row expected at `key`, each the next of
@@ -84,8 +120,9 @@ fn dated(column: &str) -> bool {
 /// carried in its bits ([`place`] reads it back), as [`super::first_parted`]
 /// carries one past every expected key. A column is compared as its
 /// bytes, so a text that is not UTF-8 parts there as the column it is.
-/// A park whose `facts_seq` is not its run's head is a lag: its immutable
-/// columns are compared, its dated columns are not, and `stale` is set.
+/// A park whose `facts_seq` is not its run's head, or a checkpoint whose
+/// facts are not written, is a lag: its immutable columns are compared, its
+/// dated columns are not, and `stale` is set.
 fn parted(
     key: u64,
     expected: &[(&'static str, Value)],
@@ -100,21 +137,15 @@ fn parted(
             (found as u64, IndexFault::Stray)
         }));
     }
-    let facts = expected
-        .iter()
-        .position(|(column, _)| *column == "facts_seq");
-    let behind = match facts {
-        // Only a park's expected stamp is a seq; every other row's is NULL.
-        Some(at) if matches!(expected[at].1, Value::Integer(_)) => {
-            row.get_ref(at + 1)? != ValueRef::from(&expected[at].1)
-        }
-        Some(_) | None => false,
-    };
-    if behind {
+    let park_behind = behind(expected, row, "facts_seq")?;
+    let checkpoint_behind = behind(expected, row, "facts")?;
+    if park_behind || checkpoint_behind {
         *stale = true;
     }
     for (at, (column, value)) in expected.iter().enumerate() {
-        if behind && dated(column) {
+        let skipped = (park_behind && PARK_COLUMNS.contains(column))
+            || (checkpoint_behind && CHECKPOINT_COLUMNS.contains(column));
+        if skipped {
             continue;
         }
         if row.get_ref(at + 1)? != ValueRef::from(value) {
@@ -129,4 +160,77 @@ fn parted(
 /// below zero included.
 pub(crate) fn place(key: u64) -> i64 {
     key as i64
+}
+
+/// A run's index rows in seq order, by its key: what ruling 4 compares,
+/// the event's own columns, the park's dated ones and then the
+/// checkpoint's, in the order [`compare::projects`] gives them.
+pub(crate) static ROWS: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT seq, type, attempt_id, member, recorded_at, event_id, {}
+         FROM event_index WHERE run_id = ?1 ORDER BY seq",
+        PARK_COLUMNS
+            .iter()
+            .chain(row_columns().iter())
+            .copied()
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+});
+
+/// How a run's rows stand against its events (ruling 4): the first seq
+/// where a row is not its event's, a park whose dated facts are not its
+/// head's (a lag the next writable open refolds, never a disagreement),
+/// or every row its event's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IndexReading {
+    Agrees,
+    Behind,
+    Parted(u64, IndexFault),
+}
+
+/// The first seq where `run_id`'s index rows are not what `events`, the
+/// run read whole, project to, and how: the rows streamed beside the
+/// events, so the comparison holds the run and one row. A park whose
+/// facts are not written at the run's head is a lag: its immutable
+/// columns are still compared, and its dated facts are left for the
+/// refold that writes them.
+pub(crate) fn first_unindexed(
+    conn: &Connection,
+    run_id: &str,
+    events: &[EventEnvelope],
+) -> Result<IndexReading, StoreError> {
+    let mut statement = conn.prepare_cached(&ROWS)?;
+    let rows = statement.query([run_id])?;
+    let parks: BTreeMap<u64, Park> = parks(events)
+        .into_iter()
+        .map(|park| (park.seq, park))
+        .collect();
+    let checkpoints: BTreeMap<u64, Checkpoint> = checkpoints(events)
+        .into_iter()
+        .map(|checkpoint| (checkpoint.seq, checkpoint))
+        .collect();
+    let head = events.last().map_or(0, |event| event.seq);
+    let mut stale = false;
+    let parted = first_parted_at(
+        rows,
+        events.iter().map(|event| {
+            (
+                event.seq,
+                projects(
+                    event,
+                    parks.get(&event.seq),
+                    checkpoints.get(&event.seq),
+                    head,
+                ),
+            )
+        }),
+        &mut stale,
+    );
+    let parted = parted?;
+    Ok(match parted {
+        Some((seq, fault)) => IndexReading::Parted(seq, fault),
+        None if stale => IndexReading::Behind,
+        None => IndexReading::Agrees,
+    })
 }

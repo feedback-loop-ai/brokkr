@@ -2,27 +2,18 @@
 //! sites an agent resolution chose, with the provider each ran on, the
 //! model it reported, and each checkpoint it metered — its time and phase,
 //! its reported cost and its tokens; and every reported cost with its time
-//! and phase. One walk, read by the analytics readout and the recipe's
-//! graph alike (decision 0071 ruling 5).
+//! and phase. The checkpoints' facts are brokkr-core's one reading
+//! (decision 0089 ruling 7), which the writer keeps and the analytics
+//! readout and the recipe's graph share (decision 0071 ruling 5).
 
 use std::collections::BTreeMap;
 
+use brokkr_core::summary::{checkpoints, Checkpoint};
 use brokkr_core::{EventEnvelope, EventType};
 use serde_json::Value;
 
-use crate::meter::{self, sum_usage, Meter, Metering};
-use crate::{field, reported_cost, TokenUsage};
-
-/// One checkpoint of a site, read once at its edge.
-struct Metered {
-    at: i64,
-    /// The phase the run was in when the checkpoint was recorded.
-    phase: Option<String>,
-    reported: bool,
-    meter: Meter,
-    /// Whether it is the site's finishing session record.
-    session: bool,
-}
+use crate::meter::{self, sum_usage, Metering};
+use crate::{field, TokenUsage};
 
 /// One invocation site of one attempt that an agent resolution chose.
 pub(crate) struct Site {
@@ -31,7 +22,7 @@ pub(crate) struct Site {
     pub(crate) phase: Option<String>,
     pub(crate) provider: String,
     pub(crate) model: Option<String>,
-    metered: Vec<Metered>,
+    metered: Vec<Checkpoint>,
     by: Metering,
 }
 
@@ -58,14 +49,13 @@ impl Site {
         sum_usage(counted.filter_map(|metered| metered.meter.counted(self.by, metered.session)))
     }
 
-    fn kept<'a>(&'a self, keeps: Keeps<'a>) -> impl Iterator<Item = &'a Metered> + 'a {
+    fn kept<'a>(&'a self, keeps: Keeps<'a>) -> impl Iterator<Item = &'a Checkpoint> + 'a {
         let metered = self.metered.iter();
         metered.filter(move |metered| keeps(metered.at, metered.phase.as_deref()))
     }
 }
 
-/// One reported cost: the checkpoint records [`reported_cost`] reads, as
-/// `brokkr costs` sums them.
+/// One reported cost: a checkpoint record's, as `brokkr costs` sums it.
 pub(crate) struct Spend {
     pub(crate) at: i64,
     pub(crate) phase: Option<String>,
@@ -84,6 +74,8 @@ struct Walk<'a> {
     costs: Vec<Spend>,
     sites: Vec<Site>,
     by_site: BTreeMap<(&'a str, Option<&'a str>), usize>,
+    /// The run's checkpoints as brokkr-core reads them, by seq.
+    checkpoints: BTreeMap<u64, Checkpoint>,
 }
 
 impl<'a> Walk<'a> {
@@ -107,17 +99,22 @@ impl<'a> Walk<'a> {
         }
     }
 
-    /// One record of an attempt: the model it names, and its cost and
-    /// tokens when it is a checkpoint.
-    fn recorded(&mut self, at: i64, attempt: &'a str, record: Option<&'a Value>, priced: bool) {
+    /// One record of an attempt: the model it names, and, when it is a
+    /// checkpoint, the facts brokkr-core read of it.
+    fn recorded(&mut self, seq: u64, attempt: &'a str, record: Option<&'a Value>, priced: bool) {
         let Some(record) = record else { return };
-        let cost = priced.then(|| reported_cost(record)).flatten();
-        let phase = self.phase.map(str::to_string);
-        self.costs.extend(cost.map(|usd| Spend {
-            at,
-            phase: phase.clone(),
-            usd,
-        }));
+        let checkpoint = priced
+            .then(|| self.checkpoints.get(&seq).cloned())
+            .flatten();
+        if let Some(checkpoint) = &checkpoint {
+            if let Some(usd) = checkpoint.usd {
+                self.costs.push(Spend {
+                    at: checkpoint.at,
+                    phase: checkpoint.phase.clone(),
+                    usd,
+                });
+            }
+        }
         let Some(slot) = self.by_site.get(&(attempt, field(record, "member"))) else {
             return;
         };
@@ -125,26 +122,15 @@ impl<'a> Walk<'a> {
         if let Some(model) = field(record, "model") {
             site.model = Some(model.to_string());
         }
-        if priced {
-            let session =
-                field(record, "step").is_some_and(|step| step.ends_with("-session-finished"));
-            site.metered.push(Metered {
-                at,
-                phase,
-                reported: cost.is_some(),
-                meter: Meter::of(record),
-                session,
-            });
+        if let Some(checkpoint) = checkpoint {
+            site.metered.push(checkpoint);
         }
     }
 }
 
-/// Only the last finishing record a site wrote is its session record.
+/// Each message metered once, and the session record its site's last: the
+/// cycle rule [`meter::once`] states and the session flag brokkr-core reads.
 fn settle(mut site: Site) -> Site {
-    let last = site.metered.iter().rposition(|metered| metered.session);
-    for (index, metered) in site.metered.iter_mut().enumerate() {
-        metered.session = Some(index) == last;
-    }
     meter::once(site.metered.iter_mut().map(|metered| &mut metered.meter));
     let session = site.metered.iter().find(|metered| metered.session);
     let meters = site.metered.iter().map(|metered| &metered.meter);
@@ -154,7 +140,13 @@ fn settle(mut site: Site) -> Site {
 
 /// Every site and reported cost of one run's journal.
 pub(crate) fn attempts(events: &[EventEnvelope]) -> Attempts {
-    let mut walk = Walk::default();
+    let mut walk = Walk {
+        checkpoints: checkpoints(events)
+            .into_iter()
+            .map(|checkpoint| (checkpoint.seq, checkpoint))
+            .collect(),
+        ..Walk::default()
+    };
     for event in events {
         let payload = &event.payload;
         if event.event_type == EventType::PhaseEntered {
@@ -170,9 +162,11 @@ pub(crate) fn attempts(events: &[EventEnvelope]) -> Attempts {
         match event.event_type {
             EventType::EffectStarted => walk.started(at, attempt, payload),
             EventType::EffectCheckpointed => {
-                walk.recorded(at, attempt, payload.get("checkpoint"), true);
+                walk.recorded(event.seq, attempt, payload.get("checkpoint"), true);
             }
-            EventType::EffectSucceeded => walk.recorded(at, attempt, payload.get("result"), false),
+            EventType::EffectSucceeded => {
+                walk.recorded(event.seq, attempt, payload.get("result"), false);
+            }
             _ => {}
         }
     }

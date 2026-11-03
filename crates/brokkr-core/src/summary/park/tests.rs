@@ -5,25 +5,8 @@
 
 use super::*;
 use crate::envelope::EventType;
-use crate::envelope_builder::EnvelopeBuilder;
+use crate::summary::test_support::journal;
 use serde_json::json;
-
-/// The run's events at seq 1 onward, each stamped a second after the last
-/// unless `at` names another, sealed from their content.
-fn journal(steps: &[(EventType, serde_json::Value, &str)]) -> Vec<EventEnvelope> {
-    steps
-        .iter()
-        .enumerate()
-        .map(|(index, (event_type, payload, at))| {
-            let seq = index as u64 + 1;
-            EnvelopeBuilder::new(*event_type, payload.clone())
-                .seq(seq)
-                .event_id(format!("e{seq}"))
-                .at(*at)
-                .sealed()
-        })
-        .collect()
-}
 
 #[test]
 fn a_park_reads_its_phase_start_answer_and_end() {

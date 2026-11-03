@@ -5,6 +5,7 @@
 //! keyed reads read their indexes, and the comparison names where a run's
 //! rows part from its events.
 
+use super::compare::ROWS;
 use super::*;
 use crate::test_support::{plant_event, plant_run, unindex};
 use crate::tests::envelope_builder::EnvelopeBuilder;
@@ -45,7 +46,7 @@ fn run_of(store: &Store, run_id: &str, events: Vec<EnvelopeBuilder>) {
 
 /// `run_id`'s index rows as SQLite holds them, in seq order.
 fn rows(store: &Store, run_id: &str) -> Vec<Vec<Value>> {
-    let mut statement = store.conn.prepare(ROWS).unwrap();
+    let mut statement = store.conn.prepare(&ROWS).unwrap();
     let found = statement
         .query_map([run_id], |row| (0..5).map(|at| row.get(at)).collect())
         .unwrap();
@@ -533,6 +534,7 @@ fn every_fixture_s_events_are_indexed_as_brokkr_core_projects_them() {
             // event's, so the writer's backfill writes them; the trigger
             // writes the event's own columns.
             store.park_behind_with(|_| {}).unwrap();
+            store.checkpoint_behind_with(|_| {}).unwrap();
             let parted = first_unindexed(&store.conn, &run_id, &events).unwrap();
             let indexed = rows(&store, &run_id).len();
             (run_id, indexed, parted)
@@ -645,7 +647,7 @@ fn each_read_searches_its_index() {
             plan(&store, &STREAM, params!["r", "a", none, 0, 9, 50]),
             plan(&store, &STREAM, params!["r", "a", "m", 0, 9, 50]),
             plan(&store, ENVELOPE, params!["r", 1]),
-            plan(&store, ROWS, params!["r"]),
+            plan(&store, &ROWS, params!["r"]),
         ],
         [
             ["SEARCH event_index USING INDEX event_index_trail (run_id=?)"],
@@ -683,7 +685,7 @@ fn each_row_holds_its_event_s_id_and_a_cause_is_read_by_it() {
 
 /// The id each of `run_id`'s index rows holds, in seq order.
 fn ids(store: &Store, run_id: &str) -> Vec<Value> {
-    let mut statement = store.conn.prepare(ROWS).unwrap();
+    let mut statement = store.conn.prepare(&ROWS).unwrap();
     let found = statement.query_map([run_id], |row| row.get(5)).unwrap();
     found.collect::<Result<_, _>>().unwrap()
 }

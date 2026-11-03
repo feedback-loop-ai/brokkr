@@ -945,6 +945,7 @@ pub struct brokkr_core::seat::meter::Meter
 impl brokkr_core::seat::meter::Meter
 pub fn brokkr_core::seat::meter::Meter::counted(&self, brokkr_core::seat::meter::Metering, bool) -> core::option::Option<brokkr_core::seat::TokenUsage>
 pub fn brokkr_core::seat::meter::Meter::of(&serde_json::value::Value) -> brokkr_core::seat::meter::Meter
+pub fn brokkr_core::seat::meter::Meter::usage(&self) -> core::option::Option<&brokkr_core::seat::TokenUsage>
 pub fn brokkr_core::seat::meter::once<'a>(impl core::iter::traits::collect::IntoIterator<Item = &'a mut brokkr_core::seat::meter::Meter>)
 pub fn brokkr_core::seat::meter::sum_usage(impl core::iter::traits::iterator::Iterator<Item = brokkr_core::seat::TokenUsage>) -> core::option::Option<brokkr_core::seat::TokenUsage>
 pub mod brokkr_core::seat::row
@@ -1040,6 +1041,9 @@ pub brokkr_core::summary::Ending::ByRule(core::option::Option<alloc::string::Str
 pub brokkr_core::summary::Ending::Shipped
 pub struct brokkr_core::summary::Account
 impl brokkr_core::summary::Account
+pub fn brokkr_core::summary::Account::checkpoint(&self, u64) -> core::option::Option<&brokkr_core::summary::Checkpoint>
+pub fn brokkr_core::summary::Account::checkpoint_rows(&self) -> &[u64]
+pub fn brokkr_core::summary::Account::checkpoints(&self) -> alloc::vec::Vec<brokkr_core::summary::Checkpoint>
 pub fn brokkr_core::summary::Account::empty(&str) -> brokkr_core::summary::Account
 pub fn brokkr_core::summary::Account::head(&self) -> (u64, &str)
 pub fn brokkr_core::summary::Account::onto(self, &[brokkr_core::envelope::EventEnvelope]) -> brokkr_core::summary::Account
@@ -1064,6 +1068,16 @@ pub brokkr_core::summary::Bounded::cut: alloc::string::String
 pub brokkr_core::summary::Bounded::whole: core::option::Option<alloc::string::String>
 impl brokkr_core::summary::Bounded
 pub fn brokkr_core::summary::Bounded::within(&str, usize) -> brokkr_core::summary::Bounded
+pub struct brokkr_core::summary::Checkpoint
+pub brokkr_core::summary::Checkpoint::at: i64
+pub brokkr_core::summary::Checkpoint::attempt_id: alloc::string::String
+pub brokkr_core::summary::Checkpoint::member: core::option::Option<alloc::string::String>
+pub brokkr_core::summary::Checkpoint::meter: brokkr_core::seat::meter::Meter
+pub brokkr_core::summary::Checkpoint::phase: core::option::Option<alloc::string::String>
+pub brokkr_core::summary::Checkpoint::reported: bool
+pub brokkr_core::summary::Checkpoint::seq: u64
+pub brokkr_core::summary::Checkpoint::session: bool
+pub brokkr_core::summary::Checkpoint::usd: core::option::Option<f64>
 pub struct brokkr_core::summary::Hired
 pub brokkr_core::summary::Hired::failed_attempts: u64
 pub brokkr_core::summary::Hired::seat: brokkr_core::summary::Bounded
@@ -1129,6 +1143,7 @@ pub const brokkr_core::summary::PARK_REASON_BYTES: usize
 pub const brokkr_core::summary::REFUSAL_BYTES: usize
 pub const brokkr_core::summary::STAMP_BYTES: usize
 pub fn brokkr_core::summary::aggregate(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> brokkr_core::summary::Aggregate
+pub fn brokkr_core::summary::checkpoints(&[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_core::summary::Checkpoint>
 pub fn brokkr_core::summary::feature_line(&str) -> &str
 pub fn brokkr_core::summary::parks(&[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_core::summary::Park>
 pub enum brokkr_core::Cursor

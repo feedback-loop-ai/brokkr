@@ -25,10 +25,13 @@ use crate::seat::row::{SeatRow, Seats};
 use crate::stamp::parse_millis;
 
 mod aggregate;
+mod checkpoint;
 mod park;
 
 use aggregate::Reading;
 pub use aggregate::{aggregate, Aggregate, Ending};
+use checkpoint::Checking;
+pub use checkpoint::{checkpoints, Checkpoint};
 pub use park::{parks, Park};
 
 /// The bound of a name a run's data states: a phase, a rule id, the phase
@@ -201,6 +204,8 @@ pub struct Account {
     reading: Reading,
     /// Its parks (ruling 7).
     parks: park::Parking,
+    /// Its metered checkpoints (ruling 7).
+    checkpoints: Checking,
 }
 
 impl Account {
@@ -218,6 +223,7 @@ impl Account {
             seats: Seats::default(),
             reading: Reading::default(),
             parks: park::Parking::default(),
+            checkpoints: Checking::default(),
         }
     }
 
@@ -250,6 +256,7 @@ impl Account {
             self.seats.note(event);
             self.reading.note(event);
             self.parks.note(event);
+            self.checkpoints.note(event);
         }
         self.head = (last.seq, last.event_hash.clone());
         self.last_recorded_at = Some(last.recorded_at.clone());
@@ -297,6 +304,25 @@ impl Account {
     /// records its row processed, with no dated facts.
     pub fn park_rows(&self) -> &[u64] {
         self.parks.rows()
+    }
+
+    /// Its metered checkpoints, in seq order, each its site's last
+    /// finishing session record where it has one (ruling 7).
+    pub fn checkpoints(&self) -> Vec<Checkpoint> {
+        self.checkpoints.checkpoints()
+    }
+
+    /// The checkpoint at `seq`, where its facts could be read: the writer's
+    /// append writes one row without reading the run's others.
+    pub fn checkpoint(&self, seq: u64) -> Option<&Checkpoint> {
+        self.checkpoints.checkpoint(seq)
+    }
+
+    /// The seq of every `effect/checkpointed` event of the run, in order,
+    /// including one whose facts core could not read: the writer records its
+    /// row processed, with no facts.
+    pub fn checkpoint_rows(&self) -> &[u64] {
+        self.checkpoints.rows()
     }
 }
 
@@ -447,5 +473,7 @@ fn stated(account: &Account) -> String {
         .to_string()
 }
 
+#[cfg(test)]
+mod test_support;
 #[cfg(test)]
 mod tests;

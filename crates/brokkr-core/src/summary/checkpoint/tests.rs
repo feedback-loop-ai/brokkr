@@ -1,0 +1,144 @@
+//! The checkpoint projection (decision 0089 ruling 7): a checkpoint reads
+//! its time, the run's phase, the cost it reported or none, its tokens and
+//! whether it is its site's last finishing session record, only parseable
+//! stamps and named attempts are read, and every checkpoint row is named.
+
+use super::*;
+use crate::envelope::EventType;
+use crate::summary::test_support::journal;
+use crate::summary::Account;
+use serde_json::json;
+
+/// A checkpoint of attempt `a` naming `member`, its record `record`.
+fn checkpoint(
+    member: Option<&str>,
+    record: serde_json::Value,
+) -> (EventType, serde_json::Value, &'static str) {
+    let mut checkpoint = record;
+    if let (Some(member), Some(object)) = (member, checkpoint.as_object_mut()) {
+        object.insert("member".into(), json!(member));
+    }
+    (
+        EventType::EffectCheckpointed,
+        json!({"attempt_id": "a", "checkpoint": checkpoint}),
+        "2026-01-01T00:00:02Z",
+    )
+}
+
+#[test]
+fn a_checkpoint_reads_its_time_phase_cost_tokens_and_session() {
+    let events = journal(&[
+        (
+            EventType::PhaseEntered,
+            json!({"phase": "implement"}),
+            "2026-01-01T00:00:00Z",
+        ),
+        checkpoint(
+            Some("m"),
+            json!({
+                "step": "seat-turn",
+                "total_cost_usd": 0.25,
+                "input_tokens": 10,
+                "output_tokens": 4,
+                "cache_read_tokens": 3,
+                "cache_write_tokens": 2,
+                "reasoning_output_tokens": 1,
+            }),
+        ),
+        // A turn reporting no cost and no tokens is still a metered row.
+        checkpoint(Some("m"), json!({"step": "tool-use"})),
+    ]);
+    let read = checkpoints(&events);
+    assert_eq!(read.len(), 2);
+    assert_eq!(read[0].seq, 2);
+    assert_eq!(read[0].attempt_id, "a");
+    assert_eq!(read[0].member.as_deref(), Some("m"));
+    assert_eq!(read[0].at, 1_767_225_602_000);
+    assert_eq!(read[0].phase.as_deref(), Some("implement"));
+    assert!(read[0].reported);
+    assert_eq!(read[0].usd, Some(0.25));
+    assert_eq!(read[0].meter.usage().unwrap().input_tokens, Some(10));
+    assert_eq!(read[0].meter.usage().unwrap().output_tokens, Some(4));
+    assert_eq!(read[0].meter.usage().unwrap().cache_read_tokens, Some(3));
+    assert_eq!(read[0].meter.usage().unwrap().cache_write_tokens, Some(2));
+    assert_eq!(
+        read[0].meter.usage().unwrap().reasoning_output_tokens,
+        Some(1)
+    );
+    assert!(!read[0].session);
+    assert_eq!(read[1].seq, 3);
+    assert!(!read[1].reported);
+    assert_eq!(read[1].usd, None);
+    assert_eq!(read[1].meter.usage(), None);
+}
+
+#[test]
+fn only_the_last_session_record_of_a_site_keeps_the_flag() {
+    let finished = json!({"step": "claude-lanetally-session-finished"});
+    let events = journal(&[
+        checkpoint(Some("m"), finished.clone()),
+        checkpoint(Some("m"), json!({"step": "seat-turn"})),
+        checkpoint(
+            Some("m"),
+            json!({"step": "claude-lanetally-session-finished", "session_id": "b"}),
+        ),
+        // Another site's finishing record leaves this site's last one alone.
+        (
+            EventType::EffectCheckpointed,
+            json!({"attempt_id": "b", "checkpoint": {"member": "m",
+                "step": "claude-lanetally-session-finished"}}),
+            "2026-01-01T00:00:05Z",
+        ),
+    ]);
+    let read = checkpoints(&events);
+    assert_eq!(
+        read.iter()
+            .map(|checkpoint| checkpoint.session)
+            .collect::<Vec<_>>(),
+        [false, false, true, true]
+    );
+}
+
+#[test]
+fn a_checkpoint_reads_no_facts_where_its_stamp_or_attempt_does_not_read() {
+    let cases = [
+        (
+            json!({"attempt_id": "a", "checkpoint": {"step": "seat-turn"}}),
+            "not a stamp",
+        ),
+        (
+            json!({"checkpoint": {"step": "seat-turn"}}),
+            "2026-01-01T00:00:01Z",
+        ),
+    ];
+    for (payload, at) in cases {
+        let events = journal(&[(EventType::EffectCheckpointed, payload, at)]);
+        assert_eq!(checkpoints(&events), []);
+        let mut checking = Checking::default();
+        for event in &events {
+            checking.note(event);
+        }
+        assert_eq!(checking.rows(), [1]);
+        assert_eq!(checking.checkpoint(1), None);
+    }
+}
+
+#[test]
+fn the_account_carries_every_checkpoint_it_reads() {
+    let events = journal(&[
+        checkpoint(Some("m"), json!({"step": "seat-turn"})),
+        checkpoint(Some("m"), json!({"step": "tool-use"})),
+    ]);
+    let account = Account::whole("r", &events);
+    assert_eq!(account.checkpoints().len(), 2);
+    assert_eq!(account.checkpoint(1).unwrap().seq, 1);
+    assert_eq!(account.checkpoint(2).unwrap().seq, 2);
+    assert_eq!(account.checkpoint(3), None);
+    assert_eq!(account.checkpoint_rows(), [1, 2]);
+    let mut checking = Checking::default();
+    for event in &events {
+        checking.note(event);
+    }
+    assert_eq!(checking.rows(), [1, 2]);
+    assert_eq!(checking.checkpoint(1).unwrap().seq, 1);
+}

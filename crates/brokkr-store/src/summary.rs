@@ -29,7 +29,10 @@ use rusqlite::types::Value;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::acknowledgement::standing;
-use crate::event_index::{finished, first_unindexed, runless, write_parks, IndexReading};
+use crate::event_index::{
+    finished, first_unindexed, runless, write_all_checkpoints, write_checkpoints, write_parks,
+    IndexReading,
+};
 use crate::schema::all_present;
 use crate::{head_of, patiently, seat_summary, Acknowledgement, Store, StoreError};
 
@@ -64,6 +67,7 @@ type Place = (i64, String);
 
 mod aggregate;
 mod columns;
+mod comparison;
 mod disagreement;
 mod stop;
 
@@ -493,6 +497,7 @@ pub(crate) fn judge(
     write(tx, &first.run_id, &Summary::of(&account, listed.listing()))?;
     seat_summary::write(tx, &account, Some(&carried.account))?;
     write_parks(tx, &account)?;
+    write_checkpoints(tx, &account, sealed)?;
     Ok(Settled::Carried(Box::new(Carried {
         account,
         listed: Some(listed),
@@ -514,6 +519,7 @@ pub(crate) fn refold_once(conn: &mut Connection, account: &Account) -> Result<()
         )?;
         seat_summary::write(&tx, account, None)?;
         write_parks(&tx, account)?;
+        write_all_checkpoints(&tx, account)?;
     }
     tx.commit()?;
     Ok(())
@@ -576,6 +582,7 @@ impl Store {
         self.quietly(|store| store.refold_behind_with(|_| {}))?;
         self.quietly(|store| store.index_behind_with(|_| {}))?;
         self.quietly(|store| store.park_behind_with(|_| {}))?;
+        self.quietly(|store| store.checkpoint_behind_with(|_| {}))?;
         self.quietly(|store| store.seat_behind_with(|_| {}))
     }
 
@@ -747,50 +754,6 @@ impl Store {
         }
         between();
         self.columns_compared(run_id, &account, stale, seats)
-    }
-
-    /// `run_id`'s summary row against `account`'s fold, column by column:
-    /// the first column that differs, else behind where the index lags its
-    /// events (`stale`), else what its seat rows read as (`seats`).
-    fn columns_compared(
-        &self,
-        run_id: String,
-        account: &Account,
-        stale: bool,
-        seats: Compared,
-    ) -> Result<Compared, StoreError> {
-        let listed = Listed::of(&self.conn, &run_id)?;
-        let summary = Summary::of(account, listed.listing());
-        let standing = standing(&self.conn, &run_id)?;
-        let mut expected = written(&summary);
-        expected.extend(kept(&summary, standing.as_ref()));
-        Ok(match self.first_difference(&run_id, &expected)? {
-            Some(column) => Compared::Disagrees(Disagreement::Column { run_id, column }),
-            None if stale => Compared::Behind,
-            None => seats,
-        })
-    }
-
-    /// The first of `expected`'s columns whose value on `run_id`'s row is
-    /// not the one expected.
-    fn first_difference(
-        &self,
-        run_id: &str,
-        expected: &[(&'static str, Value)],
-    ) -> Result<Option<&'static str>, StoreError> {
-        let names: Vec<&str> = expected.iter().map(|(column, _)| *column).collect();
-        let select = format!(
-            "SELECT {} FROM run_summary WHERE run_id = ?1",
-            names.join(", ")
-        );
-        let found: Vec<Value> = self.conn.query_row(&select, params![run_id], |row| {
-            (0..names.len()).map(|at| row.get(at)).collect()
-        })?;
-        Ok(expected
-            .iter()
-            .zip(found)
-            .find(|((_, expected), found)| *expected != *found)
-            .map(|((column, _), _)| *column))
     }
 }
 

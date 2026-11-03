@@ -26,7 +26,7 @@ use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
-use brokkr_core::summary::{parks, Account, Bounded, Park, NAME_BYTES};
+use brokkr_core::summary::{Account, Bounded, Park, NAME_BYTES};
 use rusqlite::types::Value;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Params};
 
@@ -41,24 +41,33 @@ use crate::{head_of, patiently, Disagreement, Store, StoreError};
 const BACKFILLED: &str = "event_index_backfill";
 
 const TABLE: [&str; 1] = ["event_index"];
-const INDEXES: [&str; 6] = [
+const INDEXES: [&str; 9] = [
     "event_index_stream",
     "event_index_trail",
     "event_index_cause",
     "event_index_park",
     "event_index_park_stale",
     "event_index_park_facts",
+    "event_index_checkpoint",
+    "event_index_checkpoint_stale",
+    "event_index_checkpoint_session",
 ];
-const TRIGGERS: [&str; 3] = [
+const TRIGGERS: [&str; 4] = [
     "event_index_of_an_event",
     "event_index_stamp_bounded",
     "event_index_park_moved",
+    "event_index_checkpoint_moved",
 ];
 
+mod checkpoint;
 mod compare;
 mod park_walk;
 
-pub(crate) use compare::{first_parted, place};
+use checkpoint::COLUMNS as CHECKPOINT_COLUMNS;
+pub(crate) use checkpoint::{
+    write_all as write_all_checkpoints, write_appended as write_checkpoints,
+};
+pub(crate) use compare::{first_parted, first_unindexed, place, IndexReading};
 use park_walk::ParkWalk;
 
 /// The checkpoints one page of a seat's stream holds (ruling 7).
@@ -189,6 +198,7 @@ fn migration() -> String {
             type TEXT, attempt_id TEXT, member TEXT, recorded_at TEXT, event_id TEXT,
             phase TEXT, at_ms INTEGER, answered_ms INTEGER, ended_ms INTEGER,
             span_class INTEGER, facts_seq INTEGER,
+            {checkpoint_columns},
             PRIMARY KEY (run_id, seq)
         ) WITHOUT ROWID;
         CREATE INDEX IF NOT EXISTS event_index_stream
@@ -202,9 +212,24 @@ fn migration() -> String {
             ON event_index (run_id) WHERE type = '{PARKED}' AND facts_seq IS NULL;
         CREATE INDEX IF NOT EXISTS event_index_park_facts
             ON event_index (run_id, seq) WHERE type = '{PARKED}' AND facts_seq IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS event_index_checkpoint
+            ON event_index (at_ms) WHERE type = '{CHECKPOINTED}';
+        CREATE INDEX IF NOT EXISTS event_index_checkpoint_stale
+            ON event_index (run_id) WHERE type = '{CHECKPOINTED}' AND facts IS NULL;
+        CREATE INDEX IF NOT EXISTS event_index_checkpoint_session
+            ON event_index (run_id, attempt_id, member, seq)
+            WHERE type = '{CHECKPOINTED}' AND session = 1;
         DROP TRIGGER IF EXISTS event_index_park_moved;
         CREATE TRIGGER event_index_park_moved AFTER INSERT ON events BEGIN
             {moved};
+        END;
+        DROP TRIGGER IF EXISTS event_index_checkpoint_moved;
+        CREATE TRIGGER event_index_checkpoint_moved AFTER UPDATE OF session ON event_index
+            WHEN NEW.type = '{CHECKPOINTED}' AND NEW.session = 1 BEGIN
+            UPDATE event_index SET session = 0
+                WHERE run_id = NEW.run_id AND attempt_id IS NEW.attempt_id
+                  AND member IS NEW.member AND seq < NEW.seq
+                  AND type = '{CHECKPOINTED}' AND session = 1;
         END;
         CREATE TRIGGER IF NOT EXISTS event_index_of_an_event AFTER INSERT ON events BEGIN
             INSERT OR IGNORE INTO event_index ({COLUMNS}) SELECT {projected};
@@ -214,10 +239,13 @@ fn migration() -> String {
             UPDATE event_index SET recorded_at = {cut}
                 WHERE run_id = NEW.run_id AND seq = NEW.seq;
         END;
-        DELETE FROM meta WHERE key = '{BACKFILLED}';",
+        DELETE FROM meta WHERE key = '{BACKFILLED}';
+        DELETE FROM meta WHERE key = '{CHECKPOINT_BACKFILLED}';",
         moved = park_moved("NEW"),
         projected = projected("NEW"),
         cut = cut_stamp("NEW.recorded_at"),
+        checkpoint_columns = checkpoint::declared(),
+        CHECKPOINT_BACKFILLED = checkpoint::BACKFILLED,
     )
 }
 
@@ -248,6 +276,17 @@ fn park_moved(event: &str) -> String {
 /// for it; one without a park's facts, the shape a build before decision
 /// 0089 slice 4 made. [`migrate_index`] rebuilds each.
 fn shaped(conn: &Connection) -> Result<bool, StoreError> {
+    let columns = ["recorded_at", "event_id"]
+        .into_iter()
+        .chain(PARK_COLUMNS)
+        .chain(CHECKPOINT_COLUMNS);
+    holds(conn, "event_index", columns)
+}
+
+/// Does the table hold the columns before the checkpoint facts, the shape a
+/// journal from before them carries: [`migrate_index`] alters that one in
+/// place rather than dropping the rows a park's shape change drops.
+fn base_shaped(conn: &Connection) -> Result<bool, StoreError> {
     let columns = ["recorded_at", "event_id"].into_iter().chain(PARK_COLUMNS);
     holds(conn, "event_index", columns)
 }
@@ -299,15 +338,28 @@ fn send_parks_behind() -> String {
 /// with the triggers that wrote it, since every row is derived. Its rows
 /// come from the backfill that follows the open, outside this lock.
 pub(crate) fn migrate_index(conn: &Connection) -> Result<(), StoreError> {
-    if !shaped(conn)? {
+    let missed = !all_present(conn, "trigger", &["event_index_checkpoint_moved"])?;
+    if !base_shaped(conn)? {
         let dropped = conn.execute_batch(
             "DROP TRIGGER IF EXISTS event_index_of_an_event;
              DROP TRIGGER IF EXISTS event_index_park_moved;
+             DROP TRIGGER IF EXISTS event_index_checkpoint_moved;
              DROP TABLE IF EXISTS event_index;",
         );
         dropped?;
+    } else {
+        checkpoint::add_columns(conn)?;
     }
     conn.execute_batch(&migration())?;
+    // A trigger that was gone may have let a writer's session record leave
+    // its site's earlier one standing: send every checkpoint behind so the
+    // open's walk writes the flag again (ruling 4).
+    if missed {
+        conn.execute(
+            &format!("UPDATE event_index SET facts = NULL WHERE type = '{CHECKPOINTED}'"),
+            [],
+        )?;
+    }
     Ok(conn.execute_batch(&send_parks_behind())?)
 }
 
@@ -415,11 +467,6 @@ pub(crate) static FORWARD: LazyLock<String> = LazyLock::new(|| stream_sql("ASC")
 /// One event's envelope, by its key.
 const ENVELOPE: &str = "SELECT envelope FROM events WHERE run_id = ?1 AND seq = ?2";
 
-/// A run's index rows in seq order, by its key: what ruling 4 compares.
-const ROWS: &str = "SELECT seq, type, attempt_id, member, recorded_at, event_id,
-     phase, at_ms, answered_ms, ended_ms, span_class, facts_seq
-     FROM event_index WHERE run_id = ?1 ORDER BY seq";
-
 /// The last seq of a run's events that `event_id` names, NULL where none
 /// does, and whether a row of the run holds no id, each read through the
 /// cause index, in one statement so both are of one snapshot.
@@ -474,54 +521,6 @@ pub(crate) fn runless(conn: &Connection) -> Result<Vec<Disagreement>, StoreError
         })
     })?;
     Ok(found.collect::<Result<_, _>>()?)
-}
-
-/// How a run's rows stand against its events (ruling 4): the first seq
-/// where a row is not its event's, a park whose dated facts are not its
-/// head's (a lag the next writable open refolds, never a disagreement),
-/// or every row its event's.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum IndexReading {
-    Agrees,
-    Behind,
-    Parted(u64, IndexFault),
-}
-
-/// The first seq where `run_id`'s index rows are not what `events`, the
-/// run read whole, project to, and how: the rows streamed beside the
-/// events, so the comparison holds the run and one row. A park whose
-/// facts are not written at the run's head is a lag: its immutable
-/// columns are still compared, and its dated facts are left for the
-/// refold that writes them.
-pub(crate) fn first_unindexed(
-    conn: &Connection,
-    run_id: &str,
-    events: &[EventEnvelope],
-) -> Result<IndexReading, StoreError> {
-    let mut statement = conn.prepare_cached(ROWS)?;
-    let rows = statement.query([run_id])?;
-    let parks: BTreeMap<u64, Park> = parks(events)
-        .into_iter()
-        .map(|park| (park.seq, park))
-        .collect();
-    let head = events.last().map_or(0, |event| event.seq);
-    let mut stale = false;
-    let parted = compare::first_parted_at(
-        rows,
-        events.iter().map(|event| {
-            (
-                event.seq,
-                compare::projects(event, parks.get(&event.seq), head),
-            )
-        }),
-        &mut stale,
-    );
-    let parted = parted?;
-    Ok(match parted {
-        Some((seq, fault)) => IndexReading::Parted(seq, fault),
-        None if stale => IndexReading::Behind,
-        None => IndexReading::Agrees,
-    })
 }
 
 /// The statement that writes one park's dated facts, by the seq its run
@@ -740,6 +739,8 @@ impl Store {
     }
 }
 
+#[cfg(test)]
+mod checkpoint_tests;
 #[cfg(test)]
 mod park_tests;
 #[cfg(test)]
