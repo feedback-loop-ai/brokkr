@@ -29,7 +29,7 @@ pub(super) fn projects(
     park: Option<&Park>,
     checkpoint: Option<&Checkpoint>,
     head: u64,
-) -> Vec<(&'static str, Value)> {
+) -> Result<Vec<(&'static str, Value)>, StoreError> {
     let indexed = Indexed::of(event);
     let text = |text: Option<&str>| text.map_or(Value::Null, |text| Value::Text(text.into()));
     let mut columns = vec![
@@ -46,8 +46,8 @@ pub(super) fn projects(
     }));
     let is_checkpoint = checkpoint.is_some() || event.event_type == EventType::EffectCheckpointed;
     let checkpoint_facts = match checkpoint {
-        Some(checkpoint) => checkpoint_facts(Some(checkpoint)),
-        None if is_checkpoint => checkpoint_facts(None),
+        Some(checkpoint) => checkpoint_facts(Some(checkpoint))?,
+        None if is_checkpoint => checkpoint_facts(None)?,
         None => std::array::from_fn(|_| Value::Null),
     };
     for (value, column) in checkpoint_facts.into_iter().zip(CHECKPOINT_COLUMNS) {
@@ -61,7 +61,7 @@ pub(super) fn projects(
             columns.push((column, value));
         }
     }
-    columns
+    Ok(columns)
 }
 
 /// The first key where `rows`, each its key and then its columns, part
@@ -97,13 +97,25 @@ pub(super) fn first_parted_at(
     }
 }
 
-/// Whether `row` stands behind the marker `name`, the column whose written
-/// value says the facts it covers were computed at the head expected: a
-/// park's `facts_seq`, a checkpoint's `facts`.
+/// Which written marker says a row's dated facts wait for the refold.
+#[derive(Clone, Copy)]
+enum Marker {
+    /// A park's `facts_seq`: NULL, or another head than the one expected,
+    /// which the trigger and the repair both send behind.
+    Park,
+    /// A checkpoint's `facts`: only NULL. Any other marker a writer did not
+    /// write is an edit, named by its column rather than passed as a lag
+    /// forever (decision 0089 ruling 4).
+    Checkpoint,
+}
+
+/// Whether `row`'s marker `name` says its dated facts wait for the refold,
+/// by the reading [`Marker`] names.
 fn behind(
     expected: &[(&'static str, Value)],
     row: &rusqlite::Row<'_>,
     name: &str,
+    kind: Marker,
 ) -> Result<bool, StoreError> {
     let Some(at) = expected.iter().position(|(column, _)| *column == name) else {
         return Ok(false);
@@ -111,7 +123,11 @@ fn behind(
     if !matches!(expected[at].1, Value::Integer(_)) {
         return Ok(false);
     }
-    Ok(row.get_ref(at + 1)? != ValueRef::from(&expected[at].1))
+    let found = row.get_ref(at + 1)?;
+    Ok(match kind {
+        Marker::Park => found != ValueRef::from(&expected[at].1),
+        Marker::Checkpoint => found == ValueRef::Null,
+    })
 }
 
 /// Where `row` parts from the row expected at `key`, each the next of
@@ -121,8 +137,10 @@ fn behind(
 /// carries one past every expected key. A column is compared as its
 /// bytes, so a text that is not UTF-8 parts there as the column it is.
 /// A park whose `facts_seq` is not its run's head, or a checkpoint whose
-/// facts are not written, is a lag: its immutable columns are compared, its
-/// dated columns are not, and `stale` is set.
+/// `facts` are not written, is a lag: its immutable columns are compared, its
+/// dated columns are not, and `stale` is set. A checkpoint marker that is
+/// neither NULL nor 1 is compared like any other column, so an invalid
+/// marker is named, never silently treated as a lag.
 fn parted(
     key: u64,
     expected: &[(&'static str, Value)],
@@ -137,8 +155,8 @@ fn parted(
             (found as u64, IndexFault::Stray)
         }));
     }
-    let park_behind = behind(expected, row, "facts_seq")?;
-    let checkpoint_behind = behind(expected, row, "facts")?;
+    let park_behind = behind(expected, row, "facts_seq", Marker::Park)?;
+    let checkpoint_behind = behind(expected, row, "facts", Marker::Checkpoint)?;
     if park_behind || checkpoint_behind {
         *stale = true;
     }
@@ -190,11 +208,13 @@ pub(crate) enum IndexReading {
 }
 
 /// The first seq where `run_id`'s index rows are not what `events`, the
-/// run read whole, project to, and how: the rows streamed beside the
-/// events, so the comparison holds the run and one row. A park whose
-/// facts are not written at the run's head is a lag: its immutable
-/// columns are still compared, and its dated facts are left for the
-/// refold that writes them.
+/// run read whole, project to, and how: the rows streamed beside what is
+/// expected, one row compared at a time. A park whose facts are not
+/// written at the run's head or a checkpoint's unwritten facts are a lag:
+/// its immutable columns are still compared, and its dated facts are left
+/// for the refold that writes them. The expected rows are projected up
+/// front because a token count past the signed 64-bit bound is a typed
+/// refusal, not a value to compare.
 pub(crate) fn first_unindexed(
     conn: &Connection,
     run_id: &str,
@@ -212,21 +232,21 @@ pub(crate) fn first_unindexed(
         .collect();
     let head = events.last().map_or(0, |event| event.seq);
     let mut stale = false;
-    let parted = first_parted_at(
-        rows,
-        events.iter().map(|event| {
-            (
+    let expected = events
+        .iter()
+        .map(|event| {
+            Ok((
                 event.seq,
                 projects(
                     event,
                     parks.get(&event.seq),
                     checkpoints.get(&event.seq),
                     head,
-                ),
-            )
-        }),
-        &mut stale,
-    );
+                )?,
+            ))
+        })
+        .collect::<Result<Vec<_>, StoreError>>()?;
+    let parted = first_parted_at(rows, expected.into_iter(), &mut stale);
     let parted = parted?;
     Ok(match parted {
         Some((seq, fault)) => IndexReading::Parted(seq, fault),

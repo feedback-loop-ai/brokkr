@@ -306,10 +306,15 @@ impl Account {
         self.parks.rows()
     }
 
-    /// Its metered checkpoints, in seq order, each its site's last
-    /// finishing session record where it has one (ruling 7).
-    pub fn checkpoints(&self) -> Vec<Checkpoint> {
-        self.checkpoints.checkpoints()
+    /// The account a writer carries between appends: the fold, the seats,
+    /// the parks, the run's phase and each site's last finishing session
+    /// seq stay, while the checkpoint facts and row seqs already read are
+    /// dropped, so an append's clone of the carried account holds no
+    /// earlier checkpoint (decision 0089 ruling 9). The events an append
+    /// seals are read again by [`Account::onto`].
+    pub fn carried(mut self) -> Account {
+        self.checkpoints.carried();
+        self
     }
 
     /// The checkpoint at `seq`, where its facts could be read: the writer's

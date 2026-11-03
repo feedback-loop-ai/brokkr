@@ -31,7 +31,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use crate::acknowledgement::standing;
 use crate::event_index::{
     finished, first_unindexed, runless, write_all_checkpoints, write_checkpoints, write_parks,
-    IndexReading,
+    write_sealed, IndexReading,
 };
 use crate::schema::all_present;
 use crate::{head_of, patiently, seat_summary, Acknowledgement, Store, StoreError};
@@ -480,13 +480,19 @@ pub(crate) fn judge(
     found: (u64, &str),
     sealed: &[EventEnvelope],
 ) -> Result<Settled, StoreError> {
-    let (Some(carried), Some(first)) = (carried, sealed.first()) else {
+    let Some(first) = sealed.first() else {
         return Ok(Settled::Kept);
     };
-    if carried.account.run_id() != first.run_id {
+    let Some(carried) = carried.filter(|carried| carried.account.run_id() == first.run_id) else {
+        // No account of this run: the checkpoint the append seals still
+        // keeps the facts its event states, and its session flag moves off
+        // the site's earlier one, so a valid journal is never left looking
+        // corrupt (decision 0089 rulings 4 and 7).
+        write_sealed(tx, &first.run_id, sealed)?;
         return Ok(Settled::Kept);
-    }
+    };
     if carried.account.head() != found {
+        write_sealed(tx, &first.run_id, sealed)?;
         return Ok(Settled::Lost);
     }
     let account = carried.account.clone().onto(sealed);
@@ -499,7 +505,10 @@ pub(crate) fn judge(
     write_parks(tx, &account)?;
     write_checkpoints(tx, &account, sealed)?;
     Ok(Settled::Carried(Box::new(Carried {
-        account,
+        // The append has written the checkpoints it sealed; keep no earlier
+        // one, so the next append's clone of this account holds none
+        // (decision 0089 ruling 9).
+        account: account.carried(),
         listed: Some(listed),
     })))
 }
@@ -544,14 +553,26 @@ impl Store {
     /// each writes the run's summary in its own transaction (ruling 3).
     /// The writer hands over the fold it decided on, at the head it read;
     /// an append that finds another head writes nothing folded, and the
-    /// account is dropped until the writer hands over another.
+    /// account is dropped until the writer hands over another. The
+    /// checkpoint facts already read are dropped as the account is
+    /// carried, so an append clones no earlier checkpoint (decision 0089
+    /// ruling 9); the event it seals is read again.
     pub fn carry(&mut self, account: Account) {
         self.carried = Some(Carried {
-            account,
+            account: account.carried(),
             listed: None,
         });
         #[cfg(any(test, feature = "test-support"))]
         self.binding.carried();
+    }
+
+    /// The checkpoint row seqs the carried account holds, for the test
+    /// that an append keeps none of the run's earlier ones (ruling 9).
+    #[cfg(test)]
+    pub(crate) fn carried_checkpoints(&self) -> Option<usize> {
+        self.carried
+            .as_ref()
+            .map(|carried| carried.account.checkpoint_rows().len())
     }
 
     /// Keep what a committed append of `landed` events to `run_id` left

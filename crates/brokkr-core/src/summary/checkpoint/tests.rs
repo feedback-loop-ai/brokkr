@@ -130,7 +130,6 @@ fn the_account_carries_every_checkpoint_it_reads() {
         checkpoint(Some("m"), json!({"step": "tool-use"})),
     ]);
     let account = Account::whole("r", &events);
-    assert_eq!(account.checkpoints().len(), 2);
     assert_eq!(account.checkpoint(1).unwrap().seq, 1);
     assert_eq!(account.checkpoint(2).unwrap().seq, 2);
     assert_eq!(account.checkpoint(3), None);
@@ -141,4 +140,60 @@ fn the_account_carries_every_checkpoint_it_reads() {
     }
     assert_eq!(checking.rows(), [1, 2]);
     assert_eq!(checking.checkpoint(1).unwrap().seq, 1);
+}
+
+/// The facts one event states are read with the phase the run was in, by
+/// the same reading the whole walk makes; the writer's no-carry append
+/// takes them from here (decision 0089 ruling 7).
+#[test]
+fn one_checkpoint_reads_the_facts_its_event_states() {
+    let events = journal(&[
+        checkpoint(
+            Some("m"),
+            json!({"step": "seat-turn", "total_cost_usd": 0.5, "input_tokens": 10}),
+        ),
+        checkpoint(Some("m"), json!({"step": "claude-session-finished"})),
+    ]);
+    let read = Checkpoint::read(&events[0], Some("implement")).unwrap();
+    assert_eq!(read.seq, 1);
+    assert_eq!(read.attempt_id, "a");
+    assert_eq!(read.member.as_deref(), Some("m"));
+    assert_eq!(read.at, 1_767_225_602_000);
+    assert_eq!(read.phase.as_deref(), Some("implement"));
+    assert!(read.reported);
+    assert_eq!(read.usd, Some(0.5));
+    assert_eq!(read.meter.usage().unwrap().input_tokens, Some(10));
+    assert!(!read.session);
+    assert!(Checkpoint::read(&events[1], None).unwrap().session);
+    assert_eq!(
+        Checkpoint::read(
+            &crate::summary::test_support::journal(&[(
+                EventType::EffectCheckpointed,
+                json!({"checkpoint": {"step": "seat-turn"}}),
+                "2026-01-01T00:00:01Z",
+            )])[0],
+            None,
+        ),
+        None
+    );
+}
+
+/// A carried account keeps the phase and each site's last session record
+/// and drops the checkpoint facts and row seqs it already read, so an
+/// append's clone of it holds no earlier checkpoint (decision 0089 ruling
+/// 9). The event the append seals is read again as it is carried.
+#[test]
+fn a_carried_account_drops_the_checkpoint_facts_it_already_read() {
+    let events = journal(&[
+        checkpoint(Some("m"), json!({"step": "seat-turn"})),
+        checkpoint(Some("m"), json!({"step": "claude-session-finished"})),
+        checkpoint(Some("m"), json!({"step": "seat-turn"})),
+    ]);
+    let carried = Account::whole("r", &events[..2]).carried();
+    assert_eq!(carried.checkpoint_rows(), Vec::<u64>::new());
+    assert_eq!(carried.checkpoint(1), None);
+    let account = carried.onto(&events[2..]);
+    assert_eq!(account.checkpoint_rows(), [3]);
+    assert_eq!(account.checkpoint(3).unwrap().seq, 3);
+    assert_eq!(account.checkpoint(1), None);
 }

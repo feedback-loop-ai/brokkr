@@ -44,6 +44,39 @@ pub struct Checkpoint {
     pub session: bool,
 }
 
+impl Checkpoint {
+    /// The checkpoint `event` records, with `phase` the run's when it was
+    /// recorded, or none where its stamp does not parse or it names no
+    /// attempt, as the walk the analytics readout made reads it. Its
+    /// `session` says only that the record finishes a session: whether it
+    /// is its site's last such record is the walk's, which knows the ones
+    /// before it. The writer reads a checkpoint it appends without a
+    /// carried account this way (decision 0089 ruling 7).
+    pub fn read(event: &EventEnvelope, phase: Option<&str>) -> Option<Checkpoint> {
+        let at = parse_millis(&event.recorded_at)?;
+        let attempt_id = field(&event.payload, "attempt_id")?.to_string();
+        let record = event.payload.get("checkpoint")?;
+        let usd = reported_cost(record);
+        Some(Checkpoint {
+            seq: event.seq,
+            attempt_id,
+            member: field(record, "member").map(str::to_string),
+            at,
+            phase: phase.map(str::to_string),
+            reported: usd.is_some(),
+            usd,
+            meter: Meter::of(record),
+            session: is_session(record),
+        })
+    }
+}
+
+/// Whether `record` finishes a session: its step ends with
+/// "-session-finished", the mark every driver's finishing step bears.
+fn is_session(record: &serde_json::Value) -> bool {
+    field(record, "step").is_some_and(|step| step.ends_with("-session-finished"))
+}
+
 /// The checkpoints read so far, carried event by event: the run's phase and
 /// every checkpoint's facts, each keyed by its seq. A later finishing
 /// session record of a site moves the flag off the earlier one as it is
@@ -71,38 +104,29 @@ impl Checking {
             return;
         }
         self.rows.push(event.seq);
-        let (Some(at), Some(attempt_id), Some(record)) = (
-            parse_millis(&event.recorded_at),
-            field(&event.payload, "attempt_id"),
-            event.payload.get("checkpoint"),
-        ) else {
+        let Some(checkpoint) = Checkpoint::read(event, self.phase.as_deref()) else {
             return;
         };
-        let usd = reported_cost(record);
-        let session = field(record, "step").is_some_and(|step| step.ends_with("-session-finished"));
-        let member = field(record, "member").map(str::to_string);
-        if session {
-            let site = (attempt_id.to_string(), member.clone());
+        if checkpoint.session {
+            let site = (checkpoint.attempt_id.clone(), checkpoint.member.clone());
             if let Some(previous) = self.sessions.insert(site, event.seq) {
                 if let Some(earlier) = self.facts.get_mut(&previous) {
                     earlier.session = false;
                 }
             }
         }
-        self.facts.insert(
-            event.seq,
-            Checkpoint {
-                seq: event.seq,
-                attempt_id: attempt_id.to_string(),
-                member,
-                at,
-                phase: self.phase.clone(),
-                reported: usd.is_some(),
-                usd,
-                meter: Meter::of(record),
-                session,
-            },
-        );
+        self.facts.insert(event.seq, checkpoint);
+    }
+
+    /// Keep only what a carried account needs to read the events a later
+    /// append adds: the run's phase and each site's last finishing session
+    /// seq. The checkpoint facts and row seqs already read are dropped, so
+    /// a writer that carries an account clones no earlier checkpoint's
+    /// facts with every append (decision 0089 ruling 9). The events an
+    /// append seals are read again by [`Account::onto`].
+    pub(crate) fn carried(&mut self) {
+        self.facts.clear();
+        self.rows.clear();
     }
 
     /// Every checkpoint read so far, in seq order, its session flag the

@@ -1041,9 +1041,9 @@ pub brokkr_core::summary::Ending::ByRule(core::option::Option<alloc::string::Str
 pub brokkr_core::summary::Ending::Shipped
 pub struct brokkr_core::summary::Account
 impl brokkr_core::summary::Account
+pub fn brokkr_core::summary::Account::carried(self) -> brokkr_core::summary::Account
 pub fn brokkr_core::summary::Account::checkpoint(&self, u64) -> core::option::Option<&brokkr_core::summary::Checkpoint>
 pub fn brokkr_core::summary::Account::checkpoint_rows(&self) -> &[u64]
-pub fn brokkr_core::summary::Account::checkpoints(&self) -> alloc::vec::Vec<brokkr_core::summary::Checkpoint>
 pub fn brokkr_core::summary::Account::empty(&str) -> brokkr_core::summary::Account
 pub fn brokkr_core::summary::Account::head(&self) -> (u64, &str)
 pub fn brokkr_core::summary::Account::onto(self, &[brokkr_core::envelope::EventEnvelope]) -> brokkr_core::summary::Account
@@ -1078,6 +1078,8 @@ pub brokkr_core::summary::Checkpoint::reported: bool
 pub brokkr_core::summary::Checkpoint::seq: u64
 pub brokkr_core::summary::Checkpoint::session: bool
 pub brokkr_core::summary::Checkpoint::usd: core::option::Option<f64>
+impl brokkr_core::summary::Checkpoint
+pub fn brokkr_core::summary::Checkpoint::read(&brokkr_core::envelope::EventEnvelope, core::option::Option<&str>) -> core::option::Option<brokkr_core::summary::Checkpoint>
 pub struct brokkr_core::summary::Hired
 pub brokkr_core::summary::Hired::failed_attempts: u64
 pub brokkr_core::summary::Hired::seat: brokkr_core::summary::Bounded

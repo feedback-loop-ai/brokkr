@@ -183,6 +183,9 @@ pub enum StoreError {
     AppendConflict { seq: u64 },
     #[error("head moved: expected seq {expected_seq}, found {found_seq}")]
     HeadMoved { expected_seq: u64, found_seq: u64 },
+    /// The seq, column and count of a token count past the index's signed 64-bit range (decision 0089 ruling 7).
+    #[error("checkpoint {0} reports {1} {2} past the index's 64-bit bound; nothing was written")]
+    TokenCountOutOfRange(u64, &'static str, u64),
     /// [`Store::load_after`] was handed a head the run never had: no
     /// event at that seq, or one with another hash.
     #[error("unknown head: the run holds no event {seq} with the hash given")]

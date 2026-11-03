@@ -45,6 +45,13 @@ fn one_checkpoint(store: &mut Store, record: Json) -> EventEnvelope {
     )
 }
 
+/// A run `r` with one checkpoint of `record`, and the row it keeps.
+fn one_kept(store: &mut Store, record: Json) -> (EventEnvelope, Vec<Value>) {
+    let event = one_checkpoint(store, record);
+    let held = kept(store, "r", event.seq);
+    (event, held)
+}
+
 /// The row a checkpoint appended to `store`'s run `r` keeps.
 fn checkpointed_row(store: &mut Store, record: Json) -> Vec<Value> {
     let event = append(
@@ -115,20 +122,13 @@ fn each_append_keeps_the_checkpoint_its_record_states() {
 #[test]
 fn each_checkpoint_column_that_is_not_its_fold_s_is_named() {
     let (_dir, mut store) = store();
-    let event = one_checkpoint(
+    let (event, held) = one_kept(
         &mut store,
         json!({"step": "seat-turn", "total_cost_usd": 0.25}),
     );
-    let held = kept(&store, "r", event.seq);
     assert_eq!(held.last(), Some(&Value::Integer(1)));
-    let named = crate::test_support::each_column_named(
-        &store,
-        "r",
-        event.seq,
-        &COLUMNS,
-        &held,
-        Some("facts"),
-    );
+    let named =
+        crate::test_support::each_column_named(&store, "r", event.seq, &COLUMNS, &held, None);
     assert_eq!(
         named,
         COLUMNS
@@ -179,12 +179,7 @@ fn a_phase_past_its_bound_is_cut_where_it_is_stored() {
     );
     assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
     assert_eq!(
-        store
-            .summary_disagreements()
-            .unwrap()
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>(),
+        crate::test_support::disagreements(&store),
         Vec::<String>::new()
     );
 }
@@ -208,9 +203,12 @@ fn every_fixture_keeps_what_the_checkpoints_read() {
             ));
             continue;
         }
-        for checkpoint in account.checkpoints() {
+        for seq in account.checkpoint_rows() {
+            let checkpoint = account
+                .checkpoint(*seq)
+                .expect("a checkpoint row has facts");
             let row = kept(&store, &run_id, checkpoint.seq);
-            let mut want = super::checkpoint::facts(Some(&checkpoint)).to_vec();
+            let mut want = super::checkpoint::facts(Some(checkpoint)).unwrap().to_vec();
             if let Some(phase) = checkpoint.phase.as_deref() {
                 want[1] = text(&Bounded::within(phase, NAME_BYTES).cut);
             }
@@ -224,6 +222,33 @@ fn every_fixture_keeps_what_the_checkpoints_read() {
     }
     assert_eq!(wrong, Vec::<String>::new());
     assert!(backfilled(&store.conn).unwrap());
+}
+
+/// One frozen fixture's checkpoint is pinned literally, so the fixture
+/// comparison is not only the writer's own conversion read back: its time,
+/// the run's phase, its cost and report, no tokens and its session flag
+/// (decision 0089 ruling 7).
+#[test]
+fn a_fixture_checkpoint_keeps_the_facts_its_record_states() {
+    let (_dir, mut store) = store();
+    crate::test_support::planted_fixtures(&store);
+    store.checkpoint_behind_with(|_| {}).unwrap();
+    assert_eq!(
+        kept(&store, "tui-graph-the-selection-box-gets-80f98deb", 25),
+        [
+            Value::Integer(1_788_127_917_000),
+            text("intake"),
+            Value::Real(0.8165567999999999),
+            Value::Integer(1),
+            Value::Null,
+            Value::Null,
+            Value::Null,
+            Value::Null,
+            Value::Null,
+            Value::Integer(1),
+            Value::Integer(1),
+        ]
+    );
 }
 
 /// A site's second finishing session record moves the flag off the first;
@@ -339,7 +364,7 @@ fn an_appended_checkpoint_visits_the_same_steps_at_every_n() {
         let account = Account::whole(&run_id, &store.load(&run_id).unwrap());
         let mut write = store.conn.prepare(&WRITE).unwrap();
         write.reset_status(StatementStatus::VmStep);
-        let facts = super::checkpoint::facts(account.checkpoint(n + 1));
+        let facts = super::checkpoint::facts(account.checkpoint(n + 1)).unwrap();
         let mut bound: Vec<Value> =
             vec![Value::Text(run_id.clone()), Value::Integer((n + 1) as i64)];
         bound.extend_from_slice(&facts);
@@ -374,8 +399,6 @@ fn restoring_the_checkpoint_trigger_sends_the_facts_it_missed_behind() {
     assert_eq!(kept(&store, "r", second.seq)[9], Value::Integer(1));
     lags(&mut store, &["r"]);
     let store = refolded(store);
-    assert_eq!(kept(&store, "r", first.seq)[9], Value::Integer(0));
-    assert_eq!(kept(&store, "r", second.seq)[9], Value::Integer(1));
     assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
 }
 
@@ -420,5 +443,203 @@ fn an_index_from_before_the_checkpoints_is_altered_and_refolded() {
         .unwrap();
     assert_eq!(after, rows, "the altered table keeps its rows");
     assert_eq!(kept(&store, "r", event.seq), held);
+    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+}
+
+/// A writer that carries no account of the run, as a second writable open
+/// does, still writes the checkpoint it appends from the event alone, and
+/// moves a site's session flag off its earlier record: no supported append
+/// path leaves a valid journal looking corrupt (decision 0089 rulings 4
+/// and 7).
+#[test]
+fn an_append_with_no_carried_account_keeps_its_facts_and_moves_the_session() {
+    let (_dir, mut store) = store();
+    let first = one_checkpoint(&mut store, json!({"step": "claude-session-finished"}));
+    let mut store = refolded(store);
+    let second = append(
+        &mut store,
+        "r",
+        EventType::EffectCheckpointed,
+        checkpoint(
+            Some("m"),
+            json!({
+                "step": "claude-session-finished",
+                "total_cost_usd": 0.5,
+                "input_tokens": 10,
+            }),
+        ),
+    );
+    assert_eq!(kept(&store, "r", first.seq)[9], Value::Integer(0));
+    assert_eq!(
+        kept(&store, "r", second.seq),
+        [
+            Value::Integer(at(&second)),
+            text("implement"),
+            Value::Real(0.5),
+            Value::Integer(1),
+            Value::Integer(10),
+            Value::Null,
+            Value::Null,
+            Value::Null,
+            Value::Null,
+            Value::Integer(1),
+            Value::Integer(1),
+        ]
+    );
+    // The append carried no fold, so the summary row is a lag, never a
+    // disagreement: the doctor passes it, and the next writable open folds
+    // it, with the facts the append wrote already standing.
+    assert_eq!(
+        crate::test_support::disagreements(&store),
+        Vec::<String>::new()
+    );
+    let store = refolded(store);
+    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+}
+
+/// An append keeps no earlier checkpoint in the carried account, so its
+/// clone holds the checkpoint it writes and never the run's history
+/// (decision 0089 ruling 9).
+#[test]
+fn an_append_keeps_no_earlier_checkpoint_in_the_carried_account() {
+    let (_dir, mut store) = store();
+    opened(&mut store, "r", "implement", &[]);
+    assert_eq!(store.carried_checkpoints(), Some(0));
+    for _ in 0..2 {
+        append(
+            &mut store,
+            "r",
+            EventType::EffectCheckpointed,
+            checkpoint(Some("m"), json!({"step": "seat-turn"})),
+        );
+        assert_eq!(store.carried_checkpoints(), Some(0));
+    }
+}
+
+/// A `facts` marker that is neither NULL nor 1 is an edit, not a lag: the
+/// comparison names the column, and the cost beside it, instead of passing
+/// every checkpoint column forever (decision 0089 ruling 4).
+#[test]
+fn a_facts_marker_a_writer_did_not_write_is_named_not_skipped() {
+    let (_dir, mut store) = store();
+    let (event, held) = one_kept(
+        &mut store,
+        json!({"step": "seat-turn", "total_cost_usd": 0.25}),
+    );
+    store
+        .conn
+        .execute(
+            "UPDATE event_index SET facts = 2, usd = 999 WHERE run_id = 'r' AND seq = ?1",
+            params![event.seq as i64],
+        )
+        .unwrap();
+    assert_eq!(
+        store.summary_disagreements().unwrap()[0].to_string(),
+        format!(
+            "run 'r': the event index row of its event {} is not the event's in its usd",
+            event.seq
+        )
+    );
+    store
+        .conn
+        .execute(
+            "UPDATE event_index SET usd = ?1 WHERE run_id = 'r' AND seq = ?2",
+            params![held[2], event.seq as i64],
+        )
+        .unwrap();
+    assert_eq!(
+        store.summary_disagreements().unwrap()[0].to_string(),
+        format!(
+            "run 'r': the event index row of its event {} is not the event's in its facts",
+            event.seq
+        )
+    );
+    store
+        .conn
+        .execute(
+            "UPDATE event_index SET facts = 1 WHERE run_id = 'r' AND seq = ?1",
+            params![event.seq as i64],
+        )
+        .unwrap();
+    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+}
+
+/// A token count past the signed 64-bit integer the index keeps is refused
+/// by name, not wrapped into a negative fact, and the append writes
+/// nothing (decision 0089 ruling 7).
+#[test]
+fn a_token_count_past_the_index_s_bound_is_refused_by_name() {
+    let (_dir, mut store) = store();
+    opened(&mut store, "r", "implement", &[]);
+    let mut record = json!({"step": "seat-turn"});
+    record["input_tokens"] = Json::from(9_223_372_036_854_775_808u64);
+    let refused = store
+        .append_next(
+            "r",
+            EventType::EffectCheckpointed,
+            checkpoint(Some("m"), record),
+            None,
+            None,
+        )
+        .unwrap_err();
+    assert!(matches!(
+        refused,
+        crate::StoreError::TokenCountOutOfRange(3, "input_tokens", 9_223_372_036_854_775_808)
+    ));
+    assert_eq!(
+        refused.to_string(),
+        "checkpoint 3 reports input_tokens 9223372036854775808 past the index's 64-bit \
+         bound; nothing was written"
+    );
+    assert_eq!(store.head_hash("r").unwrap().0, 2);
+    assert_eq!(
+        crate::test_support::indexed_seqs(&store, "r", "effect/checkpointed"),
+        Vec::<u64>::new()
+    );
+}
+
+/// A run a peer moves while the checkpoint backfill reads it is left for
+/// the next open, and the backfill is not marked finished over it: the
+/// completion claim stays true (decision 0089 rulings 4 and 8).
+#[test]
+fn a_backfill_whose_head_moved_stays_unfinished() {
+    let (_dir, mut store) = store();
+    let first = one_checkpoint(&mut store, json!({"step": "seat-turn"}));
+    store
+        .conn
+        .execute(
+            "UPDATE event_index SET facts = NULL WHERE run_id = 'r' AND seq = ?1",
+            params![first.seq as i64],
+        )
+        .unwrap();
+    lags(&mut store, &["r"]);
+    let mut moved = false;
+    store
+        .checkpoint_behind_with(|conn| {
+            if moved {
+                return;
+            }
+            moved = true;
+            let (seq, previous) = crate::head_of(conn, "r").unwrap();
+            let peer = EnvelopeBuilder::new(
+                EventType::EffectCheckpointed,
+                checkpoint(Some("m"), json!({"step": "seat-turn"})),
+            )
+            .run("r")
+            .seq(seq + 1)
+            .event_id("r-peer")
+            .at("2026-01-01T00:00:09Z")
+            .previous(previous)
+            .sealed();
+            crate::test_support::plant_envelope(conn, &peer).unwrap();
+        })
+        .unwrap();
+    assert!(moved);
+    assert!(!backfilled(&store.conn).unwrap());
+    let path = store.path().to_path_buf();
+    drop(store);
+    let store = Store::open(&path).unwrap();
+    assert!(backfilled(&store.conn).unwrap());
+    assert_eq!(kept(&store, "r", first.seq)[10], Value::Integer(1));
     assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
 }
