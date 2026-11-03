@@ -13,6 +13,7 @@
 
 mod console_end;
 mod display_clamp;
+mod far_work;
 mod fetch_edges;
 mod held_view;
 mod paged_reads;
@@ -502,9 +503,9 @@ fn participant_whole_views(
     db: &Path,
     run: &str,
     events: &[EventEnvelope],
-    whole: RunView,
     subject: Subject,
 ) -> Views {
+    let whole = brokkr_view::run_view(events, fold(events).as_ref().ok());
     let mut views = console_rows(db, run, Some(subject), false, usize::MAX);
     views.now = events.last().unwrap().recorded_at.clone();
     views.run = Some(whole);
@@ -528,7 +529,7 @@ pub(super) fn participant_frame_whole_read(
     let whole = brokkr_view::run_view(events, fold(events).as_ref().ok());
     let (mut whole_tui, _) = participant_console(run, &whole);
     whole_tui.offset = offset;
-    let whole_views = participant_whole_views(db, run, events, whole, subject);
+    let whole_views = participant_whole_views(db, run, events, subject);
     let paged = frame_for_test(tui, views, 80, 30);
     assert_eq!(
         paged,
@@ -1440,7 +1441,7 @@ fn the_participant_level_s_continuation_is_the_whole_read_s() {
     let whole = brokkr_view::run_view(&events, fold(&events).as_ref().ok());
     let (mut tui, subject) = participant_console(run, &whole);
     let (width, height) = (tui.width, tui.height);
-    let whole_views = participant_whole_views(&db, run, &events, whole, subject.clone());
+    let whole_views = participant_whole_views(&db, run, &events, subject.clone());
     let mut views = console_rows(&db, run, Some(subject.clone()), false, 0);
     let mut offsets = Vec::new();
     for _ in 0..12 {

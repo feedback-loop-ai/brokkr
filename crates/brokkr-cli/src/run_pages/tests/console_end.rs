@@ -6,12 +6,12 @@
 //! collectors and a kept page's whole fallback. Split from `tests.rs` to
 //! keep each test file within its ceiling.
 
+use super::far_work::{far_work, far_work_of};
 use super::*;
 
-/// The participant level over `events`, its first seat selected.
-fn participant_of(run: &str, events: &[EventEnvelope]) -> (Tui, Subject) {
-    let whole = brokkr_view::run_view(events, fold(events).as_ref().ok());
-    participant_console(run, &whole)
+/// The participant level over `whole`, its first seat selected.
+fn participant_of(run: &str, whole: &RunView) -> (Tui, Subject) {
+    participant_console(run, whole)
 }
 
 /// The whole read's five Downs and `PageUp` at `start`, settled: the
@@ -37,10 +37,9 @@ pub(super) fn participant_page(db: &Path, run: &str, subject: &Subject, tui: &Tu
 
 /// The participant level at `run`'s first page with `G` asked, the start
 /// the end's controls share.
-fn participant_end(db: &Path, run: &str, events: &[EventEnvelope]) -> (Tui, Subject, Views) {
+fn participant_end(db: &Path, run: &str, whole: &RunView) -> (Tui, Subject, Views) {
     use crate::tui::bottom_key;
-    let whole = brokkr_view::run_view(events, fold(events).as_ref().ok());
-    let (mut tui, subject) = participant_console(run, &whole);
+    let (mut tui, subject) = participant_console(run, whole);
     let views = participant_page(db, run, &subject, &tui);
     bottom_key(&mut tui, &views);
     (tui, subject, views)
@@ -142,27 +141,14 @@ pub(super) fn console_of(run: &str, journal: Vec<EventEnvelope>) -> ConsoleJourn
 /// interleaved 3,000-character checkpoints each, and its whole console
 /// read.
 pub(super) fn wrapped_panel_console(run: &str) -> ConsoleJournal {
+    wrapped_panel_console_of(run, 500)
+}
+
+/// [`wrapped_panel_console`] with `turns` of each member: the rows a
+/// resize proof reads, not the whole 1,000-row stream.
+pub(super) fn wrapped_panel_console_of(run: &str, turns: u64) -> ConsoleJournal {
     let target = "x".repeat(3_000);
-    console_of(run, panel_with(run, 500, 500, Some(&target)))
-}
-
-/// The journal at `db` holding one run at work with `checkpoints`
-/// checkpoints, and the events it holds.
-pub(super) fn far_work_of(
-    run: &str,
-    checkpoints: u64,
-) -> (tempfile::TempDir, std::path::PathBuf, Vec<EventEnvelope>) {
-    let dir = tempfile::tempdir().unwrap();
-    let db = dir.path().join("forge.db");
-    at_work_in(&db, &[(run, checkpoints, true)]);
-    let (_, events, _) = console_journal(&db, run);
-    (dir, db, events)
-}
-
-/// The journal at `db` holding one run at work with 65,600 checkpoints,
-/// and the events it holds.
-fn far_work(run: &str) -> (tempfile::TempDir, std::path::PathBuf, Vec<EventEnvelope>) {
-    far_work_of(run, 65_600)
+    console_of(run, panel_with(run, turns, turns, Some(&target)))
 }
 
 /// The first checkpoint turn a participant-level read paints.
@@ -335,7 +321,7 @@ fn tabbing_from_a_scrolled_participant_paints_todays_unfocused_top() {
     let whole = brokkr_view::run_view(&events, fold(&events).as_ref().ok());
     let (mut tui, subject) = participant_console(run, &whole);
     tui.height = 32;
-    let whole_views = participant_whole_views(&db, run, &events, whole, subject.clone());
+    let whole_views = participant_whole_views(&db, run, &events, subject.clone());
     let frame = |tui: &Tui, views: &Views| tui::frame_for_test(tui, views, 80, 32);
     tui.offset = 112;
     let rows = crate::tui::asked_rows(&tui);
@@ -613,14 +599,13 @@ fn a_tall_detail_pane_keeps_every_row_it_draws() {
 #[test]
 fn the_participant_s_end_keeps_today_s_narrowed_display_rank() {
     use crate::tui::checkpoint_offset;
-    let (_dir, db, events) = far_work("far end");
-    let run = "far end";
-    let whole = brokkr_view::run_view(&events, fold(&events).as_ref().ok());
-    let (mut tui, subject) = participant_console(run, &whole);
-    let (mut today, _) = participant_console(run, &whole);
+    let far = far_work();
+    let (run, db, events, whole) = (far.run, &far.db, &far.events, &far.whole);
+    let (mut tui, subject) = participant_console(run, whole);
+    let (mut today, _) = participant_console(run, whole);
     today.offset = u16::MAX as usize;
     let views = settle_participant_end(
-        &db,
+        db,
         run,
         &subject,
         &mut tui,
@@ -633,7 +618,7 @@ fn the_participant_s_end_keeps_today_s_narrowed_display_rank() {
         "today's renderer's narrowed display rank"
     );
     let paged = frame_for_test(&tui, &views, 80, 30);
-    let whole_views = participant_whole_views(&db, run, &events, whole, subject);
+    let whole_views = participant_whole_views(db, run, events, subject);
     let expected = frame_for_test(&today, &whole_views, 80, 30);
     assert_eq!(paged, expected, "today's frame at the narrowed rank");
     assert!(
@@ -791,18 +776,17 @@ fn the_participant_level_s_down_crosses_a_held_window() {
 /// 65,578, exactly the whole read's frame at that rank.
 #[test]
 fn the_participant_s_end_fills_a_tall_frame() {
-    let (_dir, db, events) = far_work("tall far end");
-    let run = "tall far end";
+    let far = far_work();
+    let (run, db, events, whole) = (far.run, &far.db, &far.events, &far.whole);
     let now = events.last().unwrap().recorded_at.clone();
     for (height, last) in [(80, "65568"), (100, "65578")] {
-        let whole = brokkr_view::run_view(&events, fold(&events).as_ref().ok());
-        let (mut tui, subject) = participant_console(run, &whole);
+        let (mut tui, subject) = participant_console(run, whole);
         tui.height = height;
-        let views = settle_participant_end(&db, run, &subject, &mut tui, &now);
-        let (mut today, _) = participant_console(run, &whole);
+        let views = settle_participant_end(db, run, &subject, &mut tui, &now);
+        let (mut today, _) = participant_console(run, whole);
         (today.width, today.height) = (80, height);
         today.offset = u16::MAX as usize;
-        let whole_views = participant_whole_views(&db, run, &events, whole, subject);
+        let whole_views = participant_whole_views(db, run, events, subject);
         let paged = frame_for_test(&tui, &views, 80, height);
         let expected = frame_for_test(&today, &whole_views, 80, height);
         assert_eq!(paged, expected, "height {height}: the whole read's frame");
@@ -823,11 +807,10 @@ fn the_participant_s_end_fills_a_tall_frame() {
 #[test]
 fn the_participant_s_down_after_a_large_end_wraps_to_the_top() {
     use crate::tui::{bottom_key, checkpoint_offset, down_key, settle_end};
-    let (_dir, db, events) = far_work("far down");
-    let run = "far down";
-    let whole = brokkr_view::run_view(&events, fold(&events).as_ref().ok());
-    let (mut tui, subject, _) = participant_end(&db, run, &events);
-    let mut views = participant_page(&db, run, &subject, &tui);
+    let far = far_work();
+    let (run, db, events, whole) = (far.run, &far.db, &far.events, &far.whole);
+    let (mut tui, subject, _) = participant_end(db, run, whole);
+    let mut views = participant_page(db, run, &subject, &tui);
     views.now = events.last().unwrap().recorded_at.clone();
     assert_eq!(views.end, Some(65_600), "the counted stream's end");
     settle_end(&mut tui, &views);
@@ -839,13 +822,13 @@ fn the_participant_s_down_after_a_large_end_wraps_to_the_top() {
     );
     down_key(&mut tui, &views);
     assert_eq!(tui.offset, 0, "Down is the stream's top");
-    let (mut whole_tui, _) = participant_console(run, &whole);
-    let whole_views = participant_whole_views(&db, run, &events, whole, subject.clone());
+    let (mut whole_tui, _) = participant_console(run, whole);
+    let whole_views = participant_whole_views(db, run, events, subject.clone());
     bottom_key(&mut whole_tui, &whole_views);
     settle_end(&mut whole_tui, &whole_views);
     down_key(&mut whole_tui, &whole_views);
     assert_eq!(whole_tui.offset, 0, "the whole read's Down");
-    let views = participant_page(&db, run, &subject, &tui);
+    let views = participant_page(db, run, &subject, &tui);
     assert_eq!(
         first_turn(&views, "eff").as_deref(),
         Some("1"),
@@ -992,12 +975,11 @@ fn chief_page_up_crosses_wrapped_window_in_drawn_lines() {
 #[test]
 fn chief_large_end_keeps_logical_movement_for_display() {
     use crate::tui::{checkpoint_offset, page_key, settle_end, up_key};
-    let (_dir, db, events) = far_work("large logical end");
-    let run = "large logical end";
+    let far = far_work();
+    let (run, db, events, whole) = (far.run, &far.db, &far.events, &far.whole);
     let now = events.last().unwrap().recorded_at.clone();
-    let whole = || brokkr_view::run_view(&events, fold(&events).as_ref().ok());
-    let (mut tui, subject) = participant_console(run, &whole());
-    let views = settle_participant_end(&db, run, &subject, &mut tui, &now);
+    let (mut tui, subject) = participant_console(run, whole);
+    let views = settle_participant_end(db, run, &subject, &mut tui, &now);
     assert_eq!(tui.offset, 65_599, "the stream's logical end");
     assert_eq!(
         checkpoint_offset(&tui),
@@ -1006,12 +988,12 @@ fn chief_large_end_keeps_logical_movement_for_display() {
     );
     up_key(&mut tui, &views);
     assert_eq!(tui.offset, 65_598, "Up keeps the logical rank");
-    let mut views = participant_page(&db, run, &subject, &tui);
+    let mut views = participant_page(db, run, &subject, &tui);
     views.now = now.clone();
     settle_end(&mut tui, &views);
-    let (mut whole_tui, _) = participant_console(run, &whole());
+    let (mut whole_tui, _) = participant_console(run, whole);
     whole_tui.offset = 65_598;
-    let whole_views = participant_whole_views(&db, run, &events, whole(), subject.clone());
+    let whole_views = participant_whole_views(db, run, events, subject.clone());
     let paged = frame_for_test(&tui, &views, 80, 30);
     assert_eq!(
         paged,
@@ -1024,16 +1006,16 @@ fn chief_large_end_keeps_logical_movement_for_display() {
             .any(|line| line.contains("│65536  turn")),
         "the display still starts at turn 65,536"
     );
-    let (mut paged_tui, page_subject) = participant_console(run, &whole());
-    let views = settle_participant_end(&db, run, &page_subject, &mut paged_tui, &now);
+    let (mut paged_tui, page_subject) = participant_console(run, whole);
+    let views = settle_participant_end(db, run, &page_subject, &mut paged_tui, &now);
     page_key(&mut paged_tui, &views, false);
     assert_eq!(paged_tui.offset, 65_589, "PageUp keeps the logical rank");
-    let mut views = participant_page(&db, run, &page_subject, &paged_tui);
+    let mut views = participant_page(db, run, &page_subject, &paged_tui);
     views.now = now.clone();
     settle_end(&mut paged_tui, &views);
-    let (mut page_today, _) = participant_console(run, &whole());
+    let (mut page_today, _) = participant_console(run, whole);
     page_today.offset = 65_589;
-    let page_views = participant_whole_views(&db, run, &events, whole(), page_subject);
+    let page_views = participant_whole_views(db, run, events, page_subject);
     let page_frame = frame_for_test(&paged_tui, &views, 80, 30);
     assert_eq!(
         page_frame,
@@ -1061,7 +1043,8 @@ fn chief_down_after_end_refresh_reaches_new_arrival() {
     at_work_in(&db, &[(run, 1_000, true)]);
     let (_, events, _) = console_journal(&db, run);
     let now = events.last().unwrap().recorded_at.clone();
-    let (mut tui, _subject) = participant_of(run, &events);
+    let whole = brokkr_view::run_view(&events, fold(&events).as_ref().ok());
+    let (mut tui, _subject) = participant_of(run, &whole);
     let key = Console::Participant("eff".to_string());
     let end = crate::run_pages::Reading {
         rows: 30,
@@ -1181,13 +1164,7 @@ fn gate_review_participant_page_jump_keeps_ten_rows() {
     let (_, events, _) = console_journal(&db, run);
     let whole = brokkr_view::run_view(&events, fold(&events).as_ref().ok());
     let (mut tui, subject) = participant_console(run, &whole);
-    let whole_views = participant_whole_views(
-        &db,
-        run,
-        &events,
-        brokkr_view::run_view(&events, fold(&events).as_ref().ok()),
-        subject.clone(),
-    );
+    let whole_views = participant_whole_views(&db, run, &events, subject.clone());
     let lower = held_lower_page(&db, run, &subject);
     tui.offset = 195;
     page_key(&mut tui, &lower, true);
@@ -1220,12 +1197,11 @@ fn gate_review_participant_page_jump_keeps_ten_rows() {
 #[test]
 fn gate_review_large_logical_end_is_independent_of_display_page() {
     use crate::tui::{checkpoint_offset, down_key, settle_end, up_key};
-    let (_dir, db, events) = far_work_of("gate large logical end", 66_000);
-    let run = "gate large logical end";
+    let far = far_work_of(66_000);
+    let (run, db, events, whole) = (far.run, &far.db, &far.events, &far.whole);
     let now = events.last().unwrap().recorded_at.clone();
-    let whole = brokkr_view::run_view(&events, fold(&events).as_ref().ok());
-    let (mut down_tui, down_subject) = participant_console(run, &whole);
-    let views = settle_participant_end(&db, run, &down_subject, &mut down_tui, &now);
+    let (mut down_tui, down_subject) = participant_console(run, whole);
+    let views = settle_participant_end(db, run, &down_subject, &mut down_tui, &now);
     assert_eq!(down_tui.offset, 65_999, "G's logical end");
     assert_eq!(
         (views.start, views.more, views.end),
@@ -1234,8 +1210,8 @@ fn gate_review_large_logical_end_is_independent_of_display_page() {
     );
     down_key(&mut down_tui, &views);
     assert_eq!(down_tui.offset, 0, "Down wraps at the stream's end");
-    let (mut tui, subject) = participant_console(run, &whole);
-    let views = settle_participant_end(&db, run, &subject, &mut tui, &now);
+    let (mut tui, subject) = participant_console(run, whole);
+    let views = settle_participant_end(db, run, &subject, &mut tui, &now);
     assert_eq!(
         checkpoint_offset(&tui),
         u16::MAX as usize,
@@ -1243,10 +1219,10 @@ fn gate_review_large_logical_end_is_independent_of_display_page() {
     );
     up_key(&mut tui, &views);
     assert_eq!(tui.offset, 65_998, "Up keeps the logical rank");
-    let mut views = participant_page(&db, run, &subject, &tui);
+    let mut views = participant_page(db, run, &subject, &tui);
     views.now = now.clone();
     settle_end(&mut tui, &views);
-    let paged = participant_frame_whole_read(&db, run, &events, subject, 65_998, &tui, &views);
+    let paged = participant_frame_whole_read(db, run, events, subject, 65_998, &tui, &views);
     let starts_at_today = rows_of_text(&paged)
         .into_iter()
         .any(|line| line.contains("│65536  turn"));
@@ -1265,11 +1241,10 @@ fn gate_review_large_logical_end_is_independent_of_display_page() {
 fn chief_confirm_large_end_after_reread_wraps() {
     use crate::tui::{bottom_key, checkpoint_offset, down_key, settle_end, up_key};
     use brokkr_runtime::realms::Hearth;
-    let (_dir, db, events) = far_work_of("chief large end reread", 66_000);
-    let run = "chief large end reread";
+    let far = far_work_of(66_000);
+    let (run, db, events, whole) = (far.run, &far.db, &far.events, &far.whole);
     let now = events.last().unwrap().recorded_at.clone();
-    let whole = brokkr_view::run_view(&events, fold(&events).as_ref().ok());
-    let (mut tui, subject) = participant_console(run, &whole);
+    let (mut tui, subject) = participant_console(run, whole);
     // The console's source keeps one Kept across refreshes; a fresh helper
     // per key could not carry the rank the end read answered (F1).
     let mut source = crate::tui_read::tui_source(vec![Hearth {
@@ -1317,8 +1292,8 @@ fn chief_confirm_large_end_after_reread_wraps() {
     }
     settle_end(&mut tui, &views);
     assert_eq!(tui.offset, 0, "Down wraps at the stream's current end");
-    let (mut whole_tui, _) = participant_console(run, &whole);
-    let whole_views = participant_whole_views(&db, run, &events, whole, subject.clone());
+    let (mut whole_tui, _) = participant_console(run, whole);
+    let whole_views = participant_whole_views(db, run, events, subject.clone());
     whole_tui.offset = 65_998;
     down_key(&mut whole_tui, &whole_views);
     down_key(&mut whole_tui, &whole_views);
@@ -1392,7 +1367,7 @@ fn chief_confirm_page_down_over_unknown_end_retains_last_row() {
         Some("201"),
         "the last row is still painted"
     );
-    let whole_views = participant_whole_views(&db, run, &events, whole, subject);
+    let whole_views = participant_whole_views(&db, run, &events, subject);
     let (mut whole_tui, _) = participant_console(run, whole_views.run.as_ref().unwrap());
     whole_tui.offset = 195;
     page_key(&mut whole_tui, &whole_views, true);
@@ -1698,10 +1673,11 @@ fn gate_review_hearth_switch_resets_the_live_line() {
 #[test]
 fn gate_review_carried_rank_advances_with_arrivals() {
     use crate::tui::down_key;
-    let (_dir, db, events) = far_work_of("gate carried rank", 66_000);
-    let run = "gate carried rank";
+    let far = far_work_of(66_000);
+    let (run, events) = (far.run, &far.events);
+    let (_dir, db) = far.copy();
     let now = events.last().unwrap().recorded_at.clone();
-    let (mut tui, _subject) = participant_of(run, &events);
+    let (mut tui, _subject) = participant_of(run, &far.whole);
     let key = Console::Participant("eff".to_string());
     let stored = Store::open_read_only(&db).unwrap();
     let end = crate::run_pages::Reading {
@@ -1784,19 +1760,18 @@ fn chief_review_live_pending_end_then_up() {
 #[test]
 fn chief_review_participant_pending_end_then_up() {
     use crate::tui::{bottom_key, settle_when, up_key};
-    let run = "chief participant end then up";
-    let (_dir, db, events) = far_work_of(run, 1_000);
-    let (mut tui, subject, views) = participant_end(&db, run, &events);
+    let far = far_work_of(1_000);
+    let (run, db, events, whole) = (far.run, &far.db, &far.events, &far.whole);
+    let (mut tui, subject, views) = participant_end(db, run, whole);
     assert_eq!(tui.offset, usize::MAX, "G asks the absolute end");
     tui.pending = true;
     up_key(&mut tui, &views);
     assert_eq!(tui.held.len(), 1, "Up waits behind G's read");
-    let end = participant_page(&db, run, &subject, &tui);
+    let end = participant_page(db, run, &subject, &tui);
     settle_when(&mut tui, &end, true);
     assert_eq!(tui.offset, 998, "the held Up lands at the end's window");
-    let whole = brokkr_view::run_view(&events, fold(&events).as_ref().ok());
-    let (mut whole_tui, _) = participant_console(run, &whole);
-    let whole_views = participant_whole_views(&db, run, &events, whole, subject);
+    let (mut whole_tui, _) = participant_console(run, whole);
+    let whole_views = participant_whole_views(db, run, events, subject);
     bottom_key(&mut whole_tui, &whole_views);
     up_key(&mut whole_tui, &whole_views);
     assert_eq!(whole_tui.offset, 998, "the whole read's G then Up");

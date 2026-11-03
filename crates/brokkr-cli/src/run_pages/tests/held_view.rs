@@ -6,36 +6,28 @@
 //! that file within its ceiling (decision 0071 ruling 4).
 
 use super::console_end::{
-    console_of, far_work_of, live_at, participant_page, retired_panel, settle_held_live,
-    wrapped_panel_console,
+    console_of, live_at, participant_page, retired_panel, settle_held_live,
+    wrapped_panel_console_of,
 };
+use super::far_work::far_work_of;
 use super::*;
 
-/// The wrapped panel's console at (100, 25): twenty-five drawn lines into
-/// the row at 375x250, the continuation a widening removes.
+/// The wrapped panel's console at (100, 25): the continuation a widening
+/// removes. The cursor is placed there rather than walked there by
+/// twenty-five `Down`s, each of which lays the whole panel out again; the
+/// movement itself is proven by the window and wrap proofs beside this
+/// one.
 fn wrapped_at_25(db: &Path, run: &str, now: &str) -> (Tui, Views) {
     let (mut tui, views) = live_at(db, run, 100, 375, 250, now);
-    twenty_five_downs(&mut tui, &views);
+    (tui.live_offset, tui.live_line) = (100, 25);
     (tui, views)
 }
 
 /// The whole read at the same (100, 25), for the controls beside it.
-fn whole_at_25(run: &str, whole: &Views) -> Tui {
+fn whole_at_25(run: &str) -> Tui {
     let mut tui = live_tui(run, 100, 375, 250);
-    twenty_five_downs(&mut tui, whole);
+    (tui.live_offset, tui.live_line) = (100, 25);
     tui
-}
-
-fn twenty_five_downs(tui: &mut Tui, views: &Views) {
-    use crate::tui::down_key;
-    for _ in 0..25 {
-        down_key(tui, views);
-    }
-    assert_eq!(
-        (tui.live_offset, tui.live_line),
-        (100, 25),
-        "twenty-five drawn lines into the row"
-    );
 }
 
 /// Read the page `tui` waits for and settle it until its queue is empty,
@@ -103,7 +95,7 @@ fn chief_753c6_refresh_preserves_held_movement() {
 fn chief_753c6_resize_top_settles() {
     use crate::tui::{settle_when, top_key};
     let run = "chief resize top";
-    let (_dir, db, _events, whole_views) = wrapped_panel_console(run);
+    let (_dir, db, _events, whole_views) = wrapped_panel_console_of(run, 60);
     let (mut tui, views) = wrapped_at_25(&db, run, &whole_views.now);
     tui.width = 750;
     top_key(&mut tui, &views);
@@ -120,7 +112,7 @@ fn chief_753c6_resize_top_settles() {
         (0, 0),
         "the answer leaves the top there"
     );
-    let mut whole_tui = whole_at_25(run, &whole_views);
+    let mut whole_tui = whole_at_25(run);
     whole_tui.width = 750;
     top_key(&mut whole_tui, &whole_views);
     assert_eq!(
@@ -270,7 +262,7 @@ fn chief_landing_too_short_then_shown_drops_held_movement() {
 fn chief_gate_resize_down_must_finish() {
     use crate::tui::down_key;
     let run = "chief gate resize down";
-    let (_dir, db, _events, whole_views) = wrapped_panel_console(run);
+    let (_dir, db, _events, whole_views) = wrapped_panel_console_of(run, 60);
     let (mut tui, views) = wrapped_at_25(&db, run, &whole_views.now);
     tui.width = 750;
     down_key(&mut tui, &views);
@@ -286,7 +278,7 @@ fn chief_gate_resize_down_must_finish() {
         (101, 1),
         "the next movement follows the landed one"
     );
-    let mut whole_tui = whole_at_25(run, &whole_views);
+    let mut whole_tui = whole_at_25(run);
     whole_tui.width = 750;
     down_key(&mut whole_tui, &whole_views);
     down_key(&mut whole_tui, &whole_views);
@@ -319,7 +311,7 @@ fn chief_gate_resize_down_must_finish() {
 fn chief_gate_resize_up_must_finish() {
     use crate::tui::up_key;
     let run = "chief gate resize up";
-    let (_dir, db, _events, whole_views) = wrapped_panel_console(run);
+    let (_dir, db, _events, whole_views) = wrapped_panel_console_of(run, 60);
     let (mut tui, views) = wrapped_at_25(&db, run, &whole_views.now);
     tui.width = 750;
     up_key(&mut tui, &views);
@@ -329,7 +321,7 @@ fn chief_gate_resize_up_must_finish() {
         (100, 13),
         "the widened window finishes Up as the whole read does"
     );
-    let mut whole_tui = whole_at_25(run, &whole_views);
+    let mut whole_tui = whole_at_25(run);
     whole_tui.width = 750;
     up_key(&mut whole_tui, &whole_views);
     assert_eq!(
@@ -406,19 +398,21 @@ fn hold_end_then_up(tui: &mut Tui, views: &Views) {
 }
 
 /// The participant level's first page of a 1,000-checkpoint run with a
-/// page beyond it: the journal, the whole read's view, the seat and the
+/// page beyond it: the run, the journal, its events, the seat and the
 /// page, the start the participant held-end cases share.
 struct FarPage {
-    _dir: tempfile::TempDir,
+    run: &'static str,
     db: std::path::PathBuf,
     events: Vec<EventEnvelope>,
-    whole: RunView,
     subject: Subject,
     views: Views,
 }
 
-fn far_page(run: &str) -> FarPage {
-    let (dir, db, events) = far_work_of(run, 1_000);
+fn far_page() -> FarPage {
+    let far = far_work_of(1_000);
+    let run = far.run;
+    let db = far.db.clone();
+    let events = far.events.clone();
     let whole = brokkr_view::run_view(&events, fold(&events).as_ref().ok());
     let (_, subject) = participant_console(run, &whole);
     let views = console_rows_at(&db, run, Some(subject.clone()), false, 200, 0);
@@ -428,10 +422,9 @@ fn far_page(run: &str) -> FarPage {
         "the first page has an end beyond it"
     );
     FarPage {
-        _dir: dir,
+        run,
         db,
         events,
-        whole,
         subject,
         views,
     }
@@ -480,15 +473,14 @@ fn whole_press(tui: &mut Tui, views: &Views, ups: usize, down: bool) {
 #[test]
 fn chief_landing_held_end_owns_the_movement_after_its_first_answer() {
     use crate::tui::{asked_rows, bottom_key, up_key};
-    let run = "chief landing held end participant";
     let FarPage {
-        _dir,
+        run,
         db,
         events,
-        whole,
         subject,
         views,
-    } = far_page(run);
+        ..
+    } = far_page();
     let mut tui = participant_tui(run);
     hold_end_then_up(&mut tui, &views);
     assert_eq!(tui.offset, usize::MAX, "G asks the absolute end");
@@ -503,7 +495,7 @@ fn chief_landing_held_end_owns_the_movement_after_its_first_answer() {
     assert_eq!(end.end, Some(1_000), "the end's window names the stream");
     crate::tui::settle_when(&mut tui, &end, true);
     assert_eq!(tui.offset, 998, "G then Up lands as the whole read does");
-    let whole_views = participant_whole_views(&db, run, &events, whole, subject);
+    let whole_views = participant_whole_views(&db, run, &events, subject);
     let (mut whole_tui, _) = participant_console(run, whole_views.run.as_ref().unwrap());
     bottom_key(&mut whole_tui, &whole_views);
     up_key(&mut whole_tui, &whole_views);
@@ -688,16 +680,15 @@ fn settle_participant_held(db: &Path, run: &str, subject: &Subject, tui: &mut Tu
 /// read does.
 #[test]
 fn chief_review_held_up_resolves_once_at_the_participant_level() {
-    let run = "chief review held up participant";
     let FarPage {
-        _dir,
+        run,
         db,
         events,
-        whole,
         subject,
         views,
-    } = far_page(run);
-    let whole_views = participant_whole_views(&db, run, &events, whole, subject.clone());
+        ..
+    } = far_page();
+    let whole_views = participant_whole_views(&db, run, &events, subject.clone());
     for (what, ups, down) in HELD_UP_CASES {
         let mut tui = participant_tui(run);
         tui.pending = true;
@@ -745,14 +736,13 @@ fn chief_review_held_up_resolves_once_on_the_live_column() {
 #[test]
 fn chief_review_participant_held_end_cancels_with_its_pane() {
     use crate::tui::{settle_when, tab_key, up_key, Step};
-    let run = "chief participant cancelled end";
     let FarPage {
-        _dir,
+        run,
         db,
         subject,
         views,
         ..
-    } = far_page(run);
+    } = far_page();
     let mut tui = participant_tui(run);
     tui.pending = true;
     up_key(&mut tui, &views);
