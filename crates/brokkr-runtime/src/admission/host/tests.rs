@@ -1131,6 +1131,29 @@ fn non_integral_tokens_are_shape_refusals() {
     }
 }
 
+/// The token reader on its own, at every place its grammar turns (decision
+/// 0071 ruling 9): the JSON number forms no planted file above writes, an
+/// explicit `+` exponent, a zero mantissa under a negative exponent, a
+/// negative zero and the one magnitude whose negative is `i128::MIN`, read
+/// exactly; and the text that is no JSON number, which the reader refuses
+/// by its own grammar rather than trusting its caller to never pass it.
+#[test]
+fn the_token_reader_reads_each_number_form_and_refuses_what_is_not_one() {
+    use super::shape::{Integral, Refusal};
+    let read = |token: &str| token.parse::<Integral<i128>>().map(|Integral(value)| value);
+    assert_eq!(read("1e+1"), Ok(10));
+    assert_eq!(read("0e-2"), Ok(0));
+    assert_eq!(read("-0"), Ok(0));
+    assert_eq!(
+        read("-170141183460469231731687303715884105728"),
+        Ok(i128::MIN)
+    );
+    assert_eq!(read(""), Err(Refusal::NotANumber));
+    for token in ["-", "1.", "1e", "1x", "1e1x"] {
+        assert_eq!(read(token), Err(Refusal::NotAnInteger), "{token}");
+    }
+}
+
 /// F2 from the landing review (decision 0071 ruling 8): the reader's two
 /// diagnostics are pinned by their exact words and parser place, not only
 /// by their variant. Each is planted in v1 and v2; changing either phrase
