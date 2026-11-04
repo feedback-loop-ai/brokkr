@@ -14,8 +14,8 @@ use rusqlite::params;
 use serde_json::{json, Value as Json};
 
 use crate::test_support::{
-    append, at, every_run_reads_as_its_fold, lags, opened, plant_envelope, plant_older_writer,
-    refolded, text,
+    append, at, disagreements, every_run_reads_as_its_fold, lags, opened, plant_envelope,
+    plant_older_writer, plant_summary_writer, refolded, text,
 };
 use crate::tests::envelope_builder::EnvelopeBuilder;
 use crate::tests::store;
@@ -26,13 +26,95 @@ fn kept(store: &Store, run_id: &str, seq: u64) -> Vec<Value> {
     crate::test_support::kept_facts(store, run_id, seq, &COLUMNS)
 }
 
+/// A checkpoint row's session stamp: its own seq once core's reading has
+/// computed its session, NULL while it is behind.
+fn stamped(store: &Store, run_id: &str, seq: u64) -> Value {
+    crate::test_support::kept_facts(store, run_id, seq, &["facts_seq"]).remove(0)
+}
+
+/// A finishing checkpoint of site (a, m) chained onto `first` at its next
+/// seq.
+fn finishing_after(first: &EventEnvelope, event_id: &str, at: &str) -> EventEnvelope {
+    EnvelopeBuilder::new(
+        EventType::EffectCheckpointed,
+        checkpoint(Some("m"), json!({"step": "claude-session-finished"})),
+    )
+    .run("r")
+    .seq(first.seq + 1)
+    .event_id(event_id)
+    .at(at)
+    .previous(first.event_hash.clone())
+    .sealed()
+}
+
+/// `seq`'s session on `store`'s run `r`.
+fn session(store: &Store, seq: u64) -> Value {
+    kept(store, "r", seq)[9].clone()
+}
+
+/// The journal before its next open: `seq`'s session, the run left behind
+/// on purpose, and the doctor naming no disagreement.
+fn before_open(store: &mut Store, seq: u64, session: Value) {
+    assert_eq!(kept(store, "r", seq)[9], session);
+    assert_eq!(disagreements(store), Vec::<String>::new());
+    lags(store, &["r"]);
+}
+
+/// The pass left the backfill unfinished, and the next open's walk completes
+/// it.
+fn unfinished_then_backfilled(store: Store, moved: bool) -> Store {
+    assert!(moved);
+    assert!(!backfilled(&store.conn).unwrap());
+    let store = refolded(store);
+    assert!(backfilled(&store.conn).unwrap());
+    store
+}
+
+/// The journal reopened writable, with `seq`'s session and the run reading
+/// as its fold with no disagreement.
+fn reopened(store: Store, seq: u64, session: Value) -> Store {
+    let store = refolded(store);
+    assert_eq!(kept(&store, "r", seq)[9], session);
+    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+    assert_eq!(disagreements(&store), Vec::<String>::new());
+    store
+}
+
+/// A `between` callback that plants `peer` on its first call, the instant a
+/// peer's append lands while a run is read.
+fn peer_once<'a>(
+    peer: &'a EventEnvelope,
+    moved: &'a mut bool,
+) -> impl FnMut(&rusqlite::Connection) + 'a {
+    move |conn| {
+        if *moved {
+            return;
+        }
+        *moved = true;
+        crate::test_support::plant_envelope(conn, peer).unwrap();
+    }
+}
+
+/// `run_id`'s `events` planted and their checkpoint facts written, and the
+/// last event's hash.
+fn planted(store: &mut Store, run_id: &str, events: &[EventEnvelope]) -> String {
+    plant_older_writer(store, run_id, events);
+    store.checkpoint_behind_with(|_| {}).unwrap();
+    events.last().unwrap().event_hash.clone()
+}
+
 /// A checkpoint of attempt `a`, naming `member`, its record `record`.
 fn checkpoint(member: Option<&str>, record: Json) -> Json {
+    checkpoint_at("a", member, record)
+}
+
+/// A checkpoint of `attempt`, naming `member`, its record `record`.
+fn checkpoint_at(attempt: &str, member: Option<&str>, record: Json) -> Json {
     let mut checkpoint = record;
     if let (Some(member), Some(object)) = (member, checkpoint.as_object_mut()) {
         object.insert("member".into(), json!(member));
     }
-    json!({"effect_id": "fx", "attempt_id": "a", "checkpoint": checkpoint})
+    json!({"effect_id": "fx", "attempt_id": attempt, "checkpoint": checkpoint})
 }
 
 /// A run of `implement` with one checkpoint of `record` appended.
@@ -51,6 +133,16 @@ fn one_kept(store: &mut Store, record: Json) -> (EventEnvelope, Vec<Value>) {
     let event = one_checkpoint(store, record);
     let held = kept(store, "r", event.seq);
     (event, held)
+}
+
+/// Append a checkpoint of site (a, m) whose record is `record`.
+fn append_checkpoint(store: &mut Store, record: Json) -> EventEnvelope {
+    append(
+        store,
+        "r",
+        EventType::EffectCheckpointed,
+        checkpoint(Some("m"), record),
+    )
 }
 
 /// The row a checkpoint appended to `store`'s run `r` keeps.
@@ -84,6 +176,53 @@ fn chained(run_id: &str, events: Vec<(EventType, Json)>) -> Vec<EventEnvelope> {
             event
         })
         .collect()
+}
+
+/// `n` chained checkpoints of `attempt` and `member`, at one site.
+fn chained_checkpoints(run_id: &str, attempt: &str, member: &str, n: u64) -> Vec<EventEnvelope> {
+    chained(
+        run_id,
+        (1..=n)
+            .map(|_| {
+                (
+                    EventType::EffectCheckpointed,
+                    checkpoint_at(attempt, Some(member), json!({"step": "seat-turn"})),
+                )
+            })
+            .collect(),
+    )
+}
+
+/// Insert `seq`'s checkpoint through the older writer's statement and return
+/// the VM steps SQLite took, the cost of the triggers an append fires.
+fn insert_checkpoint(
+    store: &Store,
+    run_id: &str,
+    seq: u64,
+    previous: &str,
+    attempt: &str,
+    member: &str,
+) -> i64 {
+    use crate::import::INSERT_EVENT;
+    use rusqlite::StatementStatus;
+
+    let event = EnvelopeBuilder::new(
+        EventType::EffectCheckpointed,
+        checkpoint_at(attempt, Some(member), json!({"step": "seat-turn"})),
+    )
+    .run(run_id)
+    .seq(seq)
+    .event_id(format!("{run_id}-{seq}"))
+    .at("2026-01-01T00:00:00Z")
+    .previous(previous)
+    .sealed();
+    let envelope = serde_json::to_string(&event).unwrap();
+    let mut insert = store.conn.prepare(INSERT_EVENT).unwrap();
+    insert.reset_status(StatementStatus::VmStep);
+    insert
+        .execute(params![run_id, seq as i64, &event.event_hash, &envelope])
+        .unwrap();
+    i64::from(insert.reset_status(StatementStatus::VmStep))
 }
 
 #[test]
@@ -281,12 +420,7 @@ fn a_fixture_checkpoint_keeps_the_facts_its_record_states() {
 fn a_site_s_second_session_record_flips_the_first_to_zero() {
     let (_dir, mut store) = store();
     let first = one_checkpoint(&mut store, json!({"step": "claude-session-finished"}));
-    let second = append(
-        &mut store,
-        "r",
-        EventType::EffectCheckpointed,
-        checkpoint(Some("m"), json!({"step": "claude-session-finished"})),
-    );
+    let second = append_checkpoint(&mut store, json!({"step": "claude-session-finished"}));
     assert_eq!(kept(&store, "r", first.seq)[9], Value::Integer(0));
     assert_eq!(kept(&store, "r", second.seq)[9], Value::Integer(1));
     // Another site's finishing record leaves this site's last one alone.
@@ -302,54 +436,187 @@ fn a_site_s_second_session_record_flips_the_first_to_zero() {
     assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
 }
 
+/// A step whose suffix differs only in case finishes no session in
+/// brokkr-core's reading, so the earlier record keeps the flag; no SQL
+/// decides it (decision 0089 rulings 4 and 7; decision 0071 ruling 5).
+#[test]
+fn an_upper_case_suffix_does_not_move_the_session() {
+    let (_dir, mut store) = store();
+    let first = one_checkpoint(&mut store, json!({"step": "claude-session-finished"}));
+    let second = append_checkpoint(&mut store, json!({"step": "claude-SESSION-FINISHED"}));
+    assert_eq!(session(&store, first.seq), Value::Integer(1));
+    assert_eq!(session(&store, second.seq), Value::Integer(0));
+    before_open(&mut store, second.seq, Value::Integer(0));
+    let store = reopened(store, second.seq, Value::Integer(0));
+    assert_eq!(session(&store, first.seq), Value::Integer(1));
+}
+
+/// A record that repeats `step` keeps the last copy, as serde reads it: the
+/// duplicate null finishes no session, so the earlier record keeps the
+/// flag, after the append and after a reopen (decision 0089 rulings 4 and
+/// 7; decision 0071 ruling 5).
+#[test]
+fn a_last_step_key_that_is_null_keeps_the_session() {
+    let (_dir, mut store) = store();
+    let first = one_checkpoint(&mut store, json!({"step": "claude-session-finished"}));
+    let raw = format!(
+        r#"{{"run_id":"r","seq":{},"event_id":"r-duplicate","event_schema_version":1,"type":"effect/checkpointed","payload":{{"effect_id":"fx","attempt_id":"a","checkpoint":{{"member":"m","step":"claude-session-finished","step":null}}}},"causation_id":null,"correlation_id":"r","recorded_at":"2026-01-01T00:00:09Z","previous_hash":"{}","event_hash":""}}"#,
+        first.seq + 1,
+        first.event_hash
+    );
+    let parsed: EventEnvelope = serde_json::from_str(&raw).unwrap();
+    let hash = parsed.compute_hash();
+    let sealed = raw.replace(r#""event_hash":"""#, &format!(r#""event_hash":"{hash}""#));
+    crate::test_support::plant_event(&store.conn, "r", &((first.seq + 1) as i64), &hash, &sealed)
+        .unwrap();
+    assert_eq!(session(&store, first.seq), Value::Integer(1));
+    assert_eq!(session(&store, first.seq + 1), Value::Null);
+    before_open(&mut store, first.seq + 1, Value::Null);
+    let store = reopened(store, first.seq + 1, Value::Integer(0));
+    assert_eq!(session(&store, first.seq), Value::Integer(1));
+}
+
+/// A finishing record whose stamp does not parse is ignored by
+/// brokkr-core, so its site's earlier session record keeps the flag, after
+/// the append and after a reopen (decision 0089 rulings 4 and 7; decision
+/// 0071 ruling 5).
+#[test]
+fn an_unreadable_stamp_keeps_the_session() {
+    let (_dir, mut store) = store();
+    let first = one_checkpoint(&mut store, json!({"step": "claude-session-finished"}));
+    let second = finishing_after(&first, "r-unreadable", "not a stamp");
+    plant_envelope(&store.conn, &second).unwrap();
+    assert_eq!(session(&store, first.seq), Value::Integer(1));
+    assert_eq!(session(&store, second.seq), Value::Null);
+    before_open(&mut store, second.seq, Value::Null);
+    let store = reopened(store, second.seq, Value::Null);
+    assert_eq!(session(&store, first.seq), Value::Integer(1));
+}
+
 /// A writer from before the facts inserts a finishing record without them:
-/// the trigger moves the earlier flag as the event lands, the new row is a
-/// lag rather than a false disagreement, and the open's walk writes both
-/// (decision 0089 rulings 4 and 7).
+/// the trigger sends both rows behind, the site is a lag rather than a
+/// false disagreement, and the open's walk writes both (decision 0089
+/// rulings 4 and 7).
 #[test]
 fn an_older_writer_s_second_session_record_moves_the_first_flag() {
     let (_dir, mut store) = store();
     let first = one_checkpoint(&mut store, json!({"step": "claude-session-finished"}));
-    let second = EnvelopeBuilder::new(
-        EventType::EffectCheckpointed,
-        checkpoint(Some("m"), json!({"step": "claude-session-finished"})),
-    )
-    .run("r")
-    .seq(first.seq + 1)
-    .event_id("r-older")
-    .at("2026-01-01T00:00:09Z")
-    .previous(first.event_hash.clone())
-    .sealed();
+    let second = finishing_after(&first, "r-older", "2026-01-01T00:00:09Z");
     plant_envelope(&store.conn, &second).unwrap();
-    // The event's trigger moves the flag; its own row keeps no facts, so
-    // the run is a lag and the doctor names no corruption.
-    assert_eq!(kept(&store, "r", first.seq)[9], Value::Integer(0));
+    assert_eq!(session(&store, first.seq), Value::Integer(1));
     assert_eq!(kept(&store, "r", second.seq)[10], Value::Null);
-    assert_eq!(
-        crate::test_support::disagreements(&store),
-        Vec::<String>::new()
-    );
-    lags(&mut store, &["r"]);
-    let store = refolded(store);
-    assert_eq!(kept(&store, "r", first.seq)[9], Value::Integer(0));
-    assert_eq!(kept(&store, "r", second.seq)[9], Value::Integer(1));
-    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+    assert_eq!(stamped(&store, "r", first.seq), Value::Null);
+    assert_eq!(stamped(&store, "r", second.seq), Value::Null);
+    before_open(&mut store, second.seq, Value::Null);
+    let store = reopened(store, second.seq, Value::Integer(1));
+    assert_eq!(session(&store, first.seq), Value::Integer(0));
 }
 
-/// The session flag's one mover searches the partial index of its site's
-/// later session rows, and the facts' write searches the row's key; no
-/// write walks the run's checkpoints.
+/// A writer from before the session stamp writes the record's facts but
+/// leaves `facts_seq` NULL: the site is behind, the summary row is already
+/// at its head, and the next writable open refolds the site from core's
+/// reading through the stream index, never the run (decision 0089 rulings
+/// 4 and 7).
 #[test]
-fn the_session_mover_and_the_facts_write_search_their_indexes() {
+fn a_writer_from_before_the_stamp_leaves_the_site_behind() {
+    let (_dir, mut store) = store();
+    let first = one_checkpoint(&mut store, json!({"step": "claude-session-finished"}));
+    let second = finishing_after(&first, "r-stampless", "2026-01-01T00:00:09Z");
+    // The writer from before the stamp wrote the records' facts and no
+    // stamp: two session rows stand, and the summary row is current.
+    plant_summary_writer(&store, "r", std::slice::from_ref(&second));
+    let assignments: Vec<String> = COLUMNS
+        .iter()
+        .enumerate()
+        .map(|(at, column)| format!("{column} = ?{}", at + 3))
+        .collect();
+    let sql = format!(
+        "UPDATE event_index SET {} WHERE run_id = ?1 AND seq = ?2",
+        assignments.join(", ")
+    );
+    let checkpoint = brokkr_core::summary::Checkpoint::read(&second, Some("implement"));
+    let facts = super::checkpoint::facts(checkpoint.as_ref()).unwrap();
+    let mut bound: Vec<Value> = vec![Value::Text("r".into()), Value::Integer(second.seq as i64)];
+    bound.extend(facts);
+    store
+        .conn
+        .execute(&sql, rusqlite::params_from_iter(bound))
+        .unwrap();
+    assert_eq!(session(&store, first.seq), Value::Integer(1));
+    assert_eq!(session(&store, second.seq), Value::Integer(1));
+    assert_eq!(stamped(&store, "r", first.seq), Value::Null);
+    assert_eq!(stamped(&store, "r", second.seq), Value::Null);
+    let read = store.compared("r", || {}).unwrap();
+    assert!(
+        matches!(
+            read,
+            crate::summary::Compared::Behind | crate::summary::Compared::SeatsBehind
+        ),
+        "{read:?}"
+    );
+    before_open(&mut store, second.seq, Value::Integer(1));
+    let store = reopened(store, second.seq, Value::Integer(1));
+    assert_eq!(session(&store, first.seq), Value::Integer(0));
+    assert_eq!(
+        stamped(&store, "r", first.seq),
+        Value::Integer(first.seq as i64)
+    );
+    assert_eq!(
+        stamped(&store, "r", second.seq),
+        Value::Integer(second.seq as i64)
+    );
+}
+
+/// A checkpoint whose payload names no attempt is no site: it keeps no
+/// session, is stamped processed, and the append's refold skips it. A
+/// writer from before the stamp leaves such a row behind, and the open
+/// stamps it without inventing a site (decision 0089 rulings 4 and 7).
+#[test]
+fn a_checkpoint_with_no_attempt_is_stamped_without_a_site() {
+    let (_dir, mut store) = store();
+    opened(&mut store, "r", "implement", &[]);
+    let event = append(
+        &mut store,
+        "r",
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "checkpoint": {"member": "m", "step": "seat-turn"}}),
+    );
+    assert_eq!(kept(&store, "r", event.seq)[9], Value::Null);
+    assert_eq!(
+        stamped(&store, "r", event.seq),
+        Value::Integer(event.seq as i64)
+    );
+    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+    store
+        .conn
+        .execute(
+            "UPDATE event_index SET facts_seq = NULL WHERE run_id = 'r' AND seq = ?1",
+            params![event.seq as i64],
+        )
+        .unwrap();
+    before_open(&mut store, event.seq, Value::Null);
+    let store = reopened(store, event.seq, Value::Null);
+    assert_eq!(
+        stamped(&store, "r", event.seq),
+        Value::Integer(event.seq as i64)
+    );
+}
+
+/// The session send searches the session partial index for the site's
+/// earlier session rows, and the stream index for the appended row; the
+/// facts' write searches the row's key. No write walks the run's
+/// checkpoints.
+#[test]
+fn the_session_and_row_sends_search_their_indexes() {
     let (_dir, store) = store();
-    let bound = rusqlite::params_from_iter(std::iter::repeat_n(Value::Null, 13));
+    let bound = rusqlite::params_from_iter(std::iter::repeat_n(Value::Null, 14));
     assert_eq!(
         crate::test_support::plan(&store, &WRITE, bound).unwrap(),
         ["SEARCH event_index USING PRIMARY KEY (run_id=? AND seq=?)"]
     );
-    let update = crate::test_support::trigger_body(
+    let statements = crate::test_support::trigger_statements(
         &store,
-        "event_index_checkpoint_moved",
+        "event_index_checkpoint_behind",
         &[
             ("NEW.run_id", "'r'"),
             ("NEW.attempt_id", "'a'"),
@@ -357,30 +624,22 @@ fn the_session_mover_and_the_facts_write_search_their_indexes() {
             ("NEW.seq", "1000"),
         ],
     );
+    assert_eq!(statements.len(), 2);
     assert_eq!(
-        crate::test_support::plan(&store, &update, []).unwrap(),
+        crate::test_support::plan(&store, &statements[0], []).unwrap(),
         [
-            "SEARCH event_index USING COVERING INDEX event_index_checkpoint_session (run_id=? AND \
-          attempt_id=? AND member=? AND seq<?)"
+            "SEARCH event_index USING PRIMARY KEY (run_id=? AND seq=?)",
+            "LIST SUBQUERY 1",
+            "SEARCH event_index USING COVERING INDEX event_index_checkpoint_session (run_id=? AND attempt_id=? AND member=? AND seq<?)"
         ]
     );
-    let inserted = crate::test_support::trigger_body(
-        &store,
-        "event_index_checkpoint_finished",
-        &[
-            ("NEW.run_id", "'r'"),
-            ("NEW.seq", "1000"),
-            (
-                "NEW.envelope",
-                r#"'{"type":"effect/checkpointed","payload":{"attempt_id":"a",
-                    "checkpoint":{"member":"m","step":"claude-session-finished"}}}'"#,
-            ),
-        ],
-    );
     assert_eq!(
-        crate::test_support::plan(&store, &inserted, []).unwrap()[0],
-        "SEARCH event_index USING COVERING INDEX event_index_checkpoint_session (run_id=? AND \
-         attempt_id=? AND member=? AND seq<?)"
+        crate::test_support::plan(&store, &statements[1], []).unwrap(),
+        [
+            "SEARCH event_index USING PRIMARY KEY (run_id=? AND seq=?)",
+            "LIST SUBQUERY 1",
+            "SEARCH event_index USING INDEX event_index_stream (run_id=? AND attempt_id=? AND member=? AND seq=?)"
+        ]
     );
 }
 
@@ -407,9 +666,7 @@ fn an_appended_checkpoint_visits_the_same_steps_at_every_n() {
                 })
                 .collect(),
         );
-        let previous = events.last().unwrap().event_hash.clone();
-        plant_older_writer(&store, &run_id, &events);
-        store.checkpoint_behind_with(|_| {}).unwrap();
+        let previous = planted(&mut store, &run_id, &events);
         let next = EnvelopeBuilder::new(
             EventType::EffectCheckpointed,
             checkpoint(Some("m"), json!({"step": "seat-turn"})),
@@ -439,12 +696,54 @@ fn an_appended_checkpoint_visits_the_same_steps_at_every_n() {
         let mut bound: Vec<Value> =
             vec![Value::Text(run_id.clone()), Value::Integer((n + 1) as i64)];
         bound.extend_from_slice(&facts);
+        bound.push(Value::Integer((n + 1) as i64));
         write.execute(params_from_iter(bound)).unwrap();
         steps.push((inserted, write.reset_status(StatementStatus::VmStep)));
     }
     assert_eq!(
         steps[0], steps[1],
         "appending costs the checkpoint: {steps:?}"
+    );
+}
+
+/// Appending a checkpoint visits its own site's rows and no other's: the
+/// cost is the same at 200 and 400 checkpoints at the appended site, and a
+/// run whose other sites hold many checkpoints visits none of them
+/// (decision 0089 rulings 4 and 7; #912's park send).
+#[test]
+fn sending_a_checkpoint_behind_visits_only_its_site_s_rows() {
+    let (_dir, mut store) = store();
+    let mut same = Vec::new();
+    let mut other = Vec::new();
+    for n in [200u64, 400] {
+        let run_id = format!("same{n}");
+        let events = chained_checkpoints(&run_id, "a", "m", n);
+        let previous = planted(&mut store, &run_id, &events);
+        same.push(insert_checkpoint(
+            &store,
+            &run_id,
+            n + 1,
+            &previous,
+            "a",
+            "m",
+        ));
+
+        let run_id = format!("other{n}");
+        let events = chained_checkpoints(&run_id, "b", "m2", n);
+        let previous = planted(&mut store, &run_id, &events);
+        other.push(insert_checkpoint(
+            &store,
+            &run_id,
+            n + 1,
+            &previous,
+            "a",
+            "m",
+        ));
+    }
+    assert_eq!(same[0], same[1], "the appended site's rows alone: {same:?}");
+    assert_eq!(
+        other[0], other[1],
+        "another site's rows are never visited: {other:?}"
     );
 }
 
@@ -493,20 +792,14 @@ fn restoring_the_checkpoint_trigger_sends_the_facts_it_missed_behind() {
     let first = one_checkpoint(&mut store, json!({"step": "claude-session-finished"}));
     store
         .conn
-        .execute_batch(
-            "DROP TRIGGER event_index_checkpoint_moved;
-             DROP TRIGGER event_index_checkpoint_finished",
-        )
+        .execute_batch("DROP TRIGGER event_index_checkpoint_behind")
         .unwrap();
-    let second = append(
-        &mut store,
-        "r",
-        EventType::EffectCheckpointed,
-        checkpoint(Some("m"), json!({"step": "claude-session-finished"})),
-    );
-    // The triggers were gone, so the earlier record still holds the flag.
+    let second = finishing_after(&first, "r-older", "2026-01-01T00:00:09Z");
+    // An older writer appends with the trigger gone: neither row is sent
+    // behind, and the open's repair finds the trigger missing.
+    plant_envelope(&store.conn, &second).unwrap();
     assert_eq!(kept(&store, "r", first.seq)[9], Value::Integer(1));
-    assert_eq!(kept(&store, "r", second.seq)[9], Value::Integer(1));
+    assert_eq!(kept(&store, "r", second.seq)[10], Value::Null);
     lags(&mut store, &["r"]);
     let store = refolded(store);
     assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
@@ -530,7 +823,7 @@ fn an_index_from_before_the_checkpoints_is_altered_and_refolded() {
         "DROP INDEX event_index_checkpoint;
          DROP INDEX event_index_checkpoint_stale;
          DROP INDEX event_index_checkpoint_session;
-         DROP TRIGGER event_index_checkpoint_moved;
+         DROP TRIGGER event_index_checkpoint_behind;
          ALTER TABLE event_index DROP COLUMN facts;",
     )
     .unwrap();
@@ -763,16 +1056,21 @@ fn an_oversized_legacy_checkpoint_does_not_block_the_journal() {
     drop(store);
     let store = Store::open(&path).unwrap();
     assert!(!backfilled(&store.conn).unwrap());
-    let named = crate::test_support::disagreements(&store);
+    let named = store.summary_disagreements().unwrap();
+    assert_eq!(named.len(), 1, "the healthy run still reads: {named:?}");
     assert!(
-        named
-            .iter()
-            .any(|found| found.contains("legacy") && found.contains("input_tokens")),
+        matches!(
+            &named[0],
+            crate::Disagreement::Unread {
+                run_id,
+                error: crate::StoreError::TokenCountOutOfRange(
+                    5,
+                    "input_tokens",
+                    9_223_372_036_854_775_808
+                ),
+            } if run_id == "legacy"
+        ),
         "{named:?}"
-    );
-    assert!(
-        !named.iter().any(|found| found.contains("healthy")),
-        "the healthy run still reads: {named:?}"
     );
     // The next open refuses the same run by name and still opens.
     let path = store.path().to_path_buf();
@@ -818,12 +1116,31 @@ fn a_backfill_whose_head_moved_stays_unfinished() {
             crate::test_support::plant_envelope(conn, &peer).unwrap();
         })
         .unwrap();
-    assert!(moved);
-    assert!(!backfilled(&store.conn).unwrap());
-    let path = store.path().to_path_buf();
-    drop(store);
-    let store = Store::open(&path).unwrap();
-    assert!(backfilled(&store.conn).unwrap());
+    let store = unfinished_then_backfilled(store, moved);
     assert_eq!(kept(&store, "r", first.seq)[10], Value::Integer(1));
     assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+}
+
+/// A peer's unwritten checkpoint landing while the session refold reads the
+/// site is left for the next open, and this pass claims no completion
+/// (decision 0089 rulings 4 and 8).
+#[test]
+fn a_session_refold_whose_peer_writes_facts_stays_unfinished() {
+    let (_dir, mut store) = store();
+    let first = one_checkpoint(&mut store, json!({"step": "claude-session-finished"}));
+    store
+        .conn
+        .execute(
+            "UPDATE event_index SET facts_seq = NULL WHERE run_id = 'r' AND seq = ?1",
+            params![first.seq as i64],
+        )
+        .unwrap();
+    lags(&mut store, &["r"]);
+    let peer = finishing_after(&first, "r-peer", "2026-01-01T00:00:09Z");
+    let mut moved = false;
+    let staged = peer_once(&peer, &mut moved);
+    store.checkpoint_behind_with(staged).unwrap();
+    let store = unfinished_then_backfilled(store, moved);
+    assert_eq!(session(&store, first.seq), Value::Integer(0));
+    assert_eq!(session(&store, peer.seq), Value::Integer(1));
 }

@@ -10,22 +10,27 @@
 //! append it covers, one row per sealed checkpoint, so an append costs the
 //! checkpoint it writes and never the run's earlier ones. A writer that
 //! carries no account, as a second writable open does, writes the same
-//! facts from the event alone, with the run's phase read by its key. A
-//! session record that arrives later moves the flag off its site's earlier
-//! one by the trigger that searches the partial index of session rows
-//! alone, as #912's park trigger searches the parks' partial index. A
-//! journal from before the facts is altered in place and walked once,
-//! marked unfinished until the walk writes every row; a row core read no
-//! facts for is still marked written, so a later open does not read its run
-//! again.
+//! facts from the event alone, with the run's phase read by its key. The one
+//! fact that moves, `session`, is brokkr-core's reading alone: the trigger
+//! never decides it, it only sends behind the rows whose session could
+//! change, and the writer refolds them from the site's rows, as #912's parks
+//! are sent behind and refolded. `facts_seq` is the stamp that says a row's
+//! session was computed; `facts_seq IS NOT seq` is the off-head check, so a
+//! row the trigger sent behind, or one an older writer left, is a lag until
+//! the next writable open refolds its site. A journal from before the facts
+//! is altered in place and walked once, marked unfinished until the walk
+//! writes every row; a row core read no facts for is still marked processed,
+//! so a later open does not read its run again.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
+use brokkr_core::envelope::{EventEnvelope, EventType};
+use brokkr_core::event_index::Indexed;
 use brokkr_core::summary::{Account, Bounded, Checkpoint, NAME_BYTES};
 use rusqlite::types::Value;
-use rusqlite::{params_from_iter, Connection, OptionalExtension};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 
-use super::record;
 use crate::event_index::{finished, mark_finished, CHECKPOINTED};
 use crate::{head_of, patiently, Store, StoreError};
 
@@ -156,32 +161,39 @@ pub(super) fn facts(checkpoint: Option<&Checkpoint>) -> Result<[Value; COLUMNS.l
     ])
 }
 
-/// Whether `event` is a checkpoint whose record finishes a session: its
-/// last `step` text ends "-session-finished", as [`Checkpoint::read`] reads
-/// it. 0 where the record has no step or is no checkpoint.
-pub(super) fn session_finished(event: &str) -> String {
-    let record = record(event);
+/// The statement that sends behind a site's earlier session rows when a
+/// checkpoint is appended, inside the event's own transaction: it searches
+/// the session partial index, never the run's every event, so only the rows
+/// whose `session` could change are marked for the writer's refold
+/// (decision 0089 rulings 4 and 7).
+pub(super) fn session_behind(event: &str) -> String {
     format!(
-        "COALESCE((SELECT CASE WHEN value LIKE '%-session-finished' THEN 1 ELSE 0 END
-              FROM {record} WHERE key = 'step' AND type = 'text'
-              ORDER BY id DESC LIMIT 1), 0)"
+        "UPDATE event_index SET facts_seq = NULL
+                WHERE run_id = {event}.run_id
+                  AND seq IN (
+                      SELECT seq FROM event_index INDEXED BY event_index_checkpoint_session
+                      WHERE run_id = {event}.run_id
+                        AND attempt_id IS {event}.attempt_id
+                        AND member IS {event}.member
+                        AND seq < {event}.seq
+                        AND type = '{CHECKPOINTED}' AND session = 1)"
     )
 }
 
-/// The statement that moves the session flag off a site's earlier record
-/// when `event` is a finishing checkpoint, inside the event's own
-/// transaction: it searches the session partial index, never the run's
-/// every event, so a writer from before the facts, whose event the trigger
-/// indexes without them, still keeps the flag current (decision 0089
-/// rulings 4 and 7).
-pub(super) fn session_moved(event: &str, attempt: &str, member: &str) -> String {
+/// The statement that sends behind the appended checkpoint row itself,
+/// through the site's stream index: the row whose session the writer is
+/// about to compute, never the run's every event.
+pub(super) fn row_behind(event: &str) -> String {
     format!(
-        "UPDATE event_index SET session = 0
+        "UPDATE event_index SET facts_seq = NULL
                 WHERE run_id = {event}.run_id
-                  AND attempt_id IS {attempt}
-                  AND member IS {member}
-                  AND seq < {event}.seq
-                  AND type = '{CHECKPOINTED}' AND session = 1"
+                  AND seq IN (
+                      SELECT seq FROM event_index INDEXED BY event_index_stream
+                      WHERE run_id = {event}.run_id
+                        AND attempt_id IS {event}.attempt_id
+                        AND member IS {event}.member
+                        AND seq = {event}.seq
+                        AND type = '{CHECKPOINTED}')"
     )
 }
 
@@ -215,7 +227,9 @@ pub(super) static PHASE_BEFORE: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// The statement that writes one checkpoint's facts, by its key.
+/// The statement that writes one checkpoint's facts, by its key, and the
+/// stamp that says its session was computed: the row's own seq, so a later
+/// checkpoint at its site cannot make a row another's behind.
 pub(super) static WRITE: LazyLock<String> = LazyLock::new(|| {
     let assignments: Vec<String> = COLUMNS
         .iter()
@@ -223,8 +237,9 @@ pub(super) static WRITE: LazyLock<String> = LazyLock::new(|| {
         .map(|(at, column)| format!("{column} = ?{}", at + 3))
         .collect();
     format!(
-        "UPDATE event_index SET {} WHERE run_id = ?1 AND seq = ?2",
-        assignments.join(", ")
+        "UPDATE event_index SET {}, facts_seq = ?{} WHERE run_id = ?1 AND seq = ?2",
+        assignments.join(", "),
+        COLUMNS.len() + 3
     )
 });
 
@@ -232,9 +247,206 @@ pub(super) static WRITE: LazyLock<String> = LazyLock::new(|| {
 fn write(tx: &Connection, run_id: &str, seq: u64, facts: &[Value]) -> Result<(), StoreError> {
     let mut bound: Vec<Value> = vec![Value::Text(run_id.to_string()), Value::Integer(seq as i64)];
     bound.extend_from_slice(facts);
+    bound.push(Value::Integer(seq as i64));
     let mut statement = tx.prepare_cached(&WRITE)?;
     statement.execute(params_from_iter(bound))?;
     Ok(())
+}
+
+/// The candidate rows at a site whose `session` could change, read through
+/// the stream index: the site's session rows, the rows behind their own
+/// stamp, and, at an append, the rows from the append's first checkpoint at
+/// the site up. Only that site is read, never the run.
+fn site(from: bool) -> String {
+    let behind = if from {
+        "(session = 1 OR facts_seq IS NOT seq OR seq >= ?4)"
+    } else {
+        "(session = 1 OR facts_seq IS NOT seq)"
+    };
+    format!(
+        "SELECT seq FROM event_index INDEXED BY event_index_stream
+         WHERE run_id = ?1 AND attempt_id IS ?2 AND member IS ?3
+           AND type = '{CHECKPOINTED}' AND {behind}
+         ORDER BY seq"
+    )
+}
+
+static SITE: LazyLock<String> = LazyLock::new(|| site(true));
+static SITE_BEHIND: LazyLock<String> = LazyLock::new(|| site(false));
+
+/// The seqs [`refold_site`] reads, bound to the site and, at an append, the
+/// first sealed seq at it.
+fn candidates(
+    conn: &Connection,
+    run_id: &str,
+    attempt_id: &str,
+    member: Option<&str>,
+    from: Option<u64>,
+) -> Result<Vec<u64>, StoreError> {
+    let mut bound = vec![
+        Value::Text(run_id.to_string()),
+        Value::Text(attempt_id.to_string()),
+        member.map_or(Value::Null, |member| Value::Text(member.to_string())),
+    ];
+    let sql = match from {
+        Some(seq) => {
+            bound.push(Value::Integer(seq as i64));
+            &*SITE
+        }
+        None => &*SITE_BEHIND,
+    };
+    let mut statement = conn.prepare_cached(sql)?;
+    let found = statement.query_map(params_from_iter(bound), |row| row.get(0))?;
+    Ok(found.collect::<Result<_, _>>()?)
+}
+
+/// The statement that writes a checkpoint's one moving fact and its stamp,
+/// by its key.
+const WRITE_SESSION: &str =
+    "UPDATE event_index SET session = ?3, facts_seq = seq WHERE run_id = ?1 AND seq = ?2";
+
+/// Refold one site's behind rows from brokkr-core's one reading: read the
+/// candidate envelopes through the stream index, let core say which finish a
+/// session, and write the last of them `1` and every other readable one `0`.
+/// A row core cannot read keeps no session, and is still stamped processed.
+/// The dated facts written from the record alone are not touched.
+fn refold_site(
+    conn: &Connection,
+    run_id: &str,
+    attempt_id: &str,
+    member: Option<&str>,
+    from: Option<u64>,
+) -> Result<(), StoreError> {
+    let seqs = candidates(conn, run_id, attempt_id, member, from)?;
+    let mut readable = BTreeSet::new();
+    let mut last = None;
+    {
+        let mut statement = conn.prepare_cached(super::ENVELOPE)?;
+        for seq in &seqs {
+            let envelope: String =
+                statement.query_row(params![run_id, *seq as i64], |row| row.get(0))?;
+            let event: EventEnvelope = serde_json::from_str(&envelope)?;
+            if let Some(checkpoint) = Checkpoint::read(&event, None) {
+                readable.insert(*seq);
+                if checkpoint.session {
+                    last = Some(*seq);
+                }
+            }
+        }
+    }
+    let mut statement = conn.prepare_cached(WRITE_SESSION)?;
+    for seq in seqs {
+        let session = if !readable.contains(&seq) {
+            Value::Null
+        } else if last == Some(seq) {
+            Value::Integer(1)
+        } else {
+            Value::Integer(0)
+        };
+        statement.execute(params![run_id, seq as i64, session])?;
+    }
+    Ok(())
+}
+
+/// Refold the sites the append `sealed` wrote checkpoints for, inside its
+/// own transaction: one call for each site, from the first sealed seq it
+/// wrote there, so an append costs its own checkpoints and the site's
+/// session row, never the run.
+pub(crate) fn refold_sealed(
+    tx: &Connection,
+    run_id: &str,
+    sealed: &[EventEnvelope],
+) -> Result<(), StoreError> {
+    let mut sites: BTreeMap<(String, Option<String>), u64> = BTreeMap::new();
+    for event in sealed {
+        if event.event_type != EventType::EffectCheckpointed {
+            continue;
+        }
+        let indexed = Indexed::of(event);
+        let Some(attempt_id) = indexed.attempt_id else {
+            continue;
+        };
+        sites
+            .entry((attempt_id.to_string(), indexed.member.map(str::to_string)))
+            .or_insert(event.seq);
+    }
+    for ((attempt_id, member), from) in sites {
+        refold_site(tx, run_id, &attempt_id, member.as_deref(), Some(from))?;
+    }
+    Ok(())
+}
+
+/// The rows a writable open must refold: the checkpoint rows behind their
+/// own stamp, sought through the stale partial index.
+static BEHIND: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT seq, attempt_id, member FROM event_index INDEXED BY event_index_checkpoint_stale
+         WHERE run_id = ?1 AND type = '{CHECKPOINTED}' AND facts_seq IS NOT seq"
+    )
+});
+
+/// The statement that says a run still has checkpoint facts no writer has
+/// written, so its backfill reads the run whole rather than refolding sites.
+static UNWRITTEN: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT EXISTS (SELECT 1 FROM event_index INDEXED BY event_index_checkpoint_stale
+         WHERE run_id = ?1 AND type = '{CHECKPOINTED}' AND facts IS NULL)"
+    )
+});
+
+/// Does `run_id` hold a checkpoint row whose record facts are not written?
+fn unwritten(conn: &Connection, run_id: &str) -> Result<bool, StoreError> {
+    Ok(conn.query_row(&UNWRITTEN, [run_id], |row| row.get(0))?)
+}
+
+/// Refold every behind checkpoint site of `run_id`, reading each site's rows
+/// through the stream index and never the run: an older writer leaves the
+/// rows it sent behind for the next writable open. A row no site names is
+/// stamped processed with no session, since core reads no session for it.
+fn refold_behind(conn: &Connection, run_id: &str) -> Result<(), StoreError> {
+    let mut statement = conn.prepare_cached(&BEHIND)?;
+    let rows = statement.query_map([run_id], |row| {
+        Ok((
+            row.get::<_, u64>(0)?,
+            row.get::<_, Option<String>>(1)?,
+            row.get::<_, Option<String>>(2)?,
+        ))
+    })?;
+    let mut sites = BTreeSet::new();
+    let mut named = Vec::new();
+    for row in rows {
+        let (seq, attempt_id, member) = row?;
+        match attempt_id {
+            Some(attempt_id) => {
+                sites.insert((attempt_id, member));
+            }
+            None => named.push(seq),
+        }
+    }
+    for seq in named {
+        conn.execute(
+            "UPDATE event_index SET facts_seq = seq WHERE run_id = ?1 AND seq = ?2",
+            params![run_id, seq as i64],
+        )?;
+    }
+    for (attempt_id, member) in sites {
+        refold_site(conn, run_id, &attempt_id, member.as_deref(), None)?;
+    }
+    Ok(())
+}
+
+/// One run of the session refold, in its own transaction: the read and the
+/// write are one immediate lock, so a peer's append appears whole or not at
+/// all. A peer's unwritten facts found under the lock are left for the next
+/// open, so the completion claim never stands over a row this pass skipped.
+fn refold_once(conn: &mut Connection, run_id: &str) -> Result<bool, StoreError> {
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let wrote = !unwritten(&tx, run_id)?;
+    if wrote {
+        refold_behind(&tx, run_id)?;
+    }
+    tx.commit()?;
+    Ok(wrote)
 }
 
 /// Write the facts of every checkpoint the append `sealed` carries, one row
@@ -251,7 +463,7 @@ pub(crate) fn write_appended(
             write(tx, account.run_id(), event.seq, &facts)?;
         }
     }
-    Ok(())
+    refold_sealed(tx, account.run_id(), sealed)
 }
 
 /// The run's phase when the event at `seq` was recorded: the last
@@ -291,7 +503,7 @@ pub(crate) fn write_sealed(
         let checkpoint = Checkpoint::read(event, phase.as_deref());
         write(tx, run_id, event.seq, &facts(checkpoint.as_ref())?)?;
     }
-    Ok(())
+    refold_sealed(tx, run_id, sealed)
 }
 
 /// Write the facts of every checkpoint of `account`'s run, at the head the
@@ -339,7 +551,7 @@ fn stale(after: bool) -> String {
     let cursor = if after { "AND run_id > ?1" } else { "" };
     format!(
         "SELECT run_id FROM event_index INDEXED BY event_index_checkpoint_stale
-         WHERE type = '{CHECKPOINTED}' AND facts IS NULL {cursor}
+         WHERE type = '{CHECKPOINTED}' AND (facts IS NULL OR facts_seq IS NOT seq) {cursor}
          ORDER BY run_id LIMIT 1"
     )
 }
@@ -401,6 +613,19 @@ impl Store {
                 let conn = &self.conn;
                 patiently("checkpoints", self.patience, || clear_backfilled(conn))?;
                 cleared = true;
+            }
+            if !unwritten(&self.conn, &run_id)? {
+                // Only the session was sent behind: refold the rows themselves,
+                // from the site's checkpoints, without reading the run.
+                between(&self.conn);
+                let conn = &mut self.conn;
+                let wrote = patiently("checkpoints", self.patience, || refold_once(conn, &run_id))?;
+                if !wrote {
+                    // A peer's unwritten facts landed under the lock: the next
+                    // open's backfill reads them, and this one claims nothing.
+                    unfinished = true;
+                }
+                continue;
             }
             let Ok(events) = self.load(&run_id) else {
                 unfinished = true;

@@ -23,7 +23,8 @@ use crate::StoreError;
 /// `effect/checkpointed` row, and `head` the seq the park's reading covers.
 /// A row core read no facts for is one whose stamp did not parse or which
 /// named no attempt: its facts are null, but it is still processed, so a
-/// park's `facts_seq` is the head and a checkpoint's `facts` is 1.
+/// park's `facts_seq` is the head and a checkpoint's `facts` is 1 and its
+/// `facts_seq` its own seq.
 pub(super) fn projects(
     event: &EventEnvelope,
     park: Option<&Park>,
@@ -59,6 +60,14 @@ pub(super) fn projects(
             }
         } else if !PARK_COLUMNS.contains(&column) {
             columns.push((column, value));
+        }
+    }
+    if is_checkpoint {
+        // A checkpoint's stamp is its own seq: the mark that core's reading
+        // computed its session, and the off-head check the trigger and the
+        // walk read.
+        if let Some((_, held)) = columns.iter_mut().find(|(name, _)| *name == "facts_seq") {
+            *held = Value::Integer(event.seq as i64);
         }
     }
     Ok(columns)
@@ -107,6 +116,10 @@ enum Marker {
     /// write is an edit, named by its column rather than passed as a lag
     /// forever (decision 0089 ruling 4).
     Checkpoint,
+    /// A checkpoint's `facts_seq`: not the row's own seq, which is the stamp
+    /// that says its session was computed, so the row is a lag the next
+    /// writable open refolds.
+    CheckpointStamp,
 }
 
 /// Whether `row`'s marker `name` says its dated facts wait for the refold,
@@ -125,7 +138,7 @@ fn behind(
     }
     let found = row.get_ref(at + 1)?;
     Ok(match kind {
-        Marker::Park => found != ValueRef::from(&expected[at].1),
+        Marker::Park | Marker::CheckpointStamp => found != ValueRef::from(&expected[at].1),
         Marker::Checkpoint => found == ValueRef::Null,
     })
 }
@@ -137,10 +150,11 @@ fn behind(
 /// carries one past every expected key. A column is compared as its
 /// bytes, so a text that is not UTF-8 parts there as the column it is.
 /// A park whose `facts_seq` is not its run's head, or a checkpoint whose
-/// `facts` are not written, is a lag: its immutable columns are compared, its
-/// dated columns are not, and `stale` is set. A checkpoint marker that is
-/// neither NULL nor 1 is compared like any other column, so an invalid
-/// marker is named, never silently treated as a lag.
+/// `facts` are not written or whose `facts_seq` is not its own seq, is a
+/// lag: its immutable columns are compared, its dated columns are not, and
+/// `stale` is set. A checkpoint marker that is neither NULL nor 1 is
+/// compared like any other column, so an invalid marker is named, never
+/// silently treated as a lag.
 fn parted(
     key: u64,
     expected: &[(&'static str, Value)],
@@ -157,12 +171,14 @@ fn parted(
     }
     let park_behind = behind(expected, row, "facts_seq", Marker::Park)?;
     let checkpoint_behind = behind(expected, row, "facts", Marker::Checkpoint)?;
-    if park_behind || checkpoint_behind {
+    let stamp_behind = behind(expected, row, "facts_seq", Marker::CheckpointStamp)?;
+    if park_behind || checkpoint_behind || stamp_behind {
         *stale = true;
     }
     for (at, (column, value)) in expected.iter().enumerate() {
         let skipped = (park_behind && PARK_COLUMNS.contains(column))
-            || (checkpoint_behind && CHECKPOINT_COLUMNS.contains(column));
+            || (checkpoint_behind && CHECKPOINT_COLUMNS.contains(column))
+            || (stamp_behind && (*column == "facts_seq" || CHECKPOINT_COLUMNS.contains(column)));
         if skipped {
             continue;
         }

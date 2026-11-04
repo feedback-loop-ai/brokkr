@@ -53,12 +53,11 @@ const INDEXES: [&str; 10] = [
     "event_index_checkpoint_session",
     "event_index_phase",
 ];
-const TRIGGERS: [&str; 5] = [
+const TRIGGERS: [&str; 4] = [
     "event_index_of_an_event",
     "event_index_stamp_bounded",
     "event_index_park_moved",
-    "event_index_checkpoint_moved",
-    "event_index_checkpoint_finished",
+    "event_index_checkpoint_behind",
 ];
 
 mod checkpoint;
@@ -233,8 +232,10 @@ fn migration() -> String {
             ON event_index (run_id, seq) WHERE type = '{PARKED}' AND facts_seq IS NOT NULL;
         CREATE INDEX IF NOT EXISTS event_index_checkpoint
             ON event_index (at_ms) WHERE type = '{CHECKPOINTED}';
+        DROP INDEX IF EXISTS event_index_checkpoint_stale;
         CREATE INDEX IF NOT EXISTS event_index_checkpoint_stale
-            ON event_index (run_id) WHERE type = '{CHECKPOINTED}' AND facts IS NULL;
+            ON event_index (run_id)
+            WHERE type = '{CHECKPOINTED}' AND (facts IS NULL OR facts_seq IS NOT seq);
         CREATE INDEX IF NOT EXISTS event_index_checkpoint_session
             ON event_index (run_id, attempt_id, member, seq)
             WHERE type = '{CHECKPOINTED}' AND session = 1;
@@ -244,15 +245,12 @@ fn migration() -> String {
             {moved};
         END;
         DROP TRIGGER IF EXISTS event_index_checkpoint_moved;
-        CREATE TRIGGER event_index_checkpoint_moved AFTER UPDATE OF session ON event_index
-            WHEN NEW.type = '{CHECKPOINTED}' AND NEW.session = 1 BEGIN
-            {checkpoint_moved};
-        END;
         DROP TRIGGER IF EXISTS event_index_checkpoint_finished;
-        CREATE TRIGGER event_index_checkpoint_finished AFTER INSERT ON events
-            WHEN {event_kind} = '{CHECKPOINTED}' AND {event_attempt} IS NOT NULL
-              AND {finished} = 1 BEGIN
-            {session_moved};
+        DROP TRIGGER IF EXISTS event_index_checkpoint_behind;
+        CREATE TRIGGER event_index_checkpoint_behind AFTER INSERT ON event_index
+            WHEN NEW.type = '{CHECKPOINTED}' BEGIN
+            {session_behind};
+            {row_behind};
         END;
         CREATE TRIGGER IF NOT EXISTS event_index_of_an_event AFTER INSERT ON events BEGIN
             INSERT OR IGNORE INTO event_index ({COLUMNS}) SELECT {projected};
@@ -270,15 +268,8 @@ fn migration() -> String {
         checkpoint_columns = checkpoint::declared(),
         CHECKPOINT_BACKFILLED = checkpoint::BACKFILLED,
         phase_index = checkpoint::phase_index(),
-        finished = checkpoint::session_finished("NEW"),
-        checkpoint_moved = checkpoint::session_moved("NEW", "NEW.attempt_id", "NEW.member"),
-        session_moved = checkpoint::session_moved(
-            "NEW",
-            &last_text(&payload("NEW"), "attempt_id"),
-            &last_text(&record("NEW"), "member"),
-        ),
-        event_kind = text_at("NEW.envelope", "$.type"),
-        event_attempt = last_text(&payload("NEW"), "attempt_id"),
+        session_behind = checkpoint::session_behind("NEW"),
+        row_behind = checkpoint::row_behind("NEW"),
     )
 }
 
@@ -371,14 +362,7 @@ fn send_parks_behind() -> String {
 /// with the triggers that wrote it, since every row is derived. Its rows
 /// come from the backfill that follows the open, outside this lock.
 pub(crate) fn migrate_index(conn: &Connection) -> Result<(), StoreError> {
-    let missed = !all_present(
-        conn,
-        "trigger",
-        &[
-            "event_index_checkpoint_moved",
-            "event_index_checkpoint_finished",
-        ],
-    )?;
+    let missed = !all_present(conn, "trigger", &["event_index_checkpoint_behind"])?;
     if !base_shaped(conn)? {
         let dropped = conn.execute_batch(
             "DROP TRIGGER IF EXISTS event_index_of_an_event;

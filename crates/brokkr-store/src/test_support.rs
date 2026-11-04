@@ -603,10 +603,10 @@ pub fn indexed_seqs(store: &Store, run_id: &str, event_type: &str) -> Vec<u64> {
     seqs.map(|seq| seq.unwrap()).collect()
 }
 
-/// The body of the trigger `name`, its `BEGIN`-to-first-statement SQL,
+/// The statements of the trigger `name`, its `BEGIN`-to-`END` body split,
 /// with each `(from, to)` applied: a test's plan is the journal's own
 /// trigger SQL, never a copy.
-pub fn trigger_body(store: &Store, name: &str, bindings: &[(&str, &str)]) -> String {
+pub fn trigger_statements(store: &Store, name: &str, bindings: &[(&str, &str)]) -> Vec<String> {
     let trigger: String = store
         .conn
         .query_row(
@@ -615,13 +615,29 @@ pub fn trigger_body(store: &Store, name: &str, bindings: &[(&str, &str)]) -> Str
             |row| row.get(0),
         )
         .unwrap();
-    let mut body = trigger
+    let body = trigger
         .split_once("BEGIN")
-        .and_then(|(_, rest)| rest.split_once(';'))
-        .map(|(update, _)| update.to_string())
+        .and_then(|(_, rest)| rest.rsplit_once("END"))
+        .map(|(body, _)| body)
         .unwrap();
-    for (from, to) in bindings {
-        body = body.replace(from, to);
-    }
-    body
+    body.split(';')
+        .map(str::trim)
+        .filter(|statement| !statement.is_empty())
+        .map(|statement| {
+            let mut statement = statement.to_string();
+            for (from, to) in bindings {
+                statement = statement.replace(from, to);
+            }
+            statement
+        })
+        .collect()
+}
+
+/// The first statement of the trigger `name`, as [`trigger_statements`]
+/// reads it.
+pub fn trigger_body(store: &Store, name: &str, bindings: &[(&str, &str)]) -> String {
+    trigger_statements(store, name, bindings)
+        .into_iter()
+        .next()
+        .expect("a trigger has a statement")
 }
