@@ -509,12 +509,14 @@ Usage: brokkr operator [OPTIONS] --run <RUN> --reason <REASON> <COMMAND>
 | `--recipes-dir <RECIPES_DIR>` |  |  | The recipe library `--recipe` is resolved in (default the found .brokkr/recipes, else recipes) |
 | `--secrets-file <SECRETS_FILE>` |  |  | Operator-side secrets store for seats with declared bindings (default .brokkr/state/secrets.env, or &lt;workdir&gt;/.forge/secrets.env) |
 | `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest` |
-| `<COMMAND>` |  |  | "retry" re-runs the current phase; "stop" ends the run; "release" attests that every process the run's ended attempts owned has ended, and frees the worktree their writer lease holds; "supersede" records that residual findings on a run that has already finished are closed by another run (decision 0047); "acknowledge" lists a quarantined run under older until its journal moves (#511) |
+| `<COMMAND>` |  |  | "retry" re-runs the current phase; "stop" ends the run; "release" attests that every process the run's ended attempts owned has ended, and frees the worktree their writer lease holds; "supersede" records that residual findings on a run that has already finished are closed by another run (decision 0047); "classify" names how a stopped run ended (decision 0064 ruling 5); "acknowledge" lists a quarantined run under older until its journal moves (#511) |
 | `--reason <REASON>` |  |  | Why the operator issued the command, recorded with it |
+| `--cause <CAUSE>` |  |  | classify only: how the stopped run ended, one of superseded, infrastructure, delivered-elsewhere, withdrawn, exhausted or operator-stopped (decision 0064 ruling 4) |
 | `--findings <FINDINGS>...` |  |  | supersede only: the residual findings this closes, by the sequence number of the ruling each was read from. Repeatable, or one comma-separated list |
-| `--by-run <BY_RUN>` |  |  | supersede only: the run that closed them |
+| `--by-run <BY_RUN>` |  |  | supersede or classify only: with supersede, the run that closed the findings; with classify --cause superseded, the run that replaced this one. Read as written, never resolved through the selector |
 | `--by-seq <BY_SEQ>` |  |  | supersede only: the `transition/decided` in that run which closed them |
-| `--by-realm <BY_REALM>` |  |  | supersede only: the realm that run was read in. Omitted for the workspace journal, which is every one-hearth world |
+| `--by-realm <BY_REALM>` |  |  | supersede or classify only: the realm that run was read in. Omitted for the workspace journal, which is every one-hearth world |
+| `--by-ref <BY_REF>` |  |  | classify only: with delivered-elsewhere, the commit or pull request the work landed by, recorded as written and not resolved |
 | `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
 

@@ -208,6 +208,7 @@ and the release window in that ruling's slice 2.
 | `effect-cleanup/v1` | `contracts/effect-cleanup.v1.schema.json` | journal | 0006 (2026-09-27 addendum), enacted, pending acceptance | engine crates/brokkr-runtime/src/engine.rs | none | current | | |
 | `phase-entered-head/v1` | `contracts/phase-entered-head.v1.schema.json` | journal | 0039, enacted, pending acceptance | engine crates/brokkr-runtime/src/engine.rs | load brokkr_core::payload::PhaseEntered::read | current | | |
 | `phase-entered-case/v1` | `contracts/phase-entered-case.v1.schema.json` | journal | 0041 | engine crates/brokkr-runtime/src/engine.rs | none | current | | |
+| `operator-ending/v1` | `contracts/operator-ending.v1.schema.json` | journal | 0064 | operator | load brokkr_core::ending::operator_ending | current | | |
 | `operator-supersede/v1` | `contracts/operator-supersede.v1.schema.json` | journal | 0047 | operator | load brokkr_core::residual::closings | current | | |
 | `brokkr.tool-dialect/v1` | `contracts/tool-dialect.v1.schema.json` | input | 0065 | shipped dialects/tools | schema brokkr_runtime::capabilities::dialect::TOOL_DIALECT_SCHEMA | current | | decision |
 | `forge.host/v1` | `contracts/host.v1.schema.json` | input | 0068 (2026-10-10 addendum) | operator | load brokkr_runtime::admission::host::read | current | | decision |

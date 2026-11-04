@@ -300,28 +300,40 @@ pub(super) struct OperatorArgs {
     /// attests that every process the run's ended attempts owned has ended,
     /// and frees the worktree their writer lease holds; "supersede" records
     /// that residual findings on a run that has already finished are closed
-    /// by another run (decision 0047); "acknowledge" lists a quarantined
+    /// by another run (decision 0047); "classify" names how a stopped run
+    /// ended (decision 0064 ruling 5); "acknowledge" lists a quarantined
     /// run under older until its journal moves (#511).
     pub(super) command: String,
     /// Why the operator issued the command, recorded with it.
     #[arg(long)]
     pub(super) reason: String,
+    /// classify only: how the stopped run ended, one of superseded,
+    /// infrastructure, delivered-elsewhere, withdrawn, exhausted or
+    /// operator-stopped (decision 0064 ruling 4).
+    #[arg(long)]
+    pub(super) cause: Option<String>,
     /// supersede only: the residual findings this closes, by the
     /// sequence number of the ruling each was read from. Repeatable,
     /// or one comma-separated list.
     #[arg(long, value_delimiter = ',')]
     pub(super) findings: Vec<u64>,
-    /// supersede only: the run that closed them.
+    /// supersede or classify only: with supersede, the run that closed the
+    /// findings; with classify --cause superseded, the run that replaced
+    /// this one. Read as written, never resolved through the selector.
     #[arg(long)]
     pub(super) by_run: Option<String>,
     /// supersede only: the `transition/decided` in that run which
     /// closed them.
     #[arg(long)]
     pub(super) by_seq: Option<u64>,
-    /// supersede only: the realm that run was read in. Omitted for
-    /// the workspace journal, which is every one-hearth world.
+    /// supersede or classify only: the realm that run was read in. Omitted
+    /// for the workspace journal, which is every one-hearth world.
     #[arg(long)]
     pub(super) by_realm: Option<String>,
+    /// classify only: with delivered-elsewhere, the commit or pull
+    /// request the work landed by, recorded as written and not resolved.
+    #[arg(long)]
+    pub(super) by_ref: Option<String>,
     /// The journal the command is written to — and, for supersede, the
     /// map a citation into another hearth is read through.
     #[command(flatten)]

@@ -66,6 +66,8 @@ fn member_arguments_are_refused_before_the_existing_command_checks() {
             by_run: None,
             by_seq: None,
             by_realm: None,
+            cause: None,
+            by_ref: None,
             journal: JournalArgs {
                 realms: None,
                 db: None,

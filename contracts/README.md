@@ -536,6 +536,7 @@ Decision 0047 adds one more file and changes none of the bytes above:
 
 | Contract | File | Consumers |
 |---|---|---|
+| Operator ending args | `operator-ending.v1.schema.json` | brokkr-runtime (the verb), brokkr-core (the ending reading), the fleet dossier |
 | Operator supersede args | `operator-supersede.v1.schema.json` | brokkr-runtime (the verb), brokkr-view, the fleet dossier |
 
 `operator-supersede.v1` is a payload schema over `operator/commanded.args`
@@ -555,6 +556,24 @@ annotation present is byte-identical to the same run folded without it. What
 reads it is `brokkr_view::residual_findings`, which marks the named findings
 as superseded and leaves them in the journal and in every readout — a
 superseded finding is closed, never deleted.
+
+Decision 0064's 2026-11-03 addendum adds one more file and changes none of
+the bytes above either:
+
+`operator-ending.v1` is a payload schema over `operator/commanded.args` for
+the operator's typed ending, and for nothing else. `cause` is required and is
+one of ruling 4's six operator-owned words; `by` (a `realm` and a `run_id`)
+goes with `superseded` and is refused elsewhere; `ref` goes with
+`delivered-elsewhere` and is refused elsewhere; `reason` carries the
+operator's sentence for `classify`, which has no acceptance to carry it. The
+annotation is written only on a run that has gone `stopped` (a `stop` carries
+it in the command that ends its run); a `completed` run is never classified,
+because its ending is `shipped` or `shipped-flagged` by ruling 6's
+ending-implies-status table. `fold` admits an operator annotation that changes
+nothing, and no `operator/accepted` follows it.
+`brokkr_core::ending::operator_ending` reads the latest one; the fold reads
+none of it, and a finished run folded with the annotation present is
+byte-identical to the same run folded without it.
 
 Proposed decision 0056 (same-instance session resumption) adds one file and
 changes none of the bytes above:

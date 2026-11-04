@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/operator-ending.v1.json",
+  "title": "Forge operator ending args v1 (a payload value at event_schema 1)",
+  "description": "The shape of operator/commanded.args for an operator's typed ending (decision 0064 rulings 4 and 5, choice 7), and for nothing else. This is not a widening of the v1 event envelope: 'command' is already an open string there and 'args' an already-legal open object the reducer never reads, so a new command word with structured args is a v1 event byte for byte — no new event type, no new payload field, no manifest digest moved. classify writes the annotation on a run that has already stopped; stop carries it in the command that ends its run. A completed run cannot be classified: its ending is 'shipped' or 'shipped-flagged' by ruling 6's ending-implies-status table, and no operator cause names either. Where fold admits an operator annotation it changes nothing (the 'OperatorCommanded | OperatorRejected' arm). No operator/accepted follows a classify: there is nothing to execute, and fold refuses an acceptance on a terminal run by design. The annotation is read by brokkr-view and the fleet dossier, never by fold, and RunState gains nothing from it.",
+  "type": "object",
+  "required": ["cause"],
+  "additionalProperties": false,
+  "properties": {
+    "cause": {
+      "enum": [
+        "superseded",
+        "infrastructure",
+        "delivered-elsewhere",
+        "withdrawn",
+        "exhausted",
+        "operator-stopped"
+      ],
+      "description": "Exactly decision 0064 ruling 4's six operator-owned endings. The policy endings and 'unclassified' are derived, never named by an operator, and are refused here."
+    },
+    "by": {
+      "type": "object",
+      "description": "The run that replaced this one, and the realm it was read in. Required with 'superseded' and refused with every other cause.",
+      "required": ["realm", "run_id"],
+      "additionalProperties": false,
+      "properties": {
+        "realm": {
+          "type": ["string", "null"],
+          "description": "The realm whose journal the cited run was read in, keyed as decision 0026 ruling 3 keys every fleet fact. Null in a one-hearth world, which is every world that never drew a second journal."
+        },
+        "run_id": {
+          "type": "string",
+          "description": "The run that replaced this one. It must exist in the journal 'realm' names (the workspace journal when null), and need not be finished: a re-commission is usually fired in the same minute."
+        }
+      }
+    },
+    "ref": {
+      "type": "string",
+      "description": "The commit or pull request the work landed by, recorded as written and never resolved. Required with 'delivered-elsewhere' and refused with every other cause."
+    },
+    "reason": {
+      "type": "string",
+      "description": "The operator's own sentence. classify writes it here rather than on an operator/accepted, because a classify has no acceptance: the commanded event is the whole record. An accepted stop may carry its sentence on its acceptance, so this is not required by this schema."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["cause"],
+        "properties": {"cause": {"const": "superseded"}}
+      },
+      "then": {"required": ["by"]},
+      "else": {"not": {"required": ["by"]}}
+    },
+    {
+      "if": {
+        "required": ["cause"],
+        "properties": {"cause": {"const": "delivered-elsewhere"}}
+      },
+      "then": {"required": ["ref"]},
+      "else": {"not": {"required": ["ref"]}}
+    }
+  ]
+}

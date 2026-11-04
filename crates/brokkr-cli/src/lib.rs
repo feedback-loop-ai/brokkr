@@ -1302,35 +1302,13 @@ fn supersede(
              findings, and the ruling in it that did"
         );
     };
-    let invocation = Invocation::resolve(workspace, realms, db)?.announce();
-    let cited_journal = match &by_realm {
-        None => invocation.journal.clone(),
-        Some(realm) => invocation
-            .world
-            .as_ref()
-            .map(World::hearths)
-            .unwrap_or_default()
-            .into_iter()
-            .find(|hearth| hearth.realms.iter().any(|known| known == realm))
-            .map(|hearth| hearth.journal)
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "--by-realm '{realm}' names no realm in this world; --realms \
-                     names the map that would"
-                )
-            })?,
-    };
-    let mut store = Store::open(&invocation.journal)?;
-    // The cited journal is opened READ-ONLY: a citation is checked
-    // against a world this command only looks at (decision 0026 ruling
-    // 5), and the one journal it writes to is the annotated run's.
-    let cited = Store::open_read_only(&cited_journal)?;
-    let run = &selector::resolve_run(&store, run)?;
+    let (mut store, cited, run) =
+        crate::verbs::delivery::annotated_run(workspace, realms, db, by_realm.as_deref(), run)?;
     let operator = std::env::var("USER").unwrap_or("operator".into());
     let written = brokkr_runtime::operator_supersede(
         &mut store,
         &cited,
-        run,
+        &run,
         &brokkr_runtime::Supersede {
             findings,
             by_realm: by_realm.as_deref(),

@@ -18,6 +18,7 @@ use uuid::Uuid;
 
 use super::{EngineError, OPERATOR_STOP_RULE};
 
+mod classify;
 mod conclusion;
 mod disposition;
 mod retry;
@@ -26,6 +27,7 @@ pub use retry::MemberRetryOutcome;
 mod receipt;
 mod release;
 mod supersede;
+pub use classify::{classify_cause, operator_classify, Classify};
 pub(super) use conclusion::operator_stop_reason;
 pub use conclusion::ConcludeRefusal;
 #[cfg(test)]

@@ -135,6 +135,8 @@ fn operator(command: &str, journal: JournalArgs) -> OperatorArgs {
         by_run: None,
         by_seq: None,
         by_realm: None,
+        cause: None,
+        by_ref: None,
         journal,
     }
 }

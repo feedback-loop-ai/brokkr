@@ -28,6 +28,8 @@ fn acknowledging(run: &str, db: &Path) -> OperatorArgs {
         by_run: None,
         by_seq: None,
         by_realm: None,
+        cause: None,
+        by_ref: None,
         journal: at(db),
     }
 }
@@ -206,7 +208,7 @@ fn supersede_arguments_are_refused_on_acknowledge() {
     };
     assert_eq!(
         failure_line(&operator(dir.path(), unknown).unwrap_err()),
-        "error: operator command must be 'retry', 'stop', 'supersede' or 'acknowledge'"
+        "error: operator command must be 'retry', 'stop', 'supersede', 'classify' or 'acknowledge'"
     );
     let store = Store::open_read_only(&db).unwrap();
     assert_eq!(store.acknowledgement("unfolded").unwrap(), None);

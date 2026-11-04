@@ -247,3 +247,143 @@ fn an_operator_closure_with_no_typed_cause_is_unclassified() {
         );
     }
 }
+
+/// Decision 0064 ruling 5 and choice 7: the `args` of a `classify`
+/// annotation are a closed shape, read as ruling 4's six operator-owned
+/// endings; `superseded` cites a run, `delivered-elsewhere` a ref, and a
+/// malformed or mis-cited annotation is read as no annotation rather than
+/// a nearest guess.
+#[test]
+fn a_classify_annotation_reads_its_cause_and_its_citation() {
+    let ended = |args: Value| operator_ending(&args);
+    let run = || {
+        Some(Citation::Run {
+            realm: None,
+            run_id: "later".into(),
+        })
+    };
+    let world = || {
+        Some(Citation::Run {
+            realm: Some("next-door".into()),
+            run_id: "later".into(),
+        })
+    };
+    assert_eq!(
+        ended(
+            json!({"cause": "superseded", "by": {"realm": null, "run_id": "later"}, "reason": "r"})
+        ),
+        Some(Ended {
+            ending: Ending::Superseded,
+            cited: run()
+        })
+    );
+    assert_eq!(
+        ended(
+            json!({"cause": "superseded", "by": {"realm": "next-door", "run_id": "later"}, "reason": "r"})
+        ),
+        Some(Ended {
+            ending: Ending::Superseded,
+            cited: world()
+        })
+    );
+    assert_eq!(
+        ended(json!({"cause": "delivered-elsewhere", "ref": "abc123", "reason": "r"})),
+        Some(Ended {
+            ending: Ending::DeliveredElsewhere,
+            cited: Some(Citation::Ref("abc123".into()))
+        })
+    );
+    // `reason` is optional in the contract, and absent is not `null`.
+    assert_eq!(
+        ended(json!({"cause": "withdrawn"})),
+        Some(Ended {
+            ending: Ending::Withdrawn,
+            cited: None,
+        })
+    );
+    for cause in [
+        "infrastructure",
+        "withdrawn",
+        "exhausted",
+        "operator-stopped",
+    ] {
+        assert_eq!(
+            ended(json!({"cause": cause, "reason": "r"})),
+            Some(Ended {
+                ending: Ending::named(cause).unwrap(),
+                cited: None,
+            }),
+            "{cause}"
+        );
+    }
+    for outside in [
+        json!({"cause": "shipped", "reason": "why"}),
+        json!({"cause": "unclassified", "reason": "why"}),
+        json!({"cause": "not-a-word", "reason": "why"}),
+        json!({"cause": "superseded", "reason": "why"}),
+        // The contract requires `by.realm` (null for the workspace), and
+        // writes `by`, `ref` and `reason` as values, never as `null`.
+        json!({"cause": "superseded", "by": {"run_id": "later"}, "reason": "why"}),
+        json!({"cause": "superseded", "by": {"realm": null}, "reason": "why"}),
+        json!({"cause": "superseded", "by": null, "reason": "why"}),
+        json!({"cause": "delivered-elsewhere", "ref": null, "reason": "why"}),
+        json!({"cause": "withdrawn", "reason": null}),
+        json!({"cause": "withdrawn", "by": null, "reason": "why"}),
+        json!({"cause": "superseded", "by": {"realm": null, "run_id": "later"}, "ref": "abc", "reason": "why"}),
+        json!({"cause": "delivered-elsewhere", "reason": "why"}),
+        json!({"cause": "delivered-elsewhere", "ref": "abc", "by": {"realm": null, "run_id": "later"}, "reason": "why"}),
+        json!({"cause": "withdrawn", "by": {"realm": null, "run_id": "later"}, "reason": "why"}),
+        json!({"cause": "withdrawn", "ref": "abc", "reason": "why"}),
+        json!({"cause": "withdrawn", "reason": "why", "extra": true}),
+        json!({"reason": "why"}),
+    ] {
+        assert_eq!(ended(outside.clone()), None, "{outside}");
+    }
+}
+
+/// Ruling 5: a later `classify` stands over an earlier one, and the event
+/// reading returns the latest. An annotation this build does not read
+/// leaves the earlier one standing.
+#[test]
+fn the_latest_classify_annotation_stands_over_the_earlier_one() {
+    let classified = |seq: u64, cause: &str, ref_: Option<&str>| {
+        let mut args = json!({"cause": cause, "reason": "the operator named it"});
+        if let Some(reference) = ref_ {
+            args["ref"] = json!(reference);
+        }
+        EnvelopeBuilder::new(
+            EventType::OperatorCommanded,
+            json!({"command_id": format!("c{seq}"), "command": "classify", "operator": "operator", "args": args}),
+        )
+        .seq(seq)
+        .build()
+    };
+    let stop = EnvelopeBuilder::new(
+        EventType::OperatorCommanded,
+        json!({"command_id": "s", "command": "stop", "operator": "operator"}),
+    )
+    .seq(1)
+    .build();
+    let no_args = EnvelopeBuilder::new(
+        EventType::OperatorCommanded,
+        json!({"command_id": "c0", "command": "classify", "operator": "operator"}),
+    )
+    .seq(2)
+    .build();
+    let events = vec![
+        stop,
+        no_args,
+        classified(3, "withdrawn", None),
+        classified(4, "delivered-elsewhere", Some("abc123")),
+        classified(5, "shipped", None),
+    ];
+    let state = folded(Run::Stopped, "implement", None);
+    assert_eq!(
+        ended(&events, &state),
+        Some(Ended {
+            ending: Ending::DeliveredElsewhere,
+            cited: Some(Citation::Ref("abc123".into())),
+        }),
+        "the latest readable classify wins; an unreadable one is not a guess"
+    );
+}

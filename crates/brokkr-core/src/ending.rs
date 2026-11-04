@@ -11,6 +11,7 @@
 //! ruling 5 carries, which gives a terminal run its ending.
 
 use serde::Deserialize;
+use serde_json::Value;
 use thiserror::Error;
 
 use crate::decision::Decision;
@@ -23,6 +24,10 @@ use crate::residual::ResidualPhase;
 /// The phase whose dirty-worktree stops read `blocked` (addendum choice
 /// 1, row 4).
 const SHIP: &str = "ship";
+
+/// The operator command that names a finished run's ending after the fact
+/// (decision 0064 ruling 5).
+pub const CLASSIFY: &str = "classify";
 
 /// How a terminal run ended: decision 0064 ruling 2's twelve words. A
 /// new ending is a new decision.
@@ -183,6 +188,17 @@ impl Ending {
         }
     }
 
+    /// The six operator-owned words, in ruling 2's order, as a refusal
+    /// lists them.
+    pub fn operator_words() -> String {
+        Ending::ALL
+            .into_iter()
+            .filter(|ending| ending.operator_owned())
+            .map(Ending::word)
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
     /// Whether an operator who ends a run may name it as the cause
     /// (ruling 4's six).
     pub const fn operator_owned(self) -> bool {
@@ -276,16 +292,149 @@ pub struct Ended {
     pub cited: Option<Citation>,
 }
 
+/// The `args` of one `operator/commanded` with `command: "classify"`
+/// (decision 0064 ruling 5, contract `operator-ending.v1`), read as a
+/// closed value. A field outside the contract is refused here, as the
+/// schema refuses it at the edge.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OperatorEnding {
+    cause: String,
+    #[serde(default, deserialize_with = "present")]
+    by: Option<By>,
+    #[serde(default, rename = "ref", deserialize_with = "present")]
+    reference: Option<String>,
+    #[serde(default, rename = "reason", deserialize_with = "present")]
+    _reason: Option<String>,
+}
+
+/// A field the contract writes as a value: a present `null` is refused,
+/// because the contract says `by` is an object, `ref` a string and
+/// `reason` a string, while serde's `Option` would read `null` as absent.
+/// Absent stays absent through [`Default`], which is why the callers also
+/// carry `default`.
+fn present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
+}
+
+/// The run a `superseded` ending cites, keyed as decision 0026 ruling 3
+/// keys every fleet fact. `realm` is required and is `null` for a
+/// one-hearth world: absence is not a workspace citation.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct By {
+    realm: Realm,
+    run_id: String,
+}
+
+/// A present realm key: a string, or `null` for the workspace journal.
+/// The newtype keeps `null` distinct from a missing field, which the
+/// contract refuses. It reads by `deserialize_any`, not
+/// `deserialize_option`: serde's missing-field path answers a field that
+/// asks for an option with `None`, which would turn absence into the
+/// workspace citation this type exists to refuse.
+#[derive(Debug)]
+struct Realm(Option<String>);
+
+impl<'de> Deserialize<'de> for Realm {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct RealmVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for RealmVisitor {
+            type Value = Realm;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a realm name or null")
+            }
+
+            fn visit_unit<E>(self) -> Result<Realm, E> {
+                Ok(Realm(None))
+            }
+
+            fn visit_str<E>(self, realm: &str) -> Result<Realm, E> {
+                Ok(Realm(Some(realm.to_string())))
+            }
+        }
+
+        deserializer.deserialize_any(RealmVisitor)
+    }
+}
+
+/// The ending a `classify` annotation names, with the citation its cause
+/// requires, or `None` when the annotation is not one this build reads.
+/// The contract is `operator-ending.v1`: one of the six operator-owned
+/// endings, `by` with `superseded`, `ref` with `delivered-elsewhere`, and
+/// neither elsewhere. A malformed or unrecognised annotation is not read
+/// as a nearest guess (decision 0064 ruling 5).
+pub(crate) fn operator_ending(args: &Value) -> Option<Ended> {
+    let OperatorEnding {
+        cause,
+        by,
+        reference,
+        _reason,
+    } = serde_json::from_value(args.clone()).ok()?;
+    let ending = Ending::named(&cause).ok()?;
+    let cited = match ending {
+        Ending::Superseded => match (by, reference) {
+            (
+                Some(By {
+                    realm: Realm(realm),
+                    run_id,
+                }),
+                None,
+            ) => Some(Citation::Run { realm, run_id }),
+            _ => return None,
+        },
+        Ending::DeliveredElsewhere => match (by, reference) {
+            (None, Some(reference)) => Some(Citation::Ref(reference)),
+            _ => return None,
+        },
+        Ending::Infrastructure
+        | Ending::Exhausted
+        | Ending::Withdrawn
+        | Ending::OperatorStopped => {
+            if by.is_some() || reference.is_some() {
+                return None;
+            }
+            None
+        }
+        Ending::Shipped
+        | Ending::ShippedFlagged
+        | Ending::Refused
+        | Ending::Failed
+        | Ending::Blocked
+        | Ending::Unclassified => return None,
+    };
+    Some(Ended { ending, cited })
+}
+
 /// What a run's events say of its ending so far, carried event by event
-/// (addendum choice 5): the severity of its last ruling from review.
+/// (addendum choice 5): the severity of its last ruling from review, and
+/// the latest `classify` annotation (ruling 5).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Reading {
     last_review: Option<RuleSeverity>,
+    classified: Option<Ended>,
 }
 
 impl Reading {
     /// The reading carried over `event`, the run's next.
     pub(crate) fn note(&mut self, event: &EventEnvelope) {
+        if event.event_type == EventType::OperatorCommanded
+            && event.payload.get("command").and_then(Value::as_str) == Some(CLASSIFY)
+        {
+            if let Some(classified) = event.payload.get("args").and_then(operator_ending) {
+                self.classified = Some(classified);
+            }
+            return;
+        }
         if event.event_type != EventType::TransitionDecided {
             return;
         }
@@ -300,21 +449,32 @@ impl Reading {
     /// The ending the reading and `state`, the run's fold at the same
     /// head, give the run, once its fold states it is over.
     pub(crate) fn of(&self, state: &RunState) -> Option<Ended> {
-        let ending = match state.run.status() {
-            Status::Running | Status::AwaitingOperator => return None,
-            Status::Completed => Ending::completed(self.last_review),
+        match state.run.status() {
+            Status::Running | Status::AwaitingOperator => None,
+            // Ruling 6: `shipped`/`shipped-flagged` imply `completed`, so
+            // no operator cause can stand here; `classify` refuses a
+            // completed run rather than journaling an unread annotation.
+            Status::Completed => Some(Ended {
+                ending: Ending::completed(self.last_review),
+                cited: None,
+            }),
+            // A later `classify` stands over an earlier one (ruling 5),
+            // and over the closure the operator did not type.
+            Status::Stopped if self.classified.is_some() => self.classified.clone(),
             Status::Stopped if state.phase.as_deref() == Some(STOP) => {
                 let ruling = state.last_decision.as_ref();
-                ruling.map_or(Ending::Unclassified, |it| {
-                    Ending::ruled(&it.from, &it.result)
+                Some(Ended {
+                    ending: ruling.map_or(Ending::Unclassified, |it| {
+                        Ending::ruled(&it.from, &it.result)
+                    }),
+                    cited: None,
                 })
             }
-            Status::Stopped => Ending::Unclassified,
-        };
-        Some(Ended {
-            ending,
-            cited: None,
-        })
+            Status::Stopped => Some(Ended {
+                ending: Ending::Unclassified,
+                cited: None,
+            }),
+        }
     }
 }
 
@@ -323,13 +483,12 @@ impl Reading {
 ///
 /// A completed run splits on its last ruling from review, and a run the
 /// policy table stopped reads [`Ending::ruled`] of the ruling that
-/// stopped it. A run an operator stopped reads `unclassified` today, and
-/// nothing cites: the two facts that would name its cause cannot exist
-/// in a journal yet, so both are read as absent. The cause an accepted
-/// stop carries in its `args` is written once `stop` and `conclude` take
-/// `--cause` (decision 0064 slice E3), and the latest `classify`, which
-/// stands over it and over an earlier `classify`, once that command
-/// exists (slice E2).
+/// stopped it. A run an operator stopped reads the latest `classify`
+/// annotation that names one of ruling 4's six (ruling 5), and
+/// `unclassified` when it carries none. The cause an accepted stop
+/// carries in its `args` is written once `stop` and `conclude` take
+/// `--cause` (decision 0064 slice E3); this reading takes the annotation
+/// alone.
 pub fn ended(events: &[EventEnvelope], state: &RunState) -> Option<Ended> {
     let mut reading = Reading::default();
     for event in events {

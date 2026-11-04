@@ -24,7 +24,7 @@ fn digest(relative: &str) -> String {
 /// Recorded from this tree before the agent library existed, plus the
 /// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
 /// beside it, so "beside, never inside" is machine-checked.
-const FROZEN: [(&str, &str); 30] = [
+const FROZEN: [(&str, &str); 31] = [
     // Decision 0103 (accepted) mints the driver-refusal extension beside
     // the frozen v1 family; its bytes are pinned from here. Fix round
     // 430s4a6 L2 re-pins the unreleased file after the shared route form
@@ -32,6 +32,12 @@ const FROZEN: [(&str, &str); 30] = [
     (
         "contracts/driver-refusal.v1.schema.json",
         "92f02dbd90fa0de181790ba0b5883d0f77f741bc55fcbc1abc72c2421aa49f66",
+    ),
+    // Decision 0064's 2026-11-03 addendum mints `operator-ending.v1`; its
+    // bytes are frozen from here, beside the envelope it rides in.
+    (
+        "contracts/operator-ending.v1.schema.json",
+        "5daf14d01b3b8c86d882d314ce5eb4d67145f7b64504d21ec6351b6286d483e2",
     ),
     (
         "contracts/panel-carry.v1.schema.json",
@@ -334,6 +340,14 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
             "contracts/effect-boundary.v1.schema.json",
             "Forge effect boundary v1",
         ),
+        // Decision 0064 ruling 5 and choice 7: the operator's typed
+        // ending arrives as its own published payload schema over
+        // `args`. Nothing above moves — the envelope's `command` was
+        // already an open string and `args` an already-legal open object.
+        (
+            "contracts/operator-ending.v1.schema.json",
+            "Forge operator ending args v1",
+        ),
         // Decision 0047 ruling 1: the supersede annotation's `args`
         // arrive as their own published payload schema. Nothing above
         // moves — the envelope's `command` was already an open string
@@ -383,6 +397,52 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
         assert!(
             titled(relative).starts_with(title),
             "{relative} is the published extension schema"
+        );
+    }
+}
+
+/// Decision 0064 ruling 5 and choice 7: `operator-ending.v1` is a payload
+/// schema over `args` alone, closed at every level. `cause` is required
+/// and is one of the six operator-owned words; `by` goes with
+/// `superseded`, `ref` with `delivered-elsewhere`, and neither elsewhere.
+#[test]
+fn the_operator_ending_schema_is_over_args_only_and_closes_each_cause() {
+    use serde_json::json;
+    let schema: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(workspace().join("contracts/operator-ending.v1.schema.json")).unwrap(),
+    )
+    .unwrap();
+    let validator = jsonschema::draft7::new(&schema).unwrap();
+    for valid in [
+        json!({"cause": "superseded", "by": {"realm": null, "run_id": "later"}, "reason": "r"}),
+        json!({"cause": "superseded", "by": {"realm": "next-door", "run_id": "later"}}),
+        json!({"cause": "delivered-elsewhere", "ref": "abc123", "reason": "r"}),
+        json!({"cause": "infrastructure", "reason": "r"}),
+        json!({"cause": "withdrawn", "reason": "r"}),
+        json!({"cause": "exhausted", "reason": "r"}),
+        json!({"cause": "operator-stopped"}),
+    ] {
+        assert!(validator.is_valid(&valid), "{valid} is an operator ending");
+    }
+    for invalid in [
+        json!({"reason": "r"}),
+        json!({"cause": "shipped", "reason": "r"}),
+        json!({"cause": "unclassified", "reason": "r"}),
+        json!({"cause": "not-a-word", "reason": "r"}),
+        json!({"cause": "superseded", "reason": "r"}),
+        json!({"cause": "superseded", "by": {"realm": null}, "reason": "r"}),
+        json!({"cause": "superseded", "by": {"run_id": "later"}, "reason": "r"}),
+        json!({"cause": "superseded", "by": {"realm": null, "run_id": "later"}, "ref": "abc", "reason": "r"}),
+        json!({"cause": "delivered-elsewhere", "reason": "r"}),
+        json!({"cause": "delivered-elsewhere", "ref": "abc", "by": {"realm": null, "run_id": "later"}, "reason": "r"}),
+        json!({"cause": "withdrawn", "by": {"realm": null, "run_id": "later"}, "reason": "r"}),
+        json!({"cause": "withdrawn", "ref": "abc", "reason": "r"}),
+        json!({"cause": "withdrawn", "reason": "r", "extra": true}),
+        json!({"cause": "withdrawn", "by": {"realm": null, "run_id": "later", "extra": true}}),
+    ] {
+        assert!(
+            !validator.is_valid(&invalid),
+            "{invalid} is not an operator ending"
         );
     }
 }
