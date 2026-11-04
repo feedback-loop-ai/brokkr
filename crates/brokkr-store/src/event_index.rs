@@ -41,7 +41,7 @@ use crate::{head_of, patiently, Disagreement, Store, StoreError};
 const BACKFILLED: &str = "event_index_backfill";
 
 const TABLE: [&str; 1] = ["event_index"];
-const INDEXES: [&str; 10] = [
+const INDEXES: [&str; 11] = [
     "event_index_stream",
     "event_index_trail",
     "event_index_cause",
@@ -51,6 +51,7 @@ const INDEXES: [&str; 10] = [
     "event_index_checkpoint",
     "event_index_checkpoint_stale",
     "event_index_checkpoint_session",
+    "event_index_checkpoint_site_stale",
     "event_index_phase",
 ];
 const TRIGGERS: [&str; 4] = [
@@ -205,10 +206,11 @@ pub(super) fn last_text(entries: &str, key: &str) -> String {
 /// at_ms)`; the facts index holds the park rows whose dated facts
 /// are written, so a later event sends those facts behind by searching
 /// the park rows alone ([`park_moved`]), never the run's every event; the
-/// checkpoint indexes key a window's checkpoints, a site's session rows and
-/// a run's phase events. A stamp past its bound is cut by a trigger of its
-/// own, which fires only then, after the event's trigger or the backfill
-/// inserted the row, so the event's trigger reads the stamp once.
+/// checkpoint indexes key a window's checkpoints, a site's session and
+/// behind rows and a run's phase events. A stamp past its bound is cut by a
+/// trigger of its own, which fires only then, after the event's trigger or
+/// the backfill inserted the row, so the event's trigger reads the stamp
+/// once.
 fn migration() -> String {
     format!(
         "CREATE TABLE IF NOT EXISTS event_index (
@@ -239,6 +241,9 @@ fn migration() -> String {
         CREATE INDEX IF NOT EXISTS event_index_checkpoint_session
             ON event_index (run_id, attempt_id, member, seq)
             WHERE type = '{CHECKPOINTED}' AND session = 1;
+        CREATE INDEX IF NOT EXISTS event_index_checkpoint_site_stale
+            ON event_index (run_id, attempt_id, member, seq)
+            WHERE type = '{CHECKPOINTED}' AND facts_seq IS NOT seq;
         {phase_index};
         DROP TRIGGER IF EXISTS event_index_park_moved;
         CREATE TRIGGER event_index_park_moved AFTER INSERT ON events BEGIN

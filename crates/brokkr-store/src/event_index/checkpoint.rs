@@ -27,7 +27,7 @@ use std::sync::LazyLock;
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::event_index::Indexed;
-use brokkr_core::summary::{Account, Bounded, Checkpoint, NAME_BYTES};
+use brokkr_core::summary::{checkpoints, Account, Bounded, Checkpoint, NAME_BYTES};
 use rusqlite::types::Value;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 
@@ -253,25 +253,38 @@ fn write(tx: &Connection, run_id: &str, seq: u64, facts: &[Value]) -> Result<(),
     Ok(())
 }
 
-/// The candidate rows at a site whose `session` could change, read through
-/// the stream index: the site's session rows, the rows behind their own
-/// stamp, and, at an append, the rows from the append's first checkpoint at
-/// the site up. Only that site is read, never the run.
+/// The candidate rows at a site whose `session` could change, each read by
+/// its own key: the site's session rows through the session partial index,
+/// its behind rows through the site's stale partial index, and, at an
+/// append, the rows from the append's first checkpoint at the site up
+/// through the stream index. The union reads a row behind and still its
+/// site's session once, and no arm scans the site's history: only the rows
+/// that could change are read, never the run.
 fn site(from: bool) -> String {
-    let behind = if from {
-        "(session = 1 OR facts_seq IS NOT seq OR seq >= ?4)"
+    let appended = if from {
+        format!(
+            "UNION
+             SELECT seq FROM event_index INDEXED BY event_index_stream
+             WHERE run_id = ?1 AND attempt_id IS ?2 AND member IS ?3
+               AND type = '{CHECKPOINTED}' AND seq >= ?4"
+        )
     } else {
-        "(session = 1 OR facts_seq IS NOT seq)"
+        String::new()
     };
     format!(
-        "SELECT seq FROM event_index INDEXED BY event_index_stream
+        "SELECT seq FROM event_index INDEXED BY event_index_checkpoint_session
          WHERE run_id = ?1 AND attempt_id IS ?2 AND member IS ?3
-           AND type = '{CHECKPOINTED}' AND {behind}
+           AND type = '{CHECKPOINTED}' AND session = 1
+         UNION
+         SELECT seq FROM event_index INDEXED BY event_index_checkpoint_site_stale
+         WHERE run_id = ?1 AND attempt_id IS ?2 AND member IS ?3
+           AND type = '{CHECKPOINTED}' AND facts_seq IS NOT seq
+         {appended}
          ORDER BY seq"
     )
 }
 
-static SITE: LazyLock<String> = LazyLock::new(|| site(true));
+pub(super) static SITE: LazyLock<String> = LazyLock::new(|| site(true));
 static SITE_BEHIND: LazyLock<String> = LazyLock::new(|| site(false));
 
 /// The seqs [`refold_site`] reads, bound to the site and, at an append, the
@@ -306,10 +319,10 @@ const WRITE_SESSION: &str =
     "UPDATE event_index SET session = ?3, facts_seq = seq WHERE run_id = ?1 AND seq = ?2";
 
 /// Refold one site's behind rows from brokkr-core's one reading: read the
-/// candidate envelopes through the stream index, let core say which finish a
-/// session, and write the last of them `1` and every other readable one `0`.
-/// A row core cannot read keeps no session, and is still stamped processed.
-/// The dated facts written from the record alone are not touched.
+/// candidate envelopes through the stream index, let core's fold say which
+/// finishes a session, and write its flags. A row core cannot read keeps no
+/// session, and is still stamped processed. The dated facts written from
+/// the record alone are not touched.
 fn refold_site(
     conn: &Connection,
     run_id: &str,
@@ -318,31 +331,24 @@ fn refold_site(
     from: Option<u64>,
 ) -> Result<(), StoreError> {
     let seqs = candidates(conn, run_id, attempt_id, member, from)?;
-    let mut readable = BTreeSet::new();
-    let mut last = None;
+    let mut events = Vec::with_capacity(seqs.len());
     {
         let mut statement = conn.prepare_cached(super::ENVELOPE)?;
         for seq in &seqs {
             let envelope: String =
                 statement.query_row(params![run_id, *seq as i64], |row| row.get(0))?;
-            let event: EventEnvelope = serde_json::from_str(&envelope)?;
-            if let Some(checkpoint) = Checkpoint::read(&event, None) {
-                readable.insert(*seq);
-                if checkpoint.session {
-                    last = Some(*seq);
-                }
-            }
+            events.push(serde_json::from_str(&envelope)?);
         }
     }
+    let sessions: BTreeMap<u64, bool> = checkpoints(&events)
+        .into_iter()
+        .map(|checkpoint| (checkpoint.seq, checkpoint.session))
+        .collect();
     let mut statement = conn.prepare_cached(WRITE_SESSION)?;
     for seq in seqs {
-        let session = if !readable.contains(&seq) {
-            Value::Null
-        } else if last == Some(seq) {
-            Value::Integer(1)
-        } else {
-            Value::Integer(0)
-        };
+        let session = sessions
+            .get(&seq)
+            .map_or(Value::Null, |session| Value::Integer(i64::from(*session)));
         statement.execute(params![run_id, seq as i64, session])?;
     }
     Ok(())
@@ -487,9 +493,9 @@ fn phase_before(conn: &Connection, run_id: &str, seq: u64) -> Result<Option<Stri
 /// Write the facts of every checkpoint the append `sealed` carries from the
 /// event alone, for a writer that carries no account of the run: the
 /// record's own facts, with the run's phase before it read by its key. The
-/// write is the update that moves a site's session flag off an earlier
-/// record, through the row's trigger, so no append path leaves stale facts
-/// or a false disagreement (decision 0089 rulings 4 and 7).
+/// refold that follows writes the site's session flag from brokkr-core's
+/// reading, so no append path leaves stale facts or a false disagreement
+/// (decision 0089 rulings 4 and 7).
 pub(crate) fn write_sealed(
     tx: &Connection,
     run_id: &str,

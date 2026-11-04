@@ -6,7 +6,7 @@
 //! the row for the open's walk, and a table from before them is altered in
 //! place.
 
-use super::checkpoint::{backfilled, checkpointed, COLUMNS, WRITE};
+use super::checkpoint::{backfilled, checkpointed, COLUMNS, SITE, WRITE};
 use super::*;
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::summary::{Bounded, NAME_BYTES};
@@ -223,6 +223,33 @@ fn insert_checkpoint(
         .execute(params![run_id, seq as i64, &event.event_hash, &envelope])
         .unwrap();
     i64::from(insert.reset_status(StatementStatus::VmStep))
+}
+
+/// The rows the refold's candidate search selects at `run_id`'s site when
+/// the append starts at `from`, and the VM steps it took: the selection's
+/// own cost, separated from the envelope reads and writes that follow it.
+fn site_candidates(
+    store: &Store,
+    run_id: &str,
+    attempt: &str,
+    member: &str,
+    from: u64,
+) -> (Vec<u64>, i64) {
+    use rusqlite::StatementStatus;
+
+    let mut statement = store.conn.prepare(&SITE).unwrap();
+    statement.reset_status(StatementStatus::VmStep);
+    let found: Vec<u64> = statement
+        .query_map(params![run_id, attempt, member, from as i64], |row| {
+            row.get(0)
+        })
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    (
+        found,
+        i64::from(statement.reset_status(StatementStatus::VmStep)),
+    )
 }
 
 #[test]
@@ -707,18 +734,24 @@ fn an_appended_checkpoint_visits_the_same_steps_at_every_n() {
 }
 
 /// Appending a checkpoint visits its own site's rows and no other's: the
-/// cost is the same at 200 and 400 checkpoints at the appended site, and a
-/// run whose other sites hold many checkpoints visits none of them
-/// (decision 0089 rulings 4 and 7; #912's park send).
+/// trigger's send and the refold's candidate search cost the same at 200
+/// and 400 checkpoints at the appended site, and a run whose other sites
+/// hold many checkpoints visits none of them (decision 0089 rulings 4 and
+/// 7; #912's park send).
 #[test]
 fn sending_a_checkpoint_behind_visits_only_its_site_s_rows() {
     let (_dir, mut store) = store();
     let mut same = Vec::new();
     let mut other = Vec::new();
+    let mut selected_same = Vec::new();
+    let mut selected_other = Vec::new();
     for n in [200u64, 400] {
         let run_id = format!("same{n}");
         let events = chained_checkpoints(&run_id, "a", "m", n);
         let previous = planted(&mut store, &run_id, &events);
+        let (found, steps) = site_candidates(&store, &run_id, "a", "m", n);
+        assert_eq!(found, vec![n], "the new row is the only candidate");
+        selected_same.push(steps);
         same.push(insert_checkpoint(
             &store,
             &run_id,
@@ -731,6 +764,9 @@ fn sending_a_checkpoint_behind_visits_only_its_site_s_rows() {
         let run_id = format!("other{n}");
         let events = chained_checkpoints(&run_id, "b", "m2", n);
         let previous = planted(&mut store, &run_id, &events);
+        let (found, steps) = site_candidates(&store, &run_id, "a", "m", n);
+        assert_eq!(found, Vec::<u64>::new(), "another site holds no rows");
+        selected_other.push(steps);
         other.push(insert_checkpoint(
             &store,
             &run_id,
@@ -744,6 +780,14 @@ fn sending_a_checkpoint_behind_visits_only_its_site_s_rows() {
     assert_eq!(
         other[0], other[1],
         "another site's rows are never visited: {other:?}"
+    );
+    assert_eq!(
+        selected_same[0], selected_same[1],
+        "the refold selects its site's rows alone: {selected_same:?}"
+    );
+    assert_eq!(
+        selected_other[0], selected_other[1],
+        "the refold visits no other site's rows: {selected_other:?}"
     );
 }
 
@@ -823,6 +867,7 @@ fn an_index_from_before_the_checkpoints_is_altered_and_refolded() {
         "DROP INDEX event_index_checkpoint;
          DROP INDEX event_index_checkpoint_stale;
          DROP INDEX event_index_checkpoint_session;
+         DROP INDEX event_index_checkpoint_site_stale;
          DROP TRIGGER event_index_checkpoint_behind;
          ALTER TABLE event_index DROP COLUMN facts;",
     )
