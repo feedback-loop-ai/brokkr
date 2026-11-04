@@ -1065,6 +1065,76 @@ fn integral_token_notations_read_as_their_values() {
     }
 }
 
+/// F1 (decision 0071 ruling 3; the operator's 2026-11-04 option A): a
+/// fraction whose digits are not all zero still names an integer when a
+/// positive exponent shifts the fraction away. Both published contracts
+/// admit `1.5e1` as 15, so the loader reads it exactly in every numeric
+/// field of both versions rather than refusing it as fractional.
+#[test]
+fn schema_valid_fractional_mantissa_with_exponent_reads_exactly() {
+    let capacity = |schema: &str| {
+        format!(
+            r#"{{"schema":"{schema}","providers":{{"dsh":{{"ceiling":1.5e2,"routes":{{"r":{{"ceiling":2.5e1,"class":"cloud"}}}}}}}},"floors":[{{"place":"temp","floor_bytes":1.5e1}}],"boxed_builds":{{"ceiling":0.5e1}}}}"#
+        )
+    };
+    for (schema, contract) in [
+        ("forge.host/v1", "host.v1.schema.json"),
+        ("forge.host/v2", "host.v2.schema.json"),
+    ] {
+        let text = capacity(schema);
+        let host: Value = serde_json::from_str(&text).unwrap();
+        assert!(
+            contract_validator(contract).is_valid(&host),
+            "{schema}: the schema refused a fractional mantissa"
+        );
+        let loaded = loaded(&text);
+        assert_eq!(
+            loaded.floors.0[0].floor_bytes.get(),
+            15,
+            "{schema} floor_bytes"
+        );
+        assert_eq!(
+            u64::from(loaded.providers["dsh"].ceiling.get()),
+            150,
+            "{schema} provider ceiling"
+        );
+        assert_eq!(
+            u64::from(loaded.providers["dsh"].routes["r"].ceiling.get()),
+            25,
+            "{schema} route ceiling"
+        );
+        assert_eq!(
+            u64::from(loaded.boxed_builds.ceiling.get()),
+            5,
+            "{schema} boxed ceiling"
+        );
+    }
+    // The v2 cool-down numbers at every site: block, provider and route.
+    let block = r#"{"default_seconds":1.5e1,"max_seconds":7.2e3,"providers":{"dsh":{"default_seconds":2.5e1,"max_seconds":6e1,"routes":{"r":{"default_seconds":1.25e2,"max_seconds":3.0e2}}}}}"#;
+    let text = cooled(block);
+    let host: Value = serde_json::from_str(&text).unwrap();
+    assert!(
+        contract_validator("host.v2.schema.json").is_valid(&host),
+        "the schema refused a cool-down fractional mantissa"
+    );
+    let loaded = loaded(&text);
+    assert_eq!(
+        bounds(&loaded, "dsh", None),
+        Some((25, 60)),
+        "provider override"
+    );
+    assert_eq!(
+        bounds(&loaded, "dsh", Some("r")),
+        Some((125, 300)),
+        "route override"
+    );
+    assert_eq!(
+        bounds(&loaded, "codex", None),
+        Some((15, 7200)),
+        "block inheritance"
+    );
+}
+
 /// F1 from the landing review (2026-11-05; decision 0071 ruling 3, the
 /// operator's 2026-11-04 option A): a negative exponent is bounded by the
 /// mantissa's trailing zeros, not by the positive exponent's limit. One
@@ -1144,12 +1214,18 @@ fn the_token_reader_reads_each_number_form_and_refuses_what_is_not_one() {
     assert_eq!(read("1e+1"), Ok(10));
     assert_eq!(read("0e-2"), Ok(0));
     assert_eq!(read("-0"), Ok(0));
+    assert_eq!(read("1.5e1"), Ok(15));
+    assert_eq!(read("0.5e1"), Ok(5));
+    assert_eq!(read("1.25e2"), Ok(125));
+    assert_eq!(read("12.5e2"), Ok(1250));
+    assert_eq!(read("1.50e1"), Ok(15));
+    assert_eq!(read("7.2e3"), Ok(7200));
     assert_eq!(
         read("-170141183460469231731687303715884105728"),
         Ok(i128::MIN)
     );
     assert_eq!(read(""), Err(Refusal::NotANumber));
-    for token in ["-", "1.", "1e", "1x", "1e1x"] {
+    for token in ["-", "1.", "1e", "1x", "1e1x", "1.5e0", "15e-1", "1.5e-1"] {
         assert_eq!(read(token), Err(Refusal::NotAnInteger), "{token}");
     }
 }

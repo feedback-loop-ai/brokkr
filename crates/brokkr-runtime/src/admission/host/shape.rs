@@ -14,20 +14,21 @@ use serde::{Deserialize, Deserializer};
 use serde_json::value::RawValue;
 
 /// A number the contract calls an integer. JSON Schema's `integer` admits
-/// any number with no fractional part, so `10.0` and `1e1` are the same
-/// integers here as `10`; refusing them would refuse a file the published
-/// schema admits (decision 0071 ruling 3). Each is read from its exact
-/// token, never through `f64`, so no rounding can lower a floor or raise a
-/// bound (the operator's ruling of 2026-11-04, option A).
+/// any number with no fractional part, so `10.0`, `1e1` and `1.5e1` are the
+/// same integers here as `10`; refusing them would refuse a file the
+/// published schema admits (decision 0071 ruling 3). Each is read from its
+/// exact token, never through `f64`, so no rounding can lower a floor or
+/// raise a bound (the operator's ruling of 2026-11-04, option A).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Integral<T>(pub(super) T);
 
-/// The largest positive exponent a token may write. No field's range needs a
-/// nonzero mantissa shifted further, so one past this cannot fit; the bound
-/// also keeps a zero mantissa from making the reader loop. A token like
-/// `1e999999999` is refused before the reader builds it (the operator's
-/// ruling of 2026-11-04, option A). A negative exponent is bounded by the
-/// mantissa's trailing zeros instead, so `10^41e-41` reads as `1`.
+/// The largest positive exponent the adjusted mantissa may be shifted by.
+/// No field's range needs a nonzero mantissa shifted further, so one past
+/// this cannot fit; the bound also keeps a zero mantissa from making the
+/// reader loop. A token like `1e999999999` is refused before the reader
+/// builds it (the operator's ruling of 2026-11-04, option A). A negative
+/// exponent is bounded by the mantissa's trailing zeros instead, so
+/// `10^41e-41` reads as `1`.
 const EXPONENT_LIMIT: i64 = 40;
 
 /// Why a token is not an integer this reader can return.
@@ -36,8 +37,8 @@ pub(super) enum Refusal {
     /// A token that is not a JSON number at all: a string, object, array,
     /// boolean or null where the contract demands a number.
     NotANumber,
-    /// A fraction with a non-zero digit, or a negative exponent that would
-    /// leave one.
+    /// A fraction the exponent does not shift away, or a negative exponent
+    /// that would leave one: the number it names has a fractional part.
     NotAnInteger,
     /// The integer does not fit the field's type.
     OutOfRange,
@@ -79,9 +80,11 @@ where
 }
 
 /// The integer a JSON number token names exactly: an optional `-`, digits,
-/// an optional fraction whose digits are all `0`, and an optional exponent.
-/// The value is the digits shifted by the exponent, computed with integer
-/// arithmetic only; a negative exponent may only remove trailing zeros.
+/// an optional fraction, and an optional exponent. The fraction's digits are
+/// folded into the mantissa and its length subtracted from the exponent, so
+/// `1.5e1` and `15e0` name the same integer; the value is computed with
+/// integer arithmetic only, and a negative exponent may only remove trailing
+/// zeros.
 impl<T> std::str::FromStr for Integral<T>
 where
     T: TryFrom<i128> + TryFrom<u128>,
@@ -108,24 +111,40 @@ where
         if int_digits.is_empty() {
             return Err(Refusal::NotAnInteger);
         }
+        let mut fraction = &[][..];
         if bytes.get(at) == Some(&b'.') {
             at += 1;
             let fraction_start = at;
             while at < bytes.len() && bytes[at].is_ascii_digit() {
                 at += 1;
             }
-            // A fraction is a zero tail only: any non-zero digit names a
-            // number that is not an integer, however small it is.
-            if at == fraction_start || bytes[fraction_start..at].iter().any(|digit| *digit != b'0')
-            {
+            fraction = &bytes[fraction_start..at];
+            if fraction.is_empty() {
                 return Err(Refusal::NotAnInteger);
             }
         }
-        let exponent = exponent(&bytes[at..])?;
-        if at + exponent.1 != bytes.len() {
+        let (written, used) = exponent(&bytes[at..])?;
+        if at + used != bytes.len() {
             return Err(Refusal::NotAnInteger);
         }
-        let magnitude = magnitude(int_digits, exponent.0)?;
+        // The fraction's digits join the mantissa, one decimal place each,
+        // so its length debits the exponent. Only the adjusted shift has to
+        // fit the bound: a fraction can carry a large written exponent back
+        // into range, and the mantissa's own length is bounded by the token.
+        // `usize` fits `i128` on every supported host, so the length is a
+        // widening cast; the value arithmetic below stays checked.
+        let adjusted = i128::from(written) - fraction.len() as i128;
+        if adjusted > i128::from(EXPONENT_LIMIT) {
+            return Err(Refusal::ExponentPastBound);
+        }
+        let combined;
+        let digits: &[u8] = if fraction.is_empty() {
+            int_digits
+        } else {
+            combined = [int_digits, fraction].concat();
+            &combined
+        };
+        let magnitude = magnitude(digits, adjusted)?;
         fits::<T>(negative, magnitude).map(Integral)
     }
 }
@@ -166,19 +185,14 @@ fn exponent(tail: &[u8]) -> Result<(i64, usize), Refusal> {
     if at == start {
         return Err(Refusal::NotAnInteger);
     }
-    // Only a positive exponent shifts digits in; a negative one removes
-    // trailing zeros, so its size is bounded by the mantissa and not by this
-    // fixed limit. `magnitude` removes at most one digit per trailing zero,
-    // so even `1e-999999999` costs the token's own length.
-    if !negative && value > EXPONENT_LIMIT {
-        return Err(Refusal::ExponentPastBound);
-    }
     Ok((if negative { -value } else { value }, at))
 }
 
 /// `digits` shifted by `exponent`: a positive exponent appends zeros, and
-/// a negative one removes only trailing zeros.
-fn magnitude(digits: &[u8], exponent: i64) -> Result<u128, Refusal> {
+/// a negative one removes only trailing zeros. A positive exponent is
+/// bounded by [`EXPONENT_LIMIT`] before this is called, so the loop is
+/// bounded by the token's own grammar.
+fn magnitude(digits: &[u8], exponent: i128) -> Result<u128, Refusal> {
     if exponent >= 0 {
         let mut value = digits_value(digits)?;
         for _ in 0..exponent {
