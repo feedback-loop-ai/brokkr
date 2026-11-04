@@ -22,11 +22,12 @@ use serde_json::value::RawValue;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Integral<T>(pub(super) T);
 
-/// The largest exponent a token may write. No field's range needs a nonzero
-/// mantissa shifted further, so one past this cannot fit; the bound also
-/// keeps a zero mantissa from making the reader loop. A token like
+/// The largest positive exponent a token may write. No field's range needs a
+/// nonzero mantissa shifted further, so one past this cannot fit; the bound
+/// also keeps a zero mantissa from making the reader loop. A token like
 /// `1e999999999` is refused before the reader builds it (the operator's
-/// ruling of 2026-11-04, option A).
+/// ruling of 2026-11-04, option A). A negative exponent is bounded by the
+/// mantissa's trailing zeros instead, so `10^41e-41` reads as `1`.
 const EXPONENT_LIMIT: i64 = 40;
 
 /// Why a token is not an integer this reader can return.
@@ -40,8 +41,9 @@ pub(super) enum Refusal {
     NotAnInteger,
     /// The integer does not fit the field's type.
     OutOfRange,
-    /// The token's exponent is past the reader's bound, so the number it
-    /// would name is refused before the reader tries to build it.
+    /// A positive exponent is past the reader's bound, or the exponent's
+    /// digits overflow, so the number it would name is refused before the
+    /// reader tries to build it.
     ExponentPastBound,
 }
 
@@ -159,13 +161,17 @@ fn exponent(tail: &[u8]) -> Result<(i64, usize), Refusal> {
             .checked_mul(10)
             .and_then(|value| value.checked_add(i64::from(digit - b'0')))
             .ok_or(Refusal::ExponentPastBound)?;
-        if value > EXPONENT_LIMIT {
-            return Err(Refusal::ExponentPastBound);
-        }
         at += 1;
     }
     if at == start {
         return Err(Refusal::NotAnInteger);
+    }
+    // Only a positive exponent shifts digits in; a negative one removes
+    // trailing zeros, so its size is bounded by the mantissa and not by this
+    // fixed limit. `magnitude` removes at most one digit per trailing zero,
+    // so even `1e-999999999` costs the token's own length.
+    if !negative && value > EXPONENT_LIMIT {
+        return Err(Refusal::ExponentPastBound);
     }
     Ok((if negative { -value } else { value }, at))
 }

@@ -1065,6 +1065,37 @@ fn integral_token_notations_read_as_their_values() {
     }
 }
 
+/// F1 from the landing review (2026-11-05; decision 0071 ruling 3, the
+/// operator's 2026-11-04 option A): a negative exponent is bounded by the
+/// mantissa's trailing zeros, not by the positive exponent's limit. One
+/// more zero than the limit still reads exactly `1` in both versions; a
+/// shift past the zeros remains a shape refusal, and a huge negative
+/// exponent is refused by its own value rather than its size.
+#[test]
+fn chief_negative_exponent_is_bounded_by_the_mantissa() {
+    let shifted = format!("1{}e-41", "0".repeat(41));
+    for schema in ["forge.host/v1", "forge.host/v2"] {
+        assert_eq!(
+            file_loaded(&floor_token(schema, &shifted)).floors.0[0]
+                .floor_bytes
+                .get(),
+            1,
+            "{schema} {shifted}"
+        );
+        for token in ["10e-2", "1e-999999999"] {
+            let Problem::Shape(error) = refused(&floor_token(schema, token)) else {
+                panic!("{schema} {token} was not a shape refusal");
+            };
+            assert!(
+                error
+                    .to_string()
+                    .contains("a number with a fractional part"),
+                "{schema} {token}: {error}"
+            );
+        }
+    }
+}
+
 /// A token that is not exactly an integer in range is a shape refusal: a
 /// non-zero fraction, a negative exponent that leaves one, one past each
 /// field's maximum, an exponent past the reader's bound and a string.
@@ -1097,6 +1128,32 @@ fn non_integral_tokens_are_shape_refusals() {
             error.to_string().contains("expected a nonzero u32"),
             "{schema}: {error}"
         );
+    }
+}
+
+/// F2 from the landing review (decision 0071 ruling 8): the reader's two
+/// diagnostics are pinned by their exact words and parser place, not only
+/// by their variant. Each is planted in v1 and v2; changing either phrase
+/// must fail this case.
+#[test]
+fn chief_diagnostic_text_is_pinned_for_non_numbers_and_out_of_range() {
+    let cases = [
+        (
+            "\"one\"",
+            "invalid value: a value that is not a number, expected an integer at line 1 column 87",
+        ),
+        (
+            "340282366920938463463374607431768211456.0",
+            "invalid value: a number out of range, expected an integer at line 1 column 123",
+        ),
+    ];
+    for schema in ["forge.host/v1", "forge.host/v2"] {
+        for (token, said) in cases {
+            let Problem::Shape(error) = refused(&floor_token(schema, token)) else {
+                panic!("{schema} {token} was not a shape refusal");
+            };
+            assert_eq!(error.to_string(), said, "{schema} {token}");
+        }
     }
 }
 
