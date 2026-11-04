@@ -169,13 +169,7 @@ fn parted(
         *stale = true;
     }
     for (at, (column, value)) in expected.iter().enumerate() {
-        // A stamp off its expected value is a park's off its head or a
-        // checkpoint's off its own seq: either leaves both the park's and
-        // the checkpoint's dated columns to the refold.
-        let skipped = (stamp_behind
-            && (PARK_COLUMNS.contains(column) || CHECKPOINT_COLUMNS.contains(column)))
-            || (checkpoint_behind && CHECKPOINT_COLUMNS.contains(column));
-        if skipped {
+        if left_to_refold(column, stamp_behind, checkpoint_behind) {
             continue;
         }
         if row.get_ref(at + 1)? != ValueRef::from(value) {
@@ -183,6 +177,15 @@ fn parted(
         }
     }
     Ok(None)
+}
+
+/// Whether a lagging row's `column` is left to the refold. A stamp off its
+/// expected value is a park's off its head or a checkpoint's off its own
+/// seq: either leaves both the park's and the checkpoint's dated columns.
+/// Unwritten checkpoint facts leave the checkpoint's alone.
+fn left_to_refold(column: &&'static str, stamp_behind: bool, checkpoint_behind: bool) -> bool {
+    (stamp_behind && (PARK_COLUMNS.contains(column) || CHECKPOINT_COLUMNS.contains(column)))
+        || (checkpoint_behind && CHECKPOINT_COLUMNS.contains(column))
 }
 
 /// A seq or a place as SQLite holds it, an integer: a key [`parted`]

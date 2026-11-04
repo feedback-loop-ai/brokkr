@@ -633,43 +633,7 @@ impl Store {
                 patiently("checkpoints", self.patience, || clear_backfilled(conn))?;
                 cleared = true;
             }
-            if !unwritten(&self.conn, &run_id)? {
-                // Only the session was sent behind: refold the rows themselves,
-                // from the site's checkpoints, without reading the run.
-                between(&self.conn);
-                let conn = &mut self.conn;
-                let wrote = patiently("checkpoints", self.patience, || refold_once(conn, &run_id))?;
-                if !wrote {
-                    // A peer's unwritten facts landed under the lock: the next
-                    // open's backfill reads them, and this one claims nothing.
-                    unfinished = true;
-                }
-                continue;
-            }
-            let Ok(events) = self.load(&run_id) else {
-                unfinished = true;
-                continue;
-            };
-            let account = Account::whole(&run_id, &events);
-            between(&self.conn);
-            let conn = &mut self.conn;
-            let wrote = match patiently("checkpoints", self.patience, || once(conn, &account)) {
-                Ok(wrote) => wrote,
-                // A legacy checkpoint count the index's signed columns cannot
-                // hold refuses its run by name, leaving its rows for a reader
-                // to read whole and the doctor to name, and the backfill
-                // unfinished rather than failing the whole journal's open
-                // (decision 0089 rulings 4 and 8).
-                Err(StoreError::TokenCountOutOfRange(..)) => {
-                    unfinished = true;
-                    continue;
-                }
-                Err(error) => return Err(error),
-            };
-            if !wrote {
-                // A peer moved the head while the run was read: the walk
-                // writes nothing for it, and the backfill stays unfinished
-                // until an open writes it (rulings 4 and 8).
+            if !self.checkpoint_run(&run_id, &mut between)? {
                 unfinished = true;
             }
         }
@@ -681,6 +645,40 @@ impl Store {
             })?;
         }
         Ok(())
+    }
+}
+
+impl Store {
+    /// One run's checkpoint facts, written in a transaction of its own:
+    /// whether they now stand. A run whose rows lag only by their session
+    /// is refolded from its sites' checkpoints without reading the run; any
+    /// other run is read whole and written. A run that does not load, a
+    /// legacy count the signed columns cannot hold (refused by name for a
+    /// reader to read whole and the doctor to name, decision 0089 rulings 4
+    /// and 8), and a head a peer moved while the run was read all leave the
+    /// facts unwritten, so the backfill stays unfinished until an open
+    /// writes them. `between` runs after the read and before the
+    /// transaction.
+    fn checkpoint_run(
+        &mut self,
+        run_id: &str,
+        between: &mut impl FnMut(&Connection),
+    ) -> Result<bool, StoreError> {
+        if !unwritten(&self.conn, run_id)? {
+            between(&self.conn);
+            let conn = &mut self.conn;
+            return patiently("checkpoints", self.patience, || refold_once(conn, run_id));
+        }
+        let Ok(events) = self.load(run_id) else {
+            return Ok(false);
+        };
+        let account = Account::whole(run_id, &events);
+        between(&self.conn);
+        let conn = &mut self.conn;
+        match patiently("checkpoints", self.patience, || once(conn, &account)) {
+            Err(StoreError::TokenCountOutOfRange(..)) => Ok(false),
+            written => written,
+        }
     }
 }
 
