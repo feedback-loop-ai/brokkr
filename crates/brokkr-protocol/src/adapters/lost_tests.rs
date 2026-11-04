@@ -138,6 +138,7 @@ fn a_start_that_sent_no_result_ends_the_driver() {
         engine_version: "test".into(),
     });
     let start = line(Body::Start {
+        probe: None,
         effect_id: "effect".into(),
         attempt_id: "attempt".into(),
         seat: "work".into(),

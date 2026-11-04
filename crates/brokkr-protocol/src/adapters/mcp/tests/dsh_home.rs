@@ -7,7 +7,7 @@
 use super::super::super::composite::{DshComposite, DshSeams};
 use super::super::super::tests::{
     binding, dsh_enabled_input, dsh_version_shim, executable, plant_dsh_session,
-    synthetic_dsh_composite,
+    synthetic_dsh_composite, wait_for_exit,
 };
 use super::super::super::{
     dsh_argv, dsh_launch_with, dsh_model_row, dsh_transcript_row, invoke_dsh_launch, DshLaunch,
@@ -191,11 +191,7 @@ fn invoked(
         homes.workdir(),
         bindings,
         &mut |row: &Value| emitted.push(row.clone()),
-        |child| {
-            child
-                .try_wait()
-                .map(|status| status.map(|status| status.code().unwrap_or(-1)))
-        },
+        wait_for_exit,
     );
     (invoked, emitted)
 }

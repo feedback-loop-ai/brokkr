@@ -34,6 +34,7 @@ use thiserror::Error;
 
 use super::mcp::{self, McpRefusal};
 use super::route_overlay::{self, Refused};
+use super::stderr::{CapturedStderr, StderrEnd};
 use super::{dsh_sandbox_row_for, observed_version};
 use crate::dsh_sandbox::{self, GitScope, SeatGitStore};
 use crate::hands::{GitFacts, SERVER_NAME};
@@ -307,8 +308,20 @@ pub(crate) type Startup = Result<Enforcement, ReportRefusal>;
 /// capture edge. The raw text goes no further than this call: the stderr
 /// the journal exposes is masked and reasoning-redacted afterwards, and a
 /// masking that rewrites these words cannot change the outcome (#896 H1).
-pub(crate) fn startup_report(raw: &[u8]) -> Startup {
-    report::checked(&String::from_utf8_lossy(raw))
+/// A capture that did not reach EOF refuses before its bytes are
+/// classified: a warning the reader never returned cannot be ruled out, so
+/// the seat fails closed on what cannot be read (fix rounds 430s4a4 and
+/// 430s4a6 H1; decision 0071 rulings 3 and 8).
+pub(crate) fn startup_report(captured: &CapturedStderr) -> Startup {
+    match captured.end() {
+        StderrEnd::Unreadable(error) => Err(ReportRefusal::UnreadableCapture(error.clone())),
+        // The bounded settle keeps a descendant-held pipe from hanging the
+        // driver, but what it took is not the child's whole report: the
+        // gate refuses it exactly as it refuses a failed read (fix round
+        // 430s4a6 H1; decision 0098 ruling 4).
+        StderrEnd::Incomplete => Err(ReportRefusal::IncompleteCapture),
+        StderrEnd::Eof => report::checked(&String::from_utf8_lossy(captured.bytes())),
+    }
 }
 
 /// The startup dsh reported, decided from the outcome classified before

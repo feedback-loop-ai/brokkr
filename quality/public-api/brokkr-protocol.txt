@@ -1147,6 +1147,7 @@ pub brokkr_protocol::Body::Cancelled
 pub brokkr_protocol::Body::Cancelled::effect_id: alloc::string::String
 pub brokkr_protocol::Body::Capabilities
 pub brokkr_protocol::Body::Capabilities::driver: alloc::string::String
+pub brokkr_protocol::Body::Capabilities::probe: core::option::Option<brokkr_protocol::Probe>
 pub brokkr_protocol::Body::Capabilities::supports: alloc::vec::Vec<alloc::string::String>
 pub brokkr_protocol::Body::Capabilities::version: alloc::string::String
 pub brokkr_protocol::Body::Checkpoint
@@ -1159,6 +1160,7 @@ pub brokkr_protocol::Body::Result
 pub brokkr_protocol::Body::Result::attempt_id: alloc::string::String
 pub brokkr_protocol::Body::Result::effect_id: alloc::string::String
 pub brokkr_protocol::Body::Result::error: core::option::Option<alloc::string::String>
+pub brokkr_protocol::Body::Result::refusal: core::option::Option<brokkr_protocol::PreSessionRefusal>
 pub brokkr_protocol::Body::Result::result: core::option::Option<serde_json::value::Value>
 pub brokkr_protocol::Body::Result::status: brokkr_protocol::ResultStatus
 pub brokkr_protocol::Body::Resume
@@ -1170,6 +1172,7 @@ pub brokkr_protocol::Body::Start
 pub brokkr_protocol::Body::Start::attempt_id: alloc::string::String
 pub brokkr_protocol::Body::Start::effect_id: alloc::string::String
 pub brokkr_protocol::Body::Start::input: serde_json::value::Value
+pub brokkr_protocol::Body::Start::probe: core::option::Option<brokkr_protocol::Probe>
 pub brokkr_protocol::Body::Start::seat: alloc::string::String
 pub enum brokkr_protocol::Cleanup
 pub brokkr_protocol::Cleanup::Settled
@@ -1178,6 +1181,9 @@ pub brokkr_protocol::Cleanup::Unresolved::reason: brokkr_protocol::process::Unse
 pub enum brokkr_protocol::DshServed
 pub brokkr_protocol::DshServed::Engine
 pub brokkr_protocol::DshServed::Operator
+pub enum brokkr_protocol::RefusalClass
+pub brokkr_protocol::RefusalClass::Other
+pub brokkr_protocol::RefusalClass::RateLimit
 pub enum brokkr_protocol::ResultStatus
 pub brokkr_protocol::ResultStatus::Failed
 pub brokkr_protocol::ResultStatus::Succeeded
@@ -1187,6 +1193,7 @@ pub brokkr_protocol::AttemptReport::checkpoints: alloc::vec::Vec<serde_json::val
 pub brokkr_protocol::AttemptReport::cleanup: brokkr_protocol::Cleanup
 pub brokkr_protocol::AttemptReport::deadline_killed: bool
 pub brokkr_protocol::AttemptReport::outcome: brokkr_protocol::AttemptOutcome
+pub brokkr_protocol::AttemptReport::refusal: core::option::Option<alloc::boxed::Box<brokkr_protocol::PreSessionRefusal>>
 pub brokkr_protocol::AttemptReport::refused: core::option::Option<brokkr_protocol::AttemptOutcome>
 pub brokkr_protocol::AttemptReport::session_ref: core::option::Option<alloc::string::String>
 pub brokkr_protocol::AttemptReport::stderr: alloc::string::String
@@ -1201,6 +1208,24 @@ pub brokkr_protocol::Message::msg_id: alloc::string::String
 pub brokkr_protocol::Message::proto: alloc::string::String
 impl brokkr_protocol::Message
 pub fn brokkr_protocol::Message::new(brokkr_protocol::Body) -> brokkr_protocol::Message
+pub struct brokkr_protocol::PreSessionRefusal
+impl brokkr_protocol::PreSessionRefusal
+pub fn brokkr_protocol::PreSessionRefusal::class(&self) -> brokkr_protocol::RefusalClass
+pub fn brokkr_protocol::PreSessionRefusal::provider(&self) -> &str
+pub fn brokkr_protocol::PreSessionRefusal::retry_after_seconds(&self) -> core::option::Option<u64>
+pub fn brokkr_protocol::PreSessionRefusal::route(&self) -> core::option::Option<&str>
+pub fn brokkr_protocol::PreSessionRefusal::status(&self) -> core::option::Option<i64>
+pub fn brokkr_protocol::PreSessionRefusal::words(&self) -> &str
+impl core::fmt::Display for brokkr_protocol::PreSessionRefusal
+pub fn brokkr_protocol::PreSessionRefusal::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_protocol::PreSessionRefusal
+pub fn brokkr_protocol::PreSessionRefusal::deserialize<D>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error> where D: serde_core::de::Deserializer<'de>
+pub struct brokkr_protocol::Probe
+impl serde_core::ser::Serialize for brokkr_protocol::Probe
+pub fn brokkr_protocol::Probe::serialize<S>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error> where S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_protocol::Probe
+pub fn brokkr_protocol::Probe::deserialize<D>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error> where D: serde_core::de::Deserializer<'de>
+pub const brokkr_protocol::DRIVER_REFUSAL_SCHEMA: &str
 pub const brokkr_protocol::PROTO: &str
 pub fn brokkr_protocol::dsh_served(core::option::Option<&brokkr_protocol::native_controls::SealedIsolation>, bool, core::option::Option<&str>, bool) -> core::result::Result<brokkr_protocol::DshServed, brokkr_protocol::DshRefusal>
 pub fn brokkr_protocol::holds_dotenv(&std::path::Path) -> bool

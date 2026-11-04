@@ -440,6 +440,11 @@ fn the_workspace_server_row_carries_the_measured_transport_and_startup_policy() 
     assert!(server.contains("failOnStartupError: true"), "{server}");
 }
 
+/// A complete stderr capture of `raw`, through the one capture loop.
+fn captured(raw: Vec<u8>) -> super::super::stderr::CapturedStderr {
+    super::super::stderr::capture_reader(std::io::Cursor::new(raw)).take(false)
+}
+
 /// dsh's measured startup report: an entry that did not activate, or a
 /// sandbox that cannot confine, fails the seat closed; the launcher's
 /// partial line is carried, and a clean start adds nothing.
@@ -475,7 +480,9 @@ fn the_dsh_startup_report_fails_closed_and_carries_partial() {
     let mut meta = serde_json::Map::new();
     assert_eq!(
         startup_gate(
-            startup_report(b"landlock-run: partial enforcement (older Landlock ABI)\n"),
+            startup_report(&captured(
+                b"landlock-run: partial enforcement (older Landlock ABI)\n".to_vec(),
+            )),
             &mut meta,
             Mode::ReadOnly
         ),
@@ -485,7 +492,7 @@ fn the_dsh_startup_report_fails_closed_and_carries_partial() {
     assert_eq!(meta["step_name"], json!(report::PARTIAL));
     assert_eq!(
         startup_gate(
-            startup_report(warning.as_bytes()),
+            startup_report(&captured(warning.as_bytes().to_vec())),
             &mut serde_json::Map::new(),
             Mode::WorkspaceWrite
         ),
@@ -526,6 +533,214 @@ fn the_dsh_startup_report_fails_closed_and_carries_partial() {
         "refusing the dsh seat: dsh reported SANDBOX_UNAVAILABLE (no sandbox backend is usable on \
          this host), so a call it could not confine is never admitted (#896 D4)"
     );
+}
+
+/// One prepared step in the test reader below.
+enum Step {
+    Data(&'static [u8]),
+    Error(std::io::ErrorKind),
+}
+
+/// A stderr seam that returns prepared steps, one read call each, so a
+/// capture can meet an interrupted and a failed read without a real pipe.
+struct ReadSteps(std::collections::VecDeque<Step>);
+
+impl ReadSteps {
+    fn new(steps: impl IntoIterator<Item = Step>) -> Self {
+        Self(steps.into_iter().collect())
+    }
+}
+
+impl std::io::Read for ReadSteps {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        match self.0.pop_front() {
+            Some(Step::Data(bytes)) => {
+                buffer[..bytes.len()].copy_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            Some(Step::Error(kind)) => Err(std::io::Error::new(kind, "stderr seam failed")),
+            None => Ok(0),
+        }
+    }
+}
+
+/// Drive one seam capture through `finish_dsh` and hand back what the
+/// startup gate reads beside the evidence stderr.
+fn captured_run(steps: impl IntoIterator<Item = Step>) -> (Startup, String) {
+    let capture = super::super::stderr::capture_reader(ReadSteps::new(steps));
+    let run = super::super::finish_dsh(
+        &mut serde_json::Map::new(),
+        0,
+        capture.take(false),
+        None,
+        &[],
+    )
+    .unwrap();
+    (run.startup, run.invocation.stderr)
+}
+
+/// #430 H1 (decision 0098 ruling 4; decision 0071 rulings 3 and 9): an
+/// interrupted stderr read is retried, not taken for EOF, so the startup
+/// warning behind it still refuses the seat.
+#[test]
+fn review_an_interrupted_stderr_read_must_not_erase_dsh_startup_refusal() {
+    let (startup, _) = captured_run([
+        Step::Error(std::io::ErrorKind::Interrupted),
+        Step::Data(b"dsh: warning: 1 entry did not activate\n"),
+    ]);
+    assert_eq!(
+        startup_gate(startup, &mut serde_json::Map::new(), Mode::ReadOnly),
+        Err(ReportRefusal::NotActivated)
+    );
+}
+
+/// The fourth ending at the gate (430s4a6 R1): an interrupted read retried
+/// into a clean, complete capture lets dsh start. The retry neither refuses
+/// a clean start nor hides a warning (the case above).
+#[test]
+fn chief_review_interrupted_then_complete_stderr_must_allow_dsh_startup() {
+    let (startup, _) = captured_run([
+        Step::Error(std::io::ErrorKind::Interrupted),
+        Step::Data(b"dsh: done\n"),
+    ]);
+    assert_eq!(
+        startup_gate(startup, &mut serde_json::Map::new(), Mode::ReadOnly),
+        Ok(())
+    );
+}
+
+/// #430 H1: a non-interrupted read error ends the capture UNREADABLE, not
+/// at EOF; dsh's start refuses, naming the error, even though the warning
+/// the seam held next was never returned.
+#[test]
+fn review_an_unreadable_stderr_capture_must_refuse_dsh_startup() {
+    let (startup, stderr) = captured_run([
+        Step::Error(std::io::ErrorKind::PermissionDenied),
+        Step::Data(b"dsh: warning: 1 entry did not activate\n"),
+    ]);
+    let refusal = startup_gate(startup, &mut serde_json::Map::new(), Mode::ReadOnly)
+        .expect_err("an unreadable capture never passes dsh's startup gate");
+    assert!(matches!(refusal, ReportRefusal::UnreadableCapture(_)));
+    assert_eq!(
+        refusal.to_string(),
+        "refusing the dsh seat: its startup stderr capture ended unreadable (permission denied: \
+         stderr seam failed), so a warning dsh wrote cannot be ruled out; failing closed on what \
+         cannot be read (#430 H1)"
+    );
+    assert!(
+        stderr.contains("stderr capture ended unreadable"),
+        "the unreadable capture is named in the evidence: {stderr}"
+    );
+}
+
+/// A [`Read`] seam that returns `prefix`, then blocks its second read until
+/// `release` is signalled, then returns `suffix` and EOF. `blocked` tells
+/// the test the reader is inside that second read, so `take(true)` meets a
+/// settled, incomplete capture rather than racing it.
+struct BlockedAfterPrefix {
+    prefix: &'static [u8],
+    suffix: &'static [u8],
+    blocked: std::sync::mpsc::Sender<()>,
+    release: std::sync::mpsc::Receiver<()>,
+    reads: u8,
+}
+
+impl std::io::Read for BlockedAfterPrefix {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        match self.reads {
+            0 => {
+                self.reads = 1;
+                buffer[..self.prefix.len()].copy_from_slice(self.prefix);
+                Ok(self.prefix.len())
+            }
+            1 => {
+                self.reads = 2;
+                let _ = self.blocked.send(());
+                let _ = self.release.recv();
+                buffer[..self.suffix.len()].copy_from_slice(self.suffix);
+                Ok(self.suffix.len())
+            }
+            _ => Ok(0),
+        }
+    }
+}
+
+/// #430 H1, fifth hold on this class (decision 0098 ruling 4; decision 0071
+/// rulings 3 and 9): the bounded settle keeps a descendant-held pipe from
+/// hanging the driver, but the capture it takes is INCOMPLETE, and an
+/// incomplete capture never lets dsh start. The seam returns the warning's
+/// truncated prefix, blocks its next read, and holds the rest back until
+/// released: the gate must refuse, naming the incomplete capture, exactly
+/// as it refuses an unreadable one.
+#[test]
+fn chief_review_incomplete_stderr_must_refuse_dsh_startup() {
+    use super::super::stderr::StderrEnd;
+
+    let (blocked, blocked_rx) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel();
+    let capture = super::super::stderr::capture_reader(BlockedAfterPrefix {
+        prefix: b"dsh: warning: 1 entry did not ",
+        suffix: b"activate\n",
+        blocked,
+        release: release_rx,
+        reads: 0,
+    });
+    blocked_rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("the reader reached its blocked read");
+    let captured = capture.take(true);
+    let incomplete = matches!(captured.end(), StderrEnd::Incomplete);
+    assert!(
+        incomplete,
+        "the settle takes an incomplete capture: {captured:?}"
+    );
+    assert_eq!(captured.bytes(), b"dsh: warning: 1 entry did not ");
+    let refusal = startup_gate(
+        startup_report(&captured),
+        &mut serde_json::Map::new(),
+        Mode::ReadOnly,
+    )
+    .expect_err("an incomplete capture never passes dsh's startup gate");
+    assert!(matches!(refusal, ReportRefusal::IncompleteCapture));
+    assert_eq!(
+        refusal.to_string(),
+        "refusing the dsh seat: its startup stderr capture ended incomplete (the reader had not \
+         reached EOF when the settle bound elapsed), so a warning dsh wrote cannot be ruled out; \
+         failing closed on what cannot be read (#430 H1)"
+    );
+    let evidence = captured.evidence(|_| String::new());
+    assert!(
+        evidence.contains("stderr capture ended incomplete"),
+        "the stopped capture names its incompleteness: {evidence:?}"
+    );
+    // Let the detached reader finish rather than leaving it blocked.
+    release.send(()).expect("the reader is still waiting");
+}
+
+/// #430 H1 (decision 0071 rulings 3 and 9): the evidence line for an
+/// unreadable capture joins whatever partial bytes it kept, adding exactly
+/// one newline only where the kept text does not already end a line. The
+/// empty and already-terminated captures add none.
+#[test]
+fn an_unreadable_capture_joins_its_partial_bytes_with_one_line() {
+    let note = "stderr capture ended unreadable: permission denied: stderr seam failed\n";
+    let failed = || Step::Error(std::io::ErrorKind::PermissionDenied);
+    for (case, steps, expected) in [
+        ("no bytes", vec![failed()], note.to_string()),
+        (
+            "a partial line",
+            vec![Step::Data(b"partial"), failed()],
+            format!("partial\n{note}"),
+        ),
+        (
+            "a complete line",
+            vec![Step::Data(b"partial\n"), failed()],
+            format!("partial\n{note}"),
+        ),
+    ] {
+        let (_, stderr) = captured_run(steps);
+        assert_eq!(stderr, expected, "{case}");
+    }
 }
 
 /// The composed-tree allowlist is the controller's measured dump, row for
@@ -617,10 +832,10 @@ done
 exit 0
 "#;
 
-/// A fake dsh whose session prints the measured activation warning after a
-/// valid composition, or the report `BROKKR_TEST_DSH_REPORT` names when a
-/// test needs a marker a bound secret masks (#896 H1).
-const WARNING_DSH: &str = r#"#!/bin/sh
+/// The measured fake dsh's pre-session prefix: its version banner and the
+/// composition dump `--dump-config` reads. Each fake appends its own body.
+#[cfg(unix)]
+const DSH_PREFIX: &str = r#"#!/bin/sh
 case "$1" in
   --version|-V|-v) printf '0.2.1-rc.2\n'; exit 0 ;;
 esac
@@ -630,7 +845,12 @@ for a in "$@"; do
     exit 0
   fi
 done
-if [ -n "${BROKKR_TEST_DSH_REPORT-}" ]; then
+"#;
+
+/// A fake dsh whose session prints the measured activation warning after a
+/// valid composition, or the report `BROKKR_TEST_DSH_REPORT` names when a
+/// test needs a marker a bound secret masks (#896 H1).
+const WARNING_DSH_TAIL: &str = r#"if [ -n "${BROKKR_TEST_DSH_REPORT-}" ]; then
   printf '%s\n' "$BROKKR_TEST_DSH_REPORT" >&2
 else
   printf '%s\n' 'dsh: warning: 1 entry did not activate' \
@@ -649,6 +869,7 @@ fn invoke_hands(
     workdir: &str,
     mut input: Value,
     bindings: &[crate::secret::BoundSecret],
+    probe: bool,
 ) -> (Option<String>, Result<super::super::Invocation, String>) {
     input["workdir"] = json!(workdir);
     let launch = super::super::dsh_launch_with(dsh, &[], workdir, None, &input, |_| {
@@ -661,8 +882,8 @@ fn invoke_hands(
     let result = super::super::dsh_launch::invoke_dsh_launch_observed(
         launch,
         command,
-        workdir,
         bindings,
+        &mut crate::adapters::probe::ProbeAnswer::new(probe),
         &mut |_| {},
         |child| child.wait().map(|status| Some(status.code().unwrap_or(0))),
         &mut |_| {},
@@ -685,13 +906,18 @@ fn launch_reporting(
         Some(report) => env.set("BROKKR_TEST_DSH_REPORT", report),
         None => env.remove("BROKKR_TEST_DSH_REPORT"),
     }
-    let fake = super::super::tests::executable(dir.path(), "dsh", WARNING_DSH);
+    let fake = super::super::tests::executable(
+        dir.path(),
+        "dsh",
+        &format!("{DSH_PREFIX}{WARNING_DSH_TAIL}"),
+    );
     let workdir = dir.path().to_str().unwrap();
     invoke_hands(
         fake.to_str().unwrap(),
         workdir,
         sealed(SealedBoundary::Namespace, Some("read-only")),
         bindings,
+        false,
     )
     .1
 }
@@ -726,7 +952,7 @@ fn a_launch_composes_under_the_sessions_own_environment_and_directory() {
         "removals": ["LIBRARY_DOCS_TOKEN"],
     }]});
     let _removing = super::super::mcp::Removing::attempt(&removals);
-    let (child_home, invocation) = invoke_hands(fake.to_str().unwrap(), workdir, input, &[]);
+    let (child_home, invocation) = invoke_hands(fake.to_str().unwrap(), workdir, input, &[], false);
     invocation.unwrap();
     let expected_home = child_home.unwrap_or_else(|| home.to_string_lossy().into_owned());
     let observed = std::fs::read_to_string(&log).unwrap();
@@ -838,7 +1064,8 @@ fn a_bound_secret_never_hides_a_startup_refusal_or_appears_in_the_stderr() {
         let run = super::super::finish_dsh(
             &mut serde_json::Map::new(),
             0,
-            std::thread::spawn(move || raw),
+            captured(raw),
+            None,
             std::slice::from_ref(&bound),
         )
         .unwrap();
@@ -854,6 +1081,66 @@ fn a_bound_secret_never_hides_a_startup_refusal_or_appears_in_the_stderr() {
             "the exposed stderr never carries the value: {}",
             run.invocation.stderr
         );
+    }
+}
+
+/// A fake dsh the H1 case drives: its measured composition on
+/// `--dump-config`, dsh's startup report on stderr from
+/// `BROKKR_TEST_DSH_REPORT`, and then a valid session header plus one
+/// `assistant/message` answer under the seat overlay's own root. It exits
+/// after the answer, so the probe's own stop is what the run proves.
+#[cfg(unix)]
+const PROBE_ANSWER_DSH_TAIL: &str = r#"printf '%s\n' "${BROKKR_TEST_DSH_REPORT-dsh: warning: 1 entry did not activate}" >&2
+while [ "$1" != --patch ] && [ $# -gt 0 ]; do shift; done
+shift
+root=$(awk -F"'" '/^    root: /{print $2}' "$1")
+d="$root/--project--/session-fake"
+mkdir -p "$d"
+f="$d/session.v3.jsonl"
+printf '{"type":"session","version":0,"id":"session-fake-1","cwd":"/w"}\n' > "$f"
+printf '{"type":"assistant/message","data":{"turn":1,"step":1,"message":{"source":{"model":"served-by-dsh"}},"usage":{"inputTokens":10,"outputTokens":2}}}\n' >> "$f"
+"#;
+
+/// #430 H1 (decision 0098 ruling 4; decision 0071 rulings 3 and 9): a
+/// probe's answer must not erase dsh's startup refusal. The stopped path
+/// used to hand `finish_dsh` no stderr, which `startup_report` classified
+/// as full enforcement, so the startup gate passed over the warning dsh
+/// had already written. The same case is refused through the one gate for
+/// both refusal classes.
+#[cfg(unix)]
+#[test]
+fn review_a_dsh_probe_answer_must_not_erase_its_startup_refusal() {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    env.set("DSH_HOME", dir.path());
+    for (report, expected) in [
+        (
+            "dsh: warning: 1 entry did not activate",
+            ReportRefusal::NotActivated,
+        ),
+        (
+            "HarnessError: SANDBOX_UNAVAILABLE",
+            ReportRefusal::SandboxUnavailable,
+        ),
+    ] {
+        env.set("BROKKR_TEST_DSH_REPORT", report);
+        let fake = super::super::tests::executable(
+            dir.path(),
+            "dsh",
+            &format!("{DSH_PREFIX}{PROBE_ANSWER_DSH_TAIL}"),
+        );
+        let workdir = dir.path().to_str().unwrap();
+        let problem = invoke_hands(
+            fake.to_str().unwrap(),
+            workdir,
+            sealed(SealedBoundary::Namespace, Some("read-only")),
+            &[],
+            true,
+        )
+        .1
+        .err()
+        .expect("the stopped probe's startup report still refuses the launch");
+        assert_eq!(problem, expected.to_string(), "{report}");
     }
 }
 
@@ -1308,8 +1595,8 @@ fn a_boxed_dsh_hands_launch_is_served_from_the_engine_only_home() {
     invoke_dsh_launch_observed(
         launch,
         command,
-        work.to_str().unwrap(),
         &[],
+        &mut crate::adapters::probe::ProbeAnswer::new(false),
         &mut emit,
         |child| child.wait().map(|status| Some(status.code().unwrap_or(0))),
         &mut observer,

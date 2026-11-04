@@ -114,6 +114,7 @@ fn checkpoint(pad: usize) -> Vec<u8> {
 
 fn result(pad: usize) -> Vec<u8> {
     line(Body::Result {
+        refusal: None,
         effect_id: "effect".into(),
         attempt_id: "attempt".into(),
         status: ResultStatus::Succeeded,
@@ -330,6 +331,7 @@ fn a_refused_line_outranks_a_protocol_violation_read_before_it() {
 #[test]
 fn a_refused_line_outranks_a_success_with_no_payload() {
     let payloadless = line(Body::Result {
+        refusal: None,
         effect_id: "effect".into(),
         attempt_id: "attempt".into(),
         status: ResultStatus::Succeeded,

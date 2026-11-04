@@ -130,6 +130,7 @@ fn a_brokered_start_confines_its_driver_first_and_refuses_where_it_cannot() {
             engine_version: "test".into(),
         });
         let start = line(Body::Start {
+            probe: None,
             effect_id: "e".into(),
             attempt_id: "a".into(),
             seat: "work".into(),
@@ -561,6 +562,7 @@ fn attempt(holdings: &[Holding<'_>], session: Option<&str>) -> Vec<String> {
         &input,
         session,
         &[],
+        false,
         emit,
         stage_prompt,
     );

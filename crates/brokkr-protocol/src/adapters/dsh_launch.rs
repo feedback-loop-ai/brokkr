@@ -4,6 +4,38 @@
 
 use super::*;
 
+/// The per-invocation transcript fold state both dsh routes share, as one
+/// parameter object so a drain call is never a seven-argument list.
+pub(super) struct DshFoldState<'a> {
+    pub(super) tail: &'a mut DshTail,
+    pub(super) turns: &'a mut u64,
+    pub(super) session_meta: &'a mut Map<String, Value>,
+    pub(super) probe: &'a mut ProbeAnswer,
+}
+
+impl DshFoldState<'_> {
+    /// Fold whatever the transcript has appended through the invocation's
+    /// one probe bound. Both routes share this so a pass cannot differ from
+    /// the other in which boundary it reads or which answer it admits.
+    pub(super) fn drain(
+        &mut self,
+        launch: &DshLaunch,
+        bindings: &[secret::BoundSecret],
+        emit: &mut impl FnMut(&Value),
+    ) {
+        DshFold::new(
+            self.tail,
+            &launch.root,
+            launch.first_seq,
+            self.turns,
+            self.session_meta,
+            bindings,
+            self.probe,
+        )
+        .drain(emit);
+    }
+}
+
 /// `invoke_dsh_launch` with this ONE invocation's observer of the
 /// confirmation's completed observations, spawning exactly `command`.
 /// Production watches nothing; a test reads here exactly what the watcher
@@ -12,13 +44,14 @@ use super::*;
 pub(super) fn invoke_dsh_launch_observed(
     mut launch: DshLaunch,
     command: Vec<String>,
-    workdir: &str,
     bindings: &[secret::BoundSecret],
+    probe: &mut ProbeAnswer,
     emit: &mut impl FnMut(&Value),
     wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
     observer: &mut impl FnMut(&DshObservation),
 ) -> Result<Invocation, String> {
-    refused_before_spawn(&launch, workdir, bindings).map_err(|refusal| refusal.to_string())?;
+    let workdir = launch.workdir.clone();
+    refused_before_spawn(&launch, &workdir, bindings).map_err(|refusal| refusal.to_string())?;
     let transcript = Transcript::dsh(&launch.home);
     let staged = launch.staged.take();
     let mut session_meta = Map::new();
@@ -61,23 +94,26 @@ pub(super) fn invoke_dsh_launch_observed(
     // error naming neither (decision 0054 ruling 5).
     let attempt = if launch.stream_json {
         invoke_dsh_stream_json(
-            &command,
-            &launch,
-            workdir,
-            bindings,
-            &mut watch,
-            &mut hold,
-            &mut session_meta,
+            DshStreamCall {
+                command: &command,
+                launch: &launch,
+                bindings,
+                probe,
+                watch: &mut watch,
+                hold: &mut hold,
+                session_meta: &mut session_meta,
+            },
             emit,
             observer,
+            wait,
         )
     } else {
         invoke_dsh_shipped(
             &command,
-            workdir,
             &launch,
             bindings,
             wait,
+            probe,
             &mut session_meta,
             emit,
         )
@@ -114,6 +150,263 @@ pub(super) fn invoke_dsh_launch_observed(
     }
     invocation.launch = hold.terminal();
     Ok(invocation)
+}
+
+/// One qualified invocation's live state: the launch, the root watch, the
+/// launch hold, the transcript fold and the probe. A parameter object, so
+/// the between-lines poll is one call rather than an eight-argument list
+/// (decision 0071 rulings 4 and 10).
+struct DshStreamState<'a> {
+    launch: &'a DshLaunch,
+    bindings: &'a [secret::BoundSecret],
+    watch: &'a mut DshRootWatch,
+    hold: &'a mut LaunchHold,
+    tail: &'a mut DshTail,
+    turns: &'a mut u64,
+    session_meta: &'a mut Map<String, Value>,
+    probe: &'a mut ProbeAnswer,
+}
+
+/// What one pass over the qualified child found: an answer, an ordinary
+/// tick, or a child that ended.
+enum DshPass {
+    Answered,
+    Continue,
+    Exited(i32),
+}
+
+impl DshStreamState<'_> {
+    /// The watcher's settle with this invocation's own hold and metadata.
+    fn settle(
+        &mut self,
+        line: DshStreamLine,
+        emit: &mut impl FnMut(&Value),
+        observer: &mut impl FnMut(&DshObservation),
+    ) {
+        self.watch.settle(
+            line,
+            &mut *self.hold,
+            &mut *self.session_meta,
+            emit,
+            observer,
+        );
+    }
+
+    /// Fold whatever the transcript appended, when the hold permits it.
+    /// Returns whether the probe admitted its first answer.
+    fn drain(&mut self, emit: &mut impl FnMut(&Value)) -> bool {
+        if self.watch.may_fold() {
+            DshFoldState {
+                tail: &mut *self.tail,
+                turns: &mut *self.turns,
+                session_meta: &mut *self.session_meta,
+                probe: &mut *self.probe,
+            }
+            .drain(self.launch, self.bindings, emit);
+        }
+        self.probe.answered()
+    }
+
+    /// Poll the transcript between stdout lines: settle a held root once
+    /// its init event named the offer, then fold at the shipped route's
+    /// cadence. An answer never waits for stdout to speak (fix round
+    /// 430s4a3 M2; decision 0103 ruling 4(a)).
+    fn poll(
+        &mut self,
+        emit: &mut impl FnMut(&Value),
+        observer: &mut impl FnMut(&DshObservation),
+    ) -> bool {
+        if !self.probe.requested() {
+            return false;
+        }
+        if self.watch.confirming() && self.watch.named_the_offer && !self.watch.settled {
+            self.settle(DshStreamLine::Idle, emit, observer);
+        }
+        self.drain(emit)
+    }
+
+    /// One pass over stdout and the transcript. `open` flips false at
+    /// stdout's clean end or on a line the reader cannot decode, and a
+    /// closed stdout still ticks on the transcript alone: an answer never
+    /// waits for stdout to speak (fix round 430s4a3 M2 and M1; decision
+    /// 0103 ruling 4(a)).
+    fn pass(
+        &mut self,
+        open: &mut bool,
+        reads: &std::sync::mpsc::Receiver<std::io::Result<String>>,
+        child: &mut std::process::Child,
+        wait: &mut impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
+        emit: &mut impl FnMut(&Value),
+        observer: &mut impl FnMut(&DshObservation),
+    ) -> Result<DshPass, std::io::Error> {
+        let read = if *open {
+            match reads.recv_timeout(DSH_POLL_IDLE) {
+                Ok(Ok(line)) => {
+                    // Decode a line before the store behind it (design D7).
+                    let read = fold_dsh_line(
+                        line,
+                        &mut *self.watch,
+                        &mut *self.hold,
+                        &mut *self.session_meta,
+                        self.bindings,
+                        emit,
+                    );
+                    // Settle before every drain; never drain while the hold
+                    // is closed (design D7, task 7.4).
+                    self.settle(read, emit, observer);
+                    Some(read)
+                }
+                Ok(Err(_)) => {
+                    self.watch.unread(DshStreamLine::Unreadable);
+                    self.settle(DshStreamLine::Unreadable, emit, observer);
+                    // The stream ends here, but stdout closing never ends
+                    // the transcript's wait (fix round 430s4a3 M1).
+                    *open = false;
+                    None
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    *open = false;
+                    None
+                }
+            }
+        } else {
+            std::thread::sleep(DSH_POLL_IDLE);
+            None
+        };
+        let answered = match read {
+            Some(DshStreamLine::Event) => self.drain(emit),
+            // Every other reading — noise, an unreadable line, an idle
+            // tick, the settle behind an exit, or no line at all — polls
+            // the transcript. Enumerated so a new reading needs its own
+            // disposition (#430 L3; decision 0071 ruling 2).
+            Some(
+                DshStreamLine::Malformed
+                | DshStreamLine::Unreadable
+                | DshStreamLine::Idle
+                | DshStreamLine::End,
+            )
+            | None => self.poll(emit, observer),
+        };
+        // The answer is the whole report: stop here, not at EOF.
+        if answered {
+            return Ok(DshPass::Answered);
+        }
+        if !*open {
+            if let Some(code) = wait(child)? {
+                return Ok(DshPass::Exited(code));
+            }
+        }
+        Ok(DshPass::Continue)
+    }
+}
+
+/// One qualified stream-json invocation's inputs: the command it spawns,
+/// the launch and bindings it serves, and the mutable state its passes fold
+/// into. A parameter object, so the route takes one bundle rather than ten
+/// positional arguments (decision 0071 rulings 4 and 10).
+struct DshStreamCall<'a> {
+    command: &'a [String],
+    launch: &'a DshLaunch,
+    bindings: &'a [secret::BoundSecret],
+    probe: &'a mut ProbeAnswer,
+    watch: &'a mut DshRootWatch,
+    hold: &'a mut LaunchHold,
+    session_meta: &'a mut Map<String, Value>,
+}
+
+/// The qualified `--output-format stream-json` exchange (task 8.8(d)):
+/// stdout is the pinned plugin's two-event envelope, whose
+/// post-`await agents.resume` init event is the ONLY root confirmation this
+/// driver accepts. The retained transcript is folded alongside it, only
+/// past the offered root's own sequence boundary, so a warm session never
+/// re-counts its restored history.
+///
+/// stdout is read on its own thread, and the transcript is polled on EVERY
+/// pass — a decoded line, noise, silence or EOF — so a probe reports its
+/// answer at the answer rather than at stdout's end (fix round 430s4a3 M2;
+/// decision 0103 ruling 4(a)).
+fn invoke_dsh_stream_json(
+    call: DshStreamCall<'_>,
+    emit: &mut impl FnMut(&Value),
+    observer: &mut impl FnMut(&DshObservation),
+    mut wait: impl FnMut(&mut std::process::Child) -> std::io::Result<Option<i32>>,
+) -> Result<DshRun, String> {
+    let DshStreamCall {
+        command,
+        launch,
+        bindings,
+        probe,
+        watch,
+        hold,
+        session_meta,
+    } = call;
+    let (mut child, stderr_thread) =
+        spawn_dsh(command, &launch.workdir, Stdio::piped(), launch, bindings)?;
+    let stdout = child.stdout.take().expect("piped");
+    let mut turns = 0u64;
+    let mut tail = DshTail::default();
+    let (lines, reads) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in std::io::BufReader::new(stdout).lines() {
+            let failed = line.is_err();
+            if lines.send(line).is_err() {
+                return;
+            }
+            // A line the reader could not return ends stdout here, after
+            // sending it: the thread returns, dropping the pipe, so a
+            // child that keeps writing meets a closed stdout instead of
+            // filling a channel nothing reads (#430 M1; decision 0103
+            // ruling 4(a)).
+            if failed {
+                return;
+            }
+        }
+    });
+    let mut state = DshStreamState {
+        launch,
+        bindings,
+        watch,
+        hold,
+        tail: &mut tail,
+        turns: &mut turns,
+        session_meta,
+        probe,
+    };
+    // stdout may close before the child does (or stay open while it
+    // sleeps): once it is closed, the transcript alone carries the answer
+    // and the child's own exit ends the wait.
+    let mut open = true;
+    let mut stopped = false;
+    // Every exit from this loop either answered or saw the child's status,
+    // so the ONE status comes out of the loop and no wait after it is
+    // unreachable.
+    let status = loop {
+        match io_context(
+            state.pass(&mut open, &reads, &mut child, &mut wait, emit, observer),
+            "agent CLI did not conclude",
+        )? {
+            DshPass::Continue => {}
+            DshPass::Answered => {
+                stopped = true;
+                break lost::exit_code(conclude_harness(&mut child)?);
+            }
+            DshPass::Exited(code) => break code,
+        }
+    };
+    // A clean end adds no confirmation fact and clears nothing.
+    state.settle(DshStreamLine::End, emit, observer);
+    if !stopped {
+        state.drain(emit);
+    }
+    let captured = stderr_thread.take(stopped);
+    finish_dsh(
+        state.session_meta,
+        status,
+        captured,
+        state.probe.take(),
+        bindings,
+    )
 }
 
 /// Why a launch is refused before any row names its home or any child
@@ -182,6 +475,7 @@ mod tests {
             first_seq: None,
             locator: "seat".to_string(),
             root: root.clone(),
+            workdir: ".".to_string(),
             overlay: dsh_seat_overlay_with(None, None, &root, None, None).unwrap(),
             effortless: true,
             facts: crate::hands::GitFacts::default(),
@@ -224,8 +518,8 @@ mod tests {
         let problem = invoke_dsh_launch_observed(
             launch,
             vec!["/nonexistent/dsh".to_string()],
-            dir.path().to_str().unwrap(),
             &[],
+            &mut ProbeAnswer::new(false),
             &mut emit,
             wait,
             &mut observer,
@@ -289,6 +583,68 @@ mod tests {
             PreSpawnRefusal::Command(HarnessCommandRefusal::Secret(secret::BindError::NotUtf8(_)))
         ));
         assert_eq!(refused.to_string(), "secret 'TOKEN' is not valid UTF-8");
+    }
+
+    /// The between-lines poll is driven by the watch's three conditions:
+    /// a cold seat has no offer to confirm, a rejoin whose init event has
+    /// not named the offer has nothing to settle, a settled watch is not
+    /// revisited, and only a named, unsettled rejoin settles on the idle
+    /// tick (decision 0103 ruling 4(a); design D7).
+    #[test]
+    fn the_between_lines_poll_settles_only_a_named_unsettled_offer() {
+        fn poll_once(launch: &DshLaunch, watch: &mut DshRootWatch) -> (bool, usize) {
+            let mut hold = LaunchHold::new("deepseek", launch.plan());
+            let mut tail = DshTail::default();
+            let mut turns = 0u64;
+            let mut meta = Map::new();
+            let mut probe = ProbeAnswer::new(true);
+            let mut observed = 0usize;
+            let mut state = DshStreamState {
+                launch,
+                bindings: &[],
+                watch,
+                hold: &mut hold,
+                tail: &mut tail,
+                turns: &mut turns,
+                session_meta: &mut meta,
+                probe: &mut probe,
+            };
+            let answered = state.poll(&mut |_| {}, &mut |_: &DshObservation| {
+                observed += 1;
+            });
+            (answered, observed)
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        crate::adapters::tests::plant_dsh_session(dir.path(), "seat", "--w--", "session-1", 27);
+        let root = dir.path().join("seat");
+        let shim =
+            crate::adapters::tests::executable(dir.path(), "dsh-poll", "#!/bin/sh\nexit 0\n");
+
+        // A cold launch never enters the confirmation poll.
+        let cold = crate::adapters::tests::dsh_stream_launch(&shim, &root, None, None);
+        let mut cold_watch = DshRootWatch::new(&cold, Transcript::dsh(&cold.home));
+        assert_eq!(poll_once(&cold, &mut cold_watch), (false, 0));
+
+        // A named, unsettled rejoin settles on the idle tick.
+        let launch =
+            crate::adapters::tests::dsh_stream_launch(&shim, &root, Some("session-1"), Some(27));
+        let mut pending = DshRootWatch::new(&launch, Transcript::dsh(&launch.home));
+        assert!(pending.confirming());
+        assert!(!pending.settled);
+        pending.named_the_offer = true;
+        assert_eq!(poll_once(&launch, &mut pending), (false, 1));
+
+        // An offer the init event has not named has nothing to settle.
+        let mut unnamed = DshRootWatch::new(&launch, Transcript::dsh(&launch.home));
+        unnamed.named_the_offer = false;
+        assert_eq!(poll_once(&launch, &mut unnamed), (false, 0));
+
+        // A settled watch is terminal: no later idle tick revisits it.
+        let mut settled = DshRootWatch::new(&launch, Transcript::dsh(&launch.home));
+        settled.named_the_offer = true;
+        settled.refuse();
+        assert_eq!(poll_once(&launch, &mut settled), (false, 0));
     }
 
     /// The one harness spawn builder's refusals are typed, carry the

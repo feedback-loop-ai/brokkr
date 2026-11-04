@@ -40,6 +40,7 @@ fn result_message(
     error: Option<&str>,
 ) -> String {
     wire(Body::Result {
+        refusal: None,
         effect_id: effect.into(),
         attempt_id: attempt.into(),
         status,
@@ -79,6 +80,7 @@ pub(super) fn run_resuming(
 /// declares `resume` and reads the offer before `start`.
 fn run_driver(lines: &[String], offered: Option<&str>) -> (AttemptReport, Vec<Value>) {
     let capabilities = wire(Body::Capabilities {
+        probe: None,
         driver: "test".into(),
         version: "1".into(),
         supports: offered.map(|_| "resume".to_owned()).into_iter().collect(),

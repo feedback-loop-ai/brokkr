@@ -24,7 +24,15 @@ fn digest(relative: &str) -> String {
 /// Recorded from this tree before the agent library existed, plus the
 /// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
 /// beside it, so "beside, never inside" is machine-checked.
-const FROZEN: [(&str, &str); 29] = [
+const FROZEN: [(&str, &str); 30] = [
+    // Decision 0103 (accepted) mints the driver-refusal extension beside
+    // the frozen v1 family; its bytes are pinned from here. Fix round
+    // 430s4a6 L2 re-pins the unreleased file after the shared route form
+    // admits the colon a derived route may carry.
+    (
+        "contracts/driver-refusal.v1.schema.json",
+        "92f02dbd90fa0de181790ba0b5883d0f77f741bc55fcbc1abc72c2421aa49f66",
+    ),
     (
         "contracts/panel-carry.v1.schema.json",
         "fcea11f339351bea684de3f83a4b658ac6ec3cc31b9b3e2bfd1a6fe185098fce",
@@ -199,6 +207,12 @@ fn titled(relative: &str) -> String {
 )]
 fn the_new_contracts_exist_beside_the_frozen_ones() {
     for (relative, title) in [
+        // Decision 0103's typed refusal and probe bound arrive as a
+        // numbered extension of the frozen v1 driver family.
+        (
+            "contracts/driver-refusal.v1.schema.json",
+            "Forge driver refusal v1",
+        ),
         (
             "contracts/panel-carry.v1.schema.json",
             "Forge panel carry v1",
@@ -1301,6 +1315,55 @@ fn the_v12_manifest_schema_closes_the_implementation_and_retention_records() {
         assert!(
             !v12.is_valid(&invalid),
             "the v12 schema admitted {retained}"
+        );
+    }
+}
+
+/// Decision 0103 ruling 1(a): the driver-refusal extension is a closed
+/// typed object, its route is explicitly nullable, and `probe` is only
+/// ever `true`.
+#[test]
+fn the_driver_refusal_extension_is_closed_and_its_probe_is_true() {
+    let validator = contract("contracts/driver-refusal.v1.schema.json");
+    assert!(validator.is_valid(&serde_json::json!({
+        "refusal": {
+            "class": "rate_limit",
+            "provider": "claude",
+            "route": null,
+            "words": "rate_limit (HTTP 429): slow down",
+            "status": 429,
+            "retry_after_seconds": 30
+        }
+    })));
+    assert!(validator.is_valid(&serde_json::json!({"probe": true})));
+    // Fix round 430s4a6 L2: a route the drivers derive may carry the colon
+    // a pinned model id uses before its first `/` (`featherless:qwen/qwen3`
+    // derives `featherless:qwen`), and the pattern shares that one form.
+    assert!(validator.is_valid(&serde_json::json!({
+        "refusal": {
+            "class": "rate_limit",
+            "provider": "claude",
+            "route": "featherless:qwen",
+            "words": "rate_limit (HTTP 429): slow down"
+        }
+    })));
+    for invalid in [
+        serde_json::json!({"probe": false}),
+        serde_json::json!({"refusal": {"class": "quota", "provider": "claude",
+            "route": null, "words": "w"}}),
+        serde_json::json!({"refusal": {"class": "rate_limit", "route": null, "words": "w"}}),
+        serde_json::json!({"refusal": {"class": "rate_limit", "provider": "claude",
+            "route": "bad/route", "words": "w"}}),
+        serde_json::json!({"refusal": {"class": "rate_limit", "provider": "claude",
+            "words": "w"}}),
+        serde_json::json!({"refusal": {"class": "rate_limit", "provider": "claude",
+            "route": null, "words": "w", "retry_after_seconds": 0}}),
+        serde_json::json!({"refusal": {"class": "rate_limit", "provider": "claude",
+            "route": null, "words": "w", "extra": 1}}),
+    ] {
+        assert!(
+            !validator.is_valid(&invalid),
+            "the extension admitted {invalid}"
         );
     }
 }

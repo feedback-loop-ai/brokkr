@@ -65,7 +65,7 @@ pub(super) const UNPAIRED: &str =
 /// sealed input (rebuild unit 15-fix-b; SC15-R2-1): dispatch seals both
 /// wherever it writes a plan, so a plan alone is a governed launch stripped
 /// of what it is checked by.
-const UNSEALED: &str =
+pub(super) const UNSEALED: &str =
     "refusing to invoke the agent CLI: the input carries the engine's capability plan without the \
      sealed launch record and sealed serving inputs it is served beside, so its final command \
      cannot be checked; a launch the engine governs is never served as an unsealed one (rebuild \

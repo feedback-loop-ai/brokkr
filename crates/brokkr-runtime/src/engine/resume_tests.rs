@@ -33,7 +33,6 @@ fn machine() -> Machine {
     }))
     .unwrap()
 }
-
 /// A driver that logs what it is sent, announces a session id of its own
 /// on every invocation, and reads its verdicts from `results` — one per
 /// invocation, the last repeating. `"start-failure"` fails without ever
@@ -41,6 +40,7 @@ fn machine() -> Machine {
 /// fail-to-start decision 0016 walks a chain on.
 fn driver(dir: &Path, tag: &str, results: &[&str]) -> Vec<String> {
     let capabilities = serde_json::to_string(&Message::new(Body::Capabilities {
+        probe: None,
         driver: "test".into(),
         version: "1".into(),
         supports: vec!["resume".into()],

@@ -746,6 +746,7 @@ fn seat_variant(number: u16) -> Option<brokkr_store::SeatRecordVersion> {
 fn label_value(item: &str) -> &'static str {
     match item {
         "brokkr_protocol::PROTO" => brokkr_protocol::PROTO,
+        "brokkr_protocol::DRIVER_REFUSAL_SCHEMA" => brokkr_protocol::DRIVER_REFUSAL_SCHEMA,
         "brokkr_core::dispatch::DISPATCH_SCHEMA_V2" => brokkr_core::dispatch::DISPATCH_SCHEMA_V2,
         "brokkr_core::dispatch::RUN_MANIFEST_SCHEMA_V2" => {
             brokkr_core::dispatch::RUN_MANIFEST_SCHEMA_V2

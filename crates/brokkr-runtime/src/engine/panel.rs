@@ -476,6 +476,7 @@ impl MemberRun {
 /// failure that started nothing.
 fn unspawned(error: &str) -> AttemptReport {
     AttemptReport {
+        refusal: None,
         outcome: AttemptOutcome::Failed {
             error: format!("member driver did not spawn: {error}"),
         },

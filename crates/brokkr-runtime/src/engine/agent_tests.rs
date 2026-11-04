@@ -201,6 +201,7 @@ fn an_inline_seat_selects_nothing_and_journals_nothing() {
 #[test]
 fn the_fail_to_start_predicate_reads_only_structure() {
     let failed = |accepted: bool, checkpoints: Vec<Value>| AttemptReport {
+        refusal: None,
         outcome: AttemptOutcome::Failed {
             error: "model not found".into(),
         },
@@ -243,6 +244,7 @@ fn the_fail_to_start_predicate_reads_only_structure() {
         assert!(!failed_to_start(&AttemptReport {
             outcome,
             refused: None,
+            refusal: None,
             cleanup: Cleanup::Settled,
             session_ref: None,
             checkpoints: Vec::new(),
@@ -277,6 +279,7 @@ fn start_failure_fields_are_absent_for_inline_sites() {
 #[test]
 fn start_failure_sites_names_the_members_that_never_started() {
     let report = |accepted: bool| AttemptReport {
+        refusal: None,
         outcome: AttemptOutcome::Failed {
             error: "boom".into(),
         },
@@ -415,6 +418,7 @@ fn a_pre_session_refusal_advances_the_chain_and_keeps_its_reason() {
             "effect",
             "attempt",
             DriverRun::Ran(AttemptReport {
+                refusal: None,
                 outcome: AttemptOutcome::Failed {
                     error: reason.into(),
                 },

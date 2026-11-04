@@ -20,6 +20,19 @@ pub fn split_route(model_id: &str) -> (Option<&str>, &str) {
     }
 }
 
+/// The route form a driver derives: a concrete model id's prefix before
+/// its first `/` (decision 0036 ruling 2). One predicate, read by the
+/// producer that attributes a refusal, by the transport that reads it, and
+/// mirrored by `driver-refusal.v1`'s route pattern (decision 0103 ruling
+/// 1(a)). A route that does not read here is refused before emission, never
+/// rewritten.
+pub(crate) fn route_form(route: &str) -> bool {
+    let mut characters = route.chars();
+    matches!(characters.next(), Some(first) if first.is_ascii_alphanumeric())
+        && route.len() <= 80
+        && characters.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | ':'))
+}
+
 /// The route dsh serves `model_id` on: its own, else [`DSH_PROVIDER`].
 pub(super) fn dsh_route(model_id: &str) -> &str {
     split_route(model_id).0.unwrap_or(DSH_PROVIDER)
