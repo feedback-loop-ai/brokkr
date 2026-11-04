@@ -808,3 +808,84 @@ fn a_cause_searches_its_index() {
         ]
     );
 }
+
+/// A journal holding one run `r` with one checkpoint row, and its path.
+fn checkpoint_journal() -> (tempfile::TempDir, std::path::PathBuf) {
+    let (dir, store) = store();
+    run_of(
+        &store,
+        "r",
+        vec![
+            event(
+                EventType::RunStarted,
+                json!({"feature": "f", "manifest": {}}),
+            ),
+            event(
+                EventType::EffectCheckpointed,
+                json!({"effect_id": "fx", "attempt_id": "a",
+                       "checkpoint": {"member": "m", "step": "seat-turn"}}),
+            ),
+        ],
+    );
+    let path = store.path().to_path_buf();
+    drop(store);
+    (dir, path)
+}
+
+/// The migration reads the journal's triggers before it decides what to
+/// repair: a file that is not a database at all refuses that read by name,
+/// never reporting the triggers absent and migrating into ruin.
+#[test]
+fn a_migration_whose_trigger_read_fails_is_refused() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(file.path(), "prose, not pages").unwrap();
+    let conn = rusqlite::Connection::open(file.path()).unwrap();
+    let refused = migrate_index(&conn).unwrap_err();
+    assert!(matches!(refused, StoreError::Sqlite(_)), "{refused:?}");
+    assert_eq!(refused.to_string(), "sqlite: file is not a database");
+}
+
+/// A journal whose checkpoint trigger is gone sends every checkpoint
+/// behind at a writable open. An update the journal refuses returns the
+/// store's error rather than claiming the send.
+#[test]
+fn a_migration_whose_checkpoint_send_is_refused_errors() {
+    let (_dir, path) = checkpoint_journal();
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    conn.execute_batch(
+        "DROP TRIGGER event_index_checkpoint_behind;
+         CREATE TRIGGER refusing BEFORE UPDATE OF facts_seq ON event_index
+             WHEN OLD.type = 'effect/checkpointed'
+             BEGIN SELECT RAISE(ABORT, 'the index refuses the send'); END;",
+    )
+    .unwrap();
+    let refused = migrate_index(&conn).unwrap_err();
+    assert!(matches!(refused, StoreError::Sqlite(_)), "{refused:?}");
+    assert_eq!(refused.to_string(), "sqlite: the index refuses the send");
+}
+
+/// A journal from before the checkpoint facts is altered in place at a
+/// writable open. A read-only connection cannot alter it: the refusal is
+/// the store's error, not a table reported whole.
+#[test]
+fn a_checkpoint_column_the_journal_cannot_add_is_refused() {
+    let (_dir, path) = checkpoint_journal();
+    rusqlite::Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "DROP INDEX event_index_checkpoint;
+             DROP INDEX event_index_checkpoint_stale;
+             DROP INDEX event_index_checkpoint_session;
+             DROP INDEX event_index_checkpoint_site_stale;
+             DROP TRIGGER event_index_checkpoint_behind;
+             ALTER TABLE event_index DROP COLUMN facts;",
+        )
+        .unwrap();
+    let reader = Store::open_read_only(&path).unwrap();
+    let refused = migrate_index(&reader.conn).unwrap_err();
+    assert!(matches!(refused, StoreError::Sqlite(_)), "{refused:?}");
+    assert_eq!(
+        refused.to_string(),
+        "sqlite: attempt to write a readonly database"
+    );
+}

@@ -549,6 +549,15 @@ pub fn planted_fixtures(store: &Store) -> Vec<(String, Vec<EventEnvelope>)> {
         .collect()
 }
 
+/// The event index fault `compared` names, or none where it names no
+/// fault: a lag, or a disagreement of another kind.
+fn fault_named(compared: &Compared) -> Option<IndexFault> {
+    match compared {
+        Compared::Disagrees(Disagreement::Indexed { fault, .. }) => Some(*fault),
+        _ => None,
+    }
+}
+
 /// Edit each of `columns` on `run_id`'s row at `seq` to a value that is
 /// not the one `held` has, assert ruling 4's comparison names that column
 /// or passes it as lagging when it is `behind`, and restore it. The names
@@ -557,7 +566,7 @@ pub fn each_column_named(
     store: &Store,
     run_id: &str,
     seq: u64,
-    columns: &[&str],
+    columns: &[&'static str],
     held: &[Value],
     behind: Option<&str>,
 ) -> Vec<String> {
@@ -574,16 +583,16 @@ pub fn each_column_named(
         };
         store.conn.execute(&edit, [&wrong]).unwrap();
         let read = store.compared(run_id, || {}).unwrap();
+        let fault = fault_named(&read);
         if Some(*column) == behind {
-            assert!(matches!(read, Compared::Behind), "{column}: {read:?}");
+            assert!(matches!(&read, Compared::Behind), "{column}: {read:?}");
+            assert!(fault.is_none(), "{column}: {read:?}");
         } else {
-            match read {
-                Compared::Disagrees(Disagreement::Indexed {
-                    fault: IndexFault::Column(found),
-                    ..
-                }) => assert_eq!(found, *column),
-                other => panic!("{column}: {other:?}"),
-            }
+            assert_eq!(
+                fault,
+                Some(IndexFault::Column(column)),
+                "{column}: {read:?}"
+            );
         }
         named.push(column.to_string());
         store.conn.execute(&edit, [&held[at]]).unwrap();

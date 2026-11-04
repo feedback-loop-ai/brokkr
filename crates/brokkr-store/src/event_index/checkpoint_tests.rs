@@ -8,13 +8,14 @@
 
 use super::checkpoint::{backfilled, checkpointed, COLUMNS, SITE, WRITE};
 use super::*;
-use brokkr_core::envelope::{EventEnvelope, EventType};
-use brokkr_core::summary::{Bounded, NAME_BYTES};
+use brokkr_core::envelope::{ChainError, EventEnvelope, EventType};
+use brokkr_core::summary::{Bounded, Checkpoint, NAME_BYTES};
 use rusqlite::params;
 use serde_json::{json, Value as Json};
 
+use crate::summary::Compared;
 use crate::test_support::{
-    append, at, disagreements, every_run_reads_as_its_fold, lags, opened, plant_envelope,
+    append, at, disagreements, every_run_reads_as_its_fold, lags, lane, opened, plant_envelope,
     plant_older_writer, plant_summary_writer, refolded, text,
 };
 use crate::tests::envelope_builder::EnvelopeBuilder;
@@ -203,6 +204,18 @@ fn one_kept(store: &mut Store, record: Json) -> (EventEnvelope, Vec<Value>) {
     (event, held)
 }
 
+/// A run `r` with one appended checkpoint whose payload names no attempt:
+/// a row no site names, which core reads no session for.
+fn one_attemptless(store: &mut Store) -> EventEnvelope {
+    opened(store, "r", "implement", &[]);
+    append(
+        store,
+        "r",
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "checkpoint": {"member": "m", "step": "seat-turn"}}),
+    )
+}
+
 /// Append a checkpoint of site (a, m) whose record is `record`.
 fn append_checkpoint(store: &mut Store, record: Json) -> EventEnvelope {
     append(
@@ -244,6 +257,25 @@ fn chained(run_id: &str, events: Vec<(EventType, Json)>) -> Vec<EventEnvelope> {
             event
         })
         .collect()
+}
+
+/// `run_id`'s run started, a phase entered and one checkpoint of site
+/// (a, m), chained.
+fn checkpoint_run(run_id: &str) -> Vec<EventEnvelope> {
+    chained(
+        run_id,
+        vec![
+            (
+                EventType::RunStarted,
+                json!({"feature": "f", "manifest": {}}),
+            ),
+            (EventType::PhaseEntered, json!({"phase": "implement"})),
+            (
+                EventType::EffectCheckpointed,
+                checkpoint(Some("m"), json!({"step": "seat-turn"})),
+            ),
+        ],
+    )
 }
 
 /// `n` chained checkpoints of `attempt` and `member`, at one site.
@@ -751,13 +783,7 @@ fn a_writer_from_before_the_stamp_leaves_the_site_behind() {
 #[test]
 fn a_checkpoint_with_no_attempt_is_stamped_without_a_site() {
     let (_dir, mut store) = store();
-    opened(&mut store, "r", "implement", &[]);
-    let event = append(
-        &mut store,
-        "r",
-        EventType::EffectCheckpointed,
-        json!({"effect_id": "fx", "checkpoint": {"member": "m", "step": "seat-turn"}}),
-    );
+    let event = one_attemptless(&mut store);
     assert_eq!(kept(&store, "r", event.seq)[9], Value::Null);
     assert_eq!(
         stamped(&store, "r", event.seq),
@@ -1162,16 +1188,34 @@ fn a_facts_marker_a_writer_did_not_write_is_named_not_skipped() {
     assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
 }
 
-/// A token count past the signed 64-bit integer the index keeps is refused
-/// by name, not wrapped into a negative fact, and the append writes
-/// nothing (decision 0089 ruling 7).
+/// A checkpoint row whose facts or stamp are not written is a lag, not a
+/// disagreement: the comparison compares its immutable columns and leaves
+/// its dated ones for the refold that writes them (decision 0089 ruling 4).
 #[test]
-fn a_token_count_past_the_index_s_bound_is_refused_by_name() {
-    let (_dir, mut store) = store();
-    opened(&mut store, "r", "implement", &[]);
+fn a_checkpoint_marker_off_its_fold_is_a_lag_not_a_disagreement() {
+    for column in ["facts", "facts_seq"] {
+        let (_dir, mut store) = store();
+        let (event, _held) = one_kept(&mut store, json!({"step": "seat-turn"}));
+        let edit =
+            format!("UPDATE event_index SET {column} = NULL WHERE run_id = 'r' AND seq = ?1");
+        store
+            .conn
+            .execute(&edit, params![event.seq as i64])
+            .unwrap();
+        assert!(
+            matches!(store.compared("r", || {}).unwrap(), Compared::Behind),
+            "{column}"
+        );
+        lags(&mut store, &["r"]);
+    }
+}
+
+/// The refusal an append of one checkpoint whose `column` is past the
+/// signed bound returns: the run `r` of `implement`, written nothing.
+fn refused_count(store: &mut Store, column: &str) -> crate::StoreError {
     let mut record = json!({"step": "seat-turn"});
-    record["input_tokens"] = Json::from(9_223_372_036_854_775_808u64);
-    let refused = store
+    record[column] = Json::from(9_223_372_036_854_775_808u64);
+    store
         .append_next(
             "r",
             EventType::EffectCheckpointed,
@@ -1179,7 +1223,27 @@ fn a_token_count_past_the_index_s_bound_is_refused_by_name() {
             None,
             None,
         )
-        .unwrap_err();
+        .unwrap_err()
+}
+
+/// The run `r` is still at its head and the refused append wrote no
+/// checkpoint row.
+fn assert_nothing_written(store: &Store) {
+    assert_eq!(store.head_hash("r").unwrap().0, 2);
+    assert_eq!(
+        crate::test_support::indexed_seqs(store, "r", "effect/checkpointed"),
+        Vec::<u64>::new()
+    );
+}
+
+/// A token count past the signed 64-bit integer the index keeps is refused
+/// by name, not wrapped into a negative fact, and the append writes
+/// nothing (decision 0089 ruling 7).
+#[test]
+fn a_token_count_past_the_index_s_bound_is_refused_by_name() {
+    let (_dir, mut store) = store();
+    opened(&mut store, "r", "implement", &[]);
+    let refused = refused_count(&mut store, "input_tokens");
     assert!(matches!(
         refused,
         crate::StoreError::TokenCountOutOfRange(3, "input_tokens", 9_223_372_036_854_775_808)
@@ -1189,10 +1253,72 @@ fn a_token_count_past_the_index_s_bound_is_refused_by_name() {
         "checkpoint 3 reports input_tokens 9223372036854775808 past the index's 64-bit \
          bound; nothing was written"
     );
-    assert_eq!(store.head_hash("r").unwrap().0, 2);
+    assert_nothing_written(&store);
+}
+
+/// The other token counts are held to the same signed bound, each refused
+/// by its own column: a cached count past it is a typed refusal, never a
+/// negative fact (decision 0089 ruling 7).
+#[test]
+fn every_token_count_past_the_index_s_bound_is_refused_by_name() {
+    let (_dir, mut store) = store();
+    opened(&mut store, "r", "implement", &[]);
+    for column in ["output_tokens", "cache_read_tokens", "cache_write_tokens"] {
+        let refused = refused_count(&mut store, column);
+        assert!(
+            matches!(
+                refused,
+                crate::StoreError::TokenCountOutOfRange(
+                    3,
+                    found,
+                    9_223_372_036_854_775_808
+                ) if found == column
+            ),
+            "{column}: {refused:?}"
+        );
+        assert_eq!(
+            refused.to_string(),
+            format!(
+                "checkpoint 3 reports {column} 9223372036854775808 past the index's 64-bit \
+                 bound; nothing was written"
+            )
+        );
+    }
+    assert_nothing_written(&store);
+}
+
+/// A reasoning count past the bound is refused by the index's one reading
+/// even though an append's seat-record contract refuses that record first:
+/// no writer wraps the count into a negative fact (decision 0089 ruling 7).
+#[test]
+fn a_reasoning_count_past_the_index_s_bound_is_refused_by_name() {
+    let events = chained(
+        "r",
+        vec![(
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "fx", "attempt_id": "a", "checkpoint": {
+                "member": "m", "step": "seat-turn",
+                "reasoning_output_tokens": 9_223_372_036_854_775_808u64,
+            }}),
+        )],
+    );
+    let checkpoint = Checkpoint::read(&events[0], Some("implement")).unwrap();
+    let refused = super::checkpoint::facts(Some(&checkpoint)).unwrap_err();
+    assert!(
+        matches!(
+            refused,
+            crate::StoreError::TokenCountOutOfRange(
+                1,
+                "reasoning_output_tokens",
+                9_223_372_036_854_775_808
+            )
+        ),
+        "{refused:?}"
+    );
     assert_eq!(
-        crate::test_support::indexed_seqs(&store, "r", "effect/checkpointed"),
-        Vec::<u64>::new()
+        refused.to_string(),
+        "checkpoint 1 reports reasoning_output_tokens 9223372036854775808 past the index's \
+         64-bit bound; nothing was written"
     );
 }
 
@@ -1338,4 +1464,134 @@ fn a_session_refold_whose_peer_writes_facts_stays_unfinished() {
     let store = unfinished_then_backfilled(store, moved);
     assert_eq!(session(&store, first.seq), Value::Integer(0));
     assert_eq!(session(&store, peer.seq), Value::Integer(1));
+}
+
+/// A checkpoint whose record names no attempt has no site to refold: its
+/// stamp is the row's own seq. An update the journal refuses returns the
+/// store's error, leaving the row behind for the next open.
+#[test]
+fn a_named_checkpoint_stamp_the_index_refuses_errors() {
+    let (_dir, mut store) = store();
+    let event = one_attemptless(&mut store);
+    store
+        .conn
+        .execute(
+            "UPDATE event_index SET facts_seq = NULL WHERE run_id = 'r' AND seq = ?1",
+            params![event.seq as i64],
+        )
+        .unwrap();
+    lags(&mut store, &["r"]);
+    store
+        .conn
+        .execute_batch(&format!(
+            "CREATE TRIGGER refusing BEFORE UPDATE OF facts_seq ON event_index
+             WHEN OLD.run_id = 'r' AND OLD.seq = {}
+             BEGIN SELECT RAISE(ABORT, 'the index refuses the stamp'); END;",
+            event.seq
+        ))
+        .unwrap();
+    let refused = store.checkpoint_behind_with(|_| {}).unwrap_err();
+    assert!(matches!(refused, StoreError::Sqlite(_)), "{refused:?}");
+    assert_eq!(refused.to_string(), "sqlite: the index refuses the stamp");
+    assert_eq!(stamped(&store, "r", event.seq), Value::Null);
+}
+
+/// A checkpoint write the journal refuses fails the run's refold with the
+/// store's error rather than passing it like a count the index cannot
+/// hold, and the next open after the fault is gone refolds the run.
+#[test]
+fn a_refused_checkpoint_write_fails_the_refold() {
+    let (_dir, mut store) = store();
+    opened(&mut store, "r", "implement", &[]);
+    let first = append(
+        &mut store,
+        "r",
+        EventType::EffectCheckpointed,
+        checkpoint(Some("m"), json!({"step": "seat-turn"})),
+    );
+    let moved = EnvelopeBuilder::new(EventType::PhaseEntered, json!({"phase": "verify"}))
+        .run("r")
+        .seq(first.seq + 1)
+        .event_id("r-moved")
+        .at("2026-01-01T00:00:09Z")
+        .previous(first.event_hash.clone())
+        .sealed();
+    plant_envelope(&store.conn, &moved).unwrap();
+    assert_eq!(lane(&store, "r").as_deref(), Some("behind"));
+    store
+        .conn
+        .execute_batch(
+            "CREATE TRIGGER refusing BEFORE UPDATE OF at_ms ON event_index
+             WHEN OLD.run_id = 'r'
+             BEGIN SELECT RAISE(ABORT, 'the index refuses the checkpoint'); END;",
+        )
+        .unwrap();
+    let refused = store.catch_up().unwrap_err();
+    assert!(matches!(refused, StoreError::Sqlite(_)), "{refused:?}");
+    assert_eq!(
+        refused.to_string(),
+        "sqlite: the index refuses the checkpoint"
+    );
+    assert_eq!(lane(&store, "r").as_deref(), Some("behind"));
+    store.conn.execute_batch("DROP TRIGGER refusing").unwrap();
+    store.catch_up().unwrap();
+    assert_ne!(lane(&store, "r").as_deref(), Some("behind"));
+    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+}
+
+/// A run whose chain does not load is left for a reader to read whole and
+/// the doctor to name: the checkpoint backfill writes nothing of it, walks
+/// past it, and claims no completion.
+#[test]
+fn a_run_that_does_not_load_keeps_its_checkpoints_for_the_doctor() {
+    let (_dir, mut store) = store();
+    let events = checkpoint_run("broken");
+    // The third event chains onto no hash of the second.
+    plant_older_writer(&store, "broken", &events[..2]);
+    crate::test_support::plant_broken_link(&store.conn, &events[2], 3).unwrap();
+    let refused = store.load("broken").unwrap_err();
+    assert!(
+        matches!(
+            &refused,
+            StoreError::Chain(ChainError::BrokenChain {
+                seq: 3,
+                prev_seq: 2
+            })
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(kept(&store, "broken", 3)[10], Value::Null);
+    store.checkpoint_behind_with(|_| {}).unwrap();
+    assert!(!backfilled(&store.conn).unwrap());
+    assert_eq!(kept(&store, "broken", 3)[10], Value::Null);
+}
+
+/// A checkpoint write the journal refuses fails the checkpoint backfill by
+/// the store's own error, not passed like a count the index cannot hold:
+/// the run stays for the next open, and the next pass writes it.
+#[test]
+fn a_refused_checkpoint_backfill_errors() {
+    let (_dir, mut store) = store();
+    let events = checkpoint_run("r");
+    plant_older_writer(&store, "r", &events);
+    store
+        .conn
+        .execute_batch(
+            "CREATE TRIGGER refusing BEFORE UPDATE OF at_ms ON event_index
+             WHEN OLD.run_id = 'r'
+             BEGIN SELECT RAISE(ABORT, 'the index refuses the backfill'); END;",
+        )
+        .unwrap();
+    let refused = store.checkpoint_behind_with(|_| {}).unwrap_err();
+    assert!(matches!(refused, StoreError::Sqlite(_)), "{refused:?}");
+    assert_eq!(
+        refused.to_string(),
+        "sqlite: the index refuses the backfill"
+    );
+    assert!(!backfilled(&store.conn).unwrap());
+    assert_eq!(kept(&store, "r", 3)[10], Value::Null);
+    store.conn.execute_batch("DROP TRIGGER refusing").unwrap();
+    store.checkpoint_behind_with(|_| {}).unwrap();
+    assert!(backfilled(&store.conn).unwrap());
+    assert_eq!(kept(&store, "r", 3)[10], Value::Integer(1));
 }

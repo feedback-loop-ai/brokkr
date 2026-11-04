@@ -40,6 +40,7 @@ pub(super) fn projects(
         ("recorded_at", text(Some(indexed.recorded_at))),
         ("event_id", text(Some(&event.event_id))),
     ];
+    let parks_at = columns.len();
     columns.extend(PARK_COLUMNS.iter().copied().zip(match park {
         Some(park) => park_facts(Some(park), head),
         None if event.event_type == EventType::RunParked => park_facts(None, head),
@@ -52,23 +53,20 @@ pub(super) fn projects(
         None => std::array::from_fn(|_| Value::Null),
     };
     for (value, column) in checkpoint_facts.into_iter().zip(CHECKPOINT_COLUMNS) {
-        if is_checkpoint && PARK_COLUMNS.contains(&column) {
-            // The time and phase are one column each on the row, a park's
-            // and a checkpoint's; a checkpoint's own facts fill them.
-            if let Some((_, held)) = columns.iter_mut().find(|(name, _)| *name == column) {
-                *held = value;
-            }
-        } else if !PARK_COLUMNS.contains(&column) {
-            columns.push((column, value));
+        // The time and phase are one column each on the row, a park's and a
+        // checkpoint's; a checkpoint's own facts fill the park's places.
+        match PARK_COLUMNS.iter().position(|name| *name == column) {
+            Some(park) if is_checkpoint => columns[parks_at + park].1 = value,
+            Some(_) => {}
+            None => columns.push((column, value)),
         }
     }
     if is_checkpoint {
         // A checkpoint's stamp is its own seq: the mark that core's reading
         // computed its session, and the off-head check the trigger and the
-        // walk read.
-        if let Some((_, held)) = columns.iter_mut().find(|(name, _)| *name == "facts_seq") {
-            *held = Value::Integer(event.seq as i64);
-        }
+        // walk read. It is the last of the park's columns, which the walk
+        // above appended before this loop.
+        columns[parks_at + PARK_COLUMNS.len() - 1].1 = Value::Integer(event.seq as i64);
     }
     Ok(columns)
 }
@@ -109,17 +107,13 @@ pub(super) fn first_parted_at(
 /// Which written marker says a row's dated facts wait for the refold.
 #[derive(Clone, Copy)]
 enum Marker {
-    /// A park's `facts_seq`: NULL, or another head than the one expected,
-    /// which the trigger and the repair both send behind.
-    Park,
+    /// A row's `facts_seq`: a park's head or a checkpoint's own seq, which
+    /// the trigger, the repair and the walk all send behind.
+    Stamp,
     /// A checkpoint's `facts`: only NULL. Any other marker a writer did not
     /// write is an edit, named by its column rather than passed as a lag
     /// forever (decision 0089 ruling 4).
     Checkpoint,
-    /// A checkpoint's `facts_seq`: not the row's own seq, which is the stamp
-    /// that says its session was computed, so the row is a lag the next
-    /// writable open refolds.
-    CheckpointStamp,
 }
 
 /// Whether `row`'s marker `name` says its dated facts wait for the refold,
@@ -138,7 +132,7 @@ fn behind(
     }
     let found = row.get_ref(at + 1)?;
     Ok(match kind {
-        Marker::Park | Marker::CheckpointStamp => found != ValueRef::from(&expected[at].1),
+        Marker::Stamp => found != ValueRef::from(&expected[at].1),
         Marker::Checkpoint => found == ValueRef::Null,
     })
 }
@@ -169,16 +163,18 @@ fn parted(
             (found as u64, IndexFault::Stray)
         }));
     }
-    let park_behind = behind(expected, row, "facts_seq", Marker::Park)?;
+    let stamp_behind = behind(expected, row, "facts_seq", Marker::Stamp)?;
     let checkpoint_behind = behind(expected, row, "facts", Marker::Checkpoint)?;
-    let stamp_behind = behind(expected, row, "facts_seq", Marker::CheckpointStamp)?;
-    if park_behind || checkpoint_behind || stamp_behind {
+    if stamp_behind || checkpoint_behind {
         *stale = true;
     }
     for (at, (column, value)) in expected.iter().enumerate() {
-        let skipped = (park_behind && PARK_COLUMNS.contains(column))
-            || (checkpoint_behind && CHECKPOINT_COLUMNS.contains(column))
-            || (stamp_behind && (*column == "facts_seq" || CHECKPOINT_COLUMNS.contains(column)));
+        // A stamp off its expected value is a park's off its head or a
+        // checkpoint's off its own seq: either leaves both the park's and
+        // the checkpoint's dated columns to the refold.
+        let skipped = (stamp_behind
+            && (PARK_COLUMNS.contains(column) || CHECKPOINT_COLUMNS.contains(column)))
+            || (checkpoint_behind && CHECKPOINT_COLUMNS.contains(column));
         if skipped {
             continue;
         }
