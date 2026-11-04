@@ -38,6 +38,29 @@ use crate::{head_of, patiently, Store, StoreError};
 /// (ruling 8): its own, so a journal from before them is walked once.
 pub(super) const BACKFILLED: &str = "event_index_checkpoint_backfill";
 
+/// The checkpoint triggers a writer from before the session refold
+/// installed and this build retired. Such a writer makes them again
+/// whenever it finds them gone, and while they stand they decide `session`
+/// in SQL; the event index's repair drops them and sends the checkpoints
+/// behind for the writer's refold (decision 0089 rulings 4 and 7).
+const RETIRED: [&str; 2] = [
+    "event_index_checkpoint_moved",
+    "event_index_checkpoint_finished",
+];
+
+/// Does the journal still carry a checkpoint trigger this build retired?
+/// One of them is enough: whatever the writer that made it left, the SQL
+/// it runs may have decided a session, and the repair must send the
+/// checkpoints behind.
+pub(super) fn retired(conn: &Connection) -> Result<bool, StoreError> {
+    for name in RETIRED {
+        if crate::schema::all_present(conn, "trigger", &[name])? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// The checkpoint facts' columns, in the order [`facts`] gives them: the
 /// time, the run's phase, the cost and whether it was reported, the five
 /// token counts, whether it is its site's session record, and the mark that

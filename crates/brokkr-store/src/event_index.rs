@@ -195,7 +195,7 @@ pub(super) fn last_text(entries: &str, key: &str) -> String {
     )
 }
 
-/// The table and its ten indexes, `IF NOT EXISTS` throughout so racing
+/// The table and its indexes, `IF NOT EXISTS` throughout so racing
 /// openers agree; the park and checkpoint triggers are dropped and made
 /// anew, so a copy from before them is replaced, and the backfill is marked
 /// unfinished, so a journal that lost an object is walked again once it
@@ -340,12 +340,15 @@ fn parked(conn: &Connection) -> Result<bool, StoreError> {
 
 /// Does this journal carry the table named by [`TABLE`], every column
 /// [`shaped`] asks, every index in [`INDEXES`] and every trigger in
-/// [`TRIGGERS`]? Pure reads, so the steady-state open writes nothing.
+/// [`TRIGGERS`], and none of the checkpoint triggers
+/// [`checkpoint::retired`] names? Pure reads, so the steady-state open
+/// writes nothing.
 pub(crate) fn index_intact(conn: &Connection) -> Result<bool, StoreError> {
     Ok(all_present(conn, "table", &TABLE)?
         && shaped(conn)?
         && all_present(conn, "index", &INDEXES)?
-        && all_present(conn, "trigger", &TRIGGERS)?)
+        && all_present(conn, "trigger", &TRIGGERS)?
+        && !checkpoint::retired(conn)?)
 }
 
 /// Send behind every park whose facts are not its run's head's, as the
@@ -365,9 +368,13 @@ fn send_parks_behind() -> String {
 /// additive repair. A table that does not hold every column [`shaped`]
 /// asks for — its time, each event's id and [`PARK_COLUMNS`] — is dropped
 /// with the triggers that wrote it, since every row is derived. Its rows
-/// come from the backfill that follows the open, outside this lock.
+/// come from the backfill that follows the open, outside this lock. A
+/// checkpoint trigger this build retired is dropped by [`migration`], and
+/// every checkpoint sent behind, since the SQL it ran may have decided a
+/// session the writer must refold from brokkr-core's reading.
 pub(crate) fn migrate_index(conn: &Connection) -> Result<(), StoreError> {
-    let missed = !all_present(conn, "trigger", &["event_index_checkpoint_behind"])?;
+    let missed = !all_present(conn, "trigger", &["event_index_checkpoint_behind"])?
+        || checkpoint::retired(conn)?;
     if !base_shaped(conn)? {
         let dropped = conn.execute_batch(
             "DROP TRIGGER IF EXISTS event_index_of_an_event;
@@ -381,12 +388,13 @@ pub(crate) fn migrate_index(conn: &Connection) -> Result<(), StoreError> {
         checkpoint::add_columns(conn)?;
     }
     conn.execute_batch(&migration())?;
-    // A trigger that was gone may have let a writer's session record leave
-    // its site's earlier one standing: send every checkpoint behind so the
-    // open's walk writes the flag again (ruling 4).
+    // A trigger that was gone, or a retired one that decided a session in
+    // SQL, may have left a site's flag off brokkr-core's reading: send
+    // every checkpoint behind so the open's walk refolds the flag from the
+    // site alone (rulings 4 and 8).
     if missed {
         conn.execute(
-            &format!("UPDATE event_index SET facts = NULL WHERE type = '{CHECKPOINTED}'"),
+            &format!("UPDATE event_index SET facts_seq = NULL WHERE type = '{CHECKPOINTED}'"),
             [],
         )?;
     }

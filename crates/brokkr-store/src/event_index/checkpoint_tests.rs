@@ -26,6 +26,27 @@ fn kept(store: &Store, run_id: &str, seq: u64) -> Vec<Value> {
     crate::test_support::kept_facts(store, run_id, seq, &COLUMNS)
 }
 
+/// Write `held`'s [`COLUMNS`] to the checkpoint row at `seq` through the
+/// pre-stamp writer's column-only update: the facts stand, and `facts_seq`
+/// does not move.
+fn write_pre_stamp_facts(store: &Store, run_id: &str, seq: u64, held: &[Value]) {
+    let assignments: Vec<String> = COLUMNS
+        .iter()
+        .enumerate()
+        .map(|(at, column)| format!("{column} = ?{}", at + 3))
+        .collect();
+    let sql = format!(
+        "UPDATE event_index SET {} WHERE run_id = ?1 AND seq = ?2",
+        assignments.join(", ")
+    );
+    let mut bound: Vec<Value> = vec![Value::Text(run_id.into()), Value::Integer(seq as i64)];
+    bound.extend_from_slice(held);
+    store
+        .conn
+        .execute(&sql, rusqlite::params_from_iter(bound))
+        .unwrap();
+}
+
 /// A checkpoint row's session stamp: its own seq once core's reading has
 /// computed its session, NULL while it is behind.
 fn stamped(store: &Store, run_id: &str, seq: u64) -> Value {
@@ -68,6 +89,53 @@ fn unfinished_then_backfilled(store: Store, moved: bool) -> Store {
     let store = refolded(store);
     assert!(backfilled(&store.conn).unwrap());
     store
+}
+
+/// The SQL a 4ebca69a0 writer runs when it finds the checkpoint triggers
+/// this build retired missing: its moving and finishing triggers decide
+/// `session` in SQL again, which is the defect this repair answers. The
+/// expressions are that revision's, rebuilt from the helpers it shared
+/// with this one.
+fn retired_checkpoint_triggers() -> String {
+    let checkpointed = crate::event_index::CHECKPOINTED;
+    let record = crate::event_index::record("NEW");
+    let payload = crate::event_index::payload("NEW");
+    let finished = format!(
+        "COALESCE((SELECT CASE WHEN value LIKE '%-session-finished' THEN 1 ELSE 0 END
+              FROM {record} WHERE key = 'step' AND type = 'text'
+              ORDER BY id DESC LIMIT 1), 0)"
+    );
+    let moved = |attempt: &str, member: &str| {
+        format!(
+            "UPDATE event_index SET session = 0
+                WHERE run_id = NEW.run_id
+                  AND attempt_id IS {attempt}
+                  AND member IS {member}
+                  AND seq < NEW.seq
+                  AND type = '{checkpointed}' AND session = 1"
+        )
+    };
+    format!(
+        "DROP TRIGGER IF EXISTS event_index_checkpoint_moved;
+         CREATE TRIGGER event_index_checkpoint_moved AFTER UPDATE OF session ON event_index
+             WHEN NEW.type = '{checkpointed}' AND NEW.session = 1 BEGIN
+             {checkpoint_moved};
+         END;
+         DROP TRIGGER IF EXISTS event_index_checkpoint_finished;
+         CREATE TRIGGER event_index_checkpoint_finished AFTER INSERT ON events
+             WHEN {kind} = '{checkpointed}' AND {attempt} IS NOT NULL
+               AND {finished} = 1 BEGIN
+             {session_moved};
+         END;",
+        kind = crate::summary::text_at("NEW.envelope", "$.type"),
+        attempt = crate::event_index::last_text(&payload, "attempt_id"),
+        finished = finished,
+        checkpoint_moved = moved("NEW.attempt_id", "NEW.member"),
+        session_moved = moved(
+            &crate::event_index::last_text(&payload, "attempt_id"),
+            &crate::event_index::last_text(&record, "member"),
+        ),
+    )
 }
 
 /// The journal reopened writable, with `seq`'s session and the run reading
@@ -520,6 +588,102 @@ fn an_unreadable_stamp_keeps_the_session() {
     assert_eq!(session(&store, first.seq), Value::Integer(1));
 }
 
+/// A 4ebca69a0 writer reopens the journal, finds the checkpoint triggers
+/// this build retired missing, and makes them again; its facts backfill
+/// writes the pre-stamp columns and leaves the current stamp standing. The
+/// next current open must drop the retired triggers and send the
+/// checkpoints behind, so the site's flag is core's reading and a later
+/// upper-case suffix cannot clear it in SQL (decision 0089 rulings 4 and
+/// 7; decision 0071 ruling 5).
+#[test]
+fn a_reopened_journal_drops_the_retired_checkpoint_triggers_and_refolds_the_session() {
+    let (_dir, mut store) = store();
+    let first = one_checkpoint(&mut store, json!({"step": "claude-session-finished"}));
+    let held = kept(&store, "r", first.seq);
+    assert_eq!(session(&store, first.seq), Value::Integer(1));
+    // The older writer's migration makes its own triggers again, resets
+    // the facts its repair found and rewrites the pre-stamp columns from
+    // the record; the current writer's stamp stays, so nothing reads
+    // behind until the retired trigger moves a flag.
+    store
+        .conn
+        .execute_batch(&retired_checkpoint_triggers())
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "UPDATE event_index SET facts = NULL WHERE type = 'effect/checkpointed'",
+            [],
+        )
+        .unwrap();
+    write_pre_stamp_facts(&store, "r", first.seq, &held);
+    assert_eq!(
+        stamped(&store, "r", first.seq),
+        Value::Integer(first.seq as i64)
+    );
+
+    let mut store = refolded(store);
+    assert!(crate::event_index::index_intact(&store.conn).unwrap());
+    let second = append_checkpoint(&mut store, json!({"step": "claude-SESSION-FINISHED"}));
+    assert_eq!(session(&store, first.seq), Value::Integer(1));
+    assert_eq!(session(&store, second.seq), Value::Integer(0));
+    for name in [
+        "event_index_checkpoint_moved",
+        "event_index_checkpoint_finished",
+    ] {
+        let present: bool = store
+            .conn
+            .query_row(
+                "SELECT EXISTS (SELECT 1 FROM sqlite_master
+                                WHERE type = 'trigger' AND name = ?1)",
+                [name],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!present, "the retired trigger {name} survived the repair");
+    }
+    assert_eq!(disagreements(&store), Vec::<String>::new());
+    let store = reopened(store, second.seq, Value::Integer(0));
+    assert_eq!(session(&store, first.seq), Value::Integer(1));
+}
+
+/// The repair sends behind the checkpoints a retired trigger could have
+/// moved even when their stamps still stand: a later open must refold the
+/// site from core's reading, never trust a flag the retired SQL wrote
+/// (decision 0089 rulings 4 and 7).
+#[test]
+fn a_reopened_journal_refolds_a_flag_the_retired_trigger_moved() {
+    let (_dir, mut store) = store();
+    let first = one_checkpoint(&mut store, json!({"step": "claude-session-finished"}));
+    let second = append_checkpoint(&mut store, json!({"step": "claude-session-finished"}));
+    assert_eq!(session(&store, first.seq), Value::Integer(0));
+    assert_eq!(session(&store, second.seq), Value::Integer(1));
+    // The older writer's trigger is made again, and its moving SQL leaves
+    // both stamps standing while it writes a flag core does not read.
+    store
+        .conn
+        .execute_batch(&retired_checkpoint_triggers())
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "UPDATE event_index SET session = 1 WHERE run_id = 'r' AND seq = ?1",
+            [first.seq as i64],
+        )
+        .unwrap();
+    assert_eq!(session(&store, first.seq), Value::Integer(1));
+    assert_eq!(
+        stamped(&store, "r", first.seq),
+        Value::Integer(first.seq as i64)
+    );
+
+    lags(&mut store, &["r"]);
+    let store = refolded(store);
+    assert_eq!(session(&store, first.seq), Value::Integer(0));
+    assert_eq!(session(&store, second.seq), Value::Integer(1));
+    assert_eq!(disagreements(&store), Vec::<String>::new());
+}
+
 /// A writer from before the facts inserts a finishing record without them:
 /// the trigger sends both rows behind, the site is a lag rather than a
 /// false disagreement, and the open's walk writes both (decision 0089
@@ -552,23 +716,9 @@ fn a_writer_from_before_the_stamp_leaves_the_site_behind() {
     // The writer from before the stamp wrote the records' facts and no
     // stamp: two session rows stand, and the summary row is current.
     plant_summary_writer(&store, "r", std::slice::from_ref(&second));
-    let assignments: Vec<String> = COLUMNS
-        .iter()
-        .enumerate()
-        .map(|(at, column)| format!("{column} = ?{}", at + 3))
-        .collect();
-    let sql = format!(
-        "UPDATE event_index SET {} WHERE run_id = ?1 AND seq = ?2",
-        assignments.join(", ")
-    );
     let checkpoint = brokkr_core::summary::Checkpoint::read(&second, Some("implement"));
     let facts = super::checkpoint::facts(checkpoint.as_ref()).unwrap();
-    let mut bound: Vec<Value> = vec![Value::Text("r".into()), Value::Integer(second.seq as i64)];
-    bound.extend(facts);
-    store
-        .conn
-        .execute(&sql, rusqlite::params_from_iter(bound))
-        .unwrap();
+    write_pre_stamp_facts(&store, "r", second.seq, &facts);
     assert_eq!(session(&store, first.seq), Value::Integer(1));
     assert_eq!(session(&store, second.seq), Value::Integer(1));
     assert_eq!(stamped(&store, "r", first.seq), Value::Null);
