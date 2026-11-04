@@ -104,20 +104,15 @@ where
             _ => (false, 0),
         };
         let int_start = at;
-        while at < bytes.len() && bytes[at].is_ascii_digit() {
-            at += 1;
-        }
+        at = digits_end(bytes, int_start);
         let int_digits = &bytes[int_start..at];
         if int_digits.is_empty() {
             return Err(Refusal::NotAnInteger);
         }
         let mut fraction = &[][..];
         if bytes.get(at) == Some(&b'.') {
-            at += 1;
-            let fraction_start = at;
-            while at < bytes.len() && bytes[at].is_ascii_digit() {
-                at += 1;
-            }
+            let fraction_start = at + 1;
+            at = digits_end(bytes, fraction_start);
             fraction = &bytes[fraction_start..at];
             if fraction.is_empty() {
                 return Err(Refusal::NotAnInteger);
@@ -147,6 +142,14 @@ where
         let magnitude = magnitude(digits, adjusted)?;
         fits::<T>(negative, magnitude).map(Integral)
     }
+}
+
+/// Where the run of ASCII digits in `bytes` that starts at `at` ends.
+fn digits_end(bytes: &[u8], mut at: usize) -> usize {
+    while bytes.get(at).is_some_and(u8::is_ascii_digit) {
+        at += 1;
+    }
+    at
 }
 
 /// The exponent written after the fraction, and how many bytes of `tail`
