@@ -8,7 +8,8 @@ mod tracker_scope;
 
 /// `test` of this module, played in an engine of its own: the full test
 /// path [`in_its_own_engine`] re-executes. A module-local guard because
-/// eight three-line guards would breach the test file's 2,000-line ceiling.
+/// a three-line guard per test would breach the test file's 2,000-line
+/// ceiling.
 macro_rules! own_engine {
     ($test:literal) => {
         if !in_its_own_engine(concat!("process::tests::", $test)) {
@@ -1102,6 +1103,7 @@ fn unresolved(report: &AttemptReport) -> Option<&Unsettled> {
 /// kept, typed, beside the unresolved cleanup (#403).
 #[test]
 fn a_leader_that_outlives_the_kill_is_not_waited_on_past_the_settle_bound() {
+    own_engine!("a_leader_that_outlives_the_kill_is_not_waited_on_past_the_settle_bound");
     let driver = format!(
         "read -r hello; {}; printf '%s\\n' '{}'; exec sleep 30",
         accepting(),
