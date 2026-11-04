@@ -214,37 +214,39 @@ const MODES: [(&[&str], &str, &str); 2] = [
 ];
 
 /// The shards' names, in plan order.
-const NAMES: [&str; 8] = [
+const NAMES: [&str; 9] = [
     "every library",
     "the it binaries, capability_broker skipped",
     "the heap measurements",
     "the other own-process binaries",
-    "the fleet, run and seat heap views",
+    "the fleet heap view",
+    "the run and seat heap views",
     "the doctests",
     "capability_broker's enabled suite, alone",
     "capability_broker, its enabled suite skipped, alone",
 ];
 
 /// The test mode's shard commands after `cargo`, as the plan prints them.
-const SHARDS: [&str; 8] = [
+const SHARDS: [&str; 9] = [
     "--lib",
     "--test it -- --skip capability_broker::",
     "--test heap_claude --test heap_codex --test heap_dsh",
     "--bin brokkr --test driver_conformance --test transcript_surfaces --test hands_exits \
      --test secret_drop --test capability_launch --test operated_repo --test queued_launch \
      --test seatbelt_lifetime_probe --test summary_heap --test heap_open --test heap_costs",
-    "--test heap_fleet --test heap_run_view --test heap_seat_view",
+    "--test heap_fleet",
+    "--test heap_run_view --test heap_seat_view",
     "--doc",
     "--test it -- capability_broker::enabled::",
     "--test it -- capability_broker:: --skip capability_broker::enabled::",
 ];
 
 /// Where [`NAMES`] holds the doctests, which the coverage mode never runs.
-const DOCTESTS: usize = 5;
+const DOCTESTS: usize = 6;
 
 /// Where [`NAMES`] holds the broker's enabled suite, which only Linux
 /// compiles, so a macOS host never runs it.
-const LINUX_ONLY: usize = 6;
+const LINUX_ONLY: usize = 7;
 
 /// The real tree's shards are its whole suite, each target once: the
 /// plan passes the partition check in both modes and prints each shard's
@@ -964,15 +966,16 @@ fn a_narrower_skip_must_extend_its_filter_and_its_part_keep_a_shard() {
 
 /// Each machine of each system's layout, and the shards it runs, by their
 /// place in [`NAMES`]: every shard sits on exactly one machine of each.
-const MACHINES: [(&str, &[usize]); 8] = [
+const MACHINES: [(&str, &[usize]); 9] = [
     ("linux/1", &[0]),
-    ("linux/2", &[1, 2, 3, 5]),
-    ("linux/3", &[4]),
-    ("linux/4", &[6]),
-    ("linux/5", &[7]),
-    ("macos/1", &[0, 5, 7]),
+    ("linux/2", &[1, 2, 3, 6]),
+    ("linux/3", &[4, 5]),
+    ("linux/4", &[7]),
+    ("linux/5", &[8]),
+    ("macos/1", &[0, 6, 8]),
     ("macos/2", &[3, 4]),
     ("macos/3", &[1, 2]),
+    ("macos/4", &[5]),
 ];
 
 /// A run whose BROKKR_TEST_MACHINE names a machine builds every binary and
@@ -1005,8 +1008,9 @@ fn a_machine_runs_only_its_shards_one_after_another_in_plan_order() {
         let stdout = String::from_utf8_lossy(&run.stdout);
         assert!(
             stdout.contains(&format!(
-                "test shards: machine {machine} runs {} of the 8 shards\n",
-                shards.len()
+                "test shards: machine {machine} runs {} of the {} shards\n",
+                shards.len(),
+                NAMES.len()
             )),
             "{stdout}"
         );

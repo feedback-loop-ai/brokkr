@@ -73,7 +73,10 @@ usage() {
 # macOS, where the broker's boundary proofs skip (2026-11-01). By 2026-11-02
 # macOS's libraries took 27 minutes and its `it` binaries 10, so macos/1
 # reached its 45-minute limit; the `it` binaries and the heap measurements
-# moved to a third macOS machine (operator ruling 2026-11-03). The broker's
+# moved to a third macOS machine (operator ruling 2026-11-03). On 2026-11-03 a
+# slow runner took macos/2's three heap views 1,124, 875 and 264 s, past its
+# limit, so the run and seat views moved to a fourth (operator ruling
+# 2026-11-04). The broker's
 # enabled suite is Linux's alone (`#![cfg(target_os = "linux")]`), so macOS
 # never runs its shard, whose filter would match nothing there.
 shard_name=()
@@ -93,7 +96,8 @@ shard 'the heap measurements' 2 3 test:heap_claude test:heap_codex test:heap_dsh
 shard 'the other own-process binaries' 2 2 bin:brokkr test:driver_conformance test:transcript_surfaces \
   test:hands_exits test:secret_drop test:capability_launch test:operated_repo test:queued_launch \
   test:seatbelt_lifetime_probe test:summary_heap test:heap_open test:heap_costs
-shard 'the fleet, run and seat heap views' 3 2 test:heap_fleet test:heap_run_view test:heap_seat_view
+shard 'the fleet heap view' 3 2 test:heap_fleet
+shard 'the run and seat heap views' 3 4 test:heap_run_view test:heap_seat_view
 shard 'the doctests' 2 1 doc
 shard "capability_broker's enabled suite, alone" 4 - test:it only:capability_broker::enabled::
 shard "capability_broker, its enabled suite skipped, alone" 5 1 test:it only:capability_broker:: skip:capability_broker::enabled::
