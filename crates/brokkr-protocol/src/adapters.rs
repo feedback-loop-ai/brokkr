@@ -6264,18 +6264,24 @@ fn masked_refusal(
     bindings: &[secret::BoundSecret],
 ) -> Option<PreSessionRefusal> {
     refusal.map(|refusal| {
-        // Mask first, cut second (decision 0012): a cut before masking
-        // could split a value and leave its prefix in the line. Masking
-        // replaces a value with its bound NAME, so a name longer than the
-        // value grows the bounded line past the reader's bound and the
-        // masked text must be bounded again before it crosses the driver
-        // boundary (decision 0103 ruling 1(a), #991). Cutting the masked
-        // text can only shorten a name, never leave part of a value: no
-        // value survives the mask.
+        // Masking is the LAST rewrite (decision 0012). A prefix of the
+        // masked text holds no substring the whole lacks, so a pure
+        // truncation to the reader's bound cannot rebuild a value; any
+        // other rewrite after the mask — a whitespace collapse, say —
+        // could rejoin a value the mask left split. So the only bound
+        // applied after masking is `chars().take`, at a char boundary.
+        // Masking replaces a value with its bound NAME, and a name longer
+        // than the value can grow the line past the reader's bound, so it
+        // must be cut (decision 0103 ruling 1(a), #991 fix round b).
+        // Under the bound the masked words cross byte for byte.
         let masked = secret::mask_text(refusal.words().as_bytes(), bindings);
-        let words = bounded_wire_line(&masked, crate::REFUSAL_WORDS_LIMIT);
+        let words = if masked.chars().count() > crate::REFUSAL_WORDS_LIMIT {
+            masked.chars().take(crate::REFUSAL_WORDS_LIMIT).collect()
+        } else {
+            masked
+        };
         // The words were non-empty and masking never empties a line, so
-        // the re-cut cannot hand the reader an empty `words` to refuse.
+        // the truncation cannot hand the reader an empty `words` to refuse.
         refusal.with_words(words)
     })
 }

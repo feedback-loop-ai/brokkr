@@ -205,28 +205,30 @@ fn a_qualified_seat_whose_child_cannot_be_waited_on_concludes_instead_of_spinnin
     assert_eq!(refused, "agent CLI did not conclude: no child processes");
 }
 
-/// The chief's #991 case: masking a four-byte value whose bound NAME is
-/// 140 characters grows the refusal's bounded line from 183 characters to
-/// 328, past the reader's 300 (`REFUSAL_WORDS_LIMIT`), so the masked line
-/// must be bounded again before it crosses the driver boundary (decisions
-/// 0012 and 0103 ruling 1(a); #430 slice 4a F1).
+/// One claude refusal driven through production's seat body with the
+/// given secret bindings, returned with its serialized form for the edge
+/// reader. The event is the shim's one stream record, so the ordinary
+/// attempt and the probe both reach the same `masked_refusal` choke point
+/// (#991 fix round b).
 #[cfg(unix)]
-fn chief_masked_rate_limit(probe: bool) -> (PreSessionRefusal, Value) {
+fn masked_claude_refusal(
+    probe: bool,
+    event: &Value,
+    secrets: &[(&str, &str)],
+) -> (PreSessionRefusal, Value) {
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
-    let name = "X".repeat(140);
     let store = dir.path().join("secrets.env");
-    secret::store_set(&store, &name, "HTTP").unwrap();
+    for (name, value) in secrets {
+        secret::store_set(&store, name, value).unwrap();
+    }
     let shim = super::tests::executable(
         dir.path(),
-        "claude-masked-rate-limit",
-        &format!(
-            "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{}'\n",
-            json!({"type": "rate_limit_event", "apiErrorStatus": 429,
-                   "message": "x".repeat(160)})
-        ),
+        "claude-masked-refusal",
+        &format!("#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{event}'\n"),
     );
     env.set("BROKKR_CLAUDE_BIN", &shim);
+    let names: Vec<&str> = secrets.iter().map(|(name, _)| *name).collect();
     let mut start = json!({
         "effect_id": "effect", "attempt_id": "attempt",
         "input": {
@@ -234,7 +236,7 @@ fn chief_masked_rate_limit(probe: bool) -> (PreSessionRefusal, Value) {
             "result_path": dir.path().join("result.json"),
             "allowed_results": ["complete"],
             "feature": "f", "phase": "work", "role_path": "/dev/null",
-            "secrets": [name],
+            "secrets": names,
             "secrets_file": store,
         }
     });
@@ -252,7 +254,7 @@ fn chief_masked_rate_limit(probe: bool) -> (PreSessionRefusal, Value) {
         ..
     } = messages.last().expect("the seat reports a result")
     else {
-        panic!("the masked rate-limit refusal rides the failed result: {messages:?}");
+        panic!("the masked refusal rides the failed result: {messages:?}");
     };
     (
         refusal.clone(),
@@ -260,12 +262,32 @@ fn chief_masked_rate_limit(probe: bool) -> (PreSessionRefusal, Value) {
     )
 }
 
-/// The masked refusal reads back as the typed object the reader accepts,
-/// with its provider, route, status and exactly the first 300 characters
-/// of the masked line, none of them the masked value.
+/// The chief's #991 case: masking a four-byte value whose bound NAME is
+/// 140 characters grows the refusal's bounded line from 183 characters to
+/// 328, past the reader's 300 (`REFUSAL_WORDS_LIMIT`), so the masked line
+/// is bounded before it crosses the driver boundary (decisions 0012 and
+/// 0103 ruling 1(a); #430 slice 4a F1, #991 fix round b).
 #[cfg(unix)]
-fn assert_chief_masked_rate_limit(refusal: &PreSessionRefusal, serialized: &Value) {
-    assert_eq!(refusal.class(), RefusalClass::RateLimit);
+fn chief_masked_rate_limit(probe: bool) -> (PreSessionRefusal, Value) {
+    let name = "X".repeat(140);
+    masked_claude_refusal(
+        probe,
+        &json!({"type": "rate_limit_event", "apiErrorStatus": 429,
+                "message": "x".repeat(160)}),
+        &[(name.as_str(), "HTTP")],
+    )
+}
+
+/// Read one masked refusal back through the edge reader and assert the
+/// typed facts every #991 case keeps: the expected class, claude, the
+/// pinned route and the 429 status.
+#[cfg(unix)]
+fn reread_masked_refusal(
+    refusal: &PreSessionRefusal,
+    serialized: &Value,
+    class: RefusalClass,
+) -> PreSessionRefusal {
+    assert_eq!(refusal.class(), class);
     assert_eq!(refusal.provider(), "claude");
     assert_eq!(refusal.route(), Some("featherless:qwen"));
     assert_eq!(refusal.status(), Some(429));
@@ -273,6 +295,15 @@ fn assert_chief_masked_rate_limit(refusal: &PreSessionRefusal, serialized: &Valu
         panic!("the masked refusal must read back, not refuse `{error:?}`: {serialized}")
     });
     assert_eq!(&reread, refusal, "{serialized}");
+    reread
+}
+
+/// The masked refusal reads back as the typed object the reader accepts,
+/// with its provider, route, status and exactly the first 300 characters
+/// of the masked line, none of them the masked value.
+#[cfg(unix)]
+fn assert_chief_masked_rate_limit(refusal: &PreSessionRefusal, serialized: &Value) {
+    let reread = reread_masked_refusal(refusal, serialized, RefusalClass::RateLimit);
     let masked = format!(
         "rate_limit ([secret:{}] 429): {}",
         "X".repeat(140),
@@ -322,4 +353,163 @@ fn a_masked_refusal_under_the_words_limit_is_unchanged_byte_for_byte() {
         masked.words(),
         "rate_limit (HTTP 429): [secret:API_TOKEN] exhausted"
     );
+}
+
+/// Under the limit with a trailing space (#991 fix round b): 159 `x`, a
+/// space and a `y` are 161 characters, so the pre-mask excerpt's 160-char
+/// bound cuts the `y` and keeps the space. No secret is bound, so masking
+/// changes nothing and the under-limit words must cross byte for byte.
+#[cfg(unix)]
+fn under_limit_trailing_space(probe: bool) -> (PreSessionRefusal, Value) {
+    masked_claude_refusal(
+        probe,
+        &json!({"type": "rate_limit_event", "apiErrorStatus": 429,
+                "message": format!("{} y", "x".repeat(159))}),
+        &[],
+    )
+}
+
+#[cfg(unix)]
+fn assert_under_limit_trailing_space(refusal: &PreSessionRefusal, serialized: &Value) {
+    let reread = reread_masked_refusal(refusal, serialized, RefusalClass::RateLimit);
+    let expected = format!("rate_limit (HTTP 429): {} ", "x".repeat(159));
+    assert_eq!(expected.chars().count(), 183);
+    assert_eq!(reread.words(), expected, "the trailing space must survive");
+    assert!(reread.words().ends_with(' '), "{}", reread.words());
+}
+
+#[cfg(unix)]
+#[test]
+fn masked_refusal_991b_keeps_a_trailing_space_under_the_limit_on_an_ordinary_attempt() {
+    let (refusal, serialized) = under_limit_trailing_space(false);
+    assert_under_limit_trailing_space(&refusal, &serialized);
+}
+
+#[cfg(unix)]
+#[test]
+fn masked_refusal_991b_keeps_a_trailing_space_under_the_limit_on_a_probe() {
+    let (refusal, serialized) = under_limit_trailing_space(true);
+    assert_under_limit_trailing_space(&refusal, &serialized);
+}
+
+/// Under the limit, a post-mask collapse rebuilt the value (#991 fix
+/// round b): the 81-character error is cut to 80 by the token bound, so
+/// its trailing `y` goes and the words carry `TOPSECRET  (` with two
+/// spaces — not the bound value `TOPSECRET (`. Collapsing the masked
+/// words used to close that gap.
+#[cfg(unix)]
+fn under_limit_post_mask_secret(probe: bool) -> (PreSessionRefusal, Value) {
+    masked_claude_refusal(
+        probe,
+        &json!({
+            "type": "result", "is_error": true, "apiErrorStatus": 429,
+            "error": format!("{}TOPSECRET y", "x".repeat(70)),
+        }),
+        &[("API_TOKEN", "TOPSECRET (")],
+    )
+}
+
+#[cfg(unix)]
+fn assert_under_limit_post_mask_secret(refusal: &PreSessionRefusal, serialized: &Value) {
+    let reread = reread_masked_refusal(refusal, serialized, RefusalClass::Other);
+    let expected = format!("{}TOPSECRET  (HTTP 429)", "x".repeat(70));
+    assert_eq!(expected.chars().count(), 91);
+    assert_eq!(reread.words(), expected);
+    assert!(
+        !reread.words().contains("TOPSECRET ("),
+        "{}",
+        reread.words()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn masked_refusal_991b_does_not_rebuild_a_secret_under_the_limit_on_an_ordinary_attempt() {
+    let (refusal, serialized) = under_limit_post_mask_secret(false);
+    assert_under_limit_post_mask_secret(&refusal, &serialized);
+}
+
+#[cfg(unix)]
+#[test]
+fn masked_refusal_991b_does_not_rebuild_a_secret_under_the_limit_on_a_probe() {
+    let (refusal, serialized) = under_limit_post_mask_secret(true);
+    assert_under_limit_post_mask_secret(&refusal, &serialized);
+}
+
+/// Over the limit, the cut still rebuilt the value (#991 fix round b): a
+/// second 250-character name bound to `HTTP` grows the masked words to
+/// 346 characters, and the old re-cut/collapse left `TOPSECRET (` in the
+/// first 300. The bound value must not survive; the words are exactly
+/// 300 characters.
+#[cfg(unix)]
+fn over_limit_post_mask_secret(probe: bool) -> (PreSessionRefusal, Value) {
+    let name = "Z".repeat(250);
+    masked_claude_refusal(
+        probe,
+        &json!({
+            "type": "result", "is_error": true, "apiErrorStatus": 429,
+            "error": format!("{}TOPSECRET y", "x".repeat(70)),
+        }),
+        &[("API_TOKEN", "TOPSECRET ("), (name.as_str(), "HTTP")],
+    )
+}
+
+#[cfg(unix)]
+fn assert_over_limit_post_mask_secret(refusal: &PreSessionRefusal, serialized: &Value) {
+    let reread = reread_masked_refusal(refusal, serialized, RefusalClass::Other);
+    let expected = format!("{}TOPSECRET  ([secret:{}", "x".repeat(70), "Z".repeat(210));
+    assert_eq!(expected.chars().count(), 300);
+    assert_eq!(reread.words(), expected);
+    assert!(
+        !reread.words().contains("TOPSECRET ("),
+        "{}",
+        reread.words()
+    );
+    assert!(!reread.words().contains("HTTP"), "{}", reread.words());
+}
+
+#[cfg(unix)]
+#[test]
+fn masked_refusal_991b_does_not_rebuild_a_secret_over_the_limit_on_an_ordinary_attempt() {
+    let (refusal, serialized) = over_limit_post_mask_secret(false);
+    assert_over_limit_post_mask_secret(&refusal, &serialized);
+}
+
+#[cfg(unix)]
+#[test]
+fn masked_refusal_991b_does_not_rebuild_a_secret_over_the_limit_on_a_probe() {
+    let (refusal, serialized) = over_limit_post_mask_secret(true);
+    assert_over_limit_post_mask_secret(&refusal, &serialized);
+}
+
+/// The first collapse runs before `masked_refusal`'s mask, but the
+/// harness event is already `mask_json`-masked at the stream edge (#991
+/// fix round b): a value holding a run of whitespace or a control
+/// character is replaced there, on the decoded string, before the
+/// classifier's `bounded_wire_line` collapses it. So its collapsed form
+/// never reaches the words; removing that edge mask makes this fail on
+/// exactly those forms.
+#[cfg(unix)]
+#[test]
+fn masked_refusal_991b_does_not_leak_a_value_rewritten_by_the_first_collapse() {
+    let (refusal, serialized) = masked_claude_refusal(
+        false,
+        &json!({
+            "type": "result", "is_error": true, "apiErrorStatus": 429,
+            "error": "before a  b and c\tde and e\u{1}fg after",
+        }),
+        &[
+            ("DOUBLE_SPACE", "a  b"),
+            ("TAB", "c\tde"),
+            ("CONTROL", "e\u{1}fg"),
+        ],
+    );
+    let reread = reread_masked_refusal(&refusal, &serialized, RefusalClass::Other);
+    assert_eq!(
+        reread.words(),
+        "before [secret:DOUBLE_SPACE] and [secret:TAB] and [secret:CONTROL] after (HTTP 429)"
+    );
+    for value in ["a b", "c de", "e fg"] {
+        assert!(!reread.words().contains(value), "{}", reread.words());
+    }
 }
