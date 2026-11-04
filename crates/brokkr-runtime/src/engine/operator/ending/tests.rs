@@ -365,6 +365,7 @@ fn a_missing_or_unknown_cause_is_refused_and_a_causeless_stop_writes_nothing() {
         );
         let unknown = named_cause(verb, Some("not-a-word")).unwrap_err();
         assert!(matches!(unknown, CauseRefusal::Unknown { verb: v, .. } if v == verb));
+        assert_eq!(unknown.verb(), verb);
         assert_eq!(
             unknown.to_string(),
             "'not-a-word' is not an ending; an ending is one of shipped, shipped-flagged, \
