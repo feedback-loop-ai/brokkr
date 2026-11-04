@@ -146,7 +146,8 @@ fn the_contract_and_the_loader_admit_and_refuse_the_same_files() {
         json!({"schema": "forge.host/v1", "providers": {}, "boxed_builds": {"ceiling": 1}}),
     ];
     let judged = |host: &Value| {
-        let loaded = serde_json::from_value::<HostConfig>(host.clone()).is_ok();
+        let bytes = serde_json::to_vec(host).unwrap();
+        let loaded = serde_json::from_slice::<HostConfig>(&bytes).is_ok();
         (validator.is_valid(host), loaded)
     };
     assert_eq!(admitted.each_ref().map(judged), [(true, true); 6]);
@@ -264,6 +265,21 @@ fn v2(extra: &str) -> String {
 /// A v2 file carrying one cooldowns block.
 fn cooled(block: &str) -> String {
     v2(&format!(r#","cooldowns":{block}"#))
+}
+
+/// A minimal host in `schema` whose one floor is the exact token `number`.
+fn floor_token(schema: &str, number: &str) -> String {
+    format!(
+        r#"{{"schema":"{schema}","providers":{{}},"floors":[{{"place":"temp","floor_bytes":{number}}}],"boxed_builds":{{"ceiling":1}}}}"#
+    )
+}
+
+/// A minimal host in `schema` whose `dsh` ceiling is the exact token
+/// `number`.
+fn ceiling_token(schema: &str, number: &str) -> String {
+    format!(
+        r#"{{"schema":"{schema}","providers":{{"dsh":{{"ceiling":{number}}}}},"floors":[{{"place":"temp","floor_bytes":1}}],"boxed_builds":{{"ceiling":1}}}}"#
+    )
 }
 
 /// A complete capacity block for either schema: two declared providers,
@@ -974,6 +990,113 @@ fn chief_capacity_integral_notation_reads_the_same_capacity() {
             let loaded = loaded(&host.to_string());
             assert_eq!(read(&loaded), *expected, "{schema} {name}");
         }
+    }
+}
+
+/// F1 (decision 0071 ruling 3; the operator's ruling of 2026-11-04,
+/// option A): a floor token is read from its exact digits, never through
+/// `f64`. `9007199254740993.0` is one past the last odd integer an `f64`
+/// can hold, so a reader that rounds reads `...992`; `u64::MAX.0` is
+/// likewise refused by a reader that rounds it to `2^64`.
+#[test]
+fn chief_exact_floor_tokens_read_without_rounding() {
+    for schema in ["forge.host/v1", "forge.host/v2"] {
+        assert_eq!(
+            loaded(&floor_token(schema, "9007199254740993.0")).floors.0[0]
+                .floor_bytes
+                .get(),
+            9_007_199_254_740_993,
+            "{schema}"
+        );
+        assert_eq!(
+            loaded(&floor_token(schema, "18446744073709551615.0"))
+                .floors
+                .0[0]
+                .floor_bytes
+                .get(),
+            u64::MAX,
+            "{schema}"
+        );
+    }
+}
+
+/// The fractional cool-down token the chief's case wrote is above the
+/// 7200-second maximum only because its fraction is non-zero, so a reader
+/// that rounds admits it as 7200 and weakens the cap. It is not an
+/// integer, and it is a shape refusal; an all-zero fraction still reads.
+#[test]
+fn chief_fractional_cool_down_token_is_a_shape_refusal() {
+    let text = cooled(r#"{"default_seconds":10,"max_seconds":7200.0000000000001}"#);
+    let Problem::Shape(error) = refused(&text) else {
+        panic!("a fractional cool-down was not a shape refusal");
+    };
+    assert!(
+        error
+            .to_string()
+            .contains("a number with a fractional part"),
+        "{error}"
+    );
+    let exact = loaded(&cooled(r#"{"default_seconds":10,"max_seconds":7200.0}"#));
+    assert_eq!(bounds(&exact, "dsh", None), Some((10, 7200)));
+}
+
+/// Integral notation both versions' schemas admit reads as its exact
+/// value: a zero fraction and an exponent that keeps the number whole.
+#[test]
+fn integral_token_notations_read_as_their_values() {
+    let notations = [
+        ("10", 10),
+        ("10.0", 10),
+        ("1e1", 10),
+        ("1.0e1", 10),
+        ("100e-1", 10),
+        ("6E1", 60),
+    ];
+    for schema in ["forge.host/v1", "forge.host/v2"] {
+        for (token, expected) in notations {
+            assert_eq!(
+                loaded(&floor_token(schema, token)).floors.0[0]
+                    .floor_bytes
+                    .get(),
+                expected,
+                "{schema} {token}"
+            );
+        }
+    }
+}
+
+/// A token that is not exactly an integer in range is a shape refusal: a
+/// non-zero fraction, a negative exponent that leaves one, one past each
+/// field's maximum, an exponent past the reader's bound and a string.
+#[test]
+fn non_integral_tokens_are_shape_refusals() {
+    for schema in ["forge.host/v1", "forge.host/v2"] {
+        for token in [
+            "1.5",
+            "7200.0000000000001",
+            "1e-1",
+            "-0.5",
+            "18446744073709551616.0",
+            "\"one\"",
+        ] {
+            let Problem::Shape(_) = refused(&floor_token(schema, token)) else {
+                panic!("{schema} {token} was not a shape refusal");
+            };
+        }
+        let Problem::Shape(error) = refused(&floor_token(schema, "1e999999999")) else {
+            panic!("{schema} 1e999999999 was not a shape refusal");
+        };
+        assert!(
+            error.to_string().contains("exponent too large to read"),
+            "{schema}: {error}"
+        );
+        let Problem::Shape(error) = refused(&ceiling_token(schema, "4294967296.0")) else {
+            panic!("{schema} a u32 one past its maximum was not a shape refusal");
+        };
+        assert!(
+            error.to_string().contains("expected a nonzero u32"),
+            "{schema}: {error}"
+        );
     }
 }
 

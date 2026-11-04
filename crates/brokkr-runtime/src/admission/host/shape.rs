@@ -11,67 +11,225 @@ use std::num::{NonZeroU32, NonZeroU64};
 use serde::de::value::MapAccessDeserializer;
 use serde::de::{self, IntoDeserializer, MapAccess, Unexpected, Visitor};
 use serde::{Deserialize, Deserializer};
+use serde_json::value::RawValue;
 
 /// A number the contract calls an integer. JSON Schema's `integer` admits
-/// any number with no fractional part, so `10.0` and `6e1` are the same
-/// integers here as `10` and `60`; refusing them would refuse a file the
-/// published schema admits (decision 0071 ruling 3).
+/// any number with no fractional part, so `10.0` and `1e1` are the same
+/// integers here as `10`; refusing them would refuse a file the published
+/// schema admits (decision 0071 ruling 3). Each is read from its exact
+/// token, never through `f64`, so no rounding can lower a floor or raise a
+/// bound (the operator's ruling of 2026-11-04, option A).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Integral<T>(pub(super) T);
 
+/// The largest exponent a token may write. No field's range needs a nonzero
+/// mantissa shifted further, so one past this cannot fit; the bound also
+/// keeps a zero mantissa from making the reader loop. A token like
+/// `1e999999999` is refused before the reader builds it (the operator's
+/// ruling of 2026-11-04, option A).
+const EXPONENT_LIMIT: i64 = 40;
+
+/// Why a token is not an integer this reader can return.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Refusal {
+    /// A token that is not a JSON number at all: a string, object, array,
+    /// boolean or null where the contract demands a number.
+    NotANumber,
+    /// A fraction with a non-zero digit, or a negative exponent that would
+    /// leave one.
+    NotAnInteger,
+    /// The integer does not fit the field's type.
+    OutOfRange,
+    /// The token's exponent is past the reader's bound, so the number it
+    /// would name is refused before the reader tries to build it.
+    ExponentPastBound,
+}
+
+impl Refusal {
+    fn unexpected(self) -> Unexpected<'static> {
+        match self {
+            Refusal::NotANumber => Unexpected::Other("a value that is not a number"),
+            Refusal::NotAnInteger => Unexpected::Other("a number with a fractional part"),
+            Refusal::OutOfRange => Unexpected::Other("a number out of range"),
+            Refusal::ExponentPastBound => {
+                Unexpected::Other("a number with an exponent too large to read")
+            }
+        }
+    }
+}
+
 impl<'de, T> Deserialize<'de> for Integral<T>
 where
-    T: TryFrom<u64> + TryFrom<i64>,
+    T: TryFrom<i128> + TryFrom<u128>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Integral<T>, D::Error>
     where
         D: Deserializer<'de>,
     {
-        struct IntegralVisitor<T>(PhantomData<T>);
-
-        impl<'de, T> Visitor<'de> for IntegralVisitor<T>
-        where
-            T: TryFrom<u64> + TryFrom<i64>,
-        {
-            type Value = Integral<T>;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("an integer")
-            }
-
-            fn visit_u64<E: de::Error>(self, value: u64) -> Result<Integral<T>, E> {
-                T::try_from(value)
-                    .map(Integral)
-                    .map_err(|_| E::invalid_value(Unexpected::Unsigned(value), &self))
-            }
-
-            fn visit_i64<E: de::Error>(self, value: i64) -> Result<Integral<T>, E> {
-                T::try_from(value)
-                    .map(Integral)
-                    .map_err(|_| E::invalid_value(Unexpected::Signed(value), &self))
-            }
-
-            fn visit_f64<E: de::Error>(self, value: f64) -> Result<Integral<T>, E> {
-                if value.fract() == 0.0 && (0.0..u64::MAX as f64).contains(&value) {
-                    T::try_from(value as u64)
-                        .map(Integral)
-                        .map_err(|_| E::invalid_value(Unexpected::Float(value), &self))
-                } else {
-                    Err(E::invalid_value(Unexpected::Float(value), &self))
-                }
-            }
-        }
-
-        deserializer.deserialize_any(IntegralVisitor(PhantomData))
+        let token = Box::<RawValue>::deserialize(deserializer)?;
+        token
+            .get()
+            .parse::<Integral<T>>()
+            .map_err(|refusal: Refusal| {
+                <D::Error as de::Error>::invalid_value(refusal.unexpected(), &"an integer")
+            })
     }
 }
 
-/// The number serde names when a positive integer is refused.
-fn number(value: i128) -> Unexpected<'static> {
-    if value < 0 {
-        Unexpected::Signed(value as i64)
+/// The integer a JSON number token names exactly: an optional `-`, digits,
+/// an optional fraction whose digits are all `0`, and an optional exponent.
+/// The value is the digits shifted by the exponent, computed with integer
+/// arithmetic only; a negative exponent may only remove trailing zeros.
+impl<T> std::str::FromStr for Integral<T>
+where
+    T: TryFrom<i128> + TryFrom<u128>,
+{
+    type Err = Refusal;
+
+    fn from_str(token: &str) -> Result<Integral<T>, Refusal> {
+        let bytes = token.as_bytes();
+        let Some(first) = bytes.first() else {
+            return Err(Refusal::NotANumber);
+        };
+        if !first.is_ascii_digit() && *first != b'-' {
+            return Err(Refusal::NotANumber);
+        }
+        let (negative, mut at) = match *first {
+            b'-' => (true, 1),
+            _ => (false, 0),
+        };
+        let int_start = at;
+        while at < bytes.len() && bytes[at].is_ascii_digit() {
+            at += 1;
+        }
+        let int_digits = &bytes[int_start..at];
+        if int_digits.is_empty() {
+            return Err(Refusal::NotAnInteger);
+        }
+        if bytes.get(at) == Some(&b'.') {
+            at += 1;
+            let fraction_start = at;
+            while at < bytes.len() && bytes[at].is_ascii_digit() {
+                at += 1;
+            }
+            // A fraction is a zero tail only: any non-zero digit names a
+            // number that is not an integer, however small it is.
+            if at == fraction_start || bytes[fraction_start..at].iter().any(|digit| *digit != b'0')
+            {
+                return Err(Refusal::NotAnInteger);
+            }
+        }
+        let exponent = exponent(&bytes[at..])?;
+        if at + exponent.1 != bytes.len() {
+            return Err(Refusal::NotAnInteger);
+        }
+        let magnitude = magnitude(int_digits, exponent.0)?;
+        fits::<T>(negative, magnitude).map(Integral)
+    }
+}
+
+/// The exponent written after the fraction, and how many bytes of `tail`
+/// it took: `(value, bytes)`. The empty tail is no exponent.
+fn exponent(tail: &[u8]) -> Result<(i64, usize), Refusal> {
+    let Some((&marker, _)) = tail.split_first() else {
+        return Ok((0, 0));
+    };
+    if marker != b'e' && marker != b'E' {
+        return Ok((0, 0));
+    }
+    let mut at = 1;
+    let negative = match tail.get(at) {
+        Some(b'-') => {
+            at += 1;
+            true
+        }
+        Some(b'+') => {
+            at += 1;
+            false
+        }
+        _ => false,
+    };
+    let start = at;
+    let mut value = 0i64;
+    while let Some(digit) = tail.get(at) {
+        if !digit.is_ascii_digit() {
+            break;
+        }
+        value = value
+            .checked_mul(10)
+            .and_then(|value| value.checked_add(i64::from(digit - b'0')))
+            .ok_or(Refusal::ExponentPastBound)?;
+        if value > EXPONENT_LIMIT {
+            return Err(Refusal::ExponentPastBound);
+        }
+        at += 1;
+    }
+    if at == start {
+        return Err(Refusal::NotAnInteger);
+    }
+    Ok((if negative { -value } else { value }, at))
+}
+
+/// `digits` shifted by `exponent`: a positive exponent appends zeros, and
+/// a negative one removes only trailing zeros.
+fn magnitude(digits: &[u8], exponent: i64) -> Result<u128, Refusal> {
+    if exponent >= 0 {
+        let mut value = digits_value(digits)?;
+        for _ in 0..exponent {
+            value = value.checked_mul(10).ok_or(Refusal::OutOfRange)?;
+        }
+        return Ok(value);
+    }
+    let mut end = digits.len();
+    let mut remove = exponent.unsigned_abs();
+    while remove > 0 && end > 0 && digits[end - 1] == b'0' {
+        end -= 1;
+        remove -= 1;
+    }
+    if remove > 0 && digits[..end].iter().any(|digit| *digit != b'0') {
+        return Err(Refusal::NotAnInteger);
+    }
+    digits_value(&digits[..end])
+}
+
+/// The unsigned integer a run of decimal digits names.
+fn digits_value(digits: &[u8]) -> Result<u128, Refusal> {
+    digits.iter().try_fold(0u128, |value, digit| {
+        value
+            .checked_mul(10)
+            .and_then(|value| value.checked_add(u128::from(digit - b'0')))
+            .ok_or(Refusal::OutOfRange)
+    })
+}
+
+/// `magnitude` as `T`, keeping the sign: the field's exact range, never a
+/// rounded one.
+fn fits<T>(negative: bool, magnitude: u128) -> Result<T, Refusal>
+where
+    T: TryFrom<i128> + TryFrom<u128>,
+{
+    if negative {
+        let signed = match magnitude {
+            0 => 0,
+            value if value == i128::MIN.unsigned_abs() => i128::MIN,
+            value => -i128::try_from(value).map_err(|_| Refusal::OutOfRange)?,
+        };
+        T::try_from(signed).map_err(|_| Refusal::OutOfRange)
     } else {
-        Unexpected::Unsigned(value as u64)
+        T::try_from(magnitude).map_err(|_| Refusal::OutOfRange)
+    }
+}
+
+/// The number serde names when a positive integer is refused, without
+/// narrowing it to a type serde's `Unexpected` holds; one outside both
+/// ranges keeps its own words instead of wrapping.
+fn number(value: i128) -> Unexpected<'static> {
+    if let Ok(value) = u64::try_from(value) {
+        Unexpected::Unsigned(value)
+    } else if let Ok(value) = i64::try_from(value) {
+        Unexpected::Signed(value)
+    } else {
+        Unexpected::Other("a number out of range")
     }
 }
 

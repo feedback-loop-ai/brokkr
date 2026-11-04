@@ -46,7 +46,11 @@ brokkr-protocol = { workspace = true }
 jsonschema = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
+# The host file's numbers are read from their exact tokens, never through
+# `f64` (decision 0071 ruling 3; the operator's ruling of 2026-11-04,
+# option A). `raw_value` only adds a type; it changes no existing read and
+# leaves the lockfile unchanged.
+serde_json = { workspace = true, features = ["raw_value"] }
 # U8a2c (operator ruling 2026-10-18, R2): a historical artifact is hashed a
 # chunk at a time, observing the shared deadline as it hashes, which needs
 # the incremental digest. The locked package brokkr-core and brokkr-protocol

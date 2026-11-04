@@ -16,7 +16,11 @@
 //! rules own it, that version. A ceiling of zero, a
 //! negative one and one past `u32` are refused, never read as unlimited,
 //! and so is a provider or route written twice: the ceiling the operator
-//! reads first is the one admission obeys, or none is. The free-space
+//! reads first is the one admission obeys, or none is. Every number is
+//! read from its exact token, never through `f64` (the operator's ruling
+//! of 2026-11-04, option A): an integral decimal or exponent notation
+//! reads exactly as the schema admits, and a token that is not exactly an
+//! integer in range is a shape refusal. The free-space
 //! floors are a list of at least one (the operator's ruling of
 //! 2026-10-10, option c), each naming exactly one place or absolute path,
 //! and none named twice.

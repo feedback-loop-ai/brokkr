@@ -765,6 +765,42 @@ fn a_floor_waits_below_its_free_bytes_naming_it_and_admits_at_or_above() {
     );
 }
 
+/// F1 (decision 0071 ruling 3; the operator's ruling of 2026-11-04,
+/// option A): the exact floor token `9007199254740993.0` is one past the
+/// last odd integer an `f64` can hold, so a reader that rounds lowers the
+/// floor to `...992` and admits at free `...992`. The guard must raise
+/// `FloorLow` naming the exact bytes the operator wrote, in v1 and v2
+/// alike.
+#[test]
+fn an_exact_integral_floor_token_keeps_the_admission_guard() {
+    let mut fixture = Fixture::new();
+    fixture.queue();
+    let file = fixture.root.join("host.json");
+    let probe = 9_007_199_254_740_992;
+    for schema in ["forge.host/v1", "forge.host/v2"] {
+        std::fs::write(
+            &file,
+            format!(
+                r#"{{"schema":"{schema}","providers":{{"alpha":{{"ceiling":1}},"beta":{{"ceiling":1,"routes":{{}}}}}},"floors":[{{"floor_bytes":9007199254740993.0,"place":"temp"}}],"boxed_builds":{{"ceiling":2}}}}"#
+            ),
+        )
+        .unwrap();
+        let reasons = fixture.reasons(&file, probe).remove(0);
+        assert_eq!(
+            reasons,
+            vec![Reason::Capacity(Capacity::FloorLow {
+                at: Measured::Place {
+                    place: Place::Temp,
+                    path: TEMP.into(),
+                },
+                free: probe,
+                floor: 9_007_199_254_740_993,
+            })],
+            "{schema}"
+        );
+    }
+}
+
 #[test]
 fn of_two_floors_on_one_filesystem_the_second_is_judged_by_its_own_number() {
     let mut fixture = Fixture::new();
@@ -1092,7 +1128,8 @@ fn a_bare_and_a_qualified_dsh_id_are_both_counted_against_the_route_dsh_serves_t
 
 #[test]
 fn a_running_lane_on_a_provider_the_host_does_not_declare_is_counted_as_cloud() {
-    let config: HostConfig = serde_json::from_value(ceilings(1, 1, json!({}))).unwrap();
+    let bytes = serde_json::to_vec(&ceilings(1, 1, json!({}))).unwrap();
+    let config: HostConfig = serde_json::from_slice(&bytes).unwrap();
     let lane = Lane {
         provider: "gamma".into(),
         route: Some("spark-glm".into()),
