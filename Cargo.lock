@@ -346,7 +346,7 @@ checksum = "dc0b364ead1874514c8c2855ab558056ebfeb775653e7ae45ff72f28f8f3166c"
 
 [[package]]
 name = "brokkr-bridge"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "brokkr-core",
  "brokkr-runtime",
@@ -362,7 +362,7 @@ dependencies = [
 
 [[package]]
 name = "brokkr-cli"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "anyhow",
  "boa_engine",
@@ -390,7 +390,7 @@ dependencies = [
 
 [[package]]
 name = "brokkr-core"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "hex",
  "serde",
@@ -403,7 +403,7 @@ dependencies = [
 
 [[package]]
 name = "brokkr-protocol"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "hex",
  "libc",
@@ -420,7 +420,7 @@ dependencies = [
 
 [[package]]
 name = "brokkr-runtime"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "brokkr-core",
  "brokkr-protocol",
@@ -442,14 +442,14 @@ dependencies = [
 
 [[package]]
 name = "brokkr-seatbelt-probe"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "brokkr-protocol",
 ]
 
 [[package]]
 name = "brokkr-store"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "brokkr-core",
  "hex",
@@ -466,7 +466,7 @@ dependencies = [
 
 [[package]]
 name = "brokkr-view"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "brokkr-core",
  "serde",
