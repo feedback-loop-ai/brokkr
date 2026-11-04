@@ -325,6 +325,8 @@ fn a_classify_annotation_reads_its_cause_and_its_citation() {
         // writes `by`, `ref` and `reason` as values, never as `null`.
         json!({"cause": "superseded", "by": {"run_id": "later"}, "reason": "why"}),
         json!({"cause": "superseded", "by": {"realm": null}, "reason": "why"}),
+        // A realm is a name or `null`, never another type.
+        json!({"cause": "superseded", "by": {"realm": 42, "run_id": "later"}, "reason": "why"}),
         json!({"cause": "superseded", "by": null, "reason": "why"}),
         json!({"cause": "delivered-elsewhere", "ref": null, "reason": "why"}),
         json!({"cause": "withdrawn", "reason": null}),
@@ -370,12 +372,20 @@ fn the_latest_classify_annotation_stands_over_the_earlier_one() {
     )
     .seq(2)
     .build();
+    // Only a `classify` command is an annotation, whatever its `args` say.
+    let retry = EnvelopeBuilder::new(
+        EventType::OperatorCommanded,
+        json!({"command_id": "r", "command": "retry", "operator": "operator", "args": {"cause": "withdrawn", "reason": "r"}}),
+    )
+    .seq(6)
+    .build();
     let events = vec![
         stop,
         no_args,
         classified(3, "withdrawn", None),
         classified(4, "delivered-elsewhere", Some("abc123")),
         classified(5, "shipped", None),
+        retry,
     ];
     let state = folded(Run::Stopped, "implement", None);
     assert_eq!(
@@ -385,5 +395,25 @@ fn the_latest_classify_annotation_stands_over_the_earlier_one() {
             cited: Some(Citation::Ref("abc123".into())),
         }),
         "the latest readable classify wins; an unreadable one is not a guess"
+    );
+}
+
+/// A refusal lists the six operator-owned words in ruling 2's order.
+#[test]
+fn the_operator_words_are_the_six_in_ruling_twos_order() {
+    assert_eq!(
+        Ending::operator_words(),
+        "exhausted, superseded, infrastructure, delivered-elsewhere, withdrawn, operator-stopped"
+    );
+}
+
+/// A realm that is neither a name nor `null` is refused in the reader's
+/// own words.
+#[test]
+fn a_realm_of_another_type_is_refused_by_name() {
+    let refused = serde_json::from_value::<Realm>(json!(42)).unwrap_err();
+    assert_eq!(
+        refused.to_string(),
+        "invalid type: integer `42`, expected a realm name or null"
     );
 }
