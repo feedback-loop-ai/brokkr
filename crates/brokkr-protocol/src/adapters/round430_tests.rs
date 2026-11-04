@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::env_guard::EnvGuard;
+use crate::RefusalClass;
 
 /// One exec start driven through production's seat body, with every wire
 /// body it sent. Both start-refusal cases below differ only in the start
@@ -202,4 +203,123 @@ fn a_qualified_seat_whose_child_cannot_be_waited_on_concludes_instead_of_spinnin
     // that a different cause or context could share (#430 M1; decision
     // 0071 rulings 8 and 9).
     assert_eq!(refused, "agent CLI did not conclude: no child processes");
+}
+
+/// The chief's #991 case: masking a four-byte value whose bound NAME is
+/// 140 characters grows the refusal's bounded line from 183 characters to
+/// 328, past the reader's 300 (`REFUSAL_WORDS_LIMIT`), so the masked line
+/// must be bounded again before it crosses the driver boundary (decisions
+/// 0012 and 0103 ruling 1(a); #430 slice 4a F1).
+#[cfg(unix)]
+fn chief_masked_rate_limit(probe: bool) -> (PreSessionRefusal, Value) {
+    let mut env = EnvGuard::lock();
+    let dir = tempfile::tempdir().unwrap();
+    let name = "X".repeat(140);
+    let store = dir.path().join("secrets.env");
+    secret::store_set(&store, &name, "HTTP").unwrap();
+    let shim = super::tests::executable(
+        dir.path(),
+        "claude-masked-rate-limit",
+        &format!(
+            "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{}'\n",
+            json!({"type": "rate_limit_event", "apiErrorStatus": 429,
+                   "message": "x".repeat(160)})
+        ),
+    );
+    env.set("BROKKR_CLAUDE_BIN", &shim);
+    let mut start = json!({
+        "effect_id": "effect", "attempt_id": "attempt",
+        "input": {
+            "workdir": dir.path(),
+            "result_path": dir.path().join("result.json"),
+            "allowed_results": ["complete"],
+            "feature": "f", "phase": "work", "role_path": "/dev/null",
+            "secrets": [name],
+            "secrets_file": store,
+        }
+    });
+    if probe {
+        start["probe"] = json!(true);
+    }
+    let extra = ["--model".to_string(), "featherless:qwen/qwen3".to_string()];
+    let mut messages = Vec::new();
+    run_seat(AdapterKind::Claude, &extra, &start, None, &mut |body| {
+        messages.push(body)
+    });
+    let Body::Result {
+        status: ResultStatus::Failed,
+        refusal: Some(refusal),
+        ..
+    } = messages.last().expect("the seat reports a result")
+    else {
+        panic!("the masked rate-limit refusal rides the failed result: {messages:?}");
+    };
+    (
+        refusal.clone(),
+        serde_json::to_value(refusal).expect("the refusal serializes"),
+    )
+}
+
+/// The masked refusal reads back as the typed object the reader accepts,
+/// with its provider, route, status and exactly the first 300 characters
+/// of the masked line, none of them the masked value.
+#[cfg(unix)]
+fn assert_chief_masked_rate_limit(refusal: &PreSessionRefusal, serialized: &Value) {
+    assert_eq!(refusal.class(), RefusalClass::RateLimit);
+    assert_eq!(refusal.provider(), "claude");
+    assert_eq!(refusal.route(), Some("featherless:qwen"));
+    assert_eq!(refusal.status(), Some(429));
+    let reread = crate::PreSessionRefusal::read(serialized).unwrap_or_else(|error| {
+        panic!("the masked refusal must read back, not refuse `{error:?}`: {serialized}")
+    });
+    assert_eq!(&reread, refusal, "{serialized}");
+    let masked = format!(
+        "rate_limit ([secret:{}] 429): {}",
+        "X".repeat(140),
+        "x".repeat(160)
+    );
+    let expected: String = masked.chars().take(300).collect();
+    assert_eq!(expected.chars().count(), 300);
+    assert_eq!(reread.words(), expected);
+    assert!(
+        reread
+            .words()
+            .starts_with(&format!("rate_limit ([secret:{}] 429): ", "X".repeat(140))),
+        "{}",
+        reread.words()
+    );
+    assert!(!reread.words().contains("HTTP"), "{}", reread.words());
+}
+
+/// #991 on an ordinary attempt: the chief's masked rate-limit refusal is
+/// readable, keeping its provider, route and 429, with its words bounded
+/// to 300 characters.
+#[cfg(unix)]
+#[test]
+fn chief_review_991_a_masked_rate_limit_refusal_reads_back_on_an_ordinary_attempt() {
+    let (refusal, serialized) = chief_masked_rate_limit(false);
+    assert_chief_masked_rate_limit(&refusal, &serialized);
+}
+
+/// #991 on a probe: the same one choke point serves `Start`'s probe
+/// (decision 0103 ruling 4(a)), so a masked probe refusal is equally
+/// readable and equally bounded.
+#[cfg(unix)]
+#[test]
+fn chief_review_991_a_masked_rate_limit_refusal_reads_back_on_a_probe() {
+    let (refusal, serialized) = chief_masked_rate_limit(true);
+    assert_chief_masked_rate_limit(&refusal, &serialized);
+}
+
+/// The second cut is a no-op where masking kept the line under the bound:
+/// a masked refusal is the masker's own bytes, unchanged.
+#[test]
+fn a_masked_refusal_under_the_words_limit_is_unchanged_byte_for_byte() {
+    let bindings = [super::tests::binding("API_TOKEN", "quota")];
+    let refusal = refusal_reason("rate_limit", Some(429), Some("quota exhausted"));
+    let masked = masked_refusal(Some(refusal), &bindings).expect("the refusal is present");
+    assert_eq!(
+        masked.words(),
+        "rate_limit (HTTP 429): [secret:API_TOKEN] exhausted"
+    );
 }

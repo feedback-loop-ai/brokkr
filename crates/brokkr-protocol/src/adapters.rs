@@ -6264,7 +6264,18 @@ fn masked_refusal(
     bindings: &[secret::BoundSecret],
 ) -> Option<PreSessionRefusal> {
     refusal.map(|refusal| {
-        let words = secret::mask_text(refusal.words().as_bytes(), bindings);
+        // Mask first, cut second (decision 0012): a cut before masking
+        // could split a value and leave its prefix in the line. Masking
+        // replaces a value with its bound NAME, so a name longer than the
+        // value grows the bounded line past the reader's bound and the
+        // masked text must be bounded again before it crosses the driver
+        // boundary (decision 0103 ruling 1(a), #991). Cutting the masked
+        // text can only shorten a name, never leave part of a value: no
+        // value survives the mask.
+        let masked = secret::mask_text(refusal.words().as_bytes(), bindings);
+        let words = bounded_wire_line(&masked, crate::REFUSAL_WORDS_LIMIT);
+        // The words were non-empty and masking never empties a line, so
+        // the re-cut cannot hand the reader an empty `words` to refuse.
         refusal.with_words(words)
     })
 }
