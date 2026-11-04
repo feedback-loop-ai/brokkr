@@ -95,14 +95,8 @@ fn every_fold_word_a_retry_can_meet_refuses_before_anything_is_written() {
     );
     assert_eq!(fold_refusal(&mut runtime), FoldRefusal::NoPhaseToRetry);
     let (_dir, mut runtime) = parked(body(), false);
-    let stopped = super::super::super::operator_command(
-        &mut runtime.store,
-        &runtime.run_id,
-        OperatorCommand::Stop,
-        "test",
-        "enough",
-    )
-    .unwrap();
+    let stopped =
+        crate::engine::stop_as(&mut runtime.store, &runtime.run_id, "test", "enough").unwrap();
     assert!(matches!(stopped, FencedCommandOutcome::Accepted { .. }));
     assert_eq!(
         runtime.drive().unwrap().state.run.status(),

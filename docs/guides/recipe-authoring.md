@@ -764,7 +764,8 @@ Three consequences worth internalising:
    instead, `a charter of <owner> moved since the compile (unrecorded:
    <key>)` (operator ruling of 2026-09-29, point 1). There is no digest-only
    fallback. Close such a run with
-   `brokkr conclude --run <id> --reason "…"` and fire it again.
+   `brokkr conclude --run <id> --cause <cause> --reason "…"` and fire it
+   again.
 
 ## The policy table
 

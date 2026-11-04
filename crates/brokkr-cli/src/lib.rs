@@ -818,7 +818,7 @@ fn report_to(error: &anyhow::Error, stderr: &mut impl std::io::Write) -> ExitCod
         }
         None => {
             let _ = writeln!(stderr, "{}", failure_line(error));
-            Exit::Failed.into()
+            Exit::of_failure(error).into()
         }
     }
 }

@@ -75,7 +75,7 @@ fn acknowledging_a_run_that_folds_is_refused_and_names_conclude() {
         failure_line(&refused),
         "error: run healthy folds, so it is not quarantined and there is nothing to \
          acknowledge; nothing was recorded. A run that folds is closed with brokkr conclude \
-         --run healthy --reason <why>"
+         --run healthy --cause <cause> --reason <why>"
     );
     let store = Store::open_read_only(&db).unwrap();
     assert_eq!(store.acknowledgement("healthy").unwrap(), None);

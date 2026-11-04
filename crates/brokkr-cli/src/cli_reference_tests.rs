@@ -61,7 +61,7 @@ enum Selector {
 /// reads the run. `verbs/tests.rs` pins the verbs that came to the
 /// resolver last. An entry that names no argument, and an argument whose
 /// id names a run with no entry, fail `every_selector_names_an_argument`.
-const SELECTORS: [(&str, &str, Selector); 23] = [
+const SELECTORS: [(&str, &str, Selector); 24] = [
     ("brokkr costs", "run", Selector::Always),
     ("brokkr run", "continues", Selector::Always),
     ("brokkr ledger", "run", Selector::Always),
@@ -75,6 +75,7 @@ const SELECTORS: [(&str, &str, Selector); 23] = [
     ("brokkr compare", "run_a", Selector::Always),
     ("brokkr compare", "run_b", Selector::Always),
     ("brokkr conclude", "run", Selector::Always),
+    ("brokkr conclude", "by_run", Selector::Literal),
     ("brokkr operator", "run", Selector::Always),
     ("brokkr operator", "by_run", Selector::Literal),
     ("brokkr inspect", "run", Selector::Always),

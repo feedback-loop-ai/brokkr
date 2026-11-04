@@ -10,8 +10,8 @@ use anyhow::Result;
 use brokkr_core::fold::OperatorCommand;
 use brokkr_runtime::launch::{self, LaunchRequest, NewRun, RunMap};
 use brokkr_runtime::realms::World;
-use brokkr_runtime::{conclude as conclude_run, operator_command};
-use brokkr_runtime::{Classify, Engine, FencedCommandOutcome};
+use brokkr_runtime::{conclude as conclude_run, named_cause, operator_command, operator_stop};
+use brokkr_runtime::{Cause, Engine, FencedCommandOutcome, Named, Verb};
 use brokkr_store::Store;
 
 use crate::cli_args::{
@@ -175,19 +175,70 @@ pub(crate) fn rerun(workspace: &Path, args: RerunArgs) -> Result<ExitCode> {
     drive_to_end(&mut engine, Engine::drive)
 }
 
-/// `brokkr conclude`: close a stopped or parked run from its journal alone.
+/// `brokkr conclude`: close a stopped or parked run from its journal alone,
+/// naming its cause (decision 0064 ruling 4).
 pub(crate) fn conclude(
     workspace: &Path,
     ConcludeArgs {
         run,
         reason,
+        cause,
+        by_run,
+        by_realm,
+        by_ref,
         journal,
     }: ConcludeArgs,
 ) -> Result<ExitCode> {
-    let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
-    let run = selector::resolve_run(&store, &run)?;
-    let state = conclude_run(&mut store, &run, &operator_name(), &reason)?;
+    let by = (by_run, by_realm, by_ref);
+    let cause = typed_cause(Verb::Conclude, cause.as_deref(), &by)?;
+    let (mut store, cited, run) = closing(workspace, journal, cause.by_realm, &run)?;
+    let operator = operator_name();
+    let named = Named {
+        cause,
+        reason: &reason,
+        operator: &operator,
+    };
+    let state = conclude_run(&mut store, &cited, &run, &named)?;
     Ok(finish(&state))
+}
+
+/// The cause typed on `verb`, parsed where it was typed and before any
+/// journal is opened (decision 0071 ruling 3): a missing `--cause` is the
+/// usage refusal that names the six, and `by` are `--by-run`,
+/// `--by-realm` and `--by-ref` as typed.
+fn typed_cause<'a>(
+    verb: Verb,
+    cause: Option<&str>,
+    (by_run, by_realm, by_ref): &'a (Option<String>, Option<String>, Option<String>),
+) -> Result<Cause<'a>> {
+    Ok(Cause {
+        ending: named_cause(verb, cause)?,
+        by_realm: by_realm.as_deref(),
+        by_run: by_run.as_deref(),
+        by_ref: by_ref.as_deref(),
+    })
+}
+
+/// The journal `stop` and `conclude` write, opened as they always opened
+/// it; the journal a `superseded` citation is read in, read-only — that
+/// one, unless `--by-realm` names another hearth ([`citation_journal`]);
+/// and the run `--run` names.
+fn closing(
+    workspace: &Path,
+    journal: JournalArgs,
+    by_realm: Option<&str>,
+    run: &str,
+) -> Result<(Store, Store, String)> {
+    let (realms, db) = (journal.realms.clone(), journal.db.clone());
+    let written = journal.journal(workspace)?;
+    let store = open_journal(&written, Access::Append)?;
+    let cited = match by_realm {
+        None => written,
+        Some(_) => citation_journal(workspace, realms, db, by_realm)?.1,
+    };
+    let cited = Store::open_read_only(&cited)?;
+    let run = selector::resolve_run(&store, run)?;
+    Ok((store, cited, run))
 }
 
 /// `brokkr operator`: record `retry`, `stop` or `supersede`, or
@@ -223,7 +274,7 @@ pub(crate) fn operator(
     if command == brokkr_core::residual::SUPERSEDE {
         anyhow::ensure!(
             cause.is_none() && by_ref.is_none(),
-            "--cause and --by-ref belong to 'classify'"
+            "--cause and --by-ref belong to 'stop' and 'classify'"
         );
         return supersede(
             workspace,
@@ -235,21 +286,23 @@ pub(crate) fn operator(
             journal.db,
         );
     }
-    if command == brokkr_core::ending::CLASSIFY {
+    // The two operator verbs that name how a run ended (decision 0064
+    // rulings 4 and 5) take the cause and its citation, and refuse the
+    // pair that is supersede's alone.
+    let stopping = command == OperatorCommand::Stop.as_str();
+    if stopping || command == brokkr_core::ending::CLASSIFY {
         anyhow::ensure!(
             findings.is_empty() && by_seq.is_none(),
-            "--findings and --by-seq belong to 'supersede'; 'classify' takes \
-             --run, --cause, --reason, --by-run, --by-realm, --by-ref, \
-             --realms and --db"
+            "--findings and --by-seq belong to 'supersede'; '{command}' takes {}",
+            member_retry::accepted_arguments(&command)
         );
-        return classify(
-            workspace,
-            &run,
-            &reason,
-            cause,
-            (by_run, by_realm, by_ref),
-            journal,
-        );
+        let by = (by_run, by_realm, by_ref);
+        if stopping {
+            let cause = typed_cause(Verb::Stop, cause.as_deref(), &by)?;
+            return stop(workspace, &run, &reason, cause, journal);
+        }
+        let cause = typed_cause(Verb::Classify, cause.as_deref(), &by)?;
+        return classify(workspace, &run, &reason, cause, journal);
     }
     anyhow::ensure!(
         !cited,
@@ -259,7 +312,7 @@ pub(crate) fn operator(
     );
     anyhow::ensure!(
         cause.is_none() && by_ref.is_none(),
-        "--cause and --by-ref belong to 'classify'; '{command}' takes {}",
+        "--cause and --by-ref belong to 'stop' and 'classify'; '{command}' takes {}",
         member_retry::accepted_arguments(&command)
     );
     if command == "acknowledge" {
@@ -352,44 +405,47 @@ fn classify(
     workspace: &Path,
     run: &str,
     reason: &str,
-    cause: Option<String>,
-    by: (Option<String>, Option<String>, Option<String>),
+    cause: Cause,
     journal: JournalArgs,
 ) -> Result<ExitCode> {
-    let (by_run, by_realm, by_ref) = by;
-    let words = brokkr_core::ending::Ending::operator_words();
-    let Some(cause) = cause else {
-        anyhow::bail!("classify needs --cause: one of {words}");
+    let (realms, db) = (journal.realms, journal.db);
+    let (mut store, cited, run) = annotated_run(workspace, realms, db, cause.by_realm, run)?;
+    let named = Named {
+        cause,
+        reason,
+        operator: &operator_name(),
     };
-    // Parsed here, where it was typed and before any journal is opened
-    // (decision 0071 ruling 3): the engine takes an `Ending`, never a word.
-    let cause = brokkr_runtime::classify_cause(&cause)?;
-    let (mut store, cited, run) = annotated_run(
-        workspace,
-        journal.realms,
-        journal.db,
-        by_realm.as_deref(),
-        run,
-    )?;
-    let written = brokkr_runtime::operator_classify(
-        &mut store,
-        &cited,
-        &run,
-        &Classify {
-            cause,
-            by_realm: by_realm.as_deref(),
-            by_run: by_run.as_deref(),
-            by_ref: by_ref.as_deref(),
-            reason,
-            operator: &operator_name(),
-        },
-    )?;
+    let written = brokkr_runtime::operator_classify(&mut store, &cited, &run, &named)?;
     eprintln!(
         "recorded classify at seq {} on {run}; the run's status is untouched. Read it with: \
          brokkr inspect --run {run}",
         written.seq
     );
     Ok(Exit::Completed.into())
+}
+
+/// `brokkr operator stop` (decision 0064 ruling 4): the stop, its cause
+/// riding in the command's `args`. A refused cause writes nothing; past
+/// it the stop is fenced and disposed as every operator command is.
+fn stop(
+    workspace: &Path,
+    run: &str,
+    reason: &str,
+    cause: Cause,
+    journal: JournalArgs,
+) -> Result<ExitCode> {
+    let (mut store, cited, run) = closing(workspace, journal, cause.by_realm, run)?;
+    let named = Named {
+        cause,
+        reason,
+        operator: &operator_name(),
+    };
+    // The command is fenced against a concurrently-driving
+    // engine, so it can come back refused. Saying "recorded"
+    // there would tell the operator the opposite of what the
+    // journal says.
+    let outcome = operator_stop(&mut store, &cited, &run, &named)?;
+    disposition(outcome, OperatorCommand::Stop.as_str(), &run)
 }
 
 fn disposition(outcome: FencedCommandOutcome, command: &str, run: &str) -> Result<ExitCode> {

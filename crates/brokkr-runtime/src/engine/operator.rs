@@ -6,6 +6,7 @@
 //! read ([`fenced_append`]), and the rule for whether an acceptance folds
 //! at all is `fold`'s own ([`acceptance_refusal`]).
 
+use brokkr_core::ending::ended;
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{
     acceptance_refusal, concluded, fold, Cursor, OperatorCommand, Refusal, Run, RunState, Status,
@@ -21,15 +22,19 @@ use super::{EngineError, OPERATOR_STOP_RULE};
 mod classify;
 mod conclusion;
 mod disposition;
+mod ending;
 mod retry;
 use disposition::{disposed, Commanded, Disposition};
 pub use retry::MemberRetryOutcome;
 mod receipt;
 mod release;
 mod supersede;
-pub use classify::{classify_cause, operator_classify, Classify};
+pub use classify::operator_classify;
 pub(super) use conclusion::operator_stop_reason;
 pub use conclusion::ConcludeRefusal;
+#[cfg(test)]
+pub(super) use ending::tests::{conclude_as, conclude_racing_as, stop_as, stop_racing_as};
+pub use ending::{named_cause, operator_stop, Cause, CauseRefusal, Flag, Named, Verb};
 #[cfg(test)]
 pub(super) use release::released_racing;
 #[cfg(test)]
@@ -266,7 +271,9 @@ impl Rejection<'_> {
 ///
 /// A refusal is written unfenced, because `fold` reads
 /// `operator/rejected` back in every state there is. `release` is the
-/// reservation's, and takes a path of its own.
+/// reservation's, and takes a path of its own. A `stop` names its cause
+/// (decision 0064 ruling 4), so it is [`operator_stop`]'s: asked here, it
+/// is [`CauseRefusal::Missing`], and nothing is written.
 pub fn operator_command(
     store: &mut Store,
     run_id: &str,
@@ -331,6 +338,10 @@ pub(super) fn operator_command_racing(
     reason: &str,
     between: impl FnMut(&mut Store),
 ) -> Result<FencedCommandOutcome, EngineError> {
+    if command == OperatorCommand::Stop {
+        let verb = ending::Verb::Stop;
+        return Err(CauseRefusal::Missing { verb }.into());
+    }
     let read = folded(store, run_id)?;
     let request = Commanded {
         command,
@@ -378,13 +389,22 @@ pub(super) fn operator_command_racing(
 /// conclusion is for a run believed dead. `resume`'s fresh-process
 /// branch is fenced the same way, by the engine's own fold (decision
 /// 0029). `brokkr runs` remains the way to look first.
+///
+/// The conclusion names its cause (decision 0064 ruling 4), checked
+/// before anything is written, and `by_journal` is the journal a
+/// `superseded` citation is read in. Choice 4 (a)'s three cases: the stop
+/// `conclude` commands carries the cause in its `args`; a stop in force
+/// whose reading already gives that cause gets nothing more; and one that
+/// names another cause, or none, gets one `classify` after `run/stopped`,
+/// written as `operator classify` writes it, which stands over the stop's
+/// (ruling 5).
 pub fn conclude(
     store: &mut Store,
+    by_journal: &Store,
     run_id: &str,
-    operator: &str,
-    reason: &str,
+    named: &Named,
 ) -> Result<RunState, EngineError> {
-    conclude_racing(store, run_id, operator, reason, |_| {})
+    conclude_racing(store, by_journal, run_id, named, |_| {})
 }
 
 /// [`conclude`] with the windows held open: `between` runs before the
@@ -393,11 +413,12 @@ pub fn conclude(
 /// live driver the fences exist to refuse.
 pub(super) fn conclude_racing(
     store: &mut Store,
+    by_journal: &Store,
     run_id: &str,
-    operator: &str,
-    reason: &str,
+    named: &Named,
     mut between: impl FnMut(&mut Store),
 ) -> Result<RunState, EngineError> {
+    let shaped = ending::checked(ending::Verb::Conclude, &named.cause, by_journal)?;
     // `load` verifies the hash chain and never returns a partial journal,
     // so a broken chain refuses the whole conclusion here — before any
     // append. No second verification, and the error is never swallowed.
@@ -407,10 +428,10 @@ pub(super) fn conclude_racing(
     }
 
     // A stop already in force is not re-commanded: the operator who
-    // typed `brokkr operator stop` is the cause the journal already
-    // names, and a second command would put a second name on the
-    // conclusion. Only a run with no stop pending gets one, naming the
-    // operator invoking `conclude`.
+    // typed `brokkr operator stop` is the one the journal already names,
+    // and a second command would put a second name on the conclusion.
+    // Only a run with no stop pending gets one, naming the operator
+    // invoking `conclude` and carrying the cause they named.
     between(store);
     if !matches!(
         state.run,
@@ -422,7 +443,7 @@ pub(super) fn conclude_racing(
                 }
         )
     ) {
-        command_stop(store, run_id, operator, reason)?;
+        command_stop(store, run_id, named, shaped.args())?;
     }
     let events = close_riding_attempt(store, run_id, &mut between)?;
 
@@ -441,26 +462,34 @@ pub(super) fn conclude_racing(
         payload,
         None,
     );
-    concluded_or_alive(run_id, stopped)?;
+    let stopped = concluded_or_alive(run_id, stopped)?;
+    let events = store.load(run_id)?;
+    let (state, _) = decided(store, run_id, &events)?;
+    // Choice 4 (a): the ending the concluded run already reads is the
+    // cause named, or one `classify` right after `run/stopped` names it.
+    if ended(&events, &state) == Some(shaped.ended()) {
+        return Ok(state);
+    }
+    classify::classified(store, run_id, &Head::of(&stopped), &shaped, named)?;
     read_back(store, run_id)
 }
 
 /// The stop `conclude` commands on a run that has none in force, naming
-/// the operator invoking it. A refusal ends the conclusion: the journal
-/// moved beneath it.
+/// the operator invoking it, with the cause's `args`. A refusal ends the
+/// conclusion: the journal moved beneath it.
 fn command_stop(
     store: &mut Store,
     run_id: &str,
-    operator: &str,
-    reason: &str,
+    named: &Named,
+    args: Value,
 ) -> Result<(), EngineError> {
     let stop = OperatorCommand::Stop;
     let read = folded(store, run_id)?;
     let request = Commanded {
         command: stop,
-        operator,
-        reason,
-        args: json!({}),
+        operator: named.operator,
+        reason: named.reason,
+        args,
     };
     match disposed(store, run_id, request, read, |_| {})? {
         Disposition::Accepted(_) => Ok(()),

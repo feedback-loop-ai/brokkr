@@ -22,7 +22,7 @@ for (const status of [401, 403]) {
     const { brokkr, host } = await applied(status)
     assert.deepEqual([...host.routes.keys()].sort(), [...ROUTES].sort())
     for (const [path, { handler }] of host.routes) {
-      const body = { command_id: 'a1b2c3d4-0000', realm: 'brokkr', run_id: row().run_id, command: 'stop', reason: 'why', expected_seq: 12 }
+      const body = { command_id: 'a1b2c3d4-0000', realm: 'brokkr', run_id: row().run_id, command: 'stop', reason: 'why', cause: 'withdrawn', expected_seq: 12 }
       const answer = await request(handler, { method: path.endsWith('command') || path.endsWith('focus') ? 'POST' : 'GET', url: path, body })
       assert.deepEqual([path, answer.status, answer.body], [path, status, ''])
     }
@@ -42,11 +42,16 @@ for (const status of [401, 403]) {
   })
 }
 
-test('past the fence, a command with an empty reason is answered 400 and sends nothing', async () => {
+test('past the fence, a command with an empty reason, or a stop naming no cause, is answered 400 and sends nothing', async () => {
   const { brokkr, host } = await applied(undefined)
-  const body = { command_id: 'a1b2c3d4-0000', realm: 'brokkr', run_id: row().run_id, command: 'stop', reason: '', expected_seq: 12 }
-  const answer = await request(host.routes.get('/brokkr-console/api/command').handler, { method: 'POST', body })
-  assert.deepEqual([answer.status, JSON.parse(answer.body)], [400, { error: 'a reason is required' }])
+  const stop = { command_id: 'a1b2c3d4-0000', realm: 'brokkr', run_id: row().run_id, command: 'stop', expected_seq: 12 }
+  for (const [body, error] of [
+    [{ ...stop, reason: '', cause: 'withdrawn' }, 'a reason is required'],
+    [{ ...stop, reason: 'why' }, 'how the run ended is required'],
+  ]) {
+    const answer = await request(host.routes.get('/brokkr-console/api/command').handler, { method: 'POST', body })
+    assert.deepEqual([answer.status, JSON.parse(answer.body)], [400, { error }])
+  }
   assert.deepEqual(brokkr.calls(), [])
 })
 

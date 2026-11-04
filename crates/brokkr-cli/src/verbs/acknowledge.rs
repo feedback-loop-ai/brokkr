@@ -39,7 +39,7 @@ pub(super) fn acknowledge(
         anyhow::bail!(
             "run {run} folds, so it is not quarantined and there is nothing to acknowledge; \
              nothing was recorded. A run that folds is closed with brokkr conclude --run {run} \
-             --reason <why>"
+             --cause <cause> --reason <why>"
         );
     };
     let operator = operator_name();

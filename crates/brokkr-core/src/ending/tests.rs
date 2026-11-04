@@ -398,6 +398,108 @@ fn the_latest_classify_annotation_stands_over_the_earlier_one() {
     );
 }
 
+/// One operator event at `seq`: `event_type` with `payload`.
+fn operator_event(seq: u64, event_type: EventType, payload: Value) -> EventEnvelope {
+    EnvelopeBuilder::new(event_type, payload).seq(seq).build()
+}
+
+/// A stop commanded as `id`, its `args` as given.
+fn stop_commanded(seq: u64, id: &str, args: Value) -> EventEnvelope {
+    let payload =
+        json!({"command_id": id, "command": "stop", "operator": "operator", "args": args});
+    operator_event(seq, EventType::OperatorCommanded, payload)
+}
+
+/// The acceptance of the command `id`.
+fn accepted(seq: u64, id: &str) -> EventEnvelope {
+    let payload = json!({"command_id": id, "operator": "operator", "reason": "enough"});
+    operator_event(seq, EventType::OperatorAccepted, payload)
+}
+
+/// Decision 0064 ruling 4 and slice E3: the cause an accepted stop names
+/// in its `args` is the stopped run's ending, with its citation, and a
+/// later `classify` stands over it (ruling 5). Only the stop the run's
+/// acceptance disposed of is read: not a stop that was never accepted,
+/// and not another command's `args`.
+#[test]
+fn the_accepted_stops_cause_reads_and_a_later_classify_stands_over_it() {
+    let state = folded(Run::Stopped, "implement", None);
+    let superseded =
+        json!({"cause": "superseded", "by": {"realm": "next-door", "run_id": "later"}});
+    let mut events = vec![
+        stop_commanded(1, "s1", superseded),
+        // Another command's acceptance is not the stop's, and another
+        // command's `args` are not a stop's cause.
+        operator_event(
+            2,
+            EventType::OperatorCommanded,
+            json!({"command_id": "r", "command": "retry", "operator": "operator",
+                   "args": {"cause": "withdrawn"}}),
+        ),
+        accepted(3, "r"),
+        accepted(4, "s1"),
+    ];
+    assert_eq!(
+        ended(&events, &state),
+        Some(Ended {
+            ending: Ending::Superseded,
+            cited: Some(Citation::Run {
+                realm: Some("next-door".into()),
+                run_id: "later".into(),
+            }),
+        }),
+        "the accepted stop's cause, with its citation"
+    );
+    let classify = json!({"command_id": "c", "command": "classify", "operator": "operator",
+                          "args": {"cause": "withdrawn", "reason": "named later"}});
+    events.push(operator_event(5, EventType::OperatorCommanded, classify));
+    assert_eq!(
+        ended(&events, &state),
+        Some(Ended {
+            ending: Ending::Withdrawn,
+            cited: None,
+        }),
+        "a later classify stands over the stop's cause"
+    );
+}
+
+/// Ruling 5: a stop that names no cause, as every stop before E3, reads
+/// `unclassified`; so does a run whose causeful stop was never accepted
+/// and whose accepted stop named none.
+#[test]
+fn a_stop_that_names_no_cause_reads_unclassified() {
+    let state = folded(Run::Stopped, "implement", None);
+    let causeless = [stop_commanded(1, "s", json!({})), accepted(2, "s")];
+    assert_eq!(ending(&causeless, &state), Ending::Unclassified);
+    let refused_then_causeless = [
+        stop_commanded(1, "s1", json!({"cause": "infrastructure"})),
+        stop_commanded(2, "s2", json!({})),
+        accepted(3, "s2"),
+    ];
+    assert_eq!(
+        ending(&refused_then_causeless, &state),
+        Ending::Unclassified
+    );
+    let unaccepted = [stop_commanded(1, "s1", json!({"cause": "infrastructure"}))];
+    assert_eq!(ending(&unaccepted, &state), Ending::Unclassified);
+    // Another command's acceptance does not adopt the stop's cause.
+    let another_accepted = [
+        stop_commanded(1, "s1", json!({"cause": "infrastructure"})),
+        operator_event(
+            2,
+            EventType::OperatorCommanded,
+            json!({"command_id": "r", "command": "retry", "operator": "operator"}),
+        ),
+        accepted(3, "r"),
+    ];
+    assert_eq!(ending(&another_accepted, &state), Ending::Unclassified);
+    let accepted_alone = [
+        stop_commanded(1, "s1", json!({"cause": "infrastructure"})),
+        accepted(2, "s1"),
+    ];
+    assert_eq!(ending(&accepted_alone, &state), Ending::Infrastructure);
+}
+
 /// A refusal lists the six operator-owned words in ruling 2's order.
 #[test]
 fn the_operator_words_are_the_six_in_ruling_twos_order() {

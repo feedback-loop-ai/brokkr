@@ -37,6 +37,15 @@ function runOf(target) {
   return [flag('run', target.run_id), ...db]
 }
 
+/** The flag each field of a stop's or a close's ending is typed as (decision 0064 ruling 4). */
+const ENDING_FLAGS = [['cause', 'cause'], ['by_run', 'by-run'], ['by_ref', 'by-ref']]
+
+/** `--cause=<cause>`, and the citations it carries, for an `ending`; nothing for `null`. */
+function endingArgv(ending) {
+  if (ending === null) return []
+  return ENDING_FLAGS.filter(([field]) => ending[field] !== undefined).map(([field, name]) => flag(name, ending[field]))
+}
+
 /** One argv word as a POSIX shell reads it: bare when it can be, else single-quoted. */
 function shellQuote(word) {
   return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`
@@ -91,10 +100,13 @@ export function brokkrOf(config) {
       const named = recipe === null ? [] : [flag('recipe', recipe)]
       return read(['graph', ...named, ...realmOf(realm), flag('range', range), '--json'], 'brokkr graph', graphOf)
     },
-    /** `brokkr operator retry|stop` or `brokkr conclude`, with the reason recorded. */
-    command(target, command, reason) {
+    /**
+     * `brokkr operator retry|stop` or `brokkr conclude`, with the reason
+     * recorded and, for a stop or a close, how the run ended (`ending`).
+     */
+    command(target, command, reason, ending = null) {
       const verb = OPERATOR.includes(command) ? ['operator', command] : ['conclude']
-      return run(config, [...verb, ...runOf(target), flag('reason', reason)])
+      return run(config, [...verb, ...runOf(target), ...endingArgv(ending), flag('reason', reason)])
     },
     /**
      * `brokkr resume`, detached: it drives the run for as long as the run

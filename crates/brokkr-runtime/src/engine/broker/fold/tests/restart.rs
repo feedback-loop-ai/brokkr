@@ -26,7 +26,7 @@ use crate::engine::broker::admission::{
 };
 use crate::engine::broker::settlement::{ended, spawning, Driver, Unreleased};
 use crate::engine::fence::{tests::after_the_fold, tip_of};
-use crate::engine::operator::conclude;
+use crate::engine::operator::conclude_as;
 use crate::engine::panel::MemberRun;
 use crate::engine::tests::fail_event;
 use crate::engine::{spawn_site, Bundle, Door, DriverRun};
@@ -578,7 +578,7 @@ fn two_restarts_that_both_read_before_either_appends_journal_each_call_once() {
 fn a_conclude_between_a_restarts_read_and_its_append_leaves_no_call_after_it() {
     let (site, folded, moved) = moved_after_the_read(|db, run, _, _| {
         let mut store = Store::open(&db).unwrap();
-        conclude(&mut store, &run, "operator", "it died").unwrap();
+        conclude_as(&mut store, &run, "operator", "it died").unwrap();
     });
     let seq = folded as u64;
     assert_eq!(moved, (seq, seq + 4));
@@ -862,7 +862,7 @@ fn operator_conclude_folds_nothing_of_a_recoverable_attempt() {
     let held = site.engine.held.take().unwrap();
     let run = site.engine.run_id.clone();
     let from = site.length();
-    let state = conclude(&mut site.engine.store, &run, "operator", "it died").unwrap();
+    let state = conclude_as(&mut site.engine.store, &run, "operator", "it died").unwrap();
     assert_eq!(state.run, brokkr_core::fold::Run::Stopped);
     use EventType::{EffectIndeterminate, OperatorAccepted, OperatorCommanded, RunStopped};
     let concluded = [

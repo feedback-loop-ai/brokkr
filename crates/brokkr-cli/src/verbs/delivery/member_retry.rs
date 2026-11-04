@@ -28,6 +28,9 @@ pub(super) fn validate(command: &str, args: &MemberRetryArgs) -> Result<()> {
 pub(super) fn accepted_arguments(command: &str) -> &'static str {
     match command {
         "retry" => "--run, --reason, --realms, --db and --member, and with --member also --repo, --bundle, --recipe, --recipes-dir and --secrets-file",
+        "stop" | brokkr_core::ending::CLASSIFY => {
+            "--run, --cause, --reason, --by-run, --by-realm, --by-ref, --realms and --db"
+        }
         _ => "--run, --reason, --realms and --db",
     }
 }

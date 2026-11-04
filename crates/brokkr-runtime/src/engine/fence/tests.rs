@@ -103,7 +103,7 @@ fn operator_stop(dir: &Path, run_id: &str) -> Box<dyn FnOnce()> {
     let (db, run_id) = (db(dir), run_id.to_string());
     Box::new(move || {
         let mut store = Store::open(&db).unwrap();
-        let stopped = operator_command(&mut store, &run_id, Stop, "peer", "halt").unwrap();
+        let stopped = stop_as(&mut store, &run_id, "peer", "halt").unwrap();
         assert!(matches!(stopped, FencedCommandOutcome::Accepted { .. }));
     })
 }

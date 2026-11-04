@@ -69,7 +69,8 @@ fn each_close_says_what_became_of_the_run() {
         said_on(Ok(Closed::Interrupted), refused),
         format!(
             "{stopping}Ctrl+C could not stop run run-1 (the signal was refused); it keeps \
-             driving here. Stop it with: brokkr operator stop --run run-1 --reason <why>\n"
+             driving here. Stop it with: brokkr operator stop --run run-1 --cause <cause> \
+             --reason <why>\n"
         )
     );
     let small = Err(anyhow::anyhow!("this terminal is 50×10"));

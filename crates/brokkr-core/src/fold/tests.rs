@@ -1022,6 +1022,35 @@ fn a_supersede_annotation_folds_a_stopped_run_to_the_same_state() {
     );
 }
 
+/// A run an operator stopped, numbered from seq 1: started, in
+/// `implement`, the stop commanded as `stop` and accepted, and
+/// `run/stopped`.
+fn operator_stopped(stop: Value) -> Vec<EventEnvelope> {
+    let mut events = vec![
+        event(
+            EventType::RunStarted,
+            json!({"feature": "name how it ended"}),
+        ),
+        event(EventType::PhaseEntered, json!({"phase": "implement"})),
+        event(EventType::OperatorCommanded, stop),
+        event(
+            EventType::OperatorAccepted,
+            json!({"command_id": "stop-1", "operator": "operator", "reason": "enough"}),
+        ),
+        event(
+            EventType::RunStopped,
+            json!({"reason": "operator 'operator' commanded stop: enough"}),
+        ),
+    ];
+    for (at, event) in events.iter_mut().enumerate() {
+        let seq = at as u64 + 1;
+        event.seq = seq;
+        event.event_id = format!("e{seq}");
+        event.event_hash = format!("hash-{seq}");
+    }
+    events
+}
+
 /// Decision 0064 rulings 1 and 5: `classify` is an operator annotation
 /// the fold already admits and must never read. A finished run folded
 /// with one appended derives exactly the state it derives without it.
@@ -1032,31 +1061,9 @@ fn a_supersede_annotation_folds_a_stopped_run_to_the_same_state() {
 /// decision. They are asserted to have moved by exactly the one event.
 #[test]
 fn a_classify_annotation_folds_a_finished_run_to_the_same_state() {
-    let mut finished = vec![
-        event(
-            EventType::RunStarted,
-            json!({"feature": "name how it ended"}),
-        ),
-        event(EventType::PhaseEntered, json!({"phase": "implement"})),
-        event(
-            EventType::OperatorCommanded,
-            json!({"command_id": "stop-1", "command": "stop", "operator": "operator"}),
-        ),
-        event(
-            EventType::OperatorAccepted,
-            json!({"command_id": "stop-1", "operator": "operator", "reason": "enough"}),
-        ),
-        event(
-            EventType::RunStopped,
-            json!({"reason": "operator 'operator' commanded stop: enough"}),
-        ),
-    ];
-    for (at, event) in finished.iter_mut().enumerate() {
-        let seq = at as u64 + 1;
-        event.seq = seq;
-        event.event_id = format!("e{seq}");
-        event.event_hash = format!("hash-{seq}");
-    }
+    let mut finished = operator_stopped(
+        json!({"command_id": "stop-1", "command": "stop", "operator": "operator"}),
+    );
     let before = fold(&finished).expect("the finished run folds");
     let mut classify = event(
         EventType::OperatorCommanded,
@@ -1084,6 +1091,35 @@ fn a_classify_annotation_folds_a_finished_run_to_the_same_state() {
         after.pending_command.is_none(),
         "an annotation on a terminal run is never held as pending"
     );
+}
+
+/// Decision 0064 rulings 1 and 4 (slice E3): the cause rides in `args` of
+/// the stop's `operator/commanded`, which the fold never reads. A run
+/// stopped with a cause there folds to exactly the state, byte for byte,
+/// that the same run stopped without one folds to: every field, its
+/// journal position included, because the two journals differ in that
+/// one payload and nowhere else.
+#[test]
+fn a_cause_in_a_stops_args_folds_to_the_same_state_as_none() {
+    let stopped = |args: Value| {
+        let stop = json!({"command_id": "stop-1", "command": "stop", "operator": "operator",
+                          "args": args});
+        fold(&operator_stopped(stop)).expect("the stopped run folds")
+    };
+    let without = stopped(json!({}));
+    for args in [
+        json!({"cause": "superseded", "by": {"realm": null, "run_id": "later"}}),
+        json!({"cause": "delivered-elsewhere", "ref": "abc123"}),
+        json!({"cause": "exhausted"}),
+    ] {
+        let with = stopped(args.clone());
+        assert_eq!(
+            format!("{with:?}"),
+            format!("{without:?}"),
+            "the fold derives nothing at all from a stop's cause: {args}"
+        );
+        assert_eq!(with.run, Run::Stopped);
+    }
 }
 
 /// Every event type, in declaration order.

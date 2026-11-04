@@ -17,7 +17,7 @@ use crate::engine::broker::admission::tests::{
 };
 use crate::engine::broker::admission::{Conflict, Unadmitted, Unknown};
 use crate::engine::broker::settlement::{ended, spawning, Refused, Unreleased};
-use crate::engine::operator::{conclude, released_racing};
+use crate::engine::operator::{conclude_as, released_racing, stop_as};
 use crate::engine::tests::{engine, single_body};
 
 /// The attempt the engine was killed in.
@@ -97,7 +97,7 @@ impl Killed {
     /// indeterminate.
     fn concluded(&mut self) {
         let run = self.run();
-        conclude(&mut self.engine.store, &run, "operator", "its engine died").unwrap();
+        conclude_as(&mut self.engine.store, &run, "operator", "its engine died").unwrap();
     }
 
     /// The attempt ended by a terminal event of `kind`, as an engine that
@@ -302,9 +302,9 @@ fn a_release_refuses_a_certified_ending_and_an_ended_settled_attempt() {
 fn a_stop_released_before_it_concludes_cites_the_stop() {
     let mut killed = Killed::new(false);
     killed.restarted();
-    let (run, stop) = (killed.run(), OperatorCommand::Stop);
+    let run = killed.run();
     let store = &mut killed.engine.store;
-    operator_command(store, &run, stop, "stopper", "stop it").unwrap();
+    stop_as(store, &run, "stopper", "stop it").unwrap();
     let commanded = (killed.events().into_iter().rev())
         .find(|event| event.event_type == EventType::OperatorCommanded)
         .unwrap();
