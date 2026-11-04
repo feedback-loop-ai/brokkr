@@ -926,6 +926,15 @@ fn open_effect_guards_refuse_foreign_effects_in_the_same_cursor_shape() {
     );
 }
 
+/// A state with only the journal's own position removed: what an operator
+/// annotation must leave untouched.
+fn derived(state: &RunState) -> String {
+    let mut state = state.clone();
+    state.seq = 0;
+    state.last_hash = String::new();
+    format!("{state:?}")
+}
+
 /// Decision 0047 rulings 1 and 3: `supersede` is an annotation the fold
 /// already admits and must never read. A stopped run folded with one
 /// appended derives exactly the state it derives without it — same
@@ -1001,18 +1010,76 @@ fn a_supersede_annotation_folds_a_stopped_run_to_the_same_state() {
         "the journal advanced by exactly the one event"
     );
     assert_eq!(after.last_hash, "hash-8");
-    let derived = |state: &RunState| {
-        let mut state = state.clone();
-        state.seq = 0;
-        state.last_hash = String::new();
-        format!("{state:?}")
-    };
     assert_eq!(
         derived(&before),
         derived(&after),
         "the fold derives nothing at all from a supersede annotation"
     );
     assert_eq!(after.run, Run::Stopped, "a mark is not a conclusion");
+    assert!(
+        after.pending_command.is_none(),
+        "an annotation on a terminal run is never held as pending"
+    );
+}
+
+/// Decision 0064 rulings 1 and 5: `classify` is an operator annotation
+/// the fold already admits and must never read. A finished run folded
+/// with one appended derives exactly the state it derives without it.
+///
+/// The two fields left out of the comparison are the journal's own
+/// position: `seq` and `last_hash` advance for every appended event,
+/// including the `operator/commanded` this arm admitted long before this
+/// decision. They are asserted to have moved by exactly the one event.
+#[test]
+fn a_classify_annotation_folds_a_finished_run_to_the_same_state() {
+    let mut finished = vec![
+        event(
+            EventType::RunStarted,
+            json!({"feature": "name how it ended"}),
+        ),
+        event(EventType::PhaseEntered, json!({"phase": "implement"})),
+        event(
+            EventType::OperatorCommanded,
+            json!({"command_id": "stop-1", "command": "stop", "operator": "operator"}),
+        ),
+        event(
+            EventType::OperatorAccepted,
+            json!({"command_id": "stop-1", "operator": "operator", "reason": "enough"}),
+        ),
+        event(
+            EventType::RunStopped,
+            json!({"reason": "operator 'operator' commanded stop: enough"}),
+        ),
+    ];
+    for (at, event) in finished.iter_mut().enumerate() {
+        let seq = at as u64 + 1;
+        event.seq = seq;
+        event.event_id = format!("e{seq}");
+        event.event_hash = format!("hash-{seq}");
+    }
+    let before = fold(&finished).expect("the finished run folds");
+    let mut classify = event(
+        EventType::OperatorCommanded,
+        json!({"command_id": "classify-1", "command": "classify",
+               "operator": "operator",
+               "args": {"cause": "withdrawn",
+                        "reason": "the commission was wrong"}}),
+    );
+    let seq = before.seq + 1;
+    classify.seq = seq;
+    classify.event_id = format!("e{seq}");
+    classify.event_hash = format!("hash-{seq}");
+    finished.push(classify);
+    let after = fold(&finished).expect("the annotation folds on a terminal run");
+
+    assert_eq!(after.seq, before.seq + 1, "the journal advanced by one");
+    assert_eq!(after.last_hash, "hash-6");
+    assert_eq!(
+        derived(&before),
+        derived(&after),
+        "the fold derives nothing at all from a classify annotation"
+    );
+    assert_eq!(after.run, Run::Stopped, "an annotation is not a conclusion");
     assert!(
         after.pending_command.is_none(),
         "an annotation on a terminal run is never held as pending"

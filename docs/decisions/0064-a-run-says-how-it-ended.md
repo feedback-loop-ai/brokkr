@@ -682,7 +682,8 @@ the header's count would grow and never fall. Two readings:
 
 ### Rulings
 
-The operator accepted all seven on 2026-11-03, each as recommended.
+The operator accepted all seven on 2026-11-03, each as recommended, and
+amended ruling 3 on 2026-11-04.
 
 1. **The derivation is choice 1 (a).** It is an ordered table over
    (`from`, `result`), with `ship`'s dirty stops as `blocked`, no
@@ -695,7 +696,18 @@ The operator accepted all seven on 2026-11-03, each as recommended.
    - A stopping run has no ending and wants an action.
    - 0102's detail text does not change.
 3. **A concluded park takes the cause the operator names, as choice 3
-   (a).** `exhausted` is refused off a rule-driven park.
+   (c).** Amended by the operator on 2026-11-04 ("go with recommended"),
+   from choice 3 (a) as accepted on 2026-11-03. `exhausted` is named as
+   the other five causes are, and nothing refuses it.
+   - Four reviews of E2 (#317) found that the fold cannot prove which
+     park a stop closed. A park's reason is untyped text
+     (`ParkReason::Stated`), and the fold's last decision survives a
+     retry. So the guard could only guess, and ruling 5 forbids an
+     inferred ending.
+   - Choice 3 (c)'s cost stands: an outage named `exhausted` counts as
+     one, and the operator's word is the record.
+   - A typed record of what opened each park would bring the guard
+     back. That is a decision of its own.
 4. **`--cause` is required at once, as choice 4 (a).** Every in-repo
    caller moves in the same slice, and `conclude` always takes a cause.
 5. **The ending lives in `run_summary`, as choice 5 (a).** There is one
@@ -760,7 +772,6 @@ list.
      - the fold-identity test extended with a cause in a stop's `args`;
      - a refusal test per missing or misplaced flag, with its text pinned
        once;
-     - `exhausted` refused off a rule park;
      - `conclude` on a stop in force, once with the stop's cause and
        once with another;
      - `witness_journal.rs` unmoved.

@@ -94,8 +94,9 @@ use brokkr_core::fold::{
 };
 pub use carry::CarryRefusal;
 pub use operator::{
-    apply_fenced_operator_command, conclude, operator_command, operator_supersede, CommandWord,
-    ConcludeRefusal, FencedCommand, FencedCommandOutcome, MemberRetryOutcome, Supersede,
+    apply_fenced_operator_command, classify_cause, conclude, operator_classify, operator_command,
+    operator_supersede, Classify, CommandWord, ConcludeRefusal, FencedCommand,
+    FencedCommandOutcome, MemberRetryOutcome, Supersede,
 };
 #[cfg(test)]
 use operator::{
@@ -175,6 +176,12 @@ pub enum EngineError {
     /// terminal and the journal stays exactly as it was.
     #[error("supersede refused, nothing was written: {0}")]
     SupersedeRefused(String),
+    /// `classify` refused the run, its cause or its citation, and wrote
+    /// nothing (decision 0064 rule 5). The annotation has no acceptance
+    /// to carry a rejection, so the typed text is the whole record and
+    /// the journal stays exactly as it was.
+    #[error("classify refused, nothing was written: {0}")]
+    ClassifyRefused(String),
     /// Decision 0029: an event the engine decided on a fold met a head a
     /// peer had moved. Nothing was written, and the engine ends here
     /// rather than folding again: two writers believe they drive one run.

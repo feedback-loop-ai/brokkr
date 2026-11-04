@@ -11,10 +11,12 @@ use brokkr_core::fold::OperatorCommand;
 use brokkr_runtime::launch::{self, LaunchRequest, NewRun, RunMap};
 use brokkr_runtime::realms::World;
 use brokkr_runtime::{conclude as conclude_run, operator_command};
-use brokkr_runtime::{Engine, FencedCommandOutcome};
+use brokkr_runtime::{Classify, Engine, FencedCommandOutcome};
+use brokkr_store::Store;
 
 use crate::cli_args::{
-    ConcludeArgs, DeliveryArgs, LaunchArgs, OperatorArgs, RerunArgs, ResumeArgs, RunArgs,
+    ConcludeArgs, DeliveryArgs, JournalArgs, LaunchArgs, OperatorArgs, RerunArgs, ResumeArgs,
+    RunArgs,
 };
 use crate::folder::Layout;
 use crate::run_view::{self, Viewer};
@@ -196,10 +198,12 @@ pub(crate) fn operator(
         run,
         command,
         reason,
+        cause,
         findings,
         by_run,
         by_seq,
         by_realm,
+        by_ref,
         journal,
         member,
     }: OperatorArgs,
@@ -217,6 +221,10 @@ pub(crate) fn operator(
     ]
     .contains(&true);
     if command == brokkr_core::residual::SUPERSEDE {
+        anyhow::ensure!(
+            cause.is_none() && by_ref.is_none(),
+            "--cause and --by-ref belong to 'classify'"
+        );
         return supersede(
             workspace,
             &run,
@@ -227,17 +235,40 @@ pub(crate) fn operator(
             journal.db,
         );
     }
+    if command == brokkr_core::ending::CLASSIFY {
+        anyhow::ensure!(
+            findings.is_empty() && by_seq.is_none(),
+            "--findings and --by-seq belong to 'supersede'; 'classify' takes \
+             --run, --cause, --reason, --by-run, --by-realm, --by-ref, \
+             --realms and --db"
+        );
+        return classify(
+            workspace,
+            &run,
+            &reason,
+            cause,
+            (by_run, by_realm, by_ref),
+            journal,
+        );
+    }
     anyhow::ensure!(
         !cited,
         "--findings, --by-run, --by-seq and --by-realm belong to \
          'supersede'; '{command}' takes {}",
         member_retry::accepted_arguments(&command)
     );
+    anyhow::ensure!(
+        cause.is_none() && by_ref.is_none(),
+        "--cause and --by-ref belong to 'classify'; '{command}' takes {}",
+        member_retry::accepted_arguments(&command)
+    );
     if command == "acknowledge" {
         return super::acknowledge::acknowledge(workspace, &run, &reason, journal);
     }
     let Some(verb) = OperatorCommand::parse(&command) else {
-        anyhow::bail!("operator command must be 'retry', 'stop', 'supersede' or 'acknowledge'");
+        anyhow::bail!(
+            "operator command must be 'retry', 'stop', 'supersede', 'classify' or 'acknowledge'"
+        );
     };
     if !member.member.is_empty() {
         return member_retry::retry(workspace, &run, &reason, journal, member);
@@ -253,6 +284,112 @@ pub(crate) fn operator(
     // journal says.
     let outcome = operator_command(&mut store, &run, verb, &operator, &reason)?;
     disposition(outcome, &command, &run)
+}
+
+/// The journal an operator annotation writes to and the journal its
+/// citation is read in: `--by-realm` names the world's hearth, and no
+/// realm names the workspace journal every one-hearth world has. Both
+/// annotation verbs open the cited journal read-only, because a citation
+/// is checked against a world the command only looks at (decision 0026
+/// ruling 5).
+pub(crate) fn citation_journal(
+    workspace: &std::path::Path,
+    realms: Option<PathBuf>,
+    db: Option<PathBuf>,
+    by_realm: Option<&str>,
+) -> Result<(PathBuf, PathBuf)> {
+    let invocation = Invocation::resolve(workspace, realms, db)?.announce();
+    let cited = match by_realm {
+        None => invocation.journal.clone(),
+        Some(realm) => invocation
+            .world
+            .as_ref()
+            .map(World::hearths)
+            .unwrap_or_default()
+            .into_iter()
+            .find(|hearth| hearth.realms.iter().any(|known| known == realm))
+            .map(|hearth| hearth.journal)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "--by-realm '{realm}' names no realm in this world; --realms \
+                     names the map that would"
+                )
+            })?,
+    };
+    Ok((invocation.journal, cited))
+}
+
+/// The writable journal, the read-only journal a citation is checked
+/// against, and the run an operator annotation names. The cited journal
+/// is opened READ-ONLY because a citation is checked against a world the
+/// command only looks at (decision 0026 ruling 5); the one journal it
+/// writes to is the annotated run's.
+pub(crate) fn annotated_run(
+    workspace: &std::path::Path,
+    realms: Option<PathBuf>,
+    db: Option<PathBuf>,
+    by_realm: Option<&str>,
+    run: &str,
+) -> Result<(Store, Store, String)> {
+    let (journal, cited_journal) = citation_journal(workspace, realms, db, by_realm)?;
+    let store = Store::open(&journal)?;
+    let cited = Store::open_read_only(&cited_journal)?;
+    let run = selector::resolve_run(&store, run)?;
+    Ok((store, cited, run))
+}
+
+/// `brokkr operator classify` (decision 0064 ruling 5): one annotation
+/// on a run that has already finished, naming how it ended. Every citation
+/// is verified before anything is written and a refusal writes nothing,
+/// so this reports a refusal as an error rather than as a journaled
+/// rejection.
+///
+/// The world is opened the way the fleet verbs open it — `--realms`, an
+/// ambient `./realms.json`, `--db` outranking both — because `--by-run`
+/// may name a run in another hearth, and a citation into a journal this
+/// process never opened is one nobody can follow back.
+fn classify(
+    workspace: &Path,
+    run: &str,
+    reason: &str,
+    cause: Option<String>,
+    by: (Option<String>, Option<String>, Option<String>),
+    journal: JournalArgs,
+) -> Result<ExitCode> {
+    let (by_run, by_realm, by_ref) = by;
+    let words = brokkr_core::ending::Ending::operator_words();
+    let Some(cause) = cause else {
+        anyhow::bail!("classify needs --cause: one of {words}");
+    };
+    // Parsed here, where it was typed and before any journal is opened
+    // (decision 0071 ruling 3): the engine takes an `Ending`, never a word.
+    let cause = brokkr_runtime::classify_cause(&cause)?;
+    let (mut store, cited, run) = annotated_run(
+        workspace,
+        journal.realms,
+        journal.db,
+        by_realm.as_deref(),
+        run,
+    )?;
+    let written = brokkr_runtime::operator_classify(
+        &mut store,
+        &cited,
+        &run,
+        &Classify {
+            cause,
+            by_realm: by_realm.as_deref(),
+            by_run: by_run.as_deref(),
+            by_ref: by_ref.as_deref(),
+            reason,
+            operator: &operator_name(),
+        },
+    )?;
+    eprintln!(
+        "recorded classify at seq {} on {run}; the run's status is untouched. Read it with: \
+         brokkr inspect --run {run}",
+        written.seq
+    );
+    Ok(Exit::Completed.into())
 }
 
 fn disposition(outcome: FencedCommandOutcome, command: &str, run: &str) -> Result<ExitCode> {

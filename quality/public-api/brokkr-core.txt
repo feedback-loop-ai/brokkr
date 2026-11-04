@@ -166,6 +166,7 @@ pub fn brokkr_core::ending::Ending::completed(core::option::Option<brokkr_core::
 pub const fn brokkr_core::ending::Ending::gutter(self) -> char
 pub fn brokkr_core::ending::Ending::named(&str) -> core::result::Result<brokkr_core::ending::Ending, brokkr_core::ending::UnknownEnding>
 pub const fn brokkr_core::ending::Ending::operator_owned(self) -> bool
+pub fn brokkr_core::ending::Ending::operator_words() -> alloc::string::String
 pub fn brokkr_core::ending::Ending::ruled(&str, &str) -> brokkr_core::ending::Ending
 pub const fn brokkr_core::ending::Ending::tone(self) -> brokkr_core::ending::Tone
 pub const fn brokkr_core::ending::Ending::wants(self) -> core::option::Option<brokkr_core::ending::Wants>
@@ -184,6 +185,7 @@ pub brokkr_core::ending::Ended::cited: core::option::Option<brokkr_core::ending:
 pub brokkr_core::ending::Ended::ending: brokkr_core::ending::Ending
 pub struct brokkr_core::ending::UnknownEnding
 pub brokkr_core::ending::UnknownEnding::word: alloc::string::String
+pub const brokkr_core::ending::CLASSIFY: &str
 pub fn brokkr_core::ending::ended(&[brokkr_core::envelope::EventEnvelope], &brokkr_core::fold::RunState) -> core::option::Option<brokkr_core::ending::Ended>
 pub mod brokkr_core::entry
 pub enum brokkr_core::entry::EntryRead

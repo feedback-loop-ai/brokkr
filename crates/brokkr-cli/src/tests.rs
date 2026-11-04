@@ -395,7 +395,11 @@ fn run_in(workspace: &std::path::Path, cli: Cli) -> Result<ExitCode> {
 /// one word, one reason and one journal. The supersede-only arguments
 /// are absent, which is what any `retry` or `stop` invocation carries.
 fn operator(run: &str, command: &str, reason: &str, db: &std::path::Path) -> Cmd {
-    Cmd::Operator(OperatorArgs {
+    Cmd::Operator(operator_args(run, command, reason, db))
+}
+
+fn operator_args(run: &str, command: &str, reason: &str, db: &std::path::Path) -> OperatorArgs {
+    OperatorArgs {
         member: crate::cli_args::MemberRetryArgs::default(),
         run: run.to_string(),
         command: command.to_string(),
@@ -404,8 +408,10 @@ fn operator(run: &str, command: &str, reason: &str, db: &std::path::Path) -> Cmd
         by_run: None,
         by_seq: None,
         by_realm: None,
+        cause: None,
+        by_ref: None,
         journal: at(db),
-    })
+    }
 }
 
 /// `brokkr watch --run <run> --db <db> --no-view`, one frame or a poll
@@ -4170,15 +4176,10 @@ fn the_supersede_verb_records_one_annotation_and_refuses_the_rest() {
     held_and_shipped(&db);
     let cited = |findings: Vec<u64>, by_run: Option<&str>, by_seq: Option<u64>| {
         Cmd::Operator(OperatorArgs {
-            member: crate::cli_args::MemberRetryArgs::default(),
-            run: "held".into(),
-            command: "supersede".into(),
-            reason: "both residuals fixed and shipped".into(),
             findings,
             by_run: by_run.map(str::to_string),
             by_seq,
-            by_realm: None,
-            journal: at(&db),
+            ..operator_args("held", "supersede", "both residuals fixed and shipped", &db)
         })
     };
 
@@ -4270,10 +4271,6 @@ fn the_supersede_verb_records_one_annotation_and_refuses_the_rest() {
         run_in(
             workspace.path(),
             cli(Cmd::Operator(OperatorArgs {
-                member: crate::cli_args::MemberRetryArgs::default(),
-                run: "held".into(),
-                command: "supersede".into(),
-                reason: "closed next door".into(),
                 findings: vec![6],
                 by_run: Some("later".into()),
                 by_seq: Some(6),
@@ -4282,6 +4279,7 @@ fn the_supersede_verb_records_one_annotation_and_refuses_the_rest() {
                     realms: Some(workspace.path().join("realms.json")),
                     db: None,
                 },
+                ..operator_args("held", "supersede", "closed next door", &db)
             })),
         )
         .unwrap(),
