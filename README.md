@@ -15,9 +15,12 @@
 
 Brokkr is a deterministic delivery engine for autonomous multi-agent software delivery: you give it a feature and a reviewable recipe, its agents implement, verify, review and ship, and its event-sourced phase machine records every result and ruling in a journal you can replay and audit.
 
-The [v0.13.0 release](docs/releases/v0.13.0.md) lets a seat grip a granted
-MCP tool through Brokkr's own broker, reads the journal a page at a time,
-and keeps Brokkr in one `.brokkr/` folder in every repository.
+The [v0.13.1 release](docs/releases/v0.13.1.md) types a provider's
+pre-session refusal, lets the operator name how a stopped run ended, and
+pages the dsh console's fleet.
+[v0.13.0](docs/releases/v0.13.0.md) lets a seat grip a granted MCP tool
+through Brokkr's own broker, reads the journal a page at a time, and keeps
+Brokkr in one `.brokkr/` folder in every repository.
 
 ## Install
 
