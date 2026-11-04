@@ -30,7 +30,7 @@ use brokkr_core::summary::{Account, Bounded, Park, NAME_BYTES};
 use rusqlite::types::Value;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Params};
 
-use crate::schema::{all_present, holds};
+use crate::schema::{all_present, all_present_and_none, holds};
 use brokkr_core::summary::STAMP_BYTES;
 
 use crate::summary::{cut_stamp, stamp_of, text_at};
@@ -341,14 +341,13 @@ fn parked(conn: &Connection) -> Result<bool, StoreError> {
 /// Does this journal carry the table named by [`TABLE`], every column
 /// [`shaped`] asks, every index in [`INDEXES`] and every trigger in
 /// [`TRIGGERS`], and none of the checkpoint triggers
-/// [`checkpoint::retired`] names? Pure reads, so the steady-state open
-/// writes nothing.
+/// [`checkpoint::RETIRED`] names? Both trigger questions are the one read
+/// of `sqlite_master`, so the steady-state open writes nothing.
 pub(crate) fn index_intact(conn: &Connection) -> Result<bool, StoreError> {
     Ok(all_present(conn, "table", &TABLE)?
         && shaped(conn)?
         && all_present(conn, "index", &INDEXES)?
-        && all_present(conn, "trigger", &TRIGGERS)?
-        && !checkpoint::retired(conn)?)
+        && all_present_and_none(conn, "trigger", &TRIGGERS, &checkpoint::RETIRED)?)
 }
 
 /// Send behind every park whose facts are not its run's head's, as the
@@ -373,8 +372,12 @@ fn send_parks_behind() -> String {
 /// every checkpoint sent behind, since the SQL it ran may have decided a
 /// session the writer must refold from brokkr-core's reading.
 pub(crate) fn migrate_index(conn: &Connection) -> Result<(), StoreError> {
-    let missed = !all_present(conn, "trigger", &["event_index_checkpoint_behind"])?
-        || checkpoint::retired(conn)?;
+    let missed = !all_present_and_none(
+        conn,
+        "trigger",
+        &["event_index_checkpoint_behind"],
+        &checkpoint::RETIRED,
+    )?;
     if !base_shaped(conn)? {
         let dropped = conn.execute_batch(
             "DROP TRIGGER IF EXISTS event_index_of_an_event;
