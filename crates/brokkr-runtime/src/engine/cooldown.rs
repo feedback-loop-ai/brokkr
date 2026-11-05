@@ -9,21 +9,23 @@
 //! this one place; a file that cannot be read parks and never falls back
 //! to a constant (decision 0068 ruling 3).
 
+use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{fold, Cursor, Run, RunState};
-use brokkr_core::{provider_waits, EventEnvelope, ProviderWait};
+use brokkr_core::{provider_waits, EventEnvelope, ProbeAnswer, ProviderWait, ProviderWaitError};
 use brokkr_protocol::{AttemptOutcome, AttemptReport, Cleanup, PreSessionRefusal, RefusalClass};
 use serde_json::{json, Value};
+use thiserror::Error;
 use time::format_description::well_known::Rfc3339;
 use time::{Duration as TimeDuration, OffsetDateTime};
 use uuid::Uuid;
 
 use super::{argv_for, spawn_site, Door, Engine, EngineError, Selection};
-use crate::admission::{read_host, Bounds, Hosting};
-use crate::bundle::{ExecutableBody, Invocation, ENGINE_VERSION};
+use crate::admission::{read_host, Bounds, HostError, Hosting};
+use crate::bundle::{ExecutableBody, Invocation, Limits, ENGINE_VERSION};
 
 /// One slice of an in-process wait: the wait re-reads the run's journal
 /// after each, so an operator `stop` is honoured within a second.
@@ -51,7 +53,7 @@ impl Clock {
 pub(crate) struct Seam {
     pub(crate) host: Option<PathBuf>,
     pub(crate) clock: Clock,
-    pub(crate) answer: Option<Value>,
+    pub(crate) answer: Option<ProbeAnswer>,
 }
 
 impl Default for Seam {
@@ -64,10 +66,27 @@ impl Default for Seam {
     }
 }
 
+/// Why a wait cannot be read or bounded: the host file, the terminal
+/// event's own wait, or an earlier wait the episode sums. Every reason the
+/// cool-down path parks with is one variant's `Display`.
+#[derive(Debug, Error)]
+pub(super) enum CooldownError {
+    #[error("the host configuration at {} cannot be read: {kind}", path.display())]
+    HostUnreadable { path: PathBuf, kind: ErrorKind },
+    #[error("{source}")]
+    HostInvalid { source: HostError },
+    #[error("{0}")]
+    LastWaitUnreadable(ProviderWaitError),
+    #[error("event {seq}: a single seat carries at most one wait, not {count}")]
+    TooManyWaits { seq: u64, count: usize },
+    #[error("an earlier wait does not read: {source}")]
+    EarlierWaitUnreadable { seq: u64, source: ProviderWaitError },
+}
+
 /// What the engine does with a wait it read: proceed to the retry, leave
 /// a stopped run to its `Stop` arm, or park with this reason.
 pub(super) enum Waited {
-    Proceed(Value),
+    Proceed(ProbeAnswer),
     Stopped,
     Parked(String),
 }
@@ -83,14 +102,24 @@ fn terminal<'a>(events: &'a [EventEnvelope], effect_id: &str) -> Option<&'a Even
     })
 }
 
+/// The seat the journal requested this effect for, when it names one.
+fn effect_seat<'a>(events: &'a [EventEnvelope], effect_id: &str) -> Option<&'a str> {
+    events
+        .iter()
+        .rev()
+        .find(|event| {
+            event.event_type == EventType::EffectRequested
+                && event.payload.get("effect_id").and_then(Value::as_str) == Some(effect_id)
+        })
+        .and_then(|event| event.payload.get("seat").and_then(Value::as_str))
+}
+
 /// The effect's own episode: how many waits it has recorded and how many
-/// seconds they add, read from the terminal events the journal holds. A
-/// wait's length is the entry's own formula — the provider's retry-after
-/// when it gave one, else the declared default doubled by its `rounds` —
-/// which is the two facts the entry carries. A malformed earlier entry is
-/// skipped here; the last terminal event is the one the engine refuses by
-/// name before it acts.
-fn episode(events: &[EventEnvelope], effect_id: &str, bounds: Bounds) -> (u64, u64) {
+/// seconds they add, read from the terminal events the journal holds. Each
+/// wait contributes the `seconds` it recorded under its own route's bounds
+/// (decision 0103 ruling 3); an earlier entry that does not read refuses by
+/// name, never as nothing.
+fn episode(events: &[EventEnvelope], effect_id: &str) -> Result<(u64, u64), CooldownError> {
     let mut rounds = 0u64;
     let mut seconds = 0u64;
     for event in events {
@@ -101,20 +130,58 @@ fn episode(events: &[EventEnvelope], effect_id: &str, bounds: Bounds) -> (u64, u
         {
             continue;
         }
-        for wait in provider_waits(event).ok().flatten().unwrap_or_default() {
+        let Some(waits) =
+            provider_waits(event).map_err(|source| CooldownError::EarlierWaitUnreadable {
+                seq: event.seq,
+                source,
+            })?
+        else {
+            continue;
+        };
+        for wait in waits {
             rounds = rounds.saturating_add(1);
-            seconds = seconds.saturating_add(wait_seconds(&wait, bounds));
+            seconds = seconds.saturating_add(wait.seconds);
         }
     }
-    (rounds, seconds)
+    Ok((rounds, seconds))
 }
 
-/// One wait's length under the declared bounds.
-fn wait_seconds(wait: &ProviderWait, bounds: Bounds) -> u64 {
-    wait.retry_after_seconds.unwrap_or_else(|| {
-        u64::from(bounds.default_seconds.get())
-            .saturating_mul(2u64.saturating_pow((wait.rounds - 1).min(32) as u32))
-    })
+/// The one maximum check the terminal event and a resume both apply: the
+/// wait's own recorded length, or the episode through it, past the declared
+/// maximum.
+fn past_maximum(seconds: u64, episode_seconds: u64, max: u64) -> bool {
+    seconds > max || episode_seconds > max
+}
+
+/// The park reason a maximum refusal gives: the provider's words and the
+/// maximum, with the round and the episode the record supplies.
+fn maximum_reason(wait: &ProviderWait, episode_seconds: u64, max: u64) -> String {
+    format!(
+        "cool-down for {}/{} would wait {}s in round {} (episode {}s), past the declared {max}s \
+         maximum: {}",
+        wait.provider, wait.route, wait.seconds, wait.rounds, episode_seconds, wait.words
+    )
+}
+
+/// The park reason for a wait whose end no `until` can represent: no wait
+/// is taken and none is recorded, so the attempt's failed event carries no
+/// `waits` entry.
+fn unrepresentable_reason(
+    provider: &str,
+    route: &str,
+    retry_after: Option<u64>,
+    seconds: u64,
+    max: u64,
+    words: &str,
+) -> String {
+    let given = retry_after.map_or_else(
+        || format!("{seconds}s"),
+        |retry| format!("retry-after {retry}s ({seconds}s)"),
+    );
+    format!(
+        "cool-down for {provider}/{route}: {given} has no representable end and is past the \
+         declared {max}s maximum: {words}"
+    )
 }
 
 /// A sealed wait, as the terminal event's JSON spells it.
@@ -123,6 +190,7 @@ fn waiter(wait: &ProviderWait, until: OffsetDateTime) -> Value {
         "provider": wait.provider,
         "route": wait.route,
         "words": wait.words,
+        "seconds": wait.seconds,
         "until": until.format(&Rfc3339).expect("an RFC 3339 time formats as RFC 3339"),
         "rounds": wait.rounds,
     });
@@ -141,18 +209,18 @@ impl Engine {
         &self,
         provider: &str,
         route: &str,
-    ) -> Result<Option<Bounds>, String> {
+    ) -> Result<Option<Bounds>, CooldownError> {
         let Some(file) = &self.cooldown.host else {
             return Ok(None);
         };
         match read_host(file) {
             Ok(Hosting::Absent) => Ok(None),
-            Ok(Hosting::Unreadable(kind)) => Err(format!(
-                "the host configuration at {} cannot be read: {kind}",
-                file.display()
-            )),
+            Ok(Hosting::Unreadable(kind)) => Err(CooldownError::HostUnreadable {
+                path: file.clone(),
+                kind,
+            }),
             Ok(Hosting::Declared(config)) => Ok(config.cooldown(provider, Some(route))),
-            Err(error) => Err(error.to_string()),
+            Err(source) => Err(CooldownError::HostInvalid { source }),
         }
     }
 
@@ -162,21 +230,20 @@ impl Engine {
         &self,
         events: &[EventEnvelope],
         effect_id: &str,
-    ) -> Result<Option<ProviderWait>, String> {
+    ) -> Result<Option<ProviderWait>, CooldownError> {
         let Some(event) = terminal(events, effect_id) else {
             return Ok(None);
         };
-        let mut waits = provider_waits(event)
-            .map_err(|error| error.to_string())?
-            .unwrap_or_default();
+        let Some(mut waits) = provider_waits(event).map_err(CooldownError::LastWaitUnreadable)?
+        else {
+            return Ok(None);
+        };
         match waits.len() {
-            0 => Ok(None),
             1 => Ok(waits.pop()),
-            _ => Err(format!(
-                "event {}: a single seat carries at most one wait, not {}",
-                event.seq,
-                waits.len()
-            )),
+            count => Err(CooldownError::TooManyWaits {
+                seq: event.seq,
+                count,
+            }),
         }
     }
 
@@ -226,42 +293,124 @@ impl Engine {
             }
         };
         let events = self.store.load(&self.run_id)?;
-        let (prior_rounds, prior_seconds) = episode(&events, effect_id, bounds);
+        Ok(self.recorded_terminal(&events, effect_id, payload, route, refusal, bounds))
+    }
+
+    /// The wait the record supports and the park it may end with, once the
+    /// refusal's route and bounds are known. Kept apart from
+    /// [`Engine::rate_limit_terminal`] so the reading of the journal and
+    /// the park it decides each stay one small function (ruling 4).
+    fn recorded_terminal(
+        &self,
+        events: &[EventEnvelope],
+        effect_id: &str,
+        mut payload: Value,
+        route: &str,
+        refusal: &PreSessionRefusal,
+        bounds: Bounds,
+    ) -> Terminal {
+        let provider = refusal.provider();
+        let (prior_rounds, prior_seconds) = match episode(events, effect_id) {
+            Ok(episode) => episode,
+            Err(reason) => {
+                return Terminal::Park {
+                    payload,
+                    reason: format!("refusing to retry {provider}/{route}: {reason}"),
+                };
+            }
+        };
         let rounds = prior_rounds.saturating_add(1);
-        let seconds = refusal.retry_after_seconds().unwrap_or_else(|| {
+        let retry_after = refusal.retry_after_seconds();
+        let seconds = retry_after.unwrap_or_else(|| {
             u64::from(bounds.default_seconds.get())
                 .saturating_mul(2u64.saturating_pow((rounds - 1).min(32) as u32))
         });
-        let until = self.now() + TimeDuration::seconds(seconds as i64);
-        let wait = ProviderWait {
+        let max = u64::from(bounds.max_seconds.get());
+        let total = prior_seconds.saturating_add(seconds);
+        // The maximum is judged from the computed length BEFORE any `until`
+        // is formed, so no huge retry-after can overflow here (step 4).
+        let past = past_maximum(seconds, total, max);
+        let until = i64::try_from(seconds)
+            .ok()
+            .and_then(|seconds| self.now().checked_add(TimeDuration::seconds(seconds)));
+        let wait = until.map(|until| ProviderWait {
             site: None,
             provider: provider.to_string(),
             route: route.to_string(),
             words: refusal.words().to_string(),
-            retry_after_seconds: refusal.retry_after_seconds(),
+            retry_after_seconds: retry_after,
+            seconds,
             until,
             rounds,
-        };
-        payload["waits"] = json!([waiter(&wait, until)]);
-        let max = u64::from(bounds.max_seconds.get());
-        let total = prior_seconds.saturating_add(seconds);
-        if seconds > max || total > max {
-            return Ok(Terminal::Park {
-                payload,
-                reason: format!(
-                    "cool-down for {provider}/{route} would wait {seconds}s in round {rounds} \
-                     (episode {total}s), past the declared {max}s maximum: {}",
-                    refusal.words()
-                ),
-            });
+        });
+        if let Some(wait) = &wait {
+            payload["waits"] = json!([waiter(wait, wait.until)]);
         }
-        Ok(Terminal::Plain(payload))
+        // At the cap the cursor's 0006 branch writes the one park, with the
+        // provider's facts beside it; the episode's maximum park applies
+        // only below the cap (decision 0103 ruling 7(c)).
+        if self.at_attempt_cap(events, effect_id) {
+            return Terminal::Plain(payload);
+        }
+        if past || wait.is_none() {
+            let reason = wait.as_ref().map_or_else(
+                || {
+                    unrepresentable_reason(
+                        provider,
+                        route,
+                        retry_after,
+                        seconds,
+                        max,
+                        refusal.words(),
+                    )
+                },
+                |wait| maximum_reason(wait, total, max),
+            );
+            return Terminal::Park { payload, reason };
+        }
+        Terminal::Plain(payload)
+    }
+
+    /// Does this failure bring `effect_id` to its seat's attempt cap?
+    fn at_attempt_cap(&self, events: &[EventEnvelope], effect_id: &str) -> bool {
+        let failed = events
+            .iter()
+            .filter(|event| {
+                event.event_type == EventType::EffectFailed
+                    && event.payload.get("effect_id").and_then(Value::as_str) == Some(effect_id)
+            })
+            .count() as u64;
+        let max = effect_seat(events, effect_id)
+            .and_then(|seat| self.bundle.seats.get(seat))
+            .map_or_else(
+                || Limits::default().max_attempts,
+                |seat| seat.limits.max_attempts,
+            );
+        failed.saturating_add(1) >= max
+    }
+
+    /// The episode through `wait`, and the maximum it passed, or why an
+    /// earlier wait does not read. The cap's reason and the resume path
+    /// share this one reading of the record.
+    pub(super) fn wait_maximum(
+        &self,
+        events: &[EventEnvelope],
+        effect_id: &str,
+        wait: &ProviderWait,
+    ) -> Result<Option<(u64, u64)>, CooldownError> {
+        let (_, total) = episode(events, effect_id)?;
+        let Some(bounds) = self.cooldown_bounds(&wait.provider, &wait.route)? else {
+            return Ok(None);
+        };
+        let max = u64::from(bounds.max_seconds.get());
+        Ok(past_maximum(wait.seconds, total, max).then_some((total, max)))
     }
 
     /// Wait the recorded remainder in bounded slices, honouring an operator
-    /// `stop`, then probe the cooled route. A wait whose remainder passes
-    /// the declared maximum on a resume, or whose bounds can no longer be
-    /// read, parks without a retry.
+    /// `stop`, then probe the cooled route. The maximum is judged from the
+    /// record before anything sleeps; the remainder only sets how long to
+    /// sleep. A stop already journaled is seen before the first slice and
+    /// again immediately before the probe.
     pub(super) fn take_cooldown(
         &mut self,
         events: &[EventEnvelope],
@@ -272,16 +421,18 @@ impl Engine {
     ) -> Result<Waited, EngineError> {
         match self.cooldown_bounds(&wait.provider, &wait.route) {
             Ok(Some(bounds)) => {
-                let remaining = (wait.until - self.now()).max(TimeDuration::ZERO);
                 let max = u64::from(bounds.max_seconds.get());
-                if remaining.whole_seconds().max(0) as u64 > max {
-                    return Ok(Waited::Parked(format!(
-                        "a resume waits {}s for {}/{}, past the declared {max}s maximum: {}",
-                        remaining.whole_seconds().max(0),
-                        wait.provider,
-                        wait.route,
-                        wait.words
-                    )));
+                let total = match episode(events, effect_id) {
+                    Ok((_, total)) => total,
+                    Err(reason) => {
+                        return Ok(Waited::Parked(format!(
+                            "a resume waits for {}/{} without reading its episode: {reason}",
+                            wait.provider, wait.route
+                        )));
+                    }
+                };
+                if past_maximum(wait.seconds, total, max) {
+                    return Ok(Waited::Parked(maximum_reason(wait, total, max)));
                 }
             }
             Ok(None) => {}
@@ -292,7 +443,13 @@ impl Engine {
                 )));
             }
         }
+        // Sample BEFORE the first stop check: an event journaled between
+        // the caller's fold and this sample is then still a change, and the
+        // check below sees it now rather than the sample swallowing it.
         let mut seen = self.store.high_water()?;
+        if self.moved_from_the_effect()? {
+            return Ok(Waited::Stopped);
+        }
         loop {
             let remaining = wait.until - self.now();
             if remaining <= TimeDuration::ZERO {
@@ -306,6 +463,9 @@ impl Engine {
                     return Ok(Waited::Stopped);
                 }
             }
+        }
+        if self.moved_from_the_effect()? {
+            return Ok(Waited::Stopped);
         }
         match self.probe(events, state, effect_id, seat, wait)? {
             Probe::Answered(answer) => Ok(Waited::Proceed(answer)),
@@ -451,14 +611,11 @@ impl Engine {
         }
         match report.settled_outcome() {
             AttemptOutcome::Succeeded { .. } => match report.checkpoints.first() {
-                Some(_) => Probe::Answered(json!({
-                    "provider": wait.provider,
-                    "route": wait.route,
-                    "answered_at": self
-                        .now()
-                        .format(&Rfc3339)
-                        .expect("an RFC 3339 time formats as RFC 3339"),
-                })),
+                Some(_) => Probe::Answered(ProbeAnswer {
+                    provider: wait.provider.clone(),
+                    route: wait.route.clone(),
+                    answered_at: self.now(),
+                }),
                 None => Probe::Parked(format!(
                     "the cool-down probe for {}/{} reported success with no answer checkpoint",
                     wait.provider, wait.route
@@ -499,7 +656,7 @@ fn refused_index(events: &[EventEnvelope], effect_id: &str, chain: usize) -> usi
 
 /// What a probe leaves.
 enum Probe {
-    Answered(Value),
+    Answered(ProbeAnswer),
     Parked(String),
 }
 

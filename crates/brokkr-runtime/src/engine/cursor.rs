@@ -4,7 +4,7 @@
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{Cursor, ParkReason, RunState};
-use brokkr_core::EventEnvelope;
+use brokkr_core::{EventEnvelope, ProbeAnswer};
 use serde_json::{json, Value};
 use time::format_description::well_known::Rfc3339;
 
@@ -72,15 +72,26 @@ impl Engine {
                 last_error(events, effect_id)
             );
             match &wait {
-                Ok(Some(wait)) => reason.push_str(&format!(
-                    "; the last refusal waits for {}/{} until {}: {}",
-                    wait.provider,
-                    wait.route,
-                    wait.until
-                        .format(&Rfc3339)
-                        .expect("an RFC 3339 time formats as RFC 3339"),
-                    wait.words
-                )),
+                Ok(Some(wait)) => {
+                    reason.push_str(&format!(
+                        "; the last refusal waits for {}/{} until {}: {}",
+                        wait.provider,
+                        wait.route,
+                        wait.until
+                            .format(&Rfc3339)
+                            .expect("an RFC 3339 time formats as RFC 3339"),
+                        wait.words
+                    ));
+                    // Decision 0103 ruling 7(c): the cap speaks first, and
+                    // the maximum rides beside it where it has passed too.
+                    match self.wait_maximum(events, effect_id, wait) {
+                        Ok(Some((total, max))) => reason.push_str(&format!(
+                            "; the episode {total}s is past the declared {max}s maximum"
+                        )),
+                        Ok(None) => {}
+                        Err(detail) => reason.push_str(&format!("; {detail}")),
+                    }
+                }
                 Err(detail) => reason.push_str(&format!("; {detail}")),
                 Ok(None) => {}
             }
@@ -133,7 +144,7 @@ impl Engine {
         state: &RunState,
         effect_id: &str,
         seat: &str,
-        answer: Option<Value>,
+        answer: Option<ProbeAnswer>,
     ) -> Result<(), EngineError> {
         self.cooldown.answer = answer;
         // `execute` is the one place a gate head is armed, for every body

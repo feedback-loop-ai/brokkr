@@ -15,6 +15,7 @@
 //! 2(a)), by [`provider_waits`] rather than by a struct the fold takes a
 //! field from: the fold never reads it, and the engine and the readout do.
 
+use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::{Map, Value};
 use thiserror::Error;
@@ -348,10 +349,42 @@ pub struct ProviderWait {
     pub words: String,
     /// The provider's own retry-after, when it gave one.
     pub retry_after_seconds: Option<u64>,
+    /// The length the engine computed under THIS entry's route's bounds
+    /// (decision 0103 ruling 3): the retry-after when given, else that
+    /// route's default doubled for the round. An episode sums it and never
+    /// recomputes an earlier wait under a later route's bounds.
+    pub seconds: u64,
     /// The computed end of this round's wait.
     pub until: OffsetDateTime,
     /// Which round of the effect's and site's episode this is.
     pub rounds: u64,
+}
+
+/// One cool-down probe's answer (decision 0103 ruling 4(a)): the provider
+/// and route the probe asked, and when its first model-output answer
+/// arrived. It is carried typed through the engine and serialized only
+/// where the retry's `effect/started` journals it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProbeAnswer {
+    pub provider: String,
+    pub route: String,
+    pub answered_at: OffsetDateTime,
+}
+
+impl Serialize for ProbeAnswer {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut answer = serializer.serialize_struct("ProbeAnswer", 3)?;
+        answer.serialize_field("provider", &self.provider)?;
+        answer.serialize_field("route", &self.route)?;
+        answer.serialize_field(
+            "answered_at",
+            &self
+                .answered_at
+                .format(&Rfc3339)
+                .map_err(serde::ser::Error::custom)?,
+        )?;
+        answer.end()
+    }
 }
 
 /// Why a present `waits` array does not read. `fold` never reads the
@@ -364,15 +397,23 @@ pub enum ProviderWaitError {
 }
 
 /// The keys one `waits` entry may carry.
-const WAIT_FIELDS: [&str; 7] = [
+const WAIT_FIELDS: [&str; 8] = [
     "site",
     "provider",
     "route",
     "words",
     "retry_after_seconds",
+    "seconds",
     "until",
     "rounds",
 ];
+
+/// The schema's bound on a wait's `words`.
+const WORDS_MAX: usize = 300;
+/// The schema's bound on a wait's `site`.
+const SITE_MAX: usize = 200;
+/// The schema's bound on a provider's or route's length.
+const NAME_MAX: usize = 80;
 
 /// `event`'s optional `waits` array, typed. Absent is no wait; a present
 /// array is every entry and is NEVER read as no wait: one entry that does
@@ -404,12 +445,18 @@ fn wait_entry(event: &EventEnvelope, value: &Value) -> Result<ProviderWait, Prov
             return Err(unreadable_wait(event, key));
         }
     }
+    let seconds = required_seconds(event, object, "seconds")?;
+    let retry_after_seconds = optional_seconds(event, object, "retry_after_seconds")?;
+    if retry_after_seconds.is_some_and(|retry| retry != seconds) {
+        return Err(unreadable_wait(event, "seconds"));
+    }
     Ok(ProviderWait {
-        site: optional_word(event, object, "site")?,
-        provider: required_word(event, object, "provider")?,
-        route: required_word(event, object, "route")?,
-        words: required_word(event, object, "words")?,
-        retry_after_seconds: optional_seconds(event, object, "retry_after_seconds")?,
+        site: optional_site(event, object)?,
+        provider: required_form(event, object, "provider", provider_form)?,
+        route: required_form(event, object, "route", route_form)?,
+        words: required_bounded(event, object, "words", WORDS_MAX)?,
+        retry_after_seconds,
+        seconds,
         until: until(event, object)?,
         rounds: rounds(event, object)?,
     })
@@ -429,6 +476,56 @@ fn required_word(
         .ok_or_else(|| unreadable_wait(event, field))
 }
 
+/// A required word the schema bounds by characters.
+fn required_bounded(
+    event: &EventEnvelope,
+    object: &Map<String, Value>,
+    field: &'static str,
+    maximum: usize,
+) -> Result<String, ProviderWaitError> {
+    let word = required_word(event, object, field)?;
+    if word.chars().count() > maximum {
+        return Err(unreadable_wait(event, field));
+    }
+    Ok(word)
+}
+
+/// A required word the schema bounds by `form`.
+fn required_form(
+    event: &EventEnvelope,
+    object: &Map<String, Value>,
+    field: &'static str,
+    form: fn(&str) -> bool,
+) -> Result<String, ProviderWaitError> {
+    let word = required_word(event, object, field)?;
+    if !form(&word) {
+        return Err(unreadable_wait(event, field));
+    }
+    Ok(word)
+}
+
+/// The schema's provider pattern: an ASCII letter or digit, then up to 79
+/// more letters, digits, `_`, `.` or `-`.
+fn provider_form(value: &str) -> bool {
+    name_form(value, false)
+}
+
+/// The schema's route pattern: the provider form, and `:`.
+fn route_form(value: &str) -> bool {
+    name_form(value, true)
+}
+
+fn name_form(value: &str, colon: bool) -> bool {
+    let mut bytes = value.bytes();
+    matches!(bytes.next(), Some(first) if first.is_ascii_alphanumeric())
+        && value.len() <= NAME_MAX
+        && bytes.all(|byte| {
+            byte.is_ascii_alphanumeric()
+                || matches!(byte, b'_' | b'.' | b'-')
+                || (colon && byte == b':')
+        })
+}
+
 /// A non-empty string when it is present; `None` when the key is absent.
 /// A present `null` is refused: an absent site is the only absence.
 fn optional_word(
@@ -446,6 +543,35 @@ fn optional_word(
     }
 }
 
+/// The invocation-site tag, at most the schema's bound.
+fn optional_site(
+    event: &EventEnvelope,
+    object: &Map<String, Value>,
+) -> Result<Option<String>, ProviderWaitError> {
+    match optional_word(event, object, "site")? {
+        Some(site) if site.chars().count() > SITE_MAX => Err(unreadable_wait(event, "site")),
+        site => Ok(site),
+    }
+}
+
+/// A whole number above zero.
+fn whole_seconds(value: &Value) -> Option<u64> {
+    value.as_u64().filter(|value| *value > 0)
+}
+
+/// The wait's own length, required: an entry that does not carry it does
+/// not read (decision 0103 ruling 3).
+fn required_seconds(
+    event: &EventEnvelope,
+    object: &Map<String, Value>,
+    field: &'static str,
+) -> Result<u64, ProviderWaitError> {
+    object
+        .get(field)
+        .and_then(whole_seconds)
+        .ok_or_else(|| unreadable_wait(event, field))
+}
+
 /// A whole number above zero when it is present; `None` when absent.
 fn optional_seconds(
     event: &EventEnvelope,
@@ -454,9 +580,7 @@ fn optional_seconds(
 ) -> Result<Option<u64>, ProviderWaitError> {
     match object.get(field) {
         None => Ok(None),
-        Some(value) => value
-            .as_u64()
-            .filter(|value| *value > 0)
+        Some(value) => whole_seconds(value)
             .map(Some)
             .ok_or_else(|| unreadable_wait(event, field)),
     }

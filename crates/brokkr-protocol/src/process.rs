@@ -345,7 +345,8 @@ impl DriverProcess {
     /// Mark this invocation as a probe (decision 0103 ruling 4(a)). The
     /// driver must have advertised it; one that did not is refused the
     /// probe by name before any `start` is sent. The engine's cool-down
-    /// wait is the caller (decision 0103 slice 4c1), inside this crate.
+    /// wait is the runtime caller (decision 0103 slice 4c1), in
+    /// brokkr-runtime's `engine::cooldown`.
     pub fn probing(mut self) -> Self {
         self.probe = true;
         self

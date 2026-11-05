@@ -197,7 +197,7 @@ const FROZEN: [(&str, &str); 34] = [
     // the frozen event vocabulary; its bytes are pinned from birth.
     (
         "contracts/provider-wait.v1.schema.json",
-        "246affef28129c4e1a0025514dabf2ff9d872e3bc9c82ea8996e59292e734722",
+        "67fd05794d7a3f27fc39d0a894263769b10fb93130b62e90a9edd34a797ae1f4",
     ),
 ];
 
@@ -1508,7 +1508,8 @@ fn the_provider_wait_extension_is_closed_and_reads_back() {
     let validator = contract("contracts/provider-wait.v1.schema.json");
     let wait = serde_json::json!({
         "provider": "claude", "route": "first", "words": "rate_limit (HTTP 429)",
-        "retry_after_seconds": 30, "until": "2026-11-01T00:00:30Z", "rounds": 1
+        "retry_after_seconds": 30, "seconds": 30,
+        "until": "2026-11-01T00:00:30Z", "rounds": 1
     });
     assert!(validator.is_valid(&serde_json::json!({"waits": [wait]})));
     assert!(validator.is_valid(&serde_json::json!({"probe": {
@@ -1517,21 +1518,25 @@ fn the_provider_wait_extension_is_closed_and_reads_back() {
     }})));
     for invalid in [
         serde_json::json!({"waits": []}),
-        serde_json::json!({"waits": [{"route": "first", "words": "w",
+        serde_json::json!({"waits": [{"route": "first", "words": "w", "seconds": 1,
             "until": "2026-11-01T00:00:30Z", "rounds": 1}]}),
         serde_json::json!({"waits": [{"provider": "claude", "route": "first",
-            "words": "w", "until": "2026-11-01T00:00:30Z", "rounds": 0}]}),
+            "words": "w", "seconds": 1, "until": "2026-11-01T00:00:30Z", "rounds": 0}]}),
         serde_json::json!({"waits": [{"provider": "claude", "route": "first",
-            "words": "w", "until": "not a time", "rounds": 1}]}),
+            "words": "w", "seconds": 1, "until": "not a time", "rounds": 1}]}),
         serde_json::json!({"waits": [{"provider": "claude", "route": "first",
-            "words": "w", "until": "2026-11-01T00:00:30Z", "rounds": 1,
+            "words": "w", "seconds": 1, "until": "2026-11-01T00:00:30Z", "rounds": 1,
             "retry_after_seconds": 0}]}),
         serde_json::json!({"waits": [{"provider": "claude", "route": "first",
-            "words": "w", "until": "2026-11-01T00:00:30Z", "rounds": 1,
+            "words": "w", "seconds": 1, "until": "2026-11-01T00:00:30Z", "rounds": 1,
             "site": null}]}),
         serde_json::json!({"waits": [{"provider": "claude", "route": "first",
-            "words": "w", "until": "2026-11-01T00:00:30Z", "rounds": 1,
+            "words": "w", "seconds": 1, "until": "2026-11-01T00:00:30Z", "rounds": 1,
             "extra": 1}]}),
+        serde_json::json!({"waits": [{"provider": "claude", "route": "first",
+            "words": "w", "until": "2026-11-01T00:00:30Z", "rounds": 1}]}),
+        serde_json::json!({"waits": [{"provider": "claude", "route": "first",
+            "words": "w", "seconds": 0, "until": "2026-11-01T00:00:30Z", "rounds": 1}]}),
         serde_json::json!({"probe": {"provider": "claude", "route": "first"}}),
     ] {
         assert!(
@@ -1539,4 +1544,92 @@ fn the_provider_wait_extension_is_closed_and_reads_back() {
             "the extension admitted {invalid}"
         );
     }
+}
+
+/// Decision 0103 ruling 2, step 9: the reader refuses everything the
+/// extension's schema refuses. One entry per shape is planted against
+/// both, and the two verdicts must agree; the expected verdict is pinned
+/// so neither side can pass by refusing or admitting everything. Draft-07
+/// cannot compare two properties, so the one rule the schema cannot write
+/// -- a `retry_after_seconds` that disagrees with `seconds` -- is the
+/// reader's alone and is proven separately below.
+#[test]
+fn the_provider_wait_reader_and_its_schema_agree() {
+    let validator = contract("contracts/provider-wait.v1.schema.json");
+    let valid = serde_json::json!({
+        "provider": "claude", "route": "first", "words": "rate_limit",
+        "seconds": 3, "until": "2026-11-01T00:00:03Z", "rounds": 1
+    });
+    let with = |key: &str, value: serde_json::Value| {
+        let mut entry = valid.clone();
+        entry[key] = value;
+        entry
+    };
+    let mut without = valid.clone();
+    without.as_object_mut().unwrap().remove("seconds");
+    let long_words = "w".repeat(301);
+    let long_site = "s".repeat(201);
+    let event = |payload: serde_json::Value| brokkr_core::EventEnvelope {
+        run_id: "run".into(),
+        seq: 1,
+        event_id: "event".into(),
+        event_schema_version: brokkr_core::envelope::EVENT_SCHEMA_VERSION,
+        event_type: brokkr_core::EventType::EffectFailed,
+        payload,
+        causation_id: None,
+        correlation_id: "run".into(),
+        attempt_id: None,
+        recorded_at: "2026-11-01T00:00:00Z".into(),
+        previous_hash: String::new(),
+        event_hash: String::new(),
+    };
+    for (case, admitted, entry) in [
+        ("valid", true, valid.clone()),
+        (
+            "retry after agrees",
+            true,
+            with("retry_after_seconds", 3.into()),
+        ),
+        ("missing seconds", false, without),
+        ("zero seconds", false, with("seconds", 0.into())),
+        ("empty words", false, with("words", "".into())),
+        ("words past 300", false, with("words", long_words.into())),
+        ("site past 200", false, with("site", long_site.into())),
+        (
+            "provider outside its pattern",
+            false,
+            with("provider", "p/r".into()),
+        ),
+        (
+            "route outside its pattern",
+            false,
+            with("route", "r/x".into()),
+        ),
+        ("unknown key", false, with("extra", 1.into())),
+        ("rounds below one", false, with("rounds", 0.into())),
+    ] {
+        let payload = serde_json::json!({"waits": [entry]});
+        let schema = validator.is_valid(&payload);
+        let reader = brokkr_core::provider_waits(&event(payload)).is_ok();
+        assert_eq!(
+            schema, admitted,
+            "{case}: the schema said {schema}, not {admitted}"
+        );
+        assert_eq!(
+            reader, admitted,
+            "{case}: the reader said {reader}, not {admitted}"
+        );
+    }
+    // The schema cannot compare two sibling numbers, so it admits this
+    // entry; the reader refuses it by name (step 1's `seconds` rule).
+    let disagreeing = with("retry_after_seconds", 4.into());
+    let payload = serde_json::json!({"waits": [disagreeing]});
+    assert!(
+        validator.is_valid(&payload),
+        "draft-07 has no cross-property equality"
+    );
+    assert!(
+        brokkr_core::provider_waits(&event(payload)).is_err(),
+        "a disagreeing retry-after must refuse, not read"
+    );
 }

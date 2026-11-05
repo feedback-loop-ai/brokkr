@@ -279,7 +279,8 @@ impl Engine {
         // Decision 0103 ruling 4(a): the probe answered before this retry,
         // so its one answer is the wait's end, journaled here.
         if let Some(answer) = self.cooldown.answer.take() {
-            started["probe"] = answer;
+            started["probe"] =
+                serde_json::to_value(&answer).expect("a probe answer is three serializable fields");
         }
         selection.carry = carry;
         Ok((selection, started))

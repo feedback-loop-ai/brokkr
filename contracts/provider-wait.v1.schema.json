@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://feedback-loop.ai/forge/contracts/provider-wait.v1.json",
   "title": "Forge provider wait v1 (an additive payload extension at event_schema 1)",
-  "description": "Decision 0103 rulings 2(a) and 4(a): the optional, absent-by-default payload fields that record a provider's rate-limit cool-down and the probe that ends it. `effect/failed.waits` (and, from decision 0103 slice 4c2, `effect/indeterminate.waits`) is one entry per refused site: the journal tag (absent for an inline seat), the provider and route the driver already resolved, the provider's bounded words, its retry-after when given, the computed `until`, and the round of the effect's episode. `effect/started.probe` is the one answer a dedicated one-turn probe gave before its retry, with the site, provider, route and when it answered. Both fields are optional and absent by default, are published as a numbered extension at event_schema 1 under the amended rule in contracts/README.md, and are never read by `fold`: the engine reads them from the effect's own events and `RunState` gains nothing. A present entry that cannot be read refuses by name, never as absent.",
+  "description": "Decision 0103 rulings 2(a), 3 and 4(a): the optional, absent-by-default payload fields that record a provider's rate-limit cool-down and the probe that ends it. `effect/failed.waits` (and, from decision 0103 slice 4c2, `effect/indeterminate.waits`) is one entry per refused site: the journal tag (absent for an inline seat), the provider and route the driver already resolved, the provider's bounded words, its retry-after when given, the computed `until`, the round of the effect's episode, and the length the engine computed under that entry's own route's bounds. `effect/started.probe` is the one answer a dedicated one-turn probe gave before its retry, with the site, provider, route and when it answered. Both fields are optional and absent by default, are published as a numbered extension at event_schema 1 under the amended rule in contracts/README.md, and are never read by `fold`: the engine reads them from the effect's own events and `RunState` gains nothing. A present entry that cannot be read refuses by name, never as absent.",
   "type": "object",
   "properties": {
     "waits": {
@@ -19,7 +19,7 @@
   "definitions": {
     "wait": {
       "type": "object",
-      "required": ["provider", "route", "words", "until", "rounds"],
+      "required": ["provider", "route", "words", "seconds", "until", "rounds"],
       "additionalProperties": false,
       "properties": {
         "site": {
@@ -47,17 +47,22 @@
         "retry_after_seconds": {
           "type": "integer",
           "minimum": 1,
-          "description": "The provider's own retry-after in whole seconds, when it gave one. It is the wait as given and is never lengthened; a later round doubles only the route's declared default."
+          "description": "The provider's own retry-after in whole seconds, when it gave one. It is the wait as given and is never lengthened; a later round doubles only the route's declared default. When present it must equal `seconds`; the reader enforces that equality, which draft-07 cannot compare across two properties."
+        },
+        "seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The length of this round's wait in whole seconds, as the engine computed it under THIS entry's route's bounds: the provider's retry-after when it gave one, else that route's default doubled for the round. An episode sums the recorded lengths and never recomputes an earlier wait under a later route's bounds."
         },
         "until": {
           "type": "string",
           "format": "date-time",
-          "description": "The computed end of this round's wait: now plus the provider's retry-after, else the route's default doubled for each earlier round of the same effect and site. A resume reads it and waits the remainder."
+          "description": "The computed end of this round's wait: now plus `seconds`. A resume reads it and waits the remainder; the maximum is judged from `seconds` and the episode, never from the remainder."
         },
         "rounds": {
           "type": "integer",
           "minimum": 1,
-          "description": "Which round of this effect's and site's episode this wait is: one for the first refusal, two for the next. It is the exponent the route's default doubles by."
+          "description": "Which round of this effect's and site's episode this wait is: one for the first refusal, two for the next. `seconds` records the route's default doubled by it at the time it was computed."
         }
       }
     },

@@ -858,7 +858,7 @@ fn drive_provider_waits(row: &Row) -> Vec<String> {
     let payload = serde_json::json!({
         "waits": [{
             "provider": "claude", "route": "first", "words": "rate_limit",
-            "retry_after_seconds": 30,
+            "retry_after_seconds": 30, "seconds": 30,
             "until": "2026-11-01T00:00:30Z", "rounds": 2
         }],
         "probe": {

@@ -1310,11 +1310,18 @@ pub fn brokkr_core::policy::Machine::from_table(&serde_json::value::Value) -> co
 pub fn brokkr_core::policy::Machine::reads_counter(&self, &str, &str) -> bool
 pub fn brokkr_core::policy::Machine::seat_inputs(&self, &str) -> alloc::vec::Vec<alloc::string::String>
 pub fn brokkr_core::policy::Machine::visit_phases(&self, &str) -> alloc::vec::Vec<alloc::string::String>
+pub struct brokkr_core::ProbeAnswer
+pub brokkr_core::ProbeAnswer::answered_at: time::offset_date_time::OffsetDateTime
+pub brokkr_core::ProbeAnswer::provider: alloc::string::String
+pub brokkr_core::ProbeAnswer::route: alloc::string::String
+impl serde_core::ser::Serialize for brokkr_core::ProbeAnswer
+pub fn brokkr_core::ProbeAnswer::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
 pub struct brokkr_core::ProviderWait
 pub brokkr_core::ProviderWait::provider: alloc::string::String
 pub brokkr_core::ProviderWait::retry_after_seconds: core::option::Option<u64>
 pub brokkr_core::ProviderWait::rounds: u64
 pub brokkr_core::ProviderWait::route: alloc::string::String
+pub brokkr_core::ProviderWait::seconds: u64
 pub brokkr_core::ProviderWait::site: core::option::Option<alloc::string::String>
 pub brokkr_core::ProviderWait::until: time::offset_date_time::OffsetDateTime
 pub brokkr_core::ProviderWait::words: alloc::string::String

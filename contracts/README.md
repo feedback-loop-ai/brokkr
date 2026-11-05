@@ -179,14 +179,17 @@ this contract was minted, was accepted by the operator on 2026-10-30.
 `waits` array on an `effect/failed` (and, from slice 4c2, an
 `effect/indeterminate`): one entry per refused site with its journal tag
 (absent for an inline seat), provider, route, the provider's bounded words,
-its retry-after when given, the computed `until` and the episode's `rounds`.
-It also publishes `probe` on the retry's `effect/started`: the site,
-provider, route and when the one-turn probe answered. The fields are legal
-at `event_schema: 1` under the amended rule above, and `fold` reads none of
-them: the engine reads the effect's own events and `RunState` gains
-nothing. A present entry that cannot be read refuses by name, never as
-absent. Decision 0103, under which this contract was minted, was accepted by
-the operator on 2026-10-31.
+its retry-after when given, the length the engine computed under that
+entry's own route's bounds, the computed `until` and the episode's `rounds`.
+An episode sums the recorded lengths and never recomputes an earlier wait
+under a later route's bounds; a terminal event and a resume judge the
+maximum from the record, never from the remainder. It also publishes
+`probe` on the retry's `effect/started`: the site, provider, route and when
+the one-turn probe answered. The fields are legal at `event_schema: 1`
+under the amended rule above, and `fold` reads none of them: the engine
+reads the effect's own events and `RunState` gains nothing. A present entry
+that cannot be read refuses by name, never as absent. Decision 0103, under
+which this contract was minted, was accepted by the operator on 2026-10-31.
 
 ## Event vocabulary (v1)
 

@@ -257,10 +257,9 @@ fn every_committed_payload_reads_back_to_its_own_bytes() {
 }
 
 /// Decision 0103 ruling 2(a): the `waits` extension reads into its typed
-/// entry, and a present entry that does not read refuses by the field's
-/// own name, never as no wait.
+/// entry, carrying the entry's own `seconds` (decision 0103 ruling 3).
 #[test]
-fn the_provider_wait_extension_reads_and_refuses_by_name() {
+fn the_provider_wait_extension_reads() {
     let valid = event(
         Type::EffectFailed,
         json!({"effect_id": "e", "waits": [{
@@ -269,6 +268,7 @@ fn the_provider_wait_extension_reads_and_refuses_by_name() {
             "route": "anthropic",
             "words": "rate_limit (HTTP 429)",
             "retry_after_seconds": 30,
+            "seconds": 30,
             "until": "2026-11-01T00:00:30Z",
             "rounds": 2
         }]}),
@@ -280,6 +280,7 @@ fn the_provider_wait_extension_reads_and_refuses_by_name() {
     assert_eq!(waits[0].route, "anthropic");
     assert_eq!(waits[0].words, "rate_limit (HTTP 429)");
     assert_eq!(waits[0].retry_after_seconds, Some(30));
+    assert_eq!(waits[0].seconds, 30);
     assert_eq!(waits[0].rounds, 2);
     assert_eq!(
         waits[0].until,
@@ -289,66 +290,128 @@ fn the_provider_wait_extension_reads_and_refuses_by_name() {
     // An event with no `waits` is no wait, not a malformed one.
     let none = event(Type::EffectFailed, json!({"effect_id": "e"}));
     assert_eq!(provider_waits(&none).unwrap(), None);
+}
 
+/// The reader refuses `payload` naming `field`, never as no wait.
+fn refuses_by_name(payload: Value, field: &str) {
+    let error = provider_waits(&event(Type::EffectFailed, payload)).unwrap_err();
+    assert!(
+        matches!(&error, ProviderWaitError::Field { field: named, .. } if named == field),
+        "{error:?} did not name {field}"
+    );
+}
+/// A present `waits` entry that does not read refuses by the field's own
+/// name, never as no wait. The reader carries the schema's own bounds
+/// (decision 0103 ruling 2, step 9): a word past `maxLength`, a provider
+/// or route outside its pattern, and the entry's required `seconds`.
+#[test]
+fn the_provider_wait_extension_refuses_by_name() {
     for (payload, field) in [
         (json!({"waits": {}}), "waits"),
         (json!({"waits": []}), "waits"),
         (
-            json!({"waits": [{"route": "r", "words": "w",
+            json!({"waits": [{"route": "r", "words": "w", "seconds": 1,
                 "until": "2026-11-01T00:00:00Z", "rounds": 1}]}),
             "provider",
         ),
         (
-            json!({"waits": [{"provider": "p", "words": "w",
+            json!({"waits": [{"provider": "p", "words": "w", "seconds": 1,
                 "until": "2026-11-01T00:00:00Z", "rounds": 1}]}),
             "route",
         ),
         (
             json!({"waits": [{"provider": "p", "route": "r", "words": "",
-                "until": "2026-11-01T00:00:00Z", "rounds": 1}]}),
+                "seconds": 1, "until": "2026-11-01T00:00:00Z", "rounds": 1}]}),
             "words",
         ),
         (
+            json!({"waits": [{"provider": "p/r", "route": "r", "words": "w",
+                "seconds": 1, "until": "2026-11-01T00:00:00Z", "rounds": 1}]}),
+            "provider",
+        ),
+        (
+            json!({"waits": [{"provider": "p", "route": "r/x", "words": "w",
+                "seconds": 1, "until": "2026-11-01T00:00:00Z", "rounds": 1}]}),
+            "route",
+        ),
+        (
             json!({"waits": [{"provider": "p", "route": "r", "words": "w",
-                "until": "not a time", "rounds": 1}]}),
+                "until": "2026-11-01T00:00:00Z", "rounds": 1}]}),
+            "seconds",
+        ),
+        (
+            json!({"waits": [{"provider": "p", "route": "r", "words": "w",
+                "seconds": 0, "until": "2026-11-01T00:00:00Z", "rounds": 1}]}),
+            "seconds",
+        ),
+        (
+            json!({"waits": [{"provider": "p", "route": "r", "words": "w",
+                "retry_after_seconds": 30, "seconds": 31,
+                "until": "2026-11-01T00:00:00Z", "rounds": 1}]}),
+            "seconds",
+        ),
+        (
+            json!({"waits": [{"provider": "p", "route": "r", "words": "w",
+                "seconds": 1, "until": "not a time", "rounds": 1}]}),
             "until",
         ),
         (
             json!({"waits": [{"provider": "p", "route": "r", "words": "w",
-                "until": "2026-11-01T00:00:00Z"}]}),
+                "seconds": 1, "until": "2026-11-01T00:00:00Z"}]}),
             "rounds",
         ),
         (
             json!({"waits": [{"provider": "p", "route": "r", "words": "w",
-                "until": "2026-11-01T00:00:00Z", "rounds": 0}]}),
+                "seconds": 1, "until": "2026-11-01T00:00:00Z", "rounds": 0}]}),
             "rounds",
         ),
         (
             json!({"waits": [{"provider": "p", "route": "r", "words": "w",
-                "until": "2026-11-01T00:00:00Z", "rounds": 1,
+                "seconds": 1, "until": "2026-11-01T00:00:00Z", "rounds": 1,
                 "retry_after_seconds": 0}]}),
             "retry_after_seconds",
         ),
         (
             json!({"waits": [{"provider": "p", "route": "r", "words": "w",
-                "until": "2026-11-01T00:00:00Z", "rounds": 1, "site": null}]}),
+                "seconds": 1, "until": "2026-11-01T00:00:00Z", "rounds": 1,
+                "site": null}]}),
             "site",
         ),
         (
             json!({"waits": [{"provider": "p", "route": "r", "words": "w",
-                "until": "2026-11-01T00:00:00Z", "rounds": 1, "other": 1}]}),
+                "seconds": 1, "until": "2026-11-01T00:00:00Z", "rounds": 1,
+                "other": 1}]}),
             "other",
         ),
         (
             json!({"waits": [{"provider": "p", "route": "r", "words": "w",
-                "until": "2026-11-01T00:00:00Z", "rounds": 1}, 7]}),
+                "seconds": 1, "until": "2026-11-01T00:00:00Z", "rounds": 1}, 7]}),
             "waits",
         ),
     ] {
-        let error = provider_waits(&event(Type::EffectFailed, payload)).unwrap_err();
-        assert!(
-            matches!(&error, ProviderWaitError::Field { field: named, .. } if named == field),
-            "{error:?} did not name {field}"
-        );
+        refuses_by_name(payload, field);
+    }
+}
+
+/// The reader refuses the two schema `maxLength` bounds the old reader let
+/// through: a wait's words past 300 characters and a site past 200.
+#[test]
+fn the_provider_wait_extension_bounds_words_and_site() {
+    let long_words = "w".repeat(301);
+    let long_site = "s".repeat(201);
+    for (payload, field) in [
+        (
+            json!({"waits": [{"provider": "p", "route": "r", "words": long_words,
+                "seconds": 1, "until": "2026-11-01T00:00:00Z", "rounds": 1}]}),
+            "words",
+        ),
+        (
+            json!({"waits": [{"provider": "p", "route": "r", "words": "w",
+                "seconds": 1, "until": "2026-11-01T00:00:00Z", "rounds": 1,
+                "site": long_site}]}),
+            "site",
+        ),
+    ] {
+        refuses_by_name(payload, field);
     }
 }

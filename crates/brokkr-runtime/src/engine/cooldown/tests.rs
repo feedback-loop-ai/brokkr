@@ -38,9 +38,10 @@ fn work(attempts: u64) -> Limits {
     }
 }
 
-/// A v2 host file declaring cool-downs for claude/first and codex/second.
-fn host(dir: &Path, default: u64, max: u64) -> PathBuf {
-    let path = dir.join("host.json");
+/// A v2 host file declaring cool-downs for claude/first and codex/second,
+/// with `cooldowns` as the block's own JSON.
+fn host_with(dir: &Path, name: &str, cooldowns: Value) -> PathBuf {
+    let path = dir.join(name);
     std::fs::write(
         &path,
         json!({
@@ -51,12 +52,40 @@ fn host(dir: &Path, default: u64, max: u64) -> PathBuf {
             },
             "floors": [{"floor_bytes": 1, "path": "/"}],
             "boxed_builds": {"ceiling": 1},
-            "cooldowns": {"default_seconds": default, "max_seconds": max}
+            "cooldowns": cooldowns
         })
         .to_string(),
     )
     .unwrap();
     path
+}
+
+/// A v2 host file with one block-wide default and maximum.
+fn host(dir: &Path, default: u64, max: u64) -> PathBuf {
+    host_with(
+        dir,
+        "host.json",
+        json!({"default_seconds": default, "max_seconds": max}),
+    )
+}
+
+/// A v2 host file whose bounds differ per route: the block's default 1
+/// and maximum 25, claude/first defaults to 10s, codex/second must not pass
+/// 5s (decision 0103 ruling 3: each wait keeps the length its own route
+/// computed).
+fn routes_host(dir: &Path) -> PathBuf {
+    host_with(
+        dir,
+        "routes.json",
+        json!({
+            "default_seconds": 1,
+            "max_seconds": 25,
+            "providers": {
+                "claude": {"routes": {"first": {"default_seconds": 10}}},
+                "codex": {"routes": {"second": {"max_seconds": 5}}}
+            }
+        }),
+    )
 }
 
 /// A v1 host file: capacity, and no cool-downs declared.
@@ -317,6 +346,33 @@ fn chain(candidates: Vec<Candidate>) -> SeatBody {
     })
 }
 
+/// The two-route chain the cross-route tests drive: claude/first then
+/// codex/second, each with its own verdicts.
+fn two_route_body(dir: &Path, first: &[&str], second: &[&str]) -> SeatBody {
+    let claude = driver(
+        dir,
+        "claude",
+        first,
+        Probed::Answer,
+        None,
+        "claude",
+        "first",
+    );
+    let codex = driver(
+        dir,
+        "codex",
+        second,
+        Probed::Answer,
+        None,
+        "codex",
+        "second",
+    );
+    chain(vec![
+        candidate("claude", "claude/first", claude),
+        candidate("codex", "codex/second", codex),
+    ])
+}
+
 /// The bundle a resumed or synthesized journal runs under, with the two
 /// attempts this suite needs.
 fn compiled(dir: &Path, body: SeatBody) -> crate::bundle::Bundle {
@@ -412,28 +468,7 @@ fn a_probe_that_starts_then_errors_parks_without_a_retry() {
 #[test]
 fn the_probe_asks_the_cooled_route_and_the_retry_takes_the_next_link() {
     let dir = tempfile::tempdir().unwrap();
-    let first = driver(
-        dir.path(),
-        "claude",
-        &["refuse"],
-        Probed::Answer,
-        None,
-        "claude",
-        "first",
-    );
-    let second = driver(
-        dir.path(),
-        "codex",
-        &["succeed"],
-        Probed::Answer,
-        None,
-        "codex",
-        "second",
-    );
-    let body = chain(vec![
-        candidate("claude", "claude/first", first),
-        candidate("codex", "codex/second", second),
-    ]);
+    let body = two_route_body(dir.path(), &["refuse"], &["succeed"]);
     let (dir, mut engine, _now) = seated!(@in dir, body, 2);
     engine.drive().unwrap();
     assert_eq!(logs(dir.path(), "claude"), ["attempt:refuse", "probe"]);
@@ -469,7 +504,7 @@ fn a_malformed_wait_refuses_by_name_at_and_below_the_cap() {
         );
         append_waited(
             &mut engine,
-            json!([{"route": "first", "words": "w",
+            json!([{"route": "first", "words": "w", "seconds": 1,
                     "until": "2026-11-01T00:00:00Z", "rounds": 1}]),
         );
         engine.drive().unwrap();
@@ -479,56 +514,130 @@ fn a_malformed_wait_refuses_by_name_at_and_below_the_cap() {
     }
 }
 
-#[test]
-fn an_operator_stop_during_the_wait_is_honoured() {
+/// Journal an operator's accepted stop on the run.
+fn append_stop(db: &Path, run_id: &str) {
+    let mut store = brokkr_store::Store::open(db).unwrap();
+    store
+        .append_next(
+            run_id,
+            EventType::OperatorCommanded,
+            json!({"command_id": "c", "command": "stop", "args": {},
+                   "operator": "operator"}),
+            None,
+            None,
+        )
+        .unwrap();
+    store
+        .append_next(
+            run_id,
+            EventType::OperatorAccepted,
+            json!({"command_id": "c", "operator": "operator", "reason": "stop"}),
+            None,
+            None,
+        )
+        .unwrap();
+}
+
+/// A seat whose refused attempt waits two seconds under a declared host.
+fn stop_fixture() -> (
+    tempfile::TempDir,
+    Engine,
+    Arc<Mutex<OffsetDateTime>>,
+    PathBuf,
+    String,
+) {
     let dir = tempfile::tempdir().unwrap();
     let command = standard_command(dir.path());
     let mut engine = started(dir.path(), single_body(command), work(2));
     engine.cooldown.host = Some(host(dir.path(), 2, 10));
-    let (mut engine, now) = with_clock(engine);
+    let (engine, now) = with_clock(engine);
     let db = dir.path().join("forge.db");
     let run_id = engine.run_id.clone();
-    let stop = Arc::new(Mutex::new(true));
-    let read = Arc::clone(&now);
-    let advance = Arc::clone(&now);
-    let clock = Clock {
-        now: Box::new(move || *read.lock().unwrap()),
-        sleep: {
-            let stop = Arc::clone(&stop);
-            Box::new(move |slice: std::time::Duration| {
-                *advance.lock().unwrap() += time::Duration::seconds(slice.as_secs() as i64);
-                if !std::mem::replace(&mut *stop.lock().unwrap(), false) {
-                    return;
-                }
-                let mut store = brokkr_store::Store::open(&db).unwrap();
-                store
-                    .append_next(
-                        &run_id,
-                        EventType::OperatorCommanded,
-                        json!({"command_id": "c", "command": "stop", "args": {},
-                               "operator": "operator"}),
-                        None,
-                        None,
-                    )
-                    .unwrap();
-                store
-                    .append_next(
-                        &run_id,
-                        EventType::OperatorAccepted,
-                        json!({"command_id": "c", "operator": "operator", "reason": "stop"}),
-                        None,
-                        None,
-                    )
-                    .unwrap();
-            })
-        },
-    };
-    engine.cooldown.clock = clock;
-    engine.drive().unwrap();
+    (dir, engine, now, db, run_id)
+}
+
+fn assert_stopped(dir: &Path, engine: &Engine) {
     let events = engine.store.load(&engine.run_id).unwrap();
     assert_eq!(fold(&events).unwrap().run.status(), Status::Stopped);
-    assert_eq!(logs(dir.path(), "work"), ["attempt:refuse"]);
-    assert_eq!(starts(&engine).len(), 1);
+    assert_eq!(logs(dir, "work"), ["attempt:refuse"]);
+    assert_eq!(starts(engine).len(), 1);
+}
+
+#[test]
+fn an_operator_stop_during_the_wait_is_honoured() {
+    let (dir, mut engine, now, db, run_id) = stop_fixture();
+    let read = Arc::clone(&now);
+    let advance = Arc::clone(&now);
+    let stop = Arc::new(Mutex::new(true));
+    engine.cooldown.clock = Clock {
+        now: Box::new(move || *read.lock().unwrap()),
+        sleep: Box::new({
+            let stop = Arc::clone(&stop);
+            move |slice: std::time::Duration| {
+                *advance.lock().unwrap() += time::Duration::seconds(slice.as_secs() as i64);
+                if std::mem::replace(&mut *stop.lock().unwrap(), false) {
+                    append_stop(&db, &run_id);
+                }
+            }
+        }),
+    };
+    engine.drive().unwrap();
+    assert_stopped(dir.path(), &engine);
+}
+
+/// F3: the operator's accepted stop lands after the caller folded
+/// `ExecuteEffect` but before the wait's first sample. It must be seen
+/// before the first slice, so the probe never runs and the fenced retry is
+/// never attempted.
+#[test]
+fn a_stop_before_the_first_sample_stops_without_a_probe() {
+    let (dir, mut engine, now, db, run_id) = stop_fixture();
+    let read = Arc::clone(&now);
+    let advance = Arc::clone(&now);
+    let armed = Arc::new(Mutex::new(true));
+    engine.cooldown.clock = Clock {
+        now: Box::new({
+            let armed = Arc::clone(&armed);
+            move || {
+                if std::mem::replace(&mut *armed.lock().unwrap(), false) {
+                    append_stop(&db, &run_id);
+                }
+                *read.lock().unwrap()
+            }
+        }),
+        sleep: Box::new(move |slice: std::time::Duration| {
+            *advance.lock().unwrap() += time::Duration::seconds(slice.as_secs() as i64);
+        }),
+    };
+    engine.drive().unwrap();
+    assert_stopped(dir.path(), &engine);
+}
+
+/// The stop check before the first slice: the caller folded
+/// `ExecuteEffect`, the operator's accepted stop landed, and `take_cooldown`
+/// is handed the stale fold. It sees the stop before sleeping or probing.
+#[test]
+fn a_stop_already_journaled_is_seen_before_the_first_slice() {
+    let (dir, mut engine, now) = resumed(&["succeed"], base() + time::Duration::seconds(2), 2);
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let state = fold(&events).unwrap();
+    let wait = engine.recorded_wait(&events, "effect").unwrap().unwrap();
+    append_stop(&dir.path().join("forge.db"), &engine.run_id);
+    let before = *now.lock().unwrap();
+    match engine
+        .take_cooldown(&events, &state, "effect", "work", &wait)
+        .unwrap()
+    {
+        super::Waited::Stopped => {}
+        super::Waited::Proceed(_) => panic!("a stopped run proceeded to the probe"),
+        super::Waited::Parked(reason) => panic!("a stopped run parked: {reason}"),
+    }
+    assert_eq!(
+        *now.lock().unwrap(),
+        before,
+        "a journaled stop must be seen before the first slice"
+    );
+    assert!(logs(dir.path(), "work").is_empty(), "no probe may run");
 }
 
 #[test]
@@ -559,10 +668,62 @@ fn an_accumulated_episode_past_the_maximum_parks() {
     assert!(reason.contains("declared 3s maximum"), "{reason}");
 }
 
-/// A valid wait entry array ending at `until`.
-fn wait_value(until: OffsetDateTime) -> Value {
+/// F4: a retry-after too large for a nanosecond `until` must not panic.
+/// The maximum is judged from the computed seconds first, the failed event
+/// is written without a wait, and the run parks naming the retry-after and
+/// the maximum.
+#[test]
+fn a_huge_retry_after_parks_without_a_panic_or_a_wait() {
+    for retry in [1_000_000_000_000u64, i64::MAX as u64] {
+        let (dir, mut engine, _now) = seated!(&["refuse"], Probed::Answer, Some(retry), 2);
+        engine.drive().unwrap();
+        assert_eq!(logs(dir.path(), "work"), ["attempt:refuse"]);
+        assert_eq!(starts(&engine).len(), 1);
+        let failed = failed(&engine);
+        assert_eq!(failed.len(), 1, "the attempt's failed event was written");
+        assert!(
+            failed[0].payload.get("waits").is_none(),
+            "no wait is recorded when no until can be represented: {}",
+            failed[0].payload
+        );
+        let reason = park_reason(&engine);
+        assert!(reason.contains(&retry.to_string()), "{reason}");
+        assert!(reason.contains("declared 10s maximum"), "{reason}");
+        assert!(reason.contains("rate_limit: slow down"), "{reason}");
+    }
+}
+
+/// F5: the second refusal brings the two-attempt cap, and its episode is
+/// also past the 2s maximum. The cap's park is the one written, with 0006's
+/// text first and the provider, route, until, words and the passed maximum
+/// beside it; the episode's own park never speaks.
+#[test]
+fn the_cap_reason_speaks_first_and_names_the_passed_maximum() {
+    let (dir, mut engine, _now) = seated!(&["refuse", "refuse"], Probed::Answer, None, 2);
+    engine.cooldown.host = Some(host(dir.path(), 1, 2));
+    drove(
+        &mut engine,
+        dir.path(),
+        &["attempt:refuse", "probe", "attempt:refuse"],
+    );
+    let reason = park_reason(&engine);
+    assert!(reason.starts_with("effect "), "{reason}");
+    assert!(reason.contains("failed 2 of 2 attempt(s)"), "{reason}");
+    assert!(reason.contains("waits for claude/first until"), "{reason}");
+    assert!(reason.contains("rate_limit: slow down"), "{reason}");
+    assert!(
+        reason.contains("episode 3s is past the declared 2s maximum"),
+        "{reason}"
+    );
+    assert!(!reason.starts_with("cool-down for"), "{reason}");
+    assert_eq!(starts(&engine).len(), 2);
+}
+
+/// A valid wait entry array ending at `until`, carrying the length the
+/// entry recorded under its own route's bounds.
+fn wait_value(until: OffsetDateTime, seconds: u64) -> Value {
     json!([{"provider": "claude", "route": "first",
-            "words": "rate_limit: slow down",
+            "words": "rate_limit: slow down", "seconds": seconds,
             "until": until.format(&Rfc3339).unwrap(), "rounds": 1}])
 }
 
@@ -602,6 +763,16 @@ fn append_waited(engine: &mut Engine, waits: Value) {
 fn resumed(
     verdicts: &[&str],
     until: OffsetDateTime,
+    seconds: u64,
+) -> (tempfile::TempDir, Engine, Arc<Mutex<OffsetDateTime>>) {
+    resumed_at(verdicts, until, seconds, base())
+}
+
+fn resumed_at(
+    verdicts: &[&str],
+    until: OffsetDateTime,
+    seconds: u64,
+    at: OffsetDateTime,
 ) -> (tempfile::TempDir, Engine, Arc<Mutex<OffsetDateTime>>) {
     let dir = tempfile::tempdir().unwrap();
     let command = driver(
@@ -624,7 +795,7 @@ fn resumed(
         Some(dir.path().join("work")),
     )
     .unwrap();
-    append_waited(&mut engine, wait_value(until));
+    append_waited(&mut engine, wait_value(until, seconds));
     let run_id = engine.run_id.clone();
     drop(engine);
     let mut resumed_engine = Engine::resume(
@@ -634,14 +805,14 @@ fn resumed(
         Some(dir.path().join("work")),
     )
     .unwrap();
-    let (clock, now) = Clock::advancing(base());
+    let (clock, now) = Clock::advancing(at);
     resumed_engine.cooldown.clock = clock;
     (dir, resumed_engine, now)
 }
 
 #[test]
 fn a_resume_waits_the_remainder() {
-    let (dir, mut engine, now) = resumed(&["succeed"], base() + time::Duration::seconds(3));
+    let (dir, mut engine, now) = resumed(&["succeed"], base() + time::Duration::seconds(3), 3);
     // No declaration on the resume: the recorded end is the wait's.
     engine.cooldown.host = None;
     engine.drive().unwrap();
@@ -652,8 +823,8 @@ fn a_resume_waits_the_remainder() {
 }
 
 #[test]
-fn a_resume_parks_when_the_remainder_passes_the_maximum() {
-    let (dir, mut engine, _now) = resumed(&["succeed"], base() + time::Duration::seconds(5));
+fn a_resume_parks_when_the_recorded_wait_passes_the_maximum() {
+    let (dir, mut engine, _now) = resumed(&["succeed"], base() + time::Duration::seconds(5), 5);
     engine.cooldown.host = Some(host(dir.path(), 1, 1));
     engine.drive().unwrap();
     assert!(logs(dir.path(), "work").is_empty());
@@ -661,9 +832,63 @@ fn a_resume_parks_when_the_remainder_passes_the_maximum() {
     assert!(reason.contains("past the declared 1s maximum"), "{reason}");
 }
 
+/// F1: the failed event committed an 11-second wait under a 10s maximum,
+/// and the engine crashed before its park. A resume at `at` applies the
+/// recorded maximum; the remainder only sets how long the wait sleeps.
+fn a_resume_past_the_recorded_maximum_is_refused(at: i64) {
+    let until = base() + time::Duration::seconds(11);
+    let (dir, mut engine, _now) = resumed_at(
+        &["succeed"],
+        until,
+        11,
+        base() + time::Duration::seconds(at),
+    );
+    engine.cooldown.host = Some(host(dir.path(), 1, 10));
+    engine.drive().unwrap();
+    assert!(logs(dir.path(), "work").is_empty());
+    assert_eq!(starts(&engine).len(), 1);
+    let reason = park_reason(&engine);
+    assert!(reason.contains("episode 11s"), "{reason}");
+    assert!(reason.contains("declared 10s maximum"), "{reason}");
+    assert!(reason.contains("rate_limit: slow down"), "{reason}");
+}
+
+/// F1, early: at T+2 the remainder is 9s, below the maximum, but the
+/// recorded 11s is past it.
+#[test]
+fn a_resume_early_keeps_the_recorded_maximum_refusal() {
+    a_resume_past_the_recorded_maximum_is_refused(2);
+}
+
+/// F1, late: a resume past `until` applies the same recorded maximum, not
+/// a zero remainder.
+#[test]
+fn a_resume_late_keeps_the_recorded_maximum_refusal() {
+    a_resume_past_the_recorded_maximum_is_refused(12);
+}
+
+/// F2: claude/first recorded 10s under its own route's default, and
+/// codex/second's 2s is computed under codex's default. The episode is 12s
+/// and passes codex's 5s maximum, so codex is never probed or retried.
+#[test]
+fn an_episode_sums_each_routes_recorded_length() {
+    let dir = tempfile::tempdir().unwrap();
+    let body = two_route_body(dir.path(), &["refuse"], &["refuse", "succeed"]);
+    let (dir, mut engine, _now) = seated!(@in dir, body, 3);
+    engine.cooldown.host = Some(routes_host(dir.path()));
+    engine.drive().unwrap();
+    assert_eq!(logs(dir.path(), "claude"), ["attempt:refuse", "probe"]);
+    assert_eq!(logs(dir.path(), "codex"), ["attempt:refuse"]);
+    assert_eq!(starts(&engine).len(), 2);
+    let reason = park_reason(&engine);
+    assert!(reason.contains("episode 12s"), "{reason}");
+    assert!(reason.contains("declared 5s maximum"), "{reason}");
+    assert!(reason.contains("rate_limit: slow down"), "{reason}");
+}
+
 #[test]
 fn a_resume_parks_when_the_host_file_is_invalid() {
-    let (dir, mut engine, _now) = resumed(&["succeed"], base() + time::Duration::seconds(1));
+    let (dir, mut engine, _now) = resumed(&["succeed"], base() + time::Duration::seconds(1), 1);
     let invalid = dir.path().join("invalid.json");
     std::fs::write(&invalid, "not json").unwrap();
     engine.cooldown.host = Some(invalid);
@@ -798,18 +1023,35 @@ fn the_host_seam_reads_absent_unreadable_invalid_and_undeclared_files() {
     let mut engine = engine;
     // No file at the path.
     engine.cooldown.host = Some(dir.path().join("missing.json"));
-    assert_eq!(engine.cooldown_bounds("claude", "first"), Ok(None));
+    assert!(matches!(
+        engine.cooldown_bounds("claude", "first"),
+        Ok(None)
+    ));
     // A directory at the path cannot be read.
     engine.cooldown.host = Some(dir.path().to_path_buf());
-    assert!(engine.cooldown_bounds("claude", "first").is_err());
+    match engine.cooldown_bounds("claude", "first") {
+        Err(super::CooldownError::HostUnreadable { path, kind }) => {
+            assert_eq!(path, dir.path());
+            assert_eq!(kind, std::io::ErrorKind::IsADirectory);
+        }
+        other => panic!("a directory read as {other:?}, not an unreadable host"),
+    }
     // Bytes that are not a host file.
     let invalid = dir.path().join("invalid.json");
     std::fs::write(&invalid, "not json").unwrap();
-    engine.cooldown.host = Some(invalid);
-    assert!(engine.cooldown_bounds("claude", "first").is_err());
+    engine.cooldown.host = Some(invalid.clone());
+    match engine.cooldown_bounds("claude", "first") {
+        Err(super::CooldownError::HostInvalid { source }) => {
+            assert!(source.to_string().contains("is not a valid"), "{source}");
+        }
+        other => panic!("invalid bytes read as {other:?}, not an invalid host"),
+    }
     // A v1 file, and a v2 file with no block: no declaration.
     engine.cooldown.host = Some(v1_host(dir.path()));
-    assert_eq!(engine.cooldown_bounds("claude", "first"), Ok(None));
+    assert!(matches!(
+        engine.cooldown_bounds("claude", "first"),
+        Ok(None)
+    ));
     // A declared block reads its numbers.
     engine.cooldown.host = Some(host(dir.path(), 1, 10));
     let bounds = engine.cooldown_bounds("claude", "first").unwrap().unwrap();
@@ -817,17 +1059,13 @@ fn the_host_seam_reads_absent_unreadable_invalid_and_undeclared_files() {
     assert_eq!(bounds.max_seconds.get(), 10);
 }
 
-/// The episode sums each wait's own formula: the retry-after it recorded,
-/// else the declared default doubled by its `rounds`.
+/// The episode sums each wait's own recorded `seconds`, never recomputing
+/// an earlier wait under the current route's bounds; an earlier entry that
+/// does not read refuses by name instead of counting as nothing (decision
+/// 0103 ruling 3, this fix round).
 #[test]
 fn the_episode_sums_each_waits_own_round() {
-    use crate::admission::Bounds;
     use crate::envelope_builder::EnvelopeBuilder;
-    use std::num::NonZeroU32;
-    let bounds = Bounds {
-        default_seconds: NonZeroU32::new(2).unwrap(),
-        max_seconds: NonZeroU32::new(10).unwrap(),
-    };
     let event = |seq, effect, waits| {
         EnvelopeBuilder::new(
             EventType::EffectFailed,
@@ -836,52 +1074,220 @@ fn the_episode_sums_each_waits_own_round() {
         .seq(seq)
         .build()
     };
-    let wait = |rounds, retry: Option<u64>| {
-        let mut wait = json!({"provider": "claude", "route": "first", "words": "w",
-                              "until": "2026-11-01T00:00:00Z", "rounds": rounds});
-        if let Some(retry) = retry {
-            wait["retry_after_seconds"] = json!(retry);
-        }
-        wait
+    let wait = |seconds, rounds| {
+        json!({"provider": "claude", "route": "first", "words": "w", "seconds": seconds,
+               "until": "2026-11-01T00:00:00Z", "rounds": rounds})
     };
     assert_eq!(
-        super::episode(
-            &[event(1, "effect", json!([wait(1, None)]))],
-            "effect",
-            bounds
-        ),
-        (1, 2)
+        super::episode(&[event(1, "effect", json!([wait(10, 1)]))], "effect").unwrap(),
+        (1, 10)
     );
     assert_eq!(
         super::episode(
-            &[event(1, "effect", json!([wait(2, None)]))],
-            "effect",
-            bounds
-        ),
-        (1, 4)
+            &[
+                event(1, "effect", json!([wait(10, 1)])),
+                event(2, "effect", json!([wait(2, 2)])),
+            ],
+            "effect"
+        )
+        .unwrap(),
+        (2, 12)
     );
+    // A terminal with no waits counts nothing, and is not a malformed one.
     assert_eq!(
         super::episode(
-            &[event(1, "effect", json!([wait(3, Some(5))]))],
-            "effect",
-            bounds
-        ),
-        (1, 5)
+            &[
+                EnvelopeBuilder::new(EventType::EffectFailed, json!({"effect_id": "effect"}),)
+                    .seq(5)
+                    .build()
+            ],
+            "effect"
+        )
+        .unwrap(),
+        (0, 0)
     );
     let skipped = EnvelopeBuilder::new(EventType::EffectStarted, json!({"effect_id": "effect"}))
         .seq(1)
         .build();
-    let other = event(2, "other", json!([wait(1, None)]));
-    let malformed = EnvelopeBuilder::new(
-        EventType::EffectFailed,
-        json!({"effect_id": "effect", "waits": [{"route": "first"}]}),
-    )
-    .seq(3)
-    .build();
-    assert_eq!(
-        super::episode(&[skipped, other, malformed], "effect", bounds),
-        (0, 0)
+    let other = event(2, "other", json!([wait(4, 1)]));
+    let malformed = event(
+        3,
+        "effect",
+        json!([{"route": "first", "words": "w", "seconds": 1,
+                "until": "2026-11-01T00:00:00Z", "rounds": 1}]),
     );
+    match super::episode(&[skipped, other, malformed], "effect") {
+        Err(super::CooldownError::EarlierWaitUnreadable {
+            seq: 3,
+            source: brokkr_core::ProviderWaitError::Field { field, .. },
+        }) if field == "provider" => {}
+        Err(other) => panic!("the earlier wait refused as {other:?}, not by its provider"),
+        Ok(episode) => panic!("an unreadable earlier wait counted as {episode:?}"),
+    }
+}
+
+/// F6: an earlier same-effect failed event whose wait does not read refuses
+/// by name at the cap too, with the event's seq and the read error, instead
+/// of counting as zero rounds and zero seconds.
+#[test]
+fn an_unreadable_earlier_wait_parks_naming_its_event() {
+    let (_dir, mut engine) = two_terminal_engine(2);
+    engine.drive().unwrap();
+    let reason = park_reason(&engine);
+    assert!(reason.contains("failed 2 of 2 attempt(s)"), "{reason}");
+    assert!(reason.contains("an earlier wait does not read"), "{reason}");
+    assert!(reason.contains("does not read: provider"), "{reason}");
+}
+
+/// The journal two terminal events leave: `earlier` (which may be
+/// malformed for the episode) and a readable second terminal.
+fn two_terminals(engine: &mut Engine, earlier: Value) {
+    append_waited(engine, earlier);
+    for (event, payload, attempt) in [
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "effect", "attempt_id": "a2", "driver": "d"}),
+            Some("a2".to_string()),
+        ),
+        (
+            EventType::EffectFailed,
+            json!({"effect_id": "effect", "attempt_id": "a2", "error": "refused",
+                   "start_failure": true, "start_failure_sites": [null],
+                   "waits": wait_value(base() + time::Duration::seconds(2), 2)}),
+            Some("a2".to_string()),
+        ),
+    ] {
+        engine.append(event, payload, attempt).unwrap();
+    }
+}
+
+fn a_rate_limit(retry: Option<u64>) -> brokkr_protocol::PreSessionRefusal {
+    let mut value = json!({"class": "rate_limit", "provider": "claude",
+                           "route": "first", "words": "rate_limit: slow down"});
+    if let Some(retry) = retry {
+        value["retry_after_seconds"] = json!(retry);
+    }
+    serde_json::from_value(value).unwrap()
+}
+
+/// An earlier terminal whose `waits` entry is missing its provider.
+fn malformed_earlier() -> Value {
+    json!([{"route": "first", "words": "w", "seconds": 1,
+            "until": "2026-11-01T00:00:01Z", "rounds": 1}])
+}
+
+/// A run whose journal holds the malformed earlier terminal and a readable
+/// second one, with the host declared and `attempts` allowed.
+fn two_terminal_engine(attempts: u64) -> (tempfile::TempDir, Engine) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = started(
+        dir.path(),
+        single_body(vec!["unused".into()]),
+        work(attempts),
+    );
+    engine.cooldown.host = Some(host(dir.path(), 1, 10));
+    two_terminals(&mut engine, malformed_earlier());
+    (dir, engine)
+}
+
+/// The terminal a rate-limit refusal writes, through the one public door.
+fn terminal(engine: &mut Engine, retry: Option<u64>) -> super::Terminal {
+    engine
+        .rate_limit_terminal(
+            "effect",
+            json!({"error": "refused"}),
+            Some(&a_rate_limit(retry)),
+        )
+        .unwrap()
+}
+
+/// The resume path reads its episode the same way the terminal does: an
+/// earlier entry that does not read refuses, never as zero rounds.
+#[test]
+fn a_resume_refuses_an_unreadable_earlier_wait() {
+    let (dir, mut engine) = two_terminal_engine(3);
+    engine.drive().unwrap();
+    assert!(logs(dir.path(), "work").is_empty());
+    let reason = park_reason(&engine);
+    assert!(reason.contains("without reading its episode"), "{reason}");
+    assert!(reason.contains("an earlier wait does not read"), "{reason}");
+}
+
+/// The terminal path refuses an unreadable earlier entry by name, and
+/// writes the failed event it was called with.
+#[test]
+fn a_terminal_refuses_an_unreadable_earlier_wait() {
+    let (_dir, mut engine) = two_terminal_engine(3);
+    match terminal(&mut engine, None) {
+        super::Terminal::Park { reason, .. } => {
+            assert!(
+                reason.contains("refusing to retry claude/first"),
+                "{reason}"
+            );
+            assert!(reason.contains("an earlier wait does not read"), "{reason}");
+        }
+        super::Terminal::Plain(_) => panic!("an unreadable earlier wait was read as nothing"),
+    }
+}
+
+/// A journal that requested no seat reaches the cap's default: one attempt,
+/// so a terminal below no declaration is plain and carries its wait.
+#[test]
+fn a_terminal_without_a_requested_seat_reads_the_default_cap() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = started(dir.path(), single_body(vec!["unused".into()]), work(2));
+    engine.cooldown.host = Some(host(dir.path(), 1, 10));
+    match terminal(&mut engine, None) {
+        super::Terminal::Plain(payload) => {
+            assert!(payload["waits"].is_array(), "{payload}");
+        }
+        super::Terminal::Park { reason, .. } => panic!("the default cap parked: {reason}"),
+    }
+}
+
+/// A capped wait with no declared bounds reports no maximum, and one whose
+/// bounds cannot be read reports that refusal (the cap's reason carries
+/// whichever).
+#[test]
+fn a_capped_wait_reports_no_maximum_or_its_unreadable_bounds() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = started(dir.path(), single_body(vec!["unused".into()]), work(1));
+    let events = [crate::envelope_builder::EnvelopeBuilder::new(
+        EventType::EffectFailed,
+        json!({"effect_id": "effect", "waits": wait_value(base(), 1)}),
+    )
+    .build()];
+    let wait = engine.recorded_wait(&events, "effect").unwrap().unwrap();
+    assert_eq!(engine.wait_maximum(&events, "effect", &wait).unwrap(), None);
+    engine.cooldown.host = Some(dir.path().to_path_buf());
+    match engine.wait_maximum(&events, "effect", &wait) {
+        Err(super::CooldownError::HostUnreadable { .. }) => {}
+        other => panic!("unreadable bounds read as {other:?}"),
+    }
+}
+
+/// A wait doubled past the representable `until` with no provider
+/// retry-after parks naming the computed length, the maximum and the words.
+#[test]
+fn a_doubled_wait_with_no_representable_end_parks() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = started(dir.path(), single_body(vec!["unused".into()]), work(3));
+    engine.cooldown.host = Some(host(dir.path(), 7_200, 7_200));
+    let waits: Vec<Value> = (0..33)
+        .map(|_| {
+            json!({"provider": "claude", "route": "first", "words": "w", "seconds": 1,
+                   "until": "2026-11-01T00:00:01Z", "rounds": 1})
+        })
+        .collect();
+    append_waited(&mut engine, json!(waits));
+    match terminal(&mut engine, None) {
+        super::Terminal::Park { reason, .. } => {
+            assert!(reason.contains("has no representable end"), "{reason}");
+            assert!(reason.contains("7200s maximum"), "{reason}");
+            assert!(reason.contains("rate_limit: slow down"), "{reason}");
+        }
+        super::Terminal::Plain(_) => panic!("a wait with no end was recorded as a wait"),
+    }
 }
 
 fn wait() -> super::ProviderWait {
@@ -891,6 +1297,7 @@ fn wait() -> super::ProviderWait {
         route: "first".into(),
         words: "rate_limit: slow down".into(),
         retry_after_seconds: None,
+        seconds: 1,
         until: base(),
         rounds: 1,
     }
@@ -963,7 +1370,7 @@ fn a_probe_that_does_not_answer_parks_naming_its_end() {
 fn a_wait_recorded_at_a_panel_refuses_by_name() {
     let dir = tempfile::tempdir().unwrap();
     let body = panel_body(vec!["sh".into(), "-c".into(), "read -r hello".into()]);
-    let engine = journaled(dir.path(), body, wait_value(base()));
+    let engine = journaled(dir.path(), body, wait_value(base(), 1));
     let (mut engine, _now) = with_clock_at(engine, base());
     engine.drive().unwrap();
     let reason = park_reason(&engine);
@@ -976,7 +1383,7 @@ fn a_probe_that_does_not_spawn_parks() {
     let engine = journaled(
         dir.path(),
         single_body(vec!["missing-driver".into()]),
-        wait_value(base()),
+        wait_value(base(), 1),
     );
     let (mut engine, _now) = with_clock_at(engine, base());
     engine.drive().unwrap();
@@ -1030,16 +1437,82 @@ fn one_seat_has_one_wait_and_no_host_spells_its_own_absence() {
     let dir = tempfile::tempdir().unwrap();
     let mut engine = started(dir.path(), single_body(vec!["unused".into()]), work(1));
     let wait = json!({"provider": "claude", "route": "first", "words": "w",
-                      "until": "2026-11-01T00:00:00Z", "rounds": 1});
+                      "seconds": 1, "until": "2026-11-01T00:00:00Z", "rounds": 1});
     let event = crate::envelope_builder::EnvelopeBuilder::new(
         EventType::EffectFailed,
         json!({"effect_id": "effect", "waits": [wait, wait]}),
     )
+    .seq(4)
     .build();
-    let error = engine.recorded_wait(&[event], "effect").unwrap_err();
-    assert!(error.contains("at most one wait"), "{error}");
+    match engine.recorded_wait(&[event], "effect") {
+        Err(super::CooldownError::TooManyWaits { seq, count }) => {
+            assert_eq!((seq, count), (4, 2));
+        }
+        other => panic!("two waits read as {other:?}, not a refusal"),
+    }
     assert_eq!(engine.host_spelling(), "no host file");
     let file = dir.path().join("host.json");
     engine.cooldown.host = Some(file.clone());
     assert_eq!(engine.host_spelling(), file.display().to_string());
+}
+
+/// Each `CooldownError` variant pins its `Display` once: the operator's
+/// text is the variant's, never a string built at the park.
+#[test]
+fn a_cooldown_error_names_an_unreadable_host() {
+    let error = super::CooldownError::HostUnreadable {
+        path: "/tmp/host.json".into(),
+        kind: std::io::ErrorKind::PermissionDenied,
+    };
+    assert_eq!(
+        error.to_string(),
+        "the host configuration at /tmp/host.json cannot be read: permission denied"
+    );
+}
+
+#[test]
+fn a_cooldown_error_names_an_invalid_host() {
+    let source = crate::admission::HostError::Unplaced;
+    let error = super::CooldownError::HostInvalid { source };
+    assert_eq!(
+        error.to_string(),
+        "no host configuration can be found: neither XDG_CONFIG_HOME nor HOME names an absolute \
+         directory"
+    );
+}
+
+#[test]
+fn a_cooldown_error_names_an_unreadable_last_wait() {
+    let error = super::CooldownError::LastWaitUnreadable(brokkr_core::ProviderWaitError::Field {
+        seq: 4,
+        field: "provider".into(),
+    });
+    assert_eq!(
+        error.to_string(),
+        "event 4: the waits entry does not read: provider"
+    );
+}
+
+#[test]
+fn a_cooldown_error_names_too_many_waits() {
+    let error = super::CooldownError::TooManyWaits { seq: 5, count: 2 };
+    assert_eq!(
+        error.to_string(),
+        "event 5: a single seat carries at most one wait, not 2"
+    );
+}
+
+#[test]
+fn a_cooldown_error_names_an_unreadable_earlier_wait() {
+    let error = super::CooldownError::EarlierWaitUnreadable {
+        seq: 3,
+        source: brokkr_core::ProviderWaitError::Field {
+            seq: 3,
+            field: "seconds".into(),
+        },
+    };
+    assert_eq!(
+        error.to_string(),
+        "an earlier wait does not read: event 3: the waits entry does not read: seconds"
+    );
 }
