@@ -96,11 +96,83 @@ fn refusal(status: &str, error: &str) -> String {
 }
 
 /// A client that gives up on a reply after `wait`, so a server that never
-/// answers fails the test instead of hanging it.
+/// answers fails the test instead of hanging it. Its connect is bounded
+/// too: a server whose client never arrives fails here, by name.
 fn client(address: std::net::SocketAddr, wait: Duration) -> TcpStream {
-    let stream = TcpStream::connect(address).unwrap();
+    let stream = TcpStream::connect_timeout(&address, ACCEPT_WITHIN).unwrap();
     stream.set_read_timeout(Some(wait)).unwrap();
     stream
+}
+
+/// How long a test server's accept waits for its next client: far past any
+/// loopback connection, so only a broken test reaches it, and a client
+/// that never connects fails the test by name rather than leaving its
+/// binary in `accept()`.
+const ACCEPT_WITHIN: Duration = Duration::from_secs(30);
+
+/// `listener`'s next connection, polled until `within` passes, or the
+/// timeout naming that no client connected in time.
+fn accepted(listener: &TcpListener, within: Duration) -> std::io::Result<TcpStream> {
+    listener.set_nonblocking(true)?;
+    let until = Instant::now() + within;
+    loop {
+        match listener.accept() {
+            Ok((stream, _)) => {
+                stream.set_nonblocking(false)?;
+                return Ok(stream);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                if Instant::now() >= until {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        format!("no client connected within {within:?}"),
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+/// [`super::serve_listener`] over [`accepted`], for a test server: the
+/// same slots, refusal and one thread a connection, each accept bounded.
+/// A server given a `connection_limit` panics by name where its client
+/// never connects; an open one ends at its next deadline instead, so a
+/// detached test server waits for no client forever.
+pub(super) fn serve_within(
+    db: PathBuf,
+    listener: TcpListener,
+    open_browser: bool,
+    connection_limit: Option<usize>,
+    limits: Limits,
+    mut opener: impl FnMut(&str),
+) -> std::io::Result<()> {
+    let bound = listener.local_addr()?.port();
+    let url = format!("http://127.0.0.1:{bound}/");
+    eprintln!("brokkr ui: {url} (read-only; Ctrl-C to stop)");
+    if open_browser {
+        opener(&url);
+    }
+    let slots = Slots::new(limits.connections);
+    let limit = connection_limit.unwrap_or(usize::MAX);
+    for _ in 0..limit {
+        let stream = match accepted(&listener, ACCEPT_WITHIN) {
+            Ok(stream) => stream,
+            Err(_) if connection_limit.is_none() => return Ok(()),
+            Err(error) => panic!("{error}"),
+        };
+        let Some(slot) = slots.take() else {
+            refuse(stream, limits.connections);
+            continue;
+        };
+        let db = db.clone();
+        std::thread::spawn(move || {
+            serve_client(db, stream, limits);
+            drop(slot);
+        });
+    }
+    Ok(())
 }
 
 /// What a client sends: its bytes, and whether it then shuts its write side.
@@ -115,7 +187,7 @@ fn connection(db: PathBuf, limits: Limits, request: Request, sse_limit: Option<u
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let server = std::thread::spawn(move || {
-        let (stream, _) = listener.accept().unwrap();
+        let stream = accepted(&listener, ACCEPT_WITHIN).unwrap_or_else(|error| panic!("{error}"));
         serve_client_with_limit(db, stream, limits, sse_limit);
     });
     let mut client = client(address, Duration::from_secs(10));
@@ -132,6 +204,17 @@ fn connection(db: PathBuf, limits: Limits, request: Request, sse_limit: Option<u
 /// One connection with no journal under `limits`.
 fn served(limits: Limits, bytes: &[u8], close: bool) -> String {
     connection(no_journal(), limits, Request { bytes, close }, None)
+}
+
+#[test]
+fn a_test_servers_accept_gives_up_by_name_when_no_client_connects() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let begun = Instant::now();
+    let refused = accepted(&listener, Duration::from_millis(50)).unwrap_err();
+    assert_eq!(refused.kind(), std::io::ErrorKind::TimedOut);
+    assert_eq!(refused.to_string(), "no client connected within 50ms");
+    let taken = begun.elapsed();
+    assert!(taken < Duration::from_secs(5), "{taken:?}");
 }
 
 #[test]
@@ -244,7 +327,7 @@ fn connections_past_the_cap_are_refused_at_once_while_the_others_are_served() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let server = std::thread::spawn(move || {
-        serve_listener(no_journal(), listener, false, Some(3), capped(2), |_| {})
+        serve_within(no_journal(), listener, false, Some(3), capped(2), |_| {})
     });
     // Accepted in connect order: the first two hold both slots, silent.
     let held: Vec<TcpStream> = (0..2)
@@ -268,7 +351,7 @@ fn a_disconnected_sse_client_frees_its_slot() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     std::thread::spawn(move || {
-        serve_listener(no_journal(), listener, false, None, capped(1), |_| {})
+        serve_within(no_journal(), listener, false, None, capped(1), |_| {})
     });
 
     let mut watcher = client(address, Duration::from_secs(5));
@@ -338,7 +421,7 @@ fn a_client_that_stops_reading_is_ended_at_the_write_timeout() {
         write_timeout: Duration::from_millis(300),
         ..capped(1)
     };
-    std::thread::spawn(move || serve_listener(no_journal(), listener, false, None, limits, |_| {}));
+    std::thread::spawn(move || serve_within(no_journal(), listener, false, None, limits, |_| {}));
 
     // Asks for the page and never reads it, but stays connected: only the
     // write timeout can end the write that the full buffers block.

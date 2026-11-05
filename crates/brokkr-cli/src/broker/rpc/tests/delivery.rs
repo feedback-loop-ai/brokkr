@@ -24,8 +24,10 @@ use super::super::Ending;
 use super::super::{initialized, started, Fatal, ATOMIC, REQUEST_MAX, RESPONSE_MAX, UNDELIVERED};
 use super::retention::Retain;
 use super::{admitted, answering_with, call, cancelled_behind, conversed, forwarded, idle_timeout};
-use super::{answer, live, mcp_but, tools, within, Harness, Script, Then, DIGEST};
-use super::{fake, lookup_failed, mcp, passed, ping_sized, pipe, request, result, session, silent};
+use super::{answer, live, mcp_but, tools, within, wrote, Harness, Script, Then, DIGEST, REPLY};
+use super::{
+    fake, lookup_failed, mcp, offered, passed, ping_sized, pipe, request, result, session, silent,
+};
 use crate::broker::session::lifetime::settled;
 use crate::broker::session::stderr::Drain;
 use crate::broker::session::Ended;
@@ -310,9 +312,23 @@ fn stray(early: bool) -> Script {
             (Some("tools/call"), false) => format!("{stray}\n"),
             _ => return None,
         };
-        output.as_mut()?.write_all(said.as_bytes()).unwrap();
+        assert!(wrote(output, said.as_bytes(), Instant::now() + REPLY));
         Some(Then::Read)
     })
+}
+
+#[test]
+fn a_write_no_reader_takes_fails_within_its_deadline() {
+    let (reader, mut writer) = pipe();
+    rustix::io::ioctl_fionbio(&writer, true).unwrap();
+    while writer.write(b"x").is_ok() {}
+    let begun = Instant::now();
+    let until = begun + Duration::from_millis(50);
+    assert!(!wrote(&mut Some(writer), b"x", until));
+    let taken = begun.elapsed();
+    assert!(taken >= Duration::from_millis(50), "{taken:?}");
+    assert!(taken < Duration::from_secs(5), "{taken:?}");
+    drop(reader);
 }
 
 #[test]
@@ -421,7 +437,15 @@ pub(super) fn heard(
     let link = (&mut input, &mut output);
     let started = started(link, &plan, attempt, &mut stderr).unwrap();
     let (asked, mut to) = pipe();
-    writeln!(to, "{frame}").unwrap();
+    // The request is written before the session reads it, so the write is
+    // bounded and never waits on a pipe the session has not begun to
+    // drain: a frame the broker never takes fails this test by name.
+    rustix::io::ioctl_fionbio(&to, true).unwrap();
+    let until = Instant::now() + Duration::from_secs(60);
+    assert!(
+        offered(&mut to, format!("{frame}\n").as_bytes(), until),
+        "the broker took nothing"
+    );
     let filled = match full {
         true => filled(&short),
         false => Vec::new(),
@@ -601,7 +625,9 @@ fn a_turn_that_writes_part_of_an_answer_never_waits() {
     let started = started((&mut input, &mut output), &plan, attempt, &mut stderr).unwrap();
     let (asked, mut to) = pipe();
     let (ping, id) = ping_sized(2 << 10);
-    writeln!(to, "{ping}").unwrap();
+    rustix::io::ioctl_fionbio(&to, true).unwrap();
+    let until = Instant::now() + Duration::from_secs(60);
+    assert!(offered(&mut to, format!("{ping}\n").as_bytes(), until));
     let (_held, descriptor) = pipe();
     let bytes = Rc::new(RefCell::new(Vec::new()));
     let writes = Rc::new(std::cell::Cell::new(0));

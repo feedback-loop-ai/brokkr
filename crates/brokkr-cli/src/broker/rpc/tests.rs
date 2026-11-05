@@ -65,14 +65,12 @@ fn within(within: Duration) -> Startup<'static> {
     (Instant::now() + within, &live)
 }
 
-/// An anonymous pipe, as every test's server and harness speak over: the
-/// one place a run sizes them all, as U6e's evidence did to macOS's 16 KiB.
+/// An anonymous pipe, as every test's server and harness speak over, sized by the platform (macOS's 16 KiB).
 fn pipe() -> (PipeReader, PipeWriter) {
     std::io::pipe().unwrap()
 }
 
-/// How long a test's side waits on a pipe that has nothing for it, or
-/// takes nothing from it, before it tries again.
+/// How long a test's side waits on a pipe that has nothing for it, or takes nothing from it, before it tries again.
 const TURN: Duration = Duration::from_micros(200);
 
 /// Whether all of `bytes` was written to the non-blocking `to` by `until`;
@@ -115,10 +113,10 @@ type Faked = (
     Option<PipeWriter>,
 );
 
-/// A server running `script` on a thread of its own: the broker's ends of
-/// its standard input and output, and the thread.
+/// A server running `script` on a thread of its own: the broker's ends of its standard input and output, and the thread.
 fn fake(mut script: Script) -> (PipeWriter, PipeReader, JoinHandle<Faked>) {
     let ((stdin, input), (output, stdout)) = (pipe(), pipe());
+    rustix::io::ioctl_fionbio(&stdout, true).unwrap();
     let thread = std::thread::spawn(move || {
         let (mut stdin, mut stdout) = (Some(BufReader::new(stdin)), Some(stdout));
         let mut frames = Vec::new();
@@ -147,11 +145,19 @@ fn fake(mut script: Script) -> (PipeWriter, PipeReader, JoinHandle<Faked>) {
     (input, output, thread)
 }
 
+const REPLY: Duration = Duration::from_secs(60);
+
+/// Write `bytes` to a fake server's `output`, where it is open, by `until`: a broker that stops reading fails this write by name.
+fn wrote(output: &mut Option<PipeWriter>, bytes: &[u8], until: Instant) -> bool {
+    output
+        .as_mut()
+        .is_some_and(|out| offered(out, bytes, until))
+}
+
 /// Write `frame` to a fake server's `output`, where it is open.
 fn say(output: &mut Option<PipeWriter>, frame: &Value) -> bool {
-    let line = format!("{frame}\n");
-    let written = output.as_mut().map(|out| out.write_all(line.as_bytes()));
-    matches!(written, Some(Ok(())))
+    let until = Instant::now() + REPLY;
+    wrote(output, format!("{frame}\n").as_bytes(), until)
 }
 
 /// The tools a well-behaved server lists: both granted ones beside one
@@ -436,7 +442,7 @@ fn the_catalogs_page_tool_and_cursor_bounds_hold_exactly() {
 fn initializing(said: String) -> Script {
     mcp_but(move |frame, output| {
         (frame["method"] == "initialize").then(|| {
-            output.as_mut().unwrap().write_all(said.as_bytes()).unwrap();
+            assert!(wrote(output, said.as_bytes(), Instant::now() + REPLY));
             Then::Read
         })
     })
@@ -652,7 +658,7 @@ fn sized(bytes: usize, depth: usize) -> Script {
             );
             let head = head.replace("\"tools\":", &format!("\"n\":{nested},\"tools\":"));
             let line = format!("{head}{}\"}}}}\n", "x".repeat(bytes - head.len() - 3));
-            output.as_mut().unwrap().write_all(line.as_bytes()).ok();
+            wrote(output, line.as_bytes(), Instant::now() + REPLY);
             Then::Read
         })
     })
@@ -1970,7 +1976,7 @@ fn a_cancellation_behind_an_answer_the_harness_leaves_untaken_settles_in_two_sec
     );
     let ran = bounded(silent(), None, attempt, cancelled_behind(vec![ping], held));
     let ended = Instant::now();
-    let (cancelled, to, mut from) = holding.recv().unwrap();
+    let (cancelled, to, from) = holding.recv().unwrap();
     // The Terminal, the third record, is durable two seconds after the
     // cancellation, give or take one second's scheduling on a loaded
     // two-CPU host; the session ends within CLOSING's one second more.
@@ -1986,8 +1992,7 @@ fn a_cancellation_behind_an_answer_the_harness_leaves_untaken_settles_in_two_sec
     // The harness's output holds a part of the ping's answer, never whole,
     // and nothing after it: no cancelled response is delivered.
     drop(to);
-    let mut left = Vec::new();
-    from.read_to_end(&mut left).unwrap();
+    let left = super::pieces::tests::held(from);
     let whole = format!("{{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":{{}}}}\n");
     let blocked = (left.is_empty(), left.len() < whole.len());
     assert_eq!(blocked, (false, true));

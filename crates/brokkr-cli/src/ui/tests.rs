@@ -247,7 +247,7 @@ fn listener_open_hook_is_testable_and_public_bind_errors_return() {
             .unwrap();
     });
     let mut opened = None;
-    serve_listener(
+    super::limit_tests::serve_within(
         db.clone(),
         listener,
         true,
