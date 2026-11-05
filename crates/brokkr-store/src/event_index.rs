@@ -43,7 +43,7 @@ use crate::{head_of, patiently, Disagreement, Store, StoreError};
 const BACKFILLED: &str = "event_index_backfill";
 
 const TABLE: [&str; 1] = ["event_index"];
-const INDEXES: [&str; 11] = [
+const INDEXES: [&str; 13] = [
     "event_index_stream",
     "event_index_trail",
     "event_index_cause",
@@ -55,16 +55,20 @@ const INDEXES: [&str; 11] = [
     "event_index_checkpoint_session",
     "event_index_checkpoint_site_stale",
     "event_index_phase",
+    "event_index_ordinal_stale",
+    "event_index_ordinal_written",
 ];
-const TRIGGERS: [&str; 4] = [
+const TRIGGERS: [&str; 5] = [
     "event_index_of_an_event",
     "event_index_stamp_bounded",
     "event_index_park_moved",
     "event_index_checkpoint_behind",
+    "event_index_ordinal",
 ];
 
 mod checkpoint;
 mod compare;
+mod ordinal;
 mod park_walk;
 
 use checkpoint::COLUMNS as CHECKPOINT_COLUMNS;
@@ -151,8 +155,7 @@ pub(super) fn payload(event: &str) -> String {
 }
 
 /// The payload's checkpoint or result object as a `json_each` walk, the
-/// checkpoint preferred where both stand and its last copy read, as serde
-/// keeps one.
+/// checkpoint preferred where both stand and its last copy read, as serde keeps one.
 pub(super) fn record(event: &str) -> String {
     let payload = payload(event);
     format!(
@@ -220,7 +223,7 @@ fn migration() -> String {
             type TEXT, attempt_id TEXT, member TEXT, recorded_at TEXT, event_id TEXT,
             phase TEXT, at_ms INTEGER, answered_ms INTEGER, ended_ms INTEGER,
             span_class INTEGER, facts_seq INTEGER,
-            {checkpoint_columns},
+            {checkpoint_columns}, {ordinal_column},
             PRIMARY KEY (run_id, seq)
         ) WITHOUT ROWID;
         CREATE INDEX IF NOT EXISTS event_index_stream
@@ -248,6 +251,7 @@ fn migration() -> String {
             ON event_index (run_id, attempt_id, member, seq)
             WHERE type = '{CHECKPOINTED}' AND facts_seq IS NOT seq;
         {phase_index};
+        {ordinal}
         DROP TRIGGER IF EXISTS event_index_park_moved;
         CREATE TRIGGER event_index_park_moved AFTER INSERT ON events BEGIN
             {moved};
@@ -260,8 +264,8 @@ fn migration() -> String {
             {session_behind};
             {row_behind};
         END;
-        CREATE TRIGGER IF NOT EXISTS event_index_of_an_event AFTER INSERT ON events BEGIN
-            INSERT OR IGNORE INTO event_index ({COLUMNS}) SELECT {projected};
+        DROP TRIGGER IF EXISTS event_index_of_an_event; CREATE TRIGGER event_index_of_an_event AFTER INSERT ON events BEGIN
+            INSERT OR IGNORE INTO event_index ({COLUMNS}, {ordinal_name}) SELECT {projected}, {ordinal_projected};
         END;
         CREATE TRIGGER IF NOT EXISTS event_index_stamp_bounded AFTER INSERT ON event_index
             WHEN length(CAST(NEW.recorded_at AS BLOB)) > {STAMP_BYTES} BEGIN
@@ -278,6 +282,10 @@ fn migration() -> String {
         phase_index = checkpoint::phase_index(),
         session_behind = checkpoint::session_behind("NEW"),
         row_behind = checkpoint::row_behind("NEW"),
+        ordinal_column = ordinal::declared(),
+        ordinal = ordinal::objects(),
+        ordinal_name = ordinal::COLUMN,
+        ordinal_projected = ordinal::projected("NEW"),
     )
 }
 
@@ -311,7 +319,8 @@ fn shaped(conn: &Connection) -> Result<bool, StoreError> {
     let columns = ["recorded_at", "event_id"]
         .into_iter()
         .chain(PARK_COLUMNS)
-        .chain(CHECKPOINT_COLUMNS);
+        .chain(CHECKPOINT_COLUMNS)
+        .chain([ordinal::COLUMN]);
     holds(conn, "event_index", columns)
 }
 
@@ -392,6 +401,7 @@ pub(crate) fn migrate_index(conn: &Connection) -> Result<(), StoreError> {
         dropped?;
     } else {
         checkpoint::add_columns(conn)?;
+        ordinal::add_column(conn)?;
     }
     conn.execute_batch(&migration())?;
     // A trigger that was gone, or a retired one that decided a session in
@@ -634,21 +644,21 @@ impl Store {
         &mut self,
         mut between: impl FnMut(&Connection),
     ) -> Result<(), StoreError> {
-        if indexed(&self.conn)? {
-            return Ok(());
-        }
-        let mut after: Option<String> = None;
-        while let Some(run_id) = self.run_after(after.as_deref())? {
-            let rows = unindexed(&self.conn, &run_id)?;
-            if !rows.is_empty() {
-                between(&self.conn);
-                let conn = &mut self.conn;
-                patiently("index", self.patience, || index_once(conn, &rows))?;
+        if !indexed(&self.conn)? {
+            let mut after: Option<String> = None;
+            while let Some(run_id) = self.run_after(after.as_deref())? {
+                let rows = unindexed(&self.conn, &run_id)?;
+                if !rows.is_empty() {
+                    between(&self.conn);
+                    let conn = &mut self.conn;
+                    patiently("index", self.patience, || index_once(conn, &rows))?;
+                }
+                after = Some(run_id);
             }
-            after = Some(run_id);
+            let conn = &self.conn;
+            patiently("index", self.patience, || mark_indexed(conn))?;
         }
-        let conn = &self.conn;
-        patiently("index", self.patience, || mark_indexed(conn))
+        self.ordinal_behind_with(&mut between)
     }
 
     /// The first run a fresh walk names, for a test that checks its next
@@ -785,6 +795,8 @@ impl Store {
 
 #[cfg(test)]
 mod checkpoint_tests;
+#[cfg(test)]
+mod ordinal_tests;
 #[cfg(test)]
 mod park_tests;
 #[cfg(test)]

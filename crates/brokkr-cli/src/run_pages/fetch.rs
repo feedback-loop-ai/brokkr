@@ -33,10 +33,6 @@ pub(super) struct Fetch<'a> {
 /// One page of checkpoints, oldest first, and its cursor for the next page.
 pub(super) type Fetched = (Vec<(u64, CheckpointRow)>, Option<u64>);
 
-/// Pages after the one crossing the display rank, each with its newer
-/// cursor: the frame's drawable suffix, kept from the scan that read them.
-type EdgePages = Vec<(Vec<(u64, CheckpointRow)>, Option<u64>)>;
-
 /// Keep `item` among the window's last `window` rows, dropping the oldest
 /// as the merge passes it (F4).
 fn bury(buffer: &mut VecDeque<Item>, item: Item, window: usize) {
@@ -67,14 +63,14 @@ impl Fetch<'_> {
         if self.offset == usize::MAX {
             return self.participant_end(seat);
         }
-        let Some(mut page) = self.participant_start(seat, page)? else {
-            return Ok(None);
-        };
         if limit == usize::MAX {
             // The whole participant is asked for: start at its oldest row
             // and read forward, whatever page was held before.
             return self.participant_whole(seat);
         }
+        let Some(mut page) = self.participant_start(seat, page)? else {
+            return Ok(None);
+        };
         // The carried page may already reach the stream's end. The
         // backward read drops the rows above the window, so the end's
         // rank is read here, before that cut (M1, R3, F1).
@@ -106,9 +102,10 @@ impl Fetch<'_> {
     }
 
     /// The page the read starts from: a carried page with the arrivals the
-    /// head it still holds lacks, or the member's newest suffix on a fresh
-    /// read. A carried empty page stays empty rather than counting its rows
-    /// twice (M1, M2).
+    /// head it still holds lacks, or the page at the scroll's row on a
+    /// fresh read, found through the store's ordinals rather than by
+    /// reading every page between (decision 0089 ruling 9). A carried empty
+    /// page stays empty rather than counting its rows twice (M1, M2).
     fn participant_start(
         &self,
         seat: (&str, Option<&str>),
@@ -121,10 +118,10 @@ impl Fetch<'_> {
         let carried = page.is_some();
         let mut page = page.unwrap_or_default();
         if page.rows.is_empty() && !carried {
-            let Some((rows, newer)) = self.read_after(seat, None)? else {
+            let Some(made) = self.fresh_page(seat)? else {
                 return Ok(None);
             };
-            page = Page::first(rows, newer);
+            page = made;
         }
         // Only a page carried from the old head can lack the arrivals; a
         // fresh read already holds them. A page with a newer cursor stops
@@ -136,6 +133,67 @@ impl Fetch<'_> {
             page.rows.extend(arrived);
         }
         Ok(Some(page))
+    }
+
+    /// The page at the screen's offset, found through the store's ordinals
+    /// rather than by reading every page between it and the stream's
+    /// oldest (decision 0089 ruling 9): the oldest page at the top, else
+    /// the page after the seq the store names for the row before it. A
+    /// destination past the stream's discovered end keeps its last row
+    /// (F3).
+    fn fresh_page(&self, seat: (&str, Option<&str>)) -> Result<Option<Page>, StoreError> {
+        if self.offset == 0 {
+            let Some((rows, newer)) = self.read_after(seat, None)? else {
+                return Ok(None);
+            };
+            return Ok(Some(Page::first(rows, newer)));
+        }
+        let Some(total) = self.total_of(seat)? else {
+            return Ok(None);
+        };
+        let start = self.offset.min(total.saturating_sub(1));
+        let Some((rows, next)) = self.page_at(seat, start)? else {
+            return Ok(None);
+        };
+        let mut page = Page::first(rows, next);
+        page.start = start;
+        if self.offset >= total && total > 0 {
+            page.rows.truncate(1);
+            page.next = None;
+        }
+        Ok(Some(page))
+    }
+
+    /// How many checkpoints the participant holds, as a screen rank: none
+    /// where the store keeps its read.
+    fn total_of(&self, seat: (&str, Option<&str>)) -> Result<Option<usize>, StoreError> {
+        let Some(total) = self.store.seat_count(self.run, self.at, seat)? else {
+            return Ok(None);
+        };
+        Ok(Some(usize::try_from(total).unwrap_or(usize::MAX)))
+    }
+
+    /// The page whose first row is rank `start`, oldest first, and the row
+    /// after it: the stream's oldest page at 0, else the page after the seq
+    /// the store's ordinals name for the row before it. No earlier page is
+    /// read (decision 0089 ruling 9).
+    fn page_at(
+        &self,
+        seat: (&str, Option<&str>),
+        start: usize,
+    ) -> Result<Option<Fetched>, StoreError> {
+        match start {
+            0 => self.read_after(seat, None),
+            start => {
+                let Some(previous) =
+                    self.store
+                        .seat_seq_at(self.run, self.at, seat, (start - 1) as u64)?
+                else {
+                    return Ok(None);
+                };
+                self.read_after(seat, Some(previous))
+            }
+        }
     }
 
     /// The whole participant, oldest first: a fresh read from its oldest
@@ -210,67 +268,36 @@ impl Fetch<'_> {
     /// The participant's last window, asked for by the absolute-end key
     /// (`G`): the page holding today's effective display rank, oldest
     /// first, extended through the frame's drawable suffix, with the whole
-    /// stream's rank. The pages below it are read only to count them, so
-    /// the screen holds one page however long the participant ran, and the
-    /// rank is narrowed before the page is chosen, never the page start
-    /// subtracted from a narrowed offset (M3, M4, R3).
+    /// stream's rank. The rank and the page are read through the store's
+    /// ordinals, so the read decodes one page however long the participant
+    /// ran, and the rank is narrowed before the page is chosen, never the
+    /// page start subtracted from a narrowed offset (M3, M4, R3).
     fn participant_end(
         &self,
         seat: (&str, Option<&str>),
     ) -> Result<Option<(Page, Option<usize>)>, StoreError> {
-        let Some((mut rows, mut next)) = self.read_after(seat, None)? else {
+        let Some(total) = self.total_of(seat)? else {
             return Ok(None);
         };
-        let mut total = rows.len();
-        let mut edge = None;
-        // The pages after the edge, kept only within the bound the frame's
-        // drawable suffix names, so the extension below is the same pages
-        // the scan just read rather than a second trip to a head a writer
-        // may have moved (R3).
-        let mut after_edge: EdgePages = Vec::new();
-        let mut after_len = 0usize;
-        let bound = PAGE.saturating_add(self.limit());
-        while let Some(after) = next {
-            let Some((below, newer)) = self.read_after(seat, Some(after))? else {
-                return Ok(None);
-            };
-            let start = total;
-            total += below.len();
-            if edge.is_none() {
-                // Before the edge, every page starts at or below the
-                // display rank: the pages are contiguous and each counts
-                // its checkpoints, so `total` crosses it exactly once.
-                if DISPLAY_RANK < total {
-                    edge = Some((below.clone(), start, newer));
-                }
-            } else if after_len < bound {
-                after_len = after_len.saturating_add(below.len());
-                after_edge.push((below.clone(), newer));
-            }
-            rows = below;
-            next = newer;
-        }
-        let (mut rows, start, mut next) = match total <= DISPLAY_RANK + 1 {
-            true => {
-                let start = total.saturating_sub(rows.len());
-                (rows, start, None)
-            }
-            // The pages are contiguous and each counts its checkpoints,
-            // so a total past the display rank can only have a page that
-            // crosses it: the edge above is some. The crossing is driven
-            // by `the_participant_s_end_keeps_today_s_narrowed_display_rank`.
-            false => edge.expect("a page crosses the display rank"),
+        let shown = total.saturating_sub(1).min(DISPLAY_RANK);
+        // The page the pane paints is the one whose rows start at the page
+        // boundary at or below the narrowed rank, as the forward pages did.
+        let start = shown - shown % PAGE;
+        let Some((mut rows, mut next)) = self.page_at(seat, start)? else {
+            return Ok(None);
         };
         // The pane paints from the narrowed rank at the column's width, so
         // the page must hold the rows below it that the frame draws. The
         // extension is the viewport's, never the journal's: a stream of a
         // million rows still holds one page and the rows it paints (R3).
-        let shown = total.saturating_sub(1).min(DISPLAY_RANK);
         let wanted = shown.saturating_sub(start).saturating_add(self.limit());
-        for (more, newer) in after_edge {
-            if rows.len() >= wanted {
+        while rows.len() < wanted {
+            let Some(after) = next else {
                 break;
-            }
+            };
+            let Some((more, newer)) = self.read_after(seat, Some(after))? else {
+                return Ok(None);
+            };
             rows.extend(more);
             next = newer;
         }

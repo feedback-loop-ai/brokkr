@@ -164,6 +164,26 @@ pub fn append(
         .unwrap()
 }
 
+/// A checkpoint payload of `effect`'s `attempt`, naming `member`, turn
+/// `turn`: the one shape the ordinal and seat-read tests plant, so the
+/// fixture has one home.
+pub fn checkpoint_of(
+    effect: &str,
+    attempt: &str,
+    member: Option<&str>,
+    turn: u64,
+) -> serde_json::Value {
+    let mut checkpoint = serde_json::json!({"step": "seat-turn", "turn": turn});
+    if let Some(member) = member {
+        checkpoint["member"] = serde_json::json!(member);
+    }
+    serde_json::json!({
+        "effect_id": effect,
+        "attempt_id": attempt,
+        "checkpoint": checkpoint,
+    })
+}
+
 /// `value` as SQLite holds text.
 pub fn text(value: &str) -> Value {
     Value::Text(value.to_string())

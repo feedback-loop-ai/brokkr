@@ -52,6 +52,8 @@ use serde_json::Value;
 
 use crate::event_index::{place, seqs, CHECKPOINT_PAGE, FORWARD, STREAM};
 use crate::seat_summary::effect_rows_at;
+mod ordinal;
+
 use crate::{patiently, Opened, Store, StoreError};
 
 /// What the seat view reads of one participant at the head its opening
@@ -682,5 +684,7 @@ fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
 
+#[cfg(test)]
+mod ordinal_tests;
 #[cfg(test)]
 mod tests;

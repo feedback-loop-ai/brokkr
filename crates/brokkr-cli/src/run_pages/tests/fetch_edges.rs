@@ -416,29 +416,34 @@ fn an_empty_newer_page_ends_the_window() {
     assert_eq!(next, None, "the stream's end has no cursor");
 }
 
-/// A participant's first page kept by the store's own interleave check is
-/// no page for the absolute end either (M6).
+/// A member's record below the absolute end's window does not refuse it
+/// (M2): the end page is found by key, so the pages below it are never
+/// read, and a record they hold is not the end's.
 #[test]
-fn a_kept_first_page_at_the_absolute_end_is_no_page() {
-    let run = "kept end first";
+fn a_member_record_below_the_absolute_end_does_not_refuse_it() {
+    let run = "kept end below";
     let journal = Journal::of(own_and_member(run, 120, 2), run);
     let fetch = journal.fetch(run, 24, usize::MAX, &[]);
-    assert!(
-        fetch.participant(("eff", None), None).unwrap().is_none(),
-        "the kept first page takes the whole read"
-    );
+    let (page, _) = fetch
+        .participant(("eff", None), None)
+        .unwrap()
+        .expect("the end page reads");
+    assert_eq!(page.start, 100, "the page today's rank names");
+    assert_eq!(page.rows.len(), 20, "the page to the stream's end");
 }
 
-/// A participant's absolute end reads its pages until the display rank's
-/// edge; a kept second page stops it there (M6).
+/// A member's record within the absolute end's own reach is kept by the
+/// store's interleave check, so the end reads the run whole (M6):
+/// `own_and_member` puts the member's checkpoint just after own turn 100,
+/// the first seq after the page start's predecessor.
 #[test]
-fn a_kept_second_page_at_the_absolute_end_is_no_page() {
-    let run = "kept end second";
-    let journal = Journal::of(own_and_member(run, 120, 60), run);
+fn a_member_record_within_the_absolute_end_s_reach_is_no_page() {
+    let run = "kept end reach";
+    let journal = Journal::of(own_and_member(run, 120, 100), run);
     let fetch = journal.fetch(run, 24, usize::MAX, &[]);
     assert!(
         fetch.participant(("eff", None), None).unwrap().is_none(),
-        "the kept second page takes the whole read"
+        "the kept end page takes the whole read"
     );
 }
 
@@ -486,5 +491,80 @@ fn a_scrolled_detail_window_refills_on_a_landing() {
     assert!(
         page.pages["eff"].rows.len() > 1,
         "the refilled page is the newest page, not one arrival"
+    );
+}
+
+/// M2: a member's record below a window does not refuse it. The own seat's
+/// 300 checkpoints hold the member's checkpoint after its last one; the
+/// first window and the window one row down never reach it, so both read
+/// their page rather than falling back to the run whole.
+#[test]
+fn a_member_record_below_the_window_does_not_refuse_it() {
+    let run = "member below";
+    let journal = Journal::of(own_and_member(run, 300, 300), run);
+    for offset in [0, 1] {
+        let fetch = journal.fetch(run, 200, offset, &[]);
+        let (page, _) = fetch
+            .participant(("eff", None), None)
+            .unwrap()
+            .unwrap_or_else(|| panic!("offset {offset}: the window reads"));
+        assert_eq!(page.rows.len(), 200, "offset {offset}: the held window");
+    }
+}
+
+/// The bound (#994): the end and middle reads of two journals whose
+/// participant differs only in its checkpoint count step the same number of
+/// statements and decode the same number of rows on both. The removal
+/// control restores the page walk below the display rank, which steps one
+/// more statement per page.
+#[test]
+fn the_end_and_middle_reads_step_the_same_statements_at_every_size() {
+    use std::collections::BTreeMap;
+
+    let mut measured: BTreeMap<&str, (usize, usize, usize)> = BTreeMap::new();
+    for checkpoints in [2_000u64, 20_000] {
+        let run = format!("bound {checkpoints}");
+        let Journal {
+            _dir,
+            store,
+            at,
+            events,
+        } = Journal::of(super::at_work(&run, checkpoints, true), &run);
+        let mut store = store;
+        for (label, offset) in [("middle", (checkpoints / 2) as usize), ("end", usize::MAX)] {
+            let (read, begun) =
+                brokkr_store::test_support::statements_traced(&mut store, |store| {
+                    let fetch = Fetch {
+                        store,
+                        run: &run,
+                        at: &at,
+                        rows: 50,
+                        offset,
+                        visible: WINDOW,
+                        landed: &[],
+                        trail: &events,
+                    };
+                    fetch.participant(("eff", None), None)
+                });
+            let read = read.expect("the page reads").expect("the window is served");
+            let envelopes = begun
+                .iter()
+                .filter(|sql| sql.starts_with("SELECT envelope FROM events"))
+                .count();
+            let seen = (begun.len(), envelopes, read.0.rows.len());
+            match measured.get(label) {
+                Some(earlier) => assert_eq!(
+                    *earlier, seen,
+                    "{label} at {checkpoints}: the same statements and rows"
+                ),
+                None => {
+                    measured.insert(label, seen);
+                }
+            }
+        }
+    }
+    assert_eq!(
+        measured.keys().copied().collect::<Vec<_>>(),
+        ["end", "middle"]
     );
 }

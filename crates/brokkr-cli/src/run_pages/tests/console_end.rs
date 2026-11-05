@@ -1962,3 +1962,39 @@ fn chief_review_level_change_drops_held_page_down() {
     settle_when(&mut tui, &fleet, true);
     assert_eq!(tui.cursor[0], before, "the fleet's cursor did not move");
 }
+
+/// The participant's middle page and its absolute end paint the whole
+/// read's bytes, and the end reports the whole rank, at both far sizes
+/// (#994): the count and rank the page is found by never change the rows a
+/// screen shows.
+#[test]
+fn the_participant_s_middle_and_end_paint_the_whole_read_at_both_far_sizes() {
+    for checkpoints in [65_600u64, 66_000] {
+        let far = far_work_of(checkpoints);
+        let (run, db, events, whole) = (far.run, &far.db, &far.events, &far.whole);
+        let now = events.last().unwrap().recorded_at.clone();
+        let whole_views = far.whole_views();
+        // A middle page: the window the scroll names is the whole read's.
+        let middle = (checkpoints / 2) as usize;
+        let (mut tui, subject) = participant_console(run, whole);
+        tui.offset = middle;
+        let mut views = participant_page(db, run, &subject, &tui);
+        views.now = now.clone();
+        assert_eq!(views.start, middle, "{checkpoints}: the middle page");
+        participant_frame_whole_read(run, whole, whole_views, middle, &tui, &views);
+        // The absolute end: today's narrowed display rank and the whole
+        // rank the end names.
+        let (mut tui, subject) = participant_console(run, whole);
+        tui.offset = usize::MAX;
+        let mut views = participant_page(db, run, &subject, &tui);
+        views.now = now.clone();
+        let shown = checkpoints.saturating_sub(1).min(u16::MAX as u64) as usize;
+        assert_eq!(
+            views.end,
+            Some(checkpoints as usize),
+            "{checkpoints}: the rank"
+        );
+        assert_eq!(views.start, shown - shown % 50, "{checkpoints}: the page");
+        participant_frame_whole_read(run, whole, whole_views, shown, &tui, &views);
+    }
+}
