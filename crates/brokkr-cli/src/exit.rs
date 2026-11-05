@@ -6,6 +6,7 @@
 use std::process::ExitCode;
 
 use brokkr_core::fold::Status;
+use brokkr_runtime::CauseRefusal;
 
 /// How an invocation ended, as its exit code says it. What each variant
 /// means is written once, in [`Exit::meaning`], the text the reference
@@ -37,7 +38,7 @@ impl Exit {
             Exit::Parked => "The run parked and awaits the operator.",
             Exit::Stopped => "The run stopped.",
             Exit::Contended => "A peer held the shared journal's write lock. Nothing was written; the same command run again is likely to land.",
-            Exit::Usage => "The command line did not parse (clap's own code, shared with `parked`: stderr tells them apart).",
+            Exit::Usage => "The command line did not parse, or omitted the `--cause` its verb requires (clap's own code, shared with `parked`: stderr tells them apart).",
             Exit::RunnerFailed => "The dsh sandbox runner could not build or start bubblewrap.",
             Exit::Boxed(_) => "`hands exec`: the boxed command's own exit code, passed through. A box a signal ended has no code of its own, and exits 1 (`failed`).",
             Exit::Signalled(_) => "`hands serve` ended by a termination signal: its session tree is removed, and it exits 128 plus the signal's number, as a shell reports a signal death (143 for SIGTERM).",
@@ -91,6 +92,20 @@ impl Exit {
         match status {
             Some(Status::Running) | None => None,
             Some(status) => Some(Exit::of_status(status)),
+        }
+    }
+
+    /// How an uncontended failure leaves: a `--cause` omitted on a verb
+    /// that requires it is a usage error (decision 0064 ruling 4), found
+    /// anywhere in the chain, and anything else is a failure.
+    pub(crate) fn of_failure(error: &anyhow::Error) -> Exit {
+        let missing = |link: &(dyn std::error::Error + 'static)| {
+            matches!(link.downcast_ref(), Some(CauseRefusal::Missing { .. }))
+        };
+        if error.chain().any(missing) {
+            Exit::Usage
+        } else {
+            Exit::Failed
         }
     }
 

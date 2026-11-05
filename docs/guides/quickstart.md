@@ -322,7 +322,7 @@ opened, and Brokkr moves nothing`. Brokkr moves nothing itself; make
 the moves, by hand or with an agent, and `brokkr doctor` checks the
 result. A run that has not ended is ended first, through the one escape,
 a journal named on the command line, which reads the old layout whole:
-`brokkr conclude --run <id> --reason "…" --db .forge/forge.db`.
+`brokkr conclude --run <id> --cause <cause> --reason "…" --db .forge/forge.db`.
 
 The table has five working phases — `intake`, `implement`, `verify`,
 `review`, `ship` — plus the two terminals `done` and `stop`. `review` is
@@ -766,13 +766,19 @@ ruling 5 gives each recipe's class and its reason.
 
 ```
 brokkr operator --run <id> retry --reason "the flaky test passes on re-run"
-brokkr operator --run <id> stop  --reason "requirements changed"
+brokkr operator --run <id> stop  --cause withdrawn --reason "requirements changed"
 brokkr operator --run <id> supersede --reason "fixed on main" \
   --findings 41 --by-run <other id> --by-seq 97
 brokkr operator --run <id> acknowledge --reason "history from an older engine"
 ```
 
 The command is a **positional argument** and `--reason` is **required**;
+`stop` also **requires** `--cause`, how the run ended: one of
+`superseded` (with `--by-run <id>`, and `--by-realm <realm>` for a run
+in another hearth), `infrastructure`, `delivered-elsewhere` (with
+`--by-ref <commit or PR>`), `withdrawn`, `exhausted` or
+`operator-stopped` (decision 0064 ruling 4). The reason stays a
+sentence; the cause is what Brokkr reads.
 `--db` defaults to the journal step 3 ruled: the map's, else
 `.brokkr/state/forge.db`. There are four commands:
 `retry` re-runs the current phase, `stop` ends the run, `supersede`
@@ -850,8 +856,15 @@ started in the folder's world is resumed with no `--db`.
 #### Conclude — closing a run whose bundle no longer compiles
 
 ```
-brokkr conclude --run <id> --reason "the engine moved on without it"
+brokkr conclude --run <id> --cause infrastructure --reason "the engine moved on without it"
 ```
+
+`--cause` is required here too, with the same words and citations as
+`stop`'s. When `conclude` commands the stop itself, the cause rides in
+that stop; when a stop is already in force naming the same cause,
+nothing more is written; and when it names another cause, or none, the
+conclusion is followed by one `classify` naming yours (decision 0064
+choice 4 (a)).
 
 The refusal above is right for `resume`, which spends money against a
 pinned policy — but it also means a run journaled under an older engine,

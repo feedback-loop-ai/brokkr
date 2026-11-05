@@ -2334,7 +2334,7 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
     // stop is legal, it is accepted.
     assert!(
         matches!(
-            operator_command(&mut store, "raced", Stop, "operator", "enough").unwrap(),
+            stop_as(&mut store, "raced", "operator", "enough").unwrap(),
             FencedCommandOutcome::Accepted { .. }
         ),
         "a stop on a parked run is still accepted",
@@ -2366,8 +2366,12 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
         )
         .unwrap();
     // `release` moves no run and is refused by its reservation's rules.
-    for command in [Retry, Stop] {
-        let refused = operator_command(&mut store, "raced", command, "operator", "too late")
+    let retried = operator_command(&mut store, "raced", Retry, "operator", "too late");
+    for (command, refused) in [
+        (Retry, retried),
+        (Stop, stop_as(&mut store, "raced", "o", "x")),
+    ] {
+        let refused = refused
             .unwrap_or_else(|error| panic!("{command:?} errored instead of refusing: {error}"));
         assert!(
             matches!(&refused, FencedCommandOutcome::Rejected { reason, .. }
@@ -2415,7 +2419,7 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
     // the unfenced path used to write into this position — the journal
     // stops folding, permanently, because events are immutable.
     let mut poisoned = parked_store(&dir.path().join("poisoned.db"), "poisoned");
-    operator_command(&mut poisoned, "poisoned", Stop, "operator", "enough").unwrap();
+    stop_as(&mut poisoned, "poisoned", "operator", "enough").unwrap();
     poisoned
         .append_next(
             "poisoned",
@@ -2445,7 +2449,7 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
     );
     // And a fenced command arriving at that already-broken journal
     // refuses to add to it rather than folding it again.
-    assert!(operator_command(&mut poisoned, "poisoned", Stop, "operator", "later").is_err());
+    assert!(stop_as(&mut poisoned, "poisoned", "operator", "later").is_err());
 }
 
 /// A command the vocabulary does not know is refused by NAME before any
@@ -2504,12 +2508,10 @@ fn a_fence_lost_every_round_is_refused_not_spun_forever() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = in_flight_store(&dir.path().join("relentless.db"), "relentless");
     let mut checkpoints = 0;
-    let refused = operator_command_racing(
+    let refused = stop_racing_as(
         &mut store,
         "relentless",
-        Stop,
-        "operator",
-        "enough",
+        ("operator", "enough"),
         |store: &mut Store| {
             // A checkpoint is fold-neutral for a run mid-effect: the
             // status stays running, the pending command stays pending,
@@ -2621,12 +2623,10 @@ fn an_operator_command_that_lost_its_fence_is_refused_never_accepted() {
     let mut store = in_flight_store(&dir.path().join("raced.db"), "raced");
 
     let mut engine_appends = 1;
-    let refused = operator_command_racing(
+    let refused = stop_racing_as(
         &mut store,
         "raced",
-        Stop,
-        "operator",
-        "enough",
+        ("operator", "enough"),
         |store: &mut Store| {
             // The engine, concluding the run in the window. `stop` was
             // legal against the fold that just ran and is illegal against
@@ -2687,12 +2687,10 @@ fn a_command_still_legal_after_the_head_moved_is_decided_again_and_accepted() {
     let mut store = in_flight_store(&dir.path().join("checkpointed.db"), "checkpointed");
 
     let mut checkpoints = 1;
-    let accepted = operator_command_racing(
+    let accepted = stop_racing_as(
         &mut store,
         "checkpointed",
-        Stop,
-        "operator",
-        "enough",
+        ("operator", "enough"),
         |store: &mut Store| {
             // A seat's checkpoint: the head moves, the run does not.
             if checkpoints > 0 {
@@ -2938,7 +2936,7 @@ fn an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it() {
             .append_next("mid", event_type, payload, None, None)
             .unwrap();
     }
-    operator_command(&mut store, "mid", Stop, "vyanakiev", "the mock reads wrong").unwrap();
+    stop_as(&mut store, "mid", "vyanakiev", "the mock reads wrong").unwrap();
     for (event_type, payload) in [
         (
             EventType::EffectCheckpointed,
@@ -2979,7 +2977,7 @@ fn an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it() {
         &manifest,
         &in_flight,
     );
-    operator_command(&mut store, "boundary", Stop, "vyanakiev", "enough").unwrap();
+    stop_as(&mut store, "boundary", "vyanakiev", "enough").unwrap();
     let events = drive(store, "boundary");
     let types: Vec<EventType> = events.iter().rev().take(2).map(|e| e.event_type).collect();
     assert_eq!(
@@ -2997,7 +2995,7 @@ fn an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it() {
         &manifest,
         &in_flight[..2],
     );
-    operator_command(&mut store, "between", Stop, "vyanakiev", "between effects").unwrap();
+    stop_as(&mut store, "between", "vyanakiev", "between effects").unwrap();
     let events = drive(store, "between");
     assert_eq!(
         events.len(),
@@ -6291,7 +6289,7 @@ fn an_operator_supersede_closes_a_finding_by_name_and_changes_nothing_else() {
     // time is never re-verified. The superseding run is concluded after
     // the fact, and the annotation still reads exactly as written.
     let mut later = Store::open(&db).unwrap();
-    conclude(&mut later, "later", "operator", "closing it by hand").unwrap();
+    conclude_as(&mut later, "later", "operator", "closing it by hand").unwrap();
     assert_eq!(
         fold(&later.load("later").unwrap()).unwrap().run,
         Run::Stopped,

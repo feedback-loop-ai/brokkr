@@ -189,12 +189,17 @@ The graph carries **Stop**, **Resume** and **Close**, and **Retry** (named for
 its phase) when Brokkr admits it. A command Brokkr refuses is shown disabled,
 with Brokkr's reason on hover; Brokkr has no pause. Pressing one opens a
 reason bar: your reason is kept in the run's record, and nothing is sent
-without one. The console sends the command with a fresh command id and the
+without one. **Stop** and **Close** also ask how the run ended, one of
+Brokkr's six causes (`superseded`, `infrastructure`, `delivered-elsewhere`,
+`withdrawn`, `exhausted` or `operator-stopped`, decision 0064 ruling 4):
+`superseded` asks for the run that replaced it, and `delivered-elsewhere`
+for the commit or pull request it landed by, and nothing is sent without
+them. The console sends the command with a fresh command id and the
 run head you were looking at. The plugin reads the run again first. If the head moved, nothing
 is sent: the outcome says "not sent" and shows the run as it is now. If
 Brokkr no longer admits the command, the outcome shows Brokkr's refusal. Otherwise the
 plugin runs `brokkr operator retry` or `stop`, or `brokkr conclude`, with
-your reason, followed by the console's command id so the record can be
+the cause you picked and your reason, followed by the console's command id so the record can be
 matched. A retry is followed by `brokkr resume`, which keeps driving the run
 after the panel is closed.
 

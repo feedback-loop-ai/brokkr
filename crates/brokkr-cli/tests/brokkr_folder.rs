@@ -965,6 +965,27 @@ fn a_library_keeps_its_journal() {
     assert!(!repo.path(".brokkr").exists());
 }
 
+/// Decision 0064 ruling 4, through the binary: `stop` and `conclude`
+/// typed without `--cause` leave with the usage exit and the line that
+/// names the six, and the journal is not touched.
+#[test]
+fn a_stop_or_conclusion_without_a_cause_is_a_usage_error() {
+    use brokkr_runtime::{named_cause, Verb};
+    let repo = Repo::new();
+    repo.library();
+    let run = library_run(&repo);
+    let journal = || std::fs::read(repo.path(".forge/forge.db")).unwrap();
+    let before = journal();
+    let stop = ["operator", "stop", "--run", &run, "--reason", "x"];
+    let conclude = ["conclude", "--run", &run, "--reason", "x"];
+    for (args, verb) in [(&stop[..], Verb::Stop), (&conclude[..], Verb::Conclude)] {
+        let ran = repo.brokkr("", args);
+        let usage = format!("error: {}", named_cause(verb, None).unwrap_err());
+        assert_eq!((ran.code, ran.first_line()), (Some(2), usage.as_str()));
+    }
+    assert!(journal() == before, "nothing was written");
+}
+
 /// The library's own bundle run with no other flag: the run it started.
 fn library_run(repo: &Repo) -> String {
     let run = [
@@ -1112,9 +1133,18 @@ fn an_explicit_db_reaches_the_old_journal() {
         "the run parked unfinished: {}",
         ran.stderr
     );
-    let refused = repo.brokkr("", &["conclude", "--run", &run, "--reason", "x"]);
+    let conclude = [
+        "conclude",
+        "--run",
+        &run,
+        "--cause",
+        "infrastructure",
+        "--reason",
+        "x",
+    ];
+    let refused = repo.brokkr("", &conclude);
     assert_eq!((refused.code, refused.first_line()), (Some(1), ROOT_LAYOUT));
-    let concluded = [&["conclude", "--run", &run, "--reason", "x"][..], &db].concat();
+    let concluded = [&conclude[..], &db].concat();
     let ran = repo.brokkr("", &concluded);
     let summary: Value = serde_json::from_str(&ran.stdout).unwrap();
     assert_eq!((ran.code, &summary["status"]), (Some(3), &json!("stopped")));

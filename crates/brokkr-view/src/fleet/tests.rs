@@ -231,7 +231,7 @@ fn a_stop_accepted_without_an_ending_stands_as_stopping() {
     };
     assert_eq!(stopping.label(), "stopping");
     assert_eq!(stopping.prompt().as_deref(), Some(detail));
-    let conclude = "brokkr conclude --run r1 --reason <why>";
+    let conclude = "brokkr conclude --run r1 --cause <cause> --reason <why>";
     assert_eq!(stopping.commands("r1"), [conclude]);
     assert_eq!(stopping.way_out("r1"), [format!("way out   {conclude}")]);
 
@@ -747,7 +747,7 @@ fn each_need_says_what_the_operator_can_do() {
         stale.commands("r1"),
         [
             "brokkr resume --run r1 --bundle <its-bundle>",
-            "brokkr conclude --run r1 --reason <why>",
+            "brokkr conclude --run r1 --cause <cause> --reason <why>",
         ]
     );
     assert_eq!(
@@ -775,7 +775,7 @@ fn each_need_says_what_the_operator_can_do() {
              and a 1h margin",
             "way out   brokkr resume --run r1 --bundle <its-bundle>",
             "          drives it again under its pinned bundle (or --recipe <name>);",
-            "          or brokkr conclude --run r1 --reason <why> closes it",
+            "          or brokkr conclude --run r1 --cause <cause> --reason <why> closes it",
         ]
     );
     let parked = settled(Status::AwaitingOperator, "review", None);

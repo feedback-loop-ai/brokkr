@@ -79,7 +79,7 @@ fn concluded(
     (operator, reason): (&str, &str),
     seq: u64,
 ) -> (Vec<EventEnvelope>, Vec<EventType>) {
-    let state = conclude(store, name, operator, reason).unwrap();
+    let state = conclude_as(store, name, operator, reason).unwrap();
     assert_eq!(state.run, Run::Stopped);
     let after = events(store, name);
     let appended = after[seq as usize..]
@@ -119,10 +119,30 @@ fn a_stop_already_in_force_is_carried_to_run_stopped_without_a_second_command() 
         ("someone-else", "closing the books"),
         before.seq,
     );
+    // The fixture's stop names no cause, as every stop before decision
+    // 0064 slice E3: the cause `conclude` names follows `run/stopped` as
+    // one `classify` (choice 4 (a)).
     assert_eq!(
         appended,
-        vec![EventType::EffectIndeterminate, EventType::RunStopped],
+        vec![
+            EventType::EffectIndeterminate,
+            EventType::RunStopped,
+            EventType::OperatorCommanded
+        ],
         "the attempt reached its boundary, and there the run stopped",
+    );
+    let classify = &after.last().unwrap().payload;
+    assert_eq!(
+        (
+            &classify["command"],
+            &classify["operator"],
+            &classify["args"]["cause"]
+        ),
+        (
+            &json!("classify"),
+            &json!("someone-else"),
+            &json!("operator-stopped")
+        )
     );
     let indeterminate = &after[before.seq as usize];
     assert_eq!(
@@ -147,7 +167,7 @@ fn a_stop_already_in_force_is_carried_to_run_stopped_without_a_second_command() 
         indeterminate.payload["reason"],
     );
 
-    let cited = after.last().unwrap().payload["reason"]
+    let cited = after[before.seq as usize + 1].payload["reason"]
         .as_str()
         .unwrap()
         .to_string();
@@ -164,7 +184,8 @@ fn a_stop_already_in_force_is_carried_to_run_stopped_without_a_second_command() 
     assert_eq!(
         after
             .iter()
-            .filter(|event| event.event_type == EventType::OperatorCommanded)
+            .filter(|event| event.event_type == EventType::OperatorCommanded
+                && event.payload["command"] == "stop")
             .count(),
         1,
         "a stop in force is never re-commanded",
@@ -371,7 +392,7 @@ fn an_already_concluded_run_is_refused_and_nothing_is_appended() {
     let before = events(&store, name);
     assert_eq!(fold(&before).unwrap().run, Run::Completed);
 
-    let refusal = conclude(&mut store, name, "vyanakiev", "again").unwrap_err();
+    let refusal = conclude_as(&mut store, name, "vyanakiev", "again").unwrap_err();
     assert_eq!(
         refusal_of(refusal),
         (name.to_string(), already(Status::Completed))
@@ -386,9 +407,9 @@ fn an_already_concluded_run_is_refused_and_nothing_is_appended() {
     // and the second attempt is refused as stopped.
     let parked = "conclude-parked-hand-built";
     let mut store = store_for(&dir, parked);
-    conclude(&mut store, parked, "vyanakiev", "first").unwrap();
+    conclude_as(&mut store, parked, "vyanakiev", "first").unwrap();
     let concluded = events(&store, parked);
-    let refusal = conclude(&mut store, parked, "vyanakiev", "second").unwrap_err();
+    let refusal = conclude_as(&mut store, parked, "vyanakiev", "second").unwrap_err();
     assert_eq!(
         refusal_of(refusal),
         (parked.to_string(), already(Status::Stopped))
@@ -405,7 +426,7 @@ fn a_broken_chain_refuses_the_whole_conclusion() {
     let name = "conclude-broken-chain-hand-built";
     let mut store = store_for(&dir, name);
 
-    let refusal = conclude(&mut store, name, "vyanakiev", "close it").unwrap_err();
+    let refusal = conclude_as(&mut store, name, "vyanakiev", "close it").unwrap_err();
     assert!(
         matches!(
             &refusal,
@@ -577,7 +598,7 @@ fn a_store_that_refuses_an_append_leaves_a_journal_that_can_still_be_concluded()
     let mut store = replay(&mid_db, mid, &pinned(mid));
     let before = events(&store, mid).len();
     super::tests::fail_event(&mid_db, "effect/indeterminate");
-    let refusal = conclude(&mut store, mid, "vyanakiev", "close it").unwrap_err();
+    let refusal = conclude_as(&mut store, mid, "vyanakiev", "close it").unwrap_err();
     assert!(
         refusal.to_string().contains("forced event failure"),
         "{refusal}",
@@ -594,7 +615,7 @@ fn a_store_that_refuses_an_append_leaves_a_journal_that_can_still_be_concluded()
     let parked_db = dir.path().join("stopped.db");
     let mut store = replay(&parked_db, parked, &pinned(parked));
     super::tests::fail_event(&parked_db, "run/stopped");
-    let refusal = conclude(&mut store, parked, "vyanakiev", "close it").unwrap_err();
+    let refusal = conclude_as(&mut store, parked, "vyanakiev", "close it").unwrap_err();
     assert!(
         refusal.to_string().contains("forced event failure"),
         "{refusal}",
@@ -610,7 +631,7 @@ fn a_store_that_refuses_an_append_leaves_a_journal_that_can_still_be_concluded()
         .unwrap()
         .execute_batch("DROP TRIGGER forced_event_failure;")
         .unwrap();
-    let state = conclude(&mut store, parked, "someone-else", "again").unwrap();
+    let state = conclude_as(&mut store, parked, "someone-else", "again").unwrap();
     assert_eq!(state.run, Run::Stopped);
     assert_eq!(
         events(&store, parked)
@@ -660,7 +681,7 @@ fn an_engine_version_that_moved_refuses_resume_and_concludes_anyway() {
         Ok(_) => panic!("resume opened a run pinned to an engine that has moved"),
     }
 
-    let state = conclude(&mut store, name, "vyanakiev", "the engine moved; close it").unwrap();
+    let state = conclude_as(&mut store, name, "vyanakiev", "the engine moved; close it").unwrap();
     assert_eq!(
         state.run,
         Run::Stopped,
@@ -680,7 +701,7 @@ fn a_run_the_driver_finishes_mid_conclusion_refuses_the_stop() {
     let mut store = replay_upto(&dir.path().join("finished.db"), name, &pinned(name), 9);
 
     let mut struck = false;
-    let refused = conclude_racing(&mut store, name, "operator", "believed dead", |store| {
+    let refused = conclude_racing_as(&mut store, name, ("operator", "believed dead"), |store| {
         if !struck {
             struck = true;
             for (event_type, payload, attempt) in [
@@ -731,7 +752,7 @@ fn a_result_landing_inside_the_fence_window_refuses_the_close() {
     ));
 
     let mut calls = 0;
-    let refused = conclude_racing(&mut store, name, "operator", "believed dead", |store| {
+    let refused = conclude_racing_as(&mut store, name, ("operator", "believed dead"), |store| {
         calls += 1;
         // Call 1 is before the (skipped) stop command; call 2 is inside
         // the indeterminate close's fence — the window under test.

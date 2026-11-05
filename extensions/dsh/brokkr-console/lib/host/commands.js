@@ -11,6 +11,12 @@ import { ReadoutRefused } from './readouts.js'
 
 const COMMANDS = ['retry', 'stop', 'resume', 'conclude']
 
+/** The commands that end a run, and so name how it ended (decision 0064 ruling 4). */
+const ENDING = ['stop', 'conclude']
+
+/** The citations a cause may carry, by request field. Brokkr rules which cause takes which. */
+const CITATIONS = ['by_run', 'by_ref']
+
 /** The most command ids the ledger remembers. */
 const LEDGER_SIZE = 500
 
@@ -38,7 +44,31 @@ function requestOf(body) {
   if (!COMMANDS.includes(command)) throw new RequestRefused('the command is not one Brokkr has')
   if (typeof reason !== 'string' || reason.trim() === '') throw new RequestRefused('a reason is required')
   if (!Number.isInteger(seq)) throw new RequestRefused('the command names no run head')
-  return { id, realm, run_id: runId, command, reason: reason.trim(), expected_seq: seq }
+  const ending = endingOf(body, command)
+  return { id, realm, run_id: runId, command, reason: reason.trim(), ending, expected_seq: seq }
+}
+
+/**
+ * How a stop or a close says the run ended: the cause, required, and the
+ * citations given, each a word, passed on as written (decision 0064 ruling
+ * 4 records a citation as typed). The words and which cause takes which
+ * citation are Brokkr's to rule, and its refusal comes back verbatim; a
+ * command that ends nothing names no cause.
+ */
+function endingOf(body, command) {
+  const fields = ['cause', ...CITATIONS]
+  if (!ENDING.includes(command)) {
+    if (fields.some((field) => body[field] !== undefined)) throw new RequestRefused('only Stop and Close say how a run ended')
+    return null
+  }
+  const word = (value) => typeof value === 'string' && value.trim() !== ''
+  if (!word(body.cause)) throw new RequestRefused('how the run ended is required')
+  const ending = { cause: body.cause.trim() }
+  for (const field of CITATIONS.filter((each) => body[each] !== undefined)) {
+    if (!word(body[field])) throw new RequestRefused('a citation is a run id or a commit')
+    ending[field] = body[field]
+  }
+  return ending
 }
 
 /** What Brokkr printed when it refused, verbatim. */
@@ -106,7 +136,7 @@ export function deskOf({ brokkr, resume, locate }) {
 
   async function press(request, target, view) {
     if (request.command === 'resume') return resumed(request, target, view, null)
-    const ran = await brokkr.command(target, request.command, request.reason + tagOf(request.id))
+    const ran = await brokkr.command(target, request.command, request.reason + tagOf(request.id), request.ending)
     switch (ran.kind) {
       case 'exited':
         return ran.code === 0

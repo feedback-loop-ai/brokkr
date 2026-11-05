@@ -408,7 +408,7 @@ fn operator_args(run: &str, command: &str, reason: &str, db: &std::path::Path) -
         by_run: None,
         by_seq: None,
         by_realm: None,
-        cause: None,
+        cause: (command == "stop").then(|| "operator-stopped".into()),
         by_ref: None,
         journal: at(db),
     }
@@ -3706,30 +3706,27 @@ fn conclude_fixture_store(db: &std::path::Path, name: &str) {
 fn conclude_stops_a_stranded_run_and_refuses_a_concluded_one() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
+    let conclude = |run: &str, reason: &str| {
+        let (cause, db) = ("operator-stopped", db.to_str().unwrap());
+        let argv = [
+            "brokkr", "conclude", "--run", run, "--cause", cause, "--reason", reason,
+        ];
+        crate::run(Cli::try_parse_from(argv.into_iter().chain(["--db", db])).unwrap())
+    };
 
     // The standing example itself: an operator stop accepted mid-flight,
     // its attempt already past its boundary in the journal. No bundle is
     // compiled and none is asked for.
     stopped_mid_flight_run(&db, "stranded", &json!({"engine": "0.3.6", "files": {}}));
     assert_eq!(
-        run(cli(Cmd::Conclude(ConcludeArgs {
-            run: "stranded".into(),
-            reason: "the engine moved on without it".into(),
-            journal: at(&db),
-        })))
-        .unwrap(),
+        conclude("stranded", "the engine moved on without it").unwrap(),
         ExitCode::from(3),
         "a concluded run exits stopped, like every other stop",
     );
     let state = fold(&Store::open(&db).unwrap().load("stranded").unwrap()).unwrap();
     assert_eq!(state.run, Run::Stopped);
 
-    let refusal = run(cli(Cmd::Conclude(ConcludeArgs {
-        run: "stranded".into(),
-        reason: "again".into(),
-        journal: at(&db),
-    })))
-    .unwrap_err();
+    let refusal = conclude("stranded", "again").unwrap_err();
     let status = Status::Stopped;
     let why = brokkr_runtime::ConcludeRefusal::AlreadyConcluded { status };
     assert!(
@@ -3745,12 +3742,7 @@ fn conclude_stops_a_stranded_run_and_refuses_a_concluded_one() {
     // name, read from the same `USER` fallback `Cmd::Operator` uses.
     conclude_fixture_store(&db, "conclude-parked-hand-built");
     assert_eq!(
-        run(cli(Cmd::Conclude(ConcludeArgs {
-            run: "conclude-parked-hand-built".into(),
-            reason: "closing the books".into(),
-            journal: at(&db),
-        })))
-        .unwrap(),
+        conclude("conclude-parked-hand-built", "closing the books").unwrap(),
         ExitCode::from(3),
     );
     let events = Store::open(&db)
@@ -3763,13 +3755,9 @@ fn conclude_stops_a_stranded_run_and_refuses_a_concluded_one() {
     assert!(cited.contains(&operator), "{cited}");
     assert!(cited.contains("closing the books"), "{cited}");
 
-    let missing = run(cli(Cmd::Conclude(ConcludeArgs {
-        run: "no-such-run".into(),
-        reason: "nothing to close".into(),
-        journal: at(&db),
-    })))
-    .unwrap_err()
-    .to_string();
+    let missing = conclude("no-such-run", "nothing to close")
+        .unwrap_err()
+        .to_string();
     assert!(missing.contains("no-such-run"), "{missing}");
 }
 
@@ -3805,8 +3793,23 @@ fn a_hostile_conclude_reason_is_neutralized_where_it_is_drawn() {
     let operator = "root\u{1b}[31m";
     let reason =
         "closed\u{061c}\u{202e}drawrof\u{200b}\nOPERATOR-STOP: operator 'ci' commanded stop";
-    let mut store = Store::open(&db).unwrap();
-    let state = brokkr_runtime::conclude(&mut store, run_id, operator, reason).unwrap();
+    let (mut store, cited) = (
+        Store::open(&db).unwrap(),
+        Store::open_read_only(&db).unwrap(),
+    );
+    let ending = brokkr_core::ending::Ending::OperatorStopped;
+    let cause = brokkr_runtime::Cause {
+        ending,
+        by_realm: None,
+        by_run: None,
+        by_ref: None,
+    };
+    let named = brokkr_runtime::Named {
+        cause,
+        reason,
+        operator,
+    };
+    let state = brokkr_runtime::conclude(&mut store, &cited, run_id, &named).unwrap();
     assert_eq!(state.run, Run::Stopped);
 
     // Verbatim in the journal: the citation names the operator as given,

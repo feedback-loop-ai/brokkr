@@ -680,6 +680,22 @@ window.__ModuleLoader__.load({
       conclude: () => '✓ Close',
     }
 
+    /**
+     * How a run you stop or close ended (decision 0064 ruling 4): the six
+     * causes Brokkr takes, in its order, each with the citation it asks
+     * for. Brokkr is the authority on both, and refuses a misfit itself.
+     */
+    const CAUSES = [
+      ['superseded', 'by_run'],
+      ['infrastructure', null],
+      ['delivered-elsewhere', 'by_ref'],
+      ['withdrawn', null],
+      ['exhausted', null],
+      ['operator-stopped', null],
+    ]
+    const CITES = { by_run: 'The run that replaced it', by_ref: 'The commit or pull request it landed by' }
+    const ENDS = ['stop', 'conclude']
+
     /** What happened to a pressed command: done, not sent, refused or checking. */
     function Outcome({ result, label, see }) {
       const resumed = result.stage === 'resume'
@@ -718,27 +734,36 @@ window.__ModuleLoader__.load({
      * Stop · Resume · Close, and Retry when Brokkr admits it, on the graph. A
      * button Brokkr refuses is shown disabled with Brokkr's reason. Pressing
      * one opens a reason bar; the command is sent only with a reason, against
-     * the head the operator was looking at.
+     * the head the operator was looking at. Stop and Close also ask how the
+     * run ended, and the run or commit that cause cites.
      */
     function Controls({ hearth, row, view, see }) {
       const [armed, arm] = useState(null)
       const [reason, setReason] = useState('')
+      const [cause, setCause] = useState('')
+      const [cited, setCited] = useState('')
       const [armedAt, setArmedAt] = useState(null)
       const [pressed, setPressed] = useState(null)
       const seq = view.summary.seq
       const suggestion = useLocalStore().suggestions[sessionKey(hearth.realm, row.run_id)] ?? null
       const offers = ORDER.map((command) => view.commands.find((offered) => offered.command === command))
         .filter((offered) => offered !== undefined && (offered.command !== 'retry' || offered.admission === 'admitted'))
+      const ends = armed !== null && ENDS.includes(armed.command)
+      const cites = CAUSES.find(([word]) => word === cause)?.[1] ?? null
+      const ready = reason.trim() !== '' && (!ends || (cause !== '' && (cites === null || cited.trim() !== '')))
       function open(offered) {
         arm(offered)
         setArmedAt(seq)
         setReason(suggestion?.command === offered.command ? suggestion.reason : '')
+        setCause('')
+        setCited('')
         setPressed(null)
       }
       async function press() {
-        if (armed === null || reason.trim() === '') return
+        if (armed === null || !ready) return
         const label = COMMAND[armed.command](armed)[0]
-        const body = { command_id: crypto.randomUUID(), realm: hearth.realm, run_id: row.run_id, command: armed.command, reason, expected_seq: armedAt }
+        const ending = !ends ? {} : cites === null ? { cause } : { cause, [cites]: cited }
+        const body = { command_id: crypto.randomUUID(), realm: hearth.realm, run_id: row.run_id, command: armed.command, reason, ...ending, expected_seq: armedAt }
         arm(null)
         setPressed({ label, result: { outcome: 'sending' } })
         let result = await post(body)
@@ -763,9 +788,14 @@ window.__ModuleLoader__.load({
         })),
         armed === null ? null : h('div', { className: `bk-reasonbar ${armed.command}`, role: 'group', 'aria-label': 'Your reason' },
           h('span', { className: 'bk-k' }, COMMAND[armed.command](armed)[0]),
+          !ends ? null : h('select', { className: 'bk-input', 'aria-label': 'How the run ended', value: cause,
+            onChange: (event) => { setCause(event.target.value); setCited('') } },
+          h('option', { value: '' }, 'How did it end?'), CAUSES.map(([word]) => h('option', { key: word, value: word }, word))),
+          !ends || cites === null ? null : h('input', { className: 'bk-input', 'aria-label': CITES[cites], placeholder: CITES[cites], value: cited,
+            onChange: (event) => setCited(event.target.value) }),
           h('input', { className: 'bk-input', 'aria-label': 'Your reason (kept in the run’s record)', placeholder: 'Why? Your reason is kept in the run’s record.', value: reason,
             onChange: (event) => setReason(event.target.value), onKeyDown: (event) => event.key === 'Enter' && press() }),
-          h('button', { type: 'button', className: 'bk-btn primary', disabled: reason.trim() === '', onClick: press }, COMMAND[armed.command](armed)[0]),
+          h('button', { type: 'button', className: 'bk-btn primary', disabled: !ready, onClick: press }, COMMAND[armed.command](armed)[0]),
           h('button', { type: 'button', className: 'bk-btn', onClick: () => arm(null) }, 'Cancel')),
         armed === null ? null : h('div', { className: 'bk-d' }, `${COMMAND[armed.command](armed)[1]} Brokkr reads the run again first; if it moved, nothing is sent.`,
           armedAt !== seq ? ' The run has changed since you opened this.' : ''),

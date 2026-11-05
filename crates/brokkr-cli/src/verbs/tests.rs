@@ -109,6 +109,10 @@ fn conclude_resolves_latest_to_the_run_it_stops_and_refuses_an_empty_run() {
         Cmd::Conclude(ConcludeArgs {
             run: run.into(),
             reason: "the engine moved on without it".into(),
+            cause: Some("operator-stopped".into()),
+            by_run: None,
+            by_realm: None,
+            by_ref: None,
             journal: at(&db),
         })
     };
@@ -124,7 +128,7 @@ fn conclude_resolves_latest_to_the_run_it_stops_and_refuses_an_empty_run() {
 }
 
 /// `brokkr operator <command> --run latest` on `journal`, with no
-/// supersede-only argument.
+/// supersede-only argument, and the cause a stop names.
 fn operator(command: &str, journal: JournalArgs) -> OperatorArgs {
     OperatorArgs {
         member: crate::cli_args::MemberRetryArgs::default(),
@@ -135,7 +139,7 @@ fn operator(command: &str, journal: JournalArgs) -> OperatorArgs {
         by_run: None,
         by_seq: None,
         by_realm: None,
-        cause: None,
+        cause: (command == "stop").then(|| "withdrawn".into()),
         by_ref: None,
         journal,
     }

@@ -16,7 +16,7 @@ use thiserror::Error;
 
 use crate::decision::Decision;
 use crate::envelope::{EventEnvelope, EventType};
-use crate::fold::{RunState, Status};
+use crate::fold::{OperatorCommand, RunState, Status};
 use crate::policy::audit::STOP;
 use crate::policy::RuleSeverity;
 use crate::residual::ResidualPhase;
@@ -293,9 +293,9 @@ pub struct Ended {
 }
 
 /// The `args` of one `operator/commanded` with `command: "classify"`
-/// (decision 0064 ruling 5, contract `operator-ending.v1`), read as a
-/// closed value. A field outside the contract is refused here, as the
-/// schema refuses it at the edge.
+/// (decision 0064 ruling 5) or `command: "stop"` (ruling 4), under
+/// contract `operator-ending.v1`, read as a closed value. A field outside
+/// the contract is refused here, as the schema refuses it at the edge.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct OperatorEnding {
@@ -367,8 +367,9 @@ impl<'de> Deserialize<'de> for Realm {
     }
 }
 
-/// The ending a `classify` annotation names, with the citation its cause
-/// requires, or `None` when the annotation is not one this build reads.
+/// The ending a `classify` annotation or a stop names, with the citation
+/// its cause requires, or `None` when its `args` are not ones this build
+/// reads.
 /// The contract is `operator-ending.v1`: one of the six operator-owned
 /// endings, `by` with `superseded`, `ref` with `delivered-elsewhere`, and
 /// neither elsewhere. A malformed or unrecognised annotation is not read
@@ -416,22 +417,42 @@ pub(crate) fn operator_ending(args: &Value) -> Option<Ended> {
 }
 
 /// What a run's events say of its ending so far, carried event by event
-/// (addendum choice 5): the severity of its last ruling from review, and
-/// the latest `classify` annotation (ruling 5).
+/// (addendum choice 5): the severity of its last ruling from review, the
+/// cause the accepted stop names in its `args` (ruling 4), and the latest
+/// `classify` annotation (ruling 5).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Reading {
     last_review: Option<RuleSeverity>,
+    /// The latest stop commanded, by its command id, with the ending its
+    /// `args` name, if they name one: what an acceptance of that id adopts.
+    commanded_stop: Option<(String, Option<Ended>)>,
+    /// The ending the accepted stop's `args` name; `None` for a stop that
+    /// names none, as every stop before decision 0064 slice E3 did.
+    stopped: Option<Ended>,
     classified: Option<Ended>,
 }
 
 impl Reading {
     /// The reading carried over `event`, the run's next.
     pub(crate) fn note(&mut self, event: &EventEnvelope) {
-        if event.event_type == EventType::OperatorCommanded
-            && event.payload.get("command").and_then(Value::as_str) == Some(CLASSIFY)
-        {
-            if let Some(classified) = event.payload.get("args").and_then(operator_ending) {
-                self.classified = Some(classified);
+        let payload = &event.payload;
+        let command_id = payload.get("command_id").and_then(Value::as_str);
+        if event.event_type == EventType::OperatorCommanded {
+            let command = payload.get("command").and_then(Value::as_str);
+            let named = payload.get("args").and_then(operator_ending);
+            if command == Some(CLASSIFY) {
+                if let Some(classified) = named {
+                    self.classified = Some(classified);
+                }
+            } else if command == Some(OperatorCommand::Stop.as_str()) {
+                self.commanded_stop = command_id.map(|id| (id.to_string(), named));
+            }
+            return;
+        }
+        if event.event_type == EventType::OperatorAccepted {
+            let accepted = |(stop, _): &mut (String, _)| Some(stop.as_str()) == command_id;
+            if let Some((_, named)) = self.commanded_stop.take_if(accepted) {
+                self.stopped = named;
             }
             return;
         }
@@ -459,8 +480,10 @@ impl Reading {
                 cited: None,
             }),
             // A later `classify` stands over an earlier one (ruling 5),
-            // and over the closure the operator did not type.
+            // over the cause the closing stop named, and over the closure
+            // the operator did not type.
             Status::Stopped if self.classified.is_some() => self.classified.clone(),
+            Status::Stopped if self.stopped.is_some() => self.stopped.clone(),
             Status::Stopped if state.phase.as_deref() == Some(STOP) => {
                 let ruling = state.last_decision.as_ref();
                 Some(Ended {
@@ -484,11 +507,11 @@ impl Reading {
 /// A completed run splits on its last ruling from review, and a run the
 /// policy table stopped reads [`Ending::ruled`] of the ruling that
 /// stopped it. A run an operator stopped reads the latest `classify`
-/// annotation that names one of ruling 4's six (ruling 5), and
-/// `unclassified` when it carries none. The cause an accepted stop
-/// carries in its `args` is written once `stop` and `conclude` take
-/// `--cause` (decision 0064 slice E3); this reading takes the annotation
-/// alone.
+/// annotation that names one of ruling 4's six (ruling 5); else the
+/// cause, with its citation, that its accepted stop names in its `args`,
+/// as `stop` and `conclude` write it under `--cause` (ruling 4, decision
+/// 0064 slice E3); and `unclassified` when it carries neither, as every
+/// stop journaled before E3 does.
 pub fn ended(events: &[EventEnvelope], state: &RunState) -> Option<Ended> {
     let mut reading = Reading::default();
     for event in events {

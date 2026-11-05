@@ -126,7 +126,7 @@ fn acknowledged(run_id: &str) -> String {
 }
 
 fn conclude(run_id: &str) -> String {
-    format!("brokkr conclude --run {run_id} --reason <why>")
+    format!("brokkr conclude --run {run_id} --cause <cause> --reason <why>")
 }
 
 fn export(run_id: &str) -> String {

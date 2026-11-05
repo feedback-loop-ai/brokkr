@@ -199,7 +199,7 @@ fn said(
             Ok(()) => return,
             Err(error) => format!(
                 "Ctrl+C could not stop run {run} ({error}); it keeps driving here. \
-                 Stop it with: brokkr operator stop --run {run} --reason <why>"
+                 Stop it with: brokkr operator stop --run {run} --cause <cause> --reason <why>"
             ),
         },
         Err(error) => format!("the view did not stay open: {error}; run {run} keeps driving here"),

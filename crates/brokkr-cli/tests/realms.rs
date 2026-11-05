@@ -486,7 +486,8 @@ fn the_recovery_verbs_address_the_maps_journal_with_no_db() {
     let (code, _, stderr) = ws.run(&["resume", "--run", &run_id, "--bundle", "bundle"]);
     assert_eq!(code, Some(2), "resumed and still parked: {stderr}");
 
-    let (code, _, stderr) = ws.run(&["operator", "stop", "--run", &run_id, "--reason", "done"]);
+    let stop = ["operator", "stop", "--run", &run_id, "--cause", "withdrawn"];
+    let (code, _, stderr) = ws.run(&[&stop[..], &["--reason", "done"]].concat());
     assert_eq!(code, Some(0), "{stderr}");
     assert!(
         stderr.contains(&format!(
@@ -496,7 +497,10 @@ fn the_recovery_verbs_address_the_maps_journal_with_no_db() {
     );
     assert_eq!(last_event(), EventType::OperatorAccepted);
 
-    let (code, _, stderr) = ws.run(&["conclude", "--run", &run_id, "--reason", "closing"]);
+    // The stop in force names the cause the conclusion names, so nothing
+    // follows `run/stopped` (decision 0064 choice 4 (a)).
+    let conclude = ["conclude", "--run", &run_id, "--cause", "withdrawn"];
+    let (code, _, stderr) = ws.run(&[&conclude[..], &["--reason", "closing"]].concat());
     assert_eq!(code, Some(3), "concluded as stopped: {stderr}");
     assert_eq!(last_event(), EventType::RunStopped);
 

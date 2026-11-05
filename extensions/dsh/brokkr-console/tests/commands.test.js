@@ -24,7 +24,11 @@ function deskWith(rules, over = {}) {
   return { desk, calls: () => brokkr.calls().map((argv) => argv.join(' ')) }
 }
 
-const press = (command, over = {}) => ({ command_id: ID, realm: 'brokkr', run_id: RUN, command, reason: 'the owner-only change landed', expected_seq: 12, ...over })
+/** A press as the console sends it: a stop or a close names how the run ended. */
+const press = (command, over = {}) => {
+  const ending = ['stop', 'conclude'].includes(command) ? { cause: 'withdrawn' } : {}
+  return { command_id: ID, realm: 'brokkr', run_id: RUN, command, reason: 'the owner-only change landed', ...ending, expected_seq: 12, ...over }
+}
 const inspect = `inspect --run=${RUN} ${DB} --json`
 
 test('a head that moved since the card was opened is not sent, and the fresh view comes back', async () => {
@@ -73,9 +77,39 @@ for (const command of ['stop', 'conclude']) {
   })
 }
 
-test('an empty reason is refused before anything is read or sent', async () => {
+test('a stop and a close carry how the run ended, and the run or commit it cites as written, to Brokkr', async () => {
+  const { desk, calls } = deskWith([
+    { match: ['inspect'], responses: [json(runViewDoc()), json(runViewDoc())] },
+    { match: ['operator', 'stop'], responses: [{ stdout: 'accepted' }] },
+    { match: ['conclude'], responses: [{ stdout: 'concluded' }] },
+  ])
+  const superseded = press('stop', { cause: 'superseded', by_run: ' later-run-0a1b2c3d ' })
+  assert.deepEqual(await desk.submit(superseded), { command: 'stop', outcome: 'done' })
+  const landed = press('conclude', { command_id: `${ID}-2`, cause: 'delivered-elsewhere', by_ref: '  https://example.test/pull/317  ' })
+  assert.deepEqual(await desk.submit(landed), { command: 'conclude', outcome: 'done' })
+  const reason = 'the owner-only change landed'
+  assert.deepEqual(calls(), [
+    inspect,
+    `operator stop --run=${RUN} ${DB} --cause=superseded --by-run= later-run-0a1b2c3d  --reason=${reason}${TAG}`,
+    inspect,
+    `conclude --run=${RUN} ${DB} --cause=delivered-elsewhere --by-ref=  https://example.test/pull/317   --reason=${reason} (console command ${ID}-2)`,
+  ])
+})
+
+test('an empty reason, a missing cause, a cause off Stop and Close, or a citation that is no word are refused before anything is read or sent', async () => {
   const { desk, calls } = deskWith([])
   assert.throws(() => desk.submit(press('stop', { reason: '   ' })), new RequestRefused('a reason is required'))
+  for (const command of ['stop', 'conclude']) {
+    for (const cause of [undefined, '  ', 7]) {
+      assert.throws(() => desk.submit(press(command, { cause })), new RequestRefused('how the run ended is required'))
+    }
+  }
+  for (const over of [{ cause: 'withdrawn' }, { by_run: 'later' }, { by_ref: 'abc123' }]) {
+    assert.throws(() => desk.submit(press('retry', over)), new RequestRefused('only Stop and Close say how a run ended'))
+  }
+  for (const over of [{ by_run: 7 }, { by_ref: ' ' }]) {
+    assert.throws(() => desk.submit(press('stop', over)), new RequestRefused('a citation is a run id or a commit'))
+  }
   assert.deepEqual(calls(), [])
 })
 

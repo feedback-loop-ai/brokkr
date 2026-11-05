@@ -94,6 +94,8 @@ fn a_killed_engines_worktree_is_released_by_the_operator_and_a_conflicting_run_a
         &run,
         "--reason",
         "its engine was killed",
+        "--cause",
+        "infrastructure",
         "--db",
         db,
     ];

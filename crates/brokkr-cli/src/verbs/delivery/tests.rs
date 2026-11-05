@@ -3,11 +3,13 @@
 use std::process::ExitCode;
 
 use brokkr_runtime::launch::LaunchError;
+use brokkr_runtime::{CauseRefusal, Verb};
 use brokkr_store::{Store, StoreError};
 
 use super::{operator, rerun, resume, run};
 use crate::cli_args::{
-    DeliveryArgs, JournalArgs, LaunchArgs, OperatorArgs, RerunArgs, ResumeArgs, RunArgs,
+    ConcludeArgs, DeliveryArgs, JournalArgs, LaunchArgs, OperatorArgs, RerunArgs, ResumeArgs,
+    RunArgs,
 };
 use crate::run_view::PRODUCTION;
 use crate::selector::{refusal_kind, Refusal};
@@ -133,6 +135,44 @@ fn operator_stopped(db: &std::path::Path, run_id: &str) {
             None,
         )
         .unwrap();
+}
+
+/// A world of two hearths in `dir`: `here`, whose journal is `forge.db`,
+/// and `next-door`, whose journal holds the run `later`, still going. Its
+/// map is written as `realms.json`, and returned.
+fn next_door(dir: &std::path::Path) -> std::path::PathBuf {
+    crate::tests::running_store(&dir.join("next-door.db"), "later");
+    let map = dir.join("realms.json");
+    std::fs::write(
+        &map,
+        serde_json::json!({
+            "schema": "forge.realms/v2",
+            "realms": [
+                {"name": "here", "path": ".", "default_branch": "main", "journal": "forge.db"},
+                {"name": "next-door", "path": ".", "default_branch": "main", "journal": "next-door.db"},
+            ],
+            "journal": "forge.db",
+        })
+        .to_string(),
+    )
+    .unwrap();
+    map
+}
+
+/// A refusal for the missing `--cause` on `verb`: the runtime's own usage
+/// text, which names the six, by its variant.
+fn assert_missing_cause(refused: &anyhow::Error, verb: Verb) {
+    assert_eq!(
+        failure_line(refused),
+        format!(
+            "error: {}",
+            brokkr_runtime::named_cause(verb, None).unwrap_err()
+        )
+    );
+    assert!(matches!(
+        refused.downcast_ref(),
+        Some(CauseRefusal::Missing { verb: missing }) if *missing == verb
+    ));
 }
 
 /// `brokkr operator classify` as a test types it, varying only the
@@ -278,11 +318,7 @@ fn the_classify_verb_names_its_cause_and_reads_the_cited_realm() {
     let db = dir.path().join("forge.db");
     operator_stopped(&db, "held");
     let missing = operator(dir.path(), classifying(&db, None, None, None, None)).unwrap_err();
-    assert_eq!(
-        failure_line(&missing),
-        "error: classify needs --cause: one of exhausted, superseded, infrastructure, \
-         delivered-elsewhere, withdrawn, operator-stopped"
-    );
+    assert_missing_cause(&missing, Verb::Classify);
     // The cause is parsed where it was typed, before any journal is read:
     // a word outside the vocabulary is refused even for a run no journal
     // holds, in the engine's one text for it.
@@ -294,7 +330,7 @@ fn the_classify_verb_names_its_cause_and_reads_the_cited_realm() {
         failure_line(&operator(dir.path(), unknown).unwrap_err()),
         format!(
             "error: {}",
-            brokkr_runtime::classify_cause("not-a-word").unwrap_err()
+            brokkr_runtime::named_cause(Verb::Classify, Some("not-a-word")).unwrap_err()
         )
     );
     assert_eq!(
@@ -319,22 +355,7 @@ fn the_classify_verb_names_its_cause_and_reads_the_cited_realm() {
 
     // A citation into another hearth opens that hearth's journal, and an
     // unknown realm is refused before anything is written.
-    let other = dir.path().join("next-door.db");
-    crate::tests::running_store(&other, "later");
-    let map = dir.path().join("realms.json");
-    std::fs::write(
-        &map,
-        serde_json::json!({
-            "schema": "forge.realms/v2",
-            "realms": [
-                {"name": "here", "path": ".", "default_branch": "main", "journal": "forge.db"},
-                {"name": "next-door", "path": ".", "default_branch": "main", "journal": "next-door.db"},
-            ],
-            "journal": "forge.db",
-        })
-        .to_string(),
-    )
-    .unwrap();
+    let map = next_door(dir.path());
     let mapped = |realm: &str| OperatorArgs {
         cause: Some("superseded".into()),
         by_run: Some("later".into()),
@@ -397,9 +418,10 @@ fn classify_and_supersede_refuse_each_others_flags() {
         cause: Some("superseded".into()),
         ..classifying(&db, Some("withdrawn"), None, None, None)
     };
+    let supersede_only = "error: --cause and --by-ref belong to 'stop' and 'classify'";
     assert_eq!(
         failure_line(&operator(dir.path(), supersede).unwrap_err()),
-        "error: --cause and --by-ref belong to 'classify'"
+        supersede_only
     );
     let supersede_ref = OperatorArgs {
         command: "supersede".into(),
@@ -411,26 +433,150 @@ fn classify_and_supersede_refuse_each_others_flags() {
     };
     assert_eq!(
         failure_line(&operator(dir.path(), supersede_ref).unwrap_err()),
-        "error: --cause and --by-ref belong to 'classify'"
+        supersede_only
     );
+    // `stop` takes the cause and its citation as `classify` does, and
+    // refuses supersede's pair; a verb that ends nothing refuses the cause.
     let stop = OperatorArgs {
         command: "stop".into(),
-        cause: Some("withdrawn".into()),
+        by_seq: Some(2),
         ..classifying(&db, Some("withdrawn"), None, None, None)
     };
     assert_eq!(
         failure_line(&operator(dir.path(), stop).unwrap_err()),
-        "error: --cause and --by-ref belong to 'classify'; 'stop' takes --run, --reason, \
-         --realms and --db"
+        "error: --findings and --by-seq belong to 'supersede'; 'stop' takes --run, --cause, \
+         --reason, --by-run, --by-realm, --by-ref, --realms and --db"
     );
-    let stop_ref = OperatorArgs {
+    for (cause, by_ref) in [(Some("withdrawn"), None), (None, Some("abc123"))] {
+        let release = OperatorArgs {
+            command: "release".into(),
+            ..classifying(&db, cause, None, None, by_ref)
+        };
+        assert_eq!(
+            failure_line(&operator(dir.path(), release).unwrap_err()),
+            format!("{supersede_only}; 'release' takes --run, --reason, --realms and --db")
+        );
+    }
+}
+
+/// `brokkr operator stop` and `brokkr conclude` as a test types them on
+/// `run`, with the cause and its `--by-run`, `--by-realm` and `--by-ref`.
+fn ending_args(
+    db: &std::path::Path,
+    run: &str,
+    cause: Option<&str>,
+    [by_run, by_realm, by_ref]: [Option<&str>; 3],
+) -> (OperatorArgs, ConcludeArgs) {
+    let stop = OperatorArgs {
         command: "stop".into(),
-        cause: None,
-        ..classifying(&db, Some("withdrawn"), None, None, Some("abc123"))
+        run: run.into(),
+        ..classifying(db, cause, by_run, by_realm, by_ref)
     };
+    let conclude = ConcludeArgs {
+        run: run.into(),
+        reason: stop.reason.clone(),
+        cause: stop.cause.clone(),
+        by_run: stop.by_run.clone(),
+        by_realm: stop.by_realm.clone(),
+        by_ref: stop.by_ref.clone(),
+        journal: at(db),
+    };
+    (stop, conclude)
+}
+
+/// Decision 0064 ruling 4: `--cause` is required on `stop` and on
+/// `conclude`. A missing one is the usage refusal that names the six, a
+/// cause that does not fit its citation is the runtime's typed refusal,
+/// and neither writes anything.
+#[test]
+fn stop_and_conclude_refuse_a_missing_or_misfit_cause_and_write_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    crate::tests::running_store(&db, "going");
+    let journal = || Store::open(&db).unwrap().load("going").unwrap();
+    let before = journal();
+    let (stop, conclude) = ending_args(&db, "going", None, [None; 3]);
+    assert_missing_cause(&operator(dir.path(), stop).unwrap_err(), Verb::Stop);
+    assert_missing_cause(
+        &super::conclude(dir.path(), conclude).unwrap_err(),
+        Verb::Conclude,
+    );
+    let (stop, conclude) = ending_args(&db, "going", Some("superseded"), [None; 3]);
+    for (refused, verb) in [
+        (operator(dir.path(), stop).unwrap_err(), Verb::Stop),
+        (
+            super::conclude(dir.path(), conclude).unwrap_err(),
+            Verb::Conclude,
+        ),
+    ] {
+        let Some(brokkr_runtime::EngineError::CauseRefused(cause)) = refused.downcast_ref() else {
+            panic!("{verb} refused with another error: {refused}");
+        };
+        assert!(
+            matches!(**cause, CauseRefusal::NoReplacement { verb: refusing } if refusing == verb)
+        );
+    }
+    let after = journal();
+    assert_eq!(after.len(), before.len(), "nothing was written");
+}
+
+/// Ruling 4: `stop` writes its cause in the command's `args`, a citation
+/// into another hearth read in that hearth's journal; `conclude` on that
+/// stop under another cause appends one `classify` (choice 4 (a)); and a
+/// conclusion that commands its own stop carries its cause there.
+#[test]
+fn stop_and_conclude_write_the_cause_they_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    crate::tests::running_store(&db, "held");
+    crate::tests::running_store(&db, "landed");
+    let map = next_door(dir.path());
+    let cited = [Some("later"), Some("next-door"), None];
+    let (mut stop, _) = ending_args(&db, "held", Some("superseded"), cited);
+    stop.journal = crate::cli_args::JournalArgs {
+        realms: Some(map),
+        db: None,
+    };
+    assert_eq!(operator(dir.path(), stop).unwrap(), ExitCode::SUCCESS);
+    let last_commanded = |run: &str| {
+        let events = Store::open(&db).unwrap().load(run).unwrap();
+        let commanded = events
+            .iter()
+            .rev()
+            .find(|event| event.event_type == brokkr_core::EventType::OperatorCommanded);
+        (
+            commanded.unwrap().payload.clone(),
+            events.last().unwrap().event_type,
+        )
+    };
+    let (stopped, _) = last_commanded("held");
     assert_eq!(
-        failure_line(&operator(dir.path(), stop_ref).unwrap_err()),
-        "error: --cause and --by-ref belong to 'classify'; 'stop' takes --run, --reason, \
-         --realms and --db"
+        (&stopped["command"], &stopped["args"]),
+        (
+            &serde_json::json!("stop"),
+            &serde_json::json!({"cause": "superseded",
+                                "by": {"realm": "next-door", "run_id": "later"}})
+        )
+    );
+
+    let (_, withdrawn) = ending_args(&db, "held", Some("withdrawn"), [None; 3]);
+    let stopped_exit = ExitCode::from(Exit::Stopped);
+    assert_eq!(
+        super::conclude(dir.path(), withdrawn).unwrap(),
+        stopped_exit
+    );
+    let (classified, last) = last_commanded("held");
+    assert_eq!(last, brokkr_core::EventType::OperatorCommanded);
+    assert_eq!(classified["command"], "classify");
+    assert_eq!(classified["args"]["cause"], "withdrawn");
+
+    let by_ref = [None, None, Some("abc123")];
+    let (_, landed) = ending_args(&db, "landed", Some("delivered-elsewhere"), by_ref);
+    assert_eq!(super::conclude(dir.path(), landed).unwrap(), stopped_exit);
+    let (commanded, last) = last_commanded("landed");
+    assert_eq!(last, brokkr_core::EventType::RunStopped, "no classify");
+    assert_eq!(
+        commanded["args"],
+        serde_json::json!({"cause": "delivered-elsewhere", "ref": "abc123"})
     );
 }

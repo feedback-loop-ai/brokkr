@@ -301,7 +301,7 @@ fn an_operator_verb_writes_the_summary_of_the_fold_it_decided_on() {
     let path = dir.path().join("verb.db");
     drop(super::tests::parked_store(&path, "verb"));
     let mut store = Store::open(&path).unwrap();
-    let stopped = operator_command(&mut store, "verb", Stop, "operator", "enough").unwrap();
+    let stopped = stop_as(&mut store, "verb", "operator", "enough").unwrap();
     assert!(matches!(stopped, FencedCommandOutcome::Accepted { .. }));
     let lane = brokkr_store::test_support::lane(&store, "verb");
     assert_eq!(

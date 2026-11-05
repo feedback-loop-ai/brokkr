@@ -284,6 +284,23 @@ pub(super) struct ConcludeArgs {
     /// Why the run is closed, recorded with the stop conclusion.
     #[arg(long)]
     pub(super) reason: String,
+    /// Required: how the run ended, one of superseded, infrastructure,
+    /// delivered-elsewhere, withdrawn, exhausted or operator-stopped
+    /// (decision 0064 ruling 4).
+    #[arg(long)]
+    pub(super) cause: Option<String>,
+    /// With --cause superseded, required: the run that replaced this one,
+    /// read as written.
+    #[arg(long)]
+    pub(super) by_run: Option<String>,
+    /// With --cause superseded: the realm that run was read in. Omitted
+    /// for the workspace journal, which is every one-hearth world.
+    #[arg(long)]
+    pub(super) by_realm: Option<String>,
+    /// With --cause delivered-elsewhere, required: the commit or pull
+    /// request the work landed by, recorded as written and not resolved.
+    #[arg(long)]
+    pub(super) by_ref: Option<String>,
     #[command(flatten)]
     pub(super) journal: JournalArgs,
 }
@@ -296,7 +313,8 @@ pub(super) struct OperatorArgs {
     /// Full run id, a unique run-id prefix, or `latest`.
     #[arg(long)]
     pub(super) run: String,
-    /// "retry" re-runs the current phase; "stop" ends the run; "release"
+    /// "retry" re-runs the current phase; "stop" ends the run, naming its
+    /// cause; "release"
     /// attests that every process the run's ended attempts owned has ended,
     /// and frees the worktree their writer lease holds; "supersede" records
     /// that residual findings on a run that has already finished are closed
@@ -307,9 +325,9 @@ pub(super) struct OperatorArgs {
     /// Why the operator issued the command, recorded with it.
     #[arg(long)]
     pub(super) reason: String,
-    /// classify only: how the stopped run ended, one of superseded,
-    /// infrastructure, delivered-elsewhere, withdrawn, exhausted or
-    /// operator-stopped (decision 0064 ruling 4).
+    /// stop and classify, and required there: how the run ended, one of
+    /// superseded, infrastructure, delivered-elsewhere, withdrawn,
+    /// exhausted or operator-stopped (decision 0064 ruling 4).
     #[arg(long)]
     pub(super) cause: Option<String>,
     /// supersede only: the residual findings this closes, by the
@@ -317,25 +335,27 @@ pub(super) struct OperatorArgs {
     /// or one comma-separated list.
     #[arg(long, value_delimiter = ',')]
     pub(super) findings: Vec<u64>,
-    /// supersede or classify only: with supersede, the run that closed the
-    /// findings; with classify --cause superseded, the run that replaced
-    /// this one. Read as written, never resolved through the selector.
+    /// supersede, stop or classify only: with supersede, the run that
+    /// closed the findings; with stop or classify --cause superseded, the
+    /// run that replaced this one. Read as written, never resolved through
+    /// the selector.
     #[arg(long)]
     pub(super) by_run: Option<String>,
     /// supersede only: the `transition/decided` in that run which
     /// closed them.
     #[arg(long)]
     pub(super) by_seq: Option<u64>,
-    /// supersede or classify only: the realm that run was read in. Omitted
-    /// for the workspace journal, which is every one-hearth world.
+    /// supersede, stop or classify only: the realm that run was read in.
+    /// Omitted for the workspace journal, which is every one-hearth world.
     #[arg(long)]
     pub(super) by_realm: Option<String>,
-    /// classify only: with delivered-elsewhere, the commit or pull
+    /// stop or classify only: with delivered-elsewhere, the commit or pull
     /// request the work landed by, recorded as written and not resolved.
     #[arg(long)]
     pub(super) by_ref: Option<String>,
-    /// The journal the command is written to — and, for supersede, the
-    /// map a citation into another hearth is read through.
+    /// The journal the command is written to — and, for supersede, stop
+    /// and classify, the map a citation into another hearth is read
+    /// through.
     #[command(flatten)]
     pub(super) journal: JournalArgs,
 }

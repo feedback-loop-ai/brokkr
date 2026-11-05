@@ -69,3 +69,20 @@ fn a_command_line_clap_refuses_is_a_usage_exit_and_help_is_not() {
         assert_eq!(Exit::of_parse(&answered), Exit::Completed, "{asked}");
     }
 }
+
+/// Decision 0064 ruling 4: a missing `--cause` is a usage error wherever
+/// it sits in the chain; any other refusal of a cause, and any other
+/// failure, is not.
+#[test]
+fn a_missing_cause_is_a_usage_exit_and_no_other_failure_is() {
+    use brokkr_runtime::{named_cause, Verb};
+    for verb in [Verb::Stop, Verb::Conclude, Verb::Classify] {
+        let missing = anyhow::Error::from(named_cause(verb, None).unwrap_err());
+        assert_eq!(Exit::of_failure(&missing), Exit::Usage, "{verb}");
+        let deep = missing.context("closing r1");
+        assert_eq!(Exit::of_failure(&deep), Exit::Usage, "{verb}");
+    }
+    let misfit = CauseRefusal::NoReplacement { verb: Verb::Stop };
+    assert_eq!(Exit::of_failure(&misfit.into()), Exit::Failed);
+    assert_eq!(Exit::of_failure(&anyhow::anyhow!("a defect")), Exit::Failed);
+}

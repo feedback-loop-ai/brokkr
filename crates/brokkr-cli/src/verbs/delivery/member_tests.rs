@@ -4,8 +4,11 @@ use super::*;
 fn member_arguments_are_refused_before_the_existing_command_checks() {
     let retry = "--run, --reason, --realms, --db and --member, and with --member also --repo, --bundle, --recipe, --recipes-dir and --secrets-file";
     assert_eq!(accepted_arguments("retry"), retry);
+    let ending = "--run, --cause, --reason, --by-run, --by-realm, --by-ref, --realms and --db";
+    assert_eq!(accepted_arguments("stop"), ending);
+    assert_eq!(accepted_arguments("classify"), ending);
     assert_eq!(
-        accepted_arguments("stop"),
+        accepted_arguments("release"),
         "--run, --reason, --realms and --db"
     );
     for command in ["stop", "bogus", "acknowledge", "supersede"] {
@@ -55,7 +58,7 @@ fn member_arguments_are_refused_before_the_existing_command_checks() {
         (
             "stop",
             vec![],
-            supersede_only("stop", "--run, --reason, --realms and --db"),
+            format!("--findings and --by-seq belong to 'supersede'; 'stop' takes {ending}"),
         ),
     ] {
         let args = OperatorArgs {

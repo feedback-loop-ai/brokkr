@@ -94,14 +94,14 @@ use brokkr_core::fold::{
 };
 pub use carry::CarryRefusal;
 pub use operator::{
-    apply_fenced_operator_command, classify_cause, conclude, operator_classify, operator_command,
-    operator_supersede, Classify, CommandWord, ConcludeRefusal, FencedCommand,
-    FencedCommandOutcome, MemberRetryOutcome, Supersede,
+    apply_fenced_operator_command, conclude, named_cause, operator_classify, operator_command,
+    operator_stop, operator_supersede, Cause, CauseRefusal, CommandWord, ConcludeRefusal,
+    FencedCommand, FencedCommandOutcome, Flag, MemberRetryOutcome, Named, Supersede, Verb,
 };
 #[cfg(test)]
 use operator::{
-    apply_fenced_racing, conclude_racing, operator_command_racing, operator_supersede_racing,
-    riding_attempt, FENCE_ATTEMPTS,
+    apply_fenced_racing, conclude_as, conclude_racing_as, operator_command_racing,
+    operator_supersede_racing, riding_attempt, stop_as, stop_racing_as, FENCE_ATTEMPTS,
 };
 
 /// What an `effect/indeterminate` carries of an attempt not proven over
@@ -182,6 +182,11 @@ pub enum EngineError {
     /// the journal stays exactly as it was.
     #[error("classify refused, nothing was written: {0}")]
     ClassifyRefused(String),
+    /// `stop`, `conclude` or `classify` refused the cause the operator
+    /// named, and wrote nothing (decision 0064 ruling 4). Boxed, because a
+    /// refusal that cites a journal carries that journal's error.
+    #[error("{verb} refused, nothing was written: {0}", verb = .0.verb())]
+    CauseRefused(Box<CauseRefusal>),
     /// Decision 0029: an event the engine decided on a fold met a head a
     /// peer had moved. Nothing was written, and the engine ends here
     /// rather than folding again: two writers believe they drive one run.

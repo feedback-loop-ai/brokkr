@@ -703,7 +703,9 @@ fn a_dead_running_run_needs_you_as_stale_and_never_reads_as_live() {
             .to_string(),
         format!("way out   brokkr resume --run {DEAD} --bundle <its-bundle>"),
         "          drives it again under its pinned bundle (or --recipe <name>);".to_string(),
-        format!("          or brokkr conclude --run {DEAD} --reason <why> closes it"),
+        format!(
+            "          or brokkr conclude --run {DEAD} --cause <cause> --reason <why> closes it"
+        ),
     ];
     assert_eq!(under(&detail, "WAY OUT"), wanted, "{detail:#?}");
     let mut dead_only = fleet_with_a_dead_run();
@@ -746,7 +748,7 @@ fn a_stopping_run_wears_its_mark_and_its_detail_names_the_way_out() {
                 it, `brokkr conclude` closes it.";
     assert!(detail.iter().any(|line| line == said), "{detail:#?}");
     let wanted = [format!(
-        "way out   brokkr conclude --run {STOPPING} --reason <why>"
+        "way out   brokkr conclude --run {STOPPING} --cause <cause> --reason <why>"
     )];
     assert_eq!(under(&detail, "WAY OUT"), wanted, "{detail:#?}");
 }

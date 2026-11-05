@@ -1,11 +1,15 @@
 use super::*;
-use brokkr_core::ending::{ended, Citation, Ended};
+use brokkr_core::ending::{ended, Citation, Ended, Ending};
 use brokkr_core::fold::{fold, Cursor, ParkReason, Run};
 use brokkr_store::StoreError;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::path::Path;
 
-use crate::conclude;
+use super::super::ending::tests::{
+    bytes, case_cause, cause_refusal, contract, CITATION_CASES, STOPPED,
+};
+use super::super::ending::{named_cause, Cause};
+use crate::engine::conclude_as;
 
 /// A run an operator stopped without naming a cause — the shape ruling 5
 /// exists to classify.
@@ -112,7 +116,7 @@ fn decided_after_effect(path: &Path, run_id: &str, ruling: Value, result: &str) 
 /// the operator.
 fn ruled_store(path: &Path, run_id: &str, ruling: Value, reason: &str) -> Store {
     let mut store = rule_park_store(path, run_id, ruling, reason);
-    conclude(&mut store, run_id, "operator", "the rule parked it").unwrap();
+    conclude_as(&mut store, run_id, "operator", "the rule parked it").unwrap();
     store
 }
 
@@ -139,22 +143,36 @@ fn held_fixture(dir: &Path, name: &str) -> (std::path::PathBuf, Store, Store, us
     (db, store, cited, before)
 }
 
-/// The ask a test varies one field of.
-fn ask(cause: Ending) -> Classify<'static> {
-    Classify {
+/// The ask a test varies the cause of.
+fn asking(cause: Cause<'static>) -> Named<'static> {
+    Named {
         cause,
-        by_realm: None,
-        by_run: None,
-        by_ref: None,
         reason: "the operator named the ending",
         operator: "operator",
     }
 }
 
-/// The one typed refusal `error` carries, so each test pins its text once.
+/// The ask naming `ending`, citing nothing.
+fn ask(ending: Ending) -> Named<'static> {
+    asking(Cause { ending, ..STOPPED })
+}
+
+/// The ask naming `superseded` by `by_run` in `by_realm`.
+fn superseded(by_run: &'static str, by_realm: Option<&'static str>) -> Named<'static> {
+    asking(Cause {
+        ending: Ending::Superseded,
+        by_run: Some(by_run),
+        by_realm,
+        by_ref: None,
+    })
+}
+
+/// The one typed refusal `error` carries, so each test pins its text once:
+/// the run's, or the cause's.
 fn refusal(error: EngineError) -> String {
     match error {
         EngineError::ClassifyRefused(text) => text,
+        cause @ EngineError::CauseRefused(_) => cause_refusal(cause, Verb::Classify).to_string(),
         other => panic!("classify refused with another error: {other}"),
     }
 }
@@ -183,23 +201,6 @@ fn assert_exhausted_accepted(db: &Path, store: &mut Store, what: &str) {
     );
 }
 
-/// A journal as its serialized events, so two reads compare byte for byte.
-fn bytes(events: &[EventEnvelope]) -> Vec<Value> {
-    events.iter().map(|event| json!(event)).collect()
-}
-
-/// The published schema over `operator/commanded.args`.
-fn contract() -> jsonschema::Validator {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .join("contracts/operator-ending.v1.schema.json");
-    let schema: Value = serde_json::from_slice(
-        &std::fs::read(&path).expect("the published payload schema is beside the contracts"),
-    )
-    .unwrap();
-    jsonschema::draft7::new(&schema).unwrap()
-}
-
 /// The state and events a read after the writes uses.
 fn read(store: &mut Store, run_id: &str) -> (brokkr_core::RunState, Vec<EventEnvelope>) {
     let events = store.load(run_id).unwrap();
@@ -217,10 +218,7 @@ fn a_classify_writes_one_annotation_and_no_acceptance() {
     later_store(&db);
     let before = fold(&store.load("held").unwrap()).unwrap();
     let cited = Store::open_read_only(&db).unwrap();
-    let ask = Classify {
-        by_run: Some("later"),
-        ..ask(Ending::Superseded)
-    };
+    let ask = superseded("later", None);
     let written = operator_classify(&mut store, &cited, "held", &ask).unwrap();
     assert_eq!(written.seq, before.seq + 1);
     assert_eq!(written.event_type, EventType::OperatorCommanded);
@@ -318,17 +316,14 @@ fn every_cause_writes_exactly_the_shape_operator_ending_v1_names() {
             json!({"cause": "operator-stopped", "reason": reason}),
         ),
     ] {
-        let written = operator_classify(
-            &mut store,
-            &cited,
-            "held",
-            &Classify {
-                by_run,
-                by_ref,
-                ..ask(classify_cause(cause).unwrap())
-            },
-        )
-        .unwrap();
+        let ending = named_cause(Verb::Classify, Some(cause)).unwrap();
+        let ask = asking(Cause {
+            ending,
+            by_run,
+            by_ref,
+            by_realm: None,
+        });
+        let written = operator_classify(&mut store, &cited, "held", &ask).unwrap();
         assert_eq!(written.payload["args"], expected, "{cause}");
         assert!(
             contract().is_valid(&written.payload["args"]),
@@ -393,9 +388,10 @@ fn a_completed_run_is_refused_and_its_journal_is_untouched() {
     assert_eq!(store.load("done").unwrap().len(), before, "nothing written");
 }
 
-/// Ruling 4's six are the causes; a word outside the twelve is refused
-/// where it is parsed, and a vocabulary word that is not operator-owned
-/// where the run is classified, each by exact text, and neither writes.
+/// Ruling 4's six are the causes: a vocabulary word that is not
+/// operator-owned is refused where the run is classified, by exact text,
+/// and writes nothing. A word outside the twelve is refused where it is
+/// parsed, before any journal is opened (`ending`'s tests).
 #[test]
 fn a_cause_outside_the_operator_owned_six_is_refused() {
     let dir = tempfile::tempdir().unwrap();
@@ -403,144 +399,35 @@ fn a_cause_outside_the_operator_owned_six_is_refused() {
     let mut store = finished_store(&db, "held");
     let cited = Store::open_read_only(&db).unwrap();
     let before = store.load("held").unwrap().len();
-    let shipped = ask(classify_cause("shipped").unwrap());
+    let shipped = ask(Ending::Shipped);
     assert_eq!(
         refusal(operator_classify(&mut store, &cited, "held", &shipped).unwrap_err()),
         "'shipped' is not an operator-owned ending; an operator names one of exhausted, \
          superseded, infrastructure, delivered-elsewhere, withdrawn, operator-stopped"
     );
-    assert_eq!(
-        refusal(classify_cause("not-a-word").unwrap_err()),
-        "'not-a-word' is not an ending; an ending is one of shipped, shipped-flagged, refused, \
-         failed, blocked, exhausted, superseded, infrastructure, delivered-elsewhere, withdrawn, \
-         operator-stopped, unclassified"
-    );
     assert_eq!(store.load("held").unwrap().len(), before, "nothing written");
 }
 
-/// One misplaced-citation case: the cause, the three citation flags, and
-/// the exact refusal text the verb owes.
-type CitationCase<'a> = (
-    &'a str,
-    Option<&'a str>,
-    Option<&'a str>,
-    Option<&'a str>,
-    &'a str,
-);
-
 /// Ruling 4 and choice 7: a citation belongs to its cause and nowhere
 /// else. Each missing or misplaced flag is refused by its own exact text,
-/// and none writes.
+/// the one table `stop` and `conclude` are refused by too, and none
+/// writes.
 #[test]
 fn a_missing_or_misplaced_citation_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let (_db, mut store, cited, before) = held_fixture(dir.path(), "citations.db");
-    let cases: [CitationCase; 9] = [
-        (
-            "superseded",
-            None,
-            None,
-            None,
-            "classify --cause superseded needs --by-run: the run that replaced this one",
-        ),
-        (
-            "superseded",
-            Some("later"),
-            None,
-            Some("abc123"),
-            "classify --cause superseded takes no --by-ref; name the run that replaced this one \
-             with --by-run",
-        ),
-        (
-            "delivered-elsewhere",
-            None,
-            None,
-            None,
-            "classify --cause delivered-elsewhere needs --by-ref: the commit or pull request it \
-             landed by",
-        ),
-        (
-            "delivered-elsewhere",
-            Some("later"),
-            None,
-            Some("abc123"),
-            "classify --cause delivered-elsewhere takes no --by-run; --by-run belongs to \
-             'superseded'",
-        ),
-        (
-            "delivered-elsewhere",
-            None,
-            Some("neighbour"),
-            Some("abc123"),
-            "classify --cause delivered-elsewhere takes no --by-realm; --by-realm belongs to \
-             'the realm --by-run is read in'",
-        ),
-        (
-            "withdrawn",
-            Some("later"),
-            None,
-            None,
-            "classify --cause withdrawn takes no --by-run; --by-run belongs to 'superseded'",
-        ),
-        (
-            "withdrawn",
-            None,
-            Some("neighbour"),
-            None,
-            "classify --cause withdrawn takes no --by-realm; --by-realm belongs to 'superseded'",
-        ),
-        (
-            "withdrawn",
-            None,
-            None,
-            Some("abc123"),
-            "classify --cause withdrawn takes no --by-ref; --by-ref belongs to \
-             'delivered-elsewhere'",
-        ),
-        (
-            "infrastructure",
-            None,
-            None,
-            Some("abc123"),
-            "classify --cause infrastructure takes no --by-ref; --by-ref belongs to \
-             'delivered-elsewhere'",
-        ),
-    ];
-    for case in cases {
-        assert_citation_refused(&mut store, &cited, case, before);
+    for case in CITATION_CASES {
+        let refused = operator_classify(&mut store, &cited, "held", &asking(case_cause(&case)));
+        let refused = cause_refusal(refused.unwrap_err(), Verb::Classify);
+        let (cause, _, variant, text) = case;
+        assert!(variant(&refused), "{cause}: {refused:?}");
+        assert_eq!(refused.to_string(), text.replace("{verb}", "classify"));
+        assert_eq!(
+            store.load("held").unwrap().len(),
+            before,
+            "{cause} wrote nothing"
+        );
     }
-}
-
-/// The verb's refusal of one misplaced citation, and the journal it did
-/// not move.
-fn assert_citation_refused(
-    store: &mut Store,
-    cited: &Store,
-    (cause, by_run, by_realm, by_ref, expected): CitationCase<'_>,
-    before: usize,
-) {
-    let refused = operator_classify(
-        store,
-        cited,
-        "held",
-        &Classify {
-            by_run,
-            by_realm,
-            by_ref,
-            ..ask(classify_cause(cause).unwrap())
-        },
-    )
-    .unwrap_err();
-    assert_eq!(
-        refusal(refused),
-        expected,
-        "{cause} {by_run:?} {by_realm:?} {by_ref:?}"
-    );
-    assert_eq!(
-        store.load("held").unwrap().len(),
-        before,
-        "{cause} wrote nothing"
-    );
 }
 
 /// Ruling 4: the cited run must exist in the journal the citation names,
@@ -550,20 +437,13 @@ fn assert_citation_refused(
 fn a_cited_run_must_exist_in_the_journal_it_names() {
     let dir = tempfile::tempdir().unwrap();
     let (_db, mut store, cited, before) = held_fixture(dir.path(), "cited.db");
-    let absent = Classify {
-        by_run: Some("no-such-run"),
-        ..ask(Ending::Superseded)
-    };
+    let absent = superseded("no-such-run", None);
     assert_eq!(
         refusal(operator_classify(&mut store, &cited, "held", &absent).unwrap_err()),
         "run 'no-such-run' in the workspace journal: run 'no-such-run' not found"
     );
     assert_eq!(store.load("held").unwrap().len(), before, "nothing written");
-    let elsewhere = Classify {
-        by_realm: Some("neighbour"),
-        by_run: Some("later"),
-        ..ask(Ending::Superseded)
-    };
+    let elsewhere = superseded("later", Some("neighbour"));
     let neighbour = Store::open(&dir.path().join("neighbour.db")).unwrap();
     let neighbour = Store::open_read_only(neighbour.path()).unwrap();
     assert_eq!(
@@ -573,10 +453,7 @@ fn a_cited_run_must_exist_in_the_journal_it_names() {
     assert_eq!(store.load("held").unwrap().len(), before, "nothing written");
     // "finished or not": the cited run is still going, which ruling 4
     // admits because a re-commission is usually fired in the same minute.
-    let live = Classify {
-        by_run: Some("later"),
-        ..ask(Ending::Superseded)
-    };
+    let live = superseded("later", None);
     operator_classify(&mut store, &cited, "held", &live).unwrap();
     assert_eq!(store.load("held").unwrap().len(), before + 1);
 }
@@ -593,7 +470,7 @@ fn exhausted_is_named_on_any_stopped_park() {
     assert_exhausted_accepted(&rule, &mut store, "a rule's park");
     let engine = dir.path().join("engine.db");
     let mut store = crate::engine::tests::parked_store(&engine, "held");
-    conclude(&mut store, "held", "operator", "the effect was lost").unwrap();
+    conclude_as(&mut store, "held", "operator", "the effect was lost").unwrap();
     assert_exhausted_accepted(&engine, &mut store, "the engine's park");
 }
 
@@ -649,10 +526,7 @@ fn a_classify_racing_a_growing_journal_refuses_rather_than_writing() {
         &mut store,
         &cited,
         "held",
-        &Classify {
-            by_run: Some("later"),
-            ..ask(Ending::Superseded)
-        },
+        &superseded("later", None),
         |store: &mut Store| {
             store
                 .append_next(

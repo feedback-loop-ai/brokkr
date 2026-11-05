@@ -188,15 +188,27 @@ test('every run of a realm lists, and one that finished before the last day list
 
 const controls = (tree) => findAll(tree, (node) => node.props['aria-label'] === 'Commands')[0]
 const commandRow = (tree) => findAll(controls(tree), (node) => node.props.className === 'bk-row bk-commands')[0]
-/** Press `button` on the graph, give `reason`, and send it. */
-async function command(client, button, reason) {
+const reasonBar = (tree) => findAll(tree, (node) => node.props['aria-label'] === 'Your reason')[0]
+/** The open reason bar's field labelled `label`, or `undefined` when it shows none. */
+const field = (tree, label) => {
+  const bar = reasonBar(tree)
+  return bar === undefined ? undefined : findAll(bar, (node) => node.props['aria-label'] === label)[0]
+}
+const sendButton = (tree) => buttons(reasonBar(tree)).find((each) => each.props.className === 'bk-btn primary')
+const REASON = 'Your reason (kept in the run’s record)'
+const CITES = { by_run: 'The run that replaced it', by_ref: 'The commit or pull request it landed by' }
+/** Press `button` on the graph, give `reason` and, on Stop or Close, how the run ended (`ending`), and send it. */
+async function command(client, button, reason, ending = { cause: 'withdrawn' }) {
   buttons(controls(client.tree())).find((each) => textOf(each) === button).props.onClick()
-  const bar = findAll(client.tree(), (node) => node.props['aria-label'] === 'Your reason')[0]
-  findAll(bar, (node) => node.type === 'input')[0].props.onChange({ target: { value: reason } })
-  const send = buttons(findAll(client.tree(), (node) => node.props['aria-label'] === 'Your reason')[0]).find((each) => each.props.className === 'bk-btn primary')
-  send.props.onClick()
+  field(client.tree(), 'How the run ended')?.props.onChange({ target: { value: ending.cause } })
+  for (const [cite, label] of Object.entries(CITES)) {
+    if (ending[cite] !== undefined) field(client.tree(), label).props.onChange({ target: { value: ending[cite] } })
+  }
+  field(client.tree(), REASON).props.onChange({ target: { value: reason } })
+  sendButton(client.tree()).props.onClick()
   for (let tick = 0; tick < 5; tick += 1) await settled()
 }
+const sentBodies = (client) => client.fetches.filter((call) => call.url.includes('/api/command')).map((call) => JSON.parse(call.init.body))
 const outcomeOf = (tree) => textOf(findAll(tree, (node) => String(node.props.className).startsWith('bk-outcome'))[0])
 
 test('the graph carries Stop, Resume and Close, and Retry when Brokkr admits it; a refused one is disabled with Brokkr’s reason', async () => {
@@ -264,14 +276,50 @@ test('a press carries its command id and the head the operator saw, and paints "
     run_id: RUN,
     command: 'stop',
     reason: 'the owner-only change landed',
+    cause: 'withdrawn',
     expected_seq: 12,
   })
   assert.equal(outcomeOf(client.tree()), 'Stop the runnot sentthe run changed after you opened it. Nothing was done. Here is what it looks like now.See current state')
 })
 
+test('Stop and Close ask how the run ended in Brokkr’s six words, each with its citation, and nothing is sent until each is given', async () => {
+  const client = await onRun(runViewDoc(), { '/brokkr-console/api/command': { command: 'stop', outcome: 'done' } })
+  buttons(controls(client.tree())).find((button) => textOf(button) === '■ Stop').props.onClick()
+  const picked = (cause) => field(client.tree(), 'How the run ended').props.onChange({ target: { value: cause } })
+  const options = findAll(field(client.tree(), 'How the run ended'), (node) => node.type === 'option')
+  assert.deepEqual(
+    options.map((option) => option.props.value),
+    ['', 'superseded', 'infrastructure', 'delivered-elsewhere', 'withdrawn', 'exhausted', 'operator-stopped'],
+  )
+  field(client.tree(), REASON).props.onChange({ target: { value: 'a better run replaced it' } })
+  assert.equal(sendButton(client.tree()).props.disabled, true, 'no cause is picked')
+  picked('superseded')
+  assert.equal(sendButton(client.tree()).props.disabled, true, 'superseded names no run yet')
+  assert.equal(field(client.tree(), CITES.by_ref), undefined)
+  field(client.tree(), CITES.by_run).props.onChange({ target: { value: 'later-run-0a1b2c3d' } })
+  picked('delivered-elsewhere')
+  assert.equal(field(client.tree(), CITES.by_run), undefined, 'a cause picked anew asks for its own citation')
+  assert.equal(sendButton(client.tree()).props.disabled, true, 'delivered-elsewhere names no commit yet')
+  picked('superseded')
+  assert.equal(field(client.tree(), CITES.by_run).props.value, '', 'the citation is asked for again')
+  field(client.tree(), CITES.by_run).props.onChange({ target: { value: ' later-run-0a1b2c3d ' } })
+  assert.equal(sendButton(client.tree()).props.disabled, false)
+  sendButton(client.tree()).props.onClick()
+  for (let tick = 0; tick < 5; tick += 1) await settled()
+  const [sent] = sentBodies(client)
+  assert.deepEqual([sent.command, sent.cause, sent.by_run, sent.by_ref], ['stop', 'superseded', ' later-run-0a1b2c3d ', undefined], 'a citation is sent as written')
+
+  const close = await onRun(runViewDoc(), { '/brokkr-console/api/command': { command: 'conclude', outcome: 'done' } })
+  const landed = '  https://example.test/pull/317  '
+  await command(close, '✓ Close', 'landed by hand', { cause: 'delivered-elsewhere', by_ref: landed })
+  const [closed] = sentBodies(close)
+  assert.deepEqual([closed.command, closed.cause, closed.by_ref, closed.by_run], ['conclude', 'delivered-elsewhere', landed, undefined])
+})
+
 test('a retry on a run whose start recorded no recipe is "not sent", naming the missing recipe and the settings', async () => {
   const client = await onRun(runViewDoc(), { '/brokkr-console/api/command': { command: 'retry', outcome: 'not_sent', why: 'resume_unconfigured', view: runViewOf(runViewDoc()) } })
   await command(client, '↻ Retry review', 'try again on the new code')
+  assert.equal('cause' in sentBodies(client)[0], false, 'a retry says nothing of how the run ended')
   assert.equal(
     outcomeOf(client.tree()),
     'Retry reviewnot sentNothing was sent: this run’s start recorded no recipe to resume it under, and the console names none. ' +
