@@ -14,12 +14,15 @@ use serde::{Serialize, Serializer};
 
 mod facts;
 mod figures;
+mod ledger;
 mod recipes;
 mod words;
 
 pub(crate) use facts::{in_range, is_open, shipped, Finished, Window};
 pub use figures::analytics;
 pub(crate) use figures::{cost_figure, middle, span, total};
+pub(crate) use ledger::judged_unshipped;
+pub use ledger::Ledger;
 pub(crate) use words::{listed, stamp};
 
 const HOUR_MILLIS: i64 = 60 * 60 * 1000;
@@ -164,6 +167,8 @@ pub struct Headline {
     pub waiting: Waiting,
     pub stopped_by_rule: StoppedByRule,
     pub cost: CostFigure,
+    /// The runs that finished, by their endings (decision 0064 ruling 7).
+    pub ledger: Ledger,
 }
 
 /// Runs shipped in the range, against the equal range before it.
@@ -245,7 +250,8 @@ pub struct CostFigure {
     pub note: Option<String>,
 }
 
-/// One UTC day: the runs that shipped and that stopped on it.
+/// One UTC day: the runs that shipped and that stopped on it, an outcome
+/// of the work that did not ship (decision 0064 ruling 7).
 #[derive(Serialize, Debug, PartialEq)]
 pub struct Day {
     pub date: String,
@@ -292,7 +298,10 @@ pub struct ModelShare {
 pub struct RealmRow {
     pub realm: String,
     pub shipped: usize,
+    /// The runs whose ending is an outcome of the work that did not ship.
     pub stopped: usize,
+    /// The runs that finished, by their endings.
+    pub ledger: Ledger,
     pub median: Span,
     pub waiting_millis: i64,
     pub waiting_text: String,
@@ -311,9 +320,13 @@ pub struct RecipeRow {
     pub runs: usize,
     /// The runs that reached `done`.
     pub done: usize,
-    /// `done` as a percent of `runs`.
+    /// `done` as a percent of the runs whose ending is an outcome of the
+    /// work (decision 0064 ruling 7); 0 when none is, and its text the
+    /// absence mark.
     pub done_rate: f64,
     pub done_text: String,
+    /// The runs that finished, by their endings: what the rate excluded.
+    pub ledger: Ledger,
     /// The reported cost over `runs`, with the harnesses behind it.
     pub cost_per_run: CostFigure,
     /// The tokens a run spent, on average over `runs`, read apart as the
@@ -321,7 +334,8 @@ pub struct RecipeRow {
     pub tokens_per_run: crate::TokenCells,
     /// Whether no other priced recipe of the realm reaches `done` at least
     /// as often for at most as much, one strictly; absent when this recipe
-    /// reported no cost.
+    /// reported no cost or none of its runs was judged, and neither kind
+    /// is ranked against it.
     pub on_frontier: Option<bool>,
 }
 

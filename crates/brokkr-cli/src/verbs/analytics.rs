@@ -158,6 +158,7 @@ fn paint(view: &Analytics) -> String {
         headline.waiting.text, headline.waiting.share_text
     );
     out += &format!("stopped by rule {}\n", headline.stopped_by_rule.count);
+    out += &format!("ledger         {}\n", headline.ledger.text);
     out += &format!("reported cost  {}\n", headline.cost.text);
     for quarantined in &view.quarantined {
         out += &format!(

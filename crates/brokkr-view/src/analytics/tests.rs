@@ -8,6 +8,7 @@ use super::*;
 use crate::fleet::tests::ruled;
 use crate::tests::{ev, state};
 use crate::ABSENT;
+use brokkr_core::ending::Ending;
 use brokkr_core::fold::Status;
 use brokkr_core::EventType;
 use serde_json::{json, Value};
@@ -682,12 +683,14 @@ fn a_missing_rule_and_a_missing_model_are_absent_not_words() {
 
 // ------------------------------------------------------------ recipes
 
-/// How a recipe's run stands: done, stopped by a rule, or still open.
+/// How a recipe's run stands: done, stopped by a rule, still open, or
+/// ended as [`ended_as`] ends it.
 #[derive(Clone, Copy)]
 enum Fate {
     Done,
     Stop,
     Open,
+    Ended(Ending),
 }
 
 /// A run of `recipe` in `realm` on 10 October whose one seat ran on
@@ -719,6 +722,7 @@ fn recipe_run(
             ended(Status::Stopped, "stop", Some("VERIFY-FAIL"), 1),
         ),
         Fate::Open => (journal, state(Some("review"), Status::Running, None)),
+        Fate::Ended(ending) => ended_as(journal, ending, "2026-10-10T01:00:00Z"),
     };
     (journal, Some(state))
 }
@@ -766,8 +770,17 @@ fn a_recipes_cost_per_run_is_what_reported_over_all_its_runs() {
             recipe: "self".into(),
             runs: 4,
             done: 1,
-            done_rate: 25.0,
-            done_text: "25%".into(),
+            // Of the three that were judged; the open run has no ending.
+            done_rate: 100.0 / 3.0,
+            done_text: "33%".into(),
+            ledger: Ledger {
+                judged: 3,
+                shipped: 1,
+                rate_percent: Some(33),
+                excluded: excluded([0; 6]),
+                unclassified: 0,
+                text: "1 of 3 shipped (33%) · 0 excluded · 0 unclassified".into(),
+            },
             cost_per_run: CostFigure {
                 cost: ReportedCost::Reported {
                     usd: (3.0 + 1.4) / 4.0
@@ -870,6 +883,30 @@ fn a_recipe_with_no_reported_cost_is_off_the_plot_and_dominates_nothing() {
     );
 }
 
+/// Decision 0064 ruling 7: a recipe none of whose runs was judged has no
+/// rate, so it is not ranked and dominates nothing. Cheaper at the same
+/// zero, the superseded recipe would otherwise push the failed one off.
+#[test]
+fn chief_unjudged_recipe_does_not_dominate_a_judged_recipe() {
+    let superseded = Fate::Ended(Ending::Superseded);
+    let journals = [
+        recipe_run("alpha", "settled", superseded, "claude", Some(1.0)),
+        recipe_run("alpha", "tried", Fate::Stop, "claude", Some(2.0)),
+    ];
+    let rows = recipes_of(&journals);
+    let ranked: Vec<(&str, Option<i64>, Option<bool>)> = rows
+        .iter()
+        .map(|row| {
+            let rate = row.ledger.rate_percent;
+            (row.recipe.as_str(), rate, row.on_frontier)
+        })
+        .collect();
+    assert_eq!(
+        ranked,
+        [("settled", None, None), ("tried", Some(0), Some(true))]
+    );
+}
+
 #[test]
 fn a_recipe_whose_seats_meter_no_tokens_states_the_absence() {
     let mut journals = vec![recipe_run(
@@ -964,4 +1001,140 @@ pub(crate) fn cells(tokens: &crate::TokenCells) -> [&str; 4] {
         &tokens.output.text,
         &tokens.cache_hit.text,
     ]
+}
+
+/// `journal` ended as `ending` at `at`, with the state it folds to: a
+/// policy ending by the ruling that stopped it, an operator's by the cause
+/// its accepted stop names (decision 0064 rulings 3 and 4). The graph's
+/// fixture shares it.
+pub(crate) fn ended_as<J: Builds>(journal: J, ending: Ending, at: &str) -> (J, RunState) {
+    let stop = |journal: J, rule: &str, from: &str, result: &str| {
+        let ruling = json!({"rule_id": rule, "from": from, "result": result, "next": "stop"});
+        let journal = journal.then(EventType::RunStopped, json!({}), at);
+        (journal, state(Some("stop"), Status::Stopped, Some(ruling)))
+    };
+    let mut args = json!({"cause": ending.word()});
+    match ending {
+        Ending::Shipped => {
+            let journal = journal.then(EventType::RunCompleted, json!({}), at);
+            return (journal, state(Some("done"), Status::Completed, None));
+        }
+        Ending::ShippedFlagged => {
+            let ruling = json!({"rule_id": "REVIEW-RESIDUAL-OK", "from": "review",
+                                "result": "residual", "next": "done", "severity": "flagged"});
+            let journal = (journal.then(EventType::TransitionDecided, ruling, at)).then(
+                EventType::RunCompleted,
+                json!({}),
+                at,
+            );
+            return (journal, state(Some("done"), Status::Completed, None));
+        }
+        Ending::Refused => {
+            return stop(journal, "REVIEW-SECURITY-HOLD", "review", "security-hold");
+        }
+        Ending::Failed => return stop(journal, "VERIFY-FAIL", "verify", "fail"),
+        Ending::Blocked => return stop(journal, "IMPL-BLOCKED", "implement", "blocked"),
+        Ending::Superseded => args["by"] = json!({"realm": null, "run_id": "later"}),
+        Ending::DeliveredElsewhere => args["ref"] = json!("abc123"),
+        Ending::Unclassified => args = Value::Null,
+        Ending::Exhausted
+        | Ending::Infrastructure
+        | Ending::Withdrawn
+        | Ending::OperatorStopped => {}
+    }
+    let mut stop = json!({"command_id": "c", "command": "stop"});
+    if !args.is_null() {
+        stop["args"] = args;
+    }
+    let journal = (journal.then(EventType::OperatorCommanded, stop, at))
+        .then(EventType::OperatorAccepted, json!({"command_id": "c"}), at)
+        .then(EventType::RunStopped, json!({}), at);
+    (journal, state(Some("implement"), Status::Stopped, None))
+}
+
+/// A run of `self` in the one hearth for each ending in `endings`, each
+/// finished on 10 October.
+fn ended_runs(endings: &[Ending]) -> Vec<(Journal, Option<RunState>)> {
+    let run = |ending: &Ending| {
+        let mut started = Journal::started(None, "2026-10-10T00:00:00Z");
+        started.events[0].payload["manifest"]["bundle_name"] = json!("self");
+        let (journal, state) = ended_as(started, *ending, "2026-10-10T01:00:00Z");
+        (journal, Some(state))
+    };
+    endings.iter().map(run).collect()
+}
+
+/// The six exclusions, in ruling 2's order, with their counts.
+pub(crate) fn excluded(counts: [usize; 6]) -> std::collections::BTreeMap<Ending, usize> {
+    let endings = [
+        Ending::Blocked,
+        Ending::Superseded,
+        Ending::Infrastructure,
+        Ending::DeliveredElsewhere,
+        Ending::Withdrawn,
+        Ending::OperatorStopped,
+    ];
+    endings.into_iter().zip(counts).collect()
+}
+
+/// Decision 0064 ruling 7: one run of each of the twelve endings. The rate
+/// counts the five outcomes alone, two of which shipped; each of the six
+/// exclusions is counted by its ending, and `unclassified` apart. Every
+/// figure that sets shipped beside stopped reads the outcomes the same way.
+#[test]
+fn the_ledger_rates_the_five_outcomes_and_counts_each_exclusion_by_ending() {
+    let journals = ended_runs(&Ending::ALL);
+    let view = read_one(&runs(&journals), Range::Week);
+    let ledger = Ledger {
+        judged: 5,
+        shipped: 2,
+        rate_percent: Some(40),
+        excluded: excluded([1; 6]),
+        unclassified: 1,
+        text: "2 of 5 shipped (40%) · 6 excluded: 1 blocked, 1 superseded, 1 infrastructure, \
+               1 delivered-elsewhere, 1 withdrawn, 1 operator-stopped · 1 unclassified"
+            .into(),
+    };
+    assert_eq!(view.headline.ledger, ledger);
+    let edge = &view.realms[0];
+    assert_eq!((edge.shipped, edge.stopped, &edge.ledger), (2, 3, &ledger));
+    let day = view.per_day.iter().find(|day| day.date == "2026-10-10");
+    assert_eq!(day.map(|day| (day.shipped, day.stopped)), Some((2, 3)));
+    let recipe = row(&view.recipes, "edge", "self");
+    assert_eq!(
+        (
+            recipe.runs,
+            recipe.done,
+            recipe.done_rate,
+            &recipe.done_text
+        ),
+        (12, 2, 40.0, &"40%".to_string())
+    );
+    assert_eq!(recipe.ledger, ledger);
+}
+
+/// A recipe none of whose runs was judged has no rate to state: its done
+/// rate is 0 and its text the absence mark, and the ledger says what it
+/// excluded, a count of each.
+#[test]
+fn a_recipe_none_of_whose_runs_was_judged_states_no_rate() {
+    let journals = ended_runs(&[Ending::Superseded, Ending::Superseded, Ending::Unclassified]);
+    let view = read_one(&runs(&journals), Range::Week);
+    let recipe = row(&view.recipes, "edge", "self");
+    assert_eq!((recipe.done_rate, recipe.done_text.as_str()), (0.0, ABSENT));
+    assert_eq!(
+        recipe.ledger,
+        Ledger {
+            judged: 0,
+            shipped: 0,
+            rate_percent: None,
+            excluded: excluded([0, 2, 0, 0, 0, 0]),
+            unclassified: 1,
+            text: "0 of 0 shipped (—) · 2 excluded: 2 superseded · 1 unclassified".into(),
+        }
+    );
+    assert_eq!(
+        Ledger::of([]).text,
+        "0 of 0 shipped (—) · 0 excluded · 0 unclassified"
+    );
 }

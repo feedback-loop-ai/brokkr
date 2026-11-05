@@ -18,6 +18,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use brokkr_core::ending::{ended, Ending};
 use brokkr_core::envelope::EventEnvelope;
 use brokkr_core::fold::{fold, ParkReason, RunState};
 use brokkr_core::seat::{row, SeatCost};
@@ -25,7 +26,7 @@ use brokkr_core::EventType;
 use brokkr_store::{Opened, RunRead, SeatRows, Store};
 use brokkr_view::{
     composed_view, first_divergence, resolution_divergence, resolutions, resolved, seat_costs,
-    Parts, Resolution,
+    Ledger, Parts, Resolution,
 };
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -74,6 +75,9 @@ pub(crate) struct Costs {
 struct Summary {
     bundle_name: Value,
     decision_trail: Vec<String>,
+    /// How the run ended, beside the fold's `status`; `null` while it is
+    /// live (decision 0064 ruling 6).
+    ending: Option<Ending>,
     events: usize,
     feature: Option<String>,
     first_recorded_at: Option<String>,
@@ -106,7 +110,11 @@ struct Compared {
 struct Comparison {
     attempts_delta: i64,
     cost_delta_usd: f64,
+    ending_pair: [Option<Ending>; 2],
     first_divergence: Value,
+    /// The two runs read as every comparison reads its runs (decision
+    /// 0064 ruling 7): what was judged, and what was excluded by ending.
+    ledger: Value,
     resolution_divergence: Value,
     same_feature: bool,
     same_recipe: bool,
@@ -233,6 +241,7 @@ fn run_facts_at(store: &Store, run_id: &str, opened: &Opened) -> Result<RunFacts
     let summary = Summary {
         bundle_name: manifest.get("bundle_name").cloned().unwrap_or(Value::Null),
         decision_trail: trail,
+        ending: ended(&read.trail, &state).map(|ended| ended.ending),
         events: read.events,
         feature,
         first_recorded_at: read.trail.first().map(|e| e.recorded_at.clone()),
@@ -331,7 +340,9 @@ fn document(run_a: &str, a: RunFacts, run_b: &str, b: RunFacts) -> Compared {
     let comparison = Comparison {
         attempts_delta: b.attempts as i64 - a.attempts as i64,
         cost_delta_usd: two.total_cost_usd - one.total_cost_usd,
+        ending_pair: [one.ending, two.ending],
         first_divergence: json!(first_divergence(&one.decision_trail, &two.decision_trail)),
+        ledger: json!(Ledger::of([one.ending, two.ending].into_iter().flatten())),
         resolution_divergence: json!(resolution_divergence(&a.resolution, &b.resolution)),
         same_feature: one.feature == two.feature,
         same_recipe: one.manifest.sha256 == two.manifest.sha256,

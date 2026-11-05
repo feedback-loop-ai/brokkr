@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::facts::{shipped, Finished, RunFacts, Scoped, Window};
 use super::recipes::recipe_rows;
 use super::words::{change_text, date, hours_text, listed, percent, span_text, stamp};
+use super::{judged_unshipped, Ledger};
 use super::{Analytics, AnalyticsError, CostFigure, Day, Headline, ModelShare, Query, RealmRow};
 use super::{ReportedCost, Rework, RuleCount, Shipped, Span, StepWait, StoppedByRule, Waiting};
 use super::{DAY_MILLIS, NOT_RECORDED};
@@ -32,10 +33,17 @@ fn shipped_in(runs: &[&RunFacts], window: Window) -> usize {
         .count()
 }
 
+/// The runs that finished inside `window` as an outcome of the work that
+/// did not ship; an ending that judged nothing is the ledger's to count.
 fn stopped_in(runs: &[&RunFacts], window: Window) -> usize {
     finished_in(runs, window)
-        .filter(|(_, _, finished)| !shipped(finished))
+        .filter(|(_, _, finished)| judged_unshipped(finished.ending))
         .count()
+}
+
+/// The runs that finished inside `window`, by their endings.
+fn ledger_in(runs: &[&RunFacts], window: Window) -> Ledger {
+    Ledger::of(finished_in(runs, window).map(|(_, _, finished)| finished.ending))
 }
 
 /// The median of `sorted`, the mean of the middle two when it is even;
@@ -195,10 +203,8 @@ fn per_day(runs: &[&RunFacts], window: Window) -> Vec<Day> {
             let on = |ended: i64| ended.div_euclid(DAY_MILLIS) == day;
             let finished = finished_in(runs, window).filter(|(_, ended, _)| on(*ended));
             let (shipped, stopped) = finished.fold((0, 0), |(ships, stops), (_, _, finished)| {
-                match shipped(finished) {
-                    true => (ships + 1, stops),
-                    false => (ships, stops + 1),
-                }
+                let stopped = usize::from(judged_unshipped(finished.ending));
+                (ships + usize::from(shipped(finished)), stops + stopped)
             });
             Day {
                 date: date(day),
@@ -299,6 +305,7 @@ fn realm_row(scoped: &Scoped, realm: &str, window: Window) -> RealmRow {
         realm: realm.to_string(),
         shipped: shipped_in(&runs, window),
         stopped: stopped_in(&runs, window),
+        ledger: ledger_in(&runs, window),
         median: median(&runs, window),
         waiting_millis,
         waiting_text: hours_text(waiting_millis),
@@ -344,6 +351,7 @@ pub fn analytics(query: &Query) -> Result<Analytics, AnalyticsError> {
             waiting: waiting(&runs, window),
             stopped_by_rule: stopped_by_rule(&runs, window),
             cost: cost(&runs, window),
+            ledger: ledger_in(&runs, window),
         },
         per_day: per_day(&runs, window),
         waiting_by_step: waiting_by_step(&runs, window),

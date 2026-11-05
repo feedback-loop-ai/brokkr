@@ -446,6 +446,15 @@ pub brokkr_view::JournalRow::recorded_at: alloc::string::String
 pub brokkr_view::JournalRow::seq: u64
 pub brokkr_view::JournalRow::served: brokkr_view::ModelAtBoundary
 pub brokkr_view::JournalRow::what: brokkr_view::What
+pub struct brokkr_view::Ledger
+pub brokkr_view::Ledger::excluded: alloc::collections::btree::map::BTreeMap<brokkr_core::ending::Ending, usize>
+pub brokkr_view::Ledger::judged: usize
+pub brokkr_view::Ledger::rate_percent: core::option::Option<i64>
+pub brokkr_view::Ledger::shipped: usize
+pub brokkr_view::Ledger::text: alloc::string::String
+pub brokkr_view::Ledger::unclassified: usize
+impl brokkr_view::Ledger
+pub fn brokkr_view::Ledger::of(impl core::iter::traits::collect::IntoIterator<Item = brokkr_core::ending::Ending>) -> brokkr_view::Ledger
 pub struct brokkr_view::Lens
 pub struct brokkr_view::LiveLine
 pub brokkr_view::LiveLine::label: alloc::string::String

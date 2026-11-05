@@ -26,6 +26,7 @@
 //! and everything recorded here is plain mechanic language (0019 law 4).
 
 mod document;
+mod queue;
 mod record;
 
 use std::collections::BTreeMap;
@@ -34,6 +35,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use brokkr_core::ending::Ending;
 use brokkr_protocol::oneshot::{self, OneShot};
 use brokkr_runtime::realms::{Hearth, World};
 use brokkr_runtime::{argv::Executable, bundle::expand_command};
@@ -45,8 +47,7 @@ use crate::realms::{Consumed, ConsumedView, Pin, Published};
 use crate::render::Safe;
 use document::{
     Agent, Cite, CrossingCite, CrossingEntry, CrossingFinding, DossierDoc, DossierPin, Fleet,
-    Parked, QuarantinedRow, Queued, QueuedCrossing, QueuedRun, RecordLine, Row, RunRow, SeatRow,
-    Usage,
+    Parked, QuarantinedRow, Queued, RecordLine, Row, RunRow, SeatRow, Usage,
 };
 
 /// The agent definition this command invokes.
@@ -110,6 +111,12 @@ pub(crate) struct Dossier {
     /// the hearth the map names first answers for it — the same rule
     /// [`Dossier::realm_of`] follows, so the two never disagree.
     pub commands: BTreeMap<String, Vec<String>>,
+    /// Per finished run, keyed by the realm it was read in and its run id
+    /// (decision 0026 ruling 3), how it ended: what a work-queue entry is
+    /// checked against under the realm its citation resolved to (decision
+    /// 0064 ruling 6). Never keyed by run id alone: where two hearths hold
+    /// one id, each run is read by its own ending, and a live run by none.
+    pub endings: BTreeMap<(Option<String>, String), Ending>,
 }
 
 impl Dossier {
@@ -243,6 +250,7 @@ pub(crate) fn dossier_of(
     let mut facts: Vec<(Option<String>, String, u64)> = Vec::new();
     let mut commands: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut counts: BTreeMap<String, u64> = BTreeMap::new();
+    let mut endings: BTreeMap<(Option<String>, String), Ending> = BTreeMap::new();
     // The rulings the supersede annotations cite, gathered while the
     // runs are read and admitted to the closed set afterwards: a
     // superseding run may be read later in the fleet than the run whose
@@ -296,15 +304,16 @@ pub(crate) fn dossier_of(
             let view = brokkr_view::run_view(&events, Some(&state));
             let summary = view.summary.as_ref().expect("a folded state summarizes");
             let admits = brokkr_view::operator_commands(&state);
-            // Until 0064's E6 moves Muninn to the ending, a finished run is the fold's word.
+            // The fleet counts a finished run by the fold's word; its row says its ending.
             let (ending, word) = (summary.ending, summary.status_word());
-            let status = ending.map_or(word, |_| &summary.status);
-            *counts.entry(status.to_string()).or_default() += 1;
+            let counted = ending.map_or(word, |_| &summary.status);
+            *counts.entry(counted.to_string()).or_default() += 1;
             facts.push((realm.clone(), run_id.clone(), summary.seq));
             // First hearth wins, matching [`Dossier::realm_of`]: where
             // two journals hold one run id, one answer is stated for it
             // and it is the same one on both sides.
             commands.entry(run_id.clone()).or_insert(admits.clone());
+            endings.extend(ending.map(|ending| ((realm.clone(), run_id.clone()), ending)));
             for finding in residuals {
                 facts.push((realm.clone(), run_id.clone(), finding.seq));
                 // The annotation is a citable fact in its own right
@@ -336,7 +345,7 @@ pub(crate) fn dossier_of(
                 run_id,
                 seats,
                 seq: summary.seq,
-                status: status.to_string(),
+                status: word.to_string(),
             }));
         }
     }
@@ -359,6 +368,7 @@ pub(crate) fn dossier_of(
     let fleet = Fleet {
         awaiting_operator: count("awaiting_operator"),
         completed: count("completed"),
+        ledger: brokkr_view::Ledger::of(endings.values().copied()),
         quarantined: count("quarantined"),
         realms: sources.iter().filter_map(|source| source.realm).collect(),
         running: count("running"),
@@ -380,6 +390,7 @@ pub(crate) fn dossier_of(
         facts,
         crossings: cited_crossings,
         commands,
+        endings,
     })
 }
 
@@ -641,38 +652,6 @@ fn parked(dossier: &Dossier, entry: &Value) -> Result<(Cited, Parked), String> {
     Ok(((realm, run_id, seq), proposal))
 }
 
-/// One work-queue entry about a run fact, cited by run id and sequence.
-fn queued_run(dossier: &Dossier, entry: &Value) -> Result<(Cited, Queued), String> {
-    let what = "a work-queue entry";
-    let (realm, run_id, seq) = citation(what, dossier, entry)?;
-    let finding = string_field(what, entry, "finding")?;
-    let reasoning = string_field(what, entry, "reasoning")?;
-    let queued = QueuedRun {
-        finding,
-        realm: realm.clone(),
-        reasoning,
-        run_id: run_id.clone(),
-        seq,
-    };
-    Ok(((realm, run_id, seq), Queued::Run(queued)))
-}
-
-/// One work-queue entry about a crossing finding, cited by realm and
-/// crossing.
-fn queued_crossing(dossier: &Dossier, entry: &Value) -> Result<(CitedCrossing, Queued), String> {
-    let what = "a work-queue entry";
-    let (realm, crossing) = crossing_citation(what, dossier, entry)?;
-    let finding = string_field(what, entry, "finding")?;
-    let reasoning = string_field(what, entry, "reasoning")?;
-    let queued = QueuedCrossing {
-        crossing: crossing.clone(),
-        finding,
-        realm: realm.clone(),
-        reasoning,
-    };
-    Ok(((realm, crossing), Queued::Crossing(queued)))
-}
-
 /// Read the seat's result into a report, or say exactly what is wrong
 /// with it. Nothing is repaired and nothing is partially accepted
 /// (decision 0001): a report with one bad entry is a bad report.
@@ -704,12 +683,12 @@ pub(crate) fn validate(dossier: &Dossier, result: &Value) -> Result<Report, Stri
         // a crossing and a run is read as a crossing and never silently
         // as a run.
         if entry.get("crossing").is_some() {
-            let (cited, queued) = queued_crossing(dossier, entry)?;
+            let (cited, queued) = queue::crossing(dossier, entry)?;
             crossing_citations.push(cited);
             work_queue.push(queued);
             continue;
         }
-        let (cited, queued) = queued_run(dossier, entry)?;
+        let (cited, queued) = queue::run(dossier, entry)?;
         citations.push(cited);
         work_queue.push(queued);
     }
@@ -879,9 +858,10 @@ fn render(entry: &Value) -> String {
                 text(item, "reasoning")
             )),
             None => out.push_str(&format!(
-                "  queue {} seq {} · {} · {}\n",
+                "  queue {} seq {}{} · {} · {}\n",
                 cited_run(item),
                 number(item, "seq"),
+                queue::offered(item),
                 text(item, "finding"),
                 text(item, "reasoning")
             )),

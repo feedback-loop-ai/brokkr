@@ -116,8 +116,54 @@ fn the_many_hearth_record_line_is_these_bytes() {
     assert_eq!(appended(&line), MANY_HEARTHS_LINE);
 }
 
+/// The fleet's ledger (decision 0064 ruling 7) as a dossier prints it:
+/// `$judged` runs judged, `$shipped` of them shipped at `$rate`, and none
+/// excluded or unclassified.
+macro_rules! printed_ledger {
+    ($judged:literal, $rate:literal, $shipped:literal, $text:literal) => {
+        concat!(
+            r#"    "ledger": {
+      "excluded": {
+        "blocked": 0,
+        "delivered-elsewhere": 0,
+        "infrastructure": 0,
+        "operator-stopped": 0,
+        "superseded": 0,
+        "withdrawn": 0
+      },
+      "judged": "#,
+            $judged,
+            r#",
+      "rate_percent": "#,
+            $rate,
+            r#",
+      "shipped": "#,
+            $shipped,
+            r#",
+      "text": ""#,
+            $text,
+            r#"",
+      "unclassified": 0
+    },
+"#
+        )
+    };
+}
+
+/// The ledger of one shipped run, as a record line writes it.
+macro_rules! one_shipped_line {
+    () => {
+        concat!(
+            r#""ledger":{"excluded":{"blocked":0,"delivered-elsewhere":0,"infrastructure":0,"#,
+            r#""operator-stopped":0,"superseded":0,"withdrawn":0},"judged":1,"#,
+            r#""rate_percent":100,"shipped":1,"#,
+            r#""text":"1 of 1 shipped (100%) · 0 excluded · 0 unclassified","unclassified":0},"#
+        )
+    };
+}
+
 /// [`parked_dossier`]: an awaiting-operator run with a seat, a cost, a
-/// park reason and a ruling, a completed run with no cost, two findings,
+/// park reason and a ruling, a shipped run with no cost, two findings,
 /// and no `realms` or `crossings` key.
 const ONE_HEARTH: &str = concat!(
     r#"{
@@ -125,7 +171,14 @@ const ONE_HEARTH: &str = concat!(
   "fleet": {
     "awaiting_operator": 1,
     "completed": 1,
-    "quarantined": 0,
+"#,
+    printed_ledger!(
+        1,
+        100,
+        1,
+        "1 of 1 shipped (100%) · 0 excluded · 0 unclassified"
+    ),
+    r#"    "quarantined": 0,
     "running": 0,
     "runs": 2,
     "stopped": 0,
@@ -266,7 +319,7 @@ macro_rules! done_row_from_realm {
         }
       ],
       "seq": 8,
-      "status": "completed"
+      "status": "shipped"
 "#
     };
 }
@@ -274,12 +327,20 @@ use done_row_from_realm;
 
 /// One journal that does not fold: its row with `fold_error` and a null
 /// phase, and its finding.
-const QUARANTINED: &str = r#"{
+const QUARANTINED: &str = concat!(
+    r#"{
   "dossier_version": 1,
   "fleet": {
     "awaiting_operator": 0,
     "completed": 0,
-    "quarantined": 1,
+"#,
+    printed_ledger!(
+        0,
+        "null",
+        0,
+        "0 of 0 shipped (—) · 0 excluded · 0 unclassified"
+    ),
+    r#"    "quarantined": 1,
     "running": 0,
     "runs": 1,
     "stopped": 0,
@@ -311,7 +372,8 @@ const QUARANTINED: &str = r#"{
       "status": "?"
     }
   ]
-}"#;
+}"#
+);
 
 /// Two hearths: `fleet.realms`, and a realm on every row and finding.
 const MANY_HEARTHS: &str = concat!(
@@ -320,7 +382,14 @@ const MANY_HEARTHS: &str = concat!(
   "fleet": {
     "awaiting_operator": 1,
     "completed": 1,
-    "quarantined": 1,
+"#,
+    printed_ledger!(
+        1,
+        100,
+        1,
+        "1 of 1 shipped (100%) · 0 excluded · 0 unclassified"
+    ),
+    r#"    "quarantined": 1,
     "realms": [
       "alpha",
       "beta"
@@ -395,7 +464,8 @@ const MANY_HEARTHS: &str = concat!(
 /// [`three_pin_crossings`] over two empty hearths: a matching pin (detail
 /// null), a moved one, an unchecked one, the moved pin's finding, and an
 /// empty `consumes` and `publishes` written out.
-const CROSSINGS: &str = r#"{
+const CROSSINGS: &str = concat!(
+    r#"{
   "crossings": [
     {
       "consumes": [],
@@ -436,7 +506,14 @@ const CROSSINGS: &str = r#"{
   "fleet": {
     "awaiting_operator": 0,
     "completed": 0,
-    "quarantined": 0,
+"#,
+    printed_ledger!(
+        0,
+        "null",
+        0,
+        "0 of 0 shipped (—) · 0 excluded · 0 unclassified"
+    ),
+    r#"    "quarantined": 0,
     "realms": [
       "alpha",
       "beta"
@@ -458,7 +535,8 @@ const CROSSINGS: &str = r#"{
     }
   ],
   "runs": []
-}"#;
+}"#
+);
 
 /// One hearth: a parked proposal, a run queue entry, and the session's
 /// usage.
@@ -466,7 +544,9 @@ const ONE_HEARTH_LINE: &str = concat!(
     r#"{"agent":{"deadline_seconds":900,"model":"opus","name":"muninn","provider":"test"},"#,
     r#""citations":[{"run_id":"parked-run","seq":7},{"run_id":"parked-run","seq":8}],"#,
     r#""dossier":{"dossier_version":1,"#,
-    r#""fleet":{"awaiting_operator":1,"completed":1,"quarantined":0,"running":0,"runs":2,"#,
+    r#""fleet":{"awaiting_operator":1,"completed":1,"#,
+    one_shipped_line!(),
+    r#""quarantined":0,"running":0,"runs":2,"#,
     r#""stopped":0,"superseded_findings":0},"generated_at":"2099-01-01T00:00:00Z"},"#,
     r#""fleet_summary":"one run is parked","#,
     r#""parked_runs":[{"command":"stop","reasoning":"the ruling was hard","#,
@@ -496,7 +576,9 @@ const MANY_HEARTHS_LINE: &str = concat!(
     r#""name":"audit.api","pin":"unchecked","realm":"ledger"}],"#,
     r#""publishes":[],"realm":"beta"}],"#,
     r#""dossier_version":1,"#,
-    r#""fleet":{"awaiting_operator":1,"completed":1,"quarantined":0,"realms":["alpha","beta"],"#,
+    r#""fleet":{"awaiting_operator":1,"completed":1,"#,
+    one_shipped_line!(),
+    r#""quarantined":0,"realms":["alpha","beta"],"#,
     r#""running":0,"runs":2,"stopped":0,"superseded_findings":0},"#,
     r#""generated_at":"2099-01-01T00:00:00Z"},"#,
     r#""fleet_summary":"a parked run in alpha and a moved contract in beta","#,
