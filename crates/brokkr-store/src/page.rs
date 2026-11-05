@@ -144,7 +144,7 @@ fn row_of(row: &rusqlite::Row<'_>, run_id: String, order_at: i64) -> Result<Row,
         hired: hired_of(row)?,
         residual_open: severity_of(row)?,
         refused,
-        folded: (row.get::<_, i64>(16)? as u64, row.get(17)?),
+        folded: folded_of(row)?,
         acknowledged,
         closing: closing_of(row)?,
     })
@@ -203,6 +203,11 @@ fn bounded(row: &rusqlite::Row<'_>, at: usize) -> rusqlite::Result<Option<Bounde
 /// created and when its journal last moved.
 fn listed_of(row: &rusqlite::Row<'_>) -> rusqlite::Result<(String, Bounded, Option<Bounded>)> {
     Ok((row.get(2)?, cut(row.get(3)?), bounded(row, 4)?))
+}
+
+/// The seq and hash the row's columns were folded at.
+fn folded_of(row: &rusqlite::Row<'_>) -> rusqlite::Result<(u64, String)> {
+    Ok((row.get::<_, i64>(16)? as u64, row.get(17)?))
 }
 
 /// Where the row's run stands: its status, and the seq of an operator

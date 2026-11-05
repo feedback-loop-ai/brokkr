@@ -119,7 +119,7 @@ test('a carried verdict keeps the view’s status, activity and original attempt
   const part = runViewOf(doc).participants[0]
   assert.deepEqual([part.status, part.working, part.activity, part.carried_from], ['carried', false, activity, source])
   assert.equal(runViewOf(runViewDoc({ participants: [seat()] })).participants[0].carried_from, null)
-  assert.throws(() => runViewOf({ ...doc, view_version: 23 }), new ReadoutRefused('version', 'brokkr inspect is at view version 23; this console paints version 28 only'))
+  assert.throws(() => runViewOf({ ...doc, view_version: 23 }), new ReadoutRefused('version', `brokkr inspect is at view version 23; this console paints version ${VIEW_VERSION} only`))
 })
 
 test('a run view summary keeps the shared standing, its word and its why (#909)', () => {
