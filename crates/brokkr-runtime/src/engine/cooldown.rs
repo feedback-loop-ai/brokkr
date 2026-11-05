@@ -184,6 +184,14 @@ fn unrepresentable_reason(
     )
 }
 
+/// The end the journal can spell: RFC 3339 carries a four-digit year, and a
+/// `time` build with large dates holds years past it. An end the wire cannot
+/// carry is no wait at all, the same as one `checked_add` could not form
+/// (step 4's no-`until` case), so the reader's one format decides it.
+fn representable_end(until: OffsetDateTime) -> Option<OffsetDateTime> {
+    until.format(&Rfc3339).ok().map(|_| until)
+}
+
 /// A sealed wait, as the terminal event's JSON spells it.
 fn waiter(wait: &ProviderWait, until: OffsetDateTime) -> Value {
     let mut value = json!({
@@ -330,9 +338,11 @@ impl Engine {
         // The maximum is judged from the computed length BEFORE any `until`
         // is formed, so no huge retry-after can overflow here (step 4).
         let past = past_maximum(seconds, total, max);
-        let until = i64::try_from(seconds)
-            .ok()
-            .and_then(|seconds| self.now().checked_add(TimeDuration::seconds(seconds)));
+        let until = i64::try_from(seconds).ok().and_then(|seconds| {
+            self.now()
+                .checked_add(TimeDuration::seconds(seconds))
+                .and_then(representable_end)
+        });
         let wait = until.map(|until| ProviderWait {
             site: None,
             provider: provider.to_string(),
