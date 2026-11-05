@@ -6264,7 +6264,24 @@ fn masked_refusal(
     bindings: &[secret::BoundSecret],
 ) -> Option<PreSessionRefusal> {
     refusal.map(|refusal| {
-        let words = secret::mask_text(refusal.words().as_bytes(), bindings);
+        // Masking is the LAST rewrite (decision 0012). A prefix of the
+        // masked text holds no substring the whole lacks, so a pure
+        // truncation to the reader's bound cannot rebuild a value; any
+        // other rewrite after the mask — a whitespace collapse, say —
+        // could rejoin a value the mask left split. So the only bound
+        // applied after masking is `chars().take`, at a char boundary.
+        // Masking replaces a value with its bound NAME, and a name longer
+        // than the value can grow the line past the reader's bound, so it
+        // must be cut (decision 0103 ruling 1(a), #991 fix round b).
+        // Under the bound the masked words cross byte for byte.
+        let masked = secret::mask_text(refusal.words().as_bytes(), bindings);
+        let words = if masked.chars().count() > crate::REFUSAL_WORDS_LIMIT {
+            masked.chars().take(crate::REFUSAL_WORDS_LIMIT).collect()
+        } else {
+            masked
+        };
+        // The words were non-empty and masking never empties a line, so
+        // the truncation cannot hand the reader an empty `words` to refuse.
         refusal.with_words(words)
     })
 }
