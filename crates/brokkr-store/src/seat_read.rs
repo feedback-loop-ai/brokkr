@@ -614,10 +614,25 @@ impl Store {
         low: u64,
         high: u64,
     ) -> Result<bool, StoreError> {
+        self.any_member(run_id, attempt, |conn, named| {
+            let bound = params![run_id, attempt, named, place(low), place(high), 1];
+            Ok(!seqs(conn, &STREAM, bound)?.is_empty())
+        })
+    }
+
+    /// Whether any member of `attempt` holds a row `found` accepts, walked
+    /// by the stream index's member key: the work is the attempt's members,
+    /// whatever their records hold. The page read's interleave check and
+    /// the ordinal read's not-counted check share the walk.
+    fn any_member(
+        &self,
+        run_id: &str,
+        attempt: &str,
+        mut found: impl FnMut(&rusqlite::Connection, &str) -> Result<bool, StoreError>,
+    ) -> Result<bool, StoreError> {
         let mut member = self.member(LEAST, run_id, attempt, "")?;
         while let Some(named) = member {
-            let bound = params![run_id, attempt, named, place(low), place(high), 1];
-            if !seqs(&self.conn, &STREAM, bound)?.is_empty() {
+            if found(&self.conn, &named)? {
                 return Ok(true);
             }
             member = self.member(NEXT, run_id, attempt, &named)?;

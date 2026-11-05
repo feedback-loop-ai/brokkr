@@ -38,8 +38,7 @@ use brokkr_core::summary::STAMP_BYTES;
 use crate::summary::{cut_stamp, stamp_of, text_at};
 use crate::{head_of, patiently, Disagreement, Store, StoreError};
 
-/// The meta key that records the backfill finished (ruling 8): its own,
-/// so indexing an older journal sends no run's summary behind.
+/// The meta key that records the backfill finished (ruling 8): its own.
 const BACKFILLED: &str = "event_index_backfill";
 
 const TABLE: [&str; 1] = ["event_index"];
@@ -359,6 +358,7 @@ pub(crate) fn index_intact(conn: &Connection) -> Result<bool, StoreError> {
     Ok(all_present(conn, "table", &TABLE)?
         && shaped(conn)?
         && all_present(conn, "index", &INDEXES)?
+        && ordinal::intact(conn)?
         && all_present_and_none(conn, "trigger", &TRIGGERS, &checkpoint::RETIRED)?)
 }
 

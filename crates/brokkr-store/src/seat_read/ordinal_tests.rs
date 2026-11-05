@@ -63,6 +63,68 @@ fn whole(events: &[EventEnvelope], effect: &str, member: Option<&str>) -> Vec<u6
         .collect()
 }
 
+/// The seqs of `run`'s checkpoints naming `member` in their checkpoint,
+/// oldest first.
+fn checkpoint_seqs(store: &Store, member: Option<&str>) -> Vec<u64> {
+    store
+        .load("r")
+        .unwrap()
+        .iter()
+        .filter(|event| {
+            event.event_type == EventType::EffectCheckpointed
+                && event.payload["checkpoint"]["member"].as_str() == member
+        })
+        .map(|event| event.seq)
+        .collect()
+}
+
+/// The seqs of `run`'s result-only records, oldest first.
+fn result_seqs(store: &Store) -> Vec<u64> {
+    store
+        .load("r")
+        .unwrap()
+        .iter()
+        .filter(|event| event.payload.get("result").is_some())
+        .map(|event| event.seq)
+        .collect()
+}
+
+/// Leave the rows at `seqs` still to number, as a lost trigger does.
+fn still_to_number(store: &Store, seqs: &[u64]) {
+    let mut update = store
+        .conn
+        .prepare("UPDATE event_index SET stream_ordinal = NULL WHERE run_id = 'r' AND seq = ?1")
+        .unwrap();
+    for seq in seqs {
+        update.execute([*seq as i64]).unwrap();
+    }
+}
+
+/// A run whose member `m` records `turns` checkpoints, with a result-only
+/// record of `m` after turn `result_at`.
+fn member_with_record(store: &mut Store, turns: u64, result_at: u64) -> Opened {
+    let mut events = asked_and_started("fx", "a");
+    for turn in 1..=turns {
+        events.push((
+            EventType::EffectCheckpointed,
+            checkpoint_of("fx", "a", Some("m"), turn),
+        ));
+        if turn == result_at {
+            events.push((
+                EventType::EffectCheckpointed,
+                json!({"effect_id": "fx", "attempt_id": "a", "result": {"member": "m"}}),
+            ));
+        }
+    }
+    if result_at > turns {
+        events.push((
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "fx", "attempt_id": "a", "result": {"member": "m"}}),
+        ));
+    }
+    journal(store, events)
+}
+
 /// A journal of three participants: fx's own three checkpoints across two
 /// attempts, fx's member `m`'s two, and gx's own two.
 fn planted() -> Vec<(EventType, Json)> {
@@ -206,13 +268,7 @@ fn a_null_ordinal_within_reach_reads_the_kept_way() {
     let opened = journal(&mut store, planted());
     let events = store.load("r").unwrap();
     let broken = whole(&events, "fx", Some("m"))[1];
-    store
-        .conn
-        .execute(
-            "UPDATE event_index SET stream_ordinal = NULL WHERE run_id = 'r' AND seq = ?1",
-            [broken as i64],
-        )
-        .unwrap();
+    still_to_number(&store, &[broken]);
     assert_eq!(
         store.seat_count("r", &opened, ("fx", Some("m"))).unwrap(),
         None,
@@ -262,16 +318,7 @@ fn more_streams_than_a_page_reads_the_kept_way() {
 #[test]
 fn a_result_only_bound_reads_the_kept_way() {
     let (_dir, mut store) = store();
-    let mut events = asked_and_started("fx", "a");
-    events.push((
-        EventType::EffectCheckpointed,
-        checkpoint_of("fx", "a", Some("m"), 1),
-    ));
-    events.push((
-        EventType::EffectCheckpointed,
-        json!({"effect_id": "fx", "attempt_id": "a", "result": {"member": "m"}}),
-    ));
-    let opened = journal(&mut store, events);
+    let opened = member_with_record(&mut store, 1, 2);
     assert_eq!(
         store.seat_count("r", &opened, ("fx", None)).unwrap(),
         None,
@@ -313,4 +360,208 @@ fn a_corrupt_ordinal_reads_the_kept_way() {
             "ordinal {corrupt}"
         );
     }
+}
+
+/// A result-only record of a member's inside the seat's own span is the
+/// kept refusal the guarded page read takes (H1): the ordinal count and
+/// rank refuse, so a reader reads the run whole rather than count 120
+/// where the whole read counts 121.
+#[test]
+fn a_member_s_record_inside_the_seat_s_span_refuses_the_ordinal_reads() {
+    let (_dir, mut store) = store();
+    let mut events = asked_and_started("fx", "a");
+    for turn in 1..=120 {
+        events.push((
+            EventType::EffectCheckpointed,
+            checkpoint_of("fx", "a", None, turn),
+        ));
+        if turn == 2 {
+            events.push((
+                EventType::EffectCheckpointed,
+                json!({"effect_id": "fx", "attempt_id": "a", "result": {"member": "m"}}),
+            ));
+        }
+    }
+    let opened = journal(&mut store, events);
+    assert_eq!(
+        store.seat_count("r", &opened, ("fx", None)).unwrap(),
+        None,
+        "the seat's own participant cannot stand for its 121 whole rows"
+    );
+    assert_eq!(
+        store.seat_seq_at("r", &opened, ("fx", None), 100).unwrap(),
+        None,
+        "a rank past the member's record reaches the refusal"
+    );
+}
+
+/// Another effect's checkpoints on the same attempt break the span (H2):
+/// the restart at each effect's first row means the span cannot be counted
+/// by difference, so the count and the rank take the kept way.
+#[test]
+fn another_effect_s_rows_on_the_same_attempt_refuse_the_span() {
+    let (_dir, mut store) = store();
+    let mut events = asked_and_started("fx", "a");
+    events.extend(asked_and_started("gx", "a"));
+    for (effect, turn) in [("fx", 1), ("gx", 1), ("fx", 2), ("gx", 2), ("fx", 3)] {
+        events.push((
+            EventType::EffectCheckpointed,
+            checkpoint_of(effect, "a", None, turn),
+        ));
+    }
+    let opened = journal(&mut store, events);
+    assert_eq!(
+        store.seat_count("r", &opened, ("fx", None)).unwrap(),
+        None,
+        "the foreign effect's rows break fx's span"
+    );
+    assert_eq!(
+        store.seat_seq_at("r", &opened, ("fx", None), 1).unwrap(),
+        None,
+        "a rank whose reach holds the restart is kept"
+    );
+}
+
+/// A member's own participant refuses a result-only record inside its own
+/// stream's reach (the mirror of H1), and reads when that record is below
+/// its span.
+#[test]
+fn a_member_s_not_counted_row_refuses_only_inside_its_span() {
+    {
+        let (_dir, mut store) = store();
+        let opened = member_with_record(&mut store, 2, 1);
+        assert_eq!(
+            store.seat_count("r", &opened, ("fx", Some("m"))).unwrap(),
+            None,
+            "the record inside m's span is not counted"
+        );
+        assert_eq!(
+            store
+                .seat_seq_at("r", &opened, ("fx", Some("m")), 1)
+                .unwrap(),
+            None
+        );
+    }
+
+    let (_dir, mut store) = store();
+    let opened = member_with_record(&mut store, 2, 3);
+    let own = checkpoint_seqs(&store, Some("m"));
+    assert_eq!(
+        store.seat_count("r", &opened, ("fx", Some("m"))).unwrap(),
+        Some(2),
+        "the record below m's span is outside its reach"
+    );
+    assert_eq!(
+        store
+            .seat_seq_at("r", &opened, ("fx", Some("m")), 1)
+            .unwrap(),
+        Some(own[1]),
+        "the rank reads m's own second checkpoint"
+    );
+}
+
+/// M1: a span's whole check refuses a window only where that window
+/// reaches it. A NULL above the rank is not in the rank's reach, so a low
+/// rank reads; a rank at it does not.
+#[test]
+fn a_null_above_a_rank_does_not_refuse_that_rank() {
+    let (_dir, mut store) = store();
+    let mut events = asked_and_started("fx", "a");
+    for turn in 1..=6 {
+        events.push((
+            EventType::EffectCheckpointed,
+            checkpoint_of("fx", "a", None, turn),
+        ));
+    }
+    let opened = journal(&mut store, events);
+    let seqs = checkpoint_seqs(&store, None);
+    still_to_number(&store, &[seqs[3]]);
+    assert_eq!(
+        store.seat_seq_at("r", &opened, ("fx", None), 2).unwrap(),
+        Some(seqs[2]),
+        "a rank below the NULL reads"
+    );
+    assert_eq!(
+        store.seat_seq_at("r", &opened, ("fx", None), 3).unwrap(),
+        None,
+        "a rank at the NULL is refused"
+    );
+    assert_eq!(
+        store.seat_count("r", &opened, ("fx", None)).unwrap(),
+        None,
+        "the whole count reaches the NULL"
+    );
+}
+
+/// M3: the stale index's seek steps the same at every size and for both
+/// shapes. N rows still to number of another member, and N on a separate
+/// attempt, never lie in the target's range; the old run-only key scanned
+/// both. The end's whole-span seek and a middle seek take the same steps.
+#[test]
+fn the_stale_index_seek_steps_the_same_at_every_size() {
+    use rusqlite::StatementStatus;
+
+    let mut measured = Vec::new();
+    for (shape, attempt) in [("other member", "a"), ("other attempt", "b")] {
+        let mut sizes = Vec::new();
+        for n in [2_000u64, 20_000] {
+            let (_dir, mut store) = store();
+            let mut events = asked_and_started("fx", "a");
+            events.push((
+                EventType::EffectCheckpointed,
+                checkpoint_of("fx", "a", Some("target"), 1),
+            ));
+            for _ in 0..n {
+                events.push((
+                    EventType::EffectCheckpointed,
+                    json!({"effect_id": "fx", "attempt_id": attempt,
+                           "result": {"member": "m"}}),
+                ));
+            }
+            events.push((
+                EventType::EffectCheckpointed,
+                checkpoint_of("fx", "a", Some("target"), 3),
+            ));
+            let _opened = journal(&mut store, events);
+            let target = checkpoint_seqs(&store, Some("target"));
+            let stale = result_seqs(&store);
+            assert_eq!(stale.len() as u64, n);
+            // Model a lost trigger: the rows are still to number, which is
+            // what the stale index holds. A repair would number them 0.
+            still_to_number(&store, &stale);
+            let opened = store.open_run("r").unwrap();
+            assert_eq!(
+                store
+                    .seat_count("r", &opened, ("fx", Some("target")))
+                    .unwrap(),
+                Some(2),
+                "{shape} at {n}: the target's own two count"
+            );
+            let steps = |low: u64, high: u64| {
+                let mut statement = store.conn.prepare(&super::ordinal::GAP).unwrap();
+                statement.reset_status(StatementStatus::VmStep);
+                let found: bool = statement
+                    .query_row(
+                        rusqlite::params!["r", "a", "target", low as i64, high as i64],
+                        |row| row.get(0),
+                    )
+                    .unwrap();
+                assert!(!found, "{shape} at {n}: nothing still to number in range");
+                i64::from(statement.reset_status(StatementStatus::VmStep))
+            };
+            let end = steps(target[0], target[1]);
+            let middle = steps(target[0], target[1] - 1);
+            sizes.push((end, middle));
+        }
+        assert_eq!(
+            sizes[0], sizes[1],
+            "{shape}: the seek steps the same at both sizes: {sizes:?}"
+        );
+        assert_eq!(
+            sizes[0].0, sizes[0].1,
+            "{shape}: the end and middle seeks take the same steps: {sizes:?}"
+        );
+        measured.push(shape);
+    }
+    assert_eq!(measured, ["other member", "other attempt"]);
 }

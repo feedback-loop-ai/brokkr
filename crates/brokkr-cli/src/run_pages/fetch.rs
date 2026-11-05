@@ -138,15 +138,30 @@ impl Fetch<'_> {
     /// The page at the screen's offset, found through the store's ordinals
     /// rather than by reading every page between it and the stream's
     /// oldest (decision 0089 ruling 9): the oldest page at the top, else
-    /// the page after the seq the store names for the row before it. A
-    /// destination past the stream's discovered end keeps its last row
-    /// (F3).
+    /// the page after the seq the store names for the row before it. The
+    /// destination's own rank is read first, so an offset inside the stream
+    /// never counts the participant whole: only a destination past the end,
+    /// which finds no row at its rank, needs the total (M1). A destination
+    /// past the stream's discovered end keeps its last row (F3).
     fn fresh_page(&self, seat: (&str, Option<&str>)) -> Result<Option<Page>, StoreError> {
         if self.offset == 0 {
             let Some((rows, newer)) = self.read_after(seat, None)? else {
                 return Ok(None);
             };
             return Ok(Some(Page::first(rows, newer)));
+        }
+        let rank = u64::try_from(self.offset).unwrap_or(u64::MAX);
+        if self
+            .store
+            .seat_seq_at(self.run, self.at, seat, rank)?
+            .is_some()
+        {
+            let Some((rows, next)) = self.page_at(seat, self.offset)? else {
+                return Ok(None);
+            };
+            let mut page = Page::first(rows, next);
+            page.start = self.offset;
+            return Ok(Some(page));
         }
         let Some(total) = self.total_of(seat)? else {
             return Ok(None);

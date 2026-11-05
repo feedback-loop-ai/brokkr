@@ -124,10 +124,10 @@ fn a_run_s_checkpoints_carry_their_stream_ordinals() {
 
 /// H1: a member's result-only record is an `effect/checkpointed` row whose
 /// `event_index.member` comes from its result, where its checkpoint names
-/// none. The ordinal never counts it, and a stream whose bound is such a
-/// row cannot stand for the participant.
+/// none. The ordinal never counts it: it carries 0, never NULL, so NULL
+/// means only "still to number".
 #[test]
-fn a_member_s_result_only_record_carries_none() {
+fn a_member_s_result_only_record_carries_zero() {
     let (_dir, mut store) = store();
     let made = begun(
         &mut store,
@@ -147,8 +147,8 @@ fn a_member_s_result_only_record_carries_none() {
     let (first, result, second) = (seqs[2], seqs[3], seqs[4]);
     assert_eq!(
         ordinal(&store, "r", result),
-        None,
-        "the result-only record carries none"
+        Some(0),
+        "the result-only record carries the not-counted value"
     );
     assert_eq!(
         [ordinal(&store, "r", first), ordinal(&store, "r", second)],
@@ -157,50 +157,75 @@ fn a_member_s_result_only_record_carries_none() {
     );
 }
 
-/// M1: sequential effects reusing one attempt continue the one stream's
-/// ordinals, while each effect's row bounds stay its own.
-#[test]
-fn sequential_effects_on_one_attempt_continue_their_stream() {
-    let (_dir, mut store) = store();
-    let made = begun(&mut store, own_turns(2));
-    let first = made[2].seq;
-    // A second effect asked under the same attempt, with two more.
+/// `fx`'s two own turns at attempt `a`, then a second effect `gx`'s two
+/// on the same attempt: their seqs, in order.
+fn two_effects(store: &mut Store) -> (u64, u64, u64, u64) {
+    let made = begun(store, own_turns(2));
+    let (first, second) = (made[2].seq, made[3].seq);
     append(
-        &mut store,
+        store,
         "r",
         EventType::EffectRequested,
         json!({"effect_id": "gx", "seat": "worker"}),
     );
     append(
-        &mut store,
+        store,
         "r",
         EventType::EffectStarted,
         json!({"effect_id": "gx", "attempt_id": "a"}),
     );
     let third = append(
-        &mut store,
+        store,
         "r",
         EventType::EffectCheckpointed,
         checkpoint_of("gx", "a", None, 1),
     )
     .seq;
     let fourth = append(
-        &mut store,
+        store,
         "r",
         EventType::EffectCheckpointed,
         checkpoint_of("gx", "a", None, 2),
     )
     .seq;
+    (first, second, third, fourth)
+}
+
+/// The two effects' four ordinals restart at each effect's first row.
+fn assert_two_effects(store: &Store, (first, second, third, fourth): (u64, u64, u64, u64)) {
     assert_eq!(
         [
-            ordinal(&store, "r", first),
-            ordinal(&store, "r", first + 1),
-            ordinal(&store, "r", third),
-            ordinal(&store, "r", fourth),
+            ordinal(store, "r", first),
+            ordinal(store, "r", second),
+            ordinal(store, "r", third),
+            ordinal(store, "r", fourth),
         ],
-        [Some(1), Some(2), Some(3), Some(4)],
-        "one stream continues across the two effects"
+        [Some(1), Some(2), Some(1), Some(2)],
+        "each effect's first row restarts at 1"
     );
+}
+
+/// Import `ndjson` into a fresh journal, keeping its tempdir alive.
+fn imported(ndjson: &str) -> (tempfile::TempDir, Store) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut dest = Store::open(&dir.path().join("dest.db")).unwrap();
+    dest.import_run(
+        ndjson,
+        &json!({}),
+        std::path::Path::new("/exports/r.ndjson"),
+    )
+    .unwrap();
+    (dir, dest)
+}
+
+/// M1/H2: sequential effects reusing one attempt keep apart: each effect's
+/// first counted row restarts at 1, so each row's bounds count its own
+/// checkpoints by difference.
+#[test]
+fn sequential_effects_on_one_attempt_restart_their_ordinals() {
+    let (_dir, mut store) = store();
+    let seqs = two_effects(&mut store);
+    assert_two_effects(&store, seqs);
 }
 
 /// An older writer's append, which inserts the event past the store's
@@ -234,14 +259,7 @@ fn an_older_writer_and_an_import_keep_the_ordinals() {
     // The import: a verified chain adopted into a fresh journal keeps the
     // same row ordinals, inserted by the trigger alone.
     let ndjson = source.export_ndjson("r").unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    let mut dest = Store::open(&dir.path().join("dest.db")).unwrap();
-    dest.import_run(
-        &ndjson,
-        &json!({}),
-        std::path::Path::new("/exports/r.ndjson"),
-    )
-    .unwrap();
+    let (_dir, dest) = imported(&ndjson);
     assert_eq!(
         [
             ordinal(&dest, "r", made[2].seq),
@@ -356,4 +374,188 @@ fn the_column_is_added_once() {
     add_column(&store.conn).unwrap();
     assert!(crate::schema::holds(&store.conn, "event_index", [COLUMN]).unwrap());
     add_column(&store.conn).unwrap();
+}
+
+/// The `stream_ordinal` every row of `run_id` holds, by its seq: what a
+/// live writer, an import and a backfill must agree on.
+fn ordinals(store: &Store, run_id: &str) -> Vec<(u64, Option<i64>)> {
+    let mut statement = store
+        .conn
+        .prepare(&format!(
+            "SELECT seq, {COLUMN} FROM event_index WHERE run_id = ?1 ORDER BY seq"
+        ))
+        .unwrap();
+    statement
+        .query_map([run_id], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap()
+}
+
+/// A fold-valid journal with the ordinals' not-counted shapes: the seat's
+/// own checkpoints, a member's checkpoint and its result-only record, and
+/// an attemptless checkpoint.
+fn ordinal_shapes(store: &mut Store) -> Vec<EventEnvelope> {
+    let mut made = begun(store, with_member(own_turns(2), 1));
+    made.push(append(
+        store,
+        "r",
+        EventType::EffectCheckpointed,
+        resulted("a", "m"),
+    ));
+    made.push(append(
+        store,
+        "r",
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "checkpoint": {"step": "seat-turn", "turn": 9}}),
+    ));
+    made
+}
+
+/// The backfill numbers a "not counted" row 0 exactly as the trigger does:
+/// an import and a journal from before the column give the live append's
+/// column row for row.
+#[test]
+fn an_import_and_a_backfill_number_like_a_live_append() {
+    let (_dir, mut source) = store();
+    let made = ordinal_shapes(&mut source);
+    let live = ordinals(&source, "r");
+    let result = made
+        .iter()
+        .find(|event| event.payload.get("result").is_some())
+        .unwrap()
+        .seq;
+    let attemptless = made.last().unwrap().seq;
+    assert_eq!(
+        [
+            ordinal(&source, "r", result),
+            ordinal(&source, "r", attemptless),
+        ],
+        [Some(0), Some(0)],
+        "a result-only record and an attemptless checkpoint carry 0"
+    );
+    let ndjson = source.export_ndjson("r").unwrap();
+    let path = source.path().to_path_buf();
+    drop(source);
+
+    let (_dir, dest) = imported(&ndjson);
+    assert_eq!(ordinals(&dest, "r"), live, "the import's column");
+    drop(dest);
+
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    unordinal(&conn);
+    drop(conn);
+    let store = Store::open(&path).unwrap();
+    assert_eq!(ordinals(&store, "r"), live, "the backfill's column");
+}
+
+/// The backfill restarts at each effect boundary exactly as the trigger
+/// does. Two effects sharing one attempt are out of place to the fold, so
+/// this journal cannot be imported or reopened whole; the backfill's own
+/// statement is run on it instead, which is the column the next writable
+/// open would write.
+#[test]
+fn the_backfill_restarts_at_an_effect_boundary_like_the_trigger() {
+    let (_dir, mut store) = store();
+    let seqs = two_effects(&mut store);
+    let live = ordinals(&store, "r");
+    store
+        .conn
+        .execute(
+            &format!("UPDATE event_index SET {COLUMN} = NULL WHERE run_id = 'r'"),
+            [],
+        )
+        .unwrap();
+    store.conn.execute(&super::ordinal::NUMBER, ["r"]).unwrap();
+    assert_eq!(ordinals(&store, "r"), live, "the backfill's column");
+    assert_two_effects(&store, seqs);
+}
+
+/// M2: a finished marker does not skip a NULL. All schema objects are
+/// intact, so the repair's presence check runs nothing; the stale index
+/// still names the row, so the next writable open numbers it.
+#[test]
+fn a_finished_marker_does_not_skip_a_null_ordinal() {
+    let (_dir, mut store) = store();
+    let made = begun(&mut store, own_turns(3));
+    let path = store.path().to_path_buf();
+    let second = made[3].seq;
+    assert!(finished(&store.conn, BACKFILLED).unwrap(), "the walk ran");
+    drop(store);
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    conn.execute(
+        &format!("UPDATE event_index SET {COLUMN} = NULL WHERE run_id = 'r' AND seq = ?1"),
+        [second as i64],
+    )
+    .unwrap();
+    drop(conn);
+    let reader = Store::open_read_only(&path).unwrap();
+    assert!(index_intact(&reader.conn).unwrap(), "the schema is intact");
+    assert_eq!(
+        reader
+            .seat_count("r", &reader.open_run("r").unwrap(), ("fx", None))
+            .unwrap(),
+        None,
+        "the read refuses the NULL as it must"
+    );
+    drop(reader);
+    let store = Store::open(&path).unwrap();
+    assert_eq!(
+        ordinal(&store, "r", second),
+        Some(2),
+        "the writable open repairs the NULL despite the marker"
+    );
+    assert_eq!(
+        store
+            .seat_count("r", &store.open_run("r").unwrap(), ("fx", None))
+            .unwrap(),
+        Some(3),
+        "the repaired count stands"
+    );
+}
+
+/// A stale index from before the stream's key is made anew: the presence
+/// question alone would leave the old shape, and a participant's read
+/// would scan another's rows. The key's own check asks the index's SQL,
+/// and a missing index is not the new one either.
+#[test]
+fn an_old_stale_index_key_is_repaired_at_the_next_writable_open() {
+    let (_dir, store) = store();
+    let path = store.path().to_path_buf();
+    store
+        .conn
+        .execute_batch("DROP INDEX event_index_ordinal_stale")
+        .unwrap();
+    assert!(
+        !super::ordinal::intact(&store.conn).unwrap(),
+        "a missing stale index is not the new one"
+    );
+    store
+        .conn
+        .execute_batch(&format!(
+            "CREATE INDEX event_index_ordinal_stale ON event_index (run_id)
+             WHERE type = '{CHECKPOINTED}' AND {COLUMN} IS NULL"
+        ))
+        .unwrap();
+    assert!(
+        !super::ordinal::intact(&store.conn).unwrap(),
+        "the streamless key is not the new one"
+    );
+    assert!(!index_intact(&store.conn).unwrap());
+    drop(store);
+    let store = Store::open(&path).unwrap();
+    assert!(index_intact(&store.conn).unwrap(), "the open re-keyed it");
+    let sql: String = store
+        .conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'index'
+             AND name = 'event_index_ordinal_stale'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(
+        sql.contains("attempt_id") && sql.contains("member") && sql.contains("seq"),
+        "the re-keyed index names the stream: {sql}"
+    );
 }

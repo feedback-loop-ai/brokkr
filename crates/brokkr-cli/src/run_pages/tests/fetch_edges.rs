@@ -71,9 +71,14 @@ fn attemptless(seat: &str) -> EventEnvelope {
     event
 }
 
-/// `run`'s own checkpoints with `member`'s checkpoint at `member_at`, so
-/// the seat's forward pages cross a member's stream where the fixture says.
-fn own_and_member(run: &str, turns: u64, member_at: u64) -> Vec<EventEnvelope> {
+/// `run`'s own checkpoints with `extra` after turn `at`, so the seat's
+/// forward pages cross another record where the fixture says.
+fn own_with(
+    run: &str,
+    turns: u64,
+    at: u64,
+    extra: Option<(EventType, Value)>,
+) -> Vec<EventEnvelope> {
     let mut steps = in_flight_as(run, "eff", "att");
     for turn in 1..=turns {
         steps.push(journals::checkpoint(
@@ -81,15 +86,25 @@ fn own_and_member(run: &str, turns: u64, member_at: u64) -> Vec<EventEnvelope> {
             "att",
             json!({"step": "seat-turn", "turn": turn}),
         ));
-        if turn == member_at {
-            steps.push(journals::checkpoint(
-                "eff",
-                "att",
-                json!({"member": "m", "step": "seat-turn", "turn": turn}),
-            ));
+        if turn == at {
+            steps.extend(extra.clone());
         }
     }
     chained(run, journals::journal(steps))
+}
+
+/// `run`'s own checkpoints with `member`'s checkpoint at `member_at`.
+fn own_and_member(run: &str, turns: u64, member_at: u64) -> Vec<EventEnvelope> {
+    own_with(
+        run,
+        turns,
+        member_at,
+        Some(journals::checkpoint(
+            "eff",
+            "att",
+            json!({"member": "m", "step": "seat-turn", "turn": member_at}),
+        )),
+    )
 }
 
 /// A carried page at `start` with `older` and no newer cursor.
@@ -567,4 +582,114 @@ fn the_end_and_middle_reads_step_the_same_statements_at_every_size() {
         measured.keys().copied().collect::<Vec<_>>(),
         ["end", "middle"]
     );
+}
+
+/// `run`'s own checkpoints with a member's result-only record after
+/// `member_at`, as H1's journal plants it.
+fn own_and_result(run: &str, turns: u64, member_at: u64) -> Vec<EventEnvelope> {
+    own_with(
+        run,
+        turns,
+        member_at,
+        Some((
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "eff", "attempt_id": "att",
+                   "result": {"member": "m"}}),
+        )),
+    )
+}
+
+/// H1: a member's result-only record inside the end read's own reach takes
+/// the kept way, so the whole fallback counts 121 where the ordinal count
+/// saw 120.
+#[test]
+fn the_end_fetch_takes_the_kept_way_for_a_member_record_in_its_reach() {
+    let run = "kept end result";
+    let journal = Journal::of(own_and_result(run, 120, 2), run);
+    let fetch = journal.fetch(run, 24, usize::MAX, &[]);
+    assert!(
+        fetch.participant(("eff", None), None).unwrap().is_none(),
+        "the end's reach holds the member's record, so the run is read whole"
+    );
+    let whole = brokkr_view::run_view(&journal.events, fold(&journal.events).as_ref().ok());
+    assert_eq!(
+        whole.participants[0].checkpoints.len(),
+        121,
+        "the whole fallback's total is the member's record too"
+    );
+}
+
+/// H2: another effect's checkpoints on the same attempt break the span, so
+/// the offset-4 fetch takes the kept way rather than counting five.
+#[test]
+fn the_offset_four_fetch_takes_the_kept_way_for_another_effect_s_rows() {
+    let run = "kept interleaved effects";
+    let mut steps = in_flight_as(run, "eff", "att");
+    steps.push((
+        EventType::EffectRequested,
+        json!({"effect_id": "gx", "seat": "worker"}),
+    ));
+    steps.push((
+        EventType::EffectStarted,
+        json!({"effect_id": "gx", "attempt_id": "att"}),
+    ));
+    for (effect, turn) in [("eff", 1), ("gx", 1), ("eff", 2), ("gx", 2), ("eff", 3)] {
+        steps.push(journals::checkpoint(
+            effect,
+            "att",
+            json!({"step": "seat-turn", "turn": turn}),
+        ));
+    }
+    let journal = Journal::of(chained(run, journals::journal(steps)), run);
+    let fetch = journal.fetch(run, 24, 4, &[]);
+    assert!(
+        fetch.participant(("eff", None), None).unwrap().is_none(),
+        "the foreign effect's rows break the span, so the run is read whole"
+    );
+}
+
+/// M1: a NULL above the middle window is not in that window's reach, so
+/// the fresh read still serves start 1 and 200 rows without counting the
+/// participant whole first.
+#[test]
+fn a_null_above_the_middle_window_does_not_refuse_it() {
+    let run = "null below middle";
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    planted(&db, vec![(run.to_string(), at_work(run, 300, true))]);
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let seq: i64 = conn
+        .query_row(
+            "SELECT seq FROM event_index
+             WHERE run_id = ?1 AND type = 'effect/checkpointed'
+             ORDER BY seq LIMIT 1 OFFSET 289",
+            [run],
+            |row| row.get(0),
+        )
+        .unwrap();
+    conn.execute(
+        "UPDATE event_index SET stream_ordinal = NULL WHERE run_id = ?1 AND seq = ?2",
+        rusqlite::params![run, seq],
+    )
+    .unwrap();
+    drop(conn);
+    let store = Store::open_read_only(&db).unwrap();
+    let at = store.open_run(run).unwrap();
+    let events = store.load(run).unwrap();
+    let fetch = Fetch {
+        store: &store,
+        run,
+        at: &at,
+        rows: 50,
+        offset: 1,
+        visible: WINDOW,
+        landed: &[],
+        trail: &events,
+    };
+    let (page, _) = fetch
+        .participant(("eff", None), None)
+        .unwrap()
+        .expect("the unaffected window reads");
+    assert_eq!(page.start, 1, "the window starts at the asked row");
+    assert_eq!(page.rows.len(), 200, "the window is the whole read's");
 }
