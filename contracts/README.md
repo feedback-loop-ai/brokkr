@@ -912,6 +912,33 @@ one from 1: zero, a negative and an
 overflowing value are refused, never read as unlimited. Cool-down bounds
 are not part of v1; they arrive as a later version.
 
+Decision 0103 ruling 3 (#430's fourth slice, accepted 2026-10-31) adds
+`forge.host/v2` beside the frozen v1, whose bytes did not move. It is v1
+plus one OPTIONAL closed `cooldowns` block and one OPTIONAL closed
+`containment` field, and it changes no other clause:
+
+| Contract | File | Consumers |
+|---|---|---|
+| The machine's host configuration with cool-down bounds and containment | `host.v2.schema.json` | brokkr-runtime (`admission/host.rs`, the loader; held to this file by test) |
+
+The `cooldowns` block holds `default_seconds` and `max_seconds`, required
+when the block is present, and optional `providers.<name>` and
+`providers.<name>.routes.<route>` overrides of either number. A route
+without its own number takes its provider's, and a provider without its
+own takes the block's. Every named provider or route must already be
+declared under the capacity block's `providers`, so one file names one
+vocabulary; every object is closed, and every number is a positive
+integer no greater than 7200, with `default_seconds` no greater than
+`max_seconds`. The loader refuses a name the capacity block does not
+declare, a default above its maximum, a maximum past 7200 and a zero,
+each by its own line; JSON Schema cannot say the first two. A v1 file
+read by the same loader declares no cool-downs, so a rate-limit refusal
+parks as today. `containment` is decision 0080 ruling 6's closed enum,
+`best-effort` by default; v2 carries it so 0080 need not mint a v3. The
+loader reads `best-effort` and refuses `required` with decision 0080's
+own line, because 0080 is not built yet (#472): a host never believes it
+holds containment it does not get.
+
 The same slice adds one more file and changes none of the bytes above —
 `run-manifest.v12`'s included, which is now pinned by digest beside the
 frozen files:

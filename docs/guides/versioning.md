@@ -211,7 +211,8 @@ and the release window in that ruling's slice 2.
 | `operator-ending/v1` | `contracts/operator-ending.v1.schema.json` | journal | 0064 | operator | load brokkr_core::ending::operator_ending | current | | |
 | `operator-supersede/v1` | `contracts/operator-supersede.v1.schema.json` | journal | 0047 | operator | load brokkr_core::residual::closings | current | | |
 | `brokkr.tool-dialect/v1` | `contracts/tool-dialect.v1.schema.json` | input | 0065 | shipped dialects/tools | schema brokkr_runtime::capabilities::dialect::TOOL_DIALECT_SCHEMA | current | | decision |
-| `forge.host/v1` | `contracts/host.v1.schema.json` | input | 0068 (2026-10-10 addendum) | operator | load brokkr_runtime::admission::host::read | current | | decision |
+| `forge.host/v1` | `contracts/host.v1.schema.json` | input | 0068 (2026-10-10 addendum) | operator | load brokkr_runtime::admission::host::read | reader | | decision |
+| `forge.host/v2` | `contracts/host.v2.schema.json` | input | 0103 | operator | load brokkr_runtime::admission::host::read | current | | decision |
 | `panel-carry/v1` | `contracts/panel-carry.v1.schema.json` | journal | 0093 | engine crates/brokkr-runtime/src/engine/dispatch.rs | load brokkr_runtime::engine::carry::facts::terminal_record | current | | |
 
 `fixtures/evaluator/corpus.ndjson` is frozen contract data, never

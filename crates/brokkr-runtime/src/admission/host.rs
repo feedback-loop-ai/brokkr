@@ -1,6 +1,7 @@
 //! The machine's capacity as its operator declares it (decision 0068
-//! ruling 3, and ruling 5's data): `forge.host/v1`, one file per machine
-//! and never a realm's (the operator's ruling of 2026-10-10, option B). A
+//! ruling 3, and ruling 5's data): `forge.host/v1` or `forge.host/v2`,
+//! one file per machine and never a realm's (the operator's ruling of
+//! 2026-10-10, option B). A
 //! machine has one scratch disk, one set of provider accounts and its own
 //! local hardware, whichever realm a run operates, so the tracked realms
 //! map carries none of it (#432).
@@ -10,11 +11,16 @@
 //! capacity undeclared; a path that holds something that cannot be read
 //! (a link that loops or dangles, a directory, a FIFO or a device, a
 //! permission refused) is unreadable, never absent (#430's H5) and never
-//! waited on; and a file read but not a valid
-//! `forge.host/v1` refuses, naming the problem. A ceiling of zero, a
+//! waited on; and a file read but not a valid `forge.host/v1` or
+//! `forge.host/v2` refuses, naming the problem and, where one version's
+//! rules own it, that version. A ceiling of zero, a
 //! negative one and one past `u32` are refused, never read as unlimited,
 //! and so is a provider or route written twice: the ceiling the operator
-//! reads first is the one admission obeys, or none is. The free-space
+//! reads first is the one admission obeys, or none is. Every number is
+//! read from its exact token, never through `f64` (the operator's ruling
+//! of 2026-11-04, option A): an integral decimal or exponent notation
+//! reads exactly as the schema admits, and a token that is not exactly an
+//! integer in range is a shape refusal. The free-space
 //! floors are a list of at least one (the operator's ruling of
 //! 2026-10-10, option c), each naming exactly one place or absolute path,
 //! and none named twice.
@@ -31,17 +37,23 @@ use thiserror::Error;
 
 use crate::capabilities::manifest::present;
 
+mod shape;
+use shape::Integral;
+
 /// A host configuration, read whole: every key known, every ceiling at
-/// least one.
+/// least one, and the cool-down bounds v2 may declare resolved through
+/// their inheritance (decision 0103 ruling 3).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(try_from = "WrittenHost")]
 pub(crate) struct HostConfig {
     /// Read only to refuse another version.
-    #[serde(rename = "schema")]
     _schema: Schema,
     pub(crate) providers: BTreeMap<String, Provider>,
     pub(crate) floors: Floors,
     pub(crate) boxed_builds: Ceiling,
+    /// `None` where the file declares no cool-downs (a v1 file, or a v2
+    /// file without the block), so a rate-limit refusal parks.
+    cooldowns: Option<Cooldowns>,
 }
 
 /// The file's version, its first key: a file in any other is refused.
@@ -49,14 +61,332 @@ pub(crate) struct HostConfig {
 enum Schema {
     #[serde(rename = "forge.host/v1")]
     V1,
+    #[serde(rename = "forge.host/v2")]
+    V2,
+}
+
+/// A host configuration as either version writes it, before the
+/// cross-field rules only the loader can judge.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WrittenHost {
+    #[serde(rename = "schema", deserialize_with = "shape::word")]
+    schema: Schema,
+    #[serde(deserialize_with = "shape::strict_map")]
+    providers: BTreeMap<String, Provider>,
+    floors: Floors,
+    #[serde(deserialize_with = "shape::object")]
+    boxed_builds: Ceiling,
+    #[serde(default, deserialize_with = "shape::present_object")]
+    cooldowns: Option<WrittenCooldowns>,
+    #[serde(default, deserialize_with = "shape::present_word")]
+    containment: Option<Containment>,
+}
+
+/// What a host demands of containment (decision 0080 ruling 6):
+/// `best-effort` takes the first rung the ladder finds, and `required`
+/// refuses a start where none is offered. `required` is 0080's and is not
+/// built yet (#472).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum Containment {
+    BestEffort,
+    Required,
+}
+
+/// A site's cool-down bounds after inheritance: its own number, else the
+/// provider's, else the block's (decision 0103 ruling 3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Bounds {
+    pub(crate) default_seconds: NonZeroU32,
+    pub(crate) max_seconds: NonZeroU32,
+}
+
+/// The longest cool-down any site may declare: the shipped seats' longest
+/// attempt deadline, under the fleet's staleness bound (decision 0103
+/// ruling 3).
+const MAX_COOLDOWN_SECONDS: u32 = 7_200;
+
+/// The cool-downs a v2 file declares: the block's numbers, which every
+/// declared provider inherits, and each provider's and route's own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Cooldowns {
+    default_seconds: NonZeroU32,
+    max_seconds: NonZeroU32,
+    providers: BTreeMap<String, ProviderCooldowns>,
+}
+
+/// One provider's cool-down overrides and its routes'.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProviderCooldowns {
+    bounds: Overrides,
+    routes: BTreeMap<String, Overrides>,
+}
+
+/// Numbers a provider or route may leave out to inherit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Overrides {
+    default_seconds: Option<NonZeroU32>,
+    max_seconds: Option<NonZeroU32>,
+}
+
+/// A cool-downs block as the file writes it, before its values are
+/// checked.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WrittenCooldowns {
+    default_seconds: Integral<u32>,
+    max_seconds: Integral<u32>,
+    #[serde(default, deserialize_with = "shape::strict_map")]
+    providers: BTreeMap<String, WrittenProviderCooldowns>,
+}
+
+/// One provider's written overrides and its routes'.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WrittenProviderCooldowns {
+    #[serde(default, deserialize_with = "present")]
+    default_seconds: Option<Integral<u32>>,
+    #[serde(default, deserialize_with = "present")]
+    max_seconds: Option<Integral<u32>>,
+    #[serde(default, deserialize_with = "shape::strict_map")]
+    routes: BTreeMap<String, WrittenOverrides>,
+}
+
+/// Numbers a provider or route may write, each optional so the missing
+/// one inherits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WrittenOverrides {
+    #[serde(default, deserialize_with = "present")]
+    default_seconds: Option<Integral<u32>>,
+    #[serde(default, deserialize_with = "present")]
+    max_seconds: Option<Integral<u32>>,
+}
+
+/// A site a cool-down refusal names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Site<'a> {
+    Block,
+    Provider(&'a str),
+    Route { provider: &'a str, route: &'a str },
+}
+
+impl fmt::Display for Site<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Site::Block => f.write_str("the cooldowns block"),
+            Site::Provider(provider) => write!(f, "provider '{provider}'"),
+            Site::Route { provider, route } => {
+                write!(f, "route '{route}' of provider '{provider}'")
+            }
+        }
+    }
+}
+
+impl TryFrom<WrittenCooldowns> for Cooldowns {
+    type Error = Problem;
+
+    fn try_from(written: WrittenCooldowns) -> Result<Cooldowns, Problem> {
+        let default_seconds = positive(written.default_seconds.0, Site::Block, "default_seconds")?;
+        let max_seconds = capped(written.max_seconds.0, Site::Block)?;
+        let mut providers = BTreeMap::new();
+        for (name, provider) in written.providers {
+            let site = Site::Provider(&name);
+            let bounds = Overrides::read(
+                WrittenOverrides {
+                    default_seconds: provider.default_seconds,
+                    max_seconds: provider.max_seconds,
+                },
+                site,
+            )?;
+            let mut routes = BTreeMap::new();
+            for (route, overrides) in provider.routes {
+                let site = Site::Route {
+                    provider: &name,
+                    route: &route,
+                };
+                let overrides = Overrides::read(overrides, site)?;
+                routes.insert(route, overrides);
+            }
+            providers.insert(name, ProviderCooldowns { bounds, routes });
+        }
+        Ok(Cooldowns {
+            default_seconds,
+            max_seconds,
+            providers,
+        })
+    }
+}
+
+impl Overrides {
+    /// One written override, each number it leaves out inheriting.
+    fn read(written: WrittenOverrides, site: Site<'_>) -> Result<Overrides, Problem> {
+        let default_seconds = written
+            .default_seconds
+            .map(|value| positive(value.0, site, "default_seconds"))
+            .transpose()?;
+        let max_seconds = written
+            .max_seconds
+            .map(|value| capped(value.0, site))
+            .transpose()?;
+        Ok(Overrides {
+            default_seconds,
+            max_seconds,
+        })
+    }
+}
+
+/// One written number as a positive integer, or the site and field it
+/// names: zero is never read as no wait.
+fn positive(value: u32, site: Site<'_>, field: &'static str) -> Result<NonZeroU32, Problem> {
+    NonZeroU32::new(value).ok_or_else(|| Problem::Zero {
+        site: site.to_string(),
+        field,
+    })
+}
+
+/// A written maximum as a positive integer no greater than two hours, or
+/// the site it names.
+fn capped(value: u32, site: Site<'_>) -> Result<NonZeroU32, Problem> {
+    let max = positive(value, site, "max_seconds")?;
+    if max.get() > MAX_COOLDOWN_SECONDS {
+        return Err(Problem::AboveMaximum {
+            site: site.to_string(),
+            value,
+            maximum: MAX_COOLDOWN_SECONDS,
+        });
+    }
+    Ok(max)
+}
+
+impl HostConfig {
+    /// The bounds one site obeys, after a route's own number, else its
+    /// provider's, else the block's (decision 0103 ruling 3). `None` means
+    /// the file declares no cool-downs, so a rate-limit refusal parks as
+    /// today.
+    pub(crate) fn cooldown(&self, provider: &str, route: Option<&str>) -> Option<Bounds> {
+        let cooldowns = self.cooldowns.as_ref()?;
+        let declared = cooldowns.providers.get(provider);
+        let provider_default = declared
+            .and_then(|provider| provider.bounds.default_seconds)
+            .unwrap_or(cooldowns.default_seconds);
+        let provider_max = declared
+            .and_then(|provider| provider.bounds.max_seconds)
+            .unwrap_or(cooldowns.max_seconds);
+        let overrides = route.and_then(|route| declared?.routes.get(route));
+        Some(Bounds {
+            default_seconds: overrides
+                .and_then(|bounds| bounds.default_seconds)
+                .unwrap_or(provider_default),
+            max_seconds: overrides
+                .and_then(|bounds| bounds.max_seconds)
+                .unwrap_or(provider_max),
+        })
+    }
+
+    /// Refuse a cool-downs block that names a site the capacity block does
+    /// not declare, or whose inherited default passes its inherited
+    /// maximum. Each value's positivity and the 7200-second cap were
+    /// checked when it was read.
+    fn validate_cooldowns(&self, cooldowns: &Cooldowns) -> Result<(), Problem> {
+        check_bounds(
+            cooldowns.default_seconds,
+            cooldowns.max_seconds,
+            Site::Block,
+        )?;
+        for (name, provider) in &cooldowns.providers {
+            let declared = self
+                .providers
+                .get(name)
+                .ok_or_else(|| Problem::ProviderUndeclared(name.clone()))?;
+            if provider.bounds.default_seconds.is_some() || provider.bounds.max_seconds.is_some() {
+                self.check_site(name, None)?;
+            }
+            for route in provider.routes.keys() {
+                if !declared.routes.contains_key(route) {
+                    return Err(Problem::RouteUndeclared {
+                        provider: name.clone(),
+                        route: route.clone(),
+                    });
+                }
+                self.check_site(name, Some(route))?;
+            }
+        }
+        Ok(())
+    }
+
+    /// A provider's or a route's inherited bounds, refused where its
+    /// default passes its maximum. The block itself is checked directly.
+    fn check_site(&self, provider: &str, route: Option<&str>) -> Result<(), Problem> {
+        let site = route.map_or(Site::Provider(provider), |route| Site::Route {
+            provider,
+            route,
+        });
+        let bounds = self
+            .cooldown(provider, route)
+            .expect("a cooldown site is inside a cooldowns block");
+        check_bounds(bounds.default_seconds, bounds.max_seconds, site)
+    }
+}
+
+/// A site's default no greater than its maximum.
+fn check_bounds(
+    default_seconds: NonZeroU32,
+    max_seconds: NonZeroU32,
+    site: Site<'_>,
+) -> Result<(), Problem> {
+    if default_seconds > max_seconds {
+        return Err(Problem::DefaultAboveMaximum {
+            site: site.to_string(),
+            default: default_seconds.get(),
+            max: max_seconds.get(),
+        });
+    }
+    Ok(())
+}
+
+impl TryFrom<WrittenHost> for HostConfig {
+    type Error = Problem;
+
+    fn try_from(written: WrittenHost) -> Result<HostConfig, Problem> {
+        match written.schema {
+            Schema::V1 => {
+                if written.cooldowns.is_some() {
+                    return Err(Problem::NotV2("cooldowns"));
+                }
+                if written.containment.is_some() {
+                    return Err(Problem::NotV2("containment"));
+                }
+            }
+            Schema::V2 => {
+                if written.containment == Some(Containment::Required) {
+                    return Err(Problem::ContainmentRequired);
+                }
+            }
+        }
+        let cooldowns = written.cooldowns.map(Cooldowns::try_from).transpose()?;
+        let config = HostConfig {
+            _schema: written.schema,
+            providers: written.providers,
+            floors: written.floors,
+            boxed_builds: written.boxed_builds,
+            cooldowns,
+        };
+        if let Some(cooldowns) = &config.cooldowns {
+            config.validate_cooldowns(cooldowns)?;
+        }
+        Ok(config)
+    }
 }
 
 /// One provider's ceiling, and the routes of it the machine declares.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Provider {
+    #[serde(deserialize_with = "shape::positive_u32")]
     pub(crate) ceiling: NonZeroU32,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "shape::strict_map")]
     pub(crate) routes: BTreeMap<String, Route>,
 }
 
@@ -64,7 +394,9 @@ pub(crate) struct Provider {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Route {
+    #[serde(deserialize_with = "shape::positive_u32")]
     pub(crate) ceiling: NonZeroU32,
+    #[serde(deserialize_with = "shape::word")]
     pub(crate) class: RouteClass,
 }
 
@@ -115,7 +447,7 @@ impl TryFrom<Vec<Floor>> for Floors {
 /// One free-space floor: the bytes the filesystem it names must hold free
 /// for another run to start.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(try_from = "WrittenFloor")]
+#[serde(try_from = "shape::Object<WrittenFloor>")]
 pub(crate) struct Floor {
     pub(crate) at: At,
     pub(crate) floor_bytes: NonZeroU64,
@@ -126,17 +458,18 @@ pub(crate) struct Floor {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WrittenFloor {
+    #[serde(deserialize_with = "shape::positive_u64")]
     floor_bytes: NonZeroU64,
     #[serde(default, deserialize_with = "present")]
     path: Option<Absolute>,
-    #[serde(default, deserialize_with = "present")]
+    #[serde(default, deserialize_with = "shape::present_word")]
     place: Option<Place>,
 }
 
-impl TryFrom<WrittenFloor> for Floor {
+impl TryFrom<shape::Object<WrittenFloor>> for Floor {
     type Error = Unfloored;
 
-    fn try_from(written: WrittenFloor) -> Result<Floor, Unfloored> {
+    fn try_from(shape::Object(written): shape::Object<WrittenFloor>) -> Result<Floor, Unfloored> {
         let at = match (written.path, written.place) {
             (Some(path), None) => At::Path(path),
             (None, Some(place)) => At::Place(place),
@@ -206,6 +539,7 @@ pub(crate) enum Unfloored {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Ceiling {
+    #[serde(deserialize_with = "shape::positive_u32")]
     pub(crate) ceiling: NonZeroU32,
 }
 
@@ -244,7 +578,11 @@ pub enum HostError {
          directory"
     )]
     Unplaced,
-    #[error("the host configuration at {} is not a valid forge.host/v1 file", path.display())]
+    #[error(
+        "the host configuration at {} is not a valid {} file",
+        path.display(),
+        source.contract()
+    )]
     Invalid {
         path: PathBuf,
         #[source]
@@ -261,6 +599,55 @@ pub enum Problem {
     /// A key written twice in one object, in the strict reader's words.
     #[error("{0}")]
     Repeated(String),
+    /// A key only `forge.host/v2` declares, in a v1 file.
+    #[error("forge.host/v1 declares {0}; only forge.host/v2 does")]
+    NotV2(&'static str),
+    /// Decision 0080's `required`, which is not built yet (#472).
+    #[error("containment required is decision 0080's, not built yet (#472)")]
+    ContainmentRequired,
+    /// A cool-down number of zero, never read as no wait.
+    #[error("the cool-down {field} of {site} is zero")]
+    Zero { site: String, field: &'static str },
+    /// A maximum past the shipped seats' longest attempt deadline.
+    #[error("the cool-down max_seconds of {site} is {value}, past the {maximum}-second maximum")]
+    AboveMaximum {
+        site: String,
+        value: u32,
+        maximum: u32,
+    },
+    /// A default longer than the maximum that bounds it.
+    #[error("the cool-down default_seconds of {site} is {default}, above its max_seconds {max}")]
+    DefaultAboveMaximum {
+        site: String,
+        default: u32,
+        max: u32,
+    },
+    /// A provider cool-down the capacity block does not declare.
+    #[error("the cool-down provider '{0}' is not declared under providers")]
+    ProviderUndeclared(String),
+    /// A route cool-down the provider's capacity block does not declare.
+    #[error(
+        "the cool-down route '{route}' of provider '{provider}' is not declared under providers"
+    )]
+    RouteUndeclared { provider: String, route: String },
+}
+
+impl Problem {
+    /// The contract a refusal names: the problem's own version where only
+    /// one version can have it, and the version-neutral name where either
+    /// version's shape may be wrong.
+    fn contract(&self) -> &'static str {
+        match self {
+            Problem::Shape(_) | Problem::Repeated(_) => "host configuration",
+            Problem::NotV2(_) => "forge.host/v1",
+            Problem::ContainmentRequired
+            | Problem::Zero { .. }
+            | Problem::AboveMaximum { .. }
+            | Problem::DefaultAboveMaximum { .. }
+            | Problem::ProviderUndeclared(_)
+            | Problem::RouteUndeclared { .. } => "forge.host/v2",
+        }
+    }
 }
 
 /// Where the machine's host configuration is: `host.json` in the
@@ -333,10 +720,10 @@ fn regular(file: &Path) -> io::Result<Vec<u8>> {
 /// The shape is judged first, so its refusal keeps the parser's place in
 /// the file; bytes it admits are UTF-8, so the lossy text is the file.
 fn config(bytes: &[u8]) -> Result<HostConfig, Problem> {
-    let config = serde_json::from_slice(bytes)?;
+    let shape::Object(written) = serde_json::from_slice::<shape::Object<WrittenHost>>(bytes)?;
     brokkr_core::canonical::parse_strict(&String::from_utf8_lossy(bytes))
         .map_err(Problem::Repeated)?;
-    Ok(config)
+    HostConfig::try_from(written)
 }
 
 /// Why the deepest component of `file`'s path that is there cannot be

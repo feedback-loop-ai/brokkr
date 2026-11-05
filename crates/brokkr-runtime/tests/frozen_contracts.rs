@@ -24,7 +24,7 @@ fn digest(relative: &str) -> String {
 /// Recorded from this tree before the agent library existed, plus the
 /// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
 /// beside it, so "beside, never inside" is machine-checked.
-const FROZEN: [(&str, &str); 31] = [
+const FROZEN: [(&str, &str); 33] = [
     // Decision 0103 (accepted) mints the driver-refusal extension beside
     // the frozen v1 family; its bytes are pinned from here. Fix round
     // 430s4a6 L2 re-pins the unreleased file after the shared route form
@@ -182,6 +182,17 @@ const FROZEN: [(&str, &str); 31] = [
         "contracts/run-manifest.v9.schema.json",
         "c046add105f94efccba9a4d688016eadc8f2933bdbfe70a9f625991e46878a71",
     ),
+    // Decision 0103 ruling 3 mints `forge.host/v2` beside v1; both
+    // versions' bytes are pinned from birth, so neither shape can move
+    // silently and the loader keeps reading both.
+    (
+        "contracts/host.v1.schema.json",
+        "81eadfe6d066be359f1eb2d38b9a4d5ba94c42b7c6a9929fb31a31af6fa6a2d0",
+    ),
+    (
+        "contracts/host.v2.schema.json",
+        "ba8f41b953ba8fe25f6edaf9cd51c8b8a6a5669540cfcef2a74603389b8b316a",
+    ),
 ];
 
 #[test]
@@ -189,6 +200,14 @@ fn the_frozen_contracts_and_the_corpus_keep_their_exact_bytes() {
     for (relative, pinned) in FROZEN {
         assert_eq!(digest(relative), pinned, "{relative} bytes moved");
     }
+    // The newly minted v2 host contract is pinned from birth, so dropping
+    // its digest from `FROZEN` fails here naming the file.
+    assert!(
+        FROZEN
+            .iter()
+            .any(|(relative, _)| *relative == "contracts/host.v2.schema.json"),
+        "contracts/host.v2.schema.json is not pinned in FROZEN"
+    );
     // The production table is read-only too, and it is not a contract
     // file, so it is pinned separately by the same rule.
     assert_eq!(
@@ -865,6 +884,50 @@ fn the_host_contract_lands_as_its_own_first_version() {
     assert!(
         !validator.is_valid(&map),
         "a realms version under the host schema"
+    );
+}
+
+/// Decision 0103 ruling 3 lands `forge.host/v2` beside v1, whose bytes are
+/// pinned above: v2 is v1 plus the optional `cooldowns` block and decision
+/// 0080 ruling 6's `containment` field, and no other clause moves.
+#[test]
+fn the_host_v2_contract_lands_beside_v1_with_cool_downs_and_containment() {
+    use serde_json::json;
+    assert_eq!(
+        titled("contracts/host.v2.schema.json"),
+        "Forge host configuration v2"
+    );
+    let [v2, v1] = published(["host.v2", "host.v1"]);
+    let mut carried = v1["properties"].clone();
+    for key in ["schema", "cooldowns", "containment"] {
+        carried[key] = v2["properties"][key].clone();
+    }
+    assert_eq!(carried, v2["properties"], "v2 moved a property v1 defines");
+    for key in ["required", "additionalProperties", "type"] {
+        assert_eq!(v2[key], v1[key], "{key} moved between v1 and v2");
+    }
+
+    let validator = contract("contracts/host.v2.schema.json");
+    let host = json!({"schema": "forge.host/v2",
+        "providers": {"dsh": {"ceiling": 1, "routes": {"spark-glm": {"ceiling": 1,
+                                                                      "class": "shared-local"}}}},
+        "floors": [{"place": "seat-scratch", "floor_bytes": 1}], "boxed_builds": {"ceiling": 1},
+        "cooldowns": {"default_seconds": 10, "max_seconds": 60,
+                      "providers": {"dsh": {"routes": {"spark-glm": {"max_seconds": 30}}}}},
+        "containment": "best-effort"});
+    assert!(validator.is_valid(&host), "a v2 host configuration");
+    let mut map = host.clone();
+    map["schema"] = json!("forge.host/v1");
+    assert!(!validator.is_valid(&map), "a v1 label under the v2 schema");
+    map["schema"] = json!("forge.host/v2");
+    map["cooldowns"]["routes"] = json!({"spark-glm": {"wait": 1}});
+    assert!(
+        !validator.is_valid(&map),
+        "an unknown key inside a v2 cool-downs block"
+    );
+    assert!(
+        !contract("contracts/host.v1.schema.json").is_valid(&host),
+        "the frozen v1 schema admitted a v2 host"
     );
 }
 

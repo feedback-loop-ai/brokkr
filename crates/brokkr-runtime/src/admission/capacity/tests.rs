@@ -426,8 +426,10 @@ fn an_invalid_host_configuration_refuses_the_pass_naming_the_problem() {
     let refused = |host: Value| {
         let file = fixture.declare(&host);
         let error = passed(&fixture.store, &file).unwrap_err();
+        // Every problem here is one either version's shape may have, so
+        // the refusal uses the version-neutral name.
         let says = format!(
-            "the host configuration at {} is not a valid forge.host/v1 file",
+            "the host configuration at {} is not a valid host configuration file",
             file.display()
         );
         assert!(
@@ -443,7 +445,7 @@ fn an_invalid_host_configuration_refuses_the_pass_naming_the_problem() {
         host
     };
     let mut unknown = valid.clone();
-    unknown["cooldowns"] = json!({});
+    unknown["pause"] = json!({});
     let mut keyed = valid.clone();
     keyed["providers"]["alpha"]["burst"] = json!(2);
     let mut unfloored = valid.clone();
@@ -458,12 +460,12 @@ fn an_invalid_host_configuration_refuses_the_pass_naming_the_problem() {
         with("/floors", json!([floor(1), floor(2)]))
     };
     let cases = [
-        (unknown, "unknown field `cooldowns`, expected one of `schema`, `providers`, `floors`, `boxed_builds` at line 1 column 41"),
+        (unknown, "unknown field `pause`, expected one of `schema`, `providers`, `floors`, `boxed_builds`, `cooldowns`, `containment` at line 1 column 92"),
         (keyed, "unknown field `burst`, expected `ceiling` or `routes` at line 1 column 114"),
-        (with("/providers/alpha/ceiling", json!(0)), "invalid value: integer `0`, expected a nonzero u32 at line 1 column 118"),
-        (with("/providers/alpha/ceiling", json!(-1)), "invalid value: integer `-1`, expected a nonzero u32 at line 1 column 119"),
-        (with("/providers/alpha/ceiling", json!(4_294_967_296_u64)), "invalid value: integer `4294967296`, expected a nonzero u32 at line 1 column 127"),
-        (with("/boxed_builds/ceiling", json!(0)), "invalid value: integer `0`, expected a nonzero u32 at line 1 column 28"),
+        (with("/providers/alpha/ceiling", json!(0)), "invalid value: integer `0`, expected a nonzero u32 at line 1 column 119"),
+        (with("/providers/alpha/ceiling", json!(-1)), "invalid value: integer `-1`, expected a nonzero u32 at line 1 column 120"),
+        (with("/providers/alpha/ceiling", json!(4_294_967_296_u64)), "invalid value: integer `4294967296`, expected a nonzero u32 at line 1 column 128"),
+        (with("/boxed_builds/ceiling", json!(0)), "invalid value: integer `0`, expected a nonzero u32 at line 1 column 29"),
         (unfloored, "missing field `floors` at line 1 column 124"),
         (with("/floors", json!([])), "no floor is declared at line 1 column 41"),
         (with("/floors/0/floor_bytes", json!(0)), "invalid value: integer `0`, expected a nonzero u64 at line 1 column 56"),
@@ -475,7 +477,7 @@ fn an_invalid_host_configuration_refuses_the_pass_naming_the_problem() {
         (with("/floors/0", json!({"floor_bytes": 1, "place": "temp", "size": 1})), "unknown field `size`, expected one of `floor_bytes`, `path`, `place` at line 1 column 78"),
         (twice(json!({"place": "temp"})), "the floor at place 'temp' is written twice at line 1 column 106"),
         (twice(json!({"path": "/var/tmp"})), "the floor at path '/var/tmp' is written twice at line 1 column 112"),
-        (with("/schema", json!("forge.host/v2")), "unknown variant `forge.host/v2`, expected `forge.host/v1` at line 1 column 178"),
+        (with("/schema", json!("forge.host/v3")), "unknown variant `forge.host/v3`, expected `forge.host/v1` or `forge.host/v2` at line 1 column 178"),
         (with("/providers/beta/routes", json!({"spark-glm": route(1, "local")})), "unknown variant `local`, expected `cloud` or `shared-local` at line 1 column 190"),
     ];
     let said: Vec<String> = cases
@@ -761,6 +763,42 @@ fn a_floor_waits_below_its_free_bytes_naming_it_and_admits_at_or_above() {
             "the filesystem at /var/tmp has 1023 bytes free, below its floor of 1024".to_string(),
         ]
     );
+}
+
+/// F1 (decision 0071 ruling 3; the operator's ruling of 2026-11-04,
+/// option A): the exact floor token `9007199254740993.0` is one past the
+/// last odd integer an `f64` can hold, so a reader that rounds lowers the
+/// floor to `...992` and admits at free `...992`. The guard must raise
+/// `FloorLow` naming the exact bytes the operator wrote, in v1 and v2
+/// alike.
+#[test]
+fn an_exact_integral_floor_token_keeps_the_admission_guard() {
+    let mut fixture = Fixture::new();
+    fixture.queue();
+    let file = fixture.root.join("host.json");
+    let probe = 9_007_199_254_740_992;
+    for schema in ["forge.host/v1", "forge.host/v2"] {
+        std::fs::write(
+            &file,
+            format!(
+                r#"{{"schema":"{schema}","providers":{{"alpha":{{"ceiling":1}},"beta":{{"ceiling":1,"routes":{{}}}}}},"floors":[{{"floor_bytes":9007199254740993.0,"place":"temp"}}],"boxed_builds":{{"ceiling":2}}}}"#
+            ),
+        )
+        .unwrap();
+        let reasons = fixture.reasons(&file, probe).remove(0);
+        assert_eq!(
+            reasons,
+            vec![Reason::Capacity(Capacity::FloorLow {
+                at: Measured::Place {
+                    place: Place::Temp,
+                    path: TEMP.into(),
+                },
+                free: probe,
+                floor: 9_007_199_254_740_993,
+            })],
+            "{schema}"
+        );
+    }
 }
 
 #[test]
@@ -1090,7 +1128,8 @@ fn a_bare_and_a_qualified_dsh_id_are_both_counted_against_the_route_dsh_serves_t
 
 #[test]
 fn a_running_lane_on_a_provider_the_host_does_not_declare_is_counted_as_cloud() {
-    let config: HostConfig = serde_json::from_value(ceilings(1, 1, json!({}))).unwrap();
+    let bytes = serde_json::to_vec(&ceilings(1, 1, json!({}))).unwrap();
+    let config: HostConfig = serde_json::from_slice(&bytes).unwrap();
     let lane = Lane {
         provider: "gamma".into(),
         route: Some("spark-glm".into()),
