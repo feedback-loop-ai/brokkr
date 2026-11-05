@@ -15,15 +15,57 @@ use crate::tests::envelope_builder::EnvelopeBuilder;
 use crate::tests::store;
 use crate::{Disagreement, Store};
 
-/// Every aggregate column of `run_id`'s row, in the row's order.
-fn kept(store: &Store, run_id: &str) -> Vec<Value> {
-    let names: Vec<&str> = COLUMNS.iter().map(|(name, _)| *name).collect();
+/// Every one of `columns` of `run_id`'s row, in their order.
+pub(in crate::summary) fn columns_of(
+    store: &Store,
+    run_id: &str,
+    columns: &[(&str, &str)],
+) -> Vec<Value> {
+    let names: Vec<&str> = columns.iter().map(|(name, _)| *name).collect();
     let select = format!(
         "SELECT {} FROM run_summary WHERE run_id = ?1",
         names.join(", ")
     );
     let read = |row: &rusqlite::Row<'_>| (0..names.len()).map(|at| row.get(at)).collect();
     store.conn.query_row(&select, [run_id], read).unwrap()
+}
+
+/// The journal at `path`, whose summary an older build made: a reader that
+/// cannot write finds it not intact and reads it whole rather than paging
+/// it, and then the repair a writable open makes.
+pub(in crate::summary) fn read_whole_then_repaired(path: &std::path::Path) {
+    let reader = Store::open_read_only(path).unwrap();
+    assert!(!summary_intact(&reader.conn).unwrap());
+    assert!(!reader.pages().unwrap(), "a reader reads it whole");
+    drop(reader);
+    migrate_summary(&rusqlite::Connection::open(path).unwrap()).unwrap();
+}
+
+/// Every aggregate column of `run_id`'s row, in the row's order.
+fn kept(store: &Store, run_id: &str) -> Vec<Value> {
+    columns_of(store, run_id, &COLUMNS)
+}
+
+/// The column ruling 4's comparison names as each of `columns` of run
+/// `r`'s row is edited off its fold's value in turn, and put back.
+pub(in crate::summary) fn each_edit_named(store: &Store, columns: &[(&str, &str)]) -> Vec<String> {
+    let held = columns_of(store, "r", columns);
+    let mut named = Vec::new();
+    for (at, (column, _)) in columns.iter().enumerate() {
+        let edit = format!("UPDATE run_summary SET {column} = ?1 WHERE run_id = 'r'");
+        let wrong = match &held[at] {
+            Value::Text(_) => text("edited"),
+            _ => Value::Integer(99),
+        };
+        store.conn.execute(&edit, [&wrong]).unwrap();
+        let found = store.summary_disagreements().unwrap();
+        named.extend(found.iter().map(|disagreement| match disagreement {
+            Disagreement::Column { column, .. } => column.to_string(),
+            other => format!("{other}"),
+        }));
+        store.conn.execute(&edit, [&held[at]]).unwrap();
+    }
+    named
 }
 
 fn text(value: &str) -> Value {
@@ -58,6 +100,16 @@ fn driven(store: &mut Store, run_id: &str, steps: &[(EventType, Json)]) -> (i64,
 /// A phase entered, its effect run, and a ruling from it to `next` by
 /// `rule`.
 fn turn(phase: &str, effect: &str, rule: &str, next: &str) -> Vec<(EventType, Json)> {
+    let ruling = json!({"from": phase, "result": "pass", "rule_id": rule, "next": next});
+    ruled_turn(phase, effect, ruling)
+}
+
+/// `phase` entered, its effect `effect` run, and `ruling` from it.
+pub(in crate::summary) fn ruled_turn(
+    phase: &str,
+    effect: &str,
+    ruling: Json,
+) -> Vec<(EventType, Json)> {
     vec![
         (EventType::PhaseEntered, json!({ "phase": phase })),
         (
@@ -72,10 +124,7 @@ fn turn(phase: &str, effect: &str, rule: &str, next: &str) -> Vec<(EventType, Js
             EventType::EffectSucceeded,
             json!({"effect_id": effect, "result": {"result": "pass"}}),
         ),
-        (
-            EventType::TransitionDecided,
-            json!({"from": phase, "result": "pass", "rule_id": rule, "next": next}),
-        ),
+        (EventType::TransitionDecided, ruling),
     ]
 }
 
@@ -101,24 +150,21 @@ fn each_append_keeps_the_aggregates_its_fold_states() {
     );
     let at = |ms: i64| Value::Integer(ms);
     let flags = [Value::Integer(1), Value::Integer(0), Value::Integer(1)];
-    let expected = |finished: Value, ending: &str, rule: Value, seq: i64| {
+    let expected = |finished: Value, rule: Value, seq: i64| {
         let mut columns = vec![text("alpha"), text("self"), at(started)];
-        columns.extend([finished, text(ending), rule, Value::Integer(2)]);
+        columns.extend([finished, rule, Value::Integer(2)]);
         columns.extend(flags.clone());
         columns.push(Value::Integer(seq));
         columns
     };
     let rule = text("IMPL-DONE");
-    assert_eq!(
-        kept(&store, "by-rule"),
-        expected(at(finished), "by_rule", rule, 18)
-    );
+    assert_eq!(kept(&store, "by-rule"), expected(at(finished), rule, 18));
     let (started, finished) = driven(
         &mut store,
         "shipped",
         &reworked(vec![ended(EventType::RunCompleted)]),
     );
-    let mut shipped = expected(at(finished), "shipped", Value::Null, 17);
+    let mut shipped = expected(at(finished), Value::Null, 17);
     shipped[2] = at(started);
     assert_eq!(kept(&store, "shipped"), shipped);
     let (started, finished) = driven(
@@ -126,7 +172,7 @@ fn each_append_keeps_the_aggregates_its_fold_states() {
         "by-operator",
         &reworked(vec![ended(EventType::RunStopped)]),
     );
-    let mut stopped = expected(at(finished), "by_operator", Value::Null, 17);
+    let mut stopped = expected(at(finished), Value::Null, 17);
     stopped[2] = at(started);
     assert_eq!(kept(&store, "by-operator"), stopped);
     let (started, _) = driven(&mut store, "open", &turn("implement", "i1", "R", "review"));
@@ -136,7 +182,6 @@ fn each_append_keeps_the_aggregates_its_fold_states() {
             text("alpha"),
             text("self"),
             at(started),
-            Value::Null,
             Value::Null,
             Value::Null,
             Value::Integer(1),
@@ -161,24 +206,8 @@ fn each_aggregate_column_that_is_not_its_fold_s_is_named() {
         "r",
         &reworked(vec![stop, (EventType::RunStopped, json!({}))]),
     );
-    let held = kept(&store, "r");
-    let mut named = Vec::new();
-    for (at, (column, _)) in COLUMNS.iter().enumerate() {
-        let edit = format!("UPDATE run_summary SET {column} = ?1 WHERE run_id = 'r'");
-        let wrong = match &held[at] {
-            Value::Text(_) => text("edited"),
-            _ => Value::Integer(99),
-        };
-        store.conn.execute(&edit, [&wrong]).unwrap();
-        let found = store.summary_disagreements().unwrap();
-        named.extend(found.iter().map(|disagreement| match disagreement {
-            Disagreement::Column { column, .. } => column.to_string(),
-            other => format!("{other}"),
-        }));
-        store.conn.execute(&edit, [&held[at]]).unwrap();
-    }
     let columns: Vec<&str> = COLUMNS.iter().map(|(name, _)| *name).collect();
-    assert_eq!(named, columns);
+    assert_eq!(each_edit_named(&store, &COLUMNS), columns);
     store
         .conn
         .execute("UPDATE run_summary SET ending_rule = 'IMPL-HELD'", [])
@@ -221,7 +250,7 @@ fn a_writer_from_before_the_aggregates_sends_its_row_behind() {
     drop(store);
     let store = Store::open(&path).unwrap();
     assert_eq!(lane(&store, "r").as_deref(), Some("running"));
-    assert_eq!(kept(&store, "r")[10], Value::Integer(7));
+    assert_eq!(kept(&store, "r")[9], Value::Integer(7));
     let stamped = "UPDATE run_summary SET folded_hash = head_hash, aggregated_seq = head_seq";
     store.conn.execute(stamped, []).unwrap();
     assert_eq!(lane(&store, "r").as_deref(), Some("running"));
@@ -266,7 +295,7 @@ fn a_repairing_aggregate_trigger_refolds_the_heads_it_missed() {
              WHERE run_id = 'r'",
         )
         .unwrap();
-    assert_eq!(kept(&store, "r")[10], Value::Integer(head as i64));
+    assert_eq!(kept(&store, "r")[9], Value::Integer(head as i64));
     lags(&mut store, &["r"]);
     let path = store.path().to_path_buf();
     // A read that does not repair sees the row behind rather than at its
@@ -283,7 +312,6 @@ fn a_repairing_aggregate_trigger_refolds_the_heads_it_missed() {
             text("self"),
             Value::Integer(started),
             Value::Integer(1767225609000),
-            text("by_operator"),
             Value::Null,
             Value::Integer(1),
             Value::Integer(0),
@@ -311,11 +339,7 @@ fn a_summary_from_before_the_aggregates_is_made_anew_and_refolded() {
         .execute_batch("ALTER TABLE run_summary DROP COLUMN review_back")
         .unwrap();
     drop(older);
-    let reader = Store::open_read_only(&path).unwrap();
-    assert!(!summary_intact(&reader.conn).unwrap());
-    assert!(!reader.pages().unwrap());
-    drop(reader);
-    migrate_summary(&rusqlite::Connection::open(&path).unwrap()).unwrap();
+    read_whole_then_repaired(&path);
     let remade = Store::open_read_only(&path).unwrap();
     assert!(summary_intact(&remade.conn).unwrap());
     assert!(!remade.pages().unwrap());

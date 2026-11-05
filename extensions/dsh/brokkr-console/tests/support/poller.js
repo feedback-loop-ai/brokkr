@@ -91,10 +91,10 @@ export async function refusedHint(journal) {
   return { run, page: openedPage(fleetOf(world), run, 'Project Alpha'), brokkr }
 }
 /** A paged `brokkr runs --json`: one window and where the next page starts, as Brokkr states both. */
-export const windowOf = (runs, next = null) => ({ view_version: 28, runs, count: runs.length, next, behind: 0 })
+export const windowOf = (runs, next = null) => ({ view_version: 29, runs, count: runs.length, next, behind: 0 })
 
 /** `brokkr runs --json --run <id>`: the same page wire, holding that run's one row. */
-export const oneRow = (row) => ({ view_version: 28, runs: [row], count: 1 })
+export const oneRow = (row) => ({ view_version: 29, runs: [row], count: 1 })
 
 /** `brokkr realms --json` for `names`, each in `journalOf(name)`'s journal (its own unless told otherwise). */
 export const realmsDoc = (names, journalOf = (name) => `/hearths/${name}/forge.db`) => ({

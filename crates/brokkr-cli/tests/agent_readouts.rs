@@ -240,6 +240,8 @@ fn a_run_off_a_terminal_prints_what_it_always_has() {
   },
   "cursor": "Idle",
   "detail": null,
+  "ending": "shipped",
+  "ending_cited": null,
   "feature": "readouts",
   "last_decision": {
     "from": "review",
@@ -256,8 +258,9 @@ fn a_run_off_a_terminal_prints_what_it_always_has() {
   "seq": 19,
   "standing": "shipped",
   "status": "completed",
-  "status_word": "completed",
-  "strategy": null
+  "status_word": "shipped",
+  "strategy": null,
+  "wants": null
 }
 "#;
     let golden = (summary.to_string(), "run started: <run>\n".to_string());

@@ -215,7 +215,7 @@ your host's places elided.
 
 ```
 $ brokkr runs
-prefix-selectors-for-the-read-su-… completed done seq 51 …s prefix…
+prefix-selectors-for-the-read-su-… shipped done seq 51 …s prefix…
 ```
 
 In a world of many hearths, the same listing is grouped by realm — each
@@ -227,7 +227,7 @@ alpha · 1 run · ./a/.brokkr/state/forge.db
 many-hearths-8bf6d692 running implement seq 12 3s many hearths…
 
 beta · 1 run · ./b/.brokkr/state/forge.db
-the-other-slice-1a2b3c4d completed done seq 40 9m the other sli…
+the-other-slice-1a2b3c4d shipped done seq 40 9m the other sli…
 ```
 
 ### `brokkr analytics` — what the runs did
@@ -344,7 +344,7 @@ became.
 ```
 $ brokkr inspect --run latest
 run  prefix-selectors-for-the-read-su-…
-     completed · phase done · seq 51
+     shipped · phase done · seq 51
      boundary …
 ruling  SHIP-COMPLETE  ship → done · shipped
 
@@ -603,7 +603,7 @@ these frames are what a pipe, `--once` or `--no-view` prints.
 $ brokkr watch --run latest
 ── 2026-08-29T22:27:40.474827119Z ──
 run  prefix-selectors-for-the-read-su-8bf6d692
-     completed · phase done · seq 38
+     shipped · phase done · seq 38
      boundary namespace
 ruling  SHIP-COMPLETE  ship → done · shipped
 
@@ -849,7 +849,7 @@ journal and in every readout, marked:
 ```
 $ brokkr inspect --run decision-0040-the-model-s-hands--96398324
 run  decision-0040-the-model-s-hands--96398324
-     stopped · phase review · seq 191
+     unclassified · phase review · seq 191
 ruling  REVIEW-SECURITY-HOLD  review → ?
         security residual above the shipping bar
         superseded at seq 191 by decision-0040-the-model-s-hands--415a7840 seq 214 · operator · both residuals fixed and shipped at 77c3099

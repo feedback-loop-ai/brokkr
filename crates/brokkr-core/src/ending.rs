@@ -10,7 +10,7 @@
 //! the ruling that ended the run; and the reading of a run's events its
 //! ruling 5 carries, which gives a terminal run its ending.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;
 use thiserror::Error;
 
@@ -77,8 +77,10 @@ pub enum Tone {
 }
 
 /// What an ending asks the operator for, when it asks for anything
-/// (ruling 6): the two that the header counts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// (ruling 6): the two that the header counts, worded `ruling` and
+/// `action` on the wire.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Wants {
     Ruling,
     Action,
@@ -94,6 +96,13 @@ pub struct UnknownEnding {
 /// The twelve words, in ruling 2's order, as a refusal lists them.
 fn vocabulary() -> String {
     Ending::ALL.map(Ending::word).join(", ")
+}
+
+/// An ending goes on the wire as its [`Ending::word`], the one spelling.
+impl Serialize for Ending {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.word())
+    }
 }
 
 impl Ending {
@@ -136,6 +145,24 @@ impl Ending {
     pub fn named(word: &str) -> Result<Ending, UnknownEnding> {
         let named = Ending::ALL.into_iter().find(|ending| ending.word() == word);
         named.ok_or_else(|| UnknownEnding { word: word.into() })
+    }
+
+    /// The fold status it implies (ruling 6): `completed` for the two
+    /// shipped endings, `stopped` for every other.
+    pub const fn status(self) -> Status {
+        match self {
+            Ending::Shipped | Ending::ShippedFlagged => Status::Completed,
+            Ending::Refused
+            | Ending::Failed
+            | Ending::Blocked
+            | Ending::Exhausted
+            | Ending::Superseded
+            | Ending::Infrastructure
+            | Ending::DeliveredElsewhere
+            | Ending::Withdrawn
+            | Ending::OperatorStopped
+            | Ending::Unclassified => Status::Stopped,
+        }
     }
 
     /// Its tone class (ruling 6's table).
@@ -271,8 +298,10 @@ fn rows() -> [Row; 6] {
     ]
 }
 
-/// What a terminal run's ending cites.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// What a terminal run's ending cites, on the wire as `{"run": {"realm",
+/// "run_id"}}` or `{"ref": …}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Citation {
     /// The run that replaced a `superseded` one, in the realm named when
     /// one is.
@@ -290,6 +319,19 @@ pub enum Citation {
 pub struct Ended {
     pub ending: Ending,
     pub cited: Option<Citation>,
+}
+
+/// A terminal run's ending as its summary row keeps it (addendum choice
+/// 5): the ending with its citation, and whether it stood over an earlier
+/// one, which ruling 5's view says.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Closing {
+    pub ended: Ended,
+    /// Whether the ending is a `classify` annotation's that stood over an
+    /// earlier ending: an earlier annotation's, the cause the accepted
+    /// stop named, or the policy table's. `unclassified` is the absence
+    /// of an ending, so an annotation over it alone stands over nothing.
+    pub stood_over: bool,
 }
 
 /// The `args` of one `operator/commanded` with `command: "classify"`
@@ -430,6 +472,8 @@ pub(crate) struct Reading {
     /// names none, as every stop before decision 0064 slice E3 did.
     stopped: Option<Ended>,
     classified: Option<Ended>,
+    /// Whether a readable `classify` came before the latest one.
+    reclassified: bool,
 }
 
 impl Reading {
@@ -442,7 +486,7 @@ impl Reading {
             let named = payload.get("args").and_then(operator_ending);
             if command == Some(CLASSIFY) {
                 if let Some(classified) = named {
-                    self.classified = Some(classified);
+                    self.reclassified = self.classified.replace(classified).is_some();
                 }
             } else if command == Some(OperatorCommand::Stop.as_str()) {
                 self.commanded_stop = command_id.map(|id| (id.to_string(), named));
@@ -468,35 +512,58 @@ impl Reading {
     }
 
     /// The ending the reading and `state`, the run's fold at the same
-    /// head, give the run, once its fold states it is over.
-    pub(crate) fn of(&self, state: &RunState) -> Option<Ended> {
+    /// head, give the run once its fold states it is over, and whether it
+    /// stood over an earlier one: the one derivation every summary row,
+    /// page and whole read takes (addendum choice 5).
+    pub(crate) fn closing(&self, state: &RunState) -> Option<Closing> {
         match state.run.status() {
             Status::Running | Status::AwaitingOperator => None,
             // Ruling 6: `shipped`/`shipped-flagged` imply `completed`, so
             // no operator cause can stand here; `classify` refuses a
             // completed run rather than journaling an unread annotation.
-            Status::Completed => Some(Ended {
-                ending: Ending::completed(self.last_review),
-                cited: None,
+            Status::Completed => Some(Closing {
+                ended: Ended {
+                    ending: Ending::completed(self.last_review),
+                    cited: None,
+                },
+                stood_over: false,
             }),
             // A later `classify` stands over an earlier one (ruling 5),
             // over the cause the closing stop named, and over the closure
             // the operator did not type.
-            Status::Stopped if self.classified.is_some() => self.classified.clone(),
-            Status::Stopped if self.stopped.is_some() => self.stopped.clone(),
-            Status::Stopped if state.phase.as_deref() == Some(STOP) => {
-                let ruling = state.last_decision.as_ref();
-                Some(Ended {
-                    ending: ruling.map_or(Ending::Unclassified, |it| {
-                        Ending::ruled(&it.from, &it.result)
-                    }),
-                    cited: None,
+            Status::Stopped => {
+                let beneath = self.beneath(state);
+                Some(match &self.classified {
+                    Some(classified) => Closing {
+                        ended: classified.clone(),
+                        stood_over: self.reclassified || beneath.ending != Ending::Unclassified,
+                    },
+                    None => Closing {
+                        ended: beneath,
+                        stood_over: false,
+                    },
                 })
             }
-            Status::Stopped => Some(Ended {
-                ending: Ending::Unclassified,
-                cited: None,
+        }
+    }
+
+    /// The ending a stopped run reads beneath any `classify`: the cause
+    /// its accepted stop names, else the policy table's when its hard stop
+    /// stopped the run, else `unclassified`.
+    fn beneath(&self, state: &RunState) -> Ended {
+        if let Some(stopped) = &self.stopped {
+            return stopped.clone();
+        }
+        let ruling = state.last_decision.as_ref();
+        let ending = match state.phase.as_deref() == Some(STOP) {
+            true => ruling.map_or(Ending::Unclassified, |it| {
+                Ending::ruled(&it.from, &it.result)
             }),
+            false => Ending::Unclassified,
+        };
+        Ended {
+            ending,
+            cited: None,
         }
     }
 }
@@ -513,11 +580,20 @@ impl Reading {
 /// 0064 slice E3); and `unclassified` when it carries neither, as every
 /// stop journaled before E3 does.
 pub fn ended(events: &[EventEnvelope], state: &RunState) -> Option<Ended> {
+    closing(events, state).map(|closing| closing.ended)
+}
+
+/// [`ended`], and whether the ending stood over an earlier one
+/// ([`Closing::stood_over`]): what a run read whole states of its ending,
+/// as its summary row keeps it. `events` need hold only the run's
+/// rulings and operator commands and acceptances, which are all the
+/// reading reads.
+pub fn closing(events: &[EventEnvelope], state: &RunState) -> Option<Closing> {
     let mut reading = Reading::default();
     for event in events {
         reading.note(event);
     }
-    reading.of(state)
+    reading.closing(state)
 }
 
 #[cfg(test)]

@@ -39,6 +39,7 @@ use std::collections::{HashMap, HashSet};
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
+use brokkr_core::ending::{closing, Closing};
 use brokkr_core::fold::{fold_onto, RunState};
 use brokkr_core::{EventEnvelope, EventType};
 use brokkr_store::{Store, StoreError};
@@ -161,7 +162,7 @@ impl KeptFleet {
                     },
                     run.last_recorded_at.as_deref(),
                     state,
-                    &run.residuals,
+                    (&run.residuals, run.closing.clone()),
                 )
             })
             .collect()
@@ -270,10 +271,12 @@ struct KeptRun {
     /// other event, which is what the fleet dates a run by.
     last_recorded_at: Option<String>,
     read: Read,
-    /// The events [`brokkr_view::residual_findings`] reads (see
-    /// [`rules`]), and no others.
+    /// The events [`brokkr_view::residual_findings`] and the ending's
+    /// reading read (see [`rules`]), and no others.
     rulings: Vec<EventEnvelope>,
     residuals: Vec<brokkr_view::ResidualFinding>,
+    /// Its ending, read from `rulings` at the fold's head (decision 0064).
+    closing: Option<Closing>,
 }
 
 /// How far a kept run has been read.
@@ -311,6 +314,7 @@ impl KeptRun {
             },
             rulings: Vec::new(),
             residuals: Vec::new(),
+            closing: None,
         };
         let read = events.len();
         (run.ruled_by(run_id, events), read)
@@ -359,13 +363,21 @@ impl KeptRun {
     }
 
     /// The run with what `events` adds to its rulings, its residual
-    /// findings derived again when they added any.
+    /// findings derived again when they added any, and its ending read
+    /// again when any event landed.
     fn ruled_by(mut self, run_id: &str, events: Vec<EventEnvelope>) -> KeptRun {
         let before = self.rulings.len();
+        let landed = !events.is_empty();
         self.rulings
             .extend(events.into_iter().filter(|event| rules(event.event_type)));
         if self.rulings.len() > before {
             self.residuals = brokkr_view::residual_findings(run_id, &self.rulings);
+        }
+        if landed {
+            self.closing = match &self.read {
+                Read::Folded(state) => closing(&self.rulings, state),
+                Read::Refused { .. } => None,
+            };
         }
         self
     }
@@ -396,14 +408,19 @@ fn lasting(error: &StoreError) -> bool {
     }
 }
 
-/// Whether [`brokkr_view::residual_findings`] reads an event of this
-/// type: the rulings its findings are read from, and the operator's
-/// commands that supersede them. Matched exhaustively, so a new event
-/// type is decided here rather than silently dropped; the kept tests hold
-/// it to the derivation over a journal of every type.
+/// Whether [`brokkr_view::residual_findings`] or the ending's reading
+/// (`brokkr_core::ending::closing`) reads an event of this type: the
+/// rulings the findings and a completed run's ending are read from, the
+/// operator's commands that supersede a finding, name a stop's cause or
+/// classify a run, and the acceptance that makes a stop's cause the
+/// run's. Matched exhaustively, so a new event type is decided here
+/// rather than silently dropped; the kept tests hold it to the derivation
+/// over a journal of every type.
 pub(super) fn rules(event_type: EventType) -> bool {
     match event_type {
-        EventType::TransitionDecided | EventType::OperatorCommanded => true,
+        EventType::TransitionDecided
+        | EventType::OperatorCommanded
+        | EventType::OperatorAccepted => true,
         EventType::RunStarted
         | EventType::PhaseEntered
         | EventType::EffectRequested
@@ -412,7 +429,6 @@ pub(super) fn rules(event_type: EventType) -> bool {
         | EventType::EffectSucceeded
         | EventType::EffectFailed
         | EventType::EffectIndeterminate
-        | EventType::OperatorAccepted
         | EventType::OperatorRejected
         | EventType::RunParked
         | EventType::RunCompleted

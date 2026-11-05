@@ -368,7 +368,7 @@ pub(crate) fn replay(
             "events": events.len(),
             "chain": "verified",
             "replay": "deterministic",
-            "state": summarize(&state),
+            "state": summarize(&state, &events),
         }))?
     );
     Ok(Exit::Completed.into())

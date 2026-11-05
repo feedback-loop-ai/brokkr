@@ -164,6 +164,7 @@ fn runs_view() -> brokkr_view::RunsView {
             state: Some(&older),
             detail: None,
             residuals: &[],
+            closing: None,
         },
         brokkr_view::RunEntry {
             run_id: "run-7",
@@ -173,6 +174,7 @@ fn runs_view() -> brokkr_view::RunsView {
             state: Some(&newer),
             detail: None,
             residuals: &[],
+            closing: None,
         },
     ];
     brokkr_view::run_rows(&entries)
@@ -206,6 +208,7 @@ fn fleet_view() -> brokkr_view::FleetView {
         state: Some(&running),
         detail: None,
         residuals: &[],
+        closing: None,
     }];
     let beta = [
         brokkr_view::RunEntry {
@@ -216,6 +219,7 @@ fn fleet_view() -> brokkr_view::FleetView {
             state: Some(&running),
             detail: None,
             residuals: &[],
+            closing: None,
         },
         brokkr_view::RunEntry {
             run_id: "run-b2",
@@ -225,6 +229,7 @@ fn fleet_view() -> brokkr_view::FleetView {
             state: Some(&running),
             detail: None,
             residuals: &[],
+            closing: None,
         },
     ];
     brokkr_view::fleet_rows(&[
@@ -377,6 +382,7 @@ fn a_hostile_feature_and_result_token_render_as_inert_text() {
         state: Some(&hostile),
         detail: None,
         residuals: &[],
+        closing: None,
     }];
     let rows = brokkr_view::run_rows(&entries);
     let out = runs(&rows, NOW, &Style::plain(80));
@@ -475,6 +481,7 @@ fn a_multibyte_feature_truncates_on_a_char_boundary() {
         state: Some(&running),
         detail: None,
         residuals: &[],
+        closing: None,
     }];
     let out = runs(&brokkr_view::run_rows(&entries), NOW, &Style::plain(40));
     assert!(out.ends_with("…\n"), "{out:?}");
@@ -521,6 +528,7 @@ fn a_run_whose_journal_does_not_fold_still_lists() {
         state: None,
         detail: None,
         residuals: &[],
+        closing: None,
     }];
     let out = runs(&brokkr_view::run_rows(&entries), NOW, &Style::plain(80));
     assert_eq!(out, "r1 ? - seq - — unfoldable\n");
@@ -545,6 +553,7 @@ fn a_quarantined_row_prints_the_fold_error_under_itself() {
                  EffectInFlight\r\x1b[2Jforged",
             )),
             residuals: &[],
+            closing: None,
         },
         brokkr_view::RunEntry {
             run_id: "healthy",
@@ -554,6 +563,7 @@ fn a_quarantined_row_prints_the_fold_error_under_itself() {
             state: Some(&healthy),
             detail: None,
             residuals: &[],
+            closing: None,
         },
     ];
     let out = runs(&brokkr_view::run_rows(&entries), NOW, &Style::plain(120));
@@ -594,6 +604,7 @@ fn an_acknowledged_row_prints_its_acknowledgement_under_its_refusal() {
                 .in_words("event 539: event after terminal status")
         }),
         residuals: &[],
+        closing: None,
     }];
     let out = runs(&brokkr_view::run_rows(&entries), NOW, &Style::plain(120));
     let lines: Vec<&str> = out.lines().collect();

@@ -294,12 +294,12 @@ pub(crate) fn dossier_of(
                 }
             };
             let view = brokkr_view::run_view(&events, Some(&state));
-            let summary = view
-                .summary
-                .as_ref()
-                .expect("a folded state always summarizes");
+            let summary = view.summary.as_ref().expect("a folded state summarizes");
             let admits = brokkr_view::operator_commands(&state);
-            *counts.entry(summary.status_word().to_string()).or_default() += 1;
+            // Until 0064's E6 moves Muninn to the ending, a finished run is the fold's word.
+            let (ending, word) = (summary.ending, summary.status_word());
+            let status = ending.map_or(word, |_| &summary.status);
+            *counts.entry(status.to_string()).or_default() += 1;
             facts.push((realm.clone(), run_id.clone(), summary.seq));
             // First hearth wins, matching [`Dossier::realm_of`]: where
             // two journals hold one run id, one answer is stated for it
@@ -336,7 +336,7 @@ pub(crate) fn dossier_of(
                 run_id,
                 seats,
                 seq: summary.seq,
-                status: summary.status_word().to_string(),
+                status: status.to_string(),
             }));
         }
     }

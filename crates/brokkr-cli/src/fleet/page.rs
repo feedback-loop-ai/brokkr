@@ -574,6 +574,7 @@ fn unread_row(store: &Store, unread: &Unread) -> Result<(RunRow, usize), StoreEr
         }
         RowRefusal::Status(_)
         | RowRefusal::Severity(_)
+        | RowRefusal::Ending(_)
         | RowRefusal::Column(_)
         | RowRefusal::Residuals(_) => read_whole(store, &unread.run_id),
     }
@@ -638,6 +639,7 @@ fn past_bound(run_id: &str, order_at: i64, why: &RowRefusal) -> RunRow {
         state: None,
         detail: Some(brokkr_view::Quarantine::DoesNotLoad.in_words(&words)),
         residuals: &[],
+        closing: None,
     });
     row.order_at = order_at;
     row.paged_at = Some((order_at, run_id.to_string()));

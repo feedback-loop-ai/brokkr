@@ -6,6 +6,7 @@
 
 use std::cmp::Reverse;
 
+use crate::ending::Closing;
 use crate::fold::Status;
 use crate::policy::Severity;
 use crate::summary::{Bounded, Hired, Refused, Ruled, Stated};
@@ -110,6 +111,11 @@ pub struct Row {
     /// The acknowledgement standing at that head, as the row's copy cuts
     /// it, while the fold refuses the run.
     pub acknowledged: Option<Copied>,
+    /// The run's ending once it is over, as the writer read it at that
+    /// head (decision 0064), each part of its citation cut to
+    /// [`crate::summary::CITATION_BYTES`] until [`Whole`] is read for the
+    /// row, which completes it.
+    pub closing: Option<Closing>,
 }
 
 /// An acknowledgement's words as its trigger copies them onto the row,

@@ -108,6 +108,7 @@ pub(super) fn fleet_to_act_on() -> Views {
         state,
         detail: None,
         residuals,
+        closing: None,
     };
     let mut broken = entry(
         "journal-that-broke-7f8e9d0c",
@@ -167,6 +168,7 @@ pub(super) fn fleet_with_a_dead_run() -> Views {
         state: Some(&landing),
         detail: None,
         residuals: &[],
+        closing: None,
     };
     let mut views = fleet_to_act_on();
     let row = brokkr_view::run_rows(&[dead]).runs.remove(0);
@@ -368,6 +370,7 @@ fn a_title_is_clamped_as_it_is_painted_once_its_joiners_are_stripped() {
         state: Some(&state),
         detail: None,
         residuals: &[],
+        closing: None,
     };
     let mut views = Views::empty();
     views.now = NOW.to_string();
@@ -575,6 +578,7 @@ fn the_detail_pane_scrolls_a_one_paragraph_feature_to_its_last_line() {
         state: Some(&running),
         detail: None,
         residuals: &[],
+        closing: None,
     }]);
     let mut tui = Tui::new(None);
     tui.cursor[0] = Some("one-paragraph-0a1b2c3d".to_string());
@@ -734,6 +738,7 @@ fn a_stopping_run_wears_its_mark_and_its_detail_names_the_way_out() {
         state: Some(&stopping),
         detail: None,
         residuals: &[],
+        closing: None,
     };
     let mut views = fleet_to_act_on();
     let row = brokkr_view::run_rows(&[entry]).runs.remove(0);
@@ -772,6 +777,7 @@ fn every_way_out_names_a_command_brokkr_parses_and_the_run_admits() {
         state: None,
         detail: Some(Quarantine::DoesNotLoad.in_words("hash chain broken at seq 3")),
         residuals: &[],
+        closing: None,
     };
     views
         .runs
@@ -1284,6 +1290,7 @@ fn the_staleness_bound_is_the_longest_shipped_deadline_and_an_hour() {
             state: Some(&running),
             detail: None,
             residuals: &[],
+            closing: None,
         };
         entry.last_recorded_at = Some(last);
         let row = brokkr_view::run_rows(&[entry]).runs.remove(0);

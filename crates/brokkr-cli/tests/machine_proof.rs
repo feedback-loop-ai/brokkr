@@ -1473,7 +1473,7 @@ fn runs_lists_completed_run_with_status_and_phase() {
     assert_eq!(human.lines().count(), 1, "one line per run: {human}");
     let line = human.lines().next().unwrap();
     assert!(line.starts_with(&run_id), "{line}");
-    assert!(line.contains("completed"), "{line}");
+    assert!(line.contains("shipped"), "{line}");
     assert!(line.contains("done"), "{line}");
     assert!(!human.contains("1 runs"), "the trailer moved to --json");
 }

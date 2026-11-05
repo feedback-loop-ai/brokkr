@@ -487,8 +487,8 @@ fn compiled_view(bundle: &Bundle, world: Option<&World>) -> Value {
     view
 }
 
-fn summarize(state: &RunState) -> Value {
-    json!(brokkr_view::summary(state))
+fn summarize(state: &RunState, events: &[brokkr_core::EventEnvelope]) -> Value {
+    json!(brokkr_view::summary(state, events))
 }
 
 /// Drive a started run to its ending. The start first reaps the scratch
@@ -511,13 +511,13 @@ fn drive_to_end(
     for gap in &end.gaps {
         eprintln!("{gap}");
     }
-    Ok(finish(&end.state))
+    Ok(finish(&end.state, &engine.store.load(&end.state.run_id)?))
 }
 
-fn finish(state: &RunState) -> ExitCode {
+fn finish(state: &RunState, events: &[brokkr_core::EventEnvelope]) -> ExitCode {
     println!(
         "{}",
-        serde_json::to_string_pretty(&summarize(state)).unwrap()
+        serde_json::to_string_pretty(&summarize(state, events)).unwrap()
     );
     Exit::of_status(&state.run.status()).into()
 }

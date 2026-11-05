@@ -237,7 +237,7 @@ fn a_one_hearth_listing_a_page_of_which_will_not_read_is_refused_in_the_stores_w
 
 /// [`world`] as `brokkr runs --json` prints it.
 const WORLD_JSON: &str = r#"{
-  "view_version": 28,
+  "view_version": 29,
   "realms": [
     {
       "realm": "alpha",
@@ -248,6 +248,9 @@ const WORLD_JSON: &str = r#"{
           "status": null,
           "status_known": false,
           "status_word": "?",
+          "ending": null,
+          "ending_cited": null,
+          "wants": "action",
           "phase": null,
           "seq": null,
           "created_at": "2026-01-01T00:00:00Z",
@@ -273,6 +276,9 @@ const WORLD_JSON: &str = r#"{
           "status": "awaiting_operator",
           "status_known": true,
           "status_word": "awaiting_operator",
+          "ending": null,
+          "ending_cited": null,
+          "wants": "ruling",
           "phase": "review",
           "seq": 7,
           "created_at": "2026-01-01T00:00:00Z",
@@ -309,6 +315,9 @@ const WORLD_JSON: &str = r#"{
           "status": "running",
           "status_known": true,
           "status_word": "running",
+          "ending": null,
+          "ending_cited": null,
+          "wants": null,
           "phase": null,
           "seq": 1,
           "created_at": "2026-01-01T00:00:00Z",
@@ -333,7 +342,10 @@ const WORLD_JSON: &str = r#"{
           "run_id": "done-a",
           "status": "completed",
           "status_known": true,
-          "status_word": "completed",
+          "status_word": "shipped",
+          "ending": "shipped",
+          "ending_cited": null,
+          "wants": null,
           "phase": null,
           "seq": 2,
           "created_at": "2026-01-01T00:00:00Z",
@@ -374,6 +386,9 @@ const WORLD_JSON: &str = r#"{
           "status": "running",
           "status_known": true,
           "status_word": "running",
+          "ending": null,
+          "ending_cited": null,
+          "wants": null,
           "phase": "review",
           "seq": 6,
           "created_at": "2026-01-01T00:00:00Z",
@@ -420,7 +435,7 @@ refused-a ?                 -      seq - 7008h00m feat
   fold  event 2: operator/accepted without a matching command
 park-a    awaiting_operator review seq 7 7008h00m feat
 fresh-a   running           -      seq 1 7008h00m feat
-done-a    completed         -      seq 2 7008h00m feat
+done-a    shipped           -      seq 2 7008h00m feat
 
 beta · 0 runs · <dir>/beta.db
   journal  sqlite: unable to open database file: <dir>/beta.db

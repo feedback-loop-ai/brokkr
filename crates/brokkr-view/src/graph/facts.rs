@@ -11,7 +11,7 @@ use brokkr_core::{EventEnvelope, EventType};
 use serde::Deserialize;
 
 use super::GraphQuery;
-use crate::analytics::{in_range, is_open, Ending, Window};
+use crate::analytics::{in_range, is_open, Finished, Window};
 use crate::attempts::{attempts, Attempts};
 use crate::clarify::{pins, Pins};
 use crate::{field, title, RuleSeverity};
@@ -38,7 +38,7 @@ pub(super) struct GraphRun {
     pub(super) run_id: String,
     pub(super) label: String,
     pub(super) started: Option<i64>,
-    pub(super) finished: Option<(i64, Ending)>,
+    pub(super) finished: Option<Finished>,
     pub(super) open: bool,
     /// The state the fold leaves the run in.
     pub(super) state: Option<String>,
@@ -128,7 +128,7 @@ impl Scoped {
                 };
                 let finished = read.finished;
                 let open = is_open(state);
-                let ended = finished.as_ref().map(|(at, _)| *at);
+                let ended = finished.as_ref().map(|finished| finished.at);
                 if carried == query.recipe && in_range(ended, open, window) {
                     scoped.runs.push(GraphRun {
                         run_id: first.run_id.clone(),

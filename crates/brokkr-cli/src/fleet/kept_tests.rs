@@ -790,3 +790,34 @@ fn the_kept_rulings_are_what_the_residual_findings_read() {
     let mark = whole[0].superseded.as_ref().map(|mark| mark.seq);
     assert_eq!(mark, Some(10), "and marked by the command");
 }
+
+/// Decision 0064: a kept run reads its ending from its kept rulings as
+/// the whole read reads it from every event, the accepted stop's cause
+/// and citation included, which only its acceptance makes the run's.
+#[test]
+fn a_kept_run_reads_the_ending_its_whole_read_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    running_store(&db, "r1");
+    let mut kept = KeptFleet::default();
+    refreshed(&mut kept, &db);
+    let cause = json!({"cause": "superseded", "by": {"realm": null, "run_id": "later"}});
+    let stop = json!({"command_id": "s", "command": "stop", "operator": "op", "args": cause});
+    append(&db, "r1", EventType::OperatorCommanded, stop);
+    let accepted = json!({"command_id": "s", "operator": "op", "reason": "replaced"});
+    append(&db, "r1", EventType::OperatorAccepted, accepted);
+    append(&db, "r1", EventType::RunStopped, json!({}));
+    assert_eq!(refreshed(&mut kept, &db), 3, "carried, not read whole");
+    assert_eq!(kept_rows(&kept), whole_rows(&db));
+    let entries = kept.entries();
+    let ended = entries[0].closing.as_ref().map(|closing| &closing.ended);
+    let cited = brokkr_core::ending::Citation::Run {
+        realm: None,
+        run_id: "later".into(),
+    };
+    let read = ended.map(|ended| (ended.ending, ended.cited.clone()));
+    assert_eq!(
+        read,
+        Some((brokkr_core::ending::Ending::Superseded, Some(cited)))
+    );
+}

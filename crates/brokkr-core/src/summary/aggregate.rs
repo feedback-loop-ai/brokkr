@@ -12,6 +12,7 @@
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::ending::{closing, Closing, Ending};
 use crate::envelope::{EventEnvelope, EventType};
 use crate::fold::{RunState, Status};
 use crate::policy::audit::STOP;
@@ -21,16 +22,23 @@ use crate::stamp::parse_millis;
 /// The phase whose visits count a run's rework.
 const IMPLEMENT_PHASE: &str = "implement";
 
-/// How a finished run ended.
+/// When and how a finished run ended: its last terminal event's time, its
+/// ending (decision 0064), and the policy table's hard stop where that is
+/// what stopped it, which the `ending_rule` column keeps.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Ending {
-    /// It completed.
-    Shipped,
-    /// The policy table's hard stop stopped it, by the rule its last
-    /// ruling names, when it names one.
-    ByRule(Option<String>),
-    /// An operator stopped it anywhere else.
-    ByOperator,
+pub struct Finished {
+    pub at: i64,
+    pub ending: Ending,
+    /// `None` for a run that completed and for one an operator stopped
+    /// anywhere else, whatever a later `classify` names.
+    pub hard_stop: Option<HardStop>,
+}
+
+/// The policy table's hard stop that stopped a run: the rule its last
+/// ruling names, when it names one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HardStop {
+    pub rule: Option<String>,
 }
 
 /// What the aggregate readouts read of one run, its names whole: the
@@ -43,8 +51,8 @@ pub struct Aggregate {
     pub recipe: Option<String>,
     /// Its first event's time.
     pub started_ms: Option<i64>,
-    /// Its last terminal event's time, and how it ended, once it has.
-    pub finished: Option<(i64, Ending)>,
+    /// When and how it ended, once it has and that event's stamp parses.
+    pub finished: Option<Finished>,
     pub implement_visits: u64,
     /// Whether its first ruling from review sent it back to a phase it
     /// had entered,
@@ -154,15 +162,20 @@ impl Reading {
         });
     }
 
-    /// What the reading and `state`, the run's fold at the same head,
-    /// say of the run.
-    pub(crate) fn of(&self, state: Option<&RunState>) -> Aggregate {
-        let ended = state.and_then(ending);
+    /// What the reading and `state`, the run's fold at the same head, say
+    /// of the run, `closing` its ending as [`crate::ending::closing`]
+    /// reads it at that head.
+    pub(crate) fn of(&self, state: Option<&RunState>, closing: Option<&Closing>) -> Aggregate {
+        let finished = self.terminal.flatten().zip(state.zip(closing));
         Aggregate {
             realm: self.realm.clone(),
             recipe: self.recipe.clone(),
             started_ms: self.started_ms,
-            finished: self.terminal.flatten().zip(ended),
+            finished: finished.map(|(at, (state, closing))| Finished {
+                at,
+                ending: closing.ended.ending,
+                hard_stop: hard_stop(state),
+            }),
             implement_visits: state
                 .and_then(|state| state.visits.get(IMPLEMENT_PHASE).copied())
                 .unwrap_or(0),
@@ -173,19 +186,16 @@ impl Reading {
     }
 }
 
-/// How the run ended, while its fold states it has: completed, stopped at
-/// the table's hard stop, or stopped by an operator anywhere else.
-fn ending(state: &RunState) -> Option<Ending> {
-    let rule = || {
-        let decision = state.last_decision.as_ref();
-        decision.and_then(|decision| decision.rule_id.present().cloned())
-    };
-    match state.run.status() {
-        Status::Completed => Some(Ending::Shipped),
-        Status::Stopped if state.phase.as_deref() == Some(STOP) => Some(Ending::ByRule(rule())),
-        Status::Stopped => Some(Ending::ByOperator),
-        Status::Running | Status::AwaitingOperator => None,
-    }
+/// The table's hard stop, while the fold states it stopped the run there:
+/// stopped, at the `stop` phase.
+fn hard_stop(state: &RunState) -> Option<HardStop> {
+    let stopped = state.run.status() == Status::Stopped && state.phase.as_deref() == Some(STOP);
+    stopped.then(|| HardStop {
+        rule: state
+            .last_decision
+            .as_ref()
+            .and_then(|decision| decision.rule_id.present().cloned()),
+    })
 }
 
 /// What the aggregate readouts read of the run `events` hold, in order
@@ -195,7 +205,8 @@ pub fn aggregate(events: &[EventEnvelope], state: Option<&RunState>) -> Aggregat
     for event in events {
         reading.note(event);
     }
-    reading.of(state)
+    let closing = state.and_then(|state| closing(events, state));
+    reading.of(state, closing.as_ref())
 }
 
 #[cfg(test)]

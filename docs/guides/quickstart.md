@@ -505,7 +505,7 @@ Then ask the run what happened:
 ```
 $ brokkr inspect --run latest
 run  prefix-selectors-for-the-read-su-…
-     completed · phase done · seq 51
+     shipped · phase done · seq 51
      boundary …
 ruling  SHIP-COMPLETE  ship → done · shipped
 

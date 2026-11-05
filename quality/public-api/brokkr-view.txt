@@ -275,7 +275,8 @@ pub brokkr_view::Standing::Stopped
 pub brokkr_view::Standing::Stopping
 impl brokkr_view::Standing
 pub fn brokkr_view::Standing::label(self) -> &'static str
-pub fn brokkr_view::Standing::status_word(self, core::option::Option<&str>) -> &str
+pub fn brokkr_view::Standing::status_word(self, core::option::Option<&str>, core::option::Option<brokkr_core::ending::Ending>) -> &str
+pub fn brokkr_view::Standing::wants(self, core::option::Option<brokkr_core::ending::Ending>, bool) -> core::option::Option<brokkr_core::ending::Wants>
 pub enum brokkr_view::Table
 pub brokkr_view::Table::NotFound
 pub brokkr_view::Table::NotFound::text: alloc::string::String
@@ -572,6 +573,7 @@ pub brokkr_view::RunBoundary::text: alloc::string::String
 pub brokkr_view::RunBoundary::unboxed: bool
 pub brokkr_view::RunBoundary::word: brokkr_view::Cell
 pub struct brokkr_view::RunEntry<'a>
+pub brokkr_view::RunEntry::closing: core::option::Option<brokkr_core::ending::Closing>
 pub brokkr_view::RunEntry::created_at: &'a str
 pub brokkr_view::RunEntry::detail: core::option::Option<brokkr_view::Refusal<'a>>
 pub brokkr_view::RunEntry::feature: &'a str
@@ -586,6 +588,8 @@ pub struct brokkr_view::RunRow
 pub brokkr_view::RunRow::acknowledgement: core::option::Option<brokkr_view::Acknowledgement>
 pub brokkr_view::RunRow::created_at: alloc::string::String
 pub brokkr_view::RunRow::detail: core::option::Option<alloc::string::String>
+pub brokkr_view::RunRow::ending: core::option::Option<brokkr_core::ending::Ending>
+pub brokkr_view::RunRow::ending_cited: core::option::Option<brokkr_core::ending::Citation>
 pub brokkr_view::RunRow::feature: alloc::string::String
 pub brokkr_view::RunRow::hire: core::option::Option<brokkr_view::Hire>
 pub brokkr_view::RunRow::last_recorded_at: core::option::Option<alloc::string::String>
@@ -601,6 +605,7 @@ pub brokkr_view::RunRow::status_known: bool
 pub brokkr_view::RunRow::status_word: alloc::string::String
 pub brokkr_view::RunRow::title: alloc::string::String
 pub brokkr_view::RunRow::verdict: brokkr_view::Verdict
+pub brokkr_view::RunRow::wants: core::option::Option<brokkr_core::ending::Wants>
 impl brokkr_view::RunRow
 pub fn brokkr_view::RunRow::place(&self) -> brokkr_core::page::Place<'_>
 impl brokkr_view::RunRow
@@ -652,6 +657,8 @@ pub struct brokkr_view::Summary
 pub brokkr_view::Summary::consecutive_failures: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
 pub brokkr_view::Summary::cursor: alloc::string::String
 pub brokkr_view::Summary::detail: core::option::Option<alloc::string::String>
+pub brokkr_view::Summary::ending: core::option::Option<brokkr_core::ending::Ending>
+pub brokkr_view::Summary::ending_cited: core::option::Option<brokkr_core::ending::Citation>
 pub brokkr_view::Summary::feature: core::option::Option<alloc::string::String>
 pub brokkr_view::Summary::last_decision: core::option::Option<brokkr_core::decision::Decision>
 pub brokkr_view::Summary::park_reason: core::option::Option<alloc::string::String>
@@ -662,6 +669,7 @@ pub brokkr_view::Summary::standing: brokkr_view::Standing
 pub brokkr_view::Summary::status: alloc::string::String
 pub brokkr_view::Summary::status_word: alloc::string::String
 pub brokkr_view::Summary::strategy: core::option::Option<alloc::string::String>
+pub brokkr_view::Summary::wants: core::option::Option<brokkr_core::ending::Wants>
 impl brokkr_view::Summary
 pub fn brokkr_view::Summary::status_word(&self) -> &str
 pub struct brokkr_view::Superseded
@@ -748,7 +756,7 @@ pub fn brokkr_view::section_of_rows(&[brokkr_view::RunRow], brokkr_view::Section
 pub fn brokkr_view::sections<'a>(&'a [brokkr_view::RunRow], &str) -> alloc::vec::Vec<(brokkr_view::Section, alloc::vec::Vec<&'a brokkr_view::RunRow>)>
 pub fn brokkr_view::short_target(&str) -> alloc::string::String
 pub fn brokkr_view::stopping_detail(u64) -> alloc::string::String
-pub fn brokkr_view::summary(&brokkr_core::fold::RunState) -> brokkr_view::Summary
+pub fn brokkr_view::summary(&brokkr_core::fold::RunState, &[brokkr_core::envelope::EventEnvelope]) -> brokkr_view::Summary
 pub fn brokkr_view::summary_row(&brokkr_core::page::Row, core::option::Option<&brokkr_core::page::Whole>) -> brokkr_view::RunRow
 pub fn brokkr_view::title(&str) -> alloc::string::String
 pub fn brokkr_view::title_within(&str, usize) -> alloc::string::String

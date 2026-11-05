@@ -489,6 +489,13 @@ fn a_row_no_writer_writes_is_refused_at_the_edge() {
             RowRefusal::Severity("dire".into()),
         ),
         ("feature_line = NULL", RowRefusal::Column(null.into())),
+        ("ending = 'by_rule'", RowRefusal::Ending("by_rule".into())),
+        (
+            "ending = 'shipped'",
+            RowRefusal::Column(
+                "Invalid column type Null at index: 27, name: ending_stood_over".into(),
+            ),
+        ),
     ];
     // A status no writer words lists as finished, as the lane reads it.
     let running = [lane(Lane::Running, None), lane(Lane::Finished, None)];
@@ -524,6 +531,58 @@ fn a_row_no_writer_writes_is_refused_at_the_edge() {
     let refused = store.whole(&mut read_one(&store, Standing::Parked));
     let words = "phase 'design' carries no residual finding at line 1 column 234";
     assert_eq!(refused.unwrap(), Err(RowRefusal::Residuals(words.into())));
+    let words = "its ending 'by_rule' is no ending a writer words";
+    assert_eq!(RowRefusal::Ending("by_rule".into()).to_string(), words);
+}
+
+/// A finished row reads its ending in decision 0064's words, what it
+/// cites, a run in a realm or none or a ref, and whether it stood over an
+/// earlier one.
+#[test]
+fn a_finished_row_reads_its_ending_and_what_it_cites() {
+    let cases = [
+        (
+            "'superseded', 'next-door', 'later', NULL, 1",
+            Ending::Superseded,
+            Some(Citation::Run {
+                realm: Some("next-door".into()),
+                run_id: "later".into(),
+            }),
+            true,
+        ),
+        (
+            "'superseded', NULL, 'later', NULL, 0",
+            Ending::Superseded,
+            Some(Citation::Run {
+                realm: None,
+                run_id: "later".into(),
+            }),
+            false,
+        ),
+        (
+            "'delivered-elsewhere', NULL, NULL, 'abc123', 0",
+            Ending::DeliveredElsewhere,
+            Some(Citation::Ref("abc123".into())),
+            false,
+        ),
+        (
+            "'refused', NULL, NULL, NULL, 0",
+            Ending::Refused,
+            None,
+            false,
+        ),
+    ];
+    for (values, ending, cited, stood_over) in cases {
+        let (_dir, store) = one(Width::Narrow, Standing::Finished);
+        let edit = format!(
+            "UPDATE run_summary SET (ending, ending_realm, ending_run, ending_ref,
+                 ending_stood_over) = ({values})"
+        );
+        store.conn.execute_batch(&edit).unwrap();
+        let read = read_one(&store, Standing::Finished).closing;
+        let ended = Ended { ending, cited };
+        assert_eq!(read, Some(Closing { ended, stood_over }), "{values}");
+    }
 }
 
 /// A journal is paged once it carries the summary and its backfill

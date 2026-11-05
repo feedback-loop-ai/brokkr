@@ -454,7 +454,7 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
 
     let state = fold(&Store::open(&db).unwrap().load("r1").unwrap()).unwrap();
     assert_eq!(Status::Running.as_str(), "running");
-    assert_eq!(finish(&state), ExitCode::from(1));
+    assert_eq!(finish(&state, &[]), ExitCode::from(1));
     running_store(&db, "ops");
     assert!(run(cli(operator("ops", "widen", "not allowed", &db))).is_err());
     // `ops` is RUNNING, never parked. A `retry` there is refused and
@@ -1454,7 +1454,7 @@ fn state_constructor_keeps_the_running_cursor_shape_explicit() {
     let mut state = run_state::run_state("run", 0, entering);
     state.last_hash = ZERO_HASH.into();
     state.feature = Some("feature".into());
-    assert_eq!(summarize(&state)["status"], "running");
+    assert_eq!(summarize(&state, &[])["status"], "running");
 }
 
 /// A stdout that always refuses: the frame writer's error path is real
@@ -2900,7 +2900,7 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
     let view = brokkr_view::run_view(&events, Some(&state));
     assert_eq!(
         serde_json::to_string_pretty(&view.summary).unwrap(),
-        serde_json::to_string_pretty(&summarize(&state)).unwrap()
+        serde_json::to_string_pretty(&summarize(&state, &events)).unwrap()
     );
 
     // The clock the derivation refuses to read.
@@ -2943,6 +2943,7 @@ fn an_operator_stop_mid_flight_lists_with_its_real_status() {
             state: None,
             detail: None,
             residuals: &[],
+            closing: None,
         },
     ];
     let view = serde_json::to_value(brokkr_view::run_rows(&entries)).unwrap();
@@ -3053,7 +3054,7 @@ fn resume_concludes_an_accepted_but_unconcluded_operator_stop_and_exits_three() 
     // Round trip: the fold reads the tail the engine just wrote.
     let state = fold(&events).unwrap();
     assert_eq!(state.run, Run::Stopped);
-    assert_eq!(finish(&state), ExitCode::from(3));
+    assert_eq!(finish(&state, &events), ExitCode::from(3));
 }
 
 /// One poisoned journal in the fleet is a quarantined row, not a blind
@@ -3566,9 +3567,8 @@ fn import_adopts_an_export_and_the_readouts_cannot_tell_it_apart() {
     };
     assert_eq!(rendered(&adopted), rendered(&native));
 
-    // The fleet row carries the run's own facts and nothing this feature
-    // added: `RunEntry` has no field an arrival column can reach, and
-    // the emitted view model says so.
+    // The fleet row carries the run's own facts and nothing this feature added: `RunEntry`
+    // has no field an arrival column can reach, and the emitted view model says so.
     let store = Store::open(&adopted).unwrap();
     let listed = store.list_runs().unwrap();
     let events = store.load("r1").unwrap();
@@ -3581,6 +3581,7 @@ fn import_adopts_an_export_and_the_readouts_cannot_tell_it_apart() {
         state: Some(&state),
         detail: None,
         residuals: &[],
+        closing: None,
     }];
     let fleet = serde_json::to_string(&brokkr_view::run_rows(&entries)).unwrap();
     assert!(!fleet.contains("import"), "{fleet}");

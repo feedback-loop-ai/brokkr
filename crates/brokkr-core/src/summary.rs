@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::canonical::ZERO_HASH;
+use crate::ending::{self, Closing};
 use crate::envelope::EventEnvelope;
 use crate::fold::{fold, fold_onto, FoldError, RunState, Status};
 use crate::policy::Severity;
@@ -28,7 +29,7 @@ mod aggregate;
 mod park;
 
 use aggregate::Reading;
-pub use aggregate::{aggregate, Aggregate, Ending};
+pub use aggregate::{aggregate, Aggregate, Finished, HardStop};
 pub use park::{parks, Park};
 
 /// The bound of a name a run's data states: a phase, a rule id, the phase
@@ -46,6 +47,12 @@ pub const FEATURE_LINE_BYTES: usize = 1024;
 
 /// The bound of a stamp: `created_at` and `last_recorded_at`.
 pub const STAMP_BYTES: usize = 40;
+
+/// The bound of each part of an ending's citation: the realm and run a
+/// `superseded` run names, which a writer admits no longer than this, and
+/// the ref a `delivered-elsewhere` run landed by, which no contract bounds
+/// (decision 0064).
+pub const CITATION_BYTES: usize = 128;
 
 /// The acknowledgement's copy on the row is cut by characters, as
 /// SQLite's `substr` counts them in text: its operator to this many,
@@ -201,6 +208,8 @@ pub struct Account {
     reading: Reading,
     /// Its parks (ruling 7).
     parks: park::Parking,
+    /// What its ending is read from (decision 0064, addendum choice 5).
+    ending: ending::Reading,
 }
 
 impl Account {
@@ -218,6 +227,7 @@ impl Account {
             seats: Seats::default(),
             reading: Reading::default(),
             parks: park::Parking::default(),
+            ending: ending::Reading::default(),
         }
     }
 
@@ -250,6 +260,7 @@ impl Account {
             self.seats.note(event);
             self.reading.note(event);
             self.parks.note(event);
+            self.ending.note(event);
         }
         self.head = (last.seq, last.event_hash.clone());
         self.last_recorded_at = Some(last.recorded_at.clone());
@@ -362,6 +373,8 @@ pub struct Summary {
     pub last_recorded_at: Option<Bounded>,
     /// What the aggregate readouts read of the run (ruling 7), whole.
     pub aggregate: Aggregate,
+    /// Its ending, once its fold states it is over (decision 0064).
+    pub closing: Option<Closing>,
 }
 
 impl Summary {
@@ -369,6 +382,7 @@ impl Summary {
     pub fn of(account: &Account, listing: Listing<'_>) -> Summary {
         let state = account.read.as_ref().ok();
         let stamp = account.last_recorded_at.as_deref();
+        let closing = state.and_then(|state| account.ending.closing(state));
         Summary {
             feature_line: feature_line(listing.feature).to_string(),
             created_at: Bounded::within(listing.created_at, STAMP_BYTES),
@@ -405,7 +419,8 @@ impl Summary {
             head_seq: account.head.0,
             head_hash: account.head.1.clone(),
             last_recorded_at: stamp.map(|stamp| Bounded::within(stamp, STAMP_BYTES)),
-            aggregate: account.reading.of(state),
+            aggregate: account.reading.of(state, closing.as_ref()),
+            closing,
         }
     }
 }

@@ -61,15 +61,15 @@ test('analytics carries each recipe of each realm through, its cost as Brokkr fi
 })
 
 test('a one-hearth listing is one hearth with no journal to name', () => {
-  const fleet = fleetOf({ view_version: 28, runs: [row()], count: 1 })
+  const fleet = fleetOf({ view_version: 29, runs: [row()], count: 1 })
   assert.deepEqual(fleet.hearths.map((hearth) => [hearth.realm, hearth.journal, hearth.runs.length]), [[ONE_HEARTH, null, 1]])
 })
 
 test('a one-run read is the paged wire holding exactly that row, and no page with another count', () => {
   const served = row({ run_id: 'only-run', seq: 7 })
-  assert.deepEqual(oneRunOf({ view_version: 28, runs: [served], count: 1 }), fleetOf({ view_version: 28, runs: [served], count: 1 }).hearths[0].runs[0])
+  assert.deepEqual(oneRunOf({ view_version: 29, runs: [served], count: 1 }), fleetOf({ view_version: 29, runs: [served], count: 1 }).hearths[0].runs[0])
   assert.throws(
-    () => oneRunOf({ view_version: 28, runs: [served, row()], count: 2 }),
+    () => oneRunOf({ view_version: 29, runs: [served, row()], count: 2 }),
     new ReadoutRefused('shape', 'brokkr runs --run did not list exactly one run'),
   )
 })
@@ -115,7 +115,7 @@ test('a carried verdict keeps the view’s status, activity and original attempt
   const activity = { text: 'carried from review attempt 2', absent: false, note: 'source-attempt' }
   const source = { attempt_id: 'source-attempt', ordinal: 2 }
   const doc = runViewDoc({ participants: [seat({ status: 'carried', working: false, activity, carried_from: source })] })
-  assert.equal(doc.view_version, 28)
+  assert.equal(doc.view_version, 29)
   const part = runViewOf(doc).participants[0]
   assert.deepEqual([part.status, part.working, part.activity, part.carried_from], ['carried', false, activity, source])
   assert.equal(runViewOf(runViewDoc({ participants: [seat()] })).participants[0].carried_from, null)

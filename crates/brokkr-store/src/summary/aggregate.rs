@@ -15,20 +15,21 @@
 //! open's repair sends such a row behind on the same test, whether or not
 //! the trigger was there when it was written.
 
-use brokkr_core::summary::{Aggregate, Bounded, Ending, NAME_BYTES};
+use brokkr_core::summary::{Aggregate, Bounded, NAME_BYTES};
 use rusqlite::types::Value;
 use rusqlite::Connection;
 
 use super::BACKFILLED;
 use crate::StoreError;
 
-/// The columns, in the row's order, and their types.
-const COLUMNS: [(&str, &str); 11] = [
+/// The columns, in the row's order, and their types. The run's ending,
+/// which a page reads, is the ending columns' (`super::ending`); the rule
+/// the policy table's hard stop ruled by stays here.
+const COLUMNS: [(&str, &str); 10] = [
     ("realm", "TEXT"),
     ("recipe", "TEXT"),
     ("started_ms", "INTEGER"),
     ("finished_ms", "INTEGER"),
-    ("ending", "TEXT"),
     ("ending_rule", "TEXT"),
     ("implement_visits", "INTEGER"),
     ("review_first", "INTEGER"),
@@ -86,15 +87,6 @@ pub(super) fn shaped(conn: &Connection) -> Result<bool, StoreError> {
     super::columns::has(conn, &COLUMNS)
 }
 
-/// How a run ended, as the `ending` column words it.
-fn word(ending: &Ending) -> &'static str {
-    match ending {
-        Ending::Shipped => "shipped",
-        Ending::ByRule(_) => "by_rule",
-        Ending::ByOperator => "by_operator",
-    }
-}
-
 /// A name cut to its bound as a group key, NULL where there is none.
 fn key(name: Option<&str>) -> Value {
     name.map_or(Value::Null, |name| {
@@ -109,17 +101,13 @@ fn flag(set: bool) -> Value {
 /// The columns `aggregate`, folded at `folded_seq`, is written as, by name.
 pub(super) fn written(aggregate: &Aggregate, folded_seq: u64) -> Vec<(&'static str, Value)> {
     let finished = aggregate.finished.as_ref();
-    let rule = finished.and_then(|(_, ending)| match ending {
-        Ending::ByRule(rule) => rule.as_deref(),
-        Ending::Shipped | Ending::ByOperator => None,
-    });
+    let hard_stop = finished.and_then(|finished| finished.hard_stop.as_ref());
     let values = [
         key(aggregate.realm.as_deref()),
         key(aggregate.recipe.as_deref()),
         aggregate.started_ms.map_or(Value::Null, Value::Integer),
-        finished.map_or(Value::Null, |(at, _)| Value::Integer(*at)),
-        finished.map_or(Value::Null, |(_, ending)| Value::Text(word(ending).into())),
-        key(rule),
+        finished.map_or(Value::Null, |finished| Value::Integer(finished.at)),
+        key(hard_stop.and_then(|stop| stop.rule.as_deref())),
         Value::Integer(aggregate.implement_visits as i64),
         flag(aggregate.review_first),
         flag(aggregate.review_second),
@@ -130,4 +118,4 @@ pub(super) fn written(aggregate: &Aggregate, folded_seq: u64) -> Vec<(&'static s
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
