@@ -14,6 +14,7 @@
 //! Every read here is a read: a journal opened read-only pages as one
 //! opened to write (decision 0014).
 
+use brokkr_core::ending::{Citation, Closing, Ended, Ending};
 use brokkr_core::fold::Status;
 use brokkr_core::page::{newest_first, Bound, Copied, Lane, Range, Row, Whole};
 use brokkr_core::policy::Severity;
@@ -37,7 +38,7 @@ const COLUMNS: &str = "run_id, order_at, feature_line, created_at,
     last_recorded_at, status, phase, park_reason, rule_id, rule_from, rule_routes,
     hire_seat, hire_failed_attempts, residual_open, refusal_seq, refusal_words,
     folded_seq, folded_hash, acknowledged, ack_operator, ack_reason, ack_at,
-    stop_accepted_seq";
+    stop_accepted_seq, ending, ending_realm, ending_run, ending_ref, ending_stood_over";
 
 /// Why a page cannot read a summary row as a run's account: a value no
 /// writer writes. The reader reads such a run whole instead, or, where
@@ -50,6 +51,8 @@ pub enum RowRefusal {
     Status(String),
     #[error("its residual '{0}' is no severity")]
     Severity(String),
+    #[error("its ending '{0}' is no ending a writer words")]
+    Ending(String),
     #[error("a column does not read: {0}")]
     Column(String),
     #[error("its residuals do not read: {0}")]
@@ -141,9 +144,54 @@ fn row_of(row: &rusqlite::Row<'_>, run_id: String, order_at: i64) -> Result<Row,
         hired: hired_of(row)?,
         residual_open: severity_of(row)?,
         refused,
-        folded: (row.get::<_, i64>(16)? as u64, row.get(17)?),
+        folded: folded_of(row)?,
         acknowledged,
+        closing: closing_of(row)?,
     })
+}
+
+/// The run's ending as the row states it, where it states one: its word
+/// read into decision 0064's twelve, what it cites, and whether it stood
+/// over an earlier one.
+fn closing_of(row: &rusqlite::Row<'_>) -> Result<Option<Closing>, RowRefusal> {
+    let Some(word) = row.get::<_, Option<String>>(23)? else {
+        return Ok(None);
+    };
+    let ending = Ending::named(&word).map_err(|_| RowRefusal::Ending(word))?;
+    let cited = match (row.get(25)?, row.get(26)?) {
+        (Some(run_id), _) => Some(Citation::Run {
+            realm: row.get(24)?,
+            run_id,
+        }),
+        (None, Some(reference)) => Some(Citation::Ref(reference)),
+        (None, None) => None,
+    };
+    Ok(Some(Closing {
+        ended: Ended { ending, cited },
+        stood_over: row.get(27)?,
+    }))
+}
+
+/// `closing`'s citation completed with the parts its bound cut, read
+/// whole by its run's key: its realm, run and ref, each kept whole only
+/// where the bound cut it, so a part with no whole value is whole already.
+fn cited_whole(closing: Option<&mut Closing>, [realm, run, reference]: [Option<String>; 3]) {
+    let cited = closing.and_then(|closing| closing.ended.cited.as_mut());
+    let fill = |part: &mut String, whole: Option<String>| {
+        if let Some(whole) = whole {
+            *part = whole;
+        }
+    };
+    match cited {
+        Some(Citation::Run { realm: cut, run_id }) => {
+            if let Some(cut) = cut {
+                fill(cut, realm);
+            }
+            fill(run_id, run);
+        }
+        Some(Citation::Ref(cut)) => fill(cut, reference),
+        None => {}
+    }
 }
 
 /// The bounded column `at` of `row`, where it holds a value.
@@ -155,6 +203,11 @@ fn bounded(row: &rusqlite::Row<'_>, at: usize) -> rusqlite::Result<Option<Bounde
 /// created and when its journal last moved.
 fn listed_of(row: &rusqlite::Row<'_>) -> rusqlite::Result<(String, Bounded, Option<Bounded>)> {
     Ok((row.get(2)?, cut(row.get(3)?), bounded(row, 4)?))
+}
+
+/// The seq and hash the row's columns were folded at.
+fn folded_of(row: &rusqlite::Row<'_>) -> rusqlite::Result<(u64, String)> {
+    Ok((row.get::<_, i64>(16)? as u64, row.get(17)?))
 }
 
 /// Where the row's run stands: its status, and the seq of an operator
@@ -440,23 +493,25 @@ impl Store {
     /// refusal, a value no writer writes, and its run is read whole
     /// (ruling 5).
     pub fn whole(&self, row: &mut Row) -> Result<Result<Whole, RowRefusal>, StoreError> {
-        let (feature, residuals, values): (String, String, [Option<String>; 8]) =
+        let (feature, residuals, values): (String, String, [Option<String>; 11]) =
             self.conn.query_row(
                 "SELECT feature, residuals, created_at_whole, last_recorded_at_whole,
                         phase_whole, park_reason_whole, rule_id_whole, rule_from_whole,
-                        hire_seat_whole, refusal_words_whole
+                        hire_seat_whole, refusal_words_whole,
+                        ending_realm_whole, ending_run_whole, ending_ref_whole
                  FROM run_summary WHERE run_id = ?1",
                 [&row.run_id],
                 |found| {
-                    let mut values: [Option<String>; 8] = Default::default();
+                    let mut values: [Option<String>; 11] = Default::default();
                     for (at, value) in values.iter_mut().enumerate() {
                         *value = found.get(at + 2)?;
                     }
                     Ok((found.get(0)?, found.get(1)?, values))
                 },
             )?;
-        let [created_at, last_recorded_at, phase, park_reason, rule_id, rule_from, seat, words] =
+        let [created_at, last_recorded_at, phase, park_reason, rule_id, rule_from, seat, words, realm, run, reference] =
             values;
+        cited_whole(row.closing.as_mut(), [realm, run, reference]);
         row.created_at.whole = created_at;
         let fill = |bounded: Option<&mut Bounded>, whole: Option<String>| {
             if let Some(bounded) = bounded {

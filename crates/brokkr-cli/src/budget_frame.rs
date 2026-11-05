@@ -39,6 +39,9 @@ pub fn run_frame_for_budget(
         state: state.as_ref(),
         detail: None,
         residuals: &[],
+        closing: state
+            .as_ref()
+            .and_then(|state| brokkr_core::ending::closing(events, state)),
     };
     let views = Views {
         start: 0,

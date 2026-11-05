@@ -701,6 +701,7 @@ fn many_older(count: usize) -> Views {
             state: Some(&shipped),
             detail: None,
             residuals: &[],
+            closing: None,
         })
         .collect();
     let mut views = fleet_with_a_dead_run();

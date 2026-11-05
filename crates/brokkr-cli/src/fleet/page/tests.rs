@@ -1445,13 +1445,15 @@ fn inspect_shows_the_stop_accepted_with_no_ending_and_its_ending_reads_as_before
         ended.verdict.standing,
         brokkr_view::Standing::OperatorStopped
     );
-    assert_eq!(ended.status_word(), "stopped");
+    // Its stop named no cause, so its ending is `unclassified` (decision
+    // 0064 ruling 5), and the word says so where it said `stopped`.
+    assert_eq!(ended.status_word(), "unclassified");
     assert_eq!(ended.verdict.detail, None);
     let text = crate::render::runs(&rows, NOW, &STYLE);
     let line = text
         .lines()
         .find(|line| line.starts_with("tui-graph-the-selection-box-gets-80f98deb"))
         .unwrap();
-    assert!(line.contains("stopped"), "{line}");
+    assert!(line.contains("unclassified"), "{line}");
     assert!(!line.contains("stopping"), "{line}");
 }

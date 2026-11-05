@@ -180,6 +180,7 @@ fn a_run_with_no_event_reads_as_an_empty_journal_at_the_zero_head() {
             head_hash: ZERO_HASH.into(),
             last_recorded_at: None,
             aggregate: unread(None),
+            closing: None,
         }
     );
 }
@@ -228,6 +229,7 @@ fn a_parked_run_reads_its_ruling_its_reason_and_its_open_residuals() {
             head_hash: head.event_hash.clone(),
             last_recorded_at: Some(bounded("2026-01-01T00:00:13Z")),
             aggregate: unread(Some(1_767_225_601_000)),
+            closing: None,
         }
     );
 }
@@ -295,6 +297,44 @@ fn an_account_carried_event_by_event_is_the_account_read_whole() {
     assert_eq!(Summary::of(&halves, LISTING), whole);
     let unmoved = Account::whole("run", &events).onto(&[]);
     assert_eq!(Summary::of(&unmoved, LISTING), whole);
+}
+
+/// Decision 0064 addendum choice 5: the account notes its ending's
+/// reading event by event, so a summary carried over a run's events
+/// states the ending, citation and stood-over fact the one reading gives
+/// the run read whole; a live run has none.
+#[test]
+fn an_account_carries_the_ending_the_run_read_whole_states() {
+    let mut steps = opening();
+    let cause = json!({"cause": "superseded", "by": {"realm": "next-door", "run_id": "later"}});
+    steps.extend([
+        (
+            EventType::OperatorCommanded,
+            json!({"command_id": "s", "command": "stop", "operator": "op", "args": cause}),
+        ),
+        (EventType::OperatorAccepted, json!({"command_id": "s"})),
+        (EventType::RunStopped, json!({})),
+    ]);
+    let events = journal(&steps);
+    let mut carried = Account::empty("run");
+    for event in &events {
+        carried = carried.onto(std::slice::from_ref(event));
+    }
+    let superseded = Some(Closing {
+        ended: crate::ending::Ended {
+            ending: crate::ending::Ending::Superseded,
+            cited: Some(crate::ending::Citation::Run {
+                realm: Some("next-door".into()),
+                run_id: "later".into(),
+            }),
+        },
+        stood_over: false,
+    });
+    let state = carried.state().unwrap().clone();
+    assert_eq!(Summary::of(&carried, LISTING).closing, superseded);
+    assert_eq!(crate::ending::closing(&events, &state), superseded);
+    let live = Account::whole("run", &events[..4]);
+    assert_eq!(Summary::of(&live, LISTING).closing, None);
 }
 
 #[test]

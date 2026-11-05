@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::facts::{Ending, RunFacts, Scoped, Window};
+use super::facts::{shipped, Finished, RunFacts, Scoped, Window};
 use super::recipes::recipe_rows;
 use super::words::{change_text, date, hours_text, listed, percent, span_text, stamp};
 use super::{Analytics, AnalyticsError, CostFigure, Day, Headline, ModelShare, Query, RealmRow};
@@ -16,24 +16,25 @@ use crate::{ABSENT, VIEW_VERSION};
 fn finished_in<'a>(
     runs: &'a [&'a RunFacts],
     window: Window,
-) -> impl Iterator<Item = (i64, i64, &'a Ending)> + 'a {
+) -> impl Iterator<Item = (i64, i64, &'a Finished)> + 'a {
     runs.iter().filter_map(move |run| {
-        let (ended, ending) = run.finished.as_ref()?;
+        let finished = run.finished.as_ref()?;
+        let ended = finished.at;
         window
-            .holds(*ended)
-            .then_some((run.started.unwrap_or(*ended), *ended, ending))
+            .holds(ended)
+            .then_some((run.started.unwrap_or(ended), ended, finished))
     })
 }
 
 fn shipped_in(runs: &[&RunFacts], window: Window) -> usize {
     finished_in(runs, window)
-        .filter(|(_, _, ending)| **ending == Ending::Shipped)
+        .filter(|(_, _, finished)| shipped(finished))
         .count()
 }
 
 fn stopped_in(runs: &[&RunFacts], window: Window) -> usize {
     finished_in(runs, window)
-        .filter(|(_, _, ending)| **ending != Ending::Shipped)
+        .filter(|(_, _, finished)| !shipped(finished))
         .count()
 }
 
@@ -93,10 +94,10 @@ fn waiting(runs: &[&RunFacts], window: Window) -> Waiting {
 fn stopped_by_rule(runs: &[&RunFacts], window: Window) -> StoppedByRule {
     let mut count = 0;
     let mut tally: BTreeMap<Option<&str>, usize> = BTreeMap::new();
-    for (_, _, ending) in finished_in(runs, window) {
-        if let Ending::ByRule(rule) = ending {
+    for (_, _, finished) in finished_in(runs, window) {
+        if let Some(stop) = &finished.hard_stop {
             count += 1;
-            *tally.entry(rule.as_deref()).or_default() += 1;
+            *tally.entry(stop.rule.as_deref()).or_default() += 1;
         }
     }
     let top = tally
@@ -193,11 +194,12 @@ fn per_day(runs: &[&RunFacts], window: Window) -> Vec<Day> {
         .map(|day| {
             let on = |ended: i64| ended.div_euclid(DAY_MILLIS) == day;
             let finished = finished_in(runs, window).filter(|(_, ended, _)| on(*ended));
-            let (shipped, stopped) =
-                finished.fold((0, 0), |(shipped, stopped), (_, _, ending)| match ending {
-                    Ending::Shipped => (shipped + 1, stopped),
-                    Ending::ByRule(_) | Ending::ByOperator => (shipped, stopped + 1),
-                });
+            let (shipped, stopped) = finished.fold((0, 0), |(ships, stops), (_, _, finished)| {
+                match shipped(finished) {
+                    true => (ships + 1, stops),
+                    false => (ships, stops + 1),
+                }
+            });
             Day {
                 date: date(day),
                 shipped,
@@ -240,7 +242,7 @@ fn rework(runs: &[&RunFacts], window: Window) -> Rework {
         .filter(|run| {
             run.finished
                 .as_ref()
-                .is_some_and(|(ended, _)| window.holds(*ended))
+                .is_some_and(|finished| window.holds(finished.at))
         })
         .collect();
     let visits: u64 = finished.iter().map(|run| run.implement_visits).sum();

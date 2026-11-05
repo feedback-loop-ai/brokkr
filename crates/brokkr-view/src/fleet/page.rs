@@ -13,8 +13,8 @@ use brokkr_core::summary::Bounded;
 use serde::{Serialize, Serializer};
 
 use super::{
-    title, verdict_of, Acknowledgement, Facts, Hire, Quarantine, RunRow, Section, KNOWN_STATUS,
-    RECENT_MILLIS, STALE_AFTER_SECONDS,
+    said, title, verdict_of, Acknowledgement, Facts, Hire, Quarantine, RunRow, Section,
+    KNOWN_STATUS, RECENT_MILLIS, STALE_AFTER_SECONDS,
 };
 use crate::stated_finding;
 
@@ -108,13 +108,22 @@ pub fn summary_row(row: &Row, whole: Option<&Whole>) -> RunRow {
     let refused = row.refused.as_ref();
     let status = row.status.map(|status| status.as_str().to_string());
     let verdict = verdict_of(facts, row.residual_open);
-    let status_word = verdict.standing.status_word(status.as_deref()).to_string();
+    let acknowledged = refused.and(copied).is_some();
+    let said = said(
+        verdict.standing,
+        status.as_deref(),
+        row.closing.as_ref(),
+        acknowledged,
+    );
     RunRow {
         run_id: row.run_id.clone(),
         status_known: status
             .as_deref()
             .is_some_and(|status| KNOWN_STATUS.contains(&status)),
-        status_word,
+        status_word: said.status_word,
+        ending: said.ending,
+        ending_cited: said.ending_cited,
+        wants: said.wants,
         status,
         phase: facts.and_then(|facts| facts.phase).map(str::to_string),
         seq: facts.map(|_| row.folded.0),

@@ -199,7 +199,8 @@ pub(crate) fn conclude(
         operator: &operator,
     };
     let state = conclude_run(&mut store, &cited, &run, &named)?;
-    Ok(finish(&state))
+    let events = store.load(&run)?;
+    Ok(finish(&state, &events))
 }
 
 /// The cause typed on `verb`, parsed where it was typed and before any

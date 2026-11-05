@@ -10,7 +10,7 @@ use super::{Edge, Ends, GraphError, GraphQuery, GraphTable, GraphView, LiveRun, 
 use super::{
     Link, Outcome, Place, RuleKind, RuleRun, SeatPin, State, Table, GRAPH_VIEW_VERSION, LATEST_RUNS,
 };
-use crate::analytics::{cost_figure, middle, span, stamp, total, Ending, RuleCount, Window};
+use crate::analytics::{cost_figure, middle, shipped, span, stamp, total, RuleCount, Window};
 use crate::clarify::{pins_of, Pins};
 use crate::fleet::STOP_PHASE;
 use crate::{RuleSeverity, TokenUsage};
@@ -61,9 +61,11 @@ impl Shape {
                     phases.push(phase.clone());
                 }
             }
-            if let (Some((_, Ending::Shipped | Ending::ByRule(_))), Some(state)) =
-                (&run.finished, &run.state)
-            {
+            let ruled = run
+                .finished
+                .as_ref()
+                .is_some_and(|finished| shipped(finished) || finished.hard_stop.is_some());
+            if let (true, Some(state)) = (ruled, &run.state) {
                 terminal.insert(state.clone());
             }
         }
@@ -417,11 +419,14 @@ fn ends(runs: &[GraphRun]) -> Ends {
     let (mut done, mut operator, mut open) = (0, 0, 0);
     let mut by_rule: BTreeMap<Option<&str>, usize> = BTreeMap::new();
     for run in runs {
-        match &run.finished {
-            Some((_, Ending::Shipped)) => done += 1,
-            Some((_, Ending::ByRule(rule))) => *by_rule.entry(rule.as_deref()).or_default() += 1,
-            Some((_, Ending::ByOperator)) => operator += 1,
-            None => open += 1,
+        let Some(finished) = &run.finished else {
+            open += 1;
+            continue;
+        };
+        match (shipped(finished), &finished.hard_stop) {
+            (true, _) => done += 1,
+            (false, Some(stop)) => *by_rule.entry(stop.rule.as_deref()).or_default() += 1,
+            (false, None) => operator += 1,
         }
     }
     let mut stop: Vec<RuleCount> = by_rule

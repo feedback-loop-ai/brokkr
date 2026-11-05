@@ -11,6 +11,7 @@
 
 use std::path::Path;
 
+use brokkr_core::ending::{closing, Closing};
 use brokkr_core::fold::{fold, FoldError, RunState};
 use brokkr_core::EventEnvelope;
 use brokkr_runtime::realms::Hearth;
@@ -63,6 +64,7 @@ pub(crate) struct ListedRun {
 impl ListedRun {
     /// The row every fleet surface builds this run's listing from.
     pub(crate) fn entry(&self) -> brokkr_view::RunEntry<'_> {
+        let state = self.state.as_ref();
         entry(
             Listing {
                 run_id: &self.run_id,
@@ -70,10 +72,17 @@ impl ListedRun {
                 created_at: &self.created_at,
             },
             self.events.last().map(|event| event.recorded_at.as_str()),
-            self.state.as_ref(),
-            &self.residuals,
+            state,
+            (&self.residuals, ended(&self.events, state)),
         )
     }
+}
+
+/// The ending of a run read as `events` folded to `state`, by the one
+/// reading every summary row is written from (decision 0064); none for a
+/// run that did not fold.
+fn ended(events: &[EventEnvelope], state: Result<&RunState, &Quarantine>) -> Option<Closing> {
+    state.ok().and_then(|state| closing(events, state))
 }
 
 /// What the journal's `runs` table says of a run, borrowed.
@@ -85,12 +94,13 @@ struct Listing<'a> {
 
 /// A run's listing row, whichever read holds the run: this read's
 /// [`ListedRun`] or the kept read's (#744), so the two cannot word a
-/// quarantine differently.
+/// quarantine differently. `read` is what each derived of its events:
+/// the residual findings and the ending.
 fn entry<'a>(
     listing: Listing<'a>,
     last_recorded_at: Option<&'a str>,
     state: Result<&'a RunState, &'a Quarantine>,
-    residuals: &'a [brokkr_view::ResidualFinding],
+    (residuals, closing): (&'a [brokkr_view::ResidualFinding], Option<Closing>),
 ) -> brokkr_view::RunEntry<'a> {
     brokkr_view::RunEntry {
         run_id: listing.run_id,
@@ -103,6 +113,7 @@ fn entry<'a>(
             ..quarantine.kind.in_words(&quarantine.detail)
         }),
         residuals,
+        closing,
     }
 }
 

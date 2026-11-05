@@ -524,7 +524,7 @@ test('review F1: a map repointed before the inspect publishes nothing in a two-h
 test('review F1: a map appearing after a no-map fleet read drops the inspect, and the next poll reads the world whole', async () => {
   const runId = 'alpha-run-0000'
   // The no-map listing names no journal: its row is all the console has.
-  const oldPage = { view_version: 28, runs: [{ ...runOf('alpha', 0), seq: 25 }], count: 1 }
+  const oldPage = { view_version: 29, runs: [{ ...runOf('alpha', 0), seq: 25 }], count: 1 }
   const newPage = windowOf([{ ...runOf('alpha', 0), seq: 25 }], null)
   const world = {
     journal: './.forge/forge.db',

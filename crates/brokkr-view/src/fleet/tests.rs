@@ -291,7 +291,8 @@ fn the_row_and_the_summary_serve_the_status_word() {
         let state = fold(events).expect("the journal folds");
         let row = run_row(&crate::tests::listed("r1", "feat", NOW, Some(&state)));
         let row = serde_json::to_value(row).expect("the row serializes");
-        let summary = serde_json::to_value(summary(&state)).expect("the summary serializes");
+        let summary =
+            serde_json::to_value(summary(&state, events)).expect("the summary serializes");
         assert_eq!(row["status_word"], word);
         assert_eq!(summary["status_word"], word);
     }
@@ -301,6 +302,95 @@ fn the_row_and_the_summary_serve_the_status_word() {
         "running",
         "the fold's own word is unchanged"
     );
+}
+
+/// Decision 0064 ruling 6 and addendum choice 2 (a): `/api/runs`' row and
+/// `/api/view`'s summary carry `ending`, `ending_cited` and `wants` at
+/// view version 29; the status word is the ending, and `status` keeps the
+/// fold's word. A run still working has a null ending and wants nothing.
+#[test]
+fn the_row_and_the_summary_serve_the_ending_its_citation_and_its_want() {
+    let started = ev(1, EventType::RunStarted, json!({"manifest": {}}), NOW);
+    let cause = json!({"cause": "superseded", "by": {"realm": "next-door", "run_id": "later"}});
+    let stop = json!({"command_id": "c", "command": "stop", "args": cause});
+    let stopped = [
+        started.clone(),
+        ev(2, EventType::OperatorCommanded, stop, NOW),
+        ev(
+            3,
+            EventType::OperatorAccepted,
+            json!({"command_id": "c"}),
+            NOW,
+        ),
+        ev(4, EventType::RunStopped, json!({}), NOW),
+    ];
+    let cited = json!({"run": {"realm": "next-door", "run_id": "later"}});
+    let landed = json!({"command_id": "k", "command": "classify",
+                        "args": {"cause": "delivered-elsewhere", "ref": "abc123", "reason": "r"}});
+    let mut classified = stopped.to_vec();
+    classified.push(ev(5, EventType::OperatorCommanded, landed, NOW));
+    let ruling = json!({"from": "implement", "result": "blocked", "rule_id": "IMPL-BLOCKED",
+                        "next": "stop"});
+    let blocked: Vec<brokkr_core::EventEnvelope> = [
+        (EventType::PhaseEntered, json!({"phase": "implement"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "e", "seat": "smith"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "e", "attempt_id": "a"}),
+        ),
+        (
+            EventType::EffectSucceeded,
+            json!({"effect_id": "e", "result": {"result": "blocked"}}),
+        ),
+        (EventType::TransitionDecided, ruling),
+        (EventType::PhaseEntered, json!({"phase": "stop"})),
+        (EventType::RunStopped, json!({})),
+    ]
+    .into_iter()
+    .zip(2..)
+    .map(|((event_type, payload), seq)| ev(seq, event_type, payload, NOW))
+    .fold(vec![started.clone()], |mut journal, event| {
+        journal.push(event);
+        journal
+    });
+    let cases = [
+        (&stopped[..], json!("superseded"), cited, Value::Null),
+        (
+            &classified[..],
+            json!("delivered-elsewhere"),
+            json!({"ref": "abc123"}),
+            Value::Null,
+        ),
+        (&blocked[..], json!("blocked"), Value::Null, json!("action")),
+        (
+            std::slice::from_ref(&started),
+            Value::Null,
+            Value::Null,
+            Value::Null,
+        ),
+    ];
+    for (events, ending, cited, wants) in cases {
+        let state = fold(events).expect("the journal folds");
+        let mut entry = crate::tests::listed("r1", "feat", NOW, Some(&state));
+        entry.closing = brokkr_core::ending::closing(events, &state);
+        let view = serde_json::to_value(run_rows(&[entry])).expect("the rows serialize");
+        let summary = serde_json::to_value(summary(&state, events)).expect("it serializes");
+        assert_eq!(view["view_version"], 29);
+        let word = ending.as_str().unwrap_or("running");
+        for said in [&view["runs"][0], &summary] {
+            let read = (&said["ending"], &said["ending_cited"], &said["wants"]);
+            assert_eq!(read, (&ending, &cited, &wants), "{word}");
+            assert_eq!(said["status_word"], word);
+        }
+        let fold_word = state.run.status().as_str();
+        assert_eq!(
+            (&view["runs"][0]["status"], &summary["status"]),
+            (&json!(fold_word), &json!(fold_word))
+        );
+    }
 }
 
 /// Acceptance 4, shipped: the cell names the ruling that shipped it, and
@@ -437,6 +527,7 @@ fn fleet(
         state,
         detail: None,
         residuals: &[],
+        closing: None,
     };
     run_rows(&[
         entry("quarantined", DAY_BEFORE, None),
@@ -506,6 +597,7 @@ fn a_finished_run_is_dated_by_its_last_event() {
         state: Some(&shipped),
         detail: None,
         residuals: &[],
+        closing: None,
     };
     let view = run_rows(&[
         entry("ended-a-day-ago", Some(DAY_BEFORE)),
@@ -636,9 +728,10 @@ fn a_run_row_carries_its_title_and_verdict_beside_the_whole_feature() {
         state: Some(&shipped),
         detail: None,
         residuals: &residuals,
+        closing: None,
     }]);
     let json = serde_json::to_value(&view).unwrap();
-    assert_eq!(json["view_version"], 28);
+    assert_eq!(json["view_version"], 29);
     assert_eq!(json["runs"][0]["hire"], Value::Null);
     assert_eq!(json["runs"][0]["acknowledgement"], Value::Null);
     assert_eq!(json["runs"][0]["feature"], feature);

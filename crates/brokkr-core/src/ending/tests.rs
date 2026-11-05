@@ -519,3 +519,116 @@ fn a_realm_of_another_type_is_refused_by_name() {
         "invalid type: integer `42`, expected a realm name or null"
     );
 }
+
+/// A `classify` naming `cause` at `seq`.
+fn classify(seq: u64, cause: &str) -> EventEnvelope {
+    let args = json!({"cause": cause, "reason": "named later"});
+    let id = format!("k{seq}");
+    let payload =
+        json!({"command_id": id, "command": "classify", "operator": "operator", "args": args});
+    operator_event(seq, EventType::OperatorCommanded, payload)
+}
+
+/// The ending `events` give a stopped `state`, and whether it stood over
+/// an earlier one.
+fn stood_over(events: &[EventEnvelope], state: &RunState) -> (Ending, bool) {
+    let closing = closing(events, state).expect("a stopped run has an ending");
+    assert_eq!(Some(closing.ended.clone()), ended(events, state));
+    (closing.ended.ending, closing.stood_over)
+}
+
+/// Ruling 5's "the view says so": a `classify` stands over an earlier
+/// ending, an earlier annotation's, the accepted stop's cause or the
+/// policy table's; over `unclassified`, the absence of one, it stands over
+/// nothing; and an ending no annotation named stood over nothing.
+#[test]
+fn a_classify_stands_over_an_earlier_ending_and_never_over_its_absence() {
+    let operator = folded(Run::Stopped, "implement", None);
+    let causeless = [stop_commanded(1, "s", json!({})), accepted(2, "s")];
+    let named = [
+        stop_commanded(1, "s", json!({"cause": "infrastructure"})),
+        accepted(2, "s"),
+    ];
+    let over = |stop: &[EventEnvelope], causes: &[&str]| {
+        let mut events = stop.to_vec();
+        let at = events.len() as u64;
+        events.extend((1..).zip(causes).map(|(n, cause)| classify(at + n, cause)));
+        stood_over(&events, &operator)
+    };
+    assert_eq!(over(&causeless, &[]), (Ending::Unclassified, false));
+    assert_eq!(over(&named, &[]), (Ending::Infrastructure, false));
+    assert_eq!(over(&causeless, &["withdrawn"]), (Ending::Withdrawn, false));
+    assert_eq!(over(&named, &["withdrawn"]), (Ending::Withdrawn, true));
+    assert_eq!(
+        over(&causeless, &["withdrawn", "exhausted"]),
+        (Ending::Exhausted, true),
+        "a later classify stands over an earlier one"
+    );
+    let refused = ruling("review", "security-hold", None);
+    let policy = folded(Run::Stopped, STOP, Some(refused));
+    assert_eq!(stood_over(&[], &policy), (Ending::Refused, false));
+    let unread_then_read = [classify(1, "nothing-it-names"), classify(2, "withdrawn")];
+    assert_eq!(
+        stood_over(&unread_then_read, &policy),
+        (Ending::Withdrawn, true),
+        "over the policy table's ending, an unreadable annotation not counted"
+    );
+    let unruled = folded(Run::Stopped, STOP, Some(ruling("intake", "complete", None)));
+    assert_eq!(
+        stood_over(&[classify(1, "withdrawn")], &unruled),
+        (Ending::Withdrawn, false),
+        "a policy stop no row names is unclassified, over which it stands over nothing"
+    );
+    let shipped = folded(Run::Completed, "done", None);
+    let ended = Ended {
+        ending: Ending::Shipped,
+        cited: None,
+    };
+    assert_eq!(
+        closing(&[classify(1, "withdrawn")], &shipped),
+        Some(Closing {
+            ended,
+            stood_over: false
+        })
+    );
+}
+
+/// Ruling 6: an ending implies its status, `completed` for the two
+/// shipped endings and `stopped` for the other ten.
+#[test]
+fn an_ending_implies_its_status() {
+    let completed: Vec<Ending> = Ending::ALL
+        .into_iter()
+        .filter(|ending| ending.status() == Status::Completed)
+        .collect();
+    assert_eq!(completed, [Ending::Shipped, Ending::ShippedFlagged]);
+    let stopped = Ending::ALL
+        .into_iter()
+        .filter(|ending| ending.status() == Status::Stopped)
+        .count();
+    assert_eq!(stopped, 10);
+}
+
+/// The wire spells an ending as its word, a citation by what it cites and
+/// a want as `ruling` or `action`.
+#[test]
+fn the_wire_spells_an_ending_its_citation_and_its_want() {
+    for ending in Ending::ALL {
+        assert_eq!(serde_json::to_value(ending).unwrap(), json!(ending.word()));
+    }
+    let run = Citation::Run {
+        realm: None,
+        run_id: "later".into(),
+    };
+    assert_eq!(
+        serde_json::to_value(run).unwrap(),
+        json!({"run": {"realm": null, "run_id": "later"}})
+    );
+    let reference = Citation::Ref("abc123".into());
+    assert_eq!(
+        serde_json::to_value(reference).unwrap(),
+        json!({"ref": "abc123"})
+    );
+    let wants = [Wants::Ruling, Wants::Action].map(|wants| serde_json::to_value(wants).unwrap());
+    assert_eq!(wants, [json!("ruling"), json!("action")]);
+}

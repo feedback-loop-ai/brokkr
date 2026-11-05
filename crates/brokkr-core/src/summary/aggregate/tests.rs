@@ -72,7 +72,7 @@ fn a_start_names_its_realm_and_recipe_and_the_first_event_its_start() {
         (read.realm.as_deref(), read.started_ms),
         (Some("alpha"), None)
     );
-    assert_eq!(aggregate(&[], None), Reading::default().of(None));
+    assert_eq!(aggregate(&[], None), Reading::default().of(None, None));
 }
 
 /// Moved with the reading from brokkr-view's `clarify` (decision 0089
@@ -114,19 +114,37 @@ fn a_run_ends_as_its_fold_concludes_at_its_last_terminal_event() {
     let rule = json!({"from": "verify", "result": "fail", "rule_id": "VERIFY-EXHAUSTED"});
     let stopped = folded(Run::Stopped, "stop", rule.clone(), 3);
     let read = aggregate(&ended, Some(&stopped));
-    let by_rule = Ending::ByRule(Some("VERIFY-EXHAUSTED".to_string()));
-    assert_eq!(read.finished, Some((second(4), by_rule)));
+    let finished = |ending, hard_stop: Option<Option<&str>>| {
+        Some(Finished {
+            at: second(4),
+            ending,
+            hard_stop: hard_stop.map(|rule| HardStop {
+                rule: rule.map(str::to_string),
+            }),
+        })
+    };
+    let by_rule = finished(Ending::Failed, Some(Some("VERIFY-EXHAUSTED")));
+    assert_eq!(read.finished, by_rule);
     assert_eq!(read.implement_visits, 3);
+    // A later `classify` names the ending, and the hard stop still stopped it.
+    let args = json!({"cause": "withdrawn", "reason": "named later"});
+    let classify = json!({"command_id": "c", "command": "classify", "operator": "o", "args": args});
+    let mut classified = ended.clone();
+    classified.extend(journal(&[(EventType::OperatorCommanded, classify)]));
+    assert_eq!(
+        aggregate(&classified, Some(&stopped)).finished,
+        finished(Ending::Withdrawn, Some(Some("VERIFY-EXHAUSTED")))
+    );
     let null_rule = json!({"from": "verify", "result": "fail", "rule_id": null});
     let unruled = folded(Run::Stopped, "stop", null_rule, 0);
     let read = aggregate(&ended, Some(&unruled));
-    assert_eq!(read.finished, Some((second(4), Ending::ByRule(None))));
+    assert_eq!(read.finished, finished(Ending::Failed, Some(None)));
     let by_operator = folded(Run::Stopped, "review", rule.clone(), 0);
     let read = aggregate(&ended, Some(&by_operator));
-    assert_eq!(read.finished, Some((second(4), Ending::ByOperator)));
+    assert_eq!(read.finished, finished(Ending::Unclassified, None));
     let shipped = folded(Run::Completed, "done", rule.clone(), 1);
     let read = aggregate(&ended, Some(&shipped));
-    assert_eq!(read.finished, Some((second(4), Ending::Shipped)));
+    assert_eq!(read.finished, finished(Ending::Shipped, None));
     assert_eq!(read.implement_visits, 1);
     // An open run has not ended, whatever its journal holds; one whose
     // terminal stamp does not parse, or with no terminal, has no end.

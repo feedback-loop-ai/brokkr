@@ -6,13 +6,14 @@
 //! hashes chain nothing; only each run's last event is read, by its key,
 //! and its seq and hash are the ones the row was folded to.
 
+use brokkr_core::ending::{Citation as Cited, Closing, Ended, Ending};
 use brokkr_core::page::Lane;
 use brokkr_core::policy::Severity;
 use brokkr_core::residual::{Citation, Claim, Mark, ResidualPhase};
 use brokkr_core::stamp::parse_millis;
 use brokkr_core::summary::{
-    feature_line, Bounded, Hired, Refused, Ruled, Stated, Summary, FEATURE_LINE_BYTES, NAME_BYTES,
-    PARK_REASON_BYTES, REFUSAL_BYTES, STAMP_BYTES,
+    feature_line, Bounded, Hired, Refused, Ruled, Stated, Summary, CITATION_BYTES,
+    FEATURE_LINE_BYTES, NAME_BYTES, PARK_REASON_BYTES, REFUSAL_BYTES, STAMP_BYTES,
 };
 use brokkr_core::Status;
 use rusqlite::params;
@@ -76,7 +77,8 @@ pub struct Generated {
 /// the day before `now`, then an acknowledged refusal and the older
 /// finished runs, so a page of a hundred lists in every section. The
 /// parked run, the acknowledged one and the first finished within the day
-/// are `stretched`: the rows that would stretch a page.
+/// are `stretched`: the rows that would stretch a page, the finished one
+/// by the citation of its ending too.
 pub fn fleet(now: &str, events: u64, stretched: Width) -> Vec<Generated> {
     const DAY: i64 = 24 * 60;
     let now = OffsetDateTime::parse(now, &Rfc3339).expect("the clock is a stamp");
@@ -168,9 +170,11 @@ fn summary_of(run: &Generated) -> Summary {
         FEATURE_LINE_BYTES,
     );
     let refused = matches!(run.standing, Standing::Refused | Standing::Acknowledged);
+    let closing = closing_of(run);
     let status = match run.standing {
         Standing::Running => Some(Status::Running),
         Standing::Parked => Some(Status::AwaitingOperator),
+        Standing::Finished if closing.is_some() => Some(Status::Stopped),
         Standing::Finished => Some(Status::Completed),
         Standing::Refused | Standing::Acknowledged => None,
     };
@@ -211,7 +215,29 @@ fn summary_of(run: &Generated) -> Summary {
         last_recorded_at: Some(Bounded::within(&run.last_at, STAMP_BYTES)),
         feature,
         aggregate: brokkr_core::summary::aggregate(&[], None),
+        closing,
     }
+}
+
+/// The ending a finished `run` past its narrow width stopped as: one
+/// superseded by a run whose realm and id are each at or past
+/// [`CITATION_BYTES`], so a page's row stretches by its citation too.
+/// A narrow run keeps no ending, as before the ending's columns.
+fn closing_of(run: &Generated) -> Option<Closing> {
+    if run.standing != Standing::Finished || run.width == Width::Narrow {
+        return None;
+    }
+    let cited = Cited::Run {
+        realm: Some(value(run.width, "", CITATION_BYTES)),
+        run_id: value(run.width, "", CITATION_BYTES),
+    };
+    Some(Closing {
+        ended: Ended {
+            ending: Ending::Superseded,
+            cited: Some(cited),
+        },
+        stood_over: false,
+    })
 }
 
 /// `count` open low findings of `run_id`, the first closed by a mark, as

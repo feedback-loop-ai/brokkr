@@ -36,9 +36,9 @@ use crate::event_index::{
 use crate::schema::all_present;
 use crate::{head_of, patiently, seat_summary, Acknowledgement, Store, StoreError};
 
-/// The lane a row's range is read from (ruling 6): a row whose fold,
-/// aggregates or accepted stop are not its head's reads behind and whole,
-/// so no reader trusts columns older than the head it stands at.
+/// The lane a row's range is read from (ruling 6): a row whose fold or any
+/// stamped part is not its head's reads behind and whole, so no reader
+/// trusts columns older than the head it stands at.
 fn lane() -> String {
     format!(
         "CASE
@@ -54,9 +54,10 @@ fn lane() -> String {
     )
 }
 
-/// Either stamp off the folded head sends the row behind, whichever writer folded it.
+/// Any stamp off the folded head sends the row behind, whichever writer folded it.
 fn stale(prefix: &str) -> String {
-    format!("{} OR {}", aggregate::stale(prefix), stop::stale(prefix))
+    let [stopping, ended] = [stop::PART, ending::PART].map(|part| part.stale(prefix));
+    format!("{} OR {stopping} OR {ended}", aggregate::stale(prefix))
 }
 
 /// The meta key that records the backfill finished (ruling 8).
@@ -69,18 +70,20 @@ mod aggregate;
 mod columns;
 mod comparison;
 mod disagreement;
+mod ending;
 mod stop;
 
 pub use disagreement::Disagreement;
 
 const TABLE: [&str; 1] = ["run_summary"];
 const INDEX: [&str; 2] = ["run_summary_page", aggregate::INDEX];
-const TRIGGERS: [&str; 6] = [
+const TRIGGERS: [&str; 7] = [
     "run_summary_of_a_run",
     "run_summary_of_an_event",
     "run_summary_of_an_acknowledgement",
     "run_summary_stamp_bounded",
-    stop::TRIGGER,
+    stop::PART.trigger,
+    ending::PART.trigger,
     aggregate::TRIGGER,
 ];
 
@@ -146,18 +149,16 @@ fn acknowledged_by(acknowledgement: &str) -> String {
     )
 }
 
-/// The table, its page index and its five triggers, `IF NOT EXISTS`
-/// throughout so racing openers agree. The whole values sit last, so a page
-/// that selects none reads none. A stamp past its bound is cut by its own
-/// trigger, whichever statement wrote it, and kept whole last in the row;
-/// its update fires it again only if SQLite were asked to recurse. A writer
-/// from before the stopping columns leaves their stamp off its folded head,
-/// so a trigger sends its row behind, as the aggregates' does.
+/// The table, its indexes and triggers, `IF NOT EXISTS` throughout so
+/// racing openers agree. The whole values sit last, the citation's too, so
+/// a page that selects none reads none; a stamp past its bound is cut by its
+/// own trigger and kept whole there. A writer from before the stopping or
+/// ending columns leaves their stamp off, and a trigger sends its row behind.
 fn migration() -> String {
     format!(
         "CREATE TABLE IF NOT EXISTS run_summary (
             run_id TEXT PRIMARY KEY,
-            feature_line TEXT, created_at TEXT, status TEXT, {stopping},
+            feature_line TEXT, created_at TEXT, status TEXT, {stopping}, {ended},
             phase TEXT,
             park_reason TEXT, rule_id TEXT, rule_from TEXT, rule_routes INTEGER,
             hire_seat TEXT, hire_failed_attempts INTEGER,
@@ -174,7 +175,7 @@ fn migration() -> String {
             {aggregated}, feature TEXT, residuals TEXT, created_at_whole TEXT,
             last_recorded_at_whole TEXT, phase_whole TEXT, park_reason_whole TEXT,
             rule_id_whole TEXT, rule_from_whole TEXT, hire_seat_whole TEXT,
-            refusal_words_whole TEXT
+            refusal_words_whole TEXT, {ended_whole}
         );
         CREATE INDEX IF NOT EXISTS run_summary_page
             ON run_summary (lane, order_at DESC, run_id DESC);
@@ -199,15 +200,18 @@ fn migration() -> String {
                 last_recorded_at = {cut}
                 WHERE run_id = NEW.run_id;
         END;
-        {stopping_trigger} {indexed}",
+        {stopping_trigger} {ended_trigger} {indexed}",
         lane = lane(),
         aggregated = aggregate::defined(),
         indexed = aggregate::migration(),
         moved = moved_to("NEW"),
         cut = cut_stamp("NEW.last_recorded_at"),
         acknowledged = acknowledged_by("NEW"),
-        stopping = stop::defined(),
-        stopping_trigger = stop::migration(),
+        stopping = stop::PART.defined(),
+        stopping_trigger = stop::PART.migration(),
+        ended = ending::PART.defined(),
+        ended_trigger = ending::PART.migration(),
+        ended_whole = ending::defined_whole(),
     )
 }
 
@@ -233,9 +237,8 @@ fn seed() -> String {
     )
 }
 
-/// Send behind every row whose aggregates or accepted stop are not its
-/// folded head's, as the triggers send one: the repair recreates them, and
-/// a writer from before either may have folded while they were gone. The
+/// Send behind every row a stamp says is not its folded head's, as the
+/// triggers do: an older writer may have folded while they were gone. The
 /// open's backfill refolds the rows this sends behind (rulings 4 and 8).
 fn send_stale_behind() -> String {
     format!(
@@ -245,26 +248,26 @@ fn send_stale_behind() -> String {
     )
 }
 
-/// Does this journal carry the table with every column, its two indexes
-/// and all six triggers? Pure reads, so the steady-state open writes
-/// nothing.
+/// Does this journal carry the table with every column, index and trigger?
+/// Pure reads, so the steady-state open writes nothing.
 pub(crate) fn summary_intact(conn: &Connection) -> Result<bool, StoreError> {
     Ok(all_present(conn, "table", &TABLE)?
         && aggregate::shaped(conn)?
-        && stop::shaped(conn)?
+        && stop::PART.shaped(conn)?
+        && ending::shaped(conn)?
         && all_present(conn, "index", &INDEX)?
         && all_present(conn, "trigger", &TRIGGERS)?)
 }
 
 /// Create the summary, anew where its table lacks a column, seed a row for
-/// every run already here, and send behind the aggregates and accepted
-/// stops of any row whose folded head the repair did not see written, on a
-/// connection holding the write lock: the fifth additive repair.
+/// every run already here, and send behind any row a stamp says the repair
+/// did not see written, holding the write lock: the fifth additive repair.
 pub(crate) fn migrate_summary(conn: &Connection) -> Result<(), StoreError> {
-    if !aggregate::shaped(conn)? || !stop::shaped(conn)? {
+    if !aggregate::shaped(conn)? || !stop::PART.shaped(conn)? || !ending::shaped(conn)? {
         conn.execute_batch(&aggregate::rebuild())?;
     }
-    conn.execute_batch(&migration())?;
+    let unwatched = ending::unwatched(conn)?;
+    conn.execute_batch(&(migration() + &unwatched))?;
     conn.execute_batch(&seed())?;
     Ok(conn.execute_batch(&send_stale_behind())?)
 }
@@ -351,6 +354,7 @@ fn written(summary: &Summary) -> Vec<(&'static str, Value)> {
     ]
     .into_iter()
     .chain(aggregate::written(&summary.aggregate, summary.folded_seq))
+    .chain(ending::written(summary))
     .collect()
 }
 
@@ -413,8 +417,7 @@ pub(crate) fn write(tx: &Connection, run_id: &str, summary: &Summary) -> Result<
     Ok(())
 }
 
-/// What a `runs` row lists, owned so a writer can keep it between
-/// appends.
+/// What a `runs` row lists, owned so a writer can keep it between appends.
 #[derive(Debug, Clone)]
 pub(crate) struct Listed {
     feature: String,
@@ -450,8 +453,7 @@ impl Listed {
     }
 }
 
-/// The account a writer carries, and what its run's `runs` row lists
-/// once it has been read.
+/// The account a writer carries, and what its run's `runs` row lists once read.
 #[derive(Debug, Clone)]
 pub(crate) struct Carried {
     pub(crate) account: Account,
@@ -460,8 +462,7 @@ pub(crate) struct Carried {
 
 /// What an append leaves the carried account as, once it commits.
 pub(crate) enum Settled {
-    /// Unchanged: no account carried, one of another run, or nothing
-    /// sealed.
+    /// Unchanged: no account carried, one of another run, or nothing sealed.
     Kept,
     /// The account stood at another head than the append found: it is
     /// not this run's any more, and nothing folded was written.

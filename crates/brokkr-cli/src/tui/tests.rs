@@ -1,6 +1,5 @@
-//! The TUI's proofs, all headless: the pure state machine needs no
-//! terminal, the draw path runs through `TestBackend` into a buffer, and
-//! the shell runs over injected key and refresh sources.
+//! The TUI's proofs, all headless: the pure state machine needs no terminal, the draw path
+//! runs through `TestBackend` into a buffer, and the shell over injected key and refresh sources.
 
 use super::view_tests::console;
 use super::*;
@@ -25,8 +24,7 @@ pub(super) const NOW: &str = "2026-01-01T00:07:03Z";
 
 // -------------------------------------------------------------- fixtures
 
-/// The console's read of the one-hearth journal `db`, frame by frame, at
-/// the test clock.
+/// The console's read of the one-hearth journal `db`, frame by frame, at the test clock.
 pub(super) fn reading(db: &Path) -> impl FnMut(Ask) -> Result<Refreshed> + '_ {
     let mut head = None;
     move |ask| crate::tui_read::tui_views(db, true, ask, &mut head, &mut None, || NOW.to_string())
@@ -187,6 +185,7 @@ fn fleet() -> RunsView {
         state,
         detail: state.map_or(Some(refused), |_| None),
         residuals: &[],
+        closing: None,
     };
     let entries = [
         entry(
@@ -677,6 +676,7 @@ fn a_second_selection_replaces_the_first_and_a_vanished_subject_clears_itself() 
             state: None,
             detail: None,
             residuals: &[],
+            closing: None,
         }]),
         run: None,
         transcript: None,
@@ -1465,8 +1465,7 @@ fn the_shell_watches_a_transcript_only_while_its_seat_is_working() {
     assert!(subject_of(&at_run(), &views).is_none());
 }
 
-/// A panel with no sequence steps: one fork, no step label. The other
-/// shape the tree draws.
+/// A panel with no sequence steps: one fork, no step label, the other shape the tree draws.
 pub(super) fn panel_views() -> Views {
     let mut events = vec![
         ev(1, EventType::RunStarted, json!({"feature": "a panel"}), T0),
@@ -1505,6 +1504,7 @@ pub(super) fn panel_views() -> Views {
             state: Some(&stopped),
             detail: None,
             residuals: &[],
+            closing: None,
         }]),
         run: Some(brokkr_view::run_view(&events, Some(&stopped))),
         transcript: None,

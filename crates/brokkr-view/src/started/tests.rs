@@ -177,6 +177,6 @@ fn a_refused_carry_parks_with_its_stated_reason_as_a_gate_move_does() {
         "effect e1 indeterminate: GATE-MOVED-HEAD: the gate's head moved",
     ] {
         let state = crate::tests::parked_state("review", reason);
-        assert_eq!(summary(&state).park_reason.as_deref(), Some(reason));
+        assert_eq!(summary(&state, &[]).park_reason.as_deref(), Some(reason));
     }
 }
