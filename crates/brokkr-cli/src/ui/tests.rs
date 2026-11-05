@@ -268,7 +268,7 @@ fn listener_open_hook_is_testable_and_public_bind_errors_return() {
     drop(probe);
     let server_db = fixture().1;
     std::thread::spawn(move || {
-        let _ = serve(server_db, port, false);
+        let _ = super::limit_tests::serve_on_within(server_db, port, false);
     });
     for _ in 0..100 {
         if let Ok(mut stream) = TcpStream::connect(("127.0.0.1", port)) {

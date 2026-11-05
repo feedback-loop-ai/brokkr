@@ -135,44 +135,41 @@ fn accepted(listener: &TcpListener, within: Duration) -> std::io::Result<TcpStre
     }
 }
 
-/// [`super::serve_listener`] over [`accepted`], for a test server: the
-/// same slots, refusal and one thread a connection, each accept bounded.
-/// A server given a `connection_limit` panics by name where its client
-/// never connects; an open one ends at its next deadline instead, so a
-/// detached test server waits for no client forever.
+/// [`super::serve_listener_with`] — the production serving loop — over
+/// [`accepted`]: the same slots, refusal and one thread per connection, with
+/// each accept bounded, so a client that never connects fails the test by
+/// name rather than leaving its binary in `accept()`.
 pub(super) fn serve_within(
     db: PathBuf,
     listener: TcpListener,
     open_browser: bool,
     connection_limit: Option<usize>,
     limits: Limits,
-    mut opener: impl FnMut(&str),
+    opener: impl FnMut(&str),
 ) -> std::io::Result<()> {
-    let bound = listener.local_addr()?.port();
-    let url = format!("http://127.0.0.1:{bound}/");
-    eprintln!("brokkr ui: {url} (read-only; Ctrl-C to stop)");
-    if open_browser {
-        opener(&url);
-    }
-    let slots = Slots::new(limits.connections);
-    let limit = connection_limit.unwrap_or(usize::MAX);
-    for _ in 0..limit {
-        let stream = match accepted(&listener, ACCEPT_WITHIN) {
-            Ok(stream) => stream,
-            Err(_) if connection_limit.is_none() => return Ok(()),
-            Err(error) => panic!("{error}"),
-        };
-        let Some(slot) = slots.take() else {
-            refuse(stream, limits.connections);
-            continue;
-        };
-        let db = db.clone();
-        std::thread::spawn(move || {
-            serve_client(db, stream, limits);
-            drop(slot);
-        });
-    }
-    Ok(())
+    super::serve_listener_with(
+        db,
+        listener,
+        open_browser,
+        connection_limit,
+        limits,
+        opener,
+        |listener| accepted(listener, ACCEPT_WITHIN),
+    )
+}
+
+/// [`serve_within`] bound to `port`, for a detached test server that starts
+/// the way [`super::serve`] does.
+pub(super) fn serve_on_within(db: PathBuf, port: u16, open_browser: bool) -> std::io::Result<()> {
+    let listener = TcpListener::bind(("127.0.0.1", port))?;
+    serve_within(
+        db,
+        listener,
+        open_browser,
+        None,
+        Limits::DEFAULT,
+        super::open_system_browser,
+    )
 }
 
 /// What a client sends: its bytes, and whether it then shuts its write side.
@@ -206,15 +203,46 @@ fn served(limits: Limits, bytes: &[u8], close: bool) -> String {
     connection(no_journal(), limits, Request { bytes, close }, None)
 }
 
+/// Assert the named refusal a server with no client gives: `within` names
+/// the bound, and a little slack proves it waited rather than failed early.
+fn refused_by_name(within: Duration, refuse: impl FnOnce() -> std::io::Error) {
+    let begun = Instant::now();
+    let refused = refuse();
+    assert_eq!(refused.kind(), std::io::ErrorKind::TimedOut);
+    assert_eq!(
+        refused.to_string(),
+        format!("no client connected within {within:?}")
+    );
+    let taken = begun.elapsed();
+    assert!(taken < Duration::from_secs(5), "{taken:?}");
+}
+
 #[test]
 fn a_test_servers_accept_gives_up_by_name_when_no_client_connects() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let begun = Instant::now();
-    let refused = accepted(&listener, Duration::from_millis(50)).unwrap_err();
-    assert_eq!(refused.kind(), std::io::ErrorKind::TimedOut);
-    assert_eq!(refused.to_string(), "no client connected within 50ms");
-    let taken = begun.elapsed();
-    assert!(taken < Duration::from_secs(5), "{taken:?}");
+    let within = Duration::from_millis(50);
+    refused_by_name(within, || accepted(&listener, within).unwrap_err());
+}
+
+/// The production serving loop ends on that named refusal instead of
+/// accepting forever: the R2 site's detached server can no longer outlive
+/// its deadline.
+#[test]
+fn a_test_servers_serving_loop_ends_by_name_when_no_client_connects() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let within = Duration::from_millis(50);
+    refused_by_name(within, || {
+        super::serve_listener_with(
+            no_journal(),
+            listener,
+            false,
+            None,
+            Limits::DEFAULT,
+            |_| {},
+            |listener| accepted(listener, within),
+        )
+        .unwrap_err()
+    });
 }
 
 #[test]

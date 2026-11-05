@@ -623,14 +623,17 @@ fn open_browser_with(url: &str, spawn: impl FnOnce(&str, &str)) {
 
 /// Accept and serve, each connection on a thread of its own while
 /// `limits.connections` are served; one past them is refused by [`refuse`].
-/// `connection_limit` ends the loop after that many accepts.
-fn serve_listener(
+/// `connection_limit` ends the loop after that many accepts. `accept` is the
+/// seam: `serve_listener` passes the blocking accept production runs, and a
+/// test passes one with a deadline so no test server waits forever.
+fn serve_listener_with(
     db: PathBuf,
     listener: TcpListener,
     open_browser: bool,
     connection_limit: Option<usize>,
     limits: Limits,
     mut opener: impl FnMut(&str),
+    mut accept: impl FnMut(&TcpListener) -> std::io::Result<TcpStream>,
 ) -> std::io::Result<()> {
     let bound = listener.local_addr()?.port();
     let url = format!("http://127.0.0.1:{bound}/");
@@ -640,7 +643,8 @@ fn serve_listener(
     }
     let slots = Slots::new(limits.connections);
     let limit = connection_limit.unwrap_or(usize::MAX);
-    for stream in listener.incoming().flatten().take(limit) {
+    for _ in 0..limit {
+        let stream = accept(&listener)?;
         let Some(slot) = slots.take() else {
             refuse(stream, limits.connections);
             continue;
@@ -652,6 +656,31 @@ fn serve_listener(
         });
     }
     Ok(())
+}
+
+/// [`serve_listener_with`] over the blocking accept production runs.
+fn serve_listener(
+    db: PathBuf,
+    listener: TcpListener,
+    open_browser: bool,
+    connection_limit: Option<usize>,
+    limits: Limits,
+    opener: impl FnMut(&str),
+) -> std::io::Result<()> {
+    serve_listener_with(
+        db,
+        listener,
+        open_browser,
+        connection_limit,
+        limits,
+        opener,
+        |listener| loop {
+            match listener.accept() {
+                Ok((stream, _)) => return Ok(stream),
+                Err(_) => continue,
+            }
+        },
+    )
 }
 
 /// A connection past the cap, answered from the acceptor and closed: it is
