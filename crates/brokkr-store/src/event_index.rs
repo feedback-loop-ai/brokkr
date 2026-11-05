@@ -28,12 +28,11 @@ use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
-use brokkr_core::summary::{Account, Bounded, Park, NAME_BYTES};
+use brokkr_core::summary::{Account, Bounded, Park, NAME_BYTES, STAMP_BYTES};
 use rusqlite::types::Value;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Params};
 
 use crate::schema::{all_present, all_present_and_none, holds};
-use brokkr_core::summary::STAMP_BYTES;
 
 use crate::summary::{cut_stamp, stamp_of, text_at};
 use crate::{head_of, patiently, Disagreement, Store, StoreError};
@@ -42,7 +41,7 @@ use crate::{head_of, patiently, Disagreement, Store, StoreError};
 const BACKFILLED: &str = "event_index_backfill";
 
 const TABLE: [&str; 1] = ["event_index"];
-const INDEXES: [&str; 13] = [
+const INDEXES: [&str; 14] = [
     "event_index_stream",
     "event_index_trail",
     "event_index_cause",
@@ -56,6 +55,7 @@ const INDEXES: [&str; 13] = [
     "event_index_phase",
     "event_index_ordinal_stale",
     "event_index_ordinal_written",
+    "event_index_ordinal_numbered",
 ];
 const TRIGGERS: [&str; 5] = [
     "event_index_of_an_event",
@@ -144,10 +144,10 @@ fn park_facts(park: Option<&Park>, head: u64) -> [Value; PARK_COLUMNS.len()] {
     ]
 }
 
-/// The `json_each` walk of `event`'s payload entries, guarded so an
-/// envelope no reader parses walks nothing.
-pub(super) fn payload(event: &str) -> String {
-    let envelope = format!("{event}.envelope");
+/// The `json_each` walk of `envelope`'s payload entries, guarded so an
+/// envelope no reader parses walks nothing. The one reading the event
+/// index's derivation and the ordinal's share.
+pub(super) fn payload(envelope: &str) -> String {
     format!(
         "json_each(CASE WHEN json_valid({envelope}) THEN {envelope} ELSE '{{}}' END, '$.payload')"
     )
@@ -155,8 +155,8 @@ pub(super) fn payload(event: &str) -> String {
 
 /// The payload's checkpoint or result object as a `json_each` walk, the
 /// checkpoint preferred where both stand and its last copy read, as serde keeps one.
-pub(super) fn record(event: &str) -> String {
-    let payload = payload(event);
+pub(super) fn record(envelope: &str) -> String {
+    let payload = payload(envelope);
     format!(
         "(SELECT value AS record, type AS kind FROM {payload}
               WHERE key IN ('checkpoint', 'result')
@@ -177,8 +177,8 @@ pub(super) fn record(event: &str) -> String {
 /// the first.
 fn projected(event: &str) -> String {
     let envelope = format!("{event}.envelope");
-    let payload = payload(event);
-    let record = record(event);
+    let payload = payload(&envelope);
+    let record = record(&envelope);
     format!(
         "{event}.run_id, {event}.seq, {kind}, {attempt}, {member}, {stamp}, {id}",
         kind = text_at(&envelope, "$.type"),

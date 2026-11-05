@@ -279,6 +279,7 @@ fn unordinal(conn: &rusqlite::Connection) {
         "DROP TRIGGER event_index_of_an_event",
         "DROP INDEX event_index_ordinal_stale",
         "DROP INDEX event_index_ordinal_written",
+        "DROP INDEX event_index_ordinal_numbered",
         "ALTER TABLE event_index DROP COLUMN stream_ordinal",
         "DELETE FROM meta WHERE key = 'event_index_ordinal_backfill'",
     ] {
@@ -557,5 +558,32 @@ fn an_old_stale_index_key_is_repaired_at_the_next_writable_open() {
     assert!(
         sql.contains("attempt_id") && sql.contains("member") && sql.contains("seq"),
         "the re-keyed index names the stream: {sql}"
+    );
+}
+
+/// The numbered index is asked by its SQL and repaired at the next
+/// writable open: a journal that lost it cannot seek a rank search's probe
+/// in one step.
+#[test]
+fn a_journal_without_the_numbered_index_is_repaired_at_the_next_writable_open() {
+    let (_dir, store) = store();
+    let path = store.path().to_path_buf();
+    store
+        .conn
+        .execute_batch(&format!("DROP INDEX {}", super::ordinal::NUMBERED))
+        .unwrap();
+    assert!(
+        !super::ordinal::intact(&store.conn).unwrap(),
+        "the numbered index is asked by its SQL"
+    );
+    assert!(
+        !index_intact(&store.conn).unwrap(),
+        "the schema is not intact"
+    );
+    drop(store);
+    let store = Store::open(&path).unwrap();
+    assert!(
+        index_intact(&store.conn).unwrap(),
+        "the open made the numbered index anew"
     );
 }

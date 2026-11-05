@@ -20,15 +20,18 @@
 //!
 //! Where the guarded page read refuses, these reads refuse for the reach
 //! they cover, and only there: the seat's own participant wherever a
-//! member's not-counted row of the span's attempt lies in the range (the
-//! result-only record its fold counts but the index keys by the result's
-//! member, H1), a member's wherever its stream holds one, and any
-//! participant wherever a row still to number or a restart lies in it. A
-//! member's own checkpoint is a positive ordinal and another participant's
-//! row, so it refuses neither the seat's count nor a member's.
-//! `seat_count` covers every span whole; `seat_seq_at` covers each span's
-//! rows at or below the seq it returns. No preliminary count over the
-//! whole participant refuses a window it never reaches (M2).
+//! member's checkpoint of the span's attempt lies in the range (the
+//! guarded page read's own `members_within`, H1), a member's wherever its
+//! stream holds a not-counted row, and any participant wherever a row
+//! still to number or a restart lies in it. A member's own checkpoint is a
+//! positive ordinal and another participant's row, so it refuses neither
+//! the seat's count nor a member's. `seat_count` covers every span whole;
+//! `seat_seq_at` covers each span's rows at or below the seq it returns,
+//! and reads a span's last row only where its count is needed (M2). The
+//! interleaved search places its probes by the nearest numbered row at or
+//! below them, so a probe on a not-counted row refuses nothing by itself
+//! (M3), and every ordinal read decodes a NULL as none rather than an SQL
+//! type error (M4).
 
 use std::sync::LazyLock;
 
@@ -38,13 +41,12 @@ use super::{Gathered, Seat, Stream};
 use crate::event_index::{place, CHECKPOINTED};
 use crate::{patiently, Opened, Store, StoreError};
 
-/// The two ordinals a stream's row bounds name, by the stream index: a
-/// stream whose bound row is missing, or whose ordinal is 0 or NULL, cannot
-/// be counted.
-static ORDINALS: LazyLock<String> = LazyLock::new(|| {
+/// The ordinal one row of a stream carries, where it carries a positive
+/// one: a row missing, still to number, or not counted is no bound.
+pub(super) static BOUND: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT seq, stream_ordinal FROM event_index INDEXED BY event_index_stream
-         WHERE run_id = ?1 AND attempt_id IS ?2 AND member IS ?3 AND seq IN (?4, ?5)
+        "SELECT stream_ordinal FROM event_index INDEXED BY event_index_stream
+         WHERE run_id = ?1 AND attempt_id IS ?2 AND member IS ?3 AND seq = ?4
            AND type = '{CHECKPOINTED}'"
     )
 });
@@ -69,7 +71,7 @@ pub(super) static GAP: LazyLock<String> = LazyLock::new(|| {
 /// row is another effect's row (or an interleaved one), so the ordinals no
 /// longer count one effect's checkpoints by difference. The written index
 /// names the counted rows alone, so this is one seek.
-static RESTART: LazyLock<String> = LazyLock::new(|| {
+pub(super) static RESTART: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT EXISTS (SELECT 1 FROM event_index
          INDEXED BY event_index_ordinal_written
@@ -81,10 +83,12 @@ static RESTART: LazyLock<String> = LazyLock::new(|| {
 
 /// Whether a checkpoint row of a member's stream inside the range carries
 /// the not-counted value (0): a record the guarded page read's `names`
-/// refuses, which the ordinal never reads as a place.
-static UNCOUNTED: LazyLock<String> = LazyLock::new(|| {
+/// refuses, which the ordinal never reads as a place. The written index
+/// keys the value, so a journal with none reads one empty seek whatever
+/// the stream holds (M1).
+pub(super) static UNCOUNTED: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT EXISTS (SELECT 1 FROM event_index INDEXED BY event_index_stream
+        "SELECT EXISTS (SELECT 1 FROM event_index INDEXED BY event_index_ordinal_written
          WHERE run_id = ?1 AND attempt_id IS ?2 AND member IS ?3
            AND type = '{CHECKPOINTED}' AND stream_ordinal = 0
            AND seq BETWEEN ?4 AND ?5)"
@@ -93,7 +97,7 @@ static UNCOUNTED: LazyLock<String> = LazyLock::new(|| {
 
 /// The seq holding `ordinal` within a stream's row bounds, by the written
 /// index.
-static AT: LazyLock<String> = LazyLock::new(|| {
+pub(super) static AT: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT seq FROM event_index INDEXED BY event_index_ordinal_written
          WHERE run_id = ?1 AND attempt_id IS ?2 AND member IS ?3
@@ -102,98 +106,105 @@ static AT: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// The last ordinal a stream's rows hold at or below `seq`: how many of its
-/// checkpoints a candidate seq reaches, for the rank search among streams
-/// whose seq ranges interleave.
-static BEFORE: LazyLock<String> = LazyLock::new(|| {
+/// The last numbered ordinal a stream reaches at or below `seq`: how many
+/// of its checkpoints a candidate seq reaches, for the rank search among
+/// streams whose seq ranges interleave. The numbered index skips a row
+/// still to number or not counted in one seek, so a probe that lands on one
+/// is placed by the nearest numbered row below it (M3, M4).
+pub(super) static BEFORE: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT stream_ordinal FROM event_index INDEXED BY event_index_stream
+        "SELECT stream_ordinal FROM event_index INDEXED BY event_index_ordinal_numbered
          WHERE run_id = ?1 AND attempt_id IS ?2 AND member IS ?3
            AND seq BETWEEN ?4 AND ?5 AND type = '{CHECKPOINTED}'
+           AND stream_ordinal > 0
          ORDER BY seq DESC LIMIT 1"
     )
 });
 
 /// A participant's stream as its count and rank read it: the attempt its
-/// seat row names, the row's first and last checkpoint, and their ordinals.
+/// seat row names, and the row's first and last checkpoint. Its ordinals
+/// are read only where a read needs them, so a span above the returned
+/// rank is never refused for a bound it does not reach (M2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Span {
     attempt: String,
     first: u64,
     last: u64,
-    first_ord: u64,
-    last_ord: u64,
 }
 
-impl Span {
-    /// How many of the participant's checkpoints the stream holds: the
-    /// difference of the ordinals at its bounds, plus one. It is the count
-    /// only where [`Store::refuses`] finds no restart inside the span.
-    fn count(&self) -> u64 {
-        self.last_ord - self.first_ord + 1
-    }
-}
-
-/// The spans of `streams`, the participant `member`'s, by the ordinals
-/// their rows' bounds name: none where a bound row is missing, carries no
-/// positive ordinal, or falls below its first.
-fn spans(
-    conn: &rusqlite::Connection,
-    run_id: &str,
-    member: Option<&str>,
-    streams: &[Stream],
-) -> Result<Option<Vec<Span>>, StoreError> {
-    let mut spans = Vec::with_capacity(streams.len());
-    for stream in streams {
-        let bound = params![
-            run_id,
-            stream.attempt,
-            member,
-            place(stream.first),
-            place(stream.last)
-        ];
-        let mut statement = conn.prepare_cached(&ORDINALS)?;
-        let mut rows = statement.query(bound)?;
-        let (mut first_ord, mut last_ord) = (None, None);
-        while let Some(row) = rows.next()? {
-            let seq: u64 = row.get(0)?;
-            let ordinal: Option<i64> = row.get(1)?;
-            let Some(ordinal) = ordinal.and_then(|ordinal| u64::try_from(ordinal).ok()) else {
-                return Ok(None);
-            };
-            if ordinal == 0 {
-                return Ok(None);
-            }
-            if seq == stream.first {
-                first_ord = Some(ordinal);
-            }
-            if seq == stream.last {
-                last_ord = Some(ordinal);
-            }
-        }
-        drop(rows);
-        let (Some(first_ord), Some(last_ord)) = (first_ord, last_ord) else {
-            return Ok(None);
-        };
-        if last_ord < first_ord {
-            return Ok(None);
-        }
-        spans.push(Span {
+/// The spans of `streams`, the participant `member`'s, by the bounds their
+/// rows name.
+fn spans(streams: &[Stream]) -> Vec<Span> {
+    streams
+        .iter()
+        .map(|stream| Span {
             attempt: stream.attempt.clone(),
             first: stream.first,
             last: stream.last,
-            first_ord,
-            last_ord,
-        });
-    }
-    Ok(Some(spans))
+        })
+        .collect()
+}
+
+/// The positive ordinal `span`'s row at `seq` carries: none where the row
+/// is missing, still to number, or not counted.
+fn bound(
+    conn: &rusqlite::Connection,
+    run_id: &str,
+    member: Option<&str>,
+    span: &Span,
+    seq: u64,
+) -> Result<Option<u64>, StoreError> {
+    let ordinal: Option<Option<i64>> = conn
+        .query_row(
+            &BOUND,
+            params![run_id, span.attempt, member, place(seq)],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(positive(ordinal.flatten()))
+}
+
+/// The last numbered ordinal `span` reaches between `low` and `high`: none
+/// where the span holds no numbered row there.
+fn numbered_before(
+    conn: &rusqlite::Connection,
+    run_id: &str,
+    member: Option<&str>,
+    span: &Span,
+    low: u64,
+    high: u64,
+) -> Result<Option<u64>, StoreError> {
+    let ordinal: Option<Option<i64>> = conn
+        .query_row(
+            &BEFORE,
+            params![run_id, span.attempt, member, place(low), place(high)],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(positive(ordinal.flatten()))
+}
+
+/// A stored ordinal as a place, where it is one: NULL, a negative and the
+/// not-counted 0 are none. Every read of the column takes this, so a NULL
+/// never surfaces as an SQL type error (M4).
+fn positive(ordinal: Option<i64>) -> Option<u64> {
+    ordinal
+        .and_then(|ordinal| u64::try_from(ordinal).ok())
+        .filter(|ordinal| *ordinal > 0)
+}
+
+/// How many checkpoints a span holds between its first and last ordinal,
+/// none where the last falls below the first.
+fn held(first_ord: u64, last_ord: u64) -> Option<u64> {
+    last_ord
+        .checked_sub(first_ord)
+        .map(|difference| difference + 1)
 }
 
 /// The seq of the participant's `rank`-th checkpoint (0-based), none past
-/// its end: the stream that holds it is found by the counts, and the seq by
-/// its ordinal, unless the streams' seq ranges interleave, where the rank
-/// is found by asking each stream how many checkpoints a candidate seq
-/// reaches.
+/// its end: a stream whose seq range stands apart is found by the counts
+/// and the seq by its ordinal, and interleaved ranges are searched by the
+/// checkpoints a candidate seq reaches.
 fn seq_at(
     conn: &rusqlite::Connection,
     run_id: &str,
@@ -201,89 +212,121 @@ fn seq_at(
     spans: &[Span],
     rank: u64,
 ) -> Result<Option<u64>, StoreError> {
-    let total: u64 = spans.iter().map(Span::count).sum();
-    if rank >= total {
-        return Ok(None);
-    }
     let mut ordered: Vec<&Span> = spans.iter().collect();
     ordered.sort_unstable_by_key(|span| span.first);
     let disjoint = ordered.windows(2).all(|pair| pair[0].last < pair[1].first);
     if disjoint {
-        let mut before = 0u64;
-        for span in ordered {
-            if rank < before + span.count() {
-                let ordinal = span.first_ord + (rank - before);
-                let found = conn
-                    .query_row(
-                        &AT,
-                        params![
-                            run_id,
-                            span.attempt,
-                            member,
-                            place(span.first),
-                            place(span.last),
-                            place(ordinal)
-                        ],
-                        |row| row.get(0),
-                    )
-                    .optional()?;
-                return Ok(found);
-            }
-            before += span.count();
-        }
-        return Ok(None);
+        seq_in_order(conn, run_id, member, &ordered, rank)
+    } else {
+        search(conn, run_id, member, &ordered, rank)
     }
+}
+
+/// The seq of the participant's `rank`-th checkpoint among `ordered` spans
+/// whose seq ranges stand apart: the span that holds it is walked to by the
+/// counts, and its last row is read only where the rank passes it (M2).
+fn seq_in_order(
+    conn: &rusqlite::Connection,
+    run_id: &str,
+    member: Option<&str>,
+    ordered: &[&Span],
+    rank: u64,
+) -> Result<Option<u64>, StoreError> {
+    let mut before = 0u64;
+    for span in ordered {
+        let Some(first_ord) = bound(conn, run_id, member, span, span.first)? else {
+            return Ok(None);
+        };
+        let Some(ordinal) = rank
+            .checked_sub(before)
+            .and_then(|offset| first_ord.checked_add(offset))
+        else {
+            return Ok(None);
+        };
+        let found: Option<u64> = conn
+            .query_row(
+                &AT,
+                params![
+                    run_id,
+                    span.attempt,
+                    member,
+                    place(span.first),
+                    place(span.last),
+                    place(ordinal)
+                ],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(seq) = found {
+            return Ok(Some(seq));
+        }
+        let Some(last_ord) = bound(conn, run_id, member, span, span.last)? else {
+            return Ok(None);
+        };
+        let Some(count) = held(first_ord, last_ord) else {
+            return Ok(None);
+        };
+        before = before.saturating_add(count);
+    }
+    Ok(None)
+}
+
+/// The seq of the participant's `rank`-th checkpoint among `ordered` spans
+/// whose seq ranges interleave: the first seq at which the participant has
+/// more than `rank` checkpoints, by each probe's nearest numbered row at or
+/// below it, so a probe on a not-counted row decides nothing (M3).
+fn search(
+    conn: &rusqlite::Connection,
+    run_id: &str,
+    member: Option<&str>,
+    ordered: &[&Span],
+    rank: u64,
+) -> Result<Option<u64>, StoreError> {
     let mut low = ordered.first().map_or(0, |span| span.first);
     let mut high = ordered.iter().map(|span| span.last).max().unwrap_or(0);
     while low < high {
         let mid = low + (high - low) / 2;
-        let Some(reached) = before(conn, run_id, member, spans, mid)? else {
-            return Ok(None);
-        };
-        if reached > rank {
+        if before(conn, run_id, member, ordered, mid)? > rank {
             high = mid;
         } else {
             low = mid + 1;
         }
     }
-    Ok(Some(low))
+    if before(conn, run_id, member, ordered, low)? > rank {
+        Ok(Some(low))
+    } else {
+        Ok(None)
+    }
 }
 
-/// How many of the participant's checkpoints `seq` reaches, by each
-/// stream's last ordinal at or below it: none where a candidate row is
-/// unnumbered or carries the not-counted value.
+/// How many numbered checkpoints of the participant `seq` reaches, by each
+/// span's nearest numbered row at or below it: a row still to number or not
+/// counted between the probe and the numbered row below it is skipped, and
+/// the reach it stands in is judged once the destination is settled.
 fn before(
     conn: &rusqlite::Connection,
     run_id: &str,
     member: Option<&str>,
-    spans: &[Span],
+    spans: &[&Span],
     seq: u64,
-) -> Result<Option<u64>, StoreError> {
+) -> Result<u64, StoreError> {
     let mut reached = 0u64;
     for span in spans {
         if seq < span.first {
             continue;
         }
-        if seq >= span.last {
-            reached += span.count();
+        let high = seq.min(span.last);
+        let Some(first_ord) = bound(conn, run_id, member, span, span.first)? else {
             continue;
-        }
-        let ordinal: Option<i64> = conn
-            .query_row(
-                &BEFORE,
-                params![run_id, span.attempt, member, place(span.first), place(seq)],
-                |row| row.get(0),
-            )
-            .optional()?;
-        let Some(ordinal) = ordinal.and_then(|ordinal| u64::try_from(ordinal).ok()) else {
-            return Ok(None);
         };
-        if ordinal < span.first_ord {
-            return Ok(None);
+        let Some(ordinal) = numbered_before(conn, run_id, member, span, span.first, high)? else {
+            continue;
+        };
+        if ordinal >= first_ord {
+            reached = reached.saturating_add(ordinal - first_ord + 1);
         }
-        reached += ordinal - span.first_ord + 1;
     }
-    Ok(Some(reached))
+    Ok(reached)
 }
 
 /// Whether `sql` selects a row with `bound`.
@@ -339,7 +382,16 @@ impl Store {
             if self.refuses(run_id, member, span, span.first, span.last)? {
                 return Ok(None);
             }
-            total += span.count();
+            let Some(first_ord) = bound(&self.conn, run_id, member, span, span.first)? else {
+                return Ok(None);
+            };
+            let Some(last_ord) = bound(&self.conn, run_id, member, span, span.last)? else {
+                return Ok(None);
+            };
+            let Some(count) = held(first_ord, last_ord) else {
+                return Ok(None);
+            };
+            total = total.saturating_add(count);
         }
         Ok(Some(total))
     }
@@ -395,39 +447,17 @@ impl Store {
                 let uncounted = params![run_id, span.attempt, member, place(low), place(high)];
                 exists(&self.conn, &UNCOUNTED, uncounted)
             }
-            None => self.uncounted_across(run_id, &span.attempt, low, high),
+            None => {
+                // The seat's own stream's own not-counted row is not a
+                // member's, so the attempt's member walk cannot see it; the
+                // guarded page read still refuses it inside its reach.
+                let own = params![run_id, span.attempt, member, place(low), place(high)];
+                if exists(&self.conn, &UNCOUNTED, own)? {
+                    return Ok(true);
+                }
+                self.members_within(run_id, &span.attempt, low, high)
+            }
         }
-    }
-
-    /// Whether any member of `attempt` holds a row still carrying the
-    /// not-counted value inside the range: the result-only record the
-    /// seat's own fold counts but the index keys by its result's member
-    /// (H1). A member's own checkpoint carries a positive ordinal and is
-    /// another participant's, so it does not refuse the seat's count; the
-    /// work is the attempt's members, as the page read's is.
-    fn uncounted_across(
-        &self,
-        run_id: &str,
-        attempt: &str,
-        low: u64,
-        high: u64,
-    ) -> Result<bool, StoreError> {
-        let found = |named: &str| self.uncounted_member(run_id, attempt, named, low, high);
-        self.any_member(run_id, attempt, |_, named| found(named))
-    }
-
-    /// Whether member `named` of `attempt` holds a not-counted row between
-    /// `low` and `high`, by the member's stream index.
-    fn uncounted_member(
-        &self,
-        run_id: &str,
-        attempt: &str,
-        named: &str,
-        low: u64,
-        high: u64,
-    ) -> Result<bool, StoreError> {
-        let bound = params![run_id, attempt, Some(named), place(low), place(high)];
-        exists(&self.conn, &UNCOUNTED, bound)
     }
 
     /// `read` over the spans of the participant `seat` at `opened`, in one
@@ -450,9 +480,7 @@ impl Store {
             let Some(streams) = self.gather(run_id, opened, seat, Gathered::above(0))? else {
                 return Ok(None);
             };
-            let Some(spans) = spans(&self.conn, run_id, seat.1, &streams)? else {
-                return Ok(None);
-            };
+            let spans = spans(&streams);
             read(self, &spans)
         })
     }

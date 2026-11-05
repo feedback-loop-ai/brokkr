@@ -431,20 +431,20 @@ fn an_empty_newer_page_ends_the_window() {
     assert_eq!(next, None, "the stream's end has no cursor");
 }
 
-/// A member's record below the absolute end's window does not refuse it
-/// (M2): the end page is found by key, so the pages below it are never
-/// read, and a record they hold is not the end's.
+/// H1 (the 994o3 ruling): a member's checkpoint below the absolute end but
+/// inside the seat's own reach takes the end fetch the kept way. Round
+/// one's expectation that the end page reads past it is superseded: the
+/// seat's own ranked reads refuse through `members_within` over the whole
+/// participant, so the reader reads the run whole.
 #[test]
-fn a_member_record_below_the_absolute_end_does_not_refuse_it() {
+fn the_end_fetch_takes_the_kept_way_for_a_member_record_below_it() {
     let run = "kept end below";
     let journal = Journal::of(own_and_member(run, 120, 2), run);
     let fetch = journal.fetch(run, 24, usize::MAX, &[]);
-    let (page, _) = fetch
-        .participant(("eff", None), None)
-        .unwrap()
-        .expect("the end page reads");
-    assert_eq!(page.start, 100, "the page today's rank names");
-    assert_eq!(page.rows.len(), 20, "the page to the stream's end");
+    assert!(
+        fetch.participant(("eff", None), None).unwrap().is_none(),
+        "the member's checkpoint stands in the seat's own reach"
+    );
 }
 
 /// A member's record within the absolute end's own reach is kept by the

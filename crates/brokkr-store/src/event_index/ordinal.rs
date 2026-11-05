@@ -37,7 +37,7 @@ use std::sync::LazyLock;
 
 use rusqlite::{params_from_iter, Connection, OptionalExtension};
 
-use crate::event_index::{finished, mark_finished, CHECKPOINTED};
+use crate::event_index::{finished, mark_finished, payload, record, CHECKPOINTED};
 use crate::{patiently, Store, StoreError};
 
 /// The column's name: a row's 1-based place among its stream's counted
@@ -56,6 +56,12 @@ pub(super) const BACKFILLED: &str = "event_index_ordinal_backfill";
 /// stand reads one empty range. It is keyed by the stream a stale row
 /// belongs to, so a read of one participant never scans another's.
 pub(super) const STALE: &str = "event_index_ordinal_stale";
+
+/// The partial index that names the numbered checkpoint rows, keyed by
+/// the stream and seq alone: the rank search's probe finds the nearest
+/// numbered row at or below it in one seek, whatever run of not-counted
+/// rows lies between (M3).
+pub(super) const NUMBERED: &str = "event_index_ordinal_numbered";
 
 /// The column a table made anew declares, after the checkpoint facts.
 pub(super) fn declared() -> String {
@@ -86,34 +92,13 @@ fn last_text(entries: &str, key: &str) -> String {
     )
 }
 
-/// The payload's entries as a `json_each` walk, guarded so an envelope no
-/// reader parses walks nothing: the one reading both the string a caller
-/// holds and the `events` row a statement names share.
-fn payload_of(envelope: &str) -> String {
-    format!(
-        "json_each(CASE WHEN json_valid({envelope}) THEN {envelope} ELSE '{{}}' END, '$.payload')"
-    )
-}
-
-/// The payload's checkpoint or result object as a `json_each` walk, the
-/// checkpoint preferred where both stand and its last copy read.
-fn record_of(envelope: &str) -> String {
-    let payload = payload_of(envelope);
-    format!(
-        "(SELECT value AS record, type AS kind FROM {payload}
-              WHERE key IN ('checkpoint', 'result')
-              ORDER BY key = 'checkpoint' DESC, id DESC LIMIT 1),
-         json_each(CASE WHEN kind = 'object' THEN record ELSE '{{}}' END)"
-    )
-}
-
 /// The member the payload's `checkpoint` object names, or NULL where it
 /// names no checkpoint: the one field the ordinal's guard reads, and the
 /// same field the seat read's `names` compares with the participant's
 /// member. The payload is walked by its entries, since serde keeps the
 /// last copy of a key the payload repeats.
 fn checkpoint_member(envelope: &str) -> String {
-    let payload = payload_of(envelope);
+    let payload = payload(envelope);
     let record = format!(
         "(SELECT value AS record, type AS kind FROM {payload}
               WHERE key = 'checkpoint' ORDER BY id DESC LIMIT 1),
@@ -139,7 +124,7 @@ fn numbered(
     checkpoint: &str,
     event: &str,
 ) -> String {
-    let earlier = last_text(&payload_of("earlier_event.envelope"), "effect_id");
+    let earlier = last_text(&payload("earlier_event.envelope"), "effect_id");
     format!(
         "CASE WHEN {kind} = '{CHECKPOINTED}' THEN
            CASE WHEN {attempt} IS NOT NULL AND ({checkpoint}) IS ({member}) THEN
@@ -167,11 +152,11 @@ fn numbered(
 /// the stream once and never the event again.
 pub(super) fn projected(event: &str) -> String {
     let envelope = format!("{event}.envelope");
-    let payload = payload_of(&envelope);
+    let payload = payload(&envelope);
     numbered(
         &crate::summary::text_at(&envelope, "$.type"),
         &crate::event_index::last_text(&payload, "attempt_id"),
-        &crate::event_index::last_text(&record_of(&envelope), "member"),
+        &crate::event_index::last_text(&record(&envelope), "member"),
         &crate::event_index::last_text(&payload, "effect_id"),
         &checkpoint_member(&envelope),
         event,
@@ -185,7 +170,7 @@ pub(super) fn projected(event: &str) -> String {
 fn projected_row(row: &str) -> String {
     let envelope =
         format!("(SELECT envelope FROM events WHERE run_id = {row}.run_id AND seq = {row}.seq)");
-    let payload = payload_of(&envelope);
+    let payload = payload(&envelope);
     numbered(
         &format!("{row}.type"),
         &format!("{row}.attempt_id"),
@@ -206,7 +191,9 @@ fn projected_row(row: &str) -> String {
 /// the event trigger's insert takes: the event trigger's own rows already
 /// carry theirs, so this one skips them. The stale index names the rows
 /// still to number, keyed by (run, attempt, member, seq); the written index
-/// names the counted rows (`> 0`).
+/// names the counted rows (`> 0`) by their stream; the numbered index names
+/// the counted rows by their seq, so a rank search's probe finds the nearest
+/// numbered row at or below it in one seek (M3).
 pub(super) fn objects() -> String {
     format!(
         "DROP INDEX IF EXISTS {STALE};
@@ -217,6 +204,10 @@ pub(super) fn objects() -> String {
          CREATE INDEX IF NOT EXISTS event_index_ordinal_written
              ON event_index (run_id, attempt_id, member, {COLUMN}, seq)
              WHERE type = '{CHECKPOINTED}' AND {COLUMN} IS NOT NULL;
+         DROP INDEX IF EXISTS {NUMBERED};
+         CREATE INDEX IF NOT EXISTS {NUMBERED}
+             ON event_index (run_id, attempt_id, member, seq)
+             WHERE type = '{CHECKPOINTED}' AND {COLUMN} > 0;
          DROP TRIGGER IF EXISTS event_index_ordinal;
          CREATE TRIGGER event_index_ordinal AFTER INSERT ON event_index
              WHEN NEW.type = '{CHECKPOINTED}' AND NEW.{COLUMN} IS NULL
@@ -229,19 +220,32 @@ pub(super) fn objects() -> String {
     )
 }
 
-/// Does the journal carry the stale index keyed by the stream a row
-/// belongs to, so a participant's read never scans another's? A journal
-/// from before the re-key carries the same name with `run_id` alone, and
-/// the repair must make it anew: a presence question alone would leave it.
-pub(super) fn intact(conn: &Connection) -> Result<bool, StoreError> {
-    let sql: Option<String> = conn
+/// The SQL `sqlite_master` holds of the index `name`, where it stands.
+fn index_sql(conn: &Connection, name: &str) -> Result<Option<String>, StoreError> {
+    Ok(conn
         .query_row(
             "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?1",
-            [STALE],
+            [name],
             |row| row.get(0),
         )
-        .optional()?;
-    Ok(sql.is_some_and(|sql| sql.contains("attempt_id") && sql.contains("member")))
+        .optional()?)
+}
+
+/// Do the journal's ordinal indexes carry the shapes the reads seek by: the
+/// stale index keyed by the stream a row belongs to, so a participant's read
+/// never scans another's, and the numbered index keyed by a row's seq? A
+/// journal from before the re-key carries the same stale name with `run_id`
+/// alone, and the repair must make it anew: a presence question alone would
+/// leave it. The numbered index is new, so a journal without it is repaired
+/// the same way.
+pub(super) fn intact(conn: &Connection) -> Result<bool, StoreError> {
+    let stale = index_sql(conn, STALE)?;
+    let numbered = index_sql(conn, NUMBERED)?;
+    Ok(
+        stale.is_some_and(|sql| sql.contains("attempt_id") && sql.contains("member"))
+            && numbered
+                .is_some_and(|sql| sql.contains("stream_ordinal > 0") && sql.contains("seq")),
+    )
 }
 
 /// The statement that numbers every checkpoint row of one run in seq order
@@ -251,7 +255,7 @@ pub(super) fn intact(conn: &Connection) -> Result<bool, StoreError> {
 /// so an import, a backfill and a live append write the same column. A row
 /// the guard does not count is 0, so a reader never reads it as a place.
 pub(super) static NUMBER: LazyLock<String> = LazyLock::new(|| {
-    let effect = last_text(&payload_of("e.envelope"), "effect_id");
+    let effect = last_text(&payload("e.envelope"), "effect_id");
     format!(
         "UPDATE event_index SET {COLUMN} = coalesce((
              SELECT numbered.at FROM (
