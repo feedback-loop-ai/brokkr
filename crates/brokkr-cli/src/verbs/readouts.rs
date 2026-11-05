@@ -500,12 +500,8 @@ pub(crate) fn hearth_runs(
 fn runs_fleet(hearths: &[Hearth], asked: (bool, fleet::Filter)) -> Result<ExitCode> {
     let style = render::Style::detect();
     let now = now_rfc3339();
-    fleet::list_world(
-        hearths,
-        asked,
-        (&now, &style),
-        &mut std::io::stdout().lock(),
-    )?;
+    let out = &mut std::io::stdout().lock();
+    fleet::list_world(hearths, asked, (&now, &style), out)?;
     Ok(Exit::Completed.into())
 }
 
