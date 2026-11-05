@@ -236,6 +236,7 @@ fn adopt_once(
     summary::write(&tx, row.run_id, summary)?;
     seat_summary::write(&tx, account, None)?;
     crate::event_index::write_parks(&tx, account)?;
+    crate::event_index::write_all_checkpoints(&tx, account)?;
     tx.commit()?;
     Ok(())
 }

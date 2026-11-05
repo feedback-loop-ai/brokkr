@@ -392,6 +392,7 @@ fn lasting(error: &StoreError) -> bool {
         | StoreError::UnknownHead { .. }
         | StoreError::Queue(_)
         | StoreError::AlreadyAcknowledged { .. }
+        | StoreError::TokenCountOutOfRange(..)
         | StoreError::Contended { .. } => false,
     }
 }

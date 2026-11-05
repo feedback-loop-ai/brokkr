@@ -29,7 +29,10 @@ use rusqlite::types::Value;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::acknowledgement::standing;
-use crate::event_index::{finished, first_unindexed, runless, write_parks, IndexReading};
+use crate::event_index::{
+    finished, first_unindexed, runless, write_all_available, write_checkpoints, write_parks,
+    write_sealed, IndexReading,
+};
 use crate::schema::all_present;
 use crate::{head_of, patiently, seat_summary, Acknowledgement, Store, StoreError};
 
@@ -64,6 +67,7 @@ type Place = (i64, String);
 
 mod aggregate;
 mod columns;
+mod comparison;
 mod disagreement;
 mod stop;
 
@@ -476,13 +480,19 @@ pub(crate) fn judge(
     found: (u64, &str),
     sealed: &[EventEnvelope],
 ) -> Result<Settled, StoreError> {
-    let (Some(carried), Some(first)) = (carried, sealed.first()) else {
+    let Some(first) = sealed.first() else {
         return Ok(Settled::Kept);
     };
-    if carried.account.run_id() != first.run_id {
+    let Some(carried) = carried.filter(|carried| carried.account.run_id() == first.run_id) else {
+        // No account of this run: the checkpoint the append seals still
+        // keeps the facts its event states, and its session flag moves off
+        // the site's earlier one, so a valid journal is never left looking
+        // corrupt (decision 0089 rulings 4 and 7).
+        write_sealed(tx, &first.run_id, sealed)?;
         return Ok(Settled::Kept);
-    }
+    };
     if carried.account.head() != found {
+        write_sealed(tx, &first.run_id, sealed)?;
         return Ok(Settled::Lost);
     }
     let account = carried.account.clone().onto(sealed);
@@ -493,8 +503,12 @@ pub(crate) fn judge(
     write(tx, &first.run_id, &Summary::of(&account, listed.listing()))?;
     seat_summary::write(tx, &account, Some(&carried.account))?;
     write_parks(tx, &account)?;
+    write_checkpoints(tx, &account, sealed)?;
     Ok(Settled::Carried(Box::new(Carried {
-        account,
+        // The append has written the checkpoints it sealed; keep no earlier
+        // one, so the next append's clone of this account holds none
+        // (decision 0089 ruling 9).
+        account: account.carried(),
         listed: Some(listed),
     })))
 }
@@ -514,6 +528,9 @@ pub(crate) fn refold_once(conn: &mut Connection, account: &Account) -> Result<()
         )?;
         seat_summary::write(&tx, account, None)?;
         write_parks(&tx, account)?;
+        // A legacy checkpoint count the index cannot hold refuses its own
+        // run, not the journal's open.
+        write_all_available(&tx, account)?;
     }
     tx.commit()?;
     Ok(())
@@ -538,14 +555,26 @@ impl Store {
     /// each writes the run's summary in its own transaction (ruling 3).
     /// The writer hands over the fold it decided on, at the head it read;
     /// an append that finds another head writes nothing folded, and the
-    /// account is dropped until the writer hands over another.
+    /// account is dropped until the writer hands over another. The
+    /// checkpoint facts already read are dropped as the account is
+    /// carried, so an append clones no earlier checkpoint (decision 0089
+    /// ruling 9); the event it seals is read again.
     pub fn carry(&mut self, account: Account) {
         self.carried = Some(Carried {
-            account,
+            account: account.carried(),
             listed: None,
         });
         #[cfg(any(test, feature = "test-support"))]
         self.binding.carried();
+    }
+
+    /// The checkpoint row seqs the carried account holds, for the test
+    /// that an append keeps none of the run's earlier ones (ruling 9).
+    #[cfg(test)]
+    pub(crate) fn carried_checkpoints(&self) -> Option<usize> {
+        self.carried
+            .as_ref()
+            .map(|carried| carried.account.checkpoint_rows().len())
     }
 
     /// Keep what a committed append of `landed` events to `run_id` left
@@ -576,6 +605,7 @@ impl Store {
         self.quietly(|store| store.refold_behind_with(|_| {}))?;
         self.quietly(|store| store.index_behind_with(|_| {}))?;
         self.quietly(|store| store.park_behind_with(|_| {}))?;
+        self.quietly(|store| store.checkpoint_behind_with(|_| {}))?;
         self.quietly(|store| store.seat_behind_with(|_| {}))
     }
 
@@ -645,7 +675,20 @@ impl Store {
     ) -> Result<(), StoreError> {
         let mut after: Option<String> = None;
         while let Some(run_id) = self.run_after(after.as_deref())? {
-            each(&run_id, self.compared(&run_id, || {})?);
+            let compared = match self.compared(&run_id, || {}) {
+                Ok(compared) => compared,
+                // The run's own projection refusal is its finding, never the
+                // sweep's end: the other runs are still compared and the
+                // doctor still names it (decision 0089 rulings 4 and 8).
+                Err(error @ StoreError::TokenCountOutOfRange(..)) => {
+                    Compared::Disagrees(Disagreement::Unread {
+                        run_id: run_id.clone(),
+                        error,
+                    })
+                }
+                Err(error) => return Err(error),
+            };
+            each(&run_id, compared);
             after = Some(run_id);
         }
         Ok(())
@@ -747,50 +790,6 @@ impl Store {
         }
         between();
         self.columns_compared(run_id, &account, stale, seats)
-    }
-
-    /// `run_id`'s summary row against `account`'s fold, column by column:
-    /// the first column that differs, else behind where the index lags its
-    /// events (`stale`), else what its seat rows read as (`seats`).
-    fn columns_compared(
-        &self,
-        run_id: String,
-        account: &Account,
-        stale: bool,
-        seats: Compared,
-    ) -> Result<Compared, StoreError> {
-        let listed = Listed::of(&self.conn, &run_id)?;
-        let summary = Summary::of(account, listed.listing());
-        let standing = standing(&self.conn, &run_id)?;
-        let mut expected = written(&summary);
-        expected.extend(kept(&summary, standing.as_ref()));
-        Ok(match self.first_difference(&run_id, &expected)? {
-            Some(column) => Compared::Disagrees(Disagreement::Column { run_id, column }),
-            None if stale => Compared::Behind,
-            None => seats,
-        })
-    }
-
-    /// The first of `expected`'s columns whose value on `run_id`'s row is
-    /// not the one expected.
-    fn first_difference(
-        &self,
-        run_id: &str,
-        expected: &[(&'static str, Value)],
-    ) -> Result<Option<&'static str>, StoreError> {
-        let names: Vec<&str> = expected.iter().map(|(column, _)| *column).collect();
-        let select = format!(
-            "SELECT {} FROM run_summary WHERE run_id = ?1",
-            names.join(", ")
-        );
-        let found: Vec<Value> = self.conn.query_row(&select, params![run_id], |row| {
-            (0..names.len()).map(|at| row.get(at)).collect()
-        })?;
-        Ok(expected
-            .iter()
-            .zip(found)
-            .find(|((_, expected), found)| *expected != *found)
-            .map(|((column, _), _)| *column))
     }
 }
 

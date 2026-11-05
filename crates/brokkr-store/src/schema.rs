@@ -352,13 +352,40 @@ pub(crate) fn all_present(
     kind: &str,
     names: &[&str],
 ) -> Result<bool, StoreError> {
-    let present: Vec<String> = conn
+    Ok(all_present_among(&objects(conn, kind)?, names))
+}
+
+/// Does this journal carry every object of `kind` that `required` lists,
+/// and none that `forbidden` lists? One pure read of `sqlite_master`, so
+/// the event index's repair asks after its kept and retired triggers once
+/// rather than once per name (decision 0089 rulings 4 and 7).
+pub(crate) fn all_present_and_none(
+    conn: &Connection,
+    kind: &str,
+    required: &[&str],
+    forbidden: &[&str],
+) -> Result<bool, StoreError> {
+    let present = objects(conn, kind)?;
+    Ok(all_present_among(&present, required)
+        && !forbidden
+            .iter()
+            .any(|name| present.iter().any(|found| found == name)))
+}
+
+/// The names `sqlite_master` holds of `kind`: the one read every presence
+/// question makes.
+pub(crate) fn objects(conn: &Connection, kind: &str) -> Result<Vec<String>, StoreError> {
+    Ok(conn
         .prepare("SELECT name FROM sqlite_master WHERE type = ?1")?
         .query_map([kind], |row| row.get(0))?
-        .collect::<Result<_, _>>()?;
-    Ok(names
+        .collect::<Result<_, _>>()?)
+}
+
+/// Does `present` hold every name `names` lists?
+fn all_present_among(present: &[String], names: &[&str]) -> bool {
+    names
         .iter()
-        .all(|name| present.iter().any(|found| found == name)))
+        .all(|name| present.iter().any(|found| found == name))
 }
 
 /// Does `table` declare every one of `columns`? A pure read of its

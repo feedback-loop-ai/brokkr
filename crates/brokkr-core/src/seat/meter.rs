@@ -111,6 +111,13 @@ impl Meter {
         }
     }
 
+    /// The tokens this checkpoint carries, as its record states them: the
+    /// one reading a keeper of the checkpoint's facts writes (decision 0089
+    /// ruling 7).
+    pub fn usage(&self) -> Option<&TokenUsage> {
+        self.usage.as_ref()
+    }
+
     /// Whether it is one of its seat's turns and carries tokens: a turn
     /// [`once`] reads.
     pub(crate) fn metered(&self) -> bool {

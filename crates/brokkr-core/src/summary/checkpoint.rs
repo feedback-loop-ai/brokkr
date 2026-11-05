@@ -1,0 +1,160 @@
+//! A metered checkpoint as the journal records it (decision 0089 ruling 7):
+//! the phase the run was in, its time, the cost it reported or none, its
+//! tokens, and whether it is the last finishing session record its site
+//! wrote. Read here once, from the run's events, so the writer keeps on the
+//! checkpoint's `event_index` row what `brokkr analytics` derives from the
+//! run read whole (decision 0071 ruling 5).
+//!
+//! A site is an attempt and the member the checkpoint names; only the last
+//! `-session-finished` record such a site wrote is its session record, so a
+//! later one moves the fact from the earlier. The walk reads a checkpoint
+//! only where its stamp parses and its payload names an attempt, as the
+//! analytics walk it replaces reads it, but it names every checkpoint row it
+//! saw, so the writer records the row processed whatever it could read.
+
+use std::collections::BTreeMap;
+
+use crate::envelope::{EventEnvelope, EventType};
+use crate::residual::text as field;
+use crate::seat::meter::Meter;
+use crate::seat::reported_cost;
+use crate::stamp::parse_millis;
+
+/// One metered checkpoint: the event that recorded it and the facts the
+/// aggregates read of it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Checkpoint {
+    /// The seq of the `effect/checkpointed` event.
+    pub seq: u64,
+    /// The attempt the checkpoint names.
+    pub attempt_id: String,
+    /// The member of that attempt the checkpoint names, where it names one.
+    pub member: Option<String>,
+    /// The checkpoint's own time.
+    pub at: i64,
+    /// The phase the run was in when the checkpoint was recorded.
+    pub phase: Option<String>,
+    /// Whether the record reported a cost, whatever its amount.
+    pub reported: bool,
+    /// The cost the record reported.
+    pub usd: Option<f64>,
+    /// The tokens the record carries, and whether it is a turn.
+    pub meter: Meter,
+    /// Whether it is the last finishing session record its site wrote.
+    pub session: bool,
+}
+
+impl Checkpoint {
+    /// The checkpoint `event` records, with `phase` the run's when it was
+    /// recorded, or none where its stamp does not parse or it names no
+    /// attempt, as the walk the analytics readout made reads it. Its
+    /// `session` says only that the record finishes a session: whether it
+    /// is its site's last such record is the walk's, which knows the ones
+    /// before it. The writer reads a checkpoint it appends without a
+    /// carried account this way (decision 0089 ruling 7).
+    pub fn read(event: &EventEnvelope, phase: Option<&str>) -> Option<Checkpoint> {
+        let at = parse_millis(&event.recorded_at)?;
+        let attempt_id = field(&event.payload, "attempt_id")?.to_string();
+        let record = event.payload.get("checkpoint")?;
+        let usd = reported_cost(record);
+        Some(Checkpoint {
+            seq: event.seq,
+            attempt_id,
+            member: field(record, "member").map(str::to_string),
+            at,
+            phase: phase.map(str::to_string),
+            reported: usd.is_some(),
+            usd,
+            meter: Meter::of(record),
+            session: is_session(record),
+        })
+    }
+}
+
+/// Whether `record` finishes a session: its step ends with
+/// "-session-finished", the mark every driver's finishing step bears.
+fn is_session(record: &serde_json::Value) -> bool {
+    field(record, "step").is_some_and(|step| step.ends_with("-session-finished"))
+}
+
+/// The checkpoints read so far, carried event by event: the run's phase and
+/// every checkpoint's facts, each keyed by its seq. A later finishing
+/// session record of a site moves the flag off the earlier one as it is
+/// read, so the facts are current at every head (ruling 7).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Checking {
+    phase: Option<String>,
+    facts: BTreeMap<u64, Checkpoint>,
+    /// The seq of every `effect/checkpointed` event read, an ignored one
+    /// included: its stamp not parsing reads no facts, but its row was still
+    /// read and the writer records it processed.
+    rows: Vec<u64>,
+    /// The last finishing session record of each site read so far.
+    sessions: BTreeMap<(String, Option<String>), u64>,
+}
+
+impl Checking {
+    /// The reading carried over `event`, the run's next.
+    pub(crate) fn note(&mut self, event: &EventEnvelope) {
+        if event.event_type == EventType::PhaseEntered {
+            self.phase = super::entered_phase(event).map(str::to_string);
+            return;
+        }
+        if event.event_type != EventType::EffectCheckpointed {
+            return;
+        }
+        self.rows.push(event.seq);
+        let Some(checkpoint) = Checkpoint::read(event, self.phase.as_deref()) else {
+            return;
+        };
+        if checkpoint.session {
+            let site = (checkpoint.attempt_id.clone(), checkpoint.member.clone());
+            if let Some(previous) = self.sessions.insert(site, event.seq) {
+                if let Some(earlier) = self.facts.get_mut(&previous) {
+                    earlier.session = false;
+                }
+            }
+        }
+        self.facts.insert(event.seq, checkpoint);
+    }
+
+    /// Keep only what a carried account needs to read the events a later
+    /// append adds: the run's phase and each site's last finishing session
+    /// seq. The checkpoint facts and row seqs already read are dropped, so
+    /// a writer that carries an account clones no earlier checkpoint's
+    /// facts with every append (decision 0089 ruling 9). The events an
+    /// append seals are read again by [`Account::onto`].
+    pub(crate) fn carried(&mut self) {
+        self.facts.clear();
+        self.rows.clear();
+    }
+
+    /// Every checkpoint read so far, in seq order, its session flag the
+    /// site's last finishing record's.
+    pub(crate) fn checkpoints(&self) -> Vec<Checkpoint> {
+        self.facts.values().cloned().collect()
+    }
+
+    /// The checkpoint read at `seq`, where its facts could be read.
+    pub(crate) fn checkpoint(&self, seq: u64) -> Option<&Checkpoint> {
+        self.facts.get(&seq)
+    }
+
+    /// The seq of every `effect/checkpointed` event read so far, in order,
+    /// an ignored one included.
+    pub(crate) fn rows(&self) -> &[u64] {
+        &self.rows
+    }
+}
+
+/// Every metered checkpoint of the run `events` hold, in seq order.
+pub fn checkpoints(events: &[EventEnvelope]) -> Vec<Checkpoint> {
+    let mut checking = Checking::default();
+    for event in events {
+        checking.note(event);
+    }
+    checking.checkpoints()
+}
+
+#[cfg(test)]
+mod tests;

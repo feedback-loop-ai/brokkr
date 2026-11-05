@@ -97,9 +97,7 @@ impl Parking {
         }
         match event.event_type {
             EventType::PhaseEntered => {
-                self.phase = crate::payload::PhaseEntered::read(event)
-                    .ok()
-                    .map(|entered| entered.phase.to_string());
+                self.phase = super::entered_phase(event).map(str::to_string);
             }
             EventType::RunParked => {
                 self.open = Some(Park {

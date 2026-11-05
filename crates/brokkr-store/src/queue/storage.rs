@@ -5,6 +5,7 @@
 use rusqlite::{params, Connection, OptionalExtension};
 
 use super::{EntryId, Latch, QueueRefusal, Wait};
+use crate::schema::objects;
 use crate::StoreError;
 
 /// The launch an entry stands for: the one it was last re-pinned to,
@@ -324,13 +325,7 @@ pub(crate) fn queue_intact(conn: &Connection) -> Result<bool, StoreError> {
     let Some(stored) = Stored::of(found) else {
         return Ok(true);
     };
-    let named = |kind: &str| -> Result<Vec<String>, StoreError> {
-        Ok(conn
-            .prepare("SELECT name FROM sqlite_master WHERE type = ?1")?
-            .query_map([kind], |row| row.get(0))?
-            .collect::<Result<_, _>>()?)
-    };
-    let present = named("table")?;
+    let present = objects(conn, "table")?;
     let held = QUEUE_TABLES[QUEUE_TABLES_UNHELD..]
         .iter()
         .any(|table| present.iter().any(|name| name == table));
@@ -349,7 +344,7 @@ pub(crate) fn queue_intact(conn: &Connection) -> Result<bool, StoreError> {
         return Err(QueueRefusal::TableLost { table }.into());
     }
     // An older queue has not every guard: migrated.
-    let triggers = named("trigger")?;
+    let triggers = objects(conn, "trigger")?;
     Ok(QUEUE_TRIGGERS
         .iter()
         .all(|guard| triggers.iter().any(|name| name == guard)))
