@@ -719,6 +719,35 @@ fn the_cap_reason_speaks_first_and_names_the_passed_maximum() {
     assert_eq!(starts(&engine).len(), 2);
 }
 
+/// M1: at the cap, a refusal whose `until` cannot be represented must not
+/// lose its facts. The cap's 0006 text speaks first, then the provider,
+/// route, retry-after, words and the passed maximum from the failed
+/// event's `refused` record, saying plainly that no `until` exists.
+#[test]
+fn a_no_until_cap_names_the_refusal_facts() {
+    let (dir, mut engine, _now) = seated!(&["refuse"], Probed::Answer, Some(1_000_000_000_000), 1);
+    drove(&mut engine, dir.path(), &["attempt:refuse"]);
+    assert_eq!(starts(&engine).len(), 1);
+    let reason = park_reason(&engine);
+    assert!(reason.starts_with("effect "), "{reason}");
+    assert!(reason.contains("failed 1 of 1 attempt(s)"), "{reason}");
+    assert!(reason.contains("claude/first"), "{reason}");
+    assert!(reason.contains("1000000000000"), "{reason}");
+    assert!(reason.contains("rate_limit: slow down"), "{reason}");
+    assert!(reason.contains("10s maximum"), "{reason}");
+    assert!(reason.contains("no until"), "{reason}");
+    // The failed event carries the record the cap read, and invents no wait.
+    let failed = failed(&engine);
+    assert_eq!(failed.len(), 1, "one attempt's failure");
+    assert_eq!(failed[0].payload["refused"]["cause"], "no-end");
+    assert_eq!(failed[0].payload["refused"]["max_seconds"], 10);
+    assert!(
+        failed[0].payload.get("waits").is_none(),
+        "{}",
+        failed[0].payload
+    );
+}
+
 /// A valid wait entry array ending at `until`, carrying the length the
 /// entry recorded under its own route's bounds.
 fn wait_value(until: OffsetDateTime, seconds: u64) -> Value {
@@ -727,37 +756,81 @@ fn wait_value(until: OffsetDateTime, seconds: u64) -> Value {
             "until": until.format(&Rfc3339).unwrap(), "rounds": 1}])
 }
 
-/// The journal a crashed driver leaves behind: a requested effect, one
-/// started attempt and its terminal failure with `waits`.
-fn append_waited(engine: &mut Engine, waits: Value) {
+/// Journal the phase and the effect's request, so a test can write the
+/// attempts and the terminal itself.
+fn request_effect(engine: &mut Engine) {
     engine
         .append(EventType::PhaseEntered, json!({"phase": "work"}), None)
         .unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
     let state = fold(&events).unwrap();
     let digest = sha256_hex(&engine.seat_input(&state, "work", "effect").unwrap());
-    for (event, payload, attempt) in [
-        (
+    engine
+        .append(
             EventType::EffectRequested,
             json!({"effect_id": "effect", "phase": "work", "seat": "work",
                    "idempotency_key": "k", "input_digest": digest}),
             None,
-        ),
+        )
+        .unwrap();
+}
+
+/// The journal a crashed driver leaves behind: a requested effect, one
+/// started attempt and the terminal payload the test spells.
+fn append_failed_payload(engine: &mut Engine, payload: Value) {
+    request_effect(engine);
+    for (event, payload, attempt) in [
         (
             EventType::EffectStarted,
             json!({"effect_id": "effect", "attempt_id": "a1", "driver": "d"}),
             Some("a1".to_string()),
         ),
-        (
-            EventType::EffectFailed,
-            json!({"effect_id": "effect", "attempt_id": "a1", "error": "refused",
-                   "start_failure": true, "start_failure_sites": [null],
-                   "waits": waits}),
-            Some("a1".to_string()),
-        ),
+        (EventType::EffectFailed, payload, Some("a1".to_string())),
     ] {
         engine.append(event, payload, attempt).unwrap();
     }
+}
+
+/// An engine at the start of `effect`, with the answering driver a resume
+/// would invoke and `attempts` allowed.
+fn engine_for(dir: &Path, attempts: u64) -> (Engine, crate::bundle::Bundle) {
+    let command = driver(
+        dir,
+        "work",
+        &["succeed"],
+        Probed::Answer,
+        None,
+        "claude",
+        "first",
+    );
+    let mut compiled = bundle(dir, single_body(command));
+    compiled.seats.get_mut("work").unwrap().limits = work(attempts);
+    std::fs::create_dir_all(dir.join("work")).unwrap();
+    let store = brokkr_store::Store::open(&dir.join("forge.db")).unwrap();
+    let engine = Engine::start(store, compiled.clone(), "Feature", Some(dir.join("work"))).unwrap();
+    (engine, compiled)
+}
+
+/// Resume the journal at `dir` under `compiled`.
+fn resume_engine(dir: &Path, compiled: crate::bundle::Bundle, run_id: &str) -> Engine {
+    Engine::resume(
+        brokkr_store::Store::open(&dir.join("forge.db")).unwrap(),
+        compiled,
+        run_id,
+        Some(dir.join("work")),
+    )
+    .unwrap()
+}
+
+/// The journal a crashed driver leaves behind with `waits` on its terminal
+/// failure.
+fn append_waited(engine: &mut Engine, waits: Value) {
+    append_failed_payload(
+        engine,
+        json!({"effect_id": "effect", "attempt_id": "a1", "error": "refused",
+               "start_failure": true, "start_failure_sites": [null],
+               "waits": waits}),
+    );
 }
 
 fn resumed(
@@ -808,6 +881,310 @@ fn resumed_at(
     let (clock, now) = Clock::advancing(at);
     resumed_engine.cooldown.clock = clock;
     (dir, resumed_engine, now)
+}
+
+/// A typed rate-limit refusal the driver could have reported, with an
+/// optional resolved route and retry-after.
+fn a_rate_limit_with(
+    route: Option<&str>,
+    retry: Option<u64>,
+) -> brokkr_protocol::PreSessionRefusal {
+    let mut value = json!({
+        "class": "rate_limit", "provider": "claude", "route": route,
+        "words": "rate_limit: slow down"
+    });
+    if let Some(retry) = retry {
+        value["retry_after_seconds"] = json!(retry);
+    }
+    serde_json::from_value(value).unwrap()
+}
+
+/// The journal a crashed cool-down terminal leaves: the requested effect,
+/// its started attempt and the failed payload the engine's own terminal
+/// path produced, with no `run/parked` after it. `earlier` plants a prior
+/// failed event, for the episode-unreadable cause.
+fn crash_before_park(
+    dir: &Path,
+    attempts: u64,
+    host: Option<PathBuf>,
+    refusal: &brokkr_protocol::PreSessionRefusal,
+    earlier: Option<Value>,
+) -> (Engine, Arc<Mutex<OffsetDateTime>>) {
+    let (mut engine, compiled) = engine_for(dir, attempts);
+    engine.cooldown.host = host.clone();
+    request_effect(&mut engine);
+    if let Some(earlier) = earlier {
+        engine
+            .append(
+                EventType::EffectStarted,
+                json!({"effect_id": "effect", "attempt_id": "a0", "driver": "d"}),
+                Some("a0".to_string()),
+            )
+            .unwrap();
+        engine
+            .append(EventType::EffectFailed, earlier, Some("a0".to_string()))
+            .unwrap();
+    }
+    engine
+        .append(
+            EventType::EffectStarted,
+            json!({"effect_id": "effect", "attempt_id": "a1", "driver": "d"}),
+            Some("a1".to_string()),
+        )
+        .unwrap();
+    let terminal = engine
+        .rate_limit_terminal(
+            "effect",
+            json!({"effect_id": "effect", "attempt_id": "a1",
+                   "error": "provider refused", "start_failure": true,
+                   "start_failure_sites": [null]}),
+            Some(refusal),
+        )
+        .unwrap();
+    let payload = match terminal {
+        super::Terminal::Plain(payload) | super::Terminal::Park { payload, .. } => payload,
+    };
+    engine
+        .append(EventType::EffectFailed, payload, Some("a1".to_string()))
+        .unwrap();
+    let run_id = engine.run_id.clone();
+    drop(engine);
+    let mut resumed = resume_engine(dir, compiled, &run_id);
+    resumed.cooldown.host = host;
+    let (clock, now) = Clock::advancing(base() + time::Duration::seconds(2));
+    resumed.cooldown.clock = clock;
+    (resumed, now)
+}
+
+/// Drive a crash-before-the-park journal and require the resume to park on
+/// the record's facts with no wait, probe or driver invocation.
+fn assert_crash_parks(
+    dir: &Path,
+    attempts: u64,
+    host: Option<PathBuf>,
+    refusal: &brokkr_protocol::PreSessionRefusal,
+    earlier: Option<Value>,
+    expected: &[&str],
+) {
+    let expected_starts = 1 + usize::from(earlier.is_some());
+    let (mut engine, _now) = crash_before_park(dir, attempts, host, refusal, earlier);
+    engine.drive().unwrap();
+    assert!(
+        logs(dir, "work").is_empty(),
+        "a crash-before-the-park resume invoked the driver: {:?}",
+        logs(dir, "work")
+    );
+    assert_eq!(
+        starts(&engine).len(),
+        expected_starts,
+        "the resume started an attempt"
+    );
+    let reason = park_reason(&engine);
+    for fact in expected {
+        assert!(reason.contains(fact), "{reason} omits {fact}");
+    }
+}
+
+/// H1: the failed event records the refusal it parks on, so a crash before
+/// the separate `run/parked` does not turn a maximum refusal into a retry.
+/// This is the no-end cause: the journal cannot spell the `until`.
+#[test]
+fn a_no_until_crash_resumes_the_maximum_refusal() {
+    let dir = tempfile::tempdir().unwrap();
+    let refusal = a_rate_limit_with(Some("first"), Some(1_000_000_000_000));
+    assert_crash_parks(
+        dir.path(),
+        2,
+        Some(host(dir.path(), 1, 10)),
+        &refusal,
+        None,
+        &[
+            "has no representable end",
+            "declared 10s maximum",
+            "rate_limit: slow down",
+        ],
+    );
+}
+
+#[test]
+fn a_crash_before_a_route_unresolved_park_resumes_the_refusal() {
+    let dir = tempfile::tempdir().unwrap();
+    let refusal = a_rate_limit_with(None, None);
+    assert_crash_parks(
+        dir.path(),
+        2,
+        None,
+        &refusal,
+        None,
+        &["route could not be resolved", "rate_limit: slow down"],
+    );
+}
+
+/// A cap reached after a crash keeps a refusal whose route never resolved:
+/// the cap states the record's facts without inventing a length or `until`.
+#[test]
+fn a_cap_after_a_crash_keeps_a_route_unresolved_refusal() {
+    let dir = tempfile::tempdir().unwrap();
+    let refusal = a_rate_limit_with(None, Some(7));
+    let (mut engine, _now) = crash_before_park(dir.path(), 1, None, &refusal, None);
+    drove(&mut engine, dir.path(), &[]);
+    assert_eq!(starts(&engine).len(), 1);
+    let reason = park_reason(&engine);
+    assert!(reason.starts_with("effect "), "{reason}");
+    assert!(reason.contains("claude/an unresolved route"), "{reason}");
+    assert!(reason.contains("rate_limit: slow down"), "{reason}");
+    assert!(reason.contains("retry-after 7s"), "{reason}");
+    assert!(reason.contains("no until"), "{reason}");
+}
+
+#[test]
+fn a_crash_before_a_host_unreadable_park_resumes_the_refusal() {
+    let dir = tempfile::tempdir().unwrap();
+    let refusal = a_rate_limit_with(Some("first"), None);
+    assert_crash_parks(
+        dir.path(),
+        2,
+        Some(dir.path().to_path_buf()),
+        &refusal,
+        None,
+        &[
+            "claude/first",
+            "host configuration could not be read",
+            "rate_limit: slow down",
+        ],
+    );
+}
+
+#[test]
+fn a_crash_before_an_episode_unreadable_park_resumes_the_refusal() {
+    let dir = tempfile::tempdir().unwrap();
+    let refusal = a_rate_limit_with(Some("first"), None);
+    assert_crash_parks(
+        dir.path(),
+        3,
+        Some(host(dir.path(), 1, 10)),
+        &refusal,
+        Some(
+            json!({"effect_id": "effect", "attempt_id": "a0", "error": "refused",
+                    "start_failure": true, "start_failure_sites": [null],
+                    "waits": malformed_earlier()}),
+        ),
+        &[
+            "claude/first",
+            "an earlier wait does not read",
+            "rate_limit: slow down",
+        ],
+    );
+}
+
+#[test]
+fn a_crash_before_a_past_maximum_park_resumes_the_refusal() {
+    let dir = tempfile::tempdir().unwrap();
+    let refusal = a_rate_limit_with(Some("first"), Some(5));
+    assert_crash_parks(
+        dir.path(),
+        2,
+        Some(host(dir.path(), 1, 2)),
+        &refusal,
+        None,
+        &[
+            "would wait 5s",
+            "episode 5s is past the declared 2s maximum",
+            "rate_limit: slow down",
+        ],
+    );
+}
+
+/// A resumed engine whose journal holds one failed payload the test
+/// spells, with `attempts` allowed.
+fn resumed_payload(dir: &Path, attempts: u64, payload: Value) -> Engine {
+    let (mut engine, compiled) = engine_for(dir, attempts);
+    append_failed_payload(&mut engine, payload);
+    let run_id = engine.run_id.clone();
+    drop(engine);
+    let mut resumed = resume_engine(dir, compiled, &run_id);
+    resumed.cooldown.clock = Clock::advancing(base() + time::Duration::seconds(2)).0;
+    resumed
+}
+
+/// Resume a journal whose terminal payload the test spells, require no
+/// driver to run, and return the park reason after checking `facts`.
+fn assert_payload_parks(dir: &Path, attempts: u64, payload: Value, expected: &[&str]) -> String {
+    let mut engine = resumed_payload(dir, attempts, payload);
+    engine.drive().unwrap();
+    assert!(logs(dir, "work").is_empty(), "a resume invoked the driver");
+    let reason = park_reason(&engine);
+    for fact in expected {
+        assert!(reason.contains(fact), "{reason} omits {fact}");
+    }
+    reason
+}
+
+/// A present `refused` that does not read refuses by name, before any wait
+/// or driver, at and below the cap.
+#[test]
+fn a_malformed_refusal_refuses_by_name_at_and_below_the_cap() {
+    for (attempts, with_wait) in [(1u64, true), (2, true), (1, false)] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut payload = json!({
+            "effect_id": "effect", "attempt_id": "a1", "error": "refused",
+            "start_failure": true, "start_failure_sites": [null],
+            "refused": {"cause": "past-maximum", "provider": "claude",
+                        "route": "first", "words": "rate_limit"},
+        });
+        if with_wait {
+            payload["waits"] = wait_value(base(), 1);
+        }
+        let reason = assert_payload_parks(
+            dir.path(),
+            attempts,
+            payload,
+            &[
+                "the failed event's refusal does not read",
+                "does not read: seconds",
+            ],
+        );
+        match attempts {
+            1 => assert!(reason.starts_with("effect "), "{reason}"),
+            _ => assert!(
+                reason.contains("refusing to execute effect effect"),
+                "{reason}"
+            ),
+        }
+    }
+}
+
+/// A past-maximum record whose wait entry does not read still states the
+/// maximum from the record, with no invented episode.
+#[test]
+fn a_past_maximum_record_with_no_readable_episode_states_the_maximum() {
+    for attempts in [1u64, 2] {
+        let dir = tempfile::tempdir().unwrap();
+        let facts: &[&str] = match attempts {
+            1 => &[
+                "the wait was 5s under the declared 2s maximum",
+                "does not read",
+                "rate_limit: slow down",
+            ],
+            _ => &[
+                "would wait 5s",
+                "past the declared 2s maximum",
+                "rate_limit: slow down",
+            ],
+        };
+        let reason = assert_payload_parks(
+            dir.path(),
+            attempts,
+            json!({"effect_id": "effect", "attempt_id": "a1", "error": "refused",
+                   "start_failure": true, "start_failure_sites": [null],
+                   "refused": {"cause": "past-maximum", "provider": "claude",
+                               "route": "first", "words": "rate_limit: slow down",
+                               "seconds": 5, "max_seconds": 2},
+                   "waits": malformed_earlier()}),
+            facts,
+        );
+        assert!(!reason.contains("episode"), "{reason}");
+    }
 }
 
 #[test]
@@ -1162,12 +1539,7 @@ fn two_terminals(engine: &mut Engine, earlier: Value) {
 }
 
 fn a_rate_limit(retry: Option<u64>) -> brokkr_protocol::PreSessionRefusal {
-    let mut value = json!({"class": "rate_limit", "provider": "claude",
-                           "route": "first", "words": "rate_limit: slow down"});
-    if let Some(retry) = retry {
-        value["retry_after_seconds"] = json!(retry);
-    }
-    serde_json::from_value(value).unwrap()
+    a_rate_limit_with(Some("first"), retry)
 }
 
 /// An earlier terminal whose `waits` entry is missing its provider.
@@ -1514,5 +1886,17 @@ fn a_cooldown_error_names_an_unreadable_earlier_wait() {
     assert_eq!(
         error.to_string(),
         "an earlier wait does not read: event 3: the waits entry does not read: seconds"
+    );
+}
+
+#[test]
+fn a_cooldown_error_names_an_unreadable_refusal() {
+    let error = super::CooldownError::RefusedUnreadable(brokkr_core::ProviderRefusalError::Field {
+        seq: 6,
+        field: "cause".into(),
+    });
+    assert_eq!(
+        error.to_string(),
+        "the failed event's refusal does not read: event 6: the refused record does not read: cause"
     );
 }

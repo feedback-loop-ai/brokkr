@@ -2,6 +2,8 @@ use super::*;
 use crate::committed_journals::committed_journals;
 use crate::envelope_builder::EnvelopeBuilder;
 use serde_json::json;
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
 use EventType as Type;
 
 fn event(event_type: EventType, payload: Value) -> EventEnvelope {
@@ -414,4 +416,139 @@ fn the_provider_wait_extension_bounds_words_and_site() {
     ] {
         refuses_by_name(payload, field);
     }
+}
+
+/// Decision 0103 slice 4c1, this fix round: the `refused` record reads into
+/// its typed fields, and a present one that does not read refuses by name,
+/// never as absent.
+#[test]
+fn the_refused_record_reads_and_refuses_by_name() {
+    let valid = json!({
+        "cause": "past-maximum", "provider": "claude", "route": "first",
+        "words": "rate_limit: slow down", "retry_after_seconds": 5,
+        "seconds": 5, "max_seconds": 2
+    });
+    let recorded = event(
+        Type::EffectFailed,
+        json!({"effect_id": "e", "refused": valid}),
+    );
+    let refused = provider_refusal(&recorded).unwrap().unwrap();
+    assert_eq!(refused.cause, RefusalCause::PastMaximum);
+    assert_eq!(refused.provider, "claude");
+    assert_eq!(refused.route.as_deref(), Some("first"));
+    assert_eq!(refused.words, "rate_limit: slow down");
+    assert_eq!(refused.retry_after_seconds, Some(5));
+    assert_eq!(refused.seconds, Some(5));
+    assert_eq!(refused.max_seconds, Some(2));
+    assert_eq!(json!(refused), valid, "the record writes its own shape");
+
+    // An unresolved route names none; a host refusal names one and no
+    // computed length. Absent is no refusal, never a malformed one.
+    let unresolved = event(
+        Type::EffectFailed,
+        json!({"effect_id": "e", "refused": {
+            "cause": "route-unresolved", "provider": "claude",
+            "words": "rate_limit"
+        }}),
+    );
+    let refused = provider_refusal(&unresolved).unwrap().unwrap();
+    assert_eq!(refused.cause, RefusalCause::RouteUnresolved);
+    assert_eq!(refused.route, None);
+    let host = event(
+        Type::EffectFailed,
+        json!({"effect_id": "e", "refused": {
+            "cause": "host-unreadable", "provider": "claude", "route": "first",
+            "words": "rate_limit"
+        }}),
+    );
+    assert_eq!(
+        provider_refusal(&host).unwrap().unwrap().cause,
+        RefusalCause::HostUnreadable
+    );
+    assert_eq!(
+        provider_refusal(&event(Type::EffectFailed, json!({"effect_id": "e"}))).unwrap(),
+        None
+    );
+}
+
+/// The field a malformed `refused` object is refused by, never as absent.
+#[test]
+fn the_refused_record_refuses_by_name() {
+    let refuses = |refused: Value, field: &str| {
+        let error = provider_refusal(&event(
+            Type::EffectFailed,
+            json!({"effect_id": "e", "refused": refused}),
+        ))
+        .unwrap_err();
+        assert!(
+            matches!(&error, ProviderRefusalError::Field { field: named, .. } if named == field),
+            "{error:?} did not name {field}"
+        );
+    };
+    let valid = json!({
+        "cause": "past-maximum", "provider": "claude", "route": "first",
+        "words": "w", "seconds": 1, "max_seconds": 1
+    });
+    let with = |key: &str, value: Value| {
+        let mut refused = valid.clone();
+        refused[key] = value;
+        refused
+    };
+    let mut without = valid.clone();
+    without.as_object_mut().unwrap().remove("seconds");
+    let mut without_max = valid.clone();
+    without_max.as_object_mut().unwrap().remove("max_seconds");
+    refuses(json!(7), "refused");
+    refuses(with("cause", "no-such-cause".into()), "cause");
+    refuses(with("provider", "p/r".into()), "provider");
+    refuses(with("route", "r/x".into()), "route");
+    refuses(with("words", "".into()), "words");
+    refuses(with("words", "w".repeat(301).into()), "words");
+    refuses(with("retry_after_seconds", 0.into()), "retry_after_seconds");
+    refuses(with("seconds", 0.into()), "seconds");
+    refuses(with("extra", 1.into()), "extra");
+    refuses(without, "seconds");
+    refuses(without_max, "max_seconds");
+    // A resolved cause without a route, and one whose route is absent
+    // where the cause says none was resolved.
+    let mut route_less = valid.clone();
+    route_less.as_object_mut().unwrap().remove("route");
+    refuses(route_less, "route");
+    refuses(
+        json!({"cause": "route-unresolved", "provider": "claude",
+               "route": "first", "words": "w"}),
+        "route",
+    );
+    // Only a cause that computed a length may carry one.
+    refuses(
+        json!({"cause": "host-unreadable", "provider": "claude", "route": "first",
+               "words": "w", "seconds": 1}),
+        "seconds",
+    );
+    refuses(
+        json!({"cause": "host-unreadable", "provider": "claude", "route": "first",
+               "words": "w", "max_seconds": 1}),
+        "max_seconds",
+    );
+    refuses(
+        json!({"cause": "host-unreadable", "provider": "claude", "route": "first",
+               "words": "w", "seconds": 1, "max_seconds": 1}),
+        "seconds",
+    );
+}
+
+/// The probe answer's own serializer refuses a time RFC 3339 cannot spell:
+/// the arm the production clock never reaches is reachable, and says why.
+#[test]
+fn a_probe_answer_the_rfc3339_formatter_cannot_spell_refuses_to_serialize() {
+    let answer = ProbeAnswer {
+        provider: "claude".into(),
+        route: "first".into(),
+        answered_at: time::OffsetDateTime::new_utc(
+            time::Date::from_calendar_date(-1, time::Month::January, 1).unwrap(),
+            time::Time::MIDNIGHT,
+        ),
+    };
+    let error = serde_json::to_value(&answer).unwrap_err();
+    assert!(error.to_string().contains("year"), "{error}");
 }

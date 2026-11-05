@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://feedback-loop.ai/forge/contracts/provider-wait.v1.json",
   "title": "Forge provider wait v1 (an additive payload extension at event_schema 1)",
-  "description": "Decision 0103 rulings 2(a), 3 and 4(a): the optional, absent-by-default payload fields that record a provider's rate-limit cool-down and the probe that ends it. `effect/failed.waits` (and, from decision 0103 slice 4c2, `effect/indeterminate.waits`) is one entry per refused site: the journal tag (absent for an inline seat), the provider and route the driver already resolved, the provider's bounded words, its retry-after when given, the computed `until`, the round of the effect's episode, and the length the engine computed under that entry's own route's bounds. `effect/started.probe` is the one answer a dedicated one-turn probe gave before its retry, with the site, provider, route and when it answered. Both fields are optional and absent by default, are published as a numbered extension at event_schema 1 under the amended rule in contracts/README.md, and are never read by `fold`: the engine reads them from the effect's own events and `RunState` gains nothing. A present entry that cannot be read refuses by name, never as absent.",
+  "description": "Decision 0103 rulings 2(a), 3 and 4(a): the optional, absent-by-default payload fields that record a provider's rate-limit cool-down and the probe that ends it. `effect/failed.waits` (and, from decision 0103 slice 4c2, `effect/indeterminate.waits`) is one entry per refused site: the journal tag (absent for an inline seat), the provider and route the driver already resolved, the provider's bounded words, its retry-after when given, the computed `until`, the round of the effect's episode, and the length the engine computed under that entry's own route's bounds. `effect/failed.refused` is the typed refusal that ended the run in a park, written beside the `run/parked` that follows so a crash between the two appends cannot lose it: the cause, the provider, the route where resolved, the provider's words, its retry-after when given, and the computed length and declared maximum where the engine reached them. A `waits` entry exists only where an `until` exists; `refused` exists even where none can. `effect/started.probe` is the one answer a dedicated one-turn probe gave before its retry, with the site, provider, route and when it answered. The fields are optional and absent by default, are published as a numbered extension at event_schema 1 under the amended rule in contracts/README.md, and are never read by `fold`: the engine reads them from the effect's own events and `RunState` gains nothing. A present entry that cannot be read refuses by name, never as absent.",
   "type": "object",
   "properties": {
     "waits": {
@@ -10,6 +10,10 @@
       "description": "Present on a terminal `effect/failed`, and (slice 4c2) on `effect/indeterminate`, only when at least one site's typed rate-limit refusal recorded a wait. One entry per refused site; a single seat carries exactly one.",
       "minItems": 1,
       "items": { "$ref": "#/definitions/wait" }
+    },
+    "refused": {
+      "$ref": "#/definitions/refusal",
+      "description": "Present on an `effect/failed` that parks on a typed rate-limit refusal, beside the `run/parked` that follows (decision 0103 slice 4c1, this fix round). It keeps the refusal's facts even where no `until` can be written."
     },
     "probe": {
       "$ref": "#/definitions/probe",
@@ -62,9 +66,80 @@
         "rounds": {
           "type": "integer",
           "minimum": 1,
-          "description": "Which round of this effect's and site's episode this wait is: one for the first refusal, two for the next. `seconds` records the route's default doubled by it at the time it was computed."
+          "description": "Which round of this effect-wide episode this wait is: one for the first refusal, two for the next. The episode is counted across the effect, not per site; `seconds` records the route's default doubled by it at the time it was computed."
         }
       }
+    },
+    "refusal": {
+      "type": "object",
+      "required": ["cause", "provider", "words"],
+      "additionalProperties": false,
+      "properties": {
+        "cause": {
+          "type": "string",
+          "enum": [
+            "route-unresolved",
+            "host-unreadable",
+            "episode-unreadable",
+            "past-maximum",
+            "no-end"
+          ],
+          "description": "Why the typed rate-limit refusal ended the run in a park. Closed: an unknown cause refuses where it is read. `no-end` is a wait whose computed length the journal cannot spell as an RFC 3339 `until`, so no wait can be taken; `past-maximum` is a computed wait past the declared maximum."
+        },
+        "provider": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$",
+          "description": "The provider name, filled from the adapter as `waits.provider` is."
+        },
+        "route": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$",
+          "description": "The route the driver resolved, absent only for `route-unresolved`: a provider-wide hold would hold unrelated routes."
+        },
+        "words": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300,
+          "description": "The provider's bounded evidence line, in its own words, as `waits.words` carries it."
+        },
+        "retry_after_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The provider's own retry-after in whole seconds, when it gave one."
+        },
+        "seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The wait's computed length in whole seconds, present only for a cause that computed one (`past-maximum`, `no-end`)."
+        },
+        "max_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The declared maximum the computed length was judged against, present with `seconds`."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "cause": { "const": "route-unresolved" } },
+            "required": ["cause"]
+          },
+          "then": { "not": { "required": ["route"] } },
+          "else": { "required": ["route"] }
+        },
+        {
+          "if": {
+            "properties": { "cause": { "enum": ["past-maximum", "no-end"] } },
+            "required": ["cause"]
+          },
+          "then": { "required": ["seconds", "max_seconds"] },
+          "else": {
+            "not": {
+              "anyOf": [{ "required": ["seconds"] }, { "required": ["max_seconds"] }]
+            }
+          }
+        }
+      ]
     },
     "probe": {
       "type": "object",

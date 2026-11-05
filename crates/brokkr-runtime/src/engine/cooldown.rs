@@ -15,17 +15,22 @@ use std::time::Duration;
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{fold, Cursor, Run, RunState};
-use brokkr_core::{provider_waits, EventEnvelope, ProbeAnswer, ProviderWait, ProviderWaitError};
-use brokkr_protocol::{AttemptOutcome, AttemptReport, Cleanup, PreSessionRefusal, RefusalClass};
+use brokkr_core::{
+    provider_refusal, provider_waits, EventEnvelope, ProbeAnswer, ProviderRefusal,
+    ProviderRefusalError, ProviderWait, ProviderWaitError, RefusalCause,
+};
+use brokkr_protocol::{PreSessionRefusal, RefusalClass};
 use serde_json::{json, Value};
 use thiserror::Error;
 use time::format_description::well_known::Rfc3339;
 use time::{Duration as TimeDuration, OffsetDateTime};
-use uuid::Uuid;
 
-use super::{argv_for, spawn_site, Door, Engine, EngineError, Selection};
+use super::{Engine, EngineError};
 use crate::admission::{read_host, Bounds, HostError, Hosting};
-use crate::bundle::{ExecutableBody, Invocation, Limits, ENGINE_VERSION};
+use crate::bundle::Limits;
+
+mod probe;
+use probe::Probe;
 
 /// One slice of an in-process wait: the wait re-reads the run's journal
 /// after each, so an operator `stop` is honoured within a second.
@@ -81,6 +86,8 @@ pub(super) enum CooldownError {
     TooManyWaits { seq: u64, count: usize },
     #[error("an earlier wait does not read: {source}")]
     EarlierWaitUnreadable { seq: u64, source: ProviderWaitError },
+    #[error("the failed event's refusal does not read: {0}")]
+    RefusedUnreadable(ProviderRefusalError),
 }
 
 /// What the engine does with a wait it read: proceed to the retry, leave
@@ -163,25 +170,101 @@ fn maximum_reason(wait: &ProviderWait, episode_seconds: u64, max: u64) -> String
     )
 }
 
-/// The park reason for a wait whose end no `until` can represent: no wait
-/// is taken and none is recorded, so the attempt's failed event carries no
-/// `waits` entry.
-fn unrepresentable_reason(
-    provider: &str,
-    route: &str,
-    retry_after: Option<u64>,
-    seconds: u64,
-    max: u64,
-    words: &str,
-) -> String {
-    let given = retry_after.map_or_else(
-        || format!("{seconds}s"),
-        |retry| format!("retry-after {retry}s ({seconds}s)"),
-    );
-    format!(
-        "cool-down for {provider}/{route}: {given} has no representable end and is past the \
-         declared {max}s maximum: {words}"
-    )
+/// The park reason a recorded refusal gives (decision 0103 slice 4c1, this
+/// fix round): one function the terminal path, the cap and the resume all
+/// call, so the record's text cannot drift apart from the live one. Every
+/// fact it names is one the failed event carries, so a resume that never saw
+/// the first park says exactly what that park said.
+fn refusal_text(refused: &ProviderRefusal, episode: Option<u64>) -> String {
+    let route = refused.route.as_deref().unwrap_or("an unresolved route");
+    let retry = refused
+        .retry_after_seconds
+        .map_or_else(String::new, |retry| {
+            format!(" (provider retry-after {retry}s)")
+        });
+    match refused.cause {
+        RefusalCause::RouteUnresolved => format!(
+            "provider {} refused before the first turn with a rate limit, but its route could \
+             not be resolved; no cool-down is recorded because a provider-wide hold would hold \
+             unrelated routes{retry}: {}",
+            refused.provider, refused.words
+        ),
+        RefusalCause::HostUnreadable => format!(
+            "refusing to retry {}/{route} without a cool-down: the host configuration could not \
+             be read or is not a valid host file{retry}: {}",
+            refused.provider, refused.words
+        ),
+        RefusalCause::EpisodeUnreadable => format!(
+            "refusing to retry {}/{route}: an earlier wait does not read{retry}: {}",
+            refused.provider, refused.words
+        ),
+        RefusalCause::PastMaximum => {
+            let (seconds, max) = recorded_length(refused);
+            match episode {
+                Some(episode) => format!(
+                    "cool-down for {}/{route} would wait {seconds}{retry} and the episode \
+                     {episode}s is past the declared {max} maximum: {}",
+                    refused.provider, refused.words
+                ),
+                None => format!(
+                    "cool-down for {}/{route} would wait {seconds}{retry}, past the declared \
+                     {max} maximum: {}",
+                    refused.provider, refused.words
+                ),
+            }
+        }
+        RefusalCause::NoEnd => {
+            let (seconds, max) = recorded_length(refused);
+            let given = refused.retry_after_seconds.map_or_else(
+                || seconds.clone(),
+                |retry| format!("retry-after {retry}s ({seconds})"),
+            );
+            format!(
+                "cool-down for {}/{route}: {given} has no representable end and is past the \
+                 declared {max} maximum: {}",
+                refused.provider, refused.words
+            )
+        }
+    }
+}
+
+/// A computed length and the declared maximum as the refusal's text spells
+/// them. Only a cause that reached the maximum asks for them, and the reader
+/// requires both on that cause, so the expects are the record's invariant,
+/// as `waiter`'s RFC 3339 expect is the wire's.
+fn recorded_length(refused: &ProviderRefusal) -> (String, String) {
+    let seconds = refused
+        .seconds
+        .expect("a computed refusal records its seconds");
+    let max = refused
+        .max_seconds
+        .expect("a computed refusal records its maximum");
+    (format!("{seconds}s"), format!("{max}s"))
+}
+
+/// The refused record a typed rate-limit refusal parks on: the facts the
+/// failed event keeps, whatever the park that follows says.
+fn refusal_record(
+    cause: RefusalCause,
+    refusal: &PreSessionRefusal,
+    route: Option<&str>,
+    seconds: Option<u64>,
+    max: Option<u64>,
+) -> ProviderRefusal {
+    ProviderRefusal {
+        cause,
+        provider: refusal.provider().to_string(),
+        route: route.map(str::to_string),
+        words: refusal.words().to_string(),
+        retry_after_seconds: refusal.retry_after_seconds(),
+        seconds,
+        max_seconds: max,
+    }
+}
+
+/// Write the refusal on the failed payload the terminal event will journal.
+fn record_refusal(payload: &mut Value, refused: &ProviderRefusal) {
+    payload["refused"] = serde_json::to_value(refused).expect("a refusal record serializes");
 }
 
 /// The end the journal can spell: RFC 3339 carries a four-digit year, and a
@@ -255,6 +338,33 @@ impl Engine {
         }
     }
 
+    /// The refusal the effect's last terminal event carries, or why a
+    /// present record does not read. Absent is the old journal's no-refusal;
+    /// a present one is never read as absent (decision 0103 slice 4c1, this
+    /// fix round).
+    pub(super) fn recorded_refusal(
+        &self,
+        events: &[EventEnvelope],
+        effect_id: &str,
+    ) -> Result<Option<ProviderRefusal>, CooldownError> {
+        let Some(event) = terminal(events, effect_id) else {
+            return Ok(None);
+        };
+        provider_refusal(event).map_err(CooldownError::RefusedUnreadable)
+    }
+
+    /// The reason a crash-before-the-park resume gives: the same function
+    /// the terminal path used, over the episode the journal still holds.
+    pub(super) fn refused_park_reason(
+        &self,
+        events: &[EventEnvelope],
+        effect_id: &str,
+        refused: &ProviderRefusal,
+    ) -> String {
+        let episode = episode(events, effect_id).ok().map(|(_, seconds)| seconds);
+        refusal_text(refused, episode)
+    }
+
     /// The failed payload, with the wait a typed rate-limit refusal records
     /// or the park that ends the run before any retry. A non-rate-limit
     /// refusal, and one with no declared cool-down, keeps today's 0006
@@ -272,13 +382,11 @@ impl Engine {
         };
         let (provider, route) = (refusal.provider(), refusal.route());
         let Some(route) = route else {
+            let refused = refusal_record(RefusalCause::RouteUnresolved, refusal, None, None, None);
+            record_refusal(&mut payload, &refused);
             return Ok(Terminal::Park {
                 payload,
-                reason: format!(
-                    "provider {provider} refused before the first turn with a rate limit, but \
-                     its route could not be resolved; no cool-down is recorded because a \
-                     provider-wide hold would hold unrelated routes"
-                ),
+                reason: refusal_text(&refused, None),
             });
         };
         let bounds = match self.cooldown_bounds(provider, route) {
@@ -291,12 +399,18 @@ impl Engine {
                 note_error(&mut payload, &note);
                 return Ok(Terminal::Plain(payload));
             }
-            Err(reason) => {
+            Err(_) => {
+                let refused = refusal_record(
+                    RefusalCause::HostUnreadable,
+                    refusal,
+                    Some(route),
+                    None,
+                    None,
+                );
+                record_refusal(&mut payload, &refused);
                 return Ok(Terminal::Park {
                     payload,
-                    reason: format!(
-                        "refusing to retry {provider}/{route} without a cool-down: {reason}"
-                    ),
+                    reason: refusal_text(&refused, None),
                 });
             }
         };
@@ -320,10 +434,18 @@ impl Engine {
         let provider = refusal.provider();
         let (prior_rounds, prior_seconds) = match episode(events, effect_id) {
             Ok(episode) => episode,
-            Err(reason) => {
+            Err(_) => {
+                let refused = refusal_record(
+                    RefusalCause::EpisodeUnreadable,
+                    refusal,
+                    Some(route),
+                    None,
+                    None,
+                );
+                record_refusal(&mut payload, &refused);
                 return Terminal::Park {
                     payload,
-                    reason: format!("refusing to retry {provider}/{route}: {reason}"),
+                    reason: refusal_text(&refused, None),
                 };
             }
         };
@@ -356,27 +478,28 @@ impl Engine {
         if let Some(wait) = &wait {
             payload["waits"] = json!([waiter(wait, wait.until)]);
         }
-        // At the cap the cursor's 0006 branch writes the one park, with the
-        // provider's facts beside it; the episode's maximum park applies
-        // only below the cap (decision 0103 ruling 7(c)).
-        if self.at_attempt_cap(events, effect_id) {
-            return Terminal::Plain(payload);
-        }
+        // The refusal that ends in a park is written on the failed event, not
+        // only on the `run/parked` after it: a crash between the two appends
+        // must not turn the refusal into today's 0006 retry. A wait with no
+        // `until` is exactly such a park, so it writes no `waits` entry.
+        let cap = self.at_attempt_cap(events, effect_id);
         if past || wait.is_none() {
-            let reason = wait.as_ref().map_or_else(
-                || {
-                    unrepresentable_reason(
-                        provider,
-                        route,
-                        retry_after,
-                        seconds,
-                        max,
-                        refusal.words(),
-                    )
+            let (cause, episode) = match wait.is_some() {
+                true => (RefusalCause::PastMaximum, Some(total)),
+                false => (RefusalCause::NoEnd, None),
+            };
+            let refused = refusal_record(cause, refusal, Some(route), Some(seconds), Some(max));
+            record_refusal(&mut payload, &refused);
+            // At the cap the cursor's 0006 branch writes the one park, with
+            // the record's facts beside it; the episode's maximum park
+            // applies only below the cap (decision 0103 ruling 7(c)).
+            return match cap {
+                true => Terminal::Plain(payload),
+                false => Terminal::Park {
+                    payload,
+                    reason: refusal_text(&refused, episode),
                 },
-                |wait| maximum_reason(wait, total, max),
-            );
-            return Terminal::Park { payload, reason };
+            };
         }
         Terminal::Plain(payload)
     }
@@ -494,153 +617,6 @@ impl Engine {
             Run::Running(Cursor::ExecuteEffect { .. })
         ))
     }
-
-    /// A dedicated one-turn invocation of the cooled site's own adapter and
-    /// launch path (decision 0103 ruling 4(a)): never the retried effect, at
-    /// the route the entry names, with the refused candidate's model pin and
-    /// effort and the same boundary and credential facts.
-    fn probe(
-        &mut self,
-        events: &[EventEnvelope],
-        state: &RunState,
-        effect_id: &str,
-        seat: &str,
-        wait: &ProviderWait,
-    ) -> Result<Probe, EngineError> {
-        let seat_def = &self.bundle.seats[seat];
-        let (body, case) = seat_def
-            .body
-            .selected(state.strategy.as_deref())
-            .expect("seat input resolved the selector");
-        let ExecutableBody::Invocation(Invocation::Single {
-            command,
-            candidates,
-            ..
-        }) = body
-        else {
-            return Ok(Probe::Parked(format!(
-                "no cool-down probe for {}/{}: a wait is recorded at a body that is not a \
-                 single seat",
-                wait.provider, wait.route
-            )));
-        };
-        let (command, candidates, timeout) = (
-            command.clone(),
-            candidates.clone(),
-            seat_def.limits.timeout_seconds,
-        );
-        let gate = seat_def
-            .body
-            .selected_is_gate(state.strategy.as_deref(), seat_def.has_gate());
-        let site_name = case
-            .map(|case| format!("{seat}:{case}"))
-            .unwrap_or_else(|| seat.to_string());
-        let mut selection = Selection::new();
-        if !candidates.is_empty() {
-            let index = refused_index(events, effect_id, candidates.len());
-            selection.insert(None, candidates[index].clone());
-        }
-        let phase = super::phase_of(state, "probe without a phase")?;
-        let mut input = self.seat_input(state, &phase, effect_id)?;
-        let hands = self.runtime_hands(&site_name);
-        let probe_attempt = Uuid::new_v4().to_string();
-        let mut spawn = self.compose_at(
-            Some(&site_name),
-            &probe_attempt,
-            gate,
-            argv_for(&selection, &None, &command).to_vec(),
-            hands.as_ref(),
-            selection.get(&None),
-            input["result_path"].as_str().unwrap_or_default(),
-        );
-        self.mark_serving(
-            &site_name,
-            selection.get(&None),
-            (&[], hands.as_ref()),
-            Some(&mut spawn),
-            &mut input,
-        );
-        let begun = self.begun(&spawn)?;
-        let door = self
-            .held
-            .as_ref()
-            .map(|held| Door::of(held, &site_name, begun.as_ref()));
-        let deadline = Duration::from_secs(timeout);
-        let workdir = self.workdir();
-        let (process, input) =
-            match spawn_site(&self.bundle, &spawn, &input, &workdir, deadline, door) {
-                Ok(started) => started,
-                Err(reason) => {
-                    return Ok(Probe::Parked(format!(
-                        "the cool-down probe for {}/{} did not spawn: {reason}",
-                        wait.provider, wait.route
-                    )));
-                }
-            };
-        let report = process.probing().run_attempt_resuming(
-            ENGINE_VERSION,
-            effect_id,
-            &probe_attempt,
-            &site_name,
-            input,
-            None,
-            |_| {},
-        );
-        let report = self.folded(
-            [effect_id, &probe_attempt, &site_name],
-            &spawn,
-            begun,
-            report,
-        )?;
-        Ok(self.probe_end(wait, report))
-    }
-
-    /// What the probe's report leaves: an answer permits the retry, and
-    /// every other end parks, cleanup's refusal first (decision 0103
-    /// ruling 4(a)). A typed rate-limit refusal parks in 4c1 because the
-    /// table that records its next round is 4d's.
-    fn probe_end(&self, wait: &ProviderWait, report: AttemptReport) -> Probe {
-        if let Cleanup::Unresolved { reason } = &report.cleanup {
-            return Probe::Parked(format!(
-                "the cool-down probe for {}/{} did not prove its process tree gone, so it is a \
-                 cleanup failure: {reason}",
-                wait.provider, wait.route
-            ));
-        }
-        if let Some(refusal) = &report.refusal {
-            let said = match refusal.class() {
-                RefusalClass::RateLimit => "was refused again by the provider",
-                RefusalClass::Other => "was refused",
-            };
-            return Probe::Parked(format!(
-                "the cool-down probe for {}/{} {said}: {}",
-                wait.provider,
-                wait.route,
-                refusal.words()
-            ));
-        }
-        match report.settled_outcome() {
-            AttemptOutcome::Succeeded { .. } => match report.checkpoints.first() {
-                Some(_) => Probe::Answered(ProbeAnswer {
-                    provider: wait.provider.clone(),
-                    route: wait.route.clone(),
-                    answered_at: self.now(),
-                }),
-                None => Probe::Parked(format!(
-                    "the cool-down probe for {}/{} reported success with no answer checkpoint",
-                    wait.provider, wait.route
-                )),
-            },
-            AttemptOutcome::Failed { error } => Probe::Parked(format!(
-                "the cool-down probe for {}/{} ended without an answer: {error}",
-                wait.provider, wait.route
-            )),
-            AttemptOutcome::Indeterminate { reason } => Probe::Parked(format!(
-                "the cool-down probe for {}/{} ended without an answer: {reason}",
-                wait.provider, wait.route
-            )),
-        }
-    }
 }
 
 /// The failed payload with the provider's refusal and the engine's own
@@ -653,21 +629,6 @@ fn note_error(payload: &mut Value, note: &str) {
         .unwrap_or("no error recorded")
         .to_string();
     payload["error"] = Value::String(format!("{error}; {note}"));
-}
-
-/// The chain link the refused attempt used: the start failures recorded
-/// before the effect's last terminal event, clamped as `chain_index` does.
-fn refused_index(events: &[EventEnvelope], effect_id: &str, chain: usize) -> usize {
-    let before = terminal(events, effect_id)
-        .and_then(|last| events.iter().position(|event| event.seq == last.seq))
-        .map_or(events, |at| &events[..at]);
-    super::chain_index(before, effect_id, &None, chain)
-}
-
-/// What a probe leaves.
-enum Probe {
-    Answered(ProbeAnswer),
-    Parked(String),
 }
 
 /// The terminal event a rate-limit refusal writes, and the park that may

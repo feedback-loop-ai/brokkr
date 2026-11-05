@@ -194,10 +194,12 @@ const FROZEN: [(&str, &str); 34] = [
         "ba8f41b953ba8fe25f6edaf9cd51c8b8a6a5669540cfcef2a74603389b8b316a",
     ),
     // Decision 0103 ruling 2(a) mints the provider-wait extension beside
-    // the frozen event vocabulary; its bytes are pinned from birth.
+    // the frozen event vocabulary; its bytes are pinned from birth. Fix
+    // round 430s4c3 adds `effect/failed.refused`, so the unreleased file
+    // is re-pinned in place.
     (
         "contracts/provider-wait.v1.schema.json",
-        "67fd05794d7a3f27fc39d0a894263769b10fb93130b62e90a9edd34a797ae1f4",
+        "307fa13b021bf04f0aa151af4d29c9ad63455fdcc8475d271568fa11a6e69593",
     ),
 ];
 
@@ -703,6 +705,31 @@ fn contract(name: &str) -> jsonschema::Validator {
     let schema: serde_json::Value =
         serde_json::from_slice(&std::fs::read(workspace().join(name)).unwrap()).unwrap();
     jsonschema::draft7::new(&schema).unwrap()
+}
+
+/// `value` with one key replaced, for the closed-shape case tables.
+fn changed(mut value: serde_json::Value, key: &str, next: serde_json::Value) -> serde_json::Value {
+    value[key] = next;
+    value
+}
+
+/// An `effect/failed` envelope carrying `payload`, for the reader the
+/// provider-wait extension drives.
+fn a_failed_event(payload: serde_json::Value) -> brokkr_core::EventEnvelope {
+    brokkr_core::EventEnvelope {
+        run_id: "run".into(),
+        seq: 1,
+        event_id: "event".into(),
+        event_schema_version: brokkr_core::envelope::EVENT_SCHEMA_VERSION,
+        event_type: brokkr_core::EventType::EffectFailed,
+        payload,
+        causation_id: None,
+        correlation_id: "run".into(),
+        attempt_id: None,
+        recorded_at: "2026-11-01T00:00:00Z".into(),
+        previous_hash: String::new(),
+        event_hash: String::new(),
+    }
 }
 
 /// Decision 0065 lands three files and edits none: the two predecessors
@@ -1569,20 +1596,6 @@ fn the_provider_wait_reader_and_its_schema_agree() {
     without.as_object_mut().unwrap().remove("seconds");
     let long_words = "w".repeat(301);
     let long_site = "s".repeat(201);
-    let event = |payload: serde_json::Value| brokkr_core::EventEnvelope {
-        run_id: "run".into(),
-        seq: 1,
-        event_id: "event".into(),
-        event_schema_version: brokkr_core::envelope::EVENT_SCHEMA_VERSION,
-        event_type: brokkr_core::EventType::EffectFailed,
-        payload,
-        causation_id: None,
-        correlation_id: "run".into(),
-        attempt_id: None,
-        recorded_at: "2026-11-01T00:00:00Z".into(),
-        previous_hash: String::new(),
-        event_hash: String::new(),
-    };
     for (case, admitted, entry) in [
         ("valid", true, valid.clone()),
         (
@@ -1601,16 +1614,41 @@ fn the_provider_wait_reader_and_its_schema_agree() {
             with("provider", "p/r".into()),
         ),
         (
+            "name at the length limit",
+            true,
+            with("provider", "p".repeat(80).into()),
+        ),
+        (
+            "name past the length limit",
+            false,
+            with("provider", "p".repeat(81).into()),
+        ),
+        (
+            "leading byte outside the pattern",
+            false,
+            with("provider", "-p".into()),
+        ),
+        (
+            "valid punctuation",
+            true,
+            with("provider", "a_b.c-d".into()),
+        ),
+        (
             "route outside its pattern",
             false,
             with("route", "r/x".into()),
+        ),
+        (
+            "route with a colon",
+            true,
+            with("route", "claude:first".into()),
         ),
         ("unknown key", false, with("extra", 1.into())),
         ("rounds below one", false, with("rounds", 0.into())),
     ] {
         let payload = serde_json::json!({"waits": [entry]});
         let schema = validator.is_valid(&payload);
-        let reader = brokkr_core::provider_waits(&event(payload)).is_ok();
+        let reader = brokkr_core::provider_waits(&a_failed_event(payload)).is_ok();
         assert_eq!(
             schema, admitted,
             "{case}: the schema said {schema}, not {admitted}"
@@ -1629,7 +1667,75 @@ fn the_provider_wait_reader_and_its_schema_agree() {
         "draft-07 has no cross-property equality"
     );
     assert!(
-        brokkr_core::provider_waits(&event(payload)).is_err(),
+        brokkr_core::provider_waits(&a_failed_event(payload)).is_err(),
         "a disagreeing retry-after must refuse, not read"
     );
+}
+
+/// Decision 0103 slice 4c1, this fix round: `refused` is one closed object
+/// and the reader agrees with the schema on the shapes it can express.
+#[test]
+fn the_refused_record_is_closed_and_reads_back() {
+    let validator = contract("contracts/provider-wait.v1.schema.json");
+    let valid = serde_json::json!({
+        "cause": "no-end", "provider": "claude", "route": "first",
+        "words": "rate_limit", "retry_after_seconds": 5,
+        "seconds": 5, "max_seconds": 2
+    });
+    let mut without = valid.clone();
+    without.as_object_mut().unwrap().remove("seconds");
+    let mut no_route = valid.clone();
+    no_route.as_object_mut().unwrap().remove("route");
+    for (case, admitted, refused) in [
+        ("valid", true, valid.clone()),
+        (
+            "an unresolved route names none",
+            true,
+            serde_json::json!({"cause": "route-unresolved", "provider": "claude",
+                               "words": "rate_limit"}),
+        ),
+        (
+            "a host refusal names a route and no length",
+            true,
+            serde_json::json!({"cause": "host-unreadable", "provider": "claude",
+                               "route": "first", "words": "rate_limit"}),
+        ),
+        (
+            "unknown cause",
+            false,
+            changed(valid.clone(), "cause", "held".into()),
+        ),
+        ("resolved cause without a route", false, no_route),
+        (
+            "unresolved cause with a route",
+            false,
+            serde_json::json!({"cause": "route-unresolved", "provider": "claude",
+                               "route": "first", "words": "rate_limit"}),
+        ),
+        ("computed cause without seconds", false, without),
+        (
+            "extra key",
+            false,
+            changed(valid.clone(), "extra", 1.into()),
+        ),
+        (
+            "non-computed cause with seconds",
+            false,
+            serde_json::json!({"cause": "host-unreadable", "provider": "claude",
+                               "route": "first", "words": "rate_limit",
+                               "seconds": 1, "max_seconds": 1}),
+        ),
+    ] {
+        let payload = serde_json::json!({"refused": refused});
+        let schema = validator.is_valid(&payload);
+        let reader = brokkr_core::provider_refusal(&a_failed_event(payload)).is_ok();
+        assert_eq!(
+            schema, admitted,
+            "{case}: the schema said {schema}, not {admitted}"
+        );
+        assert_eq!(
+            reader, admitted,
+            "{case}: the reader said {reader}, not {admitted}"
+        );
+    }
 }
