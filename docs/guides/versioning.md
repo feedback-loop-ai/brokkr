@@ -214,6 +214,7 @@ and the release window in that ruling's slice 2.
 | `forge.host/v1` | `contracts/host.v1.schema.json` | input | 0068 (2026-10-10 addendum) | operator | load brokkr_runtime::admission::host::read | reader | | decision |
 | `forge.host/v2` | `contracts/host.v2.schema.json` | input | 0103 | operator | load brokkr_runtime::admission::host::read | current | | decision |
 | `panel-carry/v1` | `contracts/panel-carry.v1.schema.json` | journal | 0093 | engine crates/brokkr-runtime/src/engine/dispatch.rs | load brokkr_runtime::engine::carry::facts::terminal_record | current | | |
+| `provider-wait/v1` | `contracts/provider-wait.v1.schema.json` | journal | 0103 | engine crates/brokkr-runtime/src/engine/cooldown.rs | load brokkr_core::provider_waits | current | | |
 
 `fixtures/evaluator/corpus.ndjson` is frozen contract data, never
 regenerated, only versioned; it is not a file under `contracts/` and so

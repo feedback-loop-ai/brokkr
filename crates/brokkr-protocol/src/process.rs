@@ -344,11 +344,9 @@ impl DriverProcess {
 
     /// Mark this invocation as a probe (decision 0103 ruling 4(a)). The
     /// driver must have advertised it; one that did not is refused the
-    /// probe by name before any `start` is sent. The engine's use of the
-    /// probe is a later slice; this is the transport's half, proved by the
-    /// transport's refusal tests until that slice calls it.
-    #[cfg(test)]
-    pub(crate) fn probing(mut self) -> Self {
+    /// probe by name before any `start` is sent. The engine's cool-down
+    /// wait is the caller (decision 0103 slice 4c1), inside this crate.
+    pub fn probing(mut self) -> Self {
         self.probe = true;
         self
     }

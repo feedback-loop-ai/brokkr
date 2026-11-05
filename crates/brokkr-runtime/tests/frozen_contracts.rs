@@ -24,7 +24,7 @@ fn digest(relative: &str) -> String {
 /// Recorded from this tree before the agent library existed, plus the
 /// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
 /// beside it, so "beside, never inside" is machine-checked.
-const FROZEN: [(&str, &str); 33] = [
+const FROZEN: [(&str, &str); 34] = [
     // Decision 0103 (accepted) mints the driver-refusal extension beside
     // the frozen v1 family; its bytes are pinned from here. Fix round
     // 430s4a6 L2 re-pins the unreleased file after the shared route form
@@ -193,6 +193,12 @@ const FROZEN: [(&str, &str); 33] = [
         "contracts/host.v2.schema.json",
         "ba8f41b953ba8fe25f6edaf9cd51c8b8a6a5669540cfcef2a74603389b8b316a",
     ),
+    // Decision 0103 ruling 2(a) mints the provider-wait extension beside
+    // the frozen event vocabulary; its bytes are pinned from birth.
+    (
+        "contracts/provider-wait.v1.schema.json",
+        "246affef28129c4e1a0025514dabf2ff9d872e3bc9c82ea8996e59292e734722",
+    ),
 ];
 
 #[test]
@@ -237,6 +243,10 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
         (
             "contracts/driver-refusal.v1.schema.json",
             "Forge driver refusal v1",
+        ),
+        (
+            "contracts/provider-wait.v1.schema.json",
+            "Forge provider wait v1",
         ),
         (
             "contracts/panel-carry.v1.schema.json",
@@ -1483,6 +1493,46 @@ fn the_driver_refusal_extension_is_closed_and_its_probe_is_true() {
             "route": null, "words": "w", "retry_after_seconds": 0}}),
         serde_json::json!({"refusal": {"class": "rate_limit", "provider": "claude",
             "route": null, "words": "w", "extra": 1}}),
+    ] {
+        assert!(
+            !validator.is_valid(&invalid),
+            "the extension admitted {invalid}"
+        );
+    }
+}
+
+/// Decision 0103 ruling 2(a): the provider-wait extension is one closed
+/// wait (and the retry's one closed probe answer) at event_schema 1.
+#[test]
+fn the_provider_wait_extension_is_closed_and_reads_back() {
+    let validator = contract("contracts/provider-wait.v1.schema.json");
+    let wait = serde_json::json!({
+        "provider": "claude", "route": "first", "words": "rate_limit (HTTP 429)",
+        "retry_after_seconds": 30, "until": "2026-11-01T00:00:30Z", "rounds": 1
+    });
+    assert!(validator.is_valid(&serde_json::json!({"waits": [wait]})));
+    assert!(validator.is_valid(&serde_json::json!({"probe": {
+        "provider": "claude", "route": "first",
+        "answered_at": "2026-11-01T00:00:31Z"
+    }})));
+    for invalid in [
+        serde_json::json!({"waits": []}),
+        serde_json::json!({"waits": [{"route": "first", "words": "w",
+            "until": "2026-11-01T00:00:30Z", "rounds": 1}]}),
+        serde_json::json!({"waits": [{"provider": "claude", "route": "first",
+            "words": "w", "until": "2026-11-01T00:00:30Z", "rounds": 0}]}),
+        serde_json::json!({"waits": [{"provider": "claude", "route": "first",
+            "words": "w", "until": "not a time", "rounds": 1}]}),
+        serde_json::json!({"waits": [{"provider": "claude", "route": "first",
+            "words": "w", "until": "2026-11-01T00:00:30Z", "rounds": 1,
+            "retry_after_seconds": 0}]}),
+        serde_json::json!({"waits": [{"provider": "claude", "route": "first",
+            "words": "w", "until": "2026-11-01T00:00:30Z", "rounds": 1,
+            "site": null}]}),
+        serde_json::json!({"waits": [{"provider": "claude", "route": "first",
+            "words": "w", "until": "2026-11-01T00:00:30Z", "rounds": 1,
+            "extra": 1}]}),
+        serde_json::json!({"probe": {"provider": "claude", "route": "first"}}),
     ] {
         assert!(
             !validator.is_valid(&invalid),

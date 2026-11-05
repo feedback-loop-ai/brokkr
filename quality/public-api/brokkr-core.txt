@@ -1264,6 +1264,10 @@ pub brokkr_core::PolicyError::Malformed(brokkr_core::policy::Malformed)
 pub brokkr_core::PolicyError::Refused(brokkr_core::policy::audit::Refusal)
 impl core::convert::From<brokkr_core::policy::Malformed> for brokkr_core::policy::PolicyError
 pub fn brokkr_core::policy::PolicyError::from(brokkr_core::policy::Malformed) -> Self
+pub enum brokkr_core::ProviderWaitError
+pub brokkr_core::ProviderWaitError::Field
+pub brokkr_core::ProviderWaitError::Field::field: alloc::string::String
+pub brokkr_core::ProviderWaitError::Field::seq: u64
 pub enum brokkr_core::Status
 pub brokkr_core::Status::AwaitingOperator
 pub brokkr_core::Status::Completed
@@ -1306,6 +1310,14 @@ pub fn brokkr_core::policy::Machine::from_table(&serde_json::value::Value) -> co
 pub fn brokkr_core::policy::Machine::reads_counter(&self, &str, &str) -> bool
 pub fn brokkr_core::policy::Machine::seat_inputs(&self, &str) -> alloc::vec::Vec<alloc::string::String>
 pub fn brokkr_core::policy::Machine::visit_phases(&self, &str) -> alloc::vec::Vec<alloc::string::String>
+pub struct brokkr_core::ProviderWait
+pub brokkr_core::ProviderWait::provider: alloc::string::String
+pub brokkr_core::ProviderWait::retry_after_seconds: core::option::Option<u64>
+pub brokkr_core::ProviderWait::rounds: u64
+pub brokkr_core::ProviderWait::route: alloc::string::String
+pub brokkr_core::ProviderWait::site: core::option::Option<alloc::string::String>
+pub brokkr_core::ProviderWait::until: time::offset_date_time::OffsetDateTime
+pub brokkr_core::ProviderWait::words: alloc::string::String
 pub struct brokkr_core::RunState
 pub brokkr_core::RunState::consecutive_failures: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
 pub brokkr_core::RunState::feature: core::option::Option<alloc::string::String>
@@ -1326,3 +1338,4 @@ impl brokkr_core::fold::RunState
 pub fn brokkr_core::fold::RunState::stopping_seq(&self) -> core::option::Option<u64>
 pub fn brokkr_core::cited_shas(&[brokkr_core::envelope::EventEnvelope]) -> alloc::collections::btree::set::BTreeSet<alloc::string::String>
 pub fn brokkr_core::fold(&[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>
+pub fn brokkr_core::provider_waits(&brokkr_core::envelope::EventEnvelope) -> core::result::Result<core::option::Option<alloc::vec::Vec<brokkr_core::ProviderWait>>, brokkr_core::ProviderWaitError>

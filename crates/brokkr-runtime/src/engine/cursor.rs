@@ -6,7 +6,9 @@ use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{Cursor, ParkReason, RunState};
 use brokkr_core::EventEnvelope;
 use serde_json::{json, Value};
+use time::format_description::well_known::Rfc3339;
 
+use super::cooldown::Waited;
 use super::{gate_head_evidence, operator_stop_reason, Engine, EngineError};
 
 impl Engine {
@@ -42,8 +44,8 @@ impl Engine {
         }
     }
 
-    /// The `ExecuteEffect` arm: the seat's retry budget read, then the
-    /// exhausted-retry park or the attempt itself.
+    /// The `ExecuteEffect` arm: decision 0006's cap first, then the wait
+    /// and probe a recorded rate-limit refusal asks for, then the attempt.
     fn execute_effect(
         &mut self,
         events: &[EventEnvelope],
@@ -58,38 +60,95 @@ impl Engine {
             .get(seat)
             .map(|seat| seat.limits)
             .unwrap_or_default();
+        let wait = self.recorded_wait(events, effect_id);
         if failed_attempts >= limits.max_attempts {
-            // Bounded retry exhausted (decision 0006): park with the
-            // last recorded error.
-            let last_error = last_error(events, effect_id);
+            // Bounded retry exhausted (decision 0006): park with the last
+            // recorded error, and the cool-down the last refusal recorded
+            // beside it (decision 0103 ruling 7(c)). No probe, no retry.
+            let mut reason = format!(
+                "effect {effect_id} failed {failed_attempts} of {} attempt(s); \
+                 last error: {}",
+                limits.max_attempts,
+                last_error(events, effect_id)
+            );
+            match &wait {
+                Ok(Some(wait)) => reason.push_str(&format!(
+                    "; the last refusal waits for {}/{} until {}: {}",
+                    wait.provider,
+                    wait.route,
+                    wait.until
+                        .format(&Rfc3339)
+                        .expect("an RFC 3339 time formats as RFC 3339"),
+                    wait.words
+                )),
+                Err(detail) => reason.push_str(&format!("; {detail}")),
+                Ok(None) => {}
+            }
             self.append(
                 EventType::RunParked,
-                json!({
-                    "reason": format!(
-                        "effect {effect_id} failed {failed_attempts} of {} attempt(s); \
-                         last error: {last_error}",
-                        limits.max_attempts
-                    ),
-                    "evidence": {},
-                }),
+                json!({"reason": reason, "evidence": {}}),
                 None,
             )?;
-        } else {
-            // `execute` is the one place a gate head is armed, for
-            // every body shape, and an attempt that leaves it
-            // through an `Err` — a checkpoint that would not
-            // journal, say — appends no terminal event and so
-            // never reaches the compare. The observation dies with
-            // the span that took it: a stale head here would be
-            // spent on the NEXT effect's terminal event, which
-            // could then read a park no gate earned.
-            let dispatched = self.execute(events, state, effect_id, seat);
-            if dispatched.is_err() {
-                self.active_gate_head = None;
-            }
-            dispatched?
+            return Ok(());
         }
-        Ok(())
+        let wait = match wait {
+            Ok(Some(wait)) => wait,
+            Ok(None) => return self.run_attempt(events, state, effect_id, seat, None),
+            Err(detail) => {
+                // A present wait that does not read refuses by name, never
+                // as no wait (decision 0103 ruling 2(a)).
+                self.append(
+                    EventType::RunParked,
+                    json!({
+                        "reason": format!("refusing to execute effect {effect_id}: {detail}"),
+                        "evidence": {},
+                    }),
+                    None,
+                )?;
+                return Ok(());
+            }
+        };
+        match self.take_cooldown(events, state, effect_id, seat, &wait)? {
+            Waited::Proceed(answer) => {
+                self.run_attempt(events, state, effect_id, seat, Some(answer))
+            }
+            // The stop's own arm writes the ending next turn.
+            Waited::Stopped => Ok(()),
+            Waited::Parked(reason) => {
+                self.append(
+                    EventType::RunParked,
+                    json!({"reason": reason, "evidence": {}}),
+                    None,
+                )?;
+                Ok(())
+            }
+        }
+    }
+
+    /// The attempt itself, with the probe's answer (if the wait ended) set
+    /// for its `effect/started` and cleared before anything else runs.
+    fn run_attempt(
+        &mut self,
+        events: &[EventEnvelope],
+        state: &RunState,
+        effect_id: &str,
+        seat: &str,
+        answer: Option<Value>,
+    ) -> Result<(), EngineError> {
+        self.cooldown.answer = answer;
+        // `execute` is the one place a gate head is armed, for every body
+        // shape, and an attempt that leaves it through an `Err` — a
+        // checkpoint that would not journal, say — appends no terminal
+        // event and so never reaches the compare. The observation dies with
+        // the span that took it: a stale head here would be spent on the
+        // NEXT effect's terminal event, which could then read a park no
+        // gate earned.
+        let dispatched = self.execute(events, state, effect_id, seat);
+        self.cooldown.answer = None;
+        if dispatched.is_err() {
+            self.active_gate_head = None;
+        }
+        dispatched
     }
 
     /// The `Park` arm: the parked row, with the moved head's observations

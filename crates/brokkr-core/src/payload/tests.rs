@@ -255,3 +255,100 @@ fn every_committed_payload_reads_back_to_its_own_bytes() {
         "every committed payload the fold reads was read"
     );
 }
+
+/// Decision 0103 ruling 2(a): the `waits` extension reads into its typed
+/// entry, and a present entry that does not read refuses by the field's
+/// own name, never as no wait.
+#[test]
+fn the_provider_wait_extension_reads_and_refuses_by_name() {
+    let valid = event(
+        Type::EffectFailed,
+        json!({"effect_id": "e", "waits": [{
+            "site": "a",
+            "provider": "claude",
+            "route": "anthropic",
+            "words": "rate_limit (HTTP 429)",
+            "retry_after_seconds": 30,
+            "until": "2026-11-01T00:00:30Z",
+            "rounds": 2
+        }]}),
+    );
+    let waits = provider_waits(&valid).unwrap().unwrap();
+    assert_eq!(waits.len(), 1);
+    assert_eq!(waits[0].site.as_deref(), Some("a"));
+    assert_eq!(waits[0].provider, "claude");
+    assert_eq!(waits[0].route, "anthropic");
+    assert_eq!(waits[0].words, "rate_limit (HTTP 429)");
+    assert_eq!(waits[0].retry_after_seconds, Some(30));
+    assert_eq!(waits[0].rounds, 2);
+    assert_eq!(
+        waits[0].until,
+        OffsetDateTime::parse("2026-11-01T00:00:30Z", &Rfc3339).unwrap()
+    );
+
+    // An event with no `waits` is no wait, not a malformed one.
+    let none = event(Type::EffectFailed, json!({"effect_id": "e"}));
+    assert_eq!(provider_waits(&none).unwrap(), None);
+
+    for (payload, field) in [
+        (json!({"waits": {}}), "waits"),
+        (json!({"waits": []}), "waits"),
+        (
+            json!({"waits": [{"route": "r", "words": "w",
+                "until": "2026-11-01T00:00:00Z", "rounds": 1}]}),
+            "provider",
+        ),
+        (
+            json!({"waits": [{"provider": "p", "words": "w",
+                "until": "2026-11-01T00:00:00Z", "rounds": 1}]}),
+            "route",
+        ),
+        (
+            json!({"waits": [{"provider": "p", "route": "r", "words": "",
+                "until": "2026-11-01T00:00:00Z", "rounds": 1}]}),
+            "words",
+        ),
+        (
+            json!({"waits": [{"provider": "p", "route": "r", "words": "w",
+                "until": "not a time", "rounds": 1}]}),
+            "until",
+        ),
+        (
+            json!({"waits": [{"provider": "p", "route": "r", "words": "w",
+                "until": "2026-11-01T00:00:00Z"}]}),
+            "rounds",
+        ),
+        (
+            json!({"waits": [{"provider": "p", "route": "r", "words": "w",
+                "until": "2026-11-01T00:00:00Z", "rounds": 0}]}),
+            "rounds",
+        ),
+        (
+            json!({"waits": [{"provider": "p", "route": "r", "words": "w",
+                "until": "2026-11-01T00:00:00Z", "rounds": 1,
+                "retry_after_seconds": 0}]}),
+            "retry_after_seconds",
+        ),
+        (
+            json!({"waits": [{"provider": "p", "route": "r", "words": "w",
+                "until": "2026-11-01T00:00:00Z", "rounds": 1, "site": null}]}),
+            "site",
+        ),
+        (
+            json!({"waits": [{"provider": "p", "route": "r", "words": "w",
+                "until": "2026-11-01T00:00:00Z", "rounds": 1, "other": 1}]}),
+            "other",
+        ),
+        (
+            json!({"waits": [{"provider": "p", "route": "r", "words": "w",
+                "until": "2026-11-01T00:00:00Z", "rounds": 1}, 7]}),
+            "waits",
+        ),
+    ] {
+        let error = provider_waits(&event(Type::EffectFailed, payload)).unwrap_err();
+        assert!(
+            matches!(&error, ProviderWaitError::Field { field: named, .. } if named == field),
+            "{error:?} did not name {field}"
+        );
+    }
+}

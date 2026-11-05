@@ -10,9 +10,16 @@
 //! A struct is read by hand rather than by serde's derive: the fold
 //! refuses the first field that does not read, in the order it reads
 //! them, and in its own words.
+//!
+//! The provider-wait extension is read here too (decision 0103 ruling
+//! 2(a)), by [`provider_waits`] rather than by a struct the fold takes a
+//! field from: the fold never reads it, and the engine and the readout do.
 
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::{Map, Value};
+use thiserror::Error;
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
 
 use crate::decision::Decision;
 use crate::envelope::{EventEnvelope, EventType};
@@ -327,6 +334,157 @@ pub(crate) fn decided(event: &EventEnvelope) -> Result<Decision, FoldError> {
         seq: event.seq,
         detail: error.to_string(),
     })
+}
+
+/// One entry of `effect/failed.waits` (and, from decision 0103 slice 4c2,
+/// `effect/indeterminate.waits`): one refused site's cool-down.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderWait {
+    /// The invocation-site tag, `None` for an inline seat.
+    pub site: Option<String>,
+    pub provider: String,
+    pub route: String,
+    /// The provider's bounded words.
+    pub words: String,
+    /// The provider's own retry-after, when it gave one.
+    pub retry_after_seconds: Option<u64>,
+    /// The computed end of this round's wait.
+    pub until: OffsetDateTime,
+    /// Which round of the effect's and site's episode this is.
+    pub rounds: u64,
+}
+
+/// Why a present `waits` array does not read. `fold` never reads the
+/// extension, so this is the engine's refusal, naming the field that did
+/// not read as the fold's own `BadPayload` does.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum ProviderWaitError {
+    #[error("event {seq}: the waits entry does not read: {field}")]
+    Field { seq: u64, field: String },
+}
+
+/// The keys one `waits` entry may carry.
+const WAIT_FIELDS: [&str; 7] = [
+    "site",
+    "provider",
+    "route",
+    "words",
+    "retry_after_seconds",
+    "until",
+    "rounds",
+];
+
+/// `event`'s optional `waits` array, typed. Absent is no wait; a present
+/// array is every entry and is NEVER read as no wait: one entry that does
+/// not read refuses by name (decision 0103 ruling 2(a)).
+pub fn provider_waits(
+    event: &EventEnvelope,
+) -> Result<Option<Vec<ProviderWait>>, ProviderWaitError> {
+    let Some(value) = event.payload.get("waits") else {
+        return Ok(None);
+    };
+    let entries = value
+        .as_array()
+        .filter(|entries| !entries.is_empty())
+        .ok_or_else(|| unreadable_wait(event, "waits"))?;
+    entries
+        .iter()
+        .map(|entry| wait_entry(event, entry))
+        .collect::<Result<Vec<_>, _>>()
+        .map(Some)
+}
+
+/// One `waits` entry, its closed set of keys and then each field.
+fn wait_entry(event: &EventEnvelope, value: &Value) -> Result<ProviderWait, ProviderWaitError> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| unreadable_wait(event, "waits"))?;
+    for key in object.keys() {
+        if !WAIT_FIELDS.contains(&key.as_str()) {
+            return Err(unreadable_wait(event, key));
+        }
+    }
+    Ok(ProviderWait {
+        site: optional_word(event, object, "site")?,
+        provider: required_word(event, object, "provider")?,
+        route: required_word(event, object, "route")?,
+        words: required_word(event, object, "words")?,
+        retry_after_seconds: optional_seconds(event, object, "retry_after_seconds")?,
+        until: until(event, object)?,
+        rounds: rounds(event, object)?,
+    })
+}
+
+/// A required non-empty string.
+fn required_word(
+    event: &EventEnvelope,
+    object: &Map<String, Value>,
+    field: &'static str,
+) -> Result<String, ProviderWaitError> {
+    object
+        .get(field)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| unreadable_wait(event, field))
+}
+
+/// A non-empty string when it is present; `None` when the key is absent.
+/// A present `null` is refused: an absent site is the only absence.
+fn optional_word(
+    event: &EventEnvelope,
+    object: &Map<String, Value>,
+    field: &'static str,
+) -> Result<Option<String>, ProviderWaitError> {
+    match object.get(field) {
+        None => Ok(None),
+        Some(value) => value
+            .as_str()
+            .filter(|value| !value.is_empty())
+            .map(|value| Some(value.to_string()))
+            .ok_or_else(|| unreadable_wait(event, field)),
+    }
+}
+
+/// A whole number above zero when it is present; `None` when absent.
+fn optional_seconds(
+    event: &EventEnvelope,
+    object: &Map<String, Value>,
+    field: &'static str,
+) -> Result<Option<u64>, ProviderWaitError> {
+    match object.get(field) {
+        None => Ok(None),
+        Some(value) => value
+            .as_u64()
+            .filter(|value| *value > 0)
+            .map(Some)
+            .ok_or_else(|| unreadable_wait(event, field)),
+    }
+}
+
+/// The computed end, read as RFC 3339.
+fn until(
+    event: &EventEnvelope,
+    object: &Map<String, Value>,
+) -> Result<OffsetDateTime, ProviderWaitError> {
+    let text = required_word(event, object, "until")?;
+    OffsetDateTime::parse(&text, &Rfc3339).map_err(|_| unreadable_wait(event, "until"))
+}
+
+/// A whole round above zero.
+fn rounds(event: &EventEnvelope, object: &Map<String, Value>) -> Result<u64, ProviderWaitError> {
+    object
+        .get("rounds")
+        .and_then(Value::as_u64)
+        .filter(|rounds| *rounds > 0)
+        .ok_or_else(|| unreadable_wait(event, "rounds"))
+}
+
+fn unreadable_wait(event: &EventEnvelope, field: &str) -> ProviderWaitError {
+    ProviderWaitError::Field {
+        seq: event.seq,
+        field: field.to_string(),
+    }
 }
 
 /// The refusal for an event the fold cannot place. An event that names

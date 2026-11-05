@@ -28,6 +28,7 @@ pub mod summary;
 pub use envelope::{EventEnvelope, EventType};
 pub use fold::{fold, Cursor, FoldError, RunState, Status};
 pub use keep_refs::cited_shas;
+pub use payload::{provider_waits, ProviderWait, ProviderWaitError};
 pub use policy::{Machine, Outcome, PolicyError};
 
 // The workspace's shared test support names this crate as every other

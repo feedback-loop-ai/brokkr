@@ -342,6 +342,7 @@ pub fn start(
     };
     engine.secrets_file = request.secrets;
     engine.state = state;
+    engine.cooldown.host = crate::engine::cooldown::host_file_here();
     Ok(engine)
 }
 
@@ -377,6 +378,7 @@ fn resume_with(
     fence_crossings(engine.world.as_ref(), &request.workspace)?;
     engine.secrets_file = request.secrets;
     engine.state = state;
+    engine.cooldown.host = crate::engine::cooldown::host_file_here();
     Ok(engine)
 }
 
@@ -414,6 +416,7 @@ pub fn rerun(
     let mut engine = Engine::start_in_world(store, bundle, &feature, request.repo, world, None)?;
     engine.secrets_file = request.secrets;
     engine.state = state;
+    engine.cooldown.host = crate::engine::cooldown::host_file_here();
     Ok(engine)
 }
 
