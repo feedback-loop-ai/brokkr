@@ -158,18 +158,13 @@ pub(super) fn serve_within(
     )
 }
 
-/// [`serve_within`] bound to `port`, for a detached test server that starts
-/// the way [`super::serve`] does.
+/// [`super::serve_on`], the way [`super::serve`] binds and serves, over
+/// [`accepted`]: a detached test server that starts as production does and
+/// still gives up by name when no client connects.
 pub(super) fn serve_on_within(db: PathBuf, port: u16, open_browser: bool) -> std::io::Result<()> {
-    let listener = TcpListener::bind(("127.0.0.1", port))?;
-    serve_within(
-        db,
-        listener,
-        open_browser,
-        None,
-        Limits::DEFAULT,
-        super::open_system_browser,
-    )
+    super::serve_on(db, port, open_browser, |listener| {
+        accepted(listener, ACCEPT_WITHIN)
+    })
 }
 
 /// What a client sends: its bytes, and whether it then shuts its write side.
@@ -243,6 +238,18 @@ fn a_test_servers_serving_loop_ends_by_name_when_no_client_connects() {
         )
         .unwrap_err()
     });
+}
+
+/// Production's accept takes a connection already queued: the client's
+/// connect has finished before the accept is asked, so the accept cannot
+/// wait, and no deadline is needed to bound it.
+#[test]
+fn the_production_accept_takes_a_queued_connection() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let queued = client(address, Duration::from_secs(10));
+    let taken = super::accept_next(&listener).unwrap();
+    assert_eq!(taken.peer_addr().unwrap(), queued.local_addr().unwrap());
 }
 
 #[test]
