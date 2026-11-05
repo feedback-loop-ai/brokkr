@@ -53,15 +53,18 @@ fn verify_run_prints_the_chain_and_the_state_in_these_bytes() {
             .append_next("run", event_type, payload, None, None)
             .unwrap();
     }
-    let state = fold(&store.load("run").unwrap()).unwrap();
+    let events = store.load("run").unwrap();
+    let state = fold(&events).unwrap();
     assert_eq!(
-        serde_json::to_string_pretty(&verified(&state)).unwrap(),
+        serde_json::to_string_pretty(&verified(&state, &events)).unwrap(),
         r#"{
   "chain": "verified",
   "state": {
     "consecutive_failures": {},
     "cursor": "RequestEffect",
     "detail": null,
+    "ending": null,
+    "ending_cited": null,
     "feature": "feature",
     "last_decision": null,
     "park_reason": null,
@@ -71,7 +74,8 @@ fn verify_run_prints_the_chain_and_the_state_in_these_bytes() {
     "standing": "running",
     "status": "running",
     "status_word": "running",
-    "strategy": null
+    "strategy": null,
+    "wants": null
   }
 }"#
     );

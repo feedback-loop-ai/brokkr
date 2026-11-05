@@ -169,6 +169,7 @@ pub brokkr_store::QueueRefusal::Unmeasured::entry: brokkr_store::EntryId
 pub brokkr_store::QueueRefusal::Unseen(brokkr_store::EntryId)
 pub enum brokkr_store::RowRefusal
 pub brokkr_store::RowRefusal::Column(alloc::string::String)
+pub brokkr_store::RowRefusal::Ending(alloc::string::String)
 pub brokkr_store::RowRefusal::Residuals(alloc::string::String)
 pub brokkr_store::RowRefusal::RunIdPastBound
 pub brokkr_store::RowRefusal::Severity(alloc::string::String)

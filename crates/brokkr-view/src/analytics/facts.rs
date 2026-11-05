@@ -13,7 +13,13 @@ use brokkr_core::EventEnvelope;
 use super::{AnalyticsRun, QuarantinedHearth, Query};
 use crate::attempts::{attempts, Attempts, Site};
 
-pub(crate) use brokkr_core::summary::Ending;
+pub(crate) use brokkr_core::summary::Finished;
+
+/// Whether a finished run completed: its ending implies `completed`
+/// (decision 0064 ruling 6).
+pub(crate) fn shipped(finished: &Finished) -> bool {
+    finished.ending.status() == brokkr_core::fold::Status::Completed
+}
 
 /// A half-open span of time: its first moment held, its last not.
 #[derive(Clone, Copy)]
@@ -55,7 +61,7 @@ pub(super) struct RunFacts {
     /// Still running or parked: not concluded.
     pub(super) open: bool,
     pub(super) started: Option<i64>,
-    pub(super) finished: Option<(i64, Ending)>,
+    pub(super) finished: Option<Finished>,
     pub(super) parks: Vec<Park>,
     pub(super) implement_visits: u64,
     pub(super) reviews: Reviews,

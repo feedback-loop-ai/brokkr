@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use super::facts::{in_range, Ending, RunFacts, Window};
+use super::facts::{in_range, shipped, RunFacts, Window};
 use super::figures::{cost_figure, total};
 use super::{RecipeRow, ReportedCost};
 use crate::{finish_usage, js, TokenUsage};
@@ -15,7 +15,7 @@ use crate::{finish_usage, js, TokenUsage};
 pub(super) fn recipe_rows(runs: &[RunFacts], window: Window) -> Vec<RecipeRow> {
     let mut groups: BTreeMap<(&str, &str), Vec<&RunFacts>> = BTreeMap::new();
     for run in runs {
-        let ended = run.finished.as_ref().map(|(at, _)| *at);
+        let ended = run.finished.as_ref().map(|finished| finished.at);
         if let (Some(recipe), true) = (&run.recipe, in_range(ended, run.open, window)) {
             groups.entry((&run.realm, recipe)).or_default().push(run);
         }
@@ -76,7 +76,7 @@ fn row(realm: &str, recipe: &str, runs: &[&RunFacts], window: Window) -> RecipeR
     let count = runs.len() as f64;
     let done = runs
         .iter()
-        .filter(|run| matches!(run.finished, Some((_, Ending::Shipped))))
+        .filter(|run| run.finished.as_ref().is_some_and(shipped))
         .count();
     let done_rate = done as f64 * 100.0 / count;
     let sites = runs.iter().flat_map(|run| &run.sites);

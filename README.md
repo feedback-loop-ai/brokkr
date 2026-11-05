@@ -72,7 +72,7 @@ The inspection is derived from the journal; it shows the reviewer's verdict, the
 
 ```text
 run  add-one-visible-improvement-8bf6d692
-     completed · phase done · seq 31
+     shipped · phase done · seq 31
 ruling  SHIP-COMPLETE  ship → done · shipped
 
 seats

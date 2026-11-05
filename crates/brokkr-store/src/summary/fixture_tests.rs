@@ -7,7 +7,7 @@
 //! held to the same check by every writer store's drop (`test_support`).
 
 use brokkr_core::envelope::{ChainError, EventEnvelope, EventType};
-use brokkr_core::summary::{aggregate, Aggregate, Ending};
+use brokkr_core::summary::{aggregate, Aggregate};
 
 use crate::test_support::{
     fixture_events, fixture_journals as fixtures, import_fixtures, lane,
@@ -62,26 +62,17 @@ fn every_run_reads_as_its_fold() {
 /// What the aggregate readouts read of a run, by the column that keeps
 /// each, as this test words them, apart from the writer's own words.
 fn read_as_columns(read: &Aggregate) -> Vec<(&'static str, Option<String>)> {
-    let ending = read.finished.as_ref().map(|(_, ending)| ending);
-    let rule = match ending {
-        Some(Ending::ByRule(rule)) => rule.clone(),
-        Some(Ending::Shipped | Ending::ByOperator) | None => None,
-    };
-    let word = ending.map(|ending| match ending {
-        Ending::Shipped => "shipped".to_string(),
-        Ending::ByRule(_) => "by_rule".to_string(),
-        Ending::ByOperator => "by_operator".to_string(),
-    });
+    let finished = read.finished.as_ref();
+    let hard_stop = finished.and_then(|finished| finished.hard_stop.as_ref());
+    let rule = hard_stop.and_then(|stop| stop.rule.clone());
+    let word = finished.map(|finished| finished.ending.word().to_string());
     let shown = |value: Option<i64>| value.map(|value| value.to_string());
     let flag = |set: bool| Some(u8::from(set).to_string());
     vec![
         ("realm", read.realm.clone()),
         ("recipe", read.recipe.clone()),
         ("started_ms", shown(read.started_ms)),
-        (
-            "finished_ms",
-            shown(read.finished.as_ref().map(|(at, _)| *at)),
-        ),
+        ("finished_ms", shown(finished.map(|finished| finished.at))),
         ("ending", word),
         ("ending_rule", rule),
         ("implement_visits", Some(read.implement_visits.to_string())),
@@ -131,11 +122,17 @@ fn every_fixture_keeps_what_the_aggregate_readouts_read() {
     let reforged = "reforging-the-road-back-hand-built";
     let words = ["ending", "implement_visits", "review_first", "review_back"];
     let reforging: Vec<Option<String>> = words.iter().map(|word| read(word, reforged)).collect();
-    // Three `phase/entered` of implement, read by `grep -o` over its lines.
+    // Three `phase/entered` of implement, read by `grep -o` over its lines,
+    // and a last ruling from review that passed its residuals flagged.
     let shipped = |word: &str| Some(word.to_string());
     assert_eq!(
         reforging,
-        [shipped("shipped"), shipped("3"), shipped("1"), shipped("1")]
+        [
+            shipped("shipped-flagged"),
+            shipped("3"),
+            shipped("1"),
+            shipped("1")
+        ]
     );
 }
 
@@ -198,7 +195,8 @@ fn a_run_that_does_not_load_is_named_behind_its_head_and_at_it() {
         .conn
         .execute(
             "UPDATE run_summary SET folded_seq = head_seq, folded_hash = head_hash,
-                 aggregated_seq = head_seq, stop_folded_seq = head_seq",
+                 aggregated_seq = head_seq, stop_folded_seq = head_seq,
+                 ending_folded_seq = head_seq",
             [],
         )
         .unwrap();

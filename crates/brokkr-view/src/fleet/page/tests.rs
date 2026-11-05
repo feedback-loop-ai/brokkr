@@ -6,6 +6,7 @@ use super::*;
 use crate::fleet::run_row;
 use crate::tests::envelope_builder::EnvelopeBuilder;
 use crate::{residual_findings, Refusal, RunEntry};
+use brokkr_core::ending::{closing, Citation, Closing, Ended, Ending, Wants};
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::fold::fold;
 use brokkr_core::summary::{Account, Listing, Summary};
@@ -82,6 +83,7 @@ fn row_of(summary: &Summary) -> Row {
         refused: summary.refused.clone(),
         folded: (summary.folded_seq, summary.folded_hash.clone()),
         acknowledged: None,
+        closing: summary.closing.clone(),
     }
 }
 
@@ -96,11 +98,18 @@ fn whole_of(summary: &Summary, acknowledged: Option<Copied>) -> Whole {
 
 /// `events` read whole, as the fleet reads a run today, and its summary.
 fn both(events: &[EventEnvelope]) -> (RunRow, Summary) {
+    let read = fold(events).ok();
+    closed(events, read.and_then(|state| closing(events, &state)))
+}
+
+/// [`both`], the run's ending `ended` on both reads.
+fn closed(events: &[EventEnvelope], ended: Option<Closing>) -> (RunRow, Summary) {
     let listing = Listing {
         feature: FEATURE,
         created_at: CREATED,
     };
-    let summary = Summary::of(&Account::whole("run", events), listing);
+    let mut summary = Summary::of(&Account::whole("run", events), listing);
+    summary.closing = ended.clone();
     let state = fold(events);
     let residuals = residual_findings("run", events);
     let words = state.as_ref().err().map(ToString::to_string);
@@ -122,8 +131,117 @@ fn both(events: &[EventEnvelope]) -> (RunRow, Summary) {
             ..Quarantine::DoesNotFold.in_words(words)
         }),
         residuals: &residuals,
+        closing: ended,
     };
     (run_row(&entry), summary)
+}
+
+/// A run started and, by `ends`, completed or stopped by an accepted stop.
+fn finished(ends: brokkr_core::fold::Status) -> Vec<EventEnvelope> {
+    let started = (
+        EventType::RunStarted,
+        json!({"feature": "v", "manifest": {}}),
+    );
+    if ends == brokkr_core::fold::Status::Completed {
+        return journal(&[started, (EventType::RunCompleted, json!({}))]);
+    }
+    journal(&[
+        started,
+        (
+            EventType::OperatorCommanded,
+            json!({"command_id": "s", "command": "stop", "operator": "op"}),
+        ),
+        (EventType::OperatorAccepted, json!({"command_id": "s"})),
+        (EventType::RunStopped, json!({})),
+    ])
+}
+
+/// Decision 0064 addendum choice 2 (a): for each of the twelve endings, a
+/// paged row and the run read whole say one word, one ending, one
+/// citation and one want, by the one derivation, and the word is the
+/// ending's.
+#[test]
+fn a_paged_row_says_what_the_whole_read_says_for_every_ending() {
+    for ending in Ending::ALL {
+        let cited = match ending {
+            Ending::Superseded => Some(Citation::Run {
+                realm: Some("next-door".into()),
+                run_id: "later".into(),
+            }),
+            Ending::DeliveredElsewhere => Some(Citation::Ref("abc123".into())),
+            _ => None,
+        };
+        let ended = Closing {
+            ended: Ended {
+                ending,
+                cited: cited.clone(),
+            },
+            stood_over: ending == Ending::Withdrawn,
+        };
+        let (whole, summary) = closed(&finished(ending.status()), Some(ended));
+        let paged = summary_row(&row_of(&summary), Some(&whole_of(&summary, None)));
+        assert_eq!(wire(&paged), wire(&whole), "{ending:?}");
+        let listed = summary_row(&row_of(&summary), None);
+        let said = (
+            listed.status_word.as_str(),
+            listed.ending,
+            listed.ending_cited,
+            listed.wants,
+        );
+        assert_eq!(said, (ending.word(), Some(ending), cited, ending.wants()));
+        assert_eq!(listed.status.as_deref(), Some(ending.status().as_str()));
+    }
+}
+
+/// A live row has no ending and asks for nothing; a stopping one has none
+/// and asks for an action, as a quarantine no acknowledgement answers
+/// does; a parked one asks for a ruling; an acknowledged quarantine asks
+/// for nothing; and a terminal row whose ending was not read keeps the
+/// fold's word.
+#[test]
+fn a_row_with_no_ending_says_the_fold_s_word_and_what_its_standing_wants() {
+    let started = (
+        EventType::RunStarted,
+        json!({"feature": "v", "manifest": {}}),
+    );
+    let stop = json!({"command_id": "s", "command": "stop", "operator": "op"});
+    let stopping = [
+        started.clone(),
+        (EventType::OperatorCommanded, stop),
+        (EventType::OperatorAccepted, json!({"command_id": "s"})),
+    ];
+    let refused = journal(&[(EventType::PhaseEntered, json!({"phase": "review"}))]);
+    let cases = [
+        (journal(&[started]), "running", None),
+        (journal(&stopping), "stopping", Some(Wants::Action)),
+        (parked(), "awaiting_operator", Some(Wants::Ruling)),
+        (refused.clone(), "?", Some(Wants::Action)),
+    ];
+    for (events, word, wants) in cases {
+        let (whole, summary) = both(&events);
+        let listed = summary_row(&row_of(&summary), None);
+        let said = (listed.status_word.as_str(), listed.ending, listed.wants);
+        assert_eq!(said, (word, None, wants), "{word}");
+        assert_eq!(listed.ending_cited, None);
+        if word != "?" {
+            assert_eq!(wire(&listed)["wants"], wire(&whole)["wants"], "{word}");
+        }
+    }
+    // The whole read's quarantine stands acknowledged, as its copy does here.
+    let (whole, summary) = both(&refused);
+    let copied = whole_of(
+        &summary,
+        Some(Copied {
+            operator: "op".to_string(),
+            reason: "looked".to_string(),
+            at: CREATED.to_string(),
+        }),
+    );
+    let acknowledged = summary_row(&row_of(&summary), Some(&copied));
+    assert_eq!((whole.wants, acknowledged.wants), (None, None));
+    let (unread, _) = closed(&finished(brokkr_core::fold::Status::Stopped), None);
+    let said = (unread.status_word.as_str(), unread.ending, unread.wants);
+    assert_eq!(said, ("stopped", None, None));
 }
 
 fn wire(row: &RunRow) -> Value {

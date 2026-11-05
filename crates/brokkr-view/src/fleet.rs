@@ -4,6 +4,7 @@
 //! the TUI, `brokkr runs` and the console can read them alike (decision
 //! 0013); a renderer lays them out and derives none of them.
 
+use brokkr_core::ending::{Citation, Closing, Ending, Wants};
 use brokkr_core::fold::{RunState, Status};
 use brokkr_core::page::newest_first;
 use brokkr_core::policy::Severity;
@@ -23,8 +24,17 @@ pub struct RunRow {
     pub status: Option<String>,
     /// The status is one of the four the surfaces have a colour for.
     pub status_known: bool,
-    /// The word a readout prints, derived once from the standing (0102).
+    /// The word a readout prints, derived once from the standing (0102):
+    /// a terminal run's ending, `stopping`, or the fold's word.
     pub status_word: String,
+    /// How the run ended, once it has (decision 0064); `null` while it is
+    /// live, parked, stopping or quarantined.
+    pub ending: Option<Ending>,
+    /// What the ending cites: the run that superseded it, or the ref it
+    /// landed by.
+    pub ending_cited: Option<Citation>,
+    /// What the row asks of the operator: a ruling, an action, or nothing.
+    pub wants: Option<Wants>,
     pub phase: Option<String>,
     pub seq: Option<u64>,
     pub created_at: String,
@@ -225,20 +235,65 @@ impl Standing {
         }
     }
 
-    /// The word a readout prints for a run whose fold status is `status`:
-    /// the fold's own word, except that an accepted stop with no ending
-    /// stands as stopping. One home for the rule every row and summary
-    /// paints (decision 0071 ruling 5).
-    pub fn status_word(self, status: Option<&str>) -> &str {
+    /// The word a readout prints for a run whose fold status is `status`
+    /// and whose ending is `ending`: a terminal run's ending, `stopping`
+    /// for an accepted stop with no ending, and the fold's own word
+    /// otherwise, or for a terminal run whose ending was not read
+    /// (decision 0064 addendum choice 2 (a)). One home for the rule every
+    /// row and summary paints (decision 0071 ruling 5).
+    pub fn status_word(self, status: Option<&str>, ending: Option<Ending>) -> &str {
+        let fold = status.unwrap_or("?");
         match self {
             Standing::Stopping => self.label(),
-            Standing::Quarantined
-            | Standing::Parked
-            | Standing::Running
-            | Standing::Shipped
-            | Standing::Stopped
-            | Standing::OperatorStopped => status.unwrap_or("?"),
+            Standing::Shipped | Standing::Stopped | Standing::OperatorStopped => {
+                ending.map_or(fold, |ending| ending.word())
+            }
+            Standing::Quarantined | Standing::Parked | Standing::Running => fold,
         }
+    }
+
+    /// What a row of this standing asks of the operator (ruling 6;
+    /// addendum choice 2 (a)): a terminal run's ending's, an action for a
+    /// stopping run and for a quarantine no acknowledgement answers, a
+    /// ruling for a parked run, and nothing for a running one.
+    pub fn wants(self, ending: Option<Ending>, acknowledged: bool) -> Option<Wants> {
+        match self {
+            Standing::Shipped | Standing::Stopped | Standing::OperatorStopped => {
+                ending.and_then(Ending::wants)
+            }
+            Standing::Stopping => Some(Wants::Action),
+            Standing::Quarantined => (!acknowledged).then_some(Wants::Action),
+            Standing::Parked => Some(Wants::Ruling),
+            Standing::Running => None,
+        }
+    }
+}
+
+/// What a row says of how it ended and what it asks: the word it prints,
+/// its ending and citation, and its want. Derived by [`said`] alike from
+/// a run read whole and from its summary row.
+pub(crate) struct Said {
+    pub(crate) status_word: String,
+    pub(crate) ending: Option<Ending>,
+    pub(crate) ending_cited: Option<Citation>,
+    pub(crate) wants: Option<Wants>,
+}
+
+/// What a row of `standing`, its fold's word `status`, says, `closing` its
+/// ending as the one reading derives it and `acknowledged` whether an
+/// acknowledgement answers its quarantine.
+pub(crate) fn said(
+    standing: Standing,
+    status: Option<&str>,
+    closing: Option<&Closing>,
+    acknowledged: bool,
+) -> Said {
+    let ending = closing.map(|closing| closing.ended.ending);
+    Said {
+        status_word: standing.status_word(status, ending).to_string(),
+        ending,
+        ending_cited: closing.and_then(|closing| closing.ended.cited.clone()),
+        wants: standing.wants(ending, acknowledged),
     }
 }
 
@@ -602,12 +657,23 @@ pub fn run_row(entry: &RunEntry) -> RunRow {
         .as_deref()
         .is_some_and(|word| KNOWN_STATUS.contains(&word));
     let verdict = verdict(entry.state, entry.residuals);
-    let status_word = verdict.standing.status_word(status.as_deref()).to_string();
+    let acknowledged = entry
+        .detail
+        .and_then(|refusal| refusal.acknowledgement.cloned());
+    let said = said(
+        verdict.standing,
+        status.as_deref(),
+        entry.closing.as_ref(),
+        acknowledged.is_some(),
+    );
     RunRow {
         run_id: entry.run_id.to_string(),
         status,
         status_known,
-        status_word,
+        status_word: said.status_word,
+        ending: said.ending,
+        ending_cited: said.ending_cited,
+        wants: said.wants,
         phase: entry.state.and_then(|state| state.phase.clone()),
         seq: entry.state.map(|state| state.seq),
         created_at: entry.created_at.to_string(),
@@ -621,9 +687,7 @@ pub fn run_row(entry: &RunEntry) -> RunRow {
                 .unwrap_or_default()
         }),
         residuals: entry.residuals.to_vec(),
-        acknowledgement: entry
-            .detail
-            .and_then(|refusal| refusal.acknowledgement.cloned()),
+        acknowledgement: acknowledged,
         title: title(entry.feature),
         verdict,
         hire: entry.state.and_then(hire),

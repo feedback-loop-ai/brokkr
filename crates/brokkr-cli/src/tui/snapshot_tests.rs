@@ -101,6 +101,7 @@ fn fleet_of_every_status() -> Views {
             state: Some(state),
             detail: None,
             residuals: &[],
+            closing: None,
         })
         .collect();
     let mut views = Views::empty();

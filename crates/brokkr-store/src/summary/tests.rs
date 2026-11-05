@@ -35,7 +35,7 @@ fn lane(store: &Store, run_id: &str) -> Value {
 }
 
 /// `run_id` created and started by this store, which carries its account.
-fn started(store: &mut Store, run_id: &str) {
+pub(super) fn started(store: &mut Store, run_id: &str) {
     store
         .create_run(run_id, "a feature\nin detail", "self", &json!({}))
         .unwrap();
@@ -45,7 +45,12 @@ fn started(store: &mut Store, run_id: &str) {
 
 /// The next event of `run_id`, planted the way a writer from before the
 /// summary leaves it: sealed onto the head, and nothing folded written.
-fn planted(store: &Store, run_id: &str, event_type: EventType, payload: Json) -> EventEnvelope {
+pub(super) fn planted(
+    store: &Store,
+    run_id: &str,
+    event_type: EventType,
+    payload: Json,
+) -> EventEnvelope {
     planted_at(store, run_id, event_type, payload, "2026-01-01T00:00:09Z")
 }
 
@@ -68,7 +73,7 @@ fn planted_at(
     envelope
 }
 
-fn reopened(store: Store) -> Store {
+pub(super) fn reopened(store: Store) -> Store {
     let path = store.path().to_path_buf();
     drop(store);
     Store::open(&path).unwrap()
@@ -928,23 +933,13 @@ fn a_summary_from_before_the_accepted_stop_column_is_made_anew_and_refolded() {
     stopping_row(&store);
 }
 
-/// A journal a build from before the accepted-stop columns wrote carries
-/// the aggregates but not the stop's two columns: the summary reads as not
-/// intact, and the repair makes it anew and refolds the stopping run.
-#[test]
-fn a_summary_with_its_aggregates_but_not_the_stop_columns_is_made_anew() {
-    let (_dir, mut store) = store();
-    stopping_without_ending(&mut store);
-    let path = store.path().to_path_buf();
-    drop(store);
-    let older = rusqlite::Connection::open(&path).unwrap();
-    // The older build's table: every column but the stop's two, and none of
-    // the triggers or indexes this build adds.
+/// The summary table as an older build made it, on `older`: the columns
+/// `kept` selects by name from the table's own, and none of the triggers
+/// or indexes this build adds.
+pub(super) fn older_table(older: &rusqlite::Connection, kept: &str) {
+    let select = format!("SELECT name FROM pragma_table_info('run_summary') WHERE {kept}");
     let kept: Vec<String> = older
-        .prepare(
-            "SELECT name FROM pragma_table_info('run_summary')
-             WHERE name NOT IN ('stop_accepted_seq', 'stop_folded_seq')",
-        )
+        .prepare(&select)
         .unwrap()
         .query_map([], |row| row.get(0))
         .unwrap()
@@ -959,6 +954,23 @@ fn a_summary_with_its_aggregates_but_not_the_stop_columns_is_made_anew() {
             kept.join(", ")
         ))
         .unwrap();
+}
+
+/// A journal a build from before the accepted-stop columns wrote carries
+/// the aggregates but not the stop's two columns: the summary reads as not
+/// intact, and the repair makes it anew and refolds the stopping run.
+#[test]
+fn a_summary_with_its_aggregates_but_not_the_stop_columns_is_made_anew() {
+    let (_dir, mut store) = store();
+    stopping_without_ending(&mut store);
+    let path = store.path().to_path_buf();
+    drop(store);
+    let older = rusqlite::Connection::open(&path).unwrap();
+    // The older build's table: every column but the stop's two.
+    older_table(
+        &older,
+        "name NOT IN ('stop_accepted_seq', 'stop_folded_seq')",
+    );
     assert!(
         !summary_intact(&older).unwrap(),
         "the stop's columns are gone"

@@ -160,7 +160,8 @@ use serde_json::Value;
 /// Bumped to 27 by decision 0094: the run view records its entry and continuation.
 /// Bumped to 28 by #909: a run whose accepted stop has no ending stands
 /// as `stopping`, with its detail, instead of `running`.
-pub const VIEW_VERSION: u32 = 28;
+/// Bumped to 29 by decision 0064: rows and summaries carry `ending`, `ending_cited`, `wants`.
+pub const VIEW_VERSION: u32 = 29;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -204,16 +205,15 @@ pub struct RunEntry<'a> {
     /// none when it would not load. The fleet dates a finished run by it.
     pub last_recorded_at: Option<&'a str>,
     pub state: Option<&'a RunState>,
-    /// Why the state is absent: a fleet read quarantines a run whose
-    /// journal does not load or fold rather than losing the whole fleet
-    /// with it, and the refusal is the row's whole account of itself.
-    /// Nothing is repaired here (README law 2) — the refusal is reported.
+    /// Why the state is absent: a fleet read quarantines a run whose journal
+    /// does not load or fold rather than losing the whole fleet with it, and
+    /// the refusal is the row's whole account of itself, never repaired here.
     pub detail: Option<Refusal<'a>>,
-    /// What [`residual_findings`] derived for this run, marks included.
-    /// A caller that has not read the run's events — or read a journal
-    /// that would not open at all — states none, which is exactly what
-    /// a fleet listing said before decision 0047.
+    /// What [`residual_findings`] derived for this run, marks included; none
+    /// from a caller that read none of its events, as before decision 0047.
     pub residuals: &'a [ResidualFinding],
+    /// Its ending, as `brokkr_core::ending::closing` reads its events.
+    pub closing: Option<brokkr_core::ending::Closing>,
 }
 
 #[derive(Serialize)]
@@ -2368,7 +2368,7 @@ fn viewed(
     let clarify = state.and_then(|state| clarify(events, state));
     RunView {
         view_version: VIEW_VERSION,
-        summary: state.map(summary),
+        summary: state.map(|state| summary(state, events)),
         ruling: ruling_of(
             state.and_then(|state| state.last_decision.as_ref()),
             last_ruled,

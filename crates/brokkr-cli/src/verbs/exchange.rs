@@ -7,6 +7,7 @@ use std::process::ExitCode;
 use anyhow::{Context, Result};
 use brokkr_bridge::SyncReport;
 use brokkr_core::fold::RunState;
+use brokkr_core::EventEnvelope;
 use brokkr_store::{Adoption, Store};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -182,8 +183,11 @@ fn adopted(adoption: &Adoption) -> Adopted<'_> {
 /// `brokkr verify-run`: an exported journal's chain, envelopes and fold.
 pub(crate) fn verify_run(VerifyRunArgs { file }: VerifyRunArgs) -> Result<ExitCode> {
     let ndjson = std::fs::read_to_string(&file).context(format!("reading {}", file.display()))?;
-    let state = brokkr_store::verify_export(&ndjson)?;
-    println!("{}", serde_json::to_string_pretty(&verified(&state))?);
+    let (events, state) = brokkr_store::verified_events(&ndjson)?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&verified(&state, &events))?
+    );
     Ok(Exit::Completed.into())
 }
 
@@ -195,10 +199,10 @@ struct Verified {
     state: Value,
 }
 
-fn verified(state: &RunState) -> Verified {
+fn verified(state: &RunState, events: &[EventEnvelope]) -> Verified {
     Verified {
         chain: "verified",
-        state: summarize(state),
+        state: summarize(state, events),
     }
 }
 
