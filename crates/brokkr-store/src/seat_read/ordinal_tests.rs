@@ -217,30 +217,35 @@ fn two_sequential_effects_on_one_attempt_count_apart() {
     );
 }
 
+/// `fx`'s attempt `a` records turn 1, attempt `b` records `b_turns`, then
+/// `a` records turn 2, so the two attempts' ranges overlap.
+fn interleaved(store: &mut Store, b_turns: u64) -> Opened {
+    let mut events = asked_and_started("fx", "a");
+    events.push((
+        EventType::EffectCheckpointed,
+        checkpoint_of("fx", "a", None, 1),
+    ));
+    events.extend(asked_and_started("fx", "b").into_iter().skip(1));
+    for turn in 1..=b_turns {
+        events.push((
+            EventType::EffectCheckpointed,
+            checkpoint_of("fx", "b", None, turn),
+        ));
+    }
+    events.push((
+        EventType::EffectCheckpointed,
+        checkpoint_of("fx", "a", None, 2),
+    ));
+    journal(store, events)
+}
+
 /// A participant's attempts whose checkpoints interleave are ranked by
 /// seq, not by one stream's order: the search among overlapping ranges is
 /// exact.
 #[test]
 fn interleaved_attempts_rank_by_seq() {
     let (_dir, mut store) = store();
-    let mut events = asked_and_started("fx", "a");
-    events.push((
-        EventType::EffectCheckpointed,
-        checkpoint_of("fx", "a", None, 1),
-    ));
-    events.push((
-        EventType::EffectStarted,
-        json!({"effect_id": "fx", "attempt_id": "b"}),
-    ));
-    events.push((
-        EventType::EffectCheckpointed,
-        checkpoint_of("fx", "b", None, 1),
-    ));
-    events.push((
-        EventType::EffectCheckpointed,
-        checkpoint_of("fx", "a", None, 2),
-    ));
-    let opened = journal(&mut store, events);
+    let opened = interleaved(&mut store, 1);
     let events = store.load("r").unwrap();
     let expected = whole(&events, "fx", None);
     assert_eq!(expected.len(), 3);
@@ -564,4 +569,28 @@ fn the_stale_index_seek_steps_the_same_at_every_size() {
         measured.push(shape);
     }
     assert_eq!(measured, ["other member", "other attempt"]);
+}
+
+/// A not-counted row in the middle of an interleaved rank search is never
+/// read as a place: the candidate ordinal falls below the span's first, so
+/// the search takes the kept way.
+#[test]
+fn a_not_counted_row_in_an_interleaved_search_reads_the_kept_way() {
+    let (_dir, mut store) = store();
+    let opened = interleaved(&mut store, 3);
+    let own = checkpoint_seqs(&store, None);
+    // The middle row of attempt b, not its bound: the span's bounds still
+    // carry places, and only the search's candidate reads the 0.
+    store
+        .conn
+        .execute(
+            "UPDATE event_index SET stream_ordinal = 0 WHERE run_id = 'r' AND seq = ?1",
+            [own[2] as i64],
+        )
+        .unwrap();
+    assert_eq!(
+        store.seat_seq_at("r", &opened, ("fx", None), 2).unwrap(),
+        None,
+        "the interleaved search never reads the not-counted row as a place"
+    );
 }
