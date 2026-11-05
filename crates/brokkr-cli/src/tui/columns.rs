@@ -313,14 +313,16 @@ fn or_absent(lines: Vec<String>) -> Vec<String> {
 }
 
 /// The title clamped to the column, the full id, and standing · phase ·
-/// age. The commission below holds the title's whole line.
+/// age, the standing in the chip's word and tone: a stale run's need,
+/// else the row's ending or its standing's own word. The commission below
+/// holds the title's whole line.
 fn standing_texts(row: &RunRow, need: Option<&Need>, now: &str, columns: usize) -> Texts {
     let phase = row.phase.as_deref().unwrap_or(brokkr_view::ABSENT);
     let age = brokkr_view::age(&row.created_at, now).unwrap_or(absent());
     let stands = match need {
         Some(stale @ Need::Stale { .. }) => stale.label(),
         Some(Need::Parked | Need::Quarantined(_)) | Some(Need::Stopping { .. }) | None => {
-            row.verdict.standing.label()
+            panes::ended_word(row)
         }
     };
     vec![

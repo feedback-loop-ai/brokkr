@@ -164,7 +164,7 @@ fn runs_view() -> brokkr_view::RunsView {
             state: Some(&older),
             detail: None,
             residuals: &[],
-            closing: None,
+            closing: brokkr_core::ending::closing(&[], &older),
         },
         brokkr_view::RunEntry {
             run_id: "run-7",
@@ -191,9 +191,19 @@ pub(crate) fn fleet(view: &brokkr_view::FleetView, now: &str, style: &Style) -> 
             let named = (realm.realm.as_str(), realm.journal.as_str());
             let detail = realm.detail.as_deref();
             let runs_view = brokkr_view::RunsView::of(realm.runs.clone());
-            realm_head(index, named, realm.count, detail, style) + &runs(&runs_view, now, style)
+            let tally = tally_of(&realm.runs);
+            realm_head(index, named, &tally, detail, style)
+                + &runs(&runs_view, now, style)
+                + &tally.closing()
         })
         .collect()
+}
+
+/// What a listing of `rows` counts.
+pub(crate) fn tally_of(rows: &[brokkr_view::RunRow]) -> ending::Tally {
+    let mut tally = ending::Tally::default();
+    rows.iter().for_each(|row| tally.count(row));
+    tally
 }
 
 /// A many-hearth world's fleet: one realm with runs, one whose journal
@@ -260,15 +270,16 @@ fn fleet_view() -> brokkr_view::FleetView {
 fn a_many_hearth_fleet_lists_each_realm_under_its_own_heading() {
     let out = fleet(&fleet_view(), NOW, &Style::plain(80));
     let lines: Vec<&str> = out.lines().collect();
-    assert_eq!(lines[0], "alpha · 1 run · a/forge.db");
-    assert!(lines[1].starts_with("run-a "), "{out}");
+    let none = "0 want a ruling · 0 want an action";
+    assert_eq!(lines[0], format!("alpha · 1 run · {none} · a/forge.db"));
+    assert!(lines[1].starts_with("  run-a "), "{out}");
     assert_eq!(lines[2], "", "a blank line parts the hearths");
-    assert_eq!(lines[3], "beta · 2 runs · b/forge.db");
+    assert_eq!(lines[3], format!("beta · 2 runs · {none} · b/forge.db"));
     // Newest first inside a hearth, and no run crosses into another's
     // section (ruling 5): nothing is folded across journals.
-    assert!(lines[4].starts_with("run-b2 "), "{out}");
-    assert!(lines[5].starts_with("run-b1 "), "{out}");
-    assert_eq!(lines[7], "gamma · 0 runs · c/forge.db");
+    assert!(lines[4].starts_with("  run-b2 "), "{out}");
+    assert!(lines[5].starts_with("  run-b1 "), "{out}");
+    assert_eq!(lines[7], format!("gamma · 0 runs · {none} · c/forge.db"));
     assert_eq!(lines[8], "  journal  unable to open database file");
     assert_eq!(lines.len(), 9, "{out}");
 }
@@ -285,7 +296,7 @@ fn a_hearths_section_is_the_listing_runs_already_prints() {
     }]);
     assert_eq!(
         fleet(&one, NOW, &Style::plain(80)),
-        "brokkr · 0 runs · j.db\n"
+        "brokkr · 0 runs · 0 want a ruling · 0 want an action · j.db\n"
     );
     let flat = runs(&runs_view(), NOW, &Style::plain(80));
     let grouped = fleet(&fleet_view(), NOW, &Style::plain(80));
@@ -435,7 +446,7 @@ fn width_and_colour_come_from_the_environment_through_pure_rules() {
     assert_eq!(tint("ok", GREEN, &Style::plain(100)), "ok");
     let painted = runs(&runs_view(), NOW, &coloured);
     assert!(painted.contains("\x1b[1mrunning"), "{painted:?}");
-    assert!(painted.contains("\x1b[32mcompleted"), "{painted:?}");
+    assert!(painted.contains("\x1b[32mshipped"), "{painted:?}");
     let inspected = inspect(&view(None), None, true, &coloured);
     assert!(inspected.contains("\x1b[1mrunning"), "{inspected:?}");
     // The tree markers are content, not colour, so they are
@@ -483,7 +494,7 @@ fn a_multibyte_feature_truncates_on_a_char_boundary() {
         residuals: &[],
         closing: None,
     }];
-    let out = runs(&brokkr_view::run_rows(&entries), NOW, &Style::plain(40));
+    let out = runs(&brokkr_view::run_rows(&entries), NOW, &Style::plain(42));
     assert!(out.ends_with("…\n"), "{out:?}");
     assert!(out.is_char_boundary(out.len() - 1));
 }
@@ -495,23 +506,23 @@ fn brokkr_runs_is_one_clamped_line_per_run_newest_first() {
     let wide = runs(&runs_view(), NOW, &Style::plain(120));
     assert_eq!(
         wide,
-        "run-7   running   design seq 14 6m58s one derivation, two surfaces\n\
-         run-old completed design seq 14 7m03s an older feature whose text runs well past any terminal width and must be clamped…\n"
+        "  run-7   running design seq 14 6m58s one derivation, two surfaces\n  \
+         run-old shipped design seq 14 7m03s an older feature whose text runs well past any terminal width and must be clamped…\n"
     );
     // At the clamp boundary the feature loses its tail to an ellipsis.
     let narrow = runs(&runs_view(), NOW, &Style::plain(48));
     assert_eq!(
         narrow,
-        "run-7   running   design seq 14 6m58s one deriv…\n\
-         run-old completed design seq 14 7m03s an older …\n"
+        "  run-7   running design seq 14 6m58s one deriv…\n  \
+         run-old shipped design seq 14 7m03s an older …\n"
     );
     // Below eight remaining columns the feature is omitted rather than
     // mangled into two characters and an ellipsis.
     let cramped = runs(&runs_view(), NOW, &Style::plain(44));
     assert_eq!(
         cramped,
-        "run-7   running   design seq 14 6m58s\n\
-         run-old completed design seq 14 7m03s\n"
+        "  run-7   running design seq 14 6m58s\n  \
+         run-old shipped design seq 14 7m03s\n"
     );
     // No `N runs` trailer: the count survives in --json.
     assert!(!wide.contains("2 runs"));
@@ -531,7 +542,7 @@ fn a_run_whose_journal_does_not_fold_still_lists() {
         closing: None,
     }];
     let out = runs(&brokkr_view::run_rows(&entries), NOW, &Style::plain(80));
-    assert_eq!(out, "r1 ? - seq - — unfoldable\n");
+    assert_eq!(out, "> r1 ? - seq - — unfoldable\n");
 }
 
 /// The quarantine the fleet listing gives a poisoned journal: the row
@@ -571,12 +582,12 @@ fn a_quarantined_row_prints_the_fold_error_under_itself() {
     assert_eq!(lines.len(), 3, "two rows, one of them explained: {out:?}");
     assert_eq!(
         lines[0],
-        "healthy  running design seq 14 6m58s still readable"
+        "  healthy  running design seq 14 6m58s still readable"
     );
-    assert!(lines[1].starts_with("poisoned ?"), "{out:?}");
+    assert!(lines[1].starts_with("> poisoned ?"), "{out:?}");
     assert_eq!(
         lines[2],
-        "  fold  event 93: OperatorAccepted is impossible at cursor EffectInFlight[2Jforged"
+        "    fold  event 93: OperatorAccepted is impossible at cursor EffectInFlight[2Jforged"
     );
     assert!(!out.contains('\x1b'), "{out:?}");
 }
@@ -608,13 +619,13 @@ fn an_acknowledged_row_prints_its_acknowledgement_under_its_refusal() {
     }];
     let out = runs(&brokkr_view::run_rows(&entries), NOW, &Style::plain(120));
     let lines: Vec<&str> = out.lines().collect();
-    assert!(lines[0].starts_with("unit-12 ?"), "{out:?}");
+    assert!(lines[0].starts_with("  unit-12 ?"), "{out:?}");
     assert_eq!(
         lines[1..],
         [
-            "  fold  event 539: event after terminal status",
+            "    fold  event 539: event after terminal status",
             &format!(
-                "  acknowledged by valentin at {T0}, event 539: history[2J from an old engine"
+                "    acknowledged by valentin at {T0}, event 539: history[2J from an old engine"
             ),
         ]
     );

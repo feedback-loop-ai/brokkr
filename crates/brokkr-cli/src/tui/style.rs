@@ -2,6 +2,8 @@
 //! reach a widget, the styles, the brand mark and the pane border.
 
 use super::*;
+use crate::render::ending::Shade;
+use brokkr_core::ending::Tone as EndingTone;
 
 // -------------------------------------------------------------- the paint
 
@@ -60,6 +62,19 @@ pub(super) fn tone_style(status: &str) -> Style {
         Tone::Bad => Style::new().fg(Color::Red),
         Tone::Live => Style::new().add_modifier(Modifier::BOLD),
         Tone::Quiet => Style::new().add_modifier(Modifier::DIM),
+    }
+}
+
+/// A run row's chip in its shade (decision 0064 ruling 6): the TUI's
+/// rendering of the six tone classes `brokkr runs` writes in ANSI.
+pub(super) fn shade_style(shade: Shade) -> Style {
+    match shade {
+        Shade::Toned(EndingTone::Green) => Style::new().fg(Color::Green),
+        Shade::Toned(EndingTone::Yellow) => Style::new().fg(Color::Yellow),
+        Shade::Toned(EndingTone::Cyan) => Style::new().fg(Color::Cyan),
+        Shade::Toned(EndingTone::Red) => Style::new().fg(Color::Red),
+        Shade::Toned(EndingTone::Dim) => Style::new().add_modifier(Modifier::DIM),
+        Shade::Live => Style::new().add_modifier(Modifier::BOLD),
     }
 }
 

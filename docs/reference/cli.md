@@ -845,6 +845,9 @@ Usage: brokkr runs [OPTIONS]
 | `--limit <N>` |  |  | Print one page of at most N runs, and where the next page starts (`next`) |
 | `--after <CURSOR>` |  |  | Print the page after this cursor: a page's `next` |
 | `--run <RUN>` |  |  | Print one run's row: the same row this listing gives it, and no other. Refused by name when the id names no run |
+| `--ending <ENDING>` |  |  | List only the runs that ended so: one of the twelve endings |
+| `--needs-operator` |  |  | List only the runs that want the operator: a ruling (`!`) or an action (`>`) |
+| `--hide-settled` |  |  | Leave out the settled runs: every run that neither wants the operator nor is live |
 
 ## brokkr realms
 

@@ -11,12 +11,53 @@ use std::io::Write;
 use std::path::Path;
 
 use anyhow::Result;
+use brokkr_core::ending::Ending;
 use brokkr_store::{Store, StoreError};
 use brokkr_view::{Cursor, Page, Paged, RunRow, RunsView, VIEW_VERSION};
 
 use super::page::TAIL_KEYS;
 use super::{Ask, Journal, Pages, PAGE_ROWS};
+use crate::render::ending::{group, Group, Tally};
 use crate::render::{self, Style};
+
+/// Which runs `brokkr runs` lists (decision 0064 ruling 6): every run,
+/// unless a flag narrows it. No listing hides a settled run unasked.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Filter {
+    /// `--ending`: only the runs that ended so.
+    pub(crate) ending: Option<Ending>,
+    /// `--needs-operator`: only the `!` and `>` rows.
+    pub(crate) needs_operator: bool,
+    /// `--hide-settled`: no row that is settled.
+    pub(crate) hide_settled: bool,
+}
+
+impl Filter {
+    /// Whether the listing lists `row`.
+    pub(crate) fn keeps(&self, row: &RunRow) -> bool {
+        let group = group(row);
+        self.ending.is_none_or(|ending| row.ending == Some(ending))
+            && (!self.needs_operator || group == Group::WantsYou)
+            && (!self.hide_settled || group != Group::Settled)
+    }
+
+    /// The flags that ask for this filter, each after a space, as the
+    /// next page's command repeats them so it lists what this page did.
+    fn flags(&self) -> String {
+        let mut flags = String::new();
+        if let Some(ending) = self.ending {
+            flags.push_str(" --ending ");
+            flags.push_str(&render::shell_word(ending.word()));
+        }
+        if self.needs_operator {
+            flags.push_str(" --needs-operator");
+        }
+        if self.hide_settled {
+            flags.push_str(" --hide-settled");
+        }
+        flags
+    }
+}
 
 /// Why an ask names no page, at the edge it was typed at: `--after`, or
 /// `/api/runs`'s query (decision 0071 ruling 8). The view's refusal is
@@ -86,6 +127,7 @@ pub(crate) fn list_hearth_in<T>(
             pages: &pages,
             store,
             now,
+            filter: Filter::default(),
         })
     })
 }
@@ -112,6 +154,7 @@ pub(crate) fn list_journal<T>(
             pages: &pages,
             store: &store,
             now,
+            filter: Filter::default(),
         })),
         Err(error) => list(Err(error)),
     })
@@ -181,14 +224,21 @@ pub(crate) struct Lister<'a> {
     pages: &'a Pages,
     store: &'a Store,
     now: &'a str,
+    filter: Filter,
 }
 
 impl Lister<'_> {
+    /// These pages, listing only the runs `filter` keeps: a page holds as
+    /// many of them as it would of every run.
+    pub(crate) fn filtered(&self, filter: Filter) -> Lister<'_> {
+        Lister { filter, ..*self }
+    }
+
     fn page(&self, after: Option<&Cursor>, limit: usize) -> Result<Page, StoreError> {
         let ask = Ask {
             now: self.now,
             whole: &|_| true,
-            keep: &|_| true,
+            keep: &|row| self.filter.keeps(row),
         };
         self.pages.page(self.store, ask, after, limit)
     }
@@ -287,22 +337,34 @@ impl Lister<'_> {
         })
     }
 
-    /// Every run as the text table prints it: the columns sized over every
-    /// page first, then each page written, so the pages line up as one.
-    pub(crate) fn every_text(&self, out: &mut impl Write, style: &Style) -> Result<()> {
-        let (widths, reach) = self.widths()?;
-        self.text_rows(out, &widths, reach.whole()?.pages, style)
+    /// Every run as the text table prints it, under the heading that names
+    /// the realm and journal of `names` (decision 0064 ruling 6): the
+    /// columns sized and the runs counted over every page first, then each
+    /// page written, so the pages line up as one, then how the runs ended.
+    pub(crate) fn every_text(
+        &self,
+        out: &mut impl Write,
+        names: (&str, &str),
+        style: &Style,
+    ) -> Result<()> {
+        let (widths, tally, reach) = self.widths()?;
+        let pages = reach.whole()?.pages;
+        out.write_all(render::realm_head(0, names, &tally, None, style).as_bytes())?;
+        self.text_rows(out, &widths, pages, style)?;
+        Ok(out.write_all(tally.closing().as_bytes())?)
     }
 
-    /// The table's columns sized over every page, and how far the pages
-    /// read.
-    pub(crate) fn widths(&self) -> Result<([usize; 5], Reach)> {
+    /// The table's columns sized and its runs counted over every page, and
+    /// how far the pages read.
+    pub(crate) fn widths(&self) -> Result<([usize; 5], Tally, Reach)> {
         let mut widths = [0usize; 5];
+        let mut tally = Tally::default();
         let reach = self.each_page(usize::MAX, |rows| {
             render::widen(&mut widths, &rows, self.now);
+            rows.iter().for_each(|row| tally.count(row));
             Ok(())
         })?;
-        Ok((widths, reach))
+        Ok((widths, tally, reach))
     }
 
     /// The first `pages` pages' rows as the table prints them, each sized
@@ -324,14 +386,16 @@ impl Lister<'_> {
     }
 
     /// The page after `after`, or the first, of `limit` rows: the view
-    /// model with its `next`, or the table and the command that prints
-    /// the next page, `called` as this one was.
+    /// model with its `next`, or the table under the heading that names
+    /// the realm and journal of `names` and counts the page's runs, closed
+    /// by how they ended (decision 0064 ruling 6), and the command that
+    /// prints the next page, `called` and filtered as this one was.
     pub(crate) fn one(
         &self,
         out: &mut impl Write,
         (after, limit): (Option<&Cursor>, usize),
         json: bool,
-        called: Called<'_>,
+        (called, names): (Called<'_>, (&str, &str)),
         style: &Style,
     ) -> Result<()> {
         if json {
@@ -339,27 +403,34 @@ impl Lister<'_> {
             return Ok(writeln!(out, "{}", serde_json::to_string_pretty(&view)?)?);
         }
         let (view, Paged { next, behind }) = self.view(after, limit)?;
-        out.write_all(render::runs(&view, self.now, style).as_bytes())?;
+        out.write_all(render::framed_runs(&view, names, self.now, style).as_bytes())?;
         if let Some(line) = brokkr_view::behind_line(behind) {
             writeln!(out, "{line}")?;
         }
         if let Some(next) = next {
-            writeln!(out, "{}", next_page(limit, &next, called))?;
+            writeln!(out, "{}", next_page(limit, &next, called, self.filter))?;
         }
         Ok(())
     }
 }
 
-/// The command that prints the page after `next`, `called` as this
-/// listing was, or, where a journal flag's path is not UTF-8, the flags
-/// it takes in words: such a path is not printed as a command (#820).
-fn next_page(limit: usize, next: &Cursor, called: Called<'_>) -> String {
+#[cfg(test)]
+mod tests;
+
+/// The command that prints the page after `next`, `called` and narrowed
+/// by `filter` as this listing was, or, where a journal flag's path is not
+/// UTF-8, the flags it takes in words: such a path is not printed as a
+/// command (#820).
+fn next_page(limit: usize, next: &Cursor, called: Called<'_>, filter: Filter) -> String {
     let after = render::shell_word(&next.to_string());
+    let filter = filter.flags();
     match called.flags() {
-        Some(called) => format!("next page  brokkr runs{called} --limit {limit} --after {after}"),
+        Some(called) => {
+            format!("next page  brokkr runs{called} --limit {limit} --after {after}{filter}")
+        }
         None => format!(
-            "next page  --limit {limit} --after {after}, with this listing's --db and --realms: \
-             a path that is not UTF-8 is not printed as a command"
+            "next page  --limit {limit} --after {after}{filter}, with this listing's --db and \
+             --realms: a path that is not UTF-8 is not printed as a command"
         ),
     }
 }

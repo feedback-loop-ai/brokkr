@@ -1467,15 +1467,15 @@ fn runs_lists_completed_run_with_status_and_phase() {
     assert_eq!(row["status_known"], true);
     assert_eq!(row["phase"], "done");
 
-    // The human form: one clamped line per run, and no trailer.
+    // The human form: a heading, one clamped line per run, a tally (0064).
     let (code, human, stderr) = ws.brokkr_raw(&["runs", "--db", db.to_str().unwrap()]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
-    assert_eq!(human.lines().count(), 1, "one line per run: {human}");
-    let line = human.lines().next().unwrap();
-    assert!(line.starts_with(&run_id), "{line}");
-    assert!(line.contains("shipped"), "{line}");
-    assert!(line.contains("done"), "{line}");
-    assert!(!human.contains("1 runs"), "the trailer moved to --json");
+    let lines: Vec<&str> = human.lines().collect();
+    let head = "world · 1 run · 0 want a ruling · ";
+    assert!(lines[0].starts_with(head), "{human}");
+    assert!(lines[1].starts_with(&format!("  {run_id}")), "{human}");
+    assert!(lines[1].contains("shipped") && lines[1].contains("done"));
+    assert_eq!(lines[2..], ["endings  1 shipped"]);
 }
 
 /// The fleet-blinding fault, end to end. An `operator/accepted` on a run
@@ -1597,13 +1597,12 @@ fn one_unfoldable_journal_is_quarantined_by_runs_and_still_fatal_to_its_own_verb
     // The human form says it too, under the row it belongs to.
     let (code, human, stderr) = ws.brokkr_raw(&["runs", "--db", db.to_str().unwrap()]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
-    assert_eq!(human.lines().count(), 3, "two rows, one explained: {human}");
-    assert!(
-        human
-            .lines()
-            .any(|line| line.starts_with("  fold  ") && line.contains("terminal")),
-        "{human}"
-    );
+    let head = "world · 2 runs · 0 want a ruling · 1 wants an action · ";
+    assert!(human.starts_with(head), "{human}");
+    assert_eq!(human.lines().count(), 5, "{human}");
+    assert!(human.contains(&format!("\n> {poisoned} ?")), "{human}");
+    let fold = human.lines().find(|line| line.starts_with("    fold  "));
+    assert!(fold.is_some_and(|it| it.contains("terminal")), "{human}");
 
     // Aimed at that run, the refusal is still fatal.
     for args in [

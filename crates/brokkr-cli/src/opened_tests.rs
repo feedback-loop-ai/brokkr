@@ -83,8 +83,8 @@ fn the_console_refuses_it(db: &Path) {
     }
 }
 
-/// The page `brokkr ui` serves.
-const PAGE: &str = include_str!("ui.html");
+/// The page `brokkr ui` serves, its ending-to-tone table written in.
+static PAGE: std::sync::LazyLock<String> = std::sync::LazyLock::new(crate::ui::page);
 
 /// The served page's text between `/* <name>:start */` and its end.
 fn page_block(name: &str) -> &'static str {
@@ -467,13 +467,14 @@ fn the_run_list_reads_a_stopping_run_from_the_shared_standing() {
         "status": "running",
         "status_known": true,
         "status_word": "stopping",
+        "wants": "action",
         "phase": "verify",
         "seq": 4,
         "verdict": {"standing": "stopping", "detail": detail},
     }]));
     assert_eq!(
         drawn["list"],
-        serde_json::json!(["r1stopping verify seq 4"])
+        serde_json::json!(["wants you", "r1stopping verify seq 4"])
     );
     assert_eq!(drawn["forging"], serde_json::json!([false]));
     assert_eq!(drawn["detail"], detail);
@@ -484,16 +485,103 @@ fn the_run_list_reads_a_stopping_run_from_the_shared_standing() {
         "status": "running",
         "status_known": true,
         "status_word": "stopping",
+        "wants": "action",
         "phase": "verify",
         "seq": 9,
         "verdict": {"standing": "running", "detail": detail},
     }]));
     assert_eq!(
         contradicted["list"],
-        serde_json::json!(["r1stopping verify seq 9"])
+        serde_json::json!(["wants you", "r1stopping verify seq 9"])
     );
     assert_eq!(contradicted["forging"], serde_json::json!([false]));
     // The run header paints the same word and why.
     assert!(PAGE.contains("const word = runWord(s);"));
     assert!(PAGE.contains("const stop = runDetail(s);"));
+}
+
+/// Decision 0064 ruling 6 in the console: every row `brokkr runs` paints
+/// wears the same tone class here, each ending's written into the served
+/// page from brokkr-core's `Ending::tone` and held to the listing's own
+/// painting, and lists under the group its gutter names, the groups drawn
+/// in order; the six tone classes stand in the page's fixed class
+/// allowlist, each one styled; and the page file restates no ending's
+/// tone, its table written only as it is served.
+#[test]
+fn the_console_paints_every_row_in_its_tone_class_and_groups_the_fleet() {
+    use crate::render::ending::{group, painted, Group, Shade};
+    use brokkr_core::ending::Tone;
+    let rows = crate::render::ending::tests::every_row();
+    let mut boa = boa_engine::Context::default();
+    let polyfill = RUN_LIST
+        .lines()
+        .nth(2)
+        .expect("the harness polyfills Object.hasOwn");
+    for source in [polyfill, page_block("run-tone")] {
+        boa.eval(boa_engine::Source::from_bytes(source.as_bytes()))
+            .unwrap_or_else(|error| panic!("evaluating the page: {error}"));
+    }
+    for row in &rows {
+        let served = serde_json::to_string(row).unwrap();
+        let asked = format!("toneOf({served}) + '|' + groupOf({served})");
+        let painted_here = boa
+            .eval(boa_engine::Source::from_bytes(asked.as_bytes()))
+            .unwrap();
+        let tone = match painted(row).0 {
+            Shade::Toned(Tone::Green) => "green",
+            Shade::Toned(Tone::Yellow) => "yellow",
+            Shade::Toned(Tone::Cyan) => "cyan",
+            Shade::Toned(Tone::Red) => "red",
+            Shade::Toned(Tone::Dim) => "dim",
+            Shade::Live => "bold",
+        };
+        let listed = match group(row) {
+            Group::WantsYou => "wants you",
+            Group::Live => "live",
+            Group::Settled => "settled",
+        };
+        assert_eq!(
+            painted_here.as_string().unwrap().to_std_string_escaped(),
+            format!("{tone}|{listed}"),
+            "{}",
+            row.run_id
+        );
+    }
+    for tone in ["green", "yellow", "cyan", "red", "dim", "bold"] {
+        assert!(PAGE.contains(&format!("{tone}: 'tone-{tone}'")), "{tone}");
+        assert!(
+            PAGE.contains(&format!("  .tone-{tone} {{")),
+            "{tone} is styled"
+        );
+    }
+    let file = include_str!("ui.html");
+    assert!(file.contains("const ENDING_TONE = /* ending-tone */{};"));
+    assert!(
+        !file.contains("shipped: 'green'"),
+        "the file restates no tone"
+    );
+    let drawn = drawn_in_the_run_list(serde_json::to_value(&rows).unwrap());
+    let listed = [
+        "wants you",
+        "run-refused",
+        "run-blocked",
+        "run-exhausted",
+        "run-infrastructure",
+        "run-parked",
+        "run-stopping",
+        "run-quarantined",
+        "live",
+        "run-running",
+        "run-cooling",
+        "settled",
+        "run-shipped",
+        "run-shipped-flagged",
+        "run-failed",
+        "run-superseded",
+        "run-delivered-elsewhere",
+        "run-withdrawn",
+        "run-operator-stopped",
+        "run-unclassified",
+    ];
+    assert_eq!(drawn["list"], serde_json::json!(listed));
 }

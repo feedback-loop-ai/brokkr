@@ -269,7 +269,7 @@ fn a_shows_the_older_runs_and_a_second_a_folds_them_again() {
         .lines()
         .position(|line| line.contains("unit-…4e5f6a7b"));
     assert_eq!(older.map(|row| row + 1), first, "{frame}");
-    assert!(frame.contains("✗ stopped     BLOCKED"), "{frame}");
+    assert!(frame.contains("✗ stopped             BLOCKED"), "{frame}");
     assert_eq!(listed(&tui, &views).len(), 9);
     apply(&mut tui, &views, Key::Char('a'));
     assert_eq!(listed(&tui, &views).len(), 7);
@@ -356,7 +356,7 @@ fn every_width_from_the_minimum_draws_each_verdict_and_id_whole() {
 /// sequence only while its joiners hold, and the TUI strips joiners, so
 /// thirty of them measure 60 columns in the view and paint 240 here.
 /// The row paints its title clamped as drawn: on a 160-column frame,
-/// whose title column holds 97, 48 emoji and an ellipsis.
+/// whose title column holds 89, 44 emoji and an ellipsis.
 #[test]
 fn a_title_is_clamped_as_it_is_painted_once_its_joiners_are_stripped() {
     let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}";
@@ -380,7 +380,7 @@ fn a_title_is_clamped_as_it_is_painted_once_its_joiners_are_stripped() {
     let painted = frame
         .chars()
         .filter(|c| family.contains(*c) && *c != '\u{200D}');
-    assert_eq!(painted.count(), 48, "{frame}");
+    assert_eq!(painted.count(), 44, "{frame}");
     assert!(frame.contains('…'), "{frame}");
 }
 
@@ -608,10 +608,10 @@ fn every_row_names_its_ruling_and_its_worst_open_residual() {
     let views = fleet_to_act_on();
     let frame = frame_of(&Tui::new(None), &views, 160, 48);
     let wanted = [
-        "● parked      UNVERIFIED-SE… high     #362 cargo exemption",
-        "✓ shipped     COMPLETE       low      Landing 4 of the fleet view",
-        "✓ shipped     COMPLETE                Landing 5 of the fleet view",
-        "✗ stopped     FAIL-EXHAUSTED          0065 rebuild unit 19",
+        "● parked              UNVERIFIED-SE… high     #362 cargo exemption",
+        "✓ shipped             COMPLETE       low      Landing 4 of the fleet view",
+        "✓ shipped             COMPLETE                Landing 5 of the fleet view",
+        "✗ stopped             FAIL-EXHAUSTED          0065 rebuild unit 19",
     ];
     for row in wanted {
         assert!(frame.contains(row), "{row}:\n{frame}");
@@ -1035,7 +1035,7 @@ fn the_footer_names_enter_tab_a_and_filter_at_every_width() {
         let footer = lines.last().unwrap().trim_end();
         let (tab, d) = match width >= DASHBOARD_FROM {
             true => ("Tab dashboard ·", "d hide dashboard ·"),
-            false => ("Enter open run ·", "d dashboard ≥195 ·"),
+            false => ("Enter open run ·", "d dashboard ≥203 ·"),
         };
         for key in ["Enter open run ·", tab, d, "a all runs ·", "/ filter"] {
             assert!(footer.contains(key), "at {width}: {footer}");
@@ -1046,11 +1046,11 @@ fn the_footer_names_enter_tab_a_and_filter_at_every_width() {
     tui.width = 0;
     assert_eq!(
         footer_within(&tui, &views, 60),
-        "Enter open run · d dashboard ≥195 · a all runs · / filter"
+        "Enter open run · d dashboard ≥203 · a all runs · / filter"
     );
     assert_eq!(
         footer_within(&tui, &views, 80),
-        "Enter open run · d dashboard ≥195 · f findings ≥257 · a all runs · / filter"
+        "Enter open run · d dashboard ≥203 · f findings ≥265 · a all runs · / filter"
     );
 }
 
@@ -1064,8 +1064,11 @@ fn the_older_runs_say_how_to_show_them_and_how_to_fold_them() {
     assert!(frame.contains("│2 older runs: press a to show"), "{frame}");
     apply(&mut tui, &views, Key::Char('a'));
     let frame = frame_of(&tui, &views, 100, 30);
-    assert!(frame.contains("│older         a folds them"), "{frame}");
-    assert!(!frame.contains("needs you     a"), "{frame}");
+    assert!(
+        frame.contains("│older                 a folds them"),
+        "{frame}"
+    );
+    assert!(!frame.contains("needs you             a"), "{frame}");
 }
 
 /// `count` runs of the fixture's parked one, `more-00` onward, in a frame

@@ -342,6 +342,22 @@ fn the_realms_verb_lists_two_repositories_each_by_its_own_head() {
     }
 }
 
+/// `brokkr runs` of `ws`, a world whose `alpha` and `beta` hearths hold
+/// one shipped run each: each realm's heading, its run and its tally
+/// (decision 0064 ruling 6), a blank line parting the two (decision 0026
+/// ruling 3), and nothing else.
+fn lists_alpha_then_beta(ws: &Workspace, (alpha_run, beta_run): (&str, &str)) {
+    let (code, grouped, stderr) = ws.run(&["runs"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let lines: Vec<&str> = grouped.lines().collect();
+    assert!(lines[0].starts_with("alpha · 1 run · "), "{grouped}");
+    assert!(lines[1].starts_with(&format!("  {alpha_run}")), "{grouped}");
+    assert_eq!(lines[2..4], ["endings  1 shipped", ""], "{grouped}");
+    assert!(lines[4].starts_with("beta · 1 run · "), "{grouped}");
+    assert!(lines[5].starts_with(&format!("  {beta_run}")), "{grouped}");
+    assert_eq!(lines.len(), 7, "{grouped}");
+}
+
 /// Phase 2 slice (i), proof 5, the `runs` half: the fleet of a world of
 /// two REAL repositories, grouped by realm and read side by side
 /// (decision 0026 rulings 3 and 5).
@@ -364,15 +380,7 @@ fn a_many_hearth_world_of_two_repositories_lists_its_fleet_grouped_by_realm() {
     assert_eq!(code, Some(0), "{stderr}");
 
     // One section per realm, in map order, each holding only its own run.
-    let (code, grouped, stderr) = ws.run(&["runs"]);
-    assert_eq!(code, Some(0), "{stderr}");
-    let lines: Vec<&str> = grouped.lines().collect();
-    assert!(lines[0].starts_with("alpha · 1 run · "), "{grouped}");
-    assert!(lines[1].starts_with(&alpha_run), "{grouped}");
-    assert_eq!(lines[2], "", "a blank line parts the hearths: {grouped}");
-    assert!(lines[3].starts_with("beta · 1 run · "), "{grouped}");
-    assert!(lines[4].starts_with(&beta_run), "{grouped}");
-    assert_eq!(lines.len(), 5, "{grouped}");
+    lists_alpha_then_beta(&ws, (&alpha_run, &beta_run));
 
     // `--json` is the SAME grouping: never a merged list.
     let (code, listed, stderr) = ws.run(&["runs", "--json"]);
@@ -534,8 +542,9 @@ fn the_recovery_verbs_address_the_maps_journal_with_no_db() {
 
 /// Many hearths (decision 0026 rulings 1, 3 and 5), through the shipped
 /// binary: a v2 map whose realms name different journals lists its fleet
-/// GROUPED by realm on both surfaces, a world with one hearth lists what
-/// it always listed, and reading a world creates no journal in it.
+/// GROUPED by realm on both surfaces, a world with one hearth lists its
+/// runs under its one heading, and reading a world creates no journal in
+/// it.
 #[test]
 fn a_many_hearth_world_lists_its_fleet_grouped_by_realm() {
     let ws = Workspace::new(Some(map_over(".")));
@@ -546,8 +555,8 @@ fn a_many_hearth_world_lists_its_fleet_grouped_by_realm() {
     let (code, beta_run, stderr) = ws.brokkr_run(&["--db", "state/beta.db"]);
     assert_eq!(code, Some(0), "{stderr}");
 
-    // The v1 map is ONE hearth: a flat listing with no realm heading in
-    // it anywhere, and only the runs that journal holds.
+    // The v1 map is ONE hearth: one listing under its one heading
+    // (decision 0064 ruling 6), and only the runs that journal holds.
     let (code, flat, stderr) = ws.run(&["runs"]);
     assert_eq!(code, Some(0), "{stderr}");
     assert!(flat.contains(&alpha_run), "{flat}");
@@ -555,10 +564,9 @@ fn a_many_hearth_world_lists_its_fleet_grouped_by_realm() {
         !flat.contains(&beta_run),
         "another journal is another hearth: {flat}"
     );
-    assert!(
-        !flat.contains(" · 1 run · "),
-        "no heading, as before: {flat}"
-    );
+    let heading = "brokkr · 1 run · 0 want a ruling · 0 want an action · ";
+    assert!(flat.starts_with(heading), "one heading: {flat}");
+    assert_eq!(flat.matches(" · 1 run · ").count(), 1, "{flat}");
 
     // The degenerate many-hearth case — a v2 realm naming the journal
     // the world already names — is still one hearth, and still flat.
@@ -569,7 +577,8 @@ fn a_many_hearth_world_lists_its_fleet_grouped_by_realm() {
     let (code, same, stderr) = ws.run(&["runs"]);
     assert_eq!(code, Some(0), "{stderr}");
     assert!(same.contains(&alpha_run), "{same}");
-    assert!(!same.contains(" · 1 run · "), "{same}");
+    assert!(same.starts_with(heading), "{same}");
+    assert_eq!(same.matches(" · 1 run · ").count(), 1, "{same}");
 
     // Two hearths: one section per realm, each under its own heading.
     let many = json!({
@@ -582,14 +591,7 @@ fn a_many_hearth_world_lists_its_fleet_grouped_by_realm() {
         "journal": "state/world.db",
     });
     std::fs::write(ws.path().join("realms.json"), many.to_string()).unwrap();
-    let (code, grouped, stderr) = ws.run(&["runs"]);
-    assert_eq!(code, Some(0), "{stderr}");
-    let lines: Vec<&str> = grouped.lines().collect();
-    assert!(lines[0].starts_with("alpha · 1 run · "), "{grouped}");
-    assert!(lines[1].starts_with(&alpha_run), "{grouped}");
-    assert_eq!(lines[2], "", "a blank line parts the hearths: {grouped}");
-    assert!(lines[3].starts_with("beta · 1 run · "), "{grouped}");
-    assert!(lines[4].starts_with(&beta_run), "{grouped}");
+    lists_alpha_then_beta(&ws, (&alpha_run, &beta_run));
 
     // `--json` is the SAME grouping: one derivation, two renderings.
     let (code, listed, stderr) = ws.run(&["runs", "--json"]);

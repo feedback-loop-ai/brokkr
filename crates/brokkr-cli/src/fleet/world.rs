@@ -11,26 +11,28 @@ use anyhow::Result;
 use brokkr_runtime::realms::Hearth;
 use brokkr_view::VIEW_VERSION;
 
-use super::listing::{close_array, item_break, list_journal, Reach};
+use super::listing::{close_array, item_break, list_journal, Filter, Reach};
 use super::page::TAIL_KEYS;
+use crate::render::ending::Tally;
 use crate::render::{self, Style};
 
-/// Every run of every hearth of `hearths` at `now`, written to `out`: the
-/// fleet view as JSON when `json` asks, else the table under each realm.
+/// Every run of every hearth of `hearths` at `now` that `filter` keeps,
+/// written to `out`: the fleet view as JSON when `json` asks, else the
+/// table under each realm.
 pub(crate) fn list_world(
     hearths: &[Hearth],
-    json: bool,
+    (json, filter): (bool, Filter),
     clock: (&str, &Style),
     out: &mut impl Write,
 ) -> Result<()> {
-    list_world_in(hearths, (json, TAIL_KEYS), clock, out)
+    list_world_in(hearths, (json, TAIL_KEYS, filter), clock, out)
 }
 
 /// [`list_world`], `keys` of each hearth's runs behind past a refresh
 /// keyed at a time.
 pub(crate) fn list_world_in(
     hearths: &[Hearth],
-    (json, keys): (bool, usize),
+    (json, keys, filter): (bool, usize, Filter),
     (now, style): (&str, &Style),
     out: &mut impl Write,
 ) -> Result<()> {
@@ -44,11 +46,15 @@ pub(crate) fn list_world_in(
         })
         .collect();
     if json {
-        world_json(&named, (now, keys), out)
+        world_json(&named, ((now, keys), filter), out)
     } else {
-        world_text(&named, (now, keys), style, out)
+        world_text(&named, ((now, keys), filter), style, out)
     }
 }
+
+/// How a world reads each hearth: at `now`, `keys` of its runs behind
+/// keyed at a time, listing the runs the filter keeps.
+type Reading<'a> = ((&'a str, usize), Filter);
 
 /// One hearth, and the names the listing gives it.
 struct Named<'a> {
@@ -58,7 +64,7 @@ struct Named<'a> {
 }
 
 /// The fleet view, pretty, written a hearth and a page of rows at a time.
-fn world_json(named: &[Named<'_>], read: (&str, usize), out: &mut impl Write) -> Result<()> {
+fn world_json(named: &[Named<'_>], read: Reading<'_>, out: &mut impl Write) -> Result<()> {
     let open = format!("{{\n  \"view_version\": {VIEW_VERSION},\n  \"realms\": [");
     out.write_all(open.as_bytes())?;
     let mut count = 0;
@@ -73,7 +79,11 @@ fn world_json(named: &[Named<'_>], read: (&str, usize), out: &mut impl Write) ->
 
 /// One hearth's realm in the fleet view, pretty, its rows written a page
 /// at a time: how many runs it listed.
-fn realm_json(hearth: &Named<'_>, read: (&str, usize), out: &mut impl Write) -> Result<usize> {
+fn realm_json(
+    hearth: &Named<'_>,
+    (read, filter): Reading<'_>,
+    out: &mut impl Write,
+) -> Result<usize> {
     let (realm, journal) = (
         serde_json::to_string(hearth.realm)?,
         serde_json::to_string(hearth.journal)?,
@@ -83,7 +93,7 @@ fn realm_json(hearth: &Named<'_>, read: (&str, usize), out: &mut impl Write) -> 
     );
     out.write_all(head.as_bytes())?;
     let reach = list_journal(&hearth.hearth.journal, read, |lister| match lister {
-        Ok(lister) => lister.json_rows(out, "        "),
+        Ok(lister) => lister.filtered(filter).json_rows(out, "        "),
         Err(refused) => Ok(Reach::refused(refused)),
     })?;
     let listed = reach.rows;
@@ -95,27 +105,33 @@ fn realm_json(hearth: &Named<'_>, read: (&str, usize), out: &mut impl Write) -> 
 }
 
 /// The table under each realm's heading, a hearth at a time: its columns
-/// sized over every page of its hearth first, as the one-hearth table's
-/// are, then the pages that read written.
+/// sized and its runs counted over every page of its hearth first, as the
+/// one-hearth table's are, then the pages that read written, then how its
+/// runs ended.
 fn world_text(
     named: &[Named<'_>],
-    read: (&str, usize),
+    (read, filter): Reading<'_>,
     style: &Style,
     out: &mut impl Write,
 ) -> Result<()> {
     for (index, hearth) in named.iter().enumerate() {
-        let head = |reach: &Reach| {
+        let head = |reach: &Reach, tally: &Tally| {
             let names = (hearth.realm, hearth.journal);
             let detail = reach.detail();
-            render::realm_head(index, names, reach.rows, detail.as_deref(), style)
+            render::realm_head(index, names, tally, detail.as_deref(), style)
         };
         list_journal(&hearth.hearth.journal, read, |lister| match lister {
             Ok(lister) => {
-                let (widths, reach) = lister.widths()?;
-                out.write_all(head(&reach).as_bytes())?;
-                lister.text_rows(out, &widths, reach.pages, style)
+                let lister = lister.filtered(filter);
+                let (widths, tally, reach) = lister.widths()?;
+                out.write_all(head(&reach, &tally).as_bytes())?;
+                lister.text_rows(out, &widths, reach.pages, style)?;
+                Ok(out.write_all(tally.closing().as_bytes())?)
             }
-            Err(refused) => Ok(out.write_all(head(&Reach::refused(refused)).as_bytes())?),
+            Err(refused) => {
+                let head = head(&Reach::refused(refused), &Tally::default());
+                Ok(out.write_all(head.as_bytes())?)
+            }
         })?;
     }
     Ok(())

@@ -17,7 +17,7 @@ use super::page::tests::{
 };
 use super::page::TAIL_KEYS;
 use super::world::{list_world, list_world_in};
-use super::{list_hearth, read_journal, Journal, PAGE_ROWS};
+use super::{list_hearth, read_journal, Filter, Journal, PAGE_ROWS};
 
 fn hearth(realm: &str, journal: PathBuf) -> Hearth {
     Hearth {
@@ -53,7 +53,7 @@ fn world(dir: &Path) -> Vec<Hearth> {
 /// `<dir>`.
 fn listed(hearths: &[Hearth], json: bool, dir: &Path) -> String {
     let mut out = Vec::new();
-    list_world(hearths, json, (NOW, &STYLE), &mut out).unwrap();
+    list_world(hearths, (json, Filter::default()), (NOW, &STYLE), &mut out).unwrap();
     let out = String::from_utf8(out).unwrap();
     out.replace(&dir.display().to_string(), "<dir>")
 }
@@ -141,7 +141,8 @@ fn every_hearth_lists_every_run_once_however_many_are_behind() {
     for keys in [3, TAIL_KEYS] {
         let printed = |json| {
             let mut out = Vec::new();
-            list_world_in(&hearths, (json, keys), (NOW, &STYLE), &mut out).unwrap();
+            let asked = (json, keys, Filter::default());
+            list_world_in(&hearths, asked, (NOW, &STYLE), &mut out).unwrap();
             String::from_utf8(out).unwrap()
         };
         assert_eq!(printed(true), json, "{keys} keys a batch");
@@ -209,7 +210,8 @@ fn a_hearth_a_page_of_which_will_not_read_lists_what_read_and_its_refusal_beside
         .replace("<dir>/read.db", "<dir>/unread.db")
         .replacen("\n      \"detail\": null\n", &stated, 1);
     assert_eq!(json, expected);
-    let head = |db: &str| format!("first · {PAGE_ROWS} runs · <dir>/{db}\n");
+    let counts = "0 want a ruling · 0 want an action";
+    let head = |db: &str| format!("first · {PAGE_ROWS} runs · {counts} · <dir>/{db}\n");
     let stated = format!("{}  journal  {UNREAD}\n", head("unread.db"));
     let expected = printed(&read, false).replacen(&head("read.db"), &stated, 1);
     assert_eq!(printed(&unread, false), expected);
@@ -230,7 +232,7 @@ fn a_one_hearth_listing_a_page_of_which_will_not_read_is_refused_in_the_stores_w
         listed.unwrap_err().to_string()
     };
     let json = refused(&|lister| lister.every_json(&mut std::io::sink()));
-    let text = refused(&|lister| lister.every_text(&mut std::io::sink(), &STYLE));
+    let text = refused(&|lister| lister.every_text(&mut std::io::sink(), ("r", "j"), &STYLE));
     let rows = refused(&|lister| lister.rows().map(drop));
     assert_eq!([json, text, rows], [UNREAD; 3]);
 }
@@ -430,16 +432,17 @@ const WORLD_JSON: &str = r#"{
 "#;
 
 /// [`world`] as `brokkr runs` prints it, 120 columns and no colour.
-const WORLD_TEXT: &str = r#"alpha · 4 runs · <dir>/alpha.db
-refused-a ?                 -      seq - 7008h00m feat
-  fold  event 2: operator/accepted without a matching command
-park-a    awaiting_operator review seq 7 7008h00m feat
-fresh-a   running           -      seq 1 7008h00m feat
-done-a    shipped           -      seq 2 7008h00m feat
+const WORLD_TEXT: &str = r#"alpha · 4 runs · 1 wants a ruling · 1 wants an action · <dir>/alpha.db
+> refused-a ?                 -      seq - 7008h00m feat
+    fold  event 2: operator/accepted without a matching command
+! park-a    awaiting_operator review seq 7 7008h00m feat
+  fresh-a   running           -      seq 1 7008h00m feat
+  done-a    shipped           -      seq 2 7008h00m feat
+endings  1 shipped
 
-beta · 0 runs · <dir>/beta.db
+beta · 0 runs · 0 want a ruling · 0 want an action · <dir>/beta.db
   journal  sqlite: unable to open database file: <dir>/beta.db
 
-gamma · 1 run · <dir>/gamma.db
-held-g running review seq 6 7008h00m feat
+gamma · 1 run · 0 want a ruling · 0 want an action · <dir>/gamma.db
+  held-g running review seq 6 7008h00m feat
 "#;

@@ -20,10 +20,12 @@ use time::OffsetDateTime;
 
 use super::*;
 use crate::fleet::listing::{list_hearth_in, Lister};
-use crate::fleet::{list_hearth, read_hearth, Called, ListedRun, AHEAD_ROWS, PAGE_ROWS};
+use crate::fleet::{list_hearth, read_hearth, Called, Filter, ListedRun, AHEAD_ROWS, PAGE_ROWS};
 use crate::tests::envelope_builder::EnvelopeBuilder;
 
 pub(crate) const NOW: &str = "2026-10-20T00:00:00Z";
+/// The realm and journal a page's heading names.
+pub(crate) const NAMES: (&str, &str) = ("realm", "<db>");
 pub(crate) const MINUTE: i64 = 60_000;
 pub(crate) const HOUR: i64 = 60 * MINUTE;
 pub(crate) const DAY: i64 = 24 * HOUR;
@@ -262,8 +264,14 @@ fn lists_every_run_as(db: &Path, keys: usize, view: &brokkr_view::RunsView) {
         format!("{}\n", serde_json::to_string_pretty(view).unwrap()),
         "{keys} keys a batch"
     );
-    let text = printed(db, Some(keys), |lister, out| lister.every_text(out, &STYLE));
-    assert_eq!(text, crate::render::runs(view, NOW, &STYLE));
+    let names = ("realm", "j.db");
+    let text = printed(db, Some(keys), |lister, out| {
+        lister.every_text(out, names, &STYLE)
+    });
+    let tally = crate::render::tests::tally_of(&view.runs);
+    let head = crate::render::realm_head(0, names, &tally, None, &STYLE);
+    let rows = crate::render::runs(view, NOW, &STYLE);
+    assert_eq!(text, head + &rows + &tally.closing());
 }
 
 /// What `rows` list under each section at `now`, by id.
@@ -795,7 +803,8 @@ fn a_page_asked_reads_at_most_a_page_ahead_of_the_runs_behind() {
     let listed = |asked: (bool, Option<u32>)| {
         let mut out = Vec::new();
         let asked = (asked.0, asked.1, None);
-        crate::verbs::readouts::hearth_runs(&db, asked, Called::default(), &style, &mut out)
+        let every = (Filter::default(), Called::default());
+        crate::verbs::readouts::hearth_runs((&db, "realm"), asked, every, &style, &mut out)
             .unwrap();
         String::from_utf8(out).unwrap()
     };
@@ -964,7 +973,7 @@ fn brokkr_runs_lists_every_run_a_page_at_a_time_as_the_whole_read_does() {
     loop {
         let page = (after.as_ref(), 30);
         let one = printed(&db, None, |lister, out| {
-            lister.one(out, page, true, Called::default(), &style)
+            lister.one(out, page, true, (Called::default(), NAMES), &style)
         });
         let page: Value = serde_json::from_str(&one).unwrap();
         let runs = page["runs"].as_array().unwrap();
@@ -979,7 +988,7 @@ fn brokkr_runs_lists_every_run_a_page_at_a_time_as_the_whole_read_does() {
     }
     assert_eq!(walked, ids);
     let table = printed(&db, None, |lister, out| {
-        lister.one(out, (None, 1), false, Called::default(), &style)
+        lister.one(out, (None, 1), false, (Called::default(), NAMES), &style)
     });
     let first = format!(
         "next page  brokkr runs --limit 1 --after needs-you:{}:park-new\n",
@@ -992,7 +1001,7 @@ fn brokkr_runs_lists_every_run_a_page_at_a_time_as_the_whole_read_does() {
 /// with, `called` as `brokkr runs` was.
 fn hint(db: &Path, called: Called<'_>) -> String {
     let table = printed(db, None, |lister, out| {
-        lister.one(out, (None, 1), false, called, &STYLE)
+        lister.one(out, (None, 1), false, (called, NAMES), &STYLE)
     });
     table.lines().last().unwrap().to_string()
 }
@@ -1029,7 +1038,7 @@ fn the_next_page_command_quotes_the_cursor_as_one_word_and_pages_on() {
     assert_eq!((args.limit, after), (Some(1), Some(read)));
     let asked = (args.after.as_ref(), 1);
     let page = printed(&db, None, |lister, out| {
-        lister.one(out, asked, true, Called::default(), &STYLE)
+        lister.one(out, asked, true, (Called::default(), NAMES), &STYLE)
     });
     let page: Value = serde_json::from_str(&page).unwrap();
     let runs = page["runs"].as_array().unwrap().iter();
@@ -1137,7 +1146,8 @@ fn served_after(db: &Path, next: Option<&str>) -> Value {
 fn printed_after(db: &Path, after: Option<&brokkr_view::Cursor>) -> Value {
     let mut out = Vec::new();
     let asked = (true, Some(1), after);
-    crate::verbs::readouts::hearth_runs(db, asked, Called::default(), &STYLE, &mut out).unwrap();
+    let every = (Filter::default(), Called::default());
+    crate::verbs::readouts::hearth_runs((db, "realm"), asked, every, &STYLE, &mut out).unwrap();
     serde_json::from_str(&String::from_utf8(out).unwrap()).unwrap()
 }
 
@@ -1180,7 +1190,8 @@ fn an_id_holding_a_nul_lists_as_itself_in_every_lane() {
         lists_every_run_as(&db, TAIL_KEYS, &brokkr_view::RunsView::of(arranged(&whole)));
         let mut every = Vec::new();
         let asked = (true, None, None);
-        crate::verbs::readouts::hearth_runs(&db, asked, Called::default(), &STYLE, &mut every)
+        let all = (Filter::default(), Called::default());
+        crate::verbs::readouts::hearth_runs((&db, "realm"), asked, all, &STYLE, &mut every)
             .unwrap();
         let every: Value = serde_json::from_slice(&every).unwrap();
         let served = crate::ui::handle(&db, "/api/runs").body;
@@ -1267,10 +1278,10 @@ fn a_listing_its_output_refuses_is_refused_and_a_last_page_names_no_next() {
     let refused = refused.unwrap_err().to_string();
     assert_eq!((refused.as_str(), out.writes), ("broken pipe", 1));
     let table = printed(&db, None, |lister, out| {
-        lister.one(out, (None, 1), false, Called::default(), &STYLE)
+        lister.one(out, (None, 1), false, (Called::default(), NAMES), &STYLE)
     });
     let view = brokkr_view::RunsView::of(whole_rows(&db));
-    assert_eq!(table, crate::render::runs(&view, NOW, &STYLE));
+    assert_eq!(table, crate::render::framed_runs(&view, NAMES, NOW, &STYLE));
 }
 
 /// `--after` takes a page's `next` and refuses text that names no place in
@@ -1309,8 +1320,7 @@ fn brokkr_runs_pages_one_hearth_by_a_cursor_it_reads_at_the_edge() {
         db: None,
         json: true,
         limit: Some(2),
-        after: None,
-        run: None,
+        ..Default::default()
     };
     let refused = crate::verbs::readouts::runs(dir.path(), args).unwrap_err();
     assert_eq!(
@@ -1452,7 +1462,7 @@ fn inspect_shows_the_stop_accepted_with_no_ending_and_its_ending_reads_as_before
     let text = crate::render::runs(&rows, NOW, &STYLE);
     let line = text
         .lines()
-        .find(|line| line.starts_with("tui-graph-the-selection-box-gets-80f98deb"))
+        .find(|line| line.starts_with("? tui-graph-the-selection-box-gets-80f98deb"))
         .unwrap();
     assert!(line.contains("unclassified"), "{line}");
     assert!(!line.contains("stopping"), "{line}");
