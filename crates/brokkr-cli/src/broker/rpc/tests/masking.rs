@@ -6,7 +6,7 @@
 
 use std::io::Write;
 use std::sync::mpsc::channel;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use brokkr_core::canonical;
 use brokkr_protocol::broker::ledger::{Denial, Failure, Invalid, Outcome};
@@ -20,7 +20,9 @@ use super::PLAN;
 use super::{
     admitted, answering_with, call, edged, failed, initializing, mcp, mcp_but, pipe, plan,
 };
-use super::{request, result, slow, startup, tools, within, Beside, Harness, Ran, Script, Then};
+use super::{
+    request, result, slow, startup, tools, within, wrote, Beside, Harness, Ran, Script, Then, REPLY,
+};
 use crate::broker::session::stderr::{Drain, Said, SERVER};
 use crate::broker::session::Ended;
 
@@ -157,7 +159,7 @@ fn written(said: impl Fn(&Value) -> String + Send + 'static, at: usize) -> Scrip
             let line = said(&frame["id"]) + "\n";
             let (first, rest) = line.as_bytes().split_at(at.min(line.len()));
             for part in [first, rest] {
-                output.as_mut().unwrap().write_all(part).unwrap();
+                assert!(wrote(output, part, Instant::now() + REPLY));
                 std::thread::sleep(Duration::from_millis(20));
             }
             Then::Read

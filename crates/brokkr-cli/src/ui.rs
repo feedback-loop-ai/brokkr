@@ -623,14 +623,18 @@ fn open_browser_with(url: &str, spawn: impl FnOnce(&str, &str)) {
 
 /// Accept and serve, each connection on a thread of its own while
 /// `limits.connections` are served; one past them is refused by [`refuse`].
-/// `connection_limit` ends the loop after that many accepts.
-fn serve_listener(
+/// `connection_limit` ends the loop after that many accepts. `accept` is the
+/// seam: [`serve`] passes [`accept_next`], the blocking accept production
+/// runs, and a test passes one with a deadline so no test server waits
+/// forever.
+fn serve_listener_with(
     db: PathBuf,
     listener: TcpListener,
     open_browser: bool,
     connection_limit: Option<usize>,
     limits: Limits,
     mut opener: impl FnMut(&str),
+    mut accept: impl FnMut(&TcpListener) -> std::io::Result<TcpStream>,
 ) -> std::io::Result<()> {
     let bound = listener.local_addr()?.port();
     let url = format!("http://127.0.0.1:{bound}/");
@@ -640,7 +644,8 @@ fn serve_listener(
     }
     let slots = Slots::new(limits.connections);
     let limit = connection_limit.unwrap_or(usize::MAX);
-    for stream in listener.incoming().flatten().take(limit) {
+    for _ in 0..limit {
+        let stream = accept(&listener)?;
         let Some(slot) = slots.take() else {
             refuse(stream, limits.connections);
             continue;
@@ -654,6 +659,15 @@ fn serve_listener(
     Ok(())
 }
 
+/// The next connection, waited for as long as it takes. An accept that
+/// fails, a client gone before it was taken, is passed over, as
+/// `incoming().flatten()` passes it; `incoming()` never ends, so its `None`
+/// is never met.
+fn accept_next(listener: &TcpListener) -> std::io::Result<TcpStream> {
+    let never = std::io::ErrorKind::UnexpectedEof.into();
+    listener.incoming().flatten().next().ok_or(never)
+}
+
 /// A connection past the cap, answered from the acceptor and closed: it is
 /// never given a thread, and a client that does not read cannot hold the
 /// acceptor, because the write does not block.
@@ -665,14 +679,25 @@ fn refuse(mut stream: TcpStream, limit: usize) {
 /// Bind loopback and serve until killed. Returns the bound port (0 in
 /// `port` picks an ephemeral one).
 pub(crate) fn serve(db: PathBuf, port: u16, open_browser: bool) -> std::io::Result<()> {
+    serve_on(db, port, open_browser, accept_next)
+}
+
+/// [`serve`] over `accept`, the seam [`serve_listener_with`] names.
+fn serve_on(
+    db: PathBuf,
+    port: u16,
+    open_browser: bool,
+    accept: impl FnMut(&TcpListener) -> std::io::Result<TcpStream>,
+) -> std::io::Result<()> {
     let listener = TcpListener::bind(("127.0.0.1", port))?;
-    serve_listener(
+    serve_listener_with(
         db,
         listener,
         open_browser,
         None,
         Limits::DEFAULT,
         open_system_browser,
+        accept,
     )
 }
 

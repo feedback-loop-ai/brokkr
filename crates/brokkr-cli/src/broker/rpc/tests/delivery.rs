@@ -24,8 +24,10 @@ use super::super::Ending;
 use super::super::{initialized, started, Fatal, ATOMIC, REQUEST_MAX, RESPONSE_MAX, UNDELIVERED};
 use super::retention::Retain;
 use super::{admitted, answering_with, call, cancelled_behind, conversed, forwarded, idle_timeout};
-use super::{answer, live, mcp_but, tools, within, Harness, Script, Then, DIGEST};
-use super::{fake, lookup_failed, mcp, passed, ping_sized, pipe, request, result, session, silent};
+use super::{answer, live, mcp_but, tools, within, wrote, Harness, Script, Then, DIGEST, REPLY};
+use super::{
+    fake, lookup_failed, mcp, offered, passed, ping_sized, pipe, request, result, session, silent,
+};
 use crate::broker::session::lifetime::settled;
 use crate::broker::session::stderr::Drain;
 use crate::broker::session::Ended;
@@ -310,9 +312,23 @@ fn stray(early: bool) -> Script {
             (Some("tools/call"), false) => format!("{stray}\n"),
             _ => return None,
         };
-        output.as_mut()?.write_all(said.as_bytes()).unwrap();
+        assert!(wrote(output, said.as_bytes(), Instant::now() + REPLY));
         Some(Then::Read)
     })
+}
+
+#[test]
+fn a_write_no_reader_takes_fails_within_its_deadline() {
+    let (reader, mut writer) = pipe();
+    rustix::io::ioctl_fionbio(&writer, true).unwrap();
+    while writer.write(b"x").is_ok() {}
+    let begun = Instant::now();
+    let until = begun + Duration::from_millis(50);
+    assert!(!wrote(&mut Some(writer), b"x", until));
+    let taken = begun.elapsed();
+    assert!(taken >= Duration::from_millis(50), "{taken:?}");
+    assert!(taken < Duration::from_secs(5), "{taken:?}");
+    drop(reader);
 }
 
 #[test]
@@ -421,12 +437,26 @@ pub(super) fn heard(
     let link = (&mut input, &mut output);
     let started = started(link, &plan, attempt, &mut stderr).unwrap();
     let (asked, mut to) = pipe();
-    writeln!(to, "{frame}").unwrap();
+    // What the pipe takes is written before the session begins, so a frame
+    // it holds waits there whole, as each test's turns expect. The rest is
+    // written while the session reads, from a thread of its own: once a
+    // host's pipes pass `pipe-user-pages-soft`, a new pipe holds two pages,
+    // 8 KiB, and a frame written whole before the session began to read
+    // waited on it forever (#1003). That write is bounded too, and the input
+    // is ended after it where `full` asks.
+    let mut line = format!("{frame}\n").into_bytes();
+    rustix::io::ioctl_fionbio(&to, true).unwrap();
+    while let Ok(taken @ 1..) = to.write(&line) {
+        line.drain(..taken);
+    }
+    let writing = std::thread::spawn(move || {
+        offered(&mut to, &line, Instant::now() + REPLY);
+        (!full).then_some(to)
+    });
     let filled = match full {
         true => filled(&short),
         false => Vec::new(),
     };
-    let to = (!full).then_some(to);
     let reading = std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(500));
         held(reader)
@@ -445,6 +475,7 @@ pub(super) fn heard(
         edge,
     );
     let ended = settled(ledger, ended);
+    let to = writing.join().unwrap();
     drop((input, output, to));
     let frames = server.join().unwrap().0;
     let writes = at.lock().unwrap().len();
@@ -510,15 +541,15 @@ fn an_answer_left_untaken_once_the_harness_ends_its_input_ends_the_session_timed
 
 #[test]
 fn an_answer_the_harness_takes_a_little_at_a_time_once_its_input_ends_is_taken_whole() {
-    // The harness pings with an id of 8 KiB, which its input pipe holds
-    // whole, and ends its input while its output is full, then takes the
-    // answer a piece at a time, its output unready after each: the session,
-    // its input ended, writes again at once each time the harness takes
-    // some of what waits but not all, and ends served and Clean once the
-    // harness has taken the answer whole, past what filled its pipe. Every
-    // such turn takes a part and leaves the rest, however the harness's
-    // reads are scheduled, where a harness reading all it can may take the
-    // rest in the turn's one write.
+    // The harness pings with an id of 8 KiB, which `heard` delivers whole
+    // however little its input pipe holds, and ends its input while its
+    // output is full, then takes the answer a piece at a time, its output
+    // unready after each: the session, its input ended, writes again at
+    // once each time the harness takes some of what waits but not all, and
+    // ends served and Clean once the harness has taken the answer whole,
+    // past what filled its pipe. Every such turn takes a part and leaves the
+    // rest, however the harness's reads are scheduled, where a harness
+    // reading all it can may take the rest in the turn's one write.
     let (ping, id) = ping_sized(8 << 10);
     let (mut output, reader) = sink(ATOMIC, usize::MAX, Duration::ZERO);
     output.stutter = 1;
@@ -601,7 +632,9 @@ fn a_turn_that_writes_part_of_an_answer_never_waits() {
     let started = started((&mut input, &mut output), &plan, attempt, &mut stderr).unwrap();
     let (asked, mut to) = pipe();
     let (ping, id) = ping_sized(2 << 10);
-    writeln!(to, "{ping}").unwrap();
+    rustix::io::ioctl_fionbio(&to, true).unwrap();
+    let until = Instant::now() + Duration::from_secs(60);
+    assert!(offered(&mut to, format!("{ping}\n").as_bytes(), until));
     let (_held, descriptor) = pipe();
     let bytes = Rc::new(RefCell::new(Vec::new()));
     let writes = Rc::new(std::cell::Cell::new(0));

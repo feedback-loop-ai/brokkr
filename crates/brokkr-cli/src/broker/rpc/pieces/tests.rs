@@ -97,11 +97,50 @@ pub(in crate::broker) fn refusing(refused: Errno) -> (Sink, PipeReader) {
     (sink, reader)
 }
 
-/// Everything `reader` holds once every writer of its pipe is gone.
-pub(in crate::broker) fn held(mut reader: PipeReader) -> Vec<u8> {
+/// Everything `reader` holds once every writer of its pipe is gone,
+/// waited for at most sixty seconds: a writer another test has left open
+/// fails here, by name, rather than holding the test binary in `read`.
+pub(in crate::broker) fn held(reader: PipeReader) -> Vec<u8> {
+    held_within(reader, Duration::from_secs(60))
+}
+
+/// [`held`], waiting on its writer for at most `within`.
+fn held_within(mut reader: PipeReader, within: Duration) -> Vec<u8> {
+    let until = Instant::now() + within;
     let mut held = Vec::new();
-    reader.read_to_end(&mut held).unwrap();
+    let mut chunk = [0; 1 << 16];
+    loop {
+        let left = until.saturating_duration_since(Instant::now());
+        let ready = super::super::ready(reader.as_fd(), PollFlags::IN, left);
+        assert!(
+            ready.unwrap_or(false),
+            "the pipe's writer never ended within {within:?}"
+        );
+        match reader.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(read) => held.extend_from_slice(&chunk[..read]),
+            Err(error) if error.kind() == ErrorKind::Interrupted => {}
+            Err(error) => panic!("{error}"),
+        }
+    }
     held
+}
+
+#[test]
+fn a_held_read_whose_writer_never_ends_fails_within_its_bound() {
+    let (reader, _writer) = std::io::pipe().unwrap();
+    let begun = Instant::now();
+    let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        held_within(reader, Duration::from_millis(200))
+    }));
+    let message = caught.unwrap_err();
+    let message = message
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .unwrap_or("");
+    assert_eq!(message, "the pipe's writer never ended within 200ms");
+    let taken = begun.elapsed();
+    assert!(taken < Duration::from_secs(5), "{taken:?}");
 }
 
 /// An attempt that is never cancelled, with `left` to its deadline.
