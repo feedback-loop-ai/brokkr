@@ -34,6 +34,16 @@ use limits::{Deadline, Exceeded, Limits, Slots, Unread};
 
 const PAGE: &str = include_str!("ui.html");
 
+/// Where the page's `ENDING_TONE` table is written as it is served.
+const ENDING_TONE_SLOT: &str = "/* ending-tone */{}";
+
+/// The page as `/` serves it: its run list's ending-to-tone table written
+/// from brokkr-core's `Ending::tone` (decision 0064 ruling 6), never
+/// restated in the page.
+pub(crate) fn page() -> String {
+    PAGE.replacen(ENDING_TONE_SLOT, &crate::render::ending::ending_tones(), 1)
+}
+
 pub struct Response {
     pub status: &'static str,
     pub content_type: &'static str,
@@ -154,7 +164,7 @@ pub(crate) fn request_allowed(method: &str, host: Option<&str>) -> bool {
 /// thin shell around this, which is what the tests exercise.
 pub fn handle(db: &Path, path: &str) -> Response {
     if path == "/" {
-        return ok("text/html; charset=utf-8", PAGE.to_string());
+        return ok("text/html; charset=utf-8", page());
     }
     if !db.is_file() {
         // Reads never create: a missing database is a 404, not an

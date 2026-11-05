@@ -32,6 +32,7 @@ use brokkr_view::{
     Phase, RunRow, RunView, RunsView, ScopeError,
 };
 
+pub(crate) mod ending;
 mod inspect;
 
 const RESET: &str = "\x1b[0m";
@@ -220,6 +221,23 @@ pub(crate) fn runs(view: &RunsView, now: &str, style: &Style) -> String {
     lines_within(&view.runs, &widths, now, style)
 }
 
+/// [`runs`] framed as decision 0064 ruling 6 frames a listing: under the
+/// heading that names the realm and journal of `names` and counts the
+/// rows, and closed by how they ended.
+pub(crate) fn framed_runs(
+    view: &RunsView,
+    names: (&str, &str),
+    now: &str,
+    style: &Style,
+) -> String {
+    let mut tally = ending::Tally::default();
+    view.runs.iter().for_each(|row| tally.count(row));
+    let mut out = realm_head(0, names, &tally, None, style);
+    out.push_str(&runs(view, now, style));
+    out.push_str(&tally.closing());
+    out
+}
+
 /// A run's six cells: id, status, phase, seq, age and feature.
 fn run_cells(run: &RunRow, now: &str) -> [Safe; 6] {
     let status = run.status_word().to_string();
@@ -257,25 +275,29 @@ pub(crate) fn widen(widths: &mut [usize; 5], runs: &[RunRow], now: &str) {
     }
 }
 
+/// The width of a row's gutter: its mark and the space after it.
+const GUTTER: usize = 2;
+
 /// The lines `runs` render to, each sized column `widths` wide; the
-/// feature takes what is left.
+/// feature takes what is left. Each row opens with its gutter mark, and
+/// its status cell is shaded by what it waits on (decision 0064 ruling 6).
 pub(crate) fn lines_within(
     runs: &[RunRow],
     widths: &[usize; 5],
     now: &str,
     style: &Style,
 ) -> String {
-    let used = widths.iter().sum::<usize>() + widths.len();
+    let used = GUTTER + widths.iter().sum::<usize>() + widths.len();
     let remaining = style.width.saturating_sub(used);
     let mut out = String::new();
     for run in runs {
         let row = run_cells(run, now);
-        let code = status_code(run.status_word());
-        let mut line = String::new();
+        let (shade, gutter) = ending::painted(run);
+        let mut line = format!("{gutter} ");
         for (index, width) in widths.iter().enumerate() {
             let piece = row[index].padded(*width);
             line.push_str(&if index == 1 {
-                tint(&piece, code, style)
+                tint(&piece, ending::code(shade), style)
             } else {
                 piece
             });
@@ -285,48 +307,51 @@ pub(crate) fn lines_within(
             line.push_str(&brokkr_view::clamp(row[5].as_str(), remaining));
         }
         push_line(&mut out, &line);
-        for under in under_row(run) {
+        for under in under_row(run, style) {
             push_line(&mut out, &under);
         }
     }
     out
 }
 
-/// The lines a row prints underneath itself. A quarantined row says why,
-/// the way a park reason does on the run readout: `?` alone tells an
-/// operator nothing they can act on. An acknowledged one says who
-/// answered it, when and why, under the refusal it keeps (#511).
-fn under_row(run: &RunRow) -> Vec<String> {
+/// The lines a row prints underneath itself, past its gutter. A
+/// quarantined row says why, the way a park reason does on the run
+/// readout: `?` alone tells an operator nothing they can act on. An
+/// acknowledged one says who answered it, when and why, under the refusal
+/// it keeps (#511). A terminal row names its ending's citation, or the
+/// rule that ruled a policy ending, dim.
+fn under_row(run: &RunRow, style: &Style) -> Vec<String> {
     let refusal = run
         .detail
         .as_deref()
-        .map(|detail| format!("  fold  {}", Safe::new(detail).as_str()));
+        .map(|detail| format!("    fold  {}", Safe::new(detail).as_str()));
     let acknowledged = run
         .acknowledgement
         .as_ref()
-        .map(|acknowledgement| format!("  {}", Safe::new(&acknowledgement.line()).as_str()));
+        .map(|acknowledgement| format!("    {}", Safe::new(&acknowledgement.line()).as_str()));
     let stopping = run
         .verdict
         .detail
         .as_deref()
-        .map(|detail| format!("  {}", Safe::new(detail).as_str()));
+        .map(|detail| format!("    {}", Safe::new(detail).as_str()));
     refusal
         .into_iter()
         .chain(acknowledged)
         .chain(stopping)
+        .chain(ending::ended_line(run, style))
         .collect()
 }
 
-/// The heading of the `index`th realm's section of a many-hearth world's
-/// fleet: its runs are listed under it rather than interleaved with
-/// another realm's (decision 0026 ruling 3), a blank line parting it from
-/// the section before. It names the realm, how many runs it holds and the
-/// journal they were read from. A one-hearth world never reaches here —
-/// `brokkr runs` renders it exactly as it always has.
+/// The heading of a listing, and of the `index`th realm's section of a
+/// many-hearth world's fleet: its runs are listed under it rather than
+/// interleaved with another realm's (decision 0026 ruling 3), a blank
+/// line parting it from the section before. It names the realm, how many
+/// runs it lists, how many of them want a ruling and an action (decision
+/// 0064 ruling 6), and the journal they were read from.
 pub(crate) fn realm_head(
     index: usize,
     (realm, journal): (&str, &str),
-    count: usize,
+    tally: &ending::Tally,
     detail: Option<&str>,
     style: &Style,
 ) -> String {
@@ -334,13 +359,10 @@ pub(crate) fn realm_head(
     if index > 0 {
         out.push('\n');
     }
-    let count = match count {
-        1 => "1 run".to_string(),
-        count => format!("{count} runs"),
-    };
     let head = format!(
-        "{} · {count} · {}",
+        "{} · {} · {}",
         Safe::new(realm).as_str(),
+        tally.counts(),
         Safe::new(journal).as_str()
     );
     push_line(&mut out, &tint(&head, BOLD, style));

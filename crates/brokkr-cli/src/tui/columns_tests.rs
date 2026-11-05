@@ -549,7 +549,7 @@ fn no_column_leaves_a_quarter_of_its_width_empty() {
 /// its useful width or not at all — the live column giving way first.
 #[test]
 fn every_width_shares_the_whole_frame_and_holds_each_column_it_draws() {
-    assert_eq!((DASHBOARD_FROM, LIVE_FROM, THREE_FROM), (195, 185, 257));
+    assert_eq!((DASHBOARD_FROM, LIVE_FROM, THREE_FROM), (203, 193, 265));
     let pairs = [(true, true), (true, false), (false, true), (false, false)];
     for width in MIN_WIDTH..=600 {
         for (dashboard, live) in pairs {
@@ -783,6 +783,50 @@ fn the_dashboard_answers_how_it_stands_what_it_needs_its_path_and_seats() {
     ];
     assert_eq!(graph_text(&lines), graph);
     assert_eq!(under(&lines, "WAY OUT"), ["—"]);
+}
+
+/// The dashboard says a selected run's standing in the chip's word and
+/// tone (decision 0064 ruling 6): an ended run its ending, never the
+/// `stopped` or `shipped` its standing folds to, and a live run its own
+/// word, at the operator's width where the dashboard stands beside the
+/// list.
+#[test]
+fn the_dashboard_says_the_chips_word_in_the_chips_tone() {
+    let mut views = Views::empty();
+    views.now = "2026-01-01T00:07:03Z".to_string();
+    views.runs = brokkr_view::RunsView::of(crate::render::ending::tests::every_row());
+    let lives = [
+        ("run-parked", "parked"),
+        ("run-stopping", "stopping"),
+        ("run-quarantined", "quarantined"),
+        ("run-running", "running"),
+        ("run-cooling", "running"),
+    ];
+    let ended = brokkr_core::ending::Ending::ALL.map(|ending| (ending.word(), ending.word()));
+    let wanted = ended
+        .into_iter()
+        .map(|(word, says)| (format!("run-{word}"), says));
+    let wanted = wanted.chain(lives.map(|(run, says)| (run.to_string(), says)));
+    for (run, says) in wanted {
+        let tui = selecting(&run);
+        let row = views
+            .runs
+            .runs
+            .iter()
+            .find(|row| row.run_id == run)
+            .unwrap();
+        let width = width_of_column(&tui, &views, FleetColumn::Dashboard).unwrap();
+        let lines = dashboard_lines(&tui, &views, row, width);
+        let stands = lines[2].to_string();
+        assert_eq!(stands.split(" · ").next(), Some(says), "{run}: {stands}");
+        assert!(stands.ends_with(" · 7m03s"), "{run}: {stands}");
+        let need = brokkr_view::need(row, &views.now);
+        assert_eq!(
+            lines[2],
+            line(&stands, tone_of(row, need.as_ref())),
+            "{run}"
+        );
+    }
 }
 
 /// The rows under the dashboard's GRAPH, as a frame shows them.

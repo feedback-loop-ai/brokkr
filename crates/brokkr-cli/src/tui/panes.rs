@@ -375,19 +375,27 @@ fn standing_word<'a>(row: &'a RunRow, need: Option<&Need>) -> &'a str {
             | Standing::Shipped
             | Standing::Stopped
             | Standing::OperatorStopped,
-        ) => row.verdict.standing.label(),
+        ) => ended_word(row),
     }
 }
 
-/// The tone a run's standing wears: its status's, except that a stale
-/// run is quiet, never live.
+/// The word a row says where it stands, past a stale run's need: its
+/// ending (decision 0064 ruling 6), or its standing's own word while it
+/// has none. The chip and the dashboard both say it.
+pub(super) fn ended_word(row: &RunRow) -> &'static str {
+    row.ending
+        .map_or(row.verdict.standing.label(), |ending| ending.word())
+}
+
+/// The tone a run's chip wears: its shade by what it waits on (decision
+/// 0064 ruling 6), except that a stale run is quiet, never live.
 pub(super) fn tone_of(row: &RunRow, need: Option<&Need>) -> Style {
-    let status = match need {
-        Some(stale @ Need::Stale { .. }) => stale.label(),
-        Some(Need::Parked | Need::Quarantined(_)) | None => row.status.as_deref().unwrap_or("?"),
-        Some(Need::Stopping { .. }) => Standing::Stopping.label(),
-    };
-    tone_style(status)
+    match need {
+        Some(stale @ Need::Stale { .. }) => tone_style(stale.label()),
+        Some(Need::Parked | Need::Quarantined(_) | Need::Stopping { .. }) | None => {
+            shade_style(render::ending::painted(row).0)
+        }
+    }
 }
 
 pub(super) fn draw_run(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views, view: &RunView) {

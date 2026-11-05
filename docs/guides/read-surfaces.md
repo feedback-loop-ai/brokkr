@@ -205,8 +205,9 @@ One clamped line per run: the fleet's sections in order, needs you,
 running, last 24h and older, each by last activity, newest first. The
 journal is read a page at a time from each run's summary row (decision
 0089), so a listing costs a page of rows however many events the journal
-holds; `--limit N` prints one page and the command for the next, `--after`
-takes a page's cursor, and `--json` states it as `next`. A page reads at
+holds; `--limit N` prints one page, headed and tallied over its own runs,
+and the command for the next, which repeats the listing's filters,
+`--after` takes a page's cursor, and `--json` states it as `next`. A page reads at
 most a hundred runs whose summary lags their journal and counts the rest,
 which its `--json` states as `behind`. The samples from here to
 `seats` read the run the [quickstart's Step 3](quickstart.md#step-3--brokkr-run)
@@ -215,19 +216,37 @@ your host's places elided.
 
 ```
 $ brokkr runs
-prefix-selectors-for-the-read-su-… shipped done seq 51 …s prefix…
+starter · 1 run · 0 want a ruling · 0 want an action · /home/you/my-app/.brokkr/state/forge.db
+  prefix-selectors-for-the-read-su-… shipped done seq 51 …s prefix…
+endings  1 shipped
 ```
+
+A finished run's status cell names how it ended (decision 0064), and the
+colour says what the row waits on, never whether the run was good: yellow
+waits on a ruling (`refused`, `exhausted`, a parked run), cyan on an
+action (`blocked`, `infrastructure`, a stopping run, an unanswered
+quarantine), red is `failed`, green shipped, bold running, and dim is
+settled or unknown. The one-character gutter says the same without
+colour, so the table reads under `NO_COLOR`: `!` a ruling is wanted, `>`
+an action, `~` shipped with residuals to read, `?` unclassified. The
+heading counts the runs that want a ruling and an action, a dim line under
+a stopped row names the rule that stopped it or the run that superseded
+it, and the closing line tallies the listing by ending. `--ending <word>`
+lists one ending, `--needs-operator` only the `!` and `>` rows, and
+`--hide-settled` leaves out every run that neither wants you nor is live;
+no listing hides a settled run unasked.
 
 In a world of many hearths, the same listing is grouped by realm — each
 section naming the journal it was read from, and no run crossing into
 another realm's section. In an illustrative world of two realms:
 
 ```text
-alpha · 1 run · ./a/.brokkr/state/forge.db
-many-hearths-8bf6d692 running implement seq 12 3s many hearths…
+alpha · 1 run · 0 want a ruling · 0 want an action · ./a/.brokkr/state/forge.db
+  many-hearths-8bf6d692 running implement seq 12 3s many hearths…
 
-beta · 1 run · ./b/.brokkr/state/forge.db
-the-other-slice-1a2b3c4d shipped done seq 40 9m the other sli…
+beta · 1 run · 0 want a ruling · 0 want an action · ./b/.brokkr/state/forge.db
+  the-other-slice-1a2b3c4d shipped done seq 40 9m the other sli…
+endings  1 shipped
 ```
 
 ### `brokkr analytics` — what the runs did
@@ -348,7 +367,7 @@ became.
 ```
 $ brokkr inspect --run latest
 run  prefix-selectors-for-the-read-su-…
-     shipped · phase done · seq 51
+     status completed · ending shipped · phase done · seq 51
      boundary …
 ruling  SHIP-COMPLETE  ship → done · shipped
 
@@ -607,7 +626,7 @@ these frames are what a pipe, `--once` or `--no-view` prints.
 $ brokkr watch --run latest
 ── 2026-08-29T22:27:40.474827119Z ──
 run  prefix-selectors-for-the-read-su-8bf6d692
-     shipped · phase done · seq 38
+     status completed · ending shipped · phase done · seq 38
      boundary namespace
 ruling  SHIP-COMPLETE  ship → done · shipped
 
@@ -652,10 +671,12 @@ quarantined run the operator answered with `brokkr operator acknowledge`
 lists under *older* instead, keeping its `?` and its refusal with who
 acknowledged it under them, until its journal moves (decision 0076 item
 11); `brokkr runs` prints the same line under the refusal. Each row
-is how a run stands, the ruling that settled it, its worst open
-residual, its title (its feature's first line, as wide as the frame
-lets it be), its age and its id, shortened in the middle and never
-inside its hash. A stale or quarantined run says under its title what
+is how a run stands (its ending, once it has one, coloured by what it
+waits on as `brokkr runs` colours it), the ruling that settled it, its
+worst open residual, its title (its feature's first line, as wide as the
+frame lets it be), its age and its id, shortened in the middle and never
+inside its hash; a frame too narrow for every column folds the age away,
+then the residual. A stale or quarantined run says under its title what
 to do. The list draws as many older runs as its height holds and folds
 only the rest into one line; `a` lists them all, and `/` searches every
 run by title and id. `→`, `l` or Space open a running run in place to its
@@ -666,30 +687,30 @@ keys on a narrow frame:
 ```
 ┌runs──────────────────────────────────────────────────────────────────────────┐
 │needs you                                                                     │
-│? quarantined does not fold           A journal that…   7m03s   journ…7f8e9d0c│
-│                                      quarantined:…                           │
-│● parked      UNVERIFIED-SE… high     #362 cargo…       7m03s   cargo…5b6c7d8e│
+│? quarantined         does not fold           A journal that…   journ…7f8e9d0c│
+│                                              quarantined:…                   │
+│● parked              UNVERIFIED-SE… high     #362 cargo…       cargo…5b6c7d8e│
 │running                                                                       │
-│◐ review                              #403 macOS fix,…  7m03s   fix-4…3c1f9a02│
+│◐ review                                      #403 macOS fix,…  fix-4…3c1f9a02│
 │last 24h                                                                      │
-│✓ shipped     COMPLETE       low      Landing 4 of the… 7m03s   landi…2a3b4c5d│
-│✗ stopped     FAIL-EXHAUSTED          0065 rebuild…     7m03s   0065-…8c9d0e1f│
+│✓ shipped             COMPLETE       low      Landing 4 of…     landi…2a3b4c5d│
+│✗ stopped             FAIL-EXHAUSTED          0065 rebuild…     0065-…8c9d0e1f│
 │2 older runs: press a to show                                                 │
 └──────────────────────────────────────────────────────────────────────────────┘
 runs
-Enter open run · d dashboard ≥195 · f live ≥257 · a all runs · / filter · ? help
+Enter open run · d dashboard ≥203 · f live ≥265 · a all runs · / filter · ? help
 ```
 
 The fleet opens on its first row, and a wide frame draws the selected
 run beside the list at once, in up to two more columns that share the
 whole width, each wrapping its text at its own width. The run dashboard
-(`d`, from 195 columns) holds its title, full id and how it stands; why
+(`d`, from 203 columns) holds its title, full id and how it stands; why
 it ended or what it needs (the last ruling's rule, severity and reason,
 the last seat's result and its notes' first lines, which `Enter` there
 reads whole); its path, phase by phase, with each visit's ruling, worst
 residual, duration and model; its seats; the commands that answer a run
 that needs you; and its commission, folded to three lines until `c`
-opens it. The live column (`f`, from 257 columns beside the dashboard)
+opens it. The live column (`f`, from 265 columns beside the dashboard)
 streams, newest first, the checkpoints of the seat at work on a running
 run, and shows a finished run's last review's findings, or else its last
 seat's notes, whole. `d` and `f` show or hide their columns, `Tab` moves

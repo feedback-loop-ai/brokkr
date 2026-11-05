@@ -385,11 +385,19 @@ pub(crate) fn runs(workspace: &Path, args: RunsArgs) -> Result<ExitCode> {
         limit,
         after,
         run,
+        ending,
+        needs_operator,
+        hide_settled,
     } = args;
+    let filter = fleet::Filter {
+        ending,
+        needs_operator,
+        hide_settled,
+    };
     let hearths = hearths_of(workspace, realms.clone(), db.clone())?;
     // A world with several hearths lists each one under its own
-    // realm; a world with one is byte-for-byte the listing it
-    // always was, down to opening its journal the same way.
+    // realm; a world with one is listed under the same heading, down to
+    // opening its journal the way it always has.
     if hearths.len() > 1 {
         anyhow::ensure!(
             limit.is_none() && after.is_none() && run.is_none(),
@@ -397,59 +405,60 @@ pub(crate) fn runs(workspace: &Path, args: RunsArgs) -> Result<ExitCode> {
              name one journal with --db",
             hearths.len()
         );
-        return runs_fleet(&hearths, json);
+        return runs_fleet(&hearths, (json, filter));
     }
+    let hearth = hearths
+        .into_iter()
+        .next()
+        .expect("a world resolves to at least one hearth");
+    let named = (hearth.journal.as_path(), hearth.label());
+    let style = render::Style::detect();
+    let out = &mut std::io::stdout().lock();
     if let Some(run) = run {
-        let db = hearths
-            .into_iter()
-            .next()
-            .expect("a world resolves to at least one hearth")
-            .journal;
-        return hearth_run(&db, &run, json, &mut std::io::stdout().lock());
+        hearth_run((named.0, &named.1), (&run, json), &style, out)?;
+        return Ok(Exit::Completed.into());
     }
     let called = fleet::Called {
         db: db.as_deref(),
         realms: realms.as_deref(),
     };
-    let db = hearths
-        .into_iter()
-        .next()
-        .expect("a world resolves to at least one hearth")
-        .journal;
     let asked = (json, limit, after.as_ref());
-    let style = render::Style::detect();
-    hearth_runs(&db, asked, called, &style, &mut std::io::stdout().lock())?;
+    hearth_runs((named.0, &named.1), asked, (filter, called), &style, out)?;
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr runs --run <id>`: one run's row, the same `RunRow` the paged
-/// read lists, refused by name when the id names no run. The derivation is
-/// brokkr-view's; this verb only asks its own hearth for the run.
+/// `brokkr runs --run <id>` over the journal at `db`, of realm `realm`:
+/// one run's row, the same `RunRow` the paged read lists, as JSON when
+/// asked, else under the heading that counts it and over how it ended
+/// (decision 0064 ruling 6); refused by name when the id names no run.
+/// The derivation is brokkr-view's; this verb only asks its own hearth
+/// for the run.
 pub(crate) fn hearth_run(
-    db: &Path,
-    run_id: &str,
-    json: bool,
+    (db, realm): (&Path, &str),
+    (run_id, json): (&str, bool),
+    style: &render::Style,
     out: &mut impl Write,
-) -> Result<ExitCode> {
+) -> Result<()> {
     let store = open_journal(db, Access::Read)?;
     let view = brokkr_view::RunsView::of(vec![fleet::one(&store, run_id)?]);
     if json {
         writeln!(out, "{}", serde_json::to_string_pretty(&view)?)?;
     } else {
-        let now = now_rfc3339();
-        let style = render::Style::detect();
-        out.write_all(render::runs(&view, &now, &style).as_bytes())?;
+        let journal = db.display().to_string();
+        let framed = render::framed_runs(&view, (realm, &journal), &now_rfc3339(), style);
+        out.write_all(framed.as_bytes())?;
     }
-    Ok(Exit::Completed.into())
+    Ok(())
 }
 
-/// `brokkr runs` over one hearth's journal at `db`, written to `out`: every
-/// run, or the page `limit` and `after` ask for, as JSON when asked, its
-/// next page's command `called` as this one was.
+/// `brokkr runs` over one hearth's journal at `db`, of realm `realm`,
+/// written to `out`: every run `filter` keeps, or the page of them `limit`
+/// and `after` ask for, as JSON when asked, its next page's command
+/// `called` as this one was.
 pub(crate) fn hearth_runs(
-    db: &Path,
+    (db, realm): (&Path, &str),
     (json, limit, after): (bool, Option<u32>, Option<&brokkr_view::Cursor>),
-    called: fleet::Called<'_>,
+    (filter, called): (fleet::Filter, fleet::Called<'_>),
     style: &render::Style,
     out: &mut impl std::io::Write,
 ) -> Result<()> {
@@ -466,13 +475,21 @@ pub(crate) fn hearth_runs(
     // of it one read of the journal (ruling 6).
     let now = now_rfc3339();
     let every = limit.is_none() && after.is_none();
+    let journal = db.display().to_string();
     fleet::list_hearth(&store, (before, &now), every, |listing| {
+        let listing = listing.filtered(filter);
         match (limit, after) {
             (None, None) if json => listing.every_json(out),
-            (None, None) => listing.every_text(out, style),
+            (None, None) => listing.every_text(out, (realm, &journal), style),
             (limit, after) => {
                 let limit = limit.map_or(fleet::PAGE_ROWS, |limit| limit as usize);
-                listing.one(out, (after, limit), json, called, style)
+                listing.one(
+                    out,
+                    (after, limit),
+                    json,
+                    (called, (realm, &journal)),
+                    style,
+                )
             }
         }
     })
@@ -480,10 +497,15 @@ pub(crate) fn hearth_runs(
 
 /// `brokkr runs` over several hearths: each journal's runs under its
 /// realm, a hearth at a time and each a page at a time (decision 0089).
-fn runs_fleet(hearths: &[Hearth], json: bool) -> Result<ExitCode> {
+fn runs_fleet(hearths: &[Hearth], asked: (bool, fleet::Filter)) -> Result<ExitCode> {
     let style = render::Style::detect();
     let now = now_rfc3339();
-    fleet::list_world(hearths, json, (&now, &style), &mut std::io::stdout().lock())?;
+    fleet::list_world(
+        hearths,
+        asked,
+        (&now, &style),
+        &mut std::io::stdout().lock(),
+    )?;
     Ok(Exit::Completed.into())
 }
 

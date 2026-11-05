@@ -27,6 +27,7 @@ use super::tests::{
     lines_of, panel_views, read_of, refused_read, state_of, turns_of, views, NOW, T0,
 };
 use super::*;
+use brokkr_core::ending::Ending;
 use brokkr_core::fold::Status;
 use brokkr_view::transcript::Unavailable;
 use ratatui::buffer::Buffer;
@@ -101,7 +102,7 @@ fn fleet_of_every_status() -> Views {
             state: Some(state),
             detail: None,
             residuals: &[],
-            closing: None,
+            closing: brokkr_core::ending::closing(&[], state),
         })
         .collect();
     let mut views = Views::empty();
@@ -376,9 +377,11 @@ fn style_of(buffer: &Buffer, run: &str, text: &str) -> Style {
 }
 
 /// The text snapshots drop colour, so the colour each status row wears
-/// is asserted on its cells: green for done, red only for stopped, bold
-/// while it works and dim while it waits on the operator. Since #491 the
-/// cell reads the run's standing, or its phase while it runs.
+/// is asserted on its cells: by what it waits on (decision 0064 ruling
+/// 6), bold while it works, yellow while it waits on a ruling, green once
+/// shipped and dim for a stop nothing classified. Since #491 the cell
+/// reads the run's standing, its ending once it has one, or its phase
+/// while it runs.
 #[test]
 fn each_status_row_wears_its_own_colour() {
     let views = fleet_of_every_status();
@@ -386,9 +389,9 @@ fn each_status_row_wears_its_own_colour() {
         let terminal = drawn(&Tui::new(None), &views, width, height);
         let cases = [
             ("run-running", "design", Color::Reset, Modifier::BOLD),
-            ("run-parked", "parked", Color::Reset, Modifier::DIM),
+            ("run-parked", "parked", Color::Yellow, Modifier::empty()),
             ("run-completed", "shipped", Color::Green, Modifier::empty()),
-            ("run-stopped", "stopped", Color::Red, Modifier::empty()),
+            ("run-stopped", "unclassified", Color::Reset, Modifier::DIM),
         ];
         for (run, status, fg, modifier) in cases {
             let style = style_of(terminal.backend().buffer(), run, status);
@@ -398,6 +401,74 @@ fn each_status_row_wears_its_own_colour() {
                 "{run} at {width}x{height}"
             );
         }
+    }
+}
+
+/// Every ending's chip, and a parked, stopping, quarantined, running and
+/// cooling-down run's, in the same six tone classes `brokkr runs` writes:
+/// the word whole in its column, its cell coloured by what it waits on.
+#[test]
+fn every_chip_wears_its_tone_class_and_its_whole_word() {
+    let widest = Ending::ALL
+        .map(|ending| ending.word().chars().count())
+        .into_iter()
+        .max();
+    assert_eq!(
+        widest.map(|word| word + 2),
+        Some(usize::from(FLEET_COLUMNS[0]))
+    );
+    let mut views = Views::empty();
+    views.now = NOW.to_string();
+    views.runs = brokkr_view::RunsView::of(crate::render::ending::tests::every_row());
+    let mut tui = Tui::new(None);
+    tui.all = true;
+    let terminal = drawn(&tui, &views, 160, 48);
+    let lines = lines_of(terminal.backend().buffer());
+    let (green, yellow, cyan, red) = (Color::Green, Color::Yellow, Color::Cyan, Color::Red);
+    let (dim, bold) = (Modifier::DIM, Modifier::BOLD);
+    let none = Modifier::empty();
+    let cases = [
+        ("run-shipped", "✓ shipped", green, none),
+        ("run-shipped-flagged", "✓ shipped-flagged", green, none),
+        ("run-refused", "✗ refused", yellow, none),
+        ("run-failed", "✗ failed", red, none),
+        ("run-blocked", "✗ blocked", cyan, none),
+        ("run-exhausted", "■ exhausted", yellow, none),
+        ("run-superseded", "■ superseded", Color::Reset, dim),
+        ("run-infrastructure", "■ infrastructure", cyan, none),
+        (
+            "run-delivered-elsewhere",
+            "■ delivered-elsewhere",
+            Color::Reset,
+            dim,
+        ),
+        ("run-withdrawn", "■ withdrawn", Color::Reset, dim),
+        (
+            "run-operator-stopped",
+            "■ operator-stopped",
+            Color::Reset,
+            dim,
+        ),
+        ("run-unclassified", "■ unclassified", Color::Reset, dim),
+        ("run-parked", "● parked", yellow, none),
+        ("run-stopping", "◼ stopping", cyan, none),
+        ("run-quarantined", "? quarantined", cyan, none),
+        ("run-running", "◐ —", Color::Reset, bold),
+        ("run-cooling", "◐ —", Color::Reset, bold),
+    ];
+    for (run, chip, fg, modifier) in cases {
+        let row = row_naming(&lines, &short_id(run));
+        assert!(
+            lines[row].starts_with(&format!("│{chip} ")),
+            "{}",
+            lines[row]
+        );
+        let style = terminal.backend().buffer()[(1, u16::try_from(row).unwrap())].style();
+        assert_eq!(
+            (style.fg, style.add_modifier),
+            (Some(fg), modifier),
+            "{run}"
+        );
     }
 }
 

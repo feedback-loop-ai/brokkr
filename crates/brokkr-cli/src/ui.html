@@ -8,6 +8,7 @@
     --void: #12101a; --panel: #1a1726; --line: #2c2840;
     --text: #e8e6f0; --dim: #8b87a0;
     --violet: #7c5cff; --phosphor: #45e08c; --park: #f0b15a; --halt: #ff6b5e;
+    --act: #5ccfe6;
   }
   body { font: 14px/1.5 'JetBrains Mono', ui-monospace, monospace; margin: 0;
          display: flex; flex-direction: column; height: 100vh;
@@ -48,6 +49,14 @@
   .run .dot.awaiting_operator { background: var(--park); }
   .run .dot.stopping { background: var(--park); }
   .run .dot.running { background: var(--violet); }
+  .run .dot.tone-green { background: var(--phosphor); }
+  .run .dot.tone-yellow { background: var(--park); }
+  .run .dot.tone-cyan { background: var(--act); }
+  .run .dot.tone-red { background: var(--halt); }
+  .run .dot.tone-bold { background: var(--violet); }
+  /* The fleet's groups (decision 0064 ruling 6): wants you, live, settled. */
+  .group { color: var(--dim); font-size: .8em; letter-spacing: .06em;
+           text-transform: uppercase; margin: .6rem .2rem .3rem; }
   .badge { display: inline-block; padding: 0 .5em; border-radius: 999px;
            border: 1px solid var(--line); font-size: .85em; color: var(--dim); }
   .completed { color: var(--phosphor); border-color: rgba(69,224,140,.45);
@@ -58,6 +67,18 @@
                        background: rgba(240,177,90,.10); }
   .running { color: var(--violet); border-color: rgba(124,92,255,.45);
              background: rgba(124,92,255,.10); }
+  /* Decision 0064 ruling 6's six tone classes: what a run waits on, never
+     whether it was good. */
+  .tone-green { color: var(--phosphor); border-color: rgba(69,224,140,.45);
+                background: rgba(69,224,140,.10); }
+  .tone-yellow { color: var(--park); border-color: rgba(240,177,90,.45);
+                 background: rgba(240,177,90,.10); }
+  .tone-cyan { color: var(--act); border-color: rgba(92,207,230,.45);
+               background: rgba(92,207,230,.10); }
+  .tone-red { color: var(--halt); border-color: rgba(255,107,94,.45);
+              background: rgba(255,107,94,.10); }
+  .tone-dim { color: var(--dim); }
+  .tone-bold { color: var(--text); font-weight: 700; border-color: rgba(124,92,255,.45); }
   /* Tables live in .tbl scroll containers: a wide table scrolls inside
      its own box instead of clipping invisibly on narrow screens. */
   .tbl { overflow-x: auto; margin-top: .8rem; }
@@ -242,7 +263,33 @@ const KNOWN_STATUS = ['completed', 'stopped', 'awaiting_operator', 'running'];
 // The two fixed class allowlists. A model carries a closed-set key; the
 // page looks it up here before anything touches className.
 const BADGE_CLASS = { '': '', running: 'running', completed: 'completed',
-                      stopped: 'stopped', awaiting_operator: 'awaiting_operator' };
+                      stopped: 'stopped', awaiting_operator: 'awaiting_operator',
+                      green: 'tone-green', yellow: 'tone-yellow', cyan: 'tone-cyan',
+                      red: 'tone-red', dim: 'tone-dim', bold: 'tone-bold' };
+
+/* run-tone:start */
+// Decision 0064 ruling 6: a run is painted by what it waits on, never by
+// whether it was good. An ended run wears its ending's tone class, from the
+// table `brokkr ui` writes here out of brokkr-core's `Ending::tone` as it
+// serves the page; a run with no ending wears what it wants, and a live run
+// is bold. The keys are the model's closed words; anything else is dim.
+const ENDING_TONE = /* ending-tone */{};
+const WANTS_TONE = { ruling: 'yellow', action: 'cyan' };
+function toneOf(model) {
+  const lookup = (table, key) => (Object.hasOwn(table, key) ? table[key] : 'dim');
+  if (model.ending) return lookup(ENDING_TONE, model.ending);
+  if (model.wants) return lookup(WANTS_TONE, model.wants);
+  const standing = model.verdict ? model.verdict.standing : model.standing;
+  return standing === 'running' ? 'bold' : 'dim';
+}
+// The fleet's three groups, in the order the list draws them: the runs
+// that want the operator, the live ones, and every other, settled.
+const GROUPS = ['wants you', 'live', 'settled'];
+function groupOf(model) {
+  if (model.wants) return GROUPS[0];
+  return toneOf(model) === 'bold' ? GROUPS[1] : GROUPS[2];
+}
+/* run-tone:end */
 const NODE_CLASS = { 'on-phosphor': 'on-phosphor', 'in-active': 'in-active',
                      'on-halt': 'on-halt', 'on-park': 'on-park' };
 
@@ -370,36 +417,46 @@ async function loadRuns() {
   setForging(runs.some((run) => runWord(run) === 'running'));
   const list = document.getElementById('runlist');
   list.replaceChildren();
-  for (const run of runs) {
-    // A run is selected once — unselected rows collapse to one line
-    // (status dot + id, details in the tooltip); only the active run
-    // expands to its full card.
-    const isActive = run.run_id === active;
-    const word = runWord(run);
-    const item = el('div', 'run' + (isActive ? ' active' : ' row'));
-    if (isActive) {
-      item.appendChild(el('div', 'id', run.run_id));
-      item.appendChild(badge(word, word));
-      item.appendChild(document.createTextNode(' '));
-      item.appendChild(badge(run.phase ?? '-', ''));
-      item.appendChild(document.createTextNode(' '));
-      item.appendChild(badge('seq ' + (run.seq ?? 0), ''));
-    } else {
-      const dot = el('span', 'dot' + (run.status_known ? ' ' + word : ''));
-      item.appendChild(dot);
-      const idEl = el('span', 'id line', run.run_id);
-      item.appendChild(idEl);
-      item.title = run.run_id + '\n' + word +
-        ' · phase ' + (run.phase ?? '-') + ' · seq ' + (run.seq ?? 0);
-    }
-    item.onclick = (ev) => {
-      // Don't bubble into the pane's expand-on-click handler — the
-      // selection itself is what collapses the pane.
-      ev.stopPropagation();
-      select(run.run_id);
-    };
-    list.appendChild(item);
+  // Grouped as decision 0064 ruling 6 rules, each group keeping the
+  // listing's own order; a group with no run draws no heading.
+  for (const group of GROUPS) {
+    const members = runs.filter((run) => groupOf(run) === group);
+    if (members.length > 0) list.appendChild(el('div', 'group', group));
+    for (const run of members) list.appendChild(runItem(run));
   }
+}
+
+// One run of the list, its word a chip in its tone class.
+function runItem(run) {
+  // A run is selected once — unselected rows collapse to one line
+  // (status dot + id, details in the tooltip); only the active run
+  // expands to its full card.
+  const isActive = run.run_id === active;
+  const word = runWord(run);
+  const tone = toneOf(run);
+  const item = el('div', 'run' + (isActive ? ' active' : ' row'));
+  if (isActive) {
+    item.appendChild(el('div', 'id', run.run_id));
+    item.appendChild(badge(word, tone));
+    item.appendChild(document.createTextNode(' '));
+    item.appendChild(badge(run.phase ?? '-', ''));
+    item.appendChild(document.createTextNode(' '));
+    item.appendChild(badge('seq ' + (run.seq ?? 0), ''));
+  } else {
+    const dot = el('span', 'dot ' + BADGE_CLASS[tone]);
+    item.appendChild(dot);
+    const idEl = el('span', 'id line', run.run_id);
+    item.appendChild(idEl);
+    item.title = run.run_id + '\n' + word +
+      ' · phase ' + (run.phase ?? '-') + ' · seq ' + (run.seq ?? 0);
+  }
+  item.onclick = (ev) => {
+    // Don't bubble into the pane's expand-on-click handler — the
+    // selection itself is what collapses the pane.
+    ev.stopPropagation();
+    select(run.run_id);
+  };
+  return item;
 }
 /* run-list:end */
 
@@ -1242,7 +1299,7 @@ function renderDetail(id, view) {
   detail.appendChild(el('h1', null, s.run_id ?? id));
   const line = el('p');
   const word = runWord(s);
-  line.appendChild(badge(word, word));
+  line.appendChild(badge(word, toneOf(s)));
   line.appendChild(document.createTextNode(' '));
   line.appendChild(badge('phase ' + (s.phase ?? '-'), ''));
   // The run header's boundary (decision 0046 ruling 3): the model's

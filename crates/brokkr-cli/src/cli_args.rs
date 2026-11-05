@@ -571,8 +571,18 @@ pub(super) struct RunsArgs {
     pub(super) after: Option<brokkr_view::Cursor>,
     /// Print one run's row: the same row this listing gives it, and no
     /// other. Refused by name when the id names no run.
-    #[arg(long, value_name = "RUN", conflicts_with_all = ["limit", "after"])]
+    #[arg(long, value_name = "RUN", conflicts_with_all = ["limit", "after", "ending",
+        "needs_operator", "hide_settled"])]
     pub(super) run: Option<String>,
+    /// List only the runs that ended so: one of the twelve endings.
+    #[arg(long, value_name = "ENDING", value_parser = brokkr_core::ending::Ending::named)]
+    pub(super) ending: Option<brokkr_core::ending::Ending>,
+    /// List only the runs that want the operator: a ruling (`!`) or an action (`>`).
+    #[arg(long)]
+    pub(super) needs_operator: bool,
+    /// Leave out the settled runs: every run that neither wants the operator nor is live.
+    #[arg(long)]
+    pub(super) hide_settled: bool,
 }
 
 #[derive(clap::Args)]

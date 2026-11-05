@@ -99,13 +99,14 @@ const PAGE: usize = 10;
 pub(crate) const DISPLAY_RANK: usize = u16::MAX as usize;
 
 /// The fleet list's columns, left to right (#491): how the run stands (a
-/// glyph and its widest word, `quarantined`), its verdict, its residual
+/// glyph and its widest word, the ending `delivered-elsewhere`, decision
+/// 0064 ruling 6), its verdict, its residual
 /// (the widest, `critical`), its title, its age (`999h59m`) and its id.
 /// The title may take what the frame leaves and takes no more than its
 /// widest line (#503), and a list too narrow for the rest folds the age
 /// and then the residual away (`fleet_widths`).
 const FLEET_COLUMNS: [u16; 6] = [
-    13,
+    21,
     brokkr_view::VERDICT_COLUMNS as u16,
     8,
     brokkr_view::TITLE_COLUMNS as u16,

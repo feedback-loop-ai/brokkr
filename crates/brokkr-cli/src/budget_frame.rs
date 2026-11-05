@@ -171,7 +171,8 @@ pub fn fleet_world_listing_for_budget(
         color: false,
         width: 80,
     };
-    crate::fleet::list_world(&hearths, true, (now, &style), out)
+    let every = crate::fleet::Filter::default();
+    crate::fleet::list_world(&hearths, (true, every), (now, &style), out)
 }
 
 /// The console's first fleet page painted at `width`×`height` by its own
