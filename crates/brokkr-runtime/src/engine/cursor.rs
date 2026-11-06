@@ -186,8 +186,9 @@ impl Engine {
         Ok(())
     }
 
-    /// The cap's sentence for an episode past the declared maximum, or why
-    /// the episode cannot be read.
+    /// The cap's sentence for the declared maximum: the episode past it, the
+    /// declaration when the wait is still within it, or why the episode
+    /// cannot be read.
     fn cap_maximum(
         &self,
         events: &[EventEnvelope],
@@ -195,9 +196,10 @@ impl Engine {
         wait: &ProviderWait,
     ) -> String {
         match self.wait_maximum(events, effect_id, wait) {
-            Ok(Some((total, max))) => {
+            Ok(Some((total, max, true))) => {
                 format!("; the episode {total}s is past the declared {max}s maximum")
             }
+            Ok(Some((_, max, false))) => format!("; the declared {max}s maximum"),
             Ok(None) => String::new(),
             Err(detail) => format!("; {detail}"),
         }
@@ -291,9 +293,10 @@ fn cap_refusal_facts(refused: &ProviderRefusal, wait: Option<&ProviderWait>) -> 
 }
 
 /// The cap's facts from the wait entry alone, for a journal whose terminal
-/// event carries no `refused` record.
+/// event carries no `refused` record: its provider, route, `until`, words
+/// and the retry-after it recorded.
 fn cap_wait_facts(wait: &ProviderWait) -> String {
-    format!(
+    let mut facts = format!(
         "; the last refusal waits for {}/{} until {}: {}",
         wait.provider,
         wait.route,
@@ -301,7 +304,11 @@ fn cap_wait_facts(wait: &ProviderWait) -> String {
             .format(&Rfc3339)
             .expect("an RFC 3339 time formats as RFC 3339"),
         wait.words
-    )
+    );
+    if let Some(retry) = wait.retry_after_seconds {
+        facts.push_str(&format!("; the provider gave retry-after {retry}s"));
+    }
+    facts
 }
 
 /// The error the effect's last `EffectFailed` recorded, read from the

@@ -380,14 +380,12 @@ impl Engine {
         else {
             return Ok(Terminal::Plain(payload));
         };
+        let events = self.store.load(&self.run_id)?;
         let (provider, route) = (refusal.provider(), refusal.route());
         let Some(route) = route else {
             let refused = refusal_record(RefusalCause::RouteUnresolved, refusal, None, None, None);
             record_refusal(&mut payload, &refused);
-            return Ok(Terminal::Park {
-                payload,
-                reason: refusal_text(&refused, None),
-            });
+            return Ok(self.refusal_terminal(&events, effect_id, payload, refused, None));
         };
         let bounds = match self.cooldown_bounds(provider, route) {
             Ok(Some(bounds)) => bounds,
@@ -408,13 +406,9 @@ impl Engine {
                     None,
                 );
                 record_refusal(&mut payload, &refused);
-                return Ok(Terminal::Park {
-                    payload,
-                    reason: refusal_text(&refused, None),
-                });
+                return Ok(self.refusal_terminal(&events, effect_id, payload, refused, None));
             }
         };
-        let events = self.store.load(&self.run_id)?;
         Ok(self.recorded_terminal(&events, effect_id, payload, route, refusal, bounds))
     }
 
@@ -443,10 +437,7 @@ impl Engine {
                     None,
                 );
                 record_refusal(&mut payload, &refused);
-                return Terminal::Park {
-                    payload,
-                    reason: refusal_text(&refused, None),
-                };
+                return self.refusal_terminal(events, effect_id, payload, refused, None);
             }
         };
         let rounds = prior_rounds.saturating_add(1);
@@ -482,7 +473,6 @@ impl Engine {
         // only on the `run/parked` after it: a crash between the two appends
         // must not turn the refusal into today's 0006 retry. A wait with no
         // `until` is exactly such a park, so it writes no `waits` entry.
-        let cap = self.at_attempt_cap(events, effect_id);
         if past || wait.is_none() {
             let (cause, episode) = match wait.is_some() {
                 true => (RefusalCause::PastMaximum, Some(total)),
@@ -490,18 +480,30 @@ impl Engine {
             };
             let refused = refusal_record(cause, refusal, Some(route), Some(seconds), Some(max));
             record_refusal(&mut payload, &refused);
-            // At the cap the cursor's 0006 branch writes the one park, with
-            // the record's facts beside it; the episode's maximum park
-            // applies only below the cap (decision 0103 ruling 7(c)).
-            return match cap {
-                true => Terminal::Plain(payload),
-                false => Terminal::Park {
-                    payload,
-                    reason: refusal_text(&refused, episode),
-                },
-            };
+            return self.refusal_terminal(events, effect_id, payload, refused, episode);
         }
         Terminal::Plain(payload)
+    }
+
+    /// The terminal a refusal that would park writes. At the cap the failed
+    /// event alone is journaled, so the cursor's 0006 branch writes the one
+    /// park with the record's facts beside it (decision 0103 ruling 7(c));
+    /// below the cap the record's own text is the park.
+    fn refusal_terminal(
+        &self,
+        events: &[EventEnvelope],
+        effect_id: &str,
+        payload: Value,
+        refused: ProviderRefusal,
+        episode: Option<u64>,
+    ) -> Terminal {
+        if self.at_attempt_cap(events, effect_id) {
+            return Terminal::Plain(payload);
+        }
+        Terminal::Park {
+            payload,
+            reason: refusal_text(&refused, episode),
+        }
     }
 
     /// Does this failure bring `effect_id` to its seat's attempt cap?
@@ -522,21 +524,23 @@ impl Engine {
         failed.saturating_add(1) >= max
     }
 
-    /// The episode through `wait`, and the maximum it passed, or why an
-    /// earlier wait does not read. The cap's reason and the resume path
-    /// share this one reading of the record.
+    /// The episode through `wait`, the declared maximum, and whether the
+    /// wait or the episode passed it, or why an earlier wait does not read.
+    /// The cap's reason and the resume path share this one reading of the
+    /// record; the maximum is reported whether or not it was passed, so the
+    /// cap can always name it.
     pub(super) fn wait_maximum(
         &self,
         events: &[EventEnvelope],
         effect_id: &str,
         wait: &ProviderWait,
-    ) -> Result<Option<(u64, u64)>, CooldownError> {
+    ) -> Result<Option<(u64, u64, bool)>, CooldownError> {
         let (_, total) = episode(events, effect_id)?;
         let Some(bounds) = self.cooldown_bounds(&wait.provider, &wait.route)? else {
             return Ok(None);
         };
         let max = u64::from(bounds.max_seconds.get());
-        Ok(past_maximum(wait.seconds, total, max).then_some((total, max)))
+        Ok(Some((total, max, past_maximum(wait.seconds, total, max))))
     }
 
     /// Wait the recorded remainder in bounded slices, honouring an operator

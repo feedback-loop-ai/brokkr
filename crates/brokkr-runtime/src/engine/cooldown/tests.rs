@@ -69,6 +69,13 @@ fn host(dir: &Path, default: u64, max: u64) -> PathBuf {
     )
 }
 
+/// Point `engine` at a host file that is present but is not JSON.
+fn invalid_host(dir: &Path, engine: &mut Engine) {
+    let invalid = dir.join("invalid.json");
+    std::fs::write(&invalid, "not json").unwrap();
+    engine.cooldown.host = Some(invalid);
+}
+
 /// A v2 host file whose bounds differ per route: the block's default 1
 /// and maximum 25, claude/first defaults to 10s, codex/second must not pass
 /// 5s (decision 0103 ruling 3: each wait keeps the length its own route
@@ -899,19 +906,18 @@ fn a_rate_limit_with(
     serde_json::from_value(value).unwrap()
 }
 
-/// The journal a crashed cool-down terminal leaves: the requested effect,
-/// its started attempt and the failed payload the engine's own terminal
-/// path produced, with no `run/parked` after it. `earlier` plants a prior
-/// failed event, for the episode-unreadable cause.
-fn crash_before_park(
+/// The engine's own terminal decision, still in the process that made it.
+/// `earlier` plants a prior failed event, for the episode-unreadable cause;
+/// the caller decides whether its park is journaled.
+fn terminal_event(
     dir: &Path,
     attempts: u64,
     host: Option<PathBuf>,
     refusal: &brokkr_protocol::PreSessionRefusal,
     earlier: Option<Value>,
-) -> (Engine, Arc<Mutex<OffsetDateTime>>) {
+) -> (Engine, crate::bundle::Bundle, super::Terminal) {
     let (mut engine, compiled) = engine_for(dir, attempts);
-    engine.cooldown.host = host.clone();
+    engine.cooldown.host = host;
     request_effect(&mut engine);
     if let Some(earlier) = earlier {
         engine
@@ -941,19 +947,54 @@ fn crash_before_park(
             Some(refusal),
         )
         .unwrap();
-    let payload = match terminal {
-        super::Terminal::Plain(payload) | super::Terminal::Park { payload, .. } => payload,
-    };
-    engine
-        .append(EventType::EffectFailed, payload, Some("a1".to_string()))
-        .unwrap();
-    let run_id = engine.run_id.clone();
-    drop(engine);
-    let mut resumed = resume_engine(dir, compiled, &run_id);
-    resumed.cooldown.host = host;
-    let (clock, now) = Clock::advancing(base() + time::Duration::seconds(2));
-    resumed.cooldown.clock = clock;
-    (resumed, now)
+    (engine, compiled, terminal)
+}
+
+/// Which half of a rate-limit terminal a journal stands in: the live
+/// process, which journals the park its terminal decided, or a crash that
+/// left only the failed event and is resumed after it.
+#[derive(Clone, Copy)]
+enum TerminalMode {
+    Live,
+    Crashed,
+}
+
+/// The journal a terminal leaves in either half. A live journal is written
+/// exactly as the engine writes it; a crashed one keeps only the failed
+/// payload and is resumed again after the crash.
+fn terminal_case(
+    dir: &Path,
+    attempts: u64,
+    host: Option<PathBuf>,
+    refusal: &brokkr_protocol::PreSessionRefusal,
+    earlier: Option<Value>,
+    mode: TerminalMode,
+) -> (Engine, Arc<Mutex<OffsetDateTime>>) {
+    let (mut engine, compiled, terminal) =
+        terminal_event(dir, attempts, host.clone(), refusal, earlier);
+    match mode {
+        TerminalMode::Live => {
+            terminal.journal(&mut engine, "a1").unwrap();
+            let (clock, now) = Clock::advancing(base());
+            engine.cooldown.clock = clock;
+            (engine, now)
+        }
+        TerminalMode::Crashed => {
+            let payload = match terminal {
+                super::Terminal::Plain(payload) | super::Terminal::Park { payload, .. } => payload,
+            };
+            engine
+                .append(EventType::EffectFailed, payload, Some("a1".to_string()))
+                .unwrap();
+            let run_id = engine.run_id.clone();
+            drop(engine);
+            let mut resumed = resume_engine(dir, compiled, &run_id);
+            resumed.cooldown.host = host;
+            let (clock, now) = Clock::advancing(base() + time::Duration::seconds(2));
+            resumed.cooldown.clock = clock;
+            (resumed, now)
+        }
+    }
 }
 
 /// Drive a crash-before-the-park journal and require the resume to park on
@@ -967,7 +1008,8 @@ fn assert_crash_parks(
     expected: &[&str],
 ) {
     let expected_starts = 1 + usize::from(earlier.is_some());
-    let (mut engine, _now) = crash_before_park(dir, attempts, host, refusal, earlier);
+    let (mut engine, _now) =
+        terminal_case(dir, attempts, host, refusal, earlier, TerminalMode::Crashed);
     engine.drive().unwrap();
     assert!(
         logs(dir, "work").is_empty(),
@@ -1026,7 +1068,8 @@ fn a_crash_before_a_route_unresolved_park_resumes_the_refusal() {
 fn a_cap_after_a_crash_keeps_a_route_unresolved_refusal() {
     let dir = tempfile::tempdir().unwrap();
     let refusal = a_rate_limit_with(None, Some(7));
-    let (mut engine, _now) = crash_before_park(dir.path(), 1, None, &refusal, None);
+    let (mut engine, _now) =
+        terminal_case(dir.path(), 1, None, &refusal, None, TerminalMode::Crashed);
     drove(&mut engine, dir.path(), &[]);
     assert_eq!(starts(&engine).len(), 1);
     let reason = park_reason(&engine);
@@ -1266,9 +1309,7 @@ fn an_episode_sums_each_routes_recorded_length() {
 #[test]
 fn a_resume_parks_when_the_host_file_is_invalid() {
     let (dir, mut engine, _now) = resumed(&["succeed"], base() + time::Duration::seconds(1), 1);
-    let invalid = dir.path().join("invalid.json");
-    std::fs::write(&invalid, "not json").unwrap();
-    engine.cooldown.host = Some(invalid);
+    invalid_host(dir.path(), &mut engine);
     engine.drive().unwrap();
     assert!(logs(dir.path(), "work").is_empty());
     let reason = park_reason(&engine);
@@ -1589,7 +1630,7 @@ fn a_resume_refuses_an_unreadable_earlier_wait() {
 /// writes the failed event it was called with.
 #[test]
 fn a_terminal_refuses_an_unreadable_earlier_wait() {
-    let (_dir, mut engine) = two_terminal_engine(3);
+    let (_dir, mut engine) = two_terminal_engine(4);
     match terminal(&mut engine, None) {
         super::Terminal::Park { reason, .. } => {
             assert!(
@@ -1767,6 +1808,7 @@ fn a_probe_that_does_not_spawn_parks() {
 fn an_unresolved_route_or_an_invalid_host_parks_before_any_wait() {
     let dir = tempfile::tempdir().unwrap();
     let mut engine = started(dir.path(), single_body(vec!["unused".into()]), work(2));
+    request_effect(&mut engine);
     let refusal = |route: Value| -> brokkr_protocol::PreSessionRefusal {
         serde_json::from_value(json!({
             "class": "rate_limit", "provider": "claude", "route": route, "words": "rate_limit"
@@ -1900,3 +1942,5 @@ fn a_cooldown_error_names_an_unreadable_refusal() {
         "the failed event's refusal does not read: event 6: the refused record does not read: cause"
     );
 }
+
+mod refusal_cap;
