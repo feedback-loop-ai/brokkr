@@ -30,8 +30,8 @@ pub(super) fn typed(columns: &[(&str, &str)]) -> String {
 
 /// The columns an event moves when it is the run's new head, `event`
 /// naming its row: the head, the whole stamp until the bounding trigger
-/// cuts it, the stamp's millisecond reading where SQLite reads one, and an
-/// acknowledgement that no longer stands.
+/// cuts it, the stamp's millisecond reading where the fold reads one, and
+/// an acknowledgement that no longer stands.
 pub(super) fn moved_to(event: &str) -> String {
     let stamp = stamp_of(&format!("{event}.envelope"));
     format!(
@@ -43,23 +43,73 @@ pub(super) fn moved_to(event: &str) -> String {
     )
 }
 
+/// The journal stamp's shapes [`brokkr_core::stamp::parse_millis`] reads,
+/// `stamp` naming the guarded `recorded_at` expression:
+/// `YYYY-MM-DDTHH:MM:SS`, an optional `.` and digits, then `Z` or
+/// `±HH:MM`. SQLite alone would also read a space separator, a missing
+/// zone or text past the time, so the whole shape is checked here before
+/// any date function sees it (decision 0071 ruling 3).
+fn accepted(stamp: &str) -> String {
+    format!(
+        "length({stamp}) >= 20
+         AND substr({stamp}, 1, 19) GLOB
+             '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]'
+         AND (
+             (substr({stamp}, -1, 1) = 'Z'
+              AND (length({stamp}) = 20
+                   OR (substr({stamp}, 20, 1) = '.'
+                       AND substr({stamp}, 21, length({stamp}) - 21)
+                           NOT GLOB '*[^0-9]*')))
+             OR (length({stamp}) >= 25
+                 AND substr({stamp}, -6, 1) IN ('+', '-')
+                 AND substr({stamp}, -5, 2) GLOB '[0-9][0-9]'
+                 AND substr({stamp}, -3, 1) = ':'
+                 AND substr({stamp}, -2, 2) GLOB '[0-9][0-9]'
+                 AND (length({stamp}) = 25
+                      OR (substr({stamp}, 20, 1) = '.'
+                          AND substr({stamp}, 21, length({stamp}) - 26)
+                              NOT GLOB '*[^0-9]*')))
+         )"
+    )
+}
+
+/// The stamp's zone offset in milliseconds, `stamp` already accepted:
+/// `Z` is zero, and `±HH:MM` moves the UTC the date functions read by
+/// the offset, as [`brokkr_core::stamp::parse_millis`] moves it.
+fn zone_offset(stamp: &str) -> String {
+    format!(
+        "(CASE WHEN substr({stamp}, -1, 1) = 'Z' THEN 0
+              WHEN substr({stamp}, -6, 1) = '+'
+              THEN -(CAST(substr({stamp}, -5, 2) AS INTEGER) * 3600
+                     + CAST(substr({stamp}, -2, 2) AS INTEGER) * 60)
+              ELSE CAST(substr({stamp}, -5, 2) AS INTEGER) * 3600
+                   + CAST(substr({stamp}, -2, 2) AS INTEGER) * 60
+         END) * 1000"
+    )
+}
+
 /// The stamp in milliseconds since the epoch, `stamp` naming the guarded
-/// `recorded_at` expression: SQLite's own date functions read the journal's
-/// `YYYY-MM-DDTHH:MM:SS[.fff…]Z` shape, its first three fractional digits
-/// cut rather than rounded as [`brokkr_core::stamp::parse_millis`] cuts
-/// them, and `NULL` where SQLite cannot read the date. The trigger reads
-/// no application function, so an older engine's appends keep the row's
-/// own last activity too (decision 0089 rulings 5 and 6). A shape SQLite
-/// reads and the fold does not (a zone offset, say) takes the trigger's
-/// reading; the fold's value stays authoritative where the row is folded.
+/// `recorded_at` expression, cut as [`brokkr_core::stamp::parse_millis`]
+/// cuts it: the first three fractional digits, not rounded, and a zone
+/// offset applied, not stripped. The shape is checked whole, so a stamp
+/// the fold refuses (a space separator, a missing zone, text past the
+/// zone) reads `NULL`; an impossible date SQLite refuses reads `NULL`
+/// too. The trigger reads no application function, so an older engine's
+/// appends keep the row's own last activity too (decision 0089 rulings
+/// 5 and 6).
 fn millis_of(stamp: &str) -> String {
     format!(
-        "CAST(strftime('%s', substr({stamp}, 1, 19) || 'Z') AS INTEGER) * 1000
-         + CASE WHEN substr({stamp}, 20, 1) = '.'
-             THEN CAST(substr({stamp}, 21, 1) AS INTEGER) * 100
-                + CAST(substr({stamp}, 22, 1) AS INTEGER) * 10
-                + CAST(substr({stamp}, 23, 1) AS INTEGER)
-             ELSE 0 END"
+        "CASE WHEN {accepted} THEN
+             CAST(strftime('%s', substr({stamp}, 1, 19) || 'Z') AS INTEGER) * 1000
+             + CASE WHEN substr({stamp}, 20, 1) = '.'
+                 THEN CAST(substr({stamp}, 21, 1) AS INTEGER) * 100
+                    + CAST(substr({stamp}, 22, 1) AS INTEGER) * 10
+                    + CAST(substr({stamp}, 23, 1) AS INTEGER)
+                 ELSE 0 END
+             + {offset}
+         END",
+        accepted = accepted(stamp),
+        offset = zone_offset(stamp)
     )
 }
 
