@@ -901,15 +901,33 @@ fn member_shape(n: u64) -> [i64; 5] {
 }
 
 /// 994o2's shape: the target's two checkpoints with N result-only records
-/// of another member between them, on the target's attempt or another.
+/// of another member between them, on the target's attempt or another,
+/// numbered as the writer leaves them (0) or with their numbering lost
+/// (`null`): the NULL rows stand in the stale index, so the GAP seek's
+/// participant key is what keeps them from the target's span (M2).
 #[cfg(feature = "test-support")]
-fn stale_shape(n: u64, attempt: &str) -> [i64; 5] {
+fn stale_shape(n: u64, attempt: &str, null: bool) -> [i64; 5] {
     let (_dir, mut store) = store();
     let mut events = asked_and_started("fx", "a");
     events.push(checked("fx", "a", Some("target"), 1));
     events.extend(results("fx", attempt, "m", n));
     events.push(checked("fx", "a", Some("target"), 3));
     let opened = journal(&mut store, events);
+    let (mut store, opened) = if null {
+        let updated = store
+            .conn
+            .execute(
+                "UPDATE event_index SET stream_ordinal = NULL
+                 WHERE run_id = 'r' AND attempt_id = ?1 AND member = 'm'
+                   AND stream_ordinal = 0",
+                rusqlite::params![attempt],
+            )
+            .unwrap();
+        assert_eq!(updated as u64, n, "the N result rows are the fixture");
+        reopen_read_only(store)
+    } else {
+        (store, opened)
+    };
     complete_reads(&mut store, &opened, ("fx", Some("target")), 2, 1, 0)
 }
 
@@ -924,10 +942,13 @@ fn multi_span_shape(n: u64) -> [i64; 5] {
 }
 
 /// The cost bound counts complete production reads: the member's N
-/// checkpoints, 994o2's N rows of another member on the target's attempt
-/// and on another, and a disjoint three-span participant with N rows in
-/// the middle span all step the same at 2,000 and 20,000. A statement
-/// measured on its own would miss the work a full read spends.
+/// checkpoints; 994o2's N rows of another member on the target's attempt
+/// and on another, both as the writer leaves them and with their ordinals
+/// lost to the stale index; and a disjoint three-span participant with N
+/// rows in the middle span, all step the same at 2,000 and 20,000. A
+/// statement measured on its own would miss the work a full read spends,
+/// and a stale seek only its own empty plan would miss the rows another
+/// participant's NULLs put in its index (M2).
 #[test]
 #[cfg(feature = "test-support")]
 fn the_complete_reads_step_the_same_at_every_size() {
@@ -935,13 +956,18 @@ fn the_complete_reads_step_the_same_at_every_size() {
         "the member's N checkpoints",
         &[member_shape(2_000), member_shape(20_000)],
     );
-    for (shape, attempt) in [
-        ("994o2's other member", "a"),
-        ("994o2's other attempt", "b"),
+    for (shape, attempt, null) in [
+        ("994o2's other member", "a", false),
+        ("994o2's other member, NULL", "a", true),
+        ("994o2's other attempt", "b", false),
+        ("994o2's other attempt, NULL", "b", true),
     ] {
         bounded_reads(
             shape,
-            &[stale_shape(2_000, attempt), stale_shape(20_000, attempt)],
+            &[
+                stale_shape(2_000, attempt, null),
+                stale_shape(20_000, attempt, null),
+            ],
         );
     }
     bounded_reads(
@@ -950,45 +976,56 @@ fn the_complete_reads_step_the_same_at_every_size() {
     );
 }
 
-/// The tally counts every executed statement, including one a trace would
-/// hide behind a leading comment: the instructions a commented `BOUND` read
-/// takes are exactly the prepared statement's own `VmStep` count, so no
-/// executable statement is skipped by its first word (M1).
+/// M1: the tally counts the instructions of the statement the read runs,
+/// at the values it binds. A member key holding a NUL is truncated by
+/// SQLite's C trace to `m`, which finds no row; a tally that measured that
+/// text again would report the missing lookup's work for both keys. The
+/// real statement finds the NUL row, so the tally's two counts differ by
+/// exactly the two statements' own `VmStep` counts.
 #[test]
 #[cfg(feature = "test-support")]
-fn a_commented_statement_is_counted_by_the_tally() {
-    use rusqlite::StatementStatus;
+fn a_nul_key_is_tallied_at_its_actual_statement() {
+    use rusqlite::{params, OptionalExtension, StatementStatus};
+
+    const NUL: &str = "m\u{0}suffix";
     let (_dir, mut store) = store();
     let _opened = journal(&mut store, {
         let mut events = asked_and_started("fx", "a");
-        events.extend(turns("fx", "a", Some("m"), 3));
+        events.extend(turns("fx", "a", Some(NUL), 3));
         events
     });
-    let seq = checkpoint_seqs(&store, Some("m"))[0];
-    let commented = format!("-- a bound read\n{}", *super::ordinal::BOUND);
-    let mut direct = store.conn.prepare(&commented).unwrap();
-    direct.reset_status(StatementStatus::VmStep);
-    let direct_read: Option<i64> = direct
-        .query_row(rusqlite::params!["r", "a", "m", seq as i64], |row| {
-            row.get(0)
-        })
-        .unwrap();
-    let direct_steps = i64::from(direct.reset_status(StatementStatus::VmStep));
+    let seq = checkpoint_seqs(&store, Some(NUL))[0];
+    let mut direct = store.conn.prepare(&super::ordinal::BOUND).unwrap();
+    let mut run = |member: &str| {
+        direct.reset_status(StatementStatus::VmStep);
+        let read: Option<Option<i64>> = direct
+            .query_row(params!["r", "a", member, seq as i64], |row| row.get(0))
+            .optional()
+            .unwrap();
+        (
+            read,
+            i64::from(direct.reset_status(StatementStatus::VmStep)),
+        )
+    };
+    let (nul_direct, nul_vm) = run(NUL);
+    let (missing_direct, missing_vm) = run("m");
+    assert_eq!(nul_direct, Some(Some(1)), "the NUL key's row reads");
+    assert_eq!(missing_direct, None, "the trace's truncated key reads none");
     drop(direct);
-    let (tallied_read, tallied_steps): (Option<i64>, i64) = counted(&mut store, |store| {
-        store
-            .conn
-            .query_row(
-                &commented,
-                rusqlite::params!["r", "a", "m", seq as i64],
-                |row| row.get(0),
-            )
-            .unwrap()
-    });
-    assert_eq!(tallied_read, direct_read);
+    let bound = |store: &Store, member: &str| {
+        let mut statement = store.conn.prepare(&super::ordinal::BOUND).unwrap();
+        let read: Option<Option<i64>> = statement
+            .query_row(params!["r", "a", member, seq as i64], |row| row.get(0))
+            .optional()
+            .unwrap();
+        read
+    };
+    let (_, nul_steps) = counted(&mut store, |store| bound(store, NUL));
+    let (_, missing_steps) = counted(&mut store, |store| bound(store, "m"));
     assert_eq!(
-        tallied_steps, direct_steps,
-        "the commented statement's every instruction is counted"
+        nul_steps - missing_steps,
+        nul_vm - missing_vm,
+        "the tally counts the NUL statement's instructions, not a lost trace"
     );
 }
 

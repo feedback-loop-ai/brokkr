@@ -395,66 +395,31 @@ pub fn stream_plan(
     plan(store, &crate::event_index::STREAM, bound)
 }
 
-/// The VM steps every statement `read` executes takes: the whole
-/// production read's work, every statement it issues at the values it
-/// issues them with, not each statement measured on its own (decision
-/// 0089 ruling 9). The statements and their bound values are the trace's,
-/// which SQLite writes as it begins each execution, so the tally replays
-/// exactly what the read ran; each replayed statement's `VmStep` status is
-/// read and reset as it finishes. A statement that returns no row still
-/// counts the seeks it made. Transaction control is no query's work and is
-/// skipped. No executable statement is skipped for a leading comment: a
-/// comment is SQL, not a reason to lose the statement's work (M1).
+/// The VM instructions the connection executes while `read` runs: the
+/// whole production read's work, each statement at the values it binds and
+/// runs with, and the compiling of the statement too, not a trace's text
+/// measured again (decision 0089 ruling 9, M1). SQLite's progress callback
+/// reports the instructions as they execute, so a statement whose text a
+/// trace would render lossily (a NUL in a key) is still counted at the
+/// statement that ran. The tally is the read's, begin to end, transaction
+/// control included.
 #[cfg(all(test, feature = "test-support"))]
 pub(crate) fn read_steps<T>(store: &mut Store, read: impl FnOnce(&Store) -> T) -> (T, i64) {
-    let (read, begun) = statements_traced(store, read);
-    let steps = begun
-        .iter()
-        .filter(|sql| counted(sql))
-        .map(|sql| steps(store, sql))
-        .sum();
-    (read, steps)
-}
+    use std::sync::atomic::{AtomicI64, Ordering};
+    use std::sync::Arc;
 
-/// Whether `sql` is a statement whose work the tally counts: it has a code
-/// line, and that line is not transaction control. The trace writes a
-/// comment-only entry for a pragma (`-- PRAGMA table_info=...`), which no
-/// statement executes, so it is skipped; a `--` comment *before* a
-/// statement is not, and the statement's work is counted (M1). The first
-/// code line, after any leading whitespace or `--` comment line, names the
-/// statement, so a commented `BEGIN` is still control.
-#[cfg(all(test, feature = "test-support"))]
-fn counted(sql: &str) -> bool {
-    let first = sql
-        .lines()
-        .map(str::trim_start)
-        .find(|line| !line.is_empty() && !line.starts_with("--"));
-    let Some(first) = first else {
-        return false;
-    };
-    let word = first.split_whitespace().next().unwrap_or("");
-    !matches!(
-        word.to_ascii_uppercase().as_str(),
-        "BEGIN" | "COMMIT" | "END" | "ROLLBACK" | "SAVEPOINT" | "RELEASE"
-    )
-}
-
-/// The VM steps `sql`, as a trace wrote it with its bound values in place,
-/// takes: a statement of its own, its status read and reset as it
-/// finishes, so a seek that scans a range is named however its value
-/// stands.
-#[cfg(all(test, feature = "test-support"))]
-fn steps(store: &Store, sql: &str) -> i64 {
-    use rusqlite::StatementStatus;
-    let mut statement = store
-        .conn
-        .prepare(sql)
-        .expect("a traced statement prepares");
-    statement.reset_status(StatementStatus::VmStep);
-    let mut rows = statement.query([]).expect("a traced statement reads");
-    while rows.next().expect("a traced statement steps").is_some() {}
-    drop(rows);
-    i64::from(statement.reset_status(StatementStatus::VmStep))
+    let counted = Arc::new(AtomicI64::new(0));
+    let tally = Arc::clone(&counted);
+    store.conn.progress_handler(
+        1,
+        Some(move || {
+            tally.fetch_add(1, Ordering::Relaxed);
+            false
+        }),
+    );
+    let read = read(store);
+    store.conn.progress_handler(0, None::<fn() -> bool>);
+    (read, counted.load(Ordering::Relaxed))
 }
 
 /// The statements SQLite began on `store`'s connection while `read` ran,
