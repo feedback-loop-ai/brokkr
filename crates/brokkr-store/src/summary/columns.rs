@@ -47,11 +47,13 @@ pub(super) fn moved_to(event: &str) -> String {
 /// `stamp` naming the guarded `recorded_at` expression:
 /// `YYYY-MM-DDTHH:MM:SS`, an optional `.` and digits, then `Z` or
 /// `±HH:MM`. SQLite alone would also read a space separator, a missing
-/// zone or text past the time, so the whole shape is checked here before
-/// any date function sees it (decision 0071 ruling 3).
+/// zone or text past the time, and would stop its own text reads at an
+/// embedded NUL, so the whole shape is checked here before any date
+/// function sees it (decision 0071 ruling 3).
 fn accepted(stamp: &str) -> String {
     format!(
-        "length({stamp}) >= 20
+        "instr(CAST({stamp} AS BLOB), X'00') = 0
+         AND length({stamp}) >= 20
          AND substr({stamp}, 1, 19) GLOB
              '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]'
          AND (
@@ -90,25 +92,39 @@ fn zone_offset(stamp: &str) -> String {
 
 /// The stamp in milliseconds since the epoch, `stamp` naming the guarded
 /// `recorded_at` expression, cut as [`brokkr_core::stamp::parse_millis`]
-/// cuts it: the first three fractional digits, not rounded, and a zone
-/// offset applied, not stripped. The shape is checked whole, so a stamp
-/// the fold refuses (a space separator, a missing zone, text past the
-/// zone) reads `NULL`; an impossible date SQLite refuses reads `NULL`
-/// too. The trigger reads no application function, so an older engine's
-/// appends keep the row's own last activity too (decision 0089 rulings
-/// 5 and 6).
+/// cuts it: the first three fractional digits of the fraction itself, not
+/// rounded, a zone offset applied, not stripped, and the hour, minute and
+/// second added as the fold adds them, so a leap second and an over-range
+/// time field read the value the fold reads instead of `NULL`. The date
+/// is SQLite's own reading; the shape is checked whole and an embedded
+/// NUL refused, so a stamp the fold refuses (a space separator, a missing
+/// zone, text past the zone) reads `NULL`. A month or day SQLite refuses
+/// while the shape still matches reads `NULL`, where `parse_millis` has
+/// no such limit. The trigger reads no application function, so an older
+/// engine's appends keep the row's own last activity too (decision 0089
+/// rulings 5 and 6).
 fn millis_of(stamp: &str) -> String {
+    let fraction = format!(
+        "CASE WHEN substr({stamp}, -1, 1) = 'Z'
+              THEN length({stamp}) - 21 ELSE length({stamp}) - 26 END"
+    );
     format!(
         "CASE WHEN {accepted} THEN
-             CAST(strftime('%s', substr({stamp}, 1, 19) || 'Z') AS INTEGER) * 1000
+             CAST(strftime('%s', substr({stamp}, 1, 10) || 'T00:00:00Z') AS INTEGER) * 1000
+             + CAST(substr({stamp}, 12, 2) AS INTEGER) * 3600000
+             + CAST(substr({stamp}, 15, 2) AS INTEGER) * 60000
+             + CAST(substr({stamp}, 18, 2) AS INTEGER) * 1000
              + CASE WHEN substr({stamp}, 20, 1) = '.'
                  THEN CAST(substr({stamp}, 21, 1) AS INTEGER) * 100
-                    + CAST(substr({stamp}, 22, 1) AS INTEGER) * 10
-                    + CAST(substr({stamp}, 23, 1) AS INTEGER)
+                    + CASE WHEN {fraction} >= 2
+                        THEN CAST(substr({stamp}, 22, 1) AS INTEGER) * 10 ELSE 0 END
+                    + CASE WHEN {fraction} >= 3
+                        THEN CAST(substr({stamp}, 23, 1) AS INTEGER) ELSE 0 END
                  ELSE 0 END
              + {offset}
          END",
         accepted = accepted(stamp),
+        fraction = fraction,
         offset = zone_offset(stamp)
     )
 }
