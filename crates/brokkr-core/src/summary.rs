@@ -288,7 +288,17 @@ impl Account {
             self.sites.note(event, checkpoint.as_ref());
             // The seat row's rule and key are the site's, read here once,
             // not the row's own turns and session record (decision 0089
-            // ruling 7).
+            // ruling 7). A later session record moves the flag off an
+            // earlier site, whose rule its row follows too.
+            if let Some(at) = self.sites.cleared() {
+                let start = self.sites.start_of(at);
+                let (member, metering, model) = {
+                    let site = &self.sites.sites()[at];
+                    (site.member.clone(), site.metering, site.model.clone())
+                };
+                self.seats
+                    .resited_start(start, member.as_deref(), metering, model.as_deref());
+            }
             if let Some((attempt, member, site)) = self.sites.latest_of(event) {
                 self.seats
                     .resited(attempt, member, site.metering, site.model.as_deref());

@@ -200,6 +200,10 @@ pub struct SeatRow {
     /// The provider its attempt's start recorded for it: each provenance
     /// entry restates it, [`Provider::Unnamed`] where the entry names none.
     provider: Last<Provider>,
+    /// The provider the start that opened its site named, kept whole beside
+    /// the cut `provider_key` where it is stored: a later start moves the
+    /// participant's `provider`, never its site's (decision 0089 ruling 7).
+    site_provider: Option<String>,
     /// The boundary its attempt's start recorded for it.
     boundary: Last<String>,
     /// The boundary a record carried beside its model while the attempt
@@ -333,10 +337,17 @@ pub(crate) struct Seats {
     /// The id the next site's row is opened under, so one attempt's two
     /// sites are two rows.
     sites: u64,
+    /// Each site's row, by the start that opened it and its member: what a
+    /// session record a later site moves the flag off names.
+    site_starts: BTreeMap<(u64, Member), usize>,
     /// Each participant's running state, by its effect and member.
     running: BTreeMap<(String, Member), Running>,
     /// Every start so far, by its effect and attempt: what a source's ordinal counts.
     begun: Vec<(Option<String>, Option<String>)>,
+    /// Each start whose effect was not yet asked, by the effect, with the
+    /// run's phase when it landed: the request that asks it opens its rows,
+    /// as main's walk reads a start before its request.
+    pending: BTreeMap<String, Vec<(EventEnvelope, Option<String>)>>,
     aside: listed::Aside,
 }
 
@@ -355,11 +366,21 @@ impl Seats {
                 self.phase = field(payload, "phase").map(str::to_string)
             }
             (EventType::EffectRequested, Some(effect_id)) => self.request(event, effect_id),
-            _ => {
-                if let Some(&request) = effect_id.and_then(|id| self.by_effect.get(id)) {
-                    self.attempted(request, event);
+            _ => match effect_id.and_then(|id| self.by_effect.get(id)) {
+                Some(&request) => self.attempted(request, event),
+                None if event.event_type == EventType::EffectStarted
+                    && sited::opens_site(event) =>
+                {
+                    if let Some(effect_id) = effect_id {
+                        let phase = self.phase.clone();
+                        self.pending
+                            .entry(effect_id.to_string())
+                            .or_default()
+                            .push((event.clone(), phase));
+                    }
                 }
-            }
+                None => {}
+            },
         }
         if event.event_type == EventType::EffectStarted {
             let attempt = field(payload, "attempt_id").map(str::to_string);
@@ -411,14 +432,22 @@ impl Seats {
             phase: field(&event.payload, "phase").map(str::to_string),
             open: None,
         });
-        self.row(self.requests.len() - 1, None, Member::Seat);
+        let request = self.requests.len() - 1;
+        self.row(request, None, Member::Seat);
+        for (event, phase) in self.pending.remove(effect_id).unwrap_or_default() {
+            let attempt = field(&event.payload, "attempt_id").map(str::to_string);
+            self.started(request, attempt.as_deref(), &event, phase.as_deref());
+        }
         self.sourced();
     }
 
     fn attempted(&mut self, request: usize, event: &EventEnvelope) {
         let attempt = field(&event.payload, "attempt_id");
         match event.event_type {
-            EventType::EffectStarted => self.started(request, attempt, event),
+            EventType::EffectStarted => {
+                let phase = self.phase.clone();
+                self.started(request, attempt, event, phase.as_deref());
+            }
             EventType::EffectCheckpointed => self.checkpointed(request, attempt, event),
             EventType::EffectSucceeded => self.ended(request, attempt, event, Outcome::Succeeded),
             EventType::EffectFailed => self.ended(request, attempt, event, Outcome::Failed),

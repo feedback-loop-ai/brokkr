@@ -1,8 +1,9 @@
 //! The checkpoints' dated facts (decision 0089 ruling 7): each
 //! `effect/checkpointed` row keeps its time, the run's phase, the cost the
-//! record reported or none, the five token counts, whether it is its site's
-//! last finishing session record, and whether its turn repeats its site's
-//! last message, with the mark that says they were written. The facts are
+//! record reported or none, the five token counts, whether it is its
+//! participant's last finishing session record, and whether its turn
+//! repeats its site's last message, with the mark that says they were
+//! written. The facts are
 //! brokkr-core's one reading, so the writer, the backfill and ruling 4's
 //! comparison derive them one way (decision 0071 ruling 5).
 //!
@@ -13,8 +14,10 @@
 //! facts from the event alone, with the run's phase read by its key. The one
 //! fact that moves, `session`, is brokkr-core's reading alone: the trigger
 //! never decides it, it only sends behind the rows whose session could
-//! change, and the writer refolds them from the site's rows, as #912's parks
-//! are sent behind and refolded. `repeat` never moves, since it reads only
+//! change, and the writer refolds them from the participant's rows, as #912's
+//! parks are sent behind and refolded. The refold reads the participant's
+//! rows by their own key, never the attempt's starts: main keys the flag by
+//! a participant, so the rows alone say which record is the last. `repeat` never moves, since it reads only
 //! earlier records: a row whose flag is not written is NULL, and the
 //! backfill's whole-run walk writes it like the other facts. `facts_seq` is the stamp that says a row's
 //! session was computed; `facts_seq IS NOT seq` is the off-head check, so a
@@ -309,36 +312,8 @@ fn site(from: bool) -> String {
 pub(super) static SITE: LazyLock<String> = LazyLock::new(|| site(true));
 static SITE_BEHIND: LazyLock<String> = LazyLock::new(|| site(false));
 
-/// The seqs of an attempt's starts through `through`, by its key: the
-/// boundaries the site reading keys a checkpoint by, so a re-opened site's
-/// earlier session record keeps its own flag when the site is refolded
-/// (decision 0089 ruling 7).
-static STARTS: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "SELECT seq FROM event_index INDEXED BY event_index_stream
-         WHERE run_id = ?1 AND attempt_id = ?2
-           AND type = '{}' AND seq <= ?3
-         ORDER BY seq",
-        EventType::EffectStarted.as_str()
-    )
-});
-
-/// The starts of `attempt_id` at or before `through`, in seq order.
-pub(super) fn starts(
-    conn: &Connection,
-    run_id: &str,
-    attempt_id: &str,
-    through: u64,
-) -> Result<Vec<u64>, StoreError> {
-    let mut statement = conn.prepare_cached(&STARTS)?;
-    let found = statement.query_map(params![run_id, attempt_id, through as i64], |row| {
-        row.get(0)
-    })?;
-    Ok(found.collect::<Result<_, _>>()?)
-}
-
-/// The seqs [`refold_site`] reads, bound to the site and, at an append, the
-/// first sealed seq at it.
+/// The seqs [`refold_site`] reads, bound to the participant and, at an
+/// append, the first sealed seq at it.
 fn candidates(
     conn: &Connection,
     run_id: &str,
@@ -365,14 +340,15 @@ fn candidates(
 
 /// The statement that writes a checkpoint's one moving fact and its stamp,
 /// by its key.
-const WRITE_SESSION: &str =
+pub(super) const WRITE_SESSION: &str =
     "UPDATE event_index SET session = ?3, facts_seq = seq WHERE run_id = ?1 AND seq = ?2";
 
-/// Refold one site's behind rows from brokkr-core's one reading: read the
-/// candidate envelopes through the stream index, let core's fold say which
-/// finishes a session, and write its flags. A row core cannot read keeps no
-/// session, and is still stamped processed. The dated facts written from
-/// the record alone are not touched.
+/// Refold one participant's behind rows from brokkr-core's one reading:
+/// read the candidate envelopes through the stream index, let core's fold
+/// say which finishes a session, and write its flags. A row core cannot read
+/// keeps no session, and is still stamped processed. The dated facts written
+/// from the record alone are not touched, and the participant's session rows
+/// are read by their own key, never the attempt's starts.
 fn refold_site(
     conn: &Connection,
     run_id: &str,
@@ -381,20 +357,10 @@ fn refold_site(
     from: Option<u64>,
 ) -> Result<(), StoreError> {
     let seqs = candidates(conn, run_id, attempt_id, member, from)?;
-    let through = seqs.last().copied().unwrap_or(0);
-    // The site reading keys a checkpoint by the start that opened its
-    // site, so the refold reads the attempt's starts beside its candidate
-    // rows: without them a re-opened attempt's two sites read as one and
-    // the earlier session flag moves (decision 0089 ruling 7).
-    let all: BTreeSet<u64> = seqs
-        .iter()
-        .copied()
-        .chain(starts(conn, run_id, attempt_id, through)?)
-        .collect();
-    let mut events = Vec::with_capacity(all.len());
+    let mut events = Vec::with_capacity(seqs.len());
     {
         let mut statement = conn.prepare_cached(super::ENVELOPE)?;
-        for seq in &all {
+        for seq in &seqs {
             let envelope: String =
                 statement.query_row(params![run_id, *seq as i64], |row| row.get(0))?;
             events.push(serde_json::from_str(&envelope)?);
@@ -414,10 +380,10 @@ fn refold_site(
     Ok(())
 }
 
-/// Refold the sites the append `sealed` wrote checkpoints for, inside its
-/// own transaction: one call for each site, from the first sealed seq it
-/// wrote there, so an append costs its own checkpoints and the site's
-/// session row, never the run.
+/// Refold the participants the append `sealed` wrote checkpoints for,
+/// inside its own transaction: one call for each participant, from the
+/// first sealed seq it wrote there, so an append costs its own checkpoints
+/// and the participant's session rows, never the run.
 pub(crate) fn refold_sealed(
     tx: &Connection,
     run_id: &str,

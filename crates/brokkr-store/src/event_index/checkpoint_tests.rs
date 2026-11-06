@@ -6,7 +6,7 @@
 //! the row for the open's walk, and a table from before them is altered in
 //! place.
 
-use super::checkpoint::{backfilled, checkpointed, COLUMNS, SITE, WRITE};
+use super::checkpoint::{backfilled, checkpointed, COLUMNS, SITE, WRITE, WRITE_SESSION};
 use super::*;
 use brokkr_core::envelope::{ChainError, EventEnvelope, EventType};
 use brokkr_core::summary::{Bounded, Checkpoint, NAME_BYTES};
@@ -566,12 +566,12 @@ fn a_site_s_second_session_record_flips_the_first_to_zero() {
     assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
 }
 
-/// A re-opened attempt's two sites keep their own session records: the
-/// refold reads the attempt's starts beside its candidate rows, so the
-/// earlier site's flag is not the later site's to move (decision 0089
-/// rulings 4 and 7).
+/// A re-opened attempt is one participant, as main reads it: the refold's
+/// participant rows alone move the earlier session record's flag off when
+/// the later one lands, and an open's behind refold reads the same, without
+/// the attempt's starts (decision 0089 rulings 4 and 7).
 #[test]
-fn a_reopened_site_s_earlier_session_record_keeps_its_flag() {
+fn a_reopened_participant_s_earlier_session_record_is_moved() {
     let (_dir, mut store) = store();
     opened(&mut store, "r", "implement", &[]);
     started(&mut store, "r", "a", Some("m"), "anthropic");
@@ -579,28 +579,17 @@ fn a_reopened_site_s_earlier_session_record_keeps_its_flag() {
     failed(&mut store, "r", "a");
     started(&mut store, "r", "a", Some("m"), "anthropic");
     let second = append_checkpoint(&mut store, json!({"step": "claude-session-finished"}));
-    assert_eq!(session(&store, first.seq), Value::Integer(1));
+    assert_eq!(session(&store, first.seq), Value::Integer(0));
     assert_eq!(session(&store, second.seq), Value::Integer(1));
     let events = store.load("r").unwrap();
     let read: Vec<Value> = brokkr_core::summary::checkpoints(&events)
         .into_iter()
         .map(|checkpoint| Value::Integer(i64::from(checkpoint.session)))
         .collect();
-    assert_eq!(read, [Value::Integer(1), Value::Integer(1)]);
-}
-
-/// The site refold's start read is by the stream index: a journal that
-/// lost it refuses the read rather than folding a site without its starts.
-#[test]
-fn a_missing_start_index_refuses_the_site_start_read() {
-    let (_dir, mut store) = store();
-    opened(&mut store, "r", "implement", &[]);
-    store
-        .conn
-        .execute_batch("DROP INDEX event_index_stream")
-        .unwrap();
-    let error = super::checkpoint::starts(&store.conn, "r", "a", 10).unwrap_err();
-    assert!(matches!(error, crate::StoreError::Sqlite(_)), "{error:?}");
+    assert_eq!(read, [Value::Integer(0), Value::Integer(1)]);
+    let store = refolded(store);
+    assert_eq!(session(&store, first.seq), Value::Integer(0));
+    assert_eq!(session(&store, second.seq), Value::Integer(1));
 }
 
 /// A step whose suffix differs only in case finishes no session in
@@ -886,14 +875,25 @@ fn the_session_and_row_sends_search_their_indexes() {
     );
 }
 
-/// Appending a checkpoint to a run with N checkpoints visits the same VM
-/// steps at every N, at 2,000 and 20,000: the facts' write names one row,
-/// the repeat flag is read from the carried account, and the trigger's
-/// session search visits none of them (decision 0089 rulings 7 and 9).
+/// The retired start lookup, kept here so the cost test measures the work a
+/// refold that reads the attempt's starts would add: the same SQL text and
+/// bind order, so `prepare_cached` hands that refold this statement.
+const RETIRED_STARTS: &str = "SELECT seq FROM event_index INDEXED BY event_index_stream
+         WHERE run_id = ?1 AND attempt_id = ?2
+           AND type = 'effect/started' AND seq <= ?3
+         ORDER BY seq";
+
+/// Appending a checkpoint to a run with N checkpoints costs the same VM
+/// steps at every N, at 2,000 and 20,000, measured over everything the
+/// append runs inside the bound: the event's insert and its triggers, the
+/// facts' write, and the refold's candidate search, envelope reads and
+/// session writes. A refold that reads the attempt's starts would add the
+/// retired lookup's history scan, which the same count holds to zero
+/// (decision 0089 rulings 7 and 9).
 #[test]
-fn an_appended_checkpoint_visits_the_same_steps_at_every_n() {
+fn an_appended_checkpoint_costs_the_same_at_any_history() {
     use crate::import::INSERT_EVENT;
-    use rusqlite::{params_from_iter, StatementStatus};
+    use rusqlite::StatementStatus;
 
     let (_dir, mut store) = store();
     let mut steps = Vec::new();
@@ -901,14 +901,18 @@ fn an_appended_checkpoint_visits_the_same_steps_at_every_n() {
         let run_id = format!("r{n}");
         let events = chained(
             &run_id,
-            (1..=n)
-                .map(|_| {
-                    (
-                        EventType::EffectCheckpointed,
-                        checkpoint(Some("m"), json!({"step": "seat-turn"})),
-                    )
-                })
-                .collect(),
+            std::iter::once((
+                EventType::EffectStarted,
+                json!({"effect_id": "fx", "attempt_id": "a",
+                       "provenance": [{"member": "m", "provider": "anthropic"}]}),
+            ))
+            .chain((1..=n).map(|_| {
+                (
+                    EventType::EffectCheckpointed,
+                    checkpoint(Some("m"), json!({"step": "seat-turn"})),
+                )
+            }))
+            .collect(),
         );
         let previous = planted(&mut store, &run_id, &events);
         let next = EnvelopeBuilder::new(
@@ -916,8 +920,8 @@ fn an_appended_checkpoint_visits_the_same_steps_at_every_n() {
             checkpoint(Some("m"), json!({"step": "seat-turn"})),
         )
         .run(&run_id)
-        .seq(n + 1)
-        .event_id(format!("{run_id}-{}", n + 1))
+        .seq(n + 2)
+        .event_id(format!("{run_id}-{}", n + 2))
         .at("2026-01-01T00:00:01Z")
         .previous(previous)
         .sealed();
@@ -927,22 +931,41 @@ fn an_appended_checkpoint_visits_the_same_steps_at_every_n() {
         insert
             .execute(params![
                 &run_id,
-                (n + 1) as i64,
+                (n + 2) as i64,
                 &next.event_hash,
                 &envelope
             ])
             .unwrap();
         let inserted = insert.reset_status(StatementStatus::VmStep);
         let account = Account::whole(&run_id, &store.load(&run_id).unwrap());
-        let mut write = store.conn.prepare(&WRITE).unwrap();
-        write.reset_status(StatementStatus::VmStep);
-        let facts = super::checkpoint::facts(account.checkpoint(n + 1)).unwrap();
-        let mut bound: Vec<Value> =
-            vec![Value::Text(run_id.clone()), Value::Integer((n + 1) as i64)];
-        bound.extend_from_slice(&facts);
-        bound.push(Value::Integer((n + 1) as i64));
-        write.execute(params_from_iter(bound)).unwrap();
-        steps.push((inserted, write.reset_status(StatementStatus::VmStep)));
+        // Reset each statement's count and drop it, so the append's own
+        // `prepare_cached` finds it in the cache and the count is the
+        // append's, not a second statement's.
+        let reset = |sql: &str| {
+            let statement = store.conn.prepare_cached(sql).unwrap();
+            statement.reset_status(StatementStatus::VmStep);
+        };
+        for sql in [
+            &*WRITE,
+            &*SITE,
+            super::ENVELOPE,
+            WRITE_SESSION,
+            RETIRED_STARTS,
+        ] {
+            reset(sql);
+        }
+        super::checkpoint::write_appended(&store.conn, &account, std::slice::from_ref(&next))
+            .unwrap();
+        let steps_of = |sql: &str| {
+            let statement = store.conn.prepare_cached(sql).unwrap();
+            i64::from(statement.reset_status(StatementStatus::VmStep))
+        };
+        let facts = steps_of(&WRITE);
+        let refold = [&*SITE, super::ENVELOPE, WRITE_SESSION, RETIRED_STARTS]
+            .into_iter()
+            .map(steps_of)
+            .sum::<i64>();
+        steps.push((inserted, facts, refold));
     }
     assert_eq!(
         steps[0], steps[1],

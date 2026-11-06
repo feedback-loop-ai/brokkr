@@ -13,6 +13,7 @@ use crate::tests::envelope_builder::EnvelopeBuilder;
 use crate::tests::walk::cut_short;
 use crate::tests::{store, write_lock_on};
 use brokkr_core::envelope::{EventEnvelope, EventType};
+use brokkr_core::seat::row::{facts, Outcome, Provider};
 use serde_json::{json, Value as Json};
 
 fn append(store: &mut Store, run_id: &str, event_type: EventType, payload: Json) {
@@ -1199,10 +1200,145 @@ fn sited_turn(store: &mut Store, run_id: &str) {
     );
 }
 
+/// A run whose attempt `a` starts before its effect is asked, as main's
+/// walk reads a start before its request: the request opens the site the
+/// start named, and the attempt's checkpoint and failure follow it.
+fn early_start(store: &mut Store, run_id: &str) {
+    opened(store, run_id, "work", &[]);
+    append(
+        store,
+        run_id,
+        EventType::EffectStarted,
+        json!({"effect_id": "fx", "attempt_id": "a",
+               "provenance": [{"member": null, "provider": "anthropic"}]}),
+    );
+    append(
+        store,
+        run_id,
+        EventType::EffectRequested,
+        json!({"effect_id": "fx", "seat": "worker", "phase": "work"}),
+    );
+    append(
+        store,
+        run_id,
+        EventType::EffectCheckpointed,
+        checkpoint(None, 1),
+    );
+    append(
+        store,
+        run_id,
+        EventType::EffectFailed,
+        json!({"effect_id": "fx", "attempt_id": "a"}),
+    );
+}
+
+/// `run_id`'s effect `fx` requested, its seat the worker's.
+fn requested(store: &mut Store, run_id: &str) {
+    append(
+        store,
+        run_id,
+        EventType::EffectRequested,
+        json!({"effect_id": "fx", "seat": "worker", "phase": "work"}),
+    );
+}
+
+/// `run_id`'s events read whole, and the sites they read, with the rows
+/// the store keeps of them.
+fn sites_and_rows(store: &Store, run_id: &str) -> (Vec<brokkr_core::summary::Site>, Vec<SeatRow>) {
+    let events = store.load(run_id).unwrap();
+    (brokkr_core::summary::sites(&events), read(store, run_id))
+}
+
+/// The rows among `rows` that a site opened.
+fn sited_rows(rows: &[SeatRow]) -> Vec<&SeatRow> {
+    rows.iter()
+        .filter(|row| numeric(row, "site").is_some())
+        .collect()
+}
+
+/// Append a checkpoint of attempt `a` recording `record`.
+fn recorded(store: &mut Store, run_id: &str, record: Json) {
+    append(
+        store,
+        run_id,
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "attempt_id": "a", "checkpoint": record}),
+    );
+}
+
+/// A run whose attempt `a` starts under `anthropic`, meters a checkpoint,
+/// fails, and is started again naming no provider: the participant's
+/// current facts move to the restart while the earlier site keeps its own
+/// dated facts.
+fn providerless_restart(store: &mut Store, run_id: &str) {
+    opened(store, run_id, "work", &[]);
+    requested(store, run_id);
+    started(store, run_id, "a", None, "anthropic");
+    append(
+        store,
+        run_id,
+        EventType::EffectCheckpointed,
+        checkpoint(None, 1),
+    );
+    failed(store, run_id, "a");
+    append(
+        store,
+        run_id,
+        EventType::EffectStarted,
+        json!({"effect_id": "fx", "attempt_id": "a",
+               "provenance": [{"member": null, "provider": null}]}),
+    );
+}
+
+/// A run whose attempt `a`/`m` finishes a session, fails, and starts again
+/// to finish another: main keys the session flag by the participant, so the
+/// earlier record is not its session when the later one lands.
+fn reopened_sessions(store: &mut Store, run_id: &str) {
+    opened(store, run_id, "work", &[]);
+    requested(store, run_id);
+    started(store, run_id, "a", Some("m"), "anthropic");
+    recorded(
+        store,
+        run_id,
+        json!({"member": "m", "step": "seat-turn", "input_tokens": 5}),
+    );
+    recorded(
+        store,
+        run_id,
+        json!({"member": "m", "step": "claude-session-finished", "output_tokens": 100}),
+    );
+    failed(store, run_id, "a");
+    started(store, run_id, "a", Some("m"), "anthropic");
+    recorded(
+        store,
+        run_id,
+        json!({"member": "m", "step": "claude-session-finished", "output_tokens": 200}),
+    );
+}
+
+/// The chief's cases, read as journals beside the fixtures: a start before
+/// its request, a providerless restart, and a participant's second session.
+fn chief_fixtures(store: &mut Store) -> Vec<(String, Vec<EventEnvelope>)> {
+    type Build = fn(&mut Store, &str);
+    let cases: [(&str, Build); 3] = [
+        ("early-start", early_start),
+        ("providerless-restart", providerless_restart),
+        ("reopened-sessions", reopened_sessions),
+    ];
+    cases
+        .into_iter()
+        .map(|(run_id, build)| {
+            build(store, run_id);
+            (run_id.to_string(), store.load(run_id).unwrap())
+        })
+        .collect()
+}
+
 #[test]
 fn every_fixture_keeps_the_seat_facts_the_run_reads() {
-    let (_dir, store) = store();
-    let fixtures = planted_fixtures(&store);
+    let (_dir, mut store) = store();
+    let mut fixtures = planted_fixtures(&store);
+    fixtures.extend(chief_fixtures(&mut store));
     let store = refolded(store);
     let mut wrong = Vec::new();
     for (run_id, events) in fixtures {
@@ -1225,7 +1361,9 @@ fn every_fixture_keeps_the_seat_facts_the_run_reads() {
             let Some(_) = numeric(row, "site") else {
                 continue;
             };
-            let provider = held(row, "provider").expect("a site's row states its provider");
+            // A site's own provider is its key: its whole provider may
+            // have moved to none when its participant restarted.
+            let provider = held(row, "provider_key").expect("a site's row states its provider key");
             let attempt = held(row, "attempt_id").expect("a site's row states its attempt");
             let member = held(row, "member");
             let found = sites.iter().enumerate().position(|(at, site)| {
@@ -1277,6 +1415,54 @@ fn every_fixture_keeps_the_seat_facts_the_run_reads() {
         assert_eq!(rows, account.seats().to_vec(), "{run_id}");
     }
     assert_eq!(wrong, Vec::<String>::new());
+}
+
+/// A start before its request keeps its site row: the request it waited for
+/// opens the site it named, as main's walk reads it, and the row is core's
+/// own reading of the run.
+#[test]
+fn an_early_start_keeps_its_site_row() {
+    let (_dir, mut store) = store();
+    early_start(&mut store, "r");
+    let (sites, rows) = sites_and_rows(&store, "r");
+    let sited = sited_rows(&rows);
+    assert_eq!(sites.len(), 1);
+    assert_eq!(sited.len(), 1);
+    assert_eq!(numeric(sited[0], "started_ms"), Some(sites[0].at));
+    assert_eq!(
+        held(sited[0], "provider_key").as_deref(),
+        Some(sites[0].provider.as_str())
+    );
+    assert_eq!(
+        rows,
+        Account::whole("r", &store.load("r").unwrap())
+            .seats()
+            .to_vec()
+    );
+}
+
+/// A providerless restart reports the participant at work, as main does: the
+/// restart's seq is the attempt's current start, though no site opens and
+/// the earlier site keeps its own provider key.
+#[test]
+fn a_providerless_restart_reports_working() {
+    let (_dir, mut store) = store();
+    providerless_restart(&mut store, "r");
+    let rows = read(&store, "r");
+    assert_eq!(facts(&rows)[0].outcome, Outcome::Working);
+}
+
+/// A providerless restart states the participant's provider as none, as
+/// main does, while the earlier site's own provider key stays what its start
+/// set.
+#[test]
+fn a_providerless_restart_clears_the_provider() {
+    let (_dir, mut store) = store();
+    providerless_restart(&mut store, "r");
+    let rows = read(&store, "r");
+    assert_eq!(facts(&rows)[0].provider, Some(Provider::Unnamed));
+    let site = sited_rows(&rows)[0];
+    assert_eq!(held(site, "provider_key").as_deref(), Some("anthropic"));
 }
 
 /// A site's start, phase, provider and model are written as their columns
@@ -1477,7 +1663,7 @@ fn dated_seat_facts_no_row_writes_read_as_none() {
         ("started_ms", Datum::Integer(0)),
         ("phase_key", Datum::Text("other".into())),
         ("phase_key", Datum::Null),
-        ("provider_key", Datum::Text("other".into())),
+        ("provider_key", Datum::Integer(1)),
         ("metering", Datum::Integer(3)),
         ("metering", Datum::Text("turns".into())),
         ("site", Datum::Text("1".into())),
@@ -1487,9 +1673,11 @@ fn dated_seat_facts_no_row_writes_read_as_none() {
         data[at(name)] = wrong.clone();
         assert!(SeatRow::of_data(data).is_none(), "{name} {wrong:?}");
     }
-    // A site's model key is its site reading's model, which no row field
-    // holds, so it is kept as the writer read it; a row no site opened
-    // still checks its key against its whole model.
+    // A site's provider key is its own start's, and its model key its site
+    // reading's, which no row field holds once the participant moves, so
+    // each is kept as the writer read it and a text edit is the digest's to
+    // name; a row no site opened still checks its key against its whole
+    // provider and model.
     let mut data = rows[0].data();
     data[at("model_key")] = Datum::Text("other".into());
     assert!(SeatRow::of_data(data).is_none(), "model_key");
@@ -1577,13 +1765,8 @@ fn a_reopened_attempt_has_a_row_per_site() {
         json!({"phase": "check"}),
     );
     started(&mut store, "r", "a", None, "openai");
-    let events = store.load("r").unwrap();
-    let sites = brokkr_core::summary::sites(&events);
-    let rows = read(&store, "r");
-    let sited: Vec<&SeatRow> = rows
-        .iter()
-        .filter(|row| numeric(row, "site").is_some())
-        .collect();
+    let (sites, rows) = sites_and_rows(&store, "r");
+    let sited = sited_rows(&rows);
     assert_eq!(sites.len(), 2);
     assert_eq!(sited.len(), 2);
     for (row, site) in sited.iter().zip(&sites) {

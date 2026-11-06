@@ -94,3 +94,6 @@ pub(crate) fn attempts(events: &[EventEnvelope]) -> Attempts {
         sites: sites(events).into_iter().map(Site::of).collect(),
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -49,8 +49,9 @@ pub struct Site {
     /// [`Metering::of`]'s two inputs, carried so a later checkpoint costs
     /// the site one flag and not its history.
     turns: bool,
-    /// The site's last finishing session record: [`Metering::of`]'s other
-    /// input, carried as its meter.
+    /// The last finishing session record of the site's own checkpoints
+    /// whose participant flag still stands, as main's `settle` finds it:
+    /// [`Metering::of`]'s other input, carried as its meter.
     session: Option<Meter>,
 }
 
@@ -105,8 +106,17 @@ impl SiteMap {
 pub(crate) struct Siting {
     phase: Option<String>,
     sites: Vec<Site>,
+    /// Each site's start event seq, in the order the sites opened: the
+    /// carry's handle on the row a later session record moves the flag off.
+    starts: Vec<u64>,
     /// Each site's place, by its attempt and member.
     opened: SiteMap,
+    /// The site each participant's last finishing session record opened, by
+    /// its attempt and member, as main keys it.
+    sessions: BTreeMap<(String, Option<String>), usize>,
+    /// The site a session record read this event moved the flag off, whose
+    /// metering rule its row follows.
+    cleared: Option<usize>,
     /// Whether the reading keeps each site's checkpoints: only the
     /// whole-run projection does, so the writer's carried account holds no
     /// earlier checkpoint (decision 0089 ruling 9).
@@ -126,6 +136,17 @@ impl Siting {
     /// The sites read so far.
     pub(crate) fn sites(&self) -> &[Site] {
         &self.sites
+    }
+
+    /// The start event seq of the site at `at`.
+    pub(crate) fn start_of(&self, at: usize) -> u64 {
+        self.starts[at]
+    }
+
+    /// The site a session record read this event moved the flag off, whose
+    /// row the writer moves with it.
+    pub(crate) fn cleared(&self) -> Option<usize> {
+        self.cleared
     }
 
     /// The site a record of `attempt` naming `member` belongs to now, the
@@ -155,6 +176,7 @@ impl Siting {
     /// The reading carried over `event`, the run's next: its checkpoints
     /// as brokkr-core read them, where it wrote one.
     pub(crate) fn note(&mut self, event: &EventEnvelope, checkpoint: Option<&Checkpoint>) {
+        self.cleared = None;
         if event.event_type == EventType::PhaseEntered {
             self.phase = entered_phase(event).map(str::to_string);
             return;
@@ -166,7 +188,7 @@ impl Siting {
             return;
         };
         match event.event_type {
-            EventType::EffectStarted => self.started(at, attempt, &event.payload),
+            EventType::EffectStarted => self.started(at, event.seq, attempt, &event.payload),
             EventType::EffectCheckpointed => {
                 self.recorded(attempt, event.payload.get("checkpoint"), checkpoint)
             }
@@ -179,8 +201,9 @@ impl Siting {
     /// walk reads them: an entry naming no provider opens no site, and an
     /// entry naming a key already opened leaves the earlier site where it
     /// was and opens a new one for the later entry.
-    fn started(&mut self, at: i64, attempt: &str, payload: &Value) {
+    fn started(&mut self, at: i64, seq: u64, attempt: &str, payload: &Value) {
         for entry in self.opened.note(attempt, payload) {
+            self.starts.push(seq);
             self.sites.push(Site {
                 attempt_id: attempt.to_string(),
                 member: entry.member.map(str::to_string),
@@ -205,6 +228,17 @@ impl Siting {
         let Some(at) = self.opened.id(attempt, member) else {
             return;
         };
+        if checkpoint.is_some_and(|checkpoint| checkpoint.session) {
+            let participant = (attempt.to_string(), member.map(str::to_string));
+            if let Some(previous) = self.sessions.insert(participant, at as usize) {
+                if previous != at as usize {
+                    let earlier = &mut self.sites[previous];
+                    earlier.session = None;
+                    earlier.metering = Metering::decide(earlier.turns, false);
+                    self.cleared = Some(previous);
+                }
+            }
+        }
         let site = &mut self.sites[at as usize];
         if let Some(model) = field(record, "model") {
             site.model = Some(model.to_string());

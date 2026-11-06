@@ -278,10 +278,12 @@ impl<I: Iterator<Item = Datum>> Take<I> {
     /// A site's dated facts, [`SeatRow::data`]' last columns: each key
     /// checked against the row's own fields where it is derived from one,
     /// so a row whose key was edited past its source reads as no row. A
-    /// site's `model_key` is its site reading's model, which no row field
-    /// holds, so it is kept as its writer read it as the rule is (its
-    /// digest names an edit); a row no site opened still has its key
-    /// checked against its whole model. Its site is a count or none.
+    /// site's `provider_key` is its start's and its `model_key` its site
+    /// reading's, which no row field holds once a later start moves the
+    /// participant's provider or model, so each is kept as its writer read
+    /// it and the digest names an edit; a row no site opened still has its
+    /// keys checked against its whole provider and model. Its site is a
+    /// count or none.
     fn site(&mut self, row: &mut SeatRow) -> Option<()> {
         let started = match self.0.next()? {
             Datum::Null => None,
@@ -296,7 +298,7 @@ impl<I: Iterator<Item = Datum>> Take<I> {
             (found == want).then_some(())
         };
         text(self, row.phase_key())?;
-        text(self, row.provider_key())?;
+        let provider = self.text()?;
         let model = self.text()?;
         let metering = match self.0.next()? {
             Datum::Integer(value) => Metering::at(value)?,
@@ -308,8 +310,12 @@ impl<I: Iterator<Item = Datum>> Take<I> {
             Datum::Text(_) => return None,
         };
         if site.is_some() {
+            // A site's provider key is its own start's, which no other
+            // field holds once a later start moves the participant's
+            // provider: it is read back as written, checked by the digest.
+            row.site_provider = provider;
             row.site_model = model;
-        } else if model != row.model_key() {
+        } else if provider != row.provider_key() || model != row.model_key() {
             return None;
         }
         row.metering = metering;
@@ -478,6 +484,7 @@ impl SeatRow {
             site_model: None,
             effort: None,
             provider: None,
+            site_provider: None,
             boundary: None,
             stamp: None,
             ended: None,
@@ -668,14 +675,18 @@ impl SeatRow {
             .map(|phase| Bounded::within(phase, NAME_BYTES).cut.to_string())
     }
 
-    /// The provider cut to its group key's bound where it is stored, none
-    /// where the site states none.
+    /// The provider cut to its group key's bound where it is stored: the
+    /// start's where a site opened the row, the participant's last stated
+    /// where none did, and none where that states none.
     fn provider_key(&self) -> Option<String> {
-        let provider = self.provider.as_ref().map(|(_, provider)| provider)?;
-        match provider {
-            Provider::Unnamed => None,
-            Provider::Named(name) => Some(Bounded::within(name, NAME_BYTES).cut.to_string()),
-        }
+        let name = match self.site {
+            Some(_) => self.site_provider.as_deref()?,
+            None => match self.provider.as_ref().map(|(_, provider)| provider)? {
+                Provider::Unnamed => return None,
+                Provider::Named(name) => name.as_str(),
+            },
+        };
+        Some(Bounded::within(name, NAME_BYTES).cut.to_string())
     }
 
     /// The model cut to its group key's bound where it is stored: the
