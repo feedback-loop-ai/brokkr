@@ -286,20 +286,29 @@ fn unordinal(conn: &rusqlite::Connection) {
     }
 }
 
-/// The rows a journal from before the column keeps, numbered at a
-/// writer's open: the column is added in place, and the walk fills 1..n
-/// per stream without dropping a row. A read-only reader before it takes
-/// the kept way rather than read a NULL as zero.
-#[test]
-fn a_journal_from_before_the_column_is_altered_and_numbered() {
-    let (_dir, mut store) = store();
-    let made = begun(&mut store, with_member(own_turns(2), 1));
+/// A writer's journal of `events` with the ordinals' objects and column
+/// dropped, as a journal from before them carries none, reopened
+/// read-only: the shape a writable open must alter in place rather than
+/// drop, and a reader that cannot.
+fn before_column(events: Vec<(EventType, Json)>) -> (tempfile::TempDir, Vec<EventEnvelope>, Store) {
+    let (dir, mut store) = store();
+    let made = begun(&mut store, events);
     let path = store.path().to_path_buf();
     drop(store);
     let conn = rusqlite::Connection::open(&path).unwrap();
     unordinal(&conn);
     drop(conn);
     let reader = Store::open_read_only(&path).unwrap();
+    (dir, made, reader)
+}
+
+/// The rows a journal from before the column keeps, numbered at a
+/// writer's open: the column is added in place, and the walk fills 1..n
+/// per stream without dropping a row. A read-only reader before it takes
+/// the kept way rather than read a NULL as zero.
+#[test]
+fn a_journal_from_before_the_column_is_altered_and_numbered() {
+    let (_dir, made, reader) = before_column(with_member(own_turns(2), 1));
     let rows: i64 = reader
         .conn
         .query_row("SELECT count(*) FROM event_index", [], |row| row.get(0))
@@ -313,6 +322,7 @@ fn a_journal_from_before_the_column_is_altered_and_numbered() {
         None,
         "a reader without the column takes the kept way"
     );
+    let path = reader.path().to_path_buf();
     drop(reader);
     let store = Store::open(&path).unwrap();
     assert!(index_intact(&store.conn).unwrap());
@@ -374,6 +384,21 @@ fn the_column_is_added_once() {
     add_column(&store.conn).unwrap();
     assert!(crate::schema::holds(&store.conn, "event_index", [COLUMN]).unwrap());
     add_column(&store.conn).unwrap();
+}
+
+/// A read-only connection cannot alter a journal from before the column:
+/// the `ALTER`'s refusal is the store's error, never a table reported
+/// whole. The fault is the read-only open's own, as the checkpoint
+/// column's refusal test plants it.
+#[test]
+fn a_column_the_read_only_journal_cannot_add_is_refused() {
+    let (_dir, _made, reader) = before_column(own_turns(1));
+    let refused = add_column(&reader.conn).unwrap_err();
+    assert!(matches!(refused, StoreError::Sqlite(_)), "{refused:?}");
+    assert_eq!(
+        refused.to_string(),
+        "sqlite: attempt to write a readonly database"
+    );
 }
 
 /// The `stream_ordinal` every row of `run_id` holds, by its seq: what a

@@ -194,14 +194,6 @@ fn positive(ordinal: Option<i64>) -> Option<u64> {
         .filter(|ordinal| *ordinal > 0)
 }
 
-/// How many checkpoints a span holds between its first and last ordinal,
-/// none where the last falls below the first.
-fn held(first_ord: u64, last_ord: u64) -> Option<u64> {
-    last_ord
-        .checked_sub(first_ord)
-        .map(|difference| difference + 1)
-}
-
 /// The seq of the participant's `rank`-th checkpoint (0-based), none past
 /// its end: the participant's streams stand apart, so the span that holds
 /// it is found by the counts and the seq by its ordinal.
@@ -260,10 +252,9 @@ fn seq_in_order(
         let Some(last_ord) = bound(conn, run_id, member, span, span.last)? else {
             return Ok(None);
         };
-        let Some(count) = held(first_ord, last_ord) else {
-            return Ok(None);
-        };
-        before = before.saturating_add(count);
+        // `first_bound` holds a span's first to exactly 1, so its rows
+        // number its last ordinal.
+        before = before.saturating_add(last_ord);
     }
     Ok(None)
 }
@@ -322,16 +313,15 @@ impl Store {
             if self.refuses(run_id, member, span, span.first, span.last)? {
                 return Ok(None);
             }
-            let Some(first_ord) = first_bound(&self.conn, run_id, member, span)? else {
+            if first_bound(&self.conn, run_id, member, span)?.is_none() {
                 return Ok(None);
-            };
+            }
             let Some(last_ord) = bound(&self.conn, run_id, member, span, span.last)? else {
                 return Ok(None);
             };
-            let Some(count) = held(first_ord, last_ord) else {
-                return Ok(None);
-            };
-            total = total.saturating_add(count);
+            // A valid first is exactly 1 (`first_bound`), so the span's
+            // count is its last ordinal.
+            total = total.saturating_add(last_ord);
         }
         Ok(Some(total))
     }

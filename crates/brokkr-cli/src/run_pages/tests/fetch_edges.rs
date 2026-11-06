@@ -19,9 +19,24 @@ struct Journal {
 
 impl Journal {
     fn of(events: Vec<EventEnvelope>, run: &str) -> Journal {
+        Journal::edited(events, run, |_| {})
+    }
+
+    /// `of`, with `edit` applied to the planted journal's index before the
+    /// read-only open: the corrupt ordinals a writer cannot leave are
+    /// planted by SQL, as the store's own ordinal faults are.
+    fn edited(
+        events: Vec<EventEnvelope>,
+        run: &str,
+        edit: impl FnOnce(&rusqlite::Connection),
+    ) -> Journal {
         let dir = tempfile::tempdir().unwrap();
         let db = dir.path().join("forge.db");
         planted(&db, vec![(run.to_string(), events)]);
+        {
+            let conn = rusqlite::Connection::open(&db).unwrap();
+            edit(&conn);
+        }
         let store = Store::open_read_only(&db).unwrap();
         let at = store.open_run(run).unwrap();
         let events = store.load(run).unwrap();
@@ -105,6 +120,62 @@ fn own_and_member(run: &str, turns: u64, member_at: u64) -> Vec<EventEnvelope> {
             json!({"member": "m", "step": "seat-turn", "turn": member_at}),
         )),
     )
+}
+
+/// `run`'s `turns` checkpoints on attempt `att`, which it never starts:
+/// the seat row keeps their bounds but no start, so a page of them is
+/// kept (ruling 8).
+fn unstarted(run: &str, turns: u64) -> Vec<EventEnvelope> {
+    let mut steps = in_flight_as(run, "eff", "att");
+    steps.remove(3);
+    for turn in 1..=turns {
+        steps.push(journals::checkpoint(
+            "eff",
+            "att",
+            json!({"step": "seat-turn", "turn": turn}),
+        ));
+    }
+    chained(run, journals::journal(steps))
+}
+
+/// `run`'s `first` checkpoints on attempt `att`, which it starts, then
+/// `second` on attempt `b`, which it never starts: the latter's seat row
+/// keeps its bounds but no start.
+fn two_attempts(run: &str, first: u64, second: u64) -> Vec<EventEnvelope> {
+    let mut steps = in_flight_as(run, "eff", "att");
+    for turn in 1..=first {
+        steps.push(journals::checkpoint(
+            "eff",
+            "att",
+            json!({"step": "seat-turn", "turn": turn}),
+        ));
+    }
+    for turn in 1..=second {
+        steps.push(journals::checkpoint(
+            "eff",
+            "b",
+            json!({"step": "seat-turn", "turn": turn}),
+        ));
+    }
+    chained(run, journals::journal(steps))
+}
+
+/// Set `run`'s `at`-th (0-based) checkpoint of `attempt` to `ordinal` by
+/// SQL, as a corrupt writer leaves the index: the read must never take it
+/// for a place the stream can stand on.
+fn renumber(conn: &rusqlite::Connection, run: &str, attempt: &str, at: usize, ordinal: i64) {
+    let updated = conn
+        .execute(
+            "UPDATE event_index SET stream_ordinal = ?4
+             WHERE run_id = ?1 AND attempt_id = ?2 AND type = 'effect/checkpointed'
+               AND seq = (SELECT seq FROM event_index
+                          WHERE run_id = ?1 AND attempt_id = ?2
+                            AND type = 'effect/checkpointed'
+                          ORDER BY seq LIMIT 1 OFFSET ?3)",
+            rusqlite::params![run, attempt, at as i64, ordinal],
+        )
+        .unwrap();
+    assert_eq!(updated, 1, "one checkpoint is renumbered");
 }
 
 /// A carried page at `start` with `older` and no newer cursor.
@@ -731,4 +802,131 @@ fn a_null_above_the_middle_window_does_not_refuse_it() {
         .expect("the unaffected window reads");
     assert_eq!(page.start, 1, "the window starts at the asked row");
     assert_eq!(page.rows.len(), 200, "the window is the whole read's");
+}
+
+/// F4 (ruling 9): a frame taller than one window but not a whole number
+/// of pages asks for 210 rows; the forward read's last page crosses the
+/// frame's end, so the page is cut there and its cursor names the last
+/// kept row. A read that kept the crossed page would hold 250 rows.
+#[test]
+fn a_frame_taller_than_the_window_is_cut_at_its_end() {
+    let run = "tall frame";
+    let (journal, seqs) = thousand_checkpoints(run);
+    let (page, total) = journal
+        .fetch(run, 210, 0, &[])
+        .participant(("eff", None), None)
+        .unwrap()
+        .expect("the tall frame reads");
+    assert_eq!(page.rows.len(), 210, "the frame's rows, not the page's");
+    assert_eq!(
+        page.next,
+        Some(seqs[209]),
+        "the cursor is the frame's last row"
+    );
+    assert_eq!(total, None, "the stream reads on past the frame");
+}
+
+/// A page whose predecessor rank the ordinals do not name is no page: the
+/// row before the destination is read by key, and its absence takes the
+/// kept way rather than reading from a rank the read cannot place.
+#[test]
+fn a_page_whose_predecessor_rank_has_no_row_is_no_page() {
+    let run = "gap before rank";
+    let journal = Journal::edited(at_work(run, 6, true), run, |conn| {
+        renumber(conn, run, "att", 2, 99);
+    });
+    let fetch = journal.fetch(run, 24, 3, &[]);
+    assert!(
+        fetch.participant(("eff", None), None).unwrap().is_none(),
+        "the page before rank 3 has no row, so the read is kept"
+    );
+}
+
+/// A destination past the end of an attempt whose rows keep no start
+/// finds its rank through the count, asks the page from rank 0, and the
+/// store keeps that page: the kept way (ruling 8).
+#[test]
+fn a_past_the_end_page_the_store_keeps_is_no_page() {
+    let run = "kept past end";
+    let journal = Journal::of(unstarted(run, 1), run);
+    let fetch = journal.fetch(run, 24, 5, &[]);
+    assert!(
+        fetch.participant(("eff", None), None).unwrap().is_none(),
+        "a destination of one finds the kept first page"
+    );
+}
+
+/// An empty participant asked past its end is a page with no rows: its
+/// count is zero, so the destination cannot be narrowed to a row, and
+/// the oldest page is asked through rank 0 and kept as it is.
+#[test]
+fn an_empty_stream_asked_past_its_end_keeps_its_page() {
+    let run = "empty past end";
+    let journal = Journal::of(at_work(run, 0, true), run);
+    let fetch = journal.fetch(run, 24, 5, &[]);
+    let (rows, next, total) = seqs(fetch.participant(("eff", None), None).unwrap());
+    assert!(rows.is_empty(), "the empty stream's page has no rows");
+    assert_eq!(next, None, "the empty stream has no cursor");
+    assert_eq!(total, 0, "the empty stream's rank is zero");
+}
+
+/// A destination rank the ordinals do not name but the count still
+/// exceeds is not past the end: the page starts at the rank itself, and
+/// the count is not mistaken for the end.
+#[test]
+fn a_rank_with_no_row_inside_the_stream_is_not_past_its_end() {
+    let run = "gap inside stream";
+    let journal = Journal::edited(at_work(run, 6, true), run, |conn| {
+        renumber(conn, run, "att", 2, 99);
+    });
+    let fetch = journal.fetch(run, 24, 2, &[]);
+    let (page, total) = fetch
+        .participant(("eff", None), None)
+        .unwrap()
+        .expect("the window inside the stream reads");
+    let expected: Vec<u64> = checkpoints(&journal.events)[2..]
+        .iter()
+        .map(|event| event.seq)
+        .collect();
+    assert_eq!(page.start, 2, "the page starts at the asked rank");
+    assert_eq!(
+        page.rows.iter().map(|(seq, _)| *seq).collect::<Vec<_>>(),
+        expected,
+        "the unnamed rank's own row and those after it"
+    );
+    assert_eq!(total, Some(6), "the stream's count stands");
+}
+
+/// An end page whose start rank the ordinals do not name takes the kept
+/// way: the count still names the stream's end, but the row the page must
+/// start at is missing from the index.
+#[test]
+fn an_end_page_whose_rank_has_no_row_is_no_page() {
+    let run = "gap at end";
+    let journal = Journal::edited(at_work(run, 120, true), run, |conn| {
+        renumber(conn, run, "att", 99, 999);
+    });
+    let fetch = journal.fetch(run, 24, usize::MAX, &[]);
+    assert!(
+        fetch.participant(("eff", None), None).unwrap().is_none(),
+        "the end page's start rank has no row, so the read is kept"
+    );
+}
+
+/// The end page's extension reads the next page by seq; where that page
+/// names an attempt whose rows keep no start, the store keeps it and the
+/// end takes the kept way. The count still stands because the attempt's
+/// own ordinals do.
+#[test]
+fn an_end_page_whose_next_page_the_store_keeps_is_no_page() {
+    let run = "kept end extension";
+    let journal = Journal::edited(two_attempts(run, 60, 60), run, |conn| {
+        renumber(conn, run, "att", 1, 65_500);
+        renumber(conn, run, "b", 59, 100_000);
+    });
+    let fetch = journal.fetch(run, 0, usize::MAX, &[]);
+    assert!(
+        fetch.participant(("eff", None), None).unwrap().is_none(),
+        "the extension's page is kept, so the end read is kept"
+    );
 }

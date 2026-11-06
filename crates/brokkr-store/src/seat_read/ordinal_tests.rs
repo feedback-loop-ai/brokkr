@@ -1134,3 +1134,36 @@ fn a_disjoint_multi_span_participant_ranks_every_row() {
         "the last rank passes the deleted middle bound"
     );
 }
+
+/// A rank an earlier span passes but no row of it holds is no rank: rank
+/// 1's ordinal 2 is missing from `a`'s stream, so the walk counts `a`
+/// whole and must not read `b`'s first row as the rank. The later span
+/// stands, so a walk that subtracted the count without the check would
+/// return it.
+#[test]
+fn a_rank_an_earlier_span_passed_without_holding_is_no_rank() {
+    let (_dir, mut store) = store();
+    let mut events = asked_and_started("fx", "a");
+    events.extend(own("fx", "a", 6));
+    events.push(started("fx", "b"));
+    events.extend(own("fx", "b", 1));
+    let opened = journal(&mut store, events);
+    let seqs = checkpoint_seqs(&store, None);
+    store
+        .conn
+        .execute(
+            "UPDATE event_index SET stream_ordinal = 99 WHERE run_id = 'r' AND seq = ?1",
+            [seqs[1] as i64],
+        )
+        .unwrap();
+    assert_eq!(
+        store.seat_count("r", &opened, ("fx", None)).unwrap(),
+        Some(7),
+        "the count is a's last ordinal plus b's one"
+    );
+    assert_eq!(
+        store.seat_seq_at("r", &opened, ("fx", None), 1).unwrap(),
+        None,
+        "the passed span's ordinal is no rank of the later span"
+    );
+}
