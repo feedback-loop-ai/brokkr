@@ -181,10 +181,14 @@ impl Seats {
         self.row(request, attempt.as_deref(), Member::Seat);
     }
 
-    /// Whether the rows keep the live block: not while the live start
-    /// names no effect, or one no request has asked for yet, which no row
-    /// is of ([`live`]).
+    /// Whether the rows keep the live block: not while a record of an
+    /// effect no request has asked for is still held, whose rows the
+    /// request would open, nor while the live start names no effect or one
+    /// no request has asked for yet, which no row is of ([`live`]).
     pub(crate) fn keep_live(&self) -> bool {
+        if !self.pending.is_empty() {
+            return false;
+        }
         match &self.aside.started {
             Some((effect_id, _)) => effect_id
                 .as_ref()

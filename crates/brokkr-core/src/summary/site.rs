@@ -143,6 +143,15 @@ impl Siting {
         self.starts[at]
     }
 
+    /// Every site the start at `start` opened, in the order it opened
+    /// them: one per provenance entry naming a provider.
+    pub(crate) fn opened_at(&self, start: u64) -> impl Iterator<Item = &Site> {
+        self.starts
+            .iter()
+            .zip(&self.sites)
+            .filter_map(move |(&seq, site)| (seq == start).then_some(site))
+    }
+
     /// The site a session record read this event moved the flag off, whose
     /// row the writer moves with it.
     pub(crate) fn cleared(&self) -> Option<usize> {

@@ -195,6 +195,35 @@ fn a_live_start_no_row_is_of_keeps_no_seat_head() {
     assert_eq!(read(&store, "r"), folded_rows(&store, "r"));
 }
 
+/// A terminal of a provider-bearing start whose effect was never asked
+/// keeps no seat head: the start and its terminal wait for the request that
+/// replays them, so the rows read stale until it lands, and then every row
+/// is its fold's (review 753s4s3, M2).
+#[test]
+fn a_terminated_unrequested_site_keeps_no_seat_head() {
+    let (_dir, mut store) = store();
+    seated(&mut store, "r");
+    let unasked = json!({"effect_id": "other", "attempt_id": "b",
+                         "provenance": [{"member": "m", "provider": "anthropic"}]});
+    append(&mut store, "r", EventType::EffectStarted, unasked);
+    append(
+        &mut store,
+        "r",
+        EventType::EffectSucceeded,
+        json!({"effect_id": "other", "attempt_id": "b"}),
+    );
+    assert_eq!(head(&store, "r"), None);
+    assert_eq!(store.seat_rows("r").unwrap(), SeatRows::Stale);
+    append(
+        &mut store,
+        "r",
+        EventType::EffectRequested,
+        json!({"effect_id": "other", "seat": "elsewhere"}),
+    );
+    assert_eq!(head(&store, "r"), Some(store.head_hash("r").unwrap()));
+    assert_eq!(read(&store, "r"), folded_rows(&store, "r"));
+}
+
 /// An append through a store that carries no fold writes no seat row and
 /// leaves the seat head behind; so does one whose fold stands at another
 /// head than the append found, and the rows read as stale.
@@ -1200,18 +1229,37 @@ fn sited_turn(store: &mut Store, run_id: &str) {
     );
 }
 
-/// A run whose attempt `a` starts before its effect is asked, as main's
-/// walk reads a start before its request: the request opens the site the
-/// start named, and the attempt's checkpoint and failure follow it.
-fn early_start(store: &mut Store, run_id: &str) {
+/// A run whose attempt `a` starts under `provider` before its effect is
+/// asked: the request that asks it comes later.
+fn started_before_request(store: &mut Store, run_id: &str, provider: &str) {
     opened(store, run_id, "work", &[]);
     append(
         store,
         run_id,
         EventType::EffectStarted,
         json!({"effect_id": "fx", "attempt_id": "a",
-               "provenance": [{"member": null, "provider": "anthropic"}]}),
+               "provenance": [{"member": null, "provider": provider}]}),
     );
+}
+
+/// A run whose checkpoint lands after its attempt's start but before the
+/// request that asks the effect: the request opens the site with the
+/// checkpoint's model and metering rule (review 753s4s3, M1).
+fn checkpoint_before_request(store: &mut Store, run_id: &str) {
+    started_before_request(store, run_id, "anthropic");
+    recorded(
+        store,
+        run_id,
+        json!({"step": "seat-turn", "model": "opus", "input_tokens": 1}),
+    );
+    requested(store, run_id);
+}
+
+/// A run whose attempt `a` starts before its effect is asked, as main's
+/// walk reads a start before its request: the request opens the site the
+/// start named, and the attempt's checkpoint and failure follow it.
+fn early_start(store: &mut Store, run_id: &str) {
+    started_before_request(store, run_id, "anthropic");
     append(
         store,
         run_id,
@@ -1320,10 +1368,11 @@ fn reopened_sessions(store: &mut Store, run_id: &str) {
 /// its request, a providerless restart, and a participant's second session.
 fn chief_fixtures(store: &mut Store) -> Vec<(String, Vec<EventEnvelope>)> {
     type Build = fn(&mut Store, &str);
-    let cases: [(&str, Build); 3] = [
+    let cases: [(&str, Build); 4] = [
         ("early-start", early_start),
         ("providerless-restart", providerless_restart),
         ("reopened-sessions", reopened_sessions),
+        ("checkpoint-before-request", checkpoint_before_request),
     ];
     cases
         .into_iter()

@@ -24,14 +24,13 @@
 
 use std::collections::BTreeMap;
 
-use serde_json::Value;
-
 use super::meter::{sum_usage, Meter, Metering};
-use super::{count_item, reported_cost, stamp_of, transcript_of, TokenUsage, Transcript};
+use super::{TokenUsage, Transcript};
 use crate::envelope::{EventEnvelope, EventType};
 use crate::residual::text as field;
 
 mod costed;
+mod deferred;
 mod kept;
 mod listed;
 mod members;
@@ -39,6 +38,7 @@ mod said;
 mod sited;
 
 pub use costed::costs;
+use deferred::Deferred;
 pub use kept::Datum;
 pub use listed::{inner, models};
 use members::with_members;
@@ -163,15 +163,6 @@ struct Stamp {
     at: String,
 }
 
-impl Stamp {
-    fn of(event: &EventEnvelope) -> Stamp {
-        Stamp {
-            seq: event.seq,
-            at: event.recorded_at.clone(),
-        }
-    }
-}
-
 /// One participant of one attempt, as its records state it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SeatRow {
@@ -252,59 +243,6 @@ struct Running {
     last_turn: Option<Meter>,
 }
 
-impl SeatRow {
-    fn checkpointed(&mut self, at: Stamp, checkpoint: &Value, open: bool, running: &mut Running) {
-        let seq = at.seq;
-        let says = |key: &str| field(checkpoint, key).map(str::to_string);
-        state(&mut self.model, seq, says("model"));
-        if open {
-            state(&mut self.stamp, seq, stamp_of(checkpoint));
-        }
-        state(&mut self.effort, seq, says("effort"));
-        let transcript = checkpoint.get("transcript").and_then(transcript_of);
-        state(&mut self.transcript, seq, transcript);
-        self.first.get_or_insert_with(|| at.clone());
-        let step = field(checkpoint, "step");
-        if matches!(step, Some("seat-turn" | "turn-completed")) {
-            if let Some(turn) = checkpoint.get("turn").and_then(Value::as_u64) {
-                self.turns = Some(self.turns.map_or(turn, |turns| turns.max(turn)));
-            }
-        }
-        count_item(&mut self.items, step);
-        let cost = reported_cost(checkpoint);
-        if let Some(cost) = cost {
-            let spent = running.spent.unwrap_or(0.0) + cost;
-            running.spent = Some(spent);
-            self.spent = Some((seq, spent));
-        }
-        let meter = Meter::of(checkpoint);
-        if step.is_some_and(|step| step.ends_with("-session-finished") || step == "session-started")
-        {
-            let (meter, id) = (meter.clone(), says("session_id"));
-            self.session = Some((seq, Session { meter, cost, id }));
-        } else if step == Some("panel-member-finished") && self.member != Member::Seat {
-            self.finish = Some((seq, said::finished(checkpoint, &at.at)));
-        } else if step == Some("seat-turn") {
-            self.turn = Some((seq, Turned::of(checkpoint)));
-        }
-        self.listed.noted(seq, checkpoint, &self.member);
-        self.last = Some(at);
-        self.metered(meter, running);
-    }
-
-    /// One checkpoint's meter, each message once: a turn whose tokens are
-    /// its participant's last metered turn's is that message again
-    /// (`meter::once`).
-    fn metered(&mut self, meter: Meter, running: &mut Running) {
-        if !meter.metered() || running.last_turn.as_ref() == Some(&meter) {
-            return;
-        }
-        let metered = self.metered.take();
-        self.metered = Some(metered.map_or_else(|| meter.clone(), |metered| metered.and(&meter)));
-        running.last_turn = Some(meter);
-    }
-}
-
 /// A request occurrence: the effect it asked for, the seat it hired, the
 /// phase it names, and its attempt in flight, the last started until a
 /// terminal names it.
@@ -344,10 +282,10 @@ pub(crate) struct Seats {
     running: BTreeMap<(String, Member), Running>,
     /// Every start so far, by its effect and attempt: what a source's ordinal counts.
     begun: Vec<(Option<String>, Option<String>)>,
-    /// Each start whose effect was not yet asked, by the effect, with the
-    /// run's phase when it landed: the request that asks it opens its rows,
-    /// as main's walk reads a start before its request.
-    pending: BTreeMap<String, Vec<(EventEnvelope, Option<String>)>>,
+    /// Each record of an effect not yet asked, by the effect, in journal
+    /// order and typed: the request that asks it replays them into its
+    /// rows, as main's walk reads a start before its request.
+    pending: BTreeMap<String, Vec<Deferred>>,
     aside: listed::Aside,
 }
 
@@ -357,31 +295,29 @@ impl Seats {
         &self.rows
     }
 
-    /// The rows carried over `event`, the run's next.
-    pub(crate) fn note(&mut self, event: &EventEnvelope) {
+    /// The rows carried over `event`, the run's next; and the starts a
+    /// request replays, whose site rows the account then reads its sites
+    /// onto.
+    pub(crate) fn note(&mut self, event: &EventEnvelope) -> Vec<u64> {
         let payload = &event.payload;
         let effect_id = field(payload, "effect_id");
-        match (event.event_type, effect_id) {
+        let replayed = match (event.event_type, effect_id) {
             (EventType::PhaseEntered, _) => {
-                self.phase = field(payload, "phase").map(str::to_string)
+                self.phase = field(payload, "phase").map(str::to_string);
+                Vec::new()
             }
             (EventType::EffectRequested, Some(effect_id)) => self.request(event, effect_id),
             _ => match effect_id.and_then(|id| self.by_effect.get(id)) {
-                Some(&request) => self.attempted(request, event),
-                None if event.event_type == EventType::EffectStarted
-                    && sited::opens_site(event) =>
-                {
-                    if let Some(effect_id) = effect_id {
-                        let phase = self.phase.clone();
-                        self.pending
-                            .entry(effect_id.to_string())
-                            .or_default()
-                            .push((event.clone(), phase));
-                    }
+                Some(&request) => {
+                    self.attempted(request, event);
+                    Vec::new()
                 }
-                None => {}
+                None => {
+                    self.deferred(event);
+                    Vec::new()
+                }
             },
-        }
+        };
         if event.event_type == EventType::EffectStarted {
             let attempt = field(payload, "attempt_id").map(str::to_string);
             self.begun.push((effect_id.map(str::to_string), attempt));
@@ -390,6 +326,7 @@ impl Seats {
         self.aside(event);
         self.lived(event);
         self.accounted(event);
+        replayed
     }
 
     /// Every carried entry's source, named again over the fold so far: a
@@ -422,7 +359,7 @@ impl Seats {
         seen.map(|((at, _), _)| *at).fold(request, usize::min)
     }
 
-    fn request(&mut self, event: &EventEnvelope, effect_id: &str) {
+    fn request(&mut self, event: &EventEnvelope, effect_id: &str) -> Vec<u64> {
         self.by_effect
             .insert(effect_id.to_string(), self.requests.len());
         self.requests.push(Request {
@@ -434,25 +371,39 @@ impl Seats {
         });
         let request = self.requests.len() - 1;
         self.row(request, None, Member::Seat);
-        for (event, phase) in self.pending.remove(effect_id).unwrap_or_default() {
-            let attempt = field(&event.payload, "attempt_id").map(str::to_string);
-            self.started(request, attempt.as_deref(), &event, phase.as_deref());
+        let pending = self.pending.remove(effect_id).unwrap_or_default();
+        let mut opened = Vec::new();
+        for deferred in pending {
+            match deferred {
+                Deferred::Start(start) => {
+                    self.started(request, &start);
+                    opened.push(start.seq);
+                }
+                Deferred::Checkpoint(record) => self.checkpointed(request, *record),
+                Deferred::End(end) => self.ended(request, &end),
+            }
         }
         self.sourced();
+        opened
     }
 
     fn attempted(&mut self, request: usize, event: &EventEnvelope) {
-        let attempt = field(&event.payload, "attempt_id");
         match event.event_type {
             EventType::EffectStarted => {
-                let phase = self.phase.clone();
-                self.started(request, attempt, event, phase.as_deref());
+                let start = sited::Start::of(event, self.phase.clone());
+                self.started(request, &start);
             }
-            EventType::EffectCheckpointed => self.checkpointed(request, attempt, event),
-            EventType::EffectSucceeded => self.ended(request, attempt, event, Outcome::Succeeded),
-            EventType::EffectFailed => self.ended(request, attempt, event, Outcome::Failed),
+            EventType::EffectCheckpointed => {
+                self.checkpointed(request, deferred::Record::of(event));
+            }
+            EventType::EffectSucceeded => {
+                self.ended(request, &deferred::End::of(event, Outcome::Succeeded));
+            }
+            EventType::EffectFailed => {
+                self.ended(request, &deferred::End::of(event, Outcome::Failed));
+            }
             EventType::EffectIndeterminate => {
-                self.ended(request, attempt, event, Outcome::Indeterminate);
+                self.ended(request, &deferred::End::of(event, Outcome::Indeterminate));
             }
             EventType::RunStarted
             | EventType::PhaseEntered
@@ -512,23 +463,6 @@ impl Seats {
         }
     }
 
-    /// The members a start carries (decision 0093, panel-carry.v1): each
-    /// entry naming a member and an attempt opens its member's row and
-    /// records that attempt, unsourced until [`Seats::sourced`] names its
-    /// source; an entry naming either not is passed over, as the view
-    /// passes it over.
-    fn carried(&mut self, request: usize, attempt: Option<&str>, event: &EventEnvelope) {
-        let carried = event.payload.get("carried").and_then(Value::as_array);
-        for entry in carried.into_iter().flatten() {
-            let (Some(member), Some(source)) = (field(entry, "member"), field(entry, "attempt_id"))
-            else {
-                continue;
-            };
-            let row = self.row(request, attempt, Member::of(Some(member)));
-            row.carried = Some((event.seq, Carry::Unsourced(source.to_string())));
-        }
-    }
-
     /// The source the view names for a verdict `request` carries from
     /// `attempt_id`: the first start so far naming that attempt, counted
     /// among the starts through it whose effect was first asked in
@@ -553,43 +487,6 @@ impl Seats {
             }
         }
         Carry::Unsourced(attempt_id.to_string())
-    }
-
-    fn checkpointed(&mut self, request: usize, attempt: Option<&str>, event: &EventEnvelope) {
-        let checkpoint = event.payload.get("checkpoint").unwrap_or(&Value::Null);
-        let open = self.requests[request].open.as_deref() == attempt;
-        let member = Member::of(field(checkpoint, "member"));
-        let at = self.place(request, attempt, member.clone());
-        let effect_id = self.requests[request].effect_id.clone();
-        let running = self.running.entry((effect_id, member)).or_default();
-        self.rows[at].checkpointed(Stamp::of(event), checkpoint, open, running);
-    }
-
-    /// A terminal event, read only for the attempt in flight: a stale
-    /// attempt's is passed over whole, as the view passes it over.
-    fn ended(
-        &mut self,
-        request: usize,
-        attempt: Option<&str>,
-        event: &EventEnvelope,
-        outcome: Outcome,
-    ) {
-        if self.requests[request].open.as_deref() != attempt {
-            return;
-        }
-        self.requests[request].open = None;
-        let seq = event.seq;
-        let result = event.payload.get("result");
-        let says = |key: &str| {
-            result
-                .and_then(|result| field(result, key))
-                .map(str::to_string)
-        };
-        let row = self.row(request, attempt, Member::Seat);
-        row.ended = Some((seq, outcome));
-        state(&mut row.model, seq, says("model"));
-        state(&mut row.stamp, seq, result.and_then(stamp_of));
-        state(&mut row.effort, seq, says("effort"));
     }
 }
 

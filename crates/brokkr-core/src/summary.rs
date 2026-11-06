@@ -280,7 +280,7 @@ impl Account {
         );
         for event in suffix {
             note_closing(&mut self.marks, event);
-            self.seats.note(event);
+            let replayed = self.seats.note(event);
             self.reading.note(event);
             self.parks.note(event);
             self.checkpoints.note(event);
@@ -302,6 +302,20 @@ impl Account {
             if let Some((attempt, member, site)) = self.sites.latest_of(event) {
                 self.seats
                     .resited(attempt, member, site.metering, site.model.as_deref());
+            }
+            // A request opens the site rows of the starts it replays after
+            // their records were read, so each new row takes its site's
+            // facts as the reading stands at the request (decision 0089
+            // ruling 7, one derivation).
+            for start in replayed {
+                for site in self.sites.opened_at(start) {
+                    self.seats.resited_start(
+                        start,
+                        site.member.as_deref(),
+                        site.metering,
+                        site.model.as_deref(),
+                    );
+                }
             }
             self.ending.note(event);
         }

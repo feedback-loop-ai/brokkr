@@ -315,7 +315,8 @@ fn a_participant_s_facts_carry_its_last_turn_finish_and_session() {
 /// The rows keep the live block unless the live start, unended, names no
 /// effect or one not yet asked: a request of its effect after it, a
 /// terminal naming its effect and attempt, or a later start of an asked
-/// effect keeps it again.
+/// effect keeps it again. A held provider-bearing start is the exception,
+/// and its terminal keeps no head (`Seats::keep_live`).
 #[test]
 fn a_live_start_no_row_is_of_leaves_the_rows_unkept() {
     let started = |payload: serde_json::Value| (EventType::EffectStarted, payload);

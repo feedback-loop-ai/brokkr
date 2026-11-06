@@ -832,6 +832,62 @@ fn a_reopened_attempt_opens_two_site_rows() {
     );
 }
 
+/// A journal step: its event, payload and stamp.
+type Step = (EventType, serde_json::Value, &'static str);
+
+/// The run's `work` phase, entered at its first second.
+fn work() -> Step {
+    (
+        EventType::PhaseEntered,
+        json!({"phase": "work"}),
+        "2026-01-01T00:00:00Z",
+    )
+}
+
+/// Attempt `a` of `fx` started under `provenance` at `at`.
+fn starts(provenance: serde_json::Value, at: &'static str) -> Step {
+    (
+        EventType::EffectStarted,
+        json!({"effect_id": "fx", "attempt_id": "a", "provenance": provenance}),
+        at,
+    )
+}
+
+/// `fx` asked by the `worker` in the `work` phase at `at`.
+fn asks(at: &'static str) -> Step {
+    (
+        EventType::EffectRequested,
+        json!({"effect_id": "fx", "seat": "worker", "phase": "work"}),
+        at,
+    )
+}
+
+/// A checkpoint of `fx`'s attempt `a` recording `record` at `at`.
+fn records(record: serde_json::Value, at: &'static str) -> Step {
+    (
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "attempt_id": "a", "checkpoint": record}),
+        at,
+    )
+}
+
+/// The one site row a request opened.
+fn the_site(account: &Account) -> &SeatRow {
+    account
+        .seats()
+        .iter()
+        .find(|row| row.site.is_some())
+        .expect("a request opens the site its start named")
+}
+
+/// The facts of `member` among `account`'s participants.
+fn the_member(account: &Account, member: &str) -> SeatFacts {
+    facts(account.seats())
+        .into_iter()
+        .find(|facts| facts.member == named(member))
+        .expect("the member's facts")
+}
+
 /// A provider-bearing start that lands before its effect is asked is
 /// reconciled when the request lands, as main's walk reads it: its site
 /// row opens, with its own provider.
@@ -839,37 +895,127 @@ fn a_reopened_attempt_opens_two_site_rows() {
 fn a_start_before_its_request_keeps_its_site_row() {
     use crate::summary::test_support::journal;
     let events = journal(&[
-        (
-            EventType::PhaseEntered,
-            json!({"phase": "work"}),
-            "2026-01-01T00:00:00Z",
-        ),
-        (
-            EventType::EffectStarted,
-            json!({"effect_id": "fx", "attempt_id": "a",
-                   "provenance": [{"member": "m", "provider": "anthropic"}]}),
+        work(),
+        starts(
+            json!([{"member": "m", "provider": "anthropic"}]),
             "2026-01-01T00:00:01Z",
         ),
-        (
-            EventType::EffectRequested,
-            json!({"effect_id": "fx", "seat": "worker", "phase": "work"}),
-            "2026-01-01T00:00:02Z",
-        ),
-        (
-            EventType::EffectCheckpointed,
-            json!({"effect_id": "fx", "attempt_id": "a",
-                   "checkpoint": {"member": "m", "step": "seat-turn"}}),
+        asks("2026-01-01T00:00:02Z"),
+        records(
+            json!({"member": "m", "step": "seat-turn"}),
             "2026-01-01T00:00:03Z",
         ),
     ]);
-    let rows = Account::whole("run", &events).seats().to_vec();
-    let sited: Vec<&SeatRow> = rows.iter().filter(|row| row.site.is_some()).collect();
-    assert_eq!(sited.len(), 1);
-    assert_eq!(sited[0].member, Member::Named("m".to_string()));
+    let account = Account::whole("run", &events);
+    let site = the_site(&account);
+    assert_eq!(site.member, Member::Named("m".to_string()));
     assert_eq!(
-        sited[0].provider,
+        site.provider,
         Some((2, Provider::Named("anthropic".to_string())))
     );
+}
+
+/// A checkpoint that lands after its attempt's start but before the
+/// effect's request still dates the site the request opens: the site keeps
+/// the model and metering rule its checkpoint read, and the participant its
+/// tokens and turn (review 753s4s3, M1).
+#[test]
+fn a_checkpoint_before_its_request_keeps_its_site_facts() {
+    use crate::summary::test_support::journal;
+    let events = journal(&[
+        work(),
+        starts(
+            json!([{"member": "m", "provider": "anthropic"}]),
+            "2026-01-01T00:00:01Z",
+        ),
+        records(
+            json!({"member": "m", "step": "seat-turn", "model": "opus",
+                   "input_tokens": 10}),
+            "2026-01-01T00:00:02Z",
+        ),
+        asks("2026-01-01T00:00:03Z"),
+    ]);
+    let account = Account::whole("run", &events);
+    let site = the_site(&account);
+    assert_eq!(site.site_model.as_deref(), Some("opus"));
+    assert_eq!(site.metering, Metering::Turns);
+    let member = the_member(&account, "m");
+    assert_eq!(member.model.as_deref(), Some("opus"));
+    assert_eq!(
+        member.usage,
+        Some(TokenUsage {
+            input_tokens: Some(10),
+            total_tokens: Some(10),
+            ..TokenUsage::default()
+        })
+    );
+    assert_eq!(member.provider, provider("anthropic"));
+    assert!(account.seats_kept(), "the request drains the held records");
+}
+
+/// A terminal of a start whose effect was never asked cannot make its rows
+/// current: the site waits for the request that would replay both, so the
+/// writer keeps no seat head and a reader falls back to the run whole
+/// (review 753s4s3, M2). The request, once it lands, replays the terminal
+/// too, so the site is represented and concluded.
+#[test]
+fn a_terminated_unrequested_start_keeps_its_rows_unkept() {
+    use crate::summary::test_support::journal;
+    let start = starts(
+        json!([{"member": "m", "provider": "anthropic"}]),
+        "2026-01-01T00:00:01Z",
+    );
+    let failed = (
+        EventType::EffectFailed,
+        json!({"effect_id": "fx", "attempt_id": "a"}),
+        "2026-01-01T00:00:02Z",
+    );
+    let before = journal(&[work(), start.clone(), failed.clone()]);
+    let account = Account::whole("run", &before);
+    assert_eq!(
+        account
+            .seats()
+            .iter()
+            .filter(|row| row.site.is_some())
+            .count(),
+        0
+    );
+    assert_eq!(crate::summary::sites(&before).len(), 1);
+    assert!(
+        !account.seats_kept(),
+        "a site no request replayed is not represented as current"
+    );
+    let after = journal(&[work(), start, failed, asks("2026-01-01T00:00:03Z")]);
+    let account = Account::whole("run", &after);
+    assert!(account.seats_kept());
+    assert_eq!(the_member(&account, "m").outcome, Outcome::Failed);
+}
+
+/// A providerless start before its request still updates its participant:
+/// the later start states the participant's provider as none, while the
+/// earlier site keeps the provider key its own start set (review 753s4s3,
+/// M3).
+#[test]
+fn a_providerless_early_restart_updates_the_participant() {
+    use crate::summary::test_support::journal;
+    let events = journal(&[
+        work(),
+        starts(
+            json!([{"member": "m", "provider": "anthropic"}]),
+            "2026-01-01T00:00:01Z",
+        ),
+        starts(
+            json!([{"member": "m", "provider": null}]),
+            "2026-01-01T00:00:02Z",
+        ),
+        asks("2026-01-01T00:00:03Z"),
+    ]);
+    let account = Account::whole("run", &events);
+    assert_eq!(
+        the_site(&account).site_provider.as_deref(),
+        Some("anthropic")
+    );
+    assert_eq!(the_member(&account, "m").provider, Some(Provider::Unnamed));
 }
 
 /// A record that is not a start is never deferred as one, whatever its
