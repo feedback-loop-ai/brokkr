@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://feedback-loop.ai/forge/contracts/provider-wait.v1.json",
   "title": "Forge provider wait v1 (an additive payload extension at event_schema 1)",
-  "description": "Decision 0103 rulings 2(a), 3 and 4(a): the optional, absent-by-default payload fields that record a provider's rate-limit cool-down and the probe that ends it. `effect/failed.waits` (and, from decision 0103 slice 4c2, `effect/indeterminate.waits`) is one entry per refused site: the journal tag (absent for an inline seat), the provider and route the driver already resolved, the provider's bounded words, its retry-after when given, the computed `until`, the round of the effect's episode, and the length the engine computed under that entry's own route's bounds. `effect/failed.refused` is the typed refusal that ended the run in a park, written beside the `run/parked` that follows so a crash between the two appends cannot lose it: the cause, the provider, the route where resolved, the provider's words, its retry-after when given, and the computed length and declared maximum where the engine reached them. A `waits` entry exists only where an `until` exists; `refused` exists even where none can. `effect/started.probe` is the one answer a dedicated one-turn probe gave before its retry, with the site, provider, route and when it answered. The fields are optional and absent by default, are published as a numbered extension at event_schema 1 under the amended rule in contracts/README.md, and are never read by `fold`: the engine reads them from the effect's own events and `RunState` gains nothing. A present entry that cannot be read refuses by name, never as absent.",
+  "description": "Decision 0103 rulings 2(a), 3 and 4(a): the optional, absent-by-default payload fields that record a provider's rate-limit cool-down and the probe that ends it. `effect/failed.waits` (and, from decision 0103 slice 4c2, `effect/indeterminate.waits`) is one entry per refused site: the journal tag (absent for an inline seat), the provider and route the driver already resolved, the provider's bounded words, its retry-after when given, the computed `until`, the round of that site's waits within the effect's episode, and the length the engine computed under that entry's own route's bounds. `effect/failed.refused` is the typed refusal that ended the run in a park, written beside the `run/parked` that follows so a crash between the two appends cannot lose it: the cause, the invocation-site tag where one applies, the provider, the route where resolved, the provider's words, its retry-after when given, and the computed length and declared maximum where the engine reached them. A `waits` entry exists only where an `until` exists; `refused` exists even where none can. `effect/started.probes` is the answers the dedicated one-turn probes gave before their retry, one entry per answering probe with the site, provider, route and when it answered; a single seat writes one entry. The fields are optional and absent by default, are published as a numbered extension at event_schema 1 under the amended rule in contracts/README.md, and are never read by `fold`: the engine reads them from the effect's own events and `RunState` gains nothing. A present entry that cannot be read refuses by name, never as absent.",
   "type": "object",
   "properties": {
     "waits": {
@@ -15,11 +15,14 @@
       "$ref": "#/definitions/refusal",
       "description": "Present on an `effect/failed` that parks on a typed rate-limit refusal, beside the `run/parked` that follows (decision 0103 slice 4c1, this fix round). It keeps the refusal's facts even where no `until` can be written."
     },
-    "probe": {
-      "$ref": "#/definitions/probe",
-      "description": "Present on the retry's `effect/started` only after a dedicated probe answered, so the wait's end has a record. A probe that ended without an answer writes none."
+    "probes": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/probe" },
+      "description": "Present on the retry's `effect/started` only after a dedicated probe answered, so the wait's end has a record: one entry per answering probe, and a single seat writes one. A probe that ended without an answer writes none."
     }
   },
+  "not": { "required": ["probe"] },
   "definitions": {
     "wait": {
       "type": "object",
@@ -66,7 +69,7 @@
         "rounds": {
           "type": "integer",
           "minimum": 1,
-          "description": "Which round of this effect-wide episode this wait is: one for the first refusal, two for the next. The episode is counted across the effect, not per site; `seconds` records the route's default doubled by it at the time it was computed."
+          "description": "Which round of this site's waits within the effect's episode this is: one for the first refusal at this site, two for the next. The episode's seconds are summed across its sites; this wait's `seconds` is the length computed under this entry's own route's bounds at that round (decision 0103 ruling 3)."
         }
       }
     },
@@ -75,6 +78,12 @@
       "required": ["cause", "provider", "words"],
       "additionalProperties": false,
       "properties": {
+        "site": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "The invocation-site tag of the refusal, tagged as `waits.site` is: '<member>' for a panel member, '<step>' for a sequence step, '<step>:<member>' for a member inside a step panel. Absent for an inline seat."
+        },
         "cause": {
           "type": "string",
           "enum": [

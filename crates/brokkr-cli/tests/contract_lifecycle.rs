@@ -852,8 +852,8 @@ fn instance_satisfies_row(row: &Row, instance: &serde_json::Value) -> Option<Str
 }
 
 /// Drive the provider-wait extension's one reader: a valid `waits` entry
-/// (with its probe answer beside it) loads, and the row's own schema admits
-/// the instance first.
+/// (with its `probes` answer beside it) loads, and the row's own schema
+/// admits the instance first.
 fn drive_provider_waits(row: &Row) -> Vec<String> {
     let payload = serde_json::json!({
         "waits": [{
@@ -861,10 +861,10 @@ fn drive_provider_waits(row: &Row) -> Vec<String> {
             "retry_after_seconds": 30, "seconds": 30,
             "until": "2026-11-01T00:00:30Z", "rounds": 2
         }],
-        "probe": {
+        "probes": [{
             "provider": "claude", "route": "first",
             "answered_at": "2026-11-01T00:00:31Z"
-        }
+        }]
     });
     if let Some(finding) = instance_satisfies_row(row, &payload) {
         return vec![finding];

@@ -570,7 +570,10 @@ pub(super) fn adopted(
 /// coordination `root`, read as it stands, nothing made: none where its
 /// directory is missing, for its run reserved nothing there; refused where
 /// it cannot be read, or names another run.
-fn standing(root: &Root, [repo, run]: [&str; 2]) -> Result<Option<Reservation>, Unknown> {
+pub(super) fn standing(
+    root: &Root,
+    [repo, run]: [&str; 2],
+) -> Result<Option<Reservation>, Unknown> {
     let (dir, at) = match reserved_in(root, [repo, run], false) {
         Err(Unknown::Lost) => return Ok(None),
         found => found?,
@@ -583,7 +586,7 @@ fn standing(root: &Root, [repo, run]: [&str; 2]) -> Result<Option<Reservation>, 
 
 /// Whether `reserved` proves every driver of its attempt settled: none
 /// witnessed unresolved, and drivers recorded, each sealed Settled.
-fn recorded_settled(reserved: &Reserved) -> bool {
+pub(super) fn recorded_settled(reserved: &Reserved) -> bool {
     let settled = |driver: &Driver| driver.cleanup == Witnessed::Settled;
     let recorded = !reserved.drivers.is_empty();
     let unresolved = reserved.cleanup == Witnessed::Unresolved;

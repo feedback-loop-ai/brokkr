@@ -165,6 +165,16 @@ pub(in crate::engine) enum Unknown {
     Lost,
     #[error("the attempt's reservation holds no proof that its owned processes settled")]
     Unproven,
+    /// A run's own standing attempt that the journal never names: a
+    /// crashed cool-down probe's reservation (decision 0103 ruling 4, this
+    /// fix round). It may still be live, so it is never re-admitted over.
+    #[error(
+        "run '{run}' holds standing attempt '{attempt}' that no journal event names: a crashed \
+         cool-down probe's reservation, released only where every process it witnessed is proven \
+         settled; a run's own attempt is re-admitted only where the journal names it as the \
+         attempt being recovered"
+    )]
+    Orphaned { run: String, attempt: String },
     #[error(
         "site '{site}' of run '{run}' can write '{}', which an MCP server's box or lease rests on",
         .served.display()

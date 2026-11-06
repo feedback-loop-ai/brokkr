@@ -292,11 +292,13 @@ impl Engine {
                 started["carried"] = json!(carried);
             }
         }
-        // Decision 0103 ruling 4(a): the probe answered before this retry,
-        // so its one answer is the wait's end, journaled here.
+        // Decision 0103 ruling 4(a): the probes answered before this retry,
+        // so their answers are the wait's end, journaled here as `probes`.
+        // One single seat writes its one entry.
         if let Some(answer) = self.cooldown.answer.take() {
-            started["probe"] =
-                serde_json::to_value(&answer).expect("a probe answer is three serializable fields");
+            started["probes"] =
+                json!([serde_json::to_value(&answer)
+                    .expect("a probe answer is four serializable fields")]);
         }
         selection.carry = carry;
         Ok((selection, started))

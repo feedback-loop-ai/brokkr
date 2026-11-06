@@ -199,7 +199,7 @@ const FROZEN: [(&str, &str); 34] = [
     // is re-pinned in place.
     (
         "contracts/provider-wait.v1.schema.json",
-        "307fa13b021bf04f0aa151af4d29c9ad63455fdcc8475d271568fa11a6e69593",
+        "7f3b018dd5e50abea8735ecd8c7c8c96684f519e370d9a291c74a77975986dfc",
     ),
 ];
 
@@ -1529,7 +1529,7 @@ fn the_driver_refusal_extension_is_closed_and_its_probe_is_true() {
 }
 
 /// Decision 0103 ruling 2(a): the provider-wait extension is one closed
-/// wait (and the retry's one closed probe answer) at event_schema 1.
+/// wait (and the retry's closed `probes` array) at event_schema 1.
 #[test]
 fn the_provider_wait_extension_is_closed_and_reads_back() {
     let validator = contract("contracts/provider-wait.v1.schema.json");
@@ -1539,10 +1539,16 @@ fn the_provider_wait_extension_is_closed_and_reads_back() {
         "until": "2026-11-01T00:00:30Z", "rounds": 1
     });
     assert!(validator.is_valid(&serde_json::json!({"waits": [wait]})));
-    assert!(validator.is_valid(&serde_json::json!({"probe": {
+    assert!(validator.is_valid(&serde_json::json!({"probes": [{
         "provider": "claude", "route": "first",
         "answered_at": "2026-11-01T00:00:31Z"
-    }})));
+    }]})));
+    assert!(validator.is_valid(&serde_json::json!({"probes": [
+        {"provider": "claude", "route": "first",
+         "answered_at": "2026-11-01T00:00:31Z"},
+        {"site": "work:chore", "provider": "codex", "route": "second",
+         "answered_at": "2026-11-01T00:00:32Z"}
+    ]})));
     for invalid in [
         serde_json::json!({"waits": []}),
         serde_json::json!({"waits": [{"route": "first", "words": "w", "seconds": 1,
@@ -1564,7 +1570,12 @@ fn the_provider_wait_extension_is_closed_and_reads_back() {
             "words": "w", "until": "2026-11-01T00:00:30Z", "rounds": 1}]}),
         serde_json::json!({"waits": [{"provider": "claude", "route": "first",
             "words": "w", "seconds": 0, "until": "2026-11-01T00:00:30Z", "rounds": 1}]}),
-        serde_json::json!({"probe": {"provider": "claude", "route": "first"}}),
+        serde_json::json!({"probes": []}),
+        serde_json::json!({"probes": [{"provider": "claude", "route": "first"}]}),
+        serde_json::json!({"probe": {
+            "provider": "claude", "route": "first",
+            "answered_at": "2026-11-01T00:00:31Z"
+        }}),
     ] {
         assert!(
             !validator.is_valid(&invalid),
@@ -1688,6 +1699,21 @@ fn the_refused_record_is_closed_and_reads_back() {
     no_route.as_object_mut().unwrap().remove("route");
     for (case, admitted, refused) in [
         ("valid", true, valid.clone()),
+        (
+            "a site tag",
+            true,
+            changed(valid.clone(), "site", "work:chore".into()),
+        ),
+        (
+            "a null site",
+            false,
+            changed(valid.clone(), "site", serde_json::Value::Null),
+        ),
+        (
+            "a site past 200",
+            false,
+            changed(valid.clone(), "site", "s".repeat(201).into()),
+        ),
         (
             "an unresolved route names none",
             true,

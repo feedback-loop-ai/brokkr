@@ -1264,6 +1264,10 @@ pub brokkr_core::PolicyError::Malformed(brokkr_core::policy::Malformed)
 pub brokkr_core::PolicyError::Refused(brokkr_core::policy::audit::Refusal)
 impl core::convert::From<brokkr_core::policy::Malformed> for brokkr_core::policy::PolicyError
 pub fn brokkr_core::policy::PolicyError::from(brokkr_core::policy::Malformed) -> Self
+pub enum brokkr_core::ProviderProbeError
+pub brokkr_core::ProviderProbeError::Field
+pub brokkr_core::ProviderProbeError::Field::field: alloc::string::String
+pub brokkr_core::ProviderProbeError::Field::seq: u64
 pub enum brokkr_core::ProviderRefusalError
 pub brokkr_core::ProviderRefusalError::Field
 pub brokkr_core::ProviderRefusalError::Field::field: alloc::string::String
@@ -1324,6 +1328,7 @@ pub struct brokkr_core::ProbeAnswer
 pub brokkr_core::ProbeAnswer::answered_at: time::offset_date_time::OffsetDateTime
 pub brokkr_core::ProbeAnswer::provider: alloc::string::String
 pub brokkr_core::ProbeAnswer::route: alloc::string::String
+pub brokkr_core::ProbeAnswer::site: core::option::Option<alloc::string::String>
 impl serde_core::ser::Serialize for brokkr_core::ProbeAnswer
 pub fn brokkr_core::ProbeAnswer::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
 pub struct brokkr_core::ProviderRefusal
@@ -1333,6 +1338,7 @@ pub brokkr_core::ProviderRefusal::provider: alloc::string::String
 pub brokkr_core::ProviderRefusal::retry_after_seconds: core::option::Option<u64>
 pub brokkr_core::ProviderRefusal::route: core::option::Option<alloc::string::String>
 pub brokkr_core::ProviderRefusal::seconds: core::option::Option<u64>
+pub brokkr_core::ProviderRefusal::site: core::option::Option<alloc::string::String>
 pub brokkr_core::ProviderRefusal::words: alloc::string::String
 pub struct brokkr_core::ProviderWait
 pub brokkr_core::ProviderWait::provider: alloc::string::String
@@ -1363,5 +1369,6 @@ impl brokkr_core::fold::RunState
 pub fn brokkr_core::fold::RunState::stopping_seq(&self) -> core::option::Option<u64>
 pub fn brokkr_core::cited_shas(&[brokkr_core::envelope::EventEnvelope]) -> alloc::collections::btree::set::BTreeSet<alloc::string::String>
 pub fn brokkr_core::fold(&[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>
+pub fn brokkr_core::provider_probes(&brokkr_core::envelope::EventEnvelope) -> core::result::Result<core::option::Option<alloc::vec::Vec<brokkr_core::ProbeAnswer>>, brokkr_core::ProviderProbeError>
 pub fn brokkr_core::provider_refusal(&brokkr_core::envelope::EventEnvelope) -> core::result::Result<core::option::Option<brokkr_core::ProviderRefusal>, brokkr_core::ProviderRefusalError>
 pub fn brokkr_core::provider_waits(&brokkr_core::envelope::EventEnvelope) -> core::result::Result<core::option::Option<alloc::vec::Vec<brokkr_core::ProviderWait>>, brokkr_core::ProviderWaitError>

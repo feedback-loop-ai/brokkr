@@ -235,29 +235,32 @@ fn refusal_text(refused: &ProviderRefusal, episode: Option<u64>) -> String {
     }
 }
 
-/// Whether the record's own computed length is past its declared maximum,
-/// as the numbers it carries show it: the no-end arm's one comparison.
-fn recorded_past(refused: &ProviderRefusal) -> bool {
+/// The record's computed length and declared maximum, the one extraction
+/// both the no-end comparison and the text read. Only a cause that reached
+/// the maximum carries them, and the reader requires both on that cause, so
+/// the expects are the record's invariant, as `waiter`'s RFC 3339 expect is
+/// the wire's.
+fn recorded_numbers(refused: &ProviderRefusal) -> (u64, u64) {
     let seconds = refused
         .seconds
         .expect("a computed refusal records its seconds");
     let max = refused
         .max_seconds
         .expect("a computed refusal records its maximum");
+    (seconds, max)
+}
+
+/// Whether the record's own computed length is past its declared maximum,
+/// as the numbers it carries show it: the no-end arm's one comparison.
+fn recorded_past(refused: &ProviderRefusal) -> bool {
+    let (seconds, max) = recorded_numbers(refused);
     seconds > max
 }
 
 /// A computed length and the declared maximum as the refusal's text spells
-/// them. Only a cause that reached the maximum asks for them, and the reader
-/// requires both on that cause, so the expects are the record's invariant,
-/// as `waiter`'s RFC 3339 expect is the wire's.
+/// them, both read by [`recorded_numbers`].
 fn recorded_length(refused: &ProviderRefusal) -> (String, String) {
-    let seconds = refused
-        .seconds
-        .expect("a computed refusal records its seconds");
-    let max = refused
-        .max_seconds
-        .expect("a computed refusal records its maximum");
+    let (seconds, max) = recorded_numbers(refused);
     (format!("{seconds}s"), format!("{max}s"))
 }
 
@@ -272,6 +275,9 @@ fn refusal_record(
 ) -> ProviderRefusal {
     ProviderRefusal {
         cause,
+        // 4c1 records a single seat's refusal: it has no invocation-site
+        // tag, so `site` is absent, as `waits.site` is for an inline seat.
+        site: None,
         provider: refusal.provider().to_string(),
         route: route.map(str::to_string),
         words: refusal.words().to_string(),

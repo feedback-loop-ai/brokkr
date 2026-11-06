@@ -78,7 +78,8 @@ impl Engine {
         let began = Instant::now();
         let deadline = Duration::from_secs(timeout);
         if let Err(refusal) = self.admit_for_probe(
-            [effect_id, &probe_attempt, &site_name],
+            events,
+            [&probe_attempt, &site_name],
             body,
             &selection,
             (began, deadline),
@@ -165,6 +166,7 @@ impl Engine {
         match report.settled_outcome() {
             AttemptOutcome::Succeeded { .. } => match report.checkpoints.first() {
                 Some(_) => Probe::Answered(ProbeAnswer {
+                    site: None,
                     provider: wait.provider.clone(),
                     route: wait.route.clone(),
                     answered_at: self.now(),

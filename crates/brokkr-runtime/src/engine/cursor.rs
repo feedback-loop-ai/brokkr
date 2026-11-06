@@ -95,6 +95,17 @@ impl Engine {
                 return Ok(());
             }
         };
+        // Before the wait's probe and before the retry's admission, the
+        // run's own reservation may name a crashed probe's attempt that no
+        // journal event names. It is released only where every process it
+        // witnessed is proven settled; otherwise the run parks with the
+        // cleanup refusal naming it, spending no effect attempt and starting
+        // no probe or retry (decision 0103 ruling 4, this fix round).
+        if let Err(reason) = self.recovered_probe(events, &wait, &crate::engine::broker::observed())
+        {
+            self.park_with_reason(reason)?;
+            return Ok(());
+        }
         match self.take_cooldown(events, state, effect_id, seat, &wait)? {
             Waited::Proceed(answer) => {
                 self.run_attempt(events, state, effect_id, seat, Some(answer))

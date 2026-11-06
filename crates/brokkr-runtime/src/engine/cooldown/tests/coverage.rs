@@ -7,6 +7,7 @@ use brokkr_core::fold::Cursor;
 use brokkr_core::ProviderWait;
 
 use super::*;
+use crate::engine::broker::admission::tests::reservation_path;
 use crate::engine::cooldown::Waited;
 use crate::engine::tests::{fail_event, state};
 use crate::engine::EngineError;
@@ -221,16 +222,44 @@ fn the_probe_names_a_cased_site_as_the_attempt_does() {
     assert_eq!(probe_seat(dir.path(), "work"), "work:chore");
 }
 
-/// A driven probe holds its own admission's lease, so its spawn passes the
-/// door that rechecks the lease, and it answers; the retry then runs. The
-/// lease is taken by the probe's own `admit`, never planted.
+/// F2: a driven probe's spawn is witnessed on its own lease at the door
+/// before it starts, so the door is proved and not merely passed. The probe
+/// is held open at its barrier while the test reads the reservation's one
+/// driver record: site `work`, `settling`. With the door removed the probe
+/// still answers, but no driver record is sealed, and this fails by name.
 #[test]
-fn a_probes_own_lease_is_rechecked_at_the_door_and_answers() {
-    let (dir, mut engine, _now) = seated!(&["refuse", "succeed"], Probed::Answer, None, 2);
-    drove(
-        &mut engine,
-        dir.path(),
-        &["attempt:refuse", "probe", "attempt:succeed"],
+fn a_probes_spawn_witness_is_sealed_at_its_door_before_it_answers() {
+    let (dir, engine, _now) = seated!(&["refuse", "succeed"], Probed::Barrier, None, 2);
+    let home = super::lease::home(dir.path());
+    let worktree = dir.path().join("work");
+    let run = engine.run_id.clone();
+    let (release, driver) = super::lease::barrier_started(&home, engine);
+    let at = reservation_path(&home, &worktree, &run);
+    let sealed: Value = serde_json::from_slice(&std::fs::read(&at).unwrap()).unwrap();
+    let attempts = sealed["attempts"]
+        .as_object()
+        .expect("the probe's attempt stands");
+    assert_eq!(attempts.len(), 1, "the probe's one attempt: {sealed}");
+    let reserved = attempts.values().next().unwrap();
+    let drivers = reserved
+        .get("drivers")
+        .and_then(Value::as_array)
+        .map(|drivers| {
+            drivers
+                .iter()
+                .map(|driver| (driver["site"].clone(), driver["cleanup"].clone()))
+                .collect::<Vec<_>>()
+        });
+    assert_eq!(
+        drivers,
+        Some(vec![(json!("work"), json!("settling"))]),
+        "the door sealed no spawn witness for the probe: {sealed}"
     );
-    assert_eq!(probe_seat(dir.path(), "work"), "work");
+    std::fs::write(&release, "").unwrap();
+    let engine = driver.join().unwrap();
+    assert_eq!(
+        logs(dir.path(), "work"),
+        ["attempt:refuse", "probe", "attempt:succeed"]
+    );
+    assert_eq!(starts(&engine).len(), 2);
 }

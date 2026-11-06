@@ -126,6 +126,9 @@ enum Probed {
     /// The probe writes its started marker, waits for its release marker,
     /// then answers: the lease test holds it open while it claims.
     Barrier,
+    /// The first probe hangs before answering; every later probe answers.
+    /// The live-probe crash test's first engine is killed in that hang.
+    HangThenAnswer,
 }
 
 /// A `forge-driver/v1` participant in `sh`: its attempts read a verdict
@@ -164,23 +167,12 @@ fn driver(
          \"route\":\"{route}\",\"words\":\"rate_limit: slow down\"{retry}}}}}\\n' \
          \"$base\" \"$eid\" \"$aid\""
     );
-    let probe = match probed {
-        Probed::Answer => format!("{accepted}\n  {checkpoint}\n  {succeeded}"),
-        Probed::Refuse => refused.clone(),
-        Probed::Hang => format!("{accepted}\n  sleep 30"),
-        Probed::Error => format!(
-            "{accepted}\n  printf '%s,\"type\":\"result\",\"effect_id\":\"%s\",\
-             \"attempt_id\":\"%s\",\"status\":\"failed\",\"error\":\"probe exploded\"}}\\n' \
-             \"$base\" \"$eid\" \"$aid\""
-        ),
-        Probed::Unadvertised => succeeded.to_string(),
-        Probed::Barrier => format!(
-            "{accepted}\n  : > '@STARTED@'\n  i=0\n  while [ ! -e '@RELEASE@' ] && \
-             [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done\n  {checkpoint}\n  {succeeded}"
-        ),
-    };
+    let probe = probe_driver::probe_action(probed, accepted, checkpoint, succeeded, &refused);
     let started = dir.join(format!("{tag}.started"));
     let release = dir.join(format!("{tag}.release"));
+    let pidlog = dir.join(format!("{tag}.pid"));
+    let done = dir.join(format!("{tag}.done"));
+    let probecount = dir.join(format!("{tag}.probecount"));
     let mut script = String::from(
         r#"n=$(cat '@COUNT@' 2>/dev/null || echo 0)
 read -r hello
@@ -193,6 +185,8 @@ base='{"proto":"forge-driver/v1","msg_id":"m"'
 case "$start" in
   *'"probe":true'*)
     printf '%s\n' 'probe' >> '@LOG@'
+    printf '%s' "$$" > '@PIDLOG@'
+    printf done > '@DONE@'
     seat=$(printf '%s' "$start" | grep -o '"seat":"[^"]*"' | head -1 | cut -d'"' -f4)
     printf '%s' "$seat" > '@SEATLOG@'
     @PROBE@
@@ -226,6 +220,9 @@ read -r bye
         ("@SUCCEEDED@", succeeded.to_string()),
         ("@STARTED@", started.display().to_string()),
         ("@RELEASE@", release.display().to_string()),
+        ("@PIDLOG@", pidlog.display().to_string()),
+        ("@DONE@", done.display().to_string()),
+        ("@PROBECOUNT@", probecount.display().to_string()),
     ] {
         script = script.replace(at, &with);
     }
@@ -483,8 +480,8 @@ fn a_rate_limit_waits_for_the_probe_then_retries() {
     assert!(*now.lock().unwrap() >= base() + time::Duration::seconds(1));
     let started = starts(&engine);
     assert_eq!(started.len(), 2, "{started:?}");
-    assert_eq!(started[1]["probe"]["provider"], "claude");
-    assert_eq!(started[1]["probe"]["route"], "first");
+    assert_eq!(started[1]["probes"][0]["provider"], "claude");
+    assert_eq!(started[1]["probes"][0]["route"], "first");
     assert!(failed(&engine)[0].payload["waits"].is_array());
 }
 
@@ -548,7 +545,7 @@ fn the_probe_asks_the_cooled_route_and_the_retry_takes_the_next_link() {
     let started = starts(&engine);
     assert_eq!(started.len(), 2);
     assert_eq!(started[1]["provenance"][0]["agent"], "worker");
-    assert_eq!(started[1]["probe"]["provider"], "claude");
+    assert_eq!(started[1]["probes"][0]["provider"], "claude");
 }
 
 #[test]
@@ -562,7 +559,7 @@ fn a_one_candidate_chain_retries_the_cooled_route() {
         logs(dir.path(), "work"),
         ["attempt:refuse", "probe", "attempt:succeed"]
     );
-    assert_eq!(starts(&engine)[1]["probe"]["provider"], "claude");
+    assert_eq!(starts(&engine)[1]["probes"][0]["provider"], "claude");
 }
 
 #[test]
@@ -1278,7 +1275,7 @@ fn a_resume_waits_the_remainder() {
     assert_eq!(logs(dir.path(), "work"), ["probe", "attempt:succeed"]);
     assert_eq!(*now.lock().unwrap(), base() + time::Duration::seconds(3));
     let started = starts(&engine);
-    assert!(started.last().unwrap()["probe"].is_object());
+    assert!(started.last().unwrap()["probes"][0].is_object());
 }
 
 #[test]
@@ -1390,6 +1387,7 @@ fn a_driver_that_does_not_advertise_the_probe_parks_naming_it() {
 }
 
 mod lease;
+mod probe_driver;
 
 fn no_waits(engine: &Engine) {
     for event in failed(engine) {
@@ -1432,7 +1430,7 @@ fn a_panel_refused_by_a_rate_limit_follows_todays_path() {
     no_waits(&engine);
     assert!(starts(&engine)
         .iter()
-        .all(|start| start.get("probe").is_none()));
+        .all(|start| start.get("probes").is_none()));
     assert!(
         park_reason(&engine).contains("failed 2 of 2 attempt(s)"),
         "{}",
@@ -1471,7 +1469,7 @@ fn a_sequence_refused_by_a_rate_limit_follows_todays_path() {
     no_waits(&engine);
     assert!(starts(&engine)
         .iter()
-        .all(|start| start.get("probe").is_none()));
+        .all(|start| start.get("probes").is_none()));
 }
 
 /// The host seam's three outcomes, and the two no-declaration shapes. A
@@ -1986,4 +1984,5 @@ fn a_cooldown_error_names_an_unreadable_refusal() {
 }
 
 mod coverage;
+mod crash;
 mod refusal_cap;

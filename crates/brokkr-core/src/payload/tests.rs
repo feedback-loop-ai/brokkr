@@ -441,6 +441,25 @@ fn the_refused_record_reads_and_refuses_by_name() {
     assert_eq!(refused.seconds, Some(5));
     assert_eq!(refused.max_seconds, Some(2));
     assert_eq!(json!(refused), valid, "the record writes its own shape");
+    // The invocation-site tag reads back where present, and is absent for
+    // an inline seat, as `waits.site` is.
+    let cased = event(
+        Type::EffectFailed,
+        json!({"effect_id": "e", "refused": {
+            "cause": "past-maximum", "site": "work:chore", "provider": "claude",
+            "route": "first", "words": "rate_limit: slow down",
+            "seconds": 5, "max_seconds": 2
+        }}),
+    );
+    let refused = provider_refusal(&cased).unwrap().unwrap();
+    assert_eq!(refused.site.as_deref(), Some("work:chore"));
+    assert_eq!(json!(refused)["site"], "work:chore");
+    assert!(
+        json!(provider_refusal(&recorded).unwrap().unwrap())
+            .get("site")
+            .is_none(),
+        "an inline seat's refusal carries no site"
+    );
 
     // An unresolved route names none; a host refusal names one and no
     // computed length. Absent is no refusal, never a malformed one.
@@ -537,11 +556,105 @@ fn the_refused_record_refuses_by_name() {
     );
 }
 
-/// The probe answer's own serializer refuses a time RFC 3339 cannot spell:
-/// the arm the production clock never reaches is reachable, and says why.
+/// The retry's `probes` array reads back: two entries, each typed, and the
+/// site tag present only where the probe was asked at one. A present array
+/// that does not read refuses by name, never as no answer; the retired
+/// single `probe` object is refused too, never read as absent.
+#[test]
+fn the_probes_read_and_refuse_the_retired_single_probe() {
+    let answered = json!({"provider": "claude", "route": "first",
+                          "answered_at": "2026-11-01T00:00:31Z"});
+    let two = event(
+        Type::EffectStarted,
+        json!({"probes": [
+            answered.clone(),
+            {"site": "work:chore", "provider": "codex", "route": "second",
+             "answered_at": "2026-11-01T00:00:32Z"}
+        ]}),
+    );
+    let probes = provider_probes(&two).unwrap().unwrap();
+    assert_eq!(probes.len(), 2);
+    assert_eq!(probes[0].site, None);
+    assert_eq!(probes[0].provider, "claude");
+    assert_eq!(probes[1].site.as_deref(), Some("work:chore"));
+    assert_eq!(probes[1].route, "second");
+    assert_eq!(
+        probes[1].answered_at,
+        OffsetDateTime::parse("2026-11-01T00:00:32Z", &Rfc3339).unwrap()
+    );
+    assert_eq!(
+        provider_probes(&event(Type::EffectStarted, json!({}))).unwrap(),
+        None,
+        "an effect/started with no probes answered"
+    );
+    let refuses = |payload: Value, field: &str| {
+        let error = provider_probes(&event(Type::EffectStarted, payload)).unwrap_err();
+        assert!(
+            matches!(&error, ProviderProbeError::Field { field: named, .. } if named == field),
+            "{error:?} did not name {field}"
+        );
+    };
+    refuses(json!({"probes": []}), "probes");
+    refuses(json!({"probes": {}}), "probes");
+    refuses(
+        json!({"probes": [{"provider": "claude", "route": "first"}]}),
+        "answered_at",
+    );
+    refuses(
+        json!({"probes": [{"provider": "claude", "route": "first",
+                           "answered_at": "not a time"}]}),
+        "answered_at",
+    );
+    refuses(
+        json!({"probes": [{"provider": "p/r", "route": "first",
+                           "answered_at": "2026-11-01T00:00:31Z"}]}),
+        "provider",
+    );
+    refuses(
+        json!({"probes": [{"provider": "claude", "route": "r/x",
+                           "answered_at": "2026-11-01T00:00:31Z"}]}),
+        "route",
+    );
+    refuses(
+        json!({"probes": [{"site": "s".repeat(201), "provider": "claude",
+                           "route": "first",
+                           "answered_at": "2026-11-01T00:00:31Z"}]}),
+        "site",
+    );
+    refuses(
+        json!({"probes": [{"provider": "claude", "route": "first",
+                           "answered_at": "2026-11-01T00:00:31Z", "extra": 1}]}),
+        "extra",
+    );
+    refuses(json!({"probe": answered}), "probe");
+    let error = provider_probes(&event(Type::EffectStarted, json!({"probes": []}))).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "event 7: the probes entry does not read: probes"
+    );
+    // The serializer writes an answer's site where it has one, and omits
+    // it for an inline seat.
+    let cased = ProbeAnswer {
+        site: Some("work:chore".into()),
+        provider: "claude".into(),
+        route: "first".into(),
+        answered_at: OffsetDateTime::parse("2026-11-01T00:00:31Z", &Rfc3339).unwrap(),
+    };
+    assert_eq!(json!(cased)["site"], "work:chore");
+    let inline = ProbeAnswer {
+        site: None,
+        ..cased
+    };
+    assert!(json!(inline).get("site").is_none());
+}
+
+/// The probe answer's own serializer writes its optional site and refuses a
+/// time RFC 3339 cannot spell: the arm the production clock never reaches
+/// is reachable, and says why.
 #[test]
 fn a_probe_answer_the_rfc3339_formatter_cannot_spell_refuses_to_serialize() {
     let answer = ProbeAnswer {
+        site: None,
         provider: "claude".into(),
         route: "first".into(),
         answered_at: time::OffsetDateTime::new_utc(

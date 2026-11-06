@@ -1,6 +1,6 @@
 //! The optional provider-wait extension at event_schema 1 (decision 0103
-//! ruling 2(a)): one refused site's cool-down on a terminal event, the one
-//! answer a dedicated probe gave, and the typed refusal that parks. `fold`
+//! ruling 2(a)): one refused site's cool-down on a terminal event, the
+//! answers dedicated probes gave, and the typed refusal that parks. `fold`
 //! reads none of it; the engine, and later the readout, read it from the
 //! effect's own events (decision 0103 rulings 2 to 4). A present entry that
 //! cannot be read refuses by name, never as absent.
@@ -33,16 +33,23 @@ pub struct ProviderWait {
     pub seconds: u64,
     /// The computed end of this round's wait.
     pub until: OffsetDateTime,
-    /// Which round of the effect's and site's episode this is.
+    /// Which round of this site's waits within the effect's episode this
+    /// is: one for the first refusal at this site, two for the next. The
+    /// episode's seconds are summed across its sites; this wait's `seconds`
+    /// is the length computed under this entry's own route's bounds
+    /// (decision 0103 ruling 3).
     pub rounds: u64,
 }
 
-/// One cool-down probe's answer (decision 0103 ruling 4(a)): the provider
-/// and route the probe asked, and when its first model-output answer
-/// arrived. It is carried typed through the engine and serialized only
-/// where the retry's `effect/started` journals it.
+/// One cool-down probe's answer (decision 0103 ruling 4(a)): the site tag
+/// where a probe was asked (absent for an inline seat), the provider and
+/// route it asked, and when its first model-output answer arrived. It is
+/// carried typed through the engine and serialized only where the retry's
+/// `effect/started` journals it, one entry of `probes`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProbeAnswer {
+    /// The invocation-site tag, `None` for an inline seat.
+    pub site: Option<String>,
     pub provider: String,
     pub route: String,
     pub answered_at: OffsetDateTime,
@@ -50,7 +57,10 @@ pub struct ProbeAnswer {
 
 impl Serialize for ProbeAnswer {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut answer = serializer.serialize_struct("ProbeAnswer", 3)?;
+        let mut answer = serializer.serialize_struct("ProbeAnswer", 4)?;
+        if let Some(site) = &self.site {
+            answer.serialize_field("site", site)?;
+        }
         let answered_at = self
             .answered_at
             .format(&Rfc3339)
@@ -91,6 +101,10 @@ pub enum RefusalCause {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ProviderRefusal {
     pub cause: RefusalCause,
+    /// The invocation-site tag, absent for an inline seat, tagged as
+    /// `waits.site` is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub site: Option<String>,
     pub provider: String,
     /// Where the refusal resolved one; absent for [`RefusalCause::RouteUnresolved`].
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -146,6 +160,95 @@ const SITE_MAX: usize = 200;
 /// The schema's bound on a provider's or route's length.
 const NAME_MAX: usize = 80;
 
+/// The keys one `probes` entry may carry.
+const PROBE_FIELDS: [&str; 4] = ["site", "provider", "route", "answered_at"];
+
+/// `event`'s optional `probes` array on the retry's `effect/started`, typed:
+/// one entry per probe that answered (decision 0103 ruling 4, this fix
+/// round). Absent is no answered probe; a present array is every answer and
+/// is never read as none. The retired single `probe` object is refused by
+/// name: the schema is unminted, so no journal holds one, and a document
+/// that does is never silently read as no probe.
+pub fn provider_probes(
+    event: &EventEnvelope,
+) -> Result<Option<Vec<ProbeAnswer>>, ProviderProbeError> {
+    if event.payload.get("probe").is_some() {
+        return Err(unreadable_probe(event, "probe"));
+    }
+    let Some(value) = event.payload.get("probes") else {
+        return Ok(None);
+    };
+    let entries = value
+        .as_array()
+        .filter(|entries| !entries.is_empty())
+        .ok_or_else(|| unreadable_probe(event, "probes"))?;
+    entries
+        .iter()
+        .map(|entry| probe_entry(event, entry))
+        .collect::<Result<Vec<_>, _>>()
+        .map(Some)
+}
+
+/// One `probes` entry, its closed set of keys and then each field.
+fn probe_entry(event: &EventEnvelope, value: &Value) -> Result<ProbeAnswer, ProviderProbeError> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| unreadable_probe(event, "probes"))?;
+    for key in object.keys() {
+        if !PROBE_FIELDS.contains(&key.as_str()) {
+            return Err(unreadable_probe(event, key));
+        }
+    }
+    Ok(ProbeAnswer {
+        site: probe_site(event, object)?,
+        provider: probe_form(event, object, "provider", provider_form)?,
+        route: probe_form(event, object, "route", route_form)?,
+        answered_at: probe_answered_at(event, object)?,
+    })
+}
+
+/// The probe's site tag, at most the schema's bound.
+fn probe_site(
+    event: &EventEnvelope,
+    object: &Map<String, Value>,
+) -> Result<Option<String>, ProviderProbeError> {
+    optional_site(event, object, unreadable_probe)
+}
+
+/// A probe field the schema bounds by `form`.
+fn probe_form(
+    event: &EventEnvelope,
+    object: &Map<String, Value>,
+    field: &'static str,
+    form: fn(&str) -> bool,
+) -> Result<String, ProviderProbeError> {
+    required_form(event, object, field, form, unreadable_probe)
+}
+
+/// The probe's answer time, read as RFC 3339.
+fn probe_answered_at(
+    event: &EventEnvelope,
+    object: &Map<String, Value>,
+) -> Result<OffsetDateTime, ProviderProbeError> {
+    let text = required_word(event, object, "answered_at", unreadable_probe)?;
+    OffsetDateTime::parse(&text, &Rfc3339).map_err(|_| unreadable_probe(event, "answered_at"))
+}
+
+fn unreadable_probe(event: &EventEnvelope, field: &str) -> ProviderProbeError {
+    ProviderProbeError::Field {
+        seq: event.seq,
+        field: field.to_string(),
+    }
+}
+
+/// Why a present `probes` array does not read: the field that did not
+/// read, named as the fold's own `BadPayload` does.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum ProviderProbeError {
+    #[error("event {seq}: the probes entry does not read: {field}")]
+    Field { seq: u64, field: String },
+}
+
 /// `event`'s optional `waits` array, typed. Absent is no wait; a present
 /// array is every entry and is NEVER read as no wait: one entry that does
 /// not read refuses by name (decision 0103 ruling 2(a)).
@@ -182,9 +285,9 @@ fn wait_entry(event: &EventEnvelope, value: &Value) -> Result<ProviderWait, Prov
         return Err(unreadable_wait(event, "seconds"));
     }
     Ok(ProviderWait {
-        site: optional_site(event, object)?,
-        provider: required_form(event, object, "provider", provider_form)?,
-        route: required_form(event, object, "route", route_form)?,
+        site: optional_site(event, object, unreadable_wait)?,
+        provider: required_form(event, object, "provider", provider_form, unreadable_wait)?,
+        route: required_form(event, object, "route", route_form, unreadable_wait)?,
         words: required_bounded(event, object, "words", WORDS_MAX)?,
         retry_after_seconds,
         seconds,
@@ -193,18 +296,19 @@ fn wait_entry(event: &EventEnvelope, value: &Value) -> Result<ProviderWait, Prov
     })
 }
 
-/// A required non-empty string.
-fn required_word(
+/// A required non-empty string, refused by the record's own error.
+fn required_word<E>(
     event: &EventEnvelope,
     object: &Map<String, Value>,
     field: &'static str,
-) -> Result<String, ProviderWaitError> {
+    unreadable: fn(&EventEnvelope, &str) -> E,
+) -> Result<String, E> {
     object
         .get(field)
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
-        .ok_or_else(|| unreadable_wait(event, field))
+        .ok_or_else(|| unreadable(event, field))
 }
 
 /// A required word the schema bounds by characters.
@@ -214,23 +318,25 @@ fn required_bounded(
     field: &'static str,
     maximum: usize,
 ) -> Result<String, ProviderWaitError> {
-    let word = required_word(event, object, field)?;
+    let word = required_word(event, object, field, unreadable_wait)?;
     if word.chars().count() > maximum {
         return Err(unreadable_wait(event, field));
     }
     Ok(word)
 }
 
-/// A required word the schema bounds by `form`.
-fn required_form(
+/// A required word the schema bounds by `form`, refused by the record's own
+/// error.
+fn required_form<E>(
     event: &EventEnvelope,
     object: &Map<String, Value>,
     field: &'static str,
     form: fn(&str) -> bool,
-) -> Result<String, ProviderWaitError> {
-    let word = required_word(event, object, field)?;
+    unreadable: fn(&EventEnvelope, &str) -> E,
+) -> Result<String, E> {
+    let word = required_word(event, object, field, unreadable)?;
     if !form(&word) {
-        return Err(unreadable_wait(event, field));
+        return Err(unreadable(event, field));
     }
     Ok(word)
 }
@@ -259,28 +365,30 @@ fn name_form(value: &str, colon: bool) -> bool {
 
 /// A non-empty string when it is present; `None` when the key is absent.
 /// A present `null` is refused: an absent site is the only absence.
-fn optional_word(
+fn optional_word<E>(
     event: &EventEnvelope,
     object: &Map<String, Value>,
     field: &'static str,
-) -> Result<Option<String>, ProviderWaitError> {
+    unreadable: fn(&EventEnvelope, &str) -> E,
+) -> Result<Option<String>, E> {
     match object.get(field) {
         None => Ok(None),
         Some(value) => value
             .as_str()
             .filter(|value| !value.is_empty())
             .map(|value| Some(value.to_string()))
-            .ok_or_else(|| unreadable_wait(event, field)),
+            .ok_or_else(|| unreadable(event, field)),
     }
 }
 
 /// The invocation-site tag, at most the schema's bound.
-fn optional_site(
+fn optional_site<E>(
     event: &EventEnvelope,
     object: &Map<String, Value>,
-) -> Result<Option<String>, ProviderWaitError> {
-    match optional_word(event, object, "site")? {
-        Some(site) if site.chars().count() > SITE_MAX => Err(unreadable_wait(event, "site")),
+    unreadable: fn(&EventEnvelope, &str) -> E,
+) -> Result<Option<String>, E> {
+    match optional_word(event, object, "site", unreadable)? {
+        Some(site) if site.chars().count() > SITE_MAX => Err(unreadable(event, "site")),
         site => Ok(site),
     }
 }
@@ -322,7 +430,7 @@ fn until(
     event: &EventEnvelope,
     object: &Map<String, Value>,
 ) -> Result<OffsetDateTime, ProviderWaitError> {
-    let text = required_word(event, object, "until")?;
+    let text = required_word(event, object, "until", unreadable_wait)?;
     OffsetDateTime::parse(&text, &Rfc3339).map_err(|_| unreadable_wait(event, "until"))
 }
 
@@ -343,8 +451,9 @@ fn unreadable_wait(event: &EventEnvelope, field: &str) -> ProviderWaitError {
 }
 
 /// The keys one `refused` object may carry.
-const REFUSAL_FIELDS: [&str; 7] = [
+const REFUSAL_FIELDS: [&str; 8] = [
     "cause",
+    "site",
     "provider",
     "route",
     "words",
@@ -378,6 +487,7 @@ fn refusal_entry(
     closed_refusal(event, object)?;
     let refusal = ProviderRefusal {
         cause: refusal_cause_of(event, object)?,
+        site: optional_site(event, object, unreadable_refusal)?,
         provider: refusal_provider(event, object)?,
         route: refusal_route(event, object)?,
         words: refusal_words(event, object)?,

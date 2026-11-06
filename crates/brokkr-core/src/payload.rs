@@ -25,8 +25,8 @@ use crate::fold::FoldError;
 
 mod provider_wait;
 pub use provider_wait::{
-    provider_refusal, provider_waits, ProbeAnswer, ProviderRefusal, ProviderRefusalError,
-    ProviderWait, ProviderWaitError, RefusalCause,
+    provider_probes, provider_refusal, provider_waits, ProbeAnswer, ProviderProbeError,
+    ProviderRefusal, ProviderRefusalError, ProviderWait, ProviderWaitError, RefusalCause,
 };
 
 /// The keys a payload carries that its struct does not type, as the

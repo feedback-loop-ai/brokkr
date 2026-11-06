@@ -9,14 +9,40 @@ use std::time::{Duration as StdDuration, Instant};
 
 use super::*;
 use crate::engine::broker::admission::tests::{protecting_refused, Coordinated};
+use crate::engine::broker::admission::{Conflict, Unadmitted};
 
 /// A home a test's engine and its competing claim both resolve their
 /// coordination root under, owner-only as admission opens it.
-fn home(dir: &Path) -> PathBuf {
+pub(super) fn home(dir: &Path) -> PathBuf {
     let home = dir.join("home");
     std::fs::create_dir(&home).unwrap();
     std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
     home
+}
+
+/// Drive `engine` on a thread that resolves this test's coordination root
+/// at `home`, and wait for its barrier probe to start: the probe's release
+/// marker and the join handle are returned. The one skeleton the probe's
+/// lease and its door witness share.
+pub(super) fn barrier_started(
+    home: &Path,
+    mut engine: Engine,
+) -> (PathBuf, std::thread::JoinHandle<Engine>) {
+    let dir = home.parent().expect("a home beside its test directory");
+    let started = dir.join("work.started");
+    let release = dir.join("work.release");
+    let standing = home.to_path_buf();
+    let driver = std::thread::spawn(move || {
+        let _stand = Coordinated::at(&standing);
+        engine.drive().unwrap();
+        engine
+    });
+    let deadline = Instant::now() + StdDuration::from_secs(20);
+    while !started.exists() {
+        assert!(Instant::now() < deadline, "the probe never started");
+        std::thread::sleep(StdDuration::from_millis(10));
+    }
+    (release, driver)
 }
 
 /// A boxed seat's probe on a resume is composed from the reach its own
@@ -36,7 +62,7 @@ fn a_boxed_seats_probe_on_a_resume_spawns_in_its_claims_reach_and_retries() {
     assert_eq!(logs(dir.path(), "work"), ["probe", "attempt:succeed"]);
     let started = starts(&engine);
     assert_eq!(started.len(), 2, "{started:?}");
-    assert!(started[1]["probe"].is_object());
+    assert!(started[1]["probes"][0].is_object());
 }
 
 /// While the probe's own driver runs, its admission's lease stands at the
@@ -44,30 +70,20 @@ fn a_boxed_seats_probe_on_a_resume_spawns_in_its_claims_reach_and_retries() {
 /// probe's settlement the retry's own admission succeeds and runs.
 #[test]
 fn a_probe_holds_the_writer_lease_at_a_protected_root() {
-    let (dir, mut engine, _now) = seated!(&["refuse", "succeed"], Probed::Barrier, None, 2);
+    let (dir, engine, _now) = seated!(&["refuse", "succeed"], Probed::Barrier, None, 2);
     let home = home(dir.path());
     let worktree = dir.path().join("work");
-    let started = dir.path().join("work.started");
-    let release = dir.path().join("work.release");
-    let standing = home.clone();
-    let driver = std::thread::spawn(move || {
-        let _stand = Coordinated::at(&standing);
-        engine.drive().unwrap();
-        engine
-    });
-    let deadline = Instant::now() + StdDuration::from_secs(20);
-    while !started.exists() {
-        assert!(Instant::now() < deadline, "the probe never started");
-        std::thread::sleep(StdDuration::from_millis(10));
-    }
+    let (release, driver) = barrier_started(&home, engine);
     let refused = protecting_refused(&home, &worktree);
     std::fs::write(&release, "").unwrap();
     let engine = driver.join().unwrap();
-    assert!(
-        refused.as_ref().is_err_and(|refusal| refusal
-            .to_string()
-            .contains("holds this worktree, its writers not proven settled")),
-        "the probe held no writer lease: {refused:?}"
+    // The competitor is refused by the probe's own standing lease, matched
+    // as the exact variant; its Display is pinned once, in admission's own
+    // refusal test, never as the test's proof here.
+    assert_eq!(
+        refused,
+        Err(Unadmitted::Evidence(Conflict::Held(engine.run_id.clone()))),
+        "the probe held no writer lease"
     );
     assert_eq!(
         logs(dir.path(), "work"),

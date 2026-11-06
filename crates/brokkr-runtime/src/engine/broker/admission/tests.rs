@@ -40,6 +40,7 @@ use crate::engine::{spawn_site, Door, SiteSpawn};
 
 mod coordination;
 mod foreign;
+mod probe;
 mod processes;
 mod reach;
 mod recovery;
@@ -269,6 +270,14 @@ impl Drop for Coordinated {
     }
 }
 
+/// Where the run `run` of `worktree` keeps its reservation in the
+/// coordination root under `home`: the one derivation a test, the door's
+/// witness and the probe's recovery read.
+pub(in crate::engine) fn reservation_path(home: &Path, worktree: &Path, run: &str) -> PathBuf {
+    let repo = canonical::sha256_bytes(worktree.as_os_str().as_bytes());
+    coordination(home).join(repo).join(run).join(RESERVATION)
+}
+
 /// A HOME of a test's own, its coordination root opened, and the worktrees
 /// it makes beside it.
 struct Host {
@@ -327,8 +336,7 @@ impl Host {
     /// Where the run `run` of the worktree `worktree` keeps its
     /// reservation.
     fn reservation(&self, worktree: &Path, run: &str) -> PathBuf {
-        let repo = canonical::sha256_bytes(worktree.as_os_str().as_bytes());
-        self.root().join(repo).join(run).join(RESERVATION)
+        reservation_path(&self.home, worktree, run)
     }
 
     /// The reservation `run` of `worktree` holds: its standing attempts,
@@ -635,6 +643,7 @@ fn every_refusal_reads_as_its_cause() {
         (Unknown::Unsynced.into(), format!("{mb3}: the attempt's reservation was committed, but its directory was not proven synced")),
         (Unknown::Lost.into(), format!("{mb3}: the attempt's reservation no longer stands")),
         (Unknown::Unproven.into(), format!("{mb3}: the attempt's reservation holds no proof that its owned processes settled")),
+        (Unknown::Orphaned { run: "a".into(), attempt: "p1".into() }.into(), format!("{mb3}: run 'a' holds standing attempt 'p1' that no journal event names: a crashed cool-down probe's reservation, released only where every process it witnessed is proven settled; a run's own attempt is re-admitted only where the journal names it as the attempt being recovered")),
         (Unknown::Serving { site: "work:m".into(), run: "a".into(), served: "/s".into() }.into(), format!("{mb3}: site 'work:m' of run 'a' can write '/s', which an MCP server's box or lease rests on")),
         (Unknown::Unconfined { site: "work".into(), run: "a".into() }.into(), format!("{mb3}: site 'work' of run 'a' writes outside a workspace box, its privilege not confined, beside an MCP server's sources")),
         (Unknown::Unmounted("/s".into()).into(), format!("{mb3}: the mount table does not prove where '/s' lies beside a managed writer")),
