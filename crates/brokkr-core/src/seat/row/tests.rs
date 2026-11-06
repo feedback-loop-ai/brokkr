@@ -1,6 +1,7 @@
 use super::*;
 use crate::envelope_builder;
 use crate::summary::Account;
+use serde_json::json;
 
 #[path = "../../../../../tests/support/seat_rows.rs"]
 pub(super) mod journals;
@@ -829,4 +830,174 @@ fn a_reopened_attempt_opens_two_site_rows() {
         rows.iter().map(|row| row.metering).collect::<Vec<_>>(),
         [Metering::Session, Metering::Turns]
     );
+}
+
+/// A provider-bearing start that lands before its effect is asked is
+/// reconciled when the request lands, as main's walk reads it: its site
+/// row opens, with its own provider.
+#[test]
+fn a_start_before_its_request_keeps_its_site_row() {
+    use crate::summary::test_support::journal;
+    let events = journal(&[
+        (
+            EventType::PhaseEntered,
+            json!({"phase": "work"}),
+            "2026-01-01T00:00:00Z",
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "fx", "attempt_id": "a",
+                   "provenance": [{"member": "m", "provider": "anthropic"}]}),
+            "2026-01-01T00:00:01Z",
+        ),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "fx", "seat": "worker", "phase": "work"}),
+            "2026-01-01T00:00:02Z",
+        ),
+        (
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "fx", "attempt_id": "a",
+                   "checkpoint": {"member": "m", "step": "seat-turn"}}),
+            "2026-01-01T00:00:03Z",
+        ),
+    ]);
+    let rows = Account::whole("run", &events).seats().to_vec();
+    let sited: Vec<&SeatRow> = rows.iter().filter(|row| row.site.is_some()).collect();
+    assert_eq!(sited.len(), 1);
+    assert_eq!(sited[0].member, Member::Named("m".to_string()));
+    assert_eq!(
+        sited[0].provider,
+        Some((2, Provider::Named("anthropic".to_string())))
+    );
+}
+
+/// A record that is not a start is never deferred as one, whatever its
+/// payload names: the request that asks its effect opens no site for it.
+#[test]
+fn a_record_that_is_not_a_start_is_not_deferred() {
+    use crate::summary::test_support::journal;
+    let events = journal(&[
+        (
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "fx", "attempt_id": "a",
+                   "provenance": [{"member": "m", "provider": "anthropic"}],
+                   "checkpoint": {"member": "m", "step": "seat-turn"}}),
+            "2026-01-01T00:00:00Z",
+        ),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "fx", "seat": "worker", "phase": "work"}),
+            "2026-01-01T00:00:01Z",
+        ),
+    ]);
+    let account = Account::whole("run", &events);
+    assert_eq!(
+        account
+            .seats()
+            .iter()
+            .filter(|row| row.site.is_some())
+            .count(),
+        0
+    );
+}
+
+/// A start whose stamp does not parse states no provider on its rows, as
+/// brokkr-core's site reading ignores it.
+#[test]
+fn an_unreadable_start_states_no_provider() {
+    use crate::summary::test_support::journal;
+    let events = journal(&[
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "fx", "seat": "worker", "phase": "work"}),
+            "2026-01-01T00:00:00Z",
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "fx", "attempt_id": "a",
+                   "provenance": [{"member": "m", "provider": "anthropic"}]}),
+            "not a stamp",
+        ),
+    ]);
+    let read = facts(Account::whole("run", &events).seats());
+    assert_eq!(read.len(), 1);
+    assert_eq!(read[0].provider, None);
+}
+
+/// A re-opened participant's later session record moves the earlier site's
+/// rule: the carried account's site and seat row read as the run read whole
+/// (decision 0089 ruling 7).
+#[test]
+fn a_reopened_session_moves_the_earlier_site_s_rule() {
+    use crate::summary::test_support::journal;
+    let steps = journal(&[
+        (
+            EventType::PhaseEntered,
+            json!({"phase": "work"}),
+            "2026-01-01T00:00:00Z",
+        ),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "fx", "seat": "worker", "phase": "work"}),
+            "2026-01-01T00:00:01Z",
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "fx", "attempt_id": "a",
+                   "provenance": [{"member": "m", "provider": "anthropic"}]}),
+            "2026-01-01T00:00:02Z",
+        ),
+        (
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "fx", "attempt_id": "a",
+                   "checkpoint": {"member": "m", "step": "seat-turn", "input_tokens": 10}}),
+            "2026-01-01T00:00:02Z",
+        ),
+        (
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "fx", "attempt_id": "a",
+                   "checkpoint": {"member": "m", "step": "claude-session-finished",
+                                  "output_tokens": 3}}),
+            "2026-01-01T00:00:03Z",
+        ),
+        (
+            EventType::EffectFailed,
+            json!({"effect_id": "fx", "attempt_id": "a"}),
+            "2026-01-01T00:00:04Z",
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "fx", "attempt_id": "a",
+                   "provenance": [{"member": "m", "provider": "anthropic"}]}),
+            "2026-01-01T00:00:05Z",
+        ),
+        (
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "fx", "attempt_id": "a",
+                   "checkpoint": {"member": "m", "step": "claude-session-finished",
+                                  "output_tokens": 4}}),
+            "2026-01-01T00:00:06Z",
+        ),
+    ]);
+    let whole = Account::whole("run", &steps);
+    let mut carried = Account::empty("run");
+    for event in &steps {
+        carried = carried.onto(std::slice::from_ref(event));
+    }
+    let rules = |account: &Account| -> Vec<Metering> {
+        account.sites().iter().map(|site| site.metering).collect()
+    };
+    assert_eq!(rules(&carried), rules(&whole));
+    assert_eq!(rules(&whole), [Metering::Turns, Metering::Session]);
+    let rows = |account: &Account| -> Vec<(Option<u64>, Metering)> {
+        account
+            .seats()
+            .iter()
+            .filter(|row| row.site.is_some())
+            .map(|row| (row.site, row.metering))
+            .collect()
+    };
+    assert_eq!(rows(&carried), rows(&whole));
+    assert_eq!(rows(&whole)[0].1, Metering::Turns);
 }

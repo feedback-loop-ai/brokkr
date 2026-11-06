@@ -473,3 +473,23 @@ fn a_row_s_start_reads_as_its_milliseconds() {
         .unwrap();
     assert_eq!(row.data()[at], Datum::Integer(1_767_225_602_000));
 }
+
+/// A row no site opened whose model key is not the one its whole model
+/// derives reads as no row, as its provider key is checked beside it.
+#[test]
+fn a_non_site_row_s_model_key_is_checked_beside_its_provider() {
+    let events = journals::turns();
+    let account = Account::whole("run", &events);
+    let row = account
+        .seats()
+        .iter()
+        .find(|row| row.site.is_none() && row.provider.is_none())
+        .expect("a row no site opened");
+    let at = SeatRow::COLUMNS
+        .iter()
+        .position(|(name, _)| *name == "model_key")
+        .unwrap();
+    let mut data = row.data();
+    data[at] = Datum::Text("other".to_string());
+    assert!(SeatRow::of_data(data).is_none());
+}
