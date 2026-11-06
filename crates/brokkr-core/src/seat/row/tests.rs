@@ -684,3 +684,149 @@ fn a_member_s_finish_pins_only_the_view_s_words() {
         ]
     );
 }
+
+/// A start naming no attempt opens no site: its provider is its
+/// participant row's, as it always was, and the site reading opens
+/// nothing for it (decision 0089 ruling 7).
+#[test]
+fn a_start_naming_no_attempt_opens_no_site() {
+    let run = |provenance: serde_json::Value| {
+        let events = journals::journal(vec![
+            (
+                EventType::EffectRequested,
+                serde_json::json!({"effect_id": "x", "seat": "s"}),
+            ),
+            (
+                EventType::EffectStarted,
+                serde_json::json!({"effect_id": "x", "provenance": provenance}),
+            ),
+        ]);
+        Account::whole("run", &events)
+    };
+    let account = run(serde_json::json!([{"member": null, "provider": "anthropic"}]));
+    assert_eq!(account.sites(), []);
+    assert_eq!(account.seats().len(), 1);
+    assert_eq!(
+        account.seats()[0]
+            .provider
+            .as_ref()
+            .map(|(_, provider)| provider),
+        Some(&Provider::Named("anthropic".to_string()))
+    );
+    // A start naming neither an attempt nor a provider leaves the
+    // participant's provider none, and opens no site either.
+    let account = run(serde_json::json!([{"member": null}]));
+    assert_eq!(account.sites(), []);
+    assert_eq!(
+        account.seats()[0]
+            .provider
+            .as_ref()
+            .map(|(_, provider)| provider),
+        Some(&Provider::Unnamed)
+    );
+}
+
+/// A member's tag keys its site's row: the seat's own is none, a named
+/// member's is its name.
+#[test]
+fn a_member_s_tag_keys_its_row() {
+    assert_eq!(Member::Seat.tag(), None);
+    assert_eq!(Member::Named("m".to_string()).tag(), Some("m"));
+}
+
+/// A site's row keeps the rule brokkr-core's reading gives its site, not
+/// its own participant's turns: the row follows the reading as each
+/// checkpoint lands (decision 0089 ruling 7).
+#[test]
+fn a_site_row_s_metering_is_the_site_reading_s() {
+    let run = |steps: Vec<(EventType, serde_json::Value)>| {
+        let mut events = vec![
+            (
+                EventType::EffectRequested,
+                serde_json::json!({"effect_id": "x", "seat": "s"}),
+            ),
+            (
+                EventType::EffectStarted,
+                serde_json::json!({"effect_id": "x", "attempt_id": "a",
+                    "provenance": [{"member": null, "provider": "anthropic"}]}),
+            ),
+        ];
+        events.extend(steps);
+        Account::whole("run", &journals::journal(events))
+    };
+    let turn = |record: serde_json::Value| {
+        (
+            EventType::EffectCheckpointed,
+            serde_json::json!({"effect_id": "x", "attempt_id": "a", "checkpoint": record}),
+        )
+    };
+    let account = run(vec![turn(
+        serde_json::json!({"step": "seat-turn", "input_tokens": 10}),
+    )]);
+    let row = account
+        .seats()
+        .iter()
+        .find(|row| row.site.is_some())
+        .unwrap();
+    assert_eq!(row.metering, Metering::Turns);
+    let account = run(vec![
+        turn(serde_json::json!({"step": "seat-turn", "input_tokens": 10})),
+        turn(serde_json::json!({"step": "claude-session-finished", "output_tokens": 3})),
+        turn(serde_json::json!({"step": "session-started", "session_id": "s"})),
+    ]);
+    let row = account
+        .seats()
+        .iter()
+        .find(|row| row.site.is_some())
+        .unwrap();
+    assert_eq!(row.metering, Metering::Settled);
+}
+
+/// A start naming an attempt and member already started opens a second
+/// site row: each keeps its own start's facts and the site reading's rule,
+/// and the two rows are two sites, not one (decision 0089 ruling 7).
+#[test]
+fn a_reopened_attempt_opens_two_site_rows() {
+    let started = || {
+        (
+            EventType::EffectStarted,
+            serde_json::json!({"effect_id": "x", "attempt_id": "a",
+                "provenance": [{"member": null, "provider": "anthropic"}]}),
+        )
+    };
+    let turn = |record: serde_json::Value| {
+        (
+            EventType::EffectCheckpointed,
+            serde_json::json!({"effect_id": "x", "attempt_id": "a", "checkpoint": record}),
+        )
+    };
+    let events = journals::journal(vec![
+        (
+            EventType::EffectRequested,
+            serde_json::json!({"effect_id": "x", "seat": "s"}),
+        ),
+        started(),
+        turn(serde_json::json!({"step": "seat-turn"})),
+        (
+            EventType::EffectFailed,
+            serde_json::json!({"effect_id": "x", "attempt_id": "a"}),
+        ),
+        started(),
+        turn(serde_json::json!({"step": "seat-turn", "input_tokens": 10})),
+    ]);
+    let account = Account::whole("run", &events);
+    let rows: Vec<&SeatRow> = account
+        .seats()
+        .iter()
+        .filter(|row| row.site.is_some())
+        .collect();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(
+        rows.iter().map(|row| row.site).collect::<Vec<_>>(),
+        [Some(0), Some(1)]
+    );
+    assert_eq!(
+        rows.iter().map(|row| row.metering).collect::<Vec<_>>(),
+        [Metering::Session, Metering::Turns]
+    );
+}

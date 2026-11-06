@@ -27,9 +27,7 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 
 use super::meter::{sum_usage, Meter, Metering};
-use super::{
-    boundary_entries, count_item, reported_cost, stamp_of, transcript_of, TokenUsage, Transcript,
-};
+use super::{count_item, reported_cost, stamp_of, transcript_of, TokenUsage, Transcript};
 use crate::envelope::{EventEnvelope, EventType};
 use crate::residual::text as field;
 
@@ -38,6 +36,7 @@ mod kept;
 mod listed;
 mod members;
 mod said;
+mod sited;
 
 pub use costed::costs;
 pub use kept::Datum;
@@ -57,6 +56,14 @@ pub enum Member {
 impl Member {
     fn of(tag: Option<&str>) -> Member {
         tag.map_or(Member::Seat, |tag| Member::Named(tag.to_string()))
+    }
+
+    /// Its tag as the provenance entry states it, `None` for the seat's own.
+    fn tag(&self) -> Option<&str> {
+        match self {
+            Member::Seat => None,
+            Member::Named(tag) => Some(tag),
+        }
     }
 }
 
@@ -215,6 +222,13 @@ pub struct SeatRow {
     listed: listed::Listed,
     /// On a request's own row, its effect's accounting so far (`costed`).
     costs: Option<super::costs::EffectAccounting>,
+    /// The site whose start opened the row, where one did: what makes a
+    /// seat row a site and keeps two sites of one attempt apart (decision
+    /// 0089 ruling 7).
+    site: Option<u64>,
+    /// How its site's checkpoints meter it, from brokkr-core's reading of
+    /// the run's sites (decision 0089 ruling 7).
+    metering: Metering,
     /// Whether it is of the attempt the run's last start opened, while no
     /// terminal naming that start's effect and attempt has followed it.
     live: bool,
@@ -307,6 +321,13 @@ pub(crate) struct Seats {
     rows: Vec<SeatRow>,
     /// Each row's place, by its attempt and member.
     at: BTreeMap<Attempt, BTreeMap<Member, usize>>,
+    /// Each site's row, by its attempt and member: the one later records
+    /// of the key land on and the site's metering rule moves (decision
+    /// 0089 ruling 7).
+    sited: BTreeMap<(String, Option<String>), usize>,
+    /// The id the next site's row is opened under, so one attempt's two
+    /// sites are two rows.
+    sites: u64,
     /// Each participant's running state, by its effect and member.
     running: BTreeMap<(String, Member), Running>,
     /// Every start so far, by its effect and attempt: what a source's ordinal counts.
@@ -455,33 +476,6 @@ impl Seats {
             since: seat.and_then(|seat| seat.since),
             ..keyed
         }
-    }
-
-    /// An attempt starts: it is the one in flight, and every row of it
-    /// takes its first start, this start's seq, the run's phase then, and
-    /// the provider and the boundary the start records for each site. A
-    /// start naming an attempt already started re-opens it, as the view
-    /// re-opens its effect.
-    fn started(&mut self, request: usize, attempt: Option<&str>, event: &EventEnvelope) {
-        self.requests[request].open = attempt.map(str::to_string);
-        self.row(request, attempt, Member::Seat);
-        let seq = event.seq;
-        for at in self.at[&(request, attempt.map(str::to_string))].values() {
-            let row = &mut self.rows[*at];
-            row.started.get_or_insert_with(|| Stamp::of(event));
-            row.since = Some(seq);
-            row.phase.clone_from(&self.phase);
-        }
-        let provenance = event.payload.get("provenance").and_then(Value::as_array);
-        for entry in provenance.into_iter().flatten() {
-            let row = self.row(request, attempt, Member::of(field(entry, "member")));
-            row.provider = Some((seq, Provider::of(field(entry, "provider"))));
-        }
-        for entry in boundary_entries(&event.payload) {
-            let row = self.row(request, attempt, Member::of(entry.member.as_deref()));
-            row.boundary = Some((seq, entry.word));
-        }
-        self.carried(request, attempt, event);
     }
 
     /// The members a start carries (decision 0093, panel-carry.v1): each

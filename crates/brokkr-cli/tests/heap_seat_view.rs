@@ -563,12 +563,12 @@ fn spread(
     let tail: Vec<EventEnvelope> = events.drain(from..succeeded).collect();
     let mut spread = Vec::with_capacity(2 * attempts);
     for (at, mut checkpoint) in tail.into_iter().enumerate() {
+        // Each checkpoint is an attempt of its own, so the page holds one
+        // site per attempt, as the seat rows now key them.
+        let attempt = format!("spread-{at}");
         let mut started = restart.clone();
-        if at + 1 < attempts {
-            let attempt = format!("spread-{at}");
-            started.payload["attempt_id"] = attempt.clone().into();
-            checkpoint.payload["attempt_id"] = attempt.into();
-        }
+        started.payload["attempt_id"] = attempt.clone().into();
+        checkpoint.payload["attempt_id"] = attempt.into();
         spread.extend([started, checkpoint]);
     }
     events.splice(from..from, spread);

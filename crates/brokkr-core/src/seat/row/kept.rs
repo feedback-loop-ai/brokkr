@@ -275,10 +275,12 @@ impl<I: Iterator<Item = Datum>> Take<I> {
         Listed::of_kept(steps, tagged, models, self.text()?, self.text()?)
     }
 
-    /// A site's dated facts, [`SeatRow::data`]' last columns: each checked
-    /// against the row's own fields, so a row whose key was edited past its
-    /// source, or whose rule is no [`Metering`], reads as no row.
-    fn site(&mut self, row: &SeatRow) -> Option<()> {
+    /// A site's dated facts, [`SeatRow::data`]' last columns: each key
+    /// checked against the row's own fields, so a row whose key was edited
+    /// past its source reads as no row; the rule is kept as its writer
+    /// read it, since the site's inputs are no row's own (its digest names
+    /// an edit), and its site as a count or none.
+    fn site(&mut self, row: &mut SeatRow) -> Option<()> {
         let started = match self.0.next()? {
             Datum::Null => None,
             Datum::Integer(value) => Some(value),
@@ -298,7 +300,14 @@ impl<I: Iterator<Item = Datum>> Take<I> {
             Datum::Integer(value) => Metering::at(value)?,
             _ => return None,
         };
-        (metering == row.metering()).then_some(())
+        let site = match self.0.next()? {
+            Datum::Null => None,
+            Datum::Integer(value) => Some(value as u64),
+            Datum::Text(_) => return None,
+        };
+        row.metering = metering;
+        row.site = site;
+        Some(())
     }
 
     fn carried(&mut self) -> Option<Last<Carry>> {
@@ -476,12 +485,14 @@ impl SeatRow {
             listed: Listed::default(),
             live: false,
             costs: None,
+            site: None,
+            metering: Metering::Session,
         }
     }
 
     /// The columns a row is kept in, by name and SQL type, in the order
     /// [`SeatRow::data`] gives their values.
-    pub const COLUMNS: [(&'static str, &'static str); 90] = [
+    pub const COLUMNS: [(&'static str, &'static str); 91] = [
         ("request_seq", INTEGER),
         ("effect_id", TEXT),
         ("attempt_id", TEXT),
@@ -572,6 +583,7 @@ impl SeatRow {
         ("provider_key", TEXT),
         ("model_key", TEXT),
         ("metering", INTEGER),
+        ("site", INTEGER),
     ];
 
     /// This row's values, in [`SeatRow::COLUMNS`]' order.
@@ -628,7 +640,8 @@ impl SeatRow {
         put.text(self.phase_key().as_deref());
         put.text(self.provider_key().as_deref());
         put.text(self.model_key().as_deref());
-        put.int(Some(self.metering().index() as u64));
+        put.int(Some(self.metering.index() as u64));
+        put.int(self.site);
         put.0
     }
 
@@ -664,14 +677,6 @@ impl SeatRow {
             .map(|(_, model)| Bounded::within(model, MODEL_BYTES).cut.to_string())
     }
 
-    /// How the row's checkpoints meter it, by [`Metering::of`]'s two inputs
-    /// the row's own columns state: whether it holds a metered turn, and
-    /// whether its session record settles.
-    fn metering(&self) -> Metering {
-        let session = self.session.as_ref().map(|(_, session)| &session.meter);
-        Metering::of(self.metered.iter(), session)
-    }
-
     fn put_tail(&self, put: &mut Put) {
         let carried = put.seq(&self.carried);
         put.text(carried.map(Carry::attempt_id));
@@ -705,7 +710,7 @@ impl SeatRow {
         row.listed = take.listed()?;
         row.live = take.flag()??;
         row.costs = take.costs()?;
-        take.site(&row)?;
+        take.site(&mut row)?;
         let costed = row.costed();
         take.0.next().is_none().then_some(row).filter(|_| costed)
     }

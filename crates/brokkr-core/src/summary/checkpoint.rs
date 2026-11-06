@@ -88,6 +88,15 @@ fn is_session(record: &serde_json::Value) -> bool {
     field(record, "step").is_some_and(|step| step.ends_with("-session-finished"))
 }
 
+/// Which site a checkpoint belongs to: the site its start opened, or, for
+/// a checkpoint no start's provenance names a provider for, its attempt and
+/// member alone, as the reading has always keyed it.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum SiteKey {
+    Site(u64),
+    Loose(String, Option<String>),
+}
+
 /// The checkpoints read so far, carried event by event: the run's phase and
 /// every checkpoint's facts, each keyed by its seq. A later finishing
 /// session record of a site moves the flag off the earlier one as it is
@@ -100,11 +109,15 @@ pub(crate) struct Checking {
     /// included: its stamp not parsing reads no facts, but its row was still
     /// read and the writer records it processed.
     rows: Vec<u64>,
+    /// Each site's place, by its attempt and member, so a site opened
+    /// again is another site and a turn repeating its own key's last
+    /// message is not read as one site's (ruling 7).
+    sites: super::site::SiteMap,
     /// The last finishing session record of each site read so far.
-    sessions: BTreeMap<(String, Option<String>), u64>,
+    sessions: BTreeMap<SiteKey, u64>,
     /// The usage each site's last metered turn carried: what a turn
     /// repeating it meters nothing for.
-    last: BTreeMap<(String, Option<String>), crate::seat::TokenUsage>,
+    last: BTreeMap<SiteKey, crate::seat::TokenUsage>,
 }
 
 impl Checking {
@@ -114,6 +127,13 @@ impl Checking {
             self.phase = super::entered_phase(event).map(str::to_string);
             return;
         }
+        if event.event_type == EventType::EffectStarted {
+            let at = parse_millis(&event.recorded_at);
+            if let (Some(_), Some(attempt)) = (at, field(&event.payload, "attempt_id")) {
+                self.sites.note(attempt, &event.payload);
+            }
+            return;
+        }
         if event.event_type != EventType::EffectCheckpointed {
             return;
         }
@@ -121,7 +141,13 @@ impl Checking {
         let Some(mut checkpoint) = Checkpoint::read(event, self.phase.as_deref()) else {
             return;
         };
-        let site = (checkpoint.attempt_id.clone(), checkpoint.member.clone());
+        let site = match self
+            .sites
+            .id(&checkpoint.attempt_id, checkpoint.member.as_deref())
+        {
+            Some(id) => SiteKey::Site(id),
+            None => SiteKey::Loose(checkpoint.attempt_id.clone(), checkpoint.member.clone()),
+        };
         let repeat = checkpoint.meter.metered()
             && checkpoint
                 .meter

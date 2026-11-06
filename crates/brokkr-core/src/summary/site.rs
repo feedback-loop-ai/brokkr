@@ -54,13 +54,59 @@ pub struct Site {
     session: Option<Meter>,
 }
 
+/// The sites a run's starts have opened so far: each provenance entry
+/// naming a provider one site, keyed by its attempt and member to the site
+/// opened last for them, the one a later checkpoint belongs to. A start
+/// naming an attempt and member already opened opens another site and
+/// repoints the key, as the analytics walk reads it.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SiteMap {
+    next: u64,
+    at: BTreeMap<(String, Option<String>), u64>,
+}
+
+/// One provenance entry that opens a site: its member and provider.
+pub(crate) struct SiteEntry<'a> {
+    pub member: Option<&'a str>,
+    pub provider: &'a str,
+}
+
+impl SiteMap {
+    /// The sites `attempt`'s provenance opens, each naming a provider, and
+    /// the key it now names.
+    pub(crate) fn note<'a>(&mut self, attempt: &str, payload: &'a Value) -> Vec<SiteEntry<'a>> {
+        let mut opened = Vec::new();
+        let entries = payload.get("provenance").and_then(Value::as_array);
+        for entry in entries.into_iter().flatten() {
+            let Some(provider) = field(entry, "provider") else {
+                continue;
+            };
+            let member = field(entry, "member");
+            let id = self.next;
+            self.next += 1;
+            self.at
+                .insert((attempt.to_string(), member.map(str::to_string)), id);
+            opened.push(SiteEntry { member, provider });
+        }
+        opened
+    }
+
+    /// The site a record of `attempt` naming `member` belongs to: the one
+    /// its start opened last, or none where no start named it a provider.
+    pub(crate) fn id(&self, attempt: &str, member: Option<&str>) -> Option<u64> {
+        self.at
+            .get(&(attempt.to_string(), member.map(str::to_string)))
+            .copied()
+    }
+}
+
 /// The sites read so far, carried event by event.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Siting {
     phase: Option<String>,
     sites: Vec<Site>,
     /// Each site's place, by its attempt and member.
-    by_site: BTreeMap<(String, Option<String>), usize>,
+    opened: SiteMap,
     /// Whether the reading keeps each site's checkpoints: only the
     /// whole-run projection does, so the writer's carried account holds no
     /// earlier checkpoint (decision 0089 ruling 9).
@@ -80,6 +126,13 @@ impl Siting {
     /// The sites read so far.
     pub(crate) fn sites(&self) -> &[Site] {
         &self.sites
+    }
+
+    /// The site a record of `attempt` naming `member` belongs to now, the
+    /// one its start opened last.
+    pub(crate) fn latest(&self, attempt: &str, member: Option<&str>) -> Option<&Site> {
+        let at = self.opened.id(attempt, member)?;
+        self.sites.get(at as usize)
     }
 
     /// The reading carried over `event`, the run's next: its checkpoints
@@ -110,20 +163,13 @@ impl Siting {
     /// entry naming a key already opened leaves the earlier site where it
     /// was and opens a new one for the later entry.
     fn started(&mut self, at: i64, attempt: &str, payload: &Value) {
-        let entries = payload.get("provenance").and_then(Value::as_array);
-        for entry in entries.into_iter().flatten() {
-            let Some(provider) = field(entry, "provider") else {
-                continue;
-            };
-            let member = field(entry, "member").map(str::to_string);
-            self.by_site
-                .insert((attempt.to_string(), member.clone()), self.sites.len());
+        for entry in self.opened.note(attempt, payload) {
             self.sites.push(Site {
                 attempt_id: attempt.to_string(),
-                member,
+                member: entry.member.map(str::to_string),
                 at,
                 phase: self.phase.clone(),
-                provider: provider.to_string(),
+                provider: entry.provider.to_string(),
                 model: None,
                 metering: Metering::Session,
                 metered: Vec::new(),
@@ -138,11 +184,11 @@ impl Siting {
     /// passed over, as the analytics walk passes it over.
     fn recorded(&mut self, attempt: &str, record: Option<&Value>, checkpoint: Option<&Checkpoint>) {
         let Some(record) = record else { return };
-        let member = field(record, "member").map(str::to_string);
-        let Some(&at) = self.by_site.get(&(attempt.to_string(), member)) else {
+        let member = field(record, "member");
+        let Some(at) = self.opened.id(attempt, member) else {
             return;
         };
-        let site = &mut self.sites[at];
+        let site = &mut self.sites[at as usize];
         if let Some(model) = field(record, "model") {
             site.model = Some(model.to_string());
         }

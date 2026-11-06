@@ -9,12 +9,14 @@
 //! moved where the table stands at the head the account was carried
 //! from, and every row where it does not. A row is keyed by the run and
 //! its place among the run's rows in the order the projection opened
-//! them, `opened`: the projection's own key, its request, attempt and
-//! member, held in the row beside it, opens one place and never moves
-//! it, so the place is that key's one image and the order the rows are
-//! grouped in. No text stands in for an absent attempt or member, as a
-//! sentinel would collide with an attempt or a member a journal names by
-//! that text.
+//! them, `opened`: the projection's own key, its request, attempt, member
+//! and the site its start opened, held in the row beside it, opens one
+//! place and never moves it, so the place is that key's one image and the
+//! order the rows are grouped in. A re-opened attempt's second site is a
+//! second row, and the key's site column keeps the two apart. No text
+//! stands in for an absent attempt, member or site, as a sentinel would
+//! collide with an attempt, a member or a site a journal names by that
+//! text.
 //!
 //! The rows carry their own head (#753 ruling 2a), `seat_head`'s
 //! `(folded_seq, folded_hash)`, the last event they were folded through:
@@ -356,21 +358,45 @@ fn part(datum: &Datum) -> Part {
 }
 
 /// What the rows read so far admit of the next, as the projection opens
-/// them: each key once, each request's own row, naming no attempt and no
-/// member, before every other row of it, and the requests in the order
-/// they were asked. A row's key is its first four columns, the four
-/// [`SeatRow::COLUMNS`] opens a row under: its request's seq and effect,
-/// its attempt and its member.
+/// them: each key once, each request's own row, naming no attempt, no
+/// member and no site, before every other row of it, and the requests in
+/// the order they were asked. A row's key is its first four columns, the
+/// four [`SeatRow::COLUMNS`] opens a row under, with its request's seq and
+/// effect, its attempt and its member, and its `site` column after them:
+/// the site its start opened, which keeps a re-opened attempt's two sites
+/// two rows.
 #[derive(Default)]
 struct Opened {
-    keys: BTreeSet<[Part; 4]>,
+    keys: BTreeSet<[Part; 5]>,
     asked: Option<Part>,
 }
 
+/// The column a row's key takes beside its first four: the site its start
+/// opened, `None` for a row no provenance entry did.
+static SITE: LazyLock<usize> = LazyLock::new(|| {
+    SeatRow::COLUMNS
+        .iter()
+        .position(|(name, _)| *name == "site")
+        .expect("the site column")
+});
+
 impl Opened {
     fn admits(&mut self, data: &[Datum]) -> bool {
-        let key: [Part; 4] = std::array::from_fn(|at| part(&data[at]));
-        let own = [key[0].clone(), key[1].clone(), (None, None), (None, None)];
+        let key: [Part; 5] = [
+            part(&data[0]),
+            part(&data[1]),
+            part(&data[2]),
+            part(&data[3]),
+            part(&data[*SITE]),
+        ];
+        let none = (None, None);
+        let own = [
+            key[0].clone(),
+            key[1].clone(),
+            none.clone(),
+            none.clone(),
+            none,
+        ];
         let asked = self.asked.as_ref().is_none_or(|asked| key[0] > *asked);
         if asked {
             self.asked = Some(key[0].clone());

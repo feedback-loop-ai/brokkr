@@ -205,3 +205,36 @@ fn a_site_opens_only_from_a_provenance_entry_that_names_a_provider() {
     assert_eq!(sites[0].member.as_deref(), Some("m"));
     assert_eq!(sites[0].provider, "anthropic");
 }
+
+/// Two members of one start are two sites, each its own records': a site's
+/// id is its place in the order the start opened them, so one member's
+/// checkpoint never lands on the other's site.
+#[test]
+fn two_members_of_one_start_keep_their_own_sites() {
+    let mut steps = started(
+        "implement",
+        json!([{"member": "a", "provider": "anthropic"},
+               {"member": "b", "provider": "openai"}]),
+    );
+    steps.push(turn(
+        Some("a"),
+        json!({"step": "seat-turn", "input_tokens": 10}),
+    ));
+    steps.push(turn(
+        Some("b"),
+        json!({"step": "seat-turn", "input_tokens": 20}),
+    ));
+    let sites = super::sites(&journal(&steps));
+    assert_eq!(sites.len(), 2);
+    assert_eq!(sites[0].member.as_deref(), Some("a"));
+    assert_eq!(
+        sites[0].metered[0].meter.usage().unwrap().input_tokens,
+        Some(10)
+    );
+    assert_eq!(sites[1].member.as_deref(), Some("b"));
+    assert_eq!(sites[1].metered.len(), 1);
+    assert_eq!(
+        sites[1].metered[0].meter.usage().unwrap().input_tokens,
+        Some(20)
+    );
+}

@@ -209,3 +209,65 @@ fn a_non_turn_checkpoint_never_repeats_a_message() {
         [Some(false), Some(false), Some(false)]
     );
 }
+
+/// A start whose stamp does not parse or which names no attempt opens no
+/// site: a checkpoint of its key is read by its attempt and member alone,
+/// as the reading has always keyed one no site opened.
+#[test]
+fn a_start_no_site_opens_reads_nothing() {
+    let events = journal(&[
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "fx", "attempt_id": "a",
+                   "provenance": [{"member": "m", "provider": "anthropic"}]}),
+            "not a stamp",
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "fx",
+                   "provenance": [{"member": "m", "provider": "anthropic"}]}),
+            "2026-01-01T00:00:02Z",
+        ),
+        checkpoint(Some("m"), json!({"step": "seat-turn", "input_tokens": 10})),
+    ]);
+    let mut checking = Checking::default();
+    for event in &events {
+        checking.note(event);
+    }
+    assert_eq!(checking.sites.id("a", Some("m")), None);
+    assert_eq!(
+        checking.checkpoint(3).unwrap().repeat,
+        Some(false),
+        "no site's last turn"
+    );
+}
+
+/// A start naming an attempt and member already started opens another
+/// site: its first turn repeating the earlier site's usage is not the
+/// message again (decision 0089 ruling 7).
+#[test]
+fn a_reopened_site_s_first_turn_does_not_repeat() {
+    let started = || {
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "fx", "attempt_id": "a",
+                   "provenance": [{"member": "m", "provider": "anthropic"}]}),
+            "2026-01-01T00:00:01Z",
+        )
+    };
+    let events = journal(&[
+        started(),
+        checkpoint(Some("m"), json!({"step": "seat-turn", "input_tokens": 10})),
+        (
+            EventType::EffectFailed,
+            json!({"effect_id": "fx", "attempt_id": "a"}),
+            "2026-01-01T00:00:03Z",
+        ),
+        started(),
+        checkpoint(Some("m"), json!({"step": "seat-turn", "input_tokens": 10})),
+    ]);
+    let read = checkpoints(&events);
+    assert_eq!(read.len(), 2);
+    assert_eq!(read[0].repeat, Some(false));
+    assert_eq!(read[1].repeat, Some(false));
+}

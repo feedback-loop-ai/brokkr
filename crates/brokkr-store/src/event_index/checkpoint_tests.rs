@@ -15,8 +15,9 @@ use serde_json::{json, Value as Json};
 
 use crate::summary::Compared;
 use crate::test_support::{
-    append, at, disagreements, every_run_reads_as_its_fold, lags, lane, opened, plant_envelope,
-    plant_older_writer, plant_summary_writer, planted_fixtures, refolded, text,
+    append, at, disagreements, every_run_reads_as_its_fold, failed, lags, lane, opened,
+    plant_envelope, plant_older_writer, plant_summary_writer, planted_fixtures, refolded, started,
+    text,
 };
 use crate::tests::envelope_builder::EnvelopeBuilder;
 use crate::tests::store;
@@ -1730,4 +1731,40 @@ fn every_fixture_flags_the_turns_its_site_s_last_message_repeats() {
         }
     }
     assert_eq!(wrong, Vec::<String>::new());
+}
+
+/// A start naming an attempt already started opens another site, and its
+/// first turn repeating the earlier site's usage is not the message again:
+/// `repeat` follows the site's boundaries, as `meter::once` does
+/// (decision 0089 rulings 4 and 7).
+#[test]
+fn a_reopened_site_s_first_turn_does_not_repeat_the_earlier_site_s() {
+    let (_dir, mut store) = store();
+    opened(&mut store, "r", "implement", &[]);
+    append(
+        &mut store,
+        "r",
+        EventType::EffectRequested,
+        json!({"effect_id": "fx", "seat": "worker", "phase": "implement"}),
+    );
+    started(&mut store, "r", "a", Some("m"), "anthropic");
+    let first = append_checkpoint(
+        &mut store,
+        json!({"step": "seat-turn", "input_tokens": 10, "output_tokens": 4}),
+    );
+    failed(&mut store, "r", "a");
+    started(&mut store, "r", "a", Some("m"), "anthropic");
+    let second = append_checkpoint(
+        &mut store,
+        json!({"step": "seat-turn", "input_tokens": 10, "output_tokens": 4}),
+    );
+    assert_eq!(repeated(&store, "r", first.seq), Value::Integer(0));
+    assert_eq!(repeated(&store, "r", second.seq), Value::Integer(0));
+    let events = store.load("r").unwrap();
+    let sites = brokkr_core::summary::sites(&events);
+    assert_eq!(sites.len(), 2);
+    assert_eq!(
+        sites[1].metered[0].meter.usage().unwrap().input_tokens,
+        Some(10)
+    );
 }

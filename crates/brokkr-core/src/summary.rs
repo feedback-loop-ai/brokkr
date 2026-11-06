@@ -286,6 +286,21 @@ impl Account {
             self.checkpoints.note(event);
             let checkpoint = self.checkpoints.checkpoint(event.seq).cloned();
             self.sites.note(event, checkpoint.as_ref());
+            // The seat row's rule is the site's, read here once, not the
+            // row's own turns and session record (decision 0089 ruling 7).
+            if let Some(checkpoint) = &checkpoint {
+                let metering = self
+                    .sites
+                    .latest(&checkpoint.attempt_id, checkpoint.member.as_deref())
+                    .map(|site| site.metering);
+                if let Some(metering) = metering {
+                    self.seats.rerule(
+                        &checkpoint.attempt_id,
+                        checkpoint.member.as_deref(),
+                        metering,
+                    );
+                }
+            }
             self.ending.note(event);
         }
         self.head = (last.seq, last.event_hash.clone());

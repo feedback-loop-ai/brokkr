@@ -6,8 +6,8 @@
 
 use super::*;
 use crate::test_support::{
-    disagreements, every_run_reads_as_its_fold, import_fixtures, lags, plant_envelope,
-    plant_summary_writer, planted_fixtures, refolded, unseat,
+    disagreements, every_run_reads_as_its_fold, failed, import_fixtures, lags, plant_envelope,
+    plant_summary_writer, planted_fixtures, refolded, started, unseat,
 };
 use crate::tests::envelope_builder::EnvelopeBuilder;
 use crate::tests::walk::cut_short;
@@ -819,9 +819,9 @@ fn a_seat_table_without_the_accounting_s_columns_gains_them_at_a_writable_open()
     let reader = Store::open_read_only(&path).unwrap();
     let count = "SELECT count(*) FROM pragma_table_info('seat_summary')";
     let columns: i64 = reader.conn.query_row(count, [], |row| row.get(0)).unwrap();
-    // Its run and place, the seat view's 69 columns and the seats' five
-    // dated ones, and the digest.
-    assert_eq!(columns, 2 + 69 + 5 + 1);
+    // Its run and place, the seat view's 69 columns, the seats' six dated
+    // ones, and the digest.
+    assert_eq!(columns, 2 + 69 + 6 + 1);
     assert!(!seats_intact(&reader.conn).unwrap());
     assert_eq!(reader.seat_rows("r").unwrap(), SeatRows::Stale);
     let mut store = Store::open(&path).unwrap();
@@ -1210,8 +1210,10 @@ fn every_fixture_keeps_the_seat_facts_the_run_reads() {
             };
             let attempt = held(row, "attempt_id").expect("a site's row states its attempt");
             let member = held(row, "member");
-            let found = sites.iter().position(|site| {
-                site.attempt_id == attempt && site.member.as_deref() == member.as_deref()
+            let found = sites.iter().enumerate().position(|(at, site)| {
+                !matched[at]
+                    && site.attempt_id == attempt
+                    && site.member.as_deref() == member.as_deref()
             });
             let Some(at) = found else {
                 wrong.push(format!(
@@ -1344,6 +1346,7 @@ fn each_seat_dated_column_that_is_not_its_fold_s_is_named() {
         "provider_key",
         "model_key",
         "metering",
+        "site",
     ] {
         let held = {
             let rows = read(&store, "r");
@@ -1399,10 +1402,110 @@ fn dated_seat_facts_no_row_writes_read_as_none() {
         ("model_key", Datum::Text("other".into())),
         ("metering", Datum::Integer(3)),
         ("metering", Datum::Text("turns".into())),
+        ("site", Datum::Text("1".into())),
     ];
     for (name, wrong) in cases {
         let mut data = row.data();
         data[at(name)] = wrong.clone();
         assert!(SeatRow::of_data(data).is_none(), "{name} {wrong:?}");
+    }
+}
+
+/// A retry attempt's first turn that repeats the previous attempt's last
+/// usage is its own site's, so it meters and its row states the site's
+/// rule (decision 0089 rulings 4 and 7): the participant's last turn does
+/// not swallow it.
+#[test]
+fn a_retry_s_first_turn_meters_its_own_site() {
+    let (_dir, mut store) = store();
+    sited(&mut store, "r", "work", "anthropic");
+    append(
+        &mut store,
+        "r",
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "attempt_id": "a",
+               "checkpoint": {"step": "seat-turn", "input_tokens": 10}}),
+    );
+    failed(&mut store, "r", "a");
+    started(&mut store, "r", "b", None, "anthropic");
+    append(
+        &mut store,
+        "r",
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "attempt_id": "b",
+               "checkpoint": {"step": "seat-turn", "input_tokens": 10}}),
+    );
+    let rows = read(&store, "r");
+    assert_eq!(numeric(attempted(&rows, "b", None), "metering"), Some(1));
+    let account = Account::whole("r", &store.load("r").unwrap());
+    assert_eq!(
+        account
+            .sites()
+            .iter()
+            .map(|site| rule_of(site.metering))
+            .collect::<Vec<_>>(),
+        [1, 1]
+    );
+}
+
+/// A `session-started` after a settling finishing record leaves the
+/// site's rule settled: the site's session record is its last finishing
+/// one, as brokkr-core reads it, and the row states its rule.
+#[test]
+fn a_session_started_does_not_undo_its_site_s_settlement() {
+    let (_dir, mut store) = store();
+    sited_turn(&mut store, "r");
+    append(
+        &mut store,
+        "r",
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "attempt_id": "a",
+               "checkpoint": {"step": "claude-session-finished", "output_tokens": 3}}),
+    );
+    append(
+        &mut store,
+        "r",
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "attempt_id": "a",
+               "checkpoint": {"step": "session-started", "session_id": "s"}}),
+    );
+    let rows = read(&store, "r");
+    let account = Account::whole("r", &store.load("r").unwrap());
+    assert_eq!(rule_of(account.sites()[0].metering), 2);
+    assert_eq!(numeric(attempted(&rows, "a", None), "metering"), Some(2));
+}
+
+/// A start naming an attempt already started opens another site, and its
+/// row: the first site's row keeps its own start, phase, provider and
+/// rule, and the second's are the re-open's, one row per site.
+#[test]
+fn a_reopened_attempt_has_a_row_per_site() {
+    let (_dir, mut store) = store();
+    sited(&mut store, "r", "work", "anthropic");
+    failed(&mut store, "r", "a");
+    append(
+        &mut store,
+        "r",
+        EventType::PhaseEntered,
+        json!({"phase": "check"}),
+    );
+    started(&mut store, "r", "a", None, "openai");
+    let events = store.load("r").unwrap();
+    let sites = brokkr_core::summary::sites(&events);
+    let rows = read(&store, "r");
+    let sited: Vec<&SeatRow> = rows
+        .iter()
+        .filter(|row| held(row, "provider").is_some())
+        .collect();
+    assert_eq!(sites.len(), 2);
+    assert_eq!(sited.len(), 2);
+    for (row, site) in sited.iter().zip(&sites) {
+        assert_eq!(numeric(row, "started_ms"), Some(site.at));
+        assert_eq!(held(row, "phase_key").as_deref(), site.phase.as_deref());
+        assert_eq!(
+            held(row, "provider_key").as_deref(),
+            Some(site.provider.as_str())
+        );
+        assert_eq!(numeric(row, "metering"), Some(rule_of(site.metering)));
     }
 }
