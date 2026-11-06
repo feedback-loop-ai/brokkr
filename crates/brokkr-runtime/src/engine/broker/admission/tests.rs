@@ -380,6 +380,18 @@ pub(in crate::engine) fn protecting(home: &Path, worktree: &Path) -> Held {
     admit(&root, &claim, soon()).unwrap()
 }
 
+/// [`protecting`]'s claim returned rather than unwrapped: a cool-down test
+/// holds a probe's lease on `worktree` while this run's claim is tried, and
+/// reads the refusal it must earn.
+pub(in crate::engine) fn protecting_refused(
+    home: &Path,
+    worktree: &Path,
+) -> Result<(), Unadmitted> {
+    let root = Arc::new(opened(home));
+    let claim = claim(worktree, ["run-p", "p1"], Protects::Evidence, &[]);
+    admit(&root, &claim, soon()).map(drop)
+}
+
 /// `engine` holding on `host` the lease of its run's attempt `attempt` on
 /// its own worktree, protecting `protects`, the reservation naming the
 /// engine's own journal: the worktree, and the run's directory in the

@@ -219,13 +219,32 @@ fn refusal_text(refused: &ProviderRefusal, episode: Option<u64>) -> String {
                 || seconds.clone(),
                 |retry| format!("retry-after {retry}s ({seconds})"),
             );
+            // The numbers as they are: the end the wire cannot spell, the
+            // length computed, and the maximum declared. Only a length the
+            // record itself shows past that maximum says it was passed.
+            let maximum = match recorded_past(refused) {
+                true => format!(", past the declared {max} maximum"),
+                false => format!(", and the declared {max} maximum"),
+            };
             format!(
-                "cool-down for {}/{route}: {given} has no representable end and is past the \
-                 declared {max} maximum: {}",
+                "cool-down for {}/{route}: {given} has no representable end; the computed wait \
+                 is {seconds}{maximum}: {}",
                 refused.provider, refused.words
             )
         }
     }
+}
+
+/// Whether the record's own computed length is past its declared maximum,
+/// as the numbers it carries show it: the no-end arm's one comparison.
+fn recorded_past(refused: &ProviderRefusal) -> bool {
+    let seconds = refused
+        .seconds
+        .expect("a computed refusal records its seconds");
+    let max = refused
+        .max_seconds
+        .expect("a computed refusal records its maximum");
+    seconds > max
 }
 
 /// A computed length and the declared maximum as the refusal's text spells

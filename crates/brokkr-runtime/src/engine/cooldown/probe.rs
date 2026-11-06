@@ -4,22 +4,30 @@
 //! this module owns the probe so `cooldown.rs` stays within ruling 4's
 //! 800-line ceiling.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use brokkr_core::fold::RunState;
 use brokkr_core::{EventEnvelope, ProbeAnswer, ProviderWait};
+use brokkr_protocol::hands::HandsSpec;
 use brokkr_protocol::{AttemptOutcome, AttemptReport, Cleanup, RefusalClass};
+use serde_json::Value;
 use uuid::Uuid;
 
 use super::{terminal, Engine, EngineError};
 use crate::bundle::{ExecutableBody, Invocation, ENGINE_VERSION};
-use crate::engine::{argv_for, chain_index, phase_of, spawn_site, Door, Selection};
+use crate::engine::broker::{observed, settlement};
+use crate::engine::dispatch::Dispatch;
+use crate::engine::{chain_index, phase_of, spawn_site, Door, Selection};
 
 impl Engine {
     /// A dedicated one-turn invocation of the cooled site's own adapter and
     /// launch path (decision 0103 ruling 4(a)): never the retried effect, at
     /// the route the entry names, with the refused candidate's model pin and
-    /// effort and the same boundary and credential facts.
+    /// effort and the same boundary and credential facts. It is launched as
+    /// its attempt is: admission seals the reach its box is built from and,
+    /// where the root is protected, takes the writer lease its door
+    /// rechecks, and settlement releases that lease once the report proved
+    /// its processes settled.
     pub(super) fn probe(
         &mut self,
         events: &[EventEnvelope],
@@ -28,31 +36,23 @@ impl Engine {
         seat: &str,
         wait: &ProviderWait,
     ) -> Result<Probe, EngineError> {
-        let seat_def = &self.bundle.seats[seat];
+        let seat_def = self.bundle.seats[seat].clone();
+        let strategy = state.strategy.as_deref();
         let (body, case) = seat_def
             .body
-            .selected(state.strategy.as_deref())
+            .selected(strategy)
             .expect("seat input resolved the selector");
-        let ExecutableBody::Invocation(Invocation::Single {
-            command,
-            candidates,
-            ..
-        }) = body
-        else {
+        let ExecutableBody::Invocation(Invocation::Single { candidates, .. }) = body else {
             return Ok(Probe::Parked(format!(
                 "no cool-down probe for {}/{}: a wait is recorded at a body that is not a \
                  single seat",
                 wait.provider, wait.route
             )));
         };
-        let (command, candidates, timeout) = (
-            command.clone(),
-            candidates.clone(),
-            seat_def.limits.timeout_seconds,
-        );
+        let (candidates, timeout) = (candidates.clone(), seat_def.limits.timeout_seconds);
         let gate = seat_def
             .body
-            .selected_is_gate(state.strategy.as_deref(), seat_def.has_gate());
+            .selected_is_gate(strategy, seat_def.has_gate());
         let site_name = case
             .map(|case| format!("{seat}:{case}"))
             .unwrap_or_else(|| seat.to_string());
@@ -62,59 +62,82 @@ impl Engine {
             selection.insert(None, candidates[index].clone());
         }
         let phase = phase_of(state, "probe without a phase")?;
-        let mut input = self.seat_input(state, &phase, effect_id)?;
+        let input = self.seat_input(state, &phase, effect_id)?;
         let hands = self.runtime_hands(&site_name);
         let probe_attempt = Uuid::new_v4().to_string();
-        let mut spawn = self.compose_at(
-            Some(&site_name),
-            &probe_attempt,
+        let at = Dispatch {
+            effect_id,
+            attempt_id: &probe_attempt,
+            seat_name: seat,
+            case,
+            site_name: &site_name,
+            body,
             gate,
-            argv_for(&selection, &None, &command).to_vec(),
-            hands.as_ref(),
-            selection.get(&None),
-            input["result_path"].as_str().unwrap_or_default(),
-        );
-        self.mark_serving(
-            &site_name,
-            selection.get(&None),
-            (&[], hands.as_ref()),
-            Some(&mut spawn),
-            &mut input,
-        );
-        let begun = self.begun(&spawn)?;
+        };
+        let observed = observed();
+        let began = Instant::now();
+        let deadline = Duration::from_secs(timeout);
+        if let Err(refusal) = self.admit_for_probe(
+            [effect_id, &probe_attempt, &site_name],
+            body,
+            &selection,
+            (began, deadline),
+            &observed,
+        ) {
+            return Ok(Probe::Parked(format!(
+                "the cool-down probe for {}/{} was not admitted: {refusal}",
+                wait.provider, wait.route
+            )));
+        }
+        let probe = self.probe_run(&at, input, hands.as_ref(), &selection, deadline, wait);
+        self.settle_probe(probe)
+    }
+
+    /// The admitted probe's one driver: composed and marked with no broker,
+    /// spawned under its attempt's lease and run as a probe, its cleanup
+    /// witnessed on the lease. No `begun` is read and no broker call folded:
+    /// the probe serves none, so `begun` is `None` by construction and the
+    /// only settlement fact that can stand is its report's cleanup.
+    fn probe_run(
+        &mut self,
+        at: &Dispatch<'_>,
+        input: Value,
+        hands: Option<&HandsSpec>,
+        selection: &Selection,
+        deadline: Duration,
+        wait: &ProviderWait,
+    ) -> Probe {
+        let mut input = input;
+        let composed = self.composed_single(at, selection, &mut input, hands, &[]);
+        let spawn = composed.expect("a single seat composed its command");
         let door = self
             .held
             .as_ref()
-            .map(|held| Door::of(held, &site_name, begun.as_ref()));
-        let deadline = Duration::from_secs(timeout);
+            .map(|held| Door::of(held, at.site_name, None));
         let workdir = self.workdir();
         let (process, input) =
             match spawn_site(&self.bundle, &spawn, &input, &workdir, deadline, door) {
                 Ok(started) => started,
                 Err(reason) => {
-                    return Ok(Probe::Parked(format!(
+                    return Probe::Parked(format!(
                         "the cool-down probe for {}/{} did not spawn: {reason}",
                         wait.provider, wait.route
-                    )));
+                    ));
                 }
             };
         let report = process.probing().run_attempt_resuming(
             ENGINE_VERSION,
-            effect_id,
-            &probe_attempt,
-            &site_name,
+            at.effect_id,
+            at.attempt_id,
+            at.site_name,
             input,
             None,
             |_| {},
         );
-        let report = self.folded(
-            [effect_id, &probe_attempt, &site_name],
-            &spawn,
-            begun,
-            report,
-        )?;
-        Ok(self.probe_end(wait, report))
+        settlement::ended(&mut self.held, at.site_name, &report.cleanup);
+        self.probe_end(wait, report)
     }
+
     /// What the probe's report leaves: an answer permits the retry, and
     /// every other end parks, cleanup's refusal first (decision 0103
     /// ruling 4(a)). A typed rate-limit refusal parks in 4c1 because the

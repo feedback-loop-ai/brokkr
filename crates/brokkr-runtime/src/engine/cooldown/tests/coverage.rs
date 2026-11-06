@@ -104,7 +104,14 @@ fn a_wait_with_no_representable_end_inside_the_maximum_is_no_end() {
     no_waits(&engine);
     let reason = park_reason(&engine);
     assert!(reason.contains("has no representable end"), "{reason}");
-    assert!(reason.contains("declared 10s maximum"), "{reason}");
+    assert!(
+        reason.contains("the computed wait is 1s, and the declared 10s maximum"),
+        "{reason}"
+    );
+    assert!(
+        !reason.contains("past the declared 10s maximum"),
+        "a wait inside the maximum must not say it was passed: {reason}"
+    );
     assert!(!reason.contains("until"), "{reason}");
 }
 
@@ -214,19 +221,12 @@ fn the_probe_names_a_cased_site_as_the_attempt_does() {
     assert_eq!(probe_seat(dir.path(), "work"), "work:chore");
 }
 
-/// The probe under a held lease takes the door, rechecks it and answers;
-/// the retry then runs. The lease is the admission suite's own fixture, so
-/// the held branch of the probe's door is exercised without a new
-/// mechanism.
+/// A driven probe holds its own admission's lease, so its spawn passes the
+/// door that rechecks the lease, and it answers; the retry then runs. The
+/// lease is taken by the probe's own `admit`, never planted.
 #[test]
-fn a_probe_under_a_held_lease_answers_and_retries() {
+fn a_probes_own_lease_is_rechecked_at_the_door_and_answers() {
     let (dir, mut engine, _now) = seated!(&["refuse", "succeed"], Probed::Answer, None, 2);
-    let home = dir.path().join("home");
-    std::fs::create_dir(&home).unwrap();
-    let worktree = dir.path().join("work");
-    engine.held = Some(crate::engine::broker::admission::tests::protecting(
-        &home, &worktree,
-    ));
     drove(
         &mut engine,
         dir.path(),

@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use brokkr_core::canonical::sha256_hex;
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{fold, Status};
+use brokkr_protocol::hands::HandsSpec;
 use serde_json::{json, Value};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -122,6 +123,9 @@ enum Probed {
     Hang,
     Error,
     Unadvertised,
+    /// The probe writes its started marker, waits for its release marker,
+    /// then answers: the lease test holds it open while it claims.
+    Barrier,
 }
 
 /// A `forge-driver/v1` participant in `sh`: its attempts read a verdict
@@ -170,7 +174,13 @@ fn driver(
              \"$base\" \"$eid\" \"$aid\""
         ),
         Probed::Unadvertised => succeeded.to_string(),
+        Probed::Barrier => format!(
+            "{accepted}\n  : > '@STARTED@'\n  i=0\n  while [ ! -e '@RELEASE@' ] && \
+             [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done\n  {checkpoint}\n  {succeeded}"
+        ),
     };
+    let started = dir.join(format!("{tag}.started"));
+    let release = dir.join(format!("{tag}.release"));
     let mut script = String::from(
         r#"n=$(cat '@COUNT@' 2>/dev/null || echo 0)
 read -r hello
@@ -214,6 +224,8 @@ read -r bye
         ("@PROBE@", probe),
         ("@REFUSED@", refused),
         ("@SUCCEEDED@", succeeded.to_string()),
+        ("@STARTED@", started.display().to_string()),
+        ("@RELEASE@", release.display().to_string()),
     ] {
         script = script.replace(at, &with);
     }
@@ -626,21 +638,9 @@ fn assert_stopped(dir: &Path, engine: &Engine) {
 #[test]
 fn an_operator_stop_during_the_wait_is_honoured() {
     let (dir, mut engine, now, db, run_id) = stop_fixture();
-    let read = Arc::clone(&now);
-    let advance = Arc::clone(&now);
-    let stop = Arc::new(Mutex::new(true));
-    engine.cooldown.clock = Clock {
-        now: Box::new(move || *read.lock().unwrap()),
-        sleep: Box::new({
-            let stop = Arc::clone(&stop);
-            move |slice: std::time::Duration| {
-                *advance.lock().unwrap() += time::Duration::seconds(slice.as_secs() as i64);
-                if std::mem::replace(&mut *stop.lock().unwrap(), false) {
-                    append_stop(&db, &run_id);
-                }
-            }
-        }),
-    };
+    engine.cooldown.clock = clock_acting(&now, Acting::AfterFirstSlice, move || {
+        append_stop(&db, &run_id)
+    });
     engine.drive().unwrap();
     assert_stopped(dir.path(), &engine);
 }
@@ -734,6 +734,7 @@ fn a_huge_retry_after_parks_without_a_panic_or_a_wait() {
         let reason = park_reason(&engine);
         assert!(reason.contains(&retry.to_string()), "{reason}");
         assert!(reason.contains("declared 10s maximum"), "{reason}");
+        assert!(reason.contains("past the declared 10s maximum"), "{reason}");
         assert!(reason.contains("rate_limit: slow down"), "{reason}");
     }
 }
@@ -879,7 +880,7 @@ fn resumed(
     until: OffsetDateTime,
     seconds: u64,
 ) -> (tempfile::TempDir, Engine, Arc<Mutex<OffsetDateTime>>) {
-    resumed_at(verdicts, until, seconds, base())
+    resumed_at(verdicts, until, seconds, base(), false)
 }
 
 fn resumed_at(
@@ -887,6 +888,7 @@ fn resumed_at(
     until: OffsetDateTime,
     seconds: u64,
     at: OffsetDateTime,
+    boxed: bool,
 ) -> (tempfile::TempDir, Engine, Arc<Mutex<OffsetDateTime>>) {
     let dir = tempfile::tempdir().unwrap();
     let command = driver(
@@ -899,7 +901,10 @@ fn resumed_at(
         "first",
     );
     let body = single_body(command);
-    let compiled = compiled(dir.path(), body.clone());
+    let mut compiled = compiled(dir.path(), body.clone());
+    if boxed {
+        crate::engine::tests::set_site_hands(&mut compiled, "work", HandsSpec::default());
+    }
     std::fs::create_dir_all(dir.path().join("work")).unwrap();
     let store = brokkr_store::Store::open(&dir.path().join("forge.db")).unwrap();
     let mut engine = Engine::start(
@@ -1296,6 +1301,7 @@ fn a_resume_past_the_recorded_maximum_is_refused(at: i64) {
         until,
         11,
         base() + time::Duration::seconds(at),
+        false,
     );
     engine.cooldown.host = Some(host(dir.path(), 1, 10));
     engine.drive().unwrap();
@@ -1382,6 +1388,8 @@ fn a_driver_that_does_not_advertise_the_probe_parks_naming_it() {
     let reason = park_reason(&engine);
     assert!(reason.contains("does not advertise the probe"), "{reason}");
 }
+
+mod lease;
 
 fn no_waits(engine: &Engine) {
     for event in failed(engine) {
