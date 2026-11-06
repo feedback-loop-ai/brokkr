@@ -1176,17 +1176,18 @@ fn a_writable_open_replaces_an_older_builds_head_trigger() {
 }
 
 /// Decision 0089 rulings 5, 6 and 8: replacing an older build's head
-/// trigger re-derives a folded row's head from its event, and the time it
-/// re-derives is the fold's own — a zone offset applied, not stripped, a
-/// short fraction cut at its own digits, a leap second read as the fold
-/// reads it — so the repair moves no row and no catch-up refold is needed
-/// to put it back.
+/// trigger leaves a folded row's head where the fold put it, so the
+/// repair moves no row and no catch-up refold is needed to put it back:
+/// a zone offset, a short fraction and a leap second keep the fold's
+/// time, as does a stamp SQLite's date parser refuses while the fold
+/// reads it.
 #[test]
 fn a_trigger_repair_keeps_a_folded_rows_own_time() {
     for (stamp, millis) in [
         ("2026-01-01T00:00:09+02:00", 1_767_218_409_000),
         ("2026-01-01T00:00:09.1+12:00", 1_767_182_409_100),
         ("2016-12-31T23:59:60Z", 1_483_228_800_000),
+        ("2026-00-01T00:00:09Z", 1_764_547_209_000),
     ] {
         let (_dir, mut store) = store();
         store
@@ -1202,8 +1203,13 @@ fn a_trigger_repair_keeps_a_folded_rows_own_time() {
         lags(&mut store, &["r"]);
         let store = reopened(store);
         assert_eq!(
-            row(&store, "r", "last_at_ms, folded_seq, head_seq"),
-            [Value::Integer(millis), Value::Integer(1), Value::Integer(1)],
+            row(&store, "r", "last_at_ms, order_at, folded_seq, head_seq"),
+            [
+                Value::Integer(millis),
+                Value::Integer(millis),
+                Value::Integer(1),
+                Value::Integer(1)
+            ],
             "the writable open folded the run at {stamp}"
         );
         install_older_head_trigger(&store);
@@ -1217,8 +1223,13 @@ fn a_trigger_repair_keeps_a_folded_rows_own_time() {
             "the writable open replaced the older trigger"
         );
         assert_eq!(
-            row(&store, "r", "last_at_ms, folded_seq, head_seq"),
-            [Value::Integer(millis), Value::Integer(1), Value::Integer(1)],
+            row(&store, "r", "last_at_ms, order_at, folded_seq, head_seq"),
+            [
+                Value::Integer(millis),
+                Value::Integer(millis),
+                Value::Integer(1),
+                Value::Integer(1)
+            ],
             "the repair kept the folded row's own time at {stamp}"
         );
         assert_eq!(
