@@ -3,7 +3,7 @@
 Status: accepted (operator ruled in chat, 2026-09-21)
 Date: 2026-09-21
 
-Built: built — E1 #988, E2 #1002, E3 #1006, E4 #1014, E5 #E5PR, E6 this change
+Built: built — E1 #988, E2 #1002, E3 #1006, E4 #1014, E5 #1015, E6 #1016
 Amends: 0026, 0047
 
 ## Context
