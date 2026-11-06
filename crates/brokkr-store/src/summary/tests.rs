@@ -1031,14 +1031,22 @@ fn unfolded(path: &std::path::Path) -> rusqlite::Connection {
 
 /// Decision 0089 rulings 5 and 6: the head trigger reads the event's stamp
 /// in milliseconds as the fold does, on the journal's whole-second,
-/// millisecond and longer-fraction shapes, and leaves it NULL where neither
-/// reads the stamp.
+/// millisecond and longer-fraction shapes, on a numeric zone offset the
+/// fold applies, and leaves it NULL where neither reads the stamp — the
+/// whole shape, past the date-time prefix, included.
 #[test]
 fn the_head_trigger_reads_the_stamp_as_the_fold_does() {
     for (run_id, stamp) in [
         ("whole", "2026-01-01T00:00:09Z"),
         ("millis", "2026-01-01T00:00:09.123Z"),
         ("longer", "2026-01-01T00:00:09.123456Z"),
+        ("dot", "2026-01-01T00:00:09.Z"),
+        ("offset", "2026-01-01T00:00:09+02:00"),
+        ("offset-millis", "2026-01-01T00:00:09.123-01:30"),
+        ("suffix", "2026-01-01T00:00:09garbage"),
+        ("space", "2026-01-01 00:00:09Z"),
+        ("no-zone", "2026-01-01T00:00:09"),
+        ("trailing", "2026-01-01T00:00:09Z "),
         ("unread", "not a time"),
     ] {
         let dir = tempfile::tempdir().unwrap();
@@ -1106,6 +1114,25 @@ fn an_unreadable_head_erases_the_earlier_reading() {
     assert_eq!(row(&folded, "r", "last_at_ms"), [Value::Null]);
 }
 
+/// The head trigger an older build kept: the head, its whole stamp and the
+/// acknowledgement reset, but no `last_at_ms`.
+fn install_older_head_trigger(store: &Store) {
+    store
+        .conn
+        .execute_batch(&format!(
+            "DROP TRIGGER run_summary_of_an_event;
+             CREATE TRIGGER run_summary_of_an_event AFTER INSERT ON events BEGIN
+                 UPDATE run_summary SET
+                     head_seq = NEW.seq, head_hash = NEW.event_hash,
+                     last_recorded_at = {stamp}, last_recorded_at_whole = NULL,
+                     acknowledged = 0, ack_operator = NULL, ack_reason = NULL, ack_at = NULL
+                     WHERE run_id = NEW.run_id AND NEW.seq > head_seq;
+             END",
+            stamp = stamp_of("NEW.envelope")
+        ))
+        .unwrap();
+}
+
 /// Decision 0089 rulings 5 and 6: an older build's head trigger, which
 /// keeps no `last_at_ms`, is replaced on the next writable open, and the
 /// append after it keeps the row's own last activity.
@@ -1115,18 +1142,7 @@ fn a_writable_open_replaces_an_older_builds_head_trigger() {
     store
         .create_run("r", "a feature", "self", &json!({}))
         .unwrap();
-    let old = format!(
-        "DROP TRIGGER run_summary_of_an_event;
-         CREATE TRIGGER run_summary_of_an_event AFTER INSERT ON events BEGIN
-             UPDATE run_summary SET
-                 head_seq = NEW.seq, head_hash = NEW.event_hash,
-                 last_recorded_at = {stamp}, last_recorded_at_whole = NULL,
-                 acknowledged = 0, ack_operator = NULL, ack_reason = NULL, ack_at = NULL
-                 WHERE run_id = NEW.run_id AND NEW.seq > head_seq;
-         END",
-        stamp = stamp_of("NEW.envelope")
-    );
-    store.conn.execute_batch(&old).unwrap();
+    install_older_head_trigger(&store);
     assert!(
         !summary_intact(&store.conn).unwrap(),
         "the older trigger is not this build's"
@@ -1149,4 +1165,54 @@ fn a_writable_open_replaces_an_older_builds_head_trigger() {
         row(&store, "r", "last_at_ms"),
         [Value::Integer(1_767_225_609_000)]
     );
+}
+
+/// Decision 0089 rulings 5, 6 and 8: replacing an older build's head
+/// trigger re-derives a folded row's head from its event, and the time it
+/// re-derives is the fold's own — a zone offset applied, not stripped — so
+/// the repair moves no row and no catch-up refold is needed to put it back.
+#[test]
+fn a_trigger_repair_keeps_a_folded_rows_own_time() {
+    let (_dir, mut store) = store();
+    store
+        .create_run("r", "a feature", "self", &json!({}))
+        .unwrap();
+    planted_at(
+        &store,
+        "r",
+        EventType::RunStarted,
+        json!({"feature": "a feature", "manifest": {}}),
+        "2026-01-01T00:00:09+02:00",
+    );
+    lags(&mut store, &["r"]);
+    let store = reopened(store);
+    assert_eq!(
+        row(&store, "r", "last_at_ms, folded_seq, head_seq"),
+        [
+            Value::Integer(1_767_218_409_000),
+            Value::Integer(1),
+            Value::Integer(1)
+        ],
+        "the writable open folded the run at its offset stamp"
+    );
+    install_older_head_trigger(&store);
+    assert!(
+        !summary_intact(&store.conn).unwrap(),
+        "the older trigger is not this build's"
+    );
+    let store = reopened(store);
+    assert!(
+        summary_intact(&store.conn).unwrap(),
+        "the writable open replaced the older trigger"
+    );
+    assert_eq!(
+        row(&store, "r", "last_at_ms, folded_seq, head_seq"),
+        [
+            Value::Integer(1_767_218_409_000),
+            Value::Integer(1),
+            Value::Integer(1)
+        ],
+        "the repair kept the folded row's own time"
+    );
+    assert_eq!(lane(&store, "r"), text("running"), "the row did not move");
 }
