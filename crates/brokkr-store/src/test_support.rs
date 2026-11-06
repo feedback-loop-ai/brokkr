@@ -399,26 +399,41 @@ pub fn stream_plan(
 /// production read's work, every statement it issues at the values it
 /// issues them with, not each statement measured on its own (decision
 /// 0089 ruling 9). The statements and their bound values are the trace's,
-/// so the tally replays exactly what the read ran, and each statement's
-/// `VmStep` status is read and reset as it finishes. A statement that
-/// returns no row still counts the seeks it made. Transaction control is
-/// no query's work and is skipped.
+/// which SQLite writes as it begins each execution, so the tally replays
+/// exactly what the read ran; each replayed statement's `VmStep` status is
+/// read and reset as it finishes. A statement that returns no row still
+/// counts the seeks it made. Transaction control is no query's work and is
+/// skipped. No executable statement is skipped for a leading comment: a
+/// comment is SQL, not a reason to lose the statement's work (M1).
 #[cfg(all(test, feature = "test-support"))]
 pub(crate) fn read_steps<T>(store: &mut Store, read: impl FnOnce(&Store) -> T) -> (T, i64) {
     let (read, begun) = statements_traced(store, read);
     let steps = begun
         .iter()
-        .filter(|sql| !transaction(sql) && !sql.starts_with("--"))
+        .filter(|sql| counted(sql))
         .map(|sql| steps(store, sql))
         .sum();
     (read, steps)
 }
 
-/// Whether `sql` is transaction control rather than a read's own query.
+/// Whether `sql` is a statement whose work the tally counts: it has a code
+/// line, and that line is not transaction control. The trace writes a
+/// comment-only entry for a pragma (`-- PRAGMA table_info=...`), which no
+/// statement executes, so it is skipped; a `--` comment *before* a
+/// statement is not, and the statement's work is counted (M1). The first
+/// code line, after any leading whitespace or `--` comment line, names the
+/// statement, so a commented `BEGIN` is still control.
 #[cfg(all(test, feature = "test-support"))]
-fn transaction(sql: &str) -> bool {
-    let word = sql.split_whitespace().next().unwrap_or("");
-    matches!(
+fn counted(sql: &str) -> bool {
+    let first = sql
+        .lines()
+        .map(str::trim_start)
+        .find(|line| !line.is_empty() && !line.starts_with("--"));
+    let Some(first) = first else {
+        return false;
+    };
+    let word = first.split_whitespace().next().unwrap_or("");
+    !matches!(
         word.to_ascii_uppercase().as_str(),
         "BEGIN" | "COMMIT" | "END" | "ROLLBACK" | "SAVEPOINT" | "RELEASE"
     )

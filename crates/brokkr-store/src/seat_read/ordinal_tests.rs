@@ -826,7 +826,12 @@ fn complete_reads(
     let middle_seq = middle_seq.unwrap_or_else(|| panic!("{seat:?}: the middle rank reads"));
     let (end_page, end_page_steps) = counted(store, |store| {
         store
-            .seat_read("r", opened, seat, None, |_| {
+            .seat_read("r", opened, seat, None, |starts| {
+                // The production page consumes every start its page names
+                // before it makes a row (brokkr_view::page_rows); counting
+                // them here makes the lazy read part of the measured call
+                // (M2).
+                assert!(starts.count() > 0, "{seat:?}: the end page reads a start");
                 |event: &EventEnvelope| event.seq
             })
             .unwrap()
@@ -842,7 +847,15 @@ fn complete_reads(
                 opened,
                 seat,
                 Some(middle_seq.saturating_sub(1)),
-                &mut |_| |event: &EventEnvelope| event.seq,
+                &mut |starts| {
+                    // The page's starts are read lazily; consume them so
+                    // the measured call is the production fetch's (M2).
+                    assert!(
+                        starts.count() > 0,
+                        "{seat:?}: the middle page reads a start"
+                    );
+                    |event: &EventEnvelope| event.seq
+                },
             )
             .unwrap()
     });
@@ -934,6 +947,48 @@ fn the_complete_reads_step_the_same_at_every_size() {
     bounded_reads(
         "the disjoint three-span participant",
         &[multi_span_shape(2_000), multi_span_shape(20_000)],
+    );
+}
+
+/// The tally counts every executed statement, including one a trace would
+/// hide behind a leading comment: the instructions a commented `BOUND` read
+/// takes are exactly the prepared statement's own `VmStep` count, so no
+/// executable statement is skipped by its first word (M1).
+#[test]
+#[cfg(feature = "test-support")]
+fn a_commented_statement_is_counted_by_the_tally() {
+    use rusqlite::StatementStatus;
+    let (_dir, mut store) = store();
+    let _opened = journal(&mut store, {
+        let mut events = asked_and_started("fx", "a");
+        events.extend(turns("fx", "a", Some("m"), 3));
+        events
+    });
+    let seq = checkpoint_seqs(&store, Some("m"))[0];
+    let commented = format!("-- a bound read\n{}", *super::ordinal::BOUND);
+    let mut direct = store.conn.prepare(&commented).unwrap();
+    direct.reset_status(StatementStatus::VmStep);
+    let direct_read: Option<i64> = direct
+        .query_row(rusqlite::params!["r", "a", "m", seq as i64], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    let direct_steps = i64::from(direct.reset_status(StatementStatus::VmStep));
+    drop(direct);
+    let (tallied_read, tallied_steps): (Option<i64>, i64) = counted(&mut store, |store| {
+        store
+            .conn
+            .query_row(
+                &commented,
+                rusqlite::params!["r", "a", "m", seq as i64],
+                |row| row.get(0),
+            )
+            .unwrap()
+    });
+    assert_eq!(tallied_read, direct_read);
+    assert_eq!(
+        tallied_steps, direct_steps,
+        "the commented statement's every instruction is counted"
     );
 }
 
