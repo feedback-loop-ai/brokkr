@@ -1,13 +1,17 @@
 //! A metered checkpoint as the journal records it (decision 0089 ruling 7):
 //! the phase the run was in, its time, the cost it reported or none, its
-//! tokens, and whether it is the last finishing session record its site
-//! wrote. Read here once, from the run's events, so the writer keeps on the
-//! checkpoint's `event_index` row what `brokkr analytics` derives from the
-//! run read whole (decision 0071 ruling 5).
+//! tokens, whether it is the last finishing session record its site wrote,
+//! and whether its turn repeats the usage its site's last metered turn
+//! carried. Read here once, from the run's events, so the writer keeps on
+//! the checkpoint's `event_index` row what `brokkr analytics` derives from
+//! the run read whole (decision 0071 ruling 5).
 //!
 //! A site is an attempt and the member the checkpoint names; only the last
 //! `-session-finished` record such a site wrote is its session record, so a
-//! later one moves the fact from the earlier. The walk reads a checkpoint
+//! later one moves the fact from the earlier. A turn whose usage is the one
+//! its site's last metered turn carried is that message again: it repeats
+//! and meters nothing (`meter::once`). Both facts depend only on records
+//! before the one read, so neither moves. The walk reads a checkpoint
 //! only where its stamp parses and its payload names an attempt, as the
 //! analytics walk it replaces reads it, but it names every checkpoint row it
 //! saw, so the writer records the row processed whatever it could read.
@@ -42,6 +46,12 @@ pub struct Checkpoint {
     pub meter: Meter,
     /// Whether it is the last finishing session record its site wrote.
     pub session: bool,
+    /// Whether its usage is the one its site's last metered turn carried, so
+    /// it is that message again and meters nothing (`meter::once`): the
+    /// rule a window's tokens are read by. `None` where the checkpoint was
+    /// read from its event alone, which cannot know its site's earlier
+    /// turns; the writer that carries the reading writes it.
+    pub repeat: Option<bool>,
 }
 
 impl Checkpoint {
@@ -67,6 +77,7 @@ impl Checkpoint {
             usd,
             meter: Meter::of(record),
             session: is_session(record),
+            repeat: None,
         })
     }
 }
@@ -91,6 +102,9 @@ pub(crate) struct Checking {
     rows: Vec<u64>,
     /// The last finishing session record of each site read so far.
     sessions: BTreeMap<(String, Option<String>), u64>,
+    /// The usage each site's last metered turn carried: what a turn
+    /// repeating it meters nothing for.
+    last: BTreeMap<(String, Option<String>), crate::seat::TokenUsage>,
 }
 
 impl Checking {
@@ -104,11 +118,22 @@ impl Checking {
             return;
         }
         self.rows.push(event.seq);
-        let Some(checkpoint) = Checkpoint::read(event, self.phase.as_deref()) else {
+        let Some(mut checkpoint) = Checkpoint::read(event, self.phase.as_deref()) else {
             return;
         };
+        let site = (checkpoint.attempt_id.clone(), checkpoint.member.clone());
+        let repeat = checkpoint.meter.metered()
+            && checkpoint
+                .meter
+                .usage()
+                .is_some_and(|usage| self.last.get(&site) == Some(usage));
+        checkpoint.repeat = Some(repeat);
+        if checkpoint.meter.metered() && !repeat {
+            if let Some(usage) = checkpoint.meter.usage() {
+                self.last.insert(site.clone(), usage.clone());
+            }
+        }
         if checkpoint.session {
-            let site = (checkpoint.attempt_id.clone(), checkpoint.member.clone());
             if let Some(previous) = self.sessions.insert(site, event.seq) {
                 if let Some(earlier) = self.facts.get_mut(&previous) {
                     earlier.session = false;
@@ -119,8 +144,9 @@ impl Checking {
     }
 
     /// Keep only what a carried account needs to read the events a later
-    /// append adds: the run's phase and each site's last finishing session
-    /// seq. The checkpoint facts and row seqs already read are dropped, so
+    /// append adds: the run's phase, each site's last finishing session
+    /// seq and its last metered turn's usage. The checkpoint facts and row
+    /// seqs already read are dropped, so
     /// a writer that carries an account clones no earlier checkpoint's
     /// facts with every append (decision 0089 ruling 9). The events an
     /// append seals are read again by [`Account::onto`].

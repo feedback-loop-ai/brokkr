@@ -5,25 +5,9 @@
 
 use super::*;
 use crate::envelope::EventType;
-use crate::summary::test_support::journal;
+use crate::summary::test_support::{checkpoint, journal};
 use crate::summary::Account;
 use serde_json::json;
-
-/// A checkpoint of attempt `a` naming `member`, its record `record`.
-fn checkpoint(
-    member: Option<&str>,
-    record: serde_json::Value,
-) -> (EventType, serde_json::Value, &'static str) {
-    let mut checkpoint = record;
-    if let (Some(member), Some(object)) = (member, checkpoint.as_object_mut()) {
-        object.insert("member".into(), json!(member));
-    }
-    (
-        EventType::EffectCheckpointed,
-        json!({"attempt_id": "a", "checkpoint": checkpoint}),
-        "2026-01-01T00:00:02Z",
-    )
-}
 
 #[test]
 fn a_checkpoint_reads_its_time_phase_cost_tokens_and_session() {
@@ -196,4 +180,32 @@ fn a_carried_account_drops_the_checkpoint_facts_it_already_read() {
     assert_eq!(account.checkpoint_rows(), [3]);
     assert_eq!(account.checkpoint(3).unwrap().seq, 3);
     assert_eq!(account.checkpoint(1), None);
+}
+
+/// A checkpoint that is not a metered turn never repeats the site's last
+/// message, and never becomes the message a later turn repeats: only a
+/// turn is a message again (decision 0089 ruling 7).
+#[test]
+fn a_non_turn_checkpoint_never_repeats_a_message() {
+    let events = journal(&[
+        checkpoint(
+            Some("m"),
+            json!({"step": "seat-turn", "input_tokens": 10, "output_tokens": 4}),
+        ),
+        checkpoint(
+            Some("m"),
+            json!({"step": "tool-use", "input_tokens": 12, "output_tokens": 5}),
+        ),
+        checkpoint(
+            Some("m"),
+            json!({"step": "seat-turn", "input_tokens": 12, "output_tokens": 5}),
+        ),
+    ]);
+    let read = checkpoints(&events);
+    assert_eq!(
+        read.iter()
+            .map(|checkpoint| checkpoint.repeat)
+            .collect::<Vec<_>>(),
+        [Some(false), Some(false), Some(false)]
+    );
 }

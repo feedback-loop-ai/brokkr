@@ -45,7 +45,7 @@ pub struct Meter {
 /// Its session record sums the results (each its own query's), so the
 /// seat's output and reasoning are that record's. Batch 2's implement
 /// seat streamed 2k output and its results reported 103,479.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Metering {
     Turns,
     Settled,
@@ -61,10 +61,36 @@ impl Metering {
         let turns = meters
             .into_iter()
             .any(|meter| meter.turn && meter.usage.is_some());
-        match (turns, session.is_some_and(|session| session.settles)) {
+        Metering::decide(turns, session.is_some_and(|session| session.settles))
+    }
+
+    /// The rule from [`Metering::of`]'s two inputs: whether any of the
+    /// site's checkpoints is a metered turn, and whether its finishing
+    /// session record settles.
+    pub(crate) fn decide(turns: bool, settles: bool) -> Metering {
+        match (turns, settles) {
             (true, true) => Metering::Settled,
             (true, false) => Metering::Turns,
             (false, _) => Metering::Session,
+        }
+    }
+
+    /// The rule as the seat row's `metering` column keeps it.
+    pub(crate) fn index(self) -> i64 {
+        match self {
+            Metering::Session => 0,
+            Metering::Turns => 1,
+            Metering::Settled => 2,
+        }
+    }
+
+    /// The rule a seat row's `metering` column holds, where it holds one.
+    pub(crate) fn at(index: i64) -> Option<Metering> {
+        match index {
+            0 => Some(Metering::Session),
+            1 => Some(Metering::Turns),
+            2 => Some(Metering::Settled),
+            _ => None,
         }
     }
 }

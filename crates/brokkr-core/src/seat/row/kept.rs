@@ -30,8 +30,10 @@ use super::{
     Turned,
 };
 use crate::seat::costs::{Cost, EffectAccounting, Usage};
-use crate::seat::meter::Meter;
+use crate::seat::meter::{Meter, Metering};
 use crate::seat::{finish_usage, TokenUsage, Transcript};
+use crate::stamp::parse_millis;
+use crate::summary::{Bounded, MODEL_BYTES, NAME_BYTES};
 
 /// One column's value, in the SQLite types a row is kept in.
 #[derive(Debug, Clone, PartialEq)]
@@ -68,6 +70,11 @@ struct Put(Vec<Datum>);
 impl Put {
     fn int(&mut self, value: Option<u64>) {
         let value = value.map(|value| Datum::Integer(value as i64));
+        self.0.push(value.unwrap_or(Datum::Null));
+    }
+
+    fn signed(&mut self, value: Option<i64>) {
+        let value = value.map(Datum::Integer);
         self.0.push(value.unwrap_or(Datum::Null));
     }
 
@@ -268,6 +275,32 @@ impl<I: Iterator<Item = Datum>> Take<I> {
         Listed::of_kept(steps, tagged, models, self.text()?, self.text()?)
     }
 
+    /// A site's dated facts, [`SeatRow::data`]' last columns: each checked
+    /// against the row's own fields, so a row whose key was edited past its
+    /// source, or whose rule is no [`Metering`], reads as no row.
+    fn site(&mut self, row: &SeatRow) -> Option<()> {
+        let started = match self.0.next()? {
+            Datum::Null => None,
+            Datum::Integer(value) => Some(value),
+            Datum::Text(_) => return None,
+        };
+        if started != row.started_ms() {
+            return None;
+        }
+        let text = |take: &mut Self, want: Option<String>| -> Option<()> {
+            let found = take.text()?;
+            (found == want).then_some(())
+        };
+        text(self, row.phase_key())?;
+        text(self, row.provider_key())?;
+        text(self, row.model_key())?;
+        let metering = match self.0.next()? {
+            Datum::Integer(value) => Metering::at(value)?,
+            _ => return None,
+        };
+        (metering == row.metering()).then_some(())
+    }
+
     fn carried(&mut self) -> Option<Last<Carry>> {
         let seq = self.int()?;
         let carry = match (both(seq, self.text()?)?, self.int()?) {
@@ -448,7 +481,7 @@ impl SeatRow {
 
     /// The columns a row is kept in, by name and SQL type, in the order
     /// [`SeatRow::data`] gives their values.
-    pub const COLUMNS: [(&'static str, &'static str); 85] = [
+    pub const COLUMNS: [(&'static str, &'static str); 90] = [
         ("request_seq", INTEGER),
         ("effect_id", TEXT),
         ("attempt_id", TEXT),
@@ -534,6 +567,11 @@ impl SeatRow {
         ("costs_finishing_cache_read_tokens", INTEGER),
         ("costs_finishing_cache_write_tokens", INTEGER),
         ("costs_finishing_reasoning_output_tokens", INTEGER),
+        ("started_ms", INTEGER),
+        ("phase_key", TEXT),
+        ("provider_key", TEXT),
+        ("model_key", TEXT),
+        ("metering", INTEGER),
     ];
 
     /// This row's values, in [`SeatRow::COLUMNS`]' order.
@@ -586,7 +624,52 @@ impl SeatRow {
         put.text(self.listed.lines_kept().as_deref());
         put.flag(Some(self.live));
         put.costs(self.costs.as_ref());
+        put.signed(self.started_ms());
+        put.text(self.phase_key().as_deref());
+        put.text(self.provider_key().as_deref());
+        put.text(self.model_key().as_deref());
+        put.int(Some(self.metering().index() as u64));
         put.0
+    }
+
+    /// The site's start in milliseconds: the attempt's first start's stamp by
+    /// the one parse, none where the row holds no start or it does not parse.
+    fn started_ms(&self) -> Option<i64> {
+        self.started
+            .as_ref()
+            .and_then(|start| parse_millis(&start.at))
+    }
+
+    /// The phase cut to its group key's bound where it is stored.
+    fn phase_key(&self) -> Option<String> {
+        self.phase
+            .as_deref()
+            .map(|phase| Bounded::within(phase, NAME_BYTES).cut.to_string())
+    }
+
+    /// The provider cut to its group key's bound where it is stored, none
+    /// where the site states none.
+    fn provider_key(&self) -> Option<String> {
+        let provider = self.provider.as_ref().map(|(_, provider)| provider)?;
+        match provider {
+            Provider::Unnamed => None,
+            Provider::Named(name) => Some(Bounded::within(name, NAME_BYTES).cut.to_string()),
+        }
+    }
+
+    /// The model cut to its group key's bound where it is stored.
+    fn model_key(&self) -> Option<String> {
+        self.model
+            .as_ref()
+            .map(|(_, model)| Bounded::within(model, MODEL_BYTES).cut.to_string())
+    }
+
+    /// How the row's checkpoints meter it, by [`Metering::of`]'s two inputs
+    /// the row's own columns state: whether it holds a metered turn, and
+    /// whether its session record settles.
+    fn metering(&self) -> Metering {
+        let session = self.session.as_ref().map(|(_, session)| &session.meter);
+        Metering::of(self.metered.iter(), session)
     }
 
     fn put_tail(&self, put: &mut Put) {
@@ -622,6 +705,7 @@ impl SeatRow {
         row.listed = take.listed()?;
         row.live = take.flag()??;
         row.costs = take.costs()?;
+        take.site(&row)?;
         let costed = row.costed();
         take.0.next().is_none().then_some(row).filter(|_| costed)
     }

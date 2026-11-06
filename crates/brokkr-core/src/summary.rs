@@ -28,16 +28,23 @@ use crate::stamp::parse_millis;
 mod aggregate;
 mod checkpoint;
 mod park;
+mod site;
 
 use aggregate::Reading;
 pub use aggregate::{aggregate, Aggregate, Finished, HardStop};
 use checkpoint::Checking;
 pub use checkpoint::{checkpoints, Checkpoint};
 pub use park::{parks, Park};
+use site::Siting;
+pub use site::{sites, Site};
 
 /// The bound of a name a run's data states: a phase, a rule id, the phase
 /// that ruled, a seat (decision 0089 ruling 2).
 pub const NAME_BYTES: usize = 64;
+
+/// The bound of a model a seat's record names: the seat record's own
+/// `maxLength` (`contracts/seat-record.v5.schema.json`).
+pub const MODEL_BYTES: usize = 80;
 
 /// The bound of a park's reason, which `ParkReason::Stated` leaves free.
 pub const PARK_REASON_BYTES: usize = 256;
@@ -220,6 +227,8 @@ pub struct Account {
     parks: park::Parking,
     /// Its metered checkpoints (ruling 7).
     checkpoints: Checking,
+    /// Its sites, as the seat rows and the analytics read them (ruling 7).
+    sites: Siting,
     /// What its ending is read from (decision 0064, addendum choice 5).
     ending: ending::Reading,
 }
@@ -240,6 +249,7 @@ impl Account {
             reading: Reading::default(),
             parks: park::Parking::default(),
             checkpoints: Checking::default(),
+            sites: Siting::default(),
             ending: ending::Reading::default(),
         }
     }
@@ -274,6 +284,8 @@ impl Account {
             self.reading.note(event);
             self.parks.note(event);
             self.checkpoints.note(event);
+            let checkpoint = self.checkpoints.checkpoint(event.seq).cloned();
+            self.sites.note(event, checkpoint.as_ref());
             self.ending.note(event);
         }
         self.head = (last.seq, last.event_hash.clone());
@@ -325,14 +337,22 @@ impl Account {
     }
 
     /// The account a writer carries between appends: the fold, the seats,
-    /// the parks, the run's phase and each site's last finishing session
-    /// seq stay, while the checkpoint facts and row seqs already read are
-    /// dropped, so an append's clone of the carried account holds no
-    /// earlier checkpoint (decision 0089 ruling 9). The events an append
-    /// seals are read again by [`Account::onto`].
+    /// the parks, the run's phase, each site's facts and its last finishing
+    /// session seq and metered usage stay, while the checkpoint facts and
+    /// row seqs already read are dropped, so an append's clone of the
+    /// carried account holds no earlier checkpoint (decision 0089 ruling
+    /// 9). The events an append seals are read again by [`Account::onto`].
     pub fn carried(mut self) -> Account {
         self.checkpoints.carried();
         self
+    }
+
+    /// Its sites, in the order their provenance entries opened them, each
+    /// the start, phase, provider, model and metering rule a seat row keeps
+    /// (ruling 7). The writer's carried account keeps the facts and no
+    /// earlier checkpoint, so an append carries no site's history.
+    pub fn sites(&self) -> &[Site] {
+        self.sites.sites()
     }
 
     /// The checkpoint at `seq`, where its facts could be read: the writer's
@@ -501,6 +521,6 @@ fn stated(account: &Account) -> String {
 }
 
 #[cfg(test)]
-mod test_support;
+pub(crate) mod test_support;
 #[cfg(test)]
 mod tests;

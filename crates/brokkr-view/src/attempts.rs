@@ -2,18 +2,14 @@
 //! sites an agent resolution chose, with the provider each ran on, the
 //! model it reported, and each checkpoint it metered — its time and phase,
 //! its reported cost and its tokens; and every reported cost with its time
-//! and phase. The checkpoints' facts are brokkr-core's one reading
-//! (decision 0089 ruling 7), which the writer keeps and the analytics
-//! readout and the recipe's graph share (decision 0071 ruling 5).
+//! and phase. The sites are brokkr-core's one reading (decision 0089
+//! ruling 7), which the writer keeps and the analytics readout and the
+//! recipe's graph share (decision 0071 ruling 5).
 
-use std::collections::BTreeMap;
-
-use brokkr_core::summary::{checkpoints, Checkpoint};
-use brokkr_core::{EventEnvelope, EventType};
-use serde_json::Value;
-
-use crate::meter::{self, sum_usage, Metering};
-use crate::{field, TokenUsage};
+use crate::meter::{sum_usage, Metering};
+use crate::TokenUsage;
+use brokkr_core::summary::{checkpoints, sites, Checkpoint, Site as Read};
+use brokkr_core::EventEnvelope;
 
 /// One invocation site of one attempt that an agent resolution chose.
 pub(crate) struct Site {
@@ -31,6 +27,18 @@ pub(crate) struct Site {
 pub(crate) type Keeps<'a> = &'a dyn Fn(i64, Option<&str>) -> bool;
 
 impl Site {
+    /// The site brokkr-core read, as this readout queries it.
+    fn of(read: Read) -> Site {
+        Site {
+            at: read.at,
+            phase: read.phase,
+            provider: read.provider,
+            model: read.model,
+            metered: read.metered,
+            by: read.metering,
+        }
+    }
+
     /// Whether the site ran in what `keeps` holds: it started there, or
     /// metered a checkpoint there.
     pub(crate) fn ran(&self, keeps: Keeps) -> bool {
@@ -68,110 +76,21 @@ pub(crate) struct Attempts {
     pub(crate) sites: Vec<Site>,
 }
 
-#[derive(Default)]
-struct Walk<'a> {
-    phase: Option<&'a str>,
-    costs: Vec<Spend>,
-    sites: Vec<Site>,
-    by_site: BTreeMap<(&'a str, Option<&'a str>), usize>,
-    /// The run's checkpoints as brokkr-core reads them, by seq.
-    checkpoints: BTreeMap<u64, Checkpoint>,
-}
-
-impl<'a> Walk<'a> {
-    /// One attempt's provenance entries, a site each.
-    fn started(&mut self, at: i64, attempt: &'a str, payload: &'a Value) {
-        let entries = payload.get("provenance").and_then(Value::as_array);
-        for entry in entries.into_iter().flatten() {
-            let Some(provider) = field(entry, "provider") else {
-                continue;
-            };
-            self.by_site
-                .insert((attempt, field(entry, "member")), self.sites.len());
-            self.sites.push(Site {
-                at,
-                phase: self.phase.map(str::to_string),
-                provider: provider.to_string(),
-                model: None,
-                metered: Vec::new(),
-                by: Metering::Session,
-            });
-        }
-    }
-
-    /// One record of an attempt: the model it names, and, when it is a
-    /// checkpoint, the facts brokkr-core read of it.
-    fn recorded(&mut self, seq: u64, attempt: &'a str, record: Option<&'a Value>, priced: bool) {
-        let Some(record) = record else { return };
-        let checkpoint = priced
-            .then(|| self.checkpoints.get(&seq).cloned())
-            .flatten();
-        if let Some(checkpoint) = &checkpoint {
-            if let Some(usd) = checkpoint.usd {
-                self.costs.push(Spend {
-                    at: checkpoint.at,
-                    phase: checkpoint.phase.clone(),
-                    usd,
-                });
-            }
-        }
-        let Some(slot) = self.by_site.get(&(attempt, field(record, "member"))) else {
-            return;
-        };
-        let site = &mut self.sites[*slot];
-        if let Some(model) = field(record, "model") {
-            site.model = Some(model.to_string());
-        }
-        if let Some(checkpoint) = checkpoint {
-            site.metered.push(checkpoint);
-        }
-    }
-}
-
-/// Each message metered once, and the session record its site's last: the
-/// cycle rule [`meter::once`] states and the session flag brokkr-core reads.
-fn settle(mut site: Site) -> Site {
-    meter::once(site.metered.iter_mut().map(|metered| &mut metered.meter));
-    let session = site.metered.iter().find(|metered| metered.session);
-    let meters = site.metered.iter().map(|metered| &metered.meter);
-    site.by = Metering::of(meters, session.map(|metered| &metered.meter));
-    site
-}
-
 /// Every site and reported cost of one run's journal.
 pub(crate) fn attempts(events: &[EventEnvelope]) -> Attempts {
-    let mut walk = Walk {
-        checkpoints: checkpoints(events)
-            .into_iter()
-            .map(|checkpoint| (checkpoint.seq, checkpoint))
-            .collect(),
-        ..Walk::default()
-    };
-    for event in events {
-        let payload = &event.payload;
-        if event.event_type == EventType::PhaseEntered {
-            walk.phase = field(payload, "phase");
-            continue;
-        }
-        let (Some(at), Some(attempt)) = (
-            brokkr_core::stamp::parse_millis(&event.recorded_at),
-            field(payload, "attempt_id"),
-        ) else {
-            continue;
-        };
-        match event.event_type {
-            EventType::EffectStarted => walk.started(at, attempt, payload),
-            EventType::EffectCheckpointed => {
-                walk.recorded(event.seq, attempt, payload.get("checkpoint"), true);
-            }
-            EventType::EffectSucceeded => {
-                walk.recorded(event.seq, attempt, payload.get("result"), false);
-            }
-            _ => {}
-        }
-    }
+    let costs = checkpoints(events)
+        .into_iter()
+        .filter_map(|checkpoint| {
+            let usd = checkpoint.usd?;
+            Some(Spend {
+                at: checkpoint.at,
+                phase: checkpoint.phase,
+                usd,
+            })
+        })
+        .collect();
     Attempts {
-        costs: walk.costs,
-        sites: walk.sites.into_iter().map(settle).collect(),
+        costs,
+        sites: sites(events).into_iter().map(Site::of).collect(),
     }
 }

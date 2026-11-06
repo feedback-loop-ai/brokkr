@@ -1006,7 +1006,7 @@ pub brokkr_core::seat::row::SeatFacts::usage: core::option::Option<brokkr_core::
 pub brokkr_core::seat::row::SeatFacts::usage_aggregated: bool
 pub struct brokkr_core::seat::row::SeatRow
 impl brokkr_core::seat::row::SeatRow
-pub const brokkr_core::seat::row::SeatRow::COLUMNS: [(&'static str, &'static str); 85]
+pub const brokkr_core::seat::row::SeatRow::COLUMNS: [(&'static str, &'static str); 90]
 pub fn brokkr_core::seat::row::SeatRow::data(&self) -> alloc::vec::Vec<brokkr_core::seat::row::Datum>
 pub fn brokkr_core::seat::row::SeatRow::of_data(alloc::vec::Vec<brokkr_core::seat::row::Datum>) -> core::option::Option<brokkr_core::seat::row::SeatRow>
 pub fn brokkr_core::seat::row::costs(&[brokkr_core::seat::row::SeatRow]) -> (alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_core::seat::SeatCost>, f64)
@@ -1056,6 +1056,7 @@ pub fn brokkr_core::summary::Account::parks(&self) -> alloc::vec::Vec<brokkr_cor
 pub fn brokkr_core::summary::Account::run_id(&self) -> &str
 pub fn brokkr_core::summary::Account::seats(&self) -> &[brokkr_core::seat::row::SeatRow]
 pub fn brokkr_core::summary::Account::seats_kept(&self) -> bool
+pub fn brokkr_core::summary::Account::sites(&self) -> &[brokkr_core::summary::Site]
 pub fn brokkr_core::summary::Account::state(&self) -> core::result::Result<&brokkr_core::fold::RunState, &brokkr_core::fold::FoldError>
 pub fn brokkr_core::summary::Account::whole(&str, &[brokkr_core::envelope::EventEnvelope]) -> brokkr_core::summary::Account
 pub struct brokkr_core::summary::Aggregate
@@ -1078,6 +1079,7 @@ pub brokkr_core::summary::Checkpoint::attempt_id: alloc::string::String
 pub brokkr_core::summary::Checkpoint::member: core::option::Option<alloc::string::String>
 pub brokkr_core::summary::Checkpoint::meter: brokkr_core::seat::meter::Meter
 pub brokkr_core::summary::Checkpoint::phase: core::option::Option<alloc::string::String>
+pub brokkr_core::summary::Checkpoint::repeat: core::option::Option<bool>
 pub brokkr_core::summary::Checkpoint::reported: bool
 pub brokkr_core::summary::Checkpoint::seq: u64
 pub brokkr_core::summary::Checkpoint::session: bool
@@ -1111,6 +1113,15 @@ pub struct brokkr_core::summary::Ruled
 pub brokkr_core::summary::Ruled::from: brokkr_core::summary::Bounded
 pub brokkr_core::summary::Ruled::routes: bool
 pub brokkr_core::summary::Ruled::rule_id: core::option::Option<brokkr_core::summary::Bounded>
+pub struct brokkr_core::summary::Site
+pub brokkr_core::summary::Site::at: i64
+pub brokkr_core::summary::Site::attempt_id: alloc::string::String
+pub brokkr_core::summary::Site::member: core::option::Option<alloc::string::String>
+pub brokkr_core::summary::Site::metered: alloc::vec::Vec<brokkr_core::summary::Checkpoint>
+pub brokkr_core::summary::Site::metering: brokkr_core::seat::meter::Metering
+pub brokkr_core::summary::Site::model: core::option::Option<alloc::string::String>
+pub brokkr_core::summary::Site::phase: core::option::Option<alloc::string::String>
+pub brokkr_core::summary::Site::provider: alloc::string::String
 pub struct brokkr_core::summary::Stated
 pub brokkr_core::summary::Stated::claim: brokkr_core::residual::Claim
 pub brokkr_core::summary::Stated::phase: brokkr_core::residual::ResidualPhase
@@ -1152,6 +1163,7 @@ pub const brokkr_core::summary::ACK_OPERATOR_CHARS: usize
 pub const brokkr_core::summary::ACK_REASON_CHARS: usize
 pub const brokkr_core::summary::CITATION_BYTES: usize
 pub const brokkr_core::summary::FEATURE_LINE_BYTES: usize
+pub const brokkr_core::summary::MODEL_BYTES: usize
 pub const brokkr_core::summary::NAME_BYTES: usize
 pub const brokkr_core::summary::PARK_REASON_BYTES: usize
 pub const brokkr_core::summary::REFUSAL_BYTES: usize
@@ -1161,6 +1173,7 @@ pub fn brokkr_core::summary::checkpoints(&[brokkr_core::envelope::EventEnvelope]
 pub fn brokkr_core::summary::entered_phase(&brokkr_core::envelope::EventEnvelope) -> core::option::Option<&str>
 pub fn brokkr_core::summary::feature_line(&str) -> &str
 pub fn brokkr_core::summary::parks(&[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_core::summary::Park>
+pub fn brokkr_core::summary::sites(&[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_core::summary::Site>
 pub enum brokkr_core::Cursor
 pub brokkr_core::Cursor::Decide
 pub brokkr_core::Cursor::Decide::effect_id: alloc::string::String

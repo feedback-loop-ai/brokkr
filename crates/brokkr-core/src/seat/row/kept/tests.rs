@@ -68,6 +68,10 @@ fn full() -> Vec<Datum> {
             ("boundary" | "stamp", _) => text("namespace"),
             ("metered_settles" | "session_turn", _) => Datum::Integer(0),
             ("metered_total_tokens" | "session_total_tokens", _) => Datum::Integer(2),
+            ("started_ms", _) => Datum::Null,
+            ("phase_key", _) => text("phase"),
+            ("provider_key", _) => text("provider"),
+            ("model_key", _) => text("model"),
             ("steps", _) => text("1:15:steps"),
             ("models", _) => text("6:models"),
             ("early_tags", _) => text("1:110:early_tags"),
@@ -123,7 +127,8 @@ fn uncosted(part: &str) -> Vec<(&'static str, Datum)> {
     costs.map(|(name, _)| (*name, Datum::Null)).collect()
 }
 
-/// [`full`] with each named column holding its value.
+/// [`full`] with each named column holding its value, its group keys and
+/// metering rule re-derived from the columns they are of.
 fn with(columns: &[(&str, Datum)]) -> Vec<Datum> {
     let mut data = full();
     for (name, datum) in columns {
@@ -132,7 +137,70 @@ fn with(columns: &[(&str, Datum)]) -> Vec<Datum> {
             .position(|(column, _)| column == name);
         data[at.unwrap()] = datum.clone();
     }
+    derived(&mut data);
     data
+}
+
+/// The row's group keys and metering rule, as a writer derives them from
+/// the columns they are of, set on `data`.
+fn derived(data: &mut [Datum]) {
+    let at = |name: &str| {
+        SeatRow::COLUMNS
+            .iter()
+            .position(|(column, _)| *column == name)
+            .expect("the row's columns")
+    };
+    let text_at = |data: &[Datum], name: &str| match &data[at(name)] {
+        Datum::Text(text) => Some(text.clone()),
+        _ => None,
+    };
+    let int_at = |data: &[Datum], name: &str| match &data[at(name)] {
+        Datum::Integer(value) => Some(*value),
+        _ => None,
+    };
+    let started = text_at(data, "started_at").and_then(|at| crate::stamp::parse_millis(&at));
+    data[at("started_ms")] = started.map_or(Datum::Null, Datum::Integer);
+    let key = |data: &[Datum], whole: &str, bound: usize| {
+        text_at(data, whole).map_or(Datum::Null, |whole| {
+            Datum::Text(
+                crate::summary::Bounded::within(&whole, bound)
+                    .cut
+                    .to_string(),
+            )
+        })
+    };
+    data[at("phase_key")] = key(data, "phase", crate::summary::NAME_BYTES);
+    data[at("provider_key")] = match int_at(data, "provider_seq") {
+        Some(_) => key(data, "provider", crate::summary::NAME_BYTES),
+        None => Datum::Null,
+    };
+    data[at("model_key")] = match int_at(data, "model_seq") {
+        Some(_) => key(data, "model", crate::summary::MODEL_BYTES),
+        None => Datum::Null,
+    };
+    let usage = |data: &[Datum], meter: &str| {
+        let count = |name: &str| int_at(data, &format!("{meter}{name}")).map(|v| v as u64);
+        let input = count("input_tokens");
+        let output = count("output_tokens");
+        let total = count("total_tokens");
+        let summed = input
+            .zip(output)
+            .map(|(input, output)| input.saturating_add(output))
+            .or_else(|| input.or(output).map(|_| 0));
+        let says = summed.is_some()
+            || count("cache_read_tokens").is_some()
+            || count("cache_write_tokens").is_some()
+            || count("reasoning_output_tokens").is_some();
+        (total == summed && says).then_some(())
+    };
+    let turns = int_at(data, "metered_turn") == Some(1) && usage(data, "metered_").is_some();
+    let settles = int_at(data, "session_settles") == Some(1) && usage(data, "session_").is_some();
+    let metering = match (turns, settles) {
+        (true, true) => 2,
+        (true, false) => 1,
+        (false, _) => 0,
+    };
+    data[at("metering")] = Datum::Integer(metering);
 }
 
 fn text(word: &str) -> Datum {
@@ -365,4 +433,43 @@ fn data_no_row_writes_reads_as_none() {
     let mut more = full();
     more.push(Datum::Null);
     assert_eq!(SeatRow::of_data(more), None);
+}
+
+/// A row's start reads as the attempt's first start in milliseconds, so a
+/// window's seats can be found by their start (decision 0089 ruling 7).
+#[test]
+fn a_row_s_start_reads_as_its_milliseconds() {
+    use crate::envelope::EventType;
+    use crate::summary::test_support::journal;
+    use serde_json::json;
+
+    let events = journal(&[
+        (
+            EventType::PhaseEntered,
+            json!({"phase": "implement"}),
+            "2026-01-01T00:00:00Z",
+        ),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "fx", "seat": "worker", "phase": "implement"}),
+            "2026-01-01T00:00:01Z",
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "fx", "attempt_id": "a",
+                   "provenance": [{"member": null, "provider": "anthropic"}]}),
+            "2026-01-01T00:00:02Z",
+        ),
+    ]);
+    let account = Account::whole("r", &events);
+    let row = account
+        .seats()
+        .iter()
+        .find(|row| row.attempt_id.as_deref() == Some("a"))
+        .expect("the attempt's row");
+    let at = SeatRow::COLUMNS
+        .iter()
+        .position(|(column, _)| *column == "started_ms")
+        .unwrap();
+    assert_eq!(row.data()[at], Datum::Integer(1_767_225_602_000));
 }

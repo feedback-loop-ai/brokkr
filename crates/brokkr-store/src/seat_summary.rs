@@ -40,7 +40,9 @@
 //! Each row keeps a digest of itself as its writer wrote it (#753, the
 //! operator's 2026-10-24 ruling), in one private column, `digest`: a read
 //! that finds a row its digest is not of reads the run stale, whatever
-//! column was edited and however, and the doctor names it.
+//! column was edited and however, and the doctor names it. The aggregate
+//! readouts find a window's seats through the `(started_ms)` index
+//! (decision 0089 ruling 7).
 //!
 //! The rows are derived, never exported and never chained: the journal's
 //! events stay the record (decisions 0001 and 0003), and no
@@ -69,6 +71,10 @@ use seal::{digest, value, Cell, Seal};
 const BACKFILLED: &str = "seat_summary_backfill";
 
 const TABLES: [&str; 2] = ["seat_summary", "seat_head"];
+
+/// The index the aggregates read a window's seats by (decision 0089
+/// ruling 7).
+const INDEXES: [&str; 1] = ["seat_summary_started"];
 
 /// A row's columns after its key as the table declares them, each its
 /// name and its type, comma-joined.
@@ -102,6 +108,7 @@ fn migration() -> String {
             run_id TEXT PRIMARY KEY, folded_seq INTEGER NOT NULL, folded_hash TEXT NOT NULL,
             shape TEXT
         ) WITHOUT ROWID;
+        CREATE INDEX seat_summary_started ON seat_summary (started_ms);
         DELETE FROM meta WHERE key = '{BACKFILLED}';",
         declared()
     )
@@ -116,7 +123,8 @@ fn migration() -> String {
 pub(crate) fn seats_intact(conn: &Connection) -> Result<bool, StoreError> {
     Ok(all_present(conn, "table", &TABLES)?
         && holds(conn, "seat_summary", kept())?
-        && holds(conn, "seat_head", [SHAPED])?)
+        && holds(conn, "seat_head", [SHAPED])?
+        && all_present(conn, "index", &INDEXES)?)
 }
 
 const SHAPED: &str = "shape";

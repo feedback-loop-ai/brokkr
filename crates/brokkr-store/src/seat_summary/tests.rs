@@ -6,7 +6,8 @@
 
 use super::*;
 use crate::test_support::{
-    every_run_reads_as_its_fold, import_fixtures, lags, plant_summary_writer, unseat,
+    disagreements, every_run_reads_as_its_fold, import_fixtures, lags, plant_envelope,
+    plant_summary_writer, planted_fixtures, refolded, unseat,
 };
 use crate::tests::envelope_builder::EnvelopeBuilder;
 use crate::tests::walk::cut_short;
@@ -818,8 +819,9 @@ fn a_seat_table_without_the_accounting_s_columns_gains_them_at_a_writable_open()
     let reader = Store::open_read_only(&path).unwrap();
     let count = "SELECT count(*) FROM pragma_table_info('seat_summary')";
     let columns: i64 = reader.conn.query_row(count, [], |row| row.get(0)).unwrap();
-    // Its run and place, the seat view's 69 columns and the digest.
-    assert_eq!(columns, 2 + 69 + 1);
+    // Its run and place, the seat view's 69 columns and the seats' five
+    // dated ones, and the digest.
+    assert_eq!(columns, 2 + 69 + 5 + 1);
     assert!(!seats_intact(&reader.conn).unwrap());
     assert_eq!(reader.seat_rows("r").unwrap(), SeatRows::Stale);
     let mut store = Store::open(&path).unwrap();
@@ -1069,4 +1071,338 @@ fn seat_rows_that_part_from_the_fold_are_named_by_their_place_and_how() {
         &mut store,
         &["missing", "edited", "stray", "under", "empty"],
     );
+}
+
+// ------------------------------------------------- the seats' dated facts
+
+/// A row's column by name, as its writer's data holds it.
+fn column(row: &SeatRow, name: &str) -> Datum {
+    let at = SeatRow::COLUMNS
+        .iter()
+        .position(|(column, _)| *column == name)
+        .unwrap_or_else(|| panic!("{name} is a column"));
+    row.data()[at].clone()
+}
+
+/// A row's section of text, where its data holds one.
+fn held(row: &SeatRow, name: &str) -> Option<String> {
+    match column(row, name) {
+        Datum::Text(text) => Some(text),
+        Datum::Null => None,
+        Datum::Integer(value) => panic!("{name} is text, not {value}"),
+    }
+}
+
+/// A row's integer column, where its data holds one.
+fn numeric(row: &SeatRow, name: &str) -> Option<i64> {
+    match column(row, name) {
+        Datum::Integer(value) => Some(value),
+        Datum::Null => None,
+        Datum::Text(text) => panic!("{name} is an integer, not {text}"),
+    }
+}
+
+/// The row of the attempt `attempt` naming `member`, `None` for the seat's
+/// own.
+fn attempted<'a>(rows: &'a [SeatRow], attempt: &str, member: Option<&str>) -> &'a SeatRow {
+    let found = rows.iter().find(|row| {
+        held(row, "attempt_id").as_deref() == Some(attempt)
+            && held(row, "member").as_deref() == member
+    });
+    found.unwrap_or_else(|| panic!("attempt {attempt} names {member:?}"))
+}
+
+/// What the site a row states metering by: the rule `Metering` indexes.
+fn rule(row: &SeatRow) -> i64 {
+    numeric(row, "metering").expect("a row states a metering rule")
+}
+
+/// `name` cut to `bytes`, as a datum.
+fn rule_of(metering: brokkr_core::seat::meter::Metering) -> i64 {
+    match metering {
+        brokkr_core::seat::meter::Metering::Session => 0,
+        brokkr_core::seat::meter::Metering::Turns => 1,
+        brokkr_core::seat::meter::Metering::Settled => 2,
+    }
+}
+
+fn cut(name: Option<&str>, bytes: usize) -> Datum {
+    name.map_or(Datum::Null, |name| {
+        Datum::Text(
+            brokkr_core::summary::Bounded::within(name, bytes)
+                .cut
+                .to_string(),
+        )
+    })
+}
+
+/// A run whose attempt `a` starts with the provider `provider`, after
+/// entering `phase`, and whose seat is `worker`.
+fn sited(store: &mut Store, run_id: &str, phase: &str, provider: &str) {
+    store
+        .create_run(run_id, "a feature", "self", &json!({}))
+        .unwrap();
+    append(
+        store,
+        run_id,
+        EventType::RunStarted,
+        json!({"feature": "a feature", "manifest": {}}),
+    );
+    append(
+        store,
+        run_id,
+        EventType::PhaseEntered,
+        json!({"phase": phase}),
+    );
+    append(
+        store,
+        run_id,
+        EventType::EffectRequested,
+        json!({"effect_id": "fx", "seat": "worker", "phase": phase}),
+    );
+    append(
+        store,
+        run_id,
+        EventType::EffectStarted,
+        json!({"effect_id": "fx", "attempt_id": "a",
+               "provenance": [{"member": null, "provider": provider}]}),
+    );
+}
+
+/// A run whose site `a` starts under the provider `anthropic` and meters
+/// one `opus` turn.
+fn sited_turn(store: &mut Store, run_id: &str) {
+    sited(store, run_id, "work", "anthropic");
+    append(
+        store,
+        run_id,
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "attempt_id": "a",
+               "checkpoint": {"step": "seat-turn", "model": "opus", "input_tokens": 1}}),
+    );
+}
+
+#[test]
+fn every_fixture_keeps_the_seat_facts_the_run_reads() {
+    let (_dir, store) = store();
+    let fixtures = planted_fixtures(&store);
+    let store = refolded(store);
+    let mut wrong = Vec::new();
+    for (run_id, events) in fixtures {
+        // A run whose chain does not load folds nowhere, so its rows read
+        // stale and a reader reads it whole (decision 0089 ruling 8).
+        if store.load(&run_id).is_err() {
+            continue;
+        }
+        let account = Account::whole(&run_id, &events);
+        let sites = brokkr_core::summary::sites(&events);
+        let rows = match store.seat_rows(&run_id).unwrap() {
+            SeatRows::Current(rows) => rows,
+            SeatRows::Stale => {
+                wrong.push(format!("{run_id}: seat rows read stale"));
+                continue;
+            }
+        };
+        let mut matched = vec![false; sites.len()];
+        for row in &rows {
+            let Some(provider) = held(row, "provider") else {
+                continue;
+            };
+            let attempt = held(row, "attempt_id").expect("a site's row states its attempt");
+            let member = held(row, "member");
+            let found = sites.iter().position(|site| {
+                site.attempt_id == attempt && site.member.as_deref() == member.as_deref()
+            });
+            let Some(at) = found else {
+                wrong.push(format!(
+                    "{run_id}: row {attempt}/{member:?} names provider {provider}, no site"
+                ));
+                continue;
+            };
+            matched[at] = true;
+            let site = &sites[at];
+            let want = [
+                ("started_ms", Datum::Integer(site.at)),
+                (
+                    "phase_key",
+                    cut(site.phase.as_deref(), brokkr_core::summary::NAME_BYTES),
+                ),
+                (
+                    "provider_key",
+                    cut(Some(&site.provider), brokkr_core::summary::NAME_BYTES),
+                ),
+                (
+                    "model_key",
+                    cut(site.model.as_deref(), brokkr_core::summary::MODEL_BYTES),
+                ),
+                ("metering", Datum::Integer(rule_of(site.metering))),
+            ];
+            for (name, want) in want {
+                let got = column(row, name);
+                if got != want {
+                    wrong.push(format!(
+                        "{run_id}: row {attempt}/{member:?} {name} {got:?}, read {want:?}"
+                    ));
+                }
+            }
+        }
+        for (at, site) in sites.iter().enumerate() {
+            if !matched[at] {
+                wrong.push(format!(
+                    "{run_id}: site {}/{:?} has no seat row",
+                    site.attempt_id, site.member
+                ));
+            }
+        }
+        assert_eq!(rows, account.seats().to_vec(), "{run_id}");
+    }
+    assert_eq!(wrong, Vec::<String>::new());
+}
+
+/// A site's start, phase, provider and model are written as their columns
+/// state them, each name cut to its bound at a character boundary where it
+/// is stored, the whole name last in the row.
+#[test]
+fn a_site_s_names_are_cut_at_their_bounds_where_they_are_stored() {
+    let (_dir, mut store) = store();
+    let phase = format!("{}é{}", "p".repeat(63), "p".repeat(1024 * 1024));
+    let provider = format!("{}é{}", "q".repeat(63), "q".repeat(1024 * 1024));
+    let model = format!("{}é{}", "m".repeat(79), "m".repeat(200));
+    sited(&mut store, "r", &phase, &provider);
+    // The seat record's fence refuses a model past its `maxLength`, so the
+    // record is planted as an older writer leaves it and the open refolds
+    // the row from it.
+    let event = next(
+        &store,
+        "r",
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "attempt_id": "a",
+               "checkpoint": {"step": "seat-turn", "model": model,
+                              "input_tokens": 1}}),
+    );
+    plant_envelope(&store.conn, &event).unwrap();
+    lags(&mut store, &["r"]);
+    let store = refolded(store);
+    let rows = read(&store, "r");
+    let row = attempted(&rows, "a", None);
+    assert_eq!(held(row, "phase").as_deref(), Some(phase.as_str()));
+    assert_eq!(held(row, "provider").as_deref(), Some(provider.as_str()));
+    assert_eq!(held(row, "model").as_deref(), Some(model.as_str()));
+    assert_eq!(held(row, "phase_key").as_deref(), Some(&phase[..63]));
+    assert_eq!(held(row, "provider_key").as_deref(), Some(&provider[..63]));
+    assert_eq!(held(row, "model_key").as_deref(), Some(&model[..79]));
+    let events = store.load("r").unwrap();
+    assert_eq!(
+        numeric(row, "started_ms"),
+        Some(brokkr_core::summary::sites(&events)[0].at)
+    );
+}
+
+/// A site's metering rule is the rule over all its checkpoints, and the
+/// row is rewritten as each checkpoint moves it: its session record alone,
+/// then its turns once a turn carries tokens, then settled once a settling
+/// session record lands.
+#[test]
+fn a_site_s_metering_rule_moves_and_its_row_follows() {
+    let (_dir, mut store) = store();
+    sited(&mut store, "r", "work", "anthropic");
+    let read_rule = |store: &Store| {
+        let rows = read(store, "r");
+        let row = attempted(&rows, "a", None);
+        let account = Account::whole("r", &store.load("r").unwrap());
+        let site = &account.sites()[0];
+        (rule(row), rule_of(site.metering))
+    };
+    assert_eq!(read_rule(&store), (0, 0), "a session record alone");
+    append(
+        &mut store,
+        "r",
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "attempt_id": "a",
+               "checkpoint": {"step": "seat-turn", "input_tokens": 10}}),
+    );
+    assert_eq!(read_rule(&store), (1, 1), "a turn carries tokens");
+    append(
+        &mut store,
+        "r",
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "attempt_id": "a",
+               "checkpoint": {"step": "claude-session-finished", "output_tokens": 3}}),
+    );
+    assert_eq!(read_rule(&store), (2, 2), "a settling session record lands");
+}
+
+/// Ruling 4's comparison holds every seat column the dated facts added to
+/// the fold's row: an edit of one is named by that column, never passed.
+#[test]
+fn each_seat_dated_column_that_is_not_its_fold_s_is_named() {
+    let (_dir, mut store) = store();
+    sited_turn(&mut store, "r");
+    for name in [
+        "started_ms",
+        "phase_key",
+        "provider_key",
+        "model_key",
+        "metering",
+    ] {
+        let held = {
+            let rows = read(&store, "r");
+            column(attempted(&rows, "a", None), name)
+        };
+        let wrong = match &held {
+            Datum::Integer(value) => Datum::Integer(value ^ 1),
+            Datum::Text(text) => Datum::Text(format!("{text}.")),
+            Datum::Null => Datum::Integer(0),
+        };
+        let edit = format!("UPDATE seat_summary SET {name} = ?1 WHERE run_id = 'r' AND opened = 1");
+        store
+            .conn
+            .execute(&edit, [super::seal::value(wrong)])
+            .unwrap();
+        assert_eq!(
+            disagreements(&store),
+            [format!(
+                "run 'r': its seat rows stand at its head, and the {name} of its seat row 1 \
+                 is not its fold's"
+            )],
+            "{name}"
+        );
+        store
+            .conn
+            .execute(&edit, [super::seal::value(held)])
+            .unwrap();
+    }
+    lags(&mut store, &["r"]);
+}
+
+/// A row whose dated column is not the one its fields derive reads as no
+/// row: a start of another type or value, a key another name, and a rule
+/// no [`Metering`] states.
+#[test]
+fn dated_seat_facts_no_row_writes_read_as_none() {
+    let (_dir, mut store) = store();
+    sited_turn(&mut store, "r");
+    let rows = read(&store, "r");
+    let row = attempted(&rows, "a", None);
+    let at = |name: &str| {
+        SeatRow::COLUMNS
+            .iter()
+            .position(|(column, _)| *column == name)
+            .unwrap()
+    };
+    let cases = [
+        ("started_ms", Datum::Text("1".into())),
+        ("started_ms", Datum::Integer(0)),
+        ("phase_key", Datum::Text("other".into())),
+        ("phase_key", Datum::Null),
+        ("provider_key", Datum::Text("other".into())),
+        ("model_key", Datum::Text("other".into())),
+        ("metering", Datum::Integer(3)),
+        ("metering", Datum::Text("turns".into())),
+    ];
+    for (name, wrong) in cases {
+        let mut data = row.data();
+        data[at(name)] = wrong.clone();
+        assert!(SeatRow::of_data(data).is_none(), "{name} {wrong:?}");
+    }
 }

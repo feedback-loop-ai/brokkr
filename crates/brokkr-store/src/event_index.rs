@@ -2,7 +2,9 @@
 //! `(run_id, seq)`, holding its type, the attempt and member it names, its
 //! time and its id, so a run's trail, a seat's checkpoints and what caused
 //! each row of a journal page are read by key, never by reading the run
-//! whole (ruling 7).
+//! whole (ruling 7). A checkpoint's row also keeps its dated facts and
+//! whether its turn repeats its site's last message; a park's keeps its
+//! own.
 //!
 //! What the row states, the event alone states, so SQLite keeps it
 //! (ruling 3): a trigger after each insert into `events` adds the row,
@@ -237,7 +239,8 @@ fn migration() -> String {
         DROP INDEX IF EXISTS event_index_checkpoint_stale;
         CREATE INDEX IF NOT EXISTS event_index_checkpoint_stale
             ON event_index (run_id)
-            WHERE type = '{CHECKPOINTED}' AND (facts IS NULL OR facts_seq IS NOT seq);
+            WHERE type = '{CHECKPOINTED}'
+              AND (facts IS NULL OR repeat IS NULL OR facts_seq IS NOT seq);
         CREATE INDEX IF NOT EXISTS event_index_checkpoint_session
             ON event_index (run_id, attempt_id, member, seq)
             WHERE type = '{CHECKPOINTED}' AND session = 1;
