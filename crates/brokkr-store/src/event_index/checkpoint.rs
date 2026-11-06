@@ -309,6 +309,34 @@ fn site(from: bool) -> String {
 pub(super) static SITE: LazyLock<String> = LazyLock::new(|| site(true));
 static SITE_BEHIND: LazyLock<String> = LazyLock::new(|| site(false));
 
+/// The seqs of an attempt's starts through `through`, by its key: the
+/// boundaries the site reading keys a checkpoint by, so a re-opened site's
+/// earlier session record keeps its own flag when the site is refolded
+/// (decision 0089 ruling 7).
+static STARTS: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT seq FROM event_index INDEXED BY event_index_stream
+         WHERE run_id = ?1 AND attempt_id = ?2
+           AND type = '{}' AND seq <= ?3
+         ORDER BY seq",
+        EventType::EffectStarted.as_str()
+    )
+});
+
+/// The starts of `attempt_id` at or before `through`, in seq order.
+pub(super) fn starts(
+    conn: &Connection,
+    run_id: &str,
+    attempt_id: &str,
+    through: u64,
+) -> Result<Vec<u64>, StoreError> {
+    let mut statement = conn.prepare_cached(&STARTS)?;
+    let found = statement.query_map(params![run_id, attempt_id, through as i64], |row| {
+        row.get(0)
+    })?;
+    Ok(found.collect::<Result<_, _>>()?)
+}
+
 /// The seqs [`refold_site`] reads, bound to the site and, at an append, the
 /// first sealed seq at it.
 fn candidates(
@@ -353,10 +381,20 @@ fn refold_site(
     from: Option<u64>,
 ) -> Result<(), StoreError> {
     let seqs = candidates(conn, run_id, attempt_id, member, from)?;
-    let mut events = Vec::with_capacity(seqs.len());
+    let through = seqs.last().copied().unwrap_or(0);
+    // The site reading keys a checkpoint by the start that opened its
+    // site, so the refold reads the attempt's starts beside its candidate
+    // rows: without them a re-opened attempt's two sites read as one and
+    // the earlier session flag moves (decision 0089 ruling 7).
+    let all: BTreeSet<u64> = seqs
+        .iter()
+        .copied()
+        .chain(starts(conn, run_id, attempt_id, through)?)
+        .collect();
+    let mut events = Vec::with_capacity(all.len());
     {
         let mut statement = conn.prepare_cached(super::ENVELOPE)?;
-        for seq in &seqs {
+        for seq in &all {
             let envelope: String =
                 statement.query_row(params![run_id, *seq as i64], |row| row.get(0))?;
             events.push(serde_json::from_str(&envelope)?);

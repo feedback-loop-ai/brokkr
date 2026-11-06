@@ -417,8 +417,8 @@ impl Opened {
 fn current(conn: &Connection, run_id: &str, head: (u64, &str)) -> Result<SeatRows, StoreError> {
     let mut rows = Vec::new();
     let mut opened = Opened::default();
-    let whole = (None, SeatRow::COLUMNS.len());
-    let read = sealed_at(conn, run_id, head, whole, |data| {
+    let whole = |_: usize| true;
+    let read = sealed_at(conn, run_id, head, None, &whole, |data| {
         let seat = Some(data).filter(|data| opened.admits(data));
         seat.and_then(SeatRow::of_data).map(|seat| rows.push(seat))
     })?;
@@ -438,7 +438,8 @@ fn sealed_at(
     conn: &Connection,
     run_id: &str,
     head: (u64, &str),
-    (effect, held): (Option<&str>, usize),
+    effect: Option<&str>,
+    held: &dyn Fn(usize) -> bool,
     mut each: impl FnMut(Vec<Datum>) -> Option<()>,
 ) -> Result<bool, StoreError> {
     let placed: bool = conn
@@ -465,26 +466,26 @@ fn sealed_at(
     Ok(at_head)
 }
 
-/// The first `held` values of `row`, the row at `place` of `run_id`'s,
-/// where its digest is of its run, its place and its values: each value
-/// is fed to the digest as SQLite holds it ([`Seal`]) and only those
-/// `held` are copied, so a row's values past them never reach the heap.
-/// `None` where a value is one no row writes or the digest is not the
-/// row's.
+/// The values of `row` that `held` admits, the row at `place` of
+/// `run_id`'s, where its digest is of its run, its place and its values:
+/// each value is fed to the digest as SQLite holds it ([`Seal`]) and only
+/// those admitted are copied, so a row's values past them never reach the
+/// heap. `None` where a value is one no row writes or the digest is not
+/// the row's.
 fn unsealed(
     row: &Row<'_>,
     run_id: &str,
     place: i64,
-    held: usize,
+    held: &dyn Fn(usize) -> bool,
 ) -> Result<Option<Vec<Datum>>, StoreError> {
     let mut seal = Seal::of(run_id, place);
-    let mut data = Vec::with_capacity(held);
+    let mut data = Vec::new();
     for at in 1..=SeatRow::COLUMNS.len() {
         let Some(cell) = Cell::of(row.get_ref(at)?) else {
             return Ok(None);
         };
         seal.put(cell);
-        if at <= held {
+        if held(at) {
             data.push(cell.datum());
         }
     }
@@ -706,13 +707,15 @@ pub(crate) fn rows_at(
 
 /// `run_id`'s rows of the effect `effect_id` standing at `head`, read as
 /// [`rows_at`] reads the run's and each handed to `each` as its first
-/// `held` values once its digest is checked, so the reader holds one row's
-/// values it reads at a time, never a row's lists, and no other effect's
-/// row: false where the run's rows would read stale for it, a table, the
-/// backfill, the seat head, a place or a digest (the seat view's read,
-/// [`Store::seat_read`]). The order [`Opened`] admits is the run's, which
-/// a reader of one effect's rows does not see; the digest holds every row
-/// it reads to its writer's.
+/// `held` values and its site column after them, once its digest is
+/// checked, so the reader holds one row's values it reads at a time, never
+/// a row's lists, and no other effect's row: false where the run's rows
+/// would read stale for it, a table, the backfill, the seat head, a place
+/// or a digest (the seat view's read, [`Store::seat_read`]). The site
+/// column is the last value so a reader can tell a site's row from a
+/// participant's without holding the columns between. The order
+/// [`Opened`] admits is the run's, which a reader of one effect's rows does
+/// not see; the digest holds every row it reads to its writer's.
 pub(crate) fn effect_rows_at(
     conn: &Connection,
     run_id: &str,
@@ -723,7 +726,10 @@ pub(crate) fn effect_rows_at(
     if !kept_whole(conn)? {
         return Ok(false);
     }
-    sealed_at(conn, run_id, head, (Some(effect_id), held), |data| {
+    // `unsealed` counts a column from one, as SQLite does; `SITE` is its
+    // place among the values a row is read as, from zero.
+    let kept = |at: usize| at <= held || at == *SITE + 1;
+    sealed_at(conn, run_id, head, Some(effect_id), &kept, |data| {
         each(&data);
         Some(())
     })

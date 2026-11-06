@@ -12,6 +12,8 @@ use crate::envelope::EventEnvelope;
 use crate::residual::text as field;
 use crate::seat::boundary_entries;
 use crate::seat::meter::Metering;
+use crate::stamp::parse_millis;
+use crate::summary::{Bounded, MODEL_BYTES};
 
 impl Seats {
     /// An attempt starts: it is the one in flight, and each provenance
@@ -31,10 +33,11 @@ impl Seats {
             .into_iter()
             .flatten()
             .collect();
-        // A site is a provenance entry of a start that names an attempt,
-        // as brokkr-core reads it; a start naming none opens participant
-        // rows alone, as it always has.
-        let sited = attempt.is_some();
+        // A site is a provenance entry of a start that names an attempt
+        // and whose stamp parses, as brokkr-core reads it; a start naming
+        // none, or one the reading ignores, opens participant rows alone.
+        let read = parse_millis(&event.recorded_at).is_some();
+        let sited = attempt.is_some() && read;
         let attempt_id = attempt.unwrap_or_default();
         // The seat's row opens first, as it always has: its own site where
         // the start names one, else the participant's row, re-opened.
@@ -94,11 +97,15 @@ impl Seats {
                     }
                 }
                 // A start naming no attempt opens no site; its provider is
-                // its participant row's, as it always was.
-                (false, provider) => {
+                // its participant row's, as it always was. A start whose
+                // stamp does not parse is no site at all: it states no
+                // provider either, so no row is selected for a site the
+                // reading never opened.
+                (false, provider) if read => {
                     let row = self.row(request, attempt, member);
                     row.provider = Some((seq, Provider::of(provider)));
                 }
+                (false, _) => {}
             }
         }
         for entry in boundary_entries(&event.payload) {
@@ -145,14 +152,22 @@ impl Seats {
         at
     }
 
-    /// The rule the site of `attempt`'s `member` meters by, as brokkr-core
-    /// reads the run's sites: the row follows the reading, which its
-    /// participant's turns and session record do not (decision 0089 ruling
-    /// 7).
-    pub(crate) fn rerule(&mut self, attempt: &str, member: Option<&str>, metering: Metering) {
+    /// What the site of `attempt`'s `member` meters by and the last model
+    /// it names, as brokkr-core reads the run's sites: the row follows the
+    /// reading, which its participant's turns and session record do not
+    /// (decision 0089 ruling 7).
+    pub(crate) fn resited(
+        &mut self,
+        attempt: &str,
+        member: Option<&str>,
+        metering: Metering,
+        model: Option<&str>,
+    ) {
         let key = (attempt.to_string(), member.map(str::to_string));
         if let Some(&at) = self.sited.get(&key) {
-            self.rows[at].metering = metering;
+            let row = &mut self.rows[at];
+            row.metering = metering;
+            row.site_model = model.map(|model| Bounded::within(model, MODEL_BYTES).cut.to_string());
         }
     }
 }

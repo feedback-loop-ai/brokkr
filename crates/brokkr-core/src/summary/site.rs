@@ -135,6 +135,23 @@ impl Siting {
         self.sites.get(at as usize)
     }
 
+    /// The site `event` names, the one its attempt and member's last start
+    /// opened: what a seat row takes its rule and key from, so the row
+    /// follows the reading a record the reading ignores never moves.
+    pub(crate) fn latest_of<'a>(
+        &'a self,
+        event: &'a EventEnvelope,
+    ) -> Option<(&'a str, Option<&'a str>, &'a Site)> {
+        let attempt = field(&event.payload, "attempt_id")?;
+        let record = event
+            .payload
+            .get("checkpoint")
+            .or_else(|| event.payload.get("result"));
+        let member = record.and_then(|record| field(record, "member"));
+        self.latest(attempt, member)
+            .map(|site| (attempt, member, site))
+    }
+
     /// The reading carried over `event`, the run's next: its checkpoints
     /// as brokkr-core read them, where it wrote one.
     pub(crate) fn note(&mut self, event: &EventEnvelope, checkpoint: Option<&Checkpoint>) {

@@ -566,6 +566,43 @@ fn a_site_s_second_session_record_flips_the_first_to_zero() {
     assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
 }
 
+/// A re-opened attempt's two sites keep their own session records: the
+/// refold reads the attempt's starts beside its candidate rows, so the
+/// earlier site's flag is not the later site's to move (decision 0089
+/// rulings 4 and 7).
+#[test]
+fn a_reopened_site_s_earlier_session_record_keeps_its_flag() {
+    let (_dir, mut store) = store();
+    opened(&mut store, "r", "implement", &[]);
+    started(&mut store, "r", "a", Some("m"), "anthropic");
+    let first = append_checkpoint(&mut store, json!({"step": "claude-session-finished"}));
+    failed(&mut store, "r", "a");
+    started(&mut store, "r", "a", Some("m"), "anthropic");
+    let second = append_checkpoint(&mut store, json!({"step": "claude-session-finished"}));
+    assert_eq!(session(&store, first.seq), Value::Integer(1));
+    assert_eq!(session(&store, second.seq), Value::Integer(1));
+    let events = store.load("r").unwrap();
+    let read: Vec<Value> = brokkr_core::summary::checkpoints(&events)
+        .into_iter()
+        .map(|checkpoint| Value::Integer(i64::from(checkpoint.session)))
+        .collect();
+    assert_eq!(read, [Value::Integer(1), Value::Integer(1)]);
+}
+
+/// The site refold's start read is by the stream index: a journal that
+/// lost it refuses the read rather than folding a site without its starts.
+#[test]
+fn a_missing_start_index_refuses_the_site_start_read() {
+    let (_dir, mut store) = store();
+    opened(&mut store, "r", "implement", &[]);
+    store
+        .conn
+        .execute_batch("DROP INDEX event_index_stream")
+        .unwrap();
+    let error = super::checkpoint::starts(&store.conn, "r", "a", 10).unwrap_err();
+    assert!(matches!(error, crate::StoreError::Sqlite(_)), "{error:?}");
+}
+
 /// A step whose suffix differs only in case finishes no session in
 /// brokkr-core's reading, so the earlier record keeps the flag; no SQL
 /// decides it (decision 0089 rulings 4 and 7; decision 0071 ruling 5).

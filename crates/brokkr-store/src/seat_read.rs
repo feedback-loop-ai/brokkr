@@ -80,7 +80,10 @@ const LAST: usize = 11;
 
 /// The columns of a row the read holds, through its last checkpoint's
 /// seq: the rest, its lists among them, are checked by its digest and
-/// never held ([`effect_rows_at`]).
+/// never held ([`effect_rows_at`]). The site column follows them, at this
+/// place in the values handed to [`Gathered::row`], so a re-opened
+/// attempt's two site rows are told from two participants' rows without
+/// holding the columns between.
 const HELD: usize = LAST + 1;
 
 /// The least member at or above `?3` an attempt's index rows name, read
@@ -102,12 +105,14 @@ pub(crate) const STREAMS: usize = 64;
 pub(crate) type Seat<'a> = (&'a str, Option<&'a str>);
 
 /// One stream of a participant's checkpoints: the attempt its row names,
-/// and the seq of the row's first and last checkpoint.
+/// the seq of the row's first and last checkpoint, and whether a site's
+/// row named it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Stream {
     attempt: String,
     first: u64,
     last: u64,
+    sited: bool,
 }
 
 /// A checkpoint the streams found: its seq, and the place of its stream.
@@ -148,7 +153,11 @@ impl Gathered {
     }
 
     /// Keep what `data`, a row of the participant's effect, keeps of the
-    /// participant `member`'s streams that can reach the page.
+    /// participant `member`'s streams that can reach the page. Two site
+    /// rows of one attempt are that attempt's one stream, so a re-opened
+    /// attempt whose sites hold the page's checkpoints is paged, not read
+    /// the kept way; two participants' rows keyed by one attempt still
+    /// refuse it.
     fn row(&mut self, data: &[Datum], member: &Datum) {
         let (Datum::Integer(first), Datum::Integer(last)) = (&data[FIRST], &data[LAST]) else {
             return;
@@ -160,14 +169,26 @@ impl Gathered {
             self.refused = true;
             return;
         };
-        if self.streams.iter().any(|kept| kept.attempt == *attempt) {
-            self.refused = true;
+        let sited = matches!(data[HELD], Datum::Integer(_));
+        if let Some(kept) = self
+            .streams
+            .iter_mut()
+            .find(|kept| kept.attempt == *attempt)
+        {
+            if !(kept.sited & sited) {
+                self.refused = true;
+                return;
+            }
+            kept.first = kept.first.min(*first as u64);
+            kept.last = kept.last.max(*last as u64);
+            self.refused |= self.streams.len() > STREAMS;
             return;
         }
         let stream = Stream {
             attempt: attempt.clone(),
             first: *first as u64,
             last: *last as u64,
+            sited,
         };
         if let Some(after) = self.after {
             if stream.last > after {

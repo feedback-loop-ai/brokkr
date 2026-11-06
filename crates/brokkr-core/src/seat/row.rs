@@ -191,6 +191,11 @@ pub struct SeatRow {
     first: Option<Stamp>,
     last: Option<Stamp>,
     model: Last<String>,
+    /// The model its site's reading last named, cut to `MODEL_BYTES` where
+    /// its key is stored; `None` for a row no site opened. It is the key
+    /// while `model` is the whole model the view prints (decision 0089
+    /// ruling 7).
+    site_model: Option<String>,
     effort: Last<String>,
     /// The provider its attempt's start recorded for it: each provenance
     /// entry restates it, [`Provider::Unnamed`] where the entry names none.

@@ -6,8 +6,8 @@
 
 use super::*;
 use crate::test_support::{
-    disagreements, every_run_reads_as_its_fold, failed, import_fixtures, lags, plant_envelope,
-    plant_summary_writer, planted_fixtures, refolded, started, unseat,
+    disagreements, every_run_reads_as_its_fold, failed, import_fixtures, lags, opened,
+    plant_envelope, plant_summary_writer, planted_fixtures, refolded, started, unseat,
 };
 use crate::tests::envelope_builder::EnvelopeBuilder;
 use crate::tests::walk::cut_short;
@@ -91,6 +91,23 @@ fn next(store: &Store, run_id: &str, event_type: EventType, payload: Json) -> Ev
         .event_id(format!("{run_id}-{}", seq + 1))
         .previous(previous)
         .sealed()
+}
+
+/// The next event of `run_id`, stamped with a time no reader parses and
+/// sealed over it, as an older writer leaves it.
+fn unreadable(store: &Store, run_id: &str, event_type: EventType, payload: Json) -> EventEnvelope {
+    let mut event = next(store, run_id, event_type, payload);
+    event.recorded_at = "not a stamp".into();
+    event.event_hash = event.compute_hash();
+    event
+}
+
+/// Plant `event` as an older writer leaves it, mark the run a lag, and
+/// open the journal again to refold it.
+fn planted_and_refolded(mut store: Store, run_id: &str, event: &EventEnvelope) -> Store {
+    plant_envelope(&store.conn, event).unwrap();
+    lags(&mut store, &[run_id]);
+    refolded(store)
 }
 
 #[test]
@@ -1205,9 +1222,10 @@ fn every_fixture_keeps_the_seat_facts_the_run_reads() {
         };
         let mut matched = vec![false; sites.len()];
         for row in &rows {
-            let Some(provider) = held(row, "provider") else {
+            let Some(_) = numeric(row, "site") else {
                 continue;
             };
+            let provider = held(row, "provider").expect("a site's row states its provider");
             let attempt = held(row, "attempt_id").expect("a site's row states its attempt");
             let member = held(row, "member");
             let found = sites.iter().enumerate().position(|(at, site)| {
@@ -1282,9 +1300,7 @@ fn a_site_s_names_are_cut_at_their_bounds_where_they_are_stored() {
                "checkpoint": {"step": "seat-turn", "model": model,
                               "input_tokens": 1}}),
     );
-    plant_envelope(&store.conn, &event).unwrap();
-    lags(&mut store, &["r"]);
-    let store = refolded(store);
+    let store = planted_and_refolded(store, "r", &event);
     let rows = read(&store, "r");
     let row = attempted(&rows, "a", None);
     assert_eq!(held(row, "phase").as_deref(), Some(phase.as_str()));
@@ -1298,6 +1314,69 @@ fn a_site_s_names_are_cut_at_their_bounds_where_they_are_stored() {
         numeric(row, "started_ms"),
         Some(brokkr_core::summary::sites(&events)[0].at)
     );
+}
+
+/// A start whose stamp does not parse is no site in brokkr-core's reading,
+/// so it opens no site row and states no provider: no row is selected for a
+/// site the reading never opened (decision 0089 rulings 4 and 7).
+#[test]
+fn an_unreadable_start_selects_no_site() {
+    let (_dir, mut store) = store();
+    opened(
+        &mut store,
+        "r",
+        "implement",
+        &[(
+            EventType::EffectRequested,
+            json!({"effect_id": "fx", "seat": "worker", "phase": "implement"}),
+        )],
+    );
+    let unreadable = unreadable(
+        &store,
+        "r",
+        EventType::EffectStarted,
+        json!({"effect_id": "fx", "attempt_id": "a",
+               "provenance": [{"member": null, "provider": "anthropic"}]}),
+    );
+    let store = planted_and_refolded(store, "r", &unreadable);
+    let rows = read(&store, "r");
+    let selected: Vec<&SeatRow> = rows
+        .iter()
+        .filter(|row| held(row, "provider").is_some())
+        .collect();
+    assert_eq!(selected, Vec::<&SeatRow>::new());
+    let events = store.load("r").unwrap();
+    assert_eq!(brokkr_core::summary::sites(&events), []);
+    assert_eq!(disagreements(&store), Vec::<String>::new());
+}
+
+/// A checkpoint whose stamp does not parse is no record in brokkr-core's
+/// reading, so it moves no site's model key while the whole participant
+/// model keeps the last model any record names (decision 0089 rulings 4
+/// and 7).
+#[test]
+fn an_unreadable_checkpoint_does_not_move_the_site_model_key() {
+    let (_dir, mut store) = store();
+    sited_turn(&mut store, "r");
+    let unreadable = unreadable(
+        &store,
+        "r",
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "attempt_id": "a",
+               "checkpoint": {"step": "seat-turn", "model": "sonnet",
+                              "input_tokens": 2}}),
+    );
+    let store = planted_and_refolded(store, "r", &unreadable);
+    let rows = read(&store, "r");
+    let row = attempted(&rows, "a", None);
+    assert_eq!(held(row, "model").as_deref(), Some("sonnet"));
+    assert_eq!(held(row, "model_key").as_deref(), Some("opus"));
+    let events = store.load("r").unwrap();
+    assert_eq!(
+        brokkr_core::summary::sites(&events)[0].model.as_deref(),
+        Some("opus")
+    );
+    assert_eq!(disagreements(&store), Vec::<String>::new());
 }
 
 /// A site's metering rule is the rule over all its checkpoints, and the
@@ -1399,7 +1478,6 @@ fn dated_seat_facts_no_row_writes_read_as_none() {
         ("phase_key", Datum::Text("other".into())),
         ("phase_key", Datum::Null),
         ("provider_key", Datum::Text("other".into())),
-        ("model_key", Datum::Text("other".into())),
         ("metering", Datum::Integer(3)),
         ("metering", Datum::Text("turns".into())),
         ("site", Datum::Text("1".into())),
@@ -1409,6 +1487,15 @@ fn dated_seat_facts_no_row_writes_read_as_none() {
         data[at(name)] = wrong.clone();
         assert!(SeatRow::of_data(data).is_none(), "{name} {wrong:?}");
     }
+    // A site's model key is its site reading's model, which no row field
+    // holds, so it is kept as the writer read it; a row no site opened
+    // still checks its key against its whole model.
+    let mut data = rows[0].data();
+    data[at("model_key")] = Datum::Text("other".into());
+    assert!(SeatRow::of_data(data).is_none(), "model_key");
+    let mut data = row.data();
+    data[at("model_key")] = Datum::Integer(1);
+    assert!(SeatRow::of_data(data).is_none(), "model_key type");
 }
 
 /// A retry attempt's first turn that repeats the previous attempt's last
@@ -1495,7 +1582,7 @@ fn a_reopened_attempt_has_a_row_per_site() {
     let rows = read(&store, "r");
     let sited: Vec<&SeatRow> = rows
         .iter()
-        .filter(|row| held(row, "provider").is_some())
+        .filter(|row| numeric(row, "site").is_some())
         .collect();
     assert_eq!(sites.len(), 2);
     assert_eq!(sited.len(), 2);

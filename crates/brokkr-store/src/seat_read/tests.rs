@@ -90,6 +90,20 @@ fn from_page(
     read.unwrap()
 }
 
+/// The first two forward pages of `seat`, after 0 and after its first
+/// page's cursor: a full page and the page behind it, both read at
+/// `opened`.
+fn two_forward_pages(
+    store: &Store,
+    opened: &Opened,
+    seat: (&str, Option<&str>),
+) -> [SeatRead<u64>; 2] {
+    [
+        from_page(store, opened, seat, None),
+        from_page(store, opened, seat, Some(54)),
+    ]
+}
+
 /// A seat retried, its first attempt's 60 turns, then its retry's member
 /// `m`'s 10 and its own 50: seqs 5 to 64, then 66 to 75 and 76 on.
 fn retried() -> Vec<Event> {
@@ -433,6 +447,7 @@ fn a_stream_is_its_row_s_where_it_begins_and_ends_at_the_row_s_checkpoints() {
         attempt: "a".to_string(),
         first: 3,
         last,
+        sited: true,
     };
     // A page and one more, cut above the row's first checkpoint.
     let cut: Vec<u64> = (10..=60).rev().collect();
@@ -523,6 +538,29 @@ fn the_forward_page_checks_the_record_at_its_boundary() {
     );
 }
 
+/// A re-opened attempt is one stream, its two site rows' checkpoints read
+/// together: the first page is a full page with another behind it, never
+/// the kept way, whatever the sites' rows hold (decision 0089 ruling 7).
+#[test]
+fn a_reopened_attempt_s_sites_are_one_stream_that_pages() {
+    let (_dir, mut store) = store();
+    let sited = |attempt: &str| {
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "fx", "attempt_id": attempt,
+                   "provenance": [{"member": null, "provider": "anthropic"}]}),
+        )
+    };
+    let mut events = vec![asked("fx"), sited("a")];
+    events.extend((1..=50).map(|at| turn("fx", "a", None, at)));
+    events.push(sited("a"));
+    events.push(turn("fx", "a", None, 51));
+    let opened = opened(&mut store, events);
+    let pages = two_forward_pages(&store, &opened, ("fx", None));
+    assert_eq!(pages[0], SeatRead::Current((5..=54).collect(), Some(54)));
+    assert_eq!(pages[1], SeatRead::Current(vec![56], None));
+}
+
 /// A plain forward run is still paged, not refused, at 100 checkpoints:
 /// two full pages and the cursor between them (H1's control).
 #[test]
@@ -532,12 +570,11 @@ fn a_hundred_checkpoints_page_forward_without_a_refusal() {
     events.extend((1..=100).map(|at| turn("fx", "a", None, at)));
     let opened = opened(&mut store, events);
     assert_eq!(
-        from_page(&store, &opened, ("fx", None), None),
-        SeatRead::Current((5..=54).collect(), Some(54))
-    );
-    assert_eq!(
-        from_page(&store, &opened, ("fx", None), Some(54)),
-        SeatRead::Current((55..=104).collect(), None)
+        two_forward_pages(&store, &opened, ("fx", None)),
+        [
+            SeatRead::Current((5..=54).collect(), Some(54)),
+            SeatRead::Current((55..=104).collect(), None)
+        ]
     );
 }
 

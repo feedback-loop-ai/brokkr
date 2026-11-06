@@ -276,10 +276,12 @@ impl<I: Iterator<Item = Datum>> Take<I> {
     }
 
     /// A site's dated facts, [`SeatRow::data`]' last columns: each key
-    /// checked against the row's own fields, so a row whose key was edited
-    /// past its source reads as no row; the rule is kept as its writer
-    /// read it, since the site's inputs are no row's own (its digest names
-    /// an edit), and its site as a count or none.
+    /// checked against the row's own fields where it is derived from one,
+    /// so a row whose key was edited past its source reads as no row. A
+    /// site's `model_key` is its site reading's model, which no row field
+    /// holds, so it is kept as its writer read it as the rule is (its
+    /// digest names an edit); a row no site opened still has its key
+    /// checked against its whole model. Its site is a count or none.
     fn site(&mut self, row: &mut SeatRow) -> Option<()> {
         let started = match self.0.next()? {
             Datum::Null => None,
@@ -295,7 +297,7 @@ impl<I: Iterator<Item = Datum>> Take<I> {
         };
         text(self, row.phase_key())?;
         text(self, row.provider_key())?;
-        text(self, row.model_key())?;
+        let model = self.text()?;
         let metering = match self.0.next()? {
             Datum::Integer(value) => Metering::at(value)?,
             _ => return None,
@@ -305,6 +307,11 @@ impl<I: Iterator<Item = Datum>> Take<I> {
             Datum::Integer(value) => Some(value as u64),
             Datum::Text(_) => return None,
         };
+        if site.is_some() {
+            row.site_model = model;
+        } else if model != row.model_key() {
+            return None;
+        }
         row.metering = metering;
         row.site = site;
         Some(())
@@ -468,6 +475,7 @@ impl SeatRow {
             first: None,
             last: None,
             model: None,
+            site_model: None,
             effort: None,
             provider: None,
             boundary: None,
@@ -670,11 +678,15 @@ impl SeatRow {
         }
     }
 
-    /// The model cut to its group key's bound where it is stored.
+    /// The model cut to its group key's bound where it is stored: the
+    /// site reading's model where a site opened the row, the whole model
+    /// its records stated otherwise (decision 0089 ruling 7).
     fn model_key(&self) -> Option<String> {
-        self.model
-            .as_ref()
-            .map(|(_, model)| Bounded::within(model, MODEL_BYTES).cut.to_string())
+        let model = match self.site {
+            Some(_) => self.site_model.as_deref(),
+            None => self.model.as_ref().map(|(_, model)| model.as_str()),
+        }?;
+        Some(Bounded::within(model, MODEL_BYTES).cut.to_string())
     }
 
     fn put_tail(&self, put: &mut Put) {
