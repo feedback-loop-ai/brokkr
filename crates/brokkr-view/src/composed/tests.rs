@@ -336,3 +336,47 @@ fn a_reused_command_id_keeps_each_disposition_at_its_own_time() {
         );
     }
 }
+
+/// A checkpoint between a provider-bearing start and its request keeps the
+/// live block's journal-time label when the request replays it onto its
+/// site row: composed whole, it reads `?` as the run read whole does
+/// (review 753s4s3, M1; decision 0071 ruling 7).
+#[test]
+fn an_early_checkpoint_keeps_its_journal_time_label() {
+    let at = AT;
+    let start = json!({"effect_id": "fx", "attempt_id": "a",
+                       "provenance": [{"member": "m", "provider": "anthropic"}]});
+    let checkpoint = json!({"effect_id": "fx", "attempt_id": "a",
+        "checkpoint": {"member": "m", "step": "seat-turn", "turn": 1,
+                       "tool": "Read", "model": "opus", "input_tokens": 10}});
+    let events = [
+        ev(1, EventType::RunStarted, json!({"manifest": {}}), at),
+        ev(2, EventType::PhaseEntered, json!({"phase": "work"}), at),
+        ev(3, EventType::EffectStarted, start, at),
+        ev(4, EventType::EffectCheckpointed, checkpoint, at),
+        ev(
+            5,
+            EventType::EffectRequested,
+            json!({"effect_id": "fx", "seat": "worker", "phase": "work"}),
+            at,
+        ),
+    ];
+    let trail: Vec<_> = events
+        .iter()
+        .filter(|event| event.event_type != EventType::EffectCheckpointed)
+        .cloned()
+        .collect();
+    let account = Account::whole("r", &events);
+    assert!(account.seats_kept());
+    let composed = composed_whole(&trail, account.seats(), &events, at, None).unwrap();
+    let whole = crate::run_view(&events, None);
+    let lines = |view: &RunView| {
+        view.live
+            .iter()
+            .map(|line| (line.label.clone(), line.text.clone()))
+            .collect::<Vec<_>>()
+    };
+    let expected = [("?:m".to_string(), "?:m · turn 1 · Read".to_string())];
+    assert_eq!(lines(&composed), expected);
+    assert_eq!(lines(&composed), lines(&whole));
+}

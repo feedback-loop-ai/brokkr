@@ -10,7 +10,7 @@
 use serde_json::Value;
 
 use super::listed::Kind;
-use super::{Member, Meter, Pin, SeatRow, Seats};
+use super::{Member, Meter, Pin, SeatRow, Seats, Stamp};
 use crate::envelope::EventEnvelope;
 use crate::residual::text as field;
 
@@ -254,13 +254,21 @@ pub fn live(rows: &[SeatRow]) -> Vec<(String, Option<(String, String)>)> {
         let turn = line.turn.clone().map(|turn| (0, turn));
         heard(&mut lines, label("?", &line.member), turn);
     }
-    let mut kept: Vec<&SeatRow> = rows.iter().filter(|row| row.live).collect();
-    kept.retain(|row| row.first.is_some());
-    kept.sort_by_key(|row| row.first.as_ref().map(|first| first.seq));
-    for row in kept {
+    let mut kept: Vec<(&SeatRow, &Stamp)> = rows
+        .iter()
+        .filter(|row| row.live)
+        .filter_map(|row| Some((row, row.first.as_ref()?)))
+        .collect();
+    kept.sort_by_key(|(_, first)| first.seq);
+    for (row, first) in kept {
         let turn = row.turn.as_ref();
+        // A row a request replayed a held checkpoint onto states that
+        // checkpoint's seq before its request's: its line is labelled by
+        // the record's time, not the later request's seat (review
+        // 753s4s3, M1).
+        let at = turn.map_or(first.seq, |(seq, _)| *seq);
         let turn = turn.map(|(seq, turn)| (*seq, (turn.turn.clone(), turn.tool.clone())));
-        heard(&mut lines, label(seat(row.request_seq), &row.member), turn);
+        heard(&mut lines, label(seat(at), &row.member), turn);
     }
     if lines.is_empty() {
         return vec![(seat(u64::MAX).to_string(), None)];
