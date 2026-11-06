@@ -256,6 +256,155 @@ impl Fleet {
                             "reason": "both residuals fixed and shipped"}}),
         );
     }
+
+    /// A run parked before any phase, then stopped by an operator whose
+    /// stop names its cause in `args` (decision 0064 ruling 4).
+    fn stopped_with(&self, run_id: &str, args: Value) {
+        self.journal(
+            run_id,
+            &[
+                (EventType::RunParked, json!({"reason": "SELECT-NO-DEFAULT"})),
+                (
+                    EventType::OperatorCommanded,
+                    json!({"command_id": "cmd", "command": "stop", "operator": "operator",
+                           "args": args}),
+                ),
+                (
+                    EventType::OperatorAccepted,
+                    json!({"command_id": "cmd", "operator": "operator", "reason": "r"}),
+                ),
+                (EventType::RunStopped, json!({"reason": "OPERATOR-STOP"})),
+            ],
+        );
+    }
+
+    /// A run the policy table stopped because its smith reported it could
+    /// not proceed: `blocked` (decision 0064 addendum ruling 1).
+    fn blocked(&self, run_id: &str) {
+        let effect = |kind, extra: Value| {
+            let mut payload = json!({"effect_id": "eff", "attempt_id": "att"});
+            payload
+                .as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            (kind, payload)
+        };
+        self.journal(
+            run_id,
+            &[
+                (EventType::PhaseEntered, json!({"phase": "implement"})),
+                effect(
+                    EventType::EffectRequested,
+                    json!({"seat": "implement", "phase": "implement"}),
+                ),
+                effect(EventType::EffectStarted, json!({})),
+                effect(
+                    EventType::EffectSucceeded,
+                    json!({"result": {"result": "blocked"}}),
+                ),
+                (
+                    EventType::TransitionDecided,
+                    json!({"from": "implement", "result": "blocked", "rule_id": "IMPL-BLOCKED",
+                           "next": "stop", "severity": "hard", "inputs": {}, "problem": null}),
+                ),
+                (EventType::PhaseEntered, json!({"phase": "stop"})),
+                (
+                    EventType::RunStopped,
+                    json!({"reason": "hard stop ruled by IMPL-BLOCKED"}),
+                ),
+            ],
+        );
+    }
+
+    /// A run started and carried through `events`.
+    fn journal(&self, run_id: &str, events: &[(EventType, Value)]) {
+        let mut store = self.store();
+        store
+            .create_run(run_id, run_id, "self", &json!({}))
+            .unwrap();
+        let started = (
+            EventType::RunStarted,
+            json!({"feature": run_id, "manifest": {}}),
+        );
+        for (kind, payload) in std::iter::once(&started).chain(events) {
+            store
+                .append_next(run_id, *kind, payload.clone(), None, None)
+                .unwrap();
+        }
+    }
+}
+
+/// Decision 0064 ruling 6: Muninn queues a run by its ending. A settled
+/// run is never offered as work, whatever the report says of it; one whose
+/// work was never judged is offered as the action it wants, retry or
+/// unblock, and is recorded so. The dossier's row says the ending, and its
+/// fleet's ledger counts each run its success rate excluded (ruling 7).
+#[test]
+fn the_work_queue_refuses_a_settled_run_and_offers_an_unjudged_one_as_its_action() {
+    let fleet = Fleet::new();
+    let by = json!({"realm": null, "run_id": "later"});
+    fleet.stopped_with("superseded-run", json!({"cause": "superseded", "by": by}));
+    fleet.stopped_with("withdrawn-run", json!({"cause": "withdrawn"}));
+    fleet.stopped_with(
+        "landed-run",
+        json!({"cause": "delivered-elsewhere", "ref": "abc123"}),
+    );
+    fleet.stopped_with("outage-run", json!({"cause": "infrastructure"}));
+    fleet.blocked("blocked-run");
+    let store = Store::open_read_only(&fleet.db()).unwrap();
+    let dossier = dossier(&store, NOW).unwrap();
+    let runs = dossier.value["runs"].as_array().unwrap();
+    let row = |run_id: &str| runs.iter().find(|run| run["run_id"] == run_id).unwrap();
+    let queued = |run_id: &str| {
+        let entry = json!({"run_id": run_id, "seq": row(run_id)["seq"], "finding": "f",
+                           "reasoning": "r"});
+        validate(
+            &dossier,
+            &json!({"result": "proposed", "inputs": {"fleet_summary": "s",
+                    "parked_runs": [], "work_queue": [entry]}}),
+        )
+    };
+    for (run_id, ending) in [
+        ("superseded-run", Ending::Superseded),
+        ("withdrawn-run", Ending::Withdrawn),
+        ("landed-run", Ending::DeliveredElsewhere),
+    ] {
+        assert_eq!(row(run_id)["status"], ending.word());
+        let cited = (
+            None,
+            run_id.to_string(),
+            row(run_id)["seq"].as_u64().unwrap(),
+        );
+        let refusal = queue::Refusal::Settled {
+            run_id: run_id.to_string(),
+            ending,
+        };
+        assert_eq!(queue::offer(&dossier, &cited), Err(refusal.clone()));
+        assert_eq!(queued(run_id).err(), Some(refusal.to_string()));
+    }
+    for (run_id, ending, offer, word) in [
+        ("outage-run", "infrastructure", queue::Offer::Retry, "retry"),
+        ("blocked-run", "blocked", queue::Offer::Unblock, "unblock"),
+    ] {
+        assert_eq!(row(run_id)["status"], ending);
+        let report = queued(run_id).unwrap();
+        let Queued::Run(entry) = &report.work_queue[0] else {
+            panic!("a run fact is queued as a run");
+        };
+        assert_eq!(entry.offered_as, Some(offer));
+        let line = format!(
+            "  queue {run_id} seq {} · offered as {word} · f · r\n",
+            entry.seq
+        );
+        let rendered = render(&json!({"work_queue": report.work_queue}));
+        assert!(rendered.contains(&line), "{rendered}");
+    }
+    assert_eq!(dossier.value["fleet"]["stopped"], 5);
+    assert_eq!(
+        dossier.value["fleet"]["ledger"]["text"],
+        "0 of 0 shipped (—) · 5 excluded: 1 blocked, 1 superseded, 1 infrastructure, \
+         1 delivered-elsewhere, 1 withdrawn · 0 unclassified"
+    );
 }
 
 /// Deliberately far ahead of any wall clock a fixture is written under,
@@ -310,7 +459,10 @@ fn the_dossier_is_derived_from_the_view_models_and_carries_its_citations() {
     assert_eq!(parked["seats"][0]["cost_usd"], 1.25);
 
     let done = runs.iter().find(|run| run["run_id"] == "done-run").unwrap();
-    assert_eq!(done["status"], "completed");
+    assert_eq!(
+        done["status"], "shipped",
+        "a finished run's row says its ending"
+    );
     assert_eq!(
         done["operator_commands"],
         json!([]),
@@ -891,7 +1043,7 @@ fn two_hearths_holding_one_run_id_stay_two_runs() {
     let rows = derived.value["runs"].as_array().unwrap();
     assert_eq!(rows.len(), 2, "{rows:?}");
     assert_eq!(rows[0]["realm"], json!("alpha"));
-    assert_eq!(rows[0]["status"], json!("completed"));
+    assert_eq!(rows[0]["status"], json!("shipped"));
     assert_eq!(rows[1]["realm"], json!("beta"));
     assert_eq!(rows[1]["status"], json!("awaiting_operator"));
     // The two sides of a citation agree on which hearth answers for a
@@ -1719,4 +1871,5 @@ fn the_listing_reads_the_record_back_plainly_and_as_json() {
     assert!(list(&path, true).is_ok());
 }
 
+mod endings;
 mod pins;

@@ -10,10 +10,13 @@ use super::{Edge, Ends, GraphError, GraphQuery, GraphTable, GraphView, LiveRun, 
 use super::{
     Link, Outcome, Place, RuleKind, RuleRun, SeatPin, State, Table, GRAPH_VIEW_VERSION, LATEST_RUNS,
 };
-use crate::analytics::{cost_figure, middle, shipped, span, stamp, total, RuleCount, Window};
+use crate::analytics::{
+    cost_figure, middle, shipped, span, stamp, total, Ledger, RuleCount, Window,
+};
 use crate::clarify::{pins_of, Pins};
 use crate::fleet::STOP_PHASE;
 use crate::{RuleSeverity, TokenUsage};
+use brokkr_core::ending::Ending;
 
 /// The pinned file the table is written in, and the prefix a composed
 /// recipe pins each base layer under — `brokkr_runtime`'s
@@ -415,9 +418,24 @@ fn state(shape: &Shape, runs: &[GraphRun], phase: &str, window: Window) -> State
     }
 }
 
+/// Rules with their counts, the most frequent first; a tie keeps the
+/// lesser id first.
+fn by_count(tally: BTreeMap<Option<&str>, usize>) -> Vec<RuleCount> {
+    let mut rules: Vec<RuleCount> = tally
+        .into_iter()
+        .map(|(rule_id, count)| RuleCount {
+            rule_id: rule_id.map(str::to_string),
+            count,
+        })
+        .collect();
+    rules.sort_by_key(|rule| -(rule.count as i64));
+    rules
+}
+
 fn ends(runs: &[GraphRun]) -> Ends {
     let (mut done, mut operator, mut open) = (0, 0, 0);
     let mut by_rule: BTreeMap<Option<&str>, usize> = BTreeMap::new();
+    let mut held: BTreeMap<Option<&str>, usize> = BTreeMap::new();
     for run in runs {
         let Some(finished) = &run.finished else {
             open += 1;
@@ -425,19 +443,21 @@ fn ends(runs: &[GraphRun]) -> Ends {
         };
         match (shipped(finished), &finished.hard_stop) {
             (true, _) => done += 1,
-            (false, Some(stop)) => *by_rule.entry(stop.rule.as_deref()).or_default() += 1,
+            (false, Some(stop)) => {
+                *by_rule.entry(stop.rule.as_deref()).or_default() += 1;
+                // A refusal is the gate's result as much as the smith's
+                // (decision 0064 ruling 7): the ledger counts it against
+                // the work, and this counts it for the rule that raised it.
+                if finished.ending == Ending::Refused {
+                    *held.entry(stop.rule.as_deref()).or_default() += 1;
+                }
+            }
             (false, None) => operator += 1,
         }
     }
-    let mut stop: Vec<RuleCount> = by_rule
-        .into_iter()
-        .map(|(rule_id, count)| RuleCount {
-            rule_id: rule_id.map(str::to_string),
-            count,
-        })
-        .collect();
-    stop.sort_by_key(|rule| -(rule.count as i64));
+    let stop = by_count(by_rule);
     let stopped = stop.iter().map(|rule| rule.count).sum();
+    let finished = runs.iter().filter_map(|run| run.finished.as_ref());
     Ends {
         text: format!(
             "{done} done · {stopped} stop by a rule · {operator} stopped by you · {open} open"
@@ -447,6 +467,8 @@ fn ends(runs: &[GraphRun]) -> Ends {
         stopped,
         operator,
         open,
+        refused_by: by_count(held),
+        ledger: Ledger::of(finished.map(|finished| finished.ending)),
     }
 }
 

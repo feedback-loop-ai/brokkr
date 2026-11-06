@@ -314,15 +314,79 @@ fn compare_prints_these_bytes() {
     );
 }
 
+/// Decision 0064 ruling 7: `compare` prints each run's ending beside the
+/// fold's word, and reads the pair as every comparison reads its runs. A
+/// superseded run is no outcome of the work: the pair's rate counts the
+/// shipped run alone, and the superseded one is counted as excluded.
+#[test]
+fn compare_prints_each_ending_and_counts_what_the_rate_excluded() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let parked = (EventType::RunParked, json!({"reason": "no rule matched"}));
+    one_seat_run(&mut store, "run-replaced", 0.5, json!(null), parked);
+    let cause = json!({"cause": "superseded", "by": {"realm": null, "run_id": "run-shipped"}});
+    for (event_type, payload) in [
+        (
+            EventType::OperatorCommanded,
+            json!({"command_id": "c", "command": "stop", "operator": "o", "args": cause}),
+        ),
+        (
+            EventType::OperatorAccepted,
+            json!({"command_id": "c", "operator": "o", "reason": "r"}),
+        ),
+        (EventType::RunStopped, json!({"reason": "OPERATOR-STOP"})),
+    ] {
+        store
+            .append_next("run-replaced", event_type, payload, None, None)
+            .unwrap();
+    }
+    let completed = (EventType::RunCompleted, json!({}));
+    one_seat_run(&mut store, "run-shipped", 0.25, json!("WORK-OK"), completed);
+    let a = run_facts(&store, "run-replaced").unwrap();
+    let b = run_facts(&store, "run-shipped").unwrap();
+    let document = value(document("run-replaced", a, "run-shipped", b));
+    let comparison = &document["comparison"];
+    assert_eq!(comparison["status_pair"], json!(["stopped", "completed"]));
+    assert_eq!(comparison["ending_pair"], json!(["superseded", "shipped"]));
+    assert_eq!(document["runs"]["run-replaced"]["ending"], "superseded");
+    assert_eq!(document["runs"]["run-replaced"]["status"], "stopped");
+    assert_eq!(
+        comparison["ledger"],
+        json!({"judged": 1, "shipped": 1, "rate_percent": 100, "unclassified": 0,
+               "excluded": {"blocked": 0, "superseded": 1, "infrastructure": 0,
+                            "delivered-elsewhere": 0, "withdrawn": 0, "operator-stopped": 0},
+               "text": "1 of 1 shipped (100%) · 1 excluded: 1 superseded · 0 unclassified"})
+    );
+}
+
 /// `compare_prints_these_bytes`'s document, its timestamps placeholders.
 const COMPARED: &str = r#"{
   "comparison": {
     "attempts_delta": 0,
     "cost_delta_usd": -0.25,
+    "ending_pair": [
+      null,
+      "shipped"
+    ],
     "first_divergence": {
       "a": "park",
       "b": "WORK-OK",
       "index": 0
+    },
+    "ledger": {
+      "excluded": {
+        "blocked": 0,
+        "delivered-elsewhere": 0,
+        "infrastructure": 0,
+        "operator-stopped": 0,
+        "superseded": 0,
+        "withdrawn": 0
+      },
+      "judged": 1,
+      "rate_percent": 100,
+      "shipped": 1,
+      "text": "1 of 1 shipped (100%) · 0 excluded · 0 unclassified",
+      "unclassified": 0
     },
     "resolution_divergence": {},
     "same_feature": false,
@@ -338,6 +402,7 @@ const COMPARED: &str = r#"{
       "decision_trail": [
         "park"
       ],
+      "ending": null,
       "events": 8,
       "feature": "run-parked",
       "first_recorded_at": "run-parked.first",
@@ -375,6 +440,7 @@ const COMPARED: &str = r#"{
       "decision_trail": [
         "WORK-OK"
       ],
+      "ending": "shipped",
       "events": 8,
       "feature": "run-shipped",
       "first_recorded_at": "run-shipped.first",

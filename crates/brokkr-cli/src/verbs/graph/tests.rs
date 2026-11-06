@@ -304,7 +304,7 @@ fn a_composed_recipe_is_drawn_from_its_table_with_its_traffic_and_drift() {
         lines[0],
         format!("world / self · {} → {now} · 2 runs", view.from)
     );
-    assert_eq!(lines.len(), 1 + view.states.len() + view.rules.len() + 3);
+    assert_eq!(lines.len(), 1 + view.states.len() + view.rules.len() + 4);
     let intake = format!(
         "state  {} · entered 2 · median 0m · p90 0m · not reported · —",
         first.from
@@ -316,12 +316,13 @@ fn a_composed_recipe_is_drawn_from_its_table_with_its_traffic_and_drift() {
     );
     assert!(lines.contains(&rule.as_str()), "{painted}");
     assert_eq!(
-        &lines[lines.len() - 3..],
+        &lines[lines.len() - 4..],
         [
             "retired OLD-RULE · 1",
             "drift  1 run ran under an earlier version of a base this recipe composes, \
              which may not have changed this table",
             "ends   1 done · 1 stop by a rule · 0 stopped by you · 0 open",
+            "ledger 1 of 1 shipped (100%) · 0 excluded · 1 unclassified",
         ]
     );
 }
@@ -342,6 +343,7 @@ fn a_recipe_only_runs_carry_is_drawn_from_them_and_its_live_run_named() {
              this recipe's table was not found in world\n\
              state  work · entered 1 · median — · p90 — · not reported · —\n\
              ends   0 done · 0 stop by a rule · 0 stopped by you · 1 open\n\
+             ledger 0 of 0 shipped (—) · 0 excluded · 0 unclassified\n\
              live   Draw the graph · work\n",
             view.from
         )
@@ -422,7 +424,8 @@ fn a_recipe_that_does_not_compile_is_drawn_with_its_refusal_and_named_among_the_
         paint(&view),
         format!(
             "world / starter · {} → {now} · 0 runs\n{text}\n  {reason}\n  bundle .brokkr\n\
-             ends   0 done · 0 stop by a rule · 0 stopped by you · 0 open\n",
+             ends   0 done · 0 stop by a rule · 0 stopped by you · 0 open\n\
+             ledger 0 of 0 shipped (—) · 0 excluded · 0 unclassified\n",
             view.from
         )
     );

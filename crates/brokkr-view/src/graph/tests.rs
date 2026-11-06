@@ -5,10 +5,11 @@
 
 use super::figures::p90;
 use super::*;
-use crate::analytics::tests::{cells, Builds};
+use crate::analytics::tests::{cells, ended_as, excluded, Builds};
 use crate::fleet::tests::ruled;
 use crate::tests::{ev, state};
-use crate::{AnalyticsRun, ABSENT};
+use crate::{AnalyticsRun, Ledger, ABSENT};
+use brokkr_core::ending::Ending;
 use brokkr_core::fold::{RunState, Status};
 use brokkr_core::{EventEnvelope, EventType};
 use serde_json::json;
@@ -833,6 +834,60 @@ fn ends_count_done_stop_by_rule_the_operator_and_the_open() {
             operator: 1,
             open: 1,
             text: "1 done · 3 stop by a rule · 1 stopped by you · 1 open".into(),
+            refused_by: Vec::new(),
+            // The fixture's stops name no result the table derives an
+            // ending from, and its operator named no cause.
+            ledger: Ledger {
+                judged: 1,
+                shipped: 1,
+                rate_percent: Some(100),
+                excluded: excluded([0; 6]),
+                unclassified: 4,
+                text: "1 of 1 shipped (100%) · 0 excluded · 4 unclassified".into(),
+            },
+        }
+    );
+}
+
+/// Decision 0064 ruling 7: a refused run is read both ways. The ledger
+/// counts it against the work, an outcome that did not ship, and the ends
+/// count it for the rule that raised the finding; a run that failed is
+/// against the work alone, and a superseded one is excluded.
+#[test]
+fn a_refused_run_counts_against_the_work_and_for_the_gate_that_raised_it() {
+    let ended = |run_id: &'static str, ending: Ending| {
+        let started = Journal::started(run_id, "self", "alpha", &on(10, "00:00:00"));
+        let (journal, state) = ended_as(started, ending, &on(10, "01:00:00"));
+        (journal, Some(state))
+    };
+    let journals = vec![
+        ended("s1", Ending::Refused),
+        ended("s2", Ending::Refused),
+        ended("s3", Ending::Failed),
+        ended("s4", Ending::Superseded),
+    ];
+    let ends = read_over(journals, "self", true).unwrap().ends;
+    let counted = |rule: &str, count: usize| RuleCount {
+        rule_id: Some(rule.into()),
+        count,
+    };
+    assert_eq!(ends.refused_by, [counted("REVIEW-SECURITY-HOLD", 2)]);
+    assert_eq!(
+        ends.stop,
+        [
+            counted("REVIEW-SECURITY-HOLD", 2),
+            counted("VERIFY-FAIL", 1)
+        ]
+    );
+    assert_eq!(
+        ends.ledger,
+        Ledger {
+            judged: 3,
+            shipped: 0,
+            rate_percent: Some(0),
+            excluded: excluded([0, 1, 0, 0, 0, 0]),
+            unclassified: 0,
+            text: "0 of 3 shipped (0%) · 1 excluded: 1 superseded · 0 unclassified".into(),
         }
     );
 }

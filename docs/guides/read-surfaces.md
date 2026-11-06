@@ -256,7 +256,13 @@ The figures across every hearth the map names, for `--range` `24h`, `7d`
 (#568). It reads what the journals record and nothing else:
 
 - runs shipped, against the equal range before it, and runs finished per
-  day, shipped against stopped;
+  day, shipped against stopped, where stopped counts only `refused`,
+  `failed` and `exhausted` runs;
+- the ledger (decision 0064 ruling 7): of the runs whose ending is an
+  outcome of the work (`shipped`, `shipped-flagged`, `refused`, `failed`,
+  `exhausted`), how many shipped, and every run the rate excluded counted
+  by its ending, with `unclassified` apart. Each realm row and recipe row
+  carries its own, and a recipe's done rate is over its judged runs;
 - the median start to end of the runs that finished, parked time
   included;
 - hours waiting on you, from a park to your next command, beside all

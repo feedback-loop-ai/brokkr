@@ -396,6 +396,7 @@ fn paint(view: &GraphView) -> String {
         out += &format!("drift  {drift}\n");
     }
     out += &format!("ends   {}\n", view.ends.text);
+    out += &format!("ledger {}\n", view.ends.ledger.text);
     for live in &view.live {
         let state = live.state.as_deref().unwrap_or("—");
         out += &format!("live   {} · {state}\n", live.label);

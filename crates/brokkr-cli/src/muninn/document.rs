@@ -13,8 +13,10 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 use serde_json::Value;
 
+use super::queue::Offer;
 use super::{Cited, CitedCrossing};
 use crate::realms::{ConsumedView, Published};
+use brokkr_view::Ledger;
 
 /// The dossier the seat reads.
 #[derive(Serialize)]
@@ -35,6 +37,9 @@ pub(crate) struct DossierDoc<'a> {
 pub(crate) struct Fleet<'a> {
     pub awaiting_operator: u64,
     pub completed: u64,
+    // The finished runs by their endings: what an outcome of the work is,
+    // and what was excluded (decision 0064 ruling 7).
+    pub ledger: Ledger,
     // A run whose journal does not fold has no status to count as; it
     // is counted as what it is.
     pub quarantined: u64,
@@ -249,6 +254,10 @@ pub(crate) struct QueuedCrossing {
 #[derive(Serialize)]
 pub(crate) struct QueuedRun {
     pub finding: String,
+    // What the run is offered as where its work was never judged, and
+    // nothing otherwise, so any other entry keeps the shape it had.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offered_as: Option<Offer>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub realm: Option<String>,
     pub reasoning: String,

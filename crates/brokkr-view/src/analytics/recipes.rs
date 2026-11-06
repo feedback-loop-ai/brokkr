@@ -5,9 +5,9 @@
 
 use std::collections::BTreeMap;
 
-use super::facts::{in_range, shipped, RunFacts, Window};
+use super::facts::{in_range, RunFacts, Window};
 use super::figures::{cost_figure, total};
-use super::{RecipeRow, ReportedCost};
+use super::{Ledger, RecipeRow, ReportedCost};
 use crate::{finish_usage, js, TokenUsage};
 
 /// The recipes' rows, by realm and then recipe, over the runs the range
@@ -24,12 +24,14 @@ pub(super) fn recipe_rows(runs: &[RunFacts], window: Window) -> Vec<RecipeRow> {
         .into_iter()
         .map(|((realm, recipe), runs)| row(realm, recipe, &runs, window))
         .collect();
-    let points: Vec<(&str, f64, Option<f64>)> = rows
+    // A recipe none of whose runs was judged has no rate (decision 0064
+    // ruling 7), so it is ranked against nothing and dominates nothing.
+    let points: Vec<Point> = rows
         .iter()
         .map(|row| {
             (
                 row.realm.as_str(),
-                row.done_rate,
+                row.ledger.rate_percent.map(|_| row.done_rate),
                 usd(&row.cost_per_run.cost),
             )
         })
@@ -51,34 +53,41 @@ fn usd(cost: &ReportedCost) -> Option<f64> {
     }
 }
 
-/// Whether no other priced recipe of the realm has a done rate at least as
-/// high and a cost at most as low, one of the two strictly better; absent
-/// for a recipe with no reported cost. A recipe never dominates itself, and
-/// an equal one does not dominate either, so a tie keeps both.
-fn on_frontier(
-    point: (&str, f64, Option<f64>),
-    points: &[(&str, f64, Option<f64>)],
-) -> Option<bool> {
+/// A recipe as the frontier ranks it: its realm, its done rate where any of
+/// its runs was judged, and its cost where one was reported.
+type Point<'a> = (&'a str, Option<f64>, Option<f64>);
+
+/// Whether no other rated, priced recipe of the realm has a done rate at
+/// least as high and a cost at most as low, one of the two strictly better;
+/// absent for a recipe with no rate or no reported cost. A recipe never
+/// dominates itself, and an equal one does not dominate either, so a tie
+/// keeps both.
+fn on_frontier(point: Point, points: &[Point]) -> Option<bool> {
     let (realm, rate, cost) = point;
-    let cost = cost?;
+    let (rate, cost) = (rate?, cost?);
     let dominated = points.iter().any(|(other_realm, other_rate, other_cost)| {
-        other_cost.is_some_and(|other_cost| {
-            *other_realm == realm
-                && *other_rate >= rate
-                && other_cost <= cost
-                && (*other_rate > rate || other_cost < cost)
-        })
+        let Some((other_rate, other_cost)) = other_rate.zip(*other_cost) else {
+            return false;
+        };
+        *other_realm == realm
+            && other_rate >= rate
+            && other_cost <= cost
+            && (other_rate > rate || other_cost < cost)
     });
     Some(!dominated)
 }
 
 fn row(realm: &str, recipe: &str, runs: &[&RunFacts], window: Window) -> RecipeRow {
     let count = runs.len() as f64;
-    let done = runs
-        .iter()
-        .filter(|run| run.finished.as_ref().is_some_and(shipped))
-        .count();
-    let done_rate = done as f64 * 100.0 / count;
+    let finished = runs.iter().filter_map(|run| run.finished.as_ref());
+    let ledger = Ledger::of(finished.map(|finished| finished.ending));
+    // The rate counts the outcomes of the work alone (decision 0064 ruling
+    // 7); a recipe none of whose runs was judged reaches none.
+    let (done, judged) = (ledger.shipped, ledger.judged);
+    let done_rate = match judged {
+        0 => 0.0,
+        judged => done as f64 * 100.0 / judged as f64,
+    };
     let sites = runs.iter().flat_map(|run| &run.sites);
     // A cost, a token and a provider's reporting are kept by the time of
     // the checkpoint that metered them, never by the attempt's start.
@@ -108,7 +117,11 @@ fn row(realm: &str, recipe: &str, runs: &[&RunFacts], window: Window) -> RecipeR
         runs: runs.len(),
         done,
         done_rate,
-        done_text: format!("{}%", js::round_half_up(done_rate)),
+        done_text: ledger.rate_percent.map_or_else(
+            || crate::ABSENT.to_string(),
+            |_| format!("{}%", js::round_half_up(done_rate)),
+        ),
+        ledger,
         cost_per_run: cost_figure(sites, &keeps, spent.map(|usd| usd / count)),
         tokens_per_run: crate::tokens::usage_cells(finish_usage(averaged).as_ref(), "").1,
         on_frontier: None,

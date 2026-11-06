@@ -11,7 +11,7 @@ use brokkr_core::policy::Machine;
 use serde::{Serialize, Serializer};
 use serde_json::Value;
 
-use crate::analytics::{listed, CostFigure, RuleCount, Span};
+use crate::analytics::{listed, CostFigure, Ledger, RuleCount, Span};
 use crate::{AnalyticsHearth, Range, RuleSeverity};
 
 mod facts;
@@ -311,6 +311,11 @@ pub struct Ends {
     pub operator: usize,
     pub open: usize,
     pub text: String,
+    /// The refused runs, each counted for the rule that raised the
+    /// finding, the most frequent first (decision 0064 ruling 7).
+    pub refused_by: Vec<RuleCount>,
+    /// The runs that finished, by their endings: counted against the work.
+    pub ledger: Ledger,
 }
 
 /// One open run: its fleet title and the state it is in.

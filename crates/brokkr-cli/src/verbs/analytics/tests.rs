@@ -29,6 +29,7 @@ fn a_hearth_that_will_not_load_is_handed_over_quarantined_and_painted() {
              start → end    —\n\
              waiting on you 0.0h (nothing parked)\n\
              stopped by rule 0\n\
+             ledger         0 of 0 shipped (—) · 0 excluded · 0 unclassified\n\
              reported cost  not reported\n\
              quarantined    ghost: {refusal}\n\
              not recorded yet: machine capacity over time · cost limits · costs for Codex and \
