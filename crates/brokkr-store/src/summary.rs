@@ -205,10 +205,12 @@ fn migration() -> String {
 
 /// Every run the journal already carries, given the row the triggers
 /// would have kept for it: present, at its head, its stamp bounded,
-/// acknowledged where an acknowledgement stands there. Nothing folded, so
-/// each is `behind` until the backfill refolds it. Each head is found by
-/// its seq on the `(run_id, seq)` key first and then read by that whole
-/// key, so the seed reads one event a run, never a run's every event.
+/// acknowledged where an acknowledgement stands there. A row already
+/// folded at its head keeps the fold's values, so a replacement re-derives
+/// no row; a row not folded there is left `behind` for the backfill to
+/// refold. Each head is found by its seq on the `(run_id, seq)` key first
+/// and then read by that whole key, so the seed reads one event a run,
+/// never a run's every event.
 fn seed() -> String {
     format!(
         "INSERT OR IGNORE INTO run_summary (run_id, head_seq, head_hash)
@@ -216,7 +218,8 @@ fn seed() -> String {
          UPDATE run_summary SET head_seq =
              COALESCE((SELECT MAX(seq) FROM events WHERE run_id = run_summary.run_id), 0);
          UPDATE run_summary SET {moved} FROM events AS head
-             WHERE head.run_id = run_summary.run_id AND head.seq = run_summary.head_seq;
+             WHERE head.run_id = run_summary.run_id AND head.seq = run_summary.head_seq
+               AND run_summary.folded_seq IS NOT run_summary.head_seq;
          UPDATE run_summary SET {acknowledged} FROM quarantine_acknowledgements AS ack
              WHERE ack.run_id = run_summary.run_id AND ack.head_seq = run_summary.head_seq
                AND ack.head_hash = run_summary.head_hash;",
