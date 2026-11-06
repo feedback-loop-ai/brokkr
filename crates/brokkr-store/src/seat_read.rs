@@ -623,7 +623,7 @@ impl Store {
     /// Whether any member of `attempt` holds a row `found` accepts, walked
     /// by the stream index's member key: the work is the attempt's members,
     /// whatever their records hold. The page read's interleave check and
-    /// the ordinal read's not-counted check share the walk.
+    /// the ordinal read's seat-own `members_within` share the walk.
     fn any_member(
         &self,
         run_id: &str,

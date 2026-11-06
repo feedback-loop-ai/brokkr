@@ -395,6 +395,53 @@ pub fn stream_plan(
     plan(store, &crate::event_index::STREAM, bound)
 }
 
+/// The VM steps every statement `read` executes takes: the whole
+/// production read's work, every statement it issues at the values it
+/// issues them with, not each statement measured on its own (decision
+/// 0089 ruling 9). The statements and their bound values are the trace's,
+/// so the tally replays exactly what the read ran, and each statement's
+/// `VmStep` status is read and reset as it finishes. A statement that
+/// returns no row still counts the seeks it made. Transaction control is
+/// no query's work and is skipped.
+#[cfg(all(test, feature = "test-support"))]
+pub(crate) fn read_steps<T>(store: &mut Store, read: impl FnOnce(&Store) -> T) -> (T, i64) {
+    let (read, begun) = statements_traced(store, read);
+    let steps = begun
+        .iter()
+        .filter(|sql| !transaction(sql) && !sql.starts_with("--"))
+        .map(|sql| steps(store, sql))
+        .sum();
+    (read, steps)
+}
+
+/// Whether `sql` is transaction control rather than a read's own query.
+#[cfg(all(test, feature = "test-support"))]
+fn transaction(sql: &str) -> bool {
+    let word = sql.split_whitespace().next().unwrap_or("");
+    matches!(
+        word.to_ascii_uppercase().as_str(),
+        "BEGIN" | "COMMIT" | "END" | "ROLLBACK" | "SAVEPOINT" | "RELEASE"
+    )
+}
+
+/// The VM steps `sql`, as a trace wrote it with its bound values in place,
+/// takes: a statement of its own, its status read and reset as it
+/// finishes, so a seek that scans a range is named however its value
+/// stands.
+#[cfg(all(test, feature = "test-support"))]
+fn steps(store: &Store, sql: &str) -> i64 {
+    use rusqlite::StatementStatus;
+    let mut statement = store
+        .conn
+        .prepare(sql)
+        .expect("a traced statement prepares");
+    statement.reset_status(StatementStatus::VmStep);
+    let mut rows = statement.query([]).expect("a traced statement reads");
+    while rows.next().expect("a traced statement steps").is_some() {}
+    drop(rows);
+    i64::from(statement.reset_status(StatementStatus::VmStep))
+}
+
 /// The statements SQLite began on `store`'s connection while `read` ran,
 /// counted by its trace, which it calls as each statement begins: what the
 /// seat view's heap test holds a page's work to (decision 0089 ruling 9).

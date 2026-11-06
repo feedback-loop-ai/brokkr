@@ -157,6 +157,45 @@ fn a_kept_page_while_extending_back_is_no_page() {
     );
 }
 
+/// An interleaved participant's count and every rank are none, so a fetch
+/// at a rank takes the kept way: the console reads the run whole rather
+/// than page from a rank the ordinals cannot name.
+#[test]
+fn an_interleaved_participant_takes_the_kept_way() {
+    let run = "interleaved participant";
+    let mut steps = in_flight_as(run, "eff", "att");
+    steps.push(journals::checkpoint(
+        "eff",
+        "att",
+        json!({"step": "seat-turn", "turn": 1}),
+    ));
+    steps.push((
+        EventType::EffectStarted,
+        json!({"effect_id": "eff", "attempt_id": "att2"}),
+    ));
+    steps.push(journals::checkpoint(
+        "eff",
+        "att2",
+        json!({"step": "seat-turn", "turn": 1}),
+    ));
+    steps.push(journals::checkpoint(
+        "eff",
+        "att2",
+        json!({"step": "seat-turn", "turn": 2}),
+    ));
+    steps.push(journals::checkpoint(
+        "eff",
+        "att",
+        json!({"step": "seat-turn", "turn": 2}),
+    ));
+    let journal = Journal::of(chained(run, journals::journal(steps)), run);
+    let fetch = journal.fetch(run, 50, 1, &[]);
+    assert!(
+        fetch.participant(("eff", None), None).unwrap().is_none(),
+        "the interleaved participant's rank is kept, so the run is read whole"
+    );
+}
+
 /// A page step into a carried window's older rows reads them and widens
 /// the window, then stops at the stream's oldest row.
 #[test]

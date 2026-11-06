@@ -41,7 +41,7 @@ use crate::{head_of, patiently, Disagreement, Store, StoreError};
 const BACKFILLED: &str = "event_index_backfill";
 
 const TABLE: [&str; 1] = ["event_index"];
-const INDEXES: [&str; 14] = [
+const INDEXES: [&str; 13] = [
     "event_index_stream",
     "event_index_trail",
     "event_index_cause",
@@ -55,7 +55,6 @@ const INDEXES: [&str; 14] = [
     "event_index_phase",
     "event_index_ordinal_stale",
     "event_index_ordinal_written",
-    "event_index_ordinal_numbered",
 ];
 const TRIGGERS: [&str; 5] = [
     "event_index_of_an_event",

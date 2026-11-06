@@ -57,12 +57,6 @@ pub(super) const BACKFILLED: &str = "event_index_ordinal_backfill";
 /// belongs to, so a read of one participant never scans another's.
 pub(super) const STALE: &str = "event_index_ordinal_stale";
 
-/// The partial index that names the numbered checkpoint rows, keyed by
-/// the stream and seq alone: the rank search's probe finds the nearest
-/// numbered row at or below it in one seek, whatever run of not-counted
-/// rows lies between (M3).
-pub(super) const NUMBERED: &str = "event_index_ordinal_numbered";
-
 /// The column a table made anew declares, after the checkpoint facts.
 pub(super) fn declared() -> String {
     format!("{COLUMN} INTEGER")
@@ -191,9 +185,7 @@ fn projected_row(row: &str) -> String {
 /// the event trigger's insert takes: the event trigger's own rows already
 /// carry theirs, so this one skips them. The stale index names the rows
 /// still to number, keyed by (run, attempt, member, seq); the written index
-/// names the counted rows (`> 0`) by their stream; the numbered index names
-/// the counted rows by their seq, so a rank search's probe finds the nearest
-/// numbered row at or below it in one seek (M3).
+/// names the counted rows (`> 0`) by their stream.
 pub(super) fn objects() -> String {
     format!(
         "DROP INDEX IF EXISTS {STALE};
@@ -204,10 +196,6 @@ pub(super) fn objects() -> String {
          CREATE INDEX IF NOT EXISTS event_index_ordinal_written
              ON event_index (run_id, attempt_id, member, {COLUMN}, seq)
              WHERE type = '{CHECKPOINTED}' AND {COLUMN} IS NOT NULL;
-         DROP INDEX IF EXISTS {NUMBERED};
-         CREATE INDEX IF NOT EXISTS {NUMBERED}
-             ON event_index (run_id, attempt_id, member, seq)
-             WHERE type = '{CHECKPOINTED}' AND {COLUMN} > 0;
          DROP TRIGGER IF EXISTS event_index_ordinal;
          CREATE TRIGGER event_index_ordinal AFTER INSERT ON event_index
              WHEN NEW.type = '{CHECKPOINTED}' AND NEW.{COLUMN} IS NULL
@@ -231,21 +219,14 @@ fn index_sql(conn: &Connection, name: &str) -> Result<Option<String>, StoreError
         .optional()?)
 }
 
-/// Do the journal's ordinal indexes carry the shapes the reads seek by: the
-/// stale index keyed by the stream a row belongs to, so a participant's read
-/// never scans another's, and the numbered index keyed by a row's seq? A
-/// journal from before the re-key carries the same stale name with `run_id`
-/// alone, and the repair must make it anew: a presence question alone would
-/// leave it. The numbered index is new, so a journal without it is repaired
-/// the same way.
+/// Does the journal's stale index carry the shape the reads seek by: keyed
+/// by the stream a row belongs to, so a participant's read never scans
+/// another's? A journal from before the re-key carries the same name with
+/// `run_id` alone, and the repair must make it anew: a presence question
+/// alone would leave it.
 pub(super) fn intact(conn: &Connection) -> Result<bool, StoreError> {
     let stale = index_sql(conn, STALE)?;
-    let numbered = index_sql(conn, NUMBERED)?;
-    Ok(
-        stale.is_some_and(|sql| sql.contains("attempt_id") && sql.contains("member"))
-            && numbered
-                .is_some_and(|sql| sql.contains("stream_ordinal > 0") && sql.contains("seq")),
-    )
+    Ok(stale.is_some_and(|sql| sql.contains("attempt_id") && sql.contains("member")))
 }
 
 /// The statement that numbers every checkpoint row of one run in seq order

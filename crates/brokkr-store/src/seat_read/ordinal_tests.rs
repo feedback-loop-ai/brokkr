@@ -39,6 +39,7 @@ fn turns(effect: &str, attempt: &str, member: Option<&str>, n: u64) -> Vec<(Even
 }
 
 /// `n` result-only records of `member`'s at `attempt`.
+#[cfg(feature = "test-support")]
 fn results(effect: &str, attempt: &str, member: &str, n: u64) -> Vec<(EventType, Json)> {
     (0..n)
         .map(|_| {
@@ -56,16 +57,30 @@ fn own(effect: &str, attempt: &str, n: u64) -> Vec<(EventType, Json)> {
     turns(effect, attempt, None, n)
 }
 
+/// The event that starts `effect`'s `attempt`.
+fn started(effect: &str, attempt: &str) -> (EventType, Json) {
+    (
+        EventType::EffectStarted,
+        json!({"effect_id": effect, "attempt_id": attempt}),
+    )
+}
+
+/// `fx`'s two own checkpoints on attempt `a`, then `gx` asked and started
+/// on it: the shared start of the sequential-effects cases.
+fn two_effects_on_one_attempt() -> Vec<(EventType, Json)> {
+    let mut events = asked_and_started("fx", "a");
+    events.extend(own("fx", "a", 2));
+    events.extend(asked_and_started("gx", "a"));
+    events
+}
+
 /// Member `m`'s first checkpoint on attempt `a`, then attempt `b` started
 /// and its first checkpoint: the two-attempt preamble the interleaved reads
 /// share.
 fn interleaved_member() -> Vec<(EventType, Json)> {
     let mut events = asked_and_started("fx", "a");
     events.push(checked("fx", "a", Some("m"), 1));
-    events.push((
-        EventType::EffectStarted,
-        json!({"effect_id": "fx", "attempt_id": "b"}),
-    ));
+    events.push(started("fx", "b"));
     events.push(checked("fx", "b", Some("m"), 1));
     events
 }
@@ -77,6 +92,60 @@ fn journal(store: &mut Store, events: Vec<(EventType, Json)>) -> Opened {
         append(store, "r", kind, payload);
     }
     store.open_run("r").unwrap()
+}
+
+/// The participant `seat`'s count and every rank on `events`, whose whole
+/// read holds `rows` checkpoints: the kept way.
+fn assert_kept(
+    store: &mut Store,
+    events: Vec<(EventType, Json)>,
+    seat: (&str, Option<&str>),
+    rows: usize,
+) {
+    let opened = journal(store, events);
+    let loaded = store.load("r").unwrap();
+    assert_eq!(
+        whole(&loaded, seat.0, seat.1).len(),
+        rows,
+        "{seat:?}: the whole rows"
+    );
+    kept_way(store, &opened, seat, rows);
+}
+
+/// H1's journal events: the member's two attempts interleave.
+fn h1_events() -> Vec<(EventType, Json)> {
+    let mut events = asked_and_started("fx", "a");
+    events.extend([
+        checked("fx", "a", Some("m"), 1),
+        started("fx", "b"),
+        checked("fx", "b", Some("m"), 1),
+        checked("fx", "b", Some("m"), 2),
+        checked("fx", "a", Some("m"), 2),
+    ]);
+    events
+}
+
+/// A disjoint participant of three spans: one checkpoint on attempt `a`,
+/// N on `b`, and one on `c`.
+fn three_spans(n: u64) -> Vec<(EventType, Json)> {
+    let mut events = asked_and_started("fx", "a");
+    events.extend(own("fx", "a", 1));
+    events.push(started("fx", "b"));
+    events.extend(own("fx", "b", n));
+    events.push(started("fx", "c"));
+    events.extend(own("fx", "c", 1));
+    events
+}
+
+/// `store`'s run marked lagging for its stated projection fault, the
+/// writer closed, and the journal reopened read-only and opened.
+fn reopen_read_only(mut store: Store) -> (Store, Opened) {
+    crate::test_support::lags(&mut store, &["r"]);
+    let path = store.path().to_path_buf();
+    drop(store);
+    let reader = Store::open_read_only(&path).unwrap();
+    let opened = reader.open_run("r").unwrap();
+    (reader, opened)
 }
 
 /// The seqs the whole read keys to `effect`'s participant `member`, oldest
@@ -109,17 +178,6 @@ fn checkpoint_seqs(store: &Store, member: Option<&str>) -> Vec<u64> {
             event.event_type == EventType::EffectCheckpointed
                 && event.payload["checkpoint"]["member"].as_str() == member
         })
-        .map(|event| event.seq)
-        .collect()
-}
-
-/// The seqs of `run`'s result-only records, oldest first.
-fn result_seqs(store: &Store) -> Vec<u64> {
-    store
-        .load("r")
-        .unwrap()
-        .iter()
-        .filter(|event| event.payload.get("result").is_some())
         .map(|event| event.seq)
         .collect()
 }
@@ -165,10 +223,7 @@ fn member_with_record(store: &mut Store, turns: u64, result_at: u64) -> Opened {
 fn planted() -> Vec<(EventType, Json)> {
     let mut events = asked_and_started("fx", "a");
     events.extend(own("fx", "a", 2));
-    events.push((
-        EventType::EffectStarted,
-        json!({"effect_id": "fx", "attempt_id": "b"}),
-    ));
+    events.push(started("fx", "b"));
     events.extend([
         (
             EventType::EffectCheckpointed,
@@ -225,9 +280,7 @@ fn count_and_rank_equal_the_whole_read_for_every_participant() {
 #[test]
 fn two_sequential_effects_on_one_attempt_count_apart() {
     let (_dir, mut store) = store();
-    let mut events = asked_and_started("fx", "a");
-    events.extend(own("fx", "a", 2));
-    events.extend(asked_and_started("gx", "a"));
+    let mut events = two_effects_on_one_attempt();
     events.extend(own("gx", "a", 2));
     let opened = journal(&mut store, events);
     let events = store.load("r").unwrap();
@@ -274,11 +327,11 @@ fn interleaved(store: &mut Store, b_turns: u64) -> Opened {
     journal(store, events)
 }
 
-/// A participant's attempts whose checkpoints interleave are ranked by
-/// seq, not by one stream's order: the search among overlapping ranges is
-/// exact.
+/// A participant's attempts whose checkpoints interleave take the kept
+/// way: `seat_count` and every rank are none before any rank work, so the
+/// reader reads the run whole. The ruling supersedes ranking them by seq.
 #[test]
-fn interleaved_attempts_rank_by_seq() {
+fn interleaved_attempts_take_the_kept_way() {
     let (_dir, mut store) = store();
     let opened = interleaved(&mut store, 1);
     let events = store.load("r").unwrap();
@@ -286,17 +339,72 @@ fn interleaved_attempts_rank_by_seq() {
     assert_eq!(expected.len(), 3);
     assert_eq!(
         store.seat_count("r", &opened, ("fx", None)).unwrap(),
-        Some(3)
+        None,
+        "the two spans overlap, so the count is kept"
     );
-    for (rank, seq) in expected.iter().enumerate() {
+    for rank in 0..=expected.len() as u64 {
         assert_eq!(
-            store
-                .seat_seq_at("r", &opened, ("fx", None), rank as u64)
-                .unwrap(),
-            Some(*seq),
+            store.seat_seq_at("r", &opened, ("fx", None), rank).unwrap(),
+            None,
             "rank {rank}"
         );
     }
+}
+
+/// The participant `seat`'s count and every rank through `rows` are none:
+/// the kept way an interleaved participant takes.
+fn kept_way(store: &Store, opened: &Opened, seat: (&str, Option<&str>), rows: usize) {
+    assert_eq!(
+        store.seat_count("r", opened, seat).unwrap(),
+        None,
+        "{seat:?}: the count"
+    );
+    for rank in 0..=rows as u64 {
+        assert_eq!(
+            store.seat_seq_at("r", opened, seat, rank).unwrap(),
+            None,
+            "{seat:?}: rank {rank}"
+        );
+    }
+}
+
+/// H1's journal with no fault: the member's two attempts interleave, so
+/// the count and every rank take the kept way.
+#[test]
+fn h1s_interleaved_journal_takes_the_kept_way() {
+    let (_dir, mut store) = store();
+    assert_kept(&mut store, h1_events(), ("fx", Some("m")), 4);
+}
+
+/// M1's own journal: attempt `a`'s span reaches past attempt `b`'s and
+/// across another effect's start, so the spans interleave and take the kept
+/// way.
+#[test]
+fn m1s_own_interleaved_journal_takes_the_kept_way() {
+    let (_dir, mut store) = store();
+    let mut events = two_effects_on_one_attempt();
+    events.push(checked("gx", "a", None, 1));
+    events.push(checked("fx", "a", None, 3));
+    events.push(started("fx", "b"));
+    events.push(checked("fx", "b", None, 1));
+    events.push(checked("fx", "a", None, 4));
+    assert_kept(&mut store, events, ("fx", None), 5);
+}
+
+/// M1's member journal: the member's attempt `a` span reaches past attempt
+/// `b`'s and across another effect's eight rows, so the spans interleave
+/// and take the kept way.
+#[test]
+fn m1s_member_interleaved_journal_takes_the_kept_way() {
+    let (_dir, mut store) = store();
+    let mut events = asked_and_started("fx", "a");
+    events.extend(turns("fx", "a", Some("m"), 3));
+    events.push(started("fx", "b"));
+    events.push(checked("fx", "b", Some("m"), 1));
+    events.extend(asked_and_started("gx", "a"));
+    events.extend(turns("gx", "a", Some("m"), 8));
+    events.push(checked("fx", "a", Some("m"), 4));
+    assert_kept(&mut store, events, ("fx", Some("m")), 5);
 }
 
 /// A NULL ordinal inside a participant's stream is never read as zero: the
@@ -625,11 +733,11 @@ fn a_null_inside_the_rank_s_reach_refuses_it() {
     );
 }
 
-/// M3: the interleaved search settles rank 0 on the first numbered row
-/// before the result-only record at seq 8; a rank whose reach holds that
-/// record still refuses.
+/// M3: the journal's spans interleave, so the final reach takes the kept
+/// way: the count and every rank are none, and the interleaved search is no
+/// longer run.
 #[test]
-fn the_interleaved_search_settles_before_a_not_counted_probe() {
+fn the_interleaved_final_reach_takes_the_kept_way() {
     let (_dir, mut store) = store();
     let mut events = interleaved_member();
     events.extend([
@@ -641,103 +749,42 @@ fn the_interleaved_search_settles_before_a_not_counted_probe() {
         checked("fx", "b", Some("m"), 3),
         checked("fx", "a", Some("m"), 2),
     ]);
-    let opened = journal(&mut store, events);
-    assert_eq!(
-        store
-            .seat_seq_at("r", &opened, ("fx", Some("m")), 0)
-            .unwrap(),
-        Some(5),
-        "rank 0 settles on seq 5, before the 0 at seq 8"
-    );
-    assert_eq!(
-        store
-            .seat_seq_at("r", &opened, ("fx", Some("m")), 2)
-            .unwrap(),
-        None,
-        "rank 2's reach holds the 0 at seq 8"
-    );
+    assert_kept(&mut store, events, ("fx", Some("m")), 5);
 }
 
-/// M4: a search probing a run of NULL rows places the probe by the nearest
-/// numbered row below it, so rank 0 is Ok(Some(5)), never an SQL type
-/// error; a NULL inside the final reach is Ok(None).
+/// M4: a journal whose spans interleave takes the kept way, so a run of
+/// NULL ordinals inside it is never read as a place or as an SQL type
+/// error: the count and every rank are none.
 #[test]
-fn a_search_over_null_numbers_reads_the_rank_below_them() {
+fn a_search_over_null_numbers_takes_the_kept_way() {
     let (_dir, mut store) = store();
     let mut events = asked_and_started("fx", "a");
     events.push(checked("fx", "a", None, 1));
-    events.push((
-        EventType::EffectStarted,
-        json!({"effect_id": "fx", "attempt_id": "b"}),
-    ));
+    events.push(started("fx", "b"));
     events.extend(turns("fx", "b", None, 9));
     events.push(checked("fx", "a", None, 2));
     let opened = journal(&mut store, events);
+    let events = store.load("r").unwrap();
+    let rows = whole(&events, "fx", None);
+    assert_eq!(rows.len(), 11);
+    kept_way(&store, &opened, ("fx", None), rows.len());
+    // A NULL inside the interleaved spans is still none, never an
+    // InvalidColumnType: the kept way reads no ordinal at all.
     let own = checkpoint_seqs(&store, None);
-    // b's turns 2..8 are seqs 8..14; their endpoints stay numbered.
     still_to_number(&store, &own[2..=8]);
-    assert_eq!(
-        store.seat_seq_at("r", &opened, ("fx", None), 0).unwrap(),
-        Some(5),
-        "rank 0 is read, never an InvalidColumnType"
-    );
-    still_to_number(&store, &[own[0]]);
-    assert_eq!(
-        store.seat_seq_at("r", &opened, ("fx", None), 0).unwrap(),
-        None,
-        "a NULL inside the final reach is Ok(None)"
-    );
+    kept_way(&store, &opened, ("fx", None), rows.len());
 }
 
-/// The participant's count, its last checkpoint's seq and its newest page's
-/// row count, as the end read makes them.
-fn end_read(
-    store: &Store,
-    opened: &Opened,
-    seat: (&str, Option<&str>),
-) -> (Option<u64>, Option<u64>, usize) {
-    let count = store.seat_count("r", opened, seat).unwrap();
-    let last = count.and_then(|total| store.seat_seq_at("r", opened, seat, total - 1).unwrap());
-    let page = match store
-        .seat_read("r", opened, seat, None, |_| {
-            |event: &EventEnvelope| event.seq
-        })
-        .unwrap()
-    {
-        SeatRead::Current(rows, _) => rows.len(),
-        SeatRead::Kept => 0,
-    };
-    (count, last, page)
-}
-
-/// The participant's `rank`-th seq and the page above the row before it, as
-/// the middle read makes them.
-fn middle_read(
-    store: &Store,
-    opened: &Opened,
-    seat: (&str, Option<&str>),
-    rank: u64,
-) -> (Option<u64>, usize) {
-    let seq = store.seat_seq_at("r", opened, seat, rank).unwrap();
-    let after = seq.map(|seq| seq.saturating_sub(1));
-    let page = match store
-        .seat_from("r", opened, seat, after, &mut |_| {
-            |event: &EventEnvelope| event.seq
-        })
-        .unwrap()
-    {
-        SeatRead::Current(rows, _) => rows.len(),
-        SeatRead::Kept => 0,
-    };
-    (seq, page)
-}
-
-/// The few steps a B-tree one level deeper takes at 20,000 rows: a bound
-/// read may differ by this much and still not scale with the stream.
+/// The few steps a B-tree one level deeper takes at 20,000 rows: a
+/// complete read may differ by this much and still not scale with the
+/// stream. The chief's honest trace moved 4,958 to 5,294 steps, so 500
+/// names that one level and no scan.
+#[cfg(feature = "test-support")]
 const SLACK: i64 = 500;
 
 /// Assert the measurements differ by no more than [`SLACK`], naming the
 /// values when they do.
+#[cfg(feature = "test-support")]
 fn bounded(what: &str, sizes: &[i64]) {
     let low = *sizes.iter().min().unwrap();
     let high = *sizes.iter().max().unwrap();
@@ -747,224 +794,251 @@ fn bounded(what: &str, sizes: &[i64]) {
     );
 }
 
-/// The end and middle measurements at 2,000 and 20,000 checkpoints, by
-/// `measure`'s journal at each size.
-fn over_sizes(mut measure: impl FnMut(u64) -> (i64, i64)) -> (Vec<i64>, Vec<i64>) {
-    let mut end = Vec::new();
-    let mut middle = Vec::new();
-    for n in [2_000u64, 20_000] {
-        let (end_steps, middle_steps) = measure(n);
-        end.push(end_steps);
-        middle.push(middle_steps);
-    }
-    (end, middle)
+/// One complete production read's value and the VM steps every statement
+/// it executes takes, by the test-only tally.
+#[cfg(feature = "test-support")]
+fn counted<T>(store: &mut Store, read: impl FnOnce(&Store) -> T) -> (T, i64) {
+    crate::test_support::read_steps(store, read)
 }
 
-/// The VM steps `sql` takes for `bound`, through a statement of its own, so
-/// a seek that scans a range is named however its value stands.
-fn steps(store: &Store, sql: &str, bound: impl rusqlite::Params) -> i64 {
-    use rusqlite::StatementStatus;
-    let mut statement = store.conn.prepare(sql).unwrap();
-    statement.reset_status(StatementStatus::VmStep);
-    let mut rows = statement.query(bound).unwrap();
-    while rows.next().unwrap().is_some() {}
-    drop(rows);
-    i64::from(statement.reset_status(StatementStatus::VmStep))
-}
-
-/// A participant's end and middle reads and the steps their queries take.
-struct Measured {
-    end: (Option<u64>, Option<u64>, usize),
-    middle: (Option<u64>, usize),
-    steps: (i64, i64),
-}
-
-/// The participant `member`'s end and middle reads at `rank`, their values
-/// and the steps their queries take.
-fn measured(
-    store: &Store,
+/// The participant `seat`'s five complete reads: its count, its last and
+/// middle ranks, and the fetch's end and middle pages, each one whole call
+/// with its transaction, refusal seeks and page included. `rows` is the
+/// participant's whole count, `last` and `middle` the ranks read.
+#[cfg(feature = "test-support")]
+fn complete_reads(
+    store: &mut Store,
     opened: &Opened,
-    member: &str,
-    rank: u64,
+    seat: (&str, Option<&str>),
+    rows: u64,
     last: u64,
-    seq: u64,
-    ordinal: u64,
-) -> Measured {
-    let seat = ("fx", Some(member));
-    Measured {
-        end: end_read(store, opened, seat),
-        middle: middle_read(store, opened, seat, rank),
-        steps: span_steps(store, member, last, seq, ordinal),
-    }
-}
-
-/// The steps of the queries a participant's end read makes at `last` and a
-/// middle read at `seq`: the rank seeks, BEFORE, GAP, RESTART, UNCOUNTED
-/// and the page.
-fn span_steps(store: &Store, member: &str, last: u64, seq: u64, ordinal: u64) -> (i64, i64) {
-    use super::ordinal::{AT, BEFORE, BOUND, GAP, RESTART, UNCOUNTED};
-    let first = 5i64;
-    let last = last as i64;
-    let seq = seq as i64;
-    let one = |sql: &str, low: i64, high: i64| {
-        steps(
-            store,
-            sql,
-            rusqlite::params!["r", "a", Some(member), low, high],
-        )
-    };
-    let bound = |at: i64| steps(store, &BOUND, rusqlite::params!["r", "a", Some(member), at]);
-    let page = |before: i64| {
-        steps(
-            store,
-            &crate::event_index::STREAM,
-            rusqlite::params!["r", "a", Some(member), i64::MIN, before, 51i64],
-        )
-    };
-    let end = bound(first)
-        + bound(last)
-        + one(&GAP, first, last)
-        + one(&RESTART, first, last)
-        + one(&UNCOUNTED, first, last)
-        + page(last);
-    let middle = steps(
-        store,
-        &AT,
-        rusqlite::params!["r", "a", Some(member), first, last, ordinal as i64],
-    ) + one(&BEFORE, first, seq)
-        + one(&GAP, first, seq)
-        + one(&RESTART, first, seq)
-        + one(&UNCOUNTED, first, seq)
-        + page(seq);
-    (end, middle)
-}
-
-/// M1: a member's end and middle reads take the same steps at 2,000 and
-/// 20,000 checkpoints; the not-counted seek keys the ordinal, so it never
-/// scans the stream.
-#[test]
-fn the_member_reads_step_the_same_at_every_size() {
-    let (end, middle) = over_sizes(|n| {
-        let (_dir, mut store) = store();
-        let mut events = asked_and_started("fx", "a");
-        events.extend(turns("fx", "a", Some("m"), n));
-        let opened = journal(&mut store, events);
-        let measured = measured(&store, &opened, "m", n / 2, n + 4, n / 2 + 4, n / 2 + 1);
-        assert_eq!(measured.end.0, Some(n), "{n}: the read-only count");
-        assert_eq!(
-            measured.end.1,
-            Some(n + 4),
-            "{n}: the last checkpoint's seq"
-        );
-        assert!(measured.end.2 > 0, "{n}: the end page reads");
-        assert_eq!(measured.middle.0, Some(n / 2 + 5), "{n}: the middle rank");
-        assert!(measured.middle.1 > 0, "{n}: the middle page reads");
-        measured.steps
+    middle: u64,
+) -> [i64; 5] {
+    let (count, count_steps) = counted(store, |store| store.seat_count("r", opened, seat).unwrap());
+    assert_eq!(count, Some(rows), "{seat:?}: the count");
+    let (last_seq, last_steps) = counted(store, |store| {
+        store.seat_seq_at("r", opened, seat, last).unwrap()
     });
-    bounded("the member's end read", &end);
-    bounded("the member's middle read", &middle);
+    assert!(last_seq.is_some(), "{seat:?}: the last rank reads");
+    let (middle_seq, middle_steps) = counted(store, |store| {
+        store.seat_seq_at("r", opened, seat, middle).unwrap()
+    });
+    let middle_seq = middle_seq.unwrap_or_else(|| panic!("{seat:?}: the middle rank reads"));
+    let (end_page, end_page_steps) = counted(store, |store| {
+        store
+            .seat_read("r", opened, seat, None, |_| {
+                |event: &EventEnvelope| event.seq
+            })
+            .unwrap()
+    });
+    assert!(
+        matches!(end_page, SeatRead::Current(..)),
+        "{seat:?}: the end page reads"
+    );
+    let (middle_page, middle_page_steps) = counted(store, |store| {
+        store
+            .seat_from(
+                "r",
+                opened,
+                seat,
+                Some(middle_seq.saturating_sub(1)),
+                &mut |_| |event: &EventEnvelope| event.seq,
+            )
+            .unwrap()
+    });
+    assert!(
+        matches!(middle_page, SeatRead::Current(..)),
+        "{seat:?}: the middle page reads"
+    );
+    [
+        count_steps,
+        last_steps,
+        middle_steps,
+        end_page_steps,
+        middle_page_steps,
+    ]
 }
 
-/// 994o2's bound: the target's end and middle reads step the same at both
-/// sizes while N rows still to number of another member, or on another
-/// attempt, sit between its checkpoints. The stale index keys their stream,
-/// so neither read scans them.
-#[test]
-fn the_stale_seek_steps_the_same_at_every_size() {
-    let mut shapes = Vec::new();
-    for (shape, attempt) in [("other member", "a"), ("other attempt", "b")] {
-        let (end, middle) = over_sizes(|n| {
-            let (_dir, mut store) = store();
-            let mut events = asked_and_started("fx", "a");
-            events.push(checked("fx", "a", Some("target"), 1));
-            events.extend(results("fx", attempt, "m", n));
-            events.push(checked("fx", "a", Some("target"), 3));
-            let _opened = journal(&mut store, events);
-            let stale = result_seqs(&store);
-            assert_eq!(stale.len() as u64, n);
-            // Model a lost trigger: the rows are still to number, which is
-            // what the stale index holds. A repair would number them 0.
-            still_to_number(&store, &stale);
-            let opened = store.open_run("r").unwrap();
-            let last = n + 6;
-            let measured = measured(&store, &opened, "target", 1, last, last, 2);
-            assert_eq!(measured.end.0, Some(2), "{shape} at {n}: the target's two");
-            assert_eq!(
-                measured.middle.0,
-                Some(last),
-                "{shape} at {n}: its last seq"
-            );
-            measured.steps
-        });
-        bounded(&format!("{shape}: the end read"), &end);
-        bounded(&format!("{shape}: the middle read"), &middle);
-        shapes.push(shape);
+/// Assert each of the five complete reads steps the same at both sizes.
+#[cfg(feature = "test-support")]
+fn bounded_reads(shape: &str, sizes: &[[i64; 5]; 2]) {
+    for (at, what) in [
+        "count",
+        "last rank",
+        "middle rank",
+        "end page",
+        "middle page",
+    ]
+    .iter()
+    .enumerate()
+    {
+        bounded(&format!("{shape}: {what}"), &[sizes[0][at], sizes[1][at]]);
     }
-    assert_eq!(shapes, ["other member", "other attempt"]);
 }
 
-/// Step 4's bound: a search probing a run of N not-counted rows settles on
-/// the first numbered row in the same steps at both sizes, because the
-/// numbered index places each probe in one seek.
-#[test]
-fn the_search_probe_steps_the_same_at_every_size() {
-    use super::ordinal::{BEFORE, GAP, RESTART, UNCOUNTED};
-    let mut sizes = Vec::new();
-    for n in [2_000u64, 20_000] {
-        let (_dir, mut store) = store();
-        let mut events = interleaved_member();
-        events.extend(results("fx", "a", "m", n));
-        events.push(checked("fx", "b", Some("m"), 2));
-        events.push(checked("fx", "a", Some("m"), 2));
-        let opened = journal(&mut store, events);
-        let found = store
-            .seat_seq_at("r", &opened, ("fx", Some("m")), 0)
-            .unwrap();
-        assert_eq!(found, Some(5), "{n}: the probe settles on seq 5");
-        let mid = 5 + n / 2;
-        let probe = steps(
-            &store,
-            &BEFORE,
-            rusqlite::params!["r", "a", Some("m"), 5i64, mid as i64],
-        );
-        let reach = steps(
-            &store,
-            &GAP,
-            rusqlite::params!["r", "a", Some("m"), 5i64, 5i64],
-        ) + steps(
-            &store,
-            &RESTART,
-            rusqlite::params!["r", "a", Some("m"), 5i64, 5i64],
-        ) + steps(
-            &store,
-            &UNCOUNTED,
-            rusqlite::params!["r", "a", Some("m"), 5i64, 5i64],
-        );
-        sizes.push(probe + reach);
-    }
-    bounded("the search probe", &sizes);
-}
-
-/// A not-counted row in the middle of an interleaved rank search is never
-/// read as a place: the candidate ordinal falls below the span's first, so
-/// the search takes the kept way.
-#[test]
-fn a_not_counted_row_in_an_interleaved_search_reads_the_kept_way() {
+/// M1-of-round-three's N positive member checkpoints, read as the member's
+/// participant: its five complete reads at `n`.
+#[cfg(feature = "test-support")]
+fn member_shape(n: u64) -> [i64; 5] {
     let (_dir, mut store) = store();
-    let opened = interleaved(&mut store, 3);
-    let own = checkpoint_seqs(&store, None);
-    // The middle row of attempt b, not its bound: the span's bounds still
-    // carry places, and only the search's candidate reads the 0.
+    let mut events = asked_and_started("fx", "a");
+    events.extend(turns("fx", "a", Some("m"), n));
+    let opened = journal(&mut store, events);
+    complete_reads(&mut store, &opened, ("fx", Some("m")), n, n - 1, n / 2)
+}
+
+/// 994o2's shape: the target's two checkpoints with N result-only records
+/// of another member between them, on the target's attempt or another.
+#[cfg(feature = "test-support")]
+fn stale_shape(n: u64, attempt: &str) -> [i64; 5] {
+    let (_dir, mut store) = store();
+    let mut events = asked_and_started("fx", "a");
+    events.push(checked("fx", "a", Some("target"), 1));
+    events.extend(results("fx", attempt, "m", n));
+    events.push(checked("fx", "a", Some("target"), 3));
+    let opened = journal(&mut store, events);
+    complete_reads(&mut store, &opened, ("fx", Some("target")), 2, 1, 0)
+}
+
+/// A disjoint participant of three spans: one checkpoint on attempt `a`,
+/// N on `b`, and one on `c`.
+#[cfg(feature = "test-support")]
+fn multi_span_shape(n: u64) -> [i64; 5] {
+    let (_dir, mut store) = store();
+    let opened = journal(&mut store, three_spans(n));
+    let rows = n + 2;
+    complete_reads(&mut store, &opened, ("fx", None), rows, rows - 1, 1 + n / 2)
+}
+
+/// The cost bound counts complete production reads: the member's N
+/// checkpoints, 994o2's N rows of another member on the target's attempt
+/// and on another, and a disjoint three-span participant with N rows in
+/// the middle span all step the same at 2,000 and 20,000. A statement
+/// measured on its own would miss the work a full read spends.
+#[test]
+#[cfg(feature = "test-support")]
+fn the_complete_reads_step_the_same_at_every_size() {
+    bounded_reads(
+        "the member's N checkpoints",
+        &[member_shape(2_000), member_shape(20_000)],
+    );
+    for (shape, attempt) in [
+        ("994o2's other member", "a"),
+        ("994o2's other attempt", "b"),
+    ] {
+        bounded_reads(
+            shape,
+            &[stale_shape(2_000, attempt), stale_shape(20_000, attempt)],
+        );
+    }
+    bounded_reads(
+        "the disjoint three-span participant",
+        &[multi_span_shape(2_000), multi_span_shape(20_000)],
+    );
+}
+
+/// The journal `r` of one attempt's `turns` member checkpoints with `fault`
+/// applied to its first index row, the writer closed and the journal
+/// reopened read-only: the stated projection fault is the only one.
+fn faulted_first(rows: u64, fault: &str) -> (tempfile::TempDir, Store, Opened) {
+    let (dir, mut store) = store();
+    let mut events = asked_and_started("fx", "a");
+    events.extend(turns("fx", "a", Some("m"), rows));
+    let _opened = journal(&mut store, events);
+    let first = checkpoint_seqs(&store, Some("m"))[0];
+    let sql = match fault {
+        "missing" => format!("DELETE FROM event_index WHERE run_id = 'r' AND seq = {first}"),
+        ordinal => format!(
+            "UPDATE event_index SET stream_ordinal = {ordinal}
+             WHERE run_id = 'r' AND seq = {first}"
+        ),
+    };
+    store.conn.execute_batch(&sql).unwrap();
+    let (reader, opened) = reopen_read_only(store);
+    (dir, reader, opened)
+}
+
+/// H1: a span's first row is read by key, so a missing row, a NULL, a
+/// negative and a positive-but-not-1 first all refuse the count and every
+/// rank. The read-only open plants only the stated projection fault.
+#[test]
+fn a_missing_or_corrupt_first_bound_refuses_the_disjoint_walk() {
+    for fault in ["missing", "NULL", "-1", "2"] {
+        let (_dir, store, opened) = faulted_first(3, fault);
+        for rank in [0u64, 1, 2] {
+            assert_eq!(
+                store
+                    .seat_seq_at("r", &opened, ("fx", Some("m")), rank)
+                    .unwrap(),
+                None,
+                "{fault}: rank {rank}"
+            );
+        }
+        assert_eq!(
+            store.seat_count("r", &opened, ("fx", Some("m"))).unwrap(),
+            None,
+            "{fault}: the count"
+        );
+    }
+}
+
+/// H1's interleaved journal refuses through the kept way whatever row its
+/// first span loses: the fault never reaches the deleted search.
+#[test]
+fn h1s_faulted_interleaved_journal_refuses_through_the_kept_way() {
+    for fault in ["missing", "-1"] {
+        let (_dir, mut store) = store();
+        let _opened = journal(&mut store, h1_events());
+        let sql = match fault {
+            "missing" => "DELETE FROM event_index WHERE run_id = 'r' AND seq = 5".to_string(),
+            ordinal => format!(
+                "UPDATE event_index SET stream_ordinal = {ordinal}
+                 WHERE run_id = 'r' AND seq = 5"
+            ),
+        };
+        store.conn.execute_batch(&sql).unwrap();
+        let (reader, opened) = reopen_read_only(store);
+        kept_way(&reader, &opened, ("fx", Some("m")), 4);
+    }
+}
+
+/// A disjoint multi-span participant with no fault still ranks every row,
+/// and a passed span's last row is read by key: deleting it refuses a rank
+/// that passes that span.
+#[test]
+fn a_disjoint_multi_span_participant_ranks_every_row() {
+    let (_dir, mut store) = store();
+    let opened = journal(&mut store, three_spans(9));
+    let events = store.load("r").unwrap();
+    let expected = whole(&events, "fx", None);
+    assert_eq!(expected.len(), 11);
+    assert_eq!(
+        store.seat_count("r", &opened, ("fx", None)).unwrap(),
+        Some(11)
+    );
+    for (rank, seq) in expected.iter().enumerate() {
+        assert_eq!(
+            store
+                .seat_seq_at("r", &opened, ("fx", None), rank as u64)
+                .unwrap(),
+            Some(*seq),
+            "rank {rank}"
+        );
+    }
+    // The middle span's last row is a bound a rank in the last span
+    // passes: deleting it refuses that rank, never reading it as a count.
+    let last_of_middle = expected[9];
     store
         .conn
         .execute(
-            "UPDATE event_index SET stream_ordinal = 0 WHERE run_id = 'r' AND seq = ?1",
-            [own[2] as i64],
+            "DELETE FROM event_index WHERE run_id = 'r' AND seq = ?1",
+            [last_of_middle as i64],
         )
         .unwrap();
+    crate::test_support::lags(&mut store, &["r"]);
     assert_eq!(
-        store.seat_seq_at("r", &opened, ("fx", None), 2).unwrap(),
+        store.seat_seq_at("r", &opened, ("fx", None), 10).unwrap(),
         None,
-        "the interleaved search never reads the not-counted row as a place"
+        "the last rank passes the deleted middle bound"
     );
 }

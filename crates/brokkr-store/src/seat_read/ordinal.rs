@@ -9,14 +9,19 @@
 //!
 //! A stream is the seat row's attempt and the participant's member, and
 //! its bounds are the row's own first and last checkpoint, so two
-//! sequential effects on one attempt stay apart by their rows' bounds
-//! (M1). The ordinals restart at 1 wherever another effect's row breaks
-//! the index stream (H2), so a span whose stream holds such a restart, or
-//! a row still to number, cannot be counted by difference: the read says
-//! it cannot stand for the participant ([`SeatRead::Kept`]) and the reader
+//! sequential effects on one attempt stay apart by their rows' bounds.
+//! The ordinals restart at 1 wherever another effect's row breaks the
+//! index stream (H2), so a span whose stream holds such a restart, or a
+//! row still to number, cannot be counted by difference: the read says it
+//! cannot stand for the participant ([`SeatRead::Kept`]) and the reader
 //! reads the run the kept way (ruling 8). A counted row carries a positive
 //! ordinal; a row the guarded page read does not count carries 0, which a
 //! member's stream refuses within its reach.
+//!
+//! A participant whose spans interleave, where in seq order one span's
+//! first lies at or below the previous span's last, cannot be counted by
+//! difference either: `seat_count` and `seat_seq_at` take the kept way
+//! before any rank work, and the reader reads the run whole (ruling 8).
 //!
 //! Where the guarded page read refuses, these reads refuse for the reach
 //! they cover, and only there: the seat's own participant wherever a
@@ -24,14 +29,21 @@
 //! guarded page read's own `members_within`, H1), a member's wherever its
 //! stream holds a not-counted row, and any participant wherever a row
 //! still to number or a restart lies in it. A member's own checkpoint is a
-//! positive ordinal and another participant's row, so it refuses neither
-//! the seat's count nor a member's. `seat_count` covers every span whole;
-//! `seat_seq_at` covers each span's rows at or below the seq it returns,
-//! and reads a span's last row only where its count is needed (M2). The
-//! interleaved search places its probes by the nearest numbered row at or
-//! below them, so a probe on a not-counted row refuses nothing by itself
-//! (M3), and every ordinal read decodes a NULL as none rather than an SQL
-//! type error (M4).
+//! positive ordinal and a row of the seat's own participant, so it refuses
+//! the seat's count within its reach, as the page read does, while a
+//! member's rank never reads it: the member's stream keys only its own
+//! rows. `seat_count` covers every span whole; `seat_seq_at` covers each
+//! span's rows at or below the seq it returns, and reads a span's last row
+//! only where its count is needed.
+//!
+//! Every bound the final reach rests on is read by key before it decides:
+//! each span's first row, and the last row of every span the rank passes.
+//! A missing row, a NULL or an ordinal that is not positive refuses, and a
+//! span's first row must carry exactly 1: every valid first is 1, since
+//! the stream's first numbered row of an effect, or the first after
+//! another effect's row, is numbered 1, and a restart inside a span
+//! already refuses. Every ordinal read decodes a NULL as none rather than
+//! an SQL type error.
 
 use std::sync::LazyLock;
 
@@ -106,21 +118,6 @@ pub(super) static AT: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// The last numbered ordinal a stream reaches at or below `seq`: how many
-/// of its checkpoints a candidate seq reaches, for the rank search among
-/// streams whose seq ranges interleave. The numbered index skips a row
-/// still to number or not counted in one seek, so a probe that lands on one
-/// is placed by the nearest numbered row below it (M3, M4).
-pub(super) static BEFORE: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "SELECT stream_ordinal FROM event_index INDEXED BY event_index_ordinal_numbered
-         WHERE run_id = ?1 AND attempt_id IS ?2 AND member IS ?3
-           AND seq BETWEEN ?4 AND ?5 AND type = '{CHECKPOINTED}'
-           AND stream_ordinal > 0
-         ORDER BY seq DESC LIMIT 1"
-    )
-});
-
 /// A participant's stream as its count and rank read it: the attempt its
 /// seat row names, and the row's first and last checkpoint. Its ordinals
 /// are read only where a read needs them, so a span above the returned
@@ -145,6 +142,16 @@ fn spans(streams: &[Stream]) -> Vec<Span> {
         .collect()
 }
 
+/// Whether any two of `spans` interleave: in seq order, one span's first
+/// lies at or below the previous span's last. A participant whose spans do
+/// cannot be counted or ranked by difference, so both reads take the kept
+/// way.
+fn interleaved(spans: &[Span]) -> bool {
+    let mut ordered: Vec<&Span> = spans.iter().collect();
+    ordered.sort_unstable_by_key(|span| span.first);
+    ordered.windows(2).any(|pair| pair[1].first <= pair[0].last)
+}
+
 /// The positive ordinal `span`'s row at `seq` carries: none where the row
 /// is missing, still to number, or not counted.
 fn bound(
@@ -164,24 +171,18 @@ fn bound(
     Ok(positive(ordinal.flatten()))
 }
 
-/// The last numbered ordinal `span` reaches between `low` and `high`: none
-/// where the span holds no numbered row there.
-fn numbered_before(
+/// The positive ordinal `span`'s first row carries, where it is a valid
+/// first: exactly 1. Every valid first is 1, since the stream's first
+/// numbered row of an effect, or the first after another effect's row, is
+/// numbered 1. A missing row, a NULL, a not-counted 0 and any other
+/// positive value are no bound the walk may rest on.
+fn first_bound(
     conn: &rusqlite::Connection,
     run_id: &str,
     member: Option<&str>,
     span: &Span,
-    low: u64,
-    high: u64,
 ) -> Result<Option<u64>, StoreError> {
-    let ordinal: Option<Option<i64>> = conn
-        .query_row(
-            &BEFORE,
-            params![run_id, span.attempt, member, place(low), place(high)],
-            |row| row.get(0),
-        )
-        .optional()?;
-    Ok(positive(ordinal.flatten()))
+    Ok(bound(conn, run_id, member, span, span.first)?.filter(|ordinal| *ordinal == 1))
 }
 
 /// A stored ordinal as a place, where it is one: NULL, a negative and the
@@ -202,9 +203,8 @@ fn held(first_ord: u64, last_ord: u64) -> Option<u64> {
 }
 
 /// The seq of the participant's `rank`-th checkpoint (0-based), none past
-/// its end: a stream whose seq range stands apart is found by the counts
-/// and the seq by its ordinal, and interleaved ranges are searched by the
-/// checkpoints a candidate seq reaches.
+/// its end: the participant's streams stand apart, so the span that holds
+/// it is found by the counts and the seq by its ordinal.
 fn seq_at(
     conn: &rusqlite::Connection,
     run_id: &str,
@@ -214,17 +214,14 @@ fn seq_at(
 ) -> Result<Option<u64>, StoreError> {
     let mut ordered: Vec<&Span> = spans.iter().collect();
     ordered.sort_unstable_by_key(|span| span.first);
-    let disjoint = ordered.windows(2).all(|pair| pair[0].last < pair[1].first);
-    if disjoint {
-        seq_in_order(conn, run_id, member, &ordered, rank)
-    } else {
-        search(conn, run_id, member, &ordered, rank)
-    }
+    seq_in_order(conn, run_id, member, &ordered, rank)
 }
 
 /// The seq of the participant's `rank`-th checkpoint among `ordered` spans
 /// whose seq ranges stand apart: the span that holds it is walked to by the
-/// counts, and its last row is read only where the rank passes it (M2).
+/// counts, and its last row is read only where the rank passes it. Every
+/// first row and every passed last row is read by key and refused where it
+/// is missing, NULL or not the positive place it must be.
 fn seq_in_order(
     conn: &rusqlite::Connection,
     run_id: &str,
@@ -234,7 +231,7 @@ fn seq_in_order(
 ) -> Result<Option<u64>, StoreError> {
     let mut before = 0u64;
     for span in ordered {
-        let Some(first_ord) = bound(conn, run_id, member, span, span.first)? else {
+        let Some(first_ord) = first_bound(conn, run_id, member, span)? else {
             return Ok(None);
         };
         let Some(ordinal) = rank
@@ -269,64 +266,6 @@ fn seq_in_order(
         before = before.saturating_add(count);
     }
     Ok(None)
-}
-
-/// The seq of the participant's `rank`-th checkpoint among `ordered` spans
-/// whose seq ranges interleave: the first seq at which the participant has
-/// more than `rank` checkpoints, by each probe's nearest numbered row at or
-/// below it, so a probe on a not-counted row decides nothing (M3).
-fn search(
-    conn: &rusqlite::Connection,
-    run_id: &str,
-    member: Option<&str>,
-    ordered: &[&Span],
-    rank: u64,
-) -> Result<Option<u64>, StoreError> {
-    let mut low = ordered.first().map_or(0, |span| span.first);
-    let mut high = ordered.iter().map(|span| span.last).max().unwrap_or(0);
-    while low < high {
-        let mid = low + (high - low) / 2;
-        if before(conn, run_id, member, ordered, mid)? > rank {
-            high = mid;
-        } else {
-            low = mid + 1;
-        }
-    }
-    if before(conn, run_id, member, ordered, low)? > rank {
-        Ok(Some(low))
-    } else {
-        Ok(None)
-    }
-}
-
-/// How many numbered checkpoints of the participant `seq` reaches, by each
-/// span's nearest numbered row at or below it: a row still to number or not
-/// counted between the probe and the numbered row below it is skipped, and
-/// the reach it stands in is judged once the destination is settled.
-fn before(
-    conn: &rusqlite::Connection,
-    run_id: &str,
-    member: Option<&str>,
-    spans: &[&Span],
-    seq: u64,
-) -> Result<u64, StoreError> {
-    let mut reached = 0u64;
-    for span in spans {
-        if seq < span.first {
-            continue;
-        }
-        let high = seq.min(span.last);
-        let Some(first_ord) = bound(conn, run_id, member, span, span.first)? else {
-            continue;
-        };
-        let Some(ordinal) = numbered_before(conn, run_id, member, span, span.first, high)? else {
-            continue;
-        };
-        if ordinal >= first_ord {
-            reached = reached.saturating_add(ordinal - first_ord + 1);
-        }
-    }
-    Ok(reached)
 }
 
 /// Whether `sql` selects a row with `bound`.
@@ -370,7 +309,8 @@ impl Store {
     }
 
     /// The participant's count over `spans`, whole: none where any span's
-    /// reach refuses.
+    /// reach refuses, or any span's first or last row is not the positive
+    /// place it must be.
     fn span_count(
         &self,
         run_id: &str,
@@ -382,7 +322,7 @@ impl Store {
             if self.refuses(run_id, member, span, span.first, span.last)? {
                 return Ok(None);
             }
-            let Some(first_ord) = bound(&self.conn, run_id, member, span, span.first)? else {
+            let Some(first_ord) = first_bound(&self.conn, run_id, member, span)? else {
                 return Ok(None);
             };
             let Some(last_ord) = bound(&self.conn, run_id, member, span, span.last)? else {
@@ -481,6 +421,9 @@ impl Store {
                 return Ok(None);
             };
             let spans = spans(&streams);
+            if interleaved(&spans) {
+                return Ok(None);
+            }
             read(self, &spans)
         })
     }
