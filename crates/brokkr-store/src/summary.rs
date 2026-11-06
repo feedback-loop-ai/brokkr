@@ -79,7 +79,7 @@ const TABLE: [&str; 1] = ["run_summary"];
 const INDEX: [&str; 2] = ["run_summary_page", aggregate::INDEX];
 const TRIGGERS: [&str; 7] = [
     "run_summary_of_a_run",
-    "run_summary_of_an_event",
+    columns::HEAD_TRIGGER,
     "run_summary_of_an_acknowledgement",
     "run_summary_stamp_bounded",
     stop::PART.trigger,
@@ -104,18 +104,6 @@ pub(crate) fn text_at(envelope: &str, path: &str) -> String {
     format!(
         "CASE WHEN json_valid({envelope}) AND json_type({envelope}, '{path}') = 'text'
            THEN json_extract({envelope}, '{path}') END"
-    )
-}
-
-/// The columns an event moves when it is the run's new head, `event`
-/// naming its row: the head, the whole stamp until the bounding trigger
-/// cuts it, and an acknowledgement that no longer stands.
-fn moved_to(event: &str) -> String {
-    format!(
-        "head_seq = {event}.seq, head_hash = {event}.event_hash,
-         last_recorded_at = {stamp}, last_recorded_at_whole = NULL,
-         acknowledged = 0, ack_operator = NULL, ack_reason = NULL, ack_at = NULL",
-        stamp = stamp_of(&format!("{event}.envelope"))
     )
 }
 
@@ -149,11 +137,13 @@ fn acknowledged_by(acknowledgement: &str) -> String {
     )
 }
 
-/// The table, its indexes and triggers, `IF NOT EXISTS` throughout so
-/// racing openers agree. The whole values sit last, the citation's too, so
-/// a page that selects none reads none; a stamp past its bound is cut by its
-/// own trigger and kept whole there. A writer from before the stopping or
-/// ending columns leaves their stamp off, and a trigger sends its row behind.
+/// The table, its indexes and triggers, `IF NOT EXISTS` throughout but the
+/// head trigger, which is dropped and made anew so an older build's
+/// definition is replaced on the next writable open. The whole values sit
+/// last, the citation's too, so a page that selects none reads none; a
+/// stamp past its bound is cut by its own trigger and kept whole there. A
+/// writer from before the stopping or ending columns leaves their stamp
+/// off, and a trigger sends its row behind.
 fn migration() -> String {
     format!(
         "CREATE TABLE IF NOT EXISTS run_summary (
@@ -183,10 +173,8 @@ fn migration() -> String {
             INSERT OR IGNORE INTO run_summary (run_id, head_seq, head_hash)
                 VALUES (NEW.run_id, 0, '{ZERO_HASH}');
         END;
-        CREATE TRIGGER IF NOT EXISTS run_summary_of_an_event AFTER INSERT ON events BEGIN
-            UPDATE run_summary SET {moved}
-                WHERE run_id = NEW.run_id AND NEW.seq > head_seq;
-        END;
+        DROP TRIGGER IF EXISTS run_summary_of_an_event;
+        {head_trigger};
         CREATE TRIGGER IF NOT EXISTS run_summary_of_an_acknowledgement
             AFTER INSERT ON quarantine_acknowledgements BEGIN
             UPDATE run_summary SET {acknowledged}
@@ -204,7 +192,7 @@ fn migration() -> String {
         lane = lane(),
         aggregated = aggregate::defined(),
         indexed = aggregate::migration(),
-        moved = moved_to("NEW"),
+        head_trigger = columns::head_trigger(),
         cut = cut_stamp("NEW.last_recorded_at"),
         acknowledged = acknowledged_by("NEW"),
         stopping = stop::PART.defined(),
@@ -232,7 +220,7 @@ fn seed() -> String {
          UPDATE run_summary SET {acknowledged} FROM quarantine_acknowledgements AS ack
              WHERE ack.run_id = run_summary.run_id AND ack.head_seq = run_summary.head_seq
                AND ack.head_hash = run_summary.head_hash;",
-        moved = moved_to("head"),
+        moved = columns::moved_to("head"),
         acknowledged = acknowledged_by("ack"),
     )
 }
@@ -248,15 +236,16 @@ fn send_stale_behind() -> String {
     )
 }
 
-/// Does this journal carry the table with every column, index and trigger?
-/// Pure reads, so the steady-state open writes nothing.
+/// Does this journal carry the table with every column, index and trigger,
+/// the head trigger with this build's definition? Pure reads, so the
+/// steady-state open writes nothing.
 pub(crate) fn summary_intact(conn: &Connection) -> Result<bool, StoreError> {
     Ok(all_present(conn, "table", &TABLE)?
         && aggregate::shaped(conn)?
         && stop::PART.shaped(conn)?
         && ending::shaped(conn)?
         && all_present(conn, "index", &INDEX)?
-        && all_present(conn, "trigger", &TRIGGERS)?)
+        && columns::triggers_intact(conn, &TRIGGERS)?)
 }
 
 /// Create the summary, anew where its table lacks a column, seed a row for

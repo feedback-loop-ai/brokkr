@@ -896,9 +896,13 @@ fn sending_a_park_behind_visits_only_the_park_rows() {
             .unwrap();
         steps.push(statement.reset_status(StatementStatus::VmStep));
     }
+    // The first append enters the summary's page index at the row's real
+    // `order_at`, one step the later appends (all the same stamp) do not
+    // repeat; the park trigger's own cost is constant from there (#1017).
+    let settled = &steps[1..];
     assert!(
-        steps.windows(2).all(|pair| pair[0] == pair[1]),
-        "an append with no parks costs the same at every seq: {steps:?}"
+        settled.windows(2).all(|pair| pair[0] == pair[1]),
+        "an append with no parks costs the same at every seq after the first: {settled:?}"
     );
 }
 

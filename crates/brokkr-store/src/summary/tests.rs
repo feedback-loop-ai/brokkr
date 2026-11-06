@@ -11,6 +11,7 @@ use crate::tests::envelope_builder::EnvelopeBuilder;
 use crate::tests::{store, write_lock_on};
 use crate::{Attribution, Rows};
 use brokkr_core::envelope::EventType;
+use brokkr_core::stamp::parse_millis;
 use serde_json::{json, Value as Json};
 
 const BY: Attribution<'static> = Attribution {
@@ -1019,4 +1020,133 @@ fn a_row_an_older_writer_folds_without_the_stop_stamp_is_sent_behind_and_refolde
     let store = Store::open(&path).unwrap();
     assert!(summary_intact(&store.conn).unwrap(), "the trigger is back");
     stopping_row(&store);
+}
+
+/// A fresh journal at `path`, its schema written, and a connection that
+/// plants the runs and events a test leaves behind their summary.
+fn unfolded(path: &std::path::Path) -> rusqlite::Connection {
+    drop(Store::open(path).unwrap());
+    rusqlite::Connection::open(path).unwrap()
+}
+
+/// Decision 0089 rulings 5 and 6: the head trigger reads the event's stamp
+/// in milliseconds as the fold does, on the journal's whole-second,
+/// millisecond and longer-fraction shapes, and leaves it NULL where neither
+/// reads the stamp.
+#[test]
+fn the_head_trigger_reads_the_stamp_as_the_fold_does() {
+    for (run_id, stamp) in [
+        ("whole", "2026-01-01T00:00:09Z"),
+        ("millis", "2026-01-01T00:00:09.123Z"),
+        ("longer", "2026-01-01T00:00:09.123456Z"),
+        ("unread", "not a time"),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("forge.db");
+        let conn = unfolded(&path);
+        plant_run(&conn, run_id, "{}").unwrap();
+        let event = EnvelopeBuilder::new(
+            EventType::RunStarted,
+            json!({"feature": "a feature", "manifest": {}}),
+        )
+        .run(run_id)
+        .event_id(format!("{run_id}-1"))
+        .at(stamp)
+        .sealed();
+        plant_envelope(&conn, &event).unwrap();
+        drop(conn);
+        let expected = parse_millis(stamp).map_or(Value::Null, Value::Integer);
+        let read = Store::open_read_only(&path).unwrap();
+        assert_eq!(
+            row(&read, run_id, "last_at_ms").as_slice(),
+            std::slice::from_ref(&expected),
+            "the trigger's reading of {stamp}"
+        );
+        drop(read);
+        let folded = Store::open(&path).unwrap();
+        assert_eq!(
+            row(&folded, run_id, "last_at_ms").as_slice(),
+            std::slice::from_ref(&expected),
+            "the fold's reading of {stamp}"
+        );
+    }
+}
+
+/// Decision 0089 rulings 5 and 6: an event whose stamp no reader parses
+/// leaves `last_at_ms` NULL even where the row read an earlier head, as
+/// the fold does at the head it writes.
+#[test]
+fn an_unreadable_head_erases_the_earlier_reading() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("forge.db");
+    let conn = unfolded(&path);
+    plant_run(&conn, "r", "{}").unwrap();
+    let first = EnvelopeBuilder::new(
+        EventType::RunStarted,
+        json!({"feature": "a feature", "manifest": {}}),
+    )
+    .run("r")
+    .event_id("r-1")
+    .at("2026-01-01T00:00:09Z")
+    .sealed();
+    plant_envelope(&conn, &first).unwrap();
+    let second = EnvelopeBuilder::new(EventType::PhaseEntered, json!({"phase": "implement"}))
+        .run("r")
+        .seq(2)
+        .event_id("r-2")
+        .at("not a time")
+        .previous(&first.event_hash)
+        .sealed();
+    plant_envelope(&conn, &second).unwrap();
+    drop(conn);
+    let read = Store::open_read_only(&path).unwrap();
+    assert_eq!(row(&read, "r", "last_at_ms"), [Value::Null]);
+    drop(read);
+    let folded = Store::open(&path).unwrap();
+    assert_eq!(row(&folded, "r", "last_at_ms"), [Value::Null]);
+}
+
+/// Decision 0089 rulings 5 and 6: an older build's head trigger, which
+/// keeps no `last_at_ms`, is replaced on the next writable open, and the
+/// append after it keeps the row's own last activity.
+#[test]
+fn a_writable_open_replaces_an_older_builds_head_trigger() {
+    let (_dir, mut store) = store();
+    store
+        .create_run("r", "a feature", "self", &json!({}))
+        .unwrap();
+    let old = format!(
+        "DROP TRIGGER run_summary_of_an_event;
+         CREATE TRIGGER run_summary_of_an_event AFTER INSERT ON events BEGIN
+             UPDATE run_summary SET
+                 head_seq = NEW.seq, head_hash = NEW.event_hash,
+                 last_recorded_at = {stamp}, last_recorded_at_whole = NULL,
+                 acknowledged = 0, ack_operator = NULL, ack_reason = NULL, ack_at = NULL
+                 WHERE run_id = NEW.run_id AND NEW.seq > head_seq;
+         END",
+        stamp = stamp_of("NEW.envelope")
+    );
+    store.conn.execute_batch(&old).unwrap();
+    assert!(
+        !summary_intact(&store.conn).unwrap(),
+        "the older trigger is not this build's"
+    );
+    let path = store.path().to_path_buf();
+    drop(store);
+    let store = Store::open(&path).unwrap();
+    assert!(
+        summary_intact(&store.conn).unwrap(),
+        "the writable open replaced the older trigger"
+    );
+    planted_at(
+        &store,
+        "r",
+        EventType::RunStarted,
+        json!({"feature": "a feature", "manifest": {}}),
+        "2026-01-01T00:00:09Z",
+    );
+    assert_eq!(
+        row(&store, "r", "last_at_ms"),
+        [Value::Integer(1_767_225_609_000)]
+    );
 }
