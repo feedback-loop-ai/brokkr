@@ -51,15 +51,13 @@ pub struct ProbeAnswer {
 impl Serialize for ProbeAnswer {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut answer = serializer.serialize_struct("ProbeAnswer", 3)?;
+        let answered_at = self
+            .answered_at
+            .format(&Rfc3339)
+            .map_err(serde::ser::Error::custom)?;
         answer.serialize_field("provider", &self.provider)?;
         answer.serialize_field("route", &self.route)?;
-        answer.serialize_field(
-            "answered_at",
-            &self
-                .answered_at
-                .format(&Rfc3339)
-                .map_err(serde::ser::Error::custom)?,
-        )?;
+        answer.serialize_field("answered_at", &answered_at)?;
         answer.end()
     }
 }

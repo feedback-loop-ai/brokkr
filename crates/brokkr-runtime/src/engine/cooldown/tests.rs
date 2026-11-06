@@ -183,6 +183,8 @@ base='{"proto":"forge-driver/v1","msg_id":"m"'
 case "$start" in
   *'"probe":true'*)
     printf '%s\n' 'probe' >> '@LOG@'
+    seat=$(printf '%s' "$start" | grep -o '"seat":"[^"]*"' | head -1 | cut -d'"' -f4)
+    printf '%s' "$seat" > '@SEATLOG@'
     @PROBE@
     ;;
   *)
@@ -204,6 +206,10 @@ read -r bye
         ("@COUNT@", count.display().to_string()),
         ("@CAPABILITIES@", capabilities),
         ("@LOG@", log.display().to_string()),
+        (
+            "@SEATLOG@",
+            dir.join(format!("{tag}.seat")).display().to_string(),
+        ),
         ("@VERDICTS@", verdicts_path.display().to_string()),
         ("@PROBE@", probe),
         ("@REFUSED@", refused),
@@ -311,6 +317,53 @@ fn with_clock(engine: Engine) -> (Engine, Arc<Mutex<OffsetDateTime>>) {
         .recorded_at
         .clone();
     with_clock_at(engine, OffsetDateTime::parse(&start, &Rfc3339).unwrap())
+}
+
+/// Where a test clock's one action runs: after its first slice, or on its
+/// first read at or after an instant.
+#[derive(Clone, Copy)]
+enum Acting {
+    AfterFirstSlice,
+    At(OffsetDateTime),
+}
+
+/// The one action a test's clock runs, taken when it runs.
+type OneAction = Arc<Mutex<Option<Box<dyn FnMut() + Send>>>>;
+
+/// A clock that advances the shared instant on each slice and runs `act`
+/// once, where `when` says.
+fn clock_acting(
+    now: &Arc<Mutex<OffsetDateTime>>,
+    when: Acting,
+    act: impl FnMut() + Send + 'static,
+) -> Clock {
+    let read = Arc::clone(now);
+    let advance = Arc::clone(now);
+    let act: OneAction = Arc::new(Mutex::new(Some(Box::new(act))));
+    let act_read = Arc::clone(&act);
+    let at = match when {
+        Acting::At(at) => Some(at),
+        Acting::AfterFirstSlice => None,
+    };
+    Clock {
+        now: Box::new(move || {
+            let at_now = *read.lock().unwrap();
+            if at.is_some_and(|at| at_now >= at) {
+                if let Some(mut act) = act_read.lock().unwrap().take() {
+                    act();
+                }
+            }
+            at_now
+        }),
+        sleep: Box::new(move |slice: std::time::Duration| {
+            *advance.lock().unwrap() += time::Duration::seconds(slice.as_secs() as i64);
+            if at.is_none() {
+                if let Some(mut act) = act.lock().unwrap().take() {
+                    act();
+                }
+            }
+        }),
+    }
 }
 
 /// The common fixture: the seat's driver or a body the test spells, the
@@ -599,23 +652,8 @@ fn an_operator_stop_during_the_wait_is_honoured() {
 #[test]
 fn a_stop_before_the_first_sample_stops_without_a_probe() {
     let (dir, mut engine, now, db, run_id) = stop_fixture();
-    let read = Arc::clone(&now);
-    let advance = Arc::clone(&now);
-    let armed = Arc::new(Mutex::new(true));
-    engine.cooldown.clock = Clock {
-        now: Box::new({
-            let armed = Arc::clone(&armed);
-            move || {
-                if std::mem::replace(&mut *armed.lock().unwrap(), false) {
-                    append_stop(&db, &run_id);
-                }
-                *read.lock().unwrap()
-            }
-        }),
-        sleep: Box::new(move |slice: std::time::Duration| {
-            *advance.lock().unwrap() += time::Duration::seconds(slice.as_secs() as i64);
-        }),
-    };
+    engine.cooldown.clock =
+        clock_acting(&now, Acting::At(base()), move || append_stop(&db, &run_id));
     engine.drive().unwrap();
     assert_stopped(dir.path(), &engine);
 }
@@ -741,18 +779,14 @@ fn a_no_until_cap_names_the_refusal_facts() {
     assert!(reason.contains("claude/first"), "{reason}");
     assert!(reason.contains("1000000000000"), "{reason}");
     assert!(reason.contains("rate_limit: slow down"), "{reason}");
-    assert!(reason.contains("10s maximum"), "{reason}");
+    assert!(reason.contains("the declared maximum was 10s"), "{reason}");
     assert!(reason.contains("no until"), "{reason}");
     // The failed event carries the record the cap read, and invents no wait.
     let failed = failed(&engine);
     assert_eq!(failed.len(), 1, "one attempt's failure");
     assert_eq!(failed[0].payload["refused"]["cause"], "no-end");
     assert_eq!(failed[0].payload["refused"]["max_seconds"], 10);
-    assert!(
-        failed[0].payload.get("waits").is_none(),
-        "{}",
-        failed[0].payload
-    );
+    no_waits(&engine);
 }
 
 /// A valid wait entry array ending at `until`, carrying the length the
@@ -1205,7 +1239,7 @@ fn a_past_maximum_record_with_no_readable_episode_states_the_maximum() {
         let dir = tempfile::tempdir().unwrap();
         let facts: &[&str] = match attempts {
             1 => &[
-                "the wait was 5s under the declared 2s maximum",
+                "the computed wait was 5s; the declared maximum was 2s",
                 "does not read",
                 "rate_limit: slow down",
             ],
@@ -1943,4 +1977,5 @@ fn a_cooldown_error_names_an_unreadable_refusal() {
     );
 }
 
+mod coverage;
 mod refusal_cap;

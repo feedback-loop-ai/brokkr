@@ -515,13 +515,19 @@ impl Engine {
                     && event.payload.get("effect_id").and_then(Value::as_str) == Some(effect_id)
             })
             .count() as u64;
-        let max = effect_seat(events, effect_id)
-            .and_then(|seat| self.bundle.seats.get(seat))
-            .map_or_else(
-                || Limits::default().max_attempts,
-                |seat| seat.limits.max_attempts,
-            );
+        let max = self
+            .seat_limits(effect_seat(events, effect_id))
+            .max_attempts;
         failed.saturating_add(1) >= max
+    }
+
+    /// The limits the seat `seat` runs under: the bundle's own, else
+    /// [`Limits::default`]. One reading, shared by the cursor's cap check
+    /// and this one, so the fallback is spelled once (decision 0006).
+    pub(super) fn seat_limits(&self, seat: Option<&str>) -> Limits {
+        seat.and_then(|seat| self.bundle.seats.get(seat))
+            .map(|seat| seat.limits)
+            .unwrap_or_default()
     }
 
     /// The episode through `wait`, the declared maximum, and whether the

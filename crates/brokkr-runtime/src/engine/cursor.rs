@@ -54,12 +54,7 @@ impl Engine {
         seat: &str,
         failed_attempts: u64,
     ) -> Result<(), EngineError> {
-        let limits = self
-            .bundle
-            .seats
-            .get(seat)
-            .map(|seat| seat.limits)
-            .unwrap_or_default();
+        let limits = self.seat_limits(Some(seat));
         let wait = self.recorded_wait(events, effect_id);
         let refused = self.recorded_refusal(events, effect_id);
         if failed_attempts >= limits.max_attempts {
@@ -79,23 +74,13 @@ impl Engine {
         match refused {
             Ok(Some(refused)) => {
                 let reason = self.refused_park_reason(events, effect_id, &refused);
-                self.append(
-                    EventType::RunParked,
-                    json!({"reason": reason, "evidence": {}}),
-                    None,
-                )?;
+                self.park_with_reason(reason)?;
                 return Ok(());
             }
             Ok(None) => {}
             Err(detail) => {
-                self.append(
-                    EventType::RunParked,
-                    json!({
-                        "reason": format!("refusing to execute effect {effect_id}: {detail}"),
-                        "evidence": {},
-                    }),
-                    None,
-                )?;
+                let reason = format!("refusing to execute effect {effect_id}: {detail}");
+                self.park_with_reason(reason)?;
                 return Ok(());
             }
         }
@@ -105,14 +90,8 @@ impl Engine {
             Err(detail) => {
                 // A present wait that does not read refuses by name, never
                 // as no wait (decision 0103 ruling 2(a)).
-                self.append(
-                    EventType::RunParked,
-                    json!({
-                        "reason": format!("refusing to execute effect {effect_id}: {detail}"),
-                        "evidence": {},
-                    }),
-                    None,
-                )?;
+                let reason = format!("refusing to execute effect {effect_id}: {detail}");
+                self.park_with_reason(reason)?;
                 return Ok(());
             }
         };
@@ -122,14 +101,7 @@ impl Engine {
             }
             // The stop's own arm writes the ending next turn.
             Waited::Stopped => Ok(()),
-            Waited::Parked(reason) => {
-                self.append(
-                    EventType::RunParked,
-                    json!({"reason": reason, "evidence": {}}),
-                    None,
-                )?;
-                Ok(())
-            }
+            Waited::Parked(reason) => self.park_with_reason(reason),
         }
     }
 
@@ -178,6 +150,14 @@ impl Engine {
                 }
             }
         }
+        self.park_with_reason(reason)?;
+        Ok(())
+    }
+
+    /// The one `run/parked` write the refusal and wait parks share: the
+    /// reason and an empty evidence envelope. `park_at_cursor` keeps its
+    /// own write because a moved head carries evidence.
+    fn park_with_reason(&mut self, reason: String) -> Result<(), EngineError> {
         self.append(
             EventType::RunParked,
             json!({"reason": reason, "evidence": {}}),
@@ -286,7 +266,7 @@ fn cap_refusal_facts(refused: &ProviderRefusal, wait: Option<&ProviderWait>) -> 
     }
     if let (Some(seconds), Some(max)) = (refused.seconds, refused.max_seconds) {
         facts.push_str(&format!(
-            "; the wait was {seconds}s under the declared {max}s maximum"
+            "; the computed wait was {seconds}s; the declared maximum was {max}s"
         ));
     }
     facts
