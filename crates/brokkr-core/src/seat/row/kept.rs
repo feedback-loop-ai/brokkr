@@ -285,11 +285,7 @@ impl<I: Iterator<Item = Datum>> Take<I> {
     /// keys checked against its whole provider and model. Its site is a
     /// count or none.
     fn site(&mut self, row: &mut SeatRow) -> Option<()> {
-        let started = match self.0.next()? {
-            Datum::Null => None,
-            Datum::Integer(value) => Some(value),
-            Datum::Text(_) => return None,
-        };
+        let started = self.int()?.map(|value| value as i64);
         if started != row.started_ms() {
             return None;
         }
@@ -300,15 +296,8 @@ impl<I: Iterator<Item = Datum>> Take<I> {
         text(self, row.phase_key())?;
         let provider = self.text()?;
         let model = self.text()?;
-        let metering = match self.0.next()? {
-            Datum::Integer(value) => Metering::at(value)?,
-            _ => return None,
-        };
-        let site = match self.0.next()? {
-            Datum::Null => None,
-            Datum::Integer(value) => Some(value as u64),
-            Datum::Text(_) => return None,
-        };
+        let metering = self.int()?.and_then(|value| Metering::at(value as i64))?;
+        let site = self.int()?;
         if site.is_some() {
             // A site's provider key is its own start's, which no other
             // field holds once a later start moves the participant's
