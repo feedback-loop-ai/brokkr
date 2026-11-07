@@ -7,13 +7,10 @@
 //! fields and reads it on the composition row (measured 2026-10-17 on
 //! 0.1.5-rc.1 and 0.2.1-rc.2, #728). The driver writes it on both.
 
-use std::fmt;
-use std::marker::PhantomData;
-
-use serde::de::value::MapAccessDeserializer;
-use serde::de::{Deserializer, MapAccess, Visitor};
 use serde::Deserialize;
 use serde_json::Value;
+
+use brokkr_core::shape::Object;
 
 use super::{dsh_model_row, effort_token};
 
@@ -38,36 +35,6 @@ pub(super) fn model_row(model: &str, effort: Option<&str>) -> Result<String, Str
         row.push_str(&format!("    reasoningEffort: {}\n", pinned_level(effort)?));
     }
     Ok(row)
-}
-
-/// A record read from a JSON object and nothing else. serde's derived
-/// struct visitor also takes a sequence and reads its fields by position,
-/// so `[{"reasoningEffort": "high"}, {}]` would stand for a header, and a
-/// header the reader cannot read records nothing (#728).
-#[derive(Default)]
-struct Object<T>(T);
-
-impl<'de, T: Deserialize<'de>> Deserialize<'de> for Object<T> {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer
-            .deserialize_map(Fields(PhantomData))
-            .map(Object)
-    }
-}
-
-/// The visitor that hands a map, and only a map, to `T`'s derived reader.
-struct Fields<T>(PhantomData<T>);
-
-impl<'de, T: Deserialize<'de>> Visitor<'de> for Fields<T> {
-    type Value = T;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("a JSON object")
-    }
-
-    fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<T, A::Error> {
-        T::deserialize(MapAccessDeserializer::new(map))
-    }
 }
 
 /// What the fold reads of a request header: the level in its `config`,

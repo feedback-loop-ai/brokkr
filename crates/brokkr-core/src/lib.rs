@@ -21,6 +21,7 @@ pub mod policy;
 pub mod realms;
 pub mod residual;
 pub mod seat;
+pub mod shape;
 pub mod stamp;
 pub mod summary;
 

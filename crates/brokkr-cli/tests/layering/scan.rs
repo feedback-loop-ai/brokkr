@@ -13,13 +13,16 @@ const ROOTS: [&str; 3] = ["std", "core", "alloc"];
 /// the pure crates may name, each a whole module or a single item, and
 /// each one they use today. Every other path under a root is refused,
 /// the root itself included.
-const PURE_STD: [&str; 9] = [
+const PURE_STD: [&str; 10] = [
     "cell",
     "cmp::Reverse",
     "collections::BTreeMap",
     "collections::BTreeSet",
     "fmt",
     "iter",
+    // A zero-sized type marker: serde's object-only visitor names its
+    // record type without holding one (#998).
+    "marker::PhantomData",
     "mem",
     "rc",
     "str",
