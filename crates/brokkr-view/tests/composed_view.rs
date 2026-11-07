@@ -104,7 +104,10 @@ fn every_committed_journal_composed_from_its_trail_and_rows_is_its_run_view() {
 fn every_hand_built_journal_composed_from_its_trail_and_rows_is_its_run_view() {
     let (found, compared) = compared(journals::journals());
     assert_eq!(found, Vec::<String>::new());
-    assert_eq!(compared, 21);
+    // Nine hand-built journals keep no seat head now: a participant record
+    // landed before its effect's request, so their readers read them whole
+    // (decision 0089 ruling 8).
+    assert_eq!(compared, 14);
 }
 
 /// A seat with no model of its own whose member states one in a finished

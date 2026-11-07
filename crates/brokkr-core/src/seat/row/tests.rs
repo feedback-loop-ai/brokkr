@@ -1,6 +1,7 @@
 use super::*;
 use crate::envelope_builder;
 use crate::summary::Account;
+use serde_json::json;
 
 #[path = "../../../../../tests/support/seat_rows.rs"]
 pub(super) mod journals;
@@ -683,4 +684,705 @@ fn a_member_s_finish_pins_only_the_view_s_words() {
             None,
         ]
     );
+}
+
+/// A start naming no attempt opens no site: its provider is its
+/// participant row's, as it always was, and the site reading opens
+/// nothing for it (decision 0089 ruling 7).
+#[test]
+fn a_start_naming_no_attempt_opens_no_site() {
+    let run = |provenance: serde_json::Value| {
+        let events = journals::journal(vec![
+            (
+                EventType::EffectRequested,
+                serde_json::json!({"effect_id": "x", "seat": "s"}),
+            ),
+            (
+                EventType::EffectStarted,
+                serde_json::json!({"effect_id": "x", "provenance": provenance}),
+            ),
+        ]);
+        Account::whole("run", &events)
+    };
+    let account = run(serde_json::json!([{"member": null, "provider": "anthropic"}]));
+    assert_eq!(account.sites(), []);
+    assert_eq!(account.seats().len(), 1);
+    assert_eq!(
+        account.seats()[0]
+            .provider
+            .as_ref()
+            .map(|(_, provider)| provider),
+        Some(&Provider::Named("anthropic".to_string()))
+    );
+    // A start naming neither an attempt nor a provider leaves the
+    // participant's provider none, and opens no site either.
+    let account = run(serde_json::json!([{"member": null}]));
+    assert_eq!(account.sites(), []);
+    assert_eq!(
+        account.seats()[0]
+            .provider
+            .as_ref()
+            .map(|(_, provider)| provider),
+        Some(&Provider::Unnamed)
+    );
+}
+
+/// A member's tag keys its site's row: the seat's own is none, a named
+/// member's is its name.
+#[test]
+fn a_member_s_tag_keys_its_row() {
+    assert_eq!(Member::Seat.tag(), None);
+    assert_eq!(Member::Named("m".to_string()).tag(), Some("m"));
+}
+
+/// A site's row keeps the rule brokkr-core's reading gives its site, not
+/// its own participant's turns: the row follows the reading as each
+/// checkpoint lands (decision 0089 ruling 7).
+#[test]
+fn a_site_row_s_metering_is_the_site_reading_s() {
+    let run = |steps: Vec<(EventType, serde_json::Value)>| {
+        let mut events = vec![
+            (
+                EventType::EffectRequested,
+                serde_json::json!({"effect_id": "x", "seat": "s"}),
+            ),
+            (
+                EventType::EffectStarted,
+                serde_json::json!({"effect_id": "x", "attempt_id": "a",
+                    "provenance": [{"member": null, "provider": "anthropic"}]}),
+            ),
+        ];
+        events.extend(steps);
+        Account::whole("run", &journals::journal(events))
+    };
+    let turn = |record: serde_json::Value| {
+        (
+            EventType::EffectCheckpointed,
+            serde_json::json!({"effect_id": "x", "attempt_id": "a", "checkpoint": record}),
+        )
+    };
+    let account = run(vec![turn(
+        serde_json::json!({"step": "seat-turn", "input_tokens": 10}),
+    )]);
+    let row = account
+        .seats()
+        .iter()
+        .find(|row| row.site.is_some())
+        .unwrap();
+    assert_eq!(row.metering, Metering::Turns);
+    let account = run(vec![
+        turn(serde_json::json!({"step": "seat-turn", "input_tokens": 10})),
+        turn(serde_json::json!({"step": "claude-session-finished", "output_tokens": 3})),
+        turn(serde_json::json!({"step": "session-started", "session_id": "s"})),
+    ]);
+    let row = account
+        .seats()
+        .iter()
+        .find(|row| row.site.is_some())
+        .unwrap();
+    assert_eq!(row.metering, Metering::Settled);
+}
+
+/// A start naming an attempt and member already started opens a second
+/// site row: each keeps its own start's facts and the site reading's rule,
+/// and the two rows are two sites, not one (decision 0089 ruling 7).
+#[test]
+fn a_reopened_attempt_opens_two_site_rows() {
+    let started = || {
+        (
+            EventType::EffectStarted,
+            serde_json::json!({"effect_id": "x", "attempt_id": "a",
+                "provenance": [{"member": null, "provider": "anthropic"}]}),
+        )
+    };
+    let turn = |record: serde_json::Value| {
+        (
+            EventType::EffectCheckpointed,
+            serde_json::json!({"effect_id": "x", "attempt_id": "a", "checkpoint": record}),
+        )
+    };
+    let events = journals::journal(vec![
+        (
+            EventType::EffectRequested,
+            serde_json::json!({"effect_id": "x", "seat": "s"}),
+        ),
+        started(),
+        turn(serde_json::json!({"step": "seat-turn"})),
+        (
+            EventType::EffectFailed,
+            serde_json::json!({"effect_id": "x", "attempt_id": "a"}),
+        ),
+        started(),
+        turn(serde_json::json!({"step": "seat-turn", "input_tokens": 10})),
+    ]);
+    let account = Account::whole("run", &events);
+    let rows: Vec<&SeatRow> = account
+        .seats()
+        .iter()
+        .filter(|row| row.site.is_some())
+        .collect();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(
+        rows.iter().map(|row| row.site).collect::<Vec<_>>(),
+        [Some(0), Some(1)]
+    );
+    assert_eq!(
+        rows.iter().map(|row| row.metering).collect::<Vec<_>>(),
+        [Metering::Session, Metering::Turns]
+    );
+}
+
+/// A journal step: its event, payload and stamp.
+type Step = (EventType, serde_json::Value, &'static str);
+
+/// The run's `work` phase, entered at its first second.
+fn work() -> Step {
+    (
+        EventType::PhaseEntered,
+        json!({"phase": "work"}),
+        "2026-01-01T00:00:00Z",
+    )
+}
+
+/// Attempt `a` of `fx` started under `provenance` at `at`.
+fn starts(provenance: serde_json::Value, at: &'static str) -> Step {
+    (
+        EventType::EffectStarted,
+        json!({"effect_id": "fx", "attempt_id": "a", "provenance": provenance}),
+        at,
+    )
+}
+
+/// `fx` asked by the `worker` in the `work` phase at `at`.
+fn asks(at: &'static str) -> Step {
+    (
+        EventType::EffectRequested,
+        json!({"effect_id": "fx", "seat": "worker", "phase": "work"}),
+        at,
+    )
+}
+
+/// A checkpoint of `fx`'s attempt `a` recording `record` at `at`.
+fn records(record: serde_json::Value, at: &'static str) -> Step {
+    (
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "attempt_id": "a", "checkpoint": record}),
+        at,
+    )
+}
+
+/// The first records of a run whose checkpoint lands before its effect's
+/// request: `work` entered, attempt `a` started under member `m`'s
+/// anthropic provider, `record` at the second second, and the request at
+/// the third.
+fn early_records(record: serde_json::Value) -> Vec<Step> {
+    early_run(records(record, "2026-01-01T00:00:02Z"))
+}
+
+/// `record` before its effect's request, after the same `work` phase and
+/// provider-bearing start, and the request at the third second.
+fn early_run(record: Step) -> Vec<Step> {
+    vec![
+        work(),
+        starts(
+            json!([{"member": "m", "provider": "anthropic"}]),
+            "2026-01-01T00:00:01Z",
+        ),
+        record,
+        asks("2026-01-01T00:00:03Z"),
+    ]
+}
+
+/// A site's facts as the kept rows and the whole reading state them: its
+/// attempt and member, its start in milliseconds, its phase, provider,
+/// model and metering rule.
+type SiteKey = (
+    String,
+    Option<String>,
+    i64,
+    Option<String>,
+    String,
+    Option<String>,
+    Metering,
+);
+
+/// The facts [`SiteKey`] names of `site`.
+fn site_facts(site: &crate::summary::Site) -> SiteKey {
+    (
+        site.attempt_id.clone(),
+        site.member.clone(),
+        site.at,
+        site.phase.clone(),
+        site.provider.clone(),
+        site.model.clone(),
+        site.metering,
+    )
+}
+
+/// `account`'s one site against the whole reading of `events`, and its
+/// facts against `expected`.
+fn assert_site(account: &Account, events: &[EventEnvelope], expected: SiteKey) {
+    let read = crate::summary::sites(events);
+    let kept = account.sites();
+    assert_eq!(kept.len(), 1);
+    assert_eq!(site_facts(&kept[0]), site_facts(&read[0]));
+    assert_eq!(site_facts(&kept[0]), expected);
+}
+
+/// The one site row a request opened.
+fn the_site(account: &Account) -> &SeatRow {
+    account
+        .seats()
+        .iter()
+        .find(|row| row.site.is_some())
+        .expect("a request opens the site its start named")
+}
+
+/// The facts of `member` among `account`'s participants.
+fn the_member(account: &Account, member: &str) -> SeatFacts {
+    facts(account.seats())
+        .into_iter()
+        .find(|facts| facts.member == named(member))
+        .expect("the member's facts")
+}
+
+/// A provider-bearing start that lands before its effect is asked is
+/// reconciled when the request lands, as main's walk reads it: its site
+/// row opens, with its own provider.
+#[test]
+fn a_start_before_its_request_keeps_its_site_row() {
+    use crate::summary::test_support::journal;
+    let events = journal(&[
+        work(),
+        starts(
+            json!([{"member": "m", "provider": "anthropic"}]),
+            "2026-01-01T00:00:01Z",
+        ),
+        asks("2026-01-01T00:00:02Z"),
+        records(
+            json!({"member": "m", "step": "seat-turn"}),
+            "2026-01-01T00:00:03Z",
+        ),
+    ]);
+    let account = Account::whole("run", &events);
+    let site = the_site(&account);
+    assert_eq!(site.member, Member::Named("m".to_string()));
+    assert_eq!(
+        site.provider,
+        Some((2, Provider::Named("anthropic".to_string())))
+    );
+}
+
+/// A checkpoint that lands after its attempt's start but before the
+/// effect's request still dates the site the request opens: the site keeps
+/// the model and metering rule its checkpoint read, and the participant its
+/// tokens and turn (review 753s4s3, M1). The record's order no kept row
+/// represents exactly, so the head is withheld and the run is read whole
+/// (decision 0089 ruling 8).
+#[test]
+fn a_checkpoint_before_its_request_keeps_its_site_facts() {
+    use crate::summary::test_support::journal;
+    let events = journal(&early_records(
+        json!({"member": "m", "step": "seat-turn", "model": "opus", "input_tokens": 10}),
+    ));
+    let account = Account::whole("run", &events);
+    let site = the_site(&account);
+    assert_eq!(site.site_model.as_deref(), Some("opus"));
+    assert_eq!(site.metering, Metering::Turns);
+    let member = the_member(&account, "m");
+    assert_eq!(member.model.as_deref(), Some("opus"));
+    assert_eq!(
+        member.usage,
+        Some(TokenUsage {
+            input_tokens: Some(10),
+            total_tokens: Some(10),
+            ..TokenUsage::default()
+        })
+    );
+    assert_eq!(member.provider, provider("anthropic"));
+    assert!(
+        !account.seats_kept(),
+        "a record before its request keeps no seat head"
+    );
+}
+
+/// A terminal of a start whose effect was never asked cannot make its rows
+/// current: the site waits for the request that would replay both, so the
+/// writer keeps no seat head and a reader falls back to the run whole
+/// (review 753s4s3, M2). The request, once it lands, replays the terminal
+/// too, so the site is represented and concluded, but the record's order
+/// still keeps no head (decision 0089 ruling 8).
+#[test]
+fn a_terminated_unrequested_start_keeps_its_rows_unkept() {
+    use crate::summary::test_support::journal;
+    let start = starts(
+        json!([{"member": "m", "provider": "anthropic"}]),
+        "2026-01-01T00:00:01Z",
+    );
+    let failed = (
+        EventType::EffectFailed,
+        json!({"effect_id": "fx", "attempt_id": "a"}),
+        "2026-01-01T00:00:02Z",
+    );
+    let before = journal(&[work(), start.clone(), failed.clone()]);
+    let account = Account::whole("run", &before);
+    assert_eq!(
+        account
+            .seats()
+            .iter()
+            .filter(|row| row.site.is_some())
+            .count(),
+        0
+    );
+    assert_eq!(crate::summary::sites(&before).len(), 1);
+    assert!(
+        !account.seats_kept(),
+        "a site no request replayed is not represented as current"
+    );
+    let after = journal(&[work(), start, failed, asks("2026-01-01T00:00:03Z")]);
+    let account = Account::whole("run", &after);
+    assert!(
+        !account.seats_kept(),
+        "a terminal before its request keeps no seat head"
+    );
+    assert_eq!(the_member(&account, "m").outcome, Outcome::Failed);
+}
+
+/// A run whose checkpoint lands before its effect's request keeps the
+/// site's facts — its start's milliseconds, its keys, its provider, model
+/// and metering rule — but no seat head: the checkpoint's order is no
+/// kept row's, so every participant readout reads the run whole (review
+/// 753s4s3, M1; decision 0089 rulings 4, 7 and 8).
+#[test]
+fn a_checkpoint_before_and_after_its_request_keeps_site_facts_no_head() {
+    use crate::summary::test_support::journal;
+    let mut steps = early_records(
+        json!({"member": "m", "step": "seat-turn", "turn": 1, "tool": "Read",
+               "model": "opus", "input_tokens": 10}),
+    );
+    steps.push(records(
+        json!({"member": "m", "step": "seat-turn", "turn": 2, "tool": "Write"}),
+        "2026-01-01T00:00:04Z",
+    ));
+    let events = journal(&steps);
+    let account = Account::whole("run", &events);
+    assert!(
+        !account.seats_kept(),
+        "the checkpoint landed before its request"
+    );
+    assert_site(
+        &account,
+        &events,
+        (
+            "a".to_string(),
+            Some("m".to_string()),
+            1_767_225_601_000,
+            Some("work".to_string()),
+            "anthropic".to_string(),
+            Some("opus".to_string()),
+            Metering::Turns,
+        ),
+    );
+    // The head is withheld for the checkpoint alone, with no start before
+    // it: the condition is the record's landing, not the start's.
+    let only_checkpoint = journal(&[
+        work(),
+        records(
+            json!({"member": "m", "step": "seat-turn", "input_tokens": 10}),
+            "2026-01-01T00:00:02Z",
+        ),
+        asks("2026-01-01T00:00:03Z"),
+    ]);
+    assert!(!Account::whole("run", &only_checkpoint).seats_kept());
+    // A record that is no participant's — a transition, even one naming
+    // the effect — keeps the head: only a start, checkpoint or terminal
+    // withholds it.
+    let other = journal(&[
+        (
+            EventType::TransitionDecided,
+            json!({"effect_id": "fx"}),
+            "2026-01-01T00:00:00Z",
+        ),
+        asks("2026-01-01T00:00:01Z"),
+    ]);
+    assert!(Account::whole("run", &other).seats_kept());
+}
+
+/// A terminal of attempt `a` at the second second of an early run.
+fn terminal(event_type: EventType) -> Step {
+    (
+        event_type,
+        json!({"effect_id": "fx", "attempt_id": "a"}),
+        "2026-01-01T00:00:02Z",
+    )
+}
+
+/// A run whose `event_type`'s terminal of its provider-bearing attempt
+/// lands before its effect's request keeps the site's facts — its start's
+/// milliseconds, its keys and its metering rule — but no seat head: the
+/// whole read reports `outcome`, so every participant readout reads the
+/// run whole (decision 0089 rulings 4, 7 and 8).
+fn assert_early_terminal(event_type: EventType, outcome: Outcome) {
+    let journal = crate::summary::test_support::journal;
+    let events = journal(&early_run(terminal(event_type)));
+    let account = Account::whole("run", &events);
+    assert!(
+        !account.seats_kept(),
+        "the terminal landed before its request"
+    );
+    assert_eq!(the_member(&account, "m").outcome, outcome);
+    assert_site(
+        &account,
+        &events,
+        (
+            "a".to_string(),
+            Some("m".to_string()),
+            1_767_225_601_000,
+            Some("work".to_string()),
+            "anthropic".to_string(),
+            None,
+            Metering::Session,
+        ),
+    );
+    // The head is withheld for the terminal alone, with no start before it.
+    let only_terminal = journal(&[work(), terminal(event_type), asks("2026-01-01T00:00:03Z")]);
+    assert!(!Account::whole("run", &only_terminal).seats_kept());
+}
+
+/// A run whose terminal lands before its effect's request keeps the site's
+/// facts but no seat head: the terminal's order is no kept row's, so every
+/// participant readout reads the run whole (review 753s4s3, M2; decision
+/// 0089 rulings 4, 7 and 8).
+#[test]
+fn a_terminal_before_its_request_keeps_site_facts_no_head() {
+    assert_early_terminal(EventType::EffectFailed, Outcome::Failed);
+}
+
+/// A run whose indeterminate terminal lands before its effect's request
+/// keeps the site's facts but no seat head: the whole read reports the
+/// attempt indeterminate, so every participant readout reads the run whole
+/// (decision 0089 rulings 4 and 8).
+#[test]
+fn an_indeterminate_before_its_request_keeps_site_facts_no_head() {
+    assert_early_terminal(EventType::EffectIndeterminate, Outcome::Indeterminate);
+}
+
+/// A providerless start before its request still updates its participant:
+/// the later start states the participant's provider as none, while the
+/// earlier site keeps the provider key its own start set (review 753s4s3,
+/// M3).
+#[test]
+fn a_providerless_early_restart_updates_the_participant() {
+    use crate::summary::test_support::journal;
+    let events = journal(&[
+        work(),
+        starts(
+            json!([{"member": "m", "provider": "anthropic"}]),
+            "2026-01-01T00:00:01Z",
+        ),
+        starts(
+            json!([{"member": "m", "provider": null}]),
+            "2026-01-01T00:00:02Z",
+        ),
+        asks("2026-01-01T00:00:03Z"),
+    ]);
+    let account = Account::whole("run", &events);
+    assert_eq!(
+        the_site(&account).site_provider.as_deref(),
+        Some("anthropic")
+    );
+    assert_eq!(the_member(&account, "m").provider, Some(Provider::Unnamed));
+}
+
+/// A record that is not a start is never deferred as one, whatever its
+/// payload names: the request that asks its effect opens no site for it.
+#[test]
+fn a_record_that_is_not_a_start_is_not_deferred() {
+    use crate::summary::test_support::journal;
+    let events = journal(&[
+        (
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "fx", "attempt_id": "a",
+                   "provenance": [{"member": "m", "provider": "anthropic"}],
+                   "checkpoint": {"member": "m", "step": "seat-turn"}}),
+            "2026-01-01T00:00:00Z",
+        ),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "fx", "seat": "worker", "phase": "work"}),
+            "2026-01-01T00:00:01Z",
+        ),
+    ]);
+    let account = Account::whole("run", &events);
+    assert_eq!(
+        account
+            .seats()
+            .iter()
+            .filter(|row| row.site.is_some())
+            .count(),
+        0
+    );
+}
+
+/// A start held for one attempt awaits no other attempt's record: the
+/// checkpoint of another attempt is not replayed into a row of its own,
+/// though the run keeps no seat head for the record's early landing
+/// (decision 0089 rulings 4 and 8).
+#[test]
+fn a_held_start_awaits_no_other_attempt() {
+    use crate::summary::test_support::journal;
+    let events = journal(&[
+        work(),
+        starts(
+            json!([{"member": "m", "provider": "anthropic"}]),
+            "2026-01-01T00:00:01Z",
+        ),
+        (
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "fx", "attempt_id": "b",
+                   "checkpoint": {"member": "m", "step": "seat-turn"}}),
+            "2026-01-01T00:00:02Z",
+        ),
+        asks("2026-01-01T00:00:03Z"),
+    ]);
+    let account = Account::whole("run", &events);
+    assert!(!account.seats_kept());
+    assert_eq!(the_site(&account).attempt_id.as_deref(), Some("a"));
+    assert!(account
+        .seats()
+        .iter()
+        .all(|row| row.attempt_id.as_deref() != Some("b")));
+}
+
+/// A start whose stamp does not parse states no provider on its rows, as
+/// brokkr-core's site reading ignores it; before its effect's request it
+/// also opens no site, though it names its attempt.
+#[test]
+fn an_unreadable_start_states_no_provider() {
+    use crate::summary::test_support::journal;
+    let events = journal(&[
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "fx", "seat": "worker", "phase": "work"}),
+            "2026-01-01T00:00:00Z",
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "fx", "attempt_id": "a",
+                   "provenance": [{"member": "m", "provider": "anthropic"}]}),
+            "not a stamp",
+        ),
+    ]);
+    let read = facts(Account::whole("run", &events).seats());
+    assert_eq!(read.len(), 1);
+    assert_eq!(read[0].provider, None);
+    // An unreadable start before its request names its attempt and still
+    // opens no site: the provider-bearing reading needs a readable stamp.
+    let early = journal(&[
+        work(),
+        starts(
+            json!([{"member": "m", "provider": "anthropic"}]),
+            "not a stamp",
+        ),
+        asks("2026-01-01T00:00:02Z"),
+    ]);
+    let account = Account::whole("run", &early);
+    assert!(account.sites().is_empty());
+    assert_eq!(
+        account
+            .seats()
+            .iter()
+            .filter(|row| row.site.is_some())
+            .count(),
+        0
+    );
+    // The live block opens the early start's attempt row, but the request
+    // replays no start into it: the row takes no start's stamp or phase,
+    // as an unreadable start states neither.
+    assert_eq!(account.seats().len(), 2);
+    let attempt = account
+        .seats()
+        .iter()
+        .find(|row| row.attempt_id.as_deref() == Some("a"))
+        .expect("the live start's row");
+    assert_eq!(attempt.started, None);
+    assert_eq!(attempt.phase, None);
+    assert!(!account.seats_kept());
+}
+
+/// A re-opened participant's later session record moves the earlier site's
+/// rule: the carried account's site and seat row read as the run read whole
+/// (decision 0089 ruling 7).
+#[test]
+fn a_reopened_session_moves_the_earlier_site_s_rule() {
+    use crate::summary::test_support::journal;
+    let steps = journal(&[
+        (
+            EventType::PhaseEntered,
+            json!({"phase": "work"}),
+            "2026-01-01T00:00:00Z",
+        ),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "fx", "seat": "worker", "phase": "work"}),
+            "2026-01-01T00:00:01Z",
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "fx", "attempt_id": "a",
+                   "provenance": [{"member": "m", "provider": "anthropic"}]}),
+            "2026-01-01T00:00:02Z",
+        ),
+        (
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "fx", "attempt_id": "a",
+                   "checkpoint": {"member": "m", "step": "seat-turn", "input_tokens": 10}}),
+            "2026-01-01T00:00:02Z",
+        ),
+        (
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "fx", "attempt_id": "a",
+                   "checkpoint": {"member": "m", "step": "claude-session-finished",
+                                  "output_tokens": 3}}),
+            "2026-01-01T00:00:03Z",
+        ),
+        (
+            EventType::EffectFailed,
+            json!({"effect_id": "fx", "attempt_id": "a"}),
+            "2026-01-01T00:00:04Z",
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "fx", "attempt_id": "a",
+                   "provenance": [{"member": "m", "provider": "anthropic"}]}),
+            "2026-01-01T00:00:05Z",
+        ),
+        (
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "fx", "attempt_id": "a",
+                   "checkpoint": {"member": "m", "step": "claude-session-finished",
+                                  "output_tokens": 4}}),
+            "2026-01-01T00:00:06Z",
+        ),
+    ]);
+    let whole = Account::whole("run", &steps);
+    let mut carried = Account::empty("run");
+    for event in &steps {
+        carried = carried.onto(std::slice::from_ref(event));
+    }
+    let rules = |account: &Account| -> Vec<Metering> {
+        account.sites().iter().map(|site| site.metering).collect()
+    };
+    assert_eq!(rules(&carried), rules(&whole));
+    assert_eq!(rules(&whole), [Metering::Turns, Metering::Session]);
+    let rows = |account: &Account| -> Vec<(Option<u64>, Metering)> {
+        account
+            .seats()
+            .iter()
+            .filter(|row| row.site.is_some())
+            .map(|row| (row.site, row.metering))
+            .collect()
+    };
+    assert_eq!(rows(&carried), rows(&whole));
+    assert_eq!(rows(&whole)[0].1, Metering::Turns);
 }

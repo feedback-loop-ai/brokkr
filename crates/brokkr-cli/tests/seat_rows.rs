@@ -86,8 +86,9 @@ fn every_fixture_s_causes_read_by_the_index_as_the_run_view_names_them() {
 /// `Store::seat_rows`, keeps each seat's accounting as `seat_costs` gives
 /// it of the journal, field for field and a cost by its bits (decision
 /// 0089 slice 3): every column the rows keep it in is read back from the
-/// store. The two runs whose rows keep no live block read stale. The
-/// count is of the seats compared.
+/// store. A run whose participant record landed before its effect's request
+/// keeps no seat head, and the two runs whose rows keep no live block read
+/// stale. The count is of the seats compared.
 #[test]
 fn every_journal_s_seat_rows_read_from_the_store_keep_its_seat_costs() {
     let dir = tempfile::tempdir().unwrap();
@@ -109,6 +110,19 @@ fn every_journal_s_seat_rows_read_from_the_store_keep_its_seat_costs() {
         compared += count;
     }
     assert_eq!(found, Vec::<String>::new());
-    assert_eq!(stale, ["effectless", "never asked"]);
-    assert_eq!(compared, 74);
+    assert_eq!(
+        stale,
+        [
+            "unnamed",
+            "later",
+            "unasked",
+            "again",
+            "unasked in flight",
+            "again in flight",
+            "started unasked",
+            "effectless",
+            "never asked",
+        ]
+    );
+    assert_eq!(compared, 67);
 }

@@ -7,7 +7,9 @@
 //! as they read every run before the rows (ruling 8's kept read), a run
 //! they refuse refused in the same words. The counts are of the runs read
 //! from their rows at their opening: by `costs`, and by `compare` with
-//! the run's fold at its head.
+//! the run's fold at its head. A run whose participant record landed
+//! before its effect's request keeps no seat head, so `costs` reads it
+//! whole (decision 0089 ruling 8).
 
 use std::path::{Path, PathBuf};
 
@@ -97,5 +99,5 @@ fn every_committed_and_hand_built_journal_s_costs_and_compare_are_today_s() {
     let mut runs = committed_at(&path);
     runs.extend(planted(&path, hand_built.collect()));
     assert_eq!(runs.len(), 39);
-    assert_eq!(read_as_today(&path, &runs), (None, (37, 16)));
+    assert_eq!(read_as_today(&path, &runs), (None, (30, 16)));
 }

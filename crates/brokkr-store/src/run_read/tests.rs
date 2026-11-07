@@ -238,22 +238,22 @@ fn a_page_is_read_with_what_caused_its_rows() {
     assert_eq!(causes, BTreeMap::from([(started, 4)]));
 }
 
-/// A run whose fold refuses a checkpoint, which only checks the effect it
-/// names is open, reads no state at its head, though its trail folds: its
-/// summary row records the refusal there.
+/// A run whose fold refuses an event out of place reads no state at its
+/// head, though its trail folds: its summary row records the refusal there.
+/// A refused checkpoint would land before its effect's request and so keep
+/// no seat head (decision 0089 ruling 8); a refused transition names no
+/// effect, so the head stands and the refusal is read.
 #[test]
-fn a_run_whose_fold_refuses_a_checkpoint_reads_no_state() {
+fn a_run_whose_fold_refuses_a_later_event_reads_no_state() {
     let (_dir, mut store) = store();
     worked(&mut store, 1);
-    let mut elsewhere = turn(2);
-    elsewhere["effect_id"] = json!("elsewhere");
-    let refused = (EventType::EffectCheckpointed, elsewhere);
+    let refused = (EventType::TransitionDecided, json!({}));
     store
         .append_next("r", refused.0, refused.1, None, None)
         .unwrap();
     let opened = store.open_run("r").unwrap();
     let whole = store.load("r").unwrap();
-    let refusal = "event 6: EffectCheckpointed is impossible at cursor EffectInFlight { \
+    let refusal = "event 6: TransitionDecided is impossible at cursor EffectInFlight { \
          effect_id: \"fx\", attempt_id: \"a\", seat: \"worker\", failed_attempts: 0 }";
     assert_eq!(fold(&whole).unwrap_err().to_string(), refusal);
     assert_eq!(fold(&whole[..4]).unwrap().seq, 4);
@@ -335,6 +335,31 @@ fn a_trail_that_does_not_begin_at_the_first_event_is_read_the_kept_way() {
         let found = read(reader.run_read(run_id, &opened, 0));
         assert_eq!(found, Read::Kept, "{run_id}");
     }
+}
+
+/// A run whose index trail does not begin at its first event because only
+/// SQL plants the fault — its first `event_index` row deleted — reads the
+/// kept way although its seat rows and summary stand at its head: a trail
+/// cut before its first event is no writer's and never a view of a cut
+/// run.
+#[test]
+fn an_index_trail_cut_before_its_first_event_is_read_the_kept_way() {
+    let (dir, mut store) = store();
+    worked(&mut store, 2);
+    let opened = store.open_run("r").unwrap();
+    assert!(matches!(
+        read(store.run_read("r", &opened, 0)),
+        Read::Current { .. }
+    ));
+    // Only the index is cut: the seat rows and the summary row still stand
+    // at the opening's head, so the read reaches the trail's guard.
+    assert!(matches!(store.seat_rows("r"), Ok(SeatRows::Current(_))));
+    let conn = rusqlite::Connection::open(dir.path().join("forge.db")).unwrap();
+    conn.execute_batch("DELETE FROM event_index WHERE run_id = 'r' AND seq = 1")
+        .unwrap();
+    drop(conn);
+    assert_eq!(read(store.run_read("r", &opened, 0)), Read::Kept);
+    lags(&mut store, &["r"]);
 }
 
 /// A run with no event, a journal whose summary's backfill has not

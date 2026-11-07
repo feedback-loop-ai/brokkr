@@ -9,12 +9,14 @@
 //! moved where the table stands at the head the account was carried
 //! from, and every row where it does not. A row is keyed by the run and
 //! its place among the run's rows in the order the projection opened
-//! them, `opened`: the projection's own key, its request, attempt and
-//! member, held in the row beside it, opens one place and never moves
-//! it, so the place is that key's one image and the order the rows are
-//! grouped in. No text stands in for an absent attempt or member, as a
-//! sentinel would collide with an attempt or a member a journal names by
-//! that text.
+//! them, `opened`: the projection's own key, its request, attempt, member
+//! and the site its start opened, held in the row beside it, opens one
+//! place and never moves it, so the place is that key's one image and the
+//! order the rows are grouped in. A re-opened attempt's second site is a
+//! second row, and the key's site column keeps the two apart. No text
+//! stands in for an absent attempt, member or site, as a sentinel would
+//! collide with an attempt, a member or a site a journal names by that
+//! text.
 //!
 //! The rows carry their own head (#753 ruling 2a), `seat_head`'s
 //! `(folded_seq, folded_hash)`, the last event they were folded through:
@@ -24,23 +26,29 @@
 //! head lags, one run per transaction, with a backfill key of its own
 //! (ruling 8), so no run's summary falls behind for it.
 //!
-//! A run whose rows do not keep its live block, while its last start
-//! names no effect or one not yet asked ([`Account::seats_kept`]), keeps
-//! no seat head: its rows read stale, so a reader reads it whole, and
-//! every writable open refolds it, as it refolds a lagging run, until an
-//! event ends that start or asks its effect. No engine writes such a
-//! start.
+//! A run whose rows do not keep all the run view reads of them keeps no
+//! seat head ([`Account::seats_kept`], the rule's one home): its rows read
+//! stale, so a reader reads it whole, and every writable open refolds it,
+//! as it refolds a lagging run. While its last start names no effect or
+//! one not yet asked, that lasts until an event ends that start or asks
+//! its effect. Once a participant record has landed before the first
+//! request that asked its effect, an order no kept row represents
+//! exactly, it lasts for good: no later event brings the head back. No
+//! engine writes either order.
 //!
 //! A seat head also names the shape of the rows it vouches for, `shape`,
-//! a digest of [`SeatRow::COLUMNS`] (#753): an older build writing the
-//! same journal writes its head without it, its rows without the columns
-//! it does not know, so a run it wrote lags for this build as a run whose
-//! head moved does, and is refolded whole by the next writer.
+//! a digest of [`SeatRow::COLUMNS`] and [`PROJECTION`] (#753): an older
+//! build writing the same journal writes its head without it, or of
+//! another projection, its rows without the columns it does not know or
+//! to facts it did not keep, so a run it wrote lags for this build as a
+//! run whose head moved does, and is refolded whole by the next writer.
 //!
 //! Each row keeps a digest of itself as its writer wrote it (#753, the
 //! operator's 2026-10-24 ruling), in one private column, `digest`: a read
 //! that finds a row its digest is not of reads the run stale, whatever
-//! column was edited and however, and the doctor names it.
+//! column was edited and however, and the doctor names it. The aggregate
+//! readouts find a window's seats through the `(started_ms)` index
+//! (decision 0089 ruling 7).
 //!
 //! The rows are derived, never exported and never chained: the journal's
 //! events stay the record (decisions 0001 and 0003), and no
@@ -70,6 +78,10 @@ const BACKFILLED: &str = "seat_summary_backfill";
 
 const TABLES: [&str; 2] = ["seat_summary", "seat_head"];
 
+/// The index the aggregates read a window's seats by (decision 0089
+/// ruling 7).
+const INDEXES: [&str; 1] = ["seat_summary_started"];
+
 /// A row's columns after its key as the table declares them, each its
 /// name and its type, comma-joined.
 fn declared() -> String {
@@ -80,10 +92,19 @@ fn declared() -> String {
     columns.join(", ")
 }
 
+/// The projection whose facts the rows keep: bumped when what a row means
+/// changes without a column's name or type moving, so every earlier head
+/// is another build's and its run lags until this build refolds it. 1 was
+/// the columns alone; 2 is a participant record before its effect's
+/// request keeping no seat head (#753, decision 0089 ruling 8).
+const PROJECTION: u32 = 2;
+
 /// The shape of the rows this build writes, a digest of their declared
-/// columns, which every seat head it writes names: a head that names
-/// another, or none, is another build's, and its rows lag for this one.
-static SHAPE: LazyLock<String> = LazyLock::new(|| sha256_bytes(declared().as_bytes()));
+/// columns and the [`PROJECTION`] that derived them, which every seat head
+/// it writes names: a head that names another, or none, is another
+/// build's, and its rows lag for this one.
+static SHAPE: LazyLock<String> =
+    LazyLock::new(|| sha256_bytes(format!("{PROJECTION}\n{}", declared()).as_bytes()));
 
 /// The two tables, made anew: a journal that lost one loses the other
 /// with it, so no seat head outlives the rows it vouches for and every
@@ -102,6 +123,7 @@ fn migration() -> String {
             run_id TEXT PRIMARY KEY, folded_seq INTEGER NOT NULL, folded_hash TEXT NOT NULL,
             shape TEXT
         ) WITHOUT ROWID;
+        CREATE INDEX seat_summary_started ON seat_summary (started_ms);
         DELETE FROM meta WHERE key = '{BACKFILLED}';",
         declared()
     )
@@ -116,7 +138,8 @@ fn migration() -> String {
 pub(crate) fn seats_intact(conn: &Connection) -> Result<bool, StoreError> {
     Ok(all_present(conn, "table", &TABLES)?
         && holds(conn, "seat_summary", kept())?
-        && holds(conn, "seat_head", [SHAPED])?)
+        && holds(conn, "seat_head", [SHAPED])?
+        && all_present(conn, "index", &INDEXES)?)
 }
 
 const SHAPED: &str = "shape";
@@ -348,21 +371,45 @@ fn part(datum: &Datum) -> Part {
 }
 
 /// What the rows read so far admit of the next, as the projection opens
-/// them: each key once, each request's own row, naming no attempt and no
-/// member, before every other row of it, and the requests in the order
-/// they were asked. A row's key is its first four columns, the four
-/// [`SeatRow::COLUMNS`] opens a row under: its request's seq and effect,
-/// its attempt and its member.
+/// them: each key once, each request's own row, naming no attempt, no
+/// member and no site, before every other row of it, and the requests in
+/// the order they were asked. A row's key is its first four columns, the
+/// four [`SeatRow::COLUMNS`] opens a row under, with its request's seq and
+/// effect, its attempt and its member, and its `site` column after them:
+/// the site its start opened, which keeps a re-opened attempt's two sites
+/// two rows.
 #[derive(Default)]
 struct Opened {
-    keys: BTreeSet<[Part; 4]>,
+    keys: BTreeSet<[Part; 5]>,
     asked: Option<Part>,
 }
 
+/// The column a row's key takes beside its first four: the site its start
+/// opened, `None` for a row no provenance entry did.
+static SITE: LazyLock<usize> = LazyLock::new(|| {
+    SeatRow::COLUMNS
+        .iter()
+        .position(|(name, _)| *name == "site")
+        .expect("the site column")
+});
+
 impl Opened {
     fn admits(&mut self, data: &[Datum]) -> bool {
-        let key: [Part; 4] = std::array::from_fn(|at| part(&data[at]));
-        let own = [key[0].clone(), key[1].clone(), (None, None), (None, None)];
+        let key: [Part; 5] = [
+            part(&data[0]),
+            part(&data[1]),
+            part(&data[2]),
+            part(&data[3]),
+            part(&data[*SITE]),
+        ];
+        let none = (None, None);
+        let own = [
+            key[0].clone(),
+            key[1].clone(),
+            none.clone(),
+            none.clone(),
+            none,
+        ];
         let asked = self.asked.as_ref().is_none_or(|asked| key[0] > *asked);
         if asked {
             self.asked = Some(key[0].clone());
@@ -383,8 +430,8 @@ impl Opened {
 fn current(conn: &Connection, run_id: &str, head: (u64, &str)) -> Result<SeatRows, StoreError> {
     let mut rows = Vec::new();
     let mut opened = Opened::default();
-    let whole = (None, SeatRow::COLUMNS.len());
-    let read = sealed_at(conn, run_id, head, whole, |data| {
+    let whole = |_: usize| true;
+    let read = sealed_at(conn, run_id, head, None, &whole, |data| {
         let seat = Some(data).filter(|data| opened.admits(data));
         seat.and_then(SeatRow::of_data).map(|seat| rows.push(seat))
     })?;
@@ -404,7 +451,8 @@ fn sealed_at(
     conn: &Connection,
     run_id: &str,
     head: (u64, &str),
-    (effect, held): (Option<&str>, usize),
+    effect: Option<&str>,
+    held: &dyn Fn(usize) -> bool,
     mut each: impl FnMut(Vec<Datum>) -> Option<()>,
 ) -> Result<bool, StoreError> {
     let placed: bool = conn
@@ -431,26 +479,26 @@ fn sealed_at(
     Ok(at_head)
 }
 
-/// The first `held` values of `row`, the row at `place` of `run_id`'s,
-/// where its digest is of its run, its place and its values: each value
-/// is fed to the digest as SQLite holds it ([`Seal`]) and only those
-/// `held` are copied, so a row's values past them never reach the heap.
-/// `None` where a value is one no row writes or the digest is not the
-/// row's.
+/// The values of `row` that `held` admits, the row at `place` of
+/// `run_id`'s, where its digest is of its run, its place and its values:
+/// each value is fed to the digest as SQLite holds it ([`Seal`]) and only
+/// those admitted are copied, so a row's values past them never reach the
+/// heap. `None` where a value is one no row writes or the digest is not
+/// the row's.
 fn unsealed(
     row: &Row<'_>,
     run_id: &str,
     place: i64,
-    held: usize,
+    held: &dyn Fn(usize) -> bool,
 ) -> Result<Option<Vec<Datum>>, StoreError> {
     let mut seal = Seal::of(run_id, place);
-    let mut data = Vec::with_capacity(held);
+    let mut data = Vec::new();
     for at in 1..=SeatRow::COLUMNS.len() {
         let Some(cell) = Cell::of(row.get_ref(at)?) else {
             return Ok(None);
         };
         seal.put(cell);
-        if at <= held {
+        if held(at) {
             data.push(cell.datum());
         }
     }
@@ -672,13 +720,15 @@ pub(crate) fn rows_at(
 
 /// `run_id`'s rows of the effect `effect_id` standing at `head`, read as
 /// [`rows_at`] reads the run's and each handed to `each` as its first
-/// `held` values once its digest is checked, so the reader holds one row's
-/// values it reads at a time, never a row's lists, and no other effect's
-/// row: false where the run's rows would read stale for it, a table, the
-/// backfill, the seat head, a place or a digest (the seat view's read,
-/// [`Store::seat_read`]). The order [`Opened`] admits is the run's, which
-/// a reader of one effect's rows does not see; the digest holds every row
-/// it reads to its writer's.
+/// `held` values and its site column after them, once its digest is
+/// checked, so the reader holds one row's values it reads at a time, never
+/// a row's lists, and no other effect's row: false where the run's rows
+/// would read stale for it, a table, the backfill, the seat head, a place
+/// or a digest (the seat view's read, [`Store::seat_read`]). The site
+/// column is the last value so a reader can tell a site's row from a
+/// participant's without holding the columns between. The order
+/// [`Opened`] admits is the run's, which a reader of one effect's rows does
+/// not see; the digest holds every row it reads to its writer's.
 pub(crate) fn effect_rows_at(
     conn: &Connection,
     run_id: &str,
@@ -689,7 +739,10 @@ pub(crate) fn effect_rows_at(
     if !kept_whole(conn)? {
         return Ok(false);
     }
-    sealed_at(conn, run_id, head, (Some(effect_id), held), |data| {
+    // `unsealed` counts a column from one, as SQLite does; `SITE` is its
+    // place among the values a row is read as, from zero.
+    let kept = |at: usize| at <= held || at == *SITE + 1;
+    sealed_at(conn, run_id, head, Some(effect_id), &kept, |data| {
         each(&data);
         Some(())
     })

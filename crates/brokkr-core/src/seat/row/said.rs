@@ -10,7 +10,7 @@
 use serde_json::Value;
 
 use super::listed::Kind;
-use super::{Member, Meter, Pin, SeatRow, Seats};
+use super::{Member, Meter, Pin, SeatRow, Seats, Stamp};
 use crate::envelope::EventEnvelope;
 use crate::residual::text as field;
 
@@ -181,10 +181,17 @@ impl Seats {
         self.row(request, attempt.as_deref(), Member::Seat);
     }
 
-    /// Whether the rows keep the live block: not while the live start
-    /// names no effect, or one no request has asked for yet, which no row
-    /// is of ([`live`]).
+    /// Whether the rows keep the live block: not while a record of an
+    /// effect no request has asked for is still held, whose rows the
+    /// request would open, nor while a participant record landed before
+    /// the first request that asked its effect, whose order no kept row
+    /// represents exactly, nor while the live start names no effect or one
+    /// no request has asked for yet, which no row is of
+    /// ([`live`]).
     pub(crate) fn keep_live(&self) -> bool {
+        if self.before_request {
+            return false;
+        }
         match &self.aside.started {
             Some((effect_id, _)) => effect_id
                 .as_ref()
@@ -225,7 +232,8 @@ fn heard(lines: &mut Vec<Line>, label: String, turn: Option<(u64, (String, Strin
 /// seat the effect was last asked by that names one, else `?`; one bare
 /// line for that seat while no record of the attempt is kept; and none
 /// while no row is live. A start naming no effect, or an effect not yet
-/// asked, is in no row, so its block is not kept
+/// asked, is in no row, and a participant record before its effect's first
+/// request is in no kept row exactly, so its block is not kept
 /// ([`Account::seats_kept`](crate::summary::Account::seats_kept)): the
 /// writer keeps no seat head for its run, which a reader reads whole.
 pub fn live(rows: &[SeatRow]) -> Vec<(String, Option<(String, String)>)> {
@@ -250,13 +258,21 @@ pub fn live(rows: &[SeatRow]) -> Vec<(String, Option<(String, String)>)> {
         let turn = line.turn.clone().map(|turn| (0, turn));
         heard(&mut lines, label("?", &line.member), turn);
     }
-    let mut kept: Vec<&SeatRow> = rows.iter().filter(|row| row.live).collect();
-    kept.retain(|row| row.first.is_some());
-    kept.sort_by_key(|row| row.first.as_ref().map(|first| first.seq));
-    for row in kept {
+    let mut kept: Vec<(&SeatRow, &Stamp)> = rows
+        .iter()
+        .filter(|row| row.live)
+        .filter_map(|row| Some((row, row.first.as_ref()?)))
+        .collect();
+    kept.sort_by_key(|(_, first)| first.seq);
+    for (row, first) in kept {
         let turn = row.turn.as_ref();
+        // A row a request replayed a held checkpoint onto states that
+        // checkpoint's seq before its request's: its line is labelled by
+        // the record's time, not the later request's seat (review
+        // 753s4s3, M1).
+        let at = turn.map_or(first.seq, |(seq, _)| *seq);
         let turn = turn.map(|(seq, turn)| (*seq, (turn.turn.clone(), turn.tool.clone())));
-        heard(&mut lines, label(seat(row.request_seq), &row.member), turn);
+        heard(&mut lines, label(seat(at), &row.member), turn);
     }
     if lines.is_empty() {
         return vec![(seat(u64::MAX).to_string(), None)];

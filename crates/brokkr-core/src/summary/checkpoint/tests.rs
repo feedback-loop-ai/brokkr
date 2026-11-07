@@ -5,25 +5,9 @@
 
 use super::*;
 use crate::envelope::EventType;
-use crate::summary::test_support::journal;
+use crate::summary::test_support::{checkpoint, journal};
 use crate::summary::Account;
 use serde_json::json;
-
-/// A checkpoint of attempt `a` naming `member`, its record `record`.
-fn checkpoint(
-    member: Option<&str>,
-    record: serde_json::Value,
-) -> (EventType, serde_json::Value, &'static str) {
-    let mut checkpoint = record;
-    if let (Some(member), Some(object)) = (member, checkpoint.as_object_mut()) {
-        object.insert("member".into(), json!(member));
-    }
-    (
-        EventType::EffectCheckpointed,
-        json!({"attempt_id": "a", "checkpoint": checkpoint}),
-        "2026-01-01T00:00:02Z",
-    )
-}
 
 #[test]
 fn a_checkpoint_reads_its_time_phase_cost_tokens_and_session() {
@@ -45,14 +29,16 @@ fn a_checkpoint_reads_its_time_phase_cost_tokens_and_session() {
                 "reasoning_output_tokens": 1,
             }),
         ),
-        // A turn reporting no cost and no tokens is still a metered row.
-        checkpoint(Some("m"), json!({"step": "tool-use"})),
+        // A turn reporting no cost and no tokens is still a metered row;
+        // a checkpoint naming no member is the seat's own.
+        checkpoint(None, json!({"step": "tool-use"})),
     ]);
     let read = checkpoints(&events);
     assert_eq!(read.len(), 2);
     assert_eq!(read[0].seq, 2);
     assert_eq!(read[0].attempt_id, "a");
     assert_eq!(read[0].member.as_deref(), Some("m"));
+    assert_eq!(read[1].member, None);
     assert_eq!(read[0].at, 1_767_225_602_000);
     assert_eq!(read[0].phase.as_deref(), Some("implement"));
     assert!(read[0].reported);
@@ -196,4 +182,94 @@ fn a_carried_account_drops_the_checkpoint_facts_it_already_read() {
     assert_eq!(account.checkpoint_rows(), [3]);
     assert_eq!(account.checkpoint(3).unwrap().seq, 3);
     assert_eq!(account.checkpoint(1), None);
+}
+
+/// A checkpoint that is not a metered turn never repeats the site's last
+/// message, and never becomes the message a later turn repeats: only a
+/// turn is a message again (decision 0089 ruling 7).
+#[test]
+fn a_non_turn_checkpoint_never_repeats_a_message() {
+    let events = journal(&[
+        checkpoint(
+            Some("m"),
+            json!({"step": "seat-turn", "input_tokens": 10, "output_tokens": 4}),
+        ),
+        checkpoint(
+            Some("m"),
+            json!({"step": "tool-use", "input_tokens": 12, "output_tokens": 5}),
+        ),
+        checkpoint(
+            Some("m"),
+            json!({"step": "seat-turn", "input_tokens": 12, "output_tokens": 5}),
+        ),
+    ]);
+    let read = checkpoints(&events);
+    assert_eq!(
+        read.iter()
+            .map(|checkpoint| checkpoint.repeat)
+            .collect::<Vec<_>>(),
+        [Some(false), Some(false), Some(false)]
+    );
+}
+
+/// A start whose stamp does not parse or which names no attempt opens no
+/// site: a checkpoint of its key is read by its attempt and member alone,
+/// as the reading has always keyed one no site opened.
+#[test]
+fn a_start_no_site_opens_reads_nothing() {
+    let events = journal(&[
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "fx", "attempt_id": "a",
+                   "provenance": [{"member": "m", "provider": "anthropic"}]}),
+            "not a stamp",
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "fx",
+                   "provenance": [{"member": "m", "provider": "anthropic"}]}),
+            "2026-01-01T00:00:02Z",
+        ),
+        checkpoint(Some("m"), json!({"step": "seat-turn", "input_tokens": 10})),
+    ]);
+    let mut checking = Checking::default();
+    for event in &events {
+        checking.note(event);
+    }
+    assert_eq!(checking.sites.id("a", Some("m")), None);
+    assert_eq!(
+        checking.checkpoint(3).unwrap().repeat,
+        Some(false),
+        "no site's last turn"
+    );
+}
+
+/// A start naming an attempt and member already started opens another
+/// site: its first turn repeating the earlier site's usage is not the
+/// message again (decision 0089 ruling 7).
+#[test]
+fn a_reopened_site_s_first_turn_does_not_repeat() {
+    let started = || {
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "fx", "attempt_id": "a",
+                   "provenance": [{"member": "m", "provider": "anthropic"}]}),
+            "2026-01-01T00:00:01Z",
+        )
+    };
+    let events = journal(&[
+        started(),
+        checkpoint(Some("m"), json!({"step": "seat-turn", "input_tokens": 10})),
+        (
+            EventType::EffectFailed,
+            json!({"effect_id": "fx", "attempt_id": "a"}),
+            "2026-01-01T00:00:03Z",
+        ),
+        started(),
+        checkpoint(Some("m"), json!({"step": "seat-turn", "input_tokens": 10})),
+    ]);
+    let read = checkpoints(&events);
+    assert_eq!(read.len(), 2);
+    assert_eq!(read[0].repeat, Some(false));
+    assert_eq!(read[1].repeat, Some(false));
 }

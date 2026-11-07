@@ -517,6 +517,27 @@ pub fn opened(
     }
 }
 
+/// `run_id`'s effect `fx`'s attempt `attempt` started with one provenance
+/// entry naming `provider` for `member`, where it names one.
+pub fn started(
+    store: &mut Store,
+    run_id: &str,
+    attempt: &str,
+    member: Option<&str>,
+    provider: &str,
+) {
+    let member = member.map_or(serde_json::Value::Null, |member| serde_json::json!(member));
+    let started = serde_json::json!({"effect_id": "fx", "attempt_id": attempt,
+        "provenance": [{"member": member, "provider": provider}]});
+    append(store, run_id, EventType::EffectStarted, started);
+}
+
+/// `run_id`'s effect `fx`'s attempt `attempt` failed.
+pub fn failed(store: &mut Store, run_id: &str, attempt: &str) {
+    let failed = serde_json::json!({"effect_id": "fx", "attempt_id": attempt});
+    append(store, run_id, EventType::EffectFailed, failed);
+}
+
 /// `store`'s journal opened again read-write, which repairs its projections.
 pub fn refolded(store: Store) -> Store {
     let path = store.path().to_path_buf();

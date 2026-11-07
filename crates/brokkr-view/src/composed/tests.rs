@@ -110,6 +110,53 @@ fn begun(started: serde_json::Value) -> Vec<EventEnvelope> {
     ]
 }
 
+/// The provider-bearing start of `fx`'s attempt `a` by member `m`, which
+/// every early-record journal opens.
+fn early_start() -> serde_json::Value {
+    json!({"effect_id": "fx", "attempt_id": "a",
+           "provenance": [{"member": "m", "provider": "anthropic"}]})
+}
+
+/// A run's first three events at [`AT`]: started, `work` entered, and
+/// `fx`'s attempt opened under member `m`'s anthropic provider.
+fn early_begun() -> Vec<EventEnvelope> {
+    vec![
+        ev(1, EventType::RunStarted, json!({"manifest": {}}), AT),
+        ev(2, EventType::PhaseEntered, json!({"phase": "work"}), AT),
+        ev(3, EventType::EffectStarted, early_start(), AT),
+    ]
+}
+
+/// The request that asks `fx` of `worker` in `work` at `seq`.
+fn early_asked(seq: u64) -> EventEnvelope {
+    ev(
+        seq,
+        EventType::EffectRequested,
+        json!({"effect_id": "fx", "seat": "worker", "phase": "work"}),
+        AT,
+    )
+}
+
+/// A `seat-turn` checkpoint of `fx`'s attempt `a` by member `m` at `seq`.
+fn early_checkpoint(seq: u64, turn: u64, tool: &str) -> EventEnvelope {
+    ev(
+        seq,
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "attempt_id": "a",
+               "checkpoint": {"member": "m", "step": "seat-turn", "turn": turn,
+                              "tool": tool, "model": "opus", "input_tokens": 10}}),
+        AT,
+    )
+}
+
+/// The whole read's participants as their key, status and attempt count.
+fn participants_of(view: &RunView) -> Vec<(&str, &str, u64)> {
+    let parts = view.participants.iter();
+    parts
+        .map(|part| (part.key.as_str(), part.status.as_str(), part.attempts))
+        .collect()
+}
+
 /// Seat rows naming a request the trail does not ask are no writer's, so
 /// no run view is composed of them, and the reader reads the run whole.
 #[test]
@@ -335,4 +382,132 @@ fn a_reused_command_id_keeps_each_disposition_at_its_own_time() {
             "retry · rejected at seq 8: the mock is not ready (command at seq 7)"
         );
     }
+}
+
+/// A checkpoint between a provider-bearing start and its request keeps the
+/// live block's journal-time label when the request replays it onto its
+/// site row: composed whole, it reads `?` as the run read whole does
+/// (review 753s4s3, M1; decision 0071 ruling 7). The checkpoint landed
+/// before its request, so the writer keeps no seat head and every reader
+/// reads the run whole (decision 0089 ruling 8).
+#[test]
+fn an_early_checkpoint_keeps_its_journal_time_label() {
+    let mut events = early_begun();
+    events.extend([early_checkpoint(4, 1, "Read"), early_asked(5)]);
+    let trail: Vec<_> = events
+        .iter()
+        .filter(|event| event.event_type != EventType::EffectCheckpointed)
+        .cloned()
+        .collect();
+    let account = Account::whole("r", &events);
+    assert!(
+        !account.seats_kept(),
+        "a checkpoint before its request keeps no seat head"
+    );
+    let composed = composed_whole(&trail, account.seats(), &events, AT, None).unwrap();
+    let whole = crate::run_view(&events, None);
+    let lines = |view: &RunView| {
+        view.live
+            .iter()
+            .map(|line| (line.label.clone(), line.text.clone()))
+            .collect::<Vec<_>>()
+    };
+    let expected = [("?:m".to_string(), "?:m · turn 1 · Read".to_string())];
+    assert_eq!(lines(&composed), expected);
+    assert_eq!(lines(&composed), lines(&whole));
+}
+
+/// The chief's M1 (review 753s4s3): a start and a checkpoint land before
+/// their effect's request, and a second checkpoint after it. The run keeps
+/// no seat head, because the kept rows cannot represent the early
+/// checkpoint's order, so every participant readout reads the run whole:
+/// both journal-time live lines, and the seat list the reader pages.
+/// Representing every ordering case in the kept rows is a follow-up
+/// (decision 0089 rulings 4, 7 and 8).
+#[test]
+fn an_early_and_late_checkpoint_reads_whole() {
+    let mut events = early_begun();
+    events.extend([
+        early_checkpoint(4, 1, "Read"),
+        early_asked(5),
+        early_checkpoint(6, 2, "Write"),
+    ]);
+    let account = Account::whole("r", &events);
+    assert!(
+        !account.seats_kept(),
+        "a record before its request keeps no seat head"
+    );
+    let whole = crate::run_view(&events, None);
+    let parts = participants_of(&whole);
+    assert_eq!(parts, [("fx", "working", 0), ("fx:m", "working", 0)]);
+    let lines: Vec<_> = whole
+        .live
+        .iter()
+        .map(|line| (line.label.as_str(), line.text.as_str()))
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            ("?:m", "?:m · turn 1 · Read"),
+            ("worker:m", "worker:m · turn 2 · Write"),
+        ]
+    );
+    let seated: Vec<String> = seat_keys(account.seats())
+        .into_iter()
+        .map(|(key, _)| key)
+        .collect();
+    let listed: Vec<&str> = whole
+        .participants
+        .iter()
+        .map(|part| part.key.as_str())
+        .collect();
+    assert_eq!(seated, listed);
+    // The checkpoint alone, with no start before it, withholds the head:
+    // the condition is its landing, not the start's.
+    let checkpoint_only = [
+        ev(1, EventType::PhaseEntered, json!({"phase": "work"}), AT),
+        early_checkpoint(2, 1, "Read"),
+        early_asked(3),
+    ];
+    assert!(!Account::whole("r", &checkpoint_only).seats_kept());
+}
+
+/// The chief's M2 (review 753s4s3): a start and its terminal land before
+/// their effect's request. The run keeps no seat head, so no participant
+/// readout moves: the whole read lists the one working seat, and the
+/// replayed terminal's failed member is no participant (decision 0089
+/// rulings 4 and 8).
+#[test]
+fn a_replayed_terminal_reads_whole() {
+    let mut events = early_begun();
+    events.extend([
+        ev(
+            4,
+            EventType::EffectFailed,
+            json!({"effect_id": "fx", "attempt_id": "a"}),
+            AT,
+        ),
+        early_asked(5),
+    ]);
+    let account = Account::whole("r", &events);
+    assert!(
+        !account.seats_kept(),
+        "a terminal before its request keeps no seat head"
+    );
+    let whole = crate::run_view(&events, None);
+    assert_eq!(participants_of(&whole), [("fx", "working", 0)]);
+    assert_eq!(whole.live.len(), 0);
+    // The terminal alone, with no start before it, withholds the head: the
+    // condition is its landing, not the start's.
+    let terminal_only = [
+        ev(1, EventType::PhaseEntered, json!({"phase": "work"}), AT),
+        ev(
+            2,
+            EventType::EffectFailed,
+            json!({"effect_id": "fx", "attempt_id": "a"}),
+            AT,
+        ),
+        early_asked(3),
+    ];
+    assert!(!Account::whole("r", &terminal_only).seats_kept());
 }

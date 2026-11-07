@@ -6,7 +6,7 @@
 //! the row for the open's walk, and a table from before them is altered in
 //! place.
 
-use super::checkpoint::{backfilled, checkpointed, COLUMNS, SITE, WRITE};
+use super::checkpoint::{backfilled, checkpointed, COLUMNS, SITE, WRITE, WRITE_SESSION};
 use super::*;
 use brokkr_core::envelope::{ChainError, EventEnvelope, EventType};
 use brokkr_core::summary::{Bounded, Checkpoint, NAME_BYTES};
@@ -15,8 +15,9 @@ use serde_json::{json, Value as Json};
 
 use crate::summary::Compared;
 use crate::test_support::{
-    append, at, disagreements, every_run_reads_as_its_fold, lags, lane, opened, plant_envelope,
-    plant_older_writer, plant_summary_writer, refolded, text,
+    append, at, disagreements, every_run_reads_as_its_fold, failed, lags, lane, opened,
+    plant_envelope, plant_older_writer, plant_summary_writer, planted_fixtures, refolded, started,
+    text,
 };
 use crate::tests::envelope_builder::EnvelopeBuilder;
 use crate::tests::store;
@@ -385,6 +386,7 @@ fn each_append_keeps_the_checkpoint_its_record_states() {
             Value::Integer(2),
             Value::Null,
             Value::Integer(0),
+            Value::Integer(0),
             Value::Integer(1),
         ]
     );
@@ -535,6 +537,7 @@ fn a_fixture_checkpoint_keeps_the_facts_its_record_states() {
             Value::Null,
             Value::Null,
             Value::Integer(1),
+            Value::Integer(0),
             Value::Integer(1),
         ]
     );
@@ -561,6 +564,32 @@ fn a_site_s_second_session_record_flips_the_first_to_zero() {
     assert_eq!(kept(&store, "r", second.seq)[9], Value::Integer(1));
     assert_eq!(kept(&store, "r", other.seq)[9], Value::Integer(1));
     assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+}
+
+/// A re-opened attempt is one participant, as main reads it: the refold's
+/// participant rows alone move the earlier session record's flag off when
+/// the later one lands, and an open's behind refold reads the same, without
+/// the attempt's starts (decision 0089 rulings 4 and 7).
+#[test]
+fn a_reopened_participant_s_earlier_session_record_is_moved() {
+    let (_dir, mut store) = store();
+    opened(&mut store, "r", "implement", &[]);
+    started(&mut store, "r", "a", Some("m"), "anthropic");
+    let first = append_checkpoint(&mut store, json!({"step": "claude-session-finished"}));
+    failed(&mut store, "r", "a");
+    started(&mut store, "r", "a", Some("m"), "anthropic");
+    let second = append_checkpoint(&mut store, json!({"step": "claude-session-finished"}));
+    assert_eq!(session(&store, first.seq), Value::Integer(0));
+    assert_eq!(session(&store, second.seq), Value::Integer(1));
+    let events = store.load("r").unwrap();
+    let read: Vec<Value> = brokkr_core::summary::checkpoints(&events)
+        .into_iter()
+        .map(|checkpoint| Value::Integer(i64::from(checkpoint.session)))
+        .collect();
+    assert_eq!(read, [Value::Integer(0), Value::Integer(1)]);
+    let store = refolded(store);
+    assert_eq!(session(&store, first.seq), Value::Integer(0));
+    assert_eq!(session(&store, second.seq), Value::Integer(1));
 }
 
 /// A step whose suffix differs only in case finishes no session in
@@ -727,7 +756,7 @@ fn an_older_writer_s_second_session_record_moves_the_first_flag() {
     let second = finishing_after(&first, "r-older", "2026-01-01T00:00:09Z");
     plant_envelope(&store.conn, &second).unwrap();
     assert_eq!(session(&store, first.seq), Value::Integer(1));
-    assert_eq!(kept(&store, "r", second.seq)[10], Value::Null);
+    assert_eq!(kept(&store, "r", second.seq)[11], Value::Null);
     assert_eq!(stamped(&store, "r", first.seq), Value::Null);
     assert_eq!(stamped(&store, "r", second.seq), Value::Null);
     before_open(&mut store, second.seq, Value::Null);
@@ -812,7 +841,7 @@ fn a_checkpoint_with_no_attempt_is_stamped_without_a_site() {
 #[test]
 fn the_session_and_row_sends_search_their_indexes() {
     let (_dir, store) = store();
-    let bound = rusqlite::params_from_iter(std::iter::repeat_n(Value::Null, 14));
+    let bound = rusqlite::params_from_iter(std::iter::repeat_n(Value::Null, 15));
     assert_eq!(
         crate::test_support::plan(&store, &WRITE, bound).unwrap(),
         ["SEARCH event_index USING PRIMARY KEY (run_id=? AND seq=?)"]
@@ -846,28 +875,44 @@ fn the_session_and_row_sends_search_their_indexes() {
     );
 }
 
-/// Appending a checkpoint to a run with N checkpoints visits the same VM
-/// steps at every N: the facts' write names one row and the trigger's
-/// session search visits none of them.
+/// The retired start lookup, kept here so the cost test measures the work a
+/// refold that reads the attempt's starts would add: the same SQL text and
+/// bind order, so `prepare_cached` hands that refold this statement.
+const RETIRED_STARTS: &str = "SELECT seq FROM event_index INDEXED BY event_index_stream
+         WHERE run_id = ?1 AND attempt_id = ?2
+           AND type = 'effect/started' AND seq <= ?3
+         ORDER BY seq";
+
+/// Appending a checkpoint to a run with N checkpoints costs the same VM
+/// steps at every N, at 2,000 and 20,000, measured over everything the
+/// append runs inside the bound: the event's insert and its triggers, the
+/// facts' write, and the refold's candidate search, envelope reads and
+/// session writes. A refold that reads the attempt's starts would add the
+/// retired lookup's history scan, which the same count holds to zero
+/// (decision 0089 rulings 7 and 9).
 #[test]
-fn an_appended_checkpoint_visits_the_same_steps_at_every_n() {
+fn an_appended_checkpoint_costs_the_same_at_any_history() {
     use crate::import::INSERT_EVENT;
-    use rusqlite::{params_from_iter, StatementStatus};
+    use rusqlite::StatementStatus;
 
     let (_dir, mut store) = store();
     let mut steps = Vec::new();
-    for n in [200u64, 400] {
+    for n in [2_000u64, 20_000] {
         let run_id = format!("r{n}");
         let events = chained(
             &run_id,
-            (1..=n)
-                .map(|_| {
-                    (
-                        EventType::EffectCheckpointed,
-                        checkpoint(Some("m"), json!({"step": "seat-turn"})),
-                    )
-                })
-                .collect(),
+            std::iter::once((
+                EventType::EffectStarted,
+                json!({"effect_id": "fx", "attempt_id": "a",
+                       "provenance": [{"member": "m", "provider": "anthropic"}]}),
+            ))
+            .chain((1..=n).map(|_| {
+                (
+                    EventType::EffectCheckpointed,
+                    checkpoint(Some("m"), json!({"step": "seat-turn"})),
+                )
+            }))
+            .collect(),
         );
         let previous = planted(&mut store, &run_id, &events);
         let next = EnvelopeBuilder::new(
@@ -875,8 +920,8 @@ fn an_appended_checkpoint_visits_the_same_steps_at_every_n() {
             checkpoint(Some("m"), json!({"step": "seat-turn"})),
         )
         .run(&run_id)
-        .seq(n + 1)
-        .event_id(format!("{run_id}-{}", n + 1))
+        .seq(n + 2)
+        .event_id(format!("{run_id}-{}", n + 2))
         .at("2026-01-01T00:00:01Z")
         .previous(previous)
         .sealed();
@@ -886,22 +931,41 @@ fn an_appended_checkpoint_visits_the_same_steps_at_every_n() {
         insert
             .execute(params![
                 &run_id,
-                (n + 1) as i64,
+                (n + 2) as i64,
                 &next.event_hash,
                 &envelope
             ])
             .unwrap();
         let inserted = insert.reset_status(StatementStatus::VmStep);
         let account = Account::whole(&run_id, &store.load(&run_id).unwrap());
-        let mut write = store.conn.prepare(&WRITE).unwrap();
-        write.reset_status(StatementStatus::VmStep);
-        let facts = super::checkpoint::facts(account.checkpoint(n + 1)).unwrap();
-        let mut bound: Vec<Value> =
-            vec![Value::Text(run_id.clone()), Value::Integer((n + 1) as i64)];
-        bound.extend_from_slice(&facts);
-        bound.push(Value::Integer((n + 1) as i64));
-        write.execute(params_from_iter(bound)).unwrap();
-        steps.push((inserted, write.reset_status(StatementStatus::VmStep)));
+        // Reset each statement's count and drop it, so the append's own
+        // `prepare_cached` finds it in the cache and the count is the
+        // append's, not a second statement's.
+        let reset = |sql: &str| {
+            let statement = store.conn.prepare_cached(sql).unwrap();
+            statement.reset_status(StatementStatus::VmStep);
+        };
+        for sql in [
+            &*WRITE,
+            &*SITE,
+            super::ENVELOPE,
+            WRITE_SESSION,
+            RETIRED_STARTS,
+        ] {
+            reset(sql);
+        }
+        super::checkpoint::write_appended(&store.conn, &account, std::slice::from_ref(&next))
+            .unwrap();
+        let steps_of = |sql: &str| {
+            let statement = store.conn.prepare_cached(sql).unwrap();
+            i64::from(statement.reset_status(StatementStatus::VmStep))
+        };
+        let facts = steps_of(&WRITE);
+        let refold = [&*SITE, super::ENVELOPE, WRITE_SESSION, RETIRED_STARTS]
+            .into_iter()
+            .map(steps_of)
+            .sum::<i64>();
+        steps.push((inserted, facts, refold));
     }
     assert_eq!(
         steps[0], steps[1],
@@ -1019,7 +1083,7 @@ fn restoring_the_checkpoint_trigger_sends_the_facts_it_missed_behind() {
     // behind, and the open's repair finds the trigger missing.
     plant_envelope(&store.conn, &second).unwrap();
     assert_eq!(kept(&store, "r", first.seq)[9], Value::Integer(1));
-    assert_eq!(kept(&store, "r", second.seq)[10], Value::Null);
+    assert_eq!(kept(&store, "r", second.seq)[11], Value::Null);
     lags(&mut store, &["r"]);
     let store = refolded(store);
     assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
@@ -1107,6 +1171,7 @@ fn an_append_with_no_carried_account_keeps_its_facts_and_moves_the_session() {
             Value::Null,
             Value::Null,
             Value::Integer(1),
+            Value::Null,
             Value::Integer(1),
         ]
     );
@@ -1193,7 +1258,7 @@ fn a_facts_marker_a_writer_did_not_write_is_named_not_skipped() {
 /// its dated ones for the refold that writes them (decision 0089 ruling 4).
 #[test]
 fn a_checkpoint_marker_off_its_fold_is_a_lag_not_a_disagreement() {
-    for column in ["facts", "facts_seq"] {
+    for column in ["facts", "facts_seq", "repeat"] {
         let (_dir, mut store) = store();
         let (event, _held) = one_kept(&mut store, json!({"step": "seat-turn"}));
         let edit =
@@ -1398,7 +1463,7 @@ fn an_oversized_legacy_checkpoint_does_not_block_the_journal() {
     drop(store);
     let store = Store::open(&path).unwrap();
     assert!(!backfilled(&store.conn).unwrap());
-    assert_eq!(kept(&store, "healthy", healthy.seq)[10], Value::Integer(1));
+    assert_eq!(kept(&store, "healthy", healthy.seq)[11], Value::Integer(1));
 }
 
 /// A run a peer moves while the checkpoint backfill reads it is left for
@@ -1438,7 +1503,7 @@ fn a_backfill_whose_head_moved_stays_unfinished() {
         })
         .unwrap();
     let store = unfinished_then_backfilled(store, moved);
-    assert_eq!(kept(&store, "r", first.seq)[10], Value::Integer(1));
+    assert_eq!(kept(&store, "r", first.seq)[11], Value::Integer(1));
     assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
 }
 
@@ -1560,10 +1625,10 @@ fn a_run_that_does_not_load_keeps_its_checkpoints_for_the_doctor() {
         ),
         "{refused:?}"
     );
-    assert_eq!(kept(&store, "broken", 3)[10], Value::Null);
+    assert_eq!(kept(&store, "broken", 3)[11], Value::Null);
     store.checkpoint_behind_with(|_| {}).unwrap();
     assert!(!backfilled(&store.conn).unwrap());
-    assert_eq!(kept(&store, "broken", 3)[10], Value::Null);
+    assert_eq!(kept(&store, "broken", 3)[11], Value::Null);
 }
 
 /// A checkpoint write the journal refuses fails the checkpoint backfill by
@@ -1589,9 +1654,177 @@ fn a_refused_checkpoint_backfill_errors() {
         "sqlite: the index refuses the backfill"
     );
     assert!(!backfilled(&store.conn).unwrap());
-    assert_eq!(kept(&store, "r", 3)[10], Value::Null);
+    assert_eq!(kept(&store, "r", 3)[11], Value::Null);
     store.conn.execute_batch("DROP TRIGGER refusing").unwrap();
     store.checkpoint_behind_with(|_| {}).unwrap();
     assert!(backfilled(&store.conn).unwrap());
-    assert_eq!(kept(&store, "r", 3)[10], Value::Integer(1));
+    assert_eq!(kept(&store, "r", 3)[11], Value::Integer(1));
+}
+
+/// A checkpoint row's `repeat` flag, as its writer wrote it.
+fn repeated(store: &Store, run_id: &str, seq: u64) -> Value {
+    crate::test_support::kept_facts(store, run_id, seq, &["repeat"]).remove(0)
+}
+
+/// A streamed message's turns repeat the usage of the site's last metered
+/// turn and are flagged 1 after the first; a turn with another usage, or
+/// another site's turn, is 0 (decision 0089 ruling 7).
+#[test]
+fn a_turn_repeating_its_site_s_last_message_is_flagged() {
+    let (_dir, mut store) = store();
+    opened(&mut store, "r", "implement", &[]);
+    let first = append_checkpoint(
+        &mut store,
+        json!({"step": "seat-turn", "input_tokens": 10, "output_tokens": 4}),
+    );
+    let second = append_checkpoint(
+        &mut store,
+        json!({"step": "seat-turn", "input_tokens": 10, "output_tokens": 4}),
+    );
+    let third = append_checkpoint(
+        &mut store,
+        json!({"step": "seat-turn", "input_tokens": 12, "output_tokens": 5}),
+    );
+    let fourth = append_checkpoint(
+        &mut store,
+        json!({"step": "seat-turn", "input_tokens": 12, "output_tokens": 5}),
+    );
+    assert_eq!(repeated(&store, "r", first.seq), Value::Integer(0));
+    assert_eq!(repeated(&store, "r", second.seq), Value::Integer(1));
+    assert_eq!(repeated(&store, "r", third.seq), Value::Integer(0));
+    assert_eq!(repeated(&store, "r", fourth.seq), Value::Integer(1));
+    // A turn carrying no usage is no message again, and moves nothing.
+    let bare = append_checkpoint(&mut store, json!({"step": "tool-use"}));
+    assert_eq!(repeated(&store, "r", bare.seq), Value::Integer(0));
+    let again = append_checkpoint(
+        &mut store,
+        json!({"step": "seat-turn", "input_tokens": 12, "output_tokens": 5}),
+    );
+    assert_eq!(repeated(&store, "r", again.seq), Value::Integer(1));
+    // Another site's identical turn is its own first message.
+    let other = append(
+        &mut store,
+        "r",
+        EventType::EffectCheckpointed,
+        checkpoint_at(
+            "b",
+            Some("m"),
+            json!({"step": "seat-turn", "input_tokens": 10, "output_tokens": 4}),
+        ),
+    );
+    assert_eq!(repeated(&store, "r", other.seq), Value::Integer(0));
+}
+
+/// Every fixture journal's `repeat` flags are the ones the messages' reading
+/// gives: a turn whose usage its site's last metered turn carried is the
+/// message again (decision 0089 ruling 7).
+#[test]
+fn every_fixture_flags_the_turns_its_site_s_last_message_repeats() {
+    use brokkr_core::seat::meter::once;
+    use brokkr_core::summary::{checkpoints, Checkpoint};
+    use std::collections::BTreeMap;
+
+    let (_dir, mut store) = store();
+    let mut fixtures = planted_fixtures(&store);
+    // A streamed message: the same usage on two turns of one site, which
+    // the fixtures may hold none of, so the reading is proven past them.
+    let message = || {
+        checkpoint(
+            Some("m"),
+            json!({"step": "seat-turn", "input_tokens": 10, "output_tokens": 4}),
+        )
+    };
+    let streamed = chained(
+        "streamed",
+        vec![
+            (EventType::EffectCheckpointed, message()),
+            (EventType::EffectCheckpointed, message()),
+            (
+                EventType::EffectCheckpointed,
+                checkpoint(
+                    Some("m"),
+                    json!({"step": "seat-turn", "input_tokens": 12, "output_tokens": 5}),
+                ),
+            ),
+        ],
+    );
+    plant_older_writer(&store, "streamed", &streamed);
+    fixtures.push(("streamed".to_string(), streamed));
+    store.checkpoint_behind_with(|_| {}).unwrap();
+    let mut wrong = Vec::new();
+    for (run_id, events) in fixtures {
+        let read = checkpoints(&events);
+        let mut sites: BTreeMap<(String, Option<String>), Vec<&Checkpoint>> = BTreeMap::new();
+        for checkpoint in &read {
+            sites
+                .entry((checkpoint.attempt_id.clone(), checkpoint.member.clone()))
+                .or_default()
+                .push(checkpoint);
+        }
+        let mut expected = BTreeMap::new();
+        for site in sites.values() {
+            let before: Vec<Option<_>> = site
+                .iter()
+                .map(|checkpoint| checkpoint.meter.usage().cloned())
+                .collect();
+            let mut meters: Vec<_> = site
+                .iter()
+                .map(|checkpoint| checkpoint.meter.clone())
+                .collect();
+            once(meters.iter_mut());
+            for (at, checkpoint) in site.iter().enumerate() {
+                let after = meters[at].usage().is_some();
+                expected.insert(checkpoint.seq, before[at].is_some() && !after);
+            }
+        }
+        for checkpoint in &read {
+            let want = expected[&checkpoint.seq];
+            let found =
+                repeated(&store, &run_id, checkpoint.seq) == Value::Integer(i64::from(want));
+            if !found {
+                wrong.push(format!(
+                    "{run_id}: checkpoint {} repeat {:?}, read {want}",
+                    checkpoint.seq,
+                    repeated(&store, &run_id, checkpoint.seq)
+                ));
+            }
+        }
+    }
+    assert_eq!(wrong, Vec::<String>::new());
+}
+
+/// A start naming an attempt already started opens another site, and its
+/// first turn repeating the earlier site's usage is not the message again:
+/// `repeat` follows the site's boundaries, as `meter::once` does
+/// (decision 0089 rulings 4 and 7).
+#[test]
+fn a_reopened_site_s_first_turn_does_not_repeat_the_earlier_site_s() {
+    let (_dir, mut store) = store();
+    opened(&mut store, "r", "implement", &[]);
+    append(
+        &mut store,
+        "r",
+        EventType::EffectRequested,
+        json!({"effect_id": "fx", "seat": "worker", "phase": "implement"}),
+    );
+    started(&mut store, "r", "a", Some("m"), "anthropic");
+    let first = append_checkpoint(
+        &mut store,
+        json!({"step": "seat-turn", "input_tokens": 10, "output_tokens": 4}),
+    );
+    failed(&mut store, "r", "a");
+    started(&mut store, "r", "a", Some("m"), "anthropic");
+    let second = append_checkpoint(
+        &mut store,
+        json!({"step": "seat-turn", "input_tokens": 10, "output_tokens": 4}),
+    );
+    assert_eq!(repeated(&store, "r", first.seq), Value::Integer(0));
+    assert_eq!(repeated(&store, "r", second.seq), Value::Integer(0));
+    let events = store.load("r").unwrap();
+    let sites = brokkr_core::summary::sites(&events);
+    assert_eq!(sites.len(), 2);
+    assert_eq!(
+        sites[1].metered[0].meter.usage().unwrap().input_tokens,
+        Some(10)
+    );
 }

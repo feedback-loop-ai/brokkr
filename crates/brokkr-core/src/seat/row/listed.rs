@@ -36,18 +36,25 @@ pub(super) struct Listed {
 impl Listed {
     /// A checkpoint at `seq` on `member`'s row, as the rail reads its step
     /// and member, and the dashboard its model.
-    pub(super) fn noted(&mut self, seq: u64, checkpoint: &Value, member: &Member) {
-        if !self.finished(seq, checkpoint) && *member != Member::Seat {
+    pub(super) fn noted(
+        &mut self,
+        seq: u64,
+        model: Option<&str>,
+        step: Option<&str>,
+        step_name: Option<&str>,
+        member: &Member,
+    ) {
+        if !self.finished(seq, step, step_name) && *member != Member::Seat {
             self.tagged.get_or_insert(seq);
         }
-        self.served(field(checkpoint, "model"));
+        self.served(model);
     }
 
-    /// Whether `checkpoint` is a `sequence-step-finished` record, keeping
-    /// the step it names at `seq` where this row has not kept it yet.
-    fn finished(&mut self, seq: u64, checkpoint: &Value) -> bool {
-        let finished = field(checkpoint, "step") == Some("sequence-step-finished");
-        let name = field(checkpoint, "step_name").filter(|_| finished);
+    /// Whether `step` is a `sequence-step-finished` record, keeping the
+    /// step it names at `seq` where this row has not kept it yet.
+    fn finished(&mut self, seq: u64, step: Option<&str>, step_name: Option<&str>) -> bool {
+        let finished = step == Some("sequence-step-finished");
+        let name = step_name.filter(|_| finished);
         if let Some(name) = name.filter(|name| !known(&self.steps, name)) {
             self.steps.push((seq, name.to_string()));
         }
@@ -59,7 +66,11 @@ impl Listed {
     /// as the live block reads it, its line. The dashboard joins its model
     /// to no visit.
     fn early(&mut self, seq: u64, attempt: Option<&str>, checkpoint: &Value) {
-        let finished = self.finished(seq, checkpoint);
+        let finished = self.finished(
+            seq,
+            field(checkpoint, "step"),
+            field(checkpoint, "step_name"),
+        );
         let member = field(checkpoint, "member").filter(|_| !finished);
         if let Some(member) = member.filter(|member| !known(&self.early, member)) {
             self.early.push((seq, member.to_string()));
@@ -227,6 +238,10 @@ impl Seats {
         let attempt = field(payload, "attempt_id");
         let own = self.by_effect.get(effect_id);
         let own = own.map(|&request| self.at[&(request, None)][&Member::Seat]);
+        // A checkpoint after a held start belongs to the row the request
+        // replays, not to the live block's early lines: the row already
+        // keeps it (`Seats::deferred`).
+        let held = self.awaiting(effect_id, attempt);
         let aside = &mut self.aside;
         match Kind::of(event.event_type) {
             Kind::Requested => {
@@ -234,7 +249,7 @@ impl Seats {
                     self.rows[own].listed = early;
                 }
             }
-            Kind::Checkpointed if own.is_none() => {
+            Kind::Checkpointed if own.is_none() && !held => {
                 let checkpoint = payload.get("checkpoint").unwrap_or(&Value::Null);
                 let early = aside.early.entry(effect_id.to_string()).or_default();
                 early.early(event.seq, attempt, checkpoint);

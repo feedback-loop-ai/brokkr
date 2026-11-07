@@ -6,12 +6,14 @@
 
 use super::*;
 use crate::test_support::{
-    every_run_reads_as_its_fold, import_fixtures, lags, plant_summary_writer, unseat,
+    disagreements, every_run_reads_as_its_fold, failed, import_fixtures, lags, opened,
+    plant_envelope, plant_summary_writer, planted_fixtures, refolded, started, unseat,
 };
 use crate::tests::envelope_builder::EnvelopeBuilder;
 use crate::tests::walk::cut_short;
 use crate::tests::{store, write_lock_on};
 use brokkr_core::envelope::{EventEnvelope, EventType};
+use brokkr_core::seat::row::{facts, Outcome, Provider};
 use serde_json::{json, Value as Json};
 
 fn append(store: &mut Store, run_id: &str, event_type: EventType, payload: Json) {
@@ -92,6 +94,23 @@ fn next(store: &Store, run_id: &str, event_type: EventType, payload: Json) -> Ev
         .sealed()
 }
 
+/// The next event of `run_id`, stamped with a time no reader parses and
+/// sealed over it, as an older writer leaves it.
+fn unreadable(store: &Store, run_id: &str, event_type: EventType, payload: Json) -> EventEnvelope {
+    let mut event = next(store, run_id, event_type, payload);
+    event.recorded_at = "not a stamp".into();
+    event.event_hash = event.compute_hash();
+    event
+}
+
+/// Plant `event` as an older writer leaves it, mark the run a lag, and
+/// open the journal again to refold it.
+fn planted_and_refolded(mut store: Store, run_id: &str, event: &EventEnvelope) -> Store {
+    plant_envelope(&store.conn, event).unwrap();
+    lags(&mut store, &[run_id]);
+    refolded(store)
+}
+
 #[test]
 fn a_new_run_has_its_seat_head_and_no_row() {
     let (_dir, mut store) = store();
@@ -143,8 +162,9 @@ fn a_checkpoint_append_writes_the_rows_it_moved_and_the_seat_head() {
 /// no seat head, its rows not keeping that start's live block: they read
 /// stale, and the binding holds them to their fold all the same, an edited
 /// row or a seat head kept for them named behind. A writable open refolds
-/// the run and keeps none still. The terminal ending that start keeps the
-/// head again, every row its fold's.
+/// the run and keeps none still. The terminal ending that start keeps none
+/// either, because the start landed before its effect's request
+/// (decision 0089 ruling 8).
 #[test]
 fn a_live_start_no_row_is_of_keeps_no_seat_head() {
     let (_dir, mut store) = store();
@@ -172,8 +192,39 @@ fn a_live_start_no_row_is_of_keeps_no_seat_head() {
     let peer = Store::open(store.path()).unwrap();
     assert_eq!(head(&peer, "r"), None);
     append(&mut store, "r", EventType::EffectSucceeded, unasked);
-    assert_eq!(head(&store, "r"), Some(store.head_hash("r").unwrap()));
-    assert_eq!(read(&store, "r"), folded_rows(&store, "r"));
+    assert_eq!(head(&store, "r"), None);
+    assert_eq!(store.seat_rows("r").unwrap(), SeatRows::Stale);
+}
+
+/// A terminal of a provider-bearing start whose effect was never asked
+/// keeps no seat head: the start and its terminal landed before the
+/// request, so the rows read stale after it too, and every reader reads
+/// the run whole, though the request still replays them into the rows
+/// (review 753s4s3, M2; decision 0089 ruling 8).
+#[test]
+fn a_terminated_unrequested_site_keeps_no_seat_head() {
+    let (_dir, mut store) = store();
+    seated(&mut store, "r");
+    let unasked = json!({"effect_id": "other", "attempt_id": "b",
+                         "provenance": [{"member": "m", "provider": "anthropic"}]});
+    append(&mut store, "r", EventType::EffectStarted, unasked);
+    append(
+        &mut store,
+        "r",
+        EventType::EffectSucceeded,
+        json!({"effect_id": "other", "attempt_id": "b"}),
+    );
+    assert_eq!(head(&store, "r"), None);
+    assert_eq!(store.seat_rows("r").unwrap(), SeatRows::Stale);
+    append(
+        &mut store,
+        "r",
+        EventType::EffectRequested,
+        json!({"effect_id": "other", "seat": "elsewhere"}),
+    );
+    assert_eq!(head(&store, "r"), None);
+    assert_eq!(store.seat_rows("r").unwrap(), SeatRows::Stale);
+    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
 }
 
 /// An append through a store that carries no fold writes no seat row and
@@ -758,13 +809,19 @@ fn a_seat_table_without_a_column_slice_2b_keeps_is_rebuilt_at_a_writable_open() 
         append(&mut store, "r", EventType::EffectCheckpointed, stepped);
         let tagged = checkpoint(Some("b"), 1);
         append(&mut store, "r", EventType::EffectCheckpointed, tagged);
-        let early = json!({"member": "c", "step": "seat-turn", "turn": 1, "tool": "Read"});
-        let early = json!({"effect_id": "fy", "attempt_id": "z", "checkpoint": early});
-        append(&mut store, "r", EventType::EffectCheckpointed, early);
-        let asked = json!({"effect_id": "fy", "seat": "other"});
-        append(&mut store, "r", EventType::EffectRequested, asked);
-        let started = json!({"effect_id": "fy", "attempt_id": "z"});
-        append(&mut store, "r", EventType::EffectStarted, started);
+        // The early line's column needs a record before its effect's
+        // request, which keeps no seat head (decision 0089 ruling 8): only
+        // the columns that read it plant one.
+        let early = matches!(column, "early_tags" | "early_lines" | "live");
+        if early {
+            let line = json!({"member": "c", "step": "seat-turn", "turn": 1, "tool": "Read"});
+            let line = json!({"effect_id": "fy", "attempt_id": "z", "checkpoint": line});
+            append(&mut store, "r", EventType::EffectCheckpointed, line);
+            let asked = json!({"effect_id": "fy", "seat": "other"});
+            append(&mut store, "r", EventType::EffectRequested, asked);
+            let started = json!({"effect_id": "fy", "attempt_id": "z"});
+            append(&mut store, "r", EventType::EffectStarted, started);
+        }
         let path = store.path().to_path_buf();
         drop(store);
         let raw = rusqlite::Connection::open(&path).unwrap();
@@ -774,13 +831,22 @@ fn a_seat_table_without_a_column_slice_2b_keeps_is_rebuilt_at_a_writable_open() 
         assert!(!seats_intact(&reader.conn).unwrap(), "{column}");
         assert_eq!(reader.seat_rows("r").unwrap(), SeatRows::Stale, "{column}");
         let store = Store::open(&path).unwrap();
-        let rows = store.seat_rows("r").unwrap();
-        assert_eq!(
-            rows,
-            SeatRows::Current(folded_rows(&store, "r")),
-            "{column}"
-        );
-        let read = read(&store, "r");
+        let read = match store.seat_rows("r").unwrap() {
+            SeatRows::Current(rows) => {
+                assert!(!early, "{column}: a kept row is no early record's");
+                assert_eq!(rows, folded_rows(&store, "r"), "{column}");
+                rows
+            }
+            SeatRows::Stale => {
+                assert!(early, "{column}: a kept head is expected");
+                assert_eq!(
+                    every_run_reads_as_its_fold(&store),
+                    Vec::<String>::new(),
+                    "{column}"
+                );
+                folded_rows(&store, "r")
+            }
+        };
         let facts = brokkr_core::seat::row::facts(&read);
         let target = facts[0].target.as_deref();
         assert_eq!(target, Some("a.rs"), "{column}");
@@ -789,9 +855,14 @@ fn a_seat_table_without_a_column_slice_2b_keeps_is_rebuilt_at_a_writable_open() 
         assert_eq!(listed, (words("draft"), words("b")), "{column}");
         let models = brokkr_core::seat::row::models(&read, 0, u64::MAX);
         assert_eq!(models.into_iter().collect::<Vec<_>>(), words("opus"));
-        let turned = Some(("1".to_string(), "Read".to_string()));
-        let live = brokkr_core::seat::row::live(&read);
-        assert_eq!(live, [("?:c".to_string(), turned)], "{column}");
+        if early {
+            let live = brokkr_core::seat::row::live(&read);
+            let expected = [(
+                "?:c".to_string(),
+                Some(("1".to_string(), "Read".to_string())),
+            )];
+            assert_eq!(live, expected, "{column}");
+        }
     }
 }
 
@@ -818,8 +889,9 @@ fn a_seat_table_without_the_accounting_s_columns_gains_them_at_a_writable_open()
     let reader = Store::open_read_only(&path).unwrap();
     let count = "SELECT count(*) FROM pragma_table_info('seat_summary')";
     let columns: i64 = reader.conn.query_row(count, [], |row| row.get(0)).unwrap();
-    // Its run and place, the seat view's 69 columns and the digest.
-    assert_eq!(columns, 2 + 69 + 1);
+    // Its run and place, the seat view's 69 columns, the seats' six dated
+    // ones, and the digest.
+    assert_eq!(columns, 2 + 69 + 6 + 1);
     assert!(!seats_intact(&reader.conn).unwrap());
     assert_eq!(reader.seat_rows("r").unwrap(), SeatRows::Stale);
     let mut store = Store::open(&path).unwrap();
@@ -931,6 +1003,109 @@ fn rows_another_build_wrote_at_the_run_s_head_lag_until_this_build_writes_them()
     let costs = brokkr_core::seat::row::costs(&rows);
     assert_eq!(costs, brokkr_core::seat::seat_costs(&events));
     assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+}
+
+/// A run at its third event: started, `work` entered, and `fx`'s attempt
+/// opened under member `m`'s anthropic provider.
+fn early_begun(store: &mut Store) {
+    store
+        .create_run("r", "a feature", "self", &json!({}))
+        .unwrap();
+    append(store, "r", EventType::RunStarted, json!({"manifest": {}}));
+    append(
+        store,
+        "r",
+        EventType::PhaseEntered,
+        json!({"phase": "work"}),
+    );
+    let provenance = json!([{"member": "m", "provider": "anthropic"}]);
+    let started = json!({"effect_id": "fx", "attempt_id": "a", "provenance": provenance});
+    append(store, "r", EventType::EffectStarted, started);
+}
+
+/// `fx` asked of `worker` in `work`, after the early records.
+fn early_asked(store: &mut Store) {
+    let asked = json!({"effect_id": "fx", "seat": "worker", "phase": "work"});
+    append(store, "r", EventType::EffectRequested, asked);
+}
+
+/// A `seat-turn` checkpoint of `fx`'s attempt `a` by member `m`.
+fn early_checkpoint(store: &mut Store, turn: u64, tool: &str) {
+    let checkpoint = json!({"member": "m", "step": "seat-turn", "turn": turn,
+                            "tool": tool, "model": "opus", "input_tokens": 10});
+    let payload = json!({"effect_id": "fx", "attempt_id": "a", "checkpoint": checkpoint});
+    append(store, "r", EventType::EffectCheckpointed, payload);
+}
+
+/// The head a build before this one wrote for `run_id`, as 90064041b did:
+/// the run's head in a shape whose digest names the rows' declared columns
+/// alone. This build's shape also names its projection, so the older head
+/// is another build's (#753). Written beside the store that folded the run,
+/// as the older build left it.
+fn previous_head(path: &std::path::Path, run_id: &str, head: (u64, &str)) {
+    let conn = rusqlite::Connection::open(path).unwrap();
+    let shape = sha256_bytes(declared().as_bytes());
+    conn.execute(
+        "INSERT OR REPLACE INTO seat_head (run_id, folded_seq, folded_hash, shape)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![run_id, head.0 as i64, head.1, shape],
+    )
+    .unwrap();
+}
+
+/// Open `path` read-only, then writable, and assert `r` reads stale at
+/// both, and that the writable open refolded it and kept no head: a head a
+/// previous projection wrote cannot vouch for rows this one keeps none of
+/// (decision 0089 ruling 8).
+fn stale_at_both_opens(path: &std::path::Path) {
+    let reader = Store::open_read_only(path).unwrap();
+    assert_eq!(reader.seat_rows("r").unwrap(), SeatRows::Stale, "read-only");
+    drop(reader);
+    let store = Store::open(path).unwrap();
+    let (kept, rows) = (head(&store, "r"), store.seat_rows("r").unwrap());
+    assert_eq!((kept, rows), (None, SeatRows::Stale), "writable");
+    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+}
+
+/// Leave the head a build before this one wrote at `store`'s run head,
+/// then assert it lags at both opens.
+fn older_head_lags(store: Store) {
+    assert_eq!(head(&store, "r"), None);
+    let (seq, hash) = store.head_hash("r").unwrap();
+    let path = store.path().to_path_buf();
+    drop(store);
+    previous_head(&path, "r", (seq, &hash));
+    stale_at_both_opens(&path);
+}
+
+/// Review 753s4s4's residual: the head a build before this one wrote for a
+/// run whose checkpoint landed before its effect's request stands at the
+/// run's head over rows this build writes, and only the projection's
+/// identity tells them apart. It lags at a read-only open and at a
+/// writable one, which refolds the run and keeps none (decision 0089
+/// ruling 8).
+#[test]
+fn a_previous_build_s_head_lags_where_a_checkpoint_precedes_its_request() {
+    let (_dir, mut store) = store();
+    early_begun(&mut store);
+    early_checkpoint(&mut store, 1, "Read");
+    early_asked(&mut store);
+    early_checkpoint(&mut store, 2, "Write");
+    older_head_lags(store);
+}
+
+/// Review 753s4s4's residual, the terminal case: the head a build before
+/// this one wrote for a run whose terminal landed before its effect's
+/// request lags at a read-only open and at a writable one, which refolds
+/// the run and keeps none (decision 0089 ruling 8).
+#[test]
+fn a_previous_build_s_head_lags_where_a_terminal_precedes_its_request() {
+    let (_dir, mut store) = store();
+    early_begun(&mut store);
+    let failed = json!({"effect_id": "fx", "attempt_id": "a"});
+    append(&mut store, "r", EventType::EffectFailed, failed);
+    early_asked(&mut store);
+    older_head_lags(store);
 }
 
 /// Seat rows and a seat head of a run the journal does not hold read as
@@ -1069,4 +1244,723 @@ fn seat_rows_that_part_from_the_fold_are_named_by_their_place_and_how() {
         &mut store,
         &["missing", "edited", "stray", "under", "empty"],
     );
+}
+
+// ------------------------------------------------- the seats' dated facts
+
+/// A row's column by name, as its writer's data holds it.
+fn column(row: &SeatRow, name: &str) -> Datum {
+    let at = SeatRow::COLUMNS
+        .iter()
+        .position(|(column, _)| *column == name)
+        .unwrap_or_else(|| panic!("{name} is a column"));
+    row.data()[at].clone()
+}
+
+/// A row's section of text, where its data holds one.
+fn held(row: &SeatRow, name: &str) -> Option<String> {
+    match column(row, name) {
+        Datum::Text(text) => Some(text),
+        Datum::Null => None,
+        Datum::Integer(value) => panic!("{name} is text, not {value}"),
+    }
+}
+
+/// A row's integer column, where its data holds one.
+fn numeric(row: &SeatRow, name: &str) -> Option<i64> {
+    match column(row, name) {
+        Datum::Integer(value) => Some(value),
+        Datum::Null => None,
+        Datum::Text(text) => panic!("{name} is an integer, not {text}"),
+    }
+}
+
+/// The row of the attempt `attempt` naming `member`, `None` for the seat's
+/// own.
+fn attempted<'a>(rows: &'a [SeatRow], attempt: &str, member: Option<&str>) -> &'a SeatRow {
+    let found = rows.iter().find(|row| {
+        held(row, "attempt_id").as_deref() == Some(attempt)
+            && held(row, "member").as_deref() == member
+    });
+    found.unwrap_or_else(|| panic!("attempt {attempt} names {member:?}"))
+}
+
+/// What the site a row states metering by: the rule `Metering` indexes.
+fn rule(row: &SeatRow) -> i64 {
+    numeric(row, "metering").expect("a row states a metering rule")
+}
+
+/// `name` cut to `bytes`, as a datum.
+fn rule_of(metering: brokkr_core::seat::meter::Metering) -> i64 {
+    match metering {
+        brokkr_core::seat::meter::Metering::Session => 0,
+        brokkr_core::seat::meter::Metering::Turns => 1,
+        brokkr_core::seat::meter::Metering::Settled => 2,
+    }
+}
+
+fn cut(name: Option<&str>, bytes: usize) -> Datum {
+    name.map_or(Datum::Null, |name| {
+        Datum::Text(
+            brokkr_core::summary::Bounded::within(name, bytes)
+                .cut
+                .to_string(),
+        )
+    })
+}
+
+/// A run whose attempt `a` starts with the provider `provider`, after
+/// entering `phase`, and whose seat is `worker`.
+fn sited(store: &mut Store, run_id: &str, phase: &str, provider: &str) {
+    store
+        .create_run(run_id, "a feature", "self", &json!({}))
+        .unwrap();
+    append(
+        store,
+        run_id,
+        EventType::RunStarted,
+        json!({"feature": "a feature", "manifest": {}}),
+    );
+    append(
+        store,
+        run_id,
+        EventType::PhaseEntered,
+        json!({"phase": phase}),
+    );
+    append(
+        store,
+        run_id,
+        EventType::EffectRequested,
+        json!({"effect_id": "fx", "seat": "worker", "phase": phase}),
+    );
+    append(
+        store,
+        run_id,
+        EventType::EffectStarted,
+        json!({"effect_id": "fx", "attempt_id": "a",
+               "provenance": [{"member": null, "provider": provider}]}),
+    );
+}
+
+/// A run whose site `a` starts under the provider `anthropic` and meters
+/// one `opus` turn.
+fn sited_turn(store: &mut Store, run_id: &str) {
+    sited(store, run_id, "work", "anthropic");
+    append(
+        store,
+        run_id,
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "attempt_id": "a",
+               "checkpoint": {"step": "seat-turn", "model": "opus", "input_tokens": 1}}),
+    );
+}
+
+/// A run whose attempt `a` starts under `provider` before its effect is
+/// asked: the request that asks it comes later.
+fn started_before_request(store: &mut Store, run_id: &str, provider: &str) {
+    opened(store, run_id, "work", &[]);
+    append(
+        store,
+        run_id,
+        EventType::EffectStarted,
+        json!({"effect_id": "fx", "attempt_id": "a",
+               "provenance": [{"member": null, "provider": provider}]}),
+    );
+}
+
+/// A run whose checkpoint lands after its attempt's start but before the
+/// request that asks the effect: the request opens the site with the
+/// checkpoint's model and metering rule (review 753s4s3, M1).
+fn checkpoint_before_request(store: &mut Store, run_id: &str) {
+    started_before_request(store, run_id, "anthropic");
+    recorded(
+        store,
+        run_id,
+        json!({"step": "seat-turn", "model": "opus", "input_tokens": 1}),
+    );
+    requested(store, run_id);
+}
+
+/// A run whose attempt `a` starts before its effect is asked, as main's
+/// walk reads a start before its request: the request opens the site the
+/// start named, and the attempt's checkpoint and failure follow it.
+fn early_start(store: &mut Store, run_id: &str) {
+    started_before_request(store, run_id, "anthropic");
+    append(
+        store,
+        run_id,
+        EventType::EffectRequested,
+        json!({"effect_id": "fx", "seat": "worker", "phase": "work"}),
+    );
+    append(
+        store,
+        run_id,
+        EventType::EffectCheckpointed,
+        checkpoint(None, 1),
+    );
+    append(
+        store,
+        run_id,
+        EventType::EffectFailed,
+        json!({"effect_id": "fx", "attempt_id": "a"}),
+    );
+}
+
+/// `run_id`'s effect `fx` requested, its seat the worker's.
+fn requested(store: &mut Store, run_id: &str) {
+    append(
+        store,
+        run_id,
+        EventType::EffectRequested,
+        json!({"effect_id": "fx", "seat": "worker", "phase": "work"}),
+    );
+}
+
+/// `run_id`'s events read whole, and the sites they read, with the rows
+/// the store keeps of them.
+fn sites_and_rows(store: &Store, run_id: &str) -> (Vec<brokkr_core::summary::Site>, Vec<SeatRow>) {
+    let events = store.load(run_id).unwrap();
+    (brokkr_core::summary::sites(&events), read(store, run_id))
+}
+
+/// The rows among `rows` that a site opened.
+fn sited_rows(rows: &[SeatRow]) -> Vec<&SeatRow> {
+    rows.iter()
+        .filter(|row| numeric(row, "site").is_some())
+        .collect()
+}
+
+/// Append a checkpoint of attempt `a` recording `record`.
+fn recorded(store: &mut Store, run_id: &str, record: Json) {
+    append(
+        store,
+        run_id,
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "attempt_id": "a", "checkpoint": record}),
+    );
+}
+
+/// A run whose attempt `a` starts under `anthropic`, meters a checkpoint,
+/// fails, and is started again naming no provider: the participant's
+/// current facts move to the restart while the earlier site keeps its own
+/// dated facts.
+fn providerless_restart(store: &mut Store, run_id: &str) {
+    opened(store, run_id, "work", &[]);
+    requested(store, run_id);
+    started(store, run_id, "a", None, "anthropic");
+    append(
+        store,
+        run_id,
+        EventType::EffectCheckpointed,
+        checkpoint(None, 1),
+    );
+    failed(store, run_id, "a");
+    append(
+        store,
+        run_id,
+        EventType::EffectStarted,
+        json!({"effect_id": "fx", "attempt_id": "a",
+               "provenance": [{"member": null, "provider": null}]}),
+    );
+}
+
+/// A run whose attempt `a`/`m` finishes a session, fails, and starts again
+/// to finish another: main keys the session flag by the participant, so the
+/// earlier record is not its session when the later one lands.
+fn reopened_sessions(store: &mut Store, run_id: &str) {
+    opened(store, run_id, "work", &[]);
+    requested(store, run_id);
+    started(store, run_id, "a", Some("m"), "anthropic");
+    recorded(
+        store,
+        run_id,
+        json!({"member": "m", "step": "seat-turn", "input_tokens": 5}),
+    );
+    recorded(
+        store,
+        run_id,
+        json!({"member": "m", "step": "claude-session-finished", "output_tokens": 100}),
+    );
+    failed(store, run_id, "a");
+    started(store, run_id, "a", Some("m"), "anthropic");
+    recorded(
+        store,
+        run_id,
+        json!({"member": "m", "step": "claude-session-finished", "output_tokens": 200}),
+    );
+}
+
+/// The chief's cases, read as journals beside the fixtures: a start before
+/// its request, a providerless restart, and a participant's second session.
+fn chief_fixtures(store: &mut Store) -> Vec<(String, Vec<EventEnvelope>)> {
+    type Build = fn(&mut Store, &str);
+    let cases: [(&str, Build); 4] = [
+        ("early-start", early_start),
+        ("providerless-restart", providerless_restart),
+        ("reopened-sessions", reopened_sessions),
+        ("checkpoint-before-request", checkpoint_before_request),
+    ];
+    cases
+        .into_iter()
+        .map(|(run_id, build)| {
+            build(store, run_id);
+            (run_id.to_string(), store.load(run_id).unwrap())
+        })
+        .collect()
+}
+
+#[test]
+fn every_fixture_keeps_the_seat_facts_the_run_reads() {
+    let (_dir, mut store) = store();
+    let mut fixtures = planted_fixtures(&store);
+    fixtures.extend(chief_fixtures(&mut store));
+    let store = refolded(store);
+    let mut wrong = Vec::new();
+    for (run_id, events) in fixtures {
+        // A run whose chain does not load folds nowhere, so its rows read
+        // stale and a reader reads it whole (decision 0089 ruling 8).
+        if store.load(&run_id).is_err() {
+            continue;
+        }
+        let account = Account::whole(&run_id, &events);
+        let sites = brokkr_core::summary::sites(&events);
+        let rows = match store.seat_rows(&run_id).unwrap() {
+            SeatRows::Current(rows) => rows,
+            SeatRows::Stale => {
+                // A record before its effect's request withholds the seat
+                // head (decision 0089 ruling 8): the table still holds the
+                // run's rows, held to its fold, and the site columns read
+                // as the fold's own rows state them.
+                assert!(
+                    !account.seats_kept(),
+                    "{run_id}: a stale read with a kept head"
+                );
+                let compared =
+                    crate::test_support::named(&run_id, store.compared(&run_id, || {}).unwrap());
+                assert_eq!(compared, None, "{run_id}");
+                account.seats().to_vec()
+            }
+        };
+        let mut matched = vec![false; sites.len()];
+        for row in &rows {
+            let Some(_) = numeric(row, "site") else {
+                continue;
+            };
+            // A site's own provider is its key: its whole provider may
+            // have moved to none when its participant restarted.
+            let provider = held(row, "provider_key").expect("a site's row states its provider key");
+            let attempt = held(row, "attempt_id").expect("a site's row states its attempt");
+            let member = held(row, "member");
+            let found = sites.iter().enumerate().position(|(at, site)| {
+                !matched[at]
+                    && site.attempt_id == attempt
+                    && site.member.as_deref() == member.as_deref()
+            });
+            let Some(at) = found else {
+                wrong.push(format!(
+                    "{run_id}: row {attempt}/{member:?} names provider {provider}, no site"
+                ));
+                continue;
+            };
+            matched[at] = true;
+            let site = &sites[at];
+            let want = [
+                ("started_ms", Datum::Integer(site.at)),
+                (
+                    "phase_key",
+                    cut(site.phase.as_deref(), brokkr_core::summary::NAME_BYTES),
+                ),
+                (
+                    "provider_key",
+                    cut(Some(&site.provider), brokkr_core::summary::NAME_BYTES),
+                ),
+                (
+                    "model_key",
+                    cut(site.model.as_deref(), brokkr_core::summary::MODEL_BYTES),
+                ),
+                ("metering", Datum::Integer(rule_of(site.metering))),
+            ];
+            for (name, want) in want {
+                let got = column(row, name);
+                if got != want {
+                    wrong.push(format!(
+                        "{run_id}: row {attempt}/{member:?} {name} {got:?}, read {want:?}"
+                    ));
+                }
+            }
+        }
+        for (at, site) in sites.iter().enumerate() {
+            if !matched[at] {
+                wrong.push(format!(
+                    "{run_id}: site {}/{:?} has no seat row",
+                    site.attempt_id, site.member
+                ));
+            }
+        }
+        assert_eq!(rows, account.seats().to_vec(), "{run_id}");
+    }
+    assert_eq!(wrong, Vec::<String>::new());
+}
+
+/// A start before its request keeps its site row: the request it waited for
+/// opens the site it named, as main's walk reads it, and the row is core's
+/// own reading of the run. The run keeps no seat head, because the start
+/// landed before its request, so its reader reads it whole (decision 0089
+/// ruling 8).
+#[test]
+fn an_early_start_keeps_its_site_row() {
+    let (_dir, mut store) = store();
+    early_start(&mut store, "r");
+    let events = store.load("r").unwrap();
+    let sites = brokkr_core::summary::sites(&events);
+    let rows = Account::whole("r", &events).seats().to_vec();
+    assert_eq!(store.seat_rows("r").unwrap(), SeatRows::Stale);
+    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+    let sited = sited_rows(&rows);
+    assert_eq!(sites.len(), 1);
+    assert_eq!(sited.len(), 1);
+    assert_eq!(numeric(sited[0], "started_ms"), Some(sites[0].at));
+    assert_eq!(
+        held(sited[0], "provider_key").as_deref(),
+        Some(sites[0].provider.as_str())
+    );
+}
+
+/// A providerless restart reports the participant at work, as main does: the
+/// restart's seq is the attempt's current start, though no site opens and
+/// the earlier site keeps its own provider key.
+#[test]
+fn a_providerless_restart_reports_working() {
+    let (_dir, mut store) = store();
+    providerless_restart(&mut store, "r");
+    let rows = read(&store, "r");
+    assert_eq!(facts(&rows)[0].outcome, Outcome::Working);
+}
+
+/// A providerless restart states the participant's provider as none, as
+/// main does, while the earlier site's own provider key stays what its start
+/// set.
+#[test]
+fn a_providerless_restart_clears_the_provider() {
+    let (_dir, mut store) = store();
+    providerless_restart(&mut store, "r");
+    let rows = read(&store, "r");
+    assert_eq!(facts(&rows)[0].provider, Some(Provider::Unnamed));
+    let site = sited_rows(&rows)[0];
+    assert_eq!(held(site, "provider_key").as_deref(), Some("anthropic"));
+}
+
+/// A site's start, phase, provider and model are written as their columns
+/// state them, each name cut to its bound at a character boundary where it
+/// is stored, the whole name last in the row.
+#[test]
+fn a_site_s_names_are_cut_at_their_bounds_where_they_are_stored() {
+    let (_dir, mut store) = store();
+    let phase = format!("{}é{}", "p".repeat(63), "p".repeat(1024 * 1024));
+    let provider = format!("{}é{}", "q".repeat(63), "q".repeat(1024 * 1024));
+    let model = format!("{}é{}", "m".repeat(79), "m".repeat(200));
+    sited(&mut store, "r", &phase, &provider);
+    // The seat record's fence refuses a model past its `maxLength`, so the
+    // record is planted as an older writer leaves it and the open refolds
+    // the row from it.
+    let event = next(
+        &store,
+        "r",
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "attempt_id": "a",
+               "checkpoint": {"step": "seat-turn", "model": model,
+                              "input_tokens": 1}}),
+    );
+    let store = planted_and_refolded(store, "r", &event);
+    let rows = read(&store, "r");
+    let row = attempted(&rows, "a", None);
+    assert_eq!(held(row, "phase").as_deref(), Some(phase.as_str()));
+    assert_eq!(held(row, "provider").as_deref(), Some(provider.as_str()));
+    assert_eq!(held(row, "model").as_deref(), Some(model.as_str()));
+    assert_eq!(held(row, "phase_key").as_deref(), Some(&phase[..63]));
+    assert_eq!(held(row, "provider_key").as_deref(), Some(&provider[..63]));
+    assert_eq!(held(row, "model_key").as_deref(), Some(&model[..79]));
+    let events = store.load("r").unwrap();
+    assert_eq!(
+        numeric(row, "started_ms"),
+        Some(brokkr_core::summary::sites(&events)[0].at)
+    );
+}
+
+/// A start whose stamp does not parse is no site in brokkr-core's reading,
+/// so it opens no site row and states no provider: no row is selected for a
+/// site the reading never opened (decision 0089 rulings 4 and 7).
+#[test]
+fn an_unreadable_start_selects_no_site() {
+    let (_dir, mut store) = store();
+    opened(
+        &mut store,
+        "r",
+        "implement",
+        &[(
+            EventType::EffectRequested,
+            json!({"effect_id": "fx", "seat": "worker", "phase": "implement"}),
+        )],
+    );
+    let unreadable = unreadable(
+        &store,
+        "r",
+        EventType::EffectStarted,
+        json!({"effect_id": "fx", "attempt_id": "a",
+               "provenance": [{"member": null, "provider": "anthropic"}]}),
+    );
+    let store = planted_and_refolded(store, "r", &unreadable);
+    let rows = read(&store, "r");
+    let selected: Vec<&SeatRow> = rows
+        .iter()
+        .filter(|row| held(row, "provider").is_some())
+        .collect();
+    assert_eq!(selected, Vec::<&SeatRow>::new());
+    let events = store.load("r").unwrap();
+    assert_eq!(brokkr_core::summary::sites(&events), []);
+    assert_eq!(disagreements(&store), Vec::<String>::new());
+}
+
+/// A checkpoint whose stamp does not parse is no record in brokkr-core's
+/// reading, so it moves no site's model key while the whole participant
+/// model keeps the last model any record names (decision 0089 rulings 4
+/// and 7).
+#[test]
+fn an_unreadable_checkpoint_does_not_move_the_site_model_key() {
+    let (_dir, mut store) = store();
+    sited_turn(&mut store, "r");
+    let unreadable = unreadable(
+        &store,
+        "r",
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "attempt_id": "a",
+               "checkpoint": {"step": "seat-turn", "model": "sonnet",
+                              "input_tokens": 2}}),
+    );
+    let store = planted_and_refolded(store, "r", &unreadable);
+    let rows = read(&store, "r");
+    let row = attempted(&rows, "a", None);
+    assert_eq!(held(row, "model").as_deref(), Some("sonnet"));
+    assert_eq!(held(row, "model_key").as_deref(), Some("opus"));
+    let events = store.load("r").unwrap();
+    assert_eq!(
+        brokkr_core::summary::sites(&events)[0].model.as_deref(),
+        Some("opus")
+    );
+    assert_eq!(disagreements(&store), Vec::<String>::new());
+}
+
+/// A site's metering rule is the rule over all its checkpoints, and the
+/// row is rewritten as each checkpoint moves it: its session record alone,
+/// then its turns once a turn carries tokens, then settled once a settling
+/// session record lands.
+#[test]
+fn a_site_s_metering_rule_moves_and_its_row_follows() {
+    let (_dir, mut store) = store();
+    sited(&mut store, "r", "work", "anthropic");
+    let read_rule = |store: &Store| {
+        let rows = read(store, "r");
+        let row = attempted(&rows, "a", None);
+        let account = Account::whole("r", &store.load("r").unwrap());
+        let site = &account.sites()[0];
+        (rule(row), rule_of(site.metering))
+    };
+    assert_eq!(read_rule(&store), (0, 0), "a session record alone");
+    append(
+        &mut store,
+        "r",
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "attempt_id": "a",
+               "checkpoint": {"step": "seat-turn", "input_tokens": 10}}),
+    );
+    assert_eq!(read_rule(&store), (1, 1), "a turn carries tokens");
+    append(
+        &mut store,
+        "r",
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "attempt_id": "a",
+               "checkpoint": {"step": "claude-session-finished", "output_tokens": 3}}),
+    );
+    assert_eq!(read_rule(&store), (2, 2), "a settling session record lands");
+}
+
+/// Ruling 4's comparison holds every seat column the dated facts added to
+/// the fold's row: an edit of one is named by that column, never passed.
+#[test]
+fn each_seat_dated_column_that_is_not_its_fold_s_is_named() {
+    let (_dir, mut store) = store();
+    sited_turn(&mut store, "r");
+    for name in [
+        "started_ms",
+        "phase_key",
+        "provider_key",
+        "model_key",
+        "metering",
+        "site",
+    ] {
+        let held = {
+            let rows = read(&store, "r");
+            column(attempted(&rows, "a", None), name)
+        };
+        let wrong = match &held {
+            Datum::Integer(value) => Datum::Integer(value ^ 1),
+            Datum::Text(text) => Datum::Text(format!("{text}.")),
+            Datum::Null => Datum::Integer(0),
+        };
+        let edit = format!("UPDATE seat_summary SET {name} = ?1 WHERE run_id = 'r' AND opened = 1");
+        store
+            .conn
+            .execute(&edit, [super::seal::value(wrong)])
+            .unwrap();
+        assert_eq!(
+            disagreements(&store),
+            [format!(
+                "run 'r': its seat rows stand at its head, and the {name} of its seat row 1 \
+                 is not its fold's"
+            )],
+            "{name}"
+        );
+        store
+            .conn
+            .execute(&edit, [super::seal::value(held)])
+            .unwrap();
+    }
+    lags(&mut store, &["r"]);
+}
+
+/// A row whose dated column is not the one its fields derive reads as no
+/// row: a start of another type or value, a key another name, and a rule
+/// no [`Metering`] states.
+#[test]
+fn dated_seat_facts_no_row_writes_read_as_none() {
+    let (_dir, mut store) = store();
+    sited_turn(&mut store, "r");
+    let rows = read(&store, "r");
+    let row = attempted(&rows, "a", None);
+    let at = |name: &str| {
+        SeatRow::COLUMNS
+            .iter()
+            .position(|(column, _)| *column == name)
+            .unwrap()
+    };
+    let cases = [
+        ("started_ms", Datum::Text("1".into())),
+        ("started_ms", Datum::Integer(0)),
+        ("phase_key", Datum::Text("other".into())),
+        ("phase_key", Datum::Null),
+        ("provider_key", Datum::Integer(1)),
+        ("metering", Datum::Integer(3)),
+        ("metering", Datum::Text("turns".into())),
+        ("site", Datum::Text("1".into())),
+    ];
+    for (name, wrong) in cases {
+        let mut data = row.data();
+        data[at(name)] = wrong.clone();
+        assert!(SeatRow::of_data(data).is_none(), "{name} {wrong:?}");
+    }
+    // A site's provider key is its own start's, and its model key its site
+    // reading's, which no row field holds once the participant moves, so
+    // each is kept as the writer read it and a text edit is the digest's to
+    // name; a row no site opened still checks its key against its whole
+    // provider and model.
+    let mut data = rows[0].data();
+    data[at("model_key")] = Datum::Text("other".into());
+    assert!(SeatRow::of_data(data).is_none(), "model_key");
+    let mut data = row.data();
+    data[at("model_key")] = Datum::Integer(1);
+    assert!(SeatRow::of_data(data).is_none(), "model_key type");
+}
+
+/// A retry attempt's first turn that repeats the previous attempt's last
+/// usage is its own site's, so it meters and its row states the site's
+/// rule (decision 0089 rulings 4 and 7): the participant's last turn does
+/// not swallow it.
+#[test]
+fn a_retry_s_first_turn_meters_its_own_site() {
+    let (_dir, mut store) = store();
+    sited(&mut store, "r", "work", "anthropic");
+    append(
+        &mut store,
+        "r",
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "attempt_id": "a",
+               "checkpoint": {"step": "seat-turn", "input_tokens": 10}}),
+    );
+    failed(&mut store, "r", "a");
+    started(&mut store, "r", "b", None, "anthropic");
+    append(
+        &mut store,
+        "r",
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "attempt_id": "b",
+               "checkpoint": {"step": "seat-turn", "input_tokens": 10}}),
+    );
+    let rows = read(&store, "r");
+    assert_eq!(numeric(attempted(&rows, "b", None), "metering"), Some(1));
+    let account = Account::whole("r", &store.load("r").unwrap());
+    assert_eq!(
+        account
+            .sites()
+            .iter()
+            .map(|site| rule_of(site.metering))
+            .collect::<Vec<_>>(),
+        [1, 1]
+    );
+}
+
+/// A `session-started` after a settling finishing record leaves the
+/// site's rule settled: the site's session record is its last finishing
+/// one, as brokkr-core reads it, and the row states its rule.
+#[test]
+fn a_session_started_does_not_undo_its_site_s_settlement() {
+    let (_dir, mut store) = store();
+    sited_turn(&mut store, "r");
+    append(
+        &mut store,
+        "r",
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "attempt_id": "a",
+               "checkpoint": {"step": "claude-session-finished", "output_tokens": 3}}),
+    );
+    append(
+        &mut store,
+        "r",
+        EventType::EffectCheckpointed,
+        json!({"effect_id": "fx", "attempt_id": "a",
+               "checkpoint": {"step": "session-started", "session_id": "s"}}),
+    );
+    let rows = read(&store, "r");
+    let account = Account::whole("r", &store.load("r").unwrap());
+    assert_eq!(rule_of(account.sites()[0].metering), 2);
+    assert_eq!(numeric(attempted(&rows, "a", None), "metering"), Some(2));
+}
+
+/// A start naming an attempt already started opens another site, and its
+/// row: the first site's row keeps its own start, phase, provider and
+/// rule, and the second's are the re-open's, one row per site.
+#[test]
+fn a_reopened_attempt_has_a_row_per_site() {
+    let (_dir, mut store) = store();
+    sited(&mut store, "r", "work", "anthropic");
+    failed(&mut store, "r", "a");
+    append(
+        &mut store,
+        "r",
+        EventType::PhaseEntered,
+        json!({"phase": "check"}),
+    );
+    started(&mut store, "r", "a", None, "openai");
+    let (sites, rows) = sites_and_rows(&store, "r");
+    let sited = sited_rows(&rows);
+    assert_eq!(sites.len(), 2);
+    assert_eq!(sited.len(), 2);
+    for (row, site) in sited.iter().zip(&sites) {
+        assert_eq!(numeric(row, "started_ms"), Some(site.at));
+        assert_eq!(held(row, "phase_key").as_deref(), site.phase.as_deref());
+        assert_eq!(
+            held(row, "provider_key").as_deref(),
+            Some(site.provider.as_str())
+        );
+        assert_eq!(numeric(row, "metering"), Some(rule_of(site.metering)));
+    }
 }

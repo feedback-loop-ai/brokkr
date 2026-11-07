@@ -130,27 +130,34 @@ fn every_committed_and_hand_built_journal_s_seat_view_is_its_checkpoints() {
     let hand_built = journals::journals().into_iter();
     let hand_built = hand_built.map(|(name, events)| (name.to_string(), chained(name, events)));
     let path = dir.path().join("hand-built.db");
-    // A seat whose records name no attempt, which no stream keys; a
-    // sequence's seat whose members' checkpoints stand between its own,
-    // which only their bodies tell from records the seat's rows read as its
-    // own; the seats whose attempt started before their effect was asked,
-    // a start their rows do not keep, which a row's boundary reads; and the
-    // two runs whose rows keep no live block, so no seat head, whose seat
-    // rows read stale, are read whole.
+    // Every seat of a run whose participant record landed before its
+    // effect's request, whose rows keep no seat head so its seats are read
+    // whole (decision 0089 ruling 8): `unnamed`'s ghost checkpoint, and the
+    // runs built to exercise an early start or terminal; a sequence's seat
+    // whose members' checkpoints stand between its own, which only their
+    // bodies tell from records the seat's rows read as its own; and the two
+    // runs whose rows keep no live block, so no seat head, whose seat rows
+    // read stale, are read whole.
     let kept = [
         "unnamed: s1",
+        "later: e1",
+        "later: e1:a",
+        "later: e1:b",
+        "later: e2",
+        "later: e0",
         "sequenced: s1",
         "unasked: u1",
         "again: u1",
         "unasked in flight: u1",
         "again in flight: u1",
         "again in flight: u1:review:a",
+        "started unasked: q1",
         "effectless: other",
         "never asked: e1",
     ];
     let expected = Read {
         kept: kept.map(str::to_string).to_vec(),
-        compared: 37,
+        compared: 31,
         ..Read::default()
     };
     assert_eq!(read(&path, &planted(&path, hand_built.collect())), expected);

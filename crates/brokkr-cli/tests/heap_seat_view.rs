@@ -563,6 +563,9 @@ fn spread(
     let tail: Vec<EventEnvelope> = events.drain(from..succeeded).collect();
     let mut spread = Vec::with_capacity(2 * attempts);
     for (at, mut checkpoint) in tail.into_iter().enumerate() {
+        // The last checkpoint is the seat's own attempt started again, so
+        // the page holds a re-opened attempt's two site rows beside the
+        // attempts of their own.
         let mut started = restart.clone();
         if at + 1 < attempts {
             let attempt = format!("spread-{at}");
