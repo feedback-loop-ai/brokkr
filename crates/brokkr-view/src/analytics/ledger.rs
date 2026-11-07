@@ -67,22 +67,44 @@ pub struct Ledger {
 impl Ledger {
     /// The ledger of runs that ended as `endings` say.
     pub fn of(endings: impl IntoIterator<Item = Ending>) -> Ledger {
-        let mut excluded: BTreeMap<Ending, usize> = Ending::ALL
-            .into_iter()
-            .filter(|ending| reading(*ending) == Reading::Excluded)
-            .map(|ending| (ending, 0))
-            .collect();
-        let (mut judged, mut shipped, mut unclassified) = (0, 0, 0);
+        let mut tally = Tally::default();
         for ending in endings {
-            match reading(ending) {
-                Reading::Outcome { shipped: ships } => {
-                    judged += 1;
-                    shipped += usize::from(ships);
-                }
-                Reading::Excluded => *excluded.entry(ending).or_default() += 1,
-                Reading::Unclassified => unclassified += 1,
+            tally.add(ending);
+        }
+        tally.finish()
+    }
+}
+
+/// A ledger folded one ending at a time, so a figure reads its runs as a
+/// stream and holds only the counts.
+#[derive(Default)]
+pub(crate) struct Tally {
+    judged: usize,
+    shipped: usize,
+    excluded: BTreeMap<Ending, usize>,
+    unclassified: usize,
+}
+
+impl Tally {
+    pub(crate) fn add(&mut self, ending: Ending) {
+        match reading(ending) {
+            Reading::Outcome { shipped: ships } => {
+                self.judged += 1;
+                self.shipped += usize::from(ships);
+            }
+            Reading::Excluded => *self.excluded.entry(ending).or_default() += 1,
+            Reading::Unclassified => self.unclassified += 1,
+        }
+    }
+
+    pub(crate) fn finish(mut self) -> Ledger {
+        for ending in Ending::ALL {
+            if reading(ending) == Reading::Excluded {
+                self.excluded.entry(ending).or_insert(0);
             }
         }
+        let excluded = self.excluded;
+        let (judged, shipped, unclassified) = (self.judged, self.shipped, self.unclassified);
         let rate_percent = percent(shipped as i64, judged as i64);
         Ledger {
             text: text(judged, shipped, rate_percent, &excluded, unclassified),

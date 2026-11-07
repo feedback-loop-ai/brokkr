@@ -309,17 +309,21 @@ pub struct brokkr_view::Analytics
 pub brokkr_view::Analytics::from: alloc::string::String
 pub brokkr_view::Analytics::headline: brokkr_view::analytics::Headline
 pub brokkr_view::Analytics::models: alloc::vec::Vec<brokkr_view::analytics::ModelShare>
+pub brokkr_view::Analytics::models_more: usize
 pub brokkr_view::Analytics::not_recorded: [&'static str; 4]
 pub brokkr_view::Analytics::per_day: alloc::vec::Vec<brokkr_view::analytics::Day>
 pub brokkr_view::Analytics::quarantined: alloc::vec::Vec<brokkr_view::analytics::QuarantinedHearth>
 pub brokkr_view::Analytics::range: brokkr_view::Range
 pub brokkr_view::Analytics::realm: core::option::Option<alloc::string::String>
 pub brokkr_view::Analytics::realms: alloc::vec::Vec<brokkr_view::analytics::RealmRow>
+pub brokkr_view::Analytics::realms_more: usize
 pub brokkr_view::Analytics::recipes: alloc::vec::Vec<brokkr_view::analytics::RecipeRow>
+pub brokkr_view::Analytics::recipes_more: usize
 pub brokkr_view::Analytics::rework: brokkr_view::analytics::Rework
 pub brokkr_view::Analytics::to: alloc::string::String
 pub brokkr_view::Analytics::view_version: u32
 pub brokkr_view::Analytics::waiting_by_step: alloc::vec::Vec<brokkr_view::analytics::StepWait>
+pub brokkr_view::Analytics::waiting_by_step_more: usize
 pub struct brokkr_view::AnalyticsHearth<'a>
 pub brokkr_view::AnalyticsHearth::journal: &'a str
 pub brokkr_view::AnalyticsHearth::label: &'a str

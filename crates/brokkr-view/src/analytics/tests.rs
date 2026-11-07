@@ -3,6 +3,7 @@
 //! Each run's journal is built for its times, parks, rulings and seats;
 //! its folded state, from the shared state builder, for how it ended.
 
+use super::median::medians;
 use super::words::{change_text, listed, span_text, stamp};
 use super::*;
 use crate::fleet::tests::ruled;
@@ -305,6 +306,7 @@ fn stopped_by_a_rule_names_the_most_frequent_rule() {
                 count: 1
             }),
             text: "1 by REVIEW-FAIL-TWICE".to_string(),
+            rules_more: 0,
         }
     );
 }
@@ -320,6 +322,7 @@ fn reported_cost_names_the_harnesses_that_report_none() {
             reporting: vec!["claude".to_string()],
             silent: vec!["codex".to_string()],
             note: Some("claude only · codex report none".to_string()),
+            providers_more: 0,
         }
     );
     let beta = &view.realms[1];
@@ -612,6 +615,7 @@ fn the_edges_of_the_journal_are_read_as_the_readout_says() {
                 count: 2
             }),
             text: "2 by B-TWICE".to_string(),
+            rules_more: 0,
         }
     );
     // Waiting runs from the park to the first command: the acceptance
@@ -789,6 +793,7 @@ fn a_recipes_cost_per_run_is_what_reported_over_all_its_runs() {
                 reporting: vec!["claude".into()],
                 silent: vec!["codex".into(), "dsh".into()],
                 note: Some("claude only · codex and dsh report none".into()),
+                providers_more: 0,
             },
             tokens_per_run: crate::tokens::usage_cells(
                 Some(&crate::TokenUsage {
@@ -1137,4 +1142,223 @@ fn a_recipe_none_of_whose_runs_was_judged_states_no_rate() {
         Ledger::of([]).text,
         "0 of 0 shipped (—) · 0 excluded · 0 unclassified"
     );
+}
+
+// ------------------------------------------------- the 64 groups and cuts
+
+/// A run of `count` seats, each serving a model of its own.
+fn many_models(count: usize) -> (Journal, Option<RunState>) {
+    let mut journal = Journal::started(Some("alpha"), "2026-10-10T00:00:00Z");
+    for index in 0..count {
+        journal = journal.seat(
+            &format!("s{index}"),
+            "claude",
+            &format!("model-{index:05}"),
+            None,
+            "2026-10-10T00:10:00Z",
+        );
+    }
+    (
+        journal.then(EventType::RunCompleted, json!({}), "2026-10-10T01:00:00Z"),
+        Some(ended(Status::Completed, "done", None, 0)),
+    )
+}
+
+/// A run that parks once in each of `count` phases, each a minute apart and
+/// each answered half a minute later.
+/// `journal` enters `phase` at `at`, parks, and is answered half a minute
+/// later.
+fn parks_at(journal: Journal, phase: &str, at: i64) -> Journal {
+    let entered = stamp(at);
+    let answered = stamp(at + 30_000);
+    journal
+        .entered(phase, &entered)
+        .then(EventType::RunParked, json!({}), &entered)
+        .then(
+            EventType::OperatorCommanded,
+            json!({"command": "retry"}),
+            &answered,
+        )
+}
+
+fn many_phases(count: usize) -> (Journal, Option<RunState>) {
+    let start = brokkr_core::stamp::parse_millis("2026-10-06T12:30:00Z").unwrap();
+    let mut journal = Journal::started(Some("alpha"), "2026-10-06T12:30:00Z");
+    for index in 0..count {
+        journal = parks_at(
+            journal,
+            &format!("phase-{index:05}"),
+            start + index as i64 * 60_000,
+        );
+    }
+    let end = stamp(start + count as i64 * 60_000);
+    (
+        journal.then(EventType::RunStopped, json!({}), &end),
+        Some(ended(Status::Stopped, "stop", None, 0)),
+    )
+}
+
+/// The readout of a run of `count` models and one of `count` phases.
+fn two_grouped_figures(count: usize) -> Analytics {
+    let (models, state) = many_models(count);
+    let (phases, phase_state) = many_phases(count);
+    read_one(
+        &runs(&[(models, state), (phases, phase_state)]),
+        Range::Week,
+    )
+}
+
+fn keeps_64(view: &Analytics) {
+    assert_eq!(view.models.len(), 64);
+    assert_eq!(view.waiting_by_step.len(), 64);
+}
+
+#[test]
+fn a_figure_past_64_groups_keeps_64_and_counts_the_rest() {
+    let view = two_grouped_figures(65);
+    keeps_64(&view);
+    assert_eq!(view.models_more, 1);
+    assert_eq!(view.waiting_by_step_more, 1);
+    assert_eq!(
+        view.models.first().and_then(|share| share.model.as_deref()),
+        Some("model-00000")
+    );
+    assert_eq!(
+        view.models.last().and_then(|share| share.model.as_deref()),
+        Some("model-00063"),
+        "a tie keeps the key order"
+    );
+    assert_eq!(
+        view.waiting_by_step
+            .first()
+            .and_then(|step| step.phase.as_deref()),
+        Some("phase-00000")
+    );
+    assert_eq!(
+        view.waiting_by_step
+            .last()
+            .and_then(|step| step.phase.as_deref()),
+        Some("phase-00063")
+    );
+
+    let view = two_grouped_figures(9_000);
+    keeps_64(&view);
+    assert_eq!(view.models_more, 8_936);
+    assert_eq!(view.waiting_by_step_more, 8_936);
+}
+
+#[test]
+fn a_key_past_its_bound_groups_with_its_cut_twin() {
+    let sixty_four = "p".repeat(64);
+    let megabyte = "x".repeat(1 << 20);
+    let long_phase = format!("{sixty_four}{megabyte}");
+    // The same 64 bytes, two names: one group.
+    let start = brokkr_core::stamp::parse_millis("2026-10-06T12:30:00Z").unwrap();
+    let mut journal = Journal::started(Some("alpha"), "2026-10-06T12:30:00Z");
+    for (index, phase) in [sixty_four.as_str(), long_phase.as_str()]
+        .into_iter()
+        .enumerate()
+    {
+        journal = parks_at(journal, phase, start + index as i64 * 60_000);
+    }
+    let end = stamp(brokkr_core::stamp::parse_millis("2026-10-06T12:32:00Z").unwrap());
+    let phases = journal.then(EventType::RunStopped, json!({}), &end);
+
+    let eighty = "m".repeat(80);
+    let long_model = format!("{eighty}{megabyte}");
+    let twin_model = format!("{eighty}y");
+    let (mut models, _) = many_models(0);
+    models = models.seat("long", "claude", &long_model, None, "2026-10-10T00:11:00Z");
+    models = models.seat("twin", "claude", &twin_model, None, "2026-10-10T00:12:00Z");
+    let view = read_one(
+        &runs(&[
+            (models, Some(ended(Status::Completed, "done", None, 0))),
+            (phases, Some(ended(Status::Stopped, "stop", None, 0))),
+        ]),
+        Range::Week,
+    );
+    let names: Vec<&str> = view
+        .waiting_by_step
+        .iter()
+        .map(|step| step.phase.as_deref().unwrap())
+        .collect();
+    assert_eq!(names, [sixty_four.as_str()], "printed cut");
+    assert_eq!(
+        view.models.first().and_then(|share| share.model.as_deref()),
+        Some(eighty.as_str())
+    );
+    assert_eq!(view.models.len(), 1);
+    assert_eq!(view.models[0].attempts, 2);
+}
+
+/// Whether no object key is a "N more" count, however deep.
+fn no_more_keys(value: &Value) -> bool {
+    match value {
+        Value::Object(map) => {
+            map.keys()
+                .all(|key| key != "more" && !key.ends_with("_more"))
+                && map.values().all(no_more_keys)
+        }
+        Value::Array(values) => values.iter().all(no_more_keys),
+        _ => true,
+    }
+}
+
+#[test]
+fn the_wire_carries_no_more_field_under_sixty_five_groups() {
+    let wire = serde_json::to_value(read(&fleet(), Range::Week, None)).unwrap();
+    assert!(no_more_keys(&wire), "{wire}");
+    assert_eq!(wire.pointer("/headline/stopped_by_rule/rules_more"), None);
+    assert_eq!(wire.pointer("/headline/cost/providers_more"), None);
+    assert_eq!(wire.get("models_more"), None);
+    assert_eq!(wire.get("waiting_by_step_more"), None);
+    assert_eq!(wire.get("realms_more"), None);
+    assert_eq!(wire.get("recipes_more"), None);
+}
+
+#[test]
+fn medians_equal_middle_in_at_most_twelve_passes() {
+    let mut seed = 0x5eed_u64;
+    let mut random = |count: usize| -> Vec<i64> {
+        (0..count)
+            .map(|_| {
+                seed = seed
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                (seed >> 33) as i64 - 1_000_000
+            })
+            .collect()
+    };
+    let datasets = vec![
+        vec![Vec::new()],
+        vec![vec![i64::MIN]],
+        vec![vec![i64::MAX, i64::MIN]],
+        vec![vec![7; 7]],
+        vec![vec![4; 4]],
+        vec![vec![1, 2, 1, 2, 1]],
+        vec![vec![-5, 1_000, -5, 42, 9]],
+        vec![random(1), random(63), random(64), random(4_096)],
+        vec![vec![i64::MIN; 1], vec![i64::MAX; 1]],
+    ];
+    for dataset in datasets {
+        let mut passes = 0;
+        let medians = medians(dataset.len(), &mut |emit: &mut dyn FnMut(usize, i64)| {
+            passes += 1;
+            for (target, values) in dataset.iter().enumerate() {
+                for value in values {
+                    emit(target, *value);
+                }
+            }
+        });
+        assert!(passes <= 12, "{passes} passes for {dataset:?}");
+        for (target, values) in dataset.iter().enumerate() {
+            let mut sorted = values.clone();
+            sorted.sort_unstable();
+            assert_eq!(
+                medians[target],
+                middle(&sorted),
+                "target {target} of {dataset:?}"
+            );
+        }
+    }
 }

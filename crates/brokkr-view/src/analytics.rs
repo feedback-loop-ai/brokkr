@@ -15,6 +15,8 @@ use serde::{Serialize, Serializer};
 mod facts;
 mod figures;
 mod ledger;
+mod median;
+mod ranked;
 mod recipes;
 mod words;
 
@@ -24,6 +26,12 @@ pub(crate) use figures::{cost_figure, middle, span, total};
 pub(crate) use ledger::judged_unshipped;
 pub use ledger::Ledger;
 pub(crate) use words::{listed, stamp};
+
+/// Whether a "N more" count is absent: zero is omitted from the wire
+/// (decision 0089 ruling A3), so a view under 64 groups is unchanged.
+fn no_more(count: &usize) -> bool {
+    *count == 0
+}
 
 const HOUR_MILLIS: i64 = 60 * 60 * 1000;
 const DAY_MILLIS: i64 = 24 * HOUR_MILLIS;
@@ -157,6 +165,18 @@ pub struct Analytics {
     /// Hearths whose journal did not load, each with its refusal.
     pub quarantined: Vec<QuarantinedHearth>,
     pub not_recorded: [&'static str; 4],
+    /// The models past the 64 the figure keeps, omitted when zero.
+    #[serde(skip_serializing_if = "no_more")]
+    pub models_more: usize,
+    /// The steps past the 64 the figure keeps, omitted when zero.
+    #[serde(skip_serializing_if = "no_more")]
+    pub waiting_by_step_more: usize,
+    /// The realms past the 64 with rows, omitted when zero.
+    #[serde(skip_serializing_if = "no_more")]
+    pub realms_more: usize,
+    /// The realm-and-recipe rows past the 64 kept, omitted when zero.
+    #[serde(skip_serializing_if = "no_more")]
+    pub recipes_more: usize,
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -205,6 +225,9 @@ pub struct StoppedByRule {
     /// The most frequent rule id, the lesser id on a tie.
     pub top: Option<RuleCount>,
     pub text: String,
+    /// The rules past the 64 the figure keeps, omitted when zero.
+    #[serde(skip_serializing_if = "no_more")]
+    pub rules_more: usize,
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -248,6 +271,9 @@ pub struct CostFigure {
     pub reporting: Vec<String>,
     pub silent: Vec<String>,
     pub note: Option<String>,
+    /// The providers past the 64 the readout keeps, omitted when zero.
+    #[serde(skip_serializing_if = "no_more")]
+    pub providers_more: usize,
 }
 
 /// One UTC day: the runs that shipped and that stopped on it, an outcome

@@ -7,13 +7,29 @@
 use std::collections::BTreeMap;
 
 use brokkr_core::fold::{concluded, RunState};
-use brokkr_core::summary::{aggregate, parks as project_parks};
+use brokkr_core::summary::{aggregate, cut, parks as project_parks, MODEL_BYTES, NAME_BYTES};
 use brokkr_core::EventEnvelope;
 
 use super::{AnalyticsRun, QuarantinedHearth, Query};
 use crate::attempts::{attempts, Attempts, Site};
 
 pub(crate) use brokkr_core::summary::Finished;
+
+/// A name a run's data states, cut where every figure groups it (decision
+/// 0089 ruling 7): a phase, rule, provider, realm or recipe.
+pub(super) fn name_key(text: &str) -> &str {
+    cut(text, NAME_BYTES)
+}
+
+/// A model, cut where every figure groups it: the seat record's bound.
+pub(super) fn model_key(text: &str) -> &str {
+    cut(text, MODEL_BYTES)
+}
+
+/// An absent or stated name, cut the same way.
+fn optional(text: Option<&str>) -> Option<&str> {
+    text.map(name_key)
+}
 
 /// Whether a finished run completed: its ending implies `completed`
 /// (decision 0064 ruling 6).
@@ -67,6 +83,52 @@ pub(super) struct RunFacts {
     pub(super) reviews: Reviews,
     pub(super) costs: Vec<(i64, f64)>,
     pub(super) sites: Vec<Site>,
+}
+
+/// One park a figure folds, with the realm of the run it belongs to and an
+/// identity that tells one run from another in the same group.
+pub(super) struct ParkFact<'a> {
+    pub(super) realm: &'a str,
+    pub(super) run: usize,
+    pub(super) phase: Option<&'a str>,
+    pub(super) at: i64,
+    pub(super) answered: i64,
+    pub(super) ended: i64,
+}
+
+/// One reported cost a figure folds.
+pub(super) struct SpendFact<'a> {
+    pub(super) realm: &'a str,
+    pub(super) recipe: Option<&'a str>,
+    pub(super) open: bool,
+    pub(super) ended: Option<i64>,
+    pub(super) at: i64,
+    pub(super) usd: f64,
+}
+
+/// One seat site a figure folds.
+pub(super) struct SiteFact<'a> {
+    pub(super) realm: &'a str,
+    pub(super) recipe: Option<&'a str>,
+    pub(super) open: bool,
+    pub(super) ended: Option<i64>,
+    pub(super) site: &'a Site,
+}
+
+/// The facts every figure folds, one at a time: today the whole read, and
+/// in unit U4 the store's rows. The seam spans four streams and the realm
+/// scope, which must agree on the query and on a run's identity across
+/// them, so it is one trait rather than four closures (decision 0071
+/// ruling 2). Parks are yielded by their cut phase and then their run, so
+/// `waiting_by_step` counts a change of run, never a set of them.
+pub(super) trait FactSource {
+    fn realms(&self) -> &[String];
+    fn unreadable(&self) -> &BTreeMap<String, usize>;
+    fn quarantined(&self) -> Vec<QuarantinedHearth>;
+    fn runs(&self, visit: &mut dyn FnMut(&RunFacts));
+    fn parks(&self, visit: &mut dyn FnMut(ParkFact<'_>));
+    fn spends(&self, visit: &mut dyn FnMut(SpendFact<'_>));
+    fn sites(&self, visit: &mut dyn FnMut(SiteFact<'_>));
 }
 
 /// The runs a range keeps: those that ended inside it, and those still
@@ -158,8 +220,14 @@ impl Scoped {
         scoped
     }
 
+    /// Names `realm` once, cut where a row groups it (decision 0089 ruling
+    /// 7): two names that agree to their bound are one group.
     fn name(&mut self, query: &Query, realm: &str) {
-        if in_scope(query, realm) && !self.realms.iter().any(|named| named == realm) {
+        if !in_scope(query, realm) {
+            return;
+        }
+        let realm = name_key(realm);
+        if !self.realms.iter().any(|named| named == realm) {
             self.realms.push(realm.to_string());
         }
     }
@@ -173,7 +241,94 @@ impl Scoped {
         self.name(query, &run.realm);
         match run.readable {
             true => self.runs.push(run),
-            false => *self.unreadable.entry(run.realm).or_default() += 1,
+            false => {
+                *self
+                    .unreadable
+                    .entry(name_key(&run.realm).to_string())
+                    .or_default() += 1;
+            }
+        }
+    }
+}
+
+impl FactSource for Scoped {
+    fn realms(&self) -> &[String] {
+        &self.realms
+    }
+
+    fn unreadable(&self) -> &BTreeMap<String, usize> {
+        &self.unreadable
+    }
+
+    fn quarantined(&self) -> Vec<QuarantinedHearth> {
+        self.quarantined
+            .iter()
+            .map(|hearth| QuarantinedHearth {
+                realm: hearth.realm.clone(),
+                journal: hearth.journal.clone(),
+                refusal: hearth.refusal.clone(),
+            })
+            .collect()
+    }
+
+    fn runs(&self, visit: &mut dyn FnMut(&RunFacts)) {
+        for run in &self.runs {
+            visit(run);
+        }
+    }
+
+    fn parks(&self, visit: &mut dyn FnMut(ParkFact<'_>)) {
+        let mut by_phase: BTreeMap<Option<&str>, Vec<(usize, &RunFacts, &Park)>> = BTreeMap::new();
+        for (index, run) in self.runs.iter().enumerate() {
+            for park in &run.parks {
+                by_phase
+                    .entry(optional(park.phase.as_deref()))
+                    .or_default()
+                    .push((index, run, park));
+            }
+        }
+        for (phase, parks) in by_phase {
+            for (run, facts, park) in parks {
+                visit(ParkFact {
+                    realm: &facts.realm,
+                    run,
+                    phase,
+                    at: park.at,
+                    answered: park.answered,
+                    ended: park.ended,
+                });
+            }
+        }
+    }
+
+    fn spends(&self, visit: &mut dyn FnMut(SpendFact<'_>)) {
+        for run in &self.runs {
+            let (open, ended) = (run.open, run.finished.as_ref().map(|finished| finished.at));
+            for (at, usd) in &run.costs {
+                visit(SpendFact {
+                    realm: &run.realm,
+                    recipe: run.recipe.as_deref(),
+                    open,
+                    ended,
+                    at: *at,
+                    usd: *usd,
+                });
+            }
+        }
+    }
+
+    fn sites(&self, visit: &mut dyn FnMut(SiteFact<'_>)) {
+        for run in &self.runs {
+            let (open, ended) = (run.open, run.finished.as_ref().map(|finished| finished.at));
+            for site in &run.sites {
+                visit(SiteFact {
+                    realm: &run.realm,
+                    recipe: run.recipe.as_deref(),
+                    open,
+                    ended,
+                    site,
+                });
+            }
         }
     }
 }

@@ -1,28 +1,82 @@
 //! One figure per realm and recipe (#568, the Library's design D6): how
 //! often its runs reach `done`, what a run costs and spends in tokens, and
 //! whether another recipe of the realm beats it on both. The console plots
-//! these and judges only the quadrant a point falls in.
+//! these and judges only the quadrant a point falls in; each row is folded
+//! from the facts one at a time and the figure keeps 64, by cut key.
 
 use std::collections::BTreeMap;
 
-use super::facts::{in_range, RunFacts, Window};
-use super::figures::{cost_figure, total};
-use super::{Ledger, RecipeRow, ReportedCost};
+use super::facts::{in_range, name_key, FactSource, Window};
+use super::figures::cost_figure_of;
+use super::ledger::Tally;
+use super::ranked::ranked;
+use super::{RecipeRow, ReportedCost};
 use crate::{finish_usage, js, TokenUsage};
 
+/// One recipe's accumulator: its runs, their endings, the cost they
+/// reported, the harnesses behind it and the tokens their sites metered.
+#[derive(Default)]
+struct RecipeAcc {
+    runs: usize,
+    ledger: Tally,
+    spent: Option<f64>,
+    harnesses: BTreeMap<String, bool>,
+    usages: Vec<TokenUsage>,
+}
+
 /// The recipes' rows, by realm and then recipe, over the runs the range
-/// keeps; a run whose start names no recipe is in none.
-pub(super) fn recipe_rows(runs: &[RunFacts], window: Window) -> Vec<RecipeRow> {
-    let mut groups: BTreeMap<(&str, &str), Vec<&RunFacts>> = BTreeMap::new();
-    for run in runs {
+/// keeps; a run whose start names no recipe is in none. The pairs are fed
+/// in key order, and the 64 that key order ranks first are kept.
+pub(super) fn recipe_rows(source: &dyn FactSource, window: Window) -> (Vec<RecipeRow>, usize) {
+    let mut groups: BTreeMap<(String, String), RecipeAcc> = BTreeMap::new();
+    source.runs(&mut |run| {
+        let Some(recipe) = run.recipe.as_deref() else {
+            return;
+        };
         let ended = run.finished.as_ref().map(|finished| finished.at);
-        if let (Some(recipe), true) = (&run.recipe, in_range(ended, run.open, window)) {
-            groups.entry((&run.realm, recipe)).or_default().push(run);
+        if !in_range(ended, run.open, window) {
+            return;
         }
-    }
-    let mut rows: Vec<RecipeRow> = groups
+        let group = groups.entry(key(&run.realm, recipe)).or_default();
+        group.runs += 1;
+        if let Some(finished) = &run.finished {
+            group.ledger.add(finished.ending);
+        }
+    });
+    let keeps = |at: i64, _: Option<&str>| window.holds(at);
+    source.spends(&mut |spend| {
+        let Some(recipe) = spend.recipe else {
+            return;
+        };
+        if !in_range(spend.ended, spend.open, window) || !window.holds(spend.at) {
+            return;
+        }
+        if let Some(group) = groups.get_mut(&key(spend.realm, recipe)) {
+            group.spent = Some(group.spent.unwrap_or(0.0) + spend.usd);
+        }
+    });
+    source.sites(&mut |fact| {
+        let Some(recipe) = fact.recipe else {
+            return;
+        };
+        if !in_range(fact.ended, fact.open, window) {
+            return;
+        }
+        let Some(group) = groups.get_mut(&key(fact.realm, recipe)) else {
+            return;
+        };
+        if fact.site.ran(&keeps) {
+            let provider = name_key(&fact.site.provider).to_string();
+            *group.harnesses.entry(provider).or_default() |= fact.site.reported(&keeps);
+        }
+        if let Some(usage) = fact.site.usage(&keeps) {
+            group.usages.push(usage);
+        }
+    });
+    let (kept, recipes_more) = ranked(groups, |_| ());
+    let mut rows: Vec<RecipeRow> = kept
         .into_iter()
-        .map(|((realm, recipe), runs)| row(realm, recipe, &runs, window))
+        .map(|((realm, recipe), group)| row(realm, recipe, group))
         .collect();
     // A recipe none of whose runs was judged has no rate (decision 0064
     // ruling 7), so it is ranked against nothing and dominates nothing.
@@ -43,7 +97,12 @@ pub(super) fn recipe_rows(runs: &[RunFacts], window: Window) -> Vec<RecipeRow> {
     for (row, on) in rows.iter_mut().zip(frontier) {
         row.on_frontier = on;
     }
-    rows
+    (rows, recipes_more)
+}
+
+/// The cut key a recipe's runs group by.
+fn key(realm: &str, recipe: &str) -> (String, String) {
+    (name_key(realm).to_string(), name_key(recipe).to_string())
 }
 
 fn usd(cost: &ReportedCost) -> Option<f64> {
@@ -77,10 +136,16 @@ fn on_frontier(point: Point, points: &[Point]) -> Option<bool> {
     Some(!dominated)
 }
 
-fn row(realm: &str, recipe: &str, runs: &[&RunFacts], window: Window) -> RecipeRow {
-    let count = runs.len() as f64;
-    let finished = runs.iter().filter_map(|run| run.finished.as_ref());
-    let ledger = Ledger::of(finished.map(|finished| finished.ending));
+fn row(realm: String, recipe: String, group: RecipeAcc) -> RecipeRow {
+    let RecipeAcc {
+        runs,
+        ledger,
+        spent,
+        harnesses,
+        usages,
+    } = group;
+    let count = runs as f64;
+    let ledger = ledger.finish();
     // The rate counts the outcomes of the work alone (decision 0064 ruling
     // 7); a recipe none of whose runs was judged reaches none.
     let (done, judged) = (ledger.shipped, ledger.judged);
@@ -88,20 +153,9 @@ fn row(realm: &str, recipe: &str, runs: &[&RunFacts], window: Window) -> RecipeR
         0 => 0.0,
         judged => done as f64 * 100.0 / judged as f64,
     };
-    let sites = runs.iter().flat_map(|run| &run.sites);
-    // A cost, a token and a provider's reporting are kept by the time of
-    // the checkpoint that metered them, never by the attempt's start.
-    let keeps = |at: i64, _: Option<&str>| window.holds(at);
-    let costs = runs.iter().flat_map(|run| &run.costs);
-    let spent = total(
-        costs
-            .filter(|(at, _)| window.holds(*at))
-            .map(|(_, usd)| *usd),
-    );
     // The tokens a run spent: each kind summed over the range, then
     // averaged over its runs, so the cache hit is the share it read.
-    let usages = sites.clone().filter_map(|site| site.usage(&keeps));
-    let sum = crate::meter::sum_usage(usages).unwrap_or_default();
+    let sum = crate::meter::sum_usage(usages.into_iter()).unwrap_or_default();
     let per_run =
         |tokens: Option<u64>| tokens.map(|tokens| js::round_half_up(tokens as f64 / count) as u64);
     let averaged = TokenUsage {
@@ -112,9 +166,9 @@ fn row(realm: &str, recipe: &str, runs: &[&RunFacts], window: Window) -> RecipeR
         ..TokenUsage::default()
     };
     RecipeRow {
-        realm: realm.to_string(),
-        recipe: recipe.to_string(),
-        runs: runs.len(),
+        realm,
+        recipe,
+        runs,
         done,
         done_rate,
         done_text: ledger.rate_percent.map_or_else(
@@ -122,7 +176,10 @@ fn row(realm: &str, recipe: &str, runs: &[&RunFacts], window: Window) -> RecipeR
             |_| format!("{}%", js::round_half_up(done_rate)),
         ),
         ledger,
-        cost_per_run: cost_figure(sites, &keeps, spent.map(|usd| usd / count)),
+        // A cost, a token and a provider's reporting are kept by the time
+        // of the checkpoint that metered them, never by the attempt's
+        // start.
+        cost_per_run: cost_figure_of(harnesses, spent.map(|usd| usd / count)),
         tokens_per_run: crate::tokens::usage_cells(finish_usage(averaged).as_ref(), "").1,
         on_frontier: None,
     }

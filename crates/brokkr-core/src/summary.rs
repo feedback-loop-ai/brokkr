@@ -74,8 +74,10 @@ pub const ACK_REASON_CHARS: usize = 256;
 /// and its time to this many.
 pub const ACK_AT_CHARS: usize = 40;
 
-/// `text` cut at a character boundary to at most `bytes` bytes.
-pub(crate) fn cut(text: &str, bytes: usize) -> &str {
+/// `text` cut at a character boundary to at most `bytes` bytes: the one
+/// cut the writer and every readout that groups a key share (decision 0089
+/// ruling 7).
+pub fn cut(text: &str, bytes: usize) -> &str {
     if text.len() <= bytes {
         return text;
     }
