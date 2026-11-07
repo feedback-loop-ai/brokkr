@@ -1040,6 +1040,10 @@ pub fn brokkr_core::seat::seat_costs(&[brokkr_core::envelope::EventEnvelope]) ->
 pub fn brokkr_core::seat::stamp_of(&serde_json::value::Value) -> core::option::Option<alloc::string::String>
 pub fn brokkr_core::seat::token_usage<'a>(impl core::iter::traits::iterator::Iterator<Item = &'a serde_json::value::Value>) -> core::option::Option<brokkr_core::seat::TokenUsage>
 pub fn brokkr_core::seat::transcript_of(&serde_json::value::Value) -> core::option::Option<brokkr_core::seat::Transcript>
+pub mod brokkr_core::shape
+pub struct brokkr_core::shape::Object<T>(pub T)
+impl<'de, T: serde_core::de::Deserialize<'de>> serde_core::de::Deserialize<'de> for brokkr_core::shape::Object<T>
+pub fn brokkr_core::shape::Object<T>::deserialize<D>(D) -> core::result::Result<brokkr_core::shape::Object<T>, <D as serde_core::de::Deserializer>::Error> where D: serde_core::de::Deserializer<'de>
 pub mod brokkr_core::stamp
 pub fn brokkr_core::stamp::parse_millis(&str) -> core::option::Option<i64>
 pub mod brokkr_core::summary

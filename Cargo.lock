@@ -405,6 +405,7 @@ dependencies = [
 name = "brokkr-protocol"
 version = "0.13.1"
 dependencies = [
+ "brokkr-core",
  "hex",
  "libc",
  "rustix",

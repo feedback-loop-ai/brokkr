@@ -27,6 +27,9 @@ name = "hands_exits"
 name = "secret_drop"
 
 [dependencies]
+# The one object-only JSON reader (#998): a closed record is an object and
+# nothing else, and brokkr-core is where that rule lives.
+brokkr-core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

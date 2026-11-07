@@ -8,10 +8,11 @@ use std::fmt;
 use std::marker::PhantomData;
 use std::num::{NonZeroU32, NonZeroU64};
 
-use serde::de::value::MapAccessDeserializer;
-use serde::de::{self, IntoDeserializer, MapAccess, Unexpected, Visitor};
+use serde::de::{self, IntoDeserializer, Unexpected, Visitor};
 use serde::{Deserialize, Deserializer};
 use serde_json::value::RawValue;
+
+pub(super) use brokkr_core::shape::Object;
 
 /// A number the contract calls an integer. JSON Schema's `integer` admits
 /// any number with no fractional part, so `10.0`, `1e1` and `1.5e1` are the
@@ -278,36 +279,6 @@ where
         .ok()
         .and_then(NonZeroU64::new)
         .ok_or_else(|| <D::Error as de::Error>::invalid_value(number(value), &"a nonzero u64"))
-}
-
-/// A record read from a JSON object and nothing else. serde's derived
-/// struct reader also takes a sequence and reads its fields by position,
-/// which the closed host contract does not admit (decision 0071 ruling 3).
-pub(super) struct Object<T>(pub(super) T);
-
-impl<'de, T: Deserialize<'de>> Deserialize<'de> for Object<T> {
-    fn deserialize<D>(deserializer: D) -> Result<Object<T>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct Fields<T>(PhantomData<T>);
-
-        impl<'de, T: Deserialize<'de>> Visitor<'de> for Fields<T> {
-            type Value = T;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("a JSON object")
-            }
-
-            fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<T, A::Error> {
-                T::deserialize(MapAccessDeserializer::new(map))
-            }
-        }
-
-        deserializer
-            .deserialize_map(Fields(PhantomData))
-            .map(Object)
-    }
 }
 
 /// A record from an object, for a field read through `deserialize_with`.

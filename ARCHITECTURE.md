@@ -36,6 +36,7 @@ flowchart TB
     view --> core
     bridge --> core & store & runtime
     store --> core
+    protocol --> core
   end
   protocol -- "NDJSON" --> harness([Claude Code · Codex · dsh · LaneTally · exec<br/>capability, as leaf effects])
   seatbelt-probe["brokkr-seatbelt-probe<br/>test-support"]

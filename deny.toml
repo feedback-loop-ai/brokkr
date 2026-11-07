@@ -68,7 +68,7 @@ skip = [
   { crate = "windows-sys@0.52.0", reason = "pulled by ring 0.17, never built on Linux or macOS (#337 baseline)" },
 ]
 deny = [
-  { crate = "brokkr-core", wrappers = ["brokkr-view", "brokkr-store", "brokkr-runtime", "brokkr-bridge", "brokkr-cli"], reason = "core sits at the bottom of the one-way graph (decision 0071 ruling 1)" },
+  { crate = "brokkr-core", wrappers = ["brokkr-view", "brokkr-store", "brokkr-runtime", "brokkr-bridge", "brokkr-protocol", "brokkr-cli"], reason = "core sits at the bottom of the one-way graph (decision 0071 ruling 1); brokkr-protocol reads core's object-only JSON reader (#998)" },
   { crate = "brokkr-view", wrappers = ["brokkr-runtime", "brokkr-cli"], reason = "view is read by the engine and the surfaces only (decision 0071 ruling 1)" },
   { crate = "brokkr-protocol", wrappers = ["brokkr-runtime", "brokkr-cli", "brokkr-seatbelt-probe"], reason = "the driver protocol is spoken by the engine and the binary only, and exercised by the seatbelt probe's tests (decision 0071 ruling 1, #341)" },
   { crate = "brokkr-store", wrappers = ["brokkr-runtime", "brokkr-bridge", "brokkr-cli"], reason = "the journal is written above core and view (decision 0071 ruling 1)" },
