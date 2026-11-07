@@ -252,8 +252,9 @@ fn seq_in_order(
         let Some(last_ord) = bound(conn, run_id, member, span, span.last)? else {
             return Ok(None);
         };
-        // `first_bound` holds a span's first to exactly 1, so its rows
-        // number its last ordinal.
+        // `first_bound` holds a span's first to exactly 1 and `bound` admits
+        // only a positive ordinal, so its rows number its last ordinal
+        // (`a_missing_or_corrupt_first_bound_refuses_the_disjoint_walk`).
         before = before.saturating_add(last_ord);
     }
     Ok(None)
@@ -319,8 +320,9 @@ impl Store {
             let Some(last_ord) = bound(&self.conn, run_id, member, span, span.last)? else {
                 return Ok(None);
             };
-            // A valid first is exactly 1 (`first_bound`), so the span's
-            // count is its last ordinal.
+            // A valid first is exactly 1 (`first_bound`) and `bound` admits
+            // only a positive ordinal, so the span's count is its last
+            // ordinal (`a_missing_or_corrupt_first_bound_refuses_the_disjoint_walk`).
             total = total.saturating_add(last_ord);
         }
         Ok(Some(total))
