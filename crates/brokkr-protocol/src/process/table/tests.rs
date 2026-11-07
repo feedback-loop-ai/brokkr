@@ -723,6 +723,20 @@ fn a_pidfd_open_esrch_with_the_row_absent_ends_the_descendant() {
     assert!(result.is_ok(), "the row is gone: {result:?}");
 }
 
+/// #970: ESRCH is not dropped unconditionally: the same identity still
+/// running keeps the refusal, as the absent-row case above cannot show.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_pidfd_open_esrch_with_the_identity_running_keeps_the_refusal() {
+    let (proc, id) = planted(7, "S", "12345");
+    let error = refused_open(proc.path(), &id, Errno::SRCH).unwrap_err();
+    assert_eq!(error.raw_os_error(), Some(libc::ESRCH));
+    assert_eq!(
+        error.to_string(),
+        std::io::Error::from(Errno::SRCH).to_string()
+    );
+}
+
 /// #970: an ENOENT from the send, after the open saw the identity running,
 /// is judged against the row the send left gone.
 #[cfg(target_os = "linux")]

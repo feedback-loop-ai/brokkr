@@ -1317,21 +1317,39 @@ fn killed_in_planted_proc(id: &Identity) -> std::io::Result<()> {
 
 /// #970: an attempt whose recorded descendant the kernel no longer has is
 /// proven over. The ENOENT is read against the row, which is gone, so the
-/// attempt settles rather than parking on `Unresolved`.
+/// production settlement's own read after the kill, its doubt check, and
+/// `finish`'s cleanup mapping settle the attempt rather than parking on
+/// `Unresolved`.
 #[cfg(target_os = "linux")]
 #[test]
 fn a_descendant_the_table_reads_gone_settles_the_attempt() {
+    use super::super::{DriverProcess, SpawnEnv, Standing};
+
     let proc = tempfile::tempdir().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let driver = ["sh", "-c", "exit 0"].map(str::to_owned).to_vec();
+    let mut process = DriverProcess::spawn(&driver, dir.path(), None, &SpawnEnv::Inherit).unwrap();
+    process.host.kill = killed_in_planted_proc;
+    let recorded = Identity {
+        pid: RECORDED,
+        start: "12345".into(),
+    };
+    live()
+        .attempts
+        .get_mut(&process.attempt.key())
+        .expect("a registered attempt")
+        .recorded
+        .insert(recorded);
     PLANTED_KILL.with(|planted| *planted.borrow_mut() = Some((proc, Errno::NOENT)));
-    let live = closed(GROUP, &[row(7, GROUP, GROUP)], &[]);
-    let host = Host {
-        kill: killed_in_planted_proc,
-        ..Host::REAL
-    };
-    let cleanup = match live.kill(host) {
-        Ok(()) => crate::Cleanup::Settled,
-        Err(reason) => crate::Cleanup::Unresolved { reason },
-    };
+    let report = process.finish(
+        Standing::Final(crate::AttemptOutcome::Succeeded {
+            result: serde_json::json!({"result": "complete"}),
+        }),
+        None,
+        Vec::new(),
+        true,
+        None,
+    );
     PLANTED_KILL.with(|planted| *planted.borrow_mut() = None);
-    assert_eq!(cleanup, crate::Cleanup::Settled);
+    assert_eq!(report.cleanup, crate::Cleanup::Settled);
 }
