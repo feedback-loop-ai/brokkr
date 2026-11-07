@@ -144,6 +144,13 @@ impl Meter {
         self.usage.as_ref()
     }
 
+    /// Whether it is one of its seat's turns: the fact a checkpoint's row
+    /// keeps so a window's tokens are metered by its site's rule from the
+    /// rows alone (decision 0089 rulings 4 and 7).
+    pub fn turn(&self) -> bool {
+        self.turn
+    }
+
     /// Whether it is one of its seat's turns and carries tokens: a turn
     /// [`once`] reads.
     pub(crate) fn metered(&self) -> bool {

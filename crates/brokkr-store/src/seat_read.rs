@@ -97,6 +97,23 @@ const LEAST: &str = "SELECT member FROM event_index INDEXED BY event_index_strea
 const NEXT: &str = "SELECT member FROM event_index INDEXED BY event_index_stream
      WHERE run_id = ?1 AND attempt_id = ?2 AND member > ?3 ORDER BY member LIMIT 1";
 
+/// The site row a checkpoint belongs to (decision 0089 ruling 7): the
+/// greatest `started_seq` below the checkpoint's `seq` among the site rows
+/// of its run, attempt and member, its `opened` key read through the site
+/// index alone. A checkpoint whose attempt and member opened no site before
+/// it finds none. U3's window reads consume it; no readout reads it yet.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "U3's aggregate window reads consume it; #753 keeps them out of this unit"
+    )
+)]
+pub(crate) const SITE_OF: &str = "SELECT opened FROM seat_summary INDEXED BY seat_summary_site
+     WHERE run_id = ?1 AND attempt_id = ?2 AND member IS ?3 AND started_seq < ?4
+       AND site IS NOT NULL
+     ORDER BY started_seq DESC LIMIT 1";
+
 /// The most streams a page keeps (ruling 9): a page and one more
 /// checkpoints, each of an attempt of its own, the stream a page's cursor
 /// cuts, and room for attempts whose checkpoints interleave. A participant
@@ -652,6 +669,37 @@ impl Store {
         let mut statement = self.conn.prepare_cached(sql)?;
         let member = statement.query_row(params![run_id, attempt, from], |row| row.get(0));
         Ok(member.optional()?)
+    }
+
+    /// The site row a checkpoint belongs to (decision 0089 ruling 7): the
+    /// `opened` key of the greatest `started_seq` below `seq` among the site
+    /// rows of its run, attempt and member, read through the site index
+    /// alone; none where no site opened before the checkpoint. A re-opened
+    /// attempt's later start is another site row, so a checkpoint before it
+    /// finds the earlier row and one after it the later. U3's window reads
+    /// consume it; no readout reads it yet.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "U3's aggregate window reads consume it; #753 keeps them out of this unit"
+        )
+    )]
+    pub(crate) fn site_of_checkpoint(
+        &self,
+        run_id: &str,
+        attempt_id: &str,
+        member: Option<&str>,
+        seq: u64,
+    ) -> Result<Option<u64>, StoreError> {
+        let found = self
+            .conn
+            .prepare_cached(SITE_OF)?
+            .query_row(params![run_id, attempt_id, member, seq as i64], |row| {
+                row.get(0)
+            })
+            .optional()?;
+        Ok(found)
     }
 }
 

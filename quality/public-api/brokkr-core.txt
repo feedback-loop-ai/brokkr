@@ -953,6 +953,7 @@ pub struct brokkr_core::seat::meter::Meter
 impl brokkr_core::seat::meter::Meter
 pub fn brokkr_core::seat::meter::Meter::counted(&self, brokkr_core::seat::meter::Metering, bool) -> core::option::Option<brokkr_core::seat::TokenUsage>
 pub fn brokkr_core::seat::meter::Meter::of(&serde_json::value::Value) -> brokkr_core::seat::meter::Meter
+pub fn brokkr_core::seat::meter::Meter::turn(&self) -> bool
 pub fn brokkr_core::seat::meter::Meter::usage(&self) -> core::option::Option<&brokkr_core::seat::TokenUsage>
 pub fn brokkr_core::seat::meter::once<'a>(impl core::iter::traits::collect::IntoIterator<Item = &'a mut brokkr_core::seat::meter::Meter>)
 pub fn brokkr_core::seat::meter::sum_usage(impl core::iter::traits::iterator::Iterator<Item = brokkr_core::seat::TokenUsage>) -> core::option::Option<brokkr_core::seat::TokenUsage>

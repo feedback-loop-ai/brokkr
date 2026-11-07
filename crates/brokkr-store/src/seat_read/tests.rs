@@ -739,3 +739,80 @@ fn a_forward_index_missing_its_first_row_reads_the_kept_way() {
     drop(store);
     assert_eq!(kept_after_index_delete(&dir, &opened, 76), SeatRead::Kept);
 }
+
+/// A checkpoint of attempt `a` naming no member, appended to `run_id`, and
+/// its seq.
+fn checkpointed(store: &mut Store, run_id: &str) -> u64 {
+    let payload = json!({"effect_id": "fx", "attempt_id": "a",
+                         "checkpoint": {"step": "seat-turn"}});
+    crate::test_support::append(store, run_id, EventType::EffectCheckpointed, payload).seq
+}
+
+/// A re-opened attempt's checkpoints each find their own site row: the one
+/// before the second start finds the earlier site, the one after it the
+/// later, and a checkpoint before any start finds none (decision 0089
+/// ruling 7).
+#[test]
+fn a_reopened_attempts_checkpoint_finds_its_later_site() {
+    let (_dir, mut store) = store();
+    crate::test_support::opened(&mut store, "r", "work", &[]);
+    crate::test_support::append(
+        &mut store,
+        "r",
+        EventType::EffectRequested,
+        json!({"effect_id": "fx", "seat": "worker", "phase": "work"}),
+    );
+    crate::test_support::started(&mut store, "r", "a", None, "anthropic");
+    let first = checkpointed(&mut store, "r");
+    crate::test_support::failed(&mut store, "r", "a");
+    crate::test_support::started(&mut store, "r", "a", None, "anthropic");
+    let second = checkpointed(&mut store, "r");
+    let site_at = |started_seq: i64| {
+        store
+            .conn
+            .query_row(
+                "SELECT opened FROM seat_summary
+                 WHERE run_id = 'r' AND attempt_id = 'a' AND started_seq = ?1
+                   AND site IS NOT NULL",
+                [started_seq],
+                |row| row.get::<_, u64>(0),
+            )
+            .expect("the attempt's site row")
+    };
+    let (earlier, later) = (site_at(4), site_at(7));
+    assert_ne!(earlier, later);
+    assert_eq!(
+        store.site_of_checkpoint("r", "a", None, first).unwrap(),
+        Some(earlier)
+    );
+    assert_eq!(
+        store.site_of_checkpoint("r", "a", None, second).unwrap(),
+        Some(later)
+    );
+    // A checkpoint appended before its attempt opens any site finds none.
+    crate::test_support::opened(&mut store, "q", "work", &[]);
+    let early = checkpointed(&mut store, "q");
+    assert_eq!(
+        store.site_of_checkpoint("q", "a", None, early).unwrap(),
+        None
+    );
+}
+
+/// The site read's plan is the site index's range, with no `SCAN`
+/// (decision 0089 ruling 7): a window's checkpoint finds its site row
+/// through the key alone.
+#[test]
+fn a_checkpoints_site_is_found_through_the_site_index() {
+    let (_dir, store) = store();
+    let plan = plan(
+        &store,
+        super::SITE_OF,
+        params!["r", "a", Option::<&str>::None, 8_i64],
+    )
+    .unwrap();
+    assert_eq!(
+        plan,
+        ["SEARCH seat_summary USING INDEX seat_summary_site \
+             (run_id=? AND attempt_id=? AND member=? AND started_seq<?)"]
+    );
+}

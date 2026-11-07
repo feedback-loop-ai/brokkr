@@ -241,7 +241,7 @@ fn migration() -> String {
         CREATE INDEX IF NOT EXISTS event_index_checkpoint_stale
             ON event_index (run_id)
             WHERE type = '{CHECKPOINTED}'
-              AND (facts IS NULL OR repeat IS NULL OR facts_seq IS NOT seq);
+              AND (facts IS NULL OR turn IS NULL OR repeat IS NULL OR facts_seq IS NOT seq);
         CREATE INDEX IF NOT EXISTS event_index_checkpoint_session
             ON event_index (run_id, attempt_id, member, seq)
             WHERE type = '{CHECKPOINTED}' AND session = 1;
