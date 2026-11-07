@@ -34,10 +34,11 @@
 //! start.
 //!
 //! A seat head also names the shape of the rows it vouches for, `shape`,
-//! a digest of [`SeatRow::COLUMNS`] (#753): an older build writing the
-//! same journal writes its head without it, its rows without the columns
-//! it does not know, so a run it wrote lags for this build as a run whose
-//! head moved does, and is refolded whole by the next writer.
+//! a digest of [`SeatRow::COLUMNS`] and [`PROJECTION`] (#753): an older
+//! build writing the same journal writes its head without it, or of
+//! another projection, its rows without the columns it does not know or
+//! to facts it did not keep, so a run it wrote lags for this build as a
+//! run whose head moved does, and is refolded whole by the next writer.
 //!
 //! Each row keeps a digest of itself as its writer wrote it (#753, the
 //! operator's 2026-10-24 ruling), in one private column, `digest`: a read
@@ -88,10 +89,19 @@ fn declared() -> String {
     columns.join(", ")
 }
 
+/// The projection whose facts the rows keep: bumped when what a row means
+/// changes without a column's name or type moving, so every earlier head
+/// is another build's and its run lags until this build refolds it. 1 was
+/// the columns alone; 2 is a participant record before its effect's
+/// request keeping no seat head (#753, decision 0089 ruling 8).
+const PROJECTION: u32 = 2;
+
 /// The shape of the rows this build writes, a digest of their declared
-/// columns, which every seat head it writes names: a head that names
-/// another, or none, is another build's, and its rows lag for this one.
-static SHAPE: LazyLock<String> = LazyLock::new(|| sha256_bytes(declared().as_bytes()));
+/// columns and the [`PROJECTION`] that derived them, which every seat head
+/// it writes names: a head that names another, or none, is another
+/// build's, and its rows lag for this one.
+static SHAPE: LazyLock<String> =
+    LazyLock::new(|| sha256_bytes(format!("{PROJECTION}\n{}", declared()).as_bytes()));
 
 /// The two tables, made anew: a journal that lost one loses the other
 /// with it, so no seat head outlives the rows it vouches for and every

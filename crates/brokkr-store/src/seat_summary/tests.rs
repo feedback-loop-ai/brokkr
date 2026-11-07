@@ -1005,6 +1005,109 @@ fn rows_another_build_wrote_at_the_run_s_head_lag_until_this_build_writes_them()
     assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
 }
 
+/// A run at its third event: started, `work` entered, and `fx`'s attempt
+/// opened under member `m`'s anthropic provider.
+fn early_begun(store: &mut Store) {
+    store
+        .create_run("r", "a feature", "self", &json!({}))
+        .unwrap();
+    append(store, "r", EventType::RunStarted, json!({"manifest": {}}));
+    append(
+        store,
+        "r",
+        EventType::PhaseEntered,
+        json!({"phase": "work"}),
+    );
+    let provenance = json!([{"member": "m", "provider": "anthropic"}]);
+    let started = json!({"effect_id": "fx", "attempt_id": "a", "provenance": provenance});
+    append(store, "r", EventType::EffectStarted, started);
+}
+
+/// `fx` asked of `worker` in `work`, after the early records.
+fn early_asked(store: &mut Store) {
+    let asked = json!({"effect_id": "fx", "seat": "worker", "phase": "work"});
+    append(store, "r", EventType::EffectRequested, asked);
+}
+
+/// A `seat-turn` checkpoint of `fx`'s attempt `a` by member `m`.
+fn early_checkpoint(store: &mut Store, turn: u64, tool: &str) {
+    let checkpoint = json!({"member": "m", "step": "seat-turn", "turn": turn,
+                            "tool": tool, "model": "opus", "input_tokens": 10});
+    let payload = json!({"effect_id": "fx", "attempt_id": "a", "checkpoint": checkpoint});
+    append(store, "r", EventType::EffectCheckpointed, payload);
+}
+
+/// The head a build before this one wrote for `run_id`, as 90064041b did:
+/// the run's head in a shape whose digest names the rows' declared columns
+/// alone. This build's shape also names its projection, so the older head
+/// is another build's (#753). Written beside the store that folded the run,
+/// as the older build left it.
+fn previous_head(path: &std::path::Path, run_id: &str, head: (u64, &str)) {
+    let conn = rusqlite::Connection::open(path).unwrap();
+    let shape = sha256_bytes(declared().as_bytes());
+    conn.execute(
+        "INSERT OR REPLACE INTO seat_head (run_id, folded_seq, folded_hash, shape)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![run_id, head.0 as i64, head.1, shape],
+    )
+    .unwrap();
+}
+
+/// Open `path` read-only, then writable, and assert `r` reads stale at
+/// both, and that the writable open refolded it and kept no head: a head a
+/// previous projection wrote cannot vouch for rows this one keeps none of
+/// (decision 0089 ruling 8).
+fn stale_at_both_opens(path: &std::path::Path) {
+    let reader = Store::open_read_only(path).unwrap();
+    assert_eq!(reader.seat_rows("r").unwrap(), SeatRows::Stale, "read-only");
+    drop(reader);
+    let store = Store::open(path).unwrap();
+    let (kept, rows) = (head(&store, "r"), store.seat_rows("r").unwrap());
+    assert_eq!((kept, rows), (None, SeatRows::Stale), "writable");
+    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+}
+
+/// Leave the head a build before this one wrote at `store`'s run head,
+/// then assert it lags at both opens.
+fn older_head_lags(store: Store) {
+    assert_eq!(head(&store, "r"), None);
+    let (seq, hash) = store.head_hash("r").unwrap();
+    let path = store.path().to_path_buf();
+    drop(store);
+    previous_head(&path, "r", (seq, &hash));
+    stale_at_both_opens(&path);
+}
+
+/// Review 753s4s4's residual: the head a build before this one wrote for a
+/// run whose checkpoint landed before its effect's request stands at the
+/// run's head over rows this build writes, and only the projection's
+/// identity tells them apart. It lags at a read-only open and at a
+/// writable one, which refolds the run and keeps none (decision 0089
+/// ruling 8).
+#[test]
+fn a_previous_build_s_head_lags_where_a_checkpoint_precedes_its_request() {
+    let (_dir, mut store) = store();
+    early_begun(&mut store);
+    early_checkpoint(&mut store, 1, "Read");
+    early_asked(&mut store);
+    early_checkpoint(&mut store, 2, "Write");
+    older_head_lags(store);
+}
+
+/// Review 753s4s4's residual, the terminal case: the head a build before
+/// this one wrote for a run whose terminal landed before its effect's
+/// request lags at a read-only open and at a writable one, which refolds
+/// the run and keeps none (decision 0089 ruling 8).
+#[test]
+fn a_previous_build_s_head_lags_where_a_terminal_precedes_its_request() {
+    let (_dir, mut store) = store();
+    early_begun(&mut store);
+    let failed = json!({"effect_id": "fx", "attempt_id": "a"});
+    append(&mut store, "r", EventType::EffectFailed, failed);
+    early_asked(&mut store);
+    older_head_lags(store);
+}
+
 /// Seat rows and a seat head of a run the journal does not hold read as
 /// stale, whatever head they claim, and the doctor's sweep names each as
 /// a stray; a run created under that id later reads none of them.
