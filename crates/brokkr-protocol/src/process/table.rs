@@ -14,10 +14,11 @@
 //! whole is no table: a row the engine cannot read could be the attempt's,
 //! so it fails the read rather than reading as gone.
 //!
-//! A kill the kernel refuses with `ENOENT` or `ESRCH` is read against the
-//! identity's own row (#970): a row that is gone, reused by another
-//! process, or a zombie means the descendant ended, and only the same
-//! identity still running, or a row that cannot be read, keeps the refusal.
+//! On Linux, a kill the kernel refuses with `ENOENT` or `ESRCH` is read
+//! against the identity's own row (#970): a row that is gone, reused by
+//! another process, or a zombie means the descendant ended, and only the
+//! same identity still running, or a row that cannot be read, keeps the
+//! refusal.
 
 #[cfg(target_os = "linux")]
 use std::collections::{BTreeMap, BTreeSet};
@@ -404,8 +405,9 @@ fn parse_stat(pid: i32, stat: &str) -> Option<Entry> {
 /// on, so when the start stamp read after opening it still matches, the
 /// signal cannot reach a process that reused the pid. A process already
 /// gone is not signalled; whether the signal ended it is read afterwards,
-/// from the table, which is the proof `tree::end` settles on. A refusal,
-/// or a row that cannot be read to confirm the stamp, is returned.
+/// from the table, which is the proof `tree::end` settles on. A refusal of
+/// `ENOENT` or `ESRCH` is read against the identity's row (#970); any other
+/// refusal, or a row that cannot be read to confirm the stamp, is returned.
 #[cfg(target_os = "linux")]
 pub(super) fn kill(id: &Identity) -> std::io::Result<()> {
     Pid::from_raw(id.pid).map_or(Ok(()), |pid| signal(pid, id))

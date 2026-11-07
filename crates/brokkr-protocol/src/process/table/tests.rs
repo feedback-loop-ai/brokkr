@@ -654,10 +654,16 @@ fn a_recorded_identity_is_read_by_its_own_row() {
 /// identity that row names.
 #[cfg(target_os = "linux")]
 fn planted(pid: i32, state: &str, start: &str) -> (tempfile::TempDir, Identity) {
-    let stat = format!("{pid} (row) {state} 1 {pid} {pid} 0 -1 0 0 0 0 0 0 0 20 0 1 0 {start} 0 0");
+    let stat =
+        format!("{pid} (row) {state} 1 {pid} {pid} 0 -1 0 0 0 0 0 0 0 20 0 1 0 0 0 {start} 0 0");
     let name = pid.to_string();
     let proc = proc_of(&[(&name, Some(stat.as_str()))]);
-    (proc, parse_stat(pid, &stat).unwrap().id)
+    let id = parse_stat(pid, &stat).unwrap().id;
+    assert_eq!(
+        id.start, start,
+        "the planted row carries the stamp it was asked for"
+    );
+    (proc, id)
 }
 
 /// The identity `pid` was recorded at, with start stamp `start`.
