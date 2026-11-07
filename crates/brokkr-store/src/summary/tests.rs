@@ -11,6 +11,7 @@ use crate::tests::envelope_builder::EnvelopeBuilder;
 use crate::tests::{store, write_lock_on};
 use crate::{Attribution, Rows};
 use brokkr_core::envelope::EventType;
+use brokkr_core::stamp::parse_millis;
 use serde_json::{json, Value as Json};
 
 const BY: Attribution<'static> = Attribution {
@@ -1019,4 +1020,222 @@ fn a_row_an_older_writer_folds_without_the_stop_stamp_is_sent_behind_and_refolde
     let store = Store::open(&path).unwrap();
     assert!(summary_intact(&store.conn).unwrap(), "the trigger is back");
     stopping_row(&store);
+}
+
+/// A fresh journal at `path`, its schema written, and a connection that
+/// plants the runs and events a test leaves behind their summary.
+fn unfolded(path: &std::path::Path) -> rusqlite::Connection {
+    drop(Store::open(path).unwrap());
+    rusqlite::Connection::open(path).unwrap()
+}
+
+/// Decision 0089 rulings 5 and 6: the head trigger reads the event's stamp
+/// in milliseconds as the fold does, on the journal's whole-second,
+/// millisecond and longer-fraction shapes, on a numeric zone offset the
+/// fold applies, and leaves it NULL where neither reads the stamp — the
+/// whole shape, past the date-time prefix, included. A fraction shorter
+/// than three digits reads only its own digits, never the zone behind
+/// them; an embedded NUL and a leap second read as `parse_millis` reads
+/// them, which SQLite alone does not.
+#[test]
+fn the_head_trigger_reads_the_stamp_as_the_fold_does() {
+    for (run_id, stamp) in [
+        ("whole", "2026-01-01T00:00:09Z"),
+        ("millis", "2026-01-01T00:00:09.123Z"),
+        ("longer", "2026-01-01T00:00:09.123456Z"),
+        ("dot", "2026-01-01T00:00:09.Z"),
+        ("offset", "2026-01-01T00:00:09+02:00"),
+        ("offset-millis", "2026-01-01T00:00:09.123-01:30"),
+        ("short-fraction-offset", "2026-01-01T00:00:09.1+12:00"),
+        ("empty-fraction-offset", "2026-01-01T00:00:09.+02:00"),
+        ("nul-suffix", "2026-01-01T00:00:09Z\0junk"),
+        ("leap-second", "2016-12-31T23:59:60Z"),
+        ("over-range-time", "2026-01-01T25:61:99Z"),
+        ("suffix", "2026-01-01T00:00:09garbage"),
+        ("space", "2026-01-01 00:00:09Z"),
+        ("no-zone", "2026-01-01T00:00:09"),
+        ("trailing", "2026-01-01T00:00:09Z "),
+        ("unread", "not a time"),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("forge.db");
+        let conn = unfolded(&path);
+        plant_run(&conn, run_id, "{}").unwrap();
+        let event = EnvelopeBuilder::new(
+            EventType::RunStarted,
+            json!({"feature": "a feature", "manifest": {}}),
+        )
+        .run(run_id)
+        .event_id(format!("{run_id}-1"))
+        .at(stamp)
+        .sealed();
+        plant_envelope(&conn, &event).unwrap();
+        drop(conn);
+        let expected = parse_millis(stamp).map_or(Value::Null, Value::Integer);
+        let read = Store::open_read_only(&path).unwrap();
+        assert_eq!(
+            row(&read, run_id, "last_at_ms").as_slice(),
+            std::slice::from_ref(&expected),
+            "the trigger's reading of {stamp}"
+        );
+        drop(read);
+        let folded = Store::open(&path).unwrap();
+        assert_eq!(
+            row(&folded, run_id, "last_at_ms").as_slice(),
+            std::slice::from_ref(&expected),
+            "the fold's reading of {stamp}"
+        );
+    }
+}
+
+/// Decision 0089 rulings 5 and 6: an event whose stamp no reader parses
+/// leaves `last_at_ms` NULL even where the row read an earlier head, as
+/// the fold does at the head it writes.
+#[test]
+fn an_unreadable_head_erases_the_earlier_reading() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("forge.db");
+    let conn = unfolded(&path);
+    plant_run(&conn, "r", "{}").unwrap();
+    let first = EnvelopeBuilder::new(
+        EventType::RunStarted,
+        json!({"feature": "a feature", "manifest": {}}),
+    )
+    .run("r")
+    .event_id("r-1")
+    .at("2026-01-01T00:00:09Z")
+    .sealed();
+    plant_envelope(&conn, &first).unwrap();
+    let second = EnvelopeBuilder::new(EventType::PhaseEntered, json!({"phase": "implement"}))
+        .run("r")
+        .seq(2)
+        .event_id("r-2")
+        .at("not a time")
+        .previous(&first.event_hash)
+        .sealed();
+    plant_envelope(&conn, &second).unwrap();
+    drop(conn);
+    let read = Store::open_read_only(&path).unwrap();
+    assert_eq!(row(&read, "r", "last_at_ms"), [Value::Null]);
+    drop(read);
+    let folded = Store::open(&path).unwrap();
+    assert_eq!(row(&folded, "r", "last_at_ms"), [Value::Null]);
+}
+
+/// The head trigger an older build kept: the head, its whole stamp and the
+/// acknowledgement reset, but no `last_at_ms`.
+fn install_older_head_trigger(store: &Store) {
+    store
+        .conn
+        .execute_batch(&format!(
+            "DROP TRIGGER run_summary_of_an_event;
+             CREATE TRIGGER run_summary_of_an_event AFTER INSERT ON events BEGIN
+                 UPDATE run_summary SET
+                     head_seq = NEW.seq, head_hash = NEW.event_hash,
+                     last_recorded_at = {stamp}, last_recorded_at_whole = NULL,
+                     acknowledged = 0, ack_operator = NULL, ack_reason = NULL, ack_at = NULL
+                     WHERE run_id = NEW.run_id AND NEW.seq > head_seq;
+             END",
+            stamp = stamp_of("NEW.envelope")
+        ))
+        .unwrap();
+}
+
+/// Decision 0089 rulings 5 and 6: an older build's head trigger, which
+/// keeps no `last_at_ms`, is replaced on the next writable open, and the
+/// append after it keeps the row's own last activity.
+#[test]
+fn a_writable_open_replaces_an_older_builds_head_trigger() {
+    let (_dir, mut store) = store();
+    store
+        .create_run("r", "a feature", "self", &json!({}))
+        .unwrap();
+    install_older_head_trigger(&store);
+    assert!(
+        !summary_intact(&store.conn).unwrap(),
+        "the older trigger is not this build's"
+    );
+    let path = store.path().to_path_buf();
+    drop(store);
+    let store = Store::open(&path).unwrap();
+    assert!(
+        summary_intact(&store.conn).unwrap(),
+        "the writable open replaced the older trigger"
+    );
+    planted_at(
+        &store,
+        "r",
+        EventType::RunStarted,
+        json!({"feature": "a feature", "manifest": {}}),
+        "2026-01-01T00:00:09Z",
+    );
+    assert_eq!(
+        row(&store, "r", "last_at_ms"),
+        [Value::Integer(1_767_225_609_000)]
+    );
+}
+
+/// Decision 0089 rulings 5, 6 and 8: replacing an older build's head
+/// trigger leaves a folded row's head where the fold put it, so the
+/// repair moves no row and no catch-up refold is needed to put it back:
+/// a zone offset, a short fraction and a leap second keep the fold's
+/// time, as does a stamp SQLite's date parser refuses while the fold
+/// reads it.
+#[test]
+fn a_trigger_repair_keeps_a_folded_rows_own_time() {
+    for (stamp, millis) in [
+        ("2026-01-01T00:00:09+02:00", 1_767_218_409_000),
+        ("2026-01-01T00:00:09.1+12:00", 1_767_182_409_100),
+        ("2016-12-31T23:59:60Z", 1_483_228_800_000),
+        ("2026-00-01T00:00:09Z", 1_764_547_209_000),
+    ] {
+        let (_dir, mut store) = store();
+        store
+            .create_run("r", "a feature", "self", &json!({}))
+            .unwrap();
+        planted_at(
+            &store,
+            "r",
+            EventType::RunStarted,
+            json!({"feature": "a feature", "manifest": {}}),
+            stamp,
+        );
+        lags(&mut store, &["r"]);
+        let store = reopened(store);
+        assert_eq!(
+            row(&store, "r", "last_at_ms, order_at, folded_seq, head_seq"),
+            [
+                Value::Integer(millis),
+                Value::Integer(millis),
+                Value::Integer(1),
+                Value::Integer(1)
+            ],
+            "the writable open folded the run at {stamp}"
+        );
+        install_older_head_trigger(&store);
+        assert!(
+            !summary_intact(&store.conn).unwrap(),
+            "the older trigger is not this build's"
+        );
+        let store = reopened(store);
+        assert!(
+            summary_intact(&store.conn).unwrap(),
+            "the writable open replaced the older trigger"
+        );
+        assert_eq!(
+            row(&store, "r", "last_at_ms, order_at, folded_seq, head_seq"),
+            [
+                Value::Integer(millis),
+                Value::Integer(millis),
+                Value::Integer(1),
+                Value::Integer(1)
+            ],
+            "the repair kept the folded row's own time at {stamp}"
+        );
+        assert_eq!(
+            lane(&store, "r"),
+            text("running"),
+            "the row did not move at {stamp}"
+        );
+    }
 }

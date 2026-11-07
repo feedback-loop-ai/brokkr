@@ -254,7 +254,10 @@ fn the_behind_lane_lists_its_newest_and_counts_the_rest() {
     let behind = runs("behind", Standing::Running, 3, HOUR, MINUTE);
     generate(&store, &behind).unwrap();
     for run in &behind {
-        plant_event(&store.conn, &run.run_id, &4, &"f".repeat(64), "{}").unwrap();
+        // A head the trigger can date, so the row keeps the place its fold
+        // left it while it stands behind.
+        let envelope = format!("{{\"recorded_at\":\"{}\"}}", run.last_at);
+        plant_event(&store.conn, &run.run_id, &4, &"f".repeat(64), &envelope).unwrap();
     }
     let (listed, beyond) = store.behind(None, 2).unwrap();
     let listed: Vec<(i64, String)> = listed.into_iter().map(Result::unwrap).collect();
@@ -328,7 +331,8 @@ fn an_id_holding_a_nul_is_keyed_whole_in_every_lane() {
         .stands_at("r\0a", (refused.folded.0, &refused.folded.1))
         .unwrap());
     for run in &runs {
-        plant_event(&store.conn, &run.run_id, &4, &"f".repeat(64), "{}").unwrap();
+        let envelope = format!("{{\"recorded_at\":\"{}\"}}", run.last_at);
+        plant_event(&store.conn, &run.run_id, &4, &"f".repeat(64), &envelope).unwrap();
     }
     let (listed, beyond) = store.behind(None, 1).unwrap();
     assert_eq!((&listed, beyond), (&vec![Ok((at, "r\0a".into()))], 1));
