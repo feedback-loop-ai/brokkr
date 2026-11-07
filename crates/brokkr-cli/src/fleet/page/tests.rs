@@ -376,6 +376,14 @@ pub(crate) fn folded(db: &Path, plant_with: impl FnOnce(&rusqlite::Connection)) 
     drop(Store::open(db).unwrap());
 }
 
+/// A fresh journal at `db`, its schema written, and a connection that
+/// plants rows past the store's writers: the runs and events a test leaves
+/// behind their summary, with no fold.
+fn unfolded(db: &Path) -> rusqlite::Connection {
+    drop(Store::open(db).unwrap());
+    rusqlite::Connection::open(db).unwrap()
+}
+
 /// A fresh journal, folded, of one run, `done`, finished an hour before
 /// [`NOW`]: its directory, and where the journal is.
 fn done_an_hour_ago() -> (tempfile::TempDir, std::path::PathBuf) {
@@ -462,7 +470,8 @@ fn a_run_behind_its_summary_is_placed_by_its_fold() {
     appended_by_an_older_writer(&db, "held", EventType::RunParked, reason);
     for n in 0..150 {
         let run_id = format!("behind-{n:03}");
-        appended_by_an_older_writer(&db, &run_id, EventType::RunCompleted, json!({}));
+        let completed = (EventType::RunCompleted, json!({}));
+        appended_at(&db, &run_id, completed, &stamp(now() - n * MINUTE));
     }
     let (store, mut pages, read) = refreshed(&db, AHEAD_ROWS);
     assert_eq!((read, pages.unread()), (7 + 99 * 2, 51));
@@ -1466,4 +1475,31 @@ fn inspect_shows_the_stop_accepted_with_no_ending_and_its_ending_reads_as_before
         .unwrap();
     assert!(line.contains("unclassified"), "{line}");
     assert!(!line.contains("stopping"), "{line}");
+}
+
+/// Decision 0089 rulings 5 and 6: among more runs behind their summary than
+/// a refresh reads whole, the one whose own last activity is newest is read
+/// first, though its run id sorts last, and lists under "running". A row
+/// whose appends kept no `last_at_ms` ties at the same key, so the bounded
+/// read takes the greatest run ids and never reaches the newest run.
+#[test]
+fn a_refresh_reads_the_newest_behind_run_first_whatever_its_id_sorts() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let conn = unfolded(&db);
+    for n in 0..(AHEAD_ROWS + 3) {
+        let at = stamp(now() - DAY - n as i64 * MINUTE);
+        plant(&conn, &format!("z-{n:03}"), Shape::Running, &at);
+    }
+    plant(&conn, "a-newest", Shape::Running, &stamp(now()));
+    drop(conn);
+    let (store, pages, _) = refreshed(&db, AHEAD_ROWS);
+    assert!(pages.was_read_whole("a-newest"));
+    let listed = paged(&pages, &store, NOW, PAGE_ROWS, false);
+    let running: Vec<&str> = listed
+        .iter()
+        .filter(|(section, _)| *section == Section::Running)
+        .map(|(_, row)| row.run_id.as_str())
+        .collect();
+    assert_eq!(running, ["a-newest"]);
 }
