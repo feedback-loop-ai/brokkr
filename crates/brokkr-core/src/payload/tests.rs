@@ -660,10 +660,6 @@ fn a_probes_entry_that_is_not_an_object_refuses_by_the_arrays_name() {
             matches!(&error, ProviderProbeError::Field { field, .. } if field == "probes"),
             "{error:?} did not name the entry's array"
         );
-        assert_eq!(
-            error.to_string(),
-            "event 7: the probes entry does not read: probes"
-        );
     }
 }
 

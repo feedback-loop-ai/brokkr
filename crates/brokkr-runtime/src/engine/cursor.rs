@@ -11,6 +11,15 @@ use time::format_description::well_known::Rfc3339;
 use super::cooldown::{CooldownError, Waited};
 use super::{gate_head_evidence, operator_stop_reason, Engine, EngineError};
 
+/// What the record says about an effect before its attempt: the wait a
+/// rate-limit refusal left to take, no record at all, or a park the record
+/// already asks for.
+enum Recorded {
+    Wait(ProviderWait),
+    Attempt,
+    Parked,
+}
+
 impl Engine {
     pub(super) fn advance_running(
         &mut self,
@@ -54,46 +63,11 @@ impl Engine {
         seat: &str,
         failed_attempts: u64,
     ) -> Result<(), EngineError> {
-        let limits = self.seat_limits(Some(seat));
-        let wait = self.recorded_wait(events, effect_id);
-        let refused = self.recorded_refusal(events, effect_id);
-        if failed_attempts >= limits.max_attempts {
-            return self.park_at_cap(
-                events,
-                effect_id,
-                failed_attempts,
-                limits.max_attempts,
-                &wait,
-                &refused,
-            );
-        }
-        // A crash between the failed event and its park: fold returns
-        // `ExecuteEffect` only when no `run/parked` followed, so the record
-        // itself ends the run here, before any wait, probe or driver
-        // invocation (decision 0103 slice 4c1, this fix round).
-        match refused {
-            Ok(Some(refused)) => {
-                let reason = self.refused_park_reason(events, effect_id, &refused);
-                self.park_with_reason(reason)?;
-                return Ok(());
-            }
-            Ok(None) => {}
-            Err(detail) => {
-                let reason = format!("refusing to execute effect {effect_id}: {detail}");
-                self.park_with_reason(reason)?;
-                return Ok(());
-            }
-        }
-        let wait = match wait {
-            Ok(Some(wait)) => wait,
-            Ok(None) => return self.run_attempt(events, state, effect_id, seat, None),
-            Err(detail) => {
-                // A present wait that does not read refuses by name, never
-                // as no wait (decision 0103 ruling 2(a)).
-                let reason = format!("refusing to execute effect {effect_id}: {detail}");
-                self.park_with_reason(reason)?;
-                return Ok(());
-            }
+        let max_attempts = self.seat_limits(Some(seat)).max_attempts;
+        let wait = match self.park_on_record(events, effect_id, failed_attempts, max_attempts)? {
+            Recorded::Wait(wait) => wait,
+            Recorded::Attempt => return self.run_attempt(events, state, effect_id, seat, None),
+            Recorded::Parked => return Ok(()),
         };
         // Before the wait's probe and before the retry's admission, the
         // run's own reservation may name a crashed probe's attempt that no
@@ -101,10 +75,8 @@ impl Engine {
         // witnessed is proven settled; otherwise the run parks with the
         // cleanup refusal naming it, spending no effect attempt and starting
         // no probe or retry (decision 0103 ruling 4, this fix round).
-        if let Err(refusal) =
-            self.recovered_probe(events, &wait, &crate::engine::broker::observed())
-        {
-            self.park_with_reason(refusal.to_string())?;
+        if let Some(reason) = self.orphaned_probe_refusal(events, &wait) {
+            self.park_with_reason(reason)?;
             return Ok(());
         }
         match self.take_cooldown(events, state, effect_id, seat, &wait)? {
@@ -115,6 +87,76 @@ impl Engine {
             Waited::Stopped => Ok(()),
             Waited::Parked(reason) => self.park_with_reason(reason),
         }
+    }
+
+    /// The record's parks before any wait or attempt: the 0006 cap first,
+    /// then a crash-before-the-park `refused` record, then a recorded wait
+    /// that does not read. `Wait` carries the wait the cool-down takes,
+    /// `Attempt` the old journal's no-wait retry, and `Parked` a park this
+    /// function already wrote.
+    fn park_on_record(
+        &mut self,
+        events: &[EventEnvelope],
+        effect_id: &str,
+        failed_attempts: u64,
+        max_attempts: u64,
+    ) -> Result<Recorded, EngineError> {
+        let wait = self.recorded_wait(events, effect_id);
+        let refused = self.recorded_refusal(events, effect_id);
+        if failed_attempts >= max_attempts {
+            self.park_at_cap(
+                events,
+                effect_id,
+                failed_attempts,
+                max_attempts,
+                &wait,
+                &refused,
+            )?;
+            return Ok(Recorded::Parked);
+        }
+        // A crash between the failed event and its park: fold returns
+        // `ExecuteEffect` only when no `run/parked` followed, so the record
+        // itself ends the run here, before any wait, probe or driver
+        // invocation (decision 0103 slice 4c1, this fix round).
+        match refused {
+            Ok(Some(refused)) => {
+                let reason = self.refused_park_reason(events, effect_id, &refused);
+                self.park_with_reason(reason)?;
+                return Ok(Recorded::Parked);
+            }
+            Ok(None) => {}
+            Err(detail) => {
+                let reason = format!("refusing to execute effect {effect_id}: {detail}");
+                self.park_with_reason(reason)?;
+                return Ok(Recorded::Parked);
+            }
+        }
+        match wait {
+            Ok(Some(wait)) => Ok(Recorded::Wait(wait)),
+            Ok(None) => Ok(Recorded::Attempt),
+            Err(detail) => {
+                // A present wait that does not read refuses by name, never
+                // as no wait (decision 0103 ruling 2(a)).
+                let reason = format!("refusing to execute effect {effect_id}: {detail}");
+                self.park_with_reason(reason)?;
+                Ok(Recorded::Parked)
+            }
+        }
+    }
+
+    /// The run's own reservation may name a crashed probe's attempt that no
+    /// journal event names. `Some` is the cleanup refusal to park with,
+    /// after which nothing may probe or retry; `None` is every process it
+    /// witnessed proven settled, so the wait may go on (decision 0103
+    /// ruling 4, this fix round).
+    fn orphaned_probe_refusal(
+        &self,
+        events: &[EventEnvelope],
+        wait: &ProviderWait,
+    ) -> Option<String> {
+        self.recovered_probe(events, wait, &crate::engine::broker::observed())
+            .err()
+            .map(|refusal| refusal.to_string())
     }
 
     /// The cap's park (decision 0006), with the refusal the last failure

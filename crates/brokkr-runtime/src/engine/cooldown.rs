@@ -588,36 +588,58 @@ impl Engine {
         seat: &str,
         wait: &ProviderWait,
     ) -> Result<Waited, EngineError> {
+        if let Some(reason) = self.resume_park_reason(events, effect_id, wait) {
+            return Ok(Waited::Parked(reason));
+        }
+        if self.wait_in_slices(wait)? {
+            return Ok(Waited::Stopped);
+        }
+        self.probe_outcome(events, state, effect_id, seat, wait)
+    }
+
+    /// The bounds and episode the resume reads before it sleeps: the reason
+    /// to park, or `None` when the wait may proceed. The maximum is judged
+    /// from the record before anything sleeps; a bound or episode that does
+    /// not read parks by name, never as no declaration (decision 0103
+    /// ruling 3).
+    fn resume_park_reason(
+        &self,
+        events: &[EventEnvelope],
+        effect_id: &str,
+        wait: &ProviderWait,
+    ) -> Option<String> {
         match self.cooldown_bounds(&wait.provider, &wait.route) {
             Ok(Some(bounds)) => {
                 let max = u64::from(bounds.max_seconds.get());
                 let total = match episode(events, effect_id) {
                     Ok((_, total)) => total,
                     Err(reason) => {
-                        return Ok(Waited::Parked(format!(
+                        return Some(format!(
                             "a resume waits for {}/{} without reading its episode: {reason}",
                             wait.provider, wait.route
-                        )));
+                        ));
                     }
                 };
-                if past_maximum(wait.seconds, total, max) {
-                    return Ok(Waited::Parked(maximum_reason(wait, total, max)));
-                }
+                past_maximum(wait.seconds, total, max).then(|| maximum_reason(wait, total, max))
             }
-            Ok(None) => {}
-            Err(reason) => {
-                return Ok(Waited::Parked(format!(
-                    "a resume waits for {}/{} without reading its bounds: {reason}",
-                    wait.provider, wait.route
-                )));
-            }
+            Ok(None) => None,
+            Err(reason) => Some(format!(
+                "a resume waits for {}/{} without reading its bounds: {reason}",
+                wait.provider, wait.route
+            )),
         }
+    }
+
+    /// Wait the recorded remainder in bounded slices, honouring an operator
+    /// `stop` through the journal's high-water mark. `true` is a stop:
+    /// nothing may probe or retry after it.
+    fn wait_in_slices(&mut self, wait: &ProviderWait) -> Result<bool, EngineError> {
         // Sample BEFORE the first stop check: an event journaled between
         // the caller's fold and this sample is then still a change, and the
         // check below sees it now rather than the sample swallowing it.
         let mut seen = self.store.high_water()?;
         if self.moved_from_the_effect()? {
-            return Ok(Waited::Stopped);
+            return Ok(true);
         }
         loop {
             let remaining = wait.until - self.now();
@@ -629,13 +651,23 @@ impl Engine {
             if high != seen {
                 seen = high;
                 if self.moved_from_the_effect()? {
-                    return Ok(Waited::Stopped);
+                    return Ok(true);
                 }
             }
         }
-        if self.moved_from_the_effect()? {
-            return Ok(Waited::Stopped);
-        }
+        self.moved_from_the_effect()
+    }
+
+    /// Probe the cooled route and turn its answer into what the caller does
+    /// next: the retry's answer, or the park's reason.
+    fn probe_outcome(
+        &mut self,
+        events: &[EventEnvelope],
+        state: &RunState,
+        effect_id: &str,
+        seat: &str,
+        wait: &ProviderWait,
+    ) -> Result<Waited, EngineError> {
         match self.probe(events, state, effect_id, seat, wait)? {
             Probe::Answered(answer) => Ok(Waited::Proceed(answer)),
             Probe::Parked(reason) => Ok(Waited::Parked(reason)),
