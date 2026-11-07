@@ -337,6 +337,31 @@ fn a_trail_that_does_not_begin_at_the_first_event_is_read_the_kept_way() {
     }
 }
 
+/// A run whose index trail does not begin at its first event because only
+/// SQL plants the fault — its first `event_index` row deleted — reads the
+/// kept way although its seat rows and summary stand at its head: a trail
+/// cut before its first event is no writer's and never a view of a cut
+/// run.
+#[test]
+fn an_index_trail_cut_before_its_first_event_is_read_the_kept_way() {
+    let (dir, mut store) = store();
+    worked(&mut store, 2);
+    let opened = store.open_run("r").unwrap();
+    assert!(matches!(
+        read(store.run_read("r", &opened, 0)),
+        Read::Current { .. }
+    ));
+    // Only the index is cut: the seat rows and the summary row still stand
+    // at the opening's head, so the read reaches the trail's guard.
+    assert!(matches!(store.seat_rows("r"), Ok(SeatRows::Current(_))));
+    let conn = rusqlite::Connection::open(dir.path().join("forge.db")).unwrap();
+    conn.execute_batch("DELETE FROM event_index WHERE run_id = 'r' AND seq = 1")
+        .unwrap();
+    drop(conn);
+    assert_eq!(read(store.run_read("r", &opened, 0)), Read::Kept);
+    lags(&mut store, &["r"]);
+}
+
 /// A run with no event, a journal whose summary's backfill has not
 /// finished, a summary row behind the head and an index row naming no
 /// cause each read the kept way.

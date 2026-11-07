@@ -1108,27 +1108,29 @@ fn a_checkpoint_before_and_after_its_request_keeps_site_facts_no_head() {
     assert!(Account::whole("run", &other).seats_kept());
 }
 
-/// A run whose terminal lands before its effect's request keeps the site's
-/// facts — its start's milliseconds, its keys and its metering rule — but
-/// no seat head: the terminal's order is no kept row's, so every
-/// participant readout reads the run whole (review 753s4s3, M2; decision
-/// 0089 rulings 4, 7 and 8).
-#[test]
-fn a_terminal_before_its_request_keeps_site_facts_no_head() {
-    use crate::summary::test_support::journal;
-    let failed = || {
-        (
-            EventType::EffectFailed,
-            json!({"effect_id": "fx", "attempt_id": "a"}),
-            "2026-01-01T00:00:02Z",
-        )
-    };
-    let events = journal(&early_run(failed()));
+/// A terminal of attempt `a` at the second second of an early run.
+fn terminal(event_type: EventType) -> Step {
+    (
+        event_type,
+        json!({"effect_id": "fx", "attempt_id": "a"}),
+        "2026-01-01T00:00:02Z",
+    )
+}
+
+/// A run whose `event_type`'s terminal of its provider-bearing attempt
+/// lands before its effect's request keeps the site's facts — its start's
+/// milliseconds, its keys and its metering rule — but no seat head: the
+/// whole read reports `outcome`, so every participant readout reads the
+/// run whole (decision 0089 rulings 4, 7 and 8).
+fn assert_early_terminal(event_type: EventType, outcome: Outcome) {
+    let journal = crate::summary::test_support::journal;
+    let events = journal(&early_run(terminal(event_type)));
     let account = Account::whole("run", &events);
     assert!(
         !account.seats_kept(),
         "the terminal landed before its request"
     );
+    assert_eq!(the_member(&account, "m").outcome, outcome);
     assert_site(
         &account,
         &events,
@@ -1143,8 +1145,26 @@ fn a_terminal_before_its_request_keeps_site_facts_no_head() {
         ),
     );
     // The head is withheld for the terminal alone, with no start before it.
-    let only_terminal = journal(&[work(), failed(), asks("2026-01-01T00:00:03Z")]);
+    let only_terminal = journal(&[work(), terminal(event_type), asks("2026-01-01T00:00:03Z")]);
     assert!(!Account::whole("run", &only_terminal).seats_kept());
+}
+
+/// A run whose terminal lands before its effect's request keeps the site's
+/// facts but no seat head: the terminal's order is no kept row's, so every
+/// participant readout reads the run whole (review 753s4s3, M2; decision
+/// 0089 rulings 4, 7 and 8).
+#[test]
+fn a_terminal_before_its_request_keeps_site_facts_no_head() {
+    assert_early_terminal(EventType::EffectFailed, Outcome::Failed);
+}
+
+/// A run whose indeterminate terminal lands before its effect's request
+/// keeps the site's facts but no seat head: the whole read reports the
+/// attempt indeterminate, so every participant readout reads the run whole
+/// (decision 0089 rulings 4 and 8).
+#[test]
+fn an_indeterminate_before_its_request_keeps_site_facts_no_head() {
+    assert_early_terminal(EventType::EffectIndeterminate, Outcome::Indeterminate);
 }
 
 /// A providerless start before its request still updates its participant:
@@ -1204,8 +1224,39 @@ fn a_record_that_is_not_a_start_is_not_deferred() {
     );
 }
 
+/// A start held for one attempt awaits no other attempt's record: the
+/// checkpoint of another attempt is not replayed into a row of its own,
+/// though the run keeps no seat head for the record's early landing
+/// (decision 0089 rulings 4 and 8).
+#[test]
+fn a_held_start_awaits_no_other_attempt() {
+    use crate::summary::test_support::journal;
+    let events = journal(&[
+        work(),
+        starts(
+            json!([{"member": "m", "provider": "anthropic"}]),
+            "2026-01-01T00:00:01Z",
+        ),
+        (
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "fx", "attempt_id": "b",
+                   "checkpoint": {"member": "m", "step": "seat-turn"}}),
+            "2026-01-01T00:00:02Z",
+        ),
+        asks("2026-01-01T00:00:03Z"),
+    ]);
+    let account = Account::whole("run", &events);
+    assert!(!account.seats_kept());
+    assert_eq!(the_site(&account).attempt_id.as_deref(), Some("a"));
+    assert!(account
+        .seats()
+        .iter()
+        .all(|row| row.attempt_id.as_deref() != Some("b")));
+}
+
 /// A start whose stamp does not parse states no provider on its rows, as
-/// brokkr-core's site reading ignores it.
+/// brokkr-core's site reading ignores it; before its effect's request it
+/// also opens no site, though it names its attempt.
 #[test]
 fn an_unreadable_start_states_no_provider() {
     use crate::summary::test_support::journal;
@@ -1225,6 +1276,38 @@ fn an_unreadable_start_states_no_provider() {
     let read = facts(Account::whole("run", &events).seats());
     assert_eq!(read.len(), 1);
     assert_eq!(read[0].provider, None);
+    // An unreadable start before its request names its attempt and still
+    // opens no site: the provider-bearing reading needs a readable stamp.
+    let early = journal(&[
+        work(),
+        starts(
+            json!([{"member": "m", "provider": "anthropic"}]),
+            "not a stamp",
+        ),
+        asks("2026-01-01T00:00:02Z"),
+    ]);
+    let account = Account::whole("run", &early);
+    assert!(account.sites().is_empty());
+    assert_eq!(
+        account
+            .seats()
+            .iter()
+            .filter(|row| row.site.is_some())
+            .count(),
+        0
+    );
+    // The live block opens the early start's attempt row, but the request
+    // replays no start into it: the row takes no start's stamp or phase,
+    // as an unreadable start states neither.
+    assert_eq!(account.seats().len(), 2);
+    let attempt = account
+        .seats()
+        .iter()
+        .find(|row| row.attempt_id.as_deref() == Some("a"))
+        .expect("the live start's row");
+    assert_eq!(attempt.started, None);
+    assert_eq!(attempt.phase, None);
+    assert!(!account.seats_kept());
 }
 
 /// A re-opened participant's later session record moves the earlier site's

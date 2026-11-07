@@ -493,3 +493,38 @@ fn a_non_site_row_s_model_key_is_checked_beside_its_provider() {
     data[at] = Datum::Text("other".to_string());
     assert!(SeatRow::of_data(data).is_none());
 }
+
+/// A row no site opened whose provider key is not the one its whole named
+/// provider derives reads as no row, as its model key is checked beside
+/// it; the key the writer keeps is the named provider's own.
+#[test]
+fn a_non_site_row_s_provider_key_is_checked_beside_its_model() {
+    use crate::envelope::EventType;
+    use crate::summary::test_support::journal;
+    use serde_json::json;
+
+    let events = journal(&[
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "fx", "seat": "worker"}),
+            "2026-01-01T00:00:00Z",
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id": "fx",
+                   "provenance": [{"member": null, "provider": "anthropic"}]}),
+            "2026-01-01T00:00:01Z",
+        ),
+    ]);
+    let account = Account::whole("run", &events);
+    let row = &account.seats()[0];
+    assert!(row.site.is_none());
+    let at = SeatRow::COLUMNS
+        .iter()
+        .position(|(name, _)| *name == "provider_key")
+        .unwrap();
+    let mut data = row.data();
+    assert_eq!(data[at], Datum::Text("anthropic".to_string()));
+    data[at] = Datum::Text("other".to_string());
+    assert!(SeatRow::of_data(data).is_none());
+}

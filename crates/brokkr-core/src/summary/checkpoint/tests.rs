@@ -29,14 +29,16 @@ fn a_checkpoint_reads_its_time_phase_cost_tokens_and_session() {
                 "reasoning_output_tokens": 1,
             }),
         ),
-        // A turn reporting no cost and no tokens is still a metered row.
-        checkpoint(Some("m"), json!({"step": "tool-use"})),
+        // A turn reporting no cost and no tokens is still a metered row;
+        // a checkpoint naming no member is the seat's own.
+        checkpoint(None, json!({"step": "tool-use"})),
     ]);
     let read = checkpoints(&events);
     assert_eq!(read.len(), 2);
     assert_eq!(read[0].seq, 2);
     assert_eq!(read[0].attempt_id, "a");
     assert_eq!(read[0].member.as_deref(), Some("m"));
+    assert_eq!(read[1].member, None);
     assert_eq!(read[0].at, 1_767_225_602_000);
     assert_eq!(read[0].phase.as_deref(), Some("implement"));
     assert!(read[0].reported);

@@ -158,16 +158,16 @@ impl Checking {
             Some(id) => SiteKey::Site(id),
             None => SiteKey::Loose(checkpoint.attempt_id.clone(), checkpoint.member.clone()),
         };
-        let repeat = checkpoint.meter.metered()
-            && checkpoint
-                .meter
-                .usage()
-                .is_some_and(|usage| self.last.get(&site) == Some(usage));
+        // A metered record carries a usage, so it is read once and
+        // inserted only where it meters a new message (decision 0089
+        // ruling 7): no `if let` waits on a usage `metered` already
+        // implies.
+        let metered = checkpoint.meter.metered();
+        let usage = checkpoint.meter.usage();
+        let repeat = metered && usage.is_some_and(|usage| self.last.get(&site) == Some(usage));
         checkpoint.repeat = Some(repeat);
-        if checkpoint.meter.metered() && !repeat {
-            if let Some(usage) = checkpoint.meter.usage() {
-                self.last.insert(site.clone(), usage.clone());
-            }
+        if let Some(usage) = usage.filter(|_| metered && !repeat) {
+            self.last.insert(site.clone(), usage.clone());
         }
         if checkpoint.session {
             let participant = (checkpoint.attempt_id.clone(), checkpoint.member.clone());
