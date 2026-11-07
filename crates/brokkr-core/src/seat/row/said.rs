@@ -183,10 +183,13 @@ impl Seats {
 
     /// Whether the rows keep the live block: not while a record of an
     /// effect no request has asked for is still held, whose rows the
-    /// request would open, nor while the live start names no effect or one
-    /// no request has asked for yet, which no row is of ([`live`]).
+    /// request would open, nor while a participant record landed before
+    /// the first request that asked its effect, whose order no kept row
+    /// represents exactly, nor while the live start names no effect or one
+    /// no request has asked for yet, which no row is of
+    /// ([`live`]).
     pub(crate) fn keep_live(&self) -> bool {
-        if !self.pending.is_empty() {
+        if self.before_request {
             return false;
         }
         match &self.aside.started {
@@ -229,7 +232,8 @@ fn heard(lines: &mut Vec<Line>, label: String, turn: Option<(u64, (String, Strin
 /// seat the effect was last asked by that names one, else `?`; one bare
 /// line for that seat while no record of the attempt is kept; and none
 /// while no row is live. A start naming no effect, or an effect not yet
-/// asked, is in no row, so its block is not kept
+/// asked, is in no row, and a participant record before its effect's first
+/// request is in no kept row exactly, so its block is not kept
 /// ([`Account::seats_kept`](crate::summary::Account::seats_kept)): the
 /// writer keeps no seat head for its run, which a reader reads whole.
 pub fn live(rows: &[SeatRow]) -> Vec<(String, Option<(String, String)>)> {

@@ -871,6 +871,64 @@ fn records(record: serde_json::Value, at: &'static str) -> Step {
     )
 }
 
+/// The first records of a run whose checkpoint lands before its effect's
+/// request: `work` entered, attempt `a` started under member `m`'s
+/// anthropic provider, `record` at the second second, and the request at
+/// the third.
+fn early_records(record: serde_json::Value) -> Vec<Step> {
+    early_run(records(record, "2026-01-01T00:00:02Z"))
+}
+
+/// `record` before its effect's request, after the same `work` phase and
+/// provider-bearing start, and the request at the third second.
+fn early_run(record: Step) -> Vec<Step> {
+    vec![
+        work(),
+        starts(
+            json!([{"member": "m", "provider": "anthropic"}]),
+            "2026-01-01T00:00:01Z",
+        ),
+        record,
+        asks("2026-01-01T00:00:03Z"),
+    ]
+}
+
+/// A site's facts as the kept rows and the whole reading state them: its
+/// attempt and member, its start in milliseconds, its phase, provider,
+/// model and metering rule.
+type SiteKey = (
+    String,
+    Option<String>,
+    i64,
+    Option<String>,
+    String,
+    Option<String>,
+    Metering,
+);
+
+/// The facts [`SiteKey`] names of `site`.
+fn site_facts(site: &crate::summary::Site) -> SiteKey {
+    (
+        site.attempt_id.clone(),
+        site.member.clone(),
+        site.at,
+        site.phase.clone(),
+        site.provider.clone(),
+        site.model.clone(),
+        site.metering,
+    )
+}
+
+/// `account`'s one site against the whole reading of `events`, and its
+/// facts against `expected`.
+fn assert_site(account: &Account, events: &[EventEnvelope], expected: SiteKey) {
+    let read = crate::summary::sites(events);
+    let kept = account.sites();
+    assert_eq!(kept.len(), 1);
+    assert_eq!(site_facts(&kept[0]), site_facts(&read[0]));
+    assert_eq!(site_facts(&kept[0]), expected);
+}
+
 /// The one site row a request opened.
 fn the_site(account: &Account) -> &SeatRow {
     account
@@ -918,23 +976,15 @@ fn a_start_before_its_request_keeps_its_site_row() {
 /// A checkpoint that lands after its attempt's start but before the
 /// effect's request still dates the site the request opens: the site keeps
 /// the model and metering rule its checkpoint read, and the participant its
-/// tokens and turn (review 753s4s3, M1).
+/// tokens and turn (review 753s4s3, M1). The record's order no kept row
+/// represents exactly, so the head is withheld and the run is read whole
+/// (decision 0089 ruling 8).
 #[test]
 fn a_checkpoint_before_its_request_keeps_its_site_facts() {
     use crate::summary::test_support::journal;
-    let events = journal(&[
-        work(),
-        starts(
-            json!([{"member": "m", "provider": "anthropic"}]),
-            "2026-01-01T00:00:01Z",
-        ),
-        records(
-            json!({"member": "m", "step": "seat-turn", "model": "opus",
-                   "input_tokens": 10}),
-            "2026-01-01T00:00:02Z",
-        ),
-        asks("2026-01-01T00:00:03Z"),
-    ]);
+    let events = journal(&early_records(
+        json!({"member": "m", "step": "seat-turn", "model": "opus", "input_tokens": 10}),
+    ));
     let account = Account::whole("run", &events);
     let site = the_site(&account);
     assert_eq!(site.site_model.as_deref(), Some("opus"));
@@ -950,14 +1000,18 @@ fn a_checkpoint_before_its_request_keeps_its_site_facts() {
         })
     );
     assert_eq!(member.provider, provider("anthropic"));
-    assert!(account.seats_kept(), "the request drains the held records");
+    assert!(
+        !account.seats_kept(),
+        "a record before its request keeps no seat head"
+    );
 }
 
 /// A terminal of a start whose effect was never asked cannot make its rows
 /// current: the site waits for the request that would replay both, so the
 /// writer keeps no seat head and a reader falls back to the run whole
 /// (review 753s4s3, M2). The request, once it lands, replays the terminal
-/// too, so the site is represented and concluded.
+/// too, so the site is represented and concluded, but the record's order
+/// still keeps no head (decision 0089 ruling 8).
 #[test]
 fn a_terminated_unrequested_start_keeps_its_rows_unkept() {
     use crate::summary::test_support::journal;
@@ -987,8 +1041,98 @@ fn a_terminated_unrequested_start_keeps_its_rows_unkept() {
     );
     let after = journal(&[work(), start, failed, asks("2026-01-01T00:00:03Z")]);
     let account = Account::whole("run", &after);
-    assert!(account.seats_kept());
+    assert!(
+        !account.seats_kept(),
+        "a terminal before its request keeps no seat head"
+    );
     assert_eq!(the_member(&account, "m").outcome, Outcome::Failed);
+}
+
+/// A run whose checkpoint lands before its effect's request keeps the
+/// site's facts — its start's milliseconds, its keys, its provider, model
+/// and metering rule — but no seat head: the checkpoint's order is no
+/// kept row's, so every participant readout reads the run whole (review
+/// 753s4s3, M1; decision 0089 rulings 4, 7 and 8).
+#[test]
+fn a_checkpoint_before_and_after_its_request_keeps_site_facts_no_head() {
+    use crate::summary::test_support::journal;
+    let mut steps = early_records(
+        json!({"member": "m", "step": "seat-turn", "turn": 1, "tool": "Read",
+               "model": "opus", "input_tokens": 10}),
+    );
+    steps.push(records(
+        json!({"member": "m", "step": "seat-turn", "turn": 2, "tool": "Write"}),
+        "2026-01-01T00:00:04Z",
+    ));
+    let events = journal(&steps);
+    let account = Account::whole("run", &events);
+    assert!(
+        !account.seats_kept(),
+        "the checkpoint landed before its request"
+    );
+    assert_site(
+        &account,
+        &events,
+        (
+            "a".to_string(),
+            Some("m".to_string()),
+            1_767_225_601_000,
+            Some("work".to_string()),
+            "anthropic".to_string(),
+            Some("opus".to_string()),
+            Metering::Turns,
+        ),
+    );
+    // The head is withheld for the checkpoint alone, with no start before
+    // it: the condition is the record's landing, not the start's.
+    let only_checkpoint = journal(&[
+        work(),
+        records(
+            json!({"member": "m", "step": "seat-turn", "input_tokens": 10}),
+            "2026-01-01T00:00:02Z",
+        ),
+        asks("2026-01-01T00:00:03Z"),
+    ]);
+    assert!(!Account::whole("run", &only_checkpoint).seats_kept());
+}
+
+/// A run whose terminal lands before its effect's request keeps the site's
+/// facts — its start's milliseconds, its keys and its metering rule — but
+/// no seat head: the terminal's order is no kept row's, so every
+/// participant readout reads the run whole (review 753s4s3, M2; decision
+/// 0089 rulings 4, 7 and 8).
+#[test]
+fn a_terminal_before_its_request_keeps_site_facts_no_head() {
+    use crate::summary::test_support::journal;
+    let failed = || {
+        (
+            EventType::EffectFailed,
+            json!({"effect_id": "fx", "attempt_id": "a"}),
+            "2026-01-01T00:00:02Z",
+        )
+    };
+    let events = journal(&early_run(failed()));
+    let account = Account::whole("run", &events);
+    assert!(
+        !account.seats_kept(),
+        "the terminal landed before its request"
+    );
+    assert_site(
+        &account,
+        &events,
+        (
+            "a".to_string(),
+            Some("m".to_string()),
+            1_767_225_601_000,
+            Some("work".to_string()),
+            "anthropic".to_string(),
+            None,
+            Metering::Session,
+        ),
+    );
+    // The head is withheld for the terminal alone, with no start before it.
+    let only_terminal = journal(&[work(), failed(), asks("2026-01-01T00:00:03Z")]);
+    assert!(!Account::whole("run", &only_terminal).seats_kept());
 }
 
 /// A providerless start before its request still updates its participant:

@@ -131,9 +131,11 @@ fn every_journal_s_seat_rows_keep_its_seat_costs() {
     assert_eq!(total.to_bits(), 1.25f64.to_bits());
 }
 
-/// The rows of a run whose live start names no effect or one never asked
-/// do not keep its live block, so they read stale and the run view is read
-/// whole; every other journal's rows keep it, every committed one's too.
+/// The rows of a run whose live start names no effect or one never asked,
+/// or whose participant record landed before its effect's request, do not
+/// keep its live block, so they read stale and the run view is read whole;
+/// every other journal's rows keep it, every committed one's too
+/// (decision 0089 ruling 8).
 #[test]
 fn only_a_live_start_no_row_is_of_leaves_its_rows_unkept() {
     let committed = committed_journals::committed_journals();
@@ -146,5 +148,18 @@ fn only_a_live_start_no_row_is_of_leaves_its_rows_unkept() {
         .filter(|(_, events)| !Account::whole("run", events).seats_kept())
         .map(|(name, _)| name)
         .collect();
-    assert_eq!(unkept, ["effectless", "never asked"]);
+    assert_eq!(
+        unkept,
+        [
+            "unnamed",
+            "later",
+            "unasked",
+            "again",
+            "unasked in flight",
+            "again in flight",
+            "started unasked",
+            "effectless",
+            "never asked",
+        ]
+    );
 }

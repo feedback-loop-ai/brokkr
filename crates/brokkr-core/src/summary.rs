@@ -346,6 +346,8 @@ impl Account {
     }
 
     /// Whether its seats' rows keep all the run view reads of them: not
+    /// while a participant record landed before the first request that
+    /// asked its effect, an order no kept row represents exactly, nor
     /// while the run's last start, unended, names no effect or one no
     /// request has asked for, whose live block no row holds. The writer
     /// keeps no seat head for such a run, so a reader reads it whole

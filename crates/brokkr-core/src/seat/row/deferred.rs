@@ -12,12 +12,16 @@
 //! as the view passes over a start before its request. A checkpoint or a
 //! terminal is held only after the start it belongs to, so a record before
 //! the attempt's first start stays the live block's early line
-//! (`listed::Aside`), as it did. The queue holds no row: a request replays
-//! it into the rows, and the started account carries the queue as its typed
-//! facts across an append (decision 0089 ruling 9).
+//! (`listed::Aside`), as it did. A record here landed before its effect's
+//! first request, an order no kept row represents exactly, so the run
+//! keeps no seat head and a reader reads it whole (decision 0089 ruling 8).
+//! The queue holds no row: a request replays it into the rows, and the
+//! started account carries the queue as its typed facts across an append
+//! (decision 0089 ruling 9).
 
 use serde_json::Value;
 
+use super::listed::Kind;
 use super::said::{self, Turned};
 use super::sited::Start;
 use super::{state, Member, Outcome, Pin, Running, SeatRow, Seats, Session, Stamp};
@@ -141,6 +145,14 @@ impl Seats {
         let Some(effect_id) = field(&event.payload, "effect_id") else {
             return;
         };
+        // A start, a checkpoint or a terminal of an attempt before its
+        // effect's first request is the run's own fact, read as the record
+        // is folded: the kept rows cannot represent the order exactly, so
+        // the head is withheld (decision 0089 ruling 8).
+        self.before_request |= matches!(
+            Kind::of(event.event_type),
+            Kind::Started | Kind::Checkpointed | Kind::Ended
+        );
         let attempt = field(&event.payload, "attempt_id");
         let awaiting = self.awaiting(effect_id, attempt);
         let phase = self.phase.clone();

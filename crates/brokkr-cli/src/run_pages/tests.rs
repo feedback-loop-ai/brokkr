@@ -11,6 +11,7 @@
 //! is refused in the store's words; a stale run, an unindexed journal and
 //! a journal without the projections take the kept read.
 
+mod before_request;
 mod console_end;
 mod display_clamp;
 mod far_work;

@@ -286,6 +286,11 @@ pub(crate) struct Seats {
     /// order and typed: the request that asks it replays them into its
     /// rows, as main's walk reads a start before its request.
     pending: BTreeMap<String, Vec<Deferred>>,
+    /// Whether an effect's participant record — a start, a checkpoint or a
+    /// terminal of its attempt — landed before the first request that
+    /// asked its effect. No kept row represents that order exactly, so the
+    /// head is not kept for the run (decision 0089 ruling 8).
+    before_request: bool,
     aside: listed::Aside,
 }
 

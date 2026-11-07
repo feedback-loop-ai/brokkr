@@ -162,8 +162,9 @@ fn a_checkpoint_append_writes_the_rows_it_moved_and_the_seat_head() {
 /// no seat head, its rows not keeping that start's live block: they read
 /// stale, and the binding holds them to their fold all the same, an edited
 /// row or a seat head kept for them named behind. A writable open refolds
-/// the run and keeps none still. The terminal ending that start keeps the
-/// head again, every row its fold's.
+/// the run and keeps none still. The terminal ending that start keeps none
+/// either, because the start landed before its effect's request
+/// (decision 0089 ruling 8).
 #[test]
 fn a_live_start_no_row_is_of_keeps_no_seat_head() {
     let (_dir, mut store) = store();
@@ -191,14 +192,15 @@ fn a_live_start_no_row_is_of_keeps_no_seat_head() {
     let peer = Store::open(store.path()).unwrap();
     assert_eq!(head(&peer, "r"), None);
     append(&mut store, "r", EventType::EffectSucceeded, unasked);
-    assert_eq!(head(&store, "r"), Some(store.head_hash("r").unwrap()));
-    assert_eq!(read(&store, "r"), folded_rows(&store, "r"));
+    assert_eq!(head(&store, "r"), None);
+    assert_eq!(store.seat_rows("r").unwrap(), SeatRows::Stale);
 }
 
 /// A terminal of a provider-bearing start whose effect was never asked
-/// keeps no seat head: the start and its terminal wait for the request that
-/// replays them, so the rows read stale until it lands, and then every row
-/// is its fold's (review 753s4s3, M2).
+/// keeps no seat head: the start and its terminal landed before the
+/// request, so the rows read stale after it too, and every reader reads
+/// the run whole, though the request still replays them into the rows
+/// (review 753s4s3, M2; decision 0089 ruling 8).
 #[test]
 fn a_terminated_unrequested_site_keeps_no_seat_head() {
     let (_dir, mut store) = store();
@@ -220,8 +222,9 @@ fn a_terminated_unrequested_site_keeps_no_seat_head() {
         EventType::EffectRequested,
         json!({"effect_id": "other", "seat": "elsewhere"}),
     );
-    assert_eq!(head(&store, "r"), Some(store.head_hash("r").unwrap()));
-    assert_eq!(read(&store, "r"), folded_rows(&store, "r"));
+    assert_eq!(head(&store, "r"), None);
+    assert_eq!(store.seat_rows("r").unwrap(), SeatRows::Stale);
+    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
 }
 
 /// An append through a store that carries no fold writes no seat row and
@@ -806,13 +809,19 @@ fn a_seat_table_without_a_column_slice_2b_keeps_is_rebuilt_at_a_writable_open() 
         append(&mut store, "r", EventType::EffectCheckpointed, stepped);
         let tagged = checkpoint(Some("b"), 1);
         append(&mut store, "r", EventType::EffectCheckpointed, tagged);
-        let early = json!({"member": "c", "step": "seat-turn", "turn": 1, "tool": "Read"});
-        let early = json!({"effect_id": "fy", "attempt_id": "z", "checkpoint": early});
-        append(&mut store, "r", EventType::EffectCheckpointed, early);
-        let asked = json!({"effect_id": "fy", "seat": "other"});
-        append(&mut store, "r", EventType::EffectRequested, asked);
-        let started = json!({"effect_id": "fy", "attempt_id": "z"});
-        append(&mut store, "r", EventType::EffectStarted, started);
+        // The early line's column needs a record before its effect's
+        // request, which keeps no seat head (decision 0089 ruling 8): only
+        // the columns that read it plant one.
+        let early = matches!(column, "early_tags" | "early_lines" | "live");
+        if early {
+            let line = json!({"member": "c", "step": "seat-turn", "turn": 1, "tool": "Read"});
+            let line = json!({"effect_id": "fy", "attempt_id": "z", "checkpoint": line});
+            append(&mut store, "r", EventType::EffectCheckpointed, line);
+            let asked = json!({"effect_id": "fy", "seat": "other"});
+            append(&mut store, "r", EventType::EffectRequested, asked);
+            let started = json!({"effect_id": "fy", "attempt_id": "z"});
+            append(&mut store, "r", EventType::EffectStarted, started);
+        }
         let path = store.path().to_path_buf();
         drop(store);
         let raw = rusqlite::Connection::open(&path).unwrap();
@@ -822,13 +831,22 @@ fn a_seat_table_without_a_column_slice_2b_keeps_is_rebuilt_at_a_writable_open() 
         assert!(!seats_intact(&reader.conn).unwrap(), "{column}");
         assert_eq!(reader.seat_rows("r").unwrap(), SeatRows::Stale, "{column}");
         let store = Store::open(&path).unwrap();
-        let rows = store.seat_rows("r").unwrap();
-        assert_eq!(
-            rows,
-            SeatRows::Current(folded_rows(&store, "r")),
-            "{column}"
-        );
-        let read = read(&store, "r");
+        let read = match store.seat_rows("r").unwrap() {
+            SeatRows::Current(rows) => {
+                assert!(!early, "{column}: a kept row is no early record's");
+                assert_eq!(rows, folded_rows(&store, "r"), "{column}");
+                rows
+            }
+            SeatRows::Stale => {
+                assert!(early, "{column}: a kept head is expected");
+                assert_eq!(
+                    every_run_reads_as_its_fold(&store),
+                    Vec::<String>::new(),
+                    "{column}"
+                );
+                folded_rows(&store, "r")
+            }
+        };
         let facts = brokkr_core::seat::row::facts(&read);
         let target = facts[0].target.as_deref();
         assert_eq!(target, Some("a.rs"), "{column}");
@@ -837,9 +855,14 @@ fn a_seat_table_without_a_column_slice_2b_keeps_is_rebuilt_at_a_writable_open() 
         assert_eq!(listed, (words("draft"), words("b")), "{column}");
         let models = brokkr_core::seat::row::models(&read, 0, u64::MAX);
         assert_eq!(models.into_iter().collect::<Vec<_>>(), words("opus"));
-        let turned = Some(("1".to_string(), "Read".to_string()));
-        let live = brokkr_core::seat::row::live(&read);
-        assert_eq!(live, [("?:c".to_string(), turned)], "{column}");
+        if early {
+            let live = brokkr_core::seat::row::live(&read);
+            let expected = [(
+                "?:c".to_string(),
+                Some(("1".to_string(), "Read".to_string())),
+            )];
+            assert_eq!(live, expected, "{column}");
+        }
     }
 }
 
@@ -1401,8 +1424,18 @@ fn every_fixture_keeps_the_seat_facts_the_run_reads() {
         let rows = match store.seat_rows(&run_id).unwrap() {
             SeatRows::Current(rows) => rows,
             SeatRows::Stale => {
-                wrong.push(format!("{run_id}: seat rows read stale"));
-                continue;
+                // A record before its effect's request withholds the seat
+                // head (decision 0089 ruling 8): the table still holds the
+                // run's rows, held to its fold, and the site columns read
+                // as the fold's own rows state them.
+                assert!(
+                    !account.seats_kept(),
+                    "{run_id}: a stale read with a kept head"
+                );
+                let compared =
+                    crate::test_support::named(&run_id, store.compared(&run_id, || {}).unwrap());
+                assert_eq!(compared, None, "{run_id}");
+                account.seats().to_vec()
             }
         };
         let mut matched = vec![false; sites.len()];
@@ -1468,12 +1501,18 @@ fn every_fixture_keeps_the_seat_facts_the_run_reads() {
 
 /// A start before its request keeps its site row: the request it waited for
 /// opens the site it named, as main's walk reads it, and the row is core's
-/// own reading of the run.
+/// own reading of the run. The run keeps no seat head, because the start
+/// landed before its request, so its reader reads it whole (decision 0089
+/// ruling 8).
 #[test]
 fn an_early_start_keeps_its_site_row() {
     let (_dir, mut store) = store();
     early_start(&mut store, "r");
-    let (sites, rows) = sites_and_rows(&store, "r");
+    let events = store.load("r").unwrap();
+    let sites = brokkr_core::summary::sites(&events);
+    let rows = Account::whole("r", &events).seats().to_vec();
+    assert_eq!(store.seat_rows("r").unwrap(), SeatRows::Stale);
+    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
     let sited = sited_rows(&rows);
     assert_eq!(sites.len(), 1);
     assert_eq!(sited.len(), 1);
@@ -1481,12 +1520,6 @@ fn an_early_start_keeps_its_site_row() {
     assert_eq!(
         held(sited[0], "provider_key").as_deref(),
         Some(sites[0].provider.as_str())
-    );
-    assert_eq!(
-        rows,
-        Account::whole("r", &store.load("r").unwrap())
-            .seats()
-            .to_vec()
     );
 }
 

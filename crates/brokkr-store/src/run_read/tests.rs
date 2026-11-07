@@ -238,22 +238,22 @@ fn a_page_is_read_with_what_caused_its_rows() {
     assert_eq!(causes, BTreeMap::from([(started, 4)]));
 }
 
-/// A run whose fold refuses a checkpoint, which only checks the effect it
-/// names is open, reads no state at its head, though its trail folds: its
-/// summary row records the refusal there.
+/// A run whose fold refuses an event out of place reads no state at its
+/// head, though its trail folds: its summary row records the refusal there.
+/// A refused checkpoint would land before its effect's request and so keep
+/// no seat head (decision 0089 ruling 8); a refused transition names no
+/// effect, so the head stands and the refusal is read.
 #[test]
-fn a_run_whose_fold_refuses_a_checkpoint_reads_no_state() {
+fn a_run_whose_fold_refuses_a_later_event_reads_no_state() {
     let (_dir, mut store) = store();
     worked(&mut store, 1);
-    let mut elsewhere = turn(2);
-    elsewhere["effect_id"] = json!("elsewhere");
-    let refused = (EventType::EffectCheckpointed, elsewhere);
+    let refused = (EventType::TransitionDecided, json!({}));
     store
         .append_next("r", refused.0, refused.1, None, None)
         .unwrap();
     let opened = store.open_run("r").unwrap();
     let whole = store.load("r").unwrap();
-    let refusal = "event 6: EffectCheckpointed is impossible at cursor EffectInFlight { \
+    let refusal = "event 6: TransitionDecided is impossible at cursor EffectInFlight { \
          effect_id: \"fx\", attempt_id: \"a\", seat: \"worker\", failed_attempts: 0 }";
     assert_eq!(fold(&whole).unwrap_err().to_string(), refusal);
     assert_eq!(fold(&whole[..4]).unwrap().seq, 4);
