@@ -37,7 +37,7 @@ use std::sync::LazyLock;
 
 use rusqlite::{params_from_iter, Connection, OptionalExtension};
 
-use crate::event_index::{finished, mark_finished, payload, record, CHECKPOINTED};
+use crate::event_index::{finished, mark_finished, payload, CHECKPOINTED};
 use crate::{patiently, Store, StoreError};
 
 /// The column's name: a row's 1-based place among its stream's counted
@@ -101,72 +101,47 @@ fn checkpoint_member(envelope: &str) -> String {
     last_text(&record, "member")
 }
 
-/// The ordinal `kind`, `attempt`, `member` and `effect` name, read from
-/// the `events` row `event` (the alias whose `run_id` and `seq` the stream
+/// The ordinal `attempt`, `member` and `effect` name, read from the
+/// `events` row `event` (the alias whose `run_id` and `seq` the stream
 /// seek binds): its stream's previous numbered row's ordinal plus one
 /// where that row belongs to the same effect, 1 where it belongs to
 /// another, and 0 on every checkpoint row the guarded read does not count.
-/// The previous row's effect is one `events` seek by its key. Both the
-/// event trigger's insert and the index trigger's update take this one
-/// derivation, so a checkpoint a writer writes and one an import's trigger
-/// numbers cannot part (ruling 5).
-fn numbered(
-    kind: &str,
-    attempt: &str,
-    member: &str,
-    effect: &str,
-    checkpoint: &str,
-    event: &str,
-) -> String {
+/// The previous row's effect is one `events` seek by its key. The index
+/// trigger's update takes this derivation, and the backfill's [`NUMBER`]
+/// the same one as a window, so a checkpoint a writer writes and one an
+/// import's trigger numbers cannot part (ruling 5). The caller has
+/// already guarded the row as a checkpoint, so no arm here decides a type.
+fn numbered(attempt: &str, member: &str, effect: &str, checkpoint: &str, event: &str) -> String {
     let earlier = last_text(&payload("earlier_event.envelope"), "effect_id");
     format!(
-        "CASE WHEN {kind} = '{CHECKPOINTED}' THEN
-           CASE WHEN {attempt} IS NOT NULL AND ({checkpoint}) IS ({member}) THEN
-             coalesce(
-               (SELECT CASE WHEN {earlier} IS ({effect})
-                            THEN earlier_row.{COLUMN} ELSE 0 END
-                FROM event_index AS earlier_row INDEXED BY event_index_stream
-                  JOIN events AS earlier_event
-                    ON earlier_event.run_id = earlier_row.run_id
-                   AND earlier_event.seq = earlier_row.seq
-                WHERE earlier_row.run_id = {event}.run_id
-                  AND earlier_row.attempt_id IS {attempt}
-                  AND earlier_row.member IS {member}
-                  AND earlier_row.seq < {event}.seq
-                  AND earlier_row.type = '{CHECKPOINTED}'
-                  AND earlier_row.{COLUMN} > 0
-                ORDER BY earlier_row.seq DESC LIMIT 1), 0) + 1
-           ELSE 0 END
-         END"
+        "CASE WHEN {attempt} IS NOT NULL AND ({checkpoint}) IS ({member}) THEN
+           coalesce(
+             (SELECT CASE WHEN {earlier} IS ({effect})
+                          THEN earlier_row.{COLUMN} ELSE 0 END
+              FROM event_index AS earlier_row INDEXED BY event_index_stream
+                JOIN events AS earlier_event
+                  ON earlier_event.run_id = earlier_row.run_id
+                 AND earlier_event.seq = earlier_row.seq
+              WHERE earlier_row.run_id = {event}.run_id
+                AND earlier_row.attempt_id IS {attempt}
+                AND earlier_row.member IS {member}
+                AND earlier_row.seq < {event}.seq
+                AND earlier_row.type = '{CHECKPOINTED}'
+                AND earlier_row.{COLUMN} > 0
+              ORDER BY earlier_row.seq DESC LIMIT 1), 0) + 1
+         ELSE 0 END"
     )
 }
 
-/// The ordinal the event trigger writes for `event`, a row of `events` it
-/// is indexing, from the envelope it holds: the writer's own append seeks
-/// the stream once and never the event again.
-pub(super) fn projected(event: &str) -> String {
-    let envelope = format!("{event}.envelope");
-    let payload = payload(&envelope);
-    numbered(
-        &crate::summary::text_at(&envelope, "$.type"),
-        &crate::event_index::last_text(&payload, "attempt_id"),
-        &crate::event_index::last_text(&record(&envelope), "member"),
-        &crate::event_index::last_text(&payload, "effect_id"),
-        &checkpoint_member(&envelope),
-        event,
-    )
-}
-
-/// The ordinal the index trigger writes for a row inserted past the event
-/// trigger, from the row it already projects and the envelope `events`
-/// holds for it: one `events` seek by the row's key, never the run's
-/// events.
+/// The ordinal the index trigger writes for a row the event trigger
+/// inserted without one, from the row it already projects and the envelope
+/// `events` holds for it: one `events` seek by the row's key, never the
+/// run's events.
 fn projected_row(row: &str) -> String {
     let envelope =
         format!("(SELECT envelope FROM events WHERE run_id = {row}.run_id AND seq = {row}.seq)");
     let payload = payload(&envelope);
     numbered(
-        &format!("{row}.type"),
         &format!("{row}.attempt_id"),
         &format!("{row}.member"),
         &crate::event_index::last_text(&payload, "effect_id"),
@@ -180,12 +155,14 @@ fn projected_row(row: &str) -> String {
 /// the backfill that follows the open numbers its rows once. The indexes
 /// are dropped and made anew, since a journal from before the streamless
 /// stale key carries one of the old shape under the same name. The trigger
-/// numbers a row inserted past the event trigger (the index backfill's and
-/// an older writer's direct insert) from [`projected`], the same derivation
-/// the event trigger's insert takes: the event trigger's own rows already
-/// carry theirs, so this one skips them. The stale index names the rows
-/// still to number, keyed by (run, attempt, member, seq); the written index
-/// names the counted rows (`> 0`) by their stream.
+/// numbers every checkpoint row inserted without an ordinal (the event
+/// trigger's, the index backfill's and an older writer's direct insert)
+/// from [`projected_row`]: the projection lives here alone, so every
+/// connection parses it once. The stale index names the rows still to
+/// number, keyed by (run, attempt, member, seq); the written index names
+/// the numbered rows, a counted one above 0 or a not-counted one 0, by
+/// their stream, and its partial guard is the ordinal's presence alone: a
+/// non-checkpoint row never carries one.
 pub(super) fn objects() -> String {
     format!(
         "DROP INDEX IF EXISTS {STALE};
@@ -195,7 +172,7 @@ pub(super) fn objects() -> String {
          DROP INDEX IF EXISTS event_index_ordinal_written;
          CREATE INDEX IF NOT EXISTS event_index_ordinal_written
              ON event_index (run_id, attempt_id, member, {COLUMN}, seq)
-             WHERE type = '{CHECKPOINTED}' AND {COLUMN} IS NOT NULL;
+             WHERE {COLUMN} IS NOT NULL;
          DROP TRIGGER IF EXISTS event_index_ordinal;
          CREATE TRIGGER event_index_ordinal AFTER INSERT ON event_index
              WHEN NEW.type = '{CHECKPOINTED}' AND NEW.{COLUMN} IS NULL

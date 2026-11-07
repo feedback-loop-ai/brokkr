@@ -263,7 +263,7 @@ fn migration() -> String {
             {row_behind};
         END;
         DROP TRIGGER IF EXISTS event_index_of_an_event; CREATE TRIGGER event_index_of_an_event AFTER INSERT ON events BEGIN
-            INSERT OR IGNORE INTO event_index ({COLUMNS}, {ordinal_name}) SELECT {projected}, {ordinal_projected};
+            INSERT OR IGNORE INTO event_index ({COLUMNS}) SELECT {projected};
         END;
         CREATE TRIGGER IF NOT EXISTS event_index_stamp_bounded AFTER INSERT ON event_index
             WHEN length(CAST(NEW.recorded_at AS BLOB)) > {STAMP_BYTES} BEGIN
@@ -282,8 +282,6 @@ fn migration() -> String {
         row_behind = checkpoint::row_behind("NEW"),
         ordinal_column = ordinal::declared(),
         ordinal = ordinal::objects(),
-        ordinal_name = ordinal::COLUMN,
-        ordinal_projected = ordinal::projected("NEW"),
     )
 }
 

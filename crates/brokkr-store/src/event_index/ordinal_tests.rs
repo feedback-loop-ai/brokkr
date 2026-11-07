@@ -270,6 +270,80 @@ fn an_older_writer_and_an_import_keep_the_ordinals() {
     );
 }
 
+/// A fresh store's `sqlite_master` holds one projection of the ordinal:
+/// the event trigger inserts the row as an older engine's does, without
+/// the column, and `event_index_ordinal` alone numbers it.
+#[test]
+fn the_ordinal_is_projected_by_one_trigger() {
+    let (_dir, store) = store();
+    let sql = |name: &str| -> String {
+        store
+            .conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?1",
+                [name],
+                |row| row.get(0),
+            )
+            .unwrap()
+    };
+    let inserting = sql("event_index_of_an_event");
+    assert!(
+        !inserting.contains(COLUMN),
+        "the event trigger embeds no ordinal projection: {inserting}"
+    );
+    let numbering = sql("event_index_ordinal");
+    assert!(
+        numbering.contains("UPDATE event_index") && numbering.contains(COLUMN),
+        "the index trigger writes the ordinal: {numbering}"
+    );
+    let projected: i64 = store
+        .conn
+        .query_row(
+            "SELECT count(*) FROM sqlite_master
+             WHERE type = 'trigger' AND sql LIKE ?1",
+            [format!("%{COLUMN}%")],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(projected, 1, "one trigger projects the ordinal");
+}
+
+/// An older engine's append is numbered by the trigger it finds in the
+/// journal: its event trigger inserts main's seven columns, no ordinal,
+/// and `event_index_ordinal` numbers the row the insert left NULL.
+#[test]
+fn an_older_engine_s_insert_is_numbered_by_the_index_trigger() {
+    let (_dir, mut store) = store();
+    let made = begun(&mut store, own_turns(2));
+    store
+        .conn
+        .execute_batch(&format!(
+            "DROP TRIGGER event_index_of_an_event;
+             CREATE TRIGGER event_index_of_an_event AFTER INSERT ON events BEGIN
+                 INSERT OR IGNORE INTO event_index ({}) SELECT {};
+             END;",
+            super::COLUMNS,
+            super::projected("NEW"),
+        ))
+        .unwrap();
+    let older = planted(
+        &store,
+        "r",
+        EventType::EffectCheckpointed,
+        checkpoint_of("fx", "a", None, 3),
+    );
+    assert_eq!(
+        [
+            ordinal(&store, "r", made[2].seq),
+            ordinal(&store, "r", made[3].seq),
+            ordinal(&store, "r", older.seq),
+        ],
+        [Some(1), Some(2), Some(3)],
+        "the older engine's insert is numbered by the journal's index trigger"
+    );
+    crate::test_support::lags(&mut store, &["r"]);
+}
+
 /// Drop the ordinals' objects and column, as a journal from before them
 /// carries none, one statement at a time: the shape a writable open must
 /// alter in place rather than drop.
