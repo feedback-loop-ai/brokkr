@@ -649,3 +649,159 @@ fn a_recorded_identity_is_read_by_its_own_row() {
         Some(libc::EISDIR)
     );
 }
+
+/// A `/proc` of `pid`'s row in `state` with start stamp `start`, and the
+/// identity that row names.
+#[cfg(target_os = "linux")]
+fn planted(pid: i32, state: &str, start: &str) -> (tempfile::TempDir, Identity) {
+    let stat = format!("{pid} (row) {state} 1 {pid} {pid} 0 -1 0 0 0 0 0 0 0 20 0 1 0 {start} 0 0");
+    let name = pid.to_string();
+    let proc = proc_of(&[(&name, Some(stat.as_str()))]);
+    (proc, parse_stat(pid, &stat).unwrap().id)
+}
+
+/// The identity `pid` was recorded at, with start stamp `start`.
+#[cfg(target_os = "linux")]
+fn recorded(pid: i32, start: &str) -> Identity {
+    Identity {
+        pid,
+        start: start.into(),
+    }
+}
+
+/// A `/proc` whose row for `pid` cannot be read, and the identity recorded
+/// at it.
+#[cfg(target_os = "linux")]
+fn unreadable_row(pid: i32, start: &str) -> (tempfile::TempDir, Identity) {
+    let name = pid.to_string();
+    let proc = proc_of(&[(&name, None)]);
+    (proc, recorded(pid, start))
+}
+
+#[cfg(target_os = "linux")]
+fn positive(pid: i32) -> Pid {
+    Pid::from_raw(pid).expect("a positive pid")
+}
+
+#[cfg(target_os = "linux")]
+fn open_refusing(errno: Errno) -> impl FnOnce(Pid, PidfdFlags) -> rustix::io::Result<OwnedFd> {
+    move |_, _| Err(errno)
+}
+
+/// An open that succeeds, so a test can reach the send.
+#[cfg(target_os = "linux")]
+fn open_null() -> impl FnOnce(Pid, PidfdFlags) -> rustix::io::Result<OwnedFd> {
+    |_, _| Ok(std::fs::File::open("/dev/null").unwrap().into())
+}
+
+/// The signal over `proc`, with the open refused by `errno`.
+#[cfg(target_os = "linux")]
+fn refused_open(proc: &std::path::Path, id: &Identity, errno: Errno) -> std::io::Result<()> {
+    signal_with(positive(id.pid), id, proc, open_refusing(errno), |_, _| {
+        Ok(())
+    })
+}
+
+/// #970: a `pidfd_open` refused with ENOENT for a pid whose row is gone is
+/// not a refusal: the descendant has ended.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_pidfd_open_enoent_with_the_row_absent_ends_the_descendant() {
+    let proc = tempfile::tempdir().unwrap();
+    let id = recorded(7, "12345");
+    let result = refused_open(proc.path(), &id, Errno::NOENT);
+    assert!(result.is_ok(), "the row is gone: {result:?}");
+}
+
+/// #970: an ESRCH from the open is judged the same way.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_pidfd_open_esrch_with_the_row_absent_ends_the_descendant() {
+    let proc = tempfile::tempdir().unwrap();
+    let id = recorded(7, "12345");
+    let result = refused_open(proc.path(), &id, Errno::SRCH);
+    assert!(result.is_ok(), "the row is gone: {result:?}");
+}
+
+/// #970: an ENOENT from the send, after the open saw the identity running,
+/// is judged against the row the send left gone.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_pidfd_send_enoent_with_the_row_absent_ends_the_descendant() {
+    let (proc, id) = planted(7, "S", "12345");
+    let dir = proc.path().join("7");
+    let send = move |_, _| {
+        std::fs::remove_dir_all(&dir).unwrap();
+        Err(Errno::NOENT)
+    };
+    let result = signal_with(positive(7), &id, proc.path(), open_null(), send);
+    assert!(result.is_ok(), "the row went with the send: {result:?}");
+}
+
+/// #970: a pid the kernel has handed to another process is not the recorded
+/// one, so the refusal means the descendant ended.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_pidfd_open_enoent_with_a_reused_pid_ends_the_descendant() {
+    let (proc, _) = planted(7, "S", "12345");
+    let id = recorded(7, "54321");
+    let result = refused_open(proc.path(), &id, Errno::NOENT);
+    assert!(result.is_ok(), "the pid names another: {result:?}");
+}
+
+/// #970: a zombie of the recorded identity holds its pid but runs nothing,
+/// as `strays` already reads it, so it has ended.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_pidfd_open_enoent_with_a_zombie_of_the_identity_ends_the_descendant() {
+    let (proc, id) = planted(7, "Z", "12345");
+    let result = refused_open(proc.path(), &id, Errno::NOENT);
+    assert!(result.is_ok(), "the zombie runs nothing: {result:?}");
+}
+
+/// #970: the same identity still running keeps the refusal, in today's
+/// words.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_pidfd_open_enoent_with_the_identity_running_keeps_the_refusal() {
+    let (proc, id) = planted(7, "S", "12345");
+    let error = refused_open(proc.path(), &id, Errno::NOENT).unwrap_err();
+    assert_eq!(error.raw_os_error(), Some(libc::ENOENT));
+    assert_eq!(
+        error.to_string(),
+        std::io::Error::from(Errno::NOENT).to_string()
+    );
+}
+
+/// #970: any other errno, EPERM above all, stands however the row reads.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_pidfd_open_eperm_keeps_the_refusal() {
+    let proc = tempfile::tempdir().unwrap();
+    let id = recorded(7, "12345");
+    let error = refused_open(proc.path(), &id, Errno::PERM).unwrap_err();
+    assert_eq!(error.raw_os_error(), Some(libc::EPERM));
+    assert_eq!(
+        error.to_string(),
+        std::io::Error::from(Errno::PERM).to_string()
+    );
+}
+
+/// #970: a row that cannot be read proves nothing, so the refusal stands.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_pidfd_open_enoent_with_an_unreadable_row_keeps_the_refusal() {
+    let (proc, id) = unreadable_row(7, "12345");
+    let error = refused_open(proc.path(), &id, Errno::NOENT).unwrap_err();
+    assert_eq!(error.raw_os_error(), Some(libc::ENOENT));
+}
+
+/// The row read after a successful open is the one that proves the
+/// identity: a row that cannot be read is returned, not read as gone.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_row_that_cannot_be_read_after_the_open_is_returned() {
+    let (proc, id) = unreadable_row(7, "12345");
+    let error = signal_with(positive(7), &id, proc.path(), open_null(), |_, _| Ok(())).unwrap_err();
+    assert_eq!(error.raw_os_error(), Some(libc::EISDIR));
+}

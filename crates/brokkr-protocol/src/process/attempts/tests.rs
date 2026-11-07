@@ -1289,3 +1289,49 @@ fn a_recorded_identity_whose_row_cannot_be_read_parks_the_attempt() {
         })
     );
 }
+
+#[cfg(target_os = "linux")]
+thread_local! {
+    /// The `/proc` tree and the pidfd refusal the settlement test plants.
+    /// `Host::kill` is a function pointer, so the test's data lives here.
+    static PLANTED_KILL: std::cell::RefCell<Option<(tempfile::TempDir, Errno)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The real table's signal, over the planted tree: the open is refused with
+/// the planted errno, and the row is read from the planted `/proc`.
+#[cfg(target_os = "linux")]
+fn killed_in_planted_proc(id: &Identity) -> std::io::Result<()> {
+    PLANTED_KILL.with(|planted| {
+        let planted = planted.borrow();
+        let (proc, errno) = planted.as_ref().expect("a planted tree");
+        table::signal_with(
+            Pid::from_raw(id.pid).expect("a positive pid"),
+            id,
+            proc.path(),
+            |_, _| Err(*errno),
+            |_, _| unreachable!("the open never succeeds"),
+        )
+    })
+}
+
+/// #970: an attempt whose recorded descendant the kernel no longer has is
+/// proven over. The ENOENT is read against the row, which is gone, so the
+/// attempt settles rather than parking on `Unresolved`.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_descendant_the_table_reads_gone_settles_the_attempt() {
+    let proc = tempfile::tempdir().unwrap();
+    PLANTED_KILL.with(|planted| *planted.borrow_mut() = Some((proc, Errno::NOENT)));
+    let live = closed(GROUP, &[row(7, GROUP, GROUP)], &[]);
+    let host = Host {
+        kill: killed_in_planted_proc,
+        ..Host::REAL
+    };
+    let cleanup = match live.kill(host) {
+        Ok(()) => crate::Cleanup::Settled,
+        Err(reason) => crate::Cleanup::Unresolved { reason },
+    };
+    PLANTED_KILL.with(|planted| *planted.borrow_mut() = None);
+    assert_eq!(cleanup, crate::Cleanup::Settled);
+}
