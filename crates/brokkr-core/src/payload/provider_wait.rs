@@ -161,6 +161,7 @@ const SITE_MAX: usize = 200;
 const NAME_MAX: usize = 80;
 
 /// The keys one `probes` entry may carry.
+#[cfg(test)]
 const PROBE_FIELDS: [&str; 4] = ["site", "provider", "route", "answered_at"];
 
 /// `event`'s optional `probes` array on the retry's `effect/started`, typed:
@@ -168,8 +169,11 @@ const PROBE_FIELDS: [&str; 4] = ["site", "provider", "route", "answered_at"];
 /// round). Absent is no answered probe; a present array is every answer and
 /// is never read as none. The retired single `probe` object is refused by
 /// name: the schema is unminted, so no journal holds one, and a document
-/// that does is never silently read as no probe.
-pub fn provider_probes(
+/// that does is never silently read as no probe. Test-only until a
+/// production reader exists: only the payload tests read it today
+/// (decision 0071 ruling 6).
+#[cfg(test)]
+pub(crate) fn provider_probes(
     event: &EventEnvelope,
 ) -> Result<Option<Vec<ProbeAnswer>>, ProviderProbeError> {
     if event.payload.get("probe").is_some() {
@@ -190,6 +194,7 @@ pub fn provider_probes(
 }
 
 /// One `probes` entry, its closed set of keys and then each field.
+#[cfg(test)]
 fn probe_entry(event: &EventEnvelope, value: &Value) -> Result<ProbeAnswer, ProviderProbeError> {
     let object = value
         .as_object()
@@ -208,6 +213,7 @@ fn probe_entry(event: &EventEnvelope, value: &Value) -> Result<ProbeAnswer, Prov
 }
 
 /// The probe's site tag, at most the schema's bound.
+#[cfg(test)]
 fn probe_site(
     event: &EventEnvelope,
     object: &Map<String, Value>,
@@ -216,6 +222,7 @@ fn probe_site(
 }
 
 /// A probe field the schema bounds by `form`.
+#[cfg(test)]
 fn probe_form(
     event: &EventEnvelope,
     object: &Map<String, Value>,
@@ -226,6 +233,7 @@ fn probe_form(
 }
 
 /// The probe's answer time, read as RFC 3339.
+#[cfg(test)]
 fn probe_answered_at(
     event: &EventEnvelope,
     object: &Map<String, Value>,
@@ -234,6 +242,7 @@ fn probe_answered_at(
     OffsetDateTime::parse(&text, &Rfc3339).map_err(|_| unreadable_probe(event, "answered_at"))
 }
 
+#[cfg(test)]
 fn unreadable_probe(event: &EventEnvelope, field: &str) -> ProviderProbeError {
     ProviderProbeError::Field {
         seq: event.seq,
@@ -243,8 +252,9 @@ fn unreadable_probe(event: &EventEnvelope, field: &str) -> ProviderProbeError {
 
 /// Why a present `probes` array does not read: the field that did not
 /// read, named as the fold's own `BadPayload` does.
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub enum ProviderProbeError {
+pub(crate) enum ProviderProbeError {
     #[error("event {seq}: the probes entry does not read: {field}")]
     Field { seq: u64, field: String },
 }

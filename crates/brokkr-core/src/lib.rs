@@ -29,8 +29,8 @@ pub use envelope::{EventEnvelope, EventType};
 pub use fold::{fold, Cursor, FoldError, RunState, Status};
 pub use keep_refs::cited_shas;
 pub use payload::{
-    provider_probes, provider_refusal, provider_waits, ProbeAnswer, ProviderProbeError,
-    ProviderRefusal, ProviderRefusalError, ProviderWait, ProviderWaitError, RefusalCause,
+    provider_refusal, provider_waits, ProbeAnswer, ProviderRefusal, ProviderRefusalError,
+    ProviderWait, ProviderWaitError, RefusalCause,
 };
 pub use policy::{Machine, Outcome, PolicyError};
 

@@ -648,6 +648,25 @@ fn the_probes_read_and_refuse_the_retired_single_probe() {
     assert!(json!(inline).get("site").is_none());
 }
 
+/// A `probes` entry that is not an object — a string, number, array or
+/// null — is a present entry that does not read, refused by the array's
+/// name, never skipped as no answer (decision 0103 ruling 4).
+#[test]
+fn a_probes_entry_that_is_not_an_object_refuses_by_the_arrays_name() {
+    for entry in [json!("claude"), json!(7), json!(["claude"]), Value::Null] {
+        let error = provider_probes(&event(Type::EffectStarted, json!({"probes": [entry]})))
+            .expect_err("a non-object probe entry was read");
+        assert!(
+            matches!(&error, ProviderProbeError::Field { field, .. } if field == "probes"),
+            "{error:?} did not name the entry's array"
+        );
+        assert_eq!(
+            error.to_string(),
+            "event 7: the probes entry does not read: probes"
+        );
+    }
+}
+
 /// The probe answer's own serializer writes its optional site and refuses a
 /// time RFC 3339 cannot spell: the arm the production clock never reaches
 /// is reachable, and says why.

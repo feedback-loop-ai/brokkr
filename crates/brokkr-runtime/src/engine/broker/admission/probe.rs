@@ -197,10 +197,16 @@ pub(super) fn settle_orphaned(
             ));
         }
     }
-    for attempt in &orphans {
-        if let Some(reserved) = reservation.attempts.get_mut(attempt) {
-            reserved.cleanup = Witnessed::Settled;
-        }
+    // Every orphan is one of the reservation's own attempts, so mark it
+    // through a pass over them: a key lookup would have a miss nothing
+    // can reach, the branch the exact gate counted (decision 0071
+    // ruling 9).
+    let held = reservation
+        .attempts
+        .iter_mut()
+        .filter(|(attempt, _)| orphans.contains(attempt));
+    for (_, reserved) in held {
+        reserved.cleanup = Witnessed::Settled;
     }
     for attempt in &orphans {
         reservation = settled(reservation, attempt)

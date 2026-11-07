@@ -24,9 +24,11 @@ use crate::envelope::{EventEnvelope, EventType};
 use crate::fold::FoldError;
 
 mod provider_wait;
+#[cfg(test)]
+pub(crate) use provider_wait::{provider_probes, ProviderProbeError};
 pub use provider_wait::{
-    provider_probes, provider_refusal, provider_waits, ProbeAnswer, ProviderProbeError,
-    ProviderRefusal, ProviderRefusalError, ProviderWait, ProviderWaitError, RefusalCause,
+    provider_refusal, provider_waits, ProbeAnswer, ProviderRefusal, ProviderRefusalError,
+    ProviderWait, ProviderWaitError, RefusalCause,
 };
 
 /// The keys a payload carries that its struct does not type, as the

@@ -16,11 +16,6 @@ use super::*;
 use crate::engine::broker::admission::tests::{protecting_refused, reservation_path, Coordinated};
 use crate::engine::tests::in_its_own_engine;
 
-/// The first engine's probe answers and its cleanup is witnessed, then the
-/// test's clock panics at the next `now`, which is `probe_end`'s answer
-/// time: the crash lands after `settlement::ended` sealed the driver
-/// Settled and before `settle_probe` released the attempt. The crashed
-/// reservation's one standing attempt is returned.
 /// A run whose failed attempt recorded an expired cool-down: the journal a
 /// resume finds, with the bundle it was compiled under.
 fn waited_run(dir: &Path, compiled: crate::bundle::Bundle) -> (String, crate::bundle::Bundle) {
@@ -99,9 +94,17 @@ fn crashed_after_probe_cleanup(dir: &Path, home: &Path) -> (crate::bundle::Bundl
 /// The first engine's probe answers, writes its done marker, and the test's
 /// clock panics at the next `now`, which is `probe_end`'s answer time: the
 /// crash lands after `settlement::ended` sealed the driver Settled and
-/// before `settle_probe` released the attempt.
+/// before `settle_probe` released the attempt. It runs in an engine of its
+/// own, as the live-probe test does: one test binary is one process, and
+/// the engine adopts every direct child outside its group, so a
+/// co-scheduled test's live probe would read as a stray and park this run
+/// before its clock could crash.
 #[test]
 fn a_crash_after_a_probes_cleanup_leaves_a_proven_reservation_the_resume_releases() {
+    let test = "engine::cooldown::tests::crash::a_crash_after_a_probes_cleanup_leaves_a_proven_reservation_the_resume_releases";
+    if !in_its_own_engine(test) {
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let home = super::lease::home(dir.path());
     let _stand = Coordinated::at(&home);

@@ -1264,10 +1264,6 @@ pub brokkr_core::PolicyError::Malformed(brokkr_core::policy::Malformed)
 pub brokkr_core::PolicyError::Refused(brokkr_core::policy::audit::Refusal)
 impl core::convert::From<brokkr_core::policy::Malformed> for brokkr_core::policy::PolicyError
 pub fn brokkr_core::policy::PolicyError::from(brokkr_core::policy::Malformed) -> Self
-pub enum brokkr_core::ProviderProbeError
-pub brokkr_core::ProviderProbeError::Field
-pub brokkr_core::ProviderProbeError::Field::field: alloc::string::String
-pub brokkr_core::ProviderProbeError::Field::seq: u64
 pub enum brokkr_core::ProviderRefusalError
 pub brokkr_core::ProviderRefusalError::Field
 pub brokkr_core::ProviderRefusalError::Field::field: alloc::string::String
@@ -1369,6 +1365,5 @@ impl brokkr_core::fold::RunState
 pub fn brokkr_core::fold::RunState::stopping_seq(&self) -> core::option::Option<u64>
 pub fn brokkr_core::cited_shas(&[brokkr_core::envelope::EventEnvelope]) -> alloc::collections::btree::set::BTreeSet<alloc::string::String>
 pub fn brokkr_core::fold(&[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>
-pub fn brokkr_core::provider_probes(&brokkr_core::envelope::EventEnvelope) -> core::result::Result<core::option::Option<alloc::vec::Vec<brokkr_core::ProbeAnswer>>, brokkr_core::ProviderProbeError>
 pub fn brokkr_core::provider_refusal(&brokkr_core::envelope::EventEnvelope) -> core::result::Result<core::option::Option<brokkr_core::ProviderRefusal>, brokkr_core::ProviderRefusalError>
 pub fn brokkr_core::provider_waits(&brokkr_core::envelope::EventEnvelope) -> core::result::Result<core::option::Option<alloc::vec::Vec<brokkr_core::ProviderWait>>, brokkr_core::ProviderWaitError>

@@ -184,8 +184,16 @@ entry's own route's bounds, the computed `until` and the episode's `rounds`.
 An episode sums the recorded lengths and never recomputes an earlier wait
 under a later route's bounds; a terminal event and a resume judge the
 maximum from the record, never from the remainder. It also publishes
-`probe` on the retry's `effect/started`: the site, provider, route and when
-the one-turn probe answered. The fields are legal at `event_schema: 1`
+`probes` on the retry's `effect/started`: an array with one entry per
+answered site, each the site (absent for an inline seat), provider, route
+and when the one-turn probe answered; a probe that ended without an answer
+writes none. The typed `refused` object sits on the failed event beside the
+`run/parked` that follows: the cause, the optional `site` (absent for an
+inline seat), the provider, the route where one resolved, the provider's
+bounded words, the retry-after when given, and the computed length and
+declared maximum where the engine reached them. `refused` is written even
+where no `waits` entry can be, while a `waits` entry exists only where an
+`until` exists. The fields are legal at `event_schema: 1`
 under the amended rule above, and `fold` reads none of them: the engine
 reads the effect's own events and `RunState` gains nothing. A present entry
 that cannot be read refuses by name, never as absent. Decision 0103, under

@@ -9,7 +9,7 @@ use brokkr_core::ProviderWait;
 use super::*;
 use crate::engine::broker::admission::tests::reservation_path;
 use crate::engine::cooldown::Waited;
-use crate::engine::tests::{fail_event, state};
+use crate::engine::tests::{fail_event, in_its_own_engine, state};
 use crate::engine::EngineError;
 
 /// A second run in the same store: another engine's start appends its
@@ -227,8 +227,16 @@ fn the_probe_names_a_cased_site_as_the_attempt_does() {
 /// is held open at its barrier while the test reads the reservation's one
 /// driver record: site `work`, `settling`. With the door removed the probe
 /// still answers, but no driver record is sealed, and this fails by name.
+/// It runs in an engine of its own: one test binary is one process, and the
+/// engine adopts every direct child outside its group, so a co-scheduled
+/// test's live probe would read as a stray and park this one before its
+/// probe starts.
 #[test]
 fn a_probes_spawn_witness_is_sealed_at_its_door_before_it_answers() {
+    let test = "engine::cooldown::tests::coverage::a_probes_spawn_witness_is_sealed_at_its_door_before_it_answers";
+    if !in_its_own_engine(test) {
+        return;
+    }
     let (dir, engine, _now) = seated!(&["refuse", "succeed"], Probed::Barrier, None, 2);
     let home = super::lease::home(dir.path());
     let worktree = dir.path().join("work");
