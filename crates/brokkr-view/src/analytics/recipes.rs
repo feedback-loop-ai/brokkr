@@ -51,9 +51,10 @@ pub(super) fn recipe_rows(source: &dyn FactSource, window: Window) -> (Vec<Recip
         if !in_range(spend.ended, spend.open, window) || !window.holds(spend.at) {
             return;
         }
-        if let Some(group) = groups.get_mut(&key(spend.realm, recipe)) {
-            group.spent = Some(group.spent.unwrap_or(0.0) + spend.usd);
-        }
+        let group = groups
+            .get_mut(&key(spend.realm, recipe))
+            .expect("the run that spent opened its recipe's group");
+        group.spent = Some(group.spent.unwrap_or(0.0) + spend.usd);
     });
     source.sites(&mut |fact| {
         let Some(recipe) = fact.recipe else {
@@ -62,9 +63,9 @@ pub(super) fn recipe_rows(source: &dyn FactSource, window: Window) -> (Vec<Recip
         if !in_range(fact.ended, fact.open, window) {
             return;
         }
-        let Some(group) = groups.get_mut(&key(fact.realm, recipe)) else {
-            return;
-        };
+        let group = groups
+            .get_mut(&key(fact.realm, recipe))
+            .expect("the run that opened the site opened its recipe's group");
         if fact.site.ran(&keeps) {
             let provider = name_key(&fact.site.provider).to_string();
             *group.harnesses.entry(provider).or_default() |= fact.site.reported(&keeps);

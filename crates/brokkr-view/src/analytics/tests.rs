@@ -943,6 +943,19 @@ fn a_seat_started_before_the_range_counts_what_it_metered_inside_it() {
     events[0].recorded_at = "2026-10-06T11:00:00Z".into();
     events[1].recorded_at = "2026-10-06T11:30:00Z".into();
     events[2].recorded_at = "2026-10-06T12:30:00Z".into();
+    // A checkpoint before the window: the readout and the recipe drop it,
+    // and a site that only ran before the window names no provider.
+    let (journal, state) = journals.pop().unwrap();
+    let outside = json!({"effect_id": "e", "attempt_id": "s1",
+                         "checkpoint": {"total_cost_usd": 5.0}});
+    journals.push((
+        journal.then(
+            EventType::EffectCheckpointed,
+            outside,
+            "2026-09-01T00:00:00Z",
+        ),
+        state,
+    ));
     let rows = recipes_of(&journals);
     let cost = &rows[0].cost_per_run;
     assert_eq!(
@@ -957,6 +970,20 @@ fn a_seat_started_before_the_range_counts_what_it_metered_inside_it() {
             ["1k tok", "900", "100", ABSENT]
         )
     );
+}
+
+#[test]
+fn a_recipe_site_outside_the_window_names_no_provider() {
+    let (mut journal, state) = recipe_run("alpha", "old", Fate::Open, "claude", Some(1.0));
+    for event in &mut journal.events {
+        event.recorded_at = "2026-09-01T00:00:00Z".into();
+    }
+    let rows = recipes_of(&[(journal, state)]);
+    let old = row(&rows, "alpha", "old");
+    assert_eq!(old.runs, 1);
+    assert_eq!(old.cost_per_run.cost, ReportedCost::NotReported);
+    assert_eq!(old.cost_per_run.reporting, Vec::<String>::new());
+    assert_eq!(old.cost_per_run.silent, Vec::<String>::new());
 }
 
 #[test]
@@ -1245,6 +1272,131 @@ fn a_figure_past_64_groups_keeps_64_and_counts_the_rest() {
     keeps_64(&view);
     assert_eq!(view.models_more, 8_936);
     assert_eq!(view.waiting_by_step_more, 8_936);
+}
+
+/// A run of `count` models where the last key serves two attempts more:
+/// the replacement `ranked` makes when a later key outranks a kept one.
+fn many_models_with_a_leader(count: usize) -> (Journal, Option<RunState>) {
+    let (mut journal, state) = many_models(count);
+    for extra in 0..2 {
+        journal = journal.seat(
+            &format!("lead{extra}"),
+            "claude",
+            &format!("model-{:05}", count - 1),
+            None,
+            "2026-10-10T00:20:00Z",
+        );
+    }
+    (journal, state)
+}
+
+#[test]
+fn a_later_key_with_more_attempts_outranks_the_last_kept_one() {
+    let (models, state) = many_models_with_a_leader(65);
+    let view = read_one(&runs(&[(models, state)]), Range::Week);
+    assert_eq!(view.models.len(), 64);
+    assert_eq!(view.models_more, 1);
+    assert_eq!(
+        view.models.first().and_then(|share| share.model.as_deref()),
+        Some("model-00064")
+    );
+    assert_eq!(
+        view.models.last().and_then(|share| share.model.as_deref()),
+        Some("model-00062"),
+        "the last key, with one attempt, is the one dropped"
+    );
+}
+
+/// The readout over one hearth naming `realms`, handing it `journals`.
+fn read_realms(journals: &[(Journal, Option<RunState>)], realms: &[String]) -> Analytics {
+    let runs = runs(journals);
+    let hearths = [AnalyticsHearth {
+        label: "edge",
+        realms,
+        journal: "e.db",
+        runs: &runs,
+        refusal: None,
+    }];
+    analytics(&Query {
+        hearths: &hearths,
+        range: Range::Week,
+        realm: None,
+        now: NOW,
+    })
+    .unwrap()
+}
+
+/// A row per realm, and the 64 a window keeps: the 65th realm's runs feed
+/// the headline and are counted in `realms_more`, not given a row.
+/// A hearth whose map names no realm takes its label as the realm the
+/// refusal is quarantined under.
+#[test]
+fn a_hearth_whose_map_names_no_realm_takes_its_label() {
+    let hearths = [AnalyticsHearth {
+        label: "hearth",
+        realms: &[],
+        journal: "h.db",
+        runs: &[],
+        refusal: Some("no such journal"),
+    }];
+    let view = analytics(&Query {
+        hearths: &hearths,
+        range: Range::Week,
+        realm: None,
+        now: NOW,
+    })
+    .unwrap();
+    assert_eq!(
+        view.quarantined,
+        [QuarantinedHearth {
+            realm: "hearth".into(),
+            journal: "h.db".into(),
+            refusal: "no such journal".into(),
+        }]
+    );
+    assert_eq!(view.realms, []);
+}
+
+#[test]
+fn a_readout_past_64_realms_keeps_64_rows_and_counts_the_rest() {
+    let realms: Vec<String> = (0..65).map(|index| format!("realm-{index:02}")).collect();
+    let journals: Vec<(Journal, Option<RunState>)> = realms
+        .iter()
+        .enumerate()
+        .map(|(index, realm)| {
+            let journal = Journal::started(Some(realm), "2026-10-10T00:00:00Z")
+                .seat(
+                    &format!("s{index}"),
+                    "claude",
+                    "m",
+                    Some(1.0),
+                    "2026-10-10T00:10:00Z",
+                )
+                .entered("review", "2026-10-10T00:20:00Z")
+                .then(EventType::RunParked, json!({}), "2026-10-10T00:30:00Z")
+                .then(
+                    EventType::OperatorCommanded,
+                    json!({"command": "retry"}),
+                    "2026-10-10T00:40:00Z",
+                )
+                .then(EventType::RunCompleted, json!({}), "2026-10-10T01:00:00Z");
+            (journal, Some(ended(Status::Completed, "done", None, 0)))
+        })
+        .collect();
+    let view = read_realms(&journals, &realms);
+    assert_eq!(view.headline.shipped.count, 65);
+    assert_eq!(view.realms.len(), 64);
+    assert_eq!(view.realms_more, 1);
+    assert_eq!(
+        view.realms.first().map(|row| row.realm.as_str()),
+        Some("realm-00")
+    );
+    assert_eq!(
+        view.realms.last().map(|row| row.realm.as_str()),
+        Some("realm-63")
+    );
+    assert_eq!(view.realms[0].median.millis, Some(HOUR_MILLIS));
+    assert_eq!(view.realms[0].cost, ReportedCost::Reported { usd: 1.0 });
 }
 
 #[test]

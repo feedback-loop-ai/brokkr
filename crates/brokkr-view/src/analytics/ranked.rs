@@ -16,24 +16,29 @@ pub(crate) fn ranked<K, A, R>(
 where
     R: Ord,
 {
-    let mut kept: Vec<(K, A)> = Vec::with_capacity(GROUPS);
+    let mut kept: Vec<(K, A, R)> = Vec::with_capacity(GROUPS);
     let mut more = 0;
     for (key, accumulator) in pairs {
+        let score = rank(&accumulator);
         if kept.len() < GROUPS {
-            kept.push((key, accumulator));
+            kept.push((key, accumulator, score));
             continue;
         }
-        let worst = kept
+        // A tie in rank keeps the earlier key, so only a strictly better
+        // rank replaces the worst kept group.
+        let (index, _) = kept
             .iter()
             .enumerate()
-            .max_by(|(_, (_, left)), (_, (_, right))| rank(left).cmp(&rank(right)))
-            .map(|(index, _)| index);
-        if let Some(index) = worst {
-            if rank(&accumulator) < rank(&kept[index].1) {
-                kept[index] = (key, accumulator);
-            }
+            .max_by(|(_, (_, _, left)), (_, (_, _, right))| left.cmp(right))
+            .expect("64 groups are kept");
+        if score < kept[index].2 {
+            kept[index] = (key, accumulator, score);
         }
         more += 1;
     }
+    let kept = kept
+        .into_iter()
+        .map(|(key, accumulator, _)| (key, accumulator))
+        .collect();
     (kept, more)
 }

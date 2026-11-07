@@ -50,13 +50,6 @@ impl Selection {
         if self.value.is_some() {
             return;
         }
-        let held: u64 = self.buckets.iter().sum();
-        if held == 0 {
-            // No pass can reach here for a rank the first pass counted; a
-            // value is still owed rather than a panic.
-            self.value = Some(self.lo);
-            return;
-        }
         let mut wanted = self.rank - self.below;
         let mut chosen = BUCKETS - 1;
         for (index, count) in self.buckets.iter().enumerate() {
@@ -112,10 +105,11 @@ pub(crate) fn medians(
             break;
         }
         pass(&mut |target, value| {
-            if let Some(pair) = &mut selections[target] {
-                pair[0].count(value);
-                pair[1].count(value);
-            }
+            let pair = selections[target]
+                .as_mut()
+                .expect("a counted target has a selection");
+            pair[0].count(value);
+            pair[1].count(value);
         });
         for pair in selections.iter_mut().flatten() {
             for selection in pair.iter_mut() {

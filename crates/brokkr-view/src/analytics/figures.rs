@@ -245,21 +245,16 @@ pub(crate) fn cost_figure<'a>(
     cost_parts(harnesses.into_iter().collect(), usd, 0)
 }
 
-/// The cost of the sites and spends `realm` keeps, or of the whole read
-/// when it is `None`.
-fn cost(source: &dyn FactSource, window: Window, realm: Option<&str>) -> CostFigure {
+/// The whole read's cost: its spends and sites, one at a time.
+fn cost(source: &dyn FactSource, window: Window) -> CostFigure {
     let mut accumulator = CostAcc::default();
     let keeps = |at: i64, _: Option<&str>| window.holds(at);
     source.spends(&mut |spend| {
-        if in_realm(realm, spend.realm) && window.holds(spend.at) {
+        if window.holds(spend.at) {
             accumulator.spend(spend.usd);
         }
     });
-    source.sites(&mut |fact| {
-        if in_realm(realm, fact.realm) {
-            accumulator.site(fact.site, &keeps);
-        }
-    });
+    source.sites(&mut |fact| accumulator.site(fact.site, &keeps));
     accumulator.finish()
 }
 
@@ -275,9 +270,6 @@ fn per_day(source: &dyn FactSource, window: Window) -> Vec<Day> {
         .collect();
     finished_in(source, window, |_, finished| {
         let day = finished.at.div_euclid(DAY_MILLIS);
-        if day < first || day > last {
-            return;
-        }
         let row = &mut days[(day - first) as usize];
         row.shipped += usize::from(shipped(finished));
         row.stopped += usize::from(judged_unshipped(finished.ending));
@@ -457,11 +449,6 @@ fn realm_costs(
     costs
 }
 
-/// Whether `name` is the realm asked for, compared cut as a row groups it.
-fn in_realm(realm: Option<&str>, name: &str) -> bool {
-    realm.is_none_or(|realm| realm == name_key(name))
-}
-
 fn realm_rows(
     source: &dyn FactSource,
     window: Window,
@@ -538,7 +525,7 @@ pub fn analytics(query: &Query) -> Result<Analytics, AnalyticsError> {
             median: span(medians[0]),
             waiting: waiting(source, window),
             stopped_by_rule: stopped_by_rule(source, window),
-            cost: cost(source, window, None),
+            cost: cost(source, window),
             ledger: ledger_in(source, window),
         },
         per_day: per_day(source, window),
