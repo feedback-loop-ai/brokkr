@@ -101,9 +101,10 @@ impl Engine {
         // witnessed is proven settled; otherwise the run parks with the
         // cleanup refusal naming it, spending no effect attempt and starting
         // no probe or retry (decision 0103 ruling 4, this fix round).
-        if let Err(reason) = self.recovered_probe(events, &wait, &crate::engine::broker::observed())
+        if let Err(refusal) =
+            self.recovered_probe(events, &wait, &crate::engine::broker::observed())
         {
-            self.park_with_reason(reason)?;
+            self.park_with_reason(refusal.to_string())?;
             return Ok(());
         }
         match self.take_cooldown(events, state, effect_id, seat, &wait)? {

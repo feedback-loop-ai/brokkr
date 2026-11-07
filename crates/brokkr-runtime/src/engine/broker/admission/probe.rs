@@ -8,10 +8,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use brokkr_core::{EventEnvelope, ProviderWait};
+use thiserror::Error;
 
 use super::*;
 use crate::bundle::ExecutableBody;
 use crate::engine::broker::settlement::{recorded_settled, standing};
+use crate::engine::cooldown::cleanup_failure;
 use crate::engine::Selection;
 
 /// What an attempt's admission came to: the lease it holds for the door
@@ -119,14 +121,12 @@ impl Engine {
         events: &[EventEnvelope],
         wait: &ProviderWait,
         observed: &Observed,
-    ) -> Result<(), String> {
+    ) -> Result<(), Recovery> {
         let Some(root) = observed.home.as_deref().and_then(observed.open) else {
             return Ok(());
         };
-        let repo = match keyed(&self.workdir()) {
-            Ok((_, repo)) => repo,
-            Err(unknown) => return Err(refused(wait, None, None, &unknown.to_string())),
-        };
+        let (_, repo) =
+            keyed(&self.workdir()).map_err(|source| Recovery::at(wait, Held::Unlocated(source)))?;
         let deadline = startup(Instant::now(), Duration::MAX);
         settle_orphaned(&root, [&repo, &self.run_id], events, wait, deadline)
     }
@@ -157,12 +157,26 @@ pub(super) fn settle_orphaned(
     events: &[EventEnvelope],
     wait: &ProviderWait,
     deadline: Instant,
-) -> Result<(), String> {
+) -> Result<(), Recovery> {
     let at = root.path().join(repo).join(run).join(RESERVATION);
-    let _lock = locked(root.dir(), deadline)
-        .map_err(|unknown| refused(wait, Some(&at), None, &unknown.to_string()))?;
-    let Some(mut reservation) = standing(root, [repo, run])
-        .map_err(|unknown| refused(wait, Some(&at), None, &unknown.to_string()))?
+    let _lock = locked(root.dir(), deadline).map_err(|source| {
+        Recovery::at(
+            wait,
+            Held::Unreadable {
+                at: at.clone(),
+                source,
+            },
+        )
+    })?;
+    let Some(mut reservation) = standing(root, [repo, run]).map_err(|source| {
+        Recovery::at(
+            wait,
+            Held::Unreadable {
+                at: at.clone(),
+                source,
+            },
+        )
+    })?
     else {
         return Ok(());
     };
@@ -172,13 +186,14 @@ pub(super) fn settle_orphaned(
     };
     for attempt in &orphans {
         let reserved = &reservation.attempts[attempt];
-        let proven = recorded_settled(reserved);
-        if !proven {
-            return Err(refused(
+        if !recorded_settled(reserved) {
+            return Err(Recovery::at(
                 wait,
-                Some(&at),
-                Some(attempt),
-                &witnessed(reserved),
+                Held::Unsettled {
+                    at: at.clone(),
+                    attempt: attempt.clone(),
+                    why: witnessed(reserved),
+                },
             ));
         }
     }
@@ -193,15 +208,89 @@ pub(super) fn settle_orphaned(
     }
     sealed(root, &reservation, &Budget::new(deadline))
         .map(drop)
-        .map_err(|unknown| refused(wait, Some(&at), Some(first), &unknown.to_string()))
+        .map_err(|source| {
+            Recovery::at(
+                wait,
+                Held::Unsealed {
+                    at: at.clone(),
+                    attempt: first.clone(),
+                    source,
+                },
+            )
+        })
+}
+
+/// Ruling 4's cleanup refusal a crashed probe's reservation parks with:
+/// the probe it names, and what the reservation holds — where it could not
+/// be found, read or sealed, or the attempt whose process tree is not
+/// proven settled. The admission boundary renders it to the park reason;
+/// nothing may probe or retry while it stands (decision 0071 ruling 8).
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error(
+    "{}; no probe or retry may start until it is proven settled",
+    cleanup_failure(provider, route, &held.to_string())
+)]
+pub(in crate::engine) struct Recovery {
+    pub(in crate::engine) provider: String,
+    pub(in crate::engine) route: String,
+    pub(in crate::engine) held: Box<Held>,
+}
+
+impl Recovery {
+    fn at(wait: &ProviderWait, held: Held) -> Recovery {
+        Recovery {
+            provider: wait.provider.clone(),
+            route: wait.route.clone(),
+            held: Box::new(held),
+        }
+    }
+}
+
+/// What a cleanup refusal holds: the reservation's path where it could not
+/// be read or sealed, the attempt where one is named, and the cause.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub(in crate::engine) enum Held {
+    #[error("its reservation cannot be located, and {0}")]
+    Unlocated(#[source] Unknown),
+    #[error("the reservation at {} cannot be read, and {source}", .at.display())]
+    Unreadable {
+        at: std::path::PathBuf,
+        #[source]
+        source: Unknown,
+    },
+    #[error("the reservation at {} names attempt '{attempt}', and {why}", .at.display())]
+    Unsettled {
+        at: std::path::PathBuf,
+        attempt: String,
+        why: Unproven,
+    },
+    #[error("the reservation at {} names attempt '{attempt}', and {source}", .at.display())]
+    Unsealed {
+        at: std::path::PathBuf,
+        attempt: String,
+        #[source]
+        source: Unknown,
+    },
+}
+
+/// Why a crashed probe's standing attempt is not proven settled: its
+/// cleanup unresolved, no driver recorded, or each driver not sealed
+/// Settled, named by its site. Never a `Debug` rendering.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub(in crate::engine) enum Unproven {
+    #[error("its cleanup is unresolved")]
+    Cleanup,
+    #[error("it recorded no driver, so no process is proven settled")]
+    NoDriver,
+    #[error("its driver at site {0} is not sealed Settled")]
+    Driver(String),
 }
 
 /// Why a crashed probe's reservation is not proven settled: its cleanup
-/// unresolved, no driver recorded, or a driver not sealed Settled. Its
-/// state is named in words, never as a `Debug` rendering.
-fn witnessed(reserved: &Reserved) -> String {
+/// unresolved, no driver recorded, or a driver not sealed Settled.
+fn witnessed(reserved: &Reserved) -> Unproven {
     if reserved.cleanup == Witnessed::Unresolved {
-        return "its cleanup is unresolved".to_string();
+        return Unproven::Cleanup;
     }
     let unsettled: Vec<String> = reserved
         .drivers
@@ -209,39 +298,11 @@ fn witnessed(reserved: &Reserved) -> String {
         .filter(|driver| driver.cleanup != Witnessed::Settled)
         .map(|driver| format!("'{}'", driver.site))
         .collect();
-    match unsettled.is_empty() {
-        true => "it recorded no driver, so no process is proven settled".to_string(),
-        false => format!(
-            "its driver at site {} is not sealed Settled",
-            unsettled.join(", ")
-        ),
+    if unsettled.is_empty() {
+        Unproven::NoDriver
+    } else {
+        Unproven::Driver(unsettled.join(", "))
     }
-}
-
-/// The cleanup refusal a crashed probe's reservation parks with: ruling
-/// 4's wording first, then the reservation, its attempt where one is
-/// named, and why it is not proven settled.
-fn refused(
-    wait: &ProviderWait,
-    at: Option<&std::path::Path>,
-    attempt: Option<&str>,
-    why: &str,
-) -> String {
-    let held = match (at, attempt) {
-        (Some(at), Some(attempt)) => {
-            format!(
-                "the reservation at {} names attempt '{attempt}'",
-                at.display()
-            )
-        }
-        (Some(at), None) => format!("the reservation at {} cannot be read", at.display()),
-        (None, _) => "its reservation cannot be located".to_string(),
-    };
-    format!(
-        "the cool-down probe for {}/{} did not prove its process tree gone, so it is a cleanup \
-         failure: {held}, and {why}; no probe or retry may start until it is proven settled",
-        wait.provider, wait.route
-    )
 }
 
 #[cfg(test)]
@@ -271,29 +332,37 @@ mod tests {
     /// not sealed Settled, never a `Debug` rendering.
     #[test]
     fn a_crashed_probes_witness_names_its_state_in_words() {
+        let cleanup = witnessed(&reserved(Witnessed::Unresolved, Vec::new()));
+        assert_eq!(cleanup, Unproven::Cleanup);
+        assert_eq!(cleanup.to_string(), "its cleanup is unresolved");
+
+        let no_driver = witnessed(&reserved(Witnessed::Settling, Vec::new()));
+        assert_eq!(no_driver, Unproven::NoDriver);
         assert_eq!(
-            witnessed(&reserved(Witnessed::Unresolved, Vec::new())),
-            "its cleanup is unresolved"
-        );
-        assert_eq!(
-            witnessed(&reserved(Witnessed::Settling, Vec::new())),
+            no_driver.to_string(),
             "it recorded no driver, so no process is proven settled"
         );
+
+        let one = witnessed(&reserved(
+            Witnessed::Settling,
+            vec![("work", Witnessed::Settling)],
+        ));
+        assert_eq!(one, Unproven::Driver("'work'".into()));
         assert_eq!(
-            witnessed(&reserved(
-                Witnessed::Settling,
-                vec![("work", Witnessed::Settling)]
-            )),
+            one.to_string(),
             "its driver at site 'work' is not sealed Settled"
         );
+
+        let two = witnessed(&reserved(
+            Witnessed::Settling,
+            vec![
+                ("work", Witnessed::Settled),
+                ("work:chore", Witnessed::Unresolved),
+            ],
+        ));
+        assert_eq!(two, Unproven::Driver("'work:chore'".into()));
         assert_eq!(
-            witnessed(&reserved(
-                Witnessed::Settling,
-                vec![
-                    ("work", Witnessed::Settled),
-                    ("work:chore", Witnessed::Unresolved)
-                ]
-            )),
+            two.to_string(),
             "its driver at site 'work:chore' is not sealed Settled"
         );
     }

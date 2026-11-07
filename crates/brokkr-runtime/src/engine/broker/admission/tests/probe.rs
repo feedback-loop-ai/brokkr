@@ -7,7 +7,7 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 use super::*;
-use crate::engine::broker::admission::probe::settle_orphaned;
+use crate::engine::broker::admission::probe::{settle_orphaned, Held, Recovery, Unproven};
 use crate::engine::broker::settlement::Driver;
 
 /// A wait the cleanup refusal names.
@@ -33,6 +33,28 @@ fn planted(host: &Host, work: &Path, run: &str) -> (String, PathBuf) {
     (repo, host.reservation(work, run))
 }
 
+/// Ruling 4's cleanup refusal is said once: the probe, the reservation's
+/// attempt, why it is not proven settled, and that nothing may start.
+#[test]
+fn a_cleanup_refusal_names_the_reservation_the_attempt_and_the_cause() {
+    let refused = Recovery {
+        provider: "claude".into(),
+        route: "first".into(),
+        held: Box::new(Held::Unsettled {
+            at: PathBuf::from("/protected/run-a/reservation.json"),
+            attempt: "a1".into(),
+            why: Unproven::Driver("'work', 'work:chore'".into()),
+        }),
+    };
+    assert_eq!(
+        refused.to_string(),
+        "the cool-down probe for claude/first did not prove its process tree gone, so it is a \
+         cleanup failure: the reservation at /protected/run-a/reservation.json names attempt \
+         'a1', and its driver at site 'work', 'work:chore' is not sealed Settled; no probe or \
+         retry may start until it is proven settled"
+    );
+}
+
 /// The lock a recovery must take is held past its deadline: the cleanup
 /// refusal names the reservation and says it cannot be read.
 #[test]
@@ -45,11 +67,16 @@ fn a_lock_that_cannot_be_taken_parks_naming_the_reservation() {
     let refused = settle_orphaned(&host.root, [&repo, "run-a"], &[], &wait(), deadline)
         .expect_err("a held lock was passed over");
     assert!(
-        refused.contains("did not prove its process tree gone"),
-        "{refused}"
+        matches!(refused.held.as_ref(), Held::Unreadable { .. }),
+        "{refused:?}"
     );
-    assert!(refused.contains("cannot be read"), "{refused}");
-    assert!(refused.contains(&at.display().to_string()), "{refused}");
+    let said = refused.to_string();
+    assert!(
+        said.contains("did not prove its process tree gone"),
+        "{said}"
+    );
+    assert!(said.contains("cannot be read"), "{said}");
+    assert!(said.contains(&at.display().to_string()), "{said}");
 }
 
 /// A reservation that does not read is no reservation: the cleanup refusal
@@ -62,8 +89,13 @@ fn a_reservation_that_does_not_read_parks_naming_where_it_stands() {
     std::fs::write(&at, "not a reservation").unwrap();
     let refused = settle_orphaned(&host.root, [&repo, "run-a"], &[], &wait(), soon())
         .expect_err("a malformed reservation was passed over");
-    assert!(refused.contains("cannot be read"), "{refused}");
-    assert!(refused.contains(&at.display().to_string()), "{refused}");
+    assert!(
+        matches!(refused.held.as_ref(), Held::Unreadable { .. }),
+        "{refused:?}"
+    );
+    let said = refused.to_string();
+    assert!(said.contains("cannot be read"), "{said}");
+    assert!(said.contains(&at.display().to_string()), "{said}");
 }
 
 /// A proven orphan's release whose seal cannot commit parks naming the
@@ -85,7 +117,12 @@ fn a_release_that_cannot_be_sealed_parks_naming_the_attempt() {
     LATE.set(Some(Late::FailCommitted));
     let refused = settle_orphaned(&host.root, [&repo, "run-a"], &[], &wait(), soon())
         .expect_err("a seal that could not commit was passed over");
-    assert!(refused.contains("'a1'"), "{refused}");
+    assert!(
+        matches!(refused.held.as_ref(), Held::Unsealed { attempt, .. } if attempt == "a1"),
+        "{refused:?}"
+    );
+    let said = refused.to_string();
+    assert!(said.contains("'a1'"), "{said}");
 }
 
 /// A worktree that does not resolve has no reservation to find: the cleanup
@@ -101,7 +138,12 @@ fn a_worktree_that_does_not_resolve_parks_without_a_reservation() {
     let refused = engine
         .recovered_probe(&[], &wait(), &observed)
         .expect_err("a vanished worktree found a reservation");
-    assert!(refused.contains("cannot be located"), "{refused}");
+    assert!(
+        matches!(refused.held.as_ref(), Held::Unlocated(_)),
+        "{refused:?}"
+    );
+    let said = refused.to_string();
+    assert!(said.contains("cannot be located"), "{said}");
 }
 
 /// An engine whose worktree's reservation holds one standing attempt `a1`

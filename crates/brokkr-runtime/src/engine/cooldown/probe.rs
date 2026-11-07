@@ -145,10 +145,10 @@ impl Engine {
     /// table that records its next round is 4d's.
     pub(super) fn probe_end(&self, wait: &ProviderWait, report: AttemptReport) -> Probe {
         if let Cleanup::Unresolved { reason } = &report.cleanup {
-            return Probe::Parked(format!(
-                "the cool-down probe for {}/{} did not prove its process tree gone, so it is a \
-                 cleanup failure: {reason}",
-                wait.provider, wait.route
+            return Probe::Parked(cleanup_failure(
+                &wait.provider,
+                &wait.route,
+                &reason.to_string(),
             ));
         }
         if let Some(refusal) = &report.refusal {
@@ -195,6 +195,17 @@ fn refused_index(events: &[EventEnvelope], effect_id: &str, chain: usize) -> usi
         .and_then(|last| events.iter().position(|event| event.seq == last.seq))
         .map_or(events, |at| &events[..at]);
     chain_index(before, effect_id, &None, chain)
+}
+
+/// The opening of every cleanup refusal: the probe for this wait did not
+/// prove its process tree gone, so it is ruling 4's cleanup failure. The
+/// admission's recovery appends the reservation's facts to the same
+/// sentence (decision 0071 ruling 5: one home for the rule).
+pub(in crate::engine) fn cleanup_failure(provider: &str, route: &str, detail: &str) -> String {
+    format!(
+        "the cool-down probe for {provider}/{route} did not prove its process tree gone, so it is \
+         a cleanup failure: {detail}"
+    )
 }
 
 /// What a probe leaves.

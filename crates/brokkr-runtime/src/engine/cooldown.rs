@@ -30,6 +30,7 @@ use crate::admission::{read_host, Bounds, HostError, Hosting};
 use crate::bundle::Limits;
 
 mod probe;
+pub(in crate::engine) use probe::cleanup_failure;
 use probe::Probe;
 
 /// One slice of an in-process wait: the wait re-reads the run's journal
