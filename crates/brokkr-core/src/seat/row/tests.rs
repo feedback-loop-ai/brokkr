@@ -1094,6 +1094,18 @@ fn a_checkpoint_before_and_after_its_request_keeps_site_facts_no_head() {
         asks("2026-01-01T00:00:03Z"),
     ]);
     assert!(!Account::whole("run", &only_checkpoint).seats_kept());
+    // A record that is no participant's — a transition, even one naming
+    // the effect — keeps the head: only a start, checkpoint or terminal
+    // withholds it.
+    let other = journal(&[
+        (
+            EventType::TransitionDecided,
+            json!({"effect_id": "fx"}),
+            "2026-01-01T00:00:00Z",
+        ),
+        asks("2026-01-01T00:00:01Z"),
+    ]);
+    assert!(Account::whole("run", &other).seats_kept());
 }
 
 /// A run whose terminal lands before its effect's request keeps the site's
