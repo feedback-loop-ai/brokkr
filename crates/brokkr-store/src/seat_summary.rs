@@ -26,12 +26,15 @@
 //! head lags, one run per transaction, with a backfill key of its own
 //! (ruling 8), so no run's summary falls behind for it.
 //!
-//! A run whose rows do not keep its live block, while its last start
-//! names no effect or one not yet asked ([`Account::seats_kept`]), keeps
-//! no seat head: its rows read stale, so a reader reads it whole, and
-//! every writable open refolds it, as it refolds a lagging run, until an
-//! event ends that start or asks its effect. No engine writes such a
-//! start.
+//! A run whose rows do not keep all the run view reads of them keeps no
+//! seat head ([`Account::seats_kept`], the rule's one home): its rows read
+//! stale, so a reader reads it whole, and every writable open refolds it,
+//! as it refolds a lagging run. While its last start names no effect or
+//! one not yet asked, that lasts until an event ends that start or asks
+//! its effect. Once a participant record has landed before the first
+//! request that asked its effect, an order no kept row represents
+//! exactly, it lasts for good: no later event brings the head back. No
+//! engine writes either order.
 //!
 //! A seat head also names the shape of the rows it vouches for, `shape`,
 //! a digest of [`SeatRow::COLUMNS`] and [`PROJECTION`] (#753): an older
