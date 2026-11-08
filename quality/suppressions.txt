@@ -9,7 +9,7 @@
     3 expect dead_code
 # test
     3 expect clippy::disallowed_macros
-    6 expect clippy::disallowed_methods
+    7 expect clippy::disallowed_methods
    15 expect clippy::excessive_nesting
     1 expect clippy::permissions_set_readonly_false
     3 expect clippy::struct_excessive_bools

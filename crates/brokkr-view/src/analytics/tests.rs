@@ -1718,7 +1718,7 @@ const FIXTURE_NOW: &str = "2026-09-02T00:00:00Z";
 /// not to this crate.
 #[expect(
     clippy::disallowed_methods,
-    reason = "a test reads the frozen fixture journal it names"
+    reason = "decision 0089 slice 4, #753: a test reads the frozen fixture journal it names"
 )]
 fn fixture_journal(name: &str) -> String {
     std::fs::read_to_string(
