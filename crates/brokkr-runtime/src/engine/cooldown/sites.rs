@@ -11,11 +11,12 @@ use brokkr_core::envelope::EventType;
 use brokkr_core::{provider_waits, EventEnvelope, ProviderRefusal, ProviderWait, RefusalCause};
 use brokkr_protocol::{AttemptReport, PreSessionRefusal, RefusalClass};
 use serde_json::Value;
+use time::format_description::well_known::Rfc3339;
 use time::{Duration as TimeDuration, OffsetDateTime};
 
 use super::probe::Probe;
 use super::{
-    note_error, past_maximum, refusal_record, refusal_text, representable_end, waiter,
+    note_error, past_maximum, refusal_record, refusal_text, representable_end, terminal, waiter,
     CooldownError, Engine, EngineError,
 };
 use crate::engine::carry::record::Tag;
@@ -244,8 +245,16 @@ impl Engine {
     ) -> PanelTerminal {
         let member = &refused[0];
         if retry {
+            // A schema-valid refusal keeps the route its cause resolved: an
+            // episode-unreadable record requires one, and a member whose own
+            // route never resolved is its own route-unresolved park even when
+            // the episode also does not read (decision 0103 ruling 3).
+            let cause = match member.refusal.route() {
+                Some(_) => RefusalCause::EpisodeUnreadable,
+                None => RefusalCause::RouteUnresolved,
+            };
             let refused = refusal_record(
-                RefusalCause::EpisodeUnreadable,
+                cause,
                 Some(&member.site),
                 &member.refusal,
                 member.refusal.route(),
@@ -391,6 +400,204 @@ impl Plan {
 struct Cause {
     refused: ProviderRefusal,
     episode: Option<u64>,
+}
+
+/// The declared member order a terminal event names, from the sites its
+/// failure recorded: the order the cap's facts follow.
+fn declared_sites(events: &[EventEnvelope], effect_id: &str) -> Vec<String> {
+    terminal(events, effect_id)
+        .and_then(|event| event.payload.get("start_failure_sites"))
+        .and_then(Value::as_array)
+        .map(|sites| {
+            sites
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+impl Engine {
+    /// The cap's facts after 0006's text (decision 0103 ruling 7(c)): each
+    /// of the last failure's waits in declared member order, and the
+    /// refused record beside them at its own site where no wait carries it.
+    /// A present wait or refusal that does not read refuses by name.
+    pub(in crate::engine) fn cap_facts(
+        &self,
+        events: &[EventEnvelope],
+        effect_id: &str,
+        waits: &Result<Option<Vec<ProviderWait>>, CooldownError>,
+        refused: &Result<Option<ProviderRefusal>, CooldownError>,
+    ) -> String {
+        let mut facts = String::new();
+        let refused = match refused {
+            Ok(value) => value.as_ref(),
+            Err(detail) => {
+                facts.push_str(&format!("; {detail}"));
+                None
+            }
+        };
+        match waits {
+            Ok(Some(all)) if !all.is_empty() => {
+                self.cap_ordered_facts(events, effect_id, all, refused, &mut facts)
+            }
+            Ok(Some(_)) | Ok(None) => cap_empty_wait(refused, &mut facts),
+            Err(detail) => {
+                if let Some(record) = refused {
+                    facts.push_str(&cap_refusal_facts(record, None));
+                }
+                facts.push_str(&format!("; {detail}"));
+            }
+        }
+        facts
+    }
+
+    /// Every wait's facts in declared order, with the refused record at its
+    /// own site: the parking member's record and its wait are one entry, so
+    /// a record is never paired with another member's wait.
+    fn cap_ordered_facts(
+        &self,
+        events: &[EventEnvelope],
+        effect_id: &str,
+        waits: &[ProviderWait],
+        refused: Option<&ProviderRefusal>,
+        facts: &mut String,
+    ) {
+        let declared = declared_sites(events, effect_id);
+        let mut listed = vec![false; waits.len()];
+        let mut recorded = false;
+        for site in &declared {
+            let at = waits
+                .iter()
+                .position(|wait| wait.site.as_deref() == Some(site.as_str()));
+            if let Some(at) = at {
+                listed[at] = true;
+                self.cap_push_wait(facts, events, effect_id, &waits[at], refused);
+            } else if let Some(record) =
+                refused.filter(|record| record.site.as_deref() == Some(site.as_str()))
+            {
+                facts.push_str(&cap_refusal_facts(record, None));
+                recorded = true;
+            }
+        }
+        for (at, wait) in waits.iter().enumerate() {
+            if !listed[at] {
+                self.cap_push_wait(facts, events, effect_id, wait, refused);
+            }
+        }
+        if let Some(record) = refused {
+            if !recorded && !waits.iter().any(|wait| wait.site == record.site) {
+                facts.push_str(&cap_refusal_facts(record, None));
+            }
+        }
+    }
+
+    /// One wait's facts and maximum, pairing a refused record only with the
+    /// wait that carries its own site.
+    fn cap_push_wait(
+        &self,
+        facts: &mut String,
+        events: &[EventEnvelope],
+        effect_id: &str,
+        wait: &ProviderWait,
+        refused: Option<&ProviderRefusal>,
+    ) {
+        match refused.filter(|record| record.site == wait.site) {
+            Some(record) => facts.push_str(&cap_refusal_facts(record, Some(wait))),
+            None => facts.push_str(&cap_wait_facts(wait)),
+        }
+        facts.push_str(&self.cap_maximum(events, effect_id, wait));
+    }
+
+    /// The cap's sentence for the declared maximum: the episode past it, the
+    /// declaration when the wait is still within it, or why the episode
+    /// cannot be read.
+    fn cap_maximum(
+        &self,
+        events: &[EventEnvelope],
+        effect_id: &str,
+        wait: &ProviderWait,
+    ) -> String {
+        match self.wait_maximum(events, effect_id, wait) {
+            Ok(Some((total, max, true))) => {
+                format!("; the episode {total}s is past the declared {max}s maximum")
+            }
+            Ok(Some((_, max, false))) => format!("; the declared {max}s maximum"),
+            Ok(None) => String::new(),
+            Err(detail) => format!("; {detail}"),
+        }
+    }
+}
+
+/// A cap whose last failure carries no wait: the refused record alone, and
+/// the missing `until` it names.
+fn cap_empty_wait(refused: Option<&ProviderRefusal>, facts: &mut String) {
+    if let Some(record) = refused {
+        facts.push_str(&cap_refusal_facts(record, None));
+        facts.push_str("; no until exists for it");
+    }
+}
+
+/// The cap's facts about a recorded refusal: provider, route, the `until`
+/// the wait entry beside it may carry, the provider's words, its retry-after
+/// and the declared maximum (decision 0103 ruling 7(c), this fix round).
+fn cap_refusal_facts(refused: &ProviderRefusal, wait: Option<&ProviderWait>) -> String {
+    let route = refused.route.as_deref().unwrap_or("an unresolved route");
+    let member = refused
+        .site
+        .as_deref()
+        .map_or_else(String::new, |site| format!("; member {site}"));
+    let mut facts = match wait {
+        Some(wait) => format!(
+            "; the last refusal waits for {}/{} until {}: {}",
+            refused.provider,
+            route,
+            wait.until
+                .format(&Rfc3339)
+                .expect("an RFC 3339 time formats as RFC 3339"),
+            refused.words
+        ),
+        None => format!(
+            "{member}; the last refusal names {}/{} with no until: {}",
+            refused.provider, route, refused.words
+        ),
+    };
+    if wait.is_some() {
+        facts = format!("{member}{facts}");
+    }
+    if let Some(retry) = refused.retry_after_seconds {
+        facts.push_str(&format!("; the provider gave retry-after {retry}s"));
+    }
+    if let (Some(seconds), Some(max)) = (refused.seconds, refused.max_seconds) {
+        facts.push_str(&format!(
+            "; the computed wait was {seconds}s; the declared maximum was {max}s"
+        ));
+    }
+    facts
+}
+
+/// The cap's facts from the wait entry alone, for a journal whose terminal
+/// event carries no `refused` record: its provider, route, `until`, words
+/// and the retry-after it recorded.
+fn cap_wait_facts(wait: &ProviderWait) -> String {
+    let member = wait
+        .site
+        .as_deref()
+        .map_or_else(String::new, |site| format!("; member {site}"));
+    let mut facts = format!(
+        "{member}; the last refusal waits for {}/{} until {}: {}",
+        wait.provider,
+        wait.route,
+        wait.until
+            .format(&Rfc3339)
+            .expect("an RFC 3339 time formats as RFC 3339"),
+        wait.words
+    );
+    if let Some(retry) = wait.retry_after_seconds {
+        facts.push_str(&format!("; the provider gave retry-after {retry}s"));
+    }
+    facts
 }
 
 /// What a panel's terminal event carries: the payload with its waits and,

@@ -106,6 +106,21 @@ pub(super) fn resume_run(dir: &Path, compiled: Bundle, run: &str, host: PathBuf)
     engine
 }
 
+/// Journal `payload` as the failed attempt, then resume and drive a fresh
+/// engine over it at `at`, with the panel fixtures' host.
+fn resume_failed(dir: &Path, mut engine: Engine, payload: Value, at: OffsetDateTime) -> Engine {
+    let compiled = engine.bundle.clone();
+    let run = engine.run_id.clone();
+    engine
+        .append(EventType::EffectFailed, payload, Some("a1".to_string()))
+        .unwrap();
+    drop(engine);
+    let mut resumed = resume_run(dir, compiled, &run, route_host(dir, (1, 10), (1, 10)));
+    resumed.cooldown.clock = Clock::advancing(at).0;
+    resumed.drive().unwrap();
+    resumed
+}
+
 /// One inline panel member, whose own command runs.
 fn inline(name: &str, command: Vec<String>) -> PanelMember {
     crate::engine::tests::member(name, command)
@@ -301,6 +316,17 @@ fn append_malformed_episode(engine: &mut Engine) {
         .unwrap();
 }
 
+/// A writer engine and its events after an earlier wait that does not read.
+fn malformed_episode_writer(dir: &Path) -> (Engine, Vec<EventEnvelope>) {
+    let body = writer_panel();
+    let mut engine = plain_engine(dir, body, 3);
+    request_effect(&mut engine);
+    append_malformed_episode(&mut engine);
+    append_started(&mut engine, "a1");
+    let events = engine.store.load(&engine.run_id).unwrap();
+    (engine, events)
+}
+
 /// Journal a panel's indeterminate attempt with `waits` on its terminal
 /// event, under `body`, and return the run and bundle an operator retry
 /// stands on.
@@ -448,6 +474,20 @@ fn journal_engine(dir: &Path, body: SeatBody, waits: Value) -> Engine {
     engine
 }
 
+/// The terminal a writer makes when `a`'s route never resolved and `b`'s
+/// wait computes, both refused with a rate limit.
+fn unresolved_a_terminal(
+    engine: &Engine,
+    events: &[EventEnvelope],
+    payload: Value,
+) -> crate::engine::cooldown::sites::PanelTerminal {
+    let refused = refused_pair(
+        refused_at("a", "claude", None),
+        refused_at("b", "codex", Some("second")),
+    );
+    writer_terminal(engine, events, &refused, payload, true)
+}
+
 /// The terminal a two-refused-member writer makes, both computed.
 fn writer_terminal_pair(
     engine: &Engine,
@@ -498,6 +538,7 @@ fn writer_first_wait(
 }
 
 /// A crash test's resumed engine, driven to its end.
+#[cfg(target_os = "linux")]
 fn resume_and_drive(dir: &Path, compiled: Bundle, run: &str, clock: Clock) -> Engine {
     let mut engine = resume_panel(dir, compiled, run, clock);
     engine.drive().unwrap();
@@ -556,6 +597,16 @@ fn a_panels_rate_limited_members_each_record_their_own_wait() {
     assert_eq!(probes.len(), 2, "{probes:?}");
     assert_eq!(probes[0]["site"], "a");
     assert_eq!(probes[1]["site"], "b");
+    // Each probe starts under its own member's derived driver seat, as the
+    // retried member's attempt does, not the panel's bare seat name.
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("a.seat")).unwrap(),
+        "work:a"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("b.seat")).unwrap(),
+        "work:b"
+    );
     assert_eq!(
         shared_log(dir.path()),
         [
@@ -698,7 +749,7 @@ fn another_refusal_beside_a_rate_limit_gets_no_wait_and_no_probe() {
     let (a, mut b) = two_route_drivers(
         dir.path(),
         &["refuse", "succeed"],
-        &["refuse", "succeed"],
+        &["refuse"],
         Probed::Answer,
         Probed::Answer,
     );
@@ -707,22 +758,52 @@ fn another_refusal_beside_a_rate_limit_gets_no_wait_and_no_probe() {
         .unwrap()
         .replace("\"class\":\"rate_limit\"", "\"class\":\"other\"");
     b.push(script);
-    let body = two_candidate_panel(a, b);
+    let second = driver(
+        dir.path(),
+        "b-second",
+        &["succeed"],
+        Probed::Answer,
+        None,
+        "codex",
+        "third",
+    );
+    let body = panel_of(vec![
+        member("a", vec![candidate("claude", "claude/first", a)]),
+        member(
+            "b",
+            vec![
+                candidate("codex", "codex/second", b),
+                candidate("codex", "codex/third", second),
+            ],
+        ),
+    ]);
     let mut engine = plain_engine(dir.path(), body, 2);
     let wait = drove_one_wait(&mut engine);
     assert_eq!(wait["site"], "a");
     assert_eq!(
         logs(dir.path(), "b"),
-        ["attempt:refuse", "attempt:succeed"],
+        ["attempt:refuse"],
         "b was probed for a refusal that is not a rate limit"
+    );
+    assert_eq!(
+        logs(dir.path(), "b-second"),
+        ["attempt:succeed"],
+        "b's chain did not advance to its next link"
     );
     assert_eq!(
         logs(dir.path(), "a"),
         ["attempt:refuse", "probe", "attempt:succeed"]
     );
     assert_eq!(start_probes(&engine).len(), 1);
-    // b's own chain advanced: its next link ran the retry, not its old one.
     assert_eq!(starts(&engine).len(), 2);
+    let provenance = starts(&engine)[1]["provenance"].clone();
+    let b = provenance
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["member"] == "b")
+        .expect("b's provenance");
+    assert_eq!(b["model"], "codex/third");
 }
 
 #[test]
@@ -884,24 +965,12 @@ fn a_park_cause_at_one_member_keeps_the_other_wait_and_resumes_with_none() {
     assert!(reason.contains("route could not be resolved"), "{reason}");
     // A crash between the failed event and its park resumes the record: the
     // same reason, no wait taken, no driver invoked.
-    let compiled = engine.bundle.clone();
-    let run = engine.run_id.clone();
-    engine
-        .append(
-            EventType::EffectFailed,
-            terminal.payload,
-            Some("a1".to_string()),
-        )
-        .unwrap();
-    drop(engine);
-    let mut resumed = resume_run(
+    let resumed = resume_failed(
         dir.path(),
-        compiled,
-        &run,
-        route_host(dir.path(), (1, 10), (1, 10)),
+        engine,
+        terminal.payload,
+        base() + time::Duration::seconds(1),
     );
-    resumed.cooldown.clock = Clock::advancing(base() + time::Duration::seconds(1)).0;
-    resumed.drive().unwrap();
     let parked = park_reason(&resumed);
     assert_eq!(parked, reason);
     assert!(logs(dir.path(), "a").is_empty());
@@ -968,6 +1037,35 @@ fn the_cap_parks_after_the_second_attempt_and_names_each_member() {
     assert!(reason.contains("codex/second"), "{reason}");
     assert!(reason.contains("rate_limit: slow down"), "{reason}");
     assert_eq!(starts(&engine).len(), 2, "a third attempt started");
+}
+
+/// At the cap, a panel whose first member cannot compute a wait keeps that
+/// member's refusal and the other member's wait, each with its own facts and
+/// in declared order: a refusal is never paired with another member's wait.
+#[test]
+fn the_cap_keeps_a_parking_members_refusal_beside_the_other_members_wait() {
+    let dir = tempfile::tempdir().unwrap();
+    let body = writer_panel();
+    let mut engine = plain_engine(dir.path(), body, 1);
+    let events = start_attempt(&mut engine);
+    let terminal = unresolved_a_terminal(
+        &engine,
+        &events,
+        json!({"effect_id": "effect", "attempt_id": "a1", "error": "refused",
+               "start_failure": true, "start_failure_sites": ["a", "b"]}),
+    );
+    assert!(terminal.park.is_none(), "{:?}", terminal.park);
+    assert_eq!(terminal.payload["refused"]["site"], "a");
+    let resumed = resume_failed(dir.path(), engine, terminal.payload, base());
+    let reason = park_reason(&resumed);
+    let a = reason.find("member a").expect("a's refusal");
+    let b = reason.find("member b").expect("b's own wait facts");
+    assert!(a < b, "the facts are not in declared order: {reason}");
+    assert!(reason.contains("claude/an unresolved route"), "{reason}");
+    assert!(reason.contains("codex/second"), "{reason}");
+    assert!(reason.contains("until"), "{reason}");
+    assert!(logs(dir.path(), "a").is_empty());
+    assert!(logs(dir.path(), "b").is_empty());
 }
 
 #[test]
@@ -1107,12 +1205,7 @@ fn an_inline_members_own_command_is_probed_and_retried() {
 #[test]
 fn an_unreadable_episode_parks_the_first_refused_member() {
     let dir = tempfile::tempdir().unwrap();
-    let body = writer_panel();
-    let mut engine = plain_engine(dir.path(), body, 3);
-    request_effect(&mut engine);
-    append_malformed_episode(&mut engine);
-    append_started(&mut engine, "a1");
-    let events = engine.store.load(&engine.run_id).unwrap();
+    let (engine, events) = malformed_episode_writer(dir.path());
     let terminal = writer_terminal_pair(
         &engine,
         &events,
@@ -1121,6 +1214,27 @@ fn an_unreadable_episode_parks_the_first_refused_member() {
     let reason = terminal.park.expect("an unreadable episode parks");
     assert!(reason.starts_with("member a: "), "{reason}");
     assert!(reason.contains("an earlier wait does not read"), "{reason}");
+}
+
+/// An unreadable episode whose first refused member never resolved a route:
+/// the record stays schema-valid by naming that member's own route-unresolved
+/// park, and a fresh engine reads it back to the same reason.
+#[test]
+fn an_unreadable_episode_keeps_a_readable_route_unresolved_refusal() {
+    let dir = tempfile::tempdir().unwrap();
+    let (engine, events) = malformed_episode_writer(dir.path());
+    let terminal = unresolved_a_terminal(
+        &engine,
+        &events,
+        json!({"effect_id": "effect", "attempt_id": "a1", "error": "refused"}),
+    );
+    assert_eq!(terminal.payload["refused"]["cause"], "route-unresolved");
+    assert_eq!(terminal.payload["refused"]["site"], "a");
+    assert!(terminal.payload["refused"].get("route").is_none());
+    let reason = terminal.park.clone().expect("an unreadable episode parks");
+    assert!(reason.contains("route could not be resolved"), "{reason}");
+    let resumed = resume_failed(dir.path(), engine, terminal.payload, base());
+    assert_eq!(park_reason(&resumed), reason);
 }
 
 /// A host file that cannot be read parks the first refused member before any

@@ -123,11 +123,14 @@ impl Engine {
         }))
     }
 
-    /// The dispatch one admitted probe composes under.
+    /// The dispatch one admitted probe composes under, at `site_name`: the
+    /// seat's own for a single seat, and the member's derived
+    /// `<seat>:<member>` for a panel member.
     fn probe_dispatch<'a>(
         effect_id: &'a str,
         attempt: &'a str,
         seat: &'a str,
+        site_name: &'a str,
         picked: &'a ProbeSeat,
         body: ExecutableBody<'a>,
     ) -> Dispatch<'a> {
@@ -136,7 +139,7 @@ impl Engine {
             attempt_id: attempt,
             seat_name: seat,
             case: picked.case.as_deref(),
-            site_name: &picked.site,
+            site_name,
             body,
             gate: picked.gate,
         }
@@ -179,7 +182,14 @@ impl Engine {
                 Ok(admitted) => admitted,
                 Err(parked) => return Ok(parked),
             };
-        let at = Self::probe_dispatch(effect_id, &admitted.attempt, seat, &picked, body);
+        let at = Self::probe_dispatch(
+            effect_id,
+            &admitted.attempt,
+            seat,
+            &picked.site,
+            &picked,
+            body,
+        );
         let probe = self.probe_run(
             &at,
             admitted.input,
@@ -250,7 +260,16 @@ impl Engine {
             picked.gate,
         );
         let run = &runs[0];
-        let at = Self::probe_dispatch(effect_id, &prepared.attempt, seat, &picked, body);
+        // `member_runs` derives this member's own driver seat, which its
+        // door, `effect/started` and settlement record all name.
+        let at = Self::probe_dispatch(
+            effect_id,
+            &prepared.attempt,
+            seat,
+            &run.driver_seat,
+            &picked,
+            body,
+        );
         let probe = self.spawn_probe(&at, &run.spawn, run.input.clone(), prepared.deadline, wait);
         self.settle_probe(probe)
     }
