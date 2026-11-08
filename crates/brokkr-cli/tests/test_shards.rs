@@ -1228,11 +1228,11 @@ fn parallel_heap_opt_in_replaces_only_the_heap_command_in_both_modes() {
             }
             commands.push(if index == 2 {
                 if args[0] == "coverage" {
-                    "scripts/parallel-heaps.py --nightly nightly-2026-09-05 --binary-bound 1800 \
+                    "scripts/parallel-heaps.py --nightly nightly-2026-09-05 --binary-bound 2400 \
                      --bound-record <path>"
                         .to_string()
                 } else {
-                    "scripts/parallel-heaps.py --binary-bound 1800 --bound-record <path>"
+                    "scripts/parallel-heaps.py --binary-bound 2400 --bound-record <path>"
                         .to_string()
                 }
             } else {
@@ -1973,7 +1973,7 @@ fn a_heap_child_past_the_bound_reaches_the_shards_record_and_summary() {
 
 /// The launcher takes the shard's bound with no default of its own: a direct
 /// invocation without `--binary-bound` refuses by name before it reads
-/// Cargo, so the 1,800 has one home.
+/// Cargo, so the 2,400 has one home.
 #[test]
 fn the_heap_launcher_refuses_without_the_bound_the_script_owns() {
     let scratch = tempfile::tempdir().expect("scratch");

@@ -65,11 +65,14 @@ set -euo pipefail
 
 # The per-binary bound, in seconds: a test binary that runs past it is
 # named, its shard's process group is ended, and the run fails. The slowest
-# binary measured took 1,124 s (heap_run_view on a slow hosted macOS runner,
-# 2026-11-03); coverage takes half as long again (this script's header), so
-# 1,800 s is about 1.6 times the slowest. A shard that merely fails still
-# stops nothing (below).
-BINARY_BOUND_SECONDS=1800
+# binary measured is capability_broker's enabled suite on a slow hosted
+# Linux runner: 1,186 s and 1,708 s on #1027's runs, and 82 of its 98 tests
+# done when a 1,800 s bound ended it in the merge queue (2026-11-08), so
+# about 2,200 s whole; under coverage it took 1,156 s to 1,723 s. Its shard
+# starts about three minutes into its machine's 45-minute job, so 2,400 s
+# lets it finish and still names a hang before the job's own timeout. A
+# shard that merely fails still stops nothing (below).
+BINARY_BOUND_SECONDS=2400
 
 refuse() {
   printf 'test shards: %s\n' "$1" >&2

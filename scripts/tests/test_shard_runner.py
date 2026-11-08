@@ -574,7 +574,7 @@ class ShardRunner(unittest.TestCase):
         pidfile = self.root / "leak.pid"
         dep = self.deps("leak")
         cargo = self.child(
-            "\"$1\" -c 'sleep 1.8; :' leak-0123abcd &\n"
+            "\"$1\" -c 'sleep 3; :' leak-0123abcd &\n"
             "printf '%s\\n' \"$!\" > \"$2\"\n"
             "sleep 0.4\n"
             "printf 'test result: ok. 1 passed; 0 failed; 0 ignored; "
@@ -587,15 +587,23 @@ class ShardRunner(unittest.TestCase):
         self.assertTrue(self.killed_after(self.pid("leak.pid")))
 
     def test_a_binary_first_seen_after_argv_exits_is_still_bounded(self):
+        # The binary first becomes a `deps` executable 0.5 s after cargo
+        # exits. The settle window is widened to 10 s in this run, so its
+        # first sight and its deadline both fall inside the window however
+        # slowly the host starts it: at 2 s, a slow macOS start once
+        # missed the deadline, and the binary passed.
         pidfile = self.root / "late.pid"
         dep = self.deps("late")
         cargo = self.child(
-            "( sleep 0.5; exec \"$1\" -c 'sleep 1.5; :' late-0123abcd ) &\n"
+            "( sleep 0.5; exec \"$1\" -c 'sleep 3; :' late-0123abcd ) &\n"
             "printf '%s\\n' \"$!\" > \"$2\"\n"
             "sleep 0.2\n"
             "exit 0\n", "late-cargo")
-        result = self.launch([cargo, dep, pidfile], bound=1)
-        self.assertEqual(result.returncode, 124, result.stdout + result.stderr)
+        runner = self.runner.Runner([cargo, dep, pidfile], 1, str(self.record),
+                                    str(self.status))
+        with mock.patch.object(self.runner, "SETTLE_SECONDS", 10.0):
+            code = runner.run()
+        self.assertEqual(code, 124)
         self.assertEqual(self.status.read_text(), "bound\n")
         self.assertEqual(self.record.read_text(), "late-0123abcd\n1\n")
         self.assertTrue(self.killed_after(self.pid("late.pid")))
