@@ -617,25 +617,54 @@ class ShardRunner(unittest.TestCase):
         self.assertLess(elapsed, 5.0)
 
     def test_a_read_at_the_deadline_sees_a_binary_the_poll_would_skip(self):
+        # The poll is 60 s away and cargo outlives the binary, so only a read
+        # at the clock's deadline can see it alive past its bound. The first
+        # read waits until the binary has written its own pid, so its first
+        # sight never rests on how fast the host starts it (macOS starts it
+        # after a fast first read). Every read is delayed 0.06 s, as in the
+        # review's case.
+        class LongPoll(self.runner.Runner):
+            def poll_interval(self):
+                return 60.0
+
         pidfile = self.root / "pollgap.pid"
         dep = self.deps("pollgap")
         cargo = self.child(
-            "\"$1\" -c 'sleep 1.18; :' pollgap-0123abcd &\n"
-            "printf '%s\\n' \"$!\" > \"$2\"\n"
+            "\"$1\" -c 'printf \"%s\\n\" \"$$\" > \"$1\"; sleep 1.5; :' "
+            "pollgap-0123abcd \"$2\" &\n"
+            "wait\n"
             "sleep 0.6\n", "pollgap-cargo")
         original = self.runner.group_members
 
         def delayed(pgid):
+            written = time.monotonic() + 5
+            while not pidfile.exists() and time.monotonic() < written:
+                time.sleep(0.01)
             time.sleep(0.06)
             return original(pgid)
 
-        runner = self.runner.Runner([cargo, dep, pidfile], 1, str(self.record),
-                                    str(self.status), read_group=delayed)
+        runner = LongPoll([cargo, dep, pidfile], 1, str(self.record),
+                          str(self.status), read_group=delayed)
         code = runner.run()
         self.assertEqual(code, 124)
         self.assertEqual(self.status.read_text(), "bound\n")
         self.assertEqual(self.record.read_text(), "pollgap-0123abcd\n1\n")
         self.assertTrue(self.killed_after(self.pid("pollgap.pid")))
+
+    def test_a_signal_the_group_refuses_is_no_error_and_the_read_decides(self):
+        # macOS answers EPERM, not ESRCH, when a group's last members are
+        # zombies (#1027's first macOS run, where the forwarded SIGTERM's
+        # second signal raised it). The refusal is no error: the group read
+        # that follows still shows the group ended.
+        runner = self.runner.Runner(["true"], 1, str(self.record), str(self.status))
+        runner.process = subprocess.Popen(["true"], start_new_session=True)
+        runner.pgid = runner.process.pid
+        runner.eof = True
+        refused = mock.Mock(side_effect=PermissionError(1, "Operation not permitted"))
+        with mock.patch.object(self.runner.os, "killpg", refused):
+            proven, reason = runner.end_group()
+        self.assertEqual((proven, reason), (True, None))
+        self.assertEqual(refused.call_args_list, [mock.call(runner.pgid, signal.SIGTERM)])
 
     def test_a_clock_starts_after_the_read_that_first_saw_it(self):
         pidfile = self.root / "early.pid"

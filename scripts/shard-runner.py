@@ -374,9 +374,17 @@ class Runner:
         raise Forwarded(signum)
 
     def signal_group(self, signum):
+        """Signal argv's group; a group left with nothing to signal is no error.
+
+        A group that is gone answers ESRCH. macOS answers EPERM instead when
+        the group's last members are zombies, where Linux delivers the
+        signal, as #1027's first macOS run showed. Neither answer proves
+        anything: the group read after every signal shows the group ended or
+        names what is left.
+        """
         try:
             os.killpg(self.pgid, signum)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
             pass
 
     def loop(self):
