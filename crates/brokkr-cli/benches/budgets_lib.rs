@@ -100,34 +100,63 @@ fn tui_frame(events: Vec<EventEnvelope>) -> ratatui::buffer::Buffer {
     ))
 }
 
-/// A generated journal of 2,000 runs of `events` each (decision 0089
-/// ruling 9), and the directory that holds it while it is read.
-fn fleet_journal(events: u64) -> (tempfile::TempDir, PathBuf) {
-    let dir = tempfile::tempdir().expect("a scratch directory");
-    let db = dir.path().join("forge.db");
-    let store = brokkr_store::Store::open(&db).expect("a fresh journal opens");
-    let runs = brokkr_store::test_support::fleet(NOW, events, Width::Wide);
-    brokkr_store::test_support::generate(&store, &runs).expect("the journal is generated");
-    (dir, db)
+/// The runs' sizes of the fleet bench's journals: 2,000 runs of 5 events,
+/// and of 500 (decision 0089 ruling 9).
+const FLEET_EVENTS: [u64; 2] = [5, 500];
+
+/// Where the fleet bench's journals live, from the group's setup to its
+/// teardown.
+fn fleet_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("budgets-fleet")
 }
 
-fn fleet_10k() -> (tempfile::TempDir, PathBuf) {
-    fleet_journal(5)
+/// The generated journal of 2,000 runs of `events` each.
+fn fleet_db(events: u64) -> PathBuf {
+    fleet_dir().join(events.to_string()).join("forge.db")
 }
 
-fn fleet_1m() -> (tempfile::TempDir, PathBuf) {
-    fleet_journal(500)
+fn fleet_removed() {
+    match std::fs::remove_dir_all(fleet_dir()) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            panic!("the fleet journals are removed: {error}")
+        }
+        _ => {}
+    }
+}
+
+/// The group's setup: the fleet bench's journals, generated afresh.
+/// gungraun runs a group's setup in the bench binary outside Valgrind, and
+/// a bench's own setup inside it, where generating 1,000,000 events outran
+/// the job's hour on every pull request.
+fn fleet_journals() {
+    fleet_removed();
+    for events in FLEET_EVENTS {
+        let db = fleet_db(events);
+        std::fs::create_dir_all(db.parent().expect("a journal's directory"))
+            .expect("a scratch directory");
+        let store = brokkr_store::Store::open(&db).expect("a fresh journal opens");
+        let runs = brokkr_store::test_support::fleet(NOW, events, Width::Wide);
+        brokkr_store::test_support::generate(&store, &runs).expect("the journal is generated");
+    }
+}
+
+fn fleet_10k() -> PathBuf {
+    fleet_db(FLEET_EVENTS[0])
+}
+
+fn fleet_1m() -> PathBuf {
+    fleet_db(FLEET_EVENTS[1])
 }
 
 // The console's first fleet page at 80×24, open to painted frame: the
 // summary's index read a page and the one ahead, each row checked against
 // its run's head, and drawn. Its counts are the same at 10,000 events as
-// at 1,000,000 (decision 0089 ruling 9).
+// at 1,000,000 (decision 0089 ruling 9). The read is read-only, so every
+// bench reads the group's journal as generated.
 #[library_benchmark]
 #[bench::events_10k(setup = fleet_10k)]
 #[bench::events_1m(setup = fleet_1m)]
-fn fleet_page(journal: (tempfile::TempDir, PathBuf)) -> String {
-    let (_dir, db) = journal;
+fn fleet_page(db: PathBuf) -> String {
     black_box(
         brokkr_cli::fleet_frame_for_budget(black_box(&db), NOW, 80, 24)
             .expect("the first page reads"),
@@ -161,7 +190,9 @@ fn open_run(journal: (tempfile::TempDir, PathBuf)) -> brokkr_store::Opened {
 
 library_benchmark_group!(
     name = hot_paths;
-    benchmarks = fold_journal, fold_turn, run_view, compile_bundle, tui_frame, fleet_page, open_run
+    setup = fleet_journals();
+    teardown = fleet_removed();
+    benchmarks =fold_journal, fold_turn, run_view, compile_bundle, tui_frame, fleet_page, open_run
 );
 
 main!(library_benchmark_groups = hot_paths);
