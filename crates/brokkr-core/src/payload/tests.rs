@@ -680,3 +680,59 @@ fn a_probe_answer_the_rfc3339_formatter_cannot_spell_refuses_to_serialize() {
     let error = serde_json::to_value(&answer).unwrap_err();
     assert!(error.to_string().contains("year"), "{error}");
 }
+
+/// The schema's bounds admit their own edge, and one past it refuses: the
+/// words at `maxLength` 300 characters, the site at 200, and a route's `:`.
+#[test]
+fn every_wait_bound_admits_its_edge() {
+    let wait = |words: &str, site: &str, route: &str| {
+        event(
+            Type::EffectFailed,
+            json!({"effect_id": "e", "waits": [{
+                "site": site, "provider": "claude", "route": route,
+                "words": words, "seconds": 1,
+                "until": "2026-11-01T00:00:01Z", "rounds": 1
+            }]}),
+        )
+    };
+    let (words, site) = ("w".repeat(300), "s".repeat(200));
+    let read = provider_waits(&wait(&words, &site, "openrouter:glm"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(read[0].words, words);
+    assert_eq!(read[0].site.as_deref(), Some(site.as_str()));
+    assert_eq!(read[0].route, "openrouter:glm");
+    for (words, site, field) in [
+        (format!("{words}w"), site.clone(), "words"),
+        (words, format!("{site}s"), "site"),
+    ] {
+        let error = provider_waits(&wait(&words, &site, "first")).unwrap_err();
+        assert!(
+            matches!(&error, ProviderWaitError::Field { field: named, .. } if named == field),
+            "{error:?} did not name {field}"
+        );
+    }
+}
+
+/// Every cause of the closed vocabulary reads back as itself, the two the
+/// other tests do not name among them: an unreadable episode, which names
+/// its route and no computed length, and a wait with no end, which carries
+/// both.
+#[test]
+fn every_refusal_cause_reads_as_itself() {
+    let refused = |refused: Value| {
+        provider_refusal(&event(
+            Type::EffectFailed,
+            json!({"effect_id": "e", "refused": refused}),
+        ))
+        .unwrap()
+        .unwrap()
+        .cause
+    };
+    let episode = json!({"cause": "episode-unreadable", "provider": "claude",
+        "route": "first", "words": "rate_limit"});
+    assert_eq!(refused(episode), RefusalCause::EpisodeUnreadable);
+    let endless = json!({"cause": "no-end", "provider": "claude", "route": "first",
+        "words": "rate_limit", "seconds": 5, "max_seconds": 2});
+    assert_eq!(refused(endless), RefusalCause::NoEnd);
+}
