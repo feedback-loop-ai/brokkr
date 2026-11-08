@@ -3,13 +3,14 @@
 //! Each run's journal is built for its times, parks, rulings and seats;
 //! its folded state, from the shared state builder, for how it ended.
 
+use super::median::medians;
 use super::words::{change_text, listed, span_text, stamp};
 use super::*;
 use crate::fleet::tests::ruled;
 use crate::tests::{ev, state};
 use crate::ABSENT;
 use brokkr_core::ending::Ending;
-use brokkr_core::fold::Status;
+use brokkr_core::fold::{fold, Status};
 use brokkr_core::EventType;
 use serde_json::{json, Value};
 
@@ -305,6 +306,7 @@ fn stopped_by_a_rule_names_the_most_frequent_rule() {
                 count: 1
             }),
             text: "1 by REVIEW-FAIL-TWICE".to_string(),
+            rules_more: 0,
         }
     );
 }
@@ -320,6 +322,7 @@ fn reported_cost_names_the_harnesses_that_report_none() {
             reporting: vec!["claude".to_string()],
             silent: vec!["codex".to_string()],
             note: Some("claude only · codex report none".to_string()),
+            providers_more: 0,
         }
     );
     let beta = &view.realms[1];
@@ -612,6 +615,7 @@ fn the_edges_of_the_journal_are_read_as_the_readout_says() {
                 count: 2
             }),
             text: "2 by B-TWICE".to_string(),
+            rules_more: 0,
         }
     );
     // Waiting runs from the park to the first command: the acceptance
@@ -789,6 +793,7 @@ fn a_recipes_cost_per_run_is_what_reported_over_all_its_runs() {
                 reporting: vec!["claude".into()],
                 silent: vec!["codex".into(), "dsh".into()],
                 note: Some("claude only · codex and dsh report none".into()),
+                providers_more: 0,
             },
             tokens_per_run: crate::tokens::usage_cells(
                 Some(&crate::TokenUsage {
@@ -938,6 +943,19 @@ fn a_seat_started_before_the_range_counts_what_it_metered_inside_it() {
     events[0].recorded_at = "2026-10-06T11:00:00Z".into();
     events[1].recorded_at = "2026-10-06T11:30:00Z".into();
     events[2].recorded_at = "2026-10-06T12:30:00Z".into();
+    // A checkpoint before the window: the readout and the recipe drop it,
+    // and a site that only ran before the window names no provider.
+    let (journal, state) = journals.pop().unwrap();
+    let outside = json!({"effect_id": "e", "attempt_id": "s1",
+                         "checkpoint": {"total_cost_usd": 5.0}});
+    journals.push((
+        journal.then(
+            EventType::EffectCheckpointed,
+            outside,
+            "2026-09-01T00:00:00Z",
+        ),
+        state,
+    ));
     let rows = recipes_of(&journals);
     let cost = &rows[0].cost_per_run;
     assert_eq!(
@@ -952,6 +970,20 @@ fn a_seat_started_before_the_range_counts_what_it_metered_inside_it() {
             ["1k tok", "900", "100", ABSENT]
         )
     );
+}
+
+#[test]
+fn a_recipe_site_outside_the_window_names_no_provider() {
+    let (mut journal, state) = recipe_run("alpha", "old", Fate::Open, "claude", Some(1.0));
+    for event in &mut journal.events {
+        event.recorded_at = "2026-09-01T00:00:00Z".into();
+    }
+    let rows = recipes_of(&[(journal, state)]);
+    let old = row(&rows, "alpha", "old");
+    assert_eq!(old.runs, 1);
+    assert_eq!(old.cost_per_run.cost, ReportedCost::NotReported);
+    assert_eq!(old.cost_per_run.reporting, Vec::<String>::new());
+    assert_eq!(old.cost_per_run.silent, Vec::<String>::new());
 }
 
 #[test]
@@ -1137,4 +1169,733 @@ fn a_recipe_none_of_whose_runs_was_judged_states_no_rate() {
         Ledger::of([]).text,
         "0 of 0 shipped (—) · 0 excluded · 0 unclassified"
     );
+}
+
+// ------------------------------------------------- the 64 groups and cuts
+
+/// A run of `count` seats, each serving a model of its own.
+fn many_models(count: usize) -> (Journal, Option<RunState>) {
+    let mut journal = Journal::started(Some("alpha"), "2026-10-10T00:00:00Z");
+    for index in 0..count {
+        journal = journal.seat(
+            &format!("s{index}"),
+            "claude",
+            &format!("model-{index:05}"),
+            None,
+            "2026-10-10T00:10:00Z",
+        );
+    }
+    (
+        journal.then(EventType::RunCompleted, json!({}), "2026-10-10T01:00:00Z"),
+        Some(ended(Status::Completed, "done", None, 0)),
+    )
+}
+
+/// A run that parks once in each of `count` phases, each a minute apart and
+/// each answered half a minute later.
+/// `journal` enters `phase` at `at`, parks, and is answered half a minute
+/// later.
+fn parks_at(journal: Journal, phase: &str, at: i64) -> Journal {
+    let entered = stamp(at);
+    let answered = stamp(at + 30_000);
+    journal
+        .entered(phase, &entered)
+        .then(EventType::RunParked, json!({}), &entered)
+        .then(
+            EventType::OperatorCommanded,
+            json!({"command": "retry"}),
+            &answered,
+        )
+}
+
+fn many_phases(count: usize) -> (Journal, Option<RunState>) {
+    let start = brokkr_core::stamp::parse_millis("2026-10-06T12:30:00Z").unwrap();
+    let mut journal = Journal::started(Some("alpha"), "2026-10-06T12:30:00Z");
+    for index in 0..count {
+        journal = parks_at(
+            journal,
+            &format!("phase-{index:05}"),
+            start + index as i64 * 60_000,
+        );
+    }
+    let end = stamp(start + count as i64 * 60_000);
+    (
+        journal.then(EventType::RunStopped, json!({}), &end),
+        Some(ended(Status::Stopped, "stop", None, 0)),
+    )
+}
+
+/// The readout of a run of `count` models and one of `count` phases.
+fn two_grouped_figures(count: usize) -> Analytics {
+    let (models, state) = many_models(count);
+    let (phases, phase_state) = many_phases(count);
+    read_one(
+        &runs(&[(models, state), (phases, phase_state)]),
+        Range::Week,
+    )
+}
+
+fn keeps_64(view: &Analytics) {
+    assert_eq!(view.models.len(), 64);
+    assert_eq!(view.waiting_by_step.len(), 64);
+}
+
+#[test]
+fn a_figure_past_64_groups_keeps_64_and_counts_the_rest() {
+    let view = two_grouped_figures(65);
+    keeps_64(&view);
+    assert_eq!(view.models_more, 1);
+    assert_eq!(view.waiting_by_step_more, 1);
+    let wire = serde_json::to_value(&view).unwrap();
+    assert_eq!(
+        [&wire["models_more"], &wire["waiting_by_step_more"]],
+        [&json!(1), &json!(1)],
+        "the wire carries both counts"
+    );
+    assert_eq!(
+        view.models.first().and_then(|share| share.model.as_deref()),
+        Some("model-00000")
+    );
+    assert_eq!(
+        view.models.last().and_then(|share| share.model.as_deref()),
+        Some("model-00063"),
+        "a tie keeps the key order"
+    );
+    assert_eq!(
+        view.waiting_by_step
+            .first()
+            .and_then(|step| step.phase.as_deref()),
+        Some("phase-00000")
+    );
+    assert_eq!(
+        view.waiting_by_step
+            .last()
+            .and_then(|step| step.phase.as_deref()),
+        Some("phase-00063")
+    );
+
+    let view = two_grouped_figures(9_000);
+    keeps_64(&view);
+    assert_eq!(view.models_more, 8_936);
+    assert_eq!(view.waiting_by_step_more, 8_936);
+}
+
+/// A run of `count` models where the last key serves two attempts more:
+/// the replacement `ranked` makes when a later key outranks a kept one.
+fn many_models_with_a_leader(count: usize) -> (Journal, Option<RunState>) {
+    let (mut journal, state) = many_models(count);
+    for extra in 0..2 {
+        journal = journal.seat(
+            &format!("lead{extra}"),
+            "claude",
+            &format!("model-{:05}", count - 1),
+            None,
+            "2026-10-10T00:20:00Z",
+        );
+    }
+    (journal, state)
+}
+
+#[test]
+fn a_later_key_with_more_attempts_outranks_the_last_kept_one() {
+    let (models, state) = many_models_with_a_leader(65);
+    let view = read_one(&runs(&[(models, state)]), Range::Week);
+    assert_eq!(view.models.len(), 64);
+    assert_eq!(view.models_more, 1);
+    assert_eq!(
+        view.models.first().and_then(|share| share.model.as_deref()),
+        Some("model-00064")
+    );
+    assert_eq!(
+        view.models.last().and_then(|share| share.model.as_deref()),
+        Some("model-00062"),
+        "the last key, with one attempt, is the one dropped"
+    );
+}
+
+/// A run of models `a00..a63` once, `b00..b63` twice and `c00` three
+/// times: the tie at two attempts is decided while a group is evicted,
+/// once the kept order no longer follows the key.
+fn tied_models() -> (Journal, Option<RunState>) {
+    let mut journal = Journal::started(Some("alpha"), "2026-10-10T00:00:00Z");
+    for index in 0..64 {
+        journal = journal.seat(
+            &format!("a{index}"),
+            "claude",
+            &format!("a{index:02}"),
+            None,
+            "2026-10-10T00:10:00Z",
+        );
+    }
+    for index in 0..64 {
+        for extra in 0..2 {
+            journal = journal.seat(
+                &format!("b{index}-{extra}"),
+                "claude",
+                &format!("b{index:02}"),
+                None,
+                "2026-10-10T00:10:00Z",
+            );
+        }
+    }
+    for extra in 0..3 {
+        journal = journal.seat(
+            &format!("c-{extra}"),
+            "claude",
+            "c00",
+            None,
+            "2026-10-10T00:10:00Z",
+        );
+    }
+    (
+        journal.then(EventType::RunCompleted, json!({}), "2026-10-10T01:00:00Z"),
+        Some(ended(Status::Completed, "done", None, 0)),
+    )
+}
+
+#[test]
+fn a_tie_while_evicting_keeps_the_earlier_key() {
+    let (models, state) = tied_models();
+    let view = read_one(&runs(&[(models, state)]), Range::Week);
+    let names: Vec<&str> = view
+        .models
+        .iter()
+        .map(|share| share.model.as_deref().unwrap())
+        .collect();
+    let expected: Vec<String> = std::iter::once("c00".to_string())
+        .chain((0..63).map(|index| format!("b{index:02}")))
+        .collect();
+    assert_eq!(names, expected, "the eviction drops b63, not b00");
+    assert_eq!(view.models_more, 65);
+}
+
+/// 64 recipes at $2 a run and one, the last key, at $1: the omitted one
+/// still dominates every kept row of the realm.
+#[test]
+fn an_omitted_recipe_still_dominates_a_kept_one() {
+    let mut journals = Vec::new();
+    for index in 0..64 {
+        journals.extend(recipe_runs(
+            "alpha",
+            &format!("r{index:02}"),
+            (1, 0),
+            "claude",
+            Some(2.0),
+        ));
+    }
+    journals.extend(recipe_runs("alpha", "r64", (1, 0), "claude", Some(1.0)));
+    let view = read_one(&runs(&journals), Range::Week);
+    assert_eq!(view.recipes.len(), 64);
+    assert_eq!(view.recipes_more, 1);
+    let wire = serde_json::to_value(&view).unwrap();
+    assert_eq!(wire["recipes_more"], json!(1), "the wire carries the count");
+    for row in &view.recipes {
+        assert_eq!(
+            row.on_frontier,
+            Some(false),
+            "{} is dominated by the omitted r64",
+            row.recipe
+        );
+    }
+    assert_eq!(
+        row(&view.recipes, "alpha", "r00").cost_per_run.text,
+        "$2.00"
+    );
+}
+
+/// The readout over one hearth naming `realms`, handing it `journals`.
+fn read_realms(journals: &[(Journal, Option<RunState>)], realms: &[String]) -> Analytics {
+    let runs = runs(journals);
+    let hearths = [AnalyticsHearth {
+        label: "edge",
+        realms,
+        journal: "e.db",
+        runs: &runs,
+        refusal: None,
+    }];
+    analytics(&Query {
+        hearths: &hearths,
+        range: Range::Week,
+        realm: None,
+        now: NOW,
+    })
+    .unwrap()
+}
+
+/// A row per realm, and the 64 a window keeps: the 65th realm's runs feed
+/// the headline and are counted in `realms_more`, not given a row.
+/// A hearth whose map names no realm takes its label as the realm the
+/// refusal is quarantined under.
+#[test]
+fn a_hearth_whose_map_names_no_realm_takes_its_label() {
+    let hearths = [AnalyticsHearth {
+        label: "hearth",
+        realms: &[],
+        journal: "h.db",
+        runs: &[],
+        refusal: Some("no such journal"),
+    }];
+    let view = analytics(&Query {
+        hearths: &hearths,
+        range: Range::Week,
+        realm: None,
+        now: NOW,
+    })
+    .unwrap();
+    assert_eq!(
+        view.quarantined,
+        [QuarantinedHearth {
+            realm: "hearth".into(),
+            journal: "h.db".into(),
+            refusal: "no such journal".into(),
+        }]
+    );
+    assert_eq!(view.realms, []);
+}
+
+#[test]
+fn a_readout_past_64_realms_keeps_64_rows_and_counts_the_rest() {
+    let realms: Vec<String> = (0..65).map(|index| format!("realm-{index:02}")).collect();
+    let journals: Vec<(Journal, Option<RunState>)> = realms
+        .iter()
+        .enumerate()
+        .map(|(index, realm)| {
+            let journal = Journal::started(Some(realm), "2026-10-10T00:00:00Z")
+                .seat(
+                    &format!("s{index}"),
+                    "claude",
+                    "m",
+                    Some(1.0),
+                    "2026-10-10T00:10:00Z",
+                )
+                .entered("review", "2026-10-10T00:20:00Z")
+                .then(EventType::RunParked, json!({}), "2026-10-10T00:30:00Z")
+                .then(
+                    EventType::OperatorCommanded,
+                    json!({"command": "retry"}),
+                    "2026-10-10T00:40:00Z",
+                )
+                .then(EventType::RunCompleted, json!({}), "2026-10-10T01:00:00Z");
+            (journal, Some(ended(Status::Completed, "done", None, 0)))
+        })
+        .collect();
+    let view = read_realms(&journals, &realms);
+    assert_eq!(view.headline.shipped.count, 65);
+    assert_eq!(view.realms.len(), 64);
+    assert_eq!(view.realms_more, 1);
+    let wire = serde_json::to_value(&view).unwrap();
+    assert_eq!(wire["realms_more"], json!(1), "the wire carries the count");
+    assert_eq!(
+        view.realms.first().map(|row| row.realm.as_str()),
+        Some("realm-00")
+    );
+    assert_eq!(
+        view.realms.last().map(|row| row.realm.as_str()),
+        Some("realm-63")
+    );
+    assert_eq!(view.realms[0].median.millis, Some(HOUR_MILLIS));
+    assert_eq!(view.realms[0].cost, ReportedCost::Reported { usd: 1.0 });
+}
+
+// ------------------------------------- the chief's cross-realm demonstrators
+
+/// A run that completed on 2026-10-10 with one seat on `provider`,
+/// reporting `cost` when it has one.
+fn completed_run(
+    realm: &str,
+    provider: &str,
+    cost: Option<f64>,
+    at: &str,
+) -> (Journal, Option<RunState>) {
+    let journal = Journal::started(Some(realm), at)
+        .seat("s", provider, "m", cost, at)
+        .then(EventType::RunCompleted, json!({}), "2026-10-10T01:00:00Z");
+    (journal, Some(ended(Status::Completed, "done", None, 0)))
+}
+
+/// A completed run of `count` seats, each on a provider of its own, named
+/// `provider-00000` upwards.
+fn many_providers(realm: &str, count: usize) -> (Journal, Option<RunState>) {
+    let mut journal = Journal::started(Some(realm), "2026-10-10T00:00:00Z");
+    for index in 0..count {
+        journal = journal.seat(
+            &format!("{realm}-{index:05}"),
+            &format!("provider-{index:05}"),
+            "m",
+            Some(1.0),
+            "2026-10-10T00:10:00Z",
+        );
+    }
+    (
+        journal.then(EventType::RunCompleted, json!({}), "2026-10-10T01:00:00Z"),
+        Some(ended(Status::Completed, "done", None, 0)),
+    )
+}
+
+/// `count` stopped runs, each by a rule of its own, named `rule-00000`
+/// upwards.
+fn many_rules(count: usize) -> Vec<(Journal, Option<RunState>)> {
+    (0..count)
+        .map(|index| {
+            let rule = format!("rule-{index:05}");
+            (
+                Journal::started(Some("alpha"), "2026-10-10T00:00:00Z").then(
+                    EventType::RunStopped,
+                    json!({}),
+                    "2026-10-10T01:00:00Z",
+                ),
+                Some(ended(Status::Stopped, "stop", Some(&rule), 0)),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn chief753_same_provider_across_realms_is_reporting() {
+    let alpha = completed_run("alpha", "claude", Some(1.0), "2026-10-10T00:10:00Z");
+    let beta = completed_run("beta", "claude", None, "2026-10-10T02:10:00Z");
+    let view = read_one(&runs(&[alpha, beta]), Range::Week);
+    let cost = &view.headline.cost;
+    assert_eq!(cost.reporting, ["claude"]);
+    assert!(cost.silent.is_empty(), "{:?}", cost.silent);
+    assert_eq!(cost.note, None);
+    assert_eq!(cost.cost, ReportedCost::Reported { usd: 1.0 });
+}
+
+#[test]
+fn chief753_provider_more_counts_distinct_providers_across_realms() {
+    let alpha = many_providers("alpha", 65);
+    let beta = many_providers("beta", 65);
+    let view = read_one(&runs(&[alpha, beta]), Range::Week);
+    let cost = &view.headline.cost;
+    assert_eq!(cost.providers_more, 1);
+    assert_eq!(cost.reporting.len(), 64);
+    assert!(cost.silent.is_empty(), "{:?}", cost.silent);
+    assert_eq!(
+        cost.reporting.first().map(String::as_str),
+        Some("provider-00000")
+    );
+    assert_eq!(
+        cost.reporting.last().map(String::as_str),
+        Some("provider-00063")
+    );
+}
+
+#[test]
+fn chief753_realm_rows_preserve_discovery_order() {
+    let realms: Vec<String> = ["zeta", "alpha"].into_iter().map(str::to_string).collect();
+    let view = read_realms(&[], &realms);
+    let names: Vec<&str> = view.realms.iter().map(|row| row.realm.as_str()).collect();
+    assert_eq!(names, ["zeta", "alpha"]);
+    assert_eq!(view.realms_more, 0);
+}
+
+#[test]
+fn chief753_realm_selection_obeys_declared_key_ranking() {
+    let realms: Vec<String> = (0..65)
+        .rev()
+        .map(|index| format!("realm-{index:02}"))
+        .collect();
+    let view = read_realms(&[], &realms);
+    let names: Vec<&str> = view.realms.iter().map(|row| row.realm.as_str()).collect();
+    let expected: Vec<String> = (1..=64)
+        .rev()
+        .map(|index| format!("realm-{index:02}"))
+        .collect();
+    assert_eq!(names, expected);
+    assert_eq!(view.realms_more, 1);
+}
+
+#[test]
+fn a_headline_count_past_64_rules_and_providers_is_positive_on_the_wire() {
+    let mut journals = many_rules(65);
+    journals.push(many_providers("alpha", 65));
+    journals.push(many_providers("beta", 65));
+    let view = read_one(&runs(&journals), Range::Week);
+    assert_eq!(view.headline.stopped_by_rule.rules_more, 1);
+    assert_eq!(view.headline.cost.providers_more, 1);
+    let wire = serde_json::to_value(&view).unwrap();
+    assert_eq!(
+        wire.pointer("/headline/stopped_by_rule/rules_more"),
+        Some(&json!(1))
+    );
+    assert_eq!(
+        wire.pointer("/headline/cost/providers_more"),
+        Some(&json!(1))
+    );
+}
+
+#[test]
+fn a_key_past_its_bound_groups_with_its_cut_twin() {
+    let sixty_four = "p".repeat(64);
+    let megabyte = "x".repeat(1 << 20);
+    let long_phase = format!("{sixty_four}{megabyte}");
+    // The same 64 bytes, two names: one group.
+    let start = brokkr_core::stamp::parse_millis("2026-10-06T12:30:00Z").unwrap();
+    let mut journal = Journal::started(Some("alpha"), "2026-10-06T12:30:00Z");
+    for (index, phase) in [sixty_four.as_str(), long_phase.as_str()]
+        .into_iter()
+        .enumerate()
+    {
+        journal = parks_at(journal, phase, start + index as i64 * 60_000);
+    }
+    let end = stamp(brokkr_core::stamp::parse_millis("2026-10-06T12:32:00Z").unwrap());
+    let phases = journal.then(EventType::RunStopped, json!({}), &end);
+
+    let eighty = "m".repeat(80);
+    let long_model = format!("{eighty}{megabyte}");
+    let twin_model = format!("{eighty}y");
+    let (mut models, _) = many_models(0);
+    models = models.seat("long", "claude", &long_model, None, "2026-10-10T00:11:00Z");
+    models = models.seat("twin", "claude", &twin_model, None, "2026-10-10T00:12:00Z");
+    let view = read_one(
+        &runs(&[
+            (models, Some(ended(Status::Completed, "done", None, 0))),
+            (phases, Some(ended(Status::Stopped, "stop", None, 0))),
+        ]),
+        Range::Week,
+    );
+    let names: Vec<&str> = view
+        .waiting_by_step
+        .iter()
+        .map(|step| step.phase.as_deref().unwrap())
+        .collect();
+    assert_eq!(names, [sixty_four.as_str()], "printed cut");
+    assert_eq!(
+        view.models.first().and_then(|share| share.model.as_deref()),
+        Some(eighty.as_str())
+    );
+    assert_eq!(view.models.len(), 1);
+    assert_eq!(view.models[0].attempts, 2);
+}
+
+/// A query's realm is matched after the same cut a row groups by: asking
+/// for the printed realm selects the whole cut group, both raw names.
+#[test]
+fn a_realm_filter_selects_its_displayed_cut_group() {
+    let realm = "r".repeat(64);
+    let tail = format!("{realm}-tail");
+    let run = |realm: &str, at: &str| {
+        (
+            Journal::started(Some(realm), at).then(EventType::RunCompleted, json!({}), at),
+            Some(ended(Status::Completed, "done", None, 0)),
+        )
+    };
+    let journals = [
+        run(&realm, "2026-10-10T00:00:00Z"),
+        run(&tail, "2026-10-10T01:00:00Z"),
+    ];
+    let reads = runs(&journals);
+    let hearths = [AnalyticsHearth {
+        label: "edge",
+        realms: &[],
+        journal: "e.db",
+        runs: &reads,
+        refusal: None,
+    }];
+    let view = analytics(&Query {
+        hearths: &hearths,
+        range: Range::Week,
+        realm: Some(&realm),
+        now: NOW,
+    })
+    .unwrap();
+    assert_eq!(view.headline.shipped.count, 2);
+    assert_eq!(view.realms.len(), 1);
+    assert_eq!(view.realms[0].realm, realm);
+}
+
+/// Whether no object key is a "N more" count, however deep.
+fn no_more_keys(value: &Value) -> bool {
+    match value {
+        Value::Object(map) => {
+            map.keys()
+                .all(|key| key != "more" && !key.ends_with("_more"))
+                && map.values().all(no_more_keys)
+        }
+        Value::Array(values) => values.iter().all(no_more_keys),
+        _ => true,
+    }
+}
+
+// ------------------------------------------- the fixture journals' bytes
+
+/// The clock every fixture golden was derived at: the base's.
+const FIXTURE_NOW: &str = "2026-09-02T00:00:00Z";
+
+/// The frozen fixture journal `name`, read at run time: a crate includes
+/// only its own files, and the fixture journals belong to the repository,
+/// not to this crate.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "decision 0089 slice 4, #753: a test reads the frozen fixture journal it names"
+)]
+fn fixture_journal(name: &str) -> String {
+    std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/journals")
+            .join(format!("{name}.ndjson")),
+    )
+    .expect("a frozen fixture journal")
+}
+
+/// One frozen fixture journal, and its serialized readout at each of
+/// [`Range::ALL`]'s three ranges: committed goldens generated at
+/// a45fc694f, in that same order.
+struct Fixture {
+    name: &'static str,
+    goldens: [&'static str; 3],
+}
+
+const FIXTURES: [Fixture; 6] = [
+    Fixture {
+        name: "conclude-already-done-hand-built",
+        goldens: [
+            include_str!("goldens/conclude-already-done-hand-built.24h.golden"),
+            include_str!("goldens/conclude-already-done-hand-built.7d.golden"),
+            include_str!("goldens/conclude-already-done-hand-built.30d.golden"),
+        ],
+    },
+    Fixture {
+        name: "conclude-broken-chain-hand-built",
+        goldens: [
+            include_str!("goldens/conclude-broken-chain-hand-built.24h.golden"),
+            include_str!("goldens/conclude-broken-chain-hand-built.7d.golden"),
+            include_str!("goldens/conclude-broken-chain-hand-built.30d.golden"),
+        ],
+    },
+    Fixture {
+        name: "conclude-parked-hand-built",
+        goldens: [
+            include_str!("goldens/conclude-parked-hand-built.24h.golden"),
+            include_str!("goldens/conclude-parked-hand-built.7d.golden"),
+            include_str!("goldens/conclude-parked-hand-built.30d.golden"),
+        ],
+    },
+    Fixture {
+        name: "conclude-stopped-mid-effect-hand-built",
+        goldens: [
+            include_str!("goldens/conclude-stopped-mid-effect-hand-built.24h.golden"),
+            include_str!("goldens/conclude-stopped-mid-effect-hand-built.7d.golden"),
+            include_str!("goldens/conclude-stopped-mid-effect-hand-built.30d.golden"),
+        ],
+    },
+    Fixture {
+        name: "reforging-the-road-back-hand-built",
+        goldens: [
+            include_str!("goldens/reforging-the-road-back-hand-built.24h.golden"),
+            include_str!("goldens/reforging-the-road-back-hand-built.7d.golden"),
+            include_str!("goldens/reforging-the-road-back-hand-built.30d.golden"),
+        ],
+    },
+    Fixture {
+        name: "tui-graph-the-selection-box-gets-80f98deb",
+        goldens: [
+            include_str!("goldens/tui-graph-the-selection-box-gets-80f98deb.24h.golden"),
+            include_str!("goldens/tui-graph-the-selection-box-gets-80f98deb.7d.golden"),
+            include_str!("goldens/tui-graph-the-selection-box-gets-80f98deb.30d.golden"),
+        ],
+    },
+];
+
+/// The fixture journals are frozen, and every range's serialized readout is
+/// the base's bytes: a committed golden per fixture and range, generated at
+/// a45fc694f, which no `more` field appears in.
+#[test]
+fn every_fixture_journal_serializes_as_the_base_derived_it() {
+    for fixture in FIXTURES {
+        let events: Vec<EventEnvelope> = fixture_journal(fixture.name)
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("a fixture event is an envelope"))
+            .collect();
+        let state = fold(&events).ok();
+        let runs = vec![AnalyticsRun {
+            events: &events,
+            state: state.as_ref(),
+        }];
+        let hearths = [AnalyticsHearth {
+            label: fixture.name,
+            realms: &[],
+            journal: fixture.name,
+            runs: &runs,
+            refusal: None,
+        }];
+        for (range, golden) in Range::ALL.into_iter().zip(fixture.goldens) {
+            let view = analytics(&Query {
+                hearths: &hearths,
+                range,
+                realm: None,
+                now: FIXTURE_NOW,
+            })
+            .unwrap();
+            let wire = format!("{}\n", serde_json::to_string_pretty(&view).unwrap());
+            assert_eq!(wire, golden, "{} {}", fixture.name, range.word());
+            let parsed: Value = serde_json::from_str(&wire).unwrap();
+            assert!(
+                no_more_keys(&parsed),
+                "{} {}: {wire}",
+                fixture.name,
+                range.word()
+            );
+        }
+    }
+}
+
+#[test]
+fn the_wire_carries_no_more_field_under_sixty_five_groups() {
+    let wire = serde_json::to_value(read(&fleet(), Range::Week, None)).unwrap();
+    assert!(no_more_keys(&wire), "{wire}");
+    assert_eq!(wire.pointer("/headline/stopped_by_rule/rules_more"), None);
+    assert_eq!(wire.pointer("/headline/cost/providers_more"), None);
+    assert_eq!(wire.get("models_more"), None);
+    assert_eq!(wire.get("waiting_by_step_more"), None);
+    assert_eq!(wire.get("realms_more"), None);
+    assert_eq!(wire.get("recipes_more"), None);
+}
+
+#[test]
+fn medians_equal_middle_in_at_most_twelve_passes() {
+    let mut seed = 0x5eed_u64;
+    let mut random = |count: usize| -> Vec<i64> {
+        (0..count)
+            .map(|_| {
+                seed = seed
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                (seed >> 33) as i64 - 1_000_000
+            })
+            .collect()
+    };
+    let datasets = vec![
+        vec![Vec::new()],
+        vec![vec![i64::MIN]],
+        vec![vec![i64::MAX, i64::MIN]],
+        vec![vec![7; 7]],
+        vec![vec![4; 4]],
+        vec![vec![1, 2, 1, 2, 1]],
+        vec![vec![-5, 1_000, -5, 42, 9]],
+        vec![random(1), random(63), random(64), random(4_096)],
+        vec![vec![i64::MIN; 1], vec![i64::MAX; 1]],
+    ];
+    for dataset in datasets {
+        let mut passes = 0;
+        let medians = medians(dataset.len(), &mut |emit: &mut dyn FnMut(usize, i64)| {
+            passes += 1;
+            for (target, values) in dataset.iter().enumerate() {
+                for value in values {
+                    emit(target, *value);
+                }
+            }
+        });
+        assert!(passes <= 12, "{passes} passes for {dataset:?}");
+        for (target, values) in dataset.iter().enumerate() {
+            let mut sorted = values.clone();
+            sorted.sort_unstable();
+            assert_eq!(
+                medians[target],
+                middle(&sorted),
+                "target {target} of {dataset:?}"
+            );
+        }
+    }
 }

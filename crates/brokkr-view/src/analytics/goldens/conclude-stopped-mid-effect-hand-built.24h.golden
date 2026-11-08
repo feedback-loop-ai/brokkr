@@ -1,0 +1,171 @@
+{
+  "view_version": 29,
+  "range": "24h",
+  "realm": null,
+  "from": "2026-09-01T00:00:00Z",
+  "to": "2026-09-02T00:00:00Z",
+  "headline": {
+    "shipped": {
+      "count": 0,
+      "previous": 0,
+      "change": 0,
+      "change_text": "no change vs previous 24h"
+    },
+    "median": {
+      "millis": null,
+      "text": "—"
+    },
+    "waiting": {
+      "waiting_millis": 0,
+      "parked_millis": 0,
+      "text": "0.0h",
+      "share_percent": null,
+      "share_text": "nothing parked"
+    },
+    "stopped_by_rule": {
+      "count": 0,
+      "top": null,
+      "text": ""
+    },
+    "cost": {
+      "cost": {
+        "kind": "not_reported"
+      },
+      "text": "not reported",
+      "reporting": [],
+      "silent": [],
+      "note": null
+    },
+    "ledger": {
+      "judged": 0,
+      "shipped": 0,
+      "rate_percent": null,
+      "excluded": {
+        "blocked": 0,
+        "superseded": 0,
+        "infrastructure": 0,
+        "delivered-elsewhere": 0,
+        "withdrawn": 0,
+        "operator-stopped": 0
+      },
+      "unclassified": 0,
+      "text": "0 of 0 shipped (—) · 0 excluded · 0 unclassified"
+    }
+  },
+  "per_day": [
+    {
+      "date": "2026-09-01",
+      "shipped": 0,
+      "stopped": 0
+    }
+  ],
+  "waiting_by_step": [],
+  "rework": {
+    "runs": 0,
+    "implement_visits": null,
+    "implement_visits_text": "—",
+    "sent_back": 0,
+    "second_try_passed": 0,
+    "second_try_of": 0,
+    "second_try_percent": null,
+    "second_try_text": "—"
+  },
+  "models": [],
+  "realms": [
+    {
+      "realm": "conclude-stopped-mid-effect-hand-built",
+      "shipped": 0,
+      "stopped": 0,
+      "ledger": {
+        "judged": 0,
+        "shipped": 0,
+        "rate_percent": null,
+        "excluded": {
+          "blocked": 0,
+          "superseded": 0,
+          "infrastructure": 0,
+          "delivered-elsewhere": 0,
+          "withdrawn": 0,
+          "operator-stopped": 0
+        },
+        "unclassified": 0,
+        "text": "0 of 0 shipped (—) · 0 excluded · 0 unclassified"
+      },
+      "median": {
+        "millis": null,
+        "text": "—"
+      },
+      "waiting_millis": 0,
+      "waiting_text": "0.0h",
+      "cost": {
+        "kind": "not_reported"
+      },
+      "cost_text": "not reported",
+      "unreadable_runs": 0
+    }
+  ],
+  "recipes": [
+    {
+      "realm": "conclude-stopped-mid-effect-hand-built",
+      "recipe": "self",
+      "runs": 1,
+      "done": 0,
+      "done_rate": 0.0,
+      "done_text": "—",
+      "ledger": {
+        "judged": 0,
+        "shipped": 0,
+        "rate_percent": null,
+        "excluded": {
+          "blocked": 0,
+          "superseded": 0,
+          "infrastructure": 0,
+          "delivered-elsewhere": 0,
+          "withdrawn": 0,
+          "operator-stopped": 0
+        },
+        "unclassified": 0,
+        "text": "0 of 0 shipped (—) · 0 excluded · 0 unclassified"
+      },
+      "cost_per_run": {
+        "cost": {
+          "kind": "not_reported"
+        },
+        "text": "not reported",
+        "reporting": [],
+        "silent": [],
+        "note": null
+      },
+      "tokens_per_run": {
+        "total": {
+          "text": "—",
+          "absent": true,
+          "note": "not reported"
+        },
+        "input": {
+          "text": "—",
+          "absent": true,
+          "note": "not reported"
+        },
+        "output": {
+          "text": "—",
+          "absent": true,
+          "note": "not reported"
+        },
+        "cache_hit": {
+          "text": "—",
+          "absent": true,
+          "note": "no cache reads and input reported to compare"
+        }
+      },
+      "on_frontier": null
+    }
+  ],
+  "quarantined": [],
+  "not_recorded": [
+    "machine capacity over time",
+    "cost limits",
+    "costs for Codex and dsh",
+    "reasons findings were dismissed"
+  ]
+}
