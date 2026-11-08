@@ -16,9 +16,10 @@ use time::{Duration as TimeDuration, OffsetDateTime};
 
 use super::probe::Probe;
 use super::{
-    note_error, past_maximum, refusal_record, refusal_text, representable_end, terminal, waiter,
-    CooldownError, Engine, EngineError,
+    effect_seat, note_error, past_maximum, refusal_record, refusal_text, representable_end,
+    terminal, waiter, CooldownError, Engine, EngineError,
 };
+use crate::bundle::{Invocation, SeatBody};
 use crate::engine::carry::record::Tag;
 
 /// One member that failed to start with a typed rate-limit refusal, tagged
@@ -186,7 +187,13 @@ impl Engine {
                     causes.push(Some(cause));
                 }
                 PlannedMember::Undeclared(note) => {
-                    note_error(&mut payload, &note);
+                    // The note is the failed event's error tail. An
+                    // indeterminate event publishes no `error`, so the
+                    // note stays off it: the contract edge admits only the
+                    // terminal's own fields there (0071 ruling 3).
+                    if retry {
+                        note_error(&mut payload, &note);
+                    }
                     planned.push(None);
                     causes.push(None);
                 }
@@ -402,9 +409,10 @@ struct Cause {
     episode: Option<u64>,
 }
 
-/// The declared member order a terminal event names, from the sites its
-/// failure recorded: the order the cap's facts follow.
-fn declared_sites(events: &[EventEnvelope], effect_id: &str) -> Vec<String> {
+/// The declared order a journal recorded: the sites its failure named, in
+/// the order it named them. This is the whole order for a single seat and
+/// for a body without a panel declaration.
+fn journaled_sites(events: &[EventEnvelope], effect_id: &str) -> Vec<String> {
     terminal(events, effect_id)
         .and_then(|event| event.payload.get("start_failure_sites"))
         .and_then(Value::as_array)
@@ -419,6 +427,26 @@ fn declared_sites(events: &[EventEnvelope], effect_id: &str) -> Vec<String> {
 }
 
 impl Engine {
+    /// The declared member order the cap's facts follow: the bundle's own
+    /// panel declaration, because the journal's `start_failure_sites` omits
+    /// inline members (decision 0103 ruling 7(c), this fix round). A body
+    /// that is not a panel, or a seat the bundle no longer names, falls back
+    /// to the sites the terminal event recorded.
+    fn declared_sites(&self, events: &[EventEnvelope], effect_id: &str) -> Vec<String> {
+        let panel = effect_seat(events, effect_id)
+            .and_then(|seat| self.bundle.seats.get(seat))
+            .and_then(|seat| match &seat.body {
+                SeatBody::Invocation(Invocation::Panel { members, .. }) => Some(
+                    members
+                        .iter()
+                        .map(|member| Tag::prefixed("", &member.name).0)
+                        .collect::<Vec<_>>(),
+                ),
+                _ => None,
+            });
+        panel.unwrap_or_else(|| journaled_sites(events, effect_id))
+    }
+
     /// The cap's facts after 0006's text (decision 0103 ruling 7(c)): each
     /// of the last failure's waits in declared member order, and the
     /// refused record beside them at its own site where no wait carries it.
@@ -464,7 +492,7 @@ impl Engine {
         refused: Option<&ProviderRefusal>,
         facts: &mut String,
     ) {
-        let declared = declared_sites(events, effect_id);
+        let declared = self.declared_sites(events, effect_id);
         let mut listed = vec![false; waits.len()];
         let mut recorded = false;
         for site in &declared {

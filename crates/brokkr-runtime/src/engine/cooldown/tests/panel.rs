@@ -513,6 +513,53 @@ fn started_payloads(engine: &Engine) -> Vec<Value> {
         .collect()
 }
 
+/// The newest terminal event a panel journaled.
+fn last_terminal(engine: &Engine) -> EventEnvelope {
+    engine
+        .store
+        .load(&engine.run_id)
+        .unwrap()
+        .into_iter()
+        .rev()
+        .find(|event| {
+            matches!(
+                event.event_type,
+                EventType::EffectIndeterminate | EventType::EffectFailed
+            )
+        })
+        .expect("a terminal event")
+}
+
+/// An inline panel member whose driver refuses once on claude/first.
+fn inline_refusing_a(dir: &Path) -> Vec<String> {
+    driver(
+        dir,
+        "a",
+        &["refuse"],
+        Probed::Answer,
+        None,
+        "claude",
+        "first",
+    )
+}
+
+/// The cap's reason a resume reads after unresolved `a` and computable `b`,
+/// with `sites` the journal's own candidate list.
+fn unresolved_a_cap_reason(dir: &Path, body: SeatBody, sites: Value) -> String {
+    let mut engine = plain_engine(dir, body, 1);
+    let events = start_attempt(&mut engine);
+    let terminal = unresolved_a_terminal(
+        &engine,
+        &events,
+        json!({"effect_id": "effect", "attempt_id": "a1", "error": "refused",
+               "start_failure": true, "start_failure_sites": sites}),
+    );
+    assert!(terminal.park.is_none(), "{:?}", terminal.park);
+    assert_eq!(terminal.payload["refused"]["site"], "a");
+    let resumed = resume_failed(dir, engine, terminal.payload, base());
+    park_reason(&resumed)
+}
+
 /// Drive `engine`, require one failed event with one wait, and return it.
 fn drove_one_wait(engine: &mut Engine) -> Value {
     engine.drive().unwrap();
@@ -708,19 +755,9 @@ fn an_indeterminate_member_parks_with_the_refused_members_wait_and_no_probe() {
     let body = b_only_panel(dir.path(), a);
     let mut engine = plain_engine(dir.path(), body, 2);
     engine.drive().unwrap();
-    let events = engine.store.load(&engine.run_id).unwrap();
-    let terminal = events
-        .iter()
-        .rev()
-        .find(|event| {
-            matches!(
-                event.event_type,
-                EventType::EffectIndeterminate | EventType::EffectFailed
-            )
-        })
-        .expect("a terminal event");
+    let terminal = last_terminal(&engine);
     assert_eq!(terminal.event_type, EventType::EffectIndeterminate);
-    let waits = wait_entries(terminal);
+    let waits = wait_entries(&terminal);
     assert_eq!(waits.len(), 1, "{waits:?}");
     assert_eq!(waits[0]["site"], "b");
     assert_eq!(
@@ -741,6 +778,39 @@ fn an_indeterminate_member_parks_with_the_refused_members_wait_and_no_probe() {
     let started = started_payloads(&engine);
     assert_eq!(started.len(), 2, "{started:?}");
     assert_eq!(started[1]["probes"][0]["site"], "b");
+}
+
+/// An indeterminate panel publishes no `error`: the missing cool-down note
+/// belongs on a failed event's error tail, not on a terminal whose contract
+/// has no such field. The panel still parks on its own indeterminate reason.
+#[test]
+fn an_indeterminate_panel_keeps_an_undeclared_note_off_its_terminal() {
+    let dir = tempfile::tempdir().unwrap();
+    let body = b_only_panel(dir.path(), indeterminate_once(dir.path(), "a"));
+    let mut engine = panel_engine(dir.path(), body, 2, v1_host(dir.path()));
+    engine.drive().unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let terminal = last_terminal(&engine);
+    assert_eq!(terminal.event_type, EventType::EffectIndeterminate);
+    assert!(
+        terminal.payload.get("error").is_none(),
+        "the indeterminate event carries an unpublished field: {}",
+        terminal.payload
+    );
+    assert!(
+        terminal.payload.get("waits").is_none(),
+        "{}",
+        terminal.payload
+    );
+    assert!(
+        terminal.payload["reason"].as_str().is_some(),
+        "{}",
+        terminal.payload
+    );
+    assert_eq!(
+        fold(&events).unwrap().run.status(),
+        Status::AwaitingOperator
+    );
 }
 
 #[test]
@@ -1045,25 +1115,48 @@ fn the_cap_parks_after_the_second_attempt_and_names_each_member() {
 #[test]
 fn the_cap_keeps_a_parking_members_refusal_beside_the_other_members_wait() {
     let dir = tempfile::tempdir().unwrap();
-    let body = writer_panel();
-    let mut engine = plain_engine(dir.path(), body, 1);
-    let events = start_attempt(&mut engine);
-    let terminal = unresolved_a_terminal(
-        &engine,
-        &events,
-        json!({"effect_id": "effect", "attempt_id": "a1", "error": "refused",
-               "start_failure": true, "start_failure_sites": ["a", "b"]}),
-    );
-    assert!(terminal.park.is_none(), "{:?}", terminal.park);
-    assert_eq!(terminal.payload["refused"]["site"], "a");
-    let resumed = resume_failed(dir.path(), engine, terminal.payload, base());
-    let reason = park_reason(&resumed);
+    let reason = unresolved_a_cap_reason(dir.path(), writer_panel(), json!(["a", "b"]));
     let a = reason.find("member a").expect("a's refusal");
     let b = reason.find("member b").expect("b's own wait facts");
     assert!(a < b, "the facts are not in declared order: {reason}");
     assert!(reason.contains("claude/an unresolved route"), "{reason}");
     assert!(reason.contains("codex/second"), "{reason}");
     assert!(reason.contains("until"), "{reason}");
+    assert!(logs(dir.path(), "a").is_empty());
+    assert!(logs(dir.path(), "b").is_empty());
+}
+
+/// At the cap, an inline member's facts keep their declared place. The
+/// journal's `start_failure_sites` names candidates only, so the cap reads
+/// the panel's own declaration; a and b both refuse here, and a is inline.
+#[test]
+fn the_cap_keeps_an_inline_members_wait_in_declared_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let body = b_only_panel(dir.path(), inline_refusing_a(dir.path()));
+    let mut engine = plain_engine(dir.path(), body, 1);
+    engine.drive().unwrap();
+    let reason = park_reason(&engine);
+    let a = reason.find("member a").expect("a's own wait facts");
+    let b = reason.find("member b").expect("b's own wait facts");
+    assert!(a < b, "the facts are not in declared order: {reason}");
+    assert!(reason.contains("claude/first"), "{reason}");
+    assert!(reason.contains("codex/second"), "{reason}");
+    assert_eq!(starts(&engine).len(), 1, "the cap retried the panel");
+}
+
+/// An inline member that cannot compute a wait keeps its refused record in
+/// its declared place, before the candidate member's wait, even though the
+/// journal lists only the candidate.
+#[test]
+fn the_cap_keeps_an_inline_members_refusal_in_declared_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let body = b_only_panel(dir.path(), inline_refusing_a(dir.path()));
+    let reason = unresolved_a_cap_reason(dir.path(), body, json!(["b"]));
+    let a = reason.find("member a").expect("a's refusal");
+    let b = reason.find("member b").expect("b's own wait facts");
+    assert!(a < b, "the facts are not in declared order: {reason}");
+    assert!(reason.contains("with no until"), "{reason}");
+    assert!(reason.contains("claude/an unresolved route"), "{reason}");
     assert!(logs(dir.path(), "a").is_empty());
     assert!(logs(dir.path(), "b").is_empty());
 }
