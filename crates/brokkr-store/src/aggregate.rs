@@ -23,6 +23,9 @@
 
 use std::sync::LazyLock;
 
+use brokkr_core::ending::Ending;
+use brokkr_core::page::Lane;
+use brokkr_core::summary::{aggregate, Account};
 use rusqlite::types::{Value, ValueRef};
 use rusqlite::Connection;
 use rusqlite::{params, params_from_iter, Row, StatementStatus};
@@ -67,8 +70,8 @@ pub struct WindowRun<'a> {
     pub ending_rule: Option<&'a str>,
     pub started_ms: Option<i64>,
     pub finished_ms: Option<i64>,
-    /// The ending's word, as `run_summary.ending` keeps it.
-    pub ending: Option<&'a str>,
+    /// The ending, in decision 0064's twelve, parsed at this edge.
+    pub ending: Option<Ending>,
     pub implement_visits: u64,
     pub reviews: WindowReviews,
     /// Still running, parked or stopping, never concluded.
@@ -108,7 +111,7 @@ impl Store {
     /// or one whose aggregate stamp is not its folded head's. The caller
     /// reads each one whole (ruling 8).
     pub fn behind_runs(&self, mut visit: impl FnMut(&str)) -> Result<(), StoreError> {
-        let mut statement = self.conn.prepare(BEHIND)?;
+        let mut statement = self.conn.prepare(&BEHIND)?;
         let mut rows = statement.query([])?;
         while let Some(row) = rows.next()? {
             visit(required_text(row, 0)?);
@@ -149,7 +152,7 @@ impl Store {
     ) -> Result<u64, StoreError> {
         let count: i64 = self
             .conn
-            .query_row(COUNT_FINISHED, params![from, to, realm], |row| row.get(0))?;
+            .query_row(&COUNT_FINISHED, params![from, to, realm], |row| row.get(0))?;
         Ok(count as u64)
     }
 
@@ -163,7 +166,7 @@ impl Store {
         realm: Option<&str>,
         mut visit: impl FnMut(Option<&str>, i64),
     ) -> Result<(), StoreError> {
-        let mut statement = self.conn.prepare(DURATIONS)?;
+        let mut statement = self.conn.prepare(&DURATIONS)?;
         let mut rows = statement.query(params![from, to, realm])?;
         while let Some(row) = rows.next()? {
             visit(optional_text(row, 0)?, row.get(1)?);
@@ -187,17 +190,42 @@ impl Store {
     }
 
     /// Every run's stored realm key and whether its fold refused, in
-    /// creation order, by the covering index's scan alone (ruling A4): the
-    /// realm list and the unreadable-run counts, which grow with the run
-    /// count and never with the window. A run whose row is behind reads
-    /// with no realm here; its whole read corrects it (ruling 8).
+    /// creation order — the `runs` table's own, so a tie is the insertion
+    /// order and an unfolded row is not sorted by its NULL summary stamp.
+    /// A run behind its row is read whole here: only that read tells a
+    /// stale row from one whose chain no longer loads or whose fold now
+    /// refuses, which are today's unreadable count (ruling 8). The base
+    /// listing reads no run's events; only the behind rows do, and the
+    /// caller reads those whole anyway.
     pub fn realm_runs(&self, mut visit: impl FnMut(Option<&str>, bool)) -> Result<(), StoreError> {
         let mut statement = self.conn.prepare(REALM_RUNS)?;
         let mut rows = statement.query([])?;
         while let Some(row) = rows.next()? {
-            visit(optional_text(row, 0)?, row.get(1)?);
+            let run_id = required_text(row, 0)?;
+            let realm = optional_text(row, 1)?;
+            let refused = row.get::<_, i64>(2)? != 0;
+            let behind = required_text(row, 3)? == Lane::Behind.as_str();
+            if !behind {
+                visit(realm, refused);
+                continue;
+            }
+            let (read, unreadable) = self.whole_realm(run_id)?;
+            visit(realm.or(read.as_deref()), unreadable);
         }
         Ok(())
+    }
+
+    /// A behind row's realm and whether its whole read fails, as the
+    /// fleet reads it: a run that does not load, or that loads and does
+    /// not fold, is unreadable, and its realm is the one its events name
+    /// when the row has not folded it yet.
+    fn whole_realm(&self, run_id: &str) -> Result<(Option<String>, bool), StoreError> {
+        let Ok(events) = self.load(run_id) else {
+            return Ok((None, true));
+        };
+        let account = Account::whole(run_id, &events);
+        let read = aggregate(&events, account.state().ok());
+        Ok((read.realm, account.state().is_err()))
     }
 
     /// [`Store::window_parks`] with the statement's VM steps handed to
@@ -253,25 +281,65 @@ static PARK_STALE: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// Every behind row's id, by the lane's index.
-const BEHIND: &str = "SELECT run_id FROM run_summary WHERE lane = 'behind' ORDER BY run_id";
+/// `lane`'s word as `brokkr-core` spells it, the vocabulary's one home
+/// (decision 0071 rulings 2 and 5), used by every predicate here.
+fn lane_is(lane: Lane) -> String {
+    format!("lane = '{}'", lane.as_str())
+}
 
-/// The preceding window's count through the `(finished_ms)` index.
-const COUNT_FINISHED: &str = "SELECT count(*) FROM run_summary
-    WHERE finished_ms >= ?1 AND finished_ms < ?2 AND (?3 IS NULL OR realm = ?3)";
+/// The rows outside `lane`: the behind rows a window and its figures read
+/// whole instead of counting stale columns.
+fn outside(lane: Lane) -> String {
+    format!("lane <> '{}'", lane.as_str())
+}
+
+/// The lanes that are still open and read whole: a stopping run is a
+/// running one with an accepted stop.
+fn open_lanes() -> String {
+    [Lane::Running, Lane::Parked, Lane::Stopping]
+        .map(|lane| format!("'{}'", lane.as_str()))
+        .join(", ")
+}
+
+/// Every behind row's id, by the lane's index.
+static BEHIND: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT run_id FROM run_summary WHERE {} ORDER BY run_id",
+        lane_is(Lane::Behind)
+    )
+});
+
+/// The preceding window's count through the `(finished_ms)` index, less a
+/// row read whole instead.
+static COUNT_FINISHED: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT count(*) FROM run_summary
+    WHERE finished_ms >= ?1 AND finished_ms < ?2 AND {behind} AND (?3 IS NULL OR realm = ?3)",
+        behind = outside(Lane::Behind)
+    )
+});
 
 /// The median's one pass: each finished run's realm and span, a start that
 /// does not parse reading as its end, the span floored at zero as
 /// `analytics`' `median` floors it.
-const DURATIONS: &str = "SELECT realm,
+static DURATIONS: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT realm,
         max(finished_ms - coalesce(started_ms, finished_ms), 0)
     FROM run_summary
-    WHERE finished_ms >= ?1 AND finished_ms < ?2 AND (?3 IS NULL OR realm = ?3)";
+    WHERE finished_ms >= ?1 AND finished_ms < ?2 AND {behind} AND (?3 IS NULL OR realm = ?3)",
+        behind = outside(Lane::Behind)
+    )
+});
 
-/// The realm list and unreadable-run counts, in creation order, by the
-/// covering index's scan alone (ruling A4).
-const REALM_RUNS: &str = "SELECT realm, refusal_words IS NOT NULL
-    FROM run_summary ORDER BY created_at";
+/// The realm list and unreadable-run counts, in creation order: the
+/// `(created_at)` index's own scan of `runs`, whose rowid is the insertion
+/// order that breaks a tie as `list_runs` does, and each summary row by its
+/// id. A summary's `created_at` is NULL while its row is behind, so the
+/// order is the run's own and never the unfolded row's.
+const REALM_RUNS: &str = "SELECT s.run_id, s.realm, s.refusal_words IS NOT NULL, s.lane
+    FROM runs AS r JOIN run_summary AS s ON s.run_id = r.run_id
+    ORDER BY r.created_at, r.rowid";
 
 /// The runs a window reads: those that finished in it, less a behind row,
 /// and those still open, through the lane index. A stopping run is a
@@ -281,15 +349,17 @@ fn runs_statement(order: &str) -> String {
         "SELECT run_id, realm, recipe, ending_rule, started_ms, finished_ms, ending,
                 implement_visits, review_first, review_second, review_back, 0 AS open
            FROM run_summary
-           WHERE finished_ms >= ?1 AND finished_ms < ?2 AND lane <> 'behind'
+           WHERE finished_ms >= ?1 AND finished_ms < ?2 AND {behind}
              AND (?3 IS NULL OR realm = ?3)
          UNION ALL
          SELECT run_id, realm, recipe, ending_rule, started_ms, finished_ms, ending,
                 implement_visits, review_first, review_second, review_back, 1 AS open
            FROM run_summary
-           WHERE lane IN ('running', 'parked', 'stopping')
+           WHERE lane IN ({open})
              AND (?3 IS NULL OR realm = ?3)
-         {order}"
+         {order}",
+        behind = outside(Lane::Behind),
+        open = open_lanes(),
     )
 }
 
@@ -328,7 +398,7 @@ fn window_run<'a>(row: &'a Row<'_>) -> Result<WindowRun<'a>, rusqlite::Error> {
         ending_rule: optional_text(row, 3)?,
         started_ms: row.get(4)?,
         finished_ms: row.get(5)?,
-        ending: optional_text(row, 6)?,
+        ending: ending_of(optional_text(row, 6)?)?,
         implement_visits: row.get::<_, i64>(7)? as u64,
         reviews: WindowReviews {
             first: row.get::<_, i64>(8)? != 0,
@@ -349,6 +419,19 @@ fn window_park<'a>(row: &'a Row<'_>) -> Result<WindowPark<'a>, rusqlite::Error> 
         answered: row.get(4)?,
         ended: row.get(5)?,
         open: row.get::<_, i64>(6)? != 0,
+    })
+}
+
+/// The stored ending's word read into decision 0064's twelve at the edge,
+/// as the page's reader reads the same column: a word outside them is a
+/// row no writer writes, refused rather than carried untyped across the
+/// crate boundary.
+fn ending_of(word: Option<&str>) -> Result<Option<Ending>, rusqlite::Error> {
+    let Some(word) = word else {
+        return Ok(None);
+    };
+    Ending::named(word).map(Some).map_err(|why| {
+        rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, Box::new(why))
     })
 }
 

@@ -5,6 +5,7 @@
 //! alone by their VM steps.
 
 use brokkr_core::canonical::ZERO_HASH;
+use brokkr_core::ending::Ending;
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::fold::concluded;
 use brokkr_core::stamp::parse_millis;
@@ -27,7 +28,7 @@ struct OwnedRun {
     ending_rule: Option<String>,
     started_ms: Option<i64>,
     finished_ms: Option<i64>,
-    ending: Option<String>,
+    ending: Option<Ending>,
     implement_visits: u64,
     reviews: WindowReviews,
     open: bool,
@@ -42,7 +43,7 @@ impl OwnedRun {
             ending_rule: row.ending_rule.map(str::to_string),
             started_ms: row.started_ms,
             finished_ms: row.finished_ms,
-            ending: row.ending.map(str::to_string),
+            ending: row.ending,
             implement_visits: row.implement_visits,
             reviews: row.reviews,
             open: row.open,
@@ -122,10 +123,7 @@ fn expected_run(run_id: &str, events: &[EventEnvelope]) -> OwnedRun {
             .map(cut),
         started_ms: aggregate.started_ms,
         finished_ms: aggregate.finished.as_ref().map(|finished| finished.at),
-        ending: summary
-            .closing
-            .as_ref()
-            .map(|closing| closing.ended.ending.word().to_string()),
+        ending: summary.closing.as_ref().map(|closing| closing.ended.ending),
         implement_visits: aggregate.implement_visits,
         reviews: WindowReviews {
             first: aggregate.review_first,
@@ -196,6 +194,15 @@ fn window_parks(
     let mut rows = Vec::new();
     store
         .window_parks(from, to, now, realm, |row| rows.push(OwnedPark::of(row)))
+        .unwrap();
+    rows
+}
+
+/// Every realm row the read yields, owned, in its creation order.
+fn realm_rows(store: &Store) -> Vec<(Option<String>, bool)> {
+    let mut rows = Vec::new();
+    store
+        .realm_runs(|realm, unreadable| rows.push((realm.map(str::to_string), unreadable)))
         .unwrap();
     rows
 }
@@ -554,28 +561,82 @@ fn a_behind_run_is_read_whole_and_never_in_a_window() {
     assert_eq!(behind, ["lagging", "older", "stale"]);
 }
 
-/// The realm list and unreadable counts cover every run in creation order,
-/// and a run behind its row reads with no realm until its whole read.
+/// A finished row behind its head contributes to no indexed figure: the
+/// caller reads it whole, so the count and the medians never see its stale
+/// columns (ruling 8).
 #[test]
-fn the_realm_list_reads_every_run_in_creation_order() {
+fn a_behind_run_is_not_counted_or_measured() {
     let (_dir, store) = store();
-    let open = chain("open", None, 0, &parked_steps("implement"));
-    let finished = chain("finished", Some("realm"), 20, &finished_steps("a feature"));
-    plant_older_writer(&store, "open", &open);
-    plant_older_writer(&store, "finished", &finished);
-    // A valid chain whose fold refuses: the start names a realm and the
-    // row keeps it, with the refusal's word.
-    let refused = chain(
-        "refused",
-        Some("realm"),
-        40,
-        &[
-            (EventType::RunStarted, json!({"feature": "refused"})),
-            (EventType::PhaseEntered, json!({})),
-        ],
+    let finished = chain("stale", Some("realm"), 0, &finished_steps("a feature"));
+    plant_older_writer(&store, "stale", &finished);
+    let store = refolded(store);
+    store
+        .conn
+        .execute(
+            "UPDATE run_summary SET aggregated_seq = 0 WHERE run_id = 'stale'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(lane(&store, "stale").as_deref(), Some("behind"));
+    let mut behind = Vec::new();
+    store
+        .behind_runs(|run_id| behind.push(run_id.to_string()))
+        .unwrap();
+    assert_eq!(behind, ["stale"]);
+
+    let (from, to) = (0, i64::MAX);
+    assert_eq!(
+        window_runs(&store, from, to, RunOrder::Unordered, None),
+        Vec::new()
     );
-    plant_older_writer(&store, "refused", &refused);
-    // A broken chain never loads, so its row stays behind with no realm.
+    assert_eq!(store.finished_between(from, to, None).unwrap(), 0);
+    assert_eq!(store.finished_between(from, to, Some("realm")).unwrap(), 0);
+    let mut spans = Vec::new();
+    store
+        .durations(from, to, None, |realm, span| {
+            spans.push((realm.map(str::to_string), span))
+        })
+        .unwrap();
+    assert!(spans.is_empty(), "{spans:?}");
+
+    // Behind its row but still readable, so the whole read is not counted.
+    assert_eq!(realm_rows(&store), [(Some("realm".to_string()), false)]);
+}
+
+/// The stored ending's word is read into decision 0064's twelve at the
+/// edge; a word outside them is refused, never carried untyped.
+#[test]
+fn an_ending_outside_the_twelve_is_refused_at_the_row() {
+    let (_dir, store) = store();
+    let finished = chain("finished", None, 0, &finished_steps("a feature"));
+    plant_older_writer(&store, "finished", &finished);
+    let store = refolded(store);
+    store
+        .conn
+        .execute(
+            "UPDATE run_summary SET ending = 'running' WHERE run_id = 'finished'",
+            [],
+        )
+        .unwrap();
+    let error = store
+        .window_runs(0, i64::MAX, RunOrder::Unordered, None, |_| {})
+        .unwrap_err();
+    assert!(matches!(error, StoreError::Sqlite(_)), "{error}");
+    assert!(error.to_string().contains("is not an ending"), "{error}");
+}
+
+/// The realm list keeps each run's creation order: a tie is the runs
+/// table's insertion order, not the covering index's realm, and a run
+/// whose summary never folded sorts by the run's stamp, not its NULL one.
+#[test]
+fn the_realm_list_keeps_each_runs_creation_order() {
+    let (_dir, store) = store();
+    let first = chain("first", Some("zeta"), 0, &parked_steps("implement"));
+    let second = chain("second", Some("alpha"), 10, &parked_steps("implement"));
+    plant_older_writer(&store, "first", &first);
+    plant_older_writer(&store, "second", &second);
+    // A broken chain created after both: its summary `created_at` is NULL
+    // because no fold ever wrote one.
     let broken = EnvelopeBuilder::new(EventType::RunStarted, json!({"feature": "broken"}))
         .run("broken")
         .seq(1)
@@ -591,10 +652,9 @@ fn the_realm_list_reads_every_run_in_creation_order() {
         .sealed();
     plant_older_writer(&store, "broken", &[broken, broken_link]);
     for (run_id, created_at) in [
-        ("open", "2026-01-01T00:00:01Z"),
-        ("finished", "2026-01-01T00:00:02Z"),
-        ("broken", "2026-01-01T00:00:03Z"),
-        ("refused", "2026-01-01T00:00:04Z"),
+        ("first", "2026-01-01T00:00:01Z"),
+        ("second", "2026-01-01T00:00:01Z"),
+        ("broken", "2026-01-01T00:00:02Z"),
     ] {
         store
             .conn
@@ -605,17 +665,64 @@ fn the_realm_list_reads_every_run_in_creation_order() {
             .unwrap();
     }
     let store = refolded(store);
-    let mut rows = Vec::new();
-    store
-        .realm_runs(|realm, unreadable| rows.push((realm.map(str::to_string), unreadable)))
-        .unwrap();
     assert_eq!(
-        rows,
+        realm_rows(&store),
         [
-            (None, false),
-            (None, false),
-            (Some("realm".to_string()), false),
+            (Some("zeta".to_string()), false),
+            (Some("alpha".to_string()), false),
+            (None, true),
+        ]
+    );
+}
+
+/// A run behind its row reads whole here: its fold's refusal and its
+/// unloadable chain are unreadable, a valid chain the row never folded is
+/// readable and names its realm.
+#[test]
+fn a_behind_row_reads_whole_for_the_unreadable_count() {
+    let (_dir, store) = store();
+    let folded = chain("folded", Some("realm"), 0, &parked_steps("implement"));
+    plant_older_writer(&store, "folded", &folded);
+    let store = refolded(store);
+
+    // A peer event the summary never folded: the whole fold now refuses.
+    let (seq, previous) = store.head_hash("folded").unwrap();
+    let peer = EnvelopeBuilder::new(EventType::PhaseEntered, json!({}))
+        .run("folded")
+        .seq(seq + 1)
+        .event_id("folded-peer")
+        .at("2026-01-01T00:00:09Z")
+        .previous(previous)
+        .sealed();
+    plant_envelope(&store.conn, &peer).unwrap();
+
+    // A broken chain no load reads.
+    let broken = EnvelopeBuilder::new(EventType::RunStarted, json!({"feature": "broken"}))
+        .run("broken")
+        .seq(1)
+        .event_id("broken-1")
+        .at("2026-01-01T00:00:10Z")
+        .sealed();
+    let broken_link = EnvelopeBuilder::new(EventType::PhaseEntered, json!({"phase": "implement"}))
+        .run("broken")
+        .seq(2)
+        .event_id("broken-2")
+        .at("2026-01-01T00:00:11Z")
+        .previous("not-the-hash")
+        .sealed();
+    plant_older_writer(&store, "broken", &[broken, broken_link]);
+
+    // A valid run the row never folded: its stored realm is NULL and its
+    // events name one.
+    let unfolded = chain("unfolded", Some("named"), 20, &parked_steps("implement"));
+    plant_older_writer(&store, "unfolded", &unfolded);
+
+    assert_eq!(
+        realm_rows(&store),
+        [
             (Some("realm".to_string()), true),
+            (None, true),
+            (Some("named".to_string()), false),
         ]
     );
 }
@@ -707,6 +814,36 @@ fn class_63_saturates_and_an_open_park_reads_as_now() {
     );
 }
 
+/// A closed park that reaches into its class's range but ends before the
+/// window is visited and rejected, as brokkr-core's own reading rejects
+/// it: the reach is part of the range's ruling, not a second pass.
+#[test]
+fn a_closed_park_that_ended_before_the_window_is_not_read() {
+    let (_dir, store) = store();
+    let events = closed_park("closed", "review", 500, 1_499);
+    plant_older_writer(&store, "closed", &events);
+    let store = refolded(store);
+    let base = parse_millis("2026-01-01T00:00:00Z").unwrap();
+    let now = base + 10_000;
+    let (from, to) = (base + 1_500, base + 2_500);
+    assert_eq!(
+        window_parks(&store, from, to, now, None),
+        parks_of("closed", None, &events, from, to, now),
+        "the window reads the park as brokkr-core reads it"
+    );
+    assert!(
+        window_parks(&store, from, to, now, None).is_empty(),
+        "the park ended before the window"
+    );
+    // The same park is found where it reaches the window, so the empty
+    // read is the reach's ruling and not a park no range ever read.
+    assert_eq!(
+        window_parks(&store, base + 500, to, now, None),
+        parks_of("closed", None, &events, base + 500, to, now)
+    );
+    assert_eq!(window_parks(&store, base + 500, to, now, None).len(), 1);
+}
+
 /// Every read's plan names its index and scans no projection whole.
 #[test]
 fn every_aggregate_read_is_indexed() {
@@ -730,12 +867,12 @@ fn every_aggregate_read_is_indexed() {
             "{order:?}: {plan:?}"
         );
     }
-    let plan = explain(&store, BEHIND, []);
+    let plan = explain(&store, &BEHIND, []);
     assert!(plan.iter().any(|step| step.contains("run_summary_page")));
     assert!(!plan.iter().any(|step| step.starts_with("SCAN run_summary")));
     for (sql, index) in [
-        (COUNT_FINISHED, "run_summary_finished"),
-        (DURATIONS, "run_summary_finished"),
+        (&COUNT_FINISHED, "run_summary_finished"),
+        (&DURATIONS, "run_summary_finished"),
     ] {
         let plan = explain(&store, sql, params![0, 1, None::<&str>]);
         assert!(plan.iter().any(|step| step.contains(index)), "{plan:?}");
@@ -779,9 +916,17 @@ fn every_aggregate_read_is_indexed() {
         "{taken:?}"
     );
     let taken = explain(&store, REALM_RUNS, []);
-    assert_eq!(
-        taken,
-        ["SCAN run_summary USING COVERING INDEX run_summary_realm_runs"]
+    assert!(
+        taken
+            .iter()
+            .any(|step| step.contains("USING INDEX runs_created_at")),
+        "{taken:?}"
+    );
+    assert!(
+        !taken
+            .iter()
+            .any(|step| step.starts_with("SCAN run_summary")),
+        "{taken:?}"
     );
 }
 
@@ -793,6 +938,36 @@ struct ParkRow {
     answered: Option<i64>,
     ended: Option<i64>,
     class: i64,
+}
+
+/// A run whose park opens at `at` and ends at `ended`, both milliseconds
+/// after 2026-01-01T00:00:00Z, so a window can cut it at a chosen distance.
+fn closed_park(run_id: &str, phase: &str, at: i64, ended: i64) -> Vec<EventEnvelope> {
+    let stamp = |ms: i64| format!("2026-01-01T00:00:{:02}.{:03}Z", ms / 1_000, ms % 1_000);
+    let steps = [
+        (EventType::RunStarted, json!({"feature": "closed"})),
+        (EventType::PhaseEntered, json!({"phase": phase})),
+        (EventType::RunParked, json!({"reason": "waiting"})),
+        (EventType::PhaseEntered, json!({"phase": "implement"})),
+    ];
+    let mut previous = ZERO_HASH.to_string();
+    let mut events = Vec::new();
+    for (index, ((event_type, payload), at)) in steps.iter().zip([at, at, at, ended]).enumerate() {
+        let mut payload = payload.clone();
+        if index == 0 {
+            payload["manifest"] = manifest(None);
+        }
+        let event = EnvelopeBuilder::new(*event_type, payload)
+            .run(run_id)
+            .seq(index as u64 + 1)
+            .event_id(format!("{run_id}-{index}"))
+            .at(stamp(at))
+            .previous(previous.clone())
+            .sealed();
+        previous = event.event_hash.clone();
+        events.push(event);
+    }
+    events
 }
 
 /// Insert one park row, as the writer leaves it.
