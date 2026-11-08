@@ -35,7 +35,7 @@ env_value() {
 # The release URL an action downloads, its placeholders filled.
 release_url() {
   local action="$1" url asset name value
-  url="$(grep -A1 -F 'curl -sSfL --retry 3 -o "$tarball"' "$action" | sed -n '2s/^ *"\(.*\)"$/\1/p')"
+  url="$(grep -A1 -F 'curl -sSfL --connect-timeout 20 --max-time 60 --retry 6 --retry-delay 10 --retry-all-errors -o "$tarball"' "$action" | sed -n '2s/^ *"\(.*\)"$/\1/p')"
   [ -n "$url" ] || fail "$action: no release URL after its curl line"
   asset="$(sed -n 's/^ *asset="\(.*\)"$/\1/p' "$action" | head -n 1)"
   while [[ "$url" =~ \$\{([A-Za-z_][A-Za-z0-9_]*)\} ]]; do

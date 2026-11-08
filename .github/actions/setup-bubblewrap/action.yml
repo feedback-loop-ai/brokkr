@@ -78,7 +78,7 @@ runs:
         if [ "$CACHED" != 'true' ]; then
           sudo apt-get update -q && sudo apt-get install -y -q meson ninja-build libcap-dev pkg-config xz-utils strace
           tarball="${RUNNER_TEMP}/bubblewrap-${BWRAP_VERSION}.tar.xz"
-          curl -sSfL --retry 3 -o "$tarball" \
+          curl -sSfL --connect-timeout 20 --max-time 60 --retry 6 --retry-delay 10 --retry-all-errors -o "$tarball" \
             "https://github.com/containers/bubblewrap/releases/download/v${BWRAP_VERSION}/bubblewrap-${BWRAP_VERSION}.tar.xz"
           echo "${BWRAP_SHA256}  ${tarball}" | sha256sum -c -
           tar xJf "$tarball" -C "$RUNNER_TEMP"

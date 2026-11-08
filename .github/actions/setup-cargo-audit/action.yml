@@ -15,6 +15,12 @@ description: >-
 runs:
   using: composite
   steps:
+    - name: cargo-audit's release asset, cached by this file's pins
+      id: cache
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ${{ runner.temp }}/cargo-audit-release
+        key: cargo-audit-release-${{ hashFiles('.github/actions/setup-cargo-audit/action.yml') }}
     - name: cargo-audit, pinned by version and digest
       shell: bash
       env:
@@ -23,9 +29,15 @@ runs:
       run: |
         set -euo pipefail
         asset="cargo-audit-x86_64-unknown-linux-musl-v${CARGO_AUDIT_VERSION}"
-        tarball="${RUNNER_TEMP}/${asset}.tgz"
-        curl -sSfL --retry 3 -o "$tarball" \
-          "https://github.com/rustsec/rustsec/releases/download/cargo-audit%2Fv${CARGO_AUDIT_VERSION}/${asset}.tgz"
+        mkdir -p "${RUNNER_TEMP}/cargo-audit-release"
+        tarball="${RUNNER_TEMP}/cargo-audit-release/${asset}.tgz"
+        # The cached asset is used only while its digest holds; otherwise it
+        # is fetched again. Each attempt has a minute, so a hung connection
+        # is retried like a release download's 5xx answer or a dropped one.
+        if ! sha256sum -c --status <<< "${CARGO_AUDIT_SHA256}  ${tarball}" >/dev/null 2>&1; then
+          curl -sSfL --connect-timeout 20 --max-time 60 --retry 6 --retry-delay 10 --retry-all-errors -o "$tarball" \
+            "https://github.com/rustsec/rustsec/releases/download/cargo-audit%2Fv${CARGO_AUDIT_VERSION}/${asset}.tgz"
+        fi
         echo "${CARGO_AUDIT_SHA256}  ${tarball}" | sha256sum -c -
         tar xzf "$tarball" -C "$RUNNER_TEMP"
         install -m 0755 "${RUNNER_TEMP}/${asset}/cargo-audit" "$HOME/.cargo/bin/cargo-audit"
