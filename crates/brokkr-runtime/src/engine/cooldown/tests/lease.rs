@@ -5,10 +5,16 @@
 //! without spending an effect attempt.
 
 use std::os::unix::fs::PermissionsExt;
+// A protected root's lease and its barrier probe are Linux only: only
+// Linux's workspace box keeps a boxed writer from the root.
+#[cfg(target_os = "linux")]
 use std::time::{Duration as StdDuration, Instant};
 
 use super::*;
-use crate::engine::broker::admission::tests::{protecting_refused, Coordinated};
+#[cfg(target_os = "linux")]
+use crate::engine::broker::admission::tests::protecting_refused;
+use crate::engine::broker::admission::tests::Coordinated;
+#[cfg(target_os = "linux")]
 use crate::engine::broker::admission::{Conflict, Unadmitted};
 
 /// A home a test's engine and its competing claim both resolve their
@@ -24,6 +30,7 @@ pub(super) fn home(dir: &Path) -> PathBuf {
 /// at `home`, and wait for its barrier probe to start: the probe's release
 /// marker and the join handle are returned. The one skeleton the probe's
 /// lease and its door witness share.
+#[cfg(target_os = "linux")]
 pub(super) fn barrier_started(
     home: &Path,
     mut engine: Engine,
@@ -68,6 +75,7 @@ fn a_boxed_seats_probe_on_a_resume_spawns_in_its_claims_reach_and_retries() {
 /// While the probe's own driver runs, its admission's lease stands at the
 /// protected root: another run's claim is refused by name, and after the
 /// probe's settlement the retry's own admission succeeds and runs.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_probe_holds_the_writer_lease_at_a_protected_root() {
     let (dir, engine, _now) = seated!(&["refuse", "succeed"], Probed::Barrier, None, 2);
@@ -100,6 +108,7 @@ fn a_probe_holds_the_writer_lease_at_a_protected_root() {
 /// A refused admission at the probe parks naming the refusal: it writes no
 /// `effect/failed` under the probe's attempt, the cap's count is unchanged,
 /// and no probe or retry follows.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_refused_admission_at_the_probe_parks_naming_the_refusal() {
     let (dir, mut engine, now) = seated!(&["refuse", "succeed"], Probed::Answer, None, 2);

@@ -7,9 +7,12 @@ use brokkr_core::fold::Cursor;
 use brokkr_core::ProviderWait;
 
 use super::*;
+#[cfg(target_os = "linux")]
 use crate::engine::broker::admission::tests::reservation_path;
 use crate::engine::cooldown::Waited;
-use crate::engine::tests::{fail_event, in_its_own_engine, state};
+#[cfg(target_os = "linux")]
+use crate::engine::tests::in_its_own_engine;
+use crate::engine::tests::{fail_event, state};
 use crate::engine::EngineError;
 
 /// A second run in the same store: another engine's start appends its
@@ -231,6 +234,7 @@ fn the_probe_names_a_cased_site_as_the_attempt_does() {
 /// engine adopts every direct child outside its group, so a co-scheduled
 /// test's live probe would read as a stray and park this one before its
 /// probe starts.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_probes_spawn_witness_is_sealed_at_its_door_before_it_answers() {
     let test = "engine::cooldown::tests::coverage::a_probes_spawn_witness_is_sealed_at_its_door_before_it_answers";

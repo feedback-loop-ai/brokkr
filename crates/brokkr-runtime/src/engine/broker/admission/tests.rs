@@ -390,7 +390,8 @@ pub(in crate::engine) fn protecting(home: &Path, worktree: &Path) -> Held {
 
 /// [`protecting`]'s claim returned rather than unwrapped: a cool-down test
 /// holds a probe's lease on `worktree` while this run's claim is tried, and
-/// reads the refusal it must earn.
+/// reads the refusal it must earn. Linux only, as a protected root is.
+#[cfg(target_os = "linux")]
 pub(in crate::engine) fn protecting_refused(
     home: &Path,
     worktree: &Path,
