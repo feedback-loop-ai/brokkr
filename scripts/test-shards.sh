@@ -47,9 +47,9 @@
 # scripts/shard-runner.py, which owns its output and process group: it copies
 # every output byte unchanged, reads the group's process table, and gives
 # every `deps` executable and `rustdoc` run with the --test flag it finds a
-# clock from that
-# process's first sight to the bound, judging it after argv's own exit too
-# until the group is shown ended; no line a test prints can move it.
+# clock from that process's first sight to the bound, judging it after
+# argv's own exit too through the settle window, whose survivors are
+# unproven; no line a test prints can move it.
 # The runner's one-line status is read after it ends: `exit <code>` is the
 # shard's exit, `bound` fails it by the name in the bound record, and
 # `unproven <reason>` or no status file at all is a lost shard, whose logs

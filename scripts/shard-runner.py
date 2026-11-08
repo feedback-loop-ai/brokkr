@@ -3,18 +3,20 @@
 
 The runner owns the child's output and process group, so nothing beside it
 can stop enforcing the bound: it starts argv in a session of its own and
-reads the group's process table for the shard's whole life, after argv's
-own exit included. A clock is a test binary's process identity, its pid
-with its start stamp, and its deadline is the monotonic time taken after
-the read that first saw that identity plus `--binary-bound` seconds, so it
-can only start late, never early, and at most one poll interval plus one
-group read after the process's exec. A deadline is never moved and never
-cleared while its process lives; a process that is gone is dropped, and a
-reused pid is a new process with a new clock. A clock is overdue when a
-read that began at or after its deadline still finds its process: a binary
-is judged at the first such read, and there is a read at every deadline.
-Judging continues after argv exits until the group is shown ended, so a
-binary alive in the settle window is bounded like one alive before it.
+reads the group's process table while argv runs and, after argv's own
+exit, until the group is shown ended or the settle window passes. A clock
+is a test binary's process identity, its pid with its start stamp, and its
+deadline is the monotonic time taken after the read that first saw that
+identity plus `--binary-bound` seconds, so it can only start late, never
+early, and at most one poll interval plus one group read after the
+process's exec. A deadline is never moved and never cleared while its
+process lives; a process that is gone is dropped, and a reused pid is a
+new process with a new clock. A clock is overdue when a read that began at
+or after its deadline still finds its process: a binary is judged at the
+first such read, and there is a read at every deadline. Judging continues
+after argv exits only through the settle window: a binary overdue inside
+it is bounded like one overdue before it, and members still alive when it
+passes are the survivor rule's `unproven`, whatever their clocks say.
 
 A test binary is a member of argv's process group that is either
 
