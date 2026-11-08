@@ -1,0 +1,959 @@
+//! The window reads' tests (decision 0089 ruling 7, slice 4's unit U3b):
+//! every read equals brokkr-core's whole-run reading on every fixture and
+//! hand-built journal, each order is its cut key's order, and a window's
+//! cost grows with what lies inside it and never with the journal.
+
+use brokkr_core::envelope::{EventEnvelope, EventType};
+use brokkr_core::fold::concluded;
+use brokkr_core::stamp::parse_millis;
+use brokkr_core::summary::{
+    aggregate, checkpoints, sites, Bounded, Checkpoint, MODEL_BYTES, NAME_BYTES,
+};
+use brokkr_core::EventEnvelope as Envelope;
+use serde_json::{json, Value};
+
+use super::*;
+use crate::test_support::{fixture_events, import_fixtures, plant_older_writer};
+use crate::tests::envelope_builder::EnvelopeBuilder;
+
+/// A window's expected spend: its run, its run's stored realm key, its
+/// checkpoint's time and stored phase, and its cost.
+#[derive(Debug, PartialEq)]
+struct Spend {
+    run_id: String,
+    realm: Option<String>,
+    at_ms: i64,
+    phase: Option<String>,
+    usd: f64,
+}
+
+/// A window's expected site: the cut keys the writer keeps of it, its run's
+/// aggregate columns, and the in-window facts brokkr-core's reading gives.
+#[derive(Debug, PartialEq, Eq)]
+struct Site {
+    run_id: String,
+    realm: Option<String>,
+    recipe: Option<String>,
+    open: bool,
+    finished_ms: Option<i64>,
+    phase: Option<String>,
+    provider: Option<String>,
+    model: Option<String>,
+    started_ms: i64,
+    metering: Metering,
+    reported: bool,
+    usage: Option<TokenUsage>,
+}
+
+/// `text` cut where the writer keeps a name key.
+fn cut(text: &str) -> String {
+    Bounded::within(text, NAME_BYTES).cut
+}
+
+/// `text` cut where the writer keeps a model key.
+fn model(text: &str) -> String {
+    Bounded::within(text, MODEL_BYTES).cut
+}
+
+/// What brokkr-core reads of runs for a window: every spend whose
+/// checkpoint falls in it, and every site that started or metered there,
+/// with `reported` and the usage `attempts.rs` reads of it.
+fn core_reads(
+    runs: &[(String, Vec<EventEnvelope>)],
+    from: i64,
+    to: i64,
+) -> (Vec<Spend>, Vec<Site>) {
+    let mut spends = Vec::new();
+    let mut held = Vec::new();
+    for (run_id, events) in runs {
+        let state = brokkr_core::fold(events).ok();
+        let read = aggregate(events, state.as_ref());
+        let open = state
+            .as_ref()
+            .is_some_and(|state| concluded(state).is_none());
+        let realm = read.realm.map(|realm| cut(&realm));
+        for checkpoint in checkpoints(events) {
+            let Some(usd) = checkpoint.usd else {
+                continue;
+            };
+            if checkpoint.at >= from && checkpoint.at < to {
+                spends.push(Spend {
+                    run_id: run_id.clone(),
+                    realm: realm.clone(),
+                    at_ms: checkpoint.at,
+                    phase: checkpoint.phase.as_deref().map(cut),
+                    usd,
+                });
+            }
+        }
+        for site in sites(events) {
+            let kept: Vec<&Checkpoint> = site
+                .metered
+                .iter()
+                .filter(|checkpoint| checkpoint.at >= from && checkpoint.at < to)
+                .collect();
+            if !(site.at >= from && site.at < to) && kept.is_empty() {
+                continue;
+            }
+            held.push(Site {
+                run_id: run_id.clone(),
+                realm: realm.clone(),
+                recipe: read.recipe.as_deref().map(cut),
+                open,
+                finished_ms: read.finished.as_ref().map(|finished| finished.at),
+                phase: site.phase.as_deref().map(cut),
+                provider: Some(cut(&site.provider)),
+                model: site.model.as_deref().map(model),
+                started_ms: site.at,
+                metering: site.metering,
+                reported: kept.iter().any(|checkpoint| checkpoint.reported),
+                usage: sum_usage(kept.into_iter().filter_map(|checkpoint| {
+                    checkpoint.meter.counted(site.metering, checkpoint.session)
+                })),
+            });
+        }
+    }
+    (spends, sorted_sites(held))
+}
+
+/// The sites in the one order tests compare them in, so a multiset equality
+/// is a plain vector equality.
+fn sorted_sites(mut sites: Vec<Site>) -> Vec<Site> {
+    sites.sort_by_key(key);
+    sites
+}
+
+/// A site's sort key: every field but its usage, which is compared as a
+/// value.
+fn key(
+    site: &Site,
+) -> (
+    String,
+    i64,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    u8,
+) {
+    (
+        site.run_id.clone(),
+        site.started_ms,
+        site.phase.clone(),
+        site.provider.clone(),
+        site.model.clone(),
+        match site.metering {
+            Metering::Session => 0,
+            Metering::Turns => 1,
+            Metering::Settled => 2,
+        },
+    )
+}
+
+/// The spends in a comparable order, the cost last.
+fn sorted_spends(mut spends: Vec<Spend>) -> Vec<Spend> {
+    spends.sort_by(|left, right| {
+        (
+            left.run_id.clone(),
+            left.at_ms,
+            left.phase.clone(),
+            left.realm.clone(),
+        )
+            .cmp(&(
+                right.run_id.clone(),
+                right.at_ms,
+                right.phase.clone(),
+                right.realm.clone(),
+            ))
+            .then(left.usd.total_cmp(&right.usd))
+    });
+    spends
+}
+
+/// The store's sites for a window, in `order`, made comparable.
+fn read_sites(store: &Store, from: i64, to: i64, order: SiteOrder) -> Vec<Site> {
+    let mut held = Vec::new();
+    store
+        .window_sites(from, to, None, order, |site| {
+            held.push(Site {
+                run_id: site.run_id.to_string(),
+                realm: site.realm.map(str::to_string),
+                recipe: site.recipe.map(str::to_string),
+                open: site.open,
+                finished_ms: site.finished_ms,
+                phase: site.phase.map(str::to_string),
+                provider: site.provider.map(str::to_string),
+                model: site.model.map(str::to_string),
+                started_ms: site.started_ms.unwrap_or_default(),
+                metering: site.metering,
+                reported: site.reported,
+                usage: site.usage.clone(),
+            });
+        })
+        .unwrap();
+    sorted_sites(held)
+}
+
+/// The store's spends for a window, made comparable.
+fn read_spends(store: &Store, from: i64, to: i64) -> Vec<Spend> {
+    let mut held = Vec::new();
+    store
+        .window_spends(from, to, None, |spend| {
+            held.push(Spend {
+                run_id: spend.run_id.to_string(),
+                realm: spend.realm.map(str::to_string),
+                at_ms: spend.at_ms,
+                phase: spend.phase.map(str::to_string),
+                usd: spend.usd,
+            });
+        })
+        .unwrap();
+    sorted_spends(held)
+}
+
+/// Whether two reported costs are the same within ruling A5's relative
+/// bound, `1e-9`.
+fn close(left: f64, right: f64) -> bool {
+    left == right || (left - right).abs() <= 1e-9 * left.abs().max(right.abs())
+}
+
+/// Every read of the window equals brokkr-core's whole-run reading of it:
+/// the sites in every order, and the spends within ruling A5's relative
+/// bound.
+fn assert_reads_as_core(store: &Store, runs: &[(String, Vec<EventEnvelope>)], from: i64, to: i64) {
+    let (spends, sites) = core_reads(runs, from, to);
+    let read = read_spends(store, from, to);
+    assert_eq!(read.len(), spends.len(), "spends {from}..{to}");
+    for (found, wanted) in read.iter().zip(&spends) {
+        assert_eq!(
+            (&found.run_id, &found.realm, found.at_ms, &found.phase,),
+            (&wanted.run_id, &wanted.realm, wanted.at_ms, &wanted.phase,),
+            "spends {from}..{to}"
+        );
+        assert!(
+            close(found.usd, wanted.usd),
+            "{} at {}: usd {}, read {}",
+            wanted.run_id,
+            wanted.at_ms,
+            found.usd,
+            wanted.usd
+        );
+    }
+    for order in [
+        SiteOrder::Model,
+        SiteOrder::Provider,
+        SiteOrder::RealmProvider,
+        SiteOrder::RecipeProvider,
+    ] {
+        assert_eq!(
+            read_sites(store, from, to, order),
+            sites,
+            "{order:?} sites {from}..{to}"
+        );
+    }
+}
+
+/// Every window a set of runs' events can be cut through: before all of
+/// them, after all of them, and at each of their stamps and midpoints.
+fn windows_of(runs: &[(String, Vec<EventEnvelope>)]) -> Vec<(i64, i64)> {
+    let mut stamps: Vec<i64> = runs
+        .iter()
+        .flat_map(|(_, events)| events.iter())
+        .filter_map(|event| parse_millis(&event.recorded_at))
+        .collect();
+    stamps.sort_unstable();
+    stamps.dedup();
+    let Some(&first) = stamps.first() else {
+        return Vec::new();
+    };
+    let last = *stamps.last().unwrap();
+    let mut windows = vec![
+        (first - 1, first),
+        (first, last + 1),
+        (first + 1, last),
+        (last, last + 1),
+    ];
+    for pair in stamps.windows(2) {
+        let (one, two) = (pair[0], pair[1]);
+        windows.push((one, two));
+        windows.push((one + 1, two + 1));
+        windows.push((one, (one + two) / 2 + 1));
+    }
+    windows.sort_unstable();
+    windows.dedup();
+    windows
+}
+
+/// Every exported journal, imported and refolded, reads in every window as
+/// brokkr-core reads it whole.
+#[test]
+fn every_fixture_reads_as_its_fold() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("forge.db");
+    import_fixtures(&mut Store::open(&path).unwrap());
+    let store = Store::open(&path).unwrap();
+    let mut runs = Vec::new();
+    for (_, _, events) in fixture_events() {
+        let run_id = events[0].run_id.clone();
+        if store.load(&run_id).is_err() {
+            continue;
+        }
+        runs.push((run_id, events));
+    }
+    for (from, to) in windows_of(&runs) {
+        assert_reads_as_core(&store, &runs, from, to);
+    }
+}
+
+/// A run's events, chained in the order they are pushed, each at the stamp
+/// the case states.
+struct Journal {
+    run_id: String,
+    previous: String,
+    events: Vec<Envelope>,
+}
+
+impl Journal {
+    fn new(run_id: &str) -> Journal {
+        Journal {
+            run_id: run_id.to_string(),
+            previous: brokkr_core::canonical::ZERO_HASH.to_string(),
+            events: Vec::new(),
+        }
+    }
+
+    fn push(&mut self, event_type: EventType, payload: Value, at: &str) {
+        let seq = self.events.len() as u64 + 1;
+        let event = EnvelopeBuilder::new(event_type, payload)
+            .run(&self.run_id)
+            .seq(seq)
+            .event_id(format!("{}-{seq}", self.run_id))
+            .at(at)
+            .previous(self.previous.clone())
+            .sealed();
+        self.previous = event.event_hash.clone();
+        self.events.push(event);
+    }
+
+    fn started(&mut self, at: &str, realm: Option<&str>) {
+        self.started_recipe(at, realm, None);
+    }
+
+    fn started_recipe(&mut self, at: &str, realm: Option<&str>, recipe: Option<&str>) {
+        let mut manifest = match realm {
+            Some(realm) => json!({"realms": {
+                "source": "soil", "realm": realm,
+                "map": {"realms": []}
+            }}),
+            None => json!({}),
+        };
+        if let (Some(recipe), Some(object)) = (recipe, manifest.as_object_mut()) {
+            object.insert("bundle_name".into(), json!(recipe));
+        }
+        self.push(
+            EventType::RunStarted,
+            json!({"feature": "a feature", "manifest": manifest}),
+            at,
+        );
+    }
+
+    fn phase(&mut self, at: &str, phase: &str) {
+        self.push(EventType::PhaseEntered, json!({"phase": phase}), at);
+    }
+
+    fn effect(&mut self, at: &str, effect: &str, attempt: &str, provider: &str) {
+        self.push(
+            EventType::EffectRequested,
+            json!({"effect_id": effect, "seat": "implementer"}),
+            at,
+        );
+        self.push(
+            EventType::EffectStarted,
+            json!({"effect_id": effect, "attempt_id": attempt,
+                   "provenance": [{"provider": provider}]}),
+            at,
+        );
+    }
+
+    fn checkpoint(&mut self, at: &str, effect: &str, attempt: &str, record: Value) {
+        self.push(
+            EventType::EffectCheckpointed,
+            json!({"effect_id": effect, "attempt_id": attempt, "checkpoint": record}),
+            at,
+        );
+    }
+
+    /// Plant the journal and open it read-write, so every projection is
+    /// the writer's, and the events are returned for the oracle.
+    fn plant(self) -> (tempfile::TempDir, Store, Vec<Envelope>) {
+        let (dir, store) = crate::tests::store();
+        plant_older_writer(&store, &self.run_id, &self.events);
+        drop(store);
+        let store = refold(&dir);
+        (dir, store, self.events)
+    }
+}
+
+/// The milliseconds of an RFC3339 stamp the cases state.
+fn ms(stamp: &str) -> i64 {
+    parse_millis(stamp).unwrap()
+}
+
+/// One hand-built journal's case: its run and events, and the windows that
+/// cut through its sites.
+struct Case {
+    runs: Vec<(String, Vec<Envelope>)>,
+    windows: Vec<(i64, i64)>,
+}
+
+/// `journal` planted and refolded as one case over `windows`.
+fn case(journal: Journal, windows: Vec<(i64, i64)>) -> Case {
+    let run_id = journal.run_id.clone();
+    let (_, store, events) = journal.plant();
+    drop(store);
+    Case {
+        runs: vec![(run_id, events)],
+        windows,
+    }
+}
+
+/// A re-opened attempt's two sites: the same attempt and member opened
+/// twice, each site with a checkpoint after its own start.
+fn reopened_case() -> Case {
+    let mut journal = Journal::new("reopened");
+    journal.started("2026-01-01T00:00:00Z", Some("hearth-a"));
+    journal.phase("2026-01-01T00:00:01Z", "implement");
+    journal.effect("2026-01-01T00:00:02Z", "fx", "a", "alpha");
+    journal.checkpoint(
+        "2026-01-01T00:00:03Z",
+        "fx",
+        "a",
+        json!({"step": "seat-turn", "model": "m1", "input_tokens": 10}),
+    );
+    journal.effect("2026-01-01T00:00:04Z", "fx", "a", "beta");
+    journal.checkpoint(
+        "2026-01-01T00:00:05Z",
+        "fx",
+        "a",
+        json!({"step": "seat-turn", "model": "m2", "input_tokens": 20,
+               "total_cost_usd": 0.25}),
+    );
+    case(
+        journal,
+        vec![
+            (ms("2026-01-01T00:00:02Z"), ms("2026-01-01T00:00:03Z")),
+            (ms("2026-01-01T00:00:02Z"), ms("2026-01-01T00:00:06Z")),
+            (ms("2026-01-01T00:00:04Z"), ms("2026-01-01T00:00:06Z")),
+        ],
+    )
+}
+
+/// A site started before the window that meters inside it, and a site
+/// started inside whose checkpoint falls after it.
+fn straddles_case() -> Case {
+    let mut journal = Journal::new("straddles");
+    journal.started("2026-01-01T00:00:00Z", Some("hearth-a"));
+    journal.phase("2026-01-01T00:00:01Z", "implement");
+    journal.effect("2026-01-01T00:00:02Z", "fx", "a", "alpha");
+    journal.checkpoint(
+        "2026-01-01T00:00:10Z",
+        "fx",
+        "a",
+        json!({"step": "seat-turn", "input_tokens": 7, "output_tokens": 3}),
+    );
+    journal.effect("2026-01-01T00:00:20Z", "fx", "b", "beta");
+    journal.checkpoint(
+        "2026-01-01T00:00:30Z",
+        "fx",
+        "b",
+        json!({"step": "seat-turn", "input_tokens": 5}),
+    );
+    case(
+        journal,
+        vec![
+            (ms("2026-01-01T00:00:09Z"), ms("2026-01-01T00:00:11Z")),
+            (ms("2026-01-01T00:00:19Z"), ms("2026-01-01T00:00:21Z")),
+            (ms("2026-01-01T00:00:19Z"), ms("2026-01-01T00:00:31Z")),
+        ],
+    )
+}
+
+/// A checkpoint before any start is in no site's facts, and its cost
+/// counts as a spend.
+fn before_any_start_case() -> Case {
+    let mut journal = Journal::new("before-any-start");
+    journal.started("2026-01-01T00:00:00Z", None);
+    journal.checkpoint(
+        "2026-01-01T00:00:01Z",
+        "fx",
+        "a",
+        json!({"step": "seat-turn", "total_cost_usd": 0.5, "input_tokens": 4}),
+    );
+    case(
+        journal,
+        vec![(ms("2026-01-01T00:00:00Z"), ms("2026-01-01T00:00:02Z"))],
+    )
+}
+
+/// The three metering rules: a turn (one repeated, which meters nothing), a
+/// session record alone, and a settling Claude session record whose turns
+/// count only their input.
+fn metering_case() -> Case {
+    let mut journal = Journal::new("metering");
+    journal.started("2026-01-01T00:00:00Z", Some("hearth-b"));
+    journal.phase("2026-01-01T00:00:01Z", "implement");
+    journal.effect("2026-01-01T00:00:02Z", "turns", "t", "alpha");
+    journal.checkpoint(
+        "2026-01-01T00:00:03Z",
+        "turns",
+        "t",
+        json!({"step": "seat-turn", "input_tokens": 100, "output_tokens": 2,
+               "total_cost_usd": 0.5}),
+    );
+    journal.checkpoint(
+        "2026-01-01T00:00:04Z",
+        "turns",
+        "t",
+        json!({"step": "seat-turn", "input_tokens": 100, "output_tokens": 2}),
+    );
+    journal.effect("2026-01-01T00:00:05Z", "session", "s", "beta");
+    journal.checkpoint(
+        "2026-01-01T00:00:06Z",
+        "session",
+        "s",
+        json!({"step": "codex-session-finished", "input_tokens": 300, "output_tokens": 40}),
+    );
+    journal.effect("2026-01-01T00:00:07Z", "settled", "c", "gamma");
+    journal.checkpoint(
+        "2026-01-01T00:00:08Z",
+        "settled",
+        "c",
+        json!({"step": "seat-turn", "input_tokens": 100, "output_tokens": 2,
+               "cache_read_tokens": 80, "reasoning_output_tokens": 1}),
+    );
+    journal.checkpoint(
+        "2026-01-01T00:00:09Z",
+        "settled",
+        "c",
+        json!({"step": "claude-code-session-finished", "output_tokens": 40,
+               "reasoning_output_tokens": 30}),
+    );
+    case(
+        journal,
+        vec![(ms("2026-01-01T00:00:00Z"), ms("2026-01-01T00:00:10Z"))],
+    )
+}
+
+/// Every hand-built journal's case.
+fn hand_built() -> Vec<Case> {
+    vec![
+        reopened_case(),
+        straddles_case(),
+        before_any_start_case(),
+        metering_case(),
+    ]
+}
+
+/// Every hand-built journal reads in its windows as brokkr-core reads it
+/// whole.
+#[test]
+fn every_hand_built_journal_reads_as_its_fold() {
+    for case in hand_built() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("forge.db");
+        let store = Store::open(&path).unwrap();
+        for (run_id, events) in &case.runs {
+            plant_older_writer(&store, run_id, events);
+        }
+        drop(store);
+        let store = Store::open(&path).unwrap();
+        for (from, to) in case.windows {
+            assert_reads_as_core(&store, &case.runs, from, to);
+        }
+    }
+}
+
+/// Plant `journals` and open them read-write, so every projection is the
+/// writer's.
+fn plant_runs(journals: Vec<Journal>) -> (tempfile::TempDir, Store) {
+    let (dir, store) = crate::tests::store();
+    for journal in journals {
+        plant_older_writer(&store, &journal.run_id, &journal.events);
+    }
+    drop(store);
+    let store = refold(&dir);
+    (dir, store)
+}
+
+/// `dir`'s journal opened read-write, so every projection is the writer's,
+/// and held to its fold.
+fn refold(dir: &tempfile::TempDir) -> Store {
+    let store = Store::open(&dir.path().join("forge.db")).unwrap();
+    assert_eq!(
+        crate::test_support::every_run_reads_as_its_fold(&store),
+        Vec::<String>::new()
+    );
+    store
+}
+
+/// The three runs the order test folds: two sites of one run, and one of
+/// another, cut keys chosen so every order is a different sequence.
+fn ordered_journal() -> Vec<Journal> {
+    let mut one = Journal::new("r1");
+    one.started_recipe("2026-01-01T00:00:00Z", Some("alpha"), Some("zzz"));
+    one.phase("2026-01-01T00:00:01Z", "implement");
+    one.effect("2026-01-01T00:00:02Z", "f1", "a1", "gamma");
+    one.checkpoint(
+        "2026-01-01T00:00:03Z",
+        "f1",
+        "a1",
+        json!({"step": "seat-turn", "model": "model-a", "input_tokens": 1,
+               "total_cost_usd": 0.1}),
+    );
+    one.effect("2026-01-01T00:00:04Z", "f2", "a2", "beta");
+    one.checkpoint(
+        "2026-01-01T00:00:05Z",
+        "f2",
+        "a2",
+        json!({"step": "seat-turn", "model": "model-b", "input_tokens": 2,
+               "total_cost_usd": 0.2}),
+    );
+    let mut two = Journal::new("r2");
+    two.started_recipe("2026-01-01T00:00:00Z", Some("alpha"), Some("aaa"));
+    two.phase("2026-01-01T00:00:01Z", "implement");
+    two.effect("2026-01-01T00:00:06Z", "f3", "a3", "delta");
+    two.checkpoint(
+        "2026-01-01T00:00:07Z",
+        "f3",
+        "a3",
+        json!({"step": "seat-turn", "model": "model-c", "input_tokens": 3,
+               "total_cost_usd": 0.3}),
+    );
+    vec![one, two]
+}
+
+/// Each order is its cut key's order, then the run and the site; a site
+/// that both started and metered in the window is yielded once.
+#[test]
+fn each_order_is_its_key_order_and_each_site_appears_once() {
+    let (_dir, store) = plant_runs(ordered_journal());
+    let from = ms("2026-01-01T00:00:00Z");
+    let to = ms("2026-01-01T00:00:08Z");
+    let expected = [
+        (
+            SiteOrder::Model,
+            [("r1", "gamma"), ("r1", "beta"), ("r2", "delta")],
+        ),
+        (
+            SiteOrder::Provider,
+            [("r1", "beta"), ("r2", "delta"), ("r1", "gamma")],
+        ),
+        (
+            SiteOrder::RealmProvider,
+            [("r1", "beta"), ("r2", "delta"), ("r1", "gamma")],
+        ),
+        (
+            SiteOrder::RecipeProvider,
+            [("r2", "delta"), ("r1", "beta"), ("r1", "gamma")],
+        ),
+    ];
+    for (order, sequence) in expected {
+        let mut read = Vec::new();
+        store
+            .window_sites(from, to, None, order, |site| {
+                read.push((site.run_id.to_string(), site.provider.unwrap().to_string()));
+            })
+            .unwrap();
+        let expected: Vec<(String, String)> = sequence
+            .into_iter()
+            .map(|(run, provider)| (run.to_string(), provider.to_string()))
+            .collect();
+        assert_eq!(read, expected, "{order:?}");
+    }
+}
+
+/// `realm` narrows both reads to one stored realm key, and none narrows
+/// neither.
+#[test]
+fn a_realm_narrows_both_reads() {
+    let mut alpha = Journal::new("alpha-run");
+    alpha.started_recipe("2026-01-01T00:00:00Z", Some("alpha"), Some("one"));
+    alpha.phase("2026-01-01T00:00:01Z", "implement");
+    alpha.effect("2026-01-01T00:00:02Z", "f1", "a1", "gamma");
+    alpha.checkpoint(
+        "2026-01-01T00:00:03Z",
+        "f1",
+        "a1",
+        json!({"step": "seat-turn", "input_tokens": 1, "total_cost_usd": 0.1}),
+    );
+    let mut beta = Journal::new("beta-run");
+    beta.started_recipe("2026-01-01T00:00:00Z", Some("beta"), Some("two"));
+    beta.phase("2026-01-01T00:00:01Z", "implement");
+    beta.effect("2026-01-01T00:00:02Z", "f2", "a2", "beta");
+    beta.checkpoint(
+        "2026-01-01T00:00:03Z",
+        "f2",
+        "a2",
+        json!({"step": "seat-turn", "input_tokens": 2, "total_cost_usd": 0.2}),
+    );
+    let (_dir, store) = plant_runs(vec![alpha, beta]);
+    let from = ms("2026-01-01T00:00:00Z");
+    let to = ms("2026-01-01T00:00:04Z");
+
+    let runs = |store: &Store, realm: Option<&str>, spends: bool| -> Vec<String> {
+        let mut found = Vec::new();
+        if spends {
+            store
+                .window_spends(from, to, realm, |spend| {
+                    found.push(spend.run_id.to_string())
+                })
+                .unwrap();
+        } else {
+            store
+                .window_sites(from, to, realm, SiteOrder::Model, |site| {
+                    found.push(site.run_id.to_string())
+                })
+                .unwrap();
+        }
+        found.sort();
+        found
+    };
+    for spends in [false, true] {
+        assert_eq!(
+            runs(&store, None, spends),
+            ["alpha-run".to_string(), "beta-run".to_string()],
+            "no realm narrows neither, spends {spends}"
+        );
+        assert_eq!(
+            runs(&store, Some("alpha"), spends),
+            ["alpha-run".to_string()],
+            "alpha alone, spends {spends}"
+        );
+        assert_eq!(
+            runs(&store, Some("nowhere"), spends),
+            Vec::<String>::new(),
+            "a realm no run named, spends {spends}"
+        );
+    }
+}
+
+/// Every read's plan names its index and scans no projection whole.
+#[test]
+fn the_plans_name_the_indexes_and_scan_no_projection() {
+    let (_dir, store) = plant_runs(ordered_journal());
+    let spends =
+        crate::test_support::plan(&store, SPENDS, rusqlite::params![FROM, TO, None::<&str>])
+            .unwrap();
+    assert!(
+        spends
+            .iter()
+            .any(|step| step.contains("event_index_checkpoint")),
+        "{spends:?}"
+    );
+    assert!(
+        !scans(&spends, "event_index") && !scans(&spends, "seat_summary"),
+        "{spends:?}"
+    );
+    for order in [
+        SiteOrder::Model,
+        SiteOrder::Provider,
+        SiteOrder::RealmProvider,
+        SiteOrder::RecipeProvider,
+    ] {
+        let sites = crate::test_support::plan(
+            &store,
+            sites_sql(order),
+            rusqlite::params![FROM, TO, None::<&str>],
+        )
+        .unwrap();
+        for index in [
+            "event_index_checkpoint",
+            "seat_summary_started",
+            "seat_summary_site",
+        ] {
+            assert!(
+                sites.iter().any(|step| step.contains(index)),
+                "{order:?}: {index} in {sites:?}"
+            );
+        }
+        assert!(
+            !scans(&sites, "event_index") && !scans(&sites, "seat_summary"),
+            "{order:?}: {sites:?}"
+        );
+    }
+}
+
+/// Whether `plan` scans `table` whole.
+fn scans(plan: &[String], table: &str) -> bool {
+    plan.iter()
+        .any(|step| step.starts_with("SCAN ") && step.contains(table))
+}
+
+/// The milliseconds in a day, and the year of facts a window does not read.
+const DAY: i64 = 24 * 60 * 60 * 1_000;
+
+/// The window the cost test holds fixed.
+const FROM: i64 = 1_767_225_600_000;
+const TO: i64 = FROM + 60_000;
+
+/// A `run_summary` row in the running lane, its aggregates current.
+fn plant_run(conn: &rusqlite::Connection, run_id: &str, realm: &str) {
+    conn.execute(
+        "INSERT INTO run_summary
+            (run_id, head_seq, head_hash, folded_seq, folded_hash, status, realm, recipe)
+         VALUES (?1, 0, 'h', 0, 'h', 'running', ?2, 'one')",
+        rusqlite::params![run_id, realm],
+    )
+    .unwrap();
+}
+
+/// One site row of `run_id`, opened at `opened`, started at `started_ms`.
+fn plant_site(conn: &rusqlite::Connection, run_id: &str, opened: i64, started_ms: i64) {
+    conn.execute(
+        "INSERT INTO seat_summary
+            (run_id, opened, attempt_id, member, started_seq, started_ms,
+             phase_key, provider_key, model_key, metering, site, digest)
+         VALUES (?1, ?2, 'a', NULL, 1, ?3, 'implement', 'alpha', 'm', 1, ?2, 'd')",
+        rusqlite::params![run_id, opened, started_ms],
+    )
+    .unwrap();
+}
+
+/// One checkpoint row of `run_id`'s attempt `a`, at `seq` and `at_ms`.
+fn plant_checkpoint(conn: &rusqlite::Connection, run_id: &str, seq: i64, at_ms: i64) {
+    conn.execute(
+        "INSERT INTO event_index
+            (run_id, seq, type, attempt_id, member, at_ms, reported, turn, session,
+             repeat, input_tokens, output_tokens, usd)
+         VALUES (?1, ?2, 'effect/checkpointed', 'a', NULL, ?3, 1, 1, 0, 0, 1, 0, 0.5)",
+        rusqlite::params![run_id, seq, at_ms],
+    )
+    .unwrap();
+}
+
+/// The year of sites and checkpoints a fixed window does not read.
+fn plant_far(conn: &rusqlite::Connection, before: bool) {
+    for index in 0..3i64 {
+        let at = if before {
+            FROM - (index + 1) * 120 * DAY
+        } else {
+            TO + (index + 1) * 30 * DAY
+        };
+        let run_id = format!("{}-{index}", if before { "earlier" } else { "later" });
+        plant_run(conn, &run_id, "alpha");
+        plant_site(conn, &run_id, 0, at);
+        plant_checkpoint(conn, &run_id, 2, at + 1);
+    }
+}
+
+/// A window visits only the sites and spends near it: a year of earlier
+/// and a year of later facts leave each read's VM-step count equal, k
+/// checkpoints inside the window each add one visit, and a year of earlier
+/// and later sites adds none.
+///
+/// One site and checkpoint stand just past the window, so the baseline
+/// already pays the step that meets the range's upper bound: adding a year
+/// of later facts then measures what the read visits, not how SQLite
+/// reaches its bound.
+#[test]
+fn a_window_visits_only_the_sites_near_it() {
+    let (_dir, store) = crate::tests::store();
+    plant_run(&store.conn, "window", "alpha");
+    plant_site(&store.conn, "window", 0, FROM + 10);
+    plant_checkpoint(&store.conn, "window", 2, FROM + 20);
+    let beyond = TO + 1;
+    plant_run(&store.conn, "beyond", "alpha");
+    plant_site(&store.conn, "beyond", 0, beyond);
+    plant_checkpoint(&store.conn, "beyond", 2, beyond);
+
+    let spends = store.window_spends_steps(FROM, TO, None).unwrap();
+    let sites: Vec<i64> = [
+        SiteOrder::Model,
+        SiteOrder::Provider,
+        SiteOrder::RealmProvider,
+        SiteOrder::RecipeProvider,
+    ]
+    .into_iter()
+    .map(|order| store.window_sites_steps(FROM, TO, None, order).unwrap())
+    .collect();
+    assert!(spends > 0 && sites.iter().all(|steps| *steps > 0));
+
+    plant_far(&store.conn, true);
+    plant_far(&store.conn, false);
+    assert_eq!(
+        store.window_spends_steps(FROM, TO, None).unwrap(),
+        spends,
+        "a year of earlier and later spends is in no range"
+    );
+    for (order, step) in [
+        SiteOrder::Model,
+        SiteOrder::Provider,
+        SiteOrder::RealmProvider,
+        SiteOrder::RecipeProvider,
+    ]
+    .into_iter()
+    .zip(sites.iter())
+    {
+        assert_eq!(
+            store.window_sites_steps(FROM, TO, None, order).unwrap(),
+            *step,
+            "{order:?}: a year of earlier and later sites is in no range"
+        );
+    }
+
+    // k checkpoints inside the window, each a row of the one site already
+    // there: each read grows by exactly k visits.
+    let k = 10i64;
+    let before_spends = store.window_spends_steps(FROM, TO, None).unwrap();
+    let before_sites = store
+        .window_sites_steps(FROM, TO, None, SiteOrder::Model)
+        .unwrap();
+    plant_checkpoint(&store.conn, "window", 3, FROM + 21);
+    let one_spend = store.window_spends_steps(FROM, TO, None).unwrap() - before_spends;
+    let one_site = store
+        .window_sites_steps(FROM, TO, None, SiteOrder::Model)
+        .unwrap()
+        - before_sites;
+    assert!(one_spend > 0 && one_site > 0);
+    for index in 1..k {
+        plant_checkpoint(&store.conn, "window", 3 + index, FROM + 21 + index);
+    }
+    assert_eq!(
+        store.window_spends_steps(FROM, TO, None).unwrap() - before_spends,
+        one_spend * k,
+        "k window spends each cost one visit"
+    );
+    assert_eq!(
+        store
+            .window_sites_steps(FROM, TO, None, SiteOrder::Model)
+            .unwrap()
+            - before_sites,
+        one_site * k,
+        "k window checkpoints each cost one visit"
+    );
+}
+
+/// A metering rule no writer words is refused, never guessed: the site's
+/// row is unreadable, so the caller reads the run whole (ruling 8).
+#[test]
+fn a_metering_rule_no_writer_words_is_refused() {
+    let (_dir, store) = crate::tests::store();
+    plant_run(&store.conn, "bad", "alpha");
+    plant_site(&store.conn, "bad", 0, FROM + 10);
+    store
+        .conn
+        .execute(
+            "UPDATE seat_summary SET metering = 7 WHERE run_id = 'bad'",
+            [],
+        )
+        .unwrap();
+    let error = store
+        .window_sites(FROM, TO, None, SiteOrder::Model, |_| {})
+        .unwrap_err();
+    assert!(
+        matches!(
+            error,
+            StoreError::Sqlite(rusqlite::Error::IntegralValueOutOfRange(10, 7))
+        ),
+        "{error:?}"
+    );
+}

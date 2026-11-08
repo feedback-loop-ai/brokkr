@@ -84,8 +84,12 @@ impl Metering {
         }
     }
 
-    /// The rule a seat row's `metering` column holds, where it holds one.
-    pub(crate) fn at(index: i64) -> Option<Metering> {
+    /// The rule a seat row's `metering` column holds, where it holds one:
+    /// the inverse of the index the seat row's `metering` column writes,
+    /// so a reader of a stored checkpoint counts its tokens by the rule
+    /// its site's row keeps
+    /// (decision 0089 ruling 7).
+    pub fn at(index: i64) -> Option<Metering> {
         match index {
             0 => Some(Metering::Session),
             1 => Some(Metering::Turns),
@@ -168,20 +172,34 @@ impl Meter {
     /// The tokens this checkpoint adds to its seat metered `by`;
     /// `session` says whether it is the seat's session record.
     pub fn counted(&self, by: Metering, session: bool) -> Option<TokenUsage> {
-        let usage = self.usage.clone();
-        match by {
-            Metering::Turns => usage.filter(|_| self.turn),
-            Metering::Session => usage.filter(|_| session),
-            Metering::Settled if self.turn => usage.map(|usage| TokenUsage {
-                output_tokens: None,
-                reasoning_output_tokens: None,
-                ..usage
-            }),
-            Metering::Settled => usage.filter(|_| session).map(|usage| TokenUsage {
-                output_tokens: usage.output_tokens,
-                reasoning_output_tokens: usage.reasoning_output_tokens,
-                ..TokenUsage::default()
-            }),
-        }
+        counted(by, self.turn, session, self.usage.clone())
+    }
+}
+
+/// The tokens one checkpoint adds to a site metered `by`, from the facts a
+/// checkpoint row keeps: whether it is one of the site's turns, whether it
+/// is its participant's last session record, and the tokens it carries.
+/// The one home of [`Meter::counted`]'s rule, so a reader of a stored
+/// checkpoint counts it as the whole-run reading does (decision 0089
+/// ruling 7).
+pub fn counted(
+    by: Metering,
+    turn: bool,
+    session: bool,
+    usage: Option<TokenUsage>,
+) -> Option<TokenUsage> {
+    match by {
+        Metering::Turns => usage.filter(|_| turn),
+        Metering::Session => usage.filter(|_| session),
+        Metering::Settled if turn => usage.map(|usage| TokenUsage {
+            output_tokens: None,
+            reasoning_output_tokens: None,
+            ..usage
+        }),
+        Metering::Settled => usage.filter(|_| session).map(|usage| TokenUsage {
+            output_tokens: usage.output_tokens,
+            reasoning_output_tokens: usage.reasoning_output_tokens,
+            ..TokenUsage::default()
+        }),
     }
 }

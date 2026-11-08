@@ -1,4 +1,4 @@
-use super::meter::{once, sum_usage, Meter, Metering};
+use super::meter::{counted, once, sum_usage, Meter, Metering};
 use super::*;
 use serde_json::json;
 
@@ -233,6 +233,58 @@ fn a_seat_is_read_by_its_turns_settled_by_a_claude_session_or_by_its_session() {
             by(&[], None),
         ],
         ["settled", "turns", "turns", "turns", "session", "session"]
+    );
+}
+
+/// A stored checkpoint's rule, pinned once: the row's turn, session and
+/// tokens count as the whole-run reading counts them, so a window that
+/// reads a checkpoint's row reads what `brokkr analytics` reads whole
+/// (decision 0089 ruling 7).
+#[test]
+fn a_stored_checkpoint_counts_by_its_sites_rule() {
+    let usage = || TokenUsage {
+        input_tokens: Some(100),
+        output_tokens: Some(2),
+        cache_read_tokens: Some(80),
+        cache_write_tokens: Some(8),
+        reasoning_output_tokens: Some(1),
+        total_tokens: Some(102),
+    };
+    let whole = Some(usage());
+    let settled_turn = Some(TokenUsage {
+        output_tokens: None,
+        reasoning_output_tokens: None,
+        ..usage()
+    });
+    let settled_session = Some(TokenUsage {
+        input_tokens: None,
+        output_tokens: Some(2),
+        cache_read_tokens: None,
+        cache_write_tokens: None,
+        reasoning_output_tokens: Some(1),
+        total_tokens: None,
+    });
+    assert_eq!(
+        [
+            counted(Metering::Turns, true, false, Some(usage())),
+            counted(Metering::Turns, false, true, Some(usage())),
+            counted(Metering::Session, false, true, Some(usage())),
+            counted(Metering::Session, true, false, Some(usage())),
+            counted(Metering::Settled, true, false, Some(usage())),
+            counted(Metering::Settled, false, true, Some(usage())),
+            counted(Metering::Settled, false, false, Some(usage())),
+            counted(Metering::Turns, true, false, None),
+        ],
+        [
+            whole.clone(),
+            None,
+            whole,
+            None,
+            settled_turn,
+            settled_session,
+            None,
+            None,
+        ]
     );
 }
 

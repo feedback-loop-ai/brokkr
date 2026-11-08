@@ -109,6 +109,32 @@ pub brokkr_store::backup::Restored::to: std::path::PathBuf
 pub const brokkr_store::backup::JOURNAL_BACKUP_FORMAT: &str
 pub fn brokkr_store::backup::backup(&brokkr_store::Store, brokkr_store::backup::BackupOptions<'_>) -> core::result::Result<brokkr_store::backup::Backup, brokkr_store::backup::BackupError>
 pub fn brokkr_store::backup::restore(&std::path::Path, &std::path::Path) -> core::result::Result<brokkr_store::backup::Restored, brokkr_store::backup::BackupError>
+pub mod brokkr_store::metered
+pub enum brokkr_store::metered::SiteOrder
+pub brokkr_store::metered::SiteOrder::Model
+pub brokkr_store::metered::SiteOrder::Provider
+pub brokkr_store::metered::SiteOrder::RealmProvider
+pub brokkr_store::metered::SiteOrder::RecipeProvider
+pub struct brokkr_store::metered::WindowSite<'a>
+pub brokkr_store::metered::WindowSite::finished_ms: core::option::Option<i64>
+pub brokkr_store::metered::WindowSite::metering: brokkr_core::seat::meter::Metering
+pub brokkr_store::metered::WindowSite::model: core::option::Option<&'a str>
+pub brokkr_store::metered::WindowSite::open: bool
+pub brokkr_store::metered::WindowSite::opened: u64
+pub brokkr_store::metered::WindowSite::phase: core::option::Option<&'a str>
+pub brokkr_store::metered::WindowSite::provider: core::option::Option<&'a str>
+pub brokkr_store::metered::WindowSite::realm: core::option::Option<&'a str>
+pub brokkr_store::metered::WindowSite::recipe: core::option::Option<&'a str>
+pub brokkr_store::metered::WindowSite::reported: bool
+pub brokkr_store::metered::WindowSite::run_id: &'a str
+pub brokkr_store::metered::WindowSite::started_ms: core::option::Option<i64>
+pub brokkr_store::metered::WindowSite::usage: core::option::Option<brokkr_core::seat::TokenUsage>
+pub struct brokkr_store::metered::WindowSpend<'a>
+pub brokkr_store::metered::WindowSpend::at_ms: i64
+pub brokkr_store::metered::WindowSpend::phase: core::option::Option<&'a str>
+pub brokkr_store::metered::WindowSpend::realm: core::option::Option<&'a str>
+pub brokkr_store::metered::WindowSpend::run_id: &'a str
+pub brokkr_store::metered::WindowSpend::usd: f64
 pub enum brokkr_store::Disagreement
 pub brokkr_store::Disagreement::Column
 pub brokkr_store::Disagreement::Column::column: &'static str
@@ -433,6 +459,9 @@ impl brokkr_store::Store
 pub fn brokkr_store::Store::seat_rows(&self, &str) -> core::result::Result<brokkr_store::SeatRows, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::start_run(&mut self, &str, &str, &str, &serde_json::value::Value, serde_json::value::Value, core::option::Option<&'_ mut dyn core::ops::function::FnMut(&rusqlite::transaction::Transaction<'_>) -> core::result::Result<(), brokkr_store::StoreError>>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
+impl brokkr_store::Store
+pub fn brokkr_store::Store::window_sites(&self, i64, i64, core::option::Option<&str>, brokkr_store::metered::SiteOrder, impl core::ops::function::FnMut(&brokkr_store::metered::WindowSite<'_>)) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::Store::window_spends(&self, i64, i64, core::option::Option<&str>, impl core::ops::function::FnMut(&brokkr_store::metered::WindowSpend<'_>)) -> core::result::Result<(), brokkr_store::StoreError>
 pub struct brokkr_store::Unread
 pub brokkr_store::Unread::order_at: i64
 pub brokkr_store::Unread::run_id: alloc::string::String
