@@ -164,6 +164,26 @@ pub fn append(
         .unwrap()
 }
 
+/// A checkpoint payload of `effect`'s `attempt`, naming `member`, turn
+/// `turn`: the one shape the ordinal and seat-read tests plant, so the
+/// fixture has one home.
+pub fn checkpoint_of(
+    effect: &str,
+    attempt: &str,
+    member: Option<&str>,
+    turn: u64,
+) -> serde_json::Value {
+    let mut checkpoint = serde_json::json!({"step": "seat-turn", "turn": turn});
+    if let Some(member) = member {
+        checkpoint["member"] = serde_json::json!(member);
+    }
+    serde_json::json!({
+        "effect_id": effect,
+        "attempt_id": attempt,
+        "checkpoint": checkpoint,
+    })
+}
+
 /// `value` as SQLite holds text.
 pub fn text(value: &str) -> Value {
     Value::Text(value.to_string())
@@ -373,6 +393,33 @@ pub fn stream_plan(
 ) -> rusqlite::Result<Vec<String>> {
     let bound = params![run_id, attempt_id, member, 1, i64::MAX, 51];
     plan(store, &crate::event_index::STREAM, bound)
+}
+
+/// The VM instructions the connection executes while `read` runs: the
+/// whole production read's work, each statement at the values it binds and
+/// runs with, and the compiling of the statement too, not a trace's text
+/// measured again (decision 0089 ruling 9, M1). SQLite's progress callback
+/// reports the instructions as they execute, so a statement whose text a
+/// trace would render lossily (a NUL in a key) is still counted at the
+/// statement that ran. The tally is the read's, begin to end, transaction
+/// control included.
+#[cfg(all(test, feature = "test-support"))]
+pub(crate) fn read_steps<T>(store: &mut Store, read: impl FnOnce(&Store) -> T) -> (T, i64) {
+    use std::sync::atomic::{AtomicI64, Ordering};
+    use std::sync::Arc;
+
+    let counted = Arc::new(AtomicI64::new(0));
+    let tally = Arc::clone(&counted);
+    store.conn.progress_handler(
+        1,
+        Some(move || {
+            tally.fetch_add(1, Ordering::Relaxed);
+            false
+        }),
+    );
+    let read = read(store);
+    store.conn.progress_handler(0, None::<fn() -> bool>);
+    (read, counted.load(Ordering::Relaxed))
 }
 
 /// The statements SQLite began on `store`'s connection while `read` ran,

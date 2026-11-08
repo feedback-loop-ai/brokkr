@@ -19,9 +19,24 @@ struct Journal {
 
 impl Journal {
     fn of(events: Vec<EventEnvelope>, run: &str) -> Journal {
+        Journal::edited(events, run, |_| {})
+    }
+
+    /// `of`, with `edit` applied to the planted journal's index before the
+    /// read-only open: the corrupt ordinals a writer cannot leave are
+    /// planted by SQL, as the store's own ordinal faults are.
+    fn edited(
+        events: Vec<EventEnvelope>,
+        run: &str,
+        edit: impl FnOnce(&rusqlite::Connection),
+    ) -> Journal {
         let dir = tempfile::tempdir().unwrap();
         let db = dir.path().join("forge.db");
         planted(&db, vec![(run.to_string(), events)]);
+        {
+            let conn = rusqlite::Connection::open(&db).unwrap();
+            edit(&conn);
+        }
         let store = Store::open_read_only(&db).unwrap();
         let at = store.open_run(run).unwrap();
         let events = store.load(run).unwrap();
@@ -71,9 +86,14 @@ fn attemptless(seat: &str) -> EventEnvelope {
     event
 }
 
-/// `run`'s own checkpoints with `member`'s checkpoint at `member_at`, so
-/// the seat's forward pages cross a member's stream where the fixture says.
-fn own_and_member(run: &str, turns: u64, member_at: u64) -> Vec<EventEnvelope> {
+/// `run`'s own checkpoints with `extra` after turn `at`, so the seat's
+/// forward pages cross another record where the fixture says.
+fn own_with(
+    run: &str,
+    turns: u64,
+    at: u64,
+    extra: Option<(EventType, Value)>,
+) -> Vec<EventEnvelope> {
     let mut steps = in_flight_as(run, "eff", "att");
     for turn in 1..=turns {
         steps.push(journals::checkpoint(
@@ -81,15 +101,81 @@ fn own_and_member(run: &str, turns: u64, member_at: u64) -> Vec<EventEnvelope> {
             "att",
             json!({"step": "seat-turn", "turn": turn}),
         ));
-        if turn == member_at {
-            steps.push(journals::checkpoint(
-                "eff",
-                "att",
-                json!({"member": "m", "step": "seat-turn", "turn": turn}),
-            ));
+        if turn == at {
+            steps.extend(extra.clone());
         }
     }
     chained(run, journals::journal(steps))
+}
+
+/// `run`'s own checkpoints with `member`'s checkpoint at `member_at`.
+fn own_and_member(run: &str, turns: u64, member_at: u64) -> Vec<EventEnvelope> {
+    own_with(
+        run,
+        turns,
+        member_at,
+        Some(journals::checkpoint(
+            "eff",
+            "att",
+            json!({"member": "m", "step": "seat-turn", "turn": member_at}),
+        )),
+    )
+}
+
+/// `run`'s `turns` checkpoints on attempt `att`, which it never starts:
+/// the seat row keeps their bounds but no start, so a page of them is
+/// kept (ruling 8).
+fn unstarted(run: &str, turns: u64) -> Vec<EventEnvelope> {
+    let mut steps = in_flight_as(run, "eff", "att");
+    steps.remove(3);
+    for turn in 1..=turns {
+        steps.push(journals::checkpoint(
+            "eff",
+            "att",
+            json!({"step": "seat-turn", "turn": turn}),
+        ));
+    }
+    chained(run, journals::journal(steps))
+}
+
+/// `run`'s `first` checkpoints on attempt `att`, which it starts, then
+/// `second` on attempt `b`, which it never starts: the latter's seat row
+/// keeps its bounds but no start.
+fn two_attempts(run: &str, first: u64, second: u64) -> Vec<EventEnvelope> {
+    let mut steps = in_flight_as(run, "eff", "att");
+    for turn in 1..=first {
+        steps.push(journals::checkpoint(
+            "eff",
+            "att",
+            json!({"step": "seat-turn", "turn": turn}),
+        ));
+    }
+    for turn in 1..=second {
+        steps.push(journals::checkpoint(
+            "eff",
+            "b",
+            json!({"step": "seat-turn", "turn": turn}),
+        ));
+    }
+    chained(run, journals::journal(steps))
+}
+
+/// Set `run`'s `at`-th (0-based) checkpoint of `attempt` to `ordinal` by
+/// SQL, as a corrupt writer leaves the index: the read must never take it
+/// for a place the stream can stand on.
+fn renumber(conn: &rusqlite::Connection, run: &str, attempt: &str, at: usize, ordinal: i64) {
+    let updated = conn
+        .execute(
+            "UPDATE event_index SET stream_ordinal = ?4
+             WHERE run_id = ?1 AND attempt_id = ?2 AND type = 'effect/checkpointed'
+               AND seq = (SELECT seq FROM event_index
+                          WHERE run_id = ?1 AND attempt_id = ?2
+                            AND type = 'effect/checkpointed'
+                          ORDER BY seq LIMIT 1 OFFSET ?3)",
+            rusqlite::params![run, attempt, at as i64, ordinal],
+        )
+        .unwrap();
+    assert_eq!(updated, 1, "one checkpoint is renumbered");
 }
 
 /// A carried page at `start` with `older` and no newer cursor.
@@ -139,6 +225,45 @@ fn a_kept_page_while_extending_back_is_no_page() {
             .unwrap()
             .is_none(),
         "the kept older page takes the whole read"
+    );
+}
+
+/// An interleaved participant's count and every rank are none, so a fetch
+/// at a rank takes the kept way: the console reads the run whole rather
+/// than page from a rank the ordinals cannot name.
+#[test]
+fn an_interleaved_participant_takes_the_kept_way() {
+    let run = "interleaved participant";
+    let mut steps = in_flight_as(run, "eff", "att");
+    steps.push(journals::checkpoint(
+        "eff",
+        "att",
+        json!({"step": "seat-turn", "turn": 1}),
+    ));
+    steps.push((
+        EventType::EffectStarted,
+        json!({"effect_id": "eff", "attempt_id": "att2"}),
+    ));
+    steps.push(journals::checkpoint(
+        "eff",
+        "att2",
+        json!({"step": "seat-turn", "turn": 1}),
+    ));
+    steps.push(journals::checkpoint(
+        "eff",
+        "att2",
+        json!({"step": "seat-turn", "turn": 2}),
+    ));
+    steps.push(journals::checkpoint(
+        "eff",
+        "att",
+        json!({"step": "seat-turn", "turn": 2}),
+    ));
+    let journal = Journal::of(chained(run, journals::journal(steps)), run);
+    let fetch = journal.fetch(run, 50, 1, &[]);
+    assert!(
+        fetch.participant(("eff", None), None).unwrap().is_none(),
+        "the interleaved participant's rank is kept, so the run is read whole"
     );
 }
 
@@ -416,29 +541,34 @@ fn an_empty_newer_page_ends_the_window() {
     assert_eq!(next, None, "the stream's end has no cursor");
 }
 
-/// A participant's first page kept by the store's own interleave check is
-/// no page for the absolute end either (M6).
+/// H1 (the 994o3 ruling): a member's checkpoint below the absolute end but
+/// inside the seat's own reach takes the end fetch the kept way. Round
+/// one's expectation that the end page reads past it is superseded: the
+/// seat's own ranked reads refuse through `members_within` over the whole
+/// participant, so the reader reads the run whole.
 #[test]
-fn a_kept_first_page_at_the_absolute_end_is_no_page() {
-    let run = "kept end first";
+fn the_end_fetch_takes_the_kept_way_for_a_member_record_below_it() {
+    let run = "kept end below";
     let journal = Journal::of(own_and_member(run, 120, 2), run);
     let fetch = journal.fetch(run, 24, usize::MAX, &[]);
     assert!(
         fetch.participant(("eff", None), None).unwrap().is_none(),
-        "the kept first page takes the whole read"
+        "the member's checkpoint stands in the seat's own reach"
     );
 }
 
-/// A participant's absolute end reads its pages until the display rank's
-/// edge; a kept second page stops it there (M6).
+/// A member's record within the absolute end's own reach is kept by the
+/// store's interleave check, so the end reads the run whole (M6):
+/// `own_and_member` puts the member's checkpoint just after own turn 100,
+/// the first seq after the page start's predecessor.
 #[test]
-fn a_kept_second_page_at_the_absolute_end_is_no_page() {
-    let run = "kept end second";
-    let journal = Journal::of(own_and_member(run, 120, 60), run);
+fn a_member_record_within_the_absolute_end_s_reach_is_no_page() {
+    let run = "kept end reach";
+    let journal = Journal::of(own_and_member(run, 120, 100), run);
     let fetch = journal.fetch(run, 24, usize::MAX, &[]);
     assert!(
         fetch.participant(("eff", None), None).unwrap().is_none(),
-        "the kept second page takes the whole read"
+        "the kept end page takes the whole read"
     );
 }
 
@@ -486,5 +616,317 @@ fn a_scrolled_detail_window_refills_on_a_landing() {
     assert!(
         page.pages["eff"].rows.len() > 1,
         "the refilled page is the newest page, not one arrival"
+    );
+}
+
+/// M2: a member's record below a window does not refuse it. The own seat's
+/// 300 checkpoints hold the member's checkpoint after its last one; the
+/// first window and the window one row down never reach it, so both read
+/// their page rather than falling back to the run whole.
+#[test]
+fn a_member_record_below_the_window_does_not_refuse_it() {
+    let run = "member below";
+    let journal = Journal::of(own_and_member(run, 300, 300), run);
+    for offset in [0, 1] {
+        let fetch = journal.fetch(run, 200, offset, &[]);
+        let (page, _) = fetch
+            .participant(("eff", None), None)
+            .unwrap()
+            .unwrap_or_else(|| panic!("offset {offset}: the window reads"));
+        assert_eq!(page.rows.len(), 200, "offset {offset}: the held window");
+    }
+}
+
+/// The bound (#994): the end and middle reads of two journals whose
+/// participant differs only in its checkpoint count step the same number of
+/// statements and decode the same number of rows on both. The removal
+/// control restores the page walk below the display rank, which steps one
+/// more statement per page.
+#[test]
+fn the_end_and_middle_reads_step_the_same_statements_at_every_size() {
+    use std::collections::BTreeMap;
+
+    let mut measured: BTreeMap<&str, (usize, usize, usize)> = BTreeMap::new();
+    for checkpoints in [2_000u64, 20_000] {
+        let run = format!("bound {checkpoints}");
+        let Journal {
+            _dir,
+            store,
+            at,
+            events,
+        } = Journal::of(super::at_work(&run, checkpoints, true), &run);
+        let mut store = store;
+        for (label, offset) in [("middle", (checkpoints / 2) as usize), ("end", usize::MAX)] {
+            let (read, begun) =
+                brokkr_store::test_support::statements_traced(&mut store, |store| {
+                    let fetch = Fetch {
+                        store,
+                        run: &run,
+                        at: &at,
+                        rows: 50,
+                        offset,
+                        visible: WINDOW,
+                        landed: &[],
+                        trail: &events,
+                    };
+                    fetch.participant(("eff", None), None)
+                });
+            let read = read.expect("the page reads").expect("the window is served");
+            let envelopes = begun
+                .iter()
+                .filter(|sql| sql.starts_with("SELECT envelope FROM events"))
+                .count();
+            let seen = (begun.len(), envelopes, read.0.rows.len());
+            match measured.get(label) {
+                Some(earlier) => assert_eq!(
+                    *earlier, seen,
+                    "{label} at {checkpoints}: the same statements and rows"
+                ),
+                None => {
+                    measured.insert(label, seen);
+                }
+            }
+        }
+    }
+    assert_eq!(
+        measured.keys().copied().collect::<Vec<_>>(),
+        ["end", "middle"]
+    );
+}
+
+/// `run`'s own checkpoints with a member's result-only record after
+/// `member_at`, as H1's journal plants it.
+fn own_and_result(run: &str, turns: u64, member_at: u64) -> Vec<EventEnvelope> {
+    own_with(
+        run,
+        turns,
+        member_at,
+        Some((
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "eff", "attempt_id": "att",
+                   "result": {"member": "m"}}),
+        )),
+    )
+}
+
+/// H1: a member's result-only record inside the end read's own reach takes
+/// the kept way, so the whole fallback counts 121 where the ordinal count
+/// saw 120.
+#[test]
+fn the_end_fetch_takes_the_kept_way_for_a_member_record_in_its_reach() {
+    let run = "kept end result";
+    let journal = Journal::of(own_and_result(run, 120, 2), run);
+    let fetch = journal.fetch(run, 24, usize::MAX, &[]);
+    assert!(
+        fetch.participant(("eff", None), None).unwrap().is_none(),
+        "the end's reach holds the member's record, so the run is read whole"
+    );
+    let whole = brokkr_view::run_view(&journal.events, fold(&journal.events).as_ref().ok());
+    assert_eq!(
+        whole.participants[0].checkpoints.len(),
+        121,
+        "the whole fallback's total is the member's record too"
+    );
+}
+
+/// H2: another effect's checkpoints on the same attempt break the span, so
+/// the offset-4 fetch takes the kept way rather than counting five.
+#[test]
+fn the_offset_four_fetch_takes_the_kept_way_for_another_effect_s_rows() {
+    let run = "kept interleaved effects";
+    let mut steps = in_flight_as(run, "eff", "att");
+    steps.push((
+        EventType::EffectRequested,
+        json!({"effect_id": "gx", "seat": "worker"}),
+    ));
+    steps.push((
+        EventType::EffectStarted,
+        json!({"effect_id": "gx", "attempt_id": "att"}),
+    ));
+    for (effect, turn) in [("eff", 1), ("gx", 1), ("eff", 2), ("gx", 2), ("eff", 3)] {
+        steps.push(journals::checkpoint(
+            effect,
+            "att",
+            json!({"step": "seat-turn", "turn": turn}),
+        ));
+    }
+    let journal = Journal::of(chained(run, journals::journal(steps)), run);
+    let fetch = journal.fetch(run, 24, 4, &[]);
+    assert!(
+        fetch.participant(("eff", None), None).unwrap().is_none(),
+        "the foreign effect's rows break the span, so the run is read whole"
+    );
+}
+
+/// M1: a NULL above the middle window is not in that window's reach, so
+/// the fresh read still serves start 1 and 200 rows without counting the
+/// participant whole first.
+#[test]
+fn a_null_above_the_middle_window_does_not_refuse_it() {
+    let run = "null below middle";
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    planted(&db, vec![(run.to_string(), at_work(run, 300, true))]);
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let seq: i64 = conn
+        .query_row(
+            "SELECT seq FROM event_index
+             WHERE run_id = ?1 AND type = 'effect/checkpointed'
+             ORDER BY seq LIMIT 1 OFFSET 289",
+            [run],
+            |row| row.get(0),
+        )
+        .unwrap();
+    conn.execute(
+        "UPDATE event_index SET stream_ordinal = NULL WHERE run_id = ?1 AND seq = ?2",
+        rusqlite::params![run, seq],
+    )
+    .unwrap();
+    drop(conn);
+    let store = Store::open_read_only(&db).unwrap();
+    let at = store.open_run(run).unwrap();
+    let events = store.load(run).unwrap();
+    let fetch = Fetch {
+        store: &store,
+        run,
+        at: &at,
+        rows: 50,
+        offset: 1,
+        visible: WINDOW,
+        landed: &[],
+        trail: &events,
+    };
+    let (page, _) = fetch
+        .participant(("eff", None), None)
+        .unwrap()
+        .expect("the unaffected window reads");
+    assert_eq!(page.start, 1, "the window starts at the asked row");
+    assert_eq!(page.rows.len(), 200, "the window is the whole read's");
+}
+
+/// F4 (ruling 9): a frame taller than one window but not a whole number
+/// of pages asks for 210 rows; the forward read's last page crosses the
+/// frame's end, so the page is cut there and its cursor names the last
+/// kept row. A read that kept the crossed page would hold 250 rows.
+#[test]
+fn a_frame_taller_than_the_window_is_cut_at_its_end() {
+    let run = "tall frame";
+    let (journal, seqs) = thousand_checkpoints(run);
+    let (page, total) = journal
+        .fetch(run, 210, 0, &[])
+        .participant(("eff", None), None)
+        .unwrap()
+        .expect("the tall frame reads");
+    assert_eq!(page.rows.len(), 210, "the frame's rows, not the page's");
+    assert_eq!(
+        page.next,
+        Some(seqs[209]),
+        "the cursor is the frame's last row"
+    );
+    assert_eq!(total, None, "the stream reads on past the frame");
+}
+
+/// A page whose predecessor rank the ordinals do not name is no page: the
+/// row before the destination is read by key, and its absence takes the
+/// kept way rather than reading from a rank the read cannot place.
+#[test]
+fn a_page_whose_predecessor_rank_has_no_row_is_no_page() {
+    let run = "gap before rank";
+    let journal = Journal::edited(at_work(run, 6, true), run, |conn| {
+        renumber(conn, run, "att", 2, 99);
+    });
+    let fetch = journal.fetch(run, 24, 3, &[]);
+    assert!(
+        fetch.participant(("eff", None), None).unwrap().is_none(),
+        "the page before rank 3 has no row, so the read is kept"
+    );
+}
+
+/// A destination past the end of an attempt whose rows keep no start
+/// finds its rank through the count, asks the page from rank 0, and the
+/// store keeps that page: the kept way (ruling 8).
+#[test]
+fn a_past_the_end_page_the_store_keeps_is_no_page() {
+    let run = "kept past end";
+    let journal = Journal::of(unstarted(run, 1), run);
+    let fetch = journal.fetch(run, 24, 5, &[]);
+    assert!(
+        fetch.participant(("eff", None), None).unwrap().is_none(),
+        "a destination of one finds the kept first page"
+    );
+}
+
+/// An empty participant asked past its end is a page with no rows: its
+/// count is zero, so the destination cannot be narrowed to a row, and
+/// the oldest page is asked through rank 0 and kept as it is.
+#[test]
+fn an_empty_stream_asked_past_its_end_keeps_its_page() {
+    let run = "empty past end";
+    let journal = Journal::of(at_work(run, 0, true), run);
+    let fetch = journal.fetch(run, 24, 5, &[]);
+    let (rows, next, total) = seqs(fetch.participant(("eff", None), None).unwrap());
+    assert!(rows.is_empty(), "the empty stream's page has no rows");
+    assert_eq!(next, None, "the empty stream has no cursor");
+    assert_eq!(total, 0, "the empty stream's rank is zero");
+}
+
+/// A destination rank the ordinals do not name but the count still
+/// exceeds is not past the end: the page starts at the rank itself, and
+/// the count is not mistaken for the end.
+#[test]
+fn a_rank_with_no_row_inside_the_stream_is_not_past_its_end() {
+    let run = "gap inside stream";
+    let journal = Journal::edited(at_work(run, 6, true), run, |conn| {
+        renumber(conn, run, "att", 2, 99);
+    });
+    let fetch = journal.fetch(run, 24, 2, &[]);
+    let (page, total) = fetch
+        .participant(("eff", None), None)
+        .unwrap()
+        .expect("the window inside the stream reads");
+    let expected: Vec<u64> = checkpoints(&journal.events)[2..]
+        .iter()
+        .map(|event| event.seq)
+        .collect();
+    assert_eq!(page.start, 2, "the page starts at the asked rank");
+    assert_eq!(
+        page.rows.iter().map(|(seq, _)| *seq).collect::<Vec<_>>(),
+        expected,
+        "the unnamed rank's own row and those after it"
+    );
+    assert_eq!(total, Some(6), "the stream's count stands");
+}
+
+/// An end page whose start rank the ordinals do not name takes the kept
+/// way: the count still names the stream's end, but the row the page must
+/// start at is missing from the index.
+#[test]
+fn an_end_page_whose_rank_has_no_row_is_no_page() {
+    let run = "gap at end";
+    let journal = Journal::edited(at_work(run, 120, true), run, |conn| {
+        renumber(conn, run, "att", 99, 999);
+    });
+    let fetch = journal.fetch(run, 24, usize::MAX, &[]);
+    assert!(
+        fetch.participant(("eff", None), None).unwrap().is_none(),
+        "the end page's start rank has no row, so the read is kept"
+    );
+}
+
+/// The end page's extension reads the next page by seq; where that page
+/// names an attempt whose rows keep no start, the store keeps it and the
+/// end takes the kept way. The count still stands because the attempt's
+/// own ordinals do.
+#[test]
+fn an_end_page_whose_next_page_the_store_keeps_is_no_page() {
+    let run = "kept end extension";
+    let journal = Journal::edited(two_attempts(run, 60, 60), run, |conn| {
+        renumber(conn, run, "att", 1, 65_500);
+        renumber(conn, run, "b", 59, 100_000);
+    });
+    let fetch = journal.fetch(run, 0, usize::MAX, &[]);
+    assert!(
+        fetch.participant(("eff", None), None).unwrap().is_none(),
+        "the extension's page is kept, so the end read is kept"
     );
 }
