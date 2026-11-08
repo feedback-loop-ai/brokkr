@@ -602,7 +602,7 @@ fn a_probe_that_starts_then_errors_has_no_answer() {
 fn dsh_s_refusal_stays_none() {
     let raw = b"429 Too Many Requests: rate limit".to_vec();
     let captured = super::stderr::capture_reader(std::io::Cursor::new(raw)).take(false);
-    let run = finish_dsh(&mut Map::new(), 1, captured, None, &[]).unwrap();
+    let run = finish_dsh(&mut Map::new(), 1, captured, None, None, &[]).unwrap();
     assert_eq!(run.invocation.refusal, None);
 }
 

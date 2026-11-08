@@ -654,6 +654,7 @@ fn captured_run(steps: impl IntoIterator<Item = Step>) -> (Startup, String) {
         0,
         capture.take(false),
         None,
+        None,
         &[],
     )
     .unwrap();
@@ -1325,6 +1326,7 @@ fn a_bound_secret_never_hides_a_startup_refusal_or_appears_in_the_stderr() {
             &mut serde_json::Map::new(),
             0,
             captured(raw),
+            None,
             None,
             std::slice::from_ref(&bound),
         )

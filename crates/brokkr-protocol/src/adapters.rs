@@ -66,7 +66,10 @@ use mcp::served;
 use probe::{pinned_model, seat_row, ProbeAnswer};
 #[cfg(test)]
 use refusal::refusal_reason;
-use refusal::{bounded_wire_line, claude_refusal, codex_refusal, REFUSAL_TOKEN_LIMIT};
+use refusal::{
+    bounded_wire_line, claude_refusal, codex_refusal, codex_thread_refusal, dsh_refusal, Now,
+    REFUSAL_TOKEN_LIMIT,
+};
 #[cfg(test)]
 use start::serve_io;
 use start::{start_prompt, Confine};
@@ -1722,6 +1725,18 @@ impl CodexThreadEcho {
         }
         (model, effort)
     }
+
+    /// The refusal the thread record's own error states, read on the way
+    /// out of a process that ended before its first turn with no refusal
+    /// on the stream. It is the same locator and the same bounded read as
+    /// [`CodexThreadEcho::echo`]; a file that cannot be read, or that
+    /// names no error, answers nothing rather than guessing (decision
+    /// 0053's boundary, decision 0103 ruling 1(a)).
+    fn refusal(&mut self) -> Option<PreSessionRefusal> {
+        self.resolve();
+        let body = std::fs::read_to_string(self.path.as_ref()?).ok()?;
+        codex_thread_refusal(&body, &Now::read()?)
+    }
 }
 
 /// `name` carries `thread_id` as a WHOLE token — bounded at both ends by
@@ -1970,6 +1985,22 @@ fn dsh_echoed_effort(session_meta: &Map<String, Value>) -> String {
         .unwrap_or_else(|| EFFORT_NOT_REPORTED.to_string())
 }
 
+/// Whether a dsh row is this invocation's own work: a resumed session's
+/// file holds its restored history beside the new work, and only events
+/// past the owned pre-followup sequence are this invocation's (design D8;
+/// task 9.6). The boundary exists only when a root was rejoined; a cold
+/// launch carries none, so its file is read from its first event. The
+/// fold and the refusal classifier ask here, so neither can read the
+/// other's rows.
+fn dsh_row_is_current(event: &Value, first_seq: Option<u64>) -> bool {
+    first_seq.is_none_or(|first_seq| {
+        !event
+            .get("seq")
+            .and_then(Value::as_u64)
+            .is_some_and(|seq| seq <= first_seq)
+    })
+}
+
 /// One dsh session-log line folded into bounded live telemetry.
 ///
 /// dsh 0.1.0-rc.6's headless profile offers no machine-readable stdout
@@ -2027,14 +2058,8 @@ fn fold_dsh_event(
     // carries none, so its file is folded from its first event: dsh's
     // log index IS the sequence and starts at 0, and a cold boundary of
     // 0 would silently drop that first event on the shipped route.
-    if let Some(first_seq) = first_seq {
-        if event
-            .get("seq")
-            .and_then(Value::as_u64)
-            .is_some_and(|seq| seq <= first_seq)
-        {
-            return;
-        }
+    if !dsh_row_is_current(event, first_seq) {
+        return;
     }
     match event.get("type").and_then(Value::as_str) {
         Some("session") => {
@@ -2294,23 +2319,32 @@ impl DshFold<'_> {
     /// The probe bound (decision 0103 ruling 4(a)): an `assistant/message`
     /// is dsh's model-output answer, and the first one is admitted while a
     /// later one is not.
-    fn drain(&mut self, emit: &mut impl FnMut(&Value)) {
+    ///
+    /// A `turn/end` naming an error before the first `assistant/message`
+    /// is dsh's pre-session refusal (decision 0053), typed from the row's
+    /// machine fields by `dsh_refusal` and returned to the caller to latch.
+    fn drain(&mut self, emit: &mut impl FnMut(&Value)) -> Option<PreSessionRefusal> {
         if self.tail.file.is_none() {
             self.tail.file =
                 find_dsh_transcript(self.root).and_then(|path| std::fs::File::open(path).ok());
         }
-        let Some(file) = self.tail.file.as_mut() else {
-            return;
-        };
+        let file = self.tail.file.as_mut()?;
         let mut chunk = Vec::new();
         let _ = file.read_to_end(&mut chunk);
         self.tail.pending.extend_from_slice(&chunk);
+        let mut refusal = None;
         while let Some(index) = self.tail.pending.iter().position(|byte| *byte == b'\n') {
             let line: Vec<u8> = self.tail.pending.drain(..=index).collect();
             let Ok(mut event) = serde_json::from_slice::<Value>(&line) else {
                 continue;
             };
             secret::mask_json(&mut event, self.bindings);
+            // Decision 0053's boundary: only an error before the first
+            // counted turn is a refusal to start. The restored history
+            // below a resumed root's boundary is not this invocation's.
+            if refusal.is_none() && *self.turns == 0 && dsh_row_is_current(&event, self.first_seq) {
+                refusal = dsh_refusal(&event);
+            }
             let answer_event = self.probe.requested() && probe::is_answer(AdapterKind::Dsh, &event);
             let mut emitted: Vec<Value> = Vec::new();
             let mut capture = |data: &Value| {
@@ -2328,6 +2362,7 @@ impl DshFold<'_> {
             );
             self.probe.admit(AdapterKind::Dsh, &event, &emitted);
         }
+        refusal
     }
 }
 
@@ -3706,6 +3741,13 @@ fn invoke_codex(
             session_meta.insert("model".into(), Value::String(model));
         }
     }
+    // Decision 0103 ruling 1(a): a codex that ended before its first turn
+    // with no refusal on the stream is read from the thread record's own
+    // error, through the locator decision 0035 already holds. It is read
+    // here alone, on that early exit, so a normal seat pays nothing.
+    if refusal.is_none() && turn == 0 {
+        refusal = echo.refusal();
+    }
     transcript.finish(&mut session_meta, &mut |data: &Value| {
         hold.observe(data, emit)
     });
@@ -4801,23 +4843,34 @@ fn invoke_dsh_shipped(
         spawn_dsh(command, &launch.workdir, Stdio::null(), launch, bindings)?;
     let mut turns = 0u64;
     let mut tail = DshTail::default();
+    let mut refusal = None;
     let exit_code = poll_until_exit(
         &mut child,
         |child| wait(child),
         || {
-            dsh_launch::DshFoldState {
+            let read = dsh_launch::DshFoldState {
                 tail: &mut tail,
                 turns: &mut turns,
                 session_meta,
                 probe,
             }
             .drain(launch, bindings, emit);
+            if refusal.is_none() {
+                refusal = read;
+            }
             probe.answered()
         },
     )?;
     let stopped = probe.answered();
     let captured = stderr_thread.take(stopped);
-    finish_dsh(session_meta, exit_code, captured, probe.take(), bindings)
+    finish_dsh(
+        session_meta,
+        exit_code,
+        captured,
+        refusal,
+        probe.take(),
+        bindings,
+    )
 }
 
 /// One line of the plugin's stream-json envelope. The init event names the
@@ -5296,19 +5349,17 @@ fn finish_dsh(
     session_meta: &mut Map<String, Value>,
     exit_code: i32,
     captured: CapturedStderr,
+    refusal: Option<PreSessionRefusal>,
     answer: Option<Value>,
     bindings: &[secret::BoundSecret],
 ) -> Result<DshRun, String> {
     session_meta.insert("harness".into(), Value::String("deepseek".into()));
     session_meta.insert("profile".into(), Value::String("headless".into()));
-    // Decision 0053: dsh's headless profile makes no machine-readable
-    // pre-session refusal available. Its stdout is the final answer or
-    // nothing, and a provider rejection reaches this driver only as
-    // stderr prose plus a non-zero exit — sniffing that prose to make a
-    // control decision is exactly the repair decision 0001 forbids. So
-    // dsh classifies nothing here and a refusal before its first turn
-    // follows decision 0006 unchanged; the guide says so beside claude
-    // and codex.
+    // Decision 0053: dsh's headless profile puts no refusal on stdout,
+    // but its session record's `turn/end` carries the error's machine
+    // fields, and the transcript fold reads them (`dsh_refusal`). The
+    // stderr prose is never sniffed; a refusal before the first turn
+    // with no such row follows decision 0006 unchanged.
     // Classified ONCE, from the child's own bytes, before masking or
     // reasoning redaction can rewrite the marker words the gate reads
     // (#896 H1; decision 0098 ruling 4). The raw text goes no further.
@@ -5326,7 +5377,7 @@ fn finish_dsh(
             stdout: String::new(),
             stderr,
             state: None,
-            refusal: None,
+            refusal,
             launch: LaunchTerminal::Cold,
         },
         startup,
@@ -6855,3 +6906,6 @@ mod dsh_v4_tests;
 
 #[cfg(test)]
 mod dsh_effort_tests;
+
+#[cfg(test)]
+mod refusal_tests;

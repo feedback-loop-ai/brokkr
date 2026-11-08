@@ -15,14 +15,16 @@ pub(super) struct DshFoldState<'a> {
 
 impl DshFoldState<'_> {
     /// Fold whatever the transcript has appended through the invocation's
-    /// one probe bound. Both routes share this so a pass cannot differ from
-    /// the other in which boundary it reads or which answer it admits.
+    /// one probe bound, and return the pre-session refusal it read, if
+    /// any. Both routes share this so a pass cannot differ from the other
+    /// in which boundary it reads, which refusal it types or which answer
+    /// it admits.
     pub(super) fn drain(
         &mut self,
         launch: &DshLaunch,
         bindings: &[secret::BoundSecret],
         emit: &mut impl FnMut(&Value),
-    ) {
+    ) -> Option<PreSessionRefusal> {
         DshFold::new(
             self.tail,
             &launch.root,
@@ -32,7 +34,7 @@ impl DshFoldState<'_> {
             bindings,
             self.probe,
         )
-        .drain(emit);
+        .drain(emit)
     }
 }
 
@@ -165,6 +167,9 @@ struct DshStreamState<'a> {
     turns: &'a mut u64,
     session_meta: &'a mut Map<String, Value>,
     probe: &'a mut ProbeAnswer,
+    /// The pre-session refusal the transcript's first error named, if
+    /// any (decision 0053; decision 0103 ruling 1(a)).
+    refusal: Option<PreSessionRefusal>,
 }
 
 /// What one pass over the qualified child found: an answer, an ordinary
@@ -192,17 +197,21 @@ impl DshStreamState<'_> {
         );
     }
 
-    /// Fold whatever the transcript appended, when the hold permits it.
-    /// Returns whether the probe admitted its first answer.
+    /// Fold whatever the transcript appended, when the hold permits it,
+    /// latching the first pre-session refusal it reads. Returns whether
+    /// the probe admitted its first answer.
     fn drain(&mut self, emit: &mut impl FnMut(&Value)) -> bool {
         if self.watch.may_fold() {
-            DshFoldState {
+            let read = DshFoldState {
                 tail: &mut *self.tail,
                 turns: &mut *self.turns,
                 session_meta: &mut *self.session_meta,
                 probe: &mut *self.probe,
             }
             .drain(self.launch, self.bindings, emit);
+            if self.refusal.is_none() {
+                self.refusal = read;
+            }
         }
         self.probe.answered()
     }
@@ -372,6 +381,7 @@ fn invoke_dsh_stream_json(
         turns: &mut turns,
         session_meta,
         probe,
+        refusal: None,
     };
     // stdout may close before the child does (or stay open while it
     // sleeps): once it is closed, the transcript alone carries the answer
@@ -404,6 +414,7 @@ fn invoke_dsh_stream_json(
         state.session_meta,
         status,
         captured,
+        state.refusal.take(),
         state.probe.take(),
         bindings,
     )
@@ -608,6 +619,7 @@ mod tests {
                 turns: &mut turns,
                 session_meta: &mut meta,
                 probe: &mut probe,
+                refusal: None,
             };
             let answered = state.poll(&mut |_| {}, &mut |_: &DshObservation| {
                 observed += 1;
