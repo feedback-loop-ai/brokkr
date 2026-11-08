@@ -191,7 +191,7 @@ fn action(tool: &str, version: &str, sha256: &str) -> String {
       run: |
         set -euo pipefail
         tarball=\"${{RUNNER_TEMP}}/{tool}.tar.gz\"
-        curl -sSfL --retry 3 -o \"$tarball\" \\
+        curl -sSfL --connect-timeout 20 --max-time 60 --retry 6 --retry-delay 10 --retry-all-errors -o \"$tarball\" \\
           \"https://example.invalid/{tool}/v${{{key}_VERSION}}/{tool}.tar.gz\"
         echo \"${{{key}_SHA256}}  ${{tarball}}\" | sha256sum -c -
 "

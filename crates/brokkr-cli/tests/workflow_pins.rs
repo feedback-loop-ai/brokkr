@@ -1295,7 +1295,7 @@ fn assert_fetched_by_digest(action_file: &str, digest: &str, download: &str, unp
             .find(needle)
             .unwrap_or_else(|| panic!("no {needle} in:\n{action}"))
     };
-    let fetch = at("curl -sSfL --retry 3 -o \"$tarball\"");
+    let fetch = at("curl -sSfL --connect-timeout 20 --max-time 60 --retry 6 --retry-delay 10 --retry-all-errors -o \"$tarball\"");
     let check = at(&format!(
         "echo \"${{{digest}}}  ${{tarball}}\" | sha256sum -c -"
     ));
