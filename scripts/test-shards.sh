@@ -43,14 +43,33 @@
 # rules on a run's: a shard that prints a `test result:` summary the
 # grammar cannot read, or none at all, is refused, and so is a filtered
 # shard whose run shows no executed test, since its filter matches nothing
-# (#543). A shard whose runner ends without recording its exit status is
-# refused by name, and the logs are then kept, since its command may still
-# be writing them; for the same reason no later shard is started, since it
-# could not be shown to run alone. A shard that merely fails stops nothing:
+# (#543). A shard's command runs in the foreground under
+# scripts/shard-runner.py, which owns its output and process group: it copies
+# every output byte unchanged, reads the group's process table, and gives
+# every `deps` executable and `rustdoc` run with the --test flag it finds a
+# clock from that
+# process's first sight to the bound, judging it after argv's own exit too
+# until the group is shown ended; no line a test prints can move it.
+# The runner's one-line status is read after it ends: `exit <code>` is the
+# shard's exit, `bound` fails it by the name in the bound record, and
+# `unproven <reason>` or no status file at all is a lost shard, whose logs
+# are kept and whose later shards are never started, since its command may
+# still be running. The
+# group is only shown ended by a process-table read that succeeds and finds
+# none, so a failed read also keeps the logs and starts no later shard. A
+# shard that merely fails stops nothing:
 # every later shard still runs, as `--no-fail-fast` would. The threat model is
 # the operator's of 2026-09-26: realistic accidental misuse is caught, and
 # what cannot be read is refused.
 set -euo pipefail
+
+# The per-binary bound, in seconds: a test binary that runs past it is
+# named, its shard's process group is ended, and the run fails. The slowest
+# binary measured took 1,124 s (heap_run_view on a slow hosted macOS runner,
+# 2026-11-03); coverage takes half as long again (this script's header), so
+# 1,800 s is about 1.6 times the slowest. A shard that merely fails still
+# stops nothing (below).
+BINARY_BOUND_SECONDS=1800
 
 refuse() {
   printf 'test shards: %s\n' "$1" >&2
@@ -105,6 +124,13 @@ shard "capability_broker, its enabled suite skipped, alone" 5 1 test:it only:cap
 # The machine this run is, read once and unset (above).
 machine="${BROKKR_TEST_MACHINE:-}"
 unset BROKKR_TEST_MACHINE
+# The per-binary bound, read once and unset so no shard inherits it; the
+# tests set it below 1,800 to prove a hang without waiting half an hour. A
+# value that is not a whole number above 0 refuses by name.
+bound="${BROKKR_TEST_SHARD_BOUND_SECONDS:-$BINARY_BOUND_SECONDS}"
+unset BROKKR_TEST_SHARD_BOUND_SECONDS
+[[ "$bound" =~ ^[1-9][0-9]*$ ]] ||
+  refuse "BROKKR_TEST_SHARD_BOUND_SECONDS '$bound' is not a whole number of seconds above 0"
 
 parallel_heaps=false
 if [ "$#" -gt 0 ] && [ "${!#}" = --parallel-heaps ]; then
@@ -200,12 +226,10 @@ if [ -n "$machine" ]; then
   [ "${#running[@]}" -gt 0 ] || refuse "BROKKR_TEST_MACHINE names $machine, which runs no shard"
 fi
 
-for tool in jq cargo; do
-  command -v "$tool" >/dev/null 2>&1 || refuse "$tool is required to hold the shards to the workspace"
+for tool in jq cargo python3; do
+  command -v "$tool" >/dev/null 2>&1 ||
+    refuse "$tool is required to hold the shards to the workspace and run them"
 done
-if "$parallel_heaps"; then
-  command -v python3 >/dev/null 2>&1 || refuse 'python3 is required for parallel heaps'
-fi
 cd "$(git rev-parse --show-toplevel)"
 
 # The partition check, read from Cargo's own typed account of the targets.
@@ -430,52 +454,165 @@ trap 'if "$settled"; then rm -rf "$work"; fi' EXIT
 failed=()
 shard_status=()
 shard_seconds=()
+shard_bound_name=()
+shard_bound_seconds=()
 lost=false
-# Runs the shard $1 and waits for its runner, which records the command's
-# exit status and seconds, before anything else runs.
+
+# The one line in the file $1 and its newline, byte for byte, into `line`,
+# or '' where the file is not exactly one line and its newline. Bash drops
+# a NUL and strips every trailing newline from what it reads, so the file is
+# compared whole with the record read from it.
+read_line() {
+  line=''
+  [ -r "$1" ] || return 0
+  local record=''
+  { record="$(<"$1")"; } 2>/dev/null || return 0
+  [[ "$record" == *$'\n'* ]] && return 0
+  printf '%s\n' "$record" | cmp -s - "$1" || return 0
+  line="$record"
+}
+
+# The runner's one-line status in the file $1, into `status_kind`,
+# `status_code` and `status_reason`: `exit <code>`, `bound`, or
+# `unproven <reason>`. Anything else, including no file, is `none`.
+read_status() {
+  status_kind=none
+  status_code=''
+  status_reason=''
+  read_line "$1"
+  [ -n "$line" ] || return 0
+  case "$line" in
+    exit\ *)
+      status_code="${line#exit }"
+      [[ "$status_code" =~ ^(0|[1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|25[0-5])$ ]] || return 0
+      status_kind='exit'
+      ;;
+    bound) status_kind=bound ;;
+    unproven\ ?*) status_kind=unproven status_reason="${line#unproven }" ;;
+  esac
+}
+
+# The bound record in the file $1, into `bound_name` and `bound_seconds`,
+# or empty where the file is not a name line and a seconds line. The name
+# comes first, so a doctest's `Doc-tests <crate>` keeps its space whole.
+read_bound() {
+  bound_name=''
+  bound_seconds=''
+  local file="$1" record='' name='' seconds=''
+  [ -r "$file" ] || return 0
+  record="$(<"$file")" || return 0
+  [[ "$record" == *$'\n'* ]] || return 0
+  name="${record%%$'\n'*}"
+  seconds="${record#*$'\n'}"
+  [[ -n "$name" && "$seconds" != *$'\n'* && "$seconds" =~ ^[1-9][0-9]*$ ]] || return 0
+  bound_name="$name"
+  bound_seconds="$seconds"
+}
+
+# The reason a later shard is not started, set when a shard is lost.
+lost_reason='an earlier runner recorded no exit status'
+# Records the shard $1 lost for `reason`, with status `kind`, prints the
+# shard's log and adds `failure` to the run's failures. The logs are kept
+# and no later shard starts.
+lose_shard() {
+  local index="$1" kind="$2" reason="$3" failure="$4"
+  lost=true
+  shard_status[$index]="$kind"
+  case "$kind" in
+    unproven) lost_reason='an earlier shard could not be shown to have ended' ;;
+    unreadbound) lost_reason="an earlier shard's bound record could not be read" ;;
+  esac
+  printf '\n==> %s: %s; the logs are kept in %s\n' "${shard_name[$index]}" "$reason" "$work"
+  if [ -f "$work/$index.log" ]; then cat "$work/$index.log"; fi
+  failed+=("$failure")
+}
+
+# Runs the shard $1 in the foreground under the runner that owns its output
+# and process group, then reads the runner's one status line: an `exit`
+# records the shard's code, a `bound` names the binary in the record, and an
+# `unproven` or absent status is lost, keeping the logs and starting nothing
+# later. The heap shard keeps its own launcher and per-child bound; the
+# runner does not wrap it, so the shell records the launcher's exit here.
 run_shard() {
-  local index="$1" waited=0 status='' seconds='' refusal
+  local index="$1" waited=0 start=0 seconds=0 refusal=''
+  local bound_name='' bound_seconds=''
+  local status_kind=none status_code='' status_reason=''
+  local heap=false
   argv_of "$index"
   if "$parallel_heaps" && [ "${shard_name[$index]}" = 'the heap measurements' ]; then
+    heap=true
     argv=(python3 scripts/parallel-heaps.py)
     if [ "$mode" = coverage ]; then argv+=(--nightly "${prefix[1]#+}"); fi
+    argv+=(--binary-bound "$bound" --bound-record "$work/$index.heap.bound")
+  else
+    argv=(python3 scripts/shard-runner.py --binary-bound "$bound" \
+      --bound-record "$work/$index.bound" --status "$work/$index.status" -- "${argv[@]}")
   fi
   printf 'test shards: runs %s:%s\n' "${shard_name[$index]}" "$(printf ' %s' "${argv[@]}")"
-  # The runner runs in the foreground: a non-interactive shell starts a
-  # background command with SIGINT and SIGQUIT ignored, and a test that
-  # raises SIGINT on a child would see it ignored. Bash's own notice of
-  # a runner killed by a signal is replaced by the refusal below, which
-  # names the runner's exit.
-  {
-    (
-      set +e
-      start="$SECONDS"
-      "${argv[@]}" >"$work/$index.log" 2>&1
-      status=$?
-      printf '%s %s\n' "$status" "$((SECONDS - start))" >"$work/$index.status"
-    )
-  } 2>/dev/null || waited=$?
-  local record=''
-  read_record "$work/$index.status"
-  if [ -z "$record" ]; then
-    lost=true
-    shard_status[$index]=none
-    printf '\n==> %s: no exit status recorded, its runner ended with exit %s; the logs are kept in %s\n' \
-      "${shard_name[$index]}" "$waited" "$work"
-    if [ -f "$work/$index.log" ]; then cat "$work/$index.log"; fi
-    failed+=("${shard_name[$index]} recorded no exit status (its runner ended with exit $waited), so it is not shown to have passed")
+  # The runner runs in the foreground, so a non-interactive shell never
+  # starts it in the background with SIGINT ignored: the runner itself puts
+  # argv in a session of its own and forwards INT and TERM to that group.
+  start="$SECONDS"
+  # A shard killed by the runner's signal would otherwise print the shell's
+  # "Killed" notice beside the status the guard reads.
+  { "${argv[@]}" >"$work/$index.log" 2>&1; } 2>/dev/null || waited=$?
+  seconds=$((SECONDS - start))
+  if "$heap"; then
+    # The launcher bounds its own children and records the bound it fired;
+    # the shell records the launcher's exit, as the runner would.
+    printf 'exit %s\n' "$waited" >"$work/$index.status"
+    read_bound "$work/$index.heap.bound"
+  fi
+  read_status "$work/$index.status"
+  if "$heap" && [ -n "$bound_name" ]; then
+    shard_bound_name[$index]="$bound_name"
+    shard_bound_seconds[$index]="$bound_seconds"
+    failed+=("$bound_name ran past $bound_seconds s")
+    printf '\n==> %s: %s ran past %s s\n' "${shard_name[$index]}" "$bound_name" "$bound_seconds"
+    cat "$work/$index.log"
     return
   fi
-  status="${record%% *}" seconds="${record#* }"
-  shard_status[$index]="$status"
-  shard_seconds[$index]="$seconds"
-  printf '\n==> %s: exit %s after %ss\n' "${shard_name[$index]}" "$status" "$seconds"
-  cat "$work/$index.log"
-  if [ "$status" != 0 ]; then
-    failed+=("${shard_name[$index]} failed with exit $status")
-  fi
-  refusal="$(summary_refusal "$work/$index.log" "$index")"
-  if [ -n "$refusal" ]; then failed+=("${shard_name[$index]} $refusal"); fi
+  case "$status_kind" in
+    exit)
+      shard_status[$index]="$status_code"
+      shard_seconds[$index]="$seconds"
+      printf '\n==> %s: exit %s after %ss\n' "${shard_name[$index]}" "$status_code" "$seconds"
+      cat "$work/$index.log"
+      if [ "$status_code" != 0 ]; then
+        failed+=("${shard_name[$index]} failed with exit $status_code")
+      fi
+      refusal="$(summary_refusal "$work/$index.log" "$index")"
+      if [ -n "$refusal" ]; then failed+=("${shard_name[$index]} $refusal"); fi
+      ;;
+    bound)
+      read_bound "$work/$index.bound"
+      if [ -z "$bound_name" ]; then
+        lose_shard "$index" unreadbound \
+          "the bound record of ${shard_name[$index]} could not be read" \
+          "the bound record of ${shard_name[$index]} could not be read, so it is not shown to have passed"
+        return
+      fi
+      shard_status[$index]=bound
+      shard_seconds[$index]="$seconds"
+      shard_bound_name[$index]="$bound_name"
+      shard_bound_seconds[$index]="$bound_seconds"
+      failed+=("$bound_name ran past $bound_seconds s")
+      printf '\n==> %s: %s ran past %s s\n' "${shard_name[$index]}" "$bound_name" "$bound_seconds"
+      cat "$work/$index.log"
+      ;;
+    unproven)
+      lose_shard "$index" unproven \
+        "could not show its process group ended: $status_reason" \
+        "could not show ${shard_name[$index]}'s process group ended: $status_reason"
+      return
+      ;;
+    *)
+      lose_shard "$index" none \
+        "no exit status recorded, its runner ended with exit $waited" \
+        "${shard_name[$index]} recorded no exit status (its runner ended with exit $waited), so it is not shown to have passed"
+      return
+      ;;
+  esac
 }
 
 for index in "${running[@]}"; do
@@ -484,14 +621,21 @@ for index in "${running[@]}"; do
     continue
   fi
   shard_status[$index]=unstarted
-  failed+=("${shard_name[$index]} was not started: an earlier runner recorded no exit status, so its command may still be running and the shard cannot be shown to run alone")
+  failed+=("${shard_name[$index]} was not started: $lost_reason, so its command may still be running and the shard cannot be shown to run alone")
 done
 if ! "$lost"; then settled=true; fi
 
 printf '\n'
 for index in "${running[@]}"; do
+  if [ -n "${shard_bound_name[$index]:-}" ]; then
+    printf 'test shards: %s: %s ran past %s s\n' "${shard_name[$index]}" \
+      "${shard_bound_name[$index]}" "${shard_bound_seconds[$index]}"
+    continue
+  fi
   case "${shard_status[$index]}" in
     none) printf 'test shards: %s: no exit status recorded\n' "${shard_name[$index]}" ;;
+    unproven) printf 'test shards: %s: could not show its process group ended\n' "${shard_name[$index]}" ;;
+    unreadbound) printf 'test shards: the bound record of %s could not be read\n' "${shard_name[$index]}" ;;
     unstarted) printf 'test shards: %s: not started\n' "${shard_name[$index]}" ;;
     *)
       printf 'test shards: %s: exit %s after %ss\n' "${shard_name[$index]}" \

@@ -124,8 +124,21 @@ def stop(processes):
             signal.signal(sig, handler)
 
 
-def run(binaries, env, timeout=900):
+class BoundExceeded(subprocess.TimeoutExpired):
+    """A child that ran past the per-binary bound, named as Cargo built it."""
+
+    def __init__(self, binary, seconds):
+        super().__init__([binary], seconds)
+        self.binary = binary
+        self.seconds = seconds
+
+    def __str__(self):
+        return f"{self.binary} ran past {self.seconds} s"
+
+
+def run(binaries, env, timeout, bound_record=None):
     processes = []
+    launched = {}
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="brokkr-parallel-heaps-") as directory:
         try:
@@ -135,8 +148,18 @@ def run(binaries, env, timeout=900):
                         [binaries[name], "--nocapture", "--test-threads=1"], env=env,
                         stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
                     ))
-            for process in processes:
-                process.wait(timeout=max(0, timeout - (time.monotonic() - started)))
+                    launched[name] = time.monotonic()
+            for name, process in zip(NAMES, processes):
+                try:
+                    process.wait(timeout=max(0, launched[name] + timeout - time.monotonic()))
+                except subprocess.TimeoutExpired as error:
+                    binary = Path(binaries[name]).name
+                    # The shard reads the same two-line record the foreground
+                    # runner writes, so a bound in either home reaches the
+                    # shard's failure and its final summary.
+                    if bound_record is not None:
+                        Path(bound_record).write_text(f"{binary}\n{timeout}\n")
+                    raise BoundExceeded(binary, timeout) from error
         finally:
             stop(processes)
             valid = len(processes) == len(NAMES)
@@ -165,12 +188,20 @@ def interrupted(signum, _frame):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--nightly", help="coverage toolchain; only inside coverage-exact.sh")
+    parser.add_argument("--binary-bound", type=int, metavar="N",
+                        help="per-binary seconds before a child is ended and named; required")
+    parser.add_argument("--bound-record", metavar="PATH",
+                        help="the file the shard reads a past-bound child's name and seconds from")
     args = parser.parse_args()
+    if args.binary_bound is None:
+        parser.error("--binary-bound is required: the shard passes the measured bound")
+    if args.binary_bound < 1:
+        parser.error("--binary-bound must be a whole number of seconds above 0")
     signal.signal(signal.SIGINT, interrupted)
     signal.signal(signal.SIGTERM, interrupted)
     try:
         binaries, env = prepare(args.nightly)
-        return run(binaries, env)
+        return run(binaries, env, args.binary_bound, args.bound_record)
     except Interrupted as error:
         return 128 + error.signum
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:

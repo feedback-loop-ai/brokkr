@@ -5,10 +5,15 @@
 //! planted target no shard runs, one run twice, a selector that names
 //! nothing or cannot be read is refused by name, and with a `cargo` stub
 //! first on `PATH` the order, the failures and a filter that matches
-//! nothing are each shown.
+//! nothing are each shown. The per-binary bound is enforced by the
+//! foreground `shard-runner.py` that owns each shard's output and group;
+//! its own process tests are run from here, and a runner that dies, a group
+//! that cannot be shown ended and a binary that passes after its bound are
+//! each refused by name.
 
 use std::os::unix::fs::PermissionsExt;
 use std::process::{Command, Output};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
@@ -53,24 +58,59 @@ fn metadata() -> Metadata {
 }
 
 /// A stand-in for `cargo`: `metadata` prints the planted metadata; every
-/// other call is recorded, and a shard's call prints one libtest summary.
-/// A shard's call also records `start` and `end` with its arguments in
-/// `events`, and takes a moment between them, so two shards run at once
-/// show as interleaved, and records in `machine` the BROKKR_TEST_MACHINE it
-/// inherited, or `unset`. `STUB_FAIL` names a word whose shard fails,
-/// `STUB_EMPTY` one whose shard runs no test, `STUB_PLANT` one whose shard
-/// prints `STUB_LINES` in place of its summary and exits 0, and
-/// `STUB_KILL` one whose shard kills its runner, the script's subshell,
-/// before the runner records its status, and keeps running, not yet
-/// ended, until the scratch's `release` exists. `STUB_RECORD` names a word
-/// whose shard writes the scratch's `record` as its own status record, the
-/// one whose log has none yet, and kills its runner before the runner
-/// writes one. Each shard's call also
-/// records in `signals` how a SIGINT it raises ends a child shell: 130
-/// when SIGINT keeps its default, 0 when it was left ignored.
+/// other call is recorded, and a shard's call prints one libtest summary,
+/// records `start`/`end` for interleaving, records the machine and bound it
+/// inherited, and records how a raised SIGINT ends a child shell.
+/// `STUB_FAIL` fails the shard, `STUB_EMPTY` runs no test, `STUB_PLANT`
+/// prints `STUB_LINES` instead of its summary, `STUB_KILL` kills its runner
+/// and waits for `release`, and `STUB_RECORD` writes a status record then
+/// kills its runner.
+///
+/// `dep` copies a real executable into a directory named `deps`, so the
+/// kernel reports the copy (never a script's interpreter) as the executable
+/// and the runner finds it by `/proc` or `ps`. `STUB_HANG` runs
+/// `hang-0123abcd` past the bound, `STUB_QUIET_HANG` with no start line,
+/// `STUB_DOCTEST_HANG` runs `rustdoc --test`, `STUB_SLOW`/`STUB_PAIR` stay
+/// under it, `STUB_TAIL` prints a result then lives past the bound,
+/// `STUB_LEAK` leaves a `deps` binary alive past the bound after argv itself
+/// exits, `STUB_CARGO_TAIL` sleeps after every deps binary is gone,
+/// `STUB_STOPPED` leaves a stopped `/bin/sleep` helper outside `deps`,
+/// `STUB_LATE`/`STUB_LATE_PROGRESS` print a result
+/// at or after it, `STUB_CHATTY` keeps printing, `STUB_PARENS` has a deps
+/// path with parentheses, `STUB_UNWRITABLE` makes the bound record path a
+/// directory, and `STUB_LEAVE` leaves a sleeping member in the group.
 const STUB: &str = r#"#!/usr/bin/env bash
 dir="$STUB_DIR"
+deps_dir="$dir/target/debug/deps"
+dep() {
+  local name="$1" source="${2:-/bin/sh}" folder="${3:-$deps_dir}" path
+  mkdir -p "$folder"
+  path="$folder/$name"
+  cp "$source" "$path"
+  chmod +x "$path"
+  printf '%s' "$path"
+}
+shell_dep() {
+  local name="$1" body="$2"; shift 2
+  local path
+  path="$(dep "$name" /bin/sh)"
+  "$path" -c "$body" "$name" "$@" &
+}
+run_dep() {
+  local name="$1" seconds="$2" pidfile="${3:-}" folder="${4:-$deps_dir}" path
+  path="$(dep "$name" /bin/sh "$folder")"
+  "$path" -c "sleep $seconds; :" "$name" &
+  [ -z "$pidfile" ] || printf '%s\n' "$!" > "$pidfile"
+  wait
+}
 if [ "$1" = metadata ]; then cat "$dir/metadata.json"; exit 0; fi
+if [[ " $* " == *" --message-format=json "* ]]; then
+  for heap in heap_claude heap_codex heap_dsh; do
+    printf '{"reason":"compiler-artifact","profile":{"test":true},"target":{"name":"%s"},"executable":"%s/%s-0123abcd"}\n' \
+      "$heap" "$dir" "$heap"
+  done
+  exit 0
+fi
 printf '%s\n' "$*" >> "$dir/calls"
 case " $* " in *" --no-run "* | *" --list "*) exit 0 ;; esac
 summary() {
@@ -79,8 +119,78 @@ summary() {
 names() { local word="$1"; shift; [ -n "$word" ] && [[ " $* " == *" $word "* ]]; }
 printf 'start %s\n' "$*" >> "$dir/events"
 printf '%s\n' "${BROKKR_TEST_MACHINE-unset}" >> "$dir/machine"
+printf '%s\n' "${BROKKR_TEST_SHARD_BOUND_SECONDS-unset}" >> "$dir/bound"
 sh -c 'kill -INT $$; exit 0'
 printf '%s %s\n' "$?" "$*" >> "$dir/signals"
+if names "${STUB_HANG:-}" "$@"; then run_dep hang-0123abcd 600 "$dir/hang.pid"; fi
+if names "${STUB_QUIET_HANG:-}" "$@"; then run_dep quiet-0123abcd 600 "$dir/quiet.pid"; fi
+if names "${STUB_DOCTEST_HANG:-}" "$@"; then
+  cp /bin/sh "$dir/rustdoc"; chmod +x "$dir/rustdoc"
+  "$dir/rustdoc" -c 'sleep 600; :' rustdoc --crate-name brokkr_core --test &
+  printf '%s\n' "$!" > "$dir/doctest.pid"; wait
+fi
+if names "${STUB_STOPPED:-}" "$@"; then
+  dep_path="$(dep stopped-0456 /bin/sh)"
+  "$dep_path" -c '/bin/sleep 600 &
+stopped=$!
+printf "%s\n" "$stopped" > "$1"
+sleep 0.2
+kill -STOP "$stopped"
+sleep 600' stopped "$dir/stopped.pid" &
+  wait
+fi
+if names "${STUB_LATE:-}" "$@"; then
+  shell_dep late-9999 'sleep 1.15
+printf "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s\n"
+sleep 600'
+  wait
+fi
+if names "${STUB_LATE_PROGRESS:-}" "$@"; then
+  shell_dep late-progress-1234 'sleep 0.6
+printf "test still running...\n"
+sleep 0.55
+printf "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s\n"
+sleep 600'
+  wait
+fi
+if names "${STUB_CHATTY:-}" "$@"; then
+  shell_dep chatty-5678 'count=0
+while [ "$count" -lt 10 ]; do
+  sleep 0.3
+  printf "test still running...\n"
+  count=$((count + 1))
+done
+sleep 600'
+  wait
+fi
+if names "${STUB_TAIL:-}" "$@"; then
+  shell_dep tail-9abc 'sleep 0.2
+printf "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s\n"
+sleep 2'
+  wait
+fi
+if names "${STUB_LEAK:-}" "$@"; then
+  dep_path="$(dep leak-0123abcd /bin/sh)"
+  "$dep_path" -c 'sleep 1.8; :' leak-0123abcd & printf '%s\n' "$!" > "$dir/leak.pid"
+  sleep 0.4; summary ok 1 0; exit 0
+fi
+if names "${STUB_CARGO_TAIL:-}" "$@"; then run_dep short-0123abcd 0.2; sleep 3; fi
+if names "${STUB_PARENS:-}" "$@"; then
+  run_dep hang-0123abcd 5 "$dir/parens.pid" "$dir/target/ctd (y)/debug/deps"
+fi
+if names "${STUB_SLOW:-}" "$@"; then run_dep slow-0123abcd 1.5; fi
+if names "${STUB_PAIR:-}" "$@"; then run_dep first-aaaa 2; run_dep second-bbbb 2; fi
+if names "${STUB_UNWRITABLE:-}" "$@"; then
+  for work in "$TMPDIR"/brokkr-test-shards.*; do
+    [ -d "$work" ] && mkdir -p "$work/0.bound"
+  done
+  run_dep unwritable-0abc 600 "$dir/unwritable.pid"
+fi
+if names "${STUB_LEAVE:-}" "$@"; then
+  sleep 60 &
+  printf '%s %s\n' "$$" "$!" > "$dir/leave.pid"
+  summary ok 1 0
+fi
 sleep 0.2
 status=0
 if names "${STUB_FAIL:-}" "$@"; then
@@ -93,6 +203,9 @@ else
   summary ok 1 0
 fi
 if names "${STUB_KILL:-}" "$@"; then
+  # Let the runner copy the summary the test expects in the kept log before
+  # the stub kills it; the runner still dies before it writes its status.
+  sleep 0.5
   kill -KILL "$PPID"
   tries=0
   while [ ! -e "$dir/release" ] && [ "$tries" -lt 600 ]; do tries=$((tries + 1)); sleep 0.05; done
@@ -111,6 +224,63 @@ exit "$status"
 /// it names another, so a run reads the same on every host these tests run
 /// on.
 const UNAME: &str = "#!/usr/bin/env bash\nprintf '%s\\n' \"${STUB_UNAME:-Linux}\"\n";
+
+/// A `tail` that fails on the first shard's log: nothing reads a shard's log
+/// beside the runner any more, so this must change no shard's verdict.
+const FAILING_TAIL: &str = r#"#!/usr/bin/env bash
+for last; do :; done
+case "$last" in
+  */0.log) printf 'tail: cannot open the log\n' >&2; exit 1 ;;
+esac
+exec /usr/bin/tail "$@"
+"#;
+
+/// A `tail` that fails after a delay: nothing reads a shard's log beside the
+/// runner that owns its output, so a failing tail must change no verdict.
+const BLIND_TAIL: &str = r#"#!/usr/bin/env bash
+for last; do :; done
+case "$last" in
+  */0.log) sleep 3; printf 'tail: cannot open the log\n' >&2; exit 1 ;;
+esac
+exec /usr/bin/tail "$@"
+"#;
+
+/// A `python3` that answers the first shard's runner with a `bound` status
+/// and a record the shell cannot read, so the unreadable-record refusal is
+/// exercised without a runner that would have to write a bad record itself.
+const BAD_RECORD_RUNNER: &str = r#"#!/usr/bin/env bash
+record=''
+status=''
+previous=''
+for argument in "$@"; do
+  case "$previous" in
+    --bound-record) record="$argument" ;;
+    --status) status="$argument" ;;
+  esac
+  previous="$argument"
+done
+case "$record" in
+  */0.bound)
+    printf 'not a record\n' > "$record"
+    printf 'bound\n' > "$status"
+    exit 1
+    ;;
+esac
+exec "$REAL_PYTHON3" "$@"
+"#;
+
+/// A `rustc` for the real heap launcher: a sysroot and a reported host.
+const RUSTC: &str = r#"#!/usr/bin/env bash
+case "$*" in
+  *--print*sysroot*) printf '%s\n' "$STUB_DIR/toolchain" ;;
+  *) printf 'host: fixture-host\n' ;;
+esac
+"#;
+
+/// A heap child the real launcher runs: it records its pid and sleeps past
+/// the bound the shard passes.
+const SLEEPING_HEAP: &str =
+    "#!/usr/bin/env bash\nprintf '%s\\n' \"$$\" >\"$STUB_DIR/$(basename \"$0\").pid\"\nsleep 5\n";
 
 /// A scratch directory with the stub as `cargo` in its `bin/`, `metadata`
 /// as the stub's answer and `script` as the shard script.
@@ -135,10 +305,64 @@ impl Scratch {
         Self { dir }
     }
 
+    /// Writes `body` as the executable `name` in the scratch's `bin/`, so a
+    /// run finds it first on `PATH`.
+    fn executable(&self, name: &str, body: &str) {
+        let path = self.dir.path().join("bin").join(name);
+        std::fs::write(&path, body).expect("a stub");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+            .expect("executable");
+    }
+
     /// The script run from the workspace with `args`, the stub first on
     /// `PATH` and the scratch `tmp/` as `TMPDIR`.
     fn run(&self, args: &[&str], env: &[(&str, &str)]) -> Output {
         self.command(args, env).output().expect("the script runs")
+    }
+
+    /// The script run as [`Scratch::run`] does, but killed and refused when it
+    /// outlasts `limit`: a runner that stops reading its output must not hang
+    /// the suite. The pipes are drained beside the wait, since a full stdout
+    /// pipe would block the script the test is waiting on.
+    fn run_within(&self, args: &[&str], env: &[(&str, &str)], limit: Duration) -> Output {
+        let mut child = self
+            .command(args, env)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("the script starts");
+        let mut stdout = child.stdout.take().expect("the script's stdout");
+        let mut stderr = child.stderr.take().expect("the script's stderr");
+        let stdout = std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            std::io::Read::read_to_end(&mut stdout, &mut bytes).expect("the script's stdout");
+            bytes
+        });
+        let stderr = std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            std::io::Read::read_to_end(&mut stderr, &mut bytes).expect("the script's stderr");
+            bytes
+        });
+        let deadline = Instant::now() + limit;
+        loop {
+            let status = child.try_wait().expect("the script is polled");
+            if let Some(status) = status {
+                return Output {
+                    status,
+                    stdout: stdout.join().expect("the stdout reader"),
+                    stderr: stderr.join().expect("the stderr reader"),
+                };
+            }
+            if Instant::now() >= deadline {
+                // The script's descendants may hold the pipes after it ends;
+                // the readers are left to drain them rather than joined, so a
+                // hung shard fails this test instead of hanging the suite.
+                let _ = child.kill();
+                let status = child.wait().expect("the script ends");
+                panic!("the script outlasted {limit:?} and ended {status:?}");
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
     }
 
     /// The command [`Scratch::run`] runs. A protected system set the job
@@ -160,6 +384,7 @@ impl Scratch {
             .env_remove("BROKKR_SYSTEM_SET")
             .env_remove("BROKKR_SYSTEM_SET_WAIT_SECONDS")
             .env_remove("BROKKR_TEST_MACHINE")
+            .env_remove("BROKKR_TEST_SHARD_BOUND_SECONDS")
             .envs(env.iter().copied());
         command
     }
@@ -193,6 +418,15 @@ fn one_after_another(prefix: &str, shards: &[&str]) -> Vec<String> {
             ]
         })
         .collect()
+}
+
+/// `call` with the scratch's random heap bound-record path replaced by a
+/// placeholder, so a command's shape is compared exactly.
+fn without_bound_path(call: &str) -> String {
+    match call.split_once(" --bound-record ") {
+        Some((head, _)) => format!("{head} --bound-record <path>"),
+        None => call.to_string(),
+    }
 }
 
 fn script() -> String {
@@ -579,6 +813,16 @@ fn poll(done: impl Fn() -> bool) {
     }
 }
 
+/// The one work directory a lost run kept under the scratch's TMPDIR.
+fn kept_work(scratch: &Scratch) -> std::path::PathBuf {
+    let work: Vec<_> = std::fs::read_dir(scratch.dir.path().join("tmp"))
+        .expect("the scratch TMPDIR")
+        .map(|entry| entry.expect("an entry").path())
+        .collect();
+    assert_eq!(work.len(), 1, "{work:?}");
+    work.into_iter().next().expect("one kept work directory")
+}
+
 /// A shard whose runner dies before it records the shard's exit status is
 /// refused by name; its log is still printed, the shards before it are
 /// still collected, and the logs are kept, since the shard's command may
@@ -608,15 +852,11 @@ fn a_shard_whose_runner_dies_unrecorded_is_refused_and_its_logs_are_kept() {
         .collect();
     assert_eq!(scratch.calls(), calls);
     let stdout = String::from_utf8_lossy(&run.stdout);
-    let work: Vec<_> = std::fs::read_dir(scratch.dir.path().join("tmp"))
-        .expect("the scratch TMPDIR")
-        .map(|entry| entry.expect("an entry").path())
-        .collect();
-    assert_eq!(work.len(), 1, "{work:?}");
+    let work = kept_work(&scratch);
     let shown = format!(
         "\n==> the heap measurements: no exit status recorded, its runner ended with exit 137; \
          the logs are kept in {}\n{ONE_TEST}",
-        work[0].display()
+        work.display()
     );
     for line in [
         shown.as_str(),
@@ -626,7 +866,87 @@ fn a_shard_whose_runner_dies_unrecorded_is_refused_and_its_logs_are_kept() {
     ] {
         assert!(stdout.contains(line), "{line}\n{stdout}");
     }
-    assert!(work[0].join("2.log").is_file(), "{work:?}");
+    assert!(work.join("2.log").is_file(), "{work:?}");
+}
+
+/// A `bound` status whose record is not the two readable lines is refused
+/// by name as an unreadable bound record, not as a group that was not shown
+/// ended: the run fails, keeps the log and starts no later shard.
+#[test]
+fn a_bound_status_with_an_unreadable_record_is_refused_by_name() {
+    let scratch = Scratch::new(&metadata(), &script());
+    let real_python = real_python3();
+    scratch.executable("python3", BAD_RECORD_RUNNER);
+    let run = scratch.run(&["test"], &[("REAL_PYTHON3", &real_python)]);
+    assert_eq!(run.status.code(), Some(1), "{run:?}");
+    let unstarted: String = NAMES[1..]
+        .iter()
+        .map(|shard| {
+            format!(
+                "test shards: {shard} was not started: an earlier shard's bound record could \
+                 not be read, so its command may still be running and the shard cannot be shown \
+                 to run alone\n"
+            )
+        })
+        .collect();
+    assert_eq!(
+        String::from_utf8_lossy(&run.stderr),
+        format!(
+            "test shards: the bound record of every library could not be read, so it is not \
+             shown to have passed\n{unstarted}"
+        )
+    );
+    assert_eq!(scratch.calls(), [format!("{TEST} --no-run")]);
+    assert_eq!(scratch.events(), Vec::<String>::new());
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert!(
+        stdout.contains("test shards: the bound record of every library could not be read\n"),
+        "{stdout}"
+    );
+}
+
+/// A record path that is a directory makes the runner's write fail. The
+/// runner still ends the group it owns and writes no status, so the shell
+/// loses the shard as one whose runner recorded no exit status, keeps its
+/// log and starts no later shard; the sleeper is gone.
+#[test]
+fn a_record_that_cannot_be_written_still_ends_the_group_and_loses_the_shard() {
+    let scratch = Scratch::new(&metadata(), &script());
+    let run = scratch.run_within(
+        &["test"],
+        &[
+            ("STUB_UNWRITABLE", "--lib"),
+            ("BROKKR_TEST_SHARD_BOUND_SECONDS", "1"),
+        ],
+        Duration::from_secs(25),
+    );
+    assert_eq!(run.status.code(), Some(1), "{run:?}");
+    let pid = recorded_pid(&scratch, "unwritable.pid");
+    let alive = process_alive(pid);
+    if alive {
+        rustix::process::kill_process_group(
+            rustix::process::Pid::from_raw(pid).expect("a pid"),
+            rustix::process::Signal::KILL,
+        )
+        .ok();
+    }
+    poll(|| !process_alive(pid));
+    assert!(!alive, "the sleeper {pid} still runs");
+    let unstarted = not_started(&NAMES[1..]);
+    assert_eq!(
+        String::from_utf8_lossy(&run.stderr),
+        format!(
+            "test shards: every library recorded no exit status (its runner ended with exit 1), \
+             so it is not shown to have passed\n{unstarted}"
+        )
+    );
+    assert_eq!(
+        scratch.events(),
+        vec![format!("start {TEST} --lib")],
+        "the bounded shard recorded an end after its record failed"
+    );
+    let work = kept_work(&scratch);
+    assert!(work.join("0.log").is_file(), "{work:?}");
 }
 
 /// The refusal of each of `shards`, left unstarted after an earlier
@@ -659,12 +979,12 @@ fn a_shard_status_record_that_is_not_one_line_byte_for_byte_is_refused() {
             .copied()
             .filter(|name| prefix == TEST || *name != "the doctests")
             .collect();
-        for record in ["0\0 3\n", "0 3\n\n", "0 3\0", "0 3\n"] {
+        for record in ["exit 0\0\n", "exit 0\n\n", "exit 0\0", "exit 0\n"] {
             let scratch = Scratch::new(&real, &script());
             std::fs::write(scratch.dir.path().join("record"), record).expect("record");
             let run = scratch.run(args, &[("STUB_RECORD", "--lib")]);
             let stderr = String::from_utf8_lossy(&run.stderr);
-            if record == "0 3\n" {
+            if record == "exit 0\n" {
                 assert_eq!(
                     (run.status.code(), stderr.as_ref()),
                     (Some(0), ""),
@@ -854,6 +1174,23 @@ fn the_shards_wait_after_the_build_for_the_system_sets_preparation() {
 
 /// The heap shard's real process launcher overlaps exactly its three
 /// measurements, preserves coverage profiles, and joins on failure or cancel.
+/// The foreground runner's own process tests: the bound, the statuses, the
+/// group proof, the forwarded signals and the byte-for-byte output.
+#[test]
+fn the_shard_runner_owns_the_bound_and_the_group_proof() {
+    let output = Command::new("python3")
+        .arg("scripts/tests/test_shard_runner.py")
+        .current_dir(workspace())
+        .output()
+        .expect("the shard runner's process tests run");
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 #[test]
 fn parallel_heap_launcher_preserves_the_shard_barrier_and_measurements() {
     let output = Command::new("python3")
@@ -874,13 +1211,15 @@ fn parallel_heap_opt_in_replaces_only_the_heap_command_in_both_modes() {
     let real = metadata();
     for (args, prefix, build) in MODES {
         let scratch = Scratch::new(&real, &script());
-        let python = scratch.dir.path().join("bin/python3");
-        std::fs::write(&python, STUB).expect("stub heap launcher");
-        std::fs::set_permissions(&python, std::fs::Permissions::from_mode(0o755))
-            .expect("executable");
+        let real_python = real_python3();
+        // Only the heap shard's `python3` is the stub: every other shard's
+        // is the real interpreter running the real foreground runner.
+        let wrapper = "#!/usr/bin/env bash\nif [ \"$1\" = scripts/parallel-heaps.py ]; then \
+                       exec \"$STUB_DIR/bin/cargo\" \"$@\"; fi\nexec \"$REAL_PYTHON3\" \"$@\"\n";
+        scratch.executable("python3", wrapper);
         let mut args = args.to_vec();
         args.push("--parallel-heaps");
-        let run = scratch.run(&args, &[]);
+        let run = scratch.run(&args, &[("REAL_PYTHON3", &real_python)]);
         assert!(run.status.success(), "{run:?}");
         let mut commands = vec![format!("{prefix} {build}")];
         for (index, shard) in SHARDS.iter().enumerate() {
@@ -889,20 +1228,33 @@ fn parallel_heap_opt_in_replaces_only_the_heap_command_in_both_modes() {
             }
             commands.push(if index == 2 {
                 if args[0] == "coverage" {
-                    "scripts/parallel-heaps.py --nightly nightly-2026-09-05".to_string()
+                    "scripts/parallel-heaps.py --nightly nightly-2026-09-05 --binary-bound 1800 \
+                     --bound-record <path>"
+                        .to_string()
                 } else {
-                    "scripts/parallel-heaps.py".to_string()
+                    "scripts/parallel-heaps.py --binary-bound 1800 --bound-record <path>"
+                        .to_string()
                 }
             } else {
                 format!("{prefix} {shard}")
             });
         }
-        assert_eq!(scratch.calls(), commands);
-        let events: Vec<_> = commands[1..]
+        let calls: Vec<String> = scratch
+            .calls()
+            .iter()
+            .map(|call| without_bound_path(call))
+            .collect();
+        assert_eq!(calls, commands);
+        let events: Vec<String> = scratch
+            .events()
+            .iter()
+            .map(|line| without_bound_path(line))
+            .collect();
+        let expected: Vec<_> = commands[1..]
             .iter()
             .flat_map(|command| [format!("start {command}"), format!("end {command}")])
             .collect();
-        assert_eq!(scratch.events(), events);
+        assert_eq!(events, expected);
     }
 }
 
@@ -1168,4 +1520,481 @@ fn a_host_runs_every_shard_its_system_compiles() {
         assert_eq!(run.status.code(), Some(0), "{host}: {run:?}");
         assert_eq!(scratch.events(), one_after_another(TEST, &shards), "{host}");
     }
+}
+
+/// Whether process `pid` is still there, read by the null signal.
+fn process_alive(pid: i32) -> bool {
+    rustix::process::test_kill_process(rustix::process::Pid::from_raw(pid).expect("a pid")).is_ok()
+}
+
+/// The pid the stub wrote to `file`, once it is there.
+fn recorded_pid(scratch: &Scratch, file: &str) -> i32 {
+    std::fs::read_to_string(scratch.dir.path().join(file))
+        .expect("the stub recorded its pid")
+        .trim()
+        .parse()
+        .expect("a pid")
+}
+
+/// A fresh scratch's run of the stub's word under `bound` seconds, refused
+/// rather than left running when the bound is never enforced.
+fn bounded(stub: &str, word: &str, bound: &str) -> (Scratch, Output) {
+    let scratch = Scratch::new(&metadata(), &script());
+    let run = scratch.run_within(
+        &["test"],
+        &[(stub, word), ("BROKKR_TEST_SHARD_BOUND_SECONDS", bound)],
+        Duration::from_secs(25),
+    );
+    (scratch, run)
+}
+
+/// A run that passed untouched: exit 0, nothing on stderr, every shard in
+/// its turn.
+fn assert_whole_run_passes(scratch: &Scratch, run: &Output) {
+    assert_eq!(run.status.code(), Some(0), "{run:?}");
+    assert_eq!(String::from_utf8_lossy(&run.stderr), "");
+    assert_eq!(scratch.events(), one_after_another(TEST, &SHARDS));
+}
+
+/// The stub's word runs under `bound` seconds and passes untouched, every
+/// shard in its turn.
+fn assert_bounded_pass(stub: &str, word: &str, bound: &str) {
+    let (scratch, run) = bounded(stub, word, bound);
+    assert_whole_run_passes(&scratch, &run);
+}
+
+/// The stub's word starts `binary` and runs past the 2 s bound: the shard
+/// fails by that name and no process of the group remains.
+fn assert_bounded_hang(stub: &str, word: &str, pid_file: &str, binary: &str) -> (Scratch, Output) {
+    let (scratch, run) = bounded(stub, word, "2");
+    assert_eq!(run.status.code(), Some(1), "{run:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stderr),
+        format!("test shards: {binary} ran past 2 s\n")
+    );
+    let pid = recorded_pid(&scratch, pid_file);
+    poll(|| !process_alive(pid));
+    assert!(!process_alive(pid), "{binary} {pid} still runs");
+    (scratch, run)
+}
+
+/// The events of a run whose first `--lib` shard started but never ended,
+/// followed by every later shard in its turn.
+fn bounded_first_shard_events() -> Vec<String> {
+    let mut expected = vec![format!("start {TEST} --lib")];
+    expected.extend(one_after_another(TEST, &SHARDS[1..]));
+    expected
+}
+
+/// `scratch`'s first `--lib` shard started and every later shard ran.
+fn assert_bounded_first_shard_ran(scratch: &Scratch) {
+    assert_eq!(
+        scratch.events(),
+        bounded_first_shard_events(),
+        "a later shard did not run"
+    );
+}
+
+/// `scratch`'s run is under 10 s and only its first shard started: every
+/// later shard still ran in its turn.
+fn assert_bounded_first_shard(scratch: &Scratch, started: Instant) {
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "the bound took {:?}",
+        started.elapsed()
+    );
+    assert_bounded_first_shard_ran(scratch);
+}
+
+/// `scratch`'s `--lib` shard run as `stub` under `bound` seconds, refused by
+/// name for `binary`; the whole run is held to 25 s.
+fn bounded_by_name(scratch: &Scratch, stub: &str, bound: &str, binary: &str) -> Output {
+    let run = scratch.run_within(
+        &["test"],
+        &[(stub, "--lib"), ("BROKKR_TEST_SHARD_BOUND_SECONDS", bound)],
+        Duration::from_secs(25),
+    );
+    assert_eq!(run.status.code(), Some(1), "{run:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stderr),
+        format!("test shards: {binary} ran past {bound} s\n")
+    );
+    run
+}
+
+/// The interpreter path the `python3` stubs exec, found once.
+fn real_python3() -> String {
+    let output = Command::new("python3")
+        .args(["-c", "import sys; print(sys.executable)"])
+        .output()
+        .expect("the real python3");
+    String::from_utf8(output.stdout)
+        .expect("a UTF-8 interpreter path")
+        .trim()
+        .to_string()
+}
+
+/// A `deps` binary that sleeps past a 2 s bound fails its shard by name in
+/// under 10 s, nothing of its process group remains, and the next shard
+/// still runs and passes. The binary writes nothing at all: its clock is
+/// its process, so a silent binary cannot be unbounded.
+#[test]
+fn a_binary_past_the_bound_fails_by_name_and_the_next_shard_runs() {
+    let started = Instant::now();
+    let (scratch, run) = assert_bounded_hang("STUB_HANG", "--lib", "hang.pid", "hang-0123abcd");
+    assert_bounded_first_shard(&scratch, started);
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert!(
+        stdout.contains("test shards: every library: hang-0123abcd ran past 2 s\n"),
+        "{stdout}"
+    );
+}
+
+/// A `deps` binary prints a passing summary after a 1 s bound and keeps
+/// running. It is named by the bound, never passed by the summary, and
+/// every later shard runs. The summary may be killed before it is copied:
+/// the clock is the process, not the output.
+#[test]
+fn a_binary_that_passes_after_the_bound_is_still_named() {
+    let scratch = Scratch::new(&metadata(), &script());
+    scratch.executable("tail", BLIND_TAIL);
+    bounded_by_name(&scratch, "STUB_LATE", "1", "late-9999");
+    assert_bounded_first_shard_ran(&scratch);
+}
+
+/// A `deps` binary that prints a progress line after 0.6 s and a passing
+/// summary after 1.15 s is bounded by its process: neither line moves the
+/// clock, so the shard fails by name and every later shard runs.
+#[test]
+fn a_binary_whose_progress_line_delays_the_result_is_still_bound() {
+    let scratch = Scratch::new(&metadata(), &script());
+    bounded_by_name(&scratch, "STUB_LATE_PROGRESS", "1", "late-progress-1234");
+    assert_bounded_first_shard_ran(&scratch);
+}
+
+/// A `deps` binary that prints a line every 0.3 s for 3 s is bounded near
+/// its 1 s clock, not at the end of its output: the shard fails by name and
+/// every later shard runs.
+#[test]
+fn a_binary_that_keeps_printing_is_still_bounded() {
+    let started = Instant::now();
+    let scratch = Scratch::new(&metadata(), &script());
+    bounded_by_name(&scratch, "STUB_CHATTY", "1", "chatty-5678");
+    assert_bounded_first_shard(&scratch, started);
+}
+
+/// A `deps` path with parentheses still names its binary from the kernel's
+/// executable path: the bound fires at 2 s, the group ends and every later
+/// shard runs.
+#[test]
+fn a_deps_path_with_parentheses_is_named_and_bounded() {
+    let (scratch, _) = assert_bounded_hang("STUB_PARENS", "--lib", "parens.pid", "hang-0123abcd");
+    assert_bounded_first_shard_ran(&scratch);
+}
+
+/// A `deps` binary that prints no start line at all is still found in the
+/// process table and bounded at 2 s, named by its executable; every later
+/// shard runs.
+#[test]
+fn a_test_binary_that_prints_no_start_line_is_still_bounded() {
+    let (scratch, _) =
+        assert_bounded_hang("STUB_QUIET_HANG", "--lib", "quiet.pid", "quiet-0123abcd");
+    assert_bounded_first_shard_ran(&scratch);
+}
+
+/// A binary that ends under the bound passes untouched, and every shard
+/// still runs. The bound is 3 s against a 1.5 s binary, a margin the poll
+/// interval and a loaded host cannot eat.
+#[test]
+fn a_binary_under_the_bound_passes_untouched() {
+    assert_bounded_pass("STUB_SLOW", "--lib", "3");
+}
+
+/// Two binaries in one shard, each under the bound, whose sum passes it:
+/// they pass, because the bound is per binary, not per shard. Each runs
+/// 2 s under a 3 s bound, and their sum passes it.
+#[test]
+fn two_binaries_each_under_the_bound_pass_because_the_bound_is_per_binary() {
+    assert_bounded_pass("STUB_PAIR", "--lib", "3");
+}
+
+/// A hang in cargo's own tail, after every `deps` binary is gone, is not a
+/// test binary and is not bounded: nothing is named and the shard passes.
+#[test]
+fn a_hang_in_cargos_own_tail_is_not_bounded() {
+    assert_bounded_pass("STUB_CARGO_TAIL", "--lib", "2");
+}
+
+/// A `deps` binary that prints a passing result at 0.2 s and then lives
+/// 2 s is bounded at 1 s: a result line cannot clear its clock. The result
+/// is copied before the bound, so it is in the log, and every later shard
+/// runs.
+#[test]
+fn a_passing_result_line_at_the_tail_does_not_clear_the_clock() {
+    let scratch = Scratch::new(&metadata(), &script());
+    let run = bounded_by_name(&scratch, "STUB_TAIL", "1", "tail-9abc");
+    assert_bounded_first_shard_ran(&scratch);
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert!(stdout.contains("test result: ok. 1 passed;"), "{stdout}");
+}
+
+/// A `deps` binary that outlives argv itself is still bounded: a fake cargo
+/// prints a passing summary at 0.4 s and exits 0 while `leak-0123abcd` lives
+/// 1.8 s. The 1 s clock is judged after argv's exit, so the shard fails by
+/// the binary's name, every later shard runs, and nothing of the group
+/// remains.
+#[test]
+fn a_binary_alive_after_argv_exits_is_still_bounded() {
+    let scratch = Scratch::new(&metadata(), &script());
+    bounded_by_name(&scratch, "STUB_LEAK", "1", "leak-0123abcd");
+    assert_bounded_first_shard_ran(&scratch);
+    let pid = recorded_pid(&scratch, "leak.pid");
+    poll(|| !process_alive(pid));
+    assert!(!process_alive(pid), "leak-0123abcd {pid} still runs");
+}
+
+/// A doctest run past the bound is named by its crate in the failure and in
+/// the final summary, with the name's space kept whole, and later shards
+/// still run.
+#[test]
+fn a_doctest_past_the_bound_is_named_as_the_crate() {
+    let (scratch, run) = assert_bounded_hang(
+        "STUB_DOCTEST_HANG",
+        "--doc",
+        "doctest.pid",
+        "Doc-tests brokkr_core",
+    );
+    let mut expected = one_after_another(TEST, &SHARDS[..DOCTESTS]);
+    expected.push(format!("start {TEST} --doc"));
+    expected.extend(one_after_another(TEST, &SHARDS[DOCTESTS + 1..]));
+    assert_eq!(scratch.events(), expected, "a later shard did not run");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert!(
+        stdout.contains("test shards: the doctests: Doc-tests brokkr_core ran past 2 s\n"),
+        "{stdout}"
+    );
+}
+
+/// A bound that is not a whole number above 0 refuses by name before
+/// anything is built or run, and a good one is not inherited by a shard.
+#[test]
+fn a_bound_that_is_not_a_positive_whole_number_refuses_and_no_shard_inherits_it() {
+    let real = metadata();
+    for value in ["0", "soon", "-1", "1.5"] {
+        let scratch = Scratch::new(&real, &script());
+        let run = scratch.run(&["test"], &[("BROKKR_TEST_SHARD_BOUND_SECONDS", value)]);
+        assert_eq!(run.status.code(), Some(1), "{value:?}: {run:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&run.stderr),
+            format!(
+                "test shards: BROKKR_TEST_SHARD_BOUND_SECONDS '{value}' is not a whole number of \
+                 seconds above 0\n"
+            ),
+            "{value:?}"
+        );
+        assert_eq!(scratch.calls(), Vec::<String>::new(), "{value:?}");
+        assert_eq!(scratch.events(), Vec::<String>::new(), "{value:?}");
+    }
+    let scratch = Scratch::new(&real, &script());
+    let run = scratch.run(&["test"], &[("BROKKR_TEST_SHARD_BOUND_SECONDS", "2")]);
+    assert_eq!(run.status.code(), Some(0), "{run:?}");
+    assert_eq!(scratch.lines("bound"), vec!["unset"; SHARDS.len()]);
+}
+
+/// A `deps` binary that leaves a stopped `/bin/sleep` helper outside `deps`
+/// is still ended by the KILL after 10 s, so nothing of the group remains
+/// and every later shard runs. The parent `stopped-0456` is the clocked test
+/// binary; the `/bin/sleep` helper gets no clock, but is in its parent's
+/// group. The recorded pid is the helper, and the bound names the parent.
+#[test]
+fn a_stopped_group_member_ended_by_the_kills_kill_is_not_a_survivor() {
+    let (scratch, _) = assert_bounded_hang("STUB_STOPPED", "--lib", "stopped.pid", "stopped-0456");
+    assert_bounded_first_shard_ran(&scratch);
+}
+
+/// The Bash 4 constructs macOS's stock Bash 3.2 does not have, as they would
+/// be written: a named file descriptor, the case operators, associative
+/// arrays, the bulk readers, a coprocess, `wait -n` and `test -v`. The
+/// script is run by the Bash 3.2 macOS ships, so a construct it cannot parse
+/// is not a syntax preference: the script would stop before any shard.
+#[test]
+fn the_shard_script_carries_no_construct_bash_32_cannot_run() {
+    let mut found = Vec::new();
+    for (number, line) in script().lines().enumerate() {
+        let mut constructs = Vec::new();
+        if line.contains("exec {") {
+            constructs.push("a {fd} named redirection");
+        }
+        if line.contains("${") && line.contains(",,") {
+            constructs.push("a ${var,,} lower-case expansion");
+        }
+        if line.contains("${") && line.contains("^^") {
+            constructs.push("a ${var^^} upper-case expansion");
+        }
+        for construct in [
+            "declare -A",
+            "mapfile",
+            "readarray",
+            "coproc",
+            "wait -n",
+            "[[ -v",
+        ] {
+            if line.contains(construct) {
+                constructs.push(construct);
+            }
+        }
+        for construct in constructs {
+            found.push(format!("{SCRIPT}:{}: {construct}: {line}", number + 1));
+        }
+    }
+    assert_eq!(
+        found,
+        Vec::<String>::new(),
+        "Bash 4 or later, which stock macOS does not have:\n{}",
+        found.join("\n")
+    );
+}
+
+/// Nothing reads a shard's log but the runner that owns its output: a `tail`
+/// that fails on the first shard's log changes no verdict, and every shard
+/// still runs and passes.
+#[test]
+fn a_failing_tail_cannot_fail_a_shard_that_reads_its_own_output() {
+    let scratch = Scratch::new(&metadata(), &script());
+    scratch.executable("tail", FAILING_TAIL);
+    let run = scratch.run(&["test"], &[]);
+    assert_whole_run_passes(&scratch, &run);
+}
+
+/// The pid pair the stub wrote to `file`: the group's leader, then a member.
+fn recorded_pair(scratch: &Scratch, file: &str) -> (i32, i32) {
+    let text = std::fs::read_to_string(scratch.dir.path().join(file))
+        .expect("the stub recorded its group and member");
+    let mut words = text.split_whitespace();
+    let leader = words.next().expect("a leader").parse().expect("a pid");
+    let member = words.next().expect("a member").parse().expect("a pid");
+    (leader, member)
+}
+
+/// A cargo stub that ends 0 but leaves a sleeping member in its own group
+/// cannot be shown to have ended: the shard is lost, names the group and,
+/// where the process table names pids (Linux), the member, keeps its log,
+/// and starts no later shard. macOS's `ps -axww -o pid=,pgid=,lstart=,comm=`
+/// names the group alone in the survivor line, matching the runner's own
+/// `platform.system()` branch.
+#[test]
+fn a_group_that_is_not_shown_ended_is_lost_and_names_its_members() {
+    let scratch = Scratch::new(&metadata(), &script());
+    let run = scratch.run(&["test"], &[("STUB_LEAVE", "--lib")]);
+    assert_eq!(run.status.code(), Some(1), "{run:?}");
+    let (leader, member) = recorded_pair(&scratch, "leave.pid");
+    let later: String = NAMES[1..]
+        .iter()
+        .map(|shard| {
+            format!(
+                "test shards: {shard} was not started: an earlier shard could not be shown to \
+                 have ended, so its command may still be running and the shard cannot be shown \
+                 to run alone\n"
+            )
+        })
+        .collect();
+    let named = if cfg!(target_os = "linux") {
+        format!(" {member}")
+    } else {
+        String::new()
+    };
+    let expected = format!(
+        "test shards: could not show every library's process group ended: process group \
+         {leader} still has members{named}\n{later}"
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stderr), expected);
+    assert_eq!(
+        scratch.events(),
+        one_after_another(TEST, &SHARDS[..1]),
+        "a later shard ran while the group could not be shown ended"
+    );
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert!(
+        stdout.contains("test shards: every library: could not show its process group ended\n"),
+        "{stdout}"
+    );
+    let work = kept_work(&scratch);
+    assert!(work.join("0.log").is_file(), "{work:?}");
+    rustix::process::kill_process(
+        rustix::process::Pid::from_raw(member).expect("a pid"),
+        rustix::process::Signal::KILL,
+    )
+    .expect("the leftover member is ended");
+    poll(|| !process_alive(member));
+    assert!(
+        !process_alive(member),
+        "leftover member {member} still runs"
+    );
+}
+
+/// A heap child past the bound the shard passes writes the shard's bound
+/// record through the real launcher: the run fails by the child's binary
+/// name, the final summary says the same, the launcher's own exit is not
+/// also refused as a failed shard, and every later shard runs.
+#[test]
+fn a_heap_child_past_the_bound_reaches_the_shards_record_and_summary() {
+    let scratch = Scratch::new(&metadata(), &script());
+    scratch.executable("rustc", RUSTC);
+    for heap in ["heap_claude", "heap_codex", "heap_dsh"] {
+        let path = scratch.dir.path().join(format!("{heap}-0123abcd"));
+        std::fs::write(&path, SLEEPING_HEAP).expect("a heap child");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+            .expect("executable");
+    }
+    let run = scratch.run(
+        &["test", "--parallel-heaps"],
+        &[("BROKKR_TEST_SHARD_BOUND_SECONDS", "1")],
+    );
+    assert_eq!(run.status.code(), Some(1), "{run:?}");
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert_eq!(
+        stderr, "test shards: heap_claude-0123abcd ran past 1 s\n",
+        "the launcher's exit or missing summary was refused too"
+    );
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert!(
+        stdout.contains("test shards: the heap measurements: heap_claude-0123abcd ran past 1 s\n"),
+        "{stdout}"
+    );
+    let mut expected = one_after_another(TEST, &SHARDS[..2]);
+    expected.extend(one_after_another(TEST, &SHARDS[3..]));
+    assert_eq!(scratch.events(), expected, "a later shard did not run");
+    for heap in ["heap_claude", "heap_codex", "heap_dsh"] {
+        let pid = recorded_pid(&scratch, &format!("{heap}-0123abcd.pid"));
+        poll(|| !process_alive(pid));
+        assert!(!process_alive(pid), "{heap}-0123abcd {pid} still runs");
+    }
+}
+
+/// The launcher takes the shard's bound with no default of its own: a direct
+/// invocation without `--binary-bound` refuses by name before it reads
+/// Cargo, so the 1,800 has one home.
+#[test]
+fn the_heap_launcher_refuses_without_the_bound_the_script_owns() {
+    let scratch = tempfile::tempdir().expect("scratch");
+    let cargo = scratch.path().join("cargo");
+    std::fs::write(&cargo, "#!/usr/bin/env bash\nexit 1\n").expect("cargo stub");
+    std::fs::set_permissions(&cargo, std::fs::Permissions::from_mode(0o755)).expect("executable");
+    let path = format!(
+        "{}:{}",
+        scratch.path().display(),
+        std::env::var("PATH").expect("PATH")
+    );
+    let run = Command::new("python3")
+        .arg("scripts/parallel-heaps.py")
+        .current_dir(workspace())
+        .env("PATH", path)
+        .output()
+        .expect("the heap launcher runs");
+    assert_eq!(run.status.code(), Some(2), "{run:?}");
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert!(
+        stderr.contains("--binary-bound") && stderr.contains("required"),
+        "{stderr}"
+    );
 }
