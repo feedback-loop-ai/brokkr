@@ -1713,21 +1713,33 @@ fn no_more_keys(value: &Value) -> bool {
 /// The clock every fixture golden was derived at: the base's.
 const FIXTURE_NOW: &str = "2026-09-02T00:00:00Z";
 
+/// The frozen fixture journal `name`, read at run time: a crate includes
+/// only its own files, and the fixture journals belong to the repository,
+/// not to this crate.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test reads the frozen fixture journal it names"
+)]
+fn fixture_journal(name: &str) -> String {
+    std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/journals")
+            .join(format!("{name}.ndjson")),
+    )
+    .expect("a frozen fixture journal")
+}
+
 /// One frozen fixture journal, and its serialized readout at each of
 /// [`Range::ALL`]'s three ranges: committed goldens generated at
 /// a45fc694f, in that same order.
 struct Fixture {
     name: &'static str,
-    journal: &'static str,
     goldens: [&'static str; 3],
 }
 
 const FIXTURES: [Fixture; 6] = [
     Fixture {
         name: "conclude-already-done-hand-built",
-        journal: include_str!(
-            "../../../../fixtures/journals/conclude-already-done-hand-built.ndjson"
-        ),
         goldens: [
             include_str!("goldens/conclude-already-done-hand-built.24h.golden"),
             include_str!("goldens/conclude-already-done-hand-built.7d.golden"),
@@ -1736,9 +1748,6 @@ const FIXTURES: [Fixture; 6] = [
     },
     Fixture {
         name: "conclude-broken-chain-hand-built",
-        journal: include_str!(
-            "../../../../fixtures/journals/conclude-broken-chain-hand-built.ndjson"
-        ),
         goldens: [
             include_str!("goldens/conclude-broken-chain-hand-built.24h.golden"),
             include_str!("goldens/conclude-broken-chain-hand-built.7d.golden"),
@@ -1747,7 +1756,6 @@ const FIXTURES: [Fixture; 6] = [
     },
     Fixture {
         name: "conclude-parked-hand-built",
-        journal: include_str!("../../../../fixtures/journals/conclude-parked-hand-built.ndjson"),
         goldens: [
             include_str!("goldens/conclude-parked-hand-built.24h.golden"),
             include_str!("goldens/conclude-parked-hand-built.7d.golden"),
@@ -1756,9 +1764,6 @@ const FIXTURES: [Fixture; 6] = [
     },
     Fixture {
         name: "conclude-stopped-mid-effect-hand-built",
-        journal: include_str!(
-            "../../../../fixtures/journals/conclude-stopped-mid-effect-hand-built.ndjson"
-        ),
         goldens: [
             include_str!("goldens/conclude-stopped-mid-effect-hand-built.24h.golden"),
             include_str!("goldens/conclude-stopped-mid-effect-hand-built.7d.golden"),
@@ -1767,9 +1772,6 @@ const FIXTURES: [Fixture; 6] = [
     },
     Fixture {
         name: "reforging-the-road-back-hand-built",
-        journal: include_str!(
-            "../../../../fixtures/journals/reforging-the-road-back-hand-built.ndjson"
-        ),
         goldens: [
             include_str!("goldens/reforging-the-road-back-hand-built.24h.golden"),
             include_str!("goldens/reforging-the-road-back-hand-built.7d.golden"),
@@ -1778,9 +1780,6 @@ const FIXTURES: [Fixture; 6] = [
     },
     Fixture {
         name: "tui-graph-the-selection-box-gets-80f98deb",
-        journal: include_str!(
-            "../../../../fixtures/journals/tui-graph-the-selection-box-gets-80f98deb.ndjson"
-        ),
         goldens: [
             include_str!("goldens/tui-graph-the-selection-box-gets-80f98deb.24h.golden"),
             include_str!("goldens/tui-graph-the-selection-box-gets-80f98deb.7d.golden"),
@@ -1795,8 +1794,7 @@ const FIXTURES: [Fixture; 6] = [
 #[test]
 fn every_fixture_journal_serializes_as_the_base_derived_it() {
     for fixture in FIXTURES {
-        let events: Vec<EventEnvelope> = fixture
-            .journal
+        let events: Vec<EventEnvelope> = fixture_journal(fixture.name)
             .lines()
             .map(|line| serde_json::from_str(line).expect("a fixture event is an envelope"))
             .collect();
