@@ -144,7 +144,13 @@ fn a_second_runs_append_does_not_stop_the_wait() {
     let state = fold(&events).unwrap();
     let wait = engine.recorded_wait(&events, "effect").unwrap().unwrap();
     match engine
-        .take_cooldown(&events, &state, "effect", "work", &wait)
+        .take_cooldown(
+            &events,
+            &state,
+            "effect",
+            "work",
+            std::slice::from_ref(&wait),
+        )
         .unwrap()
     {
         Waited::Proceed(_) => {}

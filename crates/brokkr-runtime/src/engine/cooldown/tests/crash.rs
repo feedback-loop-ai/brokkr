@@ -41,15 +41,81 @@ fn driven(dir: &Path, compiled: crate::bundle::Bundle, run: &str, at: OffsetDate
 /// The run resumed under `compiled`, its cool-down host file set; the
 /// caller sets its clock.
 fn resumed_run(dir: &Path, compiled: crate::bundle::Bundle, run: &str) -> Engine {
-    let mut engine = Engine::resume(
-        brokkr_store::Store::open(&dir.join("forge.db")).unwrap(),
-        compiled,
-        run,
-        Some(dir.join("work")),
+    super::panel::resume_run(dir, compiled, run, host(dir, 1, 10))
+}
+
+/// A test in an engine of its own: its temporary directory, its protected
+/// home and the standing coordination root, or `None` in the parent run.
+pub(super) fn own_engine(test: &str) -> Option<(tempfile::TempDir, PathBuf, Coordinated)> {
+    if !in_its_own_engine(test) {
+        return None;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let home = super::lease::home(dir.path());
+    let stand = Coordinated::at(&home);
+    Some((dir, home, stand))
+}
+
+/// How many attempts a reservation still holds and which are settled.
+pub(super) fn reservation_after(at: &Path) -> (usize, Vec<String>) {
+    let after: Value = serde_json::from_slice(&std::fs::read(at).unwrap()).unwrap();
+    (
+        after["attempts"]
+            .as_object()
+            .map_or(0, serde_json::Map::len),
+        after["settled"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect(),
     )
-    .unwrap();
-    engine.cooldown.host = Some(host(dir, 1, 10));
-    engine
+}
+
+/// The attempt a reservation still stands on.
+pub(super) fn standing_attempt(at: &Path) -> String {
+    let sealed: Value = serde_json::from_slice(&std::fs::read(at).unwrap()).unwrap();
+    sealed["attempts"]
+        .as_object()
+        .expect("an attempt stands")
+        .keys()
+        .next()
+        .expect("an attempt")
+        .clone()
+}
+
+/// Wait for the live child's probe to write `done` and `pid`, or fail.
+pub(super) fn wait_for_probe(child: &mut std::process::Child, done: &Path, pid: &Path, what: &str) {
+    let deadline = Instant::now() + StdDuration::from_secs(30);
+    while !(done.exists() && pid.exists()) {
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "the engine child ended before {what} started"
+        );
+        assert!(Instant::now() < deadline, "{what} never started");
+        std::thread::sleep(StdDuration::from_millis(20));
+    }
+}
+
+/// Spawn this test binary for the live-probe child under the two env keys.
+pub(super) fn spawn_live(
+    test: &str,
+    dir: &Path,
+    run: &str,
+    dir_key: &str,
+    run_key: &str,
+) -> std::process::Child {
+    Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", test])
+        .env(dir_key, dir)
+        .env(run_key, run)
+        .env_remove("BROKKR_TEST_OWN_ENGINE")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap()
 }
 
 fn crashed_after_probe_cleanup(dir: &Path, home: &Path) -> (crate::bundle::Bundle, String, String) {
@@ -102,12 +168,9 @@ fn crashed_after_probe_cleanup(dir: &Path, home: &Path) -> (crate::bundle::Bundl
 #[test]
 fn a_crash_after_a_probes_cleanup_leaves_a_proven_reservation_the_resume_releases() {
     let test = "engine::cooldown::tests::crash::a_crash_after_a_probes_cleanup_leaves_a_proven_reservation_the_resume_releases";
-    if !in_its_own_engine(test) {
+    let Some((dir, home, _stand)) = own_engine(test) else {
         return;
-    }
-    let dir = tempfile::tempdir().unwrap();
-    let home = super::lease::home(dir.path());
-    let _stand = Coordinated::at(&home);
+    };
     let (compiled, run, first) = crashed_after_probe_cleanup(dir.path(), &home);
     let at = reservation_path(&home, &dir.path().join("work"), &run);
 
@@ -134,21 +197,9 @@ fn a_crash_after_a_probes_cleanup_leaves_a_proven_reservation_the_resume_release
         .filter(|event| event.payload["effect_id"] == "effect")
         .count();
     assert_eq!(effect, 1, "the probe spent no effect attempt: {attempts:?}");
-    let after: Value = serde_json::from_slice(&std::fs::read(&at).unwrap()).unwrap();
-    assert_eq!(
-        after["attempts"]
-            .as_object()
-            .map_or(0, serde_json::Map::len),
-        0,
-        "a probe's reservation stands: {after}"
-    );
-    let settled: Vec<&str> = after["settled"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(Value::as_str)
-        .collect();
-    assert!(settled.contains(&first.as_str()), "{after}");
+    let (standing, settled) = reservation_after(&at);
+    assert_eq!(standing, 0, "a probe's reservation stands");
+    assert!(settled.iter().any(|entry| entry == &first));
     assert!(
         protecting_refused(&home, &dir.path().join("work")).is_ok(),
         "a later admission is refused"
@@ -157,7 +208,7 @@ fn a_crash_after_a_probes_cleanup_leaves_a_proven_reservation_the_resume_release
 
 /// A clock that reads `now` and panics once the probe's done marker exists:
 /// the one instant between `settlement::ended` and `settle_probe`.
-fn crashing_clock(done: &Path, now: &Arc<Mutex<OffsetDateTime>>) -> Clock {
+pub(super) fn crashing_clock(done: &Path, now: &Arc<Mutex<OffsetDateTime>>) -> Clock {
     let read = Arc::clone(now);
     let advance = Arc::clone(now);
     let done = done.to_path_buf();
@@ -224,35 +275,14 @@ fn a_live_probe_crash_parks_the_resume_before_a_second_probe() {
     if let (Some(dir), Some(run)) = (std::env::var_os(LIVE_DIR), std::env::var_os(LIVE_RUN)) {
         live_engine_child(Path::new(&dir), &run.to_string_lossy());
     }
-    if !in_its_own_engine(test) {
+    let Some((dir, home, _stand)) = own_engine(test) else {
         return;
-    }
-    let dir = tempfile::tempdir().unwrap();
-    let home = super::lease::home(dir.path());
-    std::fs::create_dir_all(dir.path().join("work")).unwrap();
-    let _stand = Coordinated::at(&home);
+    };
     let (run, compiled) = live_fixture(dir.path());
     let log = dir.path().join("work.log");
     let pid = dir.path().join("work.pid");
-    let mut child = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", test])
-        .env(LIVE_DIR, dir.path())
-        .env(LIVE_RUN, &run)
-        .env_remove("BROKKR_TEST_OWN_ENGINE")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let deadline = Instant::now() + StdDuration::from_secs(30);
-    while !(log.exists() && pid.exists()) {
-        assert!(
-            child.try_wait().unwrap().is_none(),
-            "the engine child ended before its probe started"
-        );
-        assert!(Instant::now() < deadline, "the probe never started");
-        std::thread::sleep(StdDuration::from_millis(20));
-    }
+    let mut child = spawn_live(test, dir.path(), &run, LIVE_DIR, LIVE_RUN);
+    wait_for_probe(&mut child, &log, &pid, "the probe");
     child.kill().unwrap();
     child.wait().unwrap();
     let driver = std::fs::read_to_string(&pid)
@@ -301,7 +331,7 @@ fn a_live_probe_crash_parks_the_resume_before_a_second_probe() {
 }
 
 /// End the live probe's whole group and reap it if this process adopted it.
-fn kill_probe(driver: rustix::process::Pid) {
+pub(super) fn kill_probe(driver: rustix::process::Pid) {
     rustix::process::kill_process_group(driver, rustix::process::Signal::KILL).ok();
     let until = Instant::now() + StdDuration::from_secs(5);
     while Instant::now() < until {

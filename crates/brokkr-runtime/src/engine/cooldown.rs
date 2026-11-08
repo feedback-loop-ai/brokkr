@@ -16,8 +16,8 @@ use std::time::Duration;
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{fold, Cursor, Run, RunState};
 use brokkr_core::{
-    provider_refusal, provider_waits, EventEnvelope, ProbeAnswer, ProviderRefusal,
-    ProviderRefusalError, ProviderWait, ProviderWaitError, RefusalCause,
+    provider_refusal, EventEnvelope, ProbeAnswer, ProviderRefusal, ProviderRefusalError,
+    ProviderWait, ProviderWaitError, RefusalCause,
 };
 use brokkr_protocol::{PreSessionRefusal, RefusalClass};
 use serde_json::{json, Value};
@@ -32,6 +32,9 @@ use crate::bundle::Limits;
 mod probe;
 pub(in crate::engine) use probe::cleanup_failure;
 use probe::Probe;
+
+mod sites;
+pub(in crate::engine) use sites::refused_members;
 
 /// One slice of an in-process wait: the wait re-reads the run's journal
 /// after each, so an operator `stop` is honoured within a second.
@@ -55,11 +58,12 @@ impl Clock {
 }
 
 /// The engine's cool-down seam: the host file its launch found, the clock
-/// and sleep the wait reads, and the probe's answer the retry journals.
+/// and sleep the wait reads, and the probes' answers the retry journals,
+/// one per answered cooled member (decision 0103 ruling 4(a), slice 4c2a).
 pub(crate) struct Seam {
     pub(crate) host: Option<PathBuf>,
     pub(crate) clock: Clock,
-    pub(crate) answer: Option<ProbeAnswer>,
+    pub(crate) answers: Vec<ProbeAnswer>,
 }
 
 impl Default for Seam {
@@ -67,7 +71,7 @@ impl Default for Seam {
         Seam {
             host: None,
             clock: Clock::real(),
-            answer: None,
+            answers: Vec::new(),
         }
     }
 }
@@ -94,7 +98,7 @@ pub(super) enum CooldownError {
 /// What the engine does with a wait it read: proceed to the retry, leave
 /// a stopped run to its `Stop` arm, or park with this reason.
 pub(super) enum Waited {
-    Proceed(ProbeAnswer),
+    Proceed(Vec<ProbeAnswer>),
     Stopped,
     Parked(String),
 }
@@ -111,7 +115,7 @@ fn terminal<'a>(events: &'a [EventEnvelope], effect_id: &str) -> Option<&'a Even
 }
 
 /// The seat the journal requested this effect for, when it names one.
-fn effect_seat<'a>(events: &'a [EventEnvelope], effect_id: &str) -> Option<&'a str> {
+pub(super) fn effect_seat<'a>(events: &'a [EventEnvelope], effect_id: &str) -> Option<&'a str> {
     events
         .iter()
         .rev()
@@ -128,30 +132,8 @@ fn effect_seat<'a>(events: &'a [EventEnvelope], effect_id: &str) -> Option<&'a s
 /// (decision 0103 ruling 3); an earlier entry that does not read refuses by
 /// name, never as nothing.
 fn episode(events: &[EventEnvelope], effect_id: &str) -> Result<(u64, u64), CooldownError> {
-    let mut rounds = 0u64;
-    let mut seconds = 0u64;
-    for event in events {
-        if !matches!(
-            event.event_type,
-            EventType::EffectFailed | EventType::EffectIndeterminate
-        ) || event.payload.get("effect_id").and_then(Value::as_str) != Some(effect_id)
-        {
-            continue;
-        }
-        let Some(waits) =
-            provider_waits(event).map_err(|source| CooldownError::EarlierWaitUnreadable {
-                seq: event.seq,
-                source,
-            })?
-        else {
-            continue;
-        };
-        for wait in waits {
-            rounds = rounds.saturating_add(1);
-            seconds = seconds.saturating_add(wait.seconds);
-        }
-    }
-    Ok((rounds, seconds))
+    let (sites, seconds) = sites::episode_by_site(events, effect_id)?;
+    Ok((sites.values().copied().sum(), seconds))
 }
 
 /// The one maximum check the terminal event and a resume both apply: the
@@ -164,9 +146,13 @@ fn past_maximum(seconds: u64, episode_seconds: u64, max: u64) -> bool {
 /// The park reason a maximum refusal gives: the provider's words and the
 /// maximum, with the round and the episode the record supplies.
 fn maximum_reason(wait: &ProviderWait, episode_seconds: u64, max: u64) -> String {
+    let member = wait
+        .site
+        .as_deref()
+        .map_or_else(String::new, |site| format!("member {site}: "));
     format!(
-        "cool-down for {}/{} would wait {}s in round {} (episode {}s), past the declared {max}s \
-         maximum: {}",
+        "{member}cool-down for {}/{} would wait {}s in round {} (episode {}s), past the declared \
+         {max}s maximum: {}",
         wait.provider, wait.route, wait.seconds, wait.rounds, episode_seconds, wait.words
     )
 }
@@ -177,6 +163,15 @@ fn maximum_reason(wait: &ProviderWait, episode_seconds: u64, max: u64) -> String
 /// fact it names is one the failed event carries, so a resume that never saw
 /// the first park says exactly what that park said.
 fn refusal_text(refused: &ProviderRefusal, episode: Option<u64>) -> String {
+    let body = refusal_body(refused, episode);
+    match refused.site.as_deref() {
+        Some(site) => format!("member {site}: {body}"),
+        None => body,
+    }
+}
+
+/// [`refusal_text`]'s facts, without the member the record may name.
+fn refusal_body(refused: &ProviderRefusal, episode: Option<u64>) -> String {
     let route = refused.route.as_deref().unwrap_or("an unresolved route");
     let retry = refused
         .retry_after_seconds
@@ -269,6 +264,7 @@ fn recorded_length(refused: &ProviderRefusal) -> (String, String) {
 /// failed event keeps, whatever the park that follows says.
 fn refusal_record(
     cause: RefusalCause,
+    site: Option<&str>,
     refusal: &PreSessionRefusal,
     route: Option<&str>,
     seconds: Option<u64>,
@@ -276,9 +272,7 @@ fn refusal_record(
 ) -> ProviderRefusal {
     ProviderRefusal {
         cause,
-        // 4c1 records a single seat's refusal: it has no invocation-site
-        // tag, so `site` is absent, as `waits.site` is for an inline seat.
-        site: None,
+        site: site.map(str::to_string),
         provider: refusal.provider().to_string(),
         route: route.map(str::to_string),
         words: refusal.words().to_string(),
@@ -311,6 +305,9 @@ fn waiter(wait: &ProviderWait, until: OffsetDateTime) -> Value {
         "until": until.format(&Rfc3339).expect("an RFC 3339 time formats as RFC 3339"),
         "rounds": wait.rounds,
     });
+    if let Some(site) = &wait.site {
+        value["site"] = json!(site);
+    }
     if let Some(seconds) = wait.retry_after_seconds {
         value["retry_after_seconds"] = json!(seconds);
     }
@@ -341,27 +338,18 @@ impl Engine {
         }
     }
 
-    /// The last terminal event's wait, or why a present one does not read.
-    /// A single seat carries exactly one; more refuses by name.
+    /// The last terminal event's one wait, or why a present record does not
+    /// read. A single seat carries exactly one; more refuses by name in
+    /// [`Engine::recorded_waits`].
+    #[cfg(test)]
     pub(super) fn recorded_wait(
         &self,
         events: &[EventEnvelope],
         effect_id: &str,
     ) -> Result<Option<ProviderWait>, CooldownError> {
-        let Some(event) = terminal(events, effect_id) else {
-            return Ok(None);
-        };
-        let Some(mut waits) = provider_waits(event).map_err(CooldownError::LastWaitUnreadable)?
-        else {
-            return Ok(None);
-        };
-        match waits.len() {
-            1 => Ok(waits.pop()),
-            count => Err(CooldownError::TooManyWaits {
-                seq: event.seq,
-                count,
-            }),
-        }
+        Ok(self
+            .recorded_waits(events, effect_id)?
+            .and_then(|mut waits| waits.pop()))
     }
 
     /// The refusal the effect's last terminal event carries, or why a
@@ -409,7 +397,14 @@ impl Engine {
         let events = self.store.load(&self.run_id)?;
         let (provider, route) = (refusal.provider(), refusal.route());
         let Some(route) = route else {
-            let refused = refusal_record(RefusalCause::RouteUnresolved, refusal, None, None, None);
+            let refused = refusal_record(
+                RefusalCause::RouteUnresolved,
+                None,
+                refusal,
+                None,
+                None,
+                None,
+            );
             record_refusal(&mut payload, &refused);
             return Ok(self.refusal_terminal(&events, effect_id, payload, refused, None));
         };
@@ -426,6 +421,7 @@ impl Engine {
             Err(_) => {
                 let refused = refusal_record(
                     RefusalCause::HostUnreadable,
+                    None,
                     refusal,
                     Some(route),
                     None,
@@ -457,6 +453,7 @@ impl Engine {
             Err(_) => {
                 let refused = refusal_record(
                     RefusalCause::EpisodeUnreadable,
+                    None,
                     refusal,
                     Some(route),
                     None,
@@ -468,20 +465,13 @@ impl Engine {
         };
         let rounds = prior_rounds.saturating_add(1);
         let retry_after = refusal.retry_after_seconds();
-        let seconds = retry_after.unwrap_or_else(|| {
-            u64::from(bounds.default_seconds.get())
-                .saturating_mul(2u64.saturating_pow((rounds - 1).min(32) as u32))
-        });
+        let seconds = sites::wait_seconds(retry_after, bounds.default_seconds.get(), rounds);
         let max = u64::from(bounds.max_seconds.get());
         let total = prior_seconds.saturating_add(seconds);
         // The maximum is judged from the computed length BEFORE any `until`
         // is formed, so no huge retry-after can overflow here (step 4).
         let past = past_maximum(seconds, total, max);
-        let until = i64::try_from(seconds).ok().and_then(|seconds| {
-            self.now()
-                .checked_add(TimeDuration::seconds(seconds))
-                .and_then(representable_end)
-        });
+        let until = sites::wait_until(self.now(), seconds);
         let wait = until.map(|until| ProviderWait {
             site: None,
             provider: provider.to_string(),
@@ -504,7 +494,8 @@ impl Engine {
                 true => (RefusalCause::PastMaximum, Some(total)),
                 false => (RefusalCause::NoEnd, None),
             };
-            let refused = refusal_record(cause, refusal, Some(route), Some(seconds), Some(max));
+            let refused =
+                refusal_record(cause, None, refusal, Some(route), Some(seconds), Some(max));
             record_refusal(&mut payload, &refused);
             return self.refusal_terminal(events, effect_id, payload, refused, episode);
         }
@@ -586,15 +577,33 @@ impl Engine {
         state: &RunState,
         effect_id: &str,
         seat: &str,
-        wait: &ProviderWait,
+        waits: &[ProviderWait],
     ) -> Result<Waited, EngineError> {
-        if let Some(reason) = self.resume_park_reason(events, effect_id, wait) {
-            return Ok(Waited::Parked(reason));
+        for wait in waits {
+            if let Some(reason) = self.resume_park_reason(events, effect_id, wait) {
+                return Ok(Waited::Parked(reason));
+            }
         }
-        if self.wait_in_slices(wait)? {
+        let latest = waits
+            .iter()
+            .map(|wait| wait.until)
+            .max()
+            .expect("a wait to take");
+        if self.wait_in_slices(latest)? {
             return Ok(Waited::Stopped);
         }
-        self.probe_outcome(events, state, effect_id, seat, wait)
+        let mut answers = Vec::with_capacity(waits.len());
+        for wait in waits {
+            if self.moved_from_the_effect()? {
+                return Ok(Waited::Stopped);
+            }
+            match self.probe_outcome(events, state, effect_id, seat, wait)? {
+                Waited::Proceed(mut answered) => answers.append(&mut answered),
+                Waited::Parked(reason) => return Ok(Waited::Parked(reason)),
+                Waited::Stopped => return Ok(Waited::Stopped),
+            }
+        }
+        Ok(Waited::Proceed(answers))
     }
 
     /// The bounds and episode the resume reads before it sleeps: the reason
@@ -633,7 +642,7 @@ impl Engine {
     /// Wait the recorded remainder in bounded slices, honouring an operator
     /// `stop` through the journal's high-water mark. `true` is a stop:
     /// nothing may probe or retry after it.
-    fn wait_in_slices(&mut self, wait: &ProviderWait) -> Result<bool, EngineError> {
+    fn wait_in_slices(&mut self, until: OffsetDateTime) -> Result<bool, EngineError> {
         // Sample BEFORE the first stop check: an event journaled between
         // the caller's fold and this sample is then still a change, and the
         // check below sees it now rather than the sample swallowing it.
@@ -642,7 +651,7 @@ impl Engine {
             return Ok(true);
         }
         loop {
-            let remaining = wait.until - self.now();
+            let remaining = until - self.now();
             if remaining <= TimeDuration::ZERO {
                 break;
             }
@@ -668,8 +677,8 @@ impl Engine {
         seat: &str,
         wait: &ProviderWait,
     ) -> Result<Waited, EngineError> {
-        match self.probe(events, state, effect_id, seat, wait)? {
-            Probe::Answered(answer) => Ok(Waited::Proceed(answer)),
+        match self.probe_wait(events, state, effect_id, seat, wait)? {
+            Probe::Answered(answer) => Ok(Waited::Proceed(vec![answer])),
             Probe::Parked(reason) => Ok(Waited::Parked(reason)),
         }
     }

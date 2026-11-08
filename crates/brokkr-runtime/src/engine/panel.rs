@@ -23,6 +23,7 @@ use super::carry::{
     outcome_under,
     record::{settled_members, PanelRecord, PanelSpan, Tag},
 };
+use super::cooldown::refused_members;
 use super::{
     argv_for, checkpoints, copy_secret_binding_facts, failed_to_start, resume, spawn_site,
     stamp_boundary, start_failure_fields, tag_member, Calls, Checkpoints, Door, DriverRun, Engine,
@@ -96,6 +97,11 @@ impl Engine {
             settled_members: settled_members(&reports, None),
         };
         let start_failures = start_failure_sites(&reports, "");
+        // Every member that refused with a rate limit records its own wait
+        // (decision 0103 ruling 2(a), slice 4c2a): one entry per refused
+        // site, assembled here from the reports in declared order.
+        let refused = refused_members(&reports, "");
+        let events = self.store.load(&self.run_id)?;
         let unproven = Unproven::panel(&reports);
         let carry = selection.carry.as_ref();
         // One line, as `disposed`'s refusal callsites: the exact-coverage
@@ -109,9 +115,11 @@ impl Engine {
                     unproven
                 });
                 record.stamp(&mut payload);
+                let terminal =
+                    self.panel_rate_limit_terminal(&events, effect_id, payload, &refused, false);
                 self.append(
                     EventType::EffectIndeterminate,
-                    payload,
+                    terminal.payload,
                     Some(attempt_id.to_string()),
                 )?;
             }
@@ -126,11 +134,16 @@ impl Engine {
                 // ran does not.
                 start_failure_fields(&mut payload, selection, start_failures);
                 record.stamp(&mut payload);
+                let terminal =
+                    self.panel_rate_limit_terminal(&events, effect_id, payload, &refused, true);
                 self.append(
                     EventType::EffectFailed,
-                    payload,
+                    terminal.payload,
                     Some(attempt_id.to_string()),
                 )?;
+                if let Some(reason) = terminal.park {
+                    self.park_with_reason(reason)?;
+                }
             }
             AttemptOutcome::Succeeded { result } => {
                 // The aggregate is the engine's own record — `result`,

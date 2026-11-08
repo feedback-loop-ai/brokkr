@@ -15,7 +15,10 @@ use super::{gate_head_evidence, operator_stop_reason, Engine, EngineError};
 /// rate-limit refusal left to take, no record at all, or a park the record
 /// already asks for.
 enum Recorded {
-    Wait(ProviderWait),
+    Wait {
+        effect_id: String,
+        waits: Vec<ProviderWait>,
+    },
     Attempt,
     Parked,
 }
@@ -64,25 +67,26 @@ impl Engine {
         failed_attempts: u64,
     ) -> Result<(), EngineError> {
         let max_attempts = self.seat_limits(Some(seat)).max_attempts;
-        let wait = match self.park_on_record(events, effect_id, failed_attempts, max_attempts)? {
-            Recorded::Wait(wait) => wait,
-            Recorded::Attempt => return self.run_attempt(events, state, effect_id, seat, None),
-            Recorded::Parked => return Ok(()),
-        };
+        let (wait_effect, waits) =
+            match self.park_on_record(events, effect_id, failed_attempts, max_attempts)? {
+                Recorded::Wait { effect_id, waits } => (effect_id, waits),
+                Recorded::Attempt => {
+                    return self.run_attempt(events, state, effect_id, seat, Vec::new())
+                }
+                Recorded::Parked => return Ok(()),
+            };
         // Before the wait's probe and before the retry's admission, the
         // run's own reservation may name a crashed probe's attempt that no
         // journal event names. It is released only where every process it
         // witnessed is proven settled; otherwise the run parks with the
         // cleanup refusal naming it, spending no effect attempt and starting
         // no probe or retry (decision 0103 ruling 4, this fix round).
-        if let Some(reason) = self.orphaned_probe_refusal(events, &wait) {
+        if let Some(reason) = self.orphaned_probe_refusal(events, &waits) {
             self.park_with_reason(reason)?;
             return Ok(());
         }
-        match self.take_cooldown(events, state, effect_id, seat, &wait)? {
-            Waited::Proceed(answer) => {
-                self.run_attempt(events, state, effect_id, seat, Some(answer))
-            }
+        match self.take_cooldown(events, state, &wait_effect, seat, &waits)? {
+            Waited::Proceed(answers) => self.run_attempt(events, state, effect_id, seat, answers),
             // The stop's own arm writes the ending next turn.
             Waited::Stopped => Ok(()),
             Waited::Parked(reason) => self.park_with_reason(reason),
@@ -101,7 +105,7 @@ impl Engine {
         failed_attempts: u64,
         max_attempts: u64,
     ) -> Result<Recorded, EngineError> {
-        let wait = self.recorded_wait(events, effect_id);
+        let waits = self.recorded_waits(events, effect_id);
         let refused = self.recorded_refusal(events, effect_id);
         if failed_attempts >= max_attempts {
             self.park_at_cap(
@@ -109,7 +113,7 @@ impl Engine {
                 effect_id,
                 failed_attempts,
                 max_attempts,
-                &wait,
+                &waits,
                 &refused,
             )?;
             return Ok(Recorded::Parked);
@@ -131,9 +135,23 @@ impl Engine {
                 return Ok(Recorded::Parked);
             }
         }
-        match wait {
-            Ok(Some(wait)) => Ok(Recorded::Wait(wait)),
-            Ok(None) => Ok(Recorded::Attempt),
+        match waits {
+            Ok(Some(waits)) if !waits.is_empty() => Ok(Recorded::Wait {
+                effect_id: effect_id.to_string(),
+                waits,
+            }),
+            Ok(Some(_)) | Ok(None) => match self.indeterminate_waits(events, effect_id) {
+                Ok(Some((waited, waits))) => Ok(Recorded::Wait {
+                    effect_id: waited,
+                    waits,
+                }),
+                Ok(None) => Ok(Recorded::Attempt),
+                Err(detail) => {
+                    let reason = format!("refusing to execute effect {effect_id}: {detail}");
+                    self.park_with_reason(reason)?;
+                    Ok(Recorded::Parked)
+                }
+            },
             Err(detail) => {
                 // A present wait that does not read refuses by name, never
                 // as no wait (decision 0103 ruling 2(a)).
@@ -144,6 +162,45 @@ impl Engine {
         }
     }
 
+    /// The waits an operator retry of an indeterminate panel stands on: the
+    /// newest terminal event is that panel's and it carries them, while the
+    /// effect now executing has no terminal of its own yet (decision 0103
+    /// ruling 7). Any other effect has no wait in force here.
+    fn indeterminate_waits(
+        &self,
+        events: &[EventEnvelope],
+        effect_id: &str,
+    ) -> Result<Option<(String, Vec<ProviderWait>)>, CooldownError> {
+        if events.iter().any(|event| {
+            matches!(
+                event.event_type,
+                EventType::EffectFailed | EventType::EffectIndeterminate
+            ) && event.payload.get("effect_id").and_then(Value::as_str) == Some(effect_id)
+        }) {
+            return Ok(None);
+        }
+        let Some(last) = events.iter().rev().find(|event| {
+            matches!(
+                event.event_type,
+                EventType::EffectSucceeded
+                    | EventType::EffectFailed
+                    | EventType::EffectIndeterminate
+            )
+        }) else {
+            return Ok(None);
+        };
+        if last.event_type != EventType::EffectIndeterminate {
+            return Ok(None);
+        }
+        let Some(waited) = last.payload.get("effect_id").and_then(Value::as_str) else {
+            return Ok(None);
+        };
+        let Some(waits) = self.recorded_waits(events, waited)? else {
+            return Ok(None);
+        };
+        Ok((!waits.is_empty()).then(|| (waited.to_string(), waits)))
+    }
+
     /// The run's own reservation may name a crashed probe's attempt that no
     /// journal event names. `Some` is the cleanup refusal to park with,
     /// after which nothing may probe or retry; `None` is every process it
@@ -152,9 +209,9 @@ impl Engine {
     fn orphaned_probe_refusal(
         &self,
         events: &[EventEnvelope],
-        wait: &ProviderWait,
+        waits: &[ProviderWait],
     ) -> Option<String> {
-        self.recovered_probe(events, wait, &crate::engine::broker::observed())
+        self.recovered_probe(events, &waits[0], &crate::engine::broker::observed())
             .err()
             .map(|refusal| refusal.to_string())
     }
@@ -169,7 +226,7 @@ impl Engine {
         effect_id: &str,
         failed_attempts: u64,
         max_attempts: u64,
-        wait: &Result<Option<ProviderWait>, CooldownError>,
+        waits: &Result<Option<Vec<ProviderWait>>, CooldownError>,
         refused: &Result<Option<ProviderRefusal>, CooldownError>,
     ) -> Result<(), EngineError> {
         let mut reason = format!(
@@ -177,30 +234,43 @@ impl Engine {
              last error: {}",
             last_error(events, effect_id)
         );
+        if let Ok(Some(all)) = waits {
+            if all.len() > 1 {
+                return self.park_at_cap_many(reason, events, effect_id, all, refused);
+            }
+        }
         match refused {
             Ok(Some(refused)) => {
                 reason.push_str(&cap_refusal_facts(
                     refused,
-                    wait.as_ref().ok().and_then(Option::as_ref),
+                    waits
+                        .as_ref()
+                        .ok()
+                        .and_then(|waits| waits.as_ref())
+                        .and_then(|waits| waits.first()),
                 ));
-                match wait {
-                    Ok(Some(wait)) => reason.push_str(&self.cap_maximum(events, effect_id, wait)),
-                    Ok(None) => reason.push_str("; no until exists for it"),
+                match waits {
+                    Ok(Some(waits)) if !waits.is_empty() => {
+                        reason.push_str(&self.cap_maximum(events, effect_id, &waits[0]))
+                    }
+                    Ok(Some(_)) | Ok(None) => reason.push_str("; no until exists for it"),
                     Err(detail) => reason.push_str(&format!("; {detail}")),
                 }
             }
-            Ok(None) => {
-                if let Ok(Some(wait)) = wait {
-                    reason.push_str(&cap_wait_facts(wait));
-                    reason.push_str(&self.cap_maximum(events, effect_id, wait));
-                } else if let Err(detail) = wait {
-                    reason.push_str(&format!("; {detail}"));
+            Ok(None) => match waits {
+                Ok(Some(waits)) if !waits.is_empty() => {
+                    reason.push_str(&cap_wait_facts(&waits[0]));
+                    reason.push_str(&self.cap_maximum(events, effect_id, &waits[0]));
                 }
-            }
+                Ok(Some(_)) | Ok(None) => {}
+                Err(detail) => reason.push_str(&format!("; {detail}")),
+            },
             Err(detail) => {
                 reason.push_str(&format!("; {detail}"));
-                if let Ok(Some(wait)) = wait {
-                    reason.push_str(&cap_wait_facts(wait));
+                if let Ok(Some(waits)) = waits {
+                    if let Some(wait) = waits.first() {
+                        reason.push_str(&cap_wait_facts(wait));
+                    }
                 }
             }
         }
@@ -208,10 +278,38 @@ impl Engine {
         Ok(())
     }
 
+    /// The cap's facts for a panel's several waits: 0006's text first, then
+    /// each member's own in declared order, and the refused record's facts
+    /// where the parking member's wait could not be computed (decision 0103
+    /// slice 4c2a).
+    fn park_at_cap_many(
+        &mut self,
+        mut reason: String,
+        events: &[EventEnvelope],
+        effect_id: &str,
+        waits: &[ProviderWait],
+        refused: &Result<Option<ProviderRefusal>, CooldownError>,
+    ) -> Result<(), EngineError> {
+        for wait in waits {
+            reason.push_str(&cap_wait_facts(wait));
+            reason.push_str(&self.cap_maximum(events, effect_id, wait));
+        }
+        match refused {
+            Ok(Some(refused)) => {
+                if !waits.iter().any(|wait| wait.site == refused.site) {
+                    reason.push_str(&cap_refusal_facts(refused, None));
+                }
+            }
+            Ok(None) => {}
+            Err(detail) => reason.push_str(&format!("; {detail}")),
+        }
+        self.park_with_reason(reason)
+    }
+
     /// The one `run/parked` write the refusal and wait parks share: the
     /// reason and an empty evidence envelope. `park_at_cursor` keeps its
     /// own write because a moved head carries evidence.
-    fn park_with_reason(&mut self, reason: String) -> Result<(), EngineError> {
+    pub(super) fn park_with_reason(&mut self, reason: String) -> Result<(), EngineError> {
         self.append(
             EventType::RunParked,
             json!({"reason": reason, "evidence": {}}),
@@ -247,9 +345,11 @@ impl Engine {
         state: &RunState,
         effect_id: &str,
         seat: &str,
-        answer: Option<ProbeAnswer>,
+        answers: Vec<ProbeAnswer>,
     ) -> Result<(), EngineError> {
-        self.cooldown.answer = answer;
+        // The probe answers set before an operator retry's new effect are
+        // kept: that request carries no wait of its own.
+        self.cooldown.answers.extend(answers);
         // `execute` is the one place a gate head is armed, for every body
         // shape, and an attempt that leaves it through an `Err` — a
         // checkpoint that would not journal, say — appends no terminal
@@ -258,7 +358,7 @@ impl Engine {
         // NEXT effect's terminal event, which could then read a park no
         // gate earned.
         let dispatched = self.execute(events, state, effect_id, seat);
-        self.cooldown.answer = None;
+        self.cooldown.answers.clear();
         if dispatched.is_err() {
             self.active_gate_head = None;
         }
@@ -300,6 +400,10 @@ impl Engine {
 /// and the declared maximum (decision 0103 ruling 7(c), this fix round).
 fn cap_refusal_facts(refused: &ProviderRefusal, wait: Option<&ProviderWait>) -> String {
     let route = refused.route.as_deref().unwrap_or("an unresolved route");
+    let member = refused
+        .site
+        .as_deref()
+        .map_or_else(String::new, |site| format!("; member {site}"));
     let mut facts = match wait {
         Some(wait) => format!(
             "; the last refusal waits for {}/{} until {}: {}",
@@ -311,10 +415,13 @@ fn cap_refusal_facts(refused: &ProviderRefusal, wait: Option<&ProviderWait>) -> 
             refused.words
         ),
         None => format!(
-            "; the last refusal names {}/{} with no until: {}",
+            "{member}; the last refusal names {}/{} with no until: {}",
             refused.provider, route, refused.words
         ),
     };
+    if wait.is_some() {
+        facts = format!("{member}{facts}");
+    }
     if let Some(retry) = refused.retry_after_seconds {
         facts.push_str(&format!("; the provider gave retry-after {retry}s"));
     }
@@ -330,8 +437,12 @@ fn cap_refusal_facts(refused: &ProviderRefusal, wait: Option<&ProviderWait>) -> 
 /// event carries no `refused` record: its provider, route, `until`, words
 /// and the retry-after it recorded.
 fn cap_wait_facts(wait: &ProviderWait) -> String {
+    let member = wait
+        .site
+        .as_deref()
+        .map_or_else(String::new, |site| format!("; member {site}"));
     let mut facts = format!(
-        "; the last refusal waits for {}/{} until {}: {}",
+        "{member}; the last refusal waits for {}/{} until {}: {}",
         wait.provider,
         wait.route,
         wait.until

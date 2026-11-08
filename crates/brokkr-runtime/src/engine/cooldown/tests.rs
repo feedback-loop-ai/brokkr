@@ -182,9 +182,10 @@ case "$start" in *'"type":"start"'*) ;; *) exit 0 ;; esac
 eid=$(printf '%s' "$start" | sed -n 's/.*"effect_id":"\([^"]*\)".*/\1/p')
 aid=$(printf '%s' "$start" | sed -n 's/.*"attempt_id":"\([^"]*\)".*/\1/p')
 base='{"proto":"forge-driver/v1","msg_id":"m"'
+glog() { printf '%s:%s\n' '@TAG@' "$1" >> '@GLOG@'; }
 case "$start" in
   *'"probe":true'*)
-    printf '%s\n' 'probe' >> '@LOG@'
+    printf '%s\n' 'probe' >> '@LOG@'; glog probe
     printf '%s' "$$" > '@PIDLOG@'
     printf done > '@DONE@'
     seat=$(printf '%s' "$start" | grep -o '"seat":"[^"]*"' | head -1 | cut -d'"' -f4)
@@ -195,7 +196,7 @@ case "$start" in
     n=$((n+1)); printf '%s' "$n" > '@COUNT@'
     verdict=$(sed -n "${n}p" '@VERDICTS@')
     [ -n "$verdict" ] || verdict=$(tail -1 '@VERDICTS@')
-    printf '%s\n' "attempt:$verdict" >> '@LOG@'
+    printf '%s\n' "attempt:$verdict" >> '@LOG@'; glog "attempt:$verdict"
     if [ "$verdict" = refuse ]; then
       @REFUSED@
     else
@@ -223,6 +224,8 @@ read -r bye
         ("@PIDLOG@", pidlog.display().to_string()),
         ("@DONE@", done.display().to_string()),
         ("@PROBECOUNT@", probecount.display().to_string()),
+        ("@GLOG@", dir.join("all.log").display().to_string()),
+        ("@TAG@", tag.to_string()),
     ] {
         script = script.replace(at, &with);
     }
@@ -453,15 +456,7 @@ fn compiled(dir: &Path, body: SeatBody) -> crate::bundle::Bundle {
 /// An engine holding the crashed attempt's journal, with `waits` on its
 /// terminal event, ready for the resume path.
 fn journaled(dir: &Path, body: SeatBody, waits: Value) -> Engine {
-    std::fs::create_dir_all(dir.join("work")).unwrap();
-    let store = brokkr_store::Store::open(&dir.join("forge.db")).unwrap();
-    let mut engine = Engine::start(
-        store,
-        compiled(dir, body),
-        "Feature",
-        Some(dir.join("work")),
-    )
-    .unwrap();
+    let mut engine = panel::starting_engine(dir, compiled(dir, body));
     append_waited(&mut engine, waits);
     engine
 }
@@ -667,7 +662,13 @@ fn a_stop_already_journaled_is_seen_before_the_first_slice() {
     append_stop(&dir.path().join("forge.db"), &engine.run_id);
     let before = *now.lock().unwrap();
     match engine
-        .take_cooldown(&events, &state, "effect", "work", &wait)
+        .take_cooldown(
+            &events,
+            &state,
+            "effect",
+            "work",
+            std::slice::from_ref(&wait),
+        )
         .unwrap()
     {
         super::Waited::Stopped => {}
@@ -1414,31 +1415,6 @@ fn panel_body(command: Vec<String>) -> SeatBody {
 }
 
 #[test]
-fn a_panel_refused_by_a_rate_limit_follows_todays_path() {
-    let dir = tempfile::tempdir().unwrap();
-    let body = panel_body(driver(
-        dir.path(),
-        "panel",
-        &["refuse", "refuse"],
-        Probed::Answer,
-        None,
-        "claude",
-        "first",
-    ));
-    let (_dir, mut engine, _now) = seated!(@in dir, body, 2);
-    engine.drive().unwrap();
-    no_waits(&engine);
-    assert!(starts(&engine)
-        .iter()
-        .all(|start| start.get("probes").is_none()));
-    assert!(
-        park_reason(&engine).contains("failed 2 of 2 attempt(s)"),
-        "{}",
-        park_reason(&engine)
-    );
-}
-
-#[test]
 fn a_sequence_refused_by_a_rate_limit_follows_todays_path() {
     let dir = tempfile::tempdir().unwrap();
     let body = SeatBody::Sequence {
@@ -1984,6 +1960,7 @@ fn a_cooldown_error_names_an_unreadable_refusal() {
 }
 
 mod coverage;
+mod panel;
 // A crashed probe is found by its reservation, which only a protected
 // root holds, and only Linux's workspace box protects one.
 #[cfg(target_os = "linux")]

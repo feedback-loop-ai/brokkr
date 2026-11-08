@@ -363,11 +363,12 @@ impl Engine {
         }
         // Decision 0103 ruling 4(a): the probes answered before this retry,
         // so their answers are the wait's end, journaled here as `probes`.
-        // One single seat writes its one entry.
-        if let Some(answer) = self.cooldown.answer.take() {
+        // A single seat writes one entry; a panel writes one per answered
+        // member, in the wait's declared order (decision 0103 slice 4c2a).
+        let answers = std::mem::take(&mut self.cooldown.answers);
+        if !answers.is_empty() {
             started["probes"] =
-                json!([serde_json::to_value(&answer)
-                    .expect("a probe answer is four serializable fields")]);
+                serde_json::to_value(&answers).expect("a probe answer is four serializable fields");
         }
         selection.carry = carry;
         Ok((selection, started))
