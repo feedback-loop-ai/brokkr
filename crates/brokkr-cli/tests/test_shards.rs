@@ -68,7 +68,10 @@ fn metadata() -> Metadata {
 ///
 /// `dep` copies a real executable into a directory named `deps`, so the
 /// kernel reports the copy (never a script's interpreter) as the executable
-/// and the runner finds it by `/proc` or `ps`. `STUB_HANG` runs
+/// and the runner finds it by `/proc` or `ps`. Every copy's script ends in
+/// the builtin `:`, so no shell runs its last command by exec in its own
+/// place: macOS's `/bin/sh` does, and the copy would then be a `sleep`
+/// outside `deps` before the runner first saw it. `STUB_HANG` runs
 /// `hang-0123abcd` past the bound, `STUB_QUIET_HANG` with no start line,
 /// `STUB_DOCTEST_HANG` runs `rustdoc --test`, `STUB_SLOW`/`STUB_PAIR` stay
 /// under it, `STUB_TAIL` prints a result then lives past the bound,
@@ -136,13 +139,13 @@ stopped=$!
 printf "%s\n" "$stopped" > "$1"
 sleep 0.2
 kill -STOP "$stopped"
-sleep 600' stopped "$dir/stopped.pid" &
+sleep 600; :' stopped "$dir/stopped.pid" &
   wait
 fi
 if names "${STUB_LATE:-}" "$@"; then
   shell_dep late-9999 'sleep 1.15
 printf "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s\n"
-sleep 600'
+sleep 600; :'
   wait
 fi
 if names "${STUB_LATE_PROGRESS:-}" "$@"; then
@@ -150,7 +153,7 @@ if names "${STUB_LATE_PROGRESS:-}" "$@"; then
 printf "test still running...\n"
 sleep 0.55
 printf "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s\n"
-sleep 600'
+sleep 600; :'
   wait
 fi
 if names "${STUB_CHATTY:-}" "$@"; then
@@ -160,13 +163,13 @@ while [ "$count" -lt 10 ]; do
   printf "test still running...\n"
   count=$((count + 1))
 done
-sleep 600'
+sleep 600; :'
   wait
 fi
 if names "${STUB_TAIL:-}" "$@"; then
   shell_dep tail-9abc 'sleep 0.2
 printf "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s\n"
-sleep 2'
+sleep 2; :'
   wait
 fi
 if names "${STUB_LEAK:-}" "$@"; then

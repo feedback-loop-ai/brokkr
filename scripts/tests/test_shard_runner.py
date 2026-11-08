@@ -60,11 +60,19 @@ class ShardRunner(unittest.TestCase):
         return path
 
     def deps(self, name, folder="target/debug/deps"):
-        """A real executable copied to `<folder>/<name>-0123abcd`."""
+        """A real executable copied to `<folder>/<name>-0123abcd`.
+
+        `shutil.copy` takes the bytes and the mode, never the flags: macOS
+        protects `/bin/sh` with a system flag no copy may carry, so
+        `copy2`'s flag copy is refused there. Every body run by a copy ends
+        in the builtin `:`, so no shell runs its last command by exec in
+        its own place, as macOS's `/bin/sh` does, which would make the copy
+        a `sleep` outside `deps` before the runner first saw it.
+        """
         directory = self.root / folder
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / f"{name}-0123abcd"
-        shutil.copy2(SHELL, path)
+        shutil.copy(SHELL, path)
         path.chmod(0o755)
         return path
 
@@ -113,7 +121,7 @@ class ShardRunner(unittest.TestCase):
     def test_a_deps_binary_past_the_bound_is_named_ended_and_recorded(self):
         pidfile = self.root / "hang.pid"
         argv = self.deps_argv(
-            "hang", 'printf "%s\\n" "$$" > "$1"; sleep 600', pidfile)
+            "hang", 'printf "%s\\n" "$$" > "$1"; sleep 600; :', pidfile)
         started = time.monotonic()
         result = self.launch(argv, bound=1)
         elapsed = time.monotonic() - started
@@ -235,7 +243,7 @@ class ShardRunner(unittest.TestCase):
     def test_a_killed_runner_leaves_no_status(self):
         pidfile = self.root / "killed.pid"
         argv = self.deps_argv(
-            "killed", 'printf "%s\\n" "$$" > "$1"; sleep 600', pidfile)
+            "killed", 'printf "%s\\n" "$$" > "$1"; sleep 600; :', pidfile)
         runner = subprocess.Popen(self.command(argv), stdout=subprocess.PIPE,
                                   stderr=subprocess.PIPE)
         try:
@@ -255,7 +263,7 @@ class ShardRunner(unittest.TestCase):
     def test_a_record_that_cannot_be_written_still_ends_the_group(self):
         pidfile = self.root / "record.pid"
         argv = self.deps_argv(
-            "record", 'printf "%s\\n" "$$" > "$1"; sleep 600', pidfile)
+            "record", 'printf "%s\\n" "$$" > "$1"; sleep 600; :', pidfile)
         try:
             result = self.launch(argv, bound=1,
                                  record=self.root / "missing" / "bound")
@@ -274,7 +282,7 @@ class ShardRunner(unittest.TestCase):
             "tail",
             "printf 'test result: ok. 1 passed; 0 failed; 0 ignored; "
             "0 measured; 0 filtered out; finished in 0.20s\\n'\n"
-            "sleep 2\n")
+            "sleep 2; :\n")
         result = self.launch(argv, bound=1)
         self.assertEqual(result.returncode, 124, result.stdout + result.stderr)
         self.assertEqual(self.status.read_text(), "bound\n")
@@ -291,7 +299,7 @@ class ShardRunner(unittest.TestCase):
             "done\n"
             "printf 'test result: ok. 1 passed; 0 failed; 0 ignored; "
             "0 measured; 0 filtered out; finished in 3.00s\\n'\n"
-            "sleep 1\n")
+            "sleep 1; :\n")
         started = time.monotonic()
         result = self.launch(argv, bound=1)
         elapsed = time.monotonic() - started
@@ -303,7 +311,7 @@ class ShardRunner(unittest.TestCase):
     def test_a_deps_path_with_parentheses_is_named_and_bounded(self):
         pidfile = self.root / "parens.pid"
         argv = self.deps_argv(
-            "hang", 'printf "%s\\n" "$$" > "$1"; sleep 5', pidfile,
+            "hang", 'printf "%s\\n" "$$" > "$1"; sleep 5; :', pidfile,
             folder="target/ctd (y)/debug/deps")
         started = time.monotonic()
         result = self.launch(argv, bound=2)
@@ -317,7 +325,7 @@ class ShardRunner(unittest.TestCase):
     def test_a_test_binary_that_prints_no_start_line_is_still_bounded(self):
         pidfile = self.root / "quiet.pid"
         argv = self.deps_argv(
-            "quiet", 'printf "%s\\n" "$$" > "$1"; sleep 5', pidfile)
+            "quiet", 'printf "%s\\n" "$$" > "$1"; sleep 5; :', pidfile)
         result = self.launch(argv, bound=1)
         self.assertEqual(result.returncode, 124, result.stdout + result.stderr)
         self.assertEqual(self.status.read_text(), "bound\n")
@@ -340,7 +348,7 @@ class ShardRunner(unittest.TestCase):
             "  printf 'test result: ok. 1 passed; 0 failed; 0 ignored; "
             "0 measured; 0 filtered out; finished in 4.80s\\n'\n"
             ") &\n"
-            "\"$deps\" -c 'printf \"%s\\n\" \"$$\" > \"$1\"; sleep 4' hang \"$2\"\n"
+            "\"$deps\" -c 'printf \"%s\\n\" \"$$\" > \"$1\"; sleep 4; :' hang \"$2\"\n"
             "wait\n", "cargo")
         started = time.monotonic()
         result = self.launch([cargo, dep, pidfile], bound=1)
@@ -368,7 +376,7 @@ class ShardRunner(unittest.TestCase):
         dep = self.deps("short")
         cargo = self.child(
             "sleep 3\n"
-            "\"$1\" -c 'sleep 0.2'\n"
+            "\"$1\" -c 'sleep 0.2; :'\n"
             "exit 0\n", "cargo-slow")
         started = time.monotonic()
         result = self.launch([cargo, dep], bound=1)
@@ -380,7 +388,7 @@ class ShardRunner(unittest.TestCase):
 
     def test_a_doctest_past_the_bound_is_named_by_its_crate(self):
         rustdoc = self.root / "rustdoc"
-        shutil.copy2(SHELL, rustdoc)
+        shutil.copy(SHELL, rustdoc)
         rustdoc.chmod(0o755)
         started = time.monotonic()
         result = self.launch(
@@ -451,7 +459,7 @@ class ShardRunner(unittest.TestCase):
     def test_sigterm_is_forwarded_to_the_group_and_status_is_written(self):
         pidfile = self.root / "termed.pid"
         argv = self.deps_argv(
-            "term", 'printf "%s\\n" "$$" > "$1"; sleep 600', pidfile)
+            "term", 'printf "%s\\n" "$$" > "$1"; sleep 600; :', pidfile)
         runner = subprocess.Popen(self.command(argv), stdout=subprocess.PIPE,
                                   stderr=subprocess.PIPE)
         try:
@@ -476,7 +484,7 @@ class ShardRunner(unittest.TestCase):
             "bad",
             'printf "\\377\\n"\n'
             'printf "%s\\n" "$$" > "$1"\n'
-            "sleep 600\n", pidfile)
+            "sleep 600; :\n", pidfile)
         result = self.launch(argv, bound=1)
         self.assertEqual(result.returncode, 124, result.stdout + result.stderr)
         self.assertIn(b"\xff\n", result.stdout)
