@@ -1246,6 +1246,12 @@ fn a_figure_past_64_groups_keeps_64_and_counts_the_rest() {
     keeps_64(&view);
     assert_eq!(view.models_more, 1);
     assert_eq!(view.waiting_by_step_more, 1);
+    let wire = serde_json::to_value(&view).unwrap();
+    assert_eq!(
+        [&wire["models_more"], &wire["waiting_by_step_more"]],
+        [&json!(1), &json!(1)],
+        "the wire carries both counts"
+    );
     assert_eq!(
         view.models.first().and_then(|share| share.model.as_deref()),
         Some("model-00000")
@@ -1381,6 +1387,8 @@ fn an_omitted_recipe_still_dominates_a_kept_one() {
     let view = read_one(&runs(&journals), Range::Week);
     assert_eq!(view.recipes.len(), 64);
     assert_eq!(view.recipes_more, 1);
+    let wire = serde_json::to_value(&view).unwrap();
+    assert_eq!(wire["recipes_more"], json!(1), "the wire carries the count");
     for row in &view.recipes {
         assert_eq!(
             row.on_frontier,
@@ -1475,6 +1483,8 @@ fn a_readout_past_64_realms_keeps_64_rows_and_counts_the_rest() {
     assert_eq!(view.headline.shipped.count, 65);
     assert_eq!(view.realms.len(), 64);
     assert_eq!(view.realms_more, 1);
+    let wire = serde_json::to_value(&view).unwrap();
+    assert_eq!(wire["realms_more"], json!(1), "the wire carries the count");
     assert_eq!(
         view.realms.first().map(|row| row.realm.as_str()),
         Some("realm-00")

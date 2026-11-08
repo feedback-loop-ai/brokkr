@@ -144,18 +144,18 @@ fn add_sites(
             return;
         }
         let reported = fact.site.reported(&keeps);
-        let same = matches!(
-            &provider,
-            Some(((kept_realm, kept_recipe, kept_name), _))
-                if *kept_realm == realm && *kept_recipe == recipe && *kept_name == provider_name
-        );
-        if same {
-            if let Some((_, kept_reported)) = &mut provider {
+        match &mut provider {
+            Some(((kept_realm, kept_recipe, kept_name), kept_reported))
+                if *kept_realm == realm
+                    && *kept_recipe == recipe
+                    && *kept_name == provider_name =>
+            {
                 *kept_reported |= reported;
             }
-        } else {
-            flush(provider.take(), kept);
-            provider = Some(((realm, recipe, provider_name), reported));
+            _ => {
+                flush(provider.take(), kept);
+                provider = Some(((realm, recipe, provider_name), reported));
+            }
         }
     });
     flush(provider.take(), kept);
