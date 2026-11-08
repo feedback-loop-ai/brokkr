@@ -4,8 +4,7 @@
 //! ([`aggregate`]), so the readout and the run's summary row read it one
 //! way (decision 0089 ruling 7).
 
-use std::cmp::Reverse;
-use std::collections::{BTreeMap, BinaryHeap};
+use std::collections::{BTreeMap, BTreeSet};
 
 use brokkr_core::fold::{concluded, RunState};
 use brokkr_core::summary::{aggregate, cut, parks as project_parks, MODEL_BYTES, NAME_BYTES};
@@ -362,7 +361,7 @@ impl FactSource for Scoped {
     /// (cut phase, run) yields them in that order without collecting every
     /// park a second time: the merge holds one cursor a run.
     fn parks(&self, visit: &mut dyn FnMut(ParkFact<'_>)) {
-        let mut cursors: BinaryHeap<Reverse<(Option<&str>, usize, usize)>> = self
+        let mut cursors: BTreeSet<(Option<&str>, usize, usize)> = self
             .runs
             .iter()
             .enumerate()
@@ -370,10 +369,10 @@ impl FactSource for Scoped {
                 facts
                     .parks
                     .first()
-                    .map(|park| Reverse((optional(park.phase.as_deref()), run, 0)))
+                    .map(|park| (optional(park.phase.as_deref()), run, 0))
             })
             .collect();
-        while let Some(Reverse((_phase, run, index))) = cursors.pop() {
+        while let Some((_phase, run, index)) = cursors.pop_first() {
             let facts = &self.runs[run];
             let park = &facts.parks[index];
             visit(ParkFact {
@@ -385,7 +384,7 @@ impl FactSource for Scoped {
                 ended: park.ended,
             });
             if let Some(next) = facts.parks.get(index + 1) {
-                cursors.push(Reverse((optional(next.phase.as_deref()), run, index + 1)));
+                cursors.insert((optional(next.phase.as_deref()), run, index + 1));
             }
         }
     }
