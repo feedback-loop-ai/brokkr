@@ -3,11 +3,12 @@
 //! hand-built journal, each order is its cut key's order, and a window's
 //! cost grows with what lies inside it and never with the journal.
 
-use brokkr_core::envelope::{EventEnvelope, EventType};
+use brokkr_core::envelope::{ChainError, EventEnvelope, EventType};
 use brokkr_core::fold::concluded;
+use brokkr_core::seat::row::{Datum, SeatRow};
 use brokkr_core::stamp::parse_millis;
 use brokkr_core::summary::{
-    aggregate, checkpoints, sites, Bounded, Checkpoint, MODEL_BYTES, NAME_BYTES,
+    aggregate, checkpoints, sites, Account, Bounded, Checkpoint, MODEL_BYTES, NAME_BYTES,
 };
 use brokkr_core::EventEnvelope as Envelope;
 use serde_json::{json, Value};
@@ -32,6 +33,9 @@ struct Spend {
 #[derive(Debug, PartialEq, Eq)]
 struct Site {
     run_id: String,
+    /// The site's row key in its run's seat rows: the writer's `opened`,
+    /// counted before it, so a participant row ahead of it moves it.
+    opened: u64,
     realm: Option<String>,
     recipe: Option<String>,
     open: bool,
@@ -68,6 +72,7 @@ fn core_reads(
     for (run_id, events) in runs {
         let state = brokkr_core::fold(events).ok();
         let read = aggregate(events, state.as_ref());
+        let account = Account::whole(run_id, events);
         let open = state
             .as_ref()
             .is_some_and(|state| concluded(state).is_none());
@@ -86,7 +91,7 @@ fn core_reads(
                 });
             }
         }
-        for site in sites(events) {
+        for (site_index, site) in sites(events).into_iter().enumerate() {
             let kept: Vec<&Checkpoint> = site
                 .metered
                 .iter()
@@ -97,6 +102,7 @@ fn core_reads(
             }
             held.push(Site {
                 run_id: run_id.clone(),
+                opened: opened_of(&account, site_index),
                 realm: realm.clone(),
                 recipe: read.recipe.as_deref().map(cut),
                 open,
@@ -116,6 +122,21 @@ fn core_reads(
     (spends, sorted_sites(held))
 }
 
+/// The writer's `opened` key of the site the run's seats opened `site_index`
+/// in: the row's place among all its seat rows, participant rows included,
+/// which is where `seat_summary` writes it.
+fn opened_of(account: &Account, site_index: usize) -> u64 {
+    let at = SeatRow::COLUMNS
+        .iter()
+        .position(|(name, _)| *name == "site")
+        .expect("the seat row declares its site key");
+    account
+        .seats()
+        .iter()
+        .position(|row| row.data().get(at) == Some(&Datum::Integer(site_index as i64)))
+        .expect("the run keeps the site it opened") as u64
+}
+
 /// The sites in the one order tests compare them in, so a multiset equality
 /// is a plain vector equality.
 fn sorted_sites(mut sites: Vec<Site>) -> Vec<Site> {
@@ -129,6 +150,7 @@ fn key(
     site: &Site,
 ) -> (
     String,
+    u64,
     i64,
     Option<String>,
     Option<String>,
@@ -137,6 +159,7 @@ fn key(
 ) {
     (
         site.run_id.clone(),
+        site.opened,
         site.started_ms,
         site.phase.clone(),
         site.provider.clone(),
@@ -176,6 +199,7 @@ fn read_sites(store: &Store, from: i64, to: i64, order: SiteOrder) -> Vec<Site> 
         .window_sites(from, to, None, order, |site| {
             held.push(Site {
                 run_id: site.run_id.to_string(),
+                opened: site.opened,
                 realm: site.realm.map(str::to_string),
                 recipe: site.recipe.map(str::to_string),
                 open: site.open,
@@ -294,10 +318,18 @@ fn every_fixture_reads_as_its_fold() {
     let mut runs = Vec::new();
     for (_, _, events) in fixture_events() {
         let run_id = events[0].run_id.clone();
-        if store.load(&run_id).is_err() {
-            continue;
+        match store.load(&run_id) {
+            Ok(_) => runs.push((run_id, events)),
+            Err(error) => {
+                // The one fixture the journal carries and the chain refuses:
+                // its event 11 hash was rewritten after it was sealed.
+                assert_eq!(run_id, "conclude-broken-chain-hand-built");
+                assert!(
+                    matches!(error, StoreError::Chain(ChainError::BadHash { seq: 11 })),
+                    "{run_id}: {error:?}"
+                );
+            }
         }
-        runs.push((run_id, events));
     }
     for (from, to) in windows_of(&runs) {
         assert_reads_as_core(&store, &runs, from, to);
@@ -361,15 +393,31 @@ impl Journal {
     }
 
     fn effect(&mut self, at: &str, effect: &str, attempt: &str, provider: &str) {
+        self.effect_with(at, effect, attempt, &[(None, provider)]);
+    }
+
+    /// One attempt starts with `members`' provenance entries, each naming
+    /// its member and provider: a panel's two sites under one attempt.
+    fn effect_with(
+        &mut self,
+        at: &str,
+        effect: &str,
+        attempt: &str,
+        members: &[(Option<&str>, &str)],
+    ) {
         self.push(
             EventType::EffectRequested,
             json!({"effect_id": effect, "seat": "implementer"}),
             at,
         );
+        let provenance: Vec<Value> = members
+            .iter()
+            .map(|(member, provider)| json!({"member": member, "provider": provider}))
+            .collect();
         self.push(
             EventType::EffectStarted,
             json!({"effect_id": effect, "attempt_id": attempt,
-                   "provenance": [{"provider": provider}]}),
+                   "provenance": provenance}),
             at,
         );
     }
@@ -378,6 +426,16 @@ impl Journal {
         self.push(
             EventType::EffectCheckpointed,
             json!({"effect_id": effect, "attempt_id": attempt, "checkpoint": record}),
+            at,
+        );
+    }
+
+    /// The effect succeeds: a control event that moves the run's head
+    /// without writing a checkpoint fact.
+    fn succeeded(&mut self, at: &str, effect: &str, attempt: &str) {
+        self.push(
+            EventType::EffectSucceeded,
+            json!({"effect_id": effect, "attempt_id": attempt, "result": {}}),
             at,
         );
     }
@@ -477,6 +535,44 @@ fn straddles_case() -> Case {
     )
 }
 
+/// A panel: one attempt's two named members, each its own site, with
+/// interleaved checkpoints. Only one reports a cost, so a lookup that
+/// ignores the member folds both members' tokens into the last site.
+fn panel_case() -> Case {
+    let mut journal = Journal::new("panel");
+    journal.started("2026-01-01T00:00:00Z", Some("hearth-a"));
+    journal.phase("2026-01-01T00:00:01Z", "implement");
+    journal.effect_with(
+        "2026-01-01T00:00:03Z",
+        "fx",
+        "a",
+        &[(Some("alpha"), "alpha"), (Some("beta"), "beta")],
+    );
+    journal.checkpoint(
+        "2026-01-01T00:00:04Z",
+        "fx",
+        "a",
+        json!({"step": "seat-turn", "member": "alpha", "input_tokens": 10}),
+    );
+    journal.checkpoint(
+        "2026-01-01T00:00:05Z",
+        "fx",
+        "a",
+        json!({"step": "seat-turn", "member": "beta", "input_tokens": 7,
+               "total_cost_usd": 0.25}),
+    );
+    journal.checkpoint(
+        "2026-01-01T00:00:06Z",
+        "fx",
+        "a",
+        json!({"step": "seat-turn", "member": "alpha", "input_tokens": 20}),
+    );
+    case(
+        journal,
+        vec![(ms("2026-01-01T00:00:04Z"), ms("2026-01-01T00:00:07Z"))],
+    )
+}
+
 /// A checkpoint before any start is in no site's facts, and its cost
 /// counts as a spend.
 fn before_any_start_case() -> Case {
@@ -549,8 +645,21 @@ fn hand_built() -> Vec<Case> {
         reopened_case(),
         straddles_case(),
         before_any_start_case(),
+        panel_case(),
         metering_case(),
     ]
+}
+
+/// `case`'s runs planted and folded in a fresh journal.
+fn plant_case(case: &Case) -> (tempfile::TempDir, Store) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("forge.db");
+    let store = Store::open(&path).unwrap();
+    for (run_id, events) in &case.runs {
+        plant_older_writer(&store, run_id, events);
+    }
+    drop(store);
+    (dir, Store::open(&path).unwrap())
 }
 
 /// Every hand-built journal reads in its windows as brokkr-core reads it
@@ -558,18 +667,43 @@ fn hand_built() -> Vec<Case> {
 #[test]
 fn every_hand_built_journal_reads_as_its_fold() {
     for case in hand_built() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("forge.db");
-        let store = Store::open(&path).unwrap();
-        for (run_id, events) in &case.runs {
-            plant_older_writer(&store, run_id, events);
-        }
-        drop(store);
-        let store = Store::open(&path).unwrap();
+        let (_dir, store) = plant_case(&case);
         for (from, to) in case.windows {
             assert_reads_as_core(&store, &case.runs, from, to);
         }
     }
+}
+
+/// One attempt's two named members keep their own sites: each member's
+/// in-window checkpoints fold into the site its provenance opened, never
+/// into the other's, so a member's tokens and reported cost stay its own.
+#[test]
+fn each_named_member_folds_only_its_own_checkpoints() {
+    let case = panel_case();
+    let (_dir, store) = plant_case(&case);
+    let mut read = Vec::new();
+    store
+        .window_sites(
+            ms("2026-01-01T00:00:04Z"),
+            ms("2026-01-01T00:00:07Z"),
+            None,
+            SiteOrder::Model,
+            |site| {
+                read.push((
+                    site.provider.map(str::to_string),
+                    site.reported,
+                    site.usage.as_ref().and_then(|usage| usage.input_tokens),
+                ));
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        read,
+        [
+            (Some("alpha".to_string()), false, Some(30)),
+            (Some("beta".to_string()), true, Some(7)),
+        ]
+    );
 }
 
 /// Plant `journals` and open them read-write, so every projection is the
@@ -595,39 +729,41 @@ fn refold(dir: &tempfile::TempDir) -> Store {
     store
 }
 
-/// The four runs the order test folds: two sites of one run, one of another,
-/// and one whose run named no realm. The realms, recipes and providers are
-/// chosen so every order is a different sequence, and so the realm-first
-/// orders disagree with a provider-first or recipe-first one.
+/// The runs the order test folds: two sites of one run in one realm and
+/// recipe, a second run in that realm with another recipe, one whose run
+/// named no realm, and one in a third realm with another recipe. The
+/// realms, recipes, providers and models are chosen so every order is a
+/// different sequence, and so removing any one key from its order changes
+/// it.
 fn ordered_journal() -> Vec<Journal> {
     let mut one = Journal::new("r1");
-    one.started_recipe("2026-01-01T00:00:00Z", Some("zeta"), Some("aaa"));
+    one.started_recipe("2026-01-01T00:00:00Z", Some("zeta"), Some("bbb"));
     one.phase("2026-01-01T00:00:01Z", "implement");
-    one.effect("2026-01-01T00:00:02Z", "f1", "a1", "alpha");
+    one.effect("2026-01-01T00:00:02Z", "f1", "a1", "gamma");
     one.checkpoint(
         "2026-01-01T00:00:03Z",
         "f1",
         "a1",
-        json!({"step": "seat-turn", "model": "model-a", "input_tokens": 1,
+        json!({"step": "seat-turn", "model": "m-2", "input_tokens": 1,
                "total_cost_usd": 0.1}),
     );
-    one.effect("2026-01-01T00:00:04Z", "f2", "a2", "mid");
+    one.effect("2026-01-01T00:00:04Z", "f2", "a2", "alpha");
     one.checkpoint(
         "2026-01-01T00:00:05Z",
         "f2",
         "a2",
-        json!({"step": "seat-turn", "model": "model-b", "input_tokens": 2,
+        json!({"step": "seat-turn", "model": "m-4", "input_tokens": 2,
                "total_cost_usd": 0.2}),
     );
     let mut two = Journal::new("r2");
-    two.started_recipe("2026-01-01T00:00:00Z", Some("alpha"), Some("zzz"));
+    two.started_recipe("2026-01-01T00:00:00Z", Some("zeta"), Some("aaa"));
     two.phase("2026-01-01T00:00:01Z", "implement");
     two.effect("2026-01-01T00:00:06Z", "f3", "a3", "zeta");
     two.checkpoint(
         "2026-01-01T00:00:07Z",
         "f3",
         "a3",
-        json!({"step": "seat-turn", "model": "model-c", "input_tokens": 3,
+        json!({"step": "seat-turn", "model": "m-1", "input_tokens": 3,
                "total_cost_usd": 0.3}),
     );
     let mut none = Journal::new("r3");
@@ -638,36 +774,50 @@ fn ordered_journal() -> Vec<Journal> {
         "2026-01-01T00:00:09Z",
         "f4",
         "a4",
-        json!({"step": "seat-turn", "model": "model-d", "input_tokens": 4,
+        json!({"step": "seat-turn", "model": "m-3", "input_tokens": 4,
                "total_cost_usd": 0.4}),
     );
-    vec![one, two, none]
+    let mut other = Journal::new("r5");
+    other.started_recipe("2026-01-01T00:00:00Z", Some("aaa"), Some("zzz"));
+    other.phase("2026-01-01T00:00:01Z", "implement");
+    other.effect("2026-01-01T00:00:10Z", "f5", "a5", "omega");
+    other.checkpoint(
+        "2026-01-01T00:00:11Z",
+        "f5",
+        "a5",
+        json!({"step": "seat-turn", "model": "m-5", "input_tokens": 5,
+               "total_cost_usd": 0.5}),
+    );
+    vec![one, two, none, other]
 }
 
 /// Each order is its cut key's order, then the run and the site; a site
 /// that both started and metered in the window is yielded once. A NULL realm
-/// sorts before every named one, as the stored key's order does.
+/// sorts before every named one, as the stored key's order does. Every key
+/// each order names moves the sequence it is read in.
 #[test]
 fn each_order_is_its_key_order_and_each_site_appears_once() {
     let (_dir, store) = plant_runs(ordered_journal());
     let from = ms("2026-01-01T00:00:00Z");
-    let to = ms("2026-01-01T00:00:10Z");
+    let to = ms("2026-01-01T00:00:12Z");
     let expected = [
         (
             SiteOrder::Model,
             [
-                ("r1", "alpha"),
-                ("r1", "mid"),
                 ("r2", "zeta"),
+                ("r1", "gamma"),
                 ("r3", "null-provider"),
+                ("r1", "alpha"),
+                ("r5", "omega"),
             ],
         ),
         (
             SiteOrder::Provider,
             [
                 ("r1", "alpha"),
-                ("r1", "mid"),
+                ("r1", "gamma"),
                 ("r3", "null-provider"),
+                ("r5", "omega"),
                 ("r2", "zeta"),
             ],
         ),
@@ -675,18 +825,20 @@ fn each_order_is_its_key_order_and_each_site_appears_once() {
             SiteOrder::RealmProvider,
             [
                 ("r3", "null-provider"),
-                ("r2", "zeta"),
+                ("r5", "omega"),
                 ("r1", "alpha"),
-                ("r1", "mid"),
+                ("r1", "gamma"),
+                ("r2", "zeta"),
             ],
         ),
         (
             SiteOrder::RecipeProvider,
             [
                 ("r3", "null-provider"),
+                ("r5", "omega"),
                 ("r2", "zeta"),
                 ("r1", "alpha"),
-                ("r1", "mid"),
+                ("r1", "gamma"),
             ],
         ),
     ];
@@ -776,16 +928,7 @@ fn a_realm_narrows_both_reads() {
 /// (decision 0089 ruling 8).
 #[test]
 fn a_lagging_run_is_left_to_the_whole_run_fallback() {
-    let mut journal = Journal::new("lagging");
-    journal.started("2026-01-01T00:00:00Z", Some("alpha"));
-    journal.phase("2026-01-01T00:00:01Z", "implement");
-    journal.effect("2026-01-01T00:00:10Z", "fx", "a", "alpha");
-    journal.checkpoint(
-        "2026-01-01T00:00:20Z",
-        "fx",
-        "a",
-        json!({"step": "seat-turn", "input_tokens": 10, "total_cost_usd": 0.5}),
-    );
+    let journal = site_and_checkpoint_journal("lagging");
     let (dir, mut store, _) = journal.plant();
     store
         .conn
@@ -807,40 +950,31 @@ fn a_lagging_run_is_left_to_the_whole_run_fallback() {
     let from = ms("2026-01-01T00:00:00Z");
     let to = ms("2026-01-01T00:01:00Z");
 
-    let mut spends = Vec::new();
-    reader
-        .window_spends(from, to, None, |spend| {
-            spends.push(spend.run_id.to_string())
-        })
-        .unwrap();
-    assert_eq!(
-        spends,
-        Vec::<String>::new(),
-        "a lagging spend is whole-read"
-    );
-
-    for order in [
-        SiteOrder::Model,
-        SiteOrder::Provider,
-        SiteOrder::RealmProvider,
-        SiteOrder::RecipeProvider,
-    ] {
-        let mut sites = Vec::new();
-        reader
-            .window_sites(from, to, None, order, |site| {
-                sites.push(site.run_id.to_string())
-            })
-            .unwrap();
-        assert_eq!(sites, Vec::<String>::new(), "{order:?}: a lagging site");
-    }
+    assert_window_reads_empty(&reader, from, to);
 }
 
 /// Every read's plan names its index and scans no projection whole.
 #[test]
 fn the_plans_name_the_indexes_and_scan_no_projection() {
     let (_dir, store) = plant_runs(ordered_journal());
+    // The detector's own control: a whole scan under the statements' aliases
+    // is what the negative assertions must be able to see.
+    let whole = crate::test_support::plan(
+        &store,
+        "SELECT * FROM event_index AS e",
+        rusqlite::params![],
+    )
+    .unwrap();
+    assert!(scans(&whole, "event_index"), "{whole:?}");
+    let whole = crate::test_support::plan(
+        &store,
+        "SELECT * FROM seat_summary AS s",
+        rusqlite::params![],
+    )
+    .unwrap();
+    assert!(scans(&whole, "seat_summary"), "{whole:?}");
     let spends =
-        crate::test_support::plan(&store, SPENDS, rusqlite::params![FROM, TO, None::<&str>])
+        crate::test_support::plan(&store, &SPENDS, rusqlite::params![FROM, TO, None::<&str>])
             .unwrap();
     assert!(
         spends
@@ -851,6 +985,22 @@ fn the_plans_name_the_indexes_and_scan_no_projection() {
     assert!(
         !scans(&spends, "event_index") && !scans(&spends, "seat_summary"),
         "{spends:?}"
+    );
+    let falls = crate::test_support::plan(
+        &store,
+        &FALLBACKS,
+        rusqlite::params![FROM, TO, None::<&str>],
+    )
+    .unwrap();
+    for index in ["run_summary_finished", "run_summary_page"] {
+        assert!(
+            falls.iter().any(|step| step.contains(index)),
+            "{index} in {falls:?}"
+        );
+    }
+    assert!(
+        !scans(&falls, "event_index") && !scans(&falls, "seat_summary"),
+        "{falls:?}"
     );
     for order in [
         SiteOrder::Model,
@@ -881,10 +1031,21 @@ fn the_plans_name_the_indexes_and_scan_no_projection() {
     }
 }
 
-/// Whether `plan` scans `table` whole.
+/// Whether `plan` scans `table` whole, by the table's name or the alias the
+/// reads give it (the statements alias both projections).
 fn scans(plan: &[String], table: &str) -> bool {
-    plan.iter()
-        .any(|step| step.starts_with("SCAN ") && step.contains(table))
+    let aliases: &[&str] = match table {
+        "event_index" => &["e"],
+        "seat_summary" => &["s", "s2"],
+        _ => &[],
+    };
+    plan.iter().any(|step| {
+        let Some(rest) = step.strip_prefix("SCAN ") else {
+            return false;
+        };
+        let scanned = rest.split_whitespace().next().unwrap_or_default();
+        scanned == table || aliases.contains(&scanned)
+    })
 }
 
 /// The milliseconds in a day, and the year of facts a window does not read.
@@ -906,6 +1067,12 @@ fn plant_run(conn: &rusqlite::Connection, run_id: &str, realm: &str) {
         rusqlite::params![run_id, realm],
     )
     .unwrap();
+    conn.execute(
+        "INSERT INTO seat_head (run_id, folded_seq, folded_hash, shape)
+         VALUES (?1, 0, 'h', '')",
+        [run_id],
+    )
+    .unwrap();
 }
 
 /// One site row of `run_id`, opened at `opened`, started at `started_ms`.
@@ -925,8 +1092,8 @@ fn plant_checkpoint(conn: &rusqlite::Connection, run_id: &str, seq: i64, at_ms: 
     conn.execute(
         "INSERT INTO event_index
             (run_id, seq, type, attempt_id, member, at_ms, reported, turn, session,
-             repeat, input_tokens, output_tokens, usd)
-         VALUES (?1, ?2, 'effect/checkpointed', 'a', NULL, ?3, 1, 1, 0, 0, 1, 0, 0.5)",
+             repeat, input_tokens, output_tokens, usd, facts, facts_seq)
+         VALUES (?1, ?2, 'effect/checkpointed', 'a', NULL, ?3, 1, 1, 0, 0, 1, 0, 0.5, 1, ?2)",
         rusqlite::params![run_id, seq, at_ms],
     )
     .unwrap();
@@ -1032,6 +1199,144 @@ fn a_window_visits_only_the_sites_near_it() {
         one_site * k,
         "k window checkpoints each cost one visit"
     );
+}
+
+/// A run with a site at :10 and a checkpoint at :20: the five events a
+/// summary writer leaves folded before it appends its sixth.
+fn site_and_checkpoint_journal(run_id: &str) -> Journal {
+    let mut journal = Journal::new(run_id);
+    journal.started("2026-01-01T00:00:00Z", Some("alpha"));
+    journal.phase("2026-01-01T00:00:01Z", "implement");
+    journal.effect("2026-01-01T00:00:10Z", "fx", "a", "alpha");
+    journal.checkpoint(
+        "2026-01-01T00:00:20Z",
+        "fx",
+        "a",
+        json!({"step": "seat-turn", "input_tokens": 10, "total_cost_usd": 0.5}),
+    );
+    journal
+}
+
+/// `journal`'s first five events planted and folded, then its sixth
+/// appended by a writer from between the summary and the seat summary, and
+/// the journal reopened read-only so the lag stands.
+fn plant_stale_projection(journal: &Journal) -> (tempfile::TempDir, Store) {
+    let (dir, store) = crate::tests::store();
+    plant_older_writer(&store, &journal.run_id, &journal.events[..5]);
+    drop(store);
+    let path = dir.path().join("forge.db");
+    let store = Store::open(&path).unwrap();
+    crate::test_support::plant_summary_writer(&store, &journal.run_id, &journal.events[5..]);
+    drop(store);
+    (dir, Store::open_read_only(&path).unwrap())
+}
+
+/// Neither window read emits a row for `from..to`, in every order.
+fn assert_window_reads_empty(store: &Store, from: i64, to: i64) {
+    assert!(
+        read_spends(store, from, to).is_empty(),
+        "the stale run's spend is whole-read"
+    );
+    for order in [
+        SiteOrder::Model,
+        SiteOrder::Provider,
+        SiteOrder::RealmProvider,
+        SiteOrder::RecipeProvider,
+    ] {
+        assert!(
+            read_sites(store, from, to, order).is_empty(),
+            "{order:?}: the stale run's site is whole-read"
+        );
+    }
+}
+
+/// The runs `window_fallbacks` names for `from..to`, in its order.
+fn fallbacks(store: &Store, from: i64, to: i64) -> Vec<String> {
+    let mut named = Vec::new();
+    store
+        .window_fallbacks(from, to, None, |run| named.push(run.run_id.to_string()))
+        .unwrap();
+    named
+}
+
+/// A run whose checkpoint facts lag its summary head, while its lane still
+/// reads `running`, is left to the whole-run fallback: the window reads
+/// emit none of its rows, `window_fallbacks` names it, and the whole read
+/// the fallback makes holds the spend and the site's in-window facts
+/// (decision 0089 ruling 8).
+#[test]
+fn a_stale_checkpoint_run_is_left_to_the_whole_run_fallback() {
+    let mut journal = site_and_checkpoint_journal("stale-checkpoint");
+    journal.checkpoint(
+        "2026-01-01T00:00:30Z",
+        "fx",
+        "a",
+        json!({"step": "seat-turn", "input_tokens": 99, "total_cost_usd": 0.7}),
+    );
+    let (_dir, reader) = plant_stale_projection(&journal);
+    assert_eq!(
+        crate::test_support::lane(&reader, &journal.run_id).as_deref(),
+        Some("running"),
+        "the lane alone would admit it"
+    );
+
+    let runs = vec![(journal.run_id.clone(), journal.events.clone())];
+    let from = ms("2026-01-01T00:00:25Z");
+    let to = ms("2026-01-01T00:00:40Z");
+    let (spends, sites) = core_reads(&runs, from, to);
+    assert!(
+        spends
+            .iter()
+            .any(|spend| spend.run_id == "stale-checkpoint" && close(spend.usd, 0.7)),
+        "{spends:?}"
+    );
+    let folded = sites
+        .iter()
+        .find(|site| site.run_id == "stale-checkpoint")
+        .expect("the checkpoint's site is in the window");
+    assert!(folded.reported);
+    assert_eq!(
+        folded.usage.as_ref().and_then(|usage| usage.input_tokens),
+        Some(99)
+    );
+
+    assert_window_reads_empty(&reader, from, to);
+    // The :20 spend and the site at :10 are current rows of the same run,
+    // and are left whole too: the run's checkpoint facts lag elsewhere.
+    assert_window_reads_empty(&reader, ms("2026-01-01T00:00:00Z"), to);
+    assert_eq!(
+        fallbacks(&reader, from, to),
+        ["stale-checkpoint".to_string()]
+    );
+}
+
+/// A run whose seat rows lag its summary head is left whole even when its
+/// checkpoint facts are current: a site that started inside the full window
+/// is not emitted by the indexed read, and `window_fallbacks` names the run
+/// (decision 0089 ruling 8).
+#[test]
+fn a_stale_seat_run_is_left_to_the_whole_run_fallback() {
+    let mut journal = site_and_checkpoint_journal("stale-seat");
+    // A control event: no checkpoint fact can be stale here, only the seat
+    // head can lag.
+    journal.succeeded("2026-01-01T00:00:30Z", "fx", "a");
+    let (_dir, reader) = plant_stale_projection(&journal);
+    assert_eq!(
+        crate::test_support::lane(&reader, &journal.run_id).as_deref(),
+        Some("running"),
+        "the lane alone would admit it"
+    );
+
+    let from = ms("2026-01-01T00:00:00Z");
+    let to = ms("2026-01-01T00:00:40Z");
+    let runs = vec![(journal.run_id.clone(), journal.events.clone())];
+    let (_, sites) = core_reads(&runs, from, to);
+    assert!(
+        sites.iter().any(|site| site.run_id == "stale-seat"),
+        "{sites:?}"
+    );
+    assert_window_reads_empty(&reader, from, to);
+    assert_eq!(fallbacks(&reader, from, to), ["stale-seat".to_string()]);
 }
 
 /// A metering rule no writer words is refused, never guessed: the site's

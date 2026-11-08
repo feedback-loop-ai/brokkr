@@ -115,6 +115,8 @@ pub brokkr_store::metered::SiteOrder::Model
 pub brokkr_store::metered::SiteOrder::Provider
 pub brokkr_store::metered::SiteOrder::RealmProvider
 pub brokkr_store::metered::SiteOrder::RecipeProvider
+pub struct brokkr_store::metered::WindowFallback<'a>
+pub brokkr_store::metered::WindowFallback::run_id: &'a str
 pub struct brokkr_store::metered::WindowSite<'a>
 pub brokkr_store::metered::WindowSite::finished_ms: core::option::Option<i64>
 pub brokkr_store::metered::WindowSite::metering: brokkr_core::seat::meter::Metering
@@ -460,6 +462,7 @@ pub fn brokkr_store::Store::seat_rows(&self, &str) -> core::result::Result<brokk
 impl brokkr_store::Store
 pub fn brokkr_store::Store::start_run(&mut self, &str, &str, &str, &serde_json::value::Value, serde_json::value::Value, core::option::Option<&'_ mut dyn core::ops::function::FnMut(&rusqlite::transaction::Transaction<'_>) -> core::result::Result<(), brokkr_store::StoreError>>) -> core::result::Result<brokkr_core::envelope::EventEnvelope, brokkr_store::StoreError>
 impl brokkr_store::Store
+pub fn brokkr_store::Store::window_fallbacks(&self, i64, i64, core::option::Option<&str>, impl core::ops::function::FnMut(&brokkr_store::metered::WindowFallback<'_>)) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::window_sites(&self, i64, i64, core::option::Option<&str>, brokkr_store::metered::SiteOrder, impl core::ops::function::FnMut(&brokkr_store::metered::WindowSite<'_>)) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::window_spends(&self, i64, i64, core::option::Option<&str>, impl core::ops::function::FnMut(&brokkr_store::metered::WindowSpend<'_>)) -> core::result::Result<(), brokkr_store::StoreError>
 pub struct brokkr_store::Unread
