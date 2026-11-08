@@ -97,7 +97,9 @@ class Launcher(unittest.TestCase):
     def command(self, *args):
         return [sys.executable, str(SCRIPT), *args]
 
-    def launch(self, *args):
+    def launch(self, *args, bound=True):
+        if bound:
+            args = ('--binary-bound', '1800', *args)
         return subprocess.run(self.command(*args), env=self.env, text=True, capture_output=True, timeout=20)
 
     def assert_reaped(self):
@@ -164,7 +166,7 @@ class Launcher(unittest.TestCase):
                 for path in self.root.glob('*.started'):
                     path.unlink()
                 self.env['HANG'] = '1'
-                process = subprocess.Popen(self.command(), env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                process = subprocess.Popen(self.command('--binary-bound', '1800'), env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 try:
                     deadline = time.monotonic() + 5
                     while len(list(self.root.glob('*.started'))) != 3:
@@ -180,11 +182,17 @@ class Launcher(unittest.TestCase):
                         process.kill()
                         process.communicate()
 
+    def test_binary_bound_is_required_and_has_no_default(self):
+        result = self.launch(bound=False)
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn('--binary-bound', result.stderr)
+        self.assertFalse(list(self.root.glob('*.started')))
+
     def test_timeout_kills_and_reaps_even_a_child_ignoring_term(self):
         self.env.update(HANG='1', IGNORE_TERM='heap_codex')
         binaries = {name: str(self.root / name) for name in heaps.NAMES}
         with self.assertRaises(subprocess.TimeoutExpired):
-            heaps.run(binaries, self.env, timeout=1)
+            heaps.run(binaries, self.env, 1)
         self.assertEqual(len(list(self.root.glob('*.started'))), 3)
         self.assert_reaped()
 
