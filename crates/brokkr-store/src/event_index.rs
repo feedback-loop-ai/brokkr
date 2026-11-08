@@ -38,7 +38,7 @@ use crate::summary::{cut_stamp, stamp_of, text_at};
 use crate::{head_of, patiently, Disagreement, Store, StoreError};
 
 /// The meta key that records the backfill finished (ruling 8): its own.
-const BACKFILLED: &str = "event_index_backfill";
+pub(crate) const BACKFILLED: &str = "event_index_backfill";
 
 const TABLE: [&str; 1] = ["event_index"];
 const INDEXES: [&str; 13] = [
@@ -84,7 +84,7 @@ pub(crate) const CHECKPOINT_PAGE: usize = 50;
 pub(crate) const CHECKPOINTED: &str = EventType::EffectCheckpointed.as_str();
 
 /// The type a park's row is (decision 0089 ruling 7).
-const PARKED: &str = EventType::RunParked.as_str();
+pub(crate) const PARKED: &str = EventType::RunParked.as_str();
 
 /// A row's columns, in the order [`projected`] gives them.
 const COLUMNS: &str = "run_id, seq, type, attempt_id, member, recorded_at, event_id";

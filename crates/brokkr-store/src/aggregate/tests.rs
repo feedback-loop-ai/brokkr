@@ -1,0 +1,1015 @@
+//! The aggregate reads (decision 0089 ruling 7): the window's runs and
+//! parks, the preceding count, the medians' pass and the realm list, each
+//! held to brokkr-core's own reading over the same journal, each pinned to
+//! the index it folds through, and the parks' ranges held to the window
+//! alone by their VM steps.
+
+use brokkr_core::canonical::ZERO_HASH;
+use brokkr_core::envelope::{EventEnvelope, EventType};
+use brokkr_core::fold::concluded;
+use brokkr_core::stamp::parse_millis;
+use brokkr_core::summary::{Account, Bounded, Listing, Summary, NAME_BYTES};
+use serde_json::json;
+
+use super::*;
+use crate::test_support::{
+    import_fixtures, lags, lane, plant_envelope, plant_older_writer, refolded, unmigrate,
+};
+use crate::tests::envelope_builder::EnvelopeBuilder;
+use crate::tests::store;
+
+/// One run as the reads hand it back, owned for comparison.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OwnedRun {
+    run_id: String,
+    realm: Option<String>,
+    recipe: Option<String>,
+    ending_rule: Option<String>,
+    started_ms: Option<i64>,
+    finished_ms: Option<i64>,
+    ending: Option<String>,
+    implement_visits: u64,
+    reviews: WindowReviews,
+    open: bool,
+}
+
+impl OwnedRun {
+    fn of(row: &WindowRun<'_>) -> OwnedRun {
+        OwnedRun {
+            run_id: row.run_id.to_string(),
+            realm: row.realm.map(str::to_string),
+            recipe: row.recipe.map(str::to_string),
+            ending_rule: row.ending_rule.map(str::to_string),
+            started_ms: row.started_ms,
+            finished_ms: row.finished_ms,
+            ending: row.ending.map(str::to_string),
+            implement_visits: row.implement_visits,
+            reviews: row.reviews,
+            open: row.open,
+        }
+    }
+
+    /// The run in `order`'s key order, the run's id for the tie.
+    fn sort(rows: &mut [OwnedRun], order: RunOrder) {
+        match order {
+            RunOrder::Unordered => rows.sort_by(|left, right| left.run_id.cmp(&right.run_id)),
+            RunOrder::ByEndingRule => rows.sort_by(|left, right| {
+                left.ending_rule
+                    .cmp(&right.ending_rule)
+                    .then_with(|| left.run_id.cmp(&right.run_id))
+            }),
+            RunOrder::ByRealmThenRecipe => rows.sort_by(|left, right| {
+                left.realm
+                    .cmp(&right.realm)
+                    .then_with(|| left.recipe.cmp(&right.recipe))
+                    .then_with(|| left.run_id.cmp(&right.run_id))
+            }),
+        }
+    }
+}
+
+/// One park as the reads hand it back, owned for comparison.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OwnedPark {
+    run_id: String,
+    realm: Option<String>,
+    phase: Option<String>,
+    at: i64,
+    answered: Option<i64>,
+    ended: i64,
+    open: bool,
+}
+
+impl OwnedPark {
+    fn of(row: &WindowPark<'_>) -> OwnedPark {
+        OwnedPark {
+            run_id: row.run_id.to_string(),
+            realm: row.realm.map(str::to_string),
+            phase: row.phase.map(str::to_string),
+            at: row.at,
+            answered: row.answered,
+            ended: row.ended,
+            open: row.open,
+        }
+    }
+}
+
+/// The cut a stored name keeps, as the writer cuts it.
+fn cut(name: &str) -> String {
+    Bounded::within(name, NAME_BYTES).cut
+}
+
+/// One run's stored aggregate columns, as brokkr-core reads the run whole.
+fn expected_run(run_id: &str, events: &[EventEnvelope]) -> OwnedRun {
+    let account = Account::whole(run_id, events);
+    let summary = Summary::of(
+        &account,
+        Listing {
+            feature: "",
+            created_at: "",
+        },
+    );
+    let aggregate = &summary.aggregate;
+    OwnedRun {
+        run_id: run_id.to_string(),
+        realm: aggregate.realm.as_deref().map(cut),
+        recipe: aggregate.recipe.as_deref().map(cut),
+        ending_rule: aggregate
+            .finished
+            .as_ref()
+            .and_then(|finished| finished.hard_stop.as_ref())
+            .and_then(|stop| stop.rule.as_deref())
+            .map(cut),
+        started_ms: aggregate.started_ms,
+        finished_ms: aggregate.finished.as_ref().map(|finished| finished.at),
+        ending: summary
+            .closing
+            .as_ref()
+            .map(|closing| closing.ended.ending.word().to_string()),
+        implement_visits: aggregate.implement_visits,
+        reviews: WindowReviews {
+            first: aggregate.review_first,
+            second: aggregate.review_second,
+            back: aggregate.review_back,
+        },
+        open: account
+            .state()
+            .ok()
+            .is_some_and(|state| concluded(state).is_none()),
+    }
+}
+
+/// One run's parks, the open moments read as `now`, and only those that
+/// reach `from` and start before `to`.
+fn parks_of(
+    run_id: &str,
+    realm: Option<&str>,
+    events: &[EventEnvelope],
+    from: i64,
+    to: i64,
+    now: i64,
+) -> Vec<OwnedPark> {
+    Account::whole(run_id, events)
+        .parks()
+        .into_iter()
+        .filter_map(|park| {
+            let ended = park.ended.unwrap_or(now);
+            let answered = park.answered.unwrap_or(ended);
+            let open = park.ended.is_none();
+            let reaches = open || answered.max(ended) > from;
+            (park.at < to && reaches).then(|| OwnedPark {
+                run_id: run_id.to_string(),
+                realm: realm.map(str::to_string),
+                phase: park.phase.as_deref().map(cut),
+                at: park.at,
+                answered: park.answered,
+                ended,
+                open,
+            })
+        })
+        .collect()
+}
+
+/// `rows` read from the store in `order`, sorted as its figure folds.
+fn window_runs(
+    store: &Store,
+    from: i64,
+    to: i64,
+    order: RunOrder,
+    realm: Option<&str>,
+) -> Vec<OwnedRun> {
+    let mut rows = Vec::new();
+    store
+        .window_runs(from, to, order, realm, |row| rows.push(OwnedRun::of(row)))
+        .unwrap();
+    rows
+}
+
+/// The window's parks, in the read's order.
+fn window_parks(
+    store: &Store,
+    from: i64,
+    to: i64,
+    now: i64,
+    realm: Option<&str>,
+) -> Vec<OwnedPark> {
+    let mut rows = Vec::new();
+    store
+        .window_parks(from, to, now, realm, |row| rows.push(OwnedPark::of(row)))
+        .unwrap();
+    rows
+}
+
+/// Every run's events, once the store has read it, or `None` where it does
+/// not load.
+fn readable(store: &Store, run_id: &str) -> Option<Vec<EventEnvelope>> {
+    store.load(run_id).ok()
+}
+
+/// Hold every window read to brokkr-core's whole reading over `runs`.
+fn compare_windows(
+    store: &Store,
+    runs: &[(String, Option<Vec<EventEnvelope>>)],
+    windows: &[(i64, i64)],
+    now: i64,
+) {
+    let expected: Vec<(OwnedRun, Vec<EventEnvelope>)> = runs
+        .iter()
+        .filter_map(|(run_id, events)| {
+            let events = events.as_ref()?;
+            Some((expected_run(run_id, events), events.clone()))
+        })
+        .collect();
+    for &(from, to) in windows {
+        for realm in [None, Some("realm")] {
+            let mut wanted: Vec<OwnedRun> = expected
+                .iter()
+                .map(|(run, _)| run)
+                .filter(|run| run.realm.as_deref() == realm || realm.is_none())
+                .filter(|run| {
+                    run.open
+                        || run
+                            .finished_ms
+                            .is_some_and(|finished| finished >= from && finished < to)
+                })
+                .cloned()
+                .collect();
+            let expected_parks: Vec<OwnedPark> = expected
+                .iter()
+                .flat_map(|(run, events)| {
+                    parks_of(&run.run_id, run.realm.as_deref(), events, from, to, now)
+                })
+                .filter(|park| realm.is_none() || park.realm.as_deref() == realm)
+                .collect();
+            for order in [
+                RunOrder::Unordered,
+                RunOrder::ByEndingRule,
+                RunOrder::ByRealmThenRecipe,
+            ] {
+                let mut actual = window_runs(store, from, to, order, realm);
+                OwnedRun::sort(&mut wanted, order);
+                if order == RunOrder::Unordered {
+                    OwnedRun::sort(&mut actual, order);
+                }
+                assert_eq!(actual, wanted, "{order:?} {from}..{to} {realm:?}");
+            }
+            // The read's one order: phase, then run, then the park's own
+            // start; a stable sort keeps the parks' seq order within a tie.
+            let mut wanted_parks = expected_parks;
+            wanted_parks.sort_by(|left, right| {
+                left.phase
+                    .cmp(&right.phase)
+                    .then_with(|| left.run_id.cmp(&right.run_id))
+                    .then_with(|| left.at.cmp(&right.at))
+            });
+            assert_eq!(
+                window_parks(store, from, to, now, realm),
+                wanted_parks,
+                "{from}..{to} {realm:?}"
+            );
+
+            let mut spans: Vec<(Option<String>, i64)> = expected
+                .iter()
+                .map(|(run, _)| run)
+                .filter(|run| run.realm.as_deref() == realm || realm.is_none())
+                .filter_map(|run| {
+                    let finished = run.finished_ms?;
+                    (finished >= from && finished < to).then(|| {
+                        (
+                            run.realm.clone(),
+                            (finished - run.started_ms.unwrap_or(finished)).max(0),
+                        )
+                    })
+                })
+                .collect();
+            let mut read_spans = Vec::new();
+            store
+                .durations(from, to, realm, |realm, span| {
+                    read_spans.push((realm.map(str::to_string), span))
+                })
+                .unwrap();
+            spans.sort();
+            read_spans.sort();
+            assert_eq!(read_spans, spans, "durations {from}..{to} {realm:?}");
+            let wanted_count = spans.len() as u64;
+            assert_eq!(
+                store.finished_between(from, to, realm).unwrap(),
+                wanted_count,
+                "finished_between {from}..{to} {realm:?}"
+            );
+        }
+    }
+}
+
+/// A window on each side of every event and park time, and the whole.
+fn windows(runs: &[(String, Option<Vec<EventEnvelope>>)], now: i64) -> Vec<(i64, i64)> {
+    let mut times: Vec<i64> = runs
+        .iter()
+        .filter_map(|(_, events)| events.as_ref())
+        .flatten()
+        .filter_map(|event| parse_millis(&event.recorded_at))
+        .collect();
+    times.sort_unstable();
+    times.dedup();
+    let lo = *times.first().expect("a journal holds an event");
+    let span = (*times.last().unwrap() - lo).max(1);
+    let mut windows = vec![
+        (lo - 1, now + 1),
+        (lo, lo + span / 3),
+        (lo + span / 3, lo + 2 * span / 3),
+        (lo + span / 2, now + 1),
+        (lo + 2 * span / 3, now + 1),
+    ];
+    windows.dedup();
+    windows
+}
+
+/// One run with `realm` named by its start's world pin.
+fn manifest(realm: Option<&str>) -> serde_json::Value {
+    match realm {
+        Some(realm) => json!({
+            "bundle_name": "self",
+            "realms": {
+                "source": "realm",
+                "realm": realm,
+                "map": {"realms": [{"name": realm, "path": "/realm"}]},
+            },
+        }),
+        None => json!({"bundle_name": "self"}),
+    }
+}
+
+/// A run started under `realm`, every step at a chosen second.
+fn chain(
+    run_id: &str,
+    realm: Option<&str>,
+    start: i64,
+    steps: &[(EventType, serde_json::Value)],
+) -> Vec<EventEnvelope> {
+    let mut previous = ZERO_HASH.to_string();
+    let mut events = Vec::new();
+    for (at, (event_type, payload)) in steps.iter().enumerate() {
+        let mut payload = payload.clone();
+        if at == 0 {
+            payload["manifest"] = manifest(realm);
+        }
+        let second = start + at as i64;
+        let stamp = format!("2026-01-01T00:{:02}:{:02}Z", second / 60, second % 60);
+        let event = EnvelopeBuilder::new(*event_type, payload)
+            .run(run_id)
+            .seq(at as u64 + 1)
+            .event_id(format!("{run_id}-{at}"))
+            .at(stamp)
+            .previous(previous.clone())
+            .sealed();
+        previous = event.event_hash.clone();
+        events.push(event);
+    }
+    events
+}
+
+/// A finished run's steps, from its start to `run/completed`.
+fn finished_steps(feature: &str) -> Vec<(EventType, serde_json::Value)> {
+    vec![
+        (EventType::RunStarted, json!({"feature": feature})),
+        (EventType::PhaseEntered, json!({"phase": "ship"})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "fx", "phase": "ship", "seat": "ship"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"attempt_id": "attempt", "effect_id": "fx"}),
+        ),
+        (
+            EventType::EffectSucceeded,
+            json!({"effect_id": "fx", "result": {"result": "shipped"}}),
+        ),
+        (
+            EventType::TransitionDecided,
+            json!({"from": "ship", "inputs": {}, "next": "done", "problem": null,
+                   "result": "shipped", "rule_id": "SHIP-COMPLETE", "severity": "normal"}),
+        ),
+        (EventType::PhaseEntered, json!({"phase": "done"})),
+        (EventType::RunCompleted, json!({})),
+    ]
+}
+
+/// A parked run's steps, from its start to the open park, in `phase`.
+fn parked_steps(phase: &str) -> Vec<(EventType, serde_json::Value)> {
+    vec![
+        (EventType::RunStarted, json!({"feature": "parked"})),
+        (EventType::PhaseEntered, json!({"phase": phase})),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id": "fx", "phase": "implement", "seat": "implement"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"attempt_id": "attempt", "effect_id": "fx"}),
+        ),
+        (
+            EventType::EffectFailed,
+            json!({"effect_id": "fx", "error": "the seat exited 1"}),
+        ),
+        (EventType::RunParked, json!({"reason": "waiting"})),
+    ]
+}
+
+/// Every fixture journal, each run's events once the store migrated it, and
+/// every window held to brokkr-core's whole reading.
+#[test]
+fn every_fixture_window_reads_as_the_whole_journal() {
+    let (_dir, mut store) = store();
+    let (runs, _refused) = import_fixtures(&mut store);
+    let store = refolded(store);
+    let runs: Vec<(String, Option<Vec<EventEnvelope>>)> = runs
+        .into_iter()
+        .map(|run_id| {
+            let events = readable(&store, &run_id);
+            (run_id, events)
+        })
+        .collect();
+    let now = runs
+        .iter()
+        .filter_map(|(_, events)| events.as_ref())
+        .flatten()
+        .filter_map(|event| parse_millis(&event.recorded_at))
+        .max()
+        .expect("a fixture holds an event")
+        + 1_000;
+    let windows = windows(&runs, now);
+    compare_windows(&store, &runs, &windows, now);
+
+    // A behind run is never in a window's runs, and is in behind_runs.
+    let mut behind: Vec<String> = Vec::new();
+    store
+        .behind_runs(|run_id| behind.push(run_id.to_string()))
+        .unwrap();
+    behind.sort();
+    let mut wanted: Vec<String> = runs
+        .iter()
+        .map(|(run_id, _)| run_id.clone())
+        .filter(|run_id| lane(&store, run_id).as_deref() == Some("behind"))
+        .collect();
+    wanted.sort();
+    assert_eq!(behind, wanted);
+    for &(from, to) in &windows {
+        let in_window = window_runs(&store, from, to, RunOrder::Unordered, None);
+        for run_id in &wanted {
+            assert!(
+                !in_window.iter().any(|run| &run.run_id == run_id),
+                "behind run {run_id} in window {from}..{to}"
+            );
+        }
+    }
+}
+
+/// A hand-built journal whose parks and runs cut the chosen windows.
+#[test]
+fn a_hand_built_window_reads_as_the_whole_journal() {
+    let (_dir, store) = store();
+    let parked = chain("parked", Some("realm"), 0, &parked_steps("review"));
+    let finished = chain("finished", None, 20, &finished_steps("a finished feature"));
+    let other = chain("zulu", None, 40, &parked_steps("implement"));
+    plant_older_writer(&store, "parked", &parked);
+    plant_older_writer(&store, "finished", &finished);
+    plant_older_writer(&store, "zulu", &other);
+    let store = refolded(store);
+    let runs = vec![
+        ("parked".to_string(), readable(&store, "parked")),
+        ("finished".to_string(), readable(&store, "finished")),
+        ("zulu".to_string(), readable(&store, "zulu")),
+    ];
+    let now = runs
+        .iter()
+        .filter_map(|(_, events)| events.as_ref())
+        .flatten()
+        .filter_map(|event| parse_millis(&event.recorded_at))
+        .max()
+        .unwrap()
+        + 1_000;
+    let windows = windows(&runs, now);
+    compare_windows(&store, &runs, &windows, now);
+}
+
+/// A run behind its head is never in a window and is in `behind_runs`: one
+/// an older writer's append left behind, and one whose aggregate stamp is
+/// not its folded head's.
+#[test]
+fn a_behind_run_is_read_whole_and_never_in_a_window() {
+    let (_dir, mut store) = store();
+    store
+        .create_run("lagging", "a feature", "self", &json!({}))
+        .unwrap();
+    crate::test_support::append(
+        &mut store,
+        "lagging",
+        EventType::RunStarted,
+        json!({"feature": "a feature", "manifest": {}}),
+    );
+    let (seq, previous) = store.head_hash("lagging").unwrap();
+    let moved = EnvelopeBuilder::new(EventType::PhaseEntered, json!({"phase": "review"}))
+        .run("lagging")
+        .seq(seq + 1)
+        .event_id("lagging-peer")
+        .at("2026-01-01T00:00:09Z")
+        .previous(previous)
+        .sealed();
+    plant_envelope(&store.conn, &moved).unwrap();
+    lags(&mut store, &["lagging"]);
+
+    store
+        .create_run("stale", "a feature", "self", &json!({}))
+        .unwrap();
+    crate::test_support::append(
+        &mut store,
+        "stale",
+        EventType::RunStarted,
+        json!({"feature": "a feature", "manifest": {}}),
+    );
+    crate::test_support::append(&mut store, "stale", EventType::RunCompleted, json!({}));
+    store
+        .conn
+        .execute(
+            "UPDATE run_summary SET aggregated_seq = 0 WHERE run_id = 'stale'",
+            [],
+        )
+        .unwrap();
+    lags(&mut store, &["stale"]);
+
+    // A run an older writer planted, with no fold of its own.
+    let older = chain("older", None, 60, &parked_steps("implement"));
+    plant_older_writer(&store, "older", &older);
+
+    let (from, to) = (0, i64::MAX);
+    assert_eq!(
+        window_runs(&store, from, to, RunOrder::Unordered, None),
+        Vec::new()
+    );
+    let mut behind = Vec::new();
+    store
+        .behind_runs(|run_id| behind.push(run_id.to_string()))
+        .unwrap();
+    assert_eq!(behind, ["lagging", "older", "stale"]);
+}
+
+/// The realm list and unreadable counts cover every run in creation order,
+/// and a run behind its row reads with no realm until its whole read.
+#[test]
+fn the_realm_list_reads_every_run_in_creation_order() {
+    let (_dir, store) = store();
+    let open = chain("open", None, 0, &parked_steps("implement"));
+    let finished = chain("finished", Some("realm"), 20, &finished_steps("a feature"));
+    plant_older_writer(&store, "open", &open);
+    plant_older_writer(&store, "finished", &finished);
+    // A valid chain whose fold refuses: the start names a realm and the
+    // row keeps it, with the refusal's word.
+    let refused = chain(
+        "refused",
+        Some("realm"),
+        40,
+        &[
+            (EventType::RunStarted, json!({"feature": "refused"})),
+            (EventType::PhaseEntered, json!({})),
+        ],
+    );
+    plant_older_writer(&store, "refused", &refused);
+    // A broken chain never loads, so its row stays behind with no realm.
+    let broken = EnvelopeBuilder::new(EventType::RunStarted, json!({"feature": "broken"}))
+        .run("broken")
+        .seq(1)
+        .event_id("broken-1")
+        .at("2026-01-01T00:00:50Z")
+        .sealed();
+    let broken_link = EnvelopeBuilder::new(EventType::PhaseEntered, json!({"phase": "implement"}))
+        .run("broken")
+        .seq(2)
+        .event_id("broken-2")
+        .at("2026-01-01T00:00:51Z")
+        .previous("not-the-hash")
+        .sealed();
+    plant_older_writer(&store, "broken", &[broken, broken_link]);
+    for (run_id, created_at) in [
+        ("open", "2026-01-01T00:00:01Z"),
+        ("finished", "2026-01-01T00:00:02Z"),
+        ("broken", "2026-01-01T00:00:03Z"),
+        ("refused", "2026-01-01T00:00:04Z"),
+    ] {
+        store
+            .conn
+            .execute(
+                "UPDATE runs SET created_at = ?1 WHERE run_id = ?2",
+                params![created_at, run_id],
+            )
+            .unwrap();
+    }
+    let store = refolded(store);
+    let mut rows = Vec::new();
+    store
+        .realm_runs(|realm, unreadable| rows.push((realm.map(str::to_string), unreadable)))
+        .unwrap();
+    assert_eq!(
+        rows,
+        [
+            (None, false),
+            (None, false),
+            (Some("realm".to_string()), false),
+            (Some("realm".to_string()), true),
+        ]
+    );
+}
+
+/// The aggregates are unread on an unmigrated journal and while a park's
+/// facts wait, and read after the next writable open.
+#[test]
+fn aggregates_are_ready_only_once_every_projection_is_backfilled() {
+    let (_dir, store) = store();
+    assert!(store.aggregates_ready().unwrap());
+    unmigrate(&store.conn).unwrap();
+    assert!(!store.aggregates_ready().unwrap());
+    let store = refolded(store);
+    assert!(store.aggregates_ready().unwrap());
+
+    let parked = chain("parked", None, 0, &parked_steps("implement"));
+    plant_older_writer(&store, "parked", &parked);
+    let store = refolded(store);
+    assert!(store.aggregates_ready().unwrap());
+    store
+        .conn
+        .execute(
+            "UPDATE event_index SET facts_seq = NULL WHERE type = 'run/parked'",
+            [],
+        )
+        .unwrap();
+    assert!(!store.aggregates_ready().unwrap());
+    let store = refolded(store);
+    assert!(store.aggregates_ready().unwrap());
+}
+
+/// A park of class 63 at a window near `i64::MIN` is found without
+/// overflow, and an open park reads its end as `now`.
+#[test]
+fn class_63_saturates_and_an_open_park_reads_as_now() {
+    let (_dir, store) = store();
+    crate::test_support::plant_run(&store.conn, "r", "{}").unwrap();
+    let planted = |seq, phase, at, answered, ended, class| ParkRow {
+        seq,
+        phase,
+        at,
+        answered,
+        ended,
+        class,
+    };
+    plant_park(
+        &store.conn,
+        "r",
+        planted(
+            1,
+            "old",
+            i64::MIN + 100,
+            Some(i64::MIN + 200),
+            Some(i64::MIN + 300),
+            63,
+        ),
+    );
+    plant_park(
+        &store.conn,
+        "r",
+        planted(2, "open", i64::MIN + 500, None, None, 64),
+    );
+    let from = i64::MIN + 100;
+    let to = i64::MIN + 1_000;
+    let now = 1_000_000;
+    let parks = window_parks(&store, from, to, now, None);
+    assert_eq!(
+        parks,
+        [
+            OwnedPark {
+                run_id: "r".into(),
+                realm: None,
+                phase: Some("old".into()),
+                at: from,
+                answered: Some(i64::MIN + 200),
+                ended: i64::MIN + 300,
+                open: false,
+            },
+            OwnedPark {
+                run_id: "r".into(),
+                realm: None,
+                phase: Some("open".into()),
+                at: i64::MIN + 500,
+                answered: None,
+                ended: now,
+                open: true,
+            },
+        ]
+    );
+}
+
+/// Every read's plan names its index and scans no projection whole.
+#[test]
+fn every_aggregate_read_is_indexed() {
+    let (_dir, store) = store();
+    for (order, index) in [
+        (RunOrder::Unordered, "run_summary_finished"),
+        (RunOrder::ByEndingRule, "run_summary_page"),
+        (RunOrder::ByRealmThenRecipe, "run_summary_page"),
+    ] {
+        let plan = explain(
+            &store,
+            runs_sql(order),
+            params_from_iter(run_bounds(0, 1, None)),
+        );
+        assert!(
+            plan.iter().any(|step| step.contains(index)),
+            "{order:?}: {plan:?}"
+        );
+        assert!(
+            !plan.iter().any(|step| step.starts_with("SCAN run_summary")),
+            "{order:?}: {plan:?}"
+        );
+    }
+    let plan = explain(&store, BEHIND, []);
+    assert!(plan.iter().any(|step| step.contains("run_summary_page")));
+    assert!(!plan.iter().any(|step| step.starts_with("SCAN run_summary")));
+    for (sql, index) in [
+        (COUNT_FINISHED, "run_summary_finished"),
+        (DURATIONS, "run_summary_finished"),
+    ] {
+        let plan = explain(&store, sql, params![0, 1, None::<&str>]);
+        assert!(plan.iter().any(|step| step.contains(index)), "{plan:?}");
+        assert!(
+            !plan.iter().any(|step| step.starts_with("SCAN run_summary")),
+            "{plan:?}"
+        );
+    }
+    let taken = explain(&store, &PARK_STALE, []);
+    assert!(
+        taken
+            .iter()
+            .any(|step| step.contains("event_index_park_stale")),
+        "{taken:?}"
+    );
+    let taken = explain(
+        &store,
+        &PARK_SQL,
+        params_from_iter(park_bounds(0, 1, 2, None)),
+    );
+    assert_eq!(
+        taken
+            .iter()
+            .filter(|step| step.contains("event_index_park"))
+            .count(),
+        64,
+        "{taken:?}"
+    );
+    assert_eq!(
+        taken
+            .iter()
+            .filter(|step| step.contains("USE TEMP B-TREE FOR ORDER BY"))
+            .count(),
+        1,
+        "{taken:?}"
+    );
+    assert!(
+        !taken.iter().any(
+            |step| step.starts_with("SCAN run_summary") || step.starts_with("SCAN event_index")
+        ),
+        "{taken:?}"
+    );
+    let taken = explain(&store, REALM_RUNS, []);
+    assert_eq!(
+        taken,
+        ["SCAN run_summary USING COVERING INDEX run_summary_realm_runs"]
+    );
+}
+
+/// One park row's dated facts, as the writer leaves it.
+struct ParkRow {
+    seq: i64,
+    phase: &'static str,
+    at: i64,
+    answered: Option<i64>,
+    ended: Option<i64>,
+    class: i64,
+}
+
+/// Insert one park row, as the writer leaves it.
+fn plant_park(conn: &rusqlite::Connection, run_id: &str, row: ParkRow) {
+    conn.execute(
+        "INSERT INTO event_index
+             (run_id, seq, type, phase, at_ms, answered_ms, ended_ms, span_class, facts_seq)
+         VALUES (?1, ?2, 'run/parked', ?3, ?4, ?5, ?6, ?7, ?2)",
+        params![
+            run_id,
+            row.seq,
+            row.phase,
+            row.at,
+            row.answered,
+            row.ended,
+            row.class
+        ],
+    )
+    .unwrap();
+}
+
+/// The plan SQLite takes for `sql`, each step's detail in order.
+fn explain(store: &Store, sql: &str, bound: impl rusqlite::Params) -> Vec<String> {
+    crate::test_support::plan(store, sql, bound).unwrap_or_else(|error| panic!("{sql}: {error}"))
+}
+
+/// The fixed window and its parks, for the ranges' VM-step count.
+const FROM: i64 = 1_700_000_000_000;
+const TO: i64 = FROM + 10 * DAY;
+const DAY: i64 = 86_400_000;
+
+/// One park with `reach` from `at`, its class read as the writer reads it.
+fn class_of(reach: i64) -> i64 {
+    if reach <= 0 {
+        return 0;
+    }
+    i64::from(u64::BITS - (reach as u64).leading_zeros())
+}
+
+/// Plant `count` parks at `at` with `reach`, one seq each, from `next`.
+fn plant_parks(
+    conn: &rusqlite::Connection,
+    parks: &mut i64,
+    count: usize,
+    at: impl Fn(usize) -> i64,
+    reach: impl Fn(usize) -> i64,
+) {
+    for index in 0..count {
+        let at = at(index);
+        let reach = reach(index);
+        *parks += 1;
+        plant_park(
+            conn,
+            "r",
+            ParkRow {
+                seq: *parks,
+                phase: "phase",
+                at,
+                answered: Some(at + reach),
+                ended: Some(at + reach),
+                class: class_of(reach),
+            },
+        );
+    }
+}
+
+/// The parks a fixed window visits are the parks near it: a year of later
+/// parks and a year of earlier ones, each shorter than half its distance
+/// from the window, leave the step count equal; k parks inside the band
+/// each add their own visit; and 10,000 class-0 parks add nothing.
+#[test]
+fn a_window_visits_only_the_parks_near_it() {
+    let (_dir, store) = store();
+    crate::test_support::plant_run(&store.conn, "r", "{}").unwrap();
+    let mut next = 0;
+    plant_near(&store.conn, &mut next);
+    let step = store.window_parks_steps(FROM, TO, TO, None).unwrap();
+    assert!(step > 0);
+
+    plant_later(&store.conn, &mut next);
+    assert_eq!(
+        store.window_parks_steps(FROM, TO, TO, None).unwrap(),
+        step,
+        "later parks are in no range"
+    );
+
+    plant_earlier(&store.conn, &mut next);
+    assert_eq!(
+        store.window_parks_steps(FROM, TO, TO, None).unwrap(),
+        step,
+        "far earlier parks are in no range"
+    );
+
+    // k parks inside the band: started within the class's range and ended
+    // before the window within their own length, so each is visited and
+    // rejected, at one visit's cost.
+    let k = 10;
+    let at = FROM - 1_024;
+    let before = store.window_parks_steps(FROM, TO, TO, None).unwrap();
+    plant_park(
+        &store.conn,
+        "r",
+        ParkRow {
+            seq: next + 1,
+            phase: "phase",
+            at,
+            answered: Some(FROM - 1),
+            ended: Some(FROM - 1),
+            class: 10,
+        },
+    );
+    next += 1;
+    let one = store.window_parks_steps(FROM, TO, TO, None).unwrap() - before;
+    assert!(one > 0, "one band park is visited");
+    for index in 1..k {
+        plant_park(
+            &store.conn,
+            "r",
+            ParkRow {
+                seq: next + 1,
+                phase: "phase",
+                at: at + index as i64,
+                answered: Some(FROM - 1),
+                ended: Some(FROM - 1),
+                class: 10,
+            },
+        );
+        next += 1;
+    }
+    assert_eq!(
+        store.window_parks_steps(FROM, TO, TO, None).unwrap() - before,
+        one * (k as i64),
+        "k band parks each cost one visit"
+    );
+
+    let banded = store.window_parks_steps(FROM, TO, TO, None).unwrap();
+    plant_class_zero(&store.conn, &mut next);
+    assert_eq!(
+        store.window_parks_steps(FROM, TO, TO, None).unwrap(),
+        banded,
+        "class-0 parks are in no range"
+    );
+}
+
+/// Two parks overlapping the window and two inside it, and one open park
+/// of class 64 whose end reads as `now`.
+fn plant_near(conn: &rusqlite::Connection, next: &mut i64) {
+    plant_parks(
+        conn,
+        next,
+        2,
+        |index| FROM - 10_000 + index as i64,
+        |_| 20_000,
+    );
+    plant_parks(conn, next, 1, |_| FROM + 1_000, |_| 0);
+    plant_parks(conn, next, 2, |index| FROM + 100 + index as i64, |_| 1);
+    *next += 1;
+    plant_park(
+        conn,
+        "r",
+        ParkRow {
+            seq: *next,
+            phase: "phase",
+            at: FROM + 2_000,
+            answered: None,
+            ended: None,
+            class: 64,
+        },
+    );
+}
+
+/// A year of parks after the window, so no range reads them.
+fn plant_later(conn: &rusqlite::Connection, next: &mut i64) {
+    plant_parks(
+        conn,
+        next,
+        365,
+        |index| TO + (index as i64 + 1) * DAY,
+        |_| DAY,
+    );
+}
+
+/// A year of parks before the window, each shorter than half its distance.
+fn plant_earlier(conn: &rusqlite::Connection, next: &mut i64) {
+    plant_parks(
+        conn,
+        next,
+        365,
+        |index| {
+            let distance = (index as i64 + 1) * DAY;
+            FROM - distance - distance / 4
+        },
+        |index| (index as i64 + 1) * DAY / 4,
+    );
+}
+
+/// 10,000 class-0 parks at `from - 1` and inside the window, zero-length
+/// and ended a year before they started: no range reads class 0.
+fn plant_class_zero(conn: &rusqlite::Connection, next: &mut i64) {
+    for index in 0..10_000 {
+        let at = if index % 2 == 0 {
+            FROM - 1
+        } else {
+            FROM + index as i64
+        };
+        *next += 1;
+        plant_park(
+            conn,
+            "r",
+            ParkRow {
+                seq: *next,
+                phase: "phase",
+                at,
+                answered: Some(at - 365 * DAY),
+                ended: Some(at - 365 * DAY),
+                class: 0,
+            },
+        );
+    }
+}

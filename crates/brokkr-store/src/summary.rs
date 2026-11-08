@@ -61,7 +61,7 @@ fn stale(prefix: &str) -> String {
 }
 
 /// The meta key that records the backfill finished (ruling 8).
-const BACKFILLED: &str = "run_summary_backfill";
+pub(crate) const BACKFILLED: &str = "run_summary_backfill";
 
 /// A row's place in the page index's order: its `order_at` and run id.
 type Place = (i64, String);
@@ -76,7 +76,11 @@ mod stop;
 pub use disagreement::Disagreement;
 
 const TABLE: [&str; 1] = ["run_summary"];
-const INDEX: [&str; 2] = ["run_summary_page", aggregate::INDEX];
+const INDEX: [&str; 3] = [
+    "run_summary_page",
+    aggregate::INDEX,
+    "run_summary_realm_runs",
+];
 const TRIGGERS: [&str; 7] = [
     "run_summary_of_a_run",
     columns::HEAD_TRIGGER,
@@ -169,6 +173,8 @@ fn migration() -> String {
         );
         CREATE INDEX IF NOT EXISTS run_summary_page
             ON run_summary (lane, order_at DESC, run_id DESC);
+        CREATE INDEX IF NOT EXISTS run_summary_realm_runs
+            ON run_summary (created_at, realm, refusal_words);
         CREATE TRIGGER IF NOT EXISTS run_summary_of_a_run AFTER INSERT ON runs BEGIN
             INSERT OR IGNORE INTO run_summary (run_id, head_seq, head_hash)
                 VALUES (NEW.run_id, 0, '{ZERO_HASH}');

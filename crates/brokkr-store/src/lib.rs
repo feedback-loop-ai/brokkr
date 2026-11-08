@@ -70,8 +70,8 @@ use serde_json::Value;
 use thiserror::Error;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
-
 mod acknowledgement;
+pub mod aggregate;
 pub mod backup;
 mod chain;
 mod event_index;
