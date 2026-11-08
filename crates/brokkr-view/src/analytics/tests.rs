@@ -10,7 +10,7 @@ use crate::fleet::tests::ruled;
 use crate::tests::{ev, state};
 use crate::ABSENT;
 use brokkr_core::ending::Ending;
-use brokkr_core::fold::Status;
+use brokkr_core::fold::{fold, Status};
 use brokkr_core::EventType;
 use serde_json::{json, Value};
 
@@ -1487,6 +1487,134 @@ fn a_readout_past_64_realms_keeps_64_rows_and_counts_the_rest() {
     assert_eq!(view.realms[0].cost, ReportedCost::Reported { usd: 1.0 });
 }
 
+// ------------------------------------- the chief's cross-realm demonstrators
+
+/// A run that completed on 2026-10-10 with one seat on `provider`,
+/// reporting `cost` when it has one.
+fn completed_run(
+    realm: &str,
+    provider: &str,
+    cost: Option<f64>,
+    at: &str,
+) -> (Journal, Option<RunState>) {
+    let journal = Journal::started(Some(realm), at)
+        .seat("s", provider, "m", cost, at)
+        .then(EventType::RunCompleted, json!({}), "2026-10-10T01:00:00Z");
+    (journal, Some(ended(Status::Completed, "done", None, 0)))
+}
+
+/// A completed run of `count` seats, each on a provider of its own, named
+/// `provider-00000` upwards.
+fn many_providers(realm: &str, count: usize) -> (Journal, Option<RunState>) {
+    let mut journal = Journal::started(Some(realm), "2026-10-10T00:00:00Z");
+    for index in 0..count {
+        journal = journal.seat(
+            &format!("{realm}-{index:05}"),
+            &format!("provider-{index:05}"),
+            "m",
+            Some(1.0),
+            "2026-10-10T00:10:00Z",
+        );
+    }
+    (
+        journal.then(EventType::RunCompleted, json!({}), "2026-10-10T01:00:00Z"),
+        Some(ended(Status::Completed, "done", None, 0)),
+    )
+}
+
+/// `count` stopped runs, each by a rule of its own, named `rule-00000`
+/// upwards.
+fn many_rules(count: usize) -> Vec<(Journal, Option<RunState>)> {
+    (0..count)
+        .map(|index| {
+            let rule = format!("rule-{index:05}");
+            (
+                Journal::started(Some("alpha"), "2026-10-10T00:00:00Z").then(
+                    EventType::RunStopped,
+                    json!({}),
+                    "2026-10-10T01:00:00Z",
+                ),
+                Some(ended(Status::Stopped, "stop", Some(&rule), 0)),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn chief753_same_provider_across_realms_is_reporting() {
+    let alpha = completed_run("alpha", "claude", Some(1.0), "2026-10-10T00:10:00Z");
+    let beta = completed_run("beta", "claude", None, "2026-10-10T02:10:00Z");
+    let view = read_one(&runs(&[alpha, beta]), Range::Week);
+    let cost = &view.headline.cost;
+    assert_eq!(cost.reporting, ["claude"]);
+    assert!(cost.silent.is_empty(), "{:?}", cost.silent);
+    assert_eq!(cost.note, None);
+    assert_eq!(cost.cost, ReportedCost::Reported { usd: 1.0 });
+}
+
+#[test]
+fn chief753_provider_more_counts_distinct_providers_across_realms() {
+    let alpha = many_providers("alpha", 65);
+    let beta = many_providers("beta", 65);
+    let view = read_one(&runs(&[alpha, beta]), Range::Week);
+    let cost = &view.headline.cost;
+    assert_eq!(cost.providers_more, 1);
+    assert_eq!(cost.reporting.len(), 64);
+    assert!(cost.silent.is_empty(), "{:?}", cost.silent);
+    assert_eq!(
+        cost.reporting.first().map(String::as_str),
+        Some("provider-00000")
+    );
+    assert_eq!(
+        cost.reporting.last().map(String::as_str),
+        Some("provider-00063")
+    );
+}
+
+#[test]
+fn chief753_realm_rows_preserve_discovery_order() {
+    let realms: Vec<String> = ["zeta", "alpha"].into_iter().map(str::to_string).collect();
+    let view = read_realms(&[], &realms);
+    let names: Vec<&str> = view.realms.iter().map(|row| row.realm.as_str()).collect();
+    assert_eq!(names, ["zeta", "alpha"]);
+    assert_eq!(view.realms_more, 0);
+}
+
+#[test]
+fn chief753_realm_selection_obeys_declared_key_ranking() {
+    let realms: Vec<String> = (0..65)
+        .rev()
+        .map(|index| format!("realm-{index:02}"))
+        .collect();
+    let view = read_realms(&[], &realms);
+    let names: Vec<&str> = view.realms.iter().map(|row| row.realm.as_str()).collect();
+    let expected: Vec<String> = (1..=64)
+        .rev()
+        .map(|index| format!("realm-{index:02}"))
+        .collect();
+    assert_eq!(names, expected);
+    assert_eq!(view.realms_more, 1);
+}
+
+#[test]
+fn a_headline_count_past_64_rules_and_providers_is_positive_on_the_wire() {
+    let mut journals = many_rules(65);
+    journals.push(many_providers("alpha", 65));
+    journals.push(many_providers("beta", 65));
+    let view = read_one(&runs(&journals), Range::Week);
+    assert_eq!(view.headline.stopped_by_rule.rules_more, 1);
+    assert_eq!(view.headline.cost.providers_more, 1);
+    let wire = serde_json::to_value(&view).unwrap();
+    assert_eq!(
+        wire.pointer("/headline/stopped_by_rule/rules_more"),
+        Some(&json!(1))
+    );
+    assert_eq!(
+        wire.pointer("/headline/cost/providers_more"),
+        Some(&json!(1))
+    );
+}
+
 #[test]
 fn a_key_past_its_bound_groups_with_its_cut_twin() {
     let sixty_four = "p".repeat(64);
@@ -1577,6 +1705,131 @@ fn no_more_keys(value: &Value) -> bool {
         }
         Value::Array(values) => values.iter().all(no_more_keys),
         _ => true,
+    }
+}
+
+// ------------------------------------------- the fixture journals' bytes
+
+/// The clock every fixture golden was derived at: the base's.
+const FIXTURE_NOW: &str = "2026-09-02T00:00:00Z";
+
+/// One frozen fixture journal, and its serialized readout at each of
+/// [`Range::ALL`]'s three ranges: committed goldens generated at
+/// a45fc694f, in that same order.
+struct Fixture {
+    name: &'static str,
+    journal: &'static str,
+    goldens: [&'static str; 3],
+}
+
+const FIXTURES: [Fixture; 6] = [
+    Fixture {
+        name: "conclude-already-done-hand-built",
+        journal: include_str!(
+            "../../../../fixtures/journals/conclude-already-done-hand-built.ndjson"
+        ),
+        goldens: [
+            include_str!("goldens/conclude-already-done-hand-built.24h.golden"),
+            include_str!("goldens/conclude-already-done-hand-built.7d.golden"),
+            include_str!("goldens/conclude-already-done-hand-built.30d.golden"),
+        ],
+    },
+    Fixture {
+        name: "conclude-broken-chain-hand-built",
+        journal: include_str!(
+            "../../../../fixtures/journals/conclude-broken-chain-hand-built.ndjson"
+        ),
+        goldens: [
+            include_str!("goldens/conclude-broken-chain-hand-built.24h.golden"),
+            include_str!("goldens/conclude-broken-chain-hand-built.7d.golden"),
+            include_str!("goldens/conclude-broken-chain-hand-built.30d.golden"),
+        ],
+    },
+    Fixture {
+        name: "conclude-parked-hand-built",
+        journal: include_str!("../../../../fixtures/journals/conclude-parked-hand-built.ndjson"),
+        goldens: [
+            include_str!("goldens/conclude-parked-hand-built.24h.golden"),
+            include_str!("goldens/conclude-parked-hand-built.7d.golden"),
+            include_str!("goldens/conclude-parked-hand-built.30d.golden"),
+        ],
+    },
+    Fixture {
+        name: "conclude-stopped-mid-effect-hand-built",
+        journal: include_str!(
+            "../../../../fixtures/journals/conclude-stopped-mid-effect-hand-built.ndjson"
+        ),
+        goldens: [
+            include_str!("goldens/conclude-stopped-mid-effect-hand-built.24h.golden"),
+            include_str!("goldens/conclude-stopped-mid-effect-hand-built.7d.golden"),
+            include_str!("goldens/conclude-stopped-mid-effect-hand-built.30d.golden"),
+        ],
+    },
+    Fixture {
+        name: "reforging-the-road-back-hand-built",
+        journal: include_str!(
+            "../../../../fixtures/journals/reforging-the-road-back-hand-built.ndjson"
+        ),
+        goldens: [
+            include_str!("goldens/reforging-the-road-back-hand-built.24h.golden"),
+            include_str!("goldens/reforging-the-road-back-hand-built.7d.golden"),
+            include_str!("goldens/reforging-the-road-back-hand-built.30d.golden"),
+        ],
+    },
+    Fixture {
+        name: "tui-graph-the-selection-box-gets-80f98deb",
+        journal: include_str!(
+            "../../../../fixtures/journals/tui-graph-the-selection-box-gets-80f98deb.ndjson"
+        ),
+        goldens: [
+            include_str!("goldens/tui-graph-the-selection-box-gets-80f98deb.24h.golden"),
+            include_str!("goldens/tui-graph-the-selection-box-gets-80f98deb.7d.golden"),
+            include_str!("goldens/tui-graph-the-selection-box-gets-80f98deb.30d.golden"),
+        ],
+    },
+];
+
+/// The fixture journals are frozen, and every range's serialized readout is
+/// the base's bytes: a committed golden per fixture and range, generated at
+/// a45fc694f, which no `more` field appears in.
+#[test]
+fn every_fixture_journal_serializes_as_the_base_derived_it() {
+    for fixture in FIXTURES {
+        let events: Vec<EventEnvelope> = fixture
+            .journal
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("a fixture event is an envelope"))
+            .collect();
+        let state = fold(&events).ok();
+        let runs = vec![AnalyticsRun {
+            events: &events,
+            state: state.as_ref(),
+        }];
+        let hearths = [AnalyticsHearth {
+            label: fixture.name,
+            realms: &[],
+            journal: fixture.name,
+            runs: &runs,
+            refusal: None,
+        }];
+        for (range, golden) in Range::ALL.into_iter().zip(fixture.goldens) {
+            let view = analytics(&Query {
+                hearths: &hearths,
+                range,
+                realm: None,
+                now: FIXTURE_NOW,
+            })
+            .unwrap();
+            let wire = format!("{}\n", serde_json::to_string_pretty(&view).unwrap());
+            assert_eq!(wire, golden, "{} {}", fixture.name, range.word());
+            let parsed: Value = serde_json::from_str(&wire).unwrap();
+            assert!(
+                no_more_keys(&parsed),
+                "{} {}: {wire}",
+                fixture.name,
+                range.word()
+            );
+        }
     }
 }
 

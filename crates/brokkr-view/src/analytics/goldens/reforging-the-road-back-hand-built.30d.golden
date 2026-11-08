@@ -1,0 +1,269 @@
+{
+  "view_version": 29,
+  "range": "30d",
+  "realm": null,
+  "from": "2026-08-03T00:00:00Z",
+  "to": "2026-09-02T00:00:00Z",
+  "headline": {
+    "shipped": {
+      "count": 1,
+      "previous": 0,
+      "change": 1,
+      "change_text": "▲ 1 vs previous 30d"
+    },
+    "median": {
+      "millis": 2923000,
+      "text": "48m"
+    },
+    "waiting": {
+      "waiting_millis": 0,
+      "parked_millis": 0,
+      "text": "0.0h",
+      "share_percent": null,
+      "share_text": "nothing parked"
+    },
+    "stopped_by_rule": {
+      "count": 0,
+      "top": null,
+      "text": ""
+    },
+    "cost": {
+      "cost": {
+        "kind": "not_reported"
+      },
+      "text": "not reported",
+      "reporting": [],
+      "silent": [
+        "claude"
+      ],
+      "note": "claude report none"
+    },
+    "ledger": {
+      "judged": 1,
+      "shipped": 1,
+      "rate_percent": 100,
+      "excluded": {
+        "blocked": 0,
+        "superseded": 0,
+        "infrastructure": 0,
+        "delivered-elsewhere": 0,
+        "withdrawn": 0,
+        "operator-stopped": 0
+      },
+      "unclassified": 0,
+      "text": "1 of 1 shipped (100%) · 0 excluded · 0 unclassified"
+    }
+  },
+  "per_day": [
+    {
+      "date": "2026-08-03",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-04",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-05",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-06",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-07",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-08",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-09",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-10",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-11",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-12",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-13",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-14",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-15",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-16",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-17",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-18",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-19",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-20",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-21",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-22",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-23",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-24",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-25",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-26",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-27",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-28",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-29",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-30",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-08-31",
+      "shipped": 0,
+      "stopped": 0
+    },
+    {
+      "date": "2026-09-01",
+      "shipped": 1,
+      "stopped": 0
+    }
+  ],
+  "waiting_by_step": [],
+  "rework": {
+    "runs": 1,
+    "implement_visits": 3.0,
+    "implement_visits_text": "3.0",
+    "sent_back": 1,
+    "second_try_passed": 0,
+    "second_try_of": 1,
+    "second_try_percent": 0,
+    "second_try_text": "0%"
+  },
+  "models": [
+    {
+      "model": null,
+      "attempts": 11,
+      "percent": 100,
+      "text": "not reported 100%"
+    }
+  ],
+  "realms": [
+    {
+      "realm": "reforging-the-road-back-hand-built",
+      "shipped": 1,
+      "stopped": 0,
+      "ledger": {
+        "judged": 1,
+        "shipped": 1,
+        "rate_percent": 100,
+        "excluded": {
+          "blocked": 0,
+          "superseded": 0,
+          "infrastructure": 0,
+          "delivered-elsewhere": 0,
+          "withdrawn": 0,
+          "operator-stopped": 0
+        },
+        "unclassified": 0,
+        "text": "1 of 1 shipped (100%) · 0 excluded · 0 unclassified"
+      },
+      "median": {
+        "millis": 2923000,
+        "text": "48m"
+      },
+      "waiting_millis": 0,
+      "waiting_text": "0.0h",
+      "cost": {
+        "kind": "not_reported"
+      },
+      "cost_text": "not reported",
+      "unreadable_runs": 0
+    }
+  ],
+  "recipes": [],
+  "quarantined": [],
+  "not_recorded": [
+    "machine capacity over time",
+    "cost limits",
+    "costs for Codex and dsh",
+    "reasons findings were dismissed"
+  ]
+}

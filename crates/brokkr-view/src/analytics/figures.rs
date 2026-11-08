@@ -211,13 +211,41 @@ impl ProviderAcc {
     }
 }
 
-/// Folds the sites `keeps` holds into completed provider groups, ordered
-/// by `order`, and hands each group's realm, cut provider and whether it
-/// reported a cost to `visit`. A provider's sites are contiguous in that
-/// order, so the group is complete without a table of every provider.
+/// What a provider group spans: one provider over every realm in scope, or
+/// one provider of one realm.
+#[derive(Clone, Copy)]
+enum ProviderGroup {
+    Whole,
+    PerRealm,
+}
+
+impl ProviderGroup {
+    /// The site order the source yields for the group: providers alone, or
+    /// realms and then providers.
+    fn order(self) -> SiteOrder {
+        match self {
+            ProviderGroup::Whole => SiteOrder::Provider,
+            ProviderGroup::PerRealm => SiteOrder::RealmProvider,
+        }
+    }
+
+    /// The realm a group belongs to, empty when it spans every realm.
+    fn realm(self, realm: &str) -> &str {
+        match self {
+            ProviderGroup::Whole => "",
+            ProviderGroup::PerRealm => name_key(realm),
+        }
+    }
+}
+
+/// Folds the sites `keeps` holds into completed provider groups, ordered by
+/// the group's own order, and hands each group's realm, cut provider and
+/// whether it reported a cost to `visit`. A provider's sites are contiguous
+/// in that order, so the group is complete without a table of every
+/// provider; a whole group ORs the flag over every realm.
 fn provider_groups(
     source: &dyn FactSource,
-    order: SiteOrder,
+    group: ProviderGroup,
     keeps: Keeps,
     mut visit: impl FnMut(&str, &str, bool),
 ) {
@@ -227,11 +255,11 @@ fn provider_groups(
             visit(&realm, &provider, reported);
         }
     };
-    source.sites_in(order, &mut |fact| {
+    source.sites_in(group.order(), &mut |fact| {
         if !fact.site.ran(keeps) {
             return;
         }
-        let realm = name_key(fact.realm).to_string();
+        let realm = group.realm(fact.realm).to_string();
         let provider = name_key(&fact.site.provider).to_string();
         let reported = fact.site.reported(keeps);
         match &mut current {
@@ -310,7 +338,7 @@ fn cost(source: &dyn FactSource, window: Window) -> CostFigure {
     });
     provider_groups(
         source,
-        SiteOrder::Provider,
+        ProviderGroup::Whole,
         &keeps,
         |_, provider, reported| {
             accumulator.provider(provider, reported);
@@ -547,7 +575,7 @@ fn realm_costs(
     });
     provider_groups(
         source,
-        SiteOrder::RealmProvider,
+        ProviderGroup::PerRealm,
         &keeps,
         |realm, provider, reported| {
             if let Some(cost) = costs.get_mut(realm) {
@@ -606,6 +634,8 @@ pub fn analytics(query: &Query) -> Result<Analytics, AnalyticsError> {
     };
     let scoped = super::facts::Scoped::read(query, now);
     let source: &dyn FactSource = &scoped;
+    // Offered in discovery order, which is the order `Ranked` keeps and
+    // the rows are painted in: the first 64 realms, the rest counted.
     let mut kept_realms: Ranked<String, (), ()> = Ranked::new();
     for realm in source.realms() {
         kept_realms.push(realm.clone(), (), ());
