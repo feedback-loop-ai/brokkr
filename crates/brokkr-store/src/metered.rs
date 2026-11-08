@@ -14,13 +14,17 @@
 //! it, sorted once by the figure's cut keys so the caller folds one site at
 //! a time and holds nothing of the window's other sites.
 //!
-//! A run whose summary row sits behind its head, or whose seat rows or
-//! checkpoint facts stand behind the head the row names, is in neither
-//! read: its rows are older than the head it stands at, so the caller reads
-//! that run whole instead (decision 0089 ruling 8).
-//! [`Store::window_fallbacks`] names the projection lag the summary lane
-//! does not, and U4 combines the reads with the whole read, so a lagging
-//! run seen here as well would count its sites and costs twice.
+//! A run whose summary row sits behind its head, whose seat head is
+//! missing, behind the head the row names or of another build's shape, or
+//! whose checkpoint facts are stale, is in neither indexed read: its rows
+//! are not current, so the caller reads that run whole instead (decision
+//! 0089 ruling 8). [`Store::window_fallbacks`] names every such run
+//! store-wide, whatever window its facts fall in and whenever it finished,
+//! through the seat-currentness rule's and the checkpoint-staleness rule's
+//! one home each. A caller reads each named run whole once, so no fact of
+//! it is served here as well and none is counted twice. The `behind` lane
+//! is `aggregate`'s [`behind_runs`](Store::behind_runs) instead; U4 reads
+//! the union whole.
 //!
 //! A site's in-window facts are folded while the stream passes them, never
 //! collected: `reported` is whether any in-window checkpoint reported a
@@ -44,7 +48,9 @@ use brokkr_core::seat::{finish_usage, TokenUsage};
 use rusqlite::types::{Value, ValueRef};
 use rusqlite::{params_from_iter, Row, StatementStatus};
 
-use crate::event_index::CHECKPOINTED;
+use crate::event_index::{CHECKPOINTED, CHECKPOINT_STALE};
+use crate::seat_read::site_of;
+use crate::seat_summary::{lags as seat_lags, SHAPE};
 use crate::{Store, StoreError};
 
 /// The order a window's sites are folded in (decision 0089 ruling 7): the
@@ -214,27 +220,54 @@ impl Store {
         Ok(())
     }
 
-    /// The runs a window leaves to the whole-run fallback (ruling 8): every
-    /// run the window would read whose seat rows or checkpoint facts stand
-    /// behind its summary head. The `behind` lane is `aggregate`'s
-    /// `behind_runs`; this names the projection lag that lane does not, so
-    /// a caller reads each run here whole and its sites and spends are
-    /// counted once. `realm` narrows to one stored realm key where given.
+    /// The VM steps [`Store::window_fallbacks`] takes, for the test that
+    /// holds its cost to the stale runs alone.
+    #[cfg(test)]
+    pub(crate) fn window_fallbacks_steps(&self, realm: Option<&str>) -> Result<i64, StoreError> {
+        let mut steps = 0;
+        self.window_fallbacks_with(0, 0, realm, |_| {}, |taken| steps = taken)?;
+        Ok(steps)
+    }
+
+    /// The runs the whole-run fallback reads (ruling 8): every run whose
+    /// seat rows are not current, or whose checkpoint facts are not current,
+    /// whatever the window and whenever the run finished. The `behind` lane
+    /// is `aggregate`'s `behind_runs`; this names the projection lag that
+    /// lane does not, so a caller reads each run here whole and its sites and
+    /// spends are counted once. `realm` narrows to one stored realm key where
+    /// given. The window is accepted for the reads' shared shape and does not
+    /// bound this one: currentness is a property of the run's projections,
+    /// not of where its facts fall.
     pub fn window_fallbacks(
         &self,
         from: i64,
         to: i64,
         realm: Option<&str>,
-        mut visit: impl FnMut(&WindowFallback<'_>),
+        visit: impl FnMut(&WindowFallback<'_>),
     ) -> Result<(), StoreError> {
-        let mut statement = self.conn.prepare(&FALLBACKS)?;
-        let bounds = bounds(from, to, realm);
-        let mut rows = statement.query(params_from_iter(bounds))?;
+        self.window_fallbacks_with(from, to, realm, visit, |_| {})
+    }
+
+    /// [`Store::window_fallbacks`] with the statement's VM steps handed to
+    /// `stepped`, so the test that binds the fallback's cost measures the
+    /// production statement itself.
+    fn window_fallbacks_with(
+        &self,
+        _from: i64,
+        _to: i64,
+        realm: Option<&str>,
+        mut visit: impl FnMut(&WindowFallback<'_>),
+        mut stepped: impl FnMut(i64),
+    ) -> Result<(), StoreError> {
+        let mut statement = self.conn.prepare(FALLBACKS.as_str())?;
+        let mut rows = statement.query(params_from_iter(fallback_bounds(realm)))?;
         while let Some(row) = rows.next()? {
             visit(&WindowFallback {
                 run_id: required_text(row, 0)?,
             });
         }
+        drop(rows);
+        stepped(i64::from(statement.get_status(StatementStatus::VmStep)));
         Ok(())
     }
 
@@ -268,13 +301,23 @@ impl Store {
     }
 }
 
-/// The three values every read binds: the window and the realm key or NULL
-/// for every realm.
-fn bounds(from: i64, to: i64, realm: Option<&str>) -> [Value; 3] {
+/// The four values every window read binds: the window, the realm key or
+/// NULL for every realm, and this build's seat shape.
+fn bounds(from: i64, to: i64, realm: Option<&str>) -> [Value; 4] {
     [
         Value::Integer(from),
         Value::Integer(to),
         realm.map_or(Value::Null, |realm| Value::Text(realm.to_string())),
+        Value::Text(SHAPE.to_string()),
+    ]
+}
+
+/// The two values the fallback binds: the realm key or NULL for every
+/// realm, and this build's seat shape.
+fn fallback_bounds(realm: Option<&str>) -> [Value; 2] {
+    [
+        realm.map_or(Value::Null, |realm| Value::Text(realm.to_string())),
+        Value::Text(SHAPE.to_string()),
     ]
 }
 
@@ -286,28 +329,24 @@ fn open_lanes() -> String {
         .join(", ")
 }
 
-/// Whether `run`'s seat rows or checkpoint facts stand behind the summary
-/// head it names (ruling 8): a head at another head, seat rows under no
-/// head, or a checkpoint row still waiting for its facts. A window read
-/// leaves such a run whole, so it never trusts a stale row, and
-/// [`Store::window_fallbacks`] names it for the caller's whole read. A run
-/// with no seat rows at all has no site to lose and is not a lag.
-fn lags(run: &str, head: &str) -> String {
+/// Whether `run`'s seat rows or checkpoint facts are not current (ruling
+/// 8): its seat head lags the summary head it names by the one rule
+/// `seat_summary` keeps, or a checkpoint row's facts are not current by the
+/// one rule `event_index` keeps. A window read leaves such a run whole, so
+/// it never trusts a stale row, and [`Store::window_fallbacks`] names it for
+/// the caller's whole read. `shape` names the bound seat shape.
+fn lags(run: &str, head: &str, shape: &str) -> String {
     format!(
-        "(({head}.run_id IS NOT NULL
-            AND ({head}.folded_seq <> {run}.head_seq OR {head}.folded_hash <> {run}.head_hash))
-          OR ({head}.run_id IS NULL
-              AND EXISTS (SELECT 1 FROM seat_summary WHERE run_id = {run}.run_id))
-          OR EXISTS (SELECT 1 FROM event_index INDEXED BY event_index_checkpoint_stale
-                      WHERE type = '{CHECKPOINTED}'
-                        AND (facts IS NULL OR turn IS NULL OR repeat IS NULL OR facts_seq IS NOT seq)
-                        AND run_id = {run}.run_id))"
+        "({} OR EXISTS (SELECT 1 FROM event_index INDEXED BY event_index_checkpoint_stale
+                      WHERE type = '{CHECKPOINTED}' AND run_id = {run}.run_id
+                        AND {CHECKPOINT_STALE}))",
+        seat_lags(run, head, shape)
     )
 }
 
 /// The spends' one statement: the checkpoint index's range, each row's run
 /// joined by its key, a row no cost reported left out, and a run behind its
-/// summary row or its projections left whole (ruling 8).
+/// summary row or whose projections are not current left whole (ruling 8).
 static SPENDS: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT e.run_id, r.realm, e.at_ms, e.phase, e.usd
@@ -318,28 +357,30 @@ static SPENDS: LazyLock<String> = LazyLock::new(|| {
      AND e.usd IS NOT NULL AND r.lane <> '{behind}' AND NOT {lags}
      AND (?3 IS NULL OR r.realm = ?3)",
         behind = Lane::Behind.as_str(),
-        lags = lags("r", "h"),
+        lags = lags("r", "h", "?4"),
     )
 });
 
-/// The runs a window leaves whole: those it would read whose projections
-/// lag their summary head, each once, so a caller reads them whole.
+/// The runs the whole-run fallback reads: every run whose seat rows or
+/// checkpoint facts are not current, each once, store-wide. The seat arm
+/// reads each run's head by its key; the checkpoint arm reads only the
+/// stale index's rows, so neither walks the journal's current rows.
 static FALLBACKS: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT r.run_id
            FROM run_summary AS r LEFT JOIN seat_head AS h ON h.run_id = r.run_id
-          WHERE r.finished_ms >= ?1 AND r.finished_ms < ?2
-            AND r.lane <> '{behind}' AND {lags}
-            AND (?3 IS NULL OR r.realm = ?3)
+          WHERE r.lane <> '{behind}' AND {seat}
+            AND (?1 IS NULL OR r.realm = ?1)
          UNION
-         SELECT r.run_id
-           FROM run_summary AS r LEFT JOIN seat_head AS h ON h.run_id = r.run_id
-          WHERE r.lane IN ({open}) AND {lags}
-            AND (?3 IS NULL OR r.realm = ?3)
+         SELECT e.run_id
+           FROM event_index AS e INDEXED BY event_index_checkpoint_stale
+           JOIN run_summary AS r ON r.run_id = e.run_id
+          WHERE e.type = '{CHECKPOINTED}' AND {CHECKPOINT_STALE}
+            AND r.lane <> '{behind}'
+            AND (?1 IS NULL OR r.realm = ?1)
           ORDER BY 1",
         behind = Lane::Behind.as_str(),
-        open = open_lanes(),
-        lags = lags("r", "h"),
+        seat = seat_lags("r", "h", "?2"),
     )
 });
 
@@ -373,14 +414,14 @@ fn sites_sql(order: SiteOrder) -> &'static str {
 /// The sites' one statement, `order` over its output column names.
 ///
 /// The metered arm reads the checkpoint index's one range and finds each
-/// checkpoint's site through the site index, the greatest start below its
-/// seq, exactly as `site_of_checkpoint` does; the site's row is joined by
-/// its key. The started arm reads the started index's range. A run behind
-/// its summary row is in neither arm (ruling 8): the caller reads it whole.
-/// A run's open lane is the one the fleet lists (a stopping run is still
-/// open); the realm filter is on the run's stored key, as the run reads'
-/// is. A run whose seat rows or checkpoint facts lag its summary head is in
-/// neither arm (ruling 8): the caller reads it whole.
+/// checkpoint's site by `seat_read`'s one `site_of` rule, the greatest start
+/// below its seq; the site's row is joined by its key. The started arm reads
+/// the started index's range. A run behind its summary row is in neither arm
+/// (ruling 8): the caller reads it whole. A run's open lane is the one the
+/// fleet lists (a stopping run is still open); the realm filter is on the
+/// run's stored key, as the run reads' is. A run whose seat rows or
+/// checkpoint facts are not current is in neither arm (ruling 8): the caller
+/// reads it whole.
 fn sites_statement(order: &str) -> String {
     format!(
         "WITH metered AS (
@@ -391,11 +432,7 @@ fn sites_statement(order: &str) -> String {
                    e.cache_read_tokens AS cache_read_tokens,
                    e.cache_write_tokens AS cache_write_tokens,
                    e.reasoning_output_tokens AS reasoning_output_tokens,
-                   (SELECT s2.opened FROM seat_summary AS s2 INDEXED BY seat_summary_site
-                     WHERE s2.run_id = e.run_id AND s2.attempt_id IS e.attempt_id
-                       AND s2.member IS e.member AND s2.started_seq < e.seq
-                       AND s2.site IS NOT NULL
-                     ORDER BY s2.started_seq DESC LIMIT 1) AS opened
+                   ({}) AS opened
               FROM event_index AS e INDEXED BY event_index_checkpoint
              WHERE e.type = '{CHECKPOINTED}'
                AND e.at_ms >= ?1 AND e.at_ms < ?2
@@ -432,9 +469,10 @@ fn sites_statement(order: &str) -> String {
            AND r.lane <> '{behind}' AND NOT {lags}
            AND (?3 IS NULL OR r.realm = ?3)
         {order}",
+        site_of("s2", "e.run_id", "e.attempt_id", "e.member", "e.seq"),
         open = open_lanes(),
         behind = Lane::Behind.as_str(),
-        lags = lags("r", "h"),
+        lags = lags("r", "h", "?4"),
     )
 }
 

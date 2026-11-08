@@ -396,6 +396,16 @@ impl Journal {
         self.effect_with(at, effect, attempt, &[(None, provider)]);
     }
 
+    /// The effect is requested, with no start yet: the request its
+    /// checkpoint or terminal would otherwise precede.
+    fn requested(&mut self, at: &str, effect: &str) {
+        self.push(
+            EventType::EffectRequested,
+            json!({"effect_id": effect, "seat": "implementer"}),
+            at,
+        );
+    }
+
     /// One attempt starts with `members`' provenance entries, each naming
     /// its member and provider: a panel's two sites under one attempt.
     fn effect_with(
@@ -438,6 +448,12 @@ impl Journal {
             json!({"effect_id": effect, "attempt_id": attempt, "result": {}}),
             at,
         );
+    }
+
+    /// The operator's run completes: the event that finishes it, at a stamp
+    /// after its last fact.
+    fn completed(&mut self, at: &str) {
+        self.push(EventType::RunCompleted, json!({}), at);
     }
 
     /// Plant the journal and open it read-write, so every projection is
@@ -574,10 +590,14 @@ fn panel_case() -> Case {
 }
 
 /// A checkpoint before any start is in no site's facts, and its cost
-/// counts as a spend.
+/// counts as a spend. Its effect is requested before it, so the run's seat
+/// head stands with no site row: the checkpoint is the run's whole fact,
+/// and the spend must be served by the indexed read, not recovered by a
+/// fallback.
 fn before_any_start_case() -> Case {
     let mut journal = Journal::new("before-any-start");
     journal.started("2026-01-01T00:00:00Z", None);
+    journal.requested("2026-01-01T00:00:00Z", "fx");
     journal.checkpoint(
         "2026-01-01T00:00:01Z",
         "fx",
@@ -973,9 +993,12 @@ fn the_plans_name_the_indexes_and_scan_no_projection() {
     )
     .unwrap();
     assert!(scans(&whole, "seat_summary"), "{whole:?}");
-    let spends =
-        crate::test_support::plan(&store, &SPENDS, rusqlite::params![FROM, TO, None::<&str>])
-            .unwrap();
+    let spends = crate::test_support::plan(
+        &store,
+        &SPENDS,
+        rusqlite::params![FROM, TO, None::<&str>, crate::seat_summary::SHAPE.as_str()],
+    )
+    .unwrap();
     assert!(
         spends
             .iter()
@@ -989,17 +1012,22 @@ fn the_plans_name_the_indexes_and_scan_no_projection() {
     let falls = crate::test_support::plan(
         &store,
         &FALLBACKS,
-        rusqlite::params![FROM, TO, None::<&str>],
+        rusqlite::params![None::<&str>, crate::seat_summary::SHAPE.as_str()],
     )
     .unwrap();
-    for index in ["run_summary_finished", "run_summary_page"] {
-        assert!(
-            falls.iter().any(|step| step.contains(index)),
-            "{index} in {falls:?}"
-        );
-    }
     assert!(
-        !scans(&falls, "event_index") && !scans(&falls, "seat_summary"),
+        falls
+            .iter()
+            .any(|step| step.contains("event_index_checkpoint_stale")),
+        "{falls:?}"
+    );
+    // The fallback scans the journal only through the stale index, never
+    // the table, and no projection whole.
+    assert!(
+        falls.iter().all(|step| {
+            !(step.starts_with("SCAN e ") || step == "SCAN e")
+                || step.contains("event_index_checkpoint_stale")
+        }) && !scans(&falls, "seat_summary"),
         "{falls:?}"
     );
     for order in [
@@ -1011,7 +1039,7 @@ fn the_plans_name_the_indexes_and_scan_no_projection() {
         let sites = crate::test_support::plan(
             &store,
             sites_sql(order),
-            rusqlite::params![FROM, TO, None::<&str>],
+            rusqlite::params![FROM, TO, None::<&str>, crate::seat_summary::SHAPE.as_str()],
         )
         .unwrap();
         for index in [
@@ -1056,8 +1084,9 @@ const FROM: i64 = 1_767_225_600_000;
 const TO: i64 = FROM + 60_000;
 
 /// A `run_summary` row in the running lane, its aggregates and stamps
-/// current, as the writer leaves it: every stamp equals the folded seq, so
-/// the lane admits the row to the indexed reads.
+/// current, as the writer leaves it: every stamp equals the folded seq, and
+/// its seat head names this build's shape, so the lane and the seat rule
+/// admit the row to the indexed reads.
 fn plant_run(conn: &rusqlite::Connection, run_id: &str, realm: &str) {
     conn.execute(
         "INSERT INTO run_summary
@@ -1069,8 +1098,8 @@ fn plant_run(conn: &rusqlite::Connection, run_id: &str, realm: &str) {
     .unwrap();
     conn.execute(
         "INSERT INTO seat_head (run_id, folded_seq, folded_hash, shape)
-         VALUES (?1, 0, 'h', '')",
-        [run_id],
+         VALUES (?1, 0, 'h', ?2)",
+        rusqlite::params![run_id, crate::seat_summary::SHAPE.as_str()],
     )
     .unwrap();
 }
@@ -1087,7 +1116,10 @@ fn plant_site(conn: &rusqlite::Connection, run_id: &str, opened: i64, started_ms
     .unwrap();
 }
 
-/// One checkpoint row of `run_id`'s attempt `a`, at `seq` and `at_ms`.
+/// One checkpoint row of `run_id`'s attempt `a`, at `seq` and `at_ms`, its
+/// facts current: the insert's own trigger marks a checkpoint's facts
+/// behind until its writer computes them, so the test writes the stamp the
+/// writer would, keeping the row current for the currentness rules.
 fn plant_checkpoint(conn: &rusqlite::Connection, run_id: &str, seq: i64, at_ms: i64) {
     conn.execute(
         "INSERT INTO event_index
@@ -1097,6 +1129,19 @@ fn plant_checkpoint(conn: &rusqlite::Connection, run_id: &str, seq: i64, at_ms: 
         rusqlite::params![run_id, seq, at_ms],
     )
     .unwrap();
+    conn.execute(
+        "UPDATE event_index SET facts_seq = ?2 WHERE run_id = ?1 AND seq = ?2",
+        rusqlite::params![run_id, seq],
+    )
+    .unwrap();
+}
+
+/// A current run with one site at `FROM + 10` and one checkpoint at
+/// `FROM + 20`: the one site and spend the fixed window serves.
+fn plant_window_run(conn: &rusqlite::Connection, run_id: &str) {
+    plant_run(conn, run_id, "alpha");
+    plant_site(conn, run_id, 0, FROM + 10);
+    plant_checkpoint(conn, run_id, 2, FROM + 20);
 }
 
 /// The year of sites and checkpoints a fixed window does not read.
@@ -1126,9 +1171,7 @@ fn plant_far(conn: &rusqlite::Connection, before: bool) {
 #[test]
 fn a_window_visits_only_the_sites_near_it() {
     let (_dir, store) = crate::tests::store();
-    plant_run(&store.conn, "window", "alpha");
-    plant_site(&store.conn, "window", 0, FROM + 10);
-    plant_checkpoint(&store.conn, "window", 2, FROM + 20);
+    plant_window_run(&store.conn, "window");
     let beyond = TO + 1;
     plant_run(&store.conn, "beyond", "alpha");
     plant_site(&store.conn, "beyond", 0, beyond);
@@ -1231,6 +1274,18 @@ fn plant_stale_projection(journal: &Journal) -> (tempfile::TempDir, Store) {
     (dir, Store::open_read_only(&path).unwrap())
 }
 
+/// `journal`'s events planted and its summary row written by a writer from
+/// between the summary and the seat summary, with no seat head and no seat
+/// rows at all, and the journal reopened read-only so the absence stands.
+fn plant_unprojected(journal: &Journal) -> (tempfile::TempDir, Store) {
+    let (dir, store) = crate::tests::store();
+    crate::test_support::plant_run(&store.conn, &journal.run_id, "{}").expect("a run plants");
+    crate::test_support::plant_summary_writer(&store, &journal.run_id, &journal.events);
+    drop(store);
+    let path = dir.path().join("forge.db");
+    (dir, Store::open_read_only(&path).unwrap())
+}
+
 /// Neither window read emits a row for `from..to`, in every order.
 fn assert_window_reads_empty(store: &Store, from: i64, to: i64) {
     assert!(
@@ -1248,6 +1303,22 @@ fn assert_window_reads_empty(store: &Store, from: i64, to: i64) {
             "{order:?}: the stale run's site is whole-read"
         );
     }
+}
+
+/// Core's reading of `runs` in `from..to` holds one site, opened 1, that
+/// `reader` serves by no indexed read: it names `run_id` whole instead.
+fn assert_one_site_left_whole(
+    reader: &Store,
+    runs: &[(String, Vec<Envelope>)],
+    from: i64,
+    to: i64,
+    run_id: &str,
+) {
+    let (_, sites) = core_reads(runs, from, to);
+    assert_eq!(sites.len(), 1, "{sites:?}");
+    assert_eq!(sites[0].opened, 1, "{sites:?}");
+    assert_window_reads_empty(reader, from, to);
+    assert_eq!(fallbacks(reader, from, to), [run_id.to_string()]);
 }
 
 /// The runs `window_fallbacks` names for `from..to`, in its order.
@@ -1337,6 +1408,157 @@ fn a_stale_seat_run_is_left_to_the_whole_run_fallback() {
     );
     assert_window_reads_empty(&reader, from, to);
     assert_eq!(fallbacks(&reader, from, to), ["stale-seat".to_string()]);
+}
+
+/// A run that finished two minutes after its facts were folded is named
+/// whole by the fallback: the window is not the run's finish, so the
+/// indexed reads serve none of its rows and the whole read recovers the
+/// site and its 0.5 once (decision 0089 ruling 8).
+#[test]
+fn chief_closed_run_spent_before_its_finish() {
+    let mut journal = site_and_checkpoint_journal("chief-closed-stale");
+    journal.completed("2026-01-01T00:02:00Z");
+    let (_dir, reader) = plant_stale_projection(&journal);
+    assert_eq!(
+        crate::test_support::lane(&reader, &journal.run_id).as_deref(),
+        Some("finished"),
+        "the run finished two minutes after its facts"
+    );
+
+    let from = ms("2026-01-01T00:00:00Z");
+    let to = ms("2026-01-01T00:01:00Z");
+    let runs = vec![(journal.run_id.clone(), journal.events.clone())];
+    let (spends, sites) = core_reads(&runs, from, to);
+    assert_eq!(spends.len(), 1, "{spends:?}");
+    assert!(close(spends[0].usd, 0.5), "{spends:?}");
+    assert_eq!(sites.len(), 1, "{sites:?}");
+    assert_eq!(sites[0].opened, 1, "{sites:?}");
+    assert!(sites[0].reported, "{sites:?}");
+
+    assert_window_reads_empty(&reader, from, to);
+    assert_eq!(
+        fallbacks(&reader, from, to),
+        ["chief-closed-stale".to_string()],
+        "the whole read recovers the site and the spend once"
+    );
+}
+
+/// A run whose seat head names another build's shape has stale seat rows
+/// even though the head is the summary's own: no indexed read serves it, and
+/// the fallback names it whole (decision 0089 ruling 8).
+#[test]
+fn chief_old_projection_shape_is_left_whole() {
+    let journal = site_and_checkpoint_journal("chief-old-shape");
+    let (dir, store, events) = journal.plant();
+    store
+        .conn
+        .execute(
+            "UPDATE seat_head SET shape = 'old' WHERE run_id = 'chief-old-shape'",
+            [],
+        )
+        .unwrap();
+    drop(store);
+    let reader = Store::open_read_only(&dir.path().join("forge.db")).unwrap();
+
+    let from = ms("2026-01-01T00:00:00Z");
+    let to = ms("2026-01-01T00:01:00Z");
+    let runs = vec![("chief-old-shape".to_string(), events)];
+    let (spends, _) = core_reads(&runs, from, to);
+    assert_eq!(spends.len(), 1, "{spends:?}");
+    assert_one_site_left_whole(&reader, &runs, from, to, "chief-old-shape");
+}
+
+/// A run whose only projected row is its summary, with no seat head and no
+/// seat rows, is not current: its site started in the window though no
+/// projection row holds it, so the indexed reads serve none of it and the
+/// fallback names it whole (decision 0089 ruling 8).
+#[test]
+fn chief_started_site_with_no_projection_is_left_whole() {
+    let mut journal = Journal::new("chief-unprojected");
+    journal.started("2026-01-01T00:00:00Z", Some("alpha"));
+    journal.phase("2026-01-01T00:00:01Z", "implement");
+    journal.effect("2026-01-01T00:00:10Z", "fx", "a", "alpha");
+    let (_dir, reader) = plant_unprojected(&journal);
+    assert_eq!(
+        crate::test_support::lane(&reader, &journal.run_id).as_deref(),
+        Some("running"),
+        "the summary alone reads current"
+    );
+
+    let from = ms("2026-01-01T00:00:00Z");
+    let to = ms("2026-01-01T00:01:00Z");
+    let runs = vec![(journal.run_id.clone(), journal.events.clone())];
+    assert_one_site_left_whole(&reader, &runs, from, to, "chief-unprojected");
+}
+
+/// A stale run is named store-wide: its facts fall outside the window it is
+/// asked about, and it is named all the same, while the indexed reads serve
+/// none of its rows in its own window (decision 0089 ruling 8).
+#[test]
+fn a_stale_run_is_named_store_wide() {
+    let mut journal = site_and_checkpoint_journal("outside-window");
+    journal.checkpoint(
+        "2026-01-01T00:00:30Z",
+        "fx",
+        "a",
+        json!({"step": "seat-turn", "input_tokens": 99, "total_cost_usd": 0.7}),
+    );
+    let (_dir, reader) = plant_stale_projection(&journal);
+    let early = (ms("2026-01-01T00:00:00Z"), ms("2026-01-01T00:00:05Z"));
+    assert_window_reads_empty(&reader, early.0, early.1);
+    assert_eq!(
+        fallbacks(&reader, early.0, early.1),
+        ["outside-window".to_string()],
+        "no fact of the stale run falls in the window, and it is named"
+    );
+
+    let own = (ms("2026-01-01T00:00:00Z"), ms("2026-01-01T00:00:40Z"));
+    assert_window_reads_empty(&reader, own.0, own.1);
+    assert_eq!(
+        fallbacks(&reader, own.0, own.1),
+        ["outside-window".to_string()]
+    );
+}
+
+/// The fallback's cost grows with the stale runs alone: a year of current
+/// facts for a run adds no visit, while each run named grows it, so the
+/// read never walks the journal's current rows (decision 0089 ruling 8).
+#[test]
+fn the_fallback_visits_only_the_stale_runs() {
+    let (_dir, store) = crate::tests::store();
+    plant_window_run(&store.conn, "window");
+    let base = store.window_fallbacks_steps(None).unwrap();
+
+    for index in 0..3i64 {
+        plant_checkpoint(&store.conn, "window", 10 + index, FROM - (index + 1) * DAY);
+    }
+    assert_eq!(
+        store.window_fallbacks_steps(None).unwrap(),
+        base,
+        "current facts add no visit"
+    );
+
+    store
+        .conn
+        .execute(
+            "UPDATE event_index SET facts_seq = NULL WHERE run_id = 'window' AND seq = 2",
+            [],
+        )
+        .unwrap();
+    let one = store.window_fallbacks_steps(None).unwrap();
+    assert!(one > base, "a stale run adds visits: {one} > {base}");
+
+    plant_run(&store.conn, "stale", "alpha");
+    plant_checkpoint(&store.conn, "stale", 2, FROM + 20);
+    store
+        .conn
+        .execute(
+            "UPDATE event_index SET facts_seq = NULL WHERE run_id = 'stale' AND seq = 2",
+            [],
+        )
+        .unwrap();
+    let two = store.window_fallbacks_steps(None).unwrap();
+    assert!(two > one, "each stale run adds visits: {two} > {one}");
 }
 
 /// A metering rule no writer words is refused, never guessed: the site's
