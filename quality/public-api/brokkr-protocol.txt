@@ -1074,6 +1074,7 @@ impl serde_core::ser::Serialize for brokkr_protocol::process::Unsettled
 pub fn brokkr_protocol::process::Unsettled::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
 pub struct brokkr_protocol::process::DriverProcess
 impl brokkr_protocol::process::DriverProcess
+pub fn brokkr_protocol::process::DriverProcess::probing(self) -> Self
 pub fn brokkr_protocol::process::DriverProcess::run_attempt(self, &str, &str, &str, &str, serde_json::value::Value, impl core::ops::function::FnMut(&serde_json::value::Value)) -> brokkr_protocol::AttemptReport
 pub fn brokkr_protocol::process::DriverProcess::run_attempt_resuming(self, &str, &str, &str, &str, serde_json::value::Value, core::option::Option<alloc::string::String>, impl core::ops::function::FnMut(&serde_json::value::Value)) -> brokkr_protocol::AttemptReport
 pub fn brokkr_protocol::process::DriverProcess::spawn(&[alloc::string::String], &std::path::Path, core::option::Option<core::time::Duration>, &brokkr_protocol::process::SpawnEnv) -> core::result::Result<Self, brokkr_protocol::process::SpawnError>

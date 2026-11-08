@@ -1,0 +1,182 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/provider-wait.v1.json",
+  "title": "Forge provider wait v1 (an additive payload extension at event_schema 1)",
+  "description": "Decision 0103 rulings 2(a), 3 and 4(a): the optional, absent-by-default payload fields that record a provider's rate-limit cool-down and the probe that ends it. `effect/failed.waits` (and, from decision 0103 slice 4c2, `effect/indeterminate.waits`) is one entry per refused site: the journal tag (absent for an inline seat), the provider and route the driver already resolved, the provider's bounded words, its retry-after when given, the computed `until`, the round of that site's waits within the effect's episode, and the length the engine computed under that entry's own route's bounds. `effect/failed.refused` is the typed refusal that ended the run in a park, written beside the `run/parked` that follows so a crash between the two appends cannot lose it: the cause, the invocation-site tag where one applies, the provider, the route where resolved, the provider's words, its retry-after when given, and the computed length and declared maximum where the engine reached them. A `waits` entry exists only where an `until` exists; `refused` exists even where none can. `effect/started.probes` is the answers the dedicated one-turn probes gave before their retry, one entry per answering probe with the site, provider, route and when it answered; a single seat writes one entry. The fields are optional and absent by default, are published as a numbered extension at event_schema 1 under the amended rule in contracts/README.md, and are never read by `fold`: the engine reads them from the effect's own events and `RunState` gains nothing. A present entry that cannot be read refuses by name, never as absent.",
+  "type": "object",
+  "properties": {
+    "waits": {
+      "type": "array",
+      "description": "Present on a terminal `effect/failed`, and (slice 4c2) on `effect/indeterminate`, only when at least one site's typed rate-limit refusal recorded a wait. One entry per refused site; a single seat carries exactly one.",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/wait" }
+    },
+    "refused": {
+      "$ref": "#/definitions/refusal",
+      "description": "Present on an `effect/failed` that parks on a typed rate-limit refusal, beside the `run/parked` that follows (decision 0103 slice 4c1, this fix round). It keeps the refusal's facts even where no `until` can be written."
+    },
+    "probes": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/probe" },
+      "description": "Present on the retry's `effect/started` only after a dedicated probe answered, so the wait's end has a record: one entry per answering probe, and a single seat writes one. A probe that ended without an answer writes none."
+    }
+  },
+  "not": { "required": ["probe"] },
+  "definitions": {
+    "wait": {
+      "type": "object",
+      "required": ["provider", "route", "words", "seconds", "until", "rounds"],
+      "additionalProperties": false,
+      "properties": {
+        "site": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "The invocation-site tag the journal already uses for checkpoints and provenance: '<member>' for a panel member, '<step>' for a sequence step, '<step>:<member>' for a member inside a step panel. Absent for an inline seat, which has no tag."
+        },
+        "provider": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$",
+          "description": "The provider name the adapter's declaration uses (claude, lanetally, codex, dsh, exec, ...), filled from the adapter and never parsed from prose."
+        },
+        "route": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$",
+          "description": "The route the driver serves the pinned model on: the concrete model id's prefix before its first `/` (decision 0036 ruling 2), from the one predicate the producer and this pattern share. A route that could not be resolved parks naming it and records no wait: a null route would be a provider-wide hold over unrelated routes."
+        },
+        "words": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300,
+          "description": "The provider's bounded evidence line, in its own words. One line, clamped, never a transcript."
+        },
+        "retry_after_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The provider's own retry-after in whole seconds, when it gave one. It is the wait as given and is never lengthened; a later round doubles only the route's declared default. When present it must equal `seconds`; the reader enforces that equality, which draft-07 cannot compare across two properties."
+        },
+        "seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The length of this round's wait in whole seconds, as the engine computed it under THIS entry's route's bounds: the provider's retry-after when it gave one, else that route's default doubled for the round. An episode sums the recorded lengths and never recomputes an earlier wait under a later route's bounds."
+        },
+        "until": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The computed end of this round's wait: now plus `seconds`. A resume reads it and waits the remainder; the maximum is judged from `seconds` and the episode, never from the remainder."
+        },
+        "rounds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Which round of this site's waits within the effect's episode this is: one for the first refusal at this site, two for the next. The episode's seconds are summed across its sites; this wait's `seconds` is the length computed under this entry's own route's bounds at that round (decision 0103 ruling 3)."
+        }
+      }
+    },
+    "refusal": {
+      "type": "object",
+      "required": ["cause", "provider", "words"],
+      "additionalProperties": false,
+      "properties": {
+        "site": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "The invocation-site tag of the refusal, tagged as `waits.site` is: '<member>' for a panel member, '<step>' for a sequence step, '<step>:<member>' for a member inside a step panel. Absent for an inline seat."
+        },
+        "cause": {
+          "type": "string",
+          "enum": [
+            "route-unresolved",
+            "host-unreadable",
+            "episode-unreadable",
+            "past-maximum",
+            "no-end"
+          ],
+          "description": "Why the typed rate-limit refusal ended the run in a park. Closed: an unknown cause refuses where it is read. `no-end` is a wait whose computed length the journal cannot spell as an RFC 3339 `until`, so no wait can be taken; `past-maximum` is a computed wait past the declared maximum."
+        },
+        "provider": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$",
+          "description": "The provider name, filled from the adapter as `waits.provider` is."
+        },
+        "route": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$",
+          "description": "The route the driver resolved, absent only for `route-unresolved`: a provider-wide hold would hold unrelated routes."
+        },
+        "words": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300,
+          "description": "The provider's bounded evidence line, in its own words, as `waits.words` carries it."
+        },
+        "retry_after_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The provider's own retry-after in whole seconds, when it gave one."
+        },
+        "seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The wait's computed length in whole seconds, present only for a cause that computed one (`past-maximum`, `no-end`)."
+        },
+        "max_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The declared maximum the computed length was judged against, present with `seconds`."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "cause": { "const": "route-unresolved" } },
+            "required": ["cause"]
+          },
+          "then": { "not": { "required": ["route"] } },
+          "else": { "required": ["route"] }
+        },
+        {
+          "if": {
+            "properties": { "cause": { "enum": ["past-maximum", "no-end"] } },
+            "required": ["cause"]
+          },
+          "then": { "required": ["seconds", "max_seconds"] },
+          "else": {
+            "not": {
+              "anyOf": [{ "required": ["seconds"] }, { "required": ["max_seconds"] }]
+            }
+          }
+        }
+      ]
+    },
+    "probe": {
+      "type": "object",
+      "required": ["provider", "route", "answered_at"],
+      "additionalProperties": false,
+      "properties": {
+        "site": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "The invocation-site tag the probe asked, tagged as `waits.site` is. Absent for an inline seat."
+        },
+        "provider": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$",
+          "description": "The provider the probe asked, as the wait entry names it."
+        },
+        "route": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$",
+          "description": "The cooled route the probe asked, as the wait entry names it."
+        },
+        "answered_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the probe's first model-output answer arrived. A session start, `accepted`, a spawn, a hang, a deadline or an error is not an answer and records none."
+        }
+      }
+    }
+  }
+}

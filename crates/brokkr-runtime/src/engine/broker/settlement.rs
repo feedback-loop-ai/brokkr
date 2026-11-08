@@ -239,35 +239,60 @@ impl Engine {
             return Ok(());
         };
         let events = self.store.load(&self.run_id)?;
-        let deadline = startup(Instant::now(), Duration::MAX);
         let proven = proven(&held, &events, attempt);
-        // U8c (CR2): the attempt's cited responses are published under its
-        // lease, before its release, and only once every process it owned
-        // is proven settled, so no broker still writes what is read.
-        let published = match proven {
-            true => published(&held),
-            false => Ok(()),
+        release_lease(held, proven)
+    }
+
+    /// The cool-down probe's settlement: the lease its own admission took,
+    /// released once the report it ran left every process it owned proven
+    /// settled. The probe journals no effect terminal event (decision 0103
+    /// ruling 4: it spends no effect attempt), so its witness is the
+    /// cleanup it witnessed on the lease, never a journaled end. `ran` is
+    /// returned to its caller, so a probe that answered still answers and
+    /// one that ended without an answer still parks.
+    pub(in crate::engine) fn settle_probe<T>(&mut self, ran: T) -> Result<T, EngineError> {
+        let held = self.held.take();
+        let Some(held) = held else {
+            return Ok(ran);
         };
-        // How the release committed, where one was made.
-        let released = match proven {
-            true => proved(&held, deadline)
-                .and_then(|fact| Ok(Some(fact.and(release(&held, deadline)?)))),
-            false => Ok(None),
-        };
-        let lease = leased(&released);
-        let unsynced = || Unadmitted::from(Unknown::Unsynced);
-        let settled = match (released, held.unsynced) {
-            (Ok(Some(Commit::Synced) | None), false) => Ok(()),
-            (Ok(Some(Commit::Synced)), true) | (Ok(Some(Commit::Unsynced)), _) => {
-                Err(Unreleased::released(unsynced()))
-            }
-            (Ok(None), true) => Err(Unreleased::standing(unsynced())),
-            (Err(refused), _) => Err(Unreleased::standing(refused)),
-        };
-        match settled {
-            Err(unreleased) if held.staked => Err(unreleased.into()),
-            _ => Ok(published.map_err(|cause| Unreleased::unpublished(lease, cause))?),
+        let proven = !held.unproven;
+        release_lease(held, proven).map(|()| ran)
+    }
+}
+
+/// Release the lease `held`, once its attempt is `proven` settled: publish
+/// what its ledgers cite, seal its positive settlement fact, and release
+/// it, exactly as [`Engine::settle`] and [`Engine::settle_probe`] each
+/// proved it (U8c; M1; R1).
+fn release_lease(held: Held, proven: bool) -> Result<(), EngineError> {
+    let deadline = startup(Instant::now(), Duration::MAX);
+    // U8c (CR2): the attempt's cited responses are published under its
+    // lease, before its release, and only once every process it owned
+    // is proven settled, so no broker still writes what is read.
+    let published = match proven {
+        true => published(&held),
+        false => Ok(()),
+    };
+    // How the release committed, where one was made.
+    let released = match proven {
+        true => {
+            proved(&held, deadline).and_then(|fact| Ok(Some(fact.and(release(&held, deadline)?))))
         }
+        false => Ok(None),
+    };
+    let lease = leased(&released);
+    let unsynced = || Unadmitted::from(Unknown::Unsynced);
+    let settled = match (released, held.unsynced) {
+        (Ok(Some(Commit::Synced) | None), false) => Ok(()),
+        (Ok(Some(Commit::Synced)), true) | (Ok(Some(Commit::Unsynced)), _) => {
+            Err(Unreleased::released(unsynced()))
+        }
+        (Ok(None), true) => Err(Unreleased::standing(unsynced())),
+        (Err(refused), _) => Err(Unreleased::standing(refused)),
+    };
+    match settled {
+        Err(unreleased) if held.staked => Err(unreleased.into()),
+        _ => Ok(published.map_err(|cause| Unreleased::unpublished(lease, cause))?),
     }
 }
 
@@ -545,7 +570,10 @@ pub(super) fn adopted(
 /// coordination `root`, read as it stands, nothing made: none where its
 /// directory is missing, for its run reserved nothing there; refused where
 /// it cannot be read, or names another run.
-fn standing(root: &Root, [repo, run]: [&str; 2]) -> Result<Option<Reservation>, Unknown> {
+pub(super) fn standing(
+    root: &Root,
+    [repo, run]: [&str; 2],
+) -> Result<Option<Reservation>, Unknown> {
     let (dir, at) = match reserved_in(root, [repo, run], false) {
         Err(Unknown::Lost) => return Ok(None),
         found => found?,
@@ -558,7 +586,7 @@ fn standing(root: &Root, [repo, run]: [&str; 2]) -> Result<Option<Reservation>, 
 
 /// Whether `reserved` proves every driver of its attempt settled: none
 /// witnessed unresolved, and drivers recorded, each sealed Settled.
-fn recorded_settled(reserved: &Reserved) -> bool {
+pub(super) fn recorded_settled(reserved: &Reserved) -> bool {
     let settled = |driver: &Driver| driver.cleanup == Witnessed::Settled;
     let recorded = !reserved.drivers.is_empty();
     let unresolved = reserved.cleanup == Witnessed::Unresolved;

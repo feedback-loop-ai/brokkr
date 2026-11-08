@@ -12,7 +12,7 @@ use brokkr_core::envelope::EventType;
 use brokkr_core::fold::RunState;
 use brokkr_core::EventEnvelope;
 use brokkr_protocol::hands::HandsSpec;
-use brokkr_protocol::native_controls::Origin;
+use brokkr_protocol::native_controls::{Origin, SealedBroker};
 use brokkr_protocol::process::DriverProcess;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -31,14 +31,14 @@ use crate::bundle::{layer_drift, site_charter_text, Bundle, ExecutableBody, Invo
 /// before anything spawns: the effect, the attempt, the seat and the case
 /// its selector chose, the site label it is composed and marked under,
 /// the selected body, and whether that body is a gate.
-struct Dispatch<'a> {
-    effect_id: &'a str,
-    attempt_id: &'a str,
-    seat_name: &'a str,
-    case: Option<&'a str>,
-    site_name: &'a str,
-    body: ExecutableBody<'a>,
-    gate: bool,
+pub(super) struct Dispatch<'a> {
+    pub(super) effect_id: &'a str,
+    pub(super) attempt_id: &'a str,
+    pub(super) seat_name: &'a str,
+    pub(super) case: Option<&'a str>,
+    pub(super) site_name: &'a str,
+    pub(super) body: ExecutableBody<'a>,
+    pub(super) gate: bool,
 }
 
 impl Engine {
@@ -134,13 +134,11 @@ impl Engine {
             return Ok(());
         }
         let hands = self.runtime_hands(at.site_name);
-        let mut single = self.compose_single(at, &selection, &input, hands.as_ref());
         // Sealed once its plans are provisioned, as members and steps are
-        // (U7d2): the brokers it is served with are their pins.
+        // (U7d2): the brokers it is served with are their pins. The probe
+        // serves none, and takes this same compose-and-mark path.
         let brokers = selection.brokers(at.site_name);
-        let link = selection.get(&None);
-        let served = (brokers, hands.as_ref());
-        self.mark_serving(at.site_name, link, served, single.as_mut(), &mut input);
+        let single = self.composed_single(at, &selection, &mut input, hands.as_ref(), brokers);
         self.run_body(at, input, deadline, &selection, single)
     }
 
@@ -201,6 +199,24 @@ impl Engine {
             selection.get(&None),
             input["result_path"].as_str().unwrap_or_default(),
         ))
+    }
+
+    /// The single driver's spawn composed and marked for `at`, its site
+    /// served by `brokers`: one compose-and-mark path for the attempt and
+    /// the cool-down probe, which passes no brokers (decision 0103 ruling
+    /// 4(a): its one invocation is never served a broker).
+    pub(super) fn composed_single(
+        &mut self,
+        at: &Dispatch<'_>,
+        selection: &Selection,
+        input: &mut Value,
+        hands: Option<&HandsSpec>,
+        brokers: &[SealedBroker],
+    ) -> Option<SiteSpawn> {
+        let mut single = self.compose_single(at, selection, input, hands);
+        let link = selection.get(&None);
+        self.mark_serving(at.site_name, link, (brokers, hands), single.as_mut(), input);
+        single
     }
 
     /// Everything the attempt decides before its durable start: the
@@ -275,6 +291,14 @@ impl Engine {
             if !carried.is_empty() {
                 started["carried"] = json!(carried);
             }
+        }
+        // Decision 0103 ruling 4(a): the probes answered before this retry,
+        // so their answers are the wait's end, journaled here as `probes`.
+        // One single seat writes its one entry.
+        if let Some(answer) = self.cooldown.answer.take() {
+            started["probes"] =
+                json!([serde_json::to_value(&answer)
+                    .expect("a probe answer is four serializable fields")]);
         }
         selection.carry = carry;
         Ok((selection, started))

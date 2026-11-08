@@ -52,6 +52,7 @@ use boxed::hands_command;
 mod capability_calls;
 mod carry;
 mod checkpoints;
+pub(crate) mod cooldown;
 mod cursor;
 mod decide;
 mod dispatch;
@@ -387,6 +388,10 @@ pub struct Engine {
     /// The folder's `state/` the run's results, scratch and secrets stand
     /// in (decision 0083), handed by the launch; `None` is `<workdir>/.forge`.
     pub(crate) state: Option<PathBuf>,
+    /// The cool-down seam: the host file the launch found, the clock and
+    /// sleep the wait reads (decision 0071 ruling 1), and the probe's
+    /// answer the retry journals (decision 0103 rulings 3 and 5).
+    pub(crate) cooldown: cooldown::Seam,
     /// Present only while this process is executing a gate-bearing site,
     /// and it holds exactly one observation: the head as that site's own
     /// span began. The span is the gate STEP inside a sequence and the
@@ -472,6 +477,34 @@ pub struct DriveEnd {
     pub gaps: Vec<String>,
 }
 
+/// The fields every constructor leaves at its start: no world, no pending
+/// cause, no secrets, no state, and the real cool-down clock. A constructor
+/// sets the fields that are its own after it.
+fn shell(store: Store, bundle: Bundle, run_id: String, feature: String, repo: PathBuf) -> Engine {
+    Engine {
+        entry: None,
+        store,
+        boundary: bundle.boundary,
+        bundle,
+        run_id,
+        feature,
+        repo,
+        reach: Default::default(),
+        store_place: Default::default(),
+        world: None,
+        current_cause: None,
+        secrets_file: None,
+        state: None,
+        cooldown: Default::default(),
+        active_gate_head: None,
+        network_prefix: None,
+        replay: Default::default(),
+        held_outcome: None,
+        fence: None,
+        held: None,
+    }
+}
+
 impl Engine {
     /// The journaled run-level entry, when the operator named one.
     pub fn entry(&self) -> Option<&brokkr_core::entry::RunEntry> {
@@ -541,27 +574,16 @@ impl Engine {
     ) -> Result<Engine, EngineError> {
         let begun = (world.as_ref(), entry.as_ref());
         let admitted = start::journaled(&mut store, &bundle, feature, repo, begun, claim)?;
-        Ok(Engine {
-            entry,
+        let mut engine = shell(
             store,
-            boundary: bundle.boundary,
             bundle,
-            run_id: admitted.run_id,
-            feature: feature.to_string(),
-            repo: admitted.operated,
-            reach: Default::default(),
-            store_place: Default::default(),
-            world,
-            current_cause: None,
-            secrets_file: None,
-            state: None,
-            active_gate_head: None,
-            network_prefix: None,
-            replay: Default::default(),
-            held_outcome: None,
-            fence: None,
-            held: None,
-        })
+            admitted.run_id,
+            feature.to_string(),
+            admitted.operated,
+        );
+        engine.entry = entry;
+        engine.world = world;
+        Ok(engine)
     }
 
     /// Start a Looper-bound run under the exact wire run id and immutable
@@ -575,31 +597,17 @@ impl Engine {
         dispatch: DispatchEnvelopeV2,
     ) -> Result<Engine, EngineError> {
         let run_id = start::dispatched(&mut store, &bundle, feature, dispatch)?;
-        Ok(Engine {
-            entry: None,
+        // A Looper-bound run pins a run-manifest/v2, whose bytes a
+        // counterpart system reads; the map's pin belongs to the
+        // v1→v5 local lineage. The CLI refuses the combination rather
+        // than dropping a world silently.
+        Ok(shell(
             store,
-            boundary: bundle.boundary,
             bundle,
             run_id,
-            feature: feature.to_string(),
-            repo: operated_repo(repo),
-            reach: Default::default(),
-            // A Looper-bound run pins a run-manifest/v2, whose bytes a
-            // counterpart system reads; the map's pin belongs to the
-            // v1→v5 local lineage. The CLI refuses the combination
-            // rather than dropping a world silently.
-            store_place: Default::default(),
-            world: None,
-            current_cause: None,
-            secrets_file: None,
-            state: None,
-            active_gate_head: None,
-            network_prefix: None,
-            replay: Default::default(),
-            held_outcome: None,
-            fence: None,
-            held: None,
-        })
+            feature.to_string(),
+            operated_repo(repo),
+        ))
     }
 
     /// Resume uses the exact pinned bundle or refuses with a diagnostic.
@@ -651,33 +659,21 @@ impl Engine {
         if let Some(entry) = &entry {
             crate::bundle::entry::admit(&bundle, &entry.phase)?;
         }
-        Ok(Engine {
-            entry,
+        // Resume takes no map — and needs none: the world it believed in
+        // is pinned in the manifest just read, content and all, so it is
+        // rehydrated from evidence rather than off a disk that may have
+        // moved on.
+        let mut engine = shell(
             store,
-            boundary: bundle.boundary,
             bundle,
-            run_id: run_id.to_string(),
-            feature: feature.unwrap_or("unknown".to_string()),
-            repo: operated_repo(repo),
-            reach: Default::default(),
-            // Resume takes no map — and needs none. The world this run
-            // believed in is pinned in the manifest just read, content
-            // and all, so it is rehydrated from evidence rather than off
-            // a disk that may have moved on. Without this a resumed run
-            // would silently stop keying its facts by realm, changing
-            // fact-shape mid-run depending on which verb was typed.
-            store_place: Default::default(),
-            world,
-            current_cause: None,
-            secrets_file: None,
-            state: None,
-            active_gate_head: None,
-            network_prefix: None,
-            replay,
-            held_outcome: None,
-            fence: None,
-            held: None,
-        })
+            run_id.to_string(),
+            feature.unwrap_or("unknown".to_string()),
+            operated_repo(repo),
+        );
+        engine.entry = entry;
+        engine.world = world;
+        engine.replay = replay;
+        Ok(engine)
     }
 
     /// Drive the run until it parks, completes, or stops.
@@ -1438,12 +1434,18 @@ impl Engine {
                 });
                 if start_failure {
                     start_failure_fields(&mut payload, selection, vec![None]);
+                    // A typed refusal is a FAILURE TO START (decision 0053);
+                    // a mid-session rate limit stays decision 0016's and
+                    // never waits or falls back.
+                    self.rate_limit_terminal(effect_id, payload, report.refusal.as_deref())?
+                        .journal(self, attempt_id)?;
+                } else {
+                    self.append(
+                        EventType::EffectFailed,
+                        payload,
+                        Some(attempt_id.to_string()),
+                    )?;
                 }
-                self.append(
-                    EventType::EffectFailed,
-                    payload,
-                    Some(attempt_id.to_string()),
-                )?;
             }
             AttemptOutcome::Indeterminate { reason } => {
                 self.append(

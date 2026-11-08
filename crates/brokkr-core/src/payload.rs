@@ -10,6 +10,11 @@
 //! A struct is read by hand rather than by serde's derive: the fold
 //! refuses the first field that does not read, in the order it reads
 //! them, and in its own words.
+//!
+//! The provider-wait extension is read beside this module (decision 0103
+//! ruling 2(a)), by [`provider_waits`] and [`provider_refusal`] rather than
+//! by a struct the fold takes a field from: the fold never reads it, and the
+//! engine and the readout do.
 
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::{Map, Value};
@@ -17,6 +22,14 @@ use serde_json::{Map, Value};
 use crate::decision::Decision;
 use crate::envelope::{EventEnvelope, EventType};
 use crate::fold::FoldError;
+
+mod provider_wait;
+#[cfg(test)]
+pub(crate) use provider_wait::{provider_probes, ProviderProbeError};
+pub use provider_wait::{
+    provider_refusal, provider_waits, ProbeAnswer, ProviderRefusal, ProviderRefusalError,
+    ProviderWait, ProviderWaitError, RefusalCause,
+};
 
 /// The keys a payload carries that its struct does not type, as the
 /// journal wrote them. They are borrowed from the event, never copied:

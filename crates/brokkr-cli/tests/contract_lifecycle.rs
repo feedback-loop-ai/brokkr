@@ -851,6 +851,33 @@ fn instance_satisfies_row(row: &Row, instance: &serde_json::Value) -> Option<Str
     }
 }
 
+/// Drive the provider-wait extension's one reader: a valid `waits` entry
+/// (with its `probes` answer beside it) loads, and the row's own schema
+/// admits the instance first.
+fn drive_provider_waits(row: &Row) -> Vec<String> {
+    let payload = serde_json::json!({
+        "waits": [{
+            "provider": "claude", "route": "first", "words": "rate_limit",
+            "retry_after_seconds": 30, "seconds": 30,
+            "until": "2026-11-01T00:00:30Z", "rounds": 2
+        }],
+        "probes": [{
+            "provider": "claude", "route": "first",
+            "answered_at": "2026-11-01T00:00:31Z"
+        }]
+    });
+    if let Some(finding) = instance_satisfies_row(row, &payload) {
+        return vec![finding];
+    }
+    let event = envelope(brokkr_core::EventType::EffectFailed, payload, 1);
+    let waits = brokkr_core::provider_waits(&event)
+        .expect("a v1 wait loads")
+        .expect("the extension is present");
+    assert_eq!(waits.len(), 1, "one wait entry loads");
+    assert_eq!(waits[0].rounds, 2);
+    Vec::new()
+}
+
 /// Drive the public loader a `load` row names with an instance of the row's
 /// version, and require it to load. The instance is validated against the
 /// row's own schema file first; a row whose label names another file never
@@ -940,6 +967,7 @@ fn drive_load(row: &Row, item: &str) -> Vec<String> {
             assert_eq!(entries.len(), 1, "a v1 boundary entry loads");
             Vec::new()
         }
+        "brokkr_core::provider_waits" => drive_provider_waits(row),
         other => panic!("{other} is not a public loader this check knows"),
     }
 }

@@ -70,6 +70,9 @@ use awaited::{awaiting, came_to, observe};
 pub use capacity::{Capacity, Host, Measured, Room, Shared, Unmeasurable};
 pub(crate) use host::config_dir;
 pub use host::{free_bytes, host_file, HostError, Place, RouteClass};
+// The engine's cool-down read (decision 0103 slice 4c1): the same one
+// loader and bounds admission reads, at the host file the launch names.
+pub(crate) use host::{read as read_host, Bounds, Hosting};
 
 /// Why an entry may not start now.
 #[derive(Debug, Clone, PartialEq, Eq)]

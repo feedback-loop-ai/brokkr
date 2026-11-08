@@ -198,3 +198,46 @@ fn a_forged_end_in_a_journal_its_writer_could_reach_keeps_its_attempt_reserved()
     (store.append_next(&run, EventType::EffectSucceeded, forged, None, id)).unwrap();
     crashed.holds(&host, EventType::EffectIndeterminate);
 }
+
+/// Decision 0103 ruling 4, this fix round: a run's own standing attempt
+/// that no journal event names is a crashed cool-down probe's. A probe
+/// admission of that same run is refused by name, never admitted over the
+/// reservation that may still be live, and nothing is sealed.
+#[test]
+fn a_runs_own_unnamed_standing_attempt_is_never_readmitted_over() {
+    let host = Host::new();
+    let _home = Coordinated::at(&host.home);
+    let (_dir, mut engine, work) = super::probe::crashed_probe(&host);
+    let at = host.reservation(&work, &engine.run_id);
+    let before = std::fs::read(&at).unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    assert!(
+        events
+            .iter()
+            .all(|event| event.attempt_id.as_deref() != Some("a1")),
+        "the journal names the probe's attempt"
+    );
+    let body = single_body(vec!["unused".into()]);
+    let (selected, _) = body.selected(None).unwrap();
+    let observed = observed().expect("a coordinated host");
+    let refused = engine.admit_for_probe(
+        &events,
+        ["a2", "work"],
+        selected,
+        &Selection::new(),
+        (Instant::now(), Duration::from_secs(5)),
+        &observed,
+    );
+    assert_eq!(
+        refused,
+        Err(Unadmitted::Identity(Unknown::Orphaned {
+            run: engine.run_id.clone(),
+            attempt: "a1".into(),
+        }))
+    );
+    assert_eq!(
+        std::fs::read(&at).unwrap(),
+        before,
+        "nothing was sealed over the probe's reservation"
+    );
+}

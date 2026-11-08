@@ -59,6 +59,8 @@ use crate::engine::{
     Selection,
 };
 
+mod probe;
+
 #[cfg(test)]
 pub(in crate::engine) mod tests;
 
@@ -163,6 +165,16 @@ pub(in crate::engine) enum Unknown {
     Lost,
     #[error("the attempt's reservation holds no proof that its owned processes settled")]
     Unproven,
+    /// A run's own standing attempt that the journal never names: a
+    /// crashed cool-down probe's reservation (decision 0103 ruling 4, this
+    /// fix round). It may still be live, so it is never re-admitted over.
+    #[error(
+        "run '{run}' holds standing attempt '{attempt}' that no journal event names: a crashed \
+         cool-down probe's reservation, released only where every process it witnessed is proven \
+         settled; a run's own attempt is re-admitted only where the journal names it as the \
+         attempt being recovered"
+    )]
+    Orphaned { run: String, attempt: String },
     #[error(
         "site '{site}' of run '{run}' can write '{}', which an MCP server's box or lease rests on",
         .served.display()
@@ -353,6 +365,19 @@ pub(in crate::engine) struct Held {
 /// where it cannot be protected or made.
 pub(super) type Coordination<'r> = (PathBuf, &'r dyn Fn() -> Option<Root>);
 
+/// The startup deadline of the attempt that began at `began` with the bound
+/// `bound`, the HOME `observed` names as spelled, and the coordination root
+/// opened under it: one derivation for dispatch's `admit` and the probe's.
+pub(super) fn observed_coordination<'a>(
+    observed: &'a Observed,
+    (began, bound): (Instant, Duration),
+) -> (Instant, PathBuf, impl Fn() -> Option<Root> + 'a) {
+    let (home, open) = (observed.home.as_deref(), observed.open);
+    let spelled = home.map(Path::to_path_buf).unwrap_or_default();
+    let root = move || home.and_then(open);
+    (startup(began, bound), spelled, root)
+}
+
 impl Engine {
     /// Admit the attempt its effect, attempt and site name ([`admit`]) on
     /// the host as dispatch `observed` it before anything of it spawns,
@@ -372,10 +397,7 @@ impl Engine {
         (began, bound): (Instant, Duration),
         observed: &Observed,
     ) -> Result<bool, EngineError> {
-        let deadline = startup(began, bound);
-        let (home, open) = (observed.home.as_deref(), observed.open);
-        let root = || home.and_then(open);
-        let spelled = home.map(Path::to_path_buf).unwrap_or_default();
+        let (deadline, spelled, root) = observed_coordination(observed, (began, bound));
         self.admit_in((spelled, &root), ids, body, selection, deadline)
     }
 
@@ -393,25 +415,8 @@ impl Engine {
         selection: &Selection,
         deadline: Instant,
     ) -> Result<bool, EngineError> {
-        self.reach = Authored::default();
-        let claim = match self.claim(&home, [attempt, site], body, selection) {
-            Ok(claim) => claim,
-            Err(refusal) => return self.refuse_admission(effect, attempt, refusal),
-        };
-        self.reach = claim.authored.clone();
-        let admitted = match coordinated(root(), &claim) {
-            Ok(Some(root)) => admit(&Arc::new(root), &claim, deadline),
-            Ok(None) => match records_unopened(&claim, &home, deadline) {
-                Ok(()) => return self.unreserved(),
-                Err(unknown) => Err(unknown.into()),
-            },
-            Err(unknown) => Err(unknown.into()),
-        };
-        match admitted {
-            Ok(held) => {
-                self.held = Some(held);
-                Ok(true)
-            }
+        match self.admitted_in((home, root), [attempt, site], body, selection, deadline) {
+            Ok(_) => Ok(true),
             Err(refusal) => self.refuse_admission(effect, attempt, refusal),
         }
     }
@@ -430,17 +435,6 @@ impl Engine {
         });
         self.append(EventType::EffectFailed, failed, Some(attempt.to_string()))?;
         Ok(false)
-    }
-
-    /// Proceed holding no writer lease (C1): the root is not protected, nothing
-    /// is at stake and every boxed writer is kept from the root's path, so the
-    /// door rechecks nothing and settlement releases nothing. The absence of a
-    /// reservation tells a later broker nothing: this writer may be live. No
-    /// journal marker either: the seat-record fence (decision 0034) refuses a
-    /// checkpoint before the driver, which would lose the attempt.
-    fn unreserved(&mut self) -> Result<bool, EngineError> {
-        self.held = None;
-        Ok(true)
     }
 
     /// The attempt `attempt` of the site `site`'s claim, under `home`: the
