@@ -24,6 +24,7 @@
 use std::sync::LazyLock;
 
 use brokkr_core::ending::Ending;
+use brokkr_core::fold::Status;
 use brokkr_core::page::Lane;
 use rusqlite::types::{Value, ValueRef};
 use rusqlite::Connection;
@@ -140,9 +141,10 @@ impl Store {
         Ok(())
     }
 
-    /// The runs that finished in the equal window before the headline's
-    /// (ruling 7): one count over the `(finished_ms)` index, holding one
-    /// integer.
+    /// The shipped runs that finished in the equal window before the
+    /// headline's (ruling 7): the headline's `previous` counts the runs
+    /// that completed, as `brokkr-view`'s `shipped_in` does, so one count
+    /// over the `(finished_ms)` index, holding one integer.
     pub fn finished_between(
         &self,
         from: i64,
@@ -261,6 +263,18 @@ fn open_lanes() -> String {
         .join(", ")
 }
 
+/// The endings that completed their run, as brokkr-core's one reading of
+/// the vocabulary states it (decision 0064 ruling 6): the preceding count
+/// counts shipped runs, never every finished one.
+fn shipped_endings() -> String {
+    Ending::ALL
+        .into_iter()
+        .filter(|ending| ending.status() == Status::Completed)
+        .map(|ending| format!("'{}'", ending.word()))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// Every behind row's id, by the lane's index.
 static BEHIND: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -269,13 +283,15 @@ static BEHIND: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// The preceding window's count through the `(finished_ms)` index, less a
-/// row read whole instead.
+/// The preceding window's shipped count through the `(finished_ms)` index,
+/// less a row read whole instead.
 static COUNT_FINISHED: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT count(*) FROM run_summary
-    WHERE finished_ms >= ?1 AND finished_ms < ?2 AND {behind} AND (?3 IS NULL OR realm = ?3)",
-        behind = outside(Lane::Behind)
+    WHERE finished_ms >= ?1 AND finished_ms < ?2 AND {behind}
+      AND ending IN ({shipped}) AND (?3 IS NULL OR realm = ?3)",
+        behind = outside(Lane::Behind),
+        shipped = shipped_endings(),
     )
 });
 

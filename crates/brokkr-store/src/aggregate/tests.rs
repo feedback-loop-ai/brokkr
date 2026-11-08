@@ -7,7 +7,7 @@
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::ending::{Ending, UnknownEnding};
 use brokkr_core::envelope::{EventEnvelope, EventType};
-use brokkr_core::fold::concluded;
+use brokkr_core::fold::{concluded, Status};
 use brokkr_core::stamp::parse_millis;
 use brokkr_core::summary::{Account, Bounded, Listing, Summary, NAME_BYTES};
 use serde_json::json;
@@ -201,6 +201,28 @@ fn window_parks(
     rows
 }
 
+/// Whether `run` is in `realm`'s part of the window.
+fn in_realm(run: &OwnedRun, realm: Option<&str>) -> bool {
+    run.realm.as_deref() == realm || realm.is_none()
+}
+
+/// Whether `run` finished inside the window.
+fn finished_in(run: &OwnedRun, from: i64, to: i64) -> bool {
+    run.finished_ms
+        .is_some_and(|finished| finished >= from && finished < to)
+}
+
+/// The window's durations, as the read hands them back.
+fn durations(store: &Store, from: i64, to: i64, realm: Option<&str>) -> Vec<(Option<String>, i64)> {
+    let mut spans = Vec::new();
+    store
+        .durations(from, to, realm, |realm, span| {
+            spans.push((realm.map(str::to_string), span))
+        })
+        .unwrap();
+    spans
+}
+
 /// Every run's events, once the store has read it, or `None` where it does
 /// not load.
 fn readable(store: &Store, run_id: &str) -> Option<Vec<EventEnvelope>> {
@@ -226,13 +248,7 @@ fn compare_windows(
             let mut wanted: Vec<OwnedRun> = expected
                 .iter()
                 .map(|(run, _)| run)
-                .filter(|run| run.realm.as_deref() == realm || realm.is_none())
-                .filter(|run| {
-                    run.open
-                        || run
-                            .finished_ms
-                            .is_some_and(|finished| finished >= from && finished < to)
-                })
+                .filter(|run| in_realm(run, realm) && (run.open || finished_in(run, from, to)))
                 .cloned()
                 .collect();
             let expected_parks: Vec<OwnedPark> = expected
@@ -283,16 +299,19 @@ fn compare_windows(
                     })
                 })
                 .collect();
-            let mut read_spans = Vec::new();
-            store
-                .durations(from, to, realm, |realm, span| {
-                    read_spans.push((realm.map(str::to_string), span))
-                })
-                .unwrap();
+            let mut read_spans = durations(store, from, to, realm);
             spans.sort();
             read_spans.sort();
             assert_eq!(read_spans, spans, "durations {from}..{to} {realm:?}");
-            let wanted_count = spans.len() as u64;
+            let wanted_count = expected
+                .iter()
+                .map(|(run, _)| run)
+                .filter(|run| in_realm(run, realm) && finished_in(run, from, to))
+                .filter(|run| {
+                    run.ending
+                        .is_some_and(|ending| ending.status() == Status::Completed)
+                })
+                .count() as u64;
             assert_eq!(
                 store.finished_between(from, to, realm).unwrap(),
                 wanted_count,
@@ -396,6 +415,24 @@ fn finished_steps(feature: &str) -> Vec<(EventType, serde_json::Value)> {
     ]
 }
 
+/// A stopped run's steps: an accepted stop with no named cause, which
+/// brokkr-core classifies `Unclassified` (decision 0064 ruling 5).
+fn stopped_steps() -> Vec<(EventType, serde_json::Value)> {
+    vec![
+        (EventType::RunStarted, json!({"feature": "stopped"})),
+        (EventType::PhaseEntered, json!({"phase": "implement"})),
+        (
+            EventType::OperatorCommanded,
+            json!({"command_id": "s", "command": "stop", "operator": "op", "args": {}}),
+        ),
+        (
+            EventType::OperatorAccepted,
+            json!({"command_id": "s", "operator": "op", "reason": "enough"}),
+        ),
+        (EventType::RunStopped, json!({})),
+    ]
+}
+
 /// A parked run's steps, from its start to the open park, in `phase`.
 fn parked_steps(phase: &str) -> Vec<(EventType, serde_json::Value)> {
     vec![
@@ -494,6 +531,48 @@ fn a_hand_built_window_reads_as_the_whole_journal() {
     compare_windows(&store, &runs, &windows, now);
 }
 
+/// The preceding count is the headline's `previous`: it counts the runs
+/// shipped in the window, as `brokkr-view`'s `shipped_in` does (decision
+/// 0089 ruling 7), while the medians' pass still measures every finished
+/// run.
+#[test]
+fn the_previous_count_counts_only_shipped_runs() {
+    let (_dir, store) = store();
+    let shipped = chain("shipped", Some("realm"), 0, &finished_steps("a feature"));
+    let stopped = chain("stopped", Some("realm"), 20, &stopped_steps());
+    plant_older_writer(&store, "shipped", &shipped);
+    plant_older_writer(&store, "stopped", &stopped);
+    let store = refolded(store);
+
+    let from = parse_millis("2026-01-01T00:00:00Z").unwrap();
+    let to = parse_millis("2026-01-01T00:01:00Z").unwrap();
+    let mut runs = window_runs(&store, from, to, RunOrder::Unordered, None);
+    runs.sort_by(|left, right| left.run_id.cmp(&right.run_id));
+    assert_eq!(
+        runs.iter()
+            .map(|run| (run.run_id.as_str(), run.ending))
+            .collect::<Vec<_>>(),
+        [
+            ("shipped", Some(Ending::Shipped)),
+            ("stopped", Some(Ending::Unclassified)),
+        ],
+        "both runs finished in the window, and only one shipped"
+    );
+    assert_eq!(store.finished_between(from, to, None).unwrap(), 1);
+    assert_eq!(store.finished_between(from, to, Some("realm")).unwrap(), 1);
+
+    // The medians still measure every finished run, shipped or not.
+    let mut spans = durations(&store, from, to, None);
+    spans.sort();
+    assert_eq!(
+        spans,
+        [
+            (Some("realm".to_string()), 4_000),
+            (Some("realm".to_string()), 7_000),
+        ]
+    );
+}
+
 /// A run behind its head is never in a window and is in `behind_runs`: one
 /// an older writer's append left behind, and one whose aggregate stamp is
 /// not its folded head's.
@@ -585,12 +664,7 @@ fn a_behind_run_is_not_counted_or_measured() {
     );
     assert_eq!(store.finished_between(from, to, None).unwrap(), 0);
     assert_eq!(store.finished_between(from, to, Some("realm")).unwrap(), 0);
-    let mut spans = Vec::new();
-    store
-        .durations(from, to, None, |realm, span| {
-            spans.push((realm.map(str::to_string), span))
-        })
-        .unwrap();
+    let spans = durations(&store, from, to, None);
     assert!(spans.is_empty(), "{spans:?}");
 }
 
