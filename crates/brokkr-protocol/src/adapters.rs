@@ -67,8 +67,8 @@ use probe::{pinned_model, seat_row, ProbeAnswer};
 #[cfg(test)]
 use refusal::refusal_reason;
 use refusal::{
-    bounded_wire_line, claude_refusal, codex_refusal, codex_thread_refusal, dsh_refusal, Now,
-    REFUSAL_TOKEN_LIMIT,
+    bounded_wire_line, claude_refusal, codex_refusal, codex_thread_refusal, dsh_refusal, epoch_now,
+    find_codex_thread, Now, REFUSAL_TOKEN_LIMIT,
 };
 #[cfg(test)]
 use start::serve_io;
@@ -1732,58 +1732,37 @@ impl CodexThreadEcho {
     /// [`CodexThreadEcho::echo`]; a file that cannot be read, or that
     /// names no error, answers nothing rather than guessing (decision
     /// 0053's boundary, decision 0103 ruling 1(a)).
-    fn refusal(&mut self) -> Option<PreSessionRefusal> {
+    fn refusal(&mut self, since: Option<i64>, now: Option<&Now>) -> Option<PreSessionRefusal> {
         self.resolve();
         let body = std::fs::read_to_string(self.path.as_ref()?).ok()?;
-        codex_thread_refusal(&body, &Now::read()?)
+        codex_thread_refusal(&body, since, now)
     }
-}
 
-/// `name` carries `thread_id` as a WHOLE token — bounded at both ends by
-/// a non-alphanumeric or by the ends of the name — rather than merely as
-/// a substring. A bare `contains` would let a short or degenerate id
-/// match a longer id's file, which is the "never by the newest file"
-/// rule lost by another route: a fragment is not an announcement.
-fn names_codex_thread(name: &str, thread_id: &str) -> bool {
-    name.match_indices(thread_id).any(|(at, _)| {
-        let before = name[..at].chars().next_back();
-        let after = name[at + thread_id.len()..].chars().next();
-        !before.is_some_and(|c| c.is_ascii_alphanumeric())
-            && !after.is_some_and(|c| c.is_ascii_alphanumeric())
-    })
-}
-
-/// The thread record whose file name carries `thread_id`, anywhere in a
-/// bounded walk below `root`.
-fn find_codex_thread(
-    root: &std::path::Path,
-    thread_id: &str,
-    depth: usize,
-) -> Option<std::path::PathBuf> {
-    let mut directories = Vec::new();
-    for entry in std::fs::read_dir(root).ok()?.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            directories.push(path);
-            continue;
+    /// The same read where the CLI never announced its thread, so the
+    /// locator is empty. A zero-event exit still leaves its rollout under
+    /// `CODEX_HOME/sessions`; exactly one file written since this
+    /// invocation began is this invocation's, and more than one is
+    /// ambiguous (a concurrent seat's thread), so it answers nothing
+    /// rather than borrowing another seat's failure. The cwd codex
+    /// records in the rollout is the tie-breaker when several appeared.
+    fn unannounced_refusal(
+        &mut self,
+        home: &std::path::Path,
+        since: Option<i64>,
+        workdir: &str,
+        now: Option<&Now>,
+    ) -> Option<PreSessionRefusal> {
+        if self.announced.is_some() {
+            return None;
         }
-        let named = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name.ends_with(".jsonl") && names_codex_thread(name, thread_id));
-        if named {
-            return Some(path);
-        }
+        refusal::codex_thread_refusal_since(
+            &home.join("sessions"),
+            since?,
+            workdir,
+            now,
+            CODEX_THREAD_DEPTH,
+        )
     }
-    if depth == 0 {
-        return None;
-    }
-    // Deterministic order: two seats under one home must not disagree
-    // about which file a shared prefix names.
-    directories.sort();
-    directories
-        .into_iter()
-        .find_map(|dir| find_codex_thread(&dir, thread_id, depth - 1))
 }
 
 /// Fold Codex's stable `exec --json` JSONL into bounded live telemetry.
@@ -2311,10 +2290,17 @@ impl DshFold<'_> {
     /// turn and token counts. That is accepted, not overlooked: such an
     /// agent is already trusted with the working tree, the fold clamps every
     /// value it takes (≤80-char tool names and u64 counts) and derives
-    /// nothing executable from any of them, so the worst case is wrong
-    /// telemetry in the journal, never an injection or a control-flow
-    /// decision. A driver whose harness offers a real stdout stream should
-    /// use it rather than inherit this.
+    /// nothing executable from any of them. One thing here is NOT only
+    /// telemetry: since decision 0103 ruling 1(a), a `turn/end` error
+    /// before the first turn is this invocation's typed pre-session
+    /// refusal, and its class can hold the provider's route for the reset
+    /// it states, bounded by the declared maximum. A forged row can
+    /// therefore make Brokkr wait; it cannot execute anything, and it
+    /// still binds to this invocation's sequence and first turn. That is
+    /// accepted on the same reasoning — an agent with the working tree is
+    /// already trusted — but it is control data, not telemetry. A driver
+    /// whose harness offers a real stdout stream should use it rather
+    /// than inherit this.
     ///
     /// The probe bound (decision 0103 ruling 4(a)): an `assistant/message`
     /// is dsh's model-output answer, and the first one is admitted while a
@@ -3651,10 +3637,20 @@ fn invoke_codex(
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
     let mut transcript = Transcript::resolve(TranscriptKind::CodexThread)?;
+    // A rejoin already knows the thread it is writing to, so the locator
+    // is held before the first byte arrives. A cold spawn hands an empty
+    // id, which locates nothing.
+    let mut echo = CodexThreadEcho::default();
+    echo.locate(
+        transcript.home(),
+        hold.plan.rejoining.as_deref().unwrap_or_default(),
+    );
+    // The zero-event fallback's lower bound: a rollout written before
+    // this reading cannot be this invocation's.
+    let started = epoch_now();
     let (mut child, stderr_thread) = spawn_fed(command, prompt, workdir, bindings)?;
     let mut session_meta = Map::new();
     let mut turn = 0;
-    let mut echo = CodexThreadEcho::default();
     // Decision 0053: codex's wire protocol DOES carry the distinction —
     // a machine-readable `error`/`turn.failed` before the first
     // `turn.started` is a refusal to start. After a turn it is 0016's
@@ -3746,7 +3742,7 @@ fn invoke_codex(
     // error, through the locator decision 0035 already holds. It is read
     // here alone, on that early exit, so a normal seat pays nothing.
     if refusal.is_none() && turn == 0 {
-        refusal = echo.refusal();
+        refusal = codex_early_refusal(&mut echo, transcript.home(), started, workdir);
     }
     transcript.finish(&mut session_meta, &mut |data: &Value| {
         hold.observe(data, emit)
@@ -3761,6 +3757,20 @@ fn invoke_codex(
         answer: probe_bound.take(),
         launch: LaunchTerminal::Cold,
     })
+}
+
+/// The chain's last resort for a codex that ended before its first turn
+/// with no stream refusal: its announced thread, else the one rollout
+/// this invocation wrote. One clock reading serves both reads.
+fn codex_early_refusal(
+    echo: &mut CodexThreadEcho,
+    home: &std::path::Path,
+    started: Option<i64>,
+    workdir: &str,
+) -> Option<PreSessionRefusal> {
+    let now = Now::read();
+    echo.refusal(started, now.as_ref())
+        .or_else(|| echo.unannounced_refusal(home, started, workdir, now.as_ref()))
 }
 
 /// The dsh headless invocation. It does NOT converge on `run_cli`'s

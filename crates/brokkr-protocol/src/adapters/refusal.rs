@@ -6,6 +6,8 @@
 //! `PreSessionRefusal`'s `Display` keeps the operator's text byte for
 //! byte.
 
+use std::path::{Path, PathBuf};
+
 use serde_json::Value;
 
 use super::AdapterKind;
@@ -109,15 +111,30 @@ pub(super) fn refusal_reason_with(
 /// A record with none of those fields is an ordinary turn and is never
 /// read here; nothing in this classifier looks at a model's prose.
 pub(super) fn claude_refusal(event: &Value) -> Option<PreSessionRefusal> {
+    claude_refusal_at(event, epoch_now())
+}
+
+/// [`claude_refusal`] over the clock reading the caller took, so a test
+/// can pin the reset's arithmetic exactly. Production takes one reading
+/// per record and only a `rate_limit_event` with a `resetsAt` needs it.
+pub(super) fn claude_refusal_at(event: &Value, now: Option<i64>) -> Option<PreSessionRefusal> {
     match event.get("type").and_then(Value::as_str) {
-        Some("rate_limit_event") => Some(refusal_reason(
-            "rate_limit",
-            event.get("apiErrorStatus").and_then(Value::as_i64),
-            event
-                .get("message")
-                .and_then(Value::as_str)
-                .or_else(|| event.get("error").and_then(Value::as_str)),
-        )),
+        Some("rate_limit_event") => {
+            let status = event.get("apiErrorStatus").and_then(Value::as_i64);
+            let retry_after = event
+                .pointer("/rate_limit_info/resetsAt")
+                .and_then(Value::as_u64)
+                .and_then(|at| seconds_between(now?, i64::try_from(at).ok()?));
+            Some(refusal_reason_with(
+                "rate_limit",
+                status,
+                event
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .or_else(|| event.get("error").and_then(Value::as_str)),
+                retry_after,
+            ))
+        }
         Some("assistant") => {
             let api_error = event
                 .get("isApiErrorMessage")
@@ -184,23 +201,32 @@ pub(super) fn codex_refusal(event: &Value) -> Option<PreSessionRefusal> {
         Some("error" | "turn.failed") => {}
         _ => return None,
     }
-    Some(codex_error(event, Now::read().as_ref(), None))
+    // Read the clock only for a refusal that may carry a reset; a missing
+    // clock is no reset, never no refusal (decision 0103 ruling 1(a)).
+    let now = codex_rate_limit(event).then(Now::read).flatten();
+    Some(codex_error(event, now.as_ref(), &[]))
 }
 
 /// One codex refusal, from the error record a stream event or a thread
-/// record carries. `resets_at` is the structured reset a thread record's
-/// `token_count` states, preferred over the provider's prose (decision
-/// 0103 ruling 3). A class the machine fields do not mark is `Other`.
-fn codex_error(error: &Value, now: Option<&Now>, resets_at: Option<u64>) -> PreSessionRefusal {
-    let info = machine_field(error, "codex_error_info").and_then(Value::as_str);
+/// record carries. `resets` are the structured windows a thread record's
+/// `token_count` states; the exhausted window's reset is preferred over
+/// the provider's prose (decision 0103 ruling 3). A class the machine
+/// fields do not mark is `Other`.
+fn codex_error(error: &Value, now: Option<&Now>, resets: &[ResetWindow]) -> PreSessionRefusal {
     let status = machine_field(error, "status").and_then(Value::as_i64);
     let message = machine_field(error, "message").and_then(Value::as_str);
-    let rate_limit = status == Some(429) || info.is_some_and(rate_limit_info);
-    if !rate_limit {
+    if !codex_rate_limit(error) {
         return refusal_reason("api_error", status, message);
     }
-    let retry_after = now.and_then(|now| codex_reset(error, now, resets_at));
+    let retry_after = now.and_then(|now| codex_reset(error, now, resets));
     refusal_reason_with("rate_limit", status, message, retry_after)
+}
+
+/// Whether codex's own machine fields mark this error as a rate limit.
+fn codex_rate_limit(error: &Value) -> bool {
+    let info = machine_field(error, "codex_error_info").and_then(Value::as_str);
+    let status = machine_field(error, "status").and_then(Value::as_i64);
+    status == Some(429) || info.is_some_and(rate_limit_info)
 }
 
 /// A field codex spells on the record itself, or under the `error` object
@@ -220,18 +246,57 @@ fn rate_limit_info(info: &str) -> bool {
     matches!(info, "usage_limit_exceeded" | "rate_limit_exceeded")
 }
 
+/// One `rate_limits` window as codex states it: how full it is, and its
+/// Unix-second reset. The fullness is what identifies the window that
+/// actually refused; a reset belonging to a half-empty window is not a
+/// wait (decision 0103 ruling 3).
+#[derive(Debug, Clone, Copy)]
+struct ResetWindow {
+    used_percent: Option<f64>,
+    resets_at: i64,
+}
+
 /// The provider's stated reset, in whole seconds from the refusal's own
-/// time. A structured `resets_at` (codex's Unix second) is preferred;
-/// otherwise the provider's "try again at …" text is parsed strictly.
-/// An absent, stale or unparseable reset is no retry-after, never a
-/// guess (decision 0103 ruling 3).
-fn codex_reset(error: &Value, now: &Now, resets_at: Option<u64>) -> Option<u64> {
-    if let Some(at) = resets_at {
-        return seconds_between(now.epoch, i64::try_from(at).ok()?);
+/// time. The structured reset of the EXHAUSTED window wins; otherwise the
+/// provider's "try again at …" text is parsed strictly. A stale window
+/// reset falls through to the text rather than suppressing it. An absent,
+/// stale or unparseable reset is no retry-after, never a guess (decision
+/// 0103 ruling 3).
+fn codex_reset(error: &Value, now: &Now, resets: &[ResetWindow]) -> Option<u64> {
+    if let Some(seconds) = exhausted_reset(now, resets) {
+        return Some(seconds);
     }
     let message = machine_field(error, "message").and_then(Value::as_str)?;
     let stated = stated_reset(message)?;
-    seconds_between(now.local.seconds()?, stated.seconds()?)
+    seconds_between(now.epoch, stated.epoch()?)
+}
+
+/// The latest reset among the windows codex marks as full. A window that
+/// is not exhausted cannot be the one the usage limit names, so its reset
+/// is never taken; two full windows take the later wait, the only one
+/// that cannot retry too early.
+fn exhausted_reset(now: &Now, resets: &[ResetWindow]) -> Option<u64> {
+    resets
+        .iter()
+        .filter(|window| window.used_percent.is_some_and(|used| used >= 100.0))
+        .filter_map(|window| seconds_between(now.epoch, window.resets_at))
+        .max()
+}
+
+/// Every window a codex `token_count` row states, in the order codex
+/// writes them. A window with no `resets_at` is not a reset and is
+/// skipped rather than read as zero.
+fn reset_windows(limits: &Value) -> Vec<ResetWindow> {
+    ["primary", "secondary"]
+        .iter()
+        .filter_map(|key| {
+            let window = limits.get(*key)?;
+            Some(ResetWindow {
+                used_percent: window.get("used_percent").and_then(Value::as_f64),
+                resets_at: window.get("resets_at").and_then(Value::as_i64)?,
+            })
+        })
+        .collect()
 }
 
 /// Whole seconds from `now` to `later`, only forward: a reset the
@@ -257,15 +322,21 @@ impl Now {
     /// unavailable. Read only on a codex refusal that may carry a reset,
     /// so an ordinary seat pays nothing.
     pub(super) fn read() -> Option<Now> {
-        let epoch = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .ok()?;
-        let epoch = i64::try_from(epoch.as_secs()).ok()?;
+        let epoch = epoch_now()?;
         Some(Now {
             epoch,
             local: local_time(epoch)?,
         })
     }
+}
+
+/// The Unix second a clock read names, alone: a refused reset needs only
+/// the instant, not the civil date beside it.
+pub(super) fn epoch_now() -> Option<i64> {
+    let epoch = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?;
+    i64::try_from(epoch.as_secs()).ok()
 }
 
 /// A civil date and time without a zone: codex states its reset in the
@@ -277,18 +348,41 @@ pub(super) struct LocalTime {
     pub(super) day: u8,
     pub(super) hour: u8,
     pub(super) minute: u8,
+    pub(super) second: u8,
 }
 
 impl LocalTime {
-    /// The second this civil time denotes, read as civil time. The zone
-    /// cancels because both sides are read the same way; the arithmetic
-    /// is `brokkr-core`'s one civil-date reader, not a second copy.
-    fn seconds(self) -> Option<i64> {
-        let text = format!(
-            "{:04}-{:02}-{:02}T{:02}:{:02}:00Z",
-            self.year, self.month, self.day, self.hour, self.minute
-        );
-        brokkr_core::stamp::parse_millis(&text).map(|millis| millis / 1000)
+    /// The real instant this civil time denotes, read in the host's own
+    /// zone (`mktime`, which applies the zone's daylight rules). Reading
+    /// both sides as UTC would shorten a wait that crosses a transition,
+    /// as the host's 2026-10-25 London fall-back does. The round trip
+    /// refuses a civil reading the zone does not have (a spring-forward
+    /// hour, or a day the month lacks) rather than letting `mktime`
+    /// normalise it into a guessed reset.
+    pub(super) fn epoch(self) -> Option<i64> {
+        let at = self.instant()?;
+        (local_time(at)? == self).then_some(at)
+    }
+
+    fn instant(self) -> Option<i64> {
+        let mut broken: libc::tm = unsafe { std::mem::zeroed() };
+        broken.tm_year = self.year - 1900;
+        broken.tm_mon = i32::from(self.month) - 1;
+        broken.tm_mday = i32::from(self.day);
+        broken.tm_hour = i32::from(self.hour);
+        broken.tm_min = i32::from(self.minute);
+        broken.tm_sec = i32::from(self.second);
+        // Let the zone decide the daylight flag: the provider names a
+        // civil time and no zone, and this is the host's reading of it.
+        broken.tm_isdst = -1;
+        // SAFETY: `mktime` reads and writes the one `tm` this stack frame
+        // owns; no pointer outlives the call.
+        let at = unsafe { libc::mktime(&mut broken) };
+        // A date the zone folds into another (`Feb 30th`, a spring-forward
+        // hour) is caught by the caller's round trip. `mktime`'s `-1` error
+        // value is also the last second of 1969, which the round trip
+        // either confirms or rejects on the same terms.
+        Some(at)
     }
 }
 
@@ -311,6 +405,7 @@ pub(super) fn local_time(epoch: i64) -> Option<LocalTime> {
         day: broken.tm_mday as u8,
         hour: broken.tm_hour as u8,
         minute: broken.tm_min as u8,
+        second: broken.tm_sec as u8,
     })
 }
 
@@ -335,6 +430,7 @@ fn stated_reset(message: &str) -> Option<LocalTime> {
         day,
         hour,
         minute,
+        second: 0,
     })
 }
 
@@ -402,28 +498,71 @@ fn meridiem(word: &str, hour: u8) -> Option<u8> {
 /// `payload`: a `task_complete`'s `error` and an `error` event are the two
 /// shapes read. A normal completion is not a refusal, and a row that is
 /// not JSON answers nothing.
-pub(super) fn codex_thread_refusal(body: &str, now: &Now) -> Option<PreSessionRefusal> {
-    let mut resets_at = None;
+///
+/// An error from before the record's last `task_started` is history, not
+/// this invocation's refusal: a resumed thread that exits before it
+/// appends anything must not re-serve the failure that once cooled it
+/// down long ago (decision 0053's boundary). A record with no
+/// `task_started` at all is read as one invocation, which is the shape
+/// the measured early-exit rollouts take.
+pub(super) fn codex_thread_refusal(
+    body: &str,
+    since: Option<i64>,
+    now: Option<&Now>,
+) -> Option<PreSessionRefusal> {
+    let mut resets = Vec::new();
     let mut error = None;
     for line in body.lines() {
         let Ok(row) = serde_json::from_str::<Value>(line) else {
             continue;
         };
-        if let Some(at) = row
-            .pointer("/payload/rate_limits/primary/resets_at")
-            .and_then(Value::as_u64)
+        if !row_in_invocation(&row, since) {
+            continue;
+        }
+        if row_is_task_started(&row) {
+            // A new turn begins: neither an earlier error nor an earlier
+            // window's reset belongs to it.
+            error = None;
+            resets.clear();
+            continue;
+        }
+        if let Some(windows) = row
+            .pointer("/payload/rate_limits")
+            .map(reset_windows)
+            .filter(|windows| !windows.is_empty())
         {
-            resets_at = Some(at);
+            resets = windows;
         }
         if let Some(found) = thread_error(&row) {
             error = Some(found);
         }
     }
-    Some(codex_error(&error?, Some(now), resets_at))
+    Some(codex_error(&error?, now, &resets))
 }
 
-/// The error a rollout row names, or nothing: the last one in the file
-/// is the refusal the early exit left behind.
+/// Whether a row was written during this invocation. The record outlives
+/// the process, so a resumed thread that appends nothing must not re-serve
+/// a previous turn's refusal; a row whose own timestamp is unreadable is
+/// not evidence of a current one either.
+fn row_in_invocation(row: &Value, since: Option<i64>) -> bool {
+    let Some(since) = since else {
+        return true;
+    };
+    row.get("timestamp")
+        .and_then(Value::as_str)
+        .and_then(brokkr_core::stamp::parse_millis)
+        .is_some_and(|millis| millis / 1000 >= since)
+}
+
+/// The row codex writes at the beginning of a turn. It is the invocation
+/// boundary a thread record is read across.
+fn row_is_task_started(row: &Value) -> bool {
+    row.get("type").and_then(Value::as_str) == Some("event_msg")
+        && row.pointer("/payload/type").and_then(Value::as_str) == Some("task_started")
+}
+
+/// The error a rollout row names, or nothing: the last one after the
+/// current turn began is the refusal the early exit left behind.
 fn thread_error(row: &Value) -> Option<Value> {
     let payload = match row.get("type").and_then(Value::as_str)? {
         "error" => return Some(row.clone()),
@@ -435,6 +574,130 @@ fn thread_error(row: &Value) -> Option<Value> {
         "error" => Some(payload.clone()),
         _ => None,
     }
+}
+
+/// The same thread-record read where the CLI never announced its thread,
+/// so the locator is empty. A zero-event exit still leaves its rollout
+/// under `root`; exactly one file written since `since` is this
+/// invocation's, and more than one is ambiguous (a concurrent seat's
+/// thread), so it answers nothing rather than borrowing another seat's
+/// failure. The cwd codex records in the rollout is the tie-breaker when
+/// several appeared.
+pub(super) fn codex_thread_refusal_since(
+    root: &Path,
+    since: i64,
+    workdir: &str,
+    now: Option<&Now>,
+    depth: usize,
+) -> Option<PreSessionRefusal> {
+    let mut found = find_codex_threads_since(root, since, depth);
+    if found.len() > 1 {
+        found.retain(|path| thread_cwd(path).as_deref() == Some(workdir));
+    }
+    let [path] = found.as_slice() else {
+        return None;
+    };
+    let body = std::fs::read_to_string(path).ok()?;
+    codex_thread_refusal(&body, Some(since), now)
+}
+
+/// The thread record whose file name carries `thread_id`, anywhere in a
+/// bounded walk below `root`. The id is codex's own announcement, never
+/// "the newest file": a concurrent seat's thread must not lend this one
+/// its effort (decision 0035).
+pub(super) fn find_codex_thread(root: &Path, thread_id: &str, depth: usize) -> Option<PathBuf> {
+    let mut found = None;
+    walk_codex_threads(root, depth, &mut |path| {
+        let named = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| names_codex_thread(name, thread_id));
+        if named {
+            found = Some(path.to_path_buf());
+        }
+        named
+    });
+    found
+}
+
+/// Every codex rollout written at or after `since`, anywhere in a bounded
+/// walk below `root`. It is the locator for an exit that announced no
+/// thread: the walk proves which files this invocation could have
+/// created, and the caller refuses to choose when more than one did.
+fn find_codex_threads_since(root: &Path, since: i64, depth: usize) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    walk_codex_threads(root, depth, &mut |path| {
+        let written = path
+            .metadata()
+            .ok()
+            .and_then(|meta| meta.modified().ok())
+            .and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
+            .and_then(|at| i64::try_from(at.as_secs()).ok())
+            .is_some_and(|at| at >= since);
+        if written {
+            found.push(path.to_path_buf());
+        }
+        false
+    });
+    found
+}
+
+/// Walk the rollouts below `root`, stopping when `visit` asks to. The
+/// one walk both locators use; each judges a file its own way.
+fn walk_codex_threads(root: &Path, depth: usize, visit: &mut impl FnMut(&Path) -> bool) -> bool {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return false;
+    };
+    let mut directories = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            directories.push(path);
+            continue;
+        }
+        let named = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with(".jsonl"));
+        if named && visit(&path) {
+            return true;
+        }
+    }
+    if depth == 0 {
+        return false;
+    }
+    // Deterministic order: two seats under one home must not disagree
+    // about which file a shared prefix names.
+    directories.sort();
+    directories
+        .into_iter()
+        .any(|directory| walk_codex_threads(&directory, depth - 1, visit))
+}
+
+/// `name` carries `thread_id` as a WHOLE token — bounded at both ends by
+/// a non-alphanumeric or by the ends of the name — rather than merely as
+/// a substring. A bare `contains` would let a short or degenerate id
+/// match a longer id's file, which is the "never by the newest file"
+/// rule lost by another route: a fragment is not an announcement.
+fn names_codex_thread(name: &str, thread_id: &str) -> bool {
+    name.match_indices(thread_id).any(|(at, _)| {
+        let before = name[..at].chars().next_back();
+        let after = name[at + thread_id.len()..].chars().next();
+        !before.is_some_and(|c| c.is_ascii_alphanumeric())
+            && !after.is_some_and(|c| c.is_ascii_alphanumeric())
+    })
+}
+
+/// The cwd codex records in a rollout's `session_meta`, used only to pick
+/// this seat's file among several written in the same window. A file that
+/// cannot be read, or whose first row is not the header, names no cwd.
+fn thread_cwd(path: &Path) -> Option<String> {
+    let body = std::fs::read_to_string(path).ok()?;
+    let first = body.lines().next()?;
+    let row = serde_json::from_str::<Value>(first).ok()?;
+    row.pointer("/payload/cwd")
+        .and_then(Value::as_str)
+        .map(str::to_string)
 }
 
 /// The dsh session record's end-of-turn error (`turn/end`, its reason

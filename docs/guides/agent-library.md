@@ -164,7 +164,7 @@ unreachable by construction rather than by convention.
    |---|---|---|
    | `claude`, `lanetally` | Yes: the `isApiErrorMessage` `assistant` record, the error `result`, or a `rate_limit_event` | Fails to start; the chain falls |
    | `codex` | Yes: an `error` event or `turn.failed` before the first `turn.started` | Fails to start; the chain falls |
-   | `dsh` | No: the headless profile prints only its final answer; a rejection is stderr prose plus a non-zero exit | Not classified; follows 0006 unchanged |
+   | `dsh` | Yes: a `turn/end` before the first `assistant/message` whose `data.reason.error` carries `code: "QUOTA"`, status 402 or status 429, read from its session record (a file the seat itself can write) | Fails to start; a quota is `rate_limit` and cools the route down |
    | `exec` | Not applicable: no model turn, no provider | Not classified |
 
    A driver that vanishes before any machine-readable refusal is
