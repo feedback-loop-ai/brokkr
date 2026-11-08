@@ -97,6 +97,13 @@ impl Tally {
         }
     }
 
+    /// The judged runs and, of them, the shipped ones, before [`finish`]
+    /// builds the whole ledger; a figure ranking recipes reads the rate
+    /// without consuming its tally.
+    pub(crate) fn counted(&self) -> (usize, usize) {
+        (self.shipped, self.judged)
+    }
+
     pub(crate) fn finish(mut self) -> Ledger {
         for ending in Ending::ALL {
             if reading(ending) == Reading::Excluded {

@@ -4,10 +4,12 @@
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
 
-use super::facts::{model_key, name_key, shipped, FactSource, Finished, RunFacts, Window};
+use super::facts::{
+    model_key, name_key, shipped, FactSource, Finished, RunFacts, RunOrder, SiteOrder, Window,
+};
 use super::ledger::Tally;
 use super::median::medians;
-use super::ranked::ranked;
+use super::ranked::Ranked;
 use super::recipes::recipe_rows;
 use super::words::{change_text, date, hours_text, listed, percent, span_text, stamp};
 use super::{judged_unshipped, Ledger};
@@ -123,15 +125,36 @@ fn waiting(source: &dyn FactSource, window: Window) -> Waiting {
 
 fn stopped_by_rule(source: &dyn FactSource, window: Window) -> StoppedByRule {
     let mut count = 0;
-    let mut tally: BTreeMap<Option<String>, usize> = BTreeMap::new();
-    finished_in(source, window, |_, finished| {
-        if let Some(stop) = &finished.hard_stop {
-            count += 1;
-            let rule = stop.rule.as_deref().map(name_key).map(str::to_string);
-            *tally.entry(rule).or_default() += 1;
+    let mut rules: Ranked<Option<String>, usize, Reverse<usize>> = Ranked::new();
+    let mut current: Option<(Option<String>, usize)> = None;
+    let keep = |group: Option<(Option<String>, usize)>,
+                rules: &mut Ranked<Option<String>, usize, Reverse<usize>>| {
+        if let Some((rule, count)) = group {
+            rules.push(rule, count, Reverse(count));
+        }
+    };
+    source.runs_in(RunOrder::Rule, &mut |run| {
+        let Some(finished) = &run.finished else {
+            return;
+        };
+        if !window.holds(finished.at) {
+            return;
+        }
+        let Some(stop) = &finished.hard_stop else {
+            return;
+        };
+        count += 1;
+        let rule = stop.rule.as_deref().map(name_key).map(str::to_string);
+        match &mut current {
+            Some((named, tally)) if *named == rule => *tally += 1,
+            _ => {
+                keep(current.take(), &mut rules);
+                current = Some((rule, 1));
+            }
         }
     });
-    let (kept, rules_more) = ranked(tally, |count| Reverse(*count));
+    keep(current.take(), &mut rules);
+    let (kept, rules_more) = rules.finish();
     let top = best_rule(kept);
     StoppedByRule {
         count,
@@ -165,42 +188,73 @@ pub(crate) fn total(costs: impl Iterator<Item = f64>) -> Option<f64> {
     costs.fold(None, |sum, cost| Some(sum.unwrap_or(0.0) + cost))
 }
 
-/// The reported cost and the harnesses behind it, folded one site and one
-/// spend at a time.
+/// A cost figure folded one spend and one completed provider group at a
+/// time: the reported cost and a bounded provider selection.
 #[derive(Default)]
-struct CostAcc {
+struct ProviderAcc {
     usd: Option<f64>,
-    harnesses: BTreeMap<String, bool>,
+    providers: Ranked<String, bool, ()>,
 }
 
-impl CostAcc {
+impl ProviderAcc {
     fn spend(&mut self, usd: f64) {
         self.usd = Some(self.usd.unwrap_or(0.0) + usd);
     }
 
-    fn site(&mut self, site: &Site, keeps: Keeps) {
-        if !site.ran(keeps) {
-            return;
-        }
-        let provider = name_key(&site.provider).to_string();
-        *self.harnesses.entry(provider).or_default() |= site.reported(keeps);
+    fn provider(&mut self, provider: &str, reported: bool) {
+        self.providers.push(provider.to_string(), reported, ());
     }
 
     fn finish(self) -> CostFigure {
-        cost_figure_of(self.harnesses, self.usd)
+        let (kept, providers_more) = self.providers.finish();
+        cost_parts(kept, self.usd, providers_more)
     }
 }
 
-/// The cost figure of the harnesses that ran in what `keeps` holds, each
-/// by its cut provider: the 64 that key order ranks first and the count of
-/// the rest.
-pub(super) fn cost_figure_of(harnesses: BTreeMap<String, bool>, usd: Option<f64>) -> CostFigure {
-    let (kept, providers_more) = ranked(harnesses, |_| ());
-    cost_parts(kept, usd, providers_more)
+/// Folds the sites `keeps` holds into completed provider groups, ordered
+/// by `order`, and hands each group's realm, cut provider and whether it
+/// reported a cost to `visit`. A provider's sites are contiguous in that
+/// order, so the group is complete without a table of every provider.
+fn provider_groups(
+    source: &dyn FactSource,
+    order: SiteOrder,
+    keeps: Keeps,
+    mut visit: impl FnMut(&str, &str, bool),
+) {
+    let mut current: Option<(String, String, bool)> = None;
+    let flush = |group: Option<(String, String, bool)>, visit: &mut dyn FnMut(&str, &str, bool)| {
+        if let Some((realm, provider, reported)) = group {
+            visit(&realm, &provider, reported);
+        }
+    };
+    source.sites_in(order, &mut |fact| {
+        if !fact.site.ran(keeps) {
+            return;
+        }
+        let realm = name_key(fact.realm).to_string();
+        let provider = name_key(&fact.site.provider).to_string();
+        let reported = fact.site.reported(keeps);
+        match &mut current {
+            Some((kept_realm, kept_provider, kept_reported))
+                if *kept_realm == realm && *kept_provider == provider =>
+            {
+                *kept_reported |= reported;
+            }
+            _ => {
+                flush(current.take(), &mut visit);
+                current = Some((realm, provider, reported));
+            }
+        }
+    });
+    flush(current.take(), &mut visit);
 }
 
 /// The figure of the harnesses `kept` holds, in key order.
-fn cost_parts(kept: Vec<(String, bool)>, usd: Option<f64>, providers_more: usize) -> CostFigure {
+pub(super) fn cost_parts(
+    kept: Vec<(String, bool)>,
+    usd: Option<f64>,
+    providers_more: usize,
+) -> CostFigure {
     let named = |reported: bool| -> Vec<String> {
         kept.iter()
             .filter(|(_, did)| *did == reported)
@@ -245,16 +299,23 @@ pub(crate) fn cost_figure<'a>(
     cost_parts(harnesses.into_iter().collect(), usd, 0)
 }
 
-/// The whole read's cost: its spends and sites, one at a time.
+/// The whole read's cost: its spends and provider groups, one at a time.
 fn cost(source: &dyn FactSource, window: Window) -> CostFigure {
-    let mut accumulator = CostAcc::default();
+    let mut accumulator = ProviderAcc::default();
     let keeps = |at: i64, _: Option<&str>| window.holds(at);
     source.spends(&mut |spend| {
         if window.holds(spend.at) {
             accumulator.spend(spend.usd);
         }
     });
-    source.sites(&mut |fact| accumulator.site(fact.site, &keeps));
+    provider_groups(
+        source,
+        SiteOrder::Provider,
+        &keeps,
+        |_, provider, reported| {
+            accumulator.provider(provider, reported);
+        },
+    );
     accumulator.finish()
 }
 
@@ -270,6 +331,9 @@ fn per_day(source: &dyn FactSource, window: Window) -> Vec<Day> {
         .collect();
     finished_in(source, window, |_, finished| {
         let day = finished.at.div_euclid(DAY_MILLIS);
+        // `finished_in` holds `finished.at` in `[from, to)`, so the day is
+        // one of the rows built above; no bounds guard can be reached.
+        // `each_range_holds_its_first_moment_and_not_now` pins both ends.
         let row = &mut days[(day - first) as usize];
         row.shipped += usize::from(shipped(finished));
         row.stopped += usize::from(judged_unshipped(finished.ending));
@@ -278,7 +342,6 @@ fn per_day(source: &dyn FactSource, window: Window) -> Vec<Day> {
 }
 
 /// One step's wait, folded from the parks in cut phase then run order.
-#[derive(Default)]
 struct StepAcc {
     waiting_millis: i64,
     runs: usize,
@@ -286,19 +349,44 @@ struct StepAcc {
 }
 
 fn waiting_by_step(source: &dyn FactSource, window: Window) -> (Vec<StepWait>, usize) {
-    let mut steps: BTreeMap<Option<String>, StepAcc> = BTreeMap::new();
+    let mut steps: Ranked<Option<String>, StepAcc, Reverse<i64>> = Ranked::new();
+    let mut current: Option<(Option<String>, StepAcc)> = None;
+    let flush = |group: Option<(Option<String>, StepAcc)>,
+                 steps: &mut Ranked<Option<String>, StepAcc, Reverse<i64>>| {
+        if let Some((phase, step)) = group {
+            let rank = Reverse(step.waiting_millis);
+            steps.push(phase, step, rank);
+        }
+    };
     source.parks(&mut |park| {
         let waited = window.overlap(park.at, park.answered);
-        if waited > 0 {
-            let step = steps.entry(park.phase.map(str::to_string)).or_default();
-            step.waiting_millis += waited;
-            if step.last_run != Some(park.run) {
-                step.runs += 1;
-                step.last_run = Some(park.run);
+        if waited == 0 {
+            return;
+        }
+        let phase = park.phase.map(str::to_string);
+        match &mut current {
+            Some((named, step)) if *named == phase => {
+                step.waiting_millis += waited;
+                if step.last_run != Some(park.run) {
+                    step.runs += 1;
+                    step.last_run = Some(park.run);
+                }
+            }
+            _ => {
+                flush(current.take(), &mut steps);
+                current = Some((
+                    phase,
+                    StepAcc {
+                        waiting_millis: waited,
+                        runs: 1,
+                        last_run: Some(park.run),
+                    },
+                ));
             }
         }
     });
-    let (kept, waiting_by_step_more) = ranked(steps, |step| Reverse(step.waiting_millis));
+    flush(current.take(), &mut steps);
+    let (kept, waiting_by_step_more) = steps.finish();
     let mut rows: Vec<StepWait> = kept
         .into_iter()
         .map(|(phase, step)| StepWait {
@@ -348,20 +436,36 @@ fn rework(source: &dyn FactSource, window: Window) -> Rework {
 }
 
 fn models(source: &dyn FactSource, window: Window) -> (Vec<ModelShare>, usize) {
-    let mut tally: BTreeMap<Option<String>, usize> = BTreeMap::new();
-    source.sites(&mut |fact| {
-        if window.holds(fact.site.at) {
-            let model = fact
-                .site
-                .model
-                .as_deref()
-                .map(model_key)
-                .map(str::to_string);
-            *tally.entry(model).or_default() += 1;
+    let mut models: Ranked<Option<String>, usize, Reverse<usize>> = Ranked::new();
+    let mut current: Option<(Option<String>, usize)> = None;
+    let mut total = 0;
+    let flush = |group: Option<(Option<String>, usize)>,
+                 models: &mut Ranked<Option<String>, usize, Reverse<usize>>| {
+        if let Some((model, attempts)) = group {
+            models.push(model, attempts, Reverse(attempts));
+        }
+    };
+    source.sites_in(SiteOrder::Model, &mut |fact| {
+        if !window.holds(fact.site.at) {
+            return;
+        }
+        let model = fact
+            .site
+            .model
+            .as_deref()
+            .map(model_key)
+            .map(str::to_string);
+        total += 1;
+        match &mut current {
+            Some((named, attempts)) if *named == model => *attempts += 1,
+            _ => {
+                flush(current.take(), &mut models);
+                current = Some((model, 1));
+            }
         }
     });
-    let total: usize = tally.values().sum();
-    let (kept, models_more) = ranked(tally, |attempts| Reverse(*attempts));
+    flush(current.take(), &mut models);
+    let (kept, models_more) = models.finish();
     let mut shares: Vec<ModelShare> = kept
         .into_iter()
         .map(|(model, attempts)| {
@@ -428,10 +532,10 @@ fn realm_costs(
     source: &dyn FactSource,
     window: Window,
     realms: &[String],
-) -> BTreeMap<String, CostAcc> {
-    let mut costs: BTreeMap<String, CostAcc> = realms
+) -> BTreeMap<String, ProviderAcc> {
+    let mut costs: BTreeMap<String, ProviderAcc> = realms
         .iter()
-        .map(|realm| (realm.clone(), CostAcc::default()))
+        .map(|realm| (realm.clone(), ProviderAcc::default()))
         .collect();
     let keeps = |at: i64, _: Option<&str>| window.holds(at);
     source.spends(&mut |spend| {
@@ -441,11 +545,16 @@ fn realm_costs(
             }
         }
     });
-    source.sites(&mut |fact| {
-        if let Some(cost) = costs.get_mut(name_key(fact.realm)) {
-            cost.site(fact.site, &keeps);
-        }
-    });
+    provider_groups(
+        source,
+        SiteOrder::RealmProvider,
+        &keeps,
+        |realm, provider, reported| {
+            if let Some(cost) = costs.get_mut(realm) {
+                cost.provider(provider, reported);
+            }
+        },
+    );
     costs
 }
 
@@ -497,10 +606,11 @@ pub fn analytics(query: &Query) -> Result<Analytics, AnalyticsError> {
     };
     let scoped = super::facts::Scoped::read(query, now);
     let source: &dyn FactSource = &scoped;
-    let (kept, realms_more) = ranked(
-        source.realms().iter().cloned().map(|realm| (realm, ())),
-        |_| (),
-    );
+    let mut kept_realms: Ranked<String, (), ()> = Ranked::new();
+    for realm in source.realms() {
+        kept_realms.push(realm.clone(), (), ());
+    }
+    let (kept, realms_more) = kept_realms.finish();
     let realms: Vec<String> = kept.into_iter().map(|(realm, ())| realm).collect();
     let medians = medians_of(source, window, &realms);
     let shipped = shipped_in(source, window);

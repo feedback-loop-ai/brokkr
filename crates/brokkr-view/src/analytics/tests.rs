@@ -1307,6 +1307,94 @@ fn a_later_key_with_more_attempts_outranks_the_last_kept_one() {
     );
 }
 
+/// A run of models `a00..a63` once, `b00..b63` twice and `c00` three
+/// times: the tie at two attempts is decided while a group is evicted,
+/// once the kept order no longer follows the key.
+fn tied_models() -> (Journal, Option<RunState>) {
+    let mut journal = Journal::started(Some("alpha"), "2026-10-10T00:00:00Z");
+    for index in 0..64 {
+        journal = journal.seat(
+            &format!("a{index}"),
+            "claude",
+            &format!("a{index:02}"),
+            None,
+            "2026-10-10T00:10:00Z",
+        );
+    }
+    for index in 0..64 {
+        for extra in 0..2 {
+            journal = journal.seat(
+                &format!("b{index}-{extra}"),
+                "claude",
+                &format!("b{index:02}"),
+                None,
+                "2026-10-10T00:10:00Z",
+            );
+        }
+    }
+    for extra in 0..3 {
+        journal = journal.seat(
+            &format!("c-{extra}"),
+            "claude",
+            "c00",
+            None,
+            "2026-10-10T00:10:00Z",
+        );
+    }
+    (
+        journal.then(EventType::RunCompleted, json!({}), "2026-10-10T01:00:00Z"),
+        Some(ended(Status::Completed, "done", None, 0)),
+    )
+}
+
+#[test]
+fn a_tie_while_evicting_keeps_the_earlier_key() {
+    let (models, state) = tied_models();
+    let view = read_one(&runs(&[(models, state)]), Range::Week);
+    let names: Vec<&str> = view
+        .models
+        .iter()
+        .map(|share| share.model.as_deref().unwrap())
+        .collect();
+    let expected: Vec<String> = std::iter::once("c00".to_string())
+        .chain((0..63).map(|index| format!("b{index:02}")))
+        .collect();
+    assert_eq!(names, expected, "the eviction drops b63, not b00");
+    assert_eq!(view.models_more, 65);
+}
+
+/// 64 recipes at $2 a run and one, the last key, at $1: the omitted one
+/// still dominates every kept row of the realm.
+#[test]
+fn an_omitted_recipe_still_dominates_a_kept_one() {
+    let mut journals = Vec::new();
+    for index in 0..64 {
+        journals.extend(recipe_runs(
+            "alpha",
+            &format!("r{index:02}"),
+            (1, 0),
+            "claude",
+            Some(2.0),
+        ));
+    }
+    journals.extend(recipe_runs("alpha", "r64", (1, 0), "claude", Some(1.0)));
+    let view = read_one(&runs(&journals), Range::Week);
+    assert_eq!(view.recipes.len(), 64);
+    assert_eq!(view.recipes_more, 1);
+    for row in &view.recipes {
+        assert_eq!(
+            row.on_frontier,
+            Some(false),
+            "{} is dominated by the omitted r64",
+            row.recipe
+        );
+    }
+    assert_eq!(
+        row(&view.recipes, "alpha", "r00").cost_per_run.text,
+        "$2.00"
+    );
+}
+
 /// The readout over one hearth naming `realms`, handing it `journals`.
 fn read_realms(journals: &[(Journal, Option<RunState>)], realms: &[String]) -> Analytics {
     let runs = runs(journals);
@@ -1441,6 +1529,42 @@ fn a_key_past_its_bound_groups_with_its_cut_twin() {
     );
     assert_eq!(view.models.len(), 1);
     assert_eq!(view.models[0].attempts, 2);
+}
+
+/// A query's realm is matched after the same cut a row groups by: asking
+/// for the printed realm selects the whole cut group, both raw names.
+#[test]
+fn a_realm_filter_selects_its_displayed_cut_group() {
+    let realm = "r".repeat(64);
+    let tail = format!("{realm}-tail");
+    let run = |realm: &str, at: &str| {
+        (
+            Journal::started(Some(realm), at).then(EventType::RunCompleted, json!({}), at),
+            Some(ended(Status::Completed, "done", None, 0)),
+        )
+    };
+    let journals = [
+        run(&realm, "2026-10-10T00:00:00Z"),
+        run(&tail, "2026-10-10T01:00:00Z"),
+    ];
+    let reads = runs(&journals);
+    let hearths = [AnalyticsHearth {
+        label: "edge",
+        realms: &[],
+        journal: "e.db",
+        runs: &reads,
+        refusal: None,
+    }];
+    let view = analytics(&Query {
+        hearths: &hearths,
+        range: Range::Week,
+        realm: Some(&realm),
+        now: NOW,
+    })
+    .unwrap();
+    assert_eq!(view.headline.shipped.count, 2);
+    assert_eq!(view.realms.len(), 1);
+    assert_eq!(view.realms[0].realm, realm);
 }
 
 /// Whether no object key is a "N more" count, however deep.

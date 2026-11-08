@@ -4,7 +4,8 @@
 //! ([`aggregate`]), so the readout and the run's summary row read it one
 //! way (decision 0089 ruling 7).
 
-use std::collections::BTreeMap;
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, BinaryHeap};
 
 use brokkr_core::fold::{concluded, RunState};
 use brokkr_core::summary::{aggregate, cut, parks as project_parks, MODEL_BYTES, NAME_BYTES};
@@ -99,9 +100,6 @@ pub(super) struct ParkFact<'a> {
 /// One reported cost a figure folds.
 pub(super) struct SpendFact<'a> {
     pub(super) realm: &'a str,
-    pub(super) recipe: Option<&'a str>,
-    pub(super) open: bool,
-    pub(super) ended: Option<i64>,
     pub(super) at: i64,
     pub(super) usd: f64,
 }
@@ -115,20 +113,82 @@ pub(super) struct SiteFact<'a> {
     pub(super) site: &'a Site,
 }
 
+/// The order a grouped run figure folds runs in: by the rule that stopped
+/// it, or by the realm and recipe it started under.
+#[derive(Clone, Copy)]
+pub(super) enum RunOrder {
+    Rule,
+    Recipe,
+}
+
+/// The order a grouped site figure folds sites in: by model, by provider,
+/// by realm and provider, or by realm, recipe and provider.
+#[derive(Clone, Copy)]
+pub(super) enum SiteOrder {
+    Model,
+    Provider,
+    RealmProvider,
+    RecipeProvider,
+}
+
 /// The facts every figure folds, one at a time: today the whole read, and
-/// in unit U4 the store's rows. The seam spans four streams and the realm
+/// in unit U4 the store's rows. The seam spans the streams and the realm
 /// scope, which must agree on the query and on a run's identity across
-/// them, so it is one trait rather than four closures (decision 0071
-/// ruling 2). Parks are yielded by their cut phase and then their run, so
-/// `waiting_by_step` counts a change of run, never a set of them.
+/// them, so it is one trait rather than closures (decision 0071 ruling 2).
+///
+/// A grouped figure asks for its stream already ordered by its own cut
+/// key, so it folds one completed group at a time into a bounded
+/// [`super::ranked::Ranked`] and never holds every group. In U4 each order
+/// is a `GROUP BY ... ORDER BY` on the stored key. Parks are yielded by
+/// their cut phase and then their run, so `waiting_by_step` counts a
+/// change of run, never a set of them.
 pub(super) trait FactSource {
     fn realms(&self) -> &[String];
     fn unreadable(&self) -> &BTreeMap<String, usize>;
     fn quarantined(&self) -> Vec<QuarantinedHearth>;
     fn runs(&self, visit: &mut dyn FnMut(&RunFacts));
+    fn runs_in(&self, order: RunOrder, visit: &mut dyn FnMut(&RunFacts));
     fn parks(&self, visit: &mut dyn FnMut(ParkFact<'_>));
     fn spends(&self, visit: &mut dyn FnMut(SpendFact<'_>));
-    fn sites(&self, visit: &mut dyn FnMut(SiteFact<'_>));
+    fn sites_in(&self, order: SiteOrder, visit: &mut dyn FnMut(SiteFact<'_>));
+}
+
+/// The cut key a run groups by in `order`.
+fn run_key(run: &RunFacts, order: RunOrder) -> (Option<&str>, &str, &str) {
+    match order {
+        RunOrder::Rule => (
+            run.finished
+                .as_ref()
+                .and_then(|finished| finished.hard_stop.as_ref())
+                .and_then(|stop| stop.rule.as_deref())
+                .map(name_key),
+            "",
+            "",
+        ),
+        RunOrder::Recipe => (
+            Some(name_key(&run.realm)),
+            run.recipe.as_deref().map(name_key).unwrap_or(""),
+            "",
+        ),
+    }
+}
+
+/// The cut key a site groups by in `order`.
+fn site_key<'a>(
+    run: &'a RunFacts,
+    site: &'a Site,
+    order: SiteOrder,
+) -> (Option<&'a str>, &'a str, &'a str) {
+    match order {
+        SiteOrder::Model => (site.model.as_deref().map(model_key), "", ""),
+        SiteOrder::Provider => (Some(name_key(&site.provider)), "", ""),
+        SiteOrder::RealmProvider => (Some(name_key(&run.realm)), name_key(&site.provider), ""),
+        SiteOrder::RecipeProvider => (
+            Some(name_key(&run.realm)),
+            run.recipe.as_deref().map(name_key).unwrap_or(""),
+            name_key(&site.provider),
+        ),
+    }
 }
 
 /// The runs a range keeps: those that ended inside it, and those still
@@ -162,6 +222,13 @@ fn parks(events: &[EventEnvelope], now: i64) -> Vec<Park> {
 fn facts(run: &AnalyticsRun, label: &str, now: i64) -> RunFacts {
     let Attempts { costs, sites } = attempts(run.events);
     let read = aggregate(run.events, run.state);
+    // Phase order within the run, stable so the parks of one phase keep
+    // their journal order. `Scoped::parks` merges the runs by this key
+    // without collecting every park a second time.
+    let mut parks = parks(run.events, now);
+    parks.sort_by(|left, right| {
+        optional(left.phase.as_deref()).cmp(&optional(right.phase.as_deref()))
+    });
     RunFacts {
         realm: read.realm.unwrap_or_else(|| label.to_string()),
         recipe: read.recipe,
@@ -169,7 +236,7 @@ fn facts(run: &AnalyticsRun, label: &str, now: i64) -> RunFacts {
         open: run.state.is_some_and(is_open),
         started: read.started_ms,
         finished: read.finished,
-        parks: parks(run.events, now),
+        parks,
         implement_visits: read.implement_visits,
         reviews: Reviews {
             first: read.review_first,
@@ -277,39 +344,57 @@ impl FactSource for Scoped {
         }
     }
 
-    fn parks(&self, visit: &mut dyn FnMut(ParkFact<'_>)) {
-        let mut by_phase: BTreeMap<Option<&str>, Vec<(usize, &RunFacts, &Park)>> = BTreeMap::new();
-        for (index, run) in self.runs.iter().enumerate() {
-            for park in &run.parks {
-                by_phase
-                    .entry(optional(park.phase.as_deref()))
-                    .or_default()
-                    .push((index, run, park));
-            }
+    fn runs_in(&self, order: RunOrder, visit: &mut dyn FnMut(&RunFacts)) {
+        let mut runs: Vec<usize> = (0..self.runs.len()).collect();
+        runs.sort_by(|left, right| {
+            let (left_key, right_key) = (
+                run_key(&self.runs[*left], order),
+                run_key(&self.runs[*right], order),
+            );
+            left_key.cmp(&right_key).then(left.cmp(right))
+        });
+        for run in runs {
+            visit(&self.runs[run]);
         }
-        for (phase, parks) in by_phase {
-            for (run, facts, park) in parks {
-                visit(ParkFact {
-                    realm: &facts.realm,
-                    run,
-                    phase,
-                    at: park.at,
-                    answered: park.answered,
-                    ended: park.ended,
-                });
+    }
+
+    /// Each run's parks are already phase-sorted, so merging the runs by
+    /// (cut phase, run) yields them in that order without collecting every
+    /// park a second time: the merge holds one cursor a run.
+    fn parks(&self, visit: &mut dyn FnMut(ParkFact<'_>)) {
+        let mut cursors: BinaryHeap<Reverse<(Option<&str>, usize, usize)>> = self
+            .runs
+            .iter()
+            .enumerate()
+            .filter_map(|(run, facts)| {
+                facts
+                    .parks
+                    .first()
+                    .map(|park| Reverse((optional(park.phase.as_deref()), run, 0)))
+            })
+            .collect();
+        while let Some(Reverse((_phase, run, index))) = cursors.pop() {
+            let facts = &self.runs[run];
+            let park = &facts.parks[index];
+            visit(ParkFact {
+                realm: &facts.realm,
+                run,
+                phase: optional(park.phase.as_deref()),
+                at: park.at,
+                answered: park.answered,
+                ended: park.ended,
+            });
+            if let Some(next) = facts.parks.get(index + 1) {
+                cursors.push(Reverse((optional(next.phase.as_deref()), run, index + 1)));
             }
         }
     }
 
     fn spends(&self, visit: &mut dyn FnMut(SpendFact<'_>)) {
         for run in &self.runs {
-            let (open, ended) = (run.open, run.finished.as_ref().map(|finished| finished.at));
             for (at, usd) in &run.costs {
                 visit(SpendFact {
                     realm: &run.realm,
-                    recipe: run.recipe.as_deref(),
-                    open,
-                    ended,
                     at: *at,
                     usd: *usd,
                 });
@@ -317,22 +402,52 @@ impl FactSource for Scoped {
         }
     }
 
-    fn sites(&self, visit: &mut dyn FnMut(SiteFact<'_>)) {
-        for run in &self.runs {
-            let (open, ended) = (run.open, run.finished.as_ref().map(|finished| finished.at));
-            for site in &run.sites {
-                visit(SiteFact {
-                    realm: &run.realm,
-                    recipe: run.recipe.as_deref(),
-                    open,
-                    ended,
-                    site,
-                });
-            }
+    fn sites_in(&self, order: SiteOrder, visit: &mut dyn FnMut(SiteFact<'_>)) {
+        let mut sites: Vec<(usize, usize)> = self
+            .runs
+            .iter()
+            .enumerate()
+            .flat_map(|(run, facts)| (0..facts.sites.len()).map(move |site| (run, site)))
+            .collect();
+        sites.sort_by(|(left_run, left_site), (right_run, right_site)| {
+            let (left_key, right_key) = (
+                site_key(
+                    &self.runs[*left_run],
+                    &self.runs[*left_run].sites[*left_site],
+                    order,
+                ),
+                site_key(
+                    &self.runs[*right_run],
+                    &self.runs[*right_run].sites[*right_site],
+                    order,
+                ),
+            );
+            left_key
+                .cmp(&right_key)
+                .then((left_run, left_site).cmp(&(right_run, right_site)))
+        });
+        for (run, site) in sites {
+            let facts = &self.runs[run];
+            let (open, ended) = (
+                facts.open,
+                facts.finished.as_ref().map(|finished| finished.at),
+            );
+            visit(SiteFact {
+                realm: &facts.realm,
+                recipe: facts.recipe.as_deref(),
+                open,
+                ended,
+                site: &facts.sites[site],
+            });
         }
     }
 }
 
+/// Whether a run of `realm` is in the query's realm. Both names are cut
+/// where a row groups them, so filtering by a row's printed realm selects
+/// the same group the row was derived from (decision 0089 ruling 7).
 fn in_scope(query: &Query, realm: &str) -> bool {
-    query.realm.is_none_or(|wanted| wanted == realm)
+    query
+        .realm
+        .is_none_or(|wanted| name_key(wanted) == name_key(realm))
 }

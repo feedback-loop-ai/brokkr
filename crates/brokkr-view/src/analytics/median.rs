@@ -50,6 +50,11 @@ impl Selection {
         if self.value.is_some() {
             return;
         }
+        // Every later pass re-reads the same stream, so a live selection
+        // counts at least the values that put its rank between its
+        // bounds and its histogram is never empty;
+        // `medians_equal_middle_in_at_most_twelve_passes` hands every
+        // pass the same values, from `i64::MIN` to `i64::MAX`.
         let mut wanted = self.rank - self.below;
         let mut chosen = BUCKETS - 1;
         for (index, count) in self.buckets.iter().enumerate() {
@@ -105,6 +110,10 @@ pub(crate) fn medians(
             break;
         }
         pass(&mut |target, value| {
+            // The first pass counted every target the later passes see,
+            // and they re-read the same stream
+            // (`medians_equal_middle_in_at_most_twelve_passes`), so a
+            // counted target always has its selection.
             let pair = selections[target]
                 .as_mut()
                 .expect("a counted target has a selection");
