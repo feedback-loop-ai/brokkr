@@ -154,7 +154,10 @@ fn parks_of(
             let ended = park.ended.unwrap_or(now);
             let answered = park.answered.unwrap_or(ended);
             let open = park.ended.is_none();
-            let reaches = open || answered.max(ended) > from;
+            // A closed park of class 0 reaches nowhere, so no window holds
+            // it, as the store's span-class arms read it. The class is
+            // brokkr-core's own reading, not a second overlap rule.
+            let reaches = park.span_class() > 0 && (open || answered.max(ended) > from);
             (park.at < to && reaches).then(|| OwnedPark {
                 run_id: run_id.to_string(),
                 realm: realm.map(str::to_string),
@@ -747,6 +750,29 @@ fn a_closed_park_that_ended_before_the_window_is_not_read() {
     assert_eq!(window_parks(&store, base + 500, to, now, None).len(), 1);
 }
 
+/// A closed park of no reach is class 0: the store's arms never read it,
+/// and brokkr-core's own span class gives it no window to overlap, so the
+/// oracle excludes it by the same class rather than by its times alone.
+#[test]
+fn a_zero_reach_park_is_in_no_window() {
+    let (_dir, store) = store();
+    let events = closed_park("zero", "review", 500, 500);
+    plant_older_writer(&store, "zero", &events);
+    let store = refolded(store);
+    let base = parse_millis("2026-01-01T00:00:00Z").unwrap();
+    let now = base + 10_000;
+    let (from, to) = (base + 100, base + 1_000);
+    assert!(
+        parks_of("zero", None, &events, from, to, now).is_empty(),
+        "class 0 reaches nowhere"
+    );
+    assert_eq!(
+        window_parks(&store, from, to, now, None),
+        parks_of("zero", None, &events, from, to, now),
+        "a zero-reach park is in no window"
+    );
+}
+
 /// Every read's plan names its index and scans no projection whole.
 #[test]
 fn every_aggregate_read_is_indexed() {
@@ -799,10 +825,27 @@ fn every_aggregate_read_is_indexed() {
     assert_eq!(
         taken
             .iter()
-            .filter(|step| step.contains("event_index_park"))
+            .filter(|step| step.contains("SEARCH e USING INDEX event_index_park"))
             .count(),
         64,
-        "{taken:?}"
+        "each arm seeks the parks' index: {taken:?}"
+    );
+    assert_eq!(
+        taken
+            .iter()
+            .filter(|step| step.contains("SEARCH s USING INDEX"))
+            .count(),
+        64,
+        "each arm joins the run summary by its key: {taken:?}"
+    );
+    assert_eq!(
+        taken
+            .iter()
+            .filter(|step| step.starts_with("SCAN "))
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["SCAN parks"],
+        "only the materialized CTE is scanned: {taken:?}"
     );
     assert_eq!(
         taken
@@ -810,12 +853,6 @@ fn every_aggregate_read_is_indexed() {
             .filter(|step| step.contains("USE TEMP B-TREE FOR ORDER BY"))
             .count(),
         1,
-        "{taken:?}"
-    );
-    assert!(
-        !taken.iter().any(
-            |step| step.starts_with("SCAN run_summary") || step.starts_with("SCAN event_index")
-        ),
         "{taken:?}"
     );
 }
