@@ -132,6 +132,27 @@ pub(super) fn add_columns(conn: &Connection) -> Result<(), StoreError> {
     Ok(())
 }
 
+/// Does every index of the event index stand, the checkpoint-stale one
+/// with the `turn` predicate this build writes? One read of `sqlite_master`,
+/// as the presence check it replaces was, so a reader's statement count does
+/// not move. A journal from before `turn` keeps the old name and columns
+/// with a predicate that names no `turn`, and every read that forces the
+/// index refuses it: the open rebuilds the index and the walk writes the
+/// rows the older predicate hid (decision 0089 rulings 4 and 8).
+pub(super) fn indexes_intact(conn: &Connection) -> Result<bool, StoreError> {
+    let mut statement = conn
+        .prepare("SELECT name, sql FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL")?;
+    let found: BTreeMap<String, String> = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<Result<BTreeMap<_, _>, _>>()?;
+    Ok(super::INDEXES.iter().all(|name| found.contains_key(*name))
+        && found
+            .get("event_index_checkpoint_stale")
+            .is_some_and(|sql| sql.contains("turn IS NULL")))
+}
+
 /// The checkpoint facts in [`COLUMNS`]' order: the phase cut where it is
 /// stored, the cost and its word, the five token counts, whether it is one
 /// of its seat's turns, the session flag, and the mark that says they were

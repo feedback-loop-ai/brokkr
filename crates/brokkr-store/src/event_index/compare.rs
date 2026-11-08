@@ -137,6 +137,48 @@ fn behind(
     })
 }
 
+/// A row's markers that say its dated facts wait for the refold, read once
+/// for the row and named by the constants below: a park's `facts_seq` off
+/// its run's head, or a checkpoint's `facts`, `turn` or `repeat` not
+/// written (decision 0089 ruling 4).
+#[derive(Clone, Copy)]
+struct Markers([bool; 4]);
+
+impl Markers {
+    const STAMP: usize = 0;
+    const FACTS: usize = 1;
+    const TURN: usize = 2;
+    const REPEAT: usize = 3;
+
+    fn of(expected: &[(&'static str, Value)], row: &rusqlite::Row<'_>) -> Result<Self, StoreError> {
+        Ok(Self([
+            behind(expected, row, "facts_seq", Marker::Stamp)?,
+            behind(expected, row, "facts", Marker::Checkpoint)?,
+            behind(expected, row, "turn", Marker::Checkpoint)?,
+            behind(expected, row, "repeat", Marker::Checkpoint)?,
+        ]))
+    }
+
+    /// Whether any marker is behind: the row's dated facts wait for the
+    /// refold.
+    fn any(self) -> bool {
+        self.0.iter().any(|behind| *behind)
+    }
+
+    /// Whether a lagging row's `column` is left to the refold. A stamp off
+    /// its expected value is a park's off its head or a checkpoint's off
+    /// its own seq: either leaves both the park's and the checkpoint's
+    /// dated columns. Unwritten checkpoint facts leave the checkpoint's
+    /// alone, and an unwritten `turn` or `repeat` leaves that one column.
+    fn leaves(self, column: &&'static str) -> bool {
+        (self.0[Self::STAMP]
+            && (PARK_COLUMNS.contains(column) || CHECKPOINT_COLUMNS.contains(column)))
+            || (self.0[Self::FACTS] && CHECKPOINT_COLUMNS.contains(column))
+            || (self.0[Self::TURN] && *column == "turn")
+            || (self.0[Self::REPEAT] && *column == "repeat")
+    }
+}
+
 /// Where `row` parts from the row expected at `key`, each the next of
 /// its kind in key order. A row's key is SQLite's integer: one below
 /// zero, which no writer gives, stands before every key and is a stray,
@@ -165,25 +207,12 @@ fn parted(
             (found as u64, IndexFault::Stray)
         }));
     }
-    let stamp_behind = behind(expected, row, "facts_seq", Marker::Stamp)?;
-    let checkpoint_behind = behind(expected, row, "facts", Marker::Checkpoint)?;
-    let turn_behind = behind(expected, row, "turn", Marker::Checkpoint)?;
-    let repeat_behind = behind(expected, row, "repeat", Marker::Checkpoint)?;
-    if stamp_behind || checkpoint_behind || turn_behind || repeat_behind {
+    let markers = Markers::of(expected, row)?;
+    if markers.any() {
         *stale = true;
     }
-    // A stamp off its expected value is a park's off its head or a
-    // checkpoint's off its own seq: either leaves both the park's and the
-    // checkpoint's dated columns. Unwritten checkpoint facts leave the
-    // checkpoint's alone, and an unwritten `turn` or `repeat` leaves that
-    // one column.
     for (at, (column, value)) in expected.iter().enumerate() {
-        let left = (stamp_behind
-            && (PARK_COLUMNS.contains(column) || CHECKPOINT_COLUMNS.contains(column)))
-            || (checkpoint_behind && CHECKPOINT_COLUMNS.contains(column))
-            || (turn_behind && *column == "turn")
-            || (repeat_behind && *column == "repeat");
-        if left {
+        if markers.leaves(column) {
             continue;
         }
         if row.get_ref(at + 1)? != ValueRef::from(value) {

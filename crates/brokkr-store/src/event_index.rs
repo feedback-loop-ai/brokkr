@@ -346,15 +346,12 @@ fn parked(conn: &Connection) -> Result<bool, StoreError> {
     holds(conn, "event_index", PARK_COLUMNS)
 }
 
-/// Does this journal carry the table named by [`TABLE`], every column
-/// [`shaped`] asks, every index in [`INDEXES`] and every trigger in
-/// [`TRIGGERS`], and none of the checkpoint triggers
-/// [`checkpoint::RETIRED`] names? Both trigger questions are the one read
-/// of `sqlite_master`, so the steady-state open writes nothing.
+/// Does this journal carry its table, every column, every index and every
+/// trigger, the checkpoint-stale one with the predicate this build writes?
 pub(crate) fn index_intact(conn: &Connection) -> Result<bool, StoreError> {
     Ok(all_present(conn, "table", &TABLE)?
         && shaped(conn)?
-        && all_present(conn, "index", &INDEXES)?
+        && checkpoint::indexes_intact(conn)?
         && ordinal::intact(conn)?
         && all_present_and_none(conn, "trigger", &TRIGGERS, &checkpoint::RETIRED)?)
 }

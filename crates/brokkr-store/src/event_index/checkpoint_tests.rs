@@ -1691,6 +1691,22 @@ fn turned(store: &Store, run_id: &str, seq: u64) -> Value {
     crate::test_support::kept_facts(store, run_id, seq, &["turn"]).remove(0)
 }
 
+/// A run `r` of `implement` with one kept seat turn, its `turn` then
+/// NULLed as a build from before the column leaves it.
+fn a_nulled_turn(store: &mut Store) -> EventEnvelope {
+    opened(store, "r", "implement", &[]);
+    let event = append_checkpoint(store, json!({"step": "seat-turn"}));
+    assert_eq!(turned(store, "r", event.seq), Value::Integer(1));
+    store
+        .conn
+        .execute(
+            "UPDATE event_index SET turn = NULL WHERE run_id = 'r' AND seq = ?1",
+            params![event.seq as i64],
+        )
+        .unwrap();
+    event
+}
+
 /// A hand-built journal keeps a turn as 1, a checkpoint that is not a turn
 /// as 0, and a Claude session record that settles as 0, while its site's
 /// rule reads `Settled`: the turn and the session record are different
@@ -1782,16 +1798,7 @@ fn an_older_writer_s_checkpoint_lags_its_turn_until_the_next_open() {
 #[test]
 fn a_nulled_turn_is_backfilled_at_the_next_writable_open() {
     let (_dir, mut store) = store();
-    opened(&mut store, "r", "implement", &[]);
-    let event = append_checkpoint(&mut store, json!({"step": "seat-turn"}));
-    assert_eq!(turned(&store, "r", event.seq), Value::Integer(1));
-    store
-        .conn
-        .execute(
-            "UPDATE event_index SET turn = NULL WHERE run_id = 'r' AND seq = ?1",
-            params![event.seq as i64],
-        )
-        .unwrap();
+    let event = a_nulled_turn(&mut store);
     // The journal is still marked backfilled, as an older writer leaves it;
     // the walk finds the NULL row through its stale index and clears the
     // mark before it writes.
@@ -1804,6 +1811,27 @@ fn a_nulled_turn_is_backfilled_at_the_next_writable_open() {
             );
         })
         .unwrap();
+    assert!(backfilled(&store.conn).unwrap());
+    assert_eq!(turned(&store, "r", event.seq), Value::Integer(1));
+}
+
+/// A journal from before `turn` keeps the checkpoint-stale index under the
+/// same name and columns, its predicate naming no `turn`: the next writable
+/// open replaces the index and writes the turn it hid (rulings 4 and 8).
+#[test]
+fn a_stale_index_from_before_turn_is_repaired_before_the_walk_reads_it() {
+    let (_dir, mut store) = store();
+    let event = a_nulled_turn(&mut store);
+    let old = "DROP INDEX event_index_checkpoint_stale;
+         CREATE INDEX event_index_checkpoint_stale ON event_index (run_id)
+             WHERE type = 'effect/checkpointed'
+               AND (facts IS NULL OR repeat IS NULL OR facts_seq IS NOT seq);";
+    store.conn.execute_batch(old).unwrap();
+    assert!(backfilled(&store.conn).unwrap());
+    assert!(!index_intact(&store.conn).unwrap());
+    lags(&mut store, &["r"]);
+    let store = refolded(store);
+    assert!(index_intact(&store.conn).unwrap());
     assert!(backfilled(&store.conn).unwrap());
     assert_eq!(turned(&store, "r", event.seq), Value::Integer(1));
 }
