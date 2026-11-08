@@ -1,7 +1,7 @@
 //! The aggregate readouts' reads (decision 0089 ruling 7, slice 4): the
 //! window's runs and parks, the preceding window's count, the medians'
-//! duration pass, the runs behind their rows and the whole-journal realm
-//! list, each streamed one row at a time through a closure of plain values.
+//! duration pass and the runs behind their rows, each streamed one row at a
+//! time through a closure of plain values.
 //!
 //! The writer keeps the facts on `run_summary` and `event_index` (rulings
 //! 2 and 7); these reads visit them by the index each figure folds through,
@@ -25,7 +25,6 @@ use std::sync::LazyLock;
 
 use brokkr_core::ending::Ending;
 use brokkr_core::page::Lane;
-use brokkr_core::summary::{aggregate, Account};
 use rusqlite::types::{Value, ValueRef};
 use rusqlite::Connection;
 use rusqlite::{params, params_from_iter, Row, StatementStatus};
@@ -189,45 +188,6 @@ impl Store {
         self.window_parks_with(from, to, now, realm, visit, |_| {})
     }
 
-    /// Every run's stored realm key and whether its fold refused, in
-    /// creation order — the `runs` table's own, so a tie is the insertion
-    /// order and an unfolded row is not sorted by its NULL summary stamp.
-    /// A run behind its row is read whole here: only that read tells a
-    /// stale row from one whose chain no longer loads or whose fold now
-    /// refuses, which are today's unreadable count (ruling 8). The base
-    /// listing reads no run's events; only the behind rows do, and the
-    /// caller reads those whole anyway.
-    pub fn realm_runs(&self, mut visit: impl FnMut(Option<&str>, bool)) -> Result<(), StoreError> {
-        let mut statement = self.conn.prepare(REALM_RUNS)?;
-        let mut rows = statement.query([])?;
-        while let Some(row) = rows.next()? {
-            let run_id = required_text(row, 0)?;
-            let realm = optional_text(row, 1)?;
-            let refused = row.get::<_, i64>(2)? != 0;
-            let behind = required_text(row, 3)? == Lane::Behind.as_str();
-            if !behind {
-                visit(realm, refused);
-                continue;
-            }
-            let (read, unreadable) = self.whole_realm(run_id)?;
-            visit(realm.or(read.as_deref()), unreadable);
-        }
-        Ok(())
-    }
-
-    /// A behind row's realm and whether its whole read fails, as the
-    /// fleet reads it: a run that does not load, or that loads and does
-    /// not fold, is unreadable, and its realm is the one its events name
-    /// when the row has not folded it yet.
-    fn whole_realm(&self, run_id: &str) -> Result<(Option<String>, bool), StoreError> {
-        let Ok(events) = self.load(run_id) else {
-            return Ok((None, true));
-        };
-        let account = Account::whole(run_id, &events);
-        let read = aggregate(&events, account.state().ok());
-        Ok((read.realm, account.state().is_err()))
-    }
-
     /// [`Store::window_parks`] with the statement's VM steps handed to
     /// `stepped`, so the test that binds the ranges' cost measures the
     /// production statement itself.
@@ -331,15 +291,6 @@ static DURATIONS: LazyLock<String> = LazyLock::new(|| {
         behind = outside(Lane::Behind)
     )
 });
-
-/// The realm list and unreadable-run counts, in creation order: the
-/// `(created_at)` index's own scan of `runs`, whose rowid is the insertion
-/// order that breaks a tie as `list_runs` does, and each summary row by its
-/// id. A summary's `created_at` is NULL while its row is behind, so the
-/// order is the run's own and never the unfolded row's.
-const REALM_RUNS: &str = "SELECT s.run_id, s.realm, s.refusal_words IS NOT NULL, s.lane
-    FROM runs AS r JOIN run_summary AS s ON s.run_id = r.run_id
-    ORDER BY r.created_at, r.rowid";
 
 /// The runs a window reads: those that finished in it, less a behind row,
 /// and those still open, through the lane index. A stopping run is a

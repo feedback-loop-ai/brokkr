@@ -351,7 +351,6 @@ pub fn brokkr_store::Store::aggregates_ready(&self) -> core::result::Result<bool
 pub fn brokkr_store::Store::behind_runs(&self, impl core::ops::function::FnMut(&str)) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::durations(&self, i64, i64, core::option::Option<&str>, impl core::ops::function::FnMut(core::option::Option<&str>, i64)) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::finished_between(&self, i64, i64, core::option::Option<&str>) -> core::result::Result<u64, brokkr_store::StoreError>
-pub fn brokkr_store::Store::realm_runs(&self, impl core::ops::function::FnMut(core::option::Option<&str>, bool)) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::window_parks(&self, i64, i64, i64, core::option::Option<&str>, impl core::ops::function::FnMut(&brokkr_store::aggregate::WindowPark<'_>)) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::window_runs(&self, i64, i64, brokkr_store::aggregate::RunOrder, core::option::Option<&str>, impl core::ops::function::FnMut(&brokkr_store::aggregate::WindowRun<'_>)) -> core::result::Result<(), brokkr_store::StoreError>
 impl brokkr_store::Store

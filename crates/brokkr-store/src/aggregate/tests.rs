@@ -1,11 +1,11 @@
 //! The aggregate reads (decision 0089 ruling 7): the window's runs and
-//! parks, the preceding count, the medians' pass and the realm list, each
-//! held to brokkr-core's own reading over the same journal, each pinned to
-//! the index it folds through, and the parks' ranges held to the window
-//! alone by their VM steps.
+//! parks, the preceding count and the medians' pass, each held to
+//! brokkr-core's own reading over the same journal, each pinned to the index
+//! it folds through, and the parks' ranges held to the window alone by their
+//! VM steps.
 
 use brokkr_core::canonical::ZERO_HASH;
-use brokkr_core::ending::Ending;
+use brokkr_core::ending::{Ending, UnknownEnding};
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_core::fold::concluded;
 use brokkr_core::stamp::parse_millis;
@@ -194,15 +194,6 @@ fn window_parks(
     let mut rows = Vec::new();
     store
         .window_parks(from, to, now, realm, |row| rows.push(OwnedPark::of(row)))
-        .unwrap();
-    rows
-}
-
-/// Every realm row the read yields, owned, in its creation order.
-fn realm_rows(store: &Store) -> Vec<(Option<String>, bool)> {
-    let mut rows = Vec::new();
-    store
-        .realm_runs(|realm, unreadable| rows.push((realm.map(str::to_string), unreadable)))
         .unwrap();
     rows
 }
@@ -598,9 +589,6 @@ fn a_behind_run_is_not_counted_or_measured() {
         })
         .unwrap();
     assert!(spans.is_empty(), "{spans:?}");
-
-    // Behind its row but still readable, so the whole read is not counted.
-    assert_eq!(realm_rows(&store), [(Some("realm".to_string()), false)]);
 }
 
 /// The stored ending's word is read into decision 0064's twelve at the
@@ -621,109 +609,24 @@ fn an_ending_outside_the_twelve_is_refused_at_the_row() {
     let error = store
         .window_runs(0, i64::MAX, RunOrder::Unordered, None, |_| {})
         .unwrap_err();
-    assert!(matches!(error, StoreError::Sqlite(_)), "{error}");
-    assert!(error.to_string().contains("is not an ending"), "{error}");
-}
-
-/// The realm list keeps each run's creation order: a tie is the runs
-/// table's insertion order, not the covering index's realm, and a run
-/// whose summary never folded sorts by the run's stamp, not its NULL one.
-#[test]
-fn the_realm_list_keeps_each_runs_creation_order() {
-    let (_dir, store) = store();
-    let first = chain("first", Some("zeta"), 0, &parked_steps("implement"));
-    let second = chain("second", Some("alpha"), 10, &parked_steps("implement"));
-    plant_older_writer(&store, "first", &first);
-    plant_older_writer(&store, "second", &second);
-    // A broken chain created after both: its summary `created_at` is NULL
-    // because no fold ever wrote one.
-    let broken = EnvelopeBuilder::new(EventType::RunStarted, json!({"feature": "broken"}))
-        .run("broken")
-        .seq(1)
-        .event_id("broken-1")
-        .at("2026-01-01T00:00:50Z")
-        .sealed();
-    let broken_link = EnvelopeBuilder::new(EventType::PhaseEntered, json!({"phase": "implement"}))
-        .run("broken")
-        .seq(2)
-        .event_id("broken-2")
-        .at("2026-01-01T00:00:51Z")
-        .previous("not-the-hash")
-        .sealed();
-    plant_older_writer(&store, "broken", &[broken, broken_link]);
-    for (run_id, created_at) in [
-        ("first", "2026-01-01T00:00:01Z"),
-        ("second", "2026-01-01T00:00:01Z"),
-        ("broken", "2026-01-01T00:00:02Z"),
-    ] {
-        store
-            .conn
-            .execute(
-                "UPDATE runs SET created_at = ?1 WHERE run_id = ?2",
-                params![created_at, run_id],
-            )
-            .unwrap();
-    }
-    let store = refolded(store);
+    let StoreError::Sqlite(rusqlite::Error::FromSqlConversionFailure(column, kind, source)) =
+        &error
+    else {
+        panic!("not a conversion failure: {error:?}");
+    };
+    assert_eq!((*column, *kind), (6, rusqlite::types::Type::Text));
     assert_eq!(
-        realm_rows(&store),
-        [
-            (Some("zeta".to_string()), false),
-            (Some("alpha".to_string()), false),
-            (None, true),
-        ]
+        source.downcast_ref::<UnknownEnding>(),
+        Some(&UnknownEnding {
+            word: "running".to_string(),
+        })
     );
-}
-
-/// A run behind its row reads whole here: its fold's refusal and its
-/// unloadable chain are unreadable, a valid chain the row never folded is
-/// readable and names its realm.
-#[test]
-fn a_behind_row_reads_whole_for_the_unreadable_count() {
-    let (_dir, store) = store();
-    let folded = chain("folded", Some("realm"), 0, &parked_steps("implement"));
-    plant_older_writer(&store, "folded", &folded);
-    let store = refolded(store);
-
-    // A peer event the summary never folded: the whole fold now refuses.
-    let (seq, previous) = store.head_hash("folded").unwrap();
-    let peer = EnvelopeBuilder::new(EventType::PhaseEntered, json!({}))
-        .run("folded")
-        .seq(seq + 1)
-        .event_id("folded-peer")
-        .at("2026-01-01T00:00:09Z")
-        .previous(previous)
-        .sealed();
-    plant_envelope(&store.conn, &peer).unwrap();
-
-    // A broken chain no load reads.
-    let broken = EnvelopeBuilder::new(EventType::RunStarted, json!({"feature": "broken"}))
-        .run("broken")
-        .seq(1)
-        .event_id("broken-1")
-        .at("2026-01-01T00:00:10Z")
-        .sealed();
-    let broken_link = EnvelopeBuilder::new(EventType::PhaseEntered, json!({"phase": "implement"}))
-        .run("broken")
-        .seq(2)
-        .event_id("broken-2")
-        .at("2026-01-01T00:00:11Z")
-        .previous("not-the-hash")
-        .sealed();
-    plant_older_writer(&store, "broken", &[broken, broken_link]);
-
-    // A valid run the row never folded: its stored realm is NULL and its
-    // events name one.
-    let unfolded = chain("unfolded", Some("named"), 20, &parked_steps("implement"));
-    plant_older_writer(&store, "unfolded", &unfolded);
-
     assert_eq!(
-        realm_rows(&store),
-        [
-            (Some("realm".to_string()), true),
-            (None, true),
-            (Some("named".to_string()), false),
-        ]
+        error.to_string(),
+        "sqlite: Conversion error from type Text at index: 6, 'running' is not an ending; an \
+         ending is one of shipped, shipped-flagged, refused, failed, blocked, exhausted, \
+         superseded, infrastructure, delivered-elsewhere, withdrawn, operator-stopped, \
+         unclassified"
     );
 }
 
@@ -913,19 +816,6 @@ fn every_aggregate_read_is_indexed() {
         !taken.iter().any(
             |step| step.starts_with("SCAN run_summary") || step.starts_with("SCAN event_index")
         ),
-        "{taken:?}"
-    );
-    let taken = explain(&store, REALM_RUNS, []);
-    assert!(
-        taken
-            .iter()
-            .any(|step| step.contains("USING INDEX runs_created_at")),
-        "{taken:?}"
-    );
-    assert!(
-        !taken
-            .iter()
-            .any(|step| step.starts_with("SCAN run_summary")),
         "{taken:?}"
     );
 }
