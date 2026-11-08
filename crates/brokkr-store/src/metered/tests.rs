@@ -595,13 +595,15 @@ fn refold(dir: &tempfile::TempDir) -> Store {
     store
 }
 
-/// The three runs the order test folds: two sites of one run, and one of
-/// another, cut keys chosen so every order is a different sequence.
+/// The four runs the order test folds: two sites of one run, one of another,
+/// and one whose run named no realm. The realms, recipes and providers are
+/// chosen so every order is a different sequence, and so the realm-first
+/// orders disagree with a provider-first or recipe-first one.
 fn ordered_journal() -> Vec<Journal> {
     let mut one = Journal::new("r1");
-    one.started_recipe("2026-01-01T00:00:00Z", Some("alpha"), Some("zzz"));
+    one.started_recipe("2026-01-01T00:00:00Z", Some("zeta"), Some("aaa"));
     one.phase("2026-01-01T00:00:01Z", "implement");
-    one.effect("2026-01-01T00:00:02Z", "f1", "a1", "gamma");
+    one.effect("2026-01-01T00:00:02Z", "f1", "a1", "alpha");
     one.checkpoint(
         "2026-01-01T00:00:03Z",
         "f1",
@@ -609,7 +611,7 @@ fn ordered_journal() -> Vec<Journal> {
         json!({"step": "seat-turn", "model": "model-a", "input_tokens": 1,
                "total_cost_usd": 0.1}),
     );
-    one.effect("2026-01-01T00:00:04Z", "f2", "a2", "beta");
+    one.effect("2026-01-01T00:00:04Z", "f2", "a2", "mid");
     one.checkpoint(
         "2026-01-01T00:00:05Z",
         "f2",
@@ -618,9 +620,9 @@ fn ordered_journal() -> Vec<Journal> {
                "total_cost_usd": 0.2}),
     );
     let mut two = Journal::new("r2");
-    two.started_recipe("2026-01-01T00:00:00Z", Some("alpha"), Some("aaa"));
+    two.started_recipe("2026-01-01T00:00:00Z", Some("alpha"), Some("zzz"));
     two.phase("2026-01-01T00:00:01Z", "implement");
-    two.effect("2026-01-01T00:00:06Z", "f3", "a3", "delta");
+    two.effect("2026-01-01T00:00:06Z", "f3", "a3", "zeta");
     two.checkpoint(
         "2026-01-01T00:00:07Z",
         "f3",
@@ -628,32 +630,64 @@ fn ordered_journal() -> Vec<Journal> {
         json!({"step": "seat-turn", "model": "model-c", "input_tokens": 3,
                "total_cost_usd": 0.3}),
     );
-    vec![one, two]
+    let mut none = Journal::new("r3");
+    none.started_recipe("2026-01-01T00:00:00Z", None, None);
+    none.phase("2026-01-01T00:00:01Z", "implement");
+    none.effect("2026-01-01T00:00:08Z", "f4", "a4", "null-provider");
+    none.checkpoint(
+        "2026-01-01T00:00:09Z",
+        "f4",
+        "a4",
+        json!({"step": "seat-turn", "model": "model-d", "input_tokens": 4,
+               "total_cost_usd": 0.4}),
+    );
+    vec![one, two, none]
 }
 
 /// Each order is its cut key's order, then the run and the site; a site
-/// that both started and metered in the window is yielded once.
+/// that both started and metered in the window is yielded once. A NULL realm
+/// sorts before every named one, as the stored key's order does.
 #[test]
 fn each_order_is_its_key_order_and_each_site_appears_once() {
     let (_dir, store) = plant_runs(ordered_journal());
     let from = ms("2026-01-01T00:00:00Z");
-    let to = ms("2026-01-01T00:00:08Z");
+    let to = ms("2026-01-01T00:00:10Z");
     let expected = [
         (
             SiteOrder::Model,
-            [("r1", "gamma"), ("r1", "beta"), ("r2", "delta")],
+            [
+                ("r1", "alpha"),
+                ("r1", "mid"),
+                ("r2", "zeta"),
+                ("r3", "null-provider"),
+            ],
         ),
         (
             SiteOrder::Provider,
-            [("r1", "beta"), ("r2", "delta"), ("r1", "gamma")],
+            [
+                ("r1", "alpha"),
+                ("r1", "mid"),
+                ("r3", "null-provider"),
+                ("r2", "zeta"),
+            ],
         ),
         (
             SiteOrder::RealmProvider,
-            [("r1", "beta"), ("r2", "delta"), ("r1", "gamma")],
+            [
+                ("r3", "null-provider"),
+                ("r2", "zeta"),
+                ("r1", "alpha"),
+                ("r1", "mid"),
+            ],
         ),
         (
             SiteOrder::RecipeProvider,
-            [("r2", "delta"), ("r1", "beta"), ("r1", "gamma")],
+            [
+                ("r3", "null-provider"),
+                ("r2", "zeta"),
+                ("r1", "alpha"),
+                ("r1", "mid"),
+            ],
         ),
     ];
     for (order, sequence) in expected {
@@ -736,6 +770,71 @@ fn a_realm_narrows_both_reads() {
     }
 }
 
+/// A lagging run is left to the whole-run fallback: while its summary row
+/// sits behind its head, neither indexed read emits one of its sites or
+/// spends, so a caller that reads that run whole counts them once
+/// (decision 0089 ruling 8).
+#[test]
+fn a_lagging_run_is_left_to_the_whole_run_fallback() {
+    let mut journal = Journal::new("lagging");
+    journal.started("2026-01-01T00:00:00Z", Some("alpha"));
+    journal.phase("2026-01-01T00:00:01Z", "implement");
+    journal.effect("2026-01-01T00:00:10Z", "fx", "a", "alpha");
+    journal.checkpoint(
+        "2026-01-01T00:00:20Z",
+        "fx",
+        "a",
+        json!({"step": "seat-turn", "input_tokens": 10, "total_cost_usd": 0.5}),
+    );
+    let (dir, mut store, _) = journal.plant();
+    store
+        .conn
+        .execute(
+            "UPDATE run_summary SET aggregated_seq = 0 WHERE run_id = 'lagging'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(
+        crate::test_support::lane(&store, "lagging").as_deref(),
+        Some("behind")
+    );
+    // A writable open refolds the behind lane; a read-only one preserves
+    // the lag the caller must fall back on.
+    crate::test_support::lags(&mut store, &["lagging"]);
+    let path = dir.path().join("forge.db");
+    drop(store);
+    let reader = Store::open_read_only(&path).unwrap();
+    let from = ms("2026-01-01T00:00:00Z");
+    let to = ms("2026-01-01T00:01:00Z");
+
+    let mut spends = Vec::new();
+    reader
+        .window_spends(from, to, None, |spend| {
+            spends.push(spend.run_id.to_string())
+        })
+        .unwrap();
+    assert_eq!(
+        spends,
+        Vec::<String>::new(),
+        "a lagging spend is whole-read"
+    );
+
+    for order in [
+        SiteOrder::Model,
+        SiteOrder::Provider,
+        SiteOrder::RealmProvider,
+        SiteOrder::RecipeProvider,
+    ] {
+        let mut sites = Vec::new();
+        reader
+            .window_sites(from, to, None, order, |site| {
+                sites.push(site.run_id.to_string())
+            })
+            .unwrap();
+        assert_eq!(sites, Vec::<String>::new(), "{order:?}: a lagging site");
+    }
+}
+
 /// Every read's plan names its index and scans no projection whole.
 #[test]
 fn the_plans_name_the_indexes_and_scan_no_projection() {
@@ -795,12 +894,15 @@ const DAY: i64 = 24 * 60 * 60 * 1_000;
 const FROM: i64 = 1_767_225_600_000;
 const TO: i64 = FROM + 60_000;
 
-/// A `run_summary` row in the running lane, its aggregates current.
+/// A `run_summary` row in the running lane, its aggregates and stamps
+/// current, as the writer leaves it: every stamp equals the folded seq, so
+/// the lane admits the row to the indexed reads.
 fn plant_run(conn: &rusqlite::Connection, run_id: &str, realm: &str) {
     conn.execute(
         "INSERT INTO run_summary
-            (run_id, head_seq, head_hash, folded_seq, folded_hash, status, realm, recipe)
-         VALUES (?1, 0, 'h', 0, 'h', 'running', ?2, 'one')",
+            (run_id, head_seq, head_hash, folded_seq, folded_hash, status, realm, recipe,
+             aggregated_seq, stop_folded_seq, ending_folded_seq)
+         VALUES (?1, 0, 'h', 0, 'h', 'running', ?2, 'one', 0, 0, 0)",
         rusqlite::params![run_id, realm],
     )
     .unwrap();

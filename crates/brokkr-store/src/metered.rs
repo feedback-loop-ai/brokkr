@@ -14,6 +14,11 @@
 //! it, sorted once by the figure's cut keys so the caller folds one site at
 //! a time and holds nothing of the window's other sites.
 //!
+//! A run whose summary row sits behind its head is in neither read: its
+//! rows are older than the head it stands at, so the caller reads that run
+//! whole instead (decision 0089 ruling 8). U4 combines the two, and a
+//! behind run seen here as well would count its sites and costs twice.
+//!
 //! A site's in-window facts are folded while the stream passes them, never
 //! collected: `reported` is whether any in-window checkpoint reported a
 //! cost, and `usage` is brokkr-core's [`counted`] over each in-window
@@ -98,8 +103,9 @@ impl Store {
     /// The costs a window reads (ruling 7): every checkpoint row in
     /// `[from, to)` that carries a `usd`, through the checkpoint index, its
     /// run's realm key joined by the run's key. A checkpoint no site names
-    /// reports here as it does whole: its cost counts. `realm` narrows to
-    /// one stored realm key where given.
+    /// reports here as it does whole: its cost counts. A run behind its
+    /// summary row is left whole to the caller (ruling 8). `realm` narrows
+    /// to one stored realm key where given.
     pub fn window_spends(
         &self,
         from: i64,
@@ -142,7 +148,8 @@ impl Store {
     /// `[from, to)`, through the started index, or that has a checkpoint
     /// in it, through the checkpoint index and its site's key. Each site is
     /// yielded once, in `order`, with its in-window facts folded as the
-    /// stream passes them. `realm` narrows to one stored realm key where
+    /// stream passes them. A run behind its summary row is left whole to
+    /// the caller (ruling 8). `realm` narrows to one stored realm key where
     /// given.
     pub fn window_sites(
         &self,
@@ -236,12 +243,14 @@ fn bounds(from: i64, to: i64, realm: Option<&str>) -> [Value; 3] {
 }
 
 /// The spends' one statement: the checkpoint index's range, each row's run
-/// joined by its key, a row no cost reported left out.
+/// joined by its key, a row no cost reported left out, and a run behind its
+/// summary row left whole (ruling 8).
 const SPENDS: &str = "SELECT e.run_id, r.realm, e.at_ms, e.phase, e.usd
     FROM event_index AS e INDEXED BY event_index_checkpoint
     JOIN run_summary AS r ON r.run_id = e.run_id
    WHERE e.type = 'effect/checkpointed' AND e.at_ms >= ?1 AND e.at_ms < ?2
-     AND e.usd IS NOT NULL AND (?3 IS NULL OR r.realm = ?3)";
+     AND e.usd IS NOT NULL AND r.lane <> 'behind'
+     AND (?3 IS NULL OR r.realm = ?3)";
 
 /// The sites' statements, one per order: the started set and the metered
 /// set as one `UNION ALL`, each site's in-window checkpoints beside it,
@@ -275,9 +284,11 @@ fn sites_sql(order: SiteOrder) -> &'static str {
 /// The metered arm reads the checkpoint index's one range and finds each
 /// checkpoint's site through the site index, the greatest start below its
 /// seq, exactly as `site_of_checkpoint` does; the site's row is joined by
-/// its key. The started arm reads the started index's range. A run's open
-/// lane is the one the fleet lists (a stopping run is still open); the
-/// realm filter is on the run's stored key, as the run reads' is.
+/// its key. The started arm reads the started index's range. A run behind
+/// its summary row is in neither arm (ruling 8): the caller reads it whole.
+/// A run's open lane is the one the fleet lists (a stopping run is still
+/// open); the realm filter is on the run's stored key, as the run reads'
+/// is.
 fn sites_statement(order: &str) -> String {
     format!(
         "WITH metered AS (
@@ -314,7 +325,7 @@ fn sites_statement(order: &str) -> String {
           FROM metered AS w
           JOIN run_summary AS r ON r.run_id = w.run_id
           JOIN seat_summary AS s ON s.run_id = w.run_id AND s.opened = w.opened
-         WHERE (?3 IS NULL OR r.realm = ?3)
+         WHERE r.lane <> 'behind' AND (?3 IS NULL OR r.realm = ?3)
         UNION ALL
         SELECT s.run_id, s.opened, r.realm, r.recipe,
                (r.lane IN ('running', 'parked', 'stopping')), r.finished_ms,
@@ -323,7 +334,7 @@ fn sites_statement(order: &str) -> String {
           FROM seat_summary AS s INDEXED BY seat_summary_started
           JOIN run_summary AS r ON r.run_id = s.run_id
          WHERE s.site IS NOT NULL AND s.started_ms >= ?1 AND s.started_ms < ?2
-           AND (?3 IS NULL OR r.realm = ?3)
+           AND r.lane <> 'behind' AND (?3 IS NULL OR r.realm = ?3)
         {order}"
     )
 }
