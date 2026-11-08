@@ -57,31 +57,28 @@ fn metadata() -> Metadata {
     serde_json::from_slice(&output.stdout).expect("cargo metadata is JSON")
 }
 
-/// A stand-in for `cargo`: `metadata` prints the planted metadata; every
-/// other call is recorded, and a shard's call prints one libtest summary,
-/// records `start`/`end` for interleaving, records the machine and bound it
-/// inherited, and records how a raised SIGINT ends a child shell.
-/// `STUB_FAIL` fails the shard, `STUB_EMPTY` runs no test, `STUB_PLANT`
-/// prints `STUB_LINES` instead of its summary, `STUB_KILL` kills its runner
-/// and waits for `release`, and `STUB_RECORD` writes a status record then
-/// kills its runner.
+/// A stand-in for `cargo`: `metadata` prints the planted metadata; every other
+/// call is recorded, and a shard's call prints one libtest summary, records
+/// `start`/`end` for interleaving, records the machine and bound it inherited,
+/// and records how a raised SIGINT ends a child shell. `STUB_FAIL` fails the
+/// shard, `STUB_EMPTY` runs no test, `STUB_PLANT` prints `STUB_LINES` instead
+/// of its summary, `STUB_KILL` kills its runner and waits for `release`, and
+/// `STUB_RECORD` writes a status record then kills its runner.
 ///
-/// `dep` copies a real executable into a directory named `deps`, so the
-/// kernel reports the copy (never a script's interpreter) as the executable
-/// and the runner finds it by `/proc` or `ps`. Every copy's script ends in
-/// the builtin `:`, so no shell runs its last command by exec in its own
-/// place: macOS's `/bin/sh` does, and the copy would then be a `sleep`
-/// outside `deps` before the runner first saw it. `STUB_HANG` runs
-/// `hang-0123abcd` past the bound, `STUB_QUIET_HANG` with no start line,
-/// `STUB_DOCTEST_HANG` runs `rustdoc --test`, `STUB_SLOW`/`STUB_PAIR` stay
-/// under it, `STUB_TAIL` prints a result then lives past the bound,
-/// `STUB_LEAK` leaves a `deps` binary alive past the bound after argv itself
-/// exits, `STUB_CARGO_TAIL` sleeps after every deps binary is gone,
-/// `STUB_STOPPED` leaves a stopped `/bin/sleep` helper outside `deps`,
-/// `STUB_LATE`/`STUB_LATE_PROGRESS` print a result
-/// at or after it, `STUB_CHATTY` keeps printing, `STUB_PARENS` has a deps
-/// path with parentheses, `STUB_UNWRITABLE` makes the bound record path a
-/// directory, and `STUB_LEAVE` leaves a sleeping member in the group.
+/// `dep` copies a real executable into a directory named `deps`, so the kernel
+/// reports the copy (never a script's interpreter) as the executable and the
+/// runner finds it by `/proc` or `ps`. Each copy's script ends in `:`, since a
+/// shell that execs its last command (macOS's `/bin/sh`) would leave `deps`
+/// unseen. `STUB_HANG` runs `hang-0123abcd` past the bound, `STUB_QUIET_HANG`
+/// with no start line, `STUB_DOCTEST_HANG` runs `rustdoc --test`,
+/// `STUB_SLOW`/`STUB_PAIR` stay under it, `STUB_TAIL` prints a result then
+/// lives past the bound, `STUB_LEAK` leaves a `deps` binary alive past the
+/// bound after argv itself exits, `STUB_CARGO_TAIL` sleeps after every deps
+/// binary is gone, `STUB_STOPPED` leaves a stopped `/bin/sleep` helper outside
+/// `deps`, `STUB_LATE`/`STUB_LATE_PROGRESS` print a result at or after it,
+/// `STUB_CHATTY` keeps printing, `STUB_PARENS` has a deps path with
+/// parentheses, `STUB_UNWRITABLE` makes the bound record path a directory, and
+/// `STUB_LEAVE` leaves a sleeping member in the group.
 const STUB: &str = r#"#!/usr/bin/env bash
 dir="$STUB_DIR"
 deps_dir="$dir/target/debug/deps"
