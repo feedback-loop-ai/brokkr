@@ -45,6 +45,22 @@ fn a_token_count_is_added_only_where_one_was_reported_and_saturates() {
     assert_eq!(total, Some(u64::MAX));
 }
 
+/// Whether a checkpoint is one of its seat's turns is its step's reading
+/// alone: the two turn steps say so, every other step, a finishing session
+/// record included, does not (decision 0089 ruling 7).
+#[test]
+fn a_turn_is_read_from_its_step_alone() {
+    for (step, turn) in [
+        ("seat-turn", true),
+        ("turn-completed", true),
+        ("tool-use", false),
+        ("claude-code-session-finished", false),
+        ("not-a-step", false),
+    ] {
+        assert_eq!(checkpoint(step, json!({})).turn(), turn, "{step}");
+    }
+}
+
 /// The total is input + output made again, never read; any one figure
 /// alone keeps the record, and none at all is no record.
 #[test]

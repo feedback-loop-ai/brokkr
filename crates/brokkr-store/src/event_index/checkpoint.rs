@@ -1,9 +1,9 @@
 //! The checkpoints' dated facts (decision 0089 ruling 7): each
 //! `effect/checkpointed` row keeps its time, the run's phase, the cost the
-//! record reported or none, the five token counts, whether it is its
-//! participant's last finishing session record, and whether its turn
-//! repeats its site's last message, with the mark that says they were
-//! written. The facts are
+//! record reported or none, the five token counts, whether it is one of its
+//! seat's turns, whether it is its participant's last finishing session
+//! record, and whether its turn repeats its site's last message, with the
+//! mark that says they were written. The facts are
 //! brokkr-core's one reading, so the writer, the backfill and ruling 4's
 //! comparison derive them one way (decision 0071 ruling 5).
 //!
@@ -58,10 +58,12 @@ pub(super) const RETIRED: [&str; 2] = [
 
 /// The checkpoint facts' columns, in the order [`facts`] gives them: the
 /// time, the run's phase, the cost and whether it was reported, the five
-/// token counts, whether it is its site's session record, and the mark that
-/// the row's facts were written at all. Each is NULL on a row that is not a
-/// checkpoint.
-pub(super) const COLUMNS: [&str; 12] = [
+/// token counts, whether it is one of its seat's turns, whether it is its
+/// site's session record, and the mark that the row's facts were written at
+/// all. Each is NULL on a row that is not a checkpoint; `turn` is NULL on a
+/// row a writer from before it left, and a lag until the next writable open
+/// writes it (decision 0089 rulings 4 and 7).
+pub(super) const COLUMNS: [&str; 13] = [
     "at_ms",
     "phase",
     "usd",
@@ -72,6 +74,7 @@ pub(super) const COLUMNS: [&str; 12] = [
     "cache_write_tokens",
     "reasoning_output_tokens",
     "session",
+    "turn",
     "repeat",
     "facts",
 ];
@@ -129,21 +132,44 @@ pub(super) fn add_columns(conn: &Connection) -> Result<(), StoreError> {
     Ok(())
 }
 
+/// Does every index of the event index stand, the checkpoint-stale one
+/// with the `turn` predicate this build writes? One read of `sqlite_master`,
+/// as the presence check it replaces was, so a reader's statement count does
+/// not move. A journal from before `turn` keeps the old name and columns
+/// with a predicate that names no `turn`, and every read that forces the
+/// index refuses it: the open rebuilds the index and the walk writes the
+/// rows the older predicate hid (decision 0089 rulings 4 and 8).
+pub(super) fn indexes_intact(conn: &Connection) -> Result<bool, StoreError> {
+    let mut statement = conn
+        .prepare("SELECT name, sql FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL")?;
+    let found: BTreeMap<String, String> = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<Result<BTreeMap<_, _>, _>>()?;
+    Ok(super::INDEXES.iter().all(|name| found.contains_key(*name))
+        && found
+            .get("event_index_checkpoint_stale")
+            .is_some_and(|sql| sql.contains("turn IS NULL")))
+}
+
 /// The checkpoint facts in [`COLUMNS`]' order: the phase cut where it is
-/// stored, the cost and its word, the five token counts, the session flag,
-/// and the mark that says they were written. `None` is a checkpoint row core
-/// read no facts for, whose stamp did not parse or which named no attempt:
-/// it keeps no facts, but the mark is still written, so the row is
-/// processed and a later open does not read its run for it again. The
-/// writer's positional row and the comparison's named row take both from
-/// here, so the cut has one home. A token count past the signed 64-bit
-/// integer SQLite keeps is refused by name, never wrapped into a negative
-/// fact (decision 0089 ruling 7).
+/// stored, the cost and its word, the five token counts, whether it is one
+/// of its seat's turns, the session flag, and the mark that says they were
+/// written. `None` is a checkpoint row core read no facts for, whose stamp
+/// did not parse or which named no attempt: it keeps no facts, but it is
+/// still marked processed with no turn and no repeat, so a later open does
+/// not read its run for it again. The writer's positional row and the
+/// comparison's named row take both from here, so the cut has one home. A
+/// token count past the signed 64-bit integer SQLite keeps is refused by
+/// name, never wrapped into a negative fact (decision 0089 ruling 7).
 pub(super) fn facts(checkpoint: Option<&Checkpoint>) -> Result<[Value; COLUMNS.len()], StoreError> {
     let Some(checkpoint) = checkpoint else {
         let mut values: [Value; COLUMNS.len()] = std::array::from_fn(|_| Value::Null);
         // A checkpoint core read no facts for is still processed: it keeps
-        // no repeated turn, and its facts marker says it was written.
+        // no turn and no repeated turn, and its facts marker says it was
+        // written.
+        values[COLUMNS.len() - 3] = Value::Integer(0);
         values[COLUMNS.len() - 2] = Value::Integer(0);
         values[COLUMNS.len() - 1] = Value::Integer(1);
         return Ok(values);
@@ -179,6 +205,7 @@ pub(super) fn facts(checkpoint: Option<&Checkpoint>) -> Result<[Value; COLUMNS.l
             usage.and_then(|usage| usage.reasoning_output_tokens),
         )?,
         Value::Integer(i64::from(checkpoint.session)),
+        Value::Integer(i64::from(checkpoint.meter.turn())),
         checkpoint
             .repeat
             .map_or(Value::Null, |repeat| Value::Integer(i64::from(repeat))),
@@ -414,7 +441,7 @@ static BEHIND: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT seq, attempt_id, member FROM event_index INDEXED BY event_index_checkpoint_stale
          WHERE run_id = ?1 AND type = '{CHECKPOINTED}'
-           AND (facts IS NULL OR repeat IS NULL OR facts_seq IS NOT seq)"
+           AND (facts IS NULL OR turn IS NULL OR repeat IS NULL OR facts_seq IS NOT seq)"
     )
 });
 
@@ -424,7 +451,7 @@ static UNWRITTEN: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT EXISTS (SELECT 1 FROM event_index INDEXED BY event_index_checkpoint_stale
          WHERE run_id = ?1 AND type = '{CHECKPOINTED}'
-           AND (facts IS NULL OR repeat IS NULL))"
+           AND (facts IS NULL OR turn IS NULL OR repeat IS NULL))"
     )
 });
 
@@ -586,7 +613,7 @@ fn stale(after: bool) -> String {
     format!(
         "SELECT run_id FROM event_index INDEXED BY event_index_checkpoint_stale
          WHERE type = '{CHECKPOINTED}'
-           AND (facts IS NULL OR repeat IS NULL OR facts_seq IS NOT seq) {cursor}
+           AND (facts IS NULL OR turn IS NULL OR repeat IS NULL OR facts_seq IS NOT seq) {cursor}
          ORDER BY run_id LIMIT 1"
     )
 }

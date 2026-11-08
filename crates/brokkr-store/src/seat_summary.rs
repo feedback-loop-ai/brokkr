@@ -78,9 +78,10 @@ const BACKFILLED: &str = "seat_summary_backfill";
 
 const TABLES: [&str; 2] = ["seat_summary", "seat_head"];
 
-/// The index the aggregates read a window's seats by (decision 0089
-/// ruling 7).
-const INDEXES: [&str; 1] = ["seat_summary_started"];
+/// The indexes the aggregates read through (decision 0089 ruling 7): a
+/// window's seats by `(started_ms)`, and a checkpoint's site row by the
+/// site's own key.
+const INDEXES: [&str; 2] = ["seat_summary_started", "seat_summary_site"];
 
 /// A row's columns after its key as the table declares them, each its
 /// name and its type, comma-joined.
@@ -123,7 +124,11 @@ fn migration() -> String {
             run_id TEXT PRIMARY KEY, folded_seq INTEGER NOT NULL, folded_hash TEXT NOT NULL,
             shape TEXT
         ) WITHOUT ROWID;
-        CREATE INDEX seat_summary_started ON seat_summary (started_ms);
+        CREATE INDEX seat_summary_started ON seat_summary (started_ms)
+            WHERE site IS NOT NULL;
+        CREATE INDEX seat_summary_site
+            ON seat_summary (run_id, attempt_id, member, started_seq)
+            WHERE site IS NOT NULL;
         DELETE FROM meta WHERE key = '{BACKFILLED}';",
         declared()
     )

@@ -386,22 +386,25 @@ fn each_append_keeps_the_checkpoint_its_record_states() {
             Value::Integer(2),
             Value::Null,
             Value::Integer(0),
+            Value::Integer(1),
             Value::Integer(0),
             Value::Integer(1),
         ]
     );
-    // A checkpoint reporting nothing keeps no cost and no tokens, and its
-    // session flag is written as 0, not left NULL.
+    // A checkpoint reporting nothing keeps no cost and no tokens, its turn
+    // is 0 where it is not one, and its session flag is written as 0, not
+    // left NULL.
     let bare = checkpointed_row(&mut store, json!({"step": "tool-use"}));
     assert_eq!(bare[2..4], [Value::Null, Value::Integer(0)]);
     assert_eq!(
-        bare[4..10],
+        bare[4..11],
         [
             Value::Null,
             Value::Null,
             Value::Null,
             Value::Null,
             Value::Null,
+            Value::Integer(0),
             Value::Integer(0)
         ]
     );
@@ -484,6 +487,10 @@ fn every_fixture_keeps_what_the_checkpoints_read() {
     let fixtures = crate::test_support::planted_fixtures(&store);
     store.checkpoint_behind_with(|_| {}).unwrap();
     let mut wrong = Vec::new();
+    let turn_at = COLUMNS
+        .iter()
+        .position(|column| *column == "turn")
+        .expect("the turn column");
     for (run_id, events) in fixtures {
         let account = Account::whole(&run_id, &events);
         let found = crate::test_support::indexed_seqs(&store, &run_id, "effect/checkpointed");
@@ -499,6 +506,13 @@ fn every_fixture_keeps_what_the_checkpoints_read() {
                 .checkpoint(*seq)
                 .expect("a checkpoint row has facts");
             let row = kept(&store, &run_id, checkpoint.seq);
+            let turn = Value::Integer(i64::from(checkpoint.meter.turn()));
+            if row[turn_at] != turn {
+                wrong.push(format!(
+                    "{run_id}: checkpoint {} turn {:?}, read {turn:?}",
+                    checkpoint.seq, row[turn_at]
+                ));
+            }
             let mut want = super::checkpoint::facts(Some(checkpoint)).unwrap().to_vec();
             if let Some(phase) = checkpoint.phase.as_deref() {
                 want[1] = text(&Bounded::within(phase, NAME_BYTES).cut);
@@ -537,6 +551,7 @@ fn a_fixture_checkpoint_keeps_the_facts_its_record_states() {
             Value::Null,
             Value::Null,
             Value::Integer(1),
+            Value::Integer(0),
             Value::Integer(0),
             Value::Integer(1),
         ]
@@ -756,7 +771,7 @@ fn an_older_writer_s_second_session_record_moves_the_first_flag() {
     let second = finishing_after(&first, "r-older", "2026-01-01T00:00:09Z");
     plant_envelope(&store.conn, &second).unwrap();
     assert_eq!(session(&store, first.seq), Value::Integer(1));
-    assert_eq!(kept(&store, "r", second.seq)[11], Value::Null);
+    assert_eq!(kept(&store, "r", second.seq)[12], Value::Null);
     assert_eq!(stamped(&store, "r", first.seq), Value::Null);
     assert_eq!(stamped(&store, "r", second.seq), Value::Null);
     before_open(&mut store, second.seq, Value::Null);
@@ -841,7 +856,7 @@ fn a_checkpoint_with_no_attempt_is_stamped_without_a_site() {
 #[test]
 fn the_session_and_row_sends_search_their_indexes() {
     let (_dir, store) = store();
-    let bound = rusqlite::params_from_iter(std::iter::repeat_n(Value::Null, 15));
+    let bound = rusqlite::params_from_iter(std::iter::repeat_n(Value::Null, 16));
     assert_eq!(
         crate::test_support::plan(&store, &WRITE, bound).unwrap(),
         ["SEARCH event_index USING PRIMARY KEY (run_id=? AND seq=?)"]
@@ -1087,7 +1102,7 @@ fn restoring_the_checkpoint_trigger_sends_the_facts_it_missed_behind() {
     // behind, and the open's repair finds the trigger missing.
     plant_envelope(&store.conn, &second).unwrap();
     assert_eq!(kept(&store, "r", first.seq)[9], Value::Integer(1));
-    assert_eq!(kept(&store, "r", second.seq)[11], Value::Null);
+    assert_eq!(kept(&store, "r", second.seq)[12], Value::Null);
     lags(&mut store, &["r"]);
     let store = refolded(store);
     assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
@@ -1175,6 +1190,7 @@ fn an_append_with_no_carried_account_keeps_its_facts_and_moves_the_session() {
             Value::Null,
             Value::Null,
             Value::Integer(1),
+            Value::Integer(0),
             Value::Null,
             Value::Integer(1),
         ]
@@ -1262,7 +1278,7 @@ fn a_facts_marker_a_writer_did_not_write_is_named_not_skipped() {
 /// its dated ones for the refold that writes them (decision 0089 ruling 4).
 #[test]
 fn a_checkpoint_marker_off_its_fold_is_a_lag_not_a_disagreement() {
-    for column in ["facts", "facts_seq", "repeat"] {
+    for column in ["facts", "facts_seq", "turn", "repeat"] {
         let (_dir, mut store) = store();
         let (event, _held) = one_kept(&mut store, json!({"step": "seat-turn"}));
         let edit =
@@ -1467,7 +1483,7 @@ fn an_oversized_legacy_checkpoint_does_not_block_the_journal() {
     drop(store);
     let store = Store::open(&path).unwrap();
     assert!(!backfilled(&store.conn).unwrap());
-    assert_eq!(kept(&store, "healthy", healthy.seq)[11], Value::Integer(1));
+    assert_eq!(kept(&store, "healthy", healthy.seq)[12], Value::Integer(1));
 }
 
 /// A run a peer moves while the checkpoint backfill reads it is left for
@@ -1507,7 +1523,7 @@ fn a_backfill_whose_head_moved_stays_unfinished() {
         })
         .unwrap();
     let store = unfinished_then_backfilled(store, moved);
-    assert_eq!(kept(&store, "r", first.seq)[11], Value::Integer(1));
+    assert_eq!(kept(&store, "r", first.seq)[12], Value::Integer(1));
     assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
 }
 
@@ -1629,10 +1645,10 @@ fn a_run_that_does_not_load_keeps_its_checkpoints_for_the_doctor() {
         ),
         "{refused:?}"
     );
-    assert_eq!(kept(&store, "broken", 3)[11], Value::Null);
+    assert_eq!(kept(&store, "broken", 3)[12], Value::Null);
     store.checkpoint_behind_with(|_| {}).unwrap();
     assert!(!backfilled(&store.conn).unwrap());
-    assert_eq!(kept(&store, "broken", 3)[11], Value::Null);
+    assert_eq!(kept(&store, "broken", 3)[12], Value::Null);
 }
 
 /// A checkpoint write the journal refuses fails the checkpoint backfill by
@@ -1658,16 +1674,166 @@ fn a_refused_checkpoint_backfill_errors() {
         "sqlite: the index refuses the backfill"
     );
     assert!(!backfilled(&store.conn).unwrap());
-    assert_eq!(kept(&store, "r", 3)[11], Value::Null);
+    assert_eq!(kept(&store, "r", 3)[12], Value::Null);
     store.conn.execute_batch("DROP TRIGGER refusing").unwrap();
     store.checkpoint_behind_with(|_| {}).unwrap();
     assert!(backfilled(&store.conn).unwrap());
-    assert_eq!(kept(&store, "r", 3)[11], Value::Integer(1));
+    assert_eq!(kept(&store, "r", 3)[12], Value::Integer(1));
 }
 
 /// A checkpoint row's `repeat` flag, as its writer wrote it.
 fn repeated(store: &Store, run_id: &str, seq: u64) -> Value {
     crate::test_support::kept_facts(store, run_id, seq, &["repeat"]).remove(0)
+}
+
+/// A checkpoint row's `turn` flag, as its writer wrote it.
+fn turned(store: &Store, run_id: &str, seq: u64) -> Value {
+    crate::test_support::kept_facts(store, run_id, seq, &["turn"]).remove(0)
+}
+
+/// A run `r` of `implement` with one kept seat turn, its `turn` then
+/// NULLed as a build from before the column leaves it.
+fn a_nulled_turn(store: &mut Store) -> EventEnvelope {
+    opened(store, "r", "implement", &[]);
+    let event = append_checkpoint(store, json!({"step": "seat-turn"}));
+    assert_eq!(turned(store, "r", event.seq), Value::Integer(1));
+    store
+        .conn
+        .execute(
+            "UPDATE event_index SET turn = NULL WHERE run_id = 'r' AND seq = ?1",
+            params![event.seq as i64],
+        )
+        .unwrap();
+    event
+}
+
+/// A hand-built journal keeps a turn as 1, a checkpoint that is not a turn
+/// as 0, and a Claude session record that settles as 0, while its site's
+/// rule reads `Settled`: the turn and the session record are different
+/// facts (decision 0089 rulings 4 and 7).
+#[test]
+fn a_turn_a_non_turn_and_a_settling_session_record_keep_their_turn() {
+    use brokkr_core::seat::meter::Metering;
+
+    let (_dir, mut store) = store();
+    let events = chained(
+        "r",
+        vec![
+            (
+                EventType::EffectStarted,
+                json!({"effect_id": "fx", "attempt_id": "a",
+                       "provenance": [{"member": "m", "provider": "anthropic"}]}),
+            ),
+            (
+                EventType::EffectCheckpointed,
+                checkpoint(
+                    Some("m"),
+                    json!({"step": "seat-turn", "input_tokens": 10, "output_tokens": 4}),
+                ),
+            ),
+            (
+                EventType::EffectCheckpointed,
+                checkpoint(Some("m"), json!({"step": "tool-use", "input_tokens": 2})),
+            ),
+            (
+                EventType::EffectCheckpointed,
+                checkpoint(
+                    Some("m"),
+                    json!({"step": "claude-session-finished", "output_tokens": 100}),
+                ),
+            ),
+        ],
+    );
+    plant_older_writer(&store, "r", &events);
+    store.checkpoint_behind_with(|_| {}).unwrap();
+    assert_eq!(turned(&store, "r", 2), Value::Integer(1));
+    assert_eq!(turned(&store, "r", 3), Value::Integer(0));
+    assert_eq!(turned(&store, "r", 4), Value::Integer(0));
+    let account = Account::whole("r", &events);
+    assert_eq!(account.sites()[0].metering, Metering::Settled);
+}
+
+/// A writer from before the `turn` column appends its row with `turn` NULL,
+/// and the next writable open writes it from core's reading (decision 0089
+/// rulings 4 and 7).
+#[test]
+fn an_older_writer_s_checkpoint_lags_its_turn_until_the_next_open() {
+    let (_dir, mut store) = store();
+    opened(&mut store, "r", "implement", &[]);
+    let first = append_checkpoint(&mut store, json!({"step": "seat-turn"}));
+    assert_eq!(turned(&store, "r", first.seq), Value::Integer(1));
+    let (seq, previous) = store.head_hash("r").unwrap();
+    let older = EnvelopeBuilder::new(
+        EventType::EffectCheckpointed,
+        checkpoint(Some("m"), json!({"step": "seat-turn"})),
+    )
+    .run("r")
+    .seq(seq + 1)
+    .event_id("r-older")
+    .at("2026-01-01T00:00:09Z")
+    .previous(previous)
+    .sealed();
+    plant_envelope(&store.conn, &older).unwrap();
+    assert_eq!(
+        crate::test_support::indexed_seqs(&store, "r", "effect/checkpointed"),
+        vec![first.seq, older.seq]
+    );
+    assert_eq!(turned(&store, "r", older.seq), Value::Null);
+    assert!(matches!(
+        store.compared("r", || {}).unwrap(),
+        Compared::Behind | Compared::SeatsBehind
+    ));
+    lags(&mut store, &["r"]);
+    let store = refolded(store);
+    assert_eq!(turned(&store, "r", older.seq), Value::Integer(1));
+    assert_eq!(
+        crate::test_support::disagreements(&store),
+        Vec::<String>::new()
+    );
+}
+
+/// A `turn` a fault leaves NULL is a lag the next writable open clears: the
+/// walk marks the backfill unfinished, reads the run whole, writes every
+/// row's turn, and marks it finished again (decision 0089 ruling 8).
+#[test]
+fn a_nulled_turn_is_backfilled_at_the_next_writable_open() {
+    let (_dir, mut store) = store();
+    let event = a_nulled_turn(&mut store);
+    // The journal is still marked backfilled, as an older writer leaves it;
+    // the walk finds the NULL row through its stale index and clears the
+    // mark before it writes.
+    assert!(backfilled(&store.conn).unwrap());
+    store
+        .checkpoint_behind_with(|conn| {
+            assert!(
+                !backfilled(conn).unwrap(),
+                "the walk clears the mark before it writes"
+            );
+        })
+        .unwrap();
+    assert!(backfilled(&store.conn).unwrap());
+    assert_eq!(turned(&store, "r", event.seq), Value::Integer(1));
+}
+
+/// A journal from before `turn` keeps the checkpoint-stale index under the
+/// same name and columns, its predicate naming no `turn`: the next writable
+/// open replaces the index and writes the turn it hid (rulings 4 and 8).
+#[test]
+fn a_stale_index_from_before_turn_is_repaired_before_the_walk_reads_it() {
+    let (_dir, mut store) = store();
+    let event = a_nulled_turn(&mut store);
+    let old = "DROP INDEX event_index_checkpoint_stale;
+         CREATE INDEX event_index_checkpoint_stale ON event_index (run_id)
+             WHERE type = 'effect/checkpointed'
+               AND (facts IS NULL OR repeat IS NULL OR facts_seq IS NOT seq);";
+    store.conn.execute_batch(old).unwrap();
+    assert!(backfilled(&store.conn).unwrap());
+    assert!(!index_intact(&store.conn).unwrap());
+    lags(&mut store, &["r"]);
+    let store = refolded(store);
+    assert!(index_intact(&store.conn).unwrap());
+    assert!(backfilled(&store.conn).unwrap());
+    assert_eq!(turned(&store, "r", event.seq), Value::Integer(1));
 }
 
 /// A streamed message's turns repeat the usage of the site's last metered
