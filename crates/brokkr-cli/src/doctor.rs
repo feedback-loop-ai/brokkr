@@ -24,6 +24,7 @@ use crate::render::Safe;
 use paths::Paths;
 
 mod capabilities;
+mod floors;
 mod folder;
 mod paths;
 mod providers;
@@ -640,6 +641,7 @@ pub(crate) fn doctor(
         boundary,
         dsh_provider_line,
     );
+    floors::report(&mut report, &defaults.adapters);
     capabilities::report_capabilities(
         &mut report,
         &world,
@@ -648,12 +650,10 @@ pub(crate) fn doctor(
         (&availability, &inspected),
     );
     folder::report_folder(&mut report, defaults, realms, inspected.folder());
-    let adapters = &defaults.adapters;
-    provisional::report_provisional(&mut report, adapters, mapped);
+    provisional::report_provisional(&mut report, &defaults.adapters, mapped);
     report_realm_world(&mut report, world, &workspace, tool_version, probe_in_box);
     report
 }
-
 fn report_realm_world(
     report: &mut Report,
     world: Result<Option<brokkr_runtime::realms::World>, brokkr_runtime::realms::WorldError>,

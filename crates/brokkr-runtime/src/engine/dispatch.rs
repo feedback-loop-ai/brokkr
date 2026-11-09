@@ -27,6 +27,8 @@ use super::{
 };
 use crate::bundle::{layer_drift, site_charter_text, Bundle, ExecutableBody, Invocation};
 
+mod deadline;
+
 /// One attempt of a requested effect, as [`Engine::execute`] names it
 /// before anything spawns: the effect, the attempt, the seat and the case
 /// its selector chose, the site label it is composed and marked under,
@@ -41,6 +43,18 @@ pub(super) struct Dispatch<'a> {
     pub(super) gate: bool,
 }
 
+/// How an attempt's provisioning is done: normally [`Engine::provision`],
+/// and substitutable so a test can spend a share of the budget without a
+/// real broker plan.
+type Provision<'a> = dyn FnOnce(
+        &mut Engine,
+        [&str; 3],
+        &mut Selection,
+        (Instant, &mut Duration),
+        Observed,
+    ) -> Result<bool, EngineError>
+    + 'a;
+
 impl Engine {
     pub(super) fn execute(
         &mut self,
@@ -48,6 +62,52 @@ impl Engine {
         state: &RunState,
         effect_id: &str,
         seat_name: &str,
+    ) -> Result<(), EngineError> {
+        self.execute_at(events, state, effect_id, seat_name, Instant::now())
+    }
+
+    /// [`Engine::execute`] with the instant the attempt began given, so a
+    /// test can hold provisioning to a real share of the attempt's budget
+    /// without sleeping through it first, and with provisioning itself
+    /// substitutable (the house's closure seam) so that test can spend the
+    /// share without a real broker plan.
+    fn execute_at(
+        &mut self,
+        events: &[EventEnvelope],
+        state: &RunState,
+        effect_id: &str,
+        seat_name: &str,
+        began: Instant,
+    ) -> Result<(), EngineError> {
+        self.execute_with(
+            events,
+            state,
+            effect_id,
+            seat_name,
+            began,
+            Box::new(
+                |engine: &mut Engine,
+                 ids: [&str; 3],
+                 selection: &mut Selection,
+                 timed: (Instant, &mut Duration),
+                 observed: Observed| {
+                    engine.provision(ids, selection, timed, observed)
+                },
+            ),
+        )
+    }
+
+    /// [`Engine::execute_at`] with `provision` given: the attempt's plans
+    /// provisioned and its remaining budget written down, normally by
+    /// [`Engine::provision`].
+    fn execute_with(
+        &mut self,
+        events: &[EventEnvelope],
+        state: &RunState,
+        effect_id: &str,
+        seat_name: &str,
+        began: Instant,
+        provision: Box<Provision<'_>>,
     ) -> Result<(), EngineError> {
         let phase = phase_of(state, "effect without a phase")?;
         let requested_digest = requested_digest(events, effect_id)?;
@@ -103,34 +163,43 @@ impl Engine {
         }
         self.append(EventType::EffectStarted, started, Some(attempt_id.clone()))?;
         std::fs::create_dir_all(self.run_local().join(RESULTS)).ok();
-        let deadline = Duration::from_secs(seat.limits.timeout_seconds);
+        let deadline = deadline::Deadline::of(
+            self.cooldown.host.as_deref(),
+            &self.bundle.sites,
+            at.site_name,
+            &selection,
+            seat.limits.timeout_seconds,
+        );
         let ids = [effect_id, attempt_id.as_str(), site_name.as_str()];
         // U8a2a (CR2, MB3): the attempt's whole writer reach is reserved on
         // its worktree before anything of it is provisioned or spawns, and
         // released only once its owned processes are proven settled. Both
         // admission and provisioning decide on one observation of the host
         // and spend one startup deadline from here.
-        let (began, observed) = (Instant::now(), observed());
-        if !self.admit(ids, body, &selection, (began, deadline), &observed)? {
+        let observed = observed();
+        if !self.admit(ids, body, &selection, (began, deadline.bound()), &observed)? {
             return Ok(());
         }
-        let timed = (began, deadline, observed);
-        let ran = self.provisioned_body(&at, input, timed, selection);
+        let timed = (began, deadline);
+        let ran = self.provisioned_body(&at, input, timed, observed, selection, provision);
         self.settle(&attempt_id, ran)
     }
 
-    /// The admitted attempt's plans provisioned on the host as `observed`,
-    /// and its body run on what provisioning left of its `deadline`, which
-    /// began at `began`.
+    /// The admitted attempt's plans provisioned by `provision` on the host
+    /// as `observed`, and its body run on what provisioning left of its
+    /// `deadline`, which began at `began`.
     fn provisioned_body(
         &mut self,
         at: &Dispatch<'_>,
         mut input: Value,
-        (began, mut deadline, observed): (Instant, Duration, Observed),
+        (began, deadline): (Instant, deadline::Deadline),
+        observed: Observed,
         mut selection: Selection,
+        provision: Box<Provision<'_>>,
     ) -> Result<(), EngineError> {
         let ids = [at.effect_id, at.attempt_id, at.site_name];
-        if !self.provision(ids, &mut selection, (began, &mut deadline), observed)? {
+        let mut remaining = deadline.bound();
+        if !provision(self, ids, &mut selection, (began, &mut remaining), observed)? {
             return Ok(());
         }
         let hands = self.runtime_hands(at.site_name);
@@ -139,7 +208,7 @@ impl Engine {
         // serves none, and takes this same compose-and-mark path.
         let brokers = selection.brokers(at.site_name);
         let single = self.composed_single(at, &selection, &mut input, hands.as_ref(), brokers);
-        self.run_body(at, input, deadline, &selection, single)
+        self.run_body(at, input, &deadline, remaining, &selection, single)
     }
 
     /// The world changed between request and execution (bundle edit,
@@ -305,12 +374,16 @@ impl Engine {
     }
 
     /// Run the attempt's selected body: a panel's members, a sequence's
-    /// steps, or the single driver [`Engine::plan_attempt`] composed.
+    /// steps, or the single driver [`Engine::plan_attempt`] composed. The
+    /// body runs on `remaining`, what provisioning left of the attempt's
+    /// `deadline`; the deadline itself keeps the effective length and its
+    /// source for the words.
     fn run_body(
         &mut self,
         at: &Dispatch<'_>,
         input: Value,
-        deadline: Duration,
+        deadline: &deadline::Deadline,
+        remaining: std::time::Duration,
         selection: &Selection,
         single: Option<SiteSpawn>,
     ) -> Result<(), EngineError> {
@@ -321,7 +394,7 @@ impl Engine {
                     members,
                     *aggregate,
                     &input,
-                    deadline,
+                    remaining,
                     selection,
                 ),
             ExecutableBody::Sequence { steps } => self.execute_sequence(
@@ -330,7 +403,7 @@ impl Engine {
                 at.site_name,
                 steps,
                 &input,
-                deadline,
+                remaining,
                 selection,
             ),
             // Agents choose the argv (model selection); composition
@@ -340,16 +413,17 @@ impl Engine {
             ExecutableBody::Invocation(Invocation::Single { .. }) => {
                 let spawn = single.expect("a single seat composed its command");
                 let plan = selection.plan(&None);
-                let run = self.run_driver(
+                let mut run = self.run_driver(
                     at.effect_id,
                     at.attempt_id,
                     at.site_name,
                     &spawn,
                     input,
-                    deadline,
+                    remaining,
                     None,
                     plan,
                 )?;
+                deadline.name(&mut run);
                 let boundary = self.site_boundary(at.site_name);
                 self.conclude_single(at.effect_id, at.attempt_id, run, selection, boundary)
             }
@@ -506,3 +580,6 @@ fn driver_label(body: ExecutableBody<'_>) -> String {
         ExecutableBody::Sequence { steps } => format!("sequence[{}]", steps.len()),
     }
 }
+
+#[cfg(test)]
+mod deadline_tests;

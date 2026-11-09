@@ -318,17 +318,19 @@ say now; a running run whose manifest carries none, one started before
 v13 included, makes every entry wait until it ends.
 
 **The host configuration** belongs to the machine, not to a realm
-(`forge.host/v1`, or `forge.host/v2` with cool-down bounds and containment;
-[the v1 contract](../../contracts/host.v1.schema.json), [the v2
-contract](../../contracts/host.v2.schema.json)):
+(`forge.host/v1`, `forge.host/v2` with cool-down bounds and containment, or
+`forge.host/v3` with a shared-local deadline floor; [the v1
+contract](../../contracts/host.v1.schema.json), [the v2
+contract](../../contracts/host.v2.schema.json), [the v3
+contract](../../contracts/host.v3.schema.json)):
 `$XDG_CONFIG_HOME/brokkr/host.json`, else `$HOME/.config/brokkr/host.json`,
 on Linux and macOS alike. Nothing there and every measured entry waits
 (`no host configuration at <path> declares capacity`); a path that holds
 something unreadable — a link that loops or dangles, a directory, a FIFO
 or a device, never waited on — holds it, naming the error; a file that is
-not a valid `forge.host/v1` or `forge.host/v2` refuses the listing, naming
-the problem and, where one version's rules own it, that version, and so
-does a provider or route written twice, naming the key. A provider or
+not a valid `forge.host/v1`, `forge.host/v2` or `forge.host/v3` refuses the
+listing, naming the problem and, where one version's rules own it, that
+version, and so does a provider or route written twice, naming the key. A provider or
 route the file does not name waits as undeclared, and every ceiling is at
 least one: there is no unlimited.
 
@@ -351,6 +353,21 @@ where verification scripts (`exec`) also count:
   "boxed_builds": {"ceiling": 2}
 }
 ```
+
+`forge.host/v3` adds one OPTIONAL property to a route,
+`timeout_floor_seconds`: a whole number from 1 to 7200 that a route whose
+`class` is `shared-local` may declare. An attempt that launches a
+candidate on that route runs under the larger of the seat's own
+`timeout_seconds` and the floor, so the floor raises a short authored
+limit and never shortens a long one; a cloud route, a chain's cloud link
+and a v1 or v2 file declare no floor, and the loader refuses the key on a
+cloud route, at zero, past 7200, as a fraction and in v1 or v2, each by
+its own line. The cap is 7200 on purpose: that is the fleet's attempt
+bound (`ATTEMPT_DEADLINE_SECONDS` in `brokkr-view`), and the staleness
+bound is that bound plus an hour, so a floor at or under it cannot let a
+live attempt read as a dead engine. This writes the Spark ruling once, as
+the machine's data; night-shift's hand-written 7200 is its own until the
+recipe drops it.
 
 A seat on `spark-glm` is judged by that route's ceiling in place of
 `dsh`'s, because the hardware, not the account, is the limit; a `cloud`

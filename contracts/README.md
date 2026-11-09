@@ -961,10 +961,31 @@ declare, a default above its maximum, a maximum past 7200 and a zero,
 each by its own line; JSON Schema cannot say the first two. A v1 file
 read by the same loader declares no cool-downs, so a rate-limit refusal
 parks as today. `containment` is decision 0080 ruling 6's closed enum,
-`best-effort` by default; v2 carries it so 0080 need not mint a v3. The
+`best-effort` by default; v2 carries it so 0080 need not mint a version of its own. The
 loader reads `best-effort` and refuses `required` with decision 0080's
 own line, because 0080 is not built yet (#472): a host never believes it
 holds containment it does not get.
+
+Decision 0104 ruling 1(a) (#430's fifth slice, accepted 2026-11-08)
+adds `forge.host/v3` beside the frozen v2, whose bytes did not move. It is
+v2 plus one OPTIONAL property on a route, `timeout_floor_seconds`, and it
+changes no other clause:
+
+| Contract | File | Consumers |
+|---|---|---|
+| The machine's host configuration with a shared-local deadline floor | `host.v3.schema.json` | brokkr-runtime (`admission/host.rs`, the loader; held to this file by test), `brokkr doctor` |
+
+`timeout_floor_seconds` is a whole number from 1 to 7200, valid only on a
+route whose `class` is `shared-local`; the loader refuses it on a `cloud`
+route, at zero, past 7200, as a fraction, and in a v1 or v2 file, each by
+its own line. An attempt that launches a candidate on the route runs under
+the larger of the seat's own `timeout_seconds` and the floor, so a floor
+never shortens an authored limit. The 7200 cap is the fleet's attempt
+deadline (`brokkr-view`'s `ATTEMPT_DEADLINE_SECONDS`), the number the
+fleet's staleness bound is built on: a longer floor would let a live
+attempt read as a dead engine, and the shipped-deadline test would no
+longer hold. A v1 or v2 file declares no floor, and the loader reads all
+three versions.
 
 The same slice adds one more file and changes none of the bytes above —
 `run-manifest.v12`'s included, which is now pinned by digest beside the

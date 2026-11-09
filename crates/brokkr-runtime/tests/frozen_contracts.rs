@@ -24,7 +24,7 @@ fn digest(relative: &str) -> String {
 /// Recorded from this tree before the agent library existed, plus the
 /// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
 /// beside it, so "beside, never inside" is machine-checked.
-const FROZEN: [(&str, &str); 34] = [
+const FROZEN: [(&str, &str); 35] = [
     // Decision 0103 (accepted) mints the driver-refusal extension beside
     // the frozen v1 family; its bytes are pinned from here. Fix round
     // 430s4a6 L2 re-pins the unreleased file after the shared route form
@@ -193,6 +193,13 @@ const FROZEN: [(&str, &str); 34] = [
         "contracts/host.v2.schema.json",
         "ba8f41b953ba8fe25f6edaf9cd51c8b8a6a5669540cfcef2a74603389b8b316a",
     ),
+    // Decision 0104 ruling 1(a) mints `forge.host/v3` beside v2, whose
+    // bytes did not move: v3 is v2 plus one optional shared-local floor on
+    // a route, and all three versions stay readable.
+    (
+        "contracts/host.v3.schema.json",
+        "efdc12e47030eee6ea9d9d187d1b15581807d1169f8a2b6bb5660b1630ee4cf6",
+    ),
     // Decision 0103 ruling 2(a) mints the provider-wait extension beside
     // the frozen event vocabulary; its bytes are pinned from birth. Fix
     // round 430s4c3 adds `effect/failed.refused`, so the unreleased file
@@ -215,6 +222,12 @@ fn the_frozen_contracts_and_the_corpus_keep_their_exact_bytes() {
             .iter()
             .any(|(relative, _)| *relative == "contracts/host.v2.schema.json"),
         "contracts/host.v2.schema.json is not pinned in FROZEN"
+    );
+    assert!(
+        FROZEN
+            .iter()
+            .any(|(relative, _)| *relative == "contracts/host.v3.schema.json"),
+        "contracts/host.v3.schema.json is not pinned in FROZEN"
     );
     // The production table is read-only too, and it is not a contract
     // file, so it is pinned separately by the same rule.
@@ -965,6 +978,61 @@ fn the_host_v2_contract_lands_beside_v1_with_cool_downs_and_containment() {
     assert!(
         !contract("contracts/host.v1.schema.json").is_valid(&host),
         "the frozen v1 schema admitted a v2 host"
+    );
+}
+
+/// Decision 0104 ruling 1(a) lands `forge.host/v3` beside the frozen v2,
+/// whose bytes are pinned above: v3 is v2 plus one optional property on a
+/// route, `timeout_floor_seconds`, a whole number from 1 to 7200, and no
+/// other clause moves. The class rule is the loader's, not the schema's.
+#[test]
+fn the_host_v3_contract_lands_beside_v2_with_a_shared_local_floor() {
+    use serde_json::json;
+    assert_eq!(
+        titled("contracts/host.v3.schema.json"),
+        "Forge host configuration v3"
+    );
+    let [v3, v2] = published(["host.v3", "host.v2"]);
+    let mut carried = v2["properties"].clone();
+    carried["schema"] = v3["properties"]["schema"].clone();
+    assert_eq!(carried, v3["properties"], "v3 moved a property v2 defines");
+    for key in ["required", "additionalProperties", "type"] {
+        assert_eq!(v3[key], v2[key], "{key} moved between v2 and v3");
+    }
+    let mut route = v2["definitions"]["route"]["properties"].clone();
+    route["timeout_floor_seconds"] =
+        v3["definitions"]["route"]["properties"]["timeout_floor_seconds"].clone();
+    assert_eq!(
+        route, v3["definitions"]["route"]["properties"],
+        "the route definition moved a clause"
+    );
+
+    let validator = contract("contracts/host.v3.schema.json");
+    let host = json!({"schema": "forge.host/v3",
+        "providers": {"dsh": {"ceiling": 1, "routes": {"spark-glm": {"ceiling": 1,
+                                                                      "class": "shared-local",
+                                                                      "timeout_floor_seconds": 7200}}}},
+        "floors": [{"place": "seat-scratch", "floor_bytes": 1}], "boxed_builds": {"ceiling": 1}});
+    assert!(validator.is_valid(&host), "a v3 host configuration");
+    let mut v2_label = host.clone();
+    v2_label["schema"] = json!("forge.host/v2");
+    assert!(
+        !contract("contracts/host.v2.schema.json").is_valid(&v2_label),
+        "the frozen v2 schema admitted a v3 floor"
+    );
+    for bad in [0, 7201] {
+        let mut map = host.clone();
+        map["providers"]["dsh"]["routes"]["spark-glm"]["timeout_floor_seconds"] = json!(bad);
+        assert!(
+            !validator.is_valid(&map),
+            "the schema admitted a floor of {bad}"
+        );
+    }
+    let mut fraction = host.clone();
+    fraction["providers"]["dsh"]["routes"]["spark-glm"]["timeout_floor_seconds"] = json!(1.5);
+    assert!(
+        !validator.is_valid(&fraction),
+        "the schema admitted a fraction"
     );
 }
 
