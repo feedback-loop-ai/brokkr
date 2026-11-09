@@ -1,23 +1,38 @@
-# 0106 — A park names its cause, a long reset is a held wait an operator can lift, and the dispatcher adopts an orphan within a declared budget
+# 0106 — A park names its cause, a long reset is a held wait an operator can lift, and the dispatcher spends a declared retry budget
 
 Status: proposed
 Date: 2026-11-08
 
 Built: unbuilt (#1035)
 
-This decision acts on 0068's rulings 4 and 7 and on 0103's rulings 2, 3 and 5. Because this
+This decision acts on 0068's rulings 4 and 7 and on 0103's rulings 2, 3, 4, 5 and 7. Because this
 story may not edit 0068 or 0103, the header pointer and the two back-pointers are absent until
 acceptance; the exact replacement sentences below are the amendment. They stand in [What 0068 and 0103 say after acceptance](#what-0068-and-0103-say-after-acceptance);
 the older files are not edited here, and the amendments take effect when this decision is
 accepted.
 
-This revision (fix round 1036b, 2026-11-09) answers the chief's security hold (#1036,
-c-6728143454) on the first revision at `453e26da2`. The hold's two HIGH findings were that
-adoption could not prove a quiet live driver dead, and that an unanswered probe could be spent by
-the infrastructure budget as a new effect. Its MEDIUM and LOW findings are answered in the ruling
-or the slice each names. The answer to the first is a per-run engine lock that adoption must
-itself acquire (ruling 4); the answer to the second is positive non-execution evidence, never an
-absent result (ruling 6).
+This revision (fix round 1036c, 2026-11-09) answers the chief's second security hold (#1036,
+c-6730756079) on `25fa2d590`. Orphan adoption leaves this decision: both holds came from it, and
+the last showed its per-run engine lock is not proof, because a lock file can be replaced under a
+quiet holder. It is carried to a follow-up decision named in [The follow-up this decision
+leaves](#the-follow-up-this-decision-leaves), with the hold's counterexample and the requirement it
+sets. The lift is consumed by the one probe it authorizes, keyed by probe, site and round (ruling
+3); a direct run's lift is driven by `brokkr resume` (ruling 3); and every 0103 passage the second
+hold named has its replacement in [What 0068 and 0103 say after
+acceptance](#what-0068-and-0103-say-after-acceptance).
+
+The hold's findings, and where each is answered: the HIGH finding is answered by removing orphan
+adoption and naming the follow-up that owns stable-identity engine ownership. The three MEDIUMs
+are answered in ruling 3 (a lift is consumed by its probe; a refused probe's new wait needs a
+fresh lift) and in the amendment section (every 0103 passage replaced or scoped). The five LOWs
+are answered as follows: (a) the readouts name the whole read's wait source, its `Account`
+propagation, `RunEntry`'s input and its two producers in ruling 2, and the `VIEW_VERSION` moves
+are assigned to 0106a and 0106b in the slices; (b) `a_lift_with_no_live_engine_is_taken_by_resume_once`
+is in the lift's slice, 0106c; (c) a lift's refusal word is `run_not_waiting`, never a retry's
+`run_not_awaiting_operator`, in ruling 3; (d) the provider-wide lift's fan-out record is the set of
+`provider_lifts` grant rows sharing its command id, tested by
+`a_provider_wide_lift_reaches_two_waiting_runs_once_each`; (e) the dispatcher citation is
+`crates/brokkr-runtime/src/dispatch.rs:6`.
 
 ## Context
 
@@ -55,7 +70,8 @@ leaves an ending as 0064 says, and an open park has none.
 
 ## What main holds at HEAD
 
-Measured at `b56e6909e`, the branch's base; every line below was re-read there.
+Measured at `b56e6909e`, the branch's base; every line below was re-read there. The code is
+unchanged at `25fa2d590`: that commit changed only this decision and its index row.
 
 ### Every `run/parked` write, and why it writes
 
@@ -111,12 +127,13 @@ park reason (`crates/brokkr-view/src/fleet.rs:520`); `Standing::Parked` comes fr
 last ruling routed nowhere (`:579`); its reason is copied onto the row (`:607`); `Need::Parked`
 (`crates/brokkr-view/src/fleet/need.rs:151`) puts it under `needs you`
 (`crates/brokkr-view/src/fleet.rs:391`). `brokkr inspect` prints `park <reason>`
-(`crates/brokkr-view/src/run_summary.rs:33`, `crates/brokkr-cli/src/render/inspect.rs:32`), and
-the TUI paints the same row (`crates/brokkr-cli/src/tui/panes.rs:352`). Every surface shows the
+(`crates/brokkr-cli/src/render/inspect.rs:33`) from the row's `park_reason`
+(`crates/brokkr-view/src/run_summary.rs:32`), and the TUI paints the same row
+(`crates/brokkr-cli/src/tui/panes.rs:352`). Every surface shows the
 prose, and only the prose, for every cause but a rule park.
 
 The summary row the paged `runs` listing reads (`crates/brokkr-view/src/fleet/page.rs:93-103`) is
-written from `Summary` (`crates/brokkr-core/src/summary.rs:442-470`), whose `run_summary` columns
+written from `Summary` (`crates/brokkr-core/src/summary.rs:442`), whose `run_summary` columns
 (`crates/brokkr-store/src/summary.rs:153-166`) carry `status`, `park_reason` and the rule but no
 wait and no cause. A paged listing and a whole read agree today only because both lack the fact;
 the slices add it to the row once and paint it on both, with a paged-versus-whole test.
@@ -142,42 +159,26 @@ that text was `agent CLI exited 1`; the provider's actual words were only in the
 dsh 402 is therefore not a `provider-limit` today: it is an attempt-cap park whose last failure
 is a start failure, and this decision does not guess otherwise.
 
-### A quiet driver is not proven dead
-
-Adoption's only question is whether a process still drives the run, and the store's fence is not
-that proof. `append_next_if_head` checks `(expected_seq, expected_hash)` inside the write
-transaction (`crates/brokkr-store/src/lib.rs:630-656`); a driver that is alive but has appended
-nothing since the adopter folded leaves the head where it was, and the adopter's append lands.
-Decision 0029 states the residual in terms: a driver "alive but has not appended since the
-concluding process folded still passes the fence"
-(`docs/decisions/0029-fenced-append.md:95-111`). The writer lease is no proof either:
-`readopted` takes the lease again only where every driver of the attempt is proven settled
-(`crates/brokkr-runtime/src/engine/broker/settlement.rs:466-484`); settlement says the attempt is
-closed, not that no process drives the run. `take_dispatch` excludes a second dispatcher and no
-direct engine (`crates/brokkr-runtime/src/dispatch/lock.rs:86`). So at HEAD a queue-started run
-that is alive, quiet, with every earlier attempt settled and no intervening append is
-indistinguishable from an orphan. The per-run engine lock (ruling 4) is the missing proof; until
-it is built, adoption is ruled out (ruling 5).
-
 ### The queue's storage versions
 
 The tree records queue storage version 3 (`crates/brokkr-store/src/queue/storage.rs:59`).
 Accepted 0103 reserves version 4 for `provider_cooldowns` and accepted 0104 reserves version 5
 for `seat_trees` (`docs/decisions/0104-shared-local-hardware-sets-a-deadline-floor-and-the-host-sweeps-its-seat-trees.md:162`),
-both unbuilt. This decision numbers its two tables after those, once each: `provider_lifts` is
-version 6 (slice 0106e) and `queue_retry_budgets` with `queue_retries` is version 7 (slice
-0106f). `provider-wait/v2` and `park-cause/v1` are payload extension versions, not queue storage.
+both unbuilt. This decision numbers its four tables after those, once each: `provider_lifts` and
+`provider_lift_probes` are version 6 (slice 0106c), and `queue_retry_budgets` with
+`queue_retries` is version 7 (slice 0106d). `provider-wait/v2` and `park-cause/v1` are payload
+extension versions, not queue storage.
 
 ### The dispatcher and `brokkr operator retry`
 
 The dispatcher is built as far as 0095's lock and reconciliation: `dispatch.rs` says its pass
 and the `brokkr dispatch` verb are #430's later slices
-(`crates/brokkr-runtime/src/dispatch.rs:4`); `take_dispatch` takes the one journal lock
+(`crates/brokkr-runtime/src/dispatch.rs:6`); `take_dispatch` takes the one journal lock
 (`crates/brokkr-runtime/src/dispatch/lock.rs:86`); `reconcile` settles an entry left launching
 (`crates/brokkr-runtime/src/dispatch/reconcile.rs:63`). Reconcile never reads a parked run. A
 run it linked with a `spawn` row is left alone, "its run reading `Running` for the operator to
 resume should its driver have died" (`crates/brokkr-runtime/src/dispatch/reconcile.rs:13`).
-That sentence is the orphan this decision is about.
+That sentence is the orphan the follow-up names; this decision adopts nothing.
 
 `brokkr operator retry` writes `operator/commanded` and `operator/accepted`
 (`crates/brokkr-runtime/src/engine/operator.rs:277`); the fold accepts a retry only when the run
@@ -188,7 +189,7 @@ a new effect with a new id (`crates/brokkr-runtime/src/engine.rs:899`). On a wai
 (`crates/brokkr-core/src/fold.rs:357`); `stop` and `release` are accepted
 (`crates/brokkr-core/src/fold.rs:395`), neither lifts a wait, and the wait's one-second
 slices see it and probe nothing (`crates/brokkr-runtime/src/engine/cooldown.rs:636`). The
-operator can stop a wait, not lift one.
+operator can stop a wait, not lift one. This decision adds `lift` to that surface (ruling 3).
 
 ## Rulings
 
@@ -204,7 +205,7 @@ beside the reason and never guessed from it.**
 |---|---|---|---|
 | `ruled` | Policy or engine refused: a rule park, unmatched result, schema refusal, missing default, moved gate head. | `rule_id` where a rule matched; `detail`. | Never. |
 | `attempt-cap` | 0006's cap was reached. | `failure_class`: `provider-limit`, `provider-refusal`, `start-failure` or `determinate`; `detail`. | Never. |
-| `infrastructure` | An indeterminate end, engine restart in flight, or contention. | `retryable` (positive non-execution evidence, ruling 6); `detail`. | Only when `retryable` and budget remains. |
+| `infrastructure` | An indeterminate end, engine restart in flight, or contention. | `retryable` (positive non-execution evidence, ruling 4); `detail`. | Only when `retryable` and budget remains. |
 | `provider-limit` | A typed rate-limit refusal parked below the cap. | `provider`, `detail`, and one `refusal` variant with its conditional fields below. | Never. |
 
 `unknown` is a fifth word only when reading: an absent `cause` reads `unknown`, and every script
@@ -324,44 +325,70 @@ than `max_seconds` after `recorded_at`; that is the one construction sentence 01
   that ignored the field would read a held wait as a park or as no wait. A new version is how
   the frozen bytes keep their meaning.
 
-**Who wakes it at `until`.** Recommended: the dispatcher's pass (0106d) at or after `until`, or
-`brokkr operator retry` as the lift (0106e) before it. Until the pass lands, `brokkr resume` at
-or after `until` takes the wait without sleeping. A held wait with no live engine has no driver
-to act on a lift; the pass adopts it, and 0106d is ordered before the lift's 0106e. `resume`
-before `until` refuses by name and names the lift; it does not sleep the remainder in process. The pass reads the same `until` and rows, not a second mechanism. Options: (a) the
-dispatcher's pass, with the resume hand before it — recommended; (b) the engine sleeps in
-process — refused: 0103's held lane and process for days; (c) a new timer process — refused: a
-second standing process for a fact the dispatcher owns.
+**Who wakes it at `until`.** Recommended: the operator's `brokkr resume`, because a held wait has
+no live engine. The engine ended its drive when it wrote the held entry, so the lane and process
+are released and there is no process to wake; `brokkr resume` at or after `until` takes the wait
+without sleeping, and before `until` it refuses by name and names the lift. A lift before
+`until` is taken by the same `resume` (ruling 3). The ordinary wait below the maximum is
+different: the engine stays in its sliced wait and probes at `until` or on a lift. This decision
+builds no dispatcher pass and no adoption: a held run with no operator stays `running`, and the
+3-hour stale bound names it, as 0103's ruling 7 says. Options: (a) the operator's resume —
+recommended; (b) the engine sleeps in process — refused for a held wait: 0103's held lane and
+process for days; (c) a new timer process — refused: a second standing process for a fact the
+operator's resume already carries. A dispatcher pass may later drive it; that is the follow-up's,
+not this decision's.
 
 **How the readouts show it.** Recommended: a new `Standing::Waiting` in `brokkr-view`, word
 `waiting`, listed under `running` (not `needs you`), with provider, route, `until` and "operator
 retry lifts" in the detail. It is not stale: `Need` returns nothing and the stale bound does not
-apply. The wait is derived once in `brokkr-view` from the v2 held entry and painted by `runs`,
-`inspect` and the TUI; the summary row carries `wait_provider`, `wait_route` and `wait_until`,
-all nullable, so the paged listing (`crates/brokkr-view/src/fleet/page.rs:93-103`) and the whole
-read (`crates/brokkr-core/src/summary.rs:442-470`,
-`crates/brokkr-store/src/summary.rs:153-166`) agree. `inspect` prints a `wait` line; the TUI
-paints the same row; `VIEW_VERSION` moves once. Tests:
-`a_paged_row_and_a_whole_read_paint_the_same_wait` and
+apply. The wait is derived once in `brokkr-view`; the whole and paged reads carry the same typed
+fact:
+
+- **The whole read's source.** `Account::onto` (`crates/brokkr-core/src/summary.rs:269`) reads
+  the last terminal `effect/failed` or `effect/indeterminate` event's `waits` into a new `wait`
+  reading beside `Reading` (`crates/brokkr-core/src/summary/aggregate.rs:116`); `Summary::of`
+  (`crates/brokkr-core/src/summary.rs:475`) copies it to `Summary`'s nullable `wait` field.
+  `RunEntry` (`crates/brokkr-view/src/lib.rs:200`) gains one new field, `wait:
+  Option<&HeldWait>`, and its two producers set it from the events they already hold:
+  `ListedRun::entry` (`crates/brokkr-cli/src/fleet.rs:66`) and `KeptFleet::entries`
+  (`crates/brokkr-cli/src/fleet/kept.rs:149`). `Facts::of` (`crates/brokkr-view/src/fleet.rs:520`)
+  takes that field: a `Status::Running` run with a held wait is `Standing::Waiting`. `run_row`
+  (`:652`), `inspect` (`crates/brokkr-cli/src/render/inspect.rs:33`) and the TUI
+  (`crates/brokkr-cli/src/tui/panes.rs:352`) paint the one derivation.
+- **The paged read's source.** `run_summary` gains nullable `wait_provider`, `wait_route` and
+  `wait_until` in `crates/brokkr-store/src/summary.rs:149-170`, written from `Summary::of`
+  (`:298-341`); `crates/brokkr-core/src/page.rs:91` `Row` gains them, and
+  `crates/brokkr-view/src/fleet/page.rs:93` `summary_row` builds the same `Facts` from them. A
+  page and a whole read then paint the same `waiting` row. `inspect` prints a `wait` line; the
+  TUI paints the same row.
+
+`VIEW_VERSION` (`crates/brokkr-view/src/lib.rs:164`) is 29 at HEAD. 0106a takes it to 30 for the
+cause, and 0106b takes it to 31 for the wait; each landing re-measures it because another branch
+may have moved it. Tests: `the_held_wait_is_read_from_the_terminal_event_into_the_account`,
+`a_paged_row_and_a_whole_read_paint_the_same_wait`, and
 `a_waiting_run_is_not_listed_under_needs_you`. Options: (b) keep `Standing::Running` and put the
 wait in `detail` — cheapest, but a narrow `runs` row drops it and the stale rule needs an
 exception; (c) a `Need::Waiting` under `needs you` — visible, but says the operator must act when
-they need not. Refused. Cost: one view version and the exhaustive matches a `Standing` variant
-forces.
+they need not. Refused. Cost: one view version per readout slice and the exhaustive matches a
+`Standing` variant forces.
 
 ### 3. The operator lift
 
-**Recommended: (a) `brokkr operator retry` on a waiting run lifts it; a separate provider-wide
-lift names the provider and route; and only a probe's answer clears rows, through the sequence
-they were recorded at.**
+**Recommended: (a) `brokkr operator retry` on a waiting run journals a `lift`; a separate
+provider-wide lift names the provider and route; a lift is consumed by the one probe it
+authorizes, keyed by probe, site and round; and only a probe's answer clears rows, through the
+sequence snapshot.**
 
 **Per run.** `brokkr operator retry --run <waiting>` journals a new operator-command class
-`lift`. It ends the remaining sleep and lets the run's one driver probe the same effect now; the
+`lift`. It records the run, effect, provider, route, until, and one `probe` token for each
+`(site, round)` of the recorded wait it authorizes; the acceptance is written before any probe
+starts. It ends the remaining sleep and lets the run's one driver probe the same effect now; the
 next turn keeps the same effect id and idempotency key, and the lift spends no attempt. The
-ordinary wait (below `max_seconds`) and the held wait are one path: `take_cooldown`
-(`crates/brokkr-runtime/src/engine/cooldown.rs:583-598`) sleeps the remainder in one-second
-slices (`:636-658`), and the lift is read there. Every wait is liftable; "held" is not a second
-eligibility.
+ordinary wait and the held wait are one eligibility, not two: an ordinary wait's live engine
+reads the grant in `take_cooldown`'s one-second slices
+(`crates/brokkr-runtime/src/engine/cooldown.rs:583-598`, `:636-658`); a held wait's driver is
+`brokkr resume`, which reads the same grant and probes once (below). Every wait is liftable;
+"held" is not a second eligibility.
 
 It differs from retry on a parked run in what moves: a parked retry is accepted because the run is
 `awaiting_operator` and moves to `Cursor::RequestEffect`, so the engine requests a **new** effect
@@ -369,67 +396,85 @@ with a new id (`crates/brokkr-core/src/fold/operator.rs:41`,
 `crates/brokkr-runtime/src/engine.rs:899`); a waiting lift moves nothing, because the run is
 already at its open effect, and clears only the remaining wait. The journal distinguishes them:
 `lift` under the `retry` surface, `retry` for the parked command. A parked run of any cause —
-`ruled`, `attempt-cap`, `infrastructure`, `provider-limit` or `unknown` — is refused a lift; a
-lift never retries a park. The acceptance is admitted
-only while the run is `Run::Running(Cursor::ExecuteEffect)` with a recorded wait; a parked run's
-lift refuses `run_not_awaiting_operator`, and a running run with no recorded wait refuses a new
-`run_not_waiting`, each by name. The journal records the operator, reason, provider, route and
-`until`.
+`ruled`, `attempt-cap`, `infrastructure`, `provider-limit` or `unknown` — is refused a lift with
+`run_not_waiting`; a terminal run keeps `after_terminal`; a lift never retries a park. The
+acceptance is admitted only while the run is `Run::Running(Cursor::ExecuteEffect)` with a
+recorded wait; a parked or running-without-wait run refuses `run_not_waiting`, never a retry's
+`run_not_awaiting_operator` (`crates/brokkr-core/src/fold.rs:357`; `AwaitingOperator` is not
+waiting: `crates/brokkr-core/src/fold/run.rs:16`, `:28`). The journal records the operator,
+reason, provider, route and `until`.
 
-**The acceptance precedes the probe.** `operator/commanded` and `operator/accepted` land before
-any probe starts. The engine sees the acceptance on its next sliced re-read and probes only then;
-if it dies between the acceptance and the probe, a resume reads the acceptance and probes. A
-`stop` accepted after a `lift` wins: nothing may probe after a stop. A `lift` is not itself a
-driver; it is journaled in the caller's transaction
-(`crates/brokkr-cli/src/verbs/delivery.rs:339`), and the run's one driver — its live engine or the
-dispatcher — acts on it.
+**The acceptance precedes the probe, and the probe consumes it.** A per-run `operator/commanded`
+and `operator/accepted` land before any probe starts; a provider-wide lift has no run of its own,
+so its grant rows are the record, written with the operator, reason and command id. The typed
+lift is the `provider_lifts` grant rows written in the same transaction as that record: one row
+per authorized `(run, effect, site, round, probe)`, with the provider, route, until, operator,
+reason and command id. That set of rows is the lift's whole authority; it names no round that is
+not in the recorded wait. At the probe's start the engine writes one `provider_lift_probes`
+`start` row in one `Immediate` transaction, keyed uniquely by `(probe, site, round)`, with
+`cleared_through_seq` read from the latest `provider_cooldowns.seq`. The unique key is the once:
+only the transaction that writes it probes, and a competing driver's insert is refused, re-reads
+and finds the key consumed. **A lift is consumed by the one probe it authorizes.** A lift that
+names several sites has one token per site, and each token is consumed by its own probe; no token
+authorizes a second probe. A lift with no live engine is therefore still exactly one probe per
+token: the driver that writes the start row owns it.
 
-**How a waiting engine sees it.** The wait loop samples the journal's high-water mark and
+**A refused probe needs a fresh lift.** A rate-limit refusal writes the next cooldown row with
+`rounds + 1` (0103:287-299) and resumes the wait at its new `until`; it writes no answer and no
+new grant. The next round is a key no earlier lift names, so a crash and a resume before the new
+`until` probe nothing: the consumed key is the old round, and the new round is unauthorized. A
+fresh lift names it, or the run waits to its own `until`. This is the hold's second MEDIUM
+answered: the old `RunState.lifted` cleared only at a terminal event, and a refusal writes none;
+there is no `RunState.lifted` here, and consumption is the table row, not an event.
+
+**How a waiting engine sees it.** The ordinary wait loop samples the journal's high-water mark and
 re-reads on every slice (`crates/brokkr-runtime/src/engine/cooldown.rs:636-658`); today it only
-asks whether the run left `ExecuteEffect`, which a `stop` does (`:680-687`). The slice adds the
-lift to that read (a `lifted` field on `RunState`, set by the accepted `lift` and cleared by the
-effect's next terminal event) and probes on the next slice. It does not sleep the remainder in
-process and needs no second mechanism.
+asks whether the run left `ExecuteEffect`, which a `stop` does (`:680-687`). The slice adds one
+read: the unconsumed `provider_lifts` grant for this run's effect and current `(site, round)`. It
+probes on the next slice, after writing the consumption row. A held wait's grant is read by
+`brokkr resume` before this loop: the engine ended its drive (ruling 2), and resume is its
+driver.
 
-**Who is the one driver.** The per-run engine lock (ruling 4) is the exclusion. A live waiting
-engine already holds it and sees the lift. A held wait with no live engine has no driver to see
-it: the lift is journaled and waits for the dispatcher's adoption (ruling 5), which must acquire
-the same lock before it drives. The slices are ordered so 0106d lands before the lift's 0106e;
-until that pass, a held wait with no engine is resumed by `brokkr resume` at or after `until`.
-Exactly one driver per lift is tested by `each_lift_reaches_exactly_one_driver` (a live engine
-and a competing adopter; the lock refuses the second) and by
-`a_lift_with_no_live_engine_reaches_the_dispatcher_once`.
-
-Options: (a) the `lift` class under the `retry` surface — recommended; (b) reuse `retry` and
-broaden its acceptance to a running run — refused: it weakens "retry needs a park", makes one
-word mean two transitions, and lets a retry land on a normal running effect; (c) a new top-level
-`brokkr lift` verb — a second surface for the same command, when the operator asked for `retry`;
-(d) a lift that deletes the wait record — refused: the wait is the attempt's record and the probe
-needs its `until` and route to ask; deleting it would make the probe invent them.
+**Who drives it.** An ordinary wait's live engine sees the lift and probes. A held wait has no
+live engine, so the operator's `brokkr resume` is its driver: it reads the grant and probes once
+on the same effect, and `resume` before the held `until` refuses by name and names the lift. A
+direct run's lift is therefore driven by `resume`; a queue-started held run's is too. For an
+ordinary wait, a live engine and a competing `resume` race on the one consumption row, and the
+unique key admits one. This is the lift's once, not a general proof that a quiet engine is dead:
+the follow-up owns that proof. Exactly one driver per lift is tested by
+`a_lift_reaches_exactly_one_driver` (an ordinary wait's live engine and a competing `resume`; the
+consumption row refuses the second) and `a_lift_with_no_live_engine_is_taken_by_resume_once`.
 
 **Provider-wide.** Recommended: both forms. `brokkr operator lift --provider <p> --route <r>
---reason <why>` journals a provider-wide lift and wakes every waiting run on that provider and
-route — ordinary or held — to probe now. It does not clear a row itself: an operator's word is
-not evidence the route serves. The first probe's answer writes the clearing fact; a refusal
-writes a new row with the next round and resumes the wait at its new `until`. A provider-wide
-lift with no waiting run on that route refuses by name: it has no pin and no site to ask, and a
-clear without a probe would violate 0103's condition. Each run's one driver (ruling 4) acts, so
-one provider-wide lift reaches one driver per run, never a second.
+--reason <why>` resolves every waiting run on that provider and route — ordinary or held — and
+writes one `provider_lifts` grant row per authorized `(run, effect, site, round, probe)`. That
+set of rows, sharing the command id, is the provider-wide lift's fan-out record: it names every
+run and probe the one command authorizes, and nothing else reads as it. It does not clear a row
+itself: an operator's word is not evidence the route serves. Each run's one driver consumes its
+own grant and probes once; the first probe's answer writes the answer row and clears through its
+snapshot; a refusal writes a new round and waits for a fresh lift or its own `until`. A
+provider-wide lift with no waiting run on that route refuses by name: it has no target and no
+site to ask, and a clear without a probe would violate 0103's condition.
+`a_provider_wide_lift_reaches_two_waiting_runs_once_each` starts two waiting runs on one route,
+lifts once, and asserts each reaches one driver and probes once.
 
-**The clearing rule.** Recommended: `provider_lifts`, an append-only table beside 0103's
-`provider_cooldowns` (queue storage v6, after 0104's v5, itself after 0103's v4). At a probe's
-start the engine reads the latest `provider_cooldowns.seq` for that provider and route as
-`cleared_through_seq`. On an answer it appends one lift row with that snapshot, provider, route,
-run, event, site, `answered_at`, operator and reason; the aggregate takes the highest
-`cleared_through_seq` for that provider and route and ignores every row at or below it. A row
-recorded during the probe has a higher `seq`, so it survives and holds the route again; a row
-after the lift survives too. A refusal writes no lift row, writes the next cooldown row, and the
-wait resumes at its new `until`. Only an answer writes a lift; a pass, a clock and a manual clear
-write none. This is 0103's condition made concrete: the answer is the evidence, and the sequence
-snapshot proves no row recorded during or after the probe is removed.
+**The clearing rule.** Recommended: `provider_lifts` and `provider_lift_probes`, append-only
+tables beside 0103's `provider_cooldowns` (queue storage v6, after 0104's v5, itself after 0103's
+v4). A `provider_lifts` row is a grant: provider, route, run, effect, site, rounds, probe, until,
+operator, reason and the command id; a provider-wide command has one row per target. A
+`provider_lift_probes` row is either the probe's start — its unique key is `(probe, site, round)`,
+and it carries the `cleared_through_seq` snapshot — or its answer, naming the start row and
+`answered_at`. The aggregate takes the highest `cleared_through_seq` among the start rows of
+answered probes for that provider and route
+and ignores every cooldown row at or below it. A row recorded during the probe has a higher
+`seq`, so it survives and holds the route again; a row after the lift survives too. A refusal
+writes no answer, writes the next cooldown row, and the wait resumes at its new `until`. Only
+an answer clears a row; a pass, a clock and a manual clear write none. This is 0103's condition
+made concrete: the answer is the evidence, and the sequence snapshot proves no row recorded
+during or after the probe is removed.
 
 Options: (a) the sequence snapshot and an append-only lift table — recommended; (b) delete the
-cleared rows — refused: the table is append-only and a delete can race a row recorded after the
+cleared rows — refused: the tables are append-only and a delete can race a row recorded after the
 probe; (c) clear by `answered_at` time — refused: equal or moved clocks cannot order a row at the
 same instant, while the sequence can; (d) clear all rows on an operator's word — refused: no
 evidence, and it removes rows recorded after the probe.
@@ -441,132 +486,18 @@ probe; and the dispatcher's infrastructure budget is not a grant class, because 
 the queue entry's declared data. A grant naming a class or word outside this vocabulary refuses
 at load.
 
-### 4. The per-run engine lock
-
-**Recommended: (a) a per-run, OS-level advisory lock the driving process holds for its whole
-drive and the kernel releases on its death; every driving path takes it.**
-
-**What it is.** A `flock` exclusive, non-blocking lock on one file per run, held by the process
-that drives the run. It is not a lease, a heartbeat, a pid record or a clock: the kernel releases
-it when the holder dies, which is the positive proof a quiet live process cannot fake. It is the
-same primitive and the same lock-file home as 0095's dispatch lock
-(`crates/brokkr-runtime/src/dispatch/lock.rs:1-15`, `:86-115`), which already states "Liveness is
-the lock, which the kernel lets go when its process dies: there is no lease, no heartbeat and no
-clock read for it."
-
-**Its name and home.** `crates/brokkr-runtime/src/run_lock.rs` (new): `RunLock`, taken through
-`crate::lock_file::opened` (`crates/brokkr-runtime/src/lock_file.rs:1-31`) so the file is this
-user's own single regular file, owner-only, opened without following a link and `CLOEXEC`; a
-second acquisition refuses. The file is `<journal>.run-<run_id>.engine.lock` beside the journal;
-`<run_id>` must be one safe path component (no `/`, no `.` or `..`), refused otherwise. The lock
-is held by `Engine` for its whole life, not by a call, so no drive can outlive it. `Engine`'s
-field is not an `Option` on the production path: there is no unlocked `Engine` to drive.
-
-**How every driving path takes it.**
-- `brokkr run` and a dispatcher's start: `Engine::start_claimed` takes it in
-  `start::journaled` after `door()` mints the run id (`crates/brokkr-runtime/src/engine/start.rs:42-80`)
-  and before `store.start_run` (`:108`); `start_with_dispatch` takes it from the envelope's run
-  id in `start::dispatched` before its `start_run` (`:115-130`).
-- `brokkr resume`, `rerun` and the operator's member retry: `launch::resume` takes it and hands
-  it to `Engine::resume` (`crates/brokkr-runtime/src/engine.rs:614-677`), which owns it before it
-  reads the pinned manifest; `rerun` starts a new run through the start path. All three go
-  through `launch` (`crates/brokkr-runtime/src/launch.rs:313-347`, `:351-383`, `:386-421`), the
-  one admission the CLI and the dispatcher share.
-- The dispatcher's adoption is `launch::adopt` (ruling 5), a resume under the lock that opens
-  the lock file without creating it; it cannot adopt without acquiring it.
-- A delivery verb that only journals a command — `operator retry`, `stop`, `supersede`,
-  `classify`, `acknowledge` (`crates/brokkr-cli/src/verbs/delivery.rs:332-340`) — drives nothing
-  and takes no engine lock; the run's driver holds it.
-- `run_view::drive` (`crates/brokkr-cli/src/run_view.rs:134`) can only drive an `Engine`, which
-  already holds it.
-
-**A refusal is typed and final.** A second driver gets a typed `RunLocked { run }` naming the run
-(`EngineError`) and writes nothing; it never sleeps, retries or waits for the holder. The
-test-only constructors take the lock from the test's journal too, so no fixture drives an
-unlocked engine.
-
-**Adoption requires the lock.** A run started before this slice has no lock file; the adopter
-opens without creating one, so a missing file is `NoLock` and adoption refuses. `brokkr resume`
-creates the file and takes the lock, so the next adoption can rely on it. This is the positive
-proof the hold asked for: the adopter holds the one lock the driver would have held. Until this
-slice lands, the decision rules adoption out and 0106d stays unstarted.
-
-Options: (a) the per-run `flock` — recommended; (b) a pid file or a lease with a heartbeat —
-refused: a stale pid and a missed heartbeat are not positive proof, and 0029:95-111 already
-documents the quiet holder; (c) the dispatcher's journal lock alone — refused: it excludes a
-second dispatcher, not a direct engine (`crates/brokkr-runtime/src/dispatch/lock.rs:86`); (d)
-the writer lease or 0029's fence alone — refused: the fence checks the head only
-(`crates/brokkr-store/src/lib.rs:630-656`) and a quiet driver appends nothing (0029:95-111); the
-lease says a writer may own the tree, not that the driver is dead
-(`crates/brokkr-runtime/src/engine/broker/settlement.rs:466-484`).
-
-### 5. Orphan adoption
-
-**Recommended: (a) the dispatcher adopts a queue-started `running` run whose driver is gone, and
-never a run another process drives.**
-
-An orphan is a run whose fold is `Running` and whose driver is gone: the engine died between
-effects, or died mid-attempt and the next process found the attempt in flight. Reconcile already
-names the gap: a run linked to an entry with a `spawn` row is left for the operator
-(`crates/brokkr-runtime/src/dispatch/reconcile.rs:13`). Adoption is the dispatcher's
-`launch::adopt` of that run under its pinned bundle, not a new run and not a retry of a parked
-one. At `ExecuteEffect` it drives the effect; at `EffectInFlight` it takes the existing `restarted` path
-(`crates/brokkr-runtime/src/engine/cursor.rs:45`), which settles the attempt first, so it never
-starts a second driver beside an unsettled one. It adopts a queue entry's run only: a direct
-`brokkr run` is the operator's, and the dispatcher's authority is the entries it owns.
-
-Options: (a) queue-started runs only — recommended; (b) every `running` run — broader recovery,
-but the dispatcher would drive work it did not start and could surprise an operator's own resume;
-the fence keeps it safe, but the authority is wider than 0068's; (c) no adoption — refused:
-reconcile already leaves the run for a person, which is the orphan the issue names.
-
-**How "no live driver" is proven.** The per-run engine lock (ruling 4) is the proof, and it is
-positive: `launch::adopt` opens the run's lock file without creating it and takes it
-exclusively. If the file is missing (`NoLock`) or the lock is held (`RunLocked`), a driver lives
-or the run predates the lock, and adoption refuses. If the adopter takes it, no other process holds it, and
-the adopter keeps it for the whole drive. The other facts are gates, not proof:
-
-- **The writer lease.** The protected worktree's reservation names every attempt the run
-  admitted, standing or settled (`crates/brokkr-runtime/src/engine/broker/admission.rs:1`). A
-  standing attempt means a writer may still own the tree; adoption refuses. A reservation with no
-  standing attempt and every attempt settled is required, but it says the attempt is closed, not
-  that no process drives the run.
-- **The attempt's settlement.** For `EffectInFlight`, `restarted` reads the reservation and the
-  driver tallies and writes the attempt's terminal fact before any drive
-  (`crates/brokkr-runtime/src/engine/broker/fold.rs:315`). Adoption does not invent a second
-  settlement and does not re-run an unsettled attempt.
-- **0029's fence.** The adoption appends on the head its fold read
-  (`crates/brokkr-store/src/lib.rs:639`); a writer that does not hold the run's lock and appends
-  first moves the head, and the adoption writes nothing. With the lock, the quiet driver is
-  already excluded; the fence is the final check, not the first proof.
-- **The dispatcher's lock.** `take_dispatch` excludes a second dispatcher
-  (`crates/brokkr-runtime/src/dispatch/lock.rs:86`), and nothing more: it does not exclude a
-  direct engine, so it is not the proof.
-
-**What it must never do.** Never adopt a run without taking its engine lock. Never adopt a run
-another process drives; the lock refuses, and the dispatcher does not retry it into a second
-driver. Never adopt a parked or terminal run. Never adopt a run with a standing writer
-reservation. Never adopt at `EffectInFlight` without settling the attempt first. Never adopt a
-direct run. Never create a lock file for a run that has none: that would manufacture the proof.
-
-**The tests in the slice.** `a_quiet_live_engine_is_never_adopted` keeps the engine alive, its
-attempts settled and its journal unwritten, holds its lock, and asserts the dispatcher's adoption
-refuses `RunLocked` and writes no event. `a_dead_engines_run_is_adopted_exactly_once` drops the
-holder, lets one dispatcher take the lock and drive, and asserts a second dispatcher's attempt
-refuses `RunLocked` and the journal has one adoption.
-
-### 6. The infrastructure retry budget
+### 4. The infrastructure retry budget
 
 **Recommended: (a) an operator-declared budget on the queue entry, default 3, spent only by an
 `infrastructure` park with positive non-execution evidence; when spent, the park is the
 operator's.**
 
-**Its home.** `queue_retry_budgets` is queue storage version 7, after 0106e's `provider_lifts`
-(version 6) and 0104's `seat_trees` (version 5): one row per entry, the budget and the operator
-and reason that set it, absent meaning 3. It is written by `queue add --retry-budget <n>` or
-`queue set-retry-budget`, and the spends are append-only `queue_retries` rows, one per dispatcher
-retry, naming the run, the park's seq and the cause. The budget belongs to the entry, not the
-host: two entries may differ, and a direct run has none.
+**Its home.** `queue_retry_budgets` is queue storage version 7, after 0106c's `provider_lifts`
+and `provider_lift_probes` (version 6) and 0104's `seat_trees` (version 5): one row per entry,
+the budget and the operator and reason that set it, absent meaning 3. It is written by `queue add
+--retry-budget <n>` or `queue set-retry-budget`, and the spends are append-only `queue_retries`
+rows, one per dispatcher retry, naming the run, the park's seq and the cause. The budget belongs
+to the entry, not the host: two entries may differ, and a direct run has none.
 
 Options: (a) the entry's table — recommended; (b) a field in the launch payload — refused: the
 payload is the claim's digest and the store keeps it verbatim, so a budget would move every
@@ -622,15 +553,24 @@ rescue it); `only_an_infrastructure_park_spends_the_budget` (a `ruled`, an `atte
 `provider-limit` park each spend nothing); `a_non_retryable_infrastructure_park_spends_nothing`;
 `the_spent_budget_leaves_the_park_to_the_operator`; `a_direct_run_has_no_budget`.
 
-**Ruling 7's text.** Decision 0068's ruling 7 is replaced by the full sentence in [What 0068 and
-0103 say after acceptance](#what-0068-and-0103-say-after-acceptance); it authorizes the
-adoption and the declared budget and nothing else.
+**Decision 0068 ruling 7's text.** Its replacement is the full sentence in [What 0068 and 0103
+say after acceptance](#what-0068-and-0103-say-after-acceptance); it authorizes the declared
+budget and nothing else. It no longer authorizes an adoption.
 
 ## What 0068 and 0103 say after acceptance
 
 These are the replacement sentences, kept here so the older files are not edited. Each takes
 effect when this decision is accepted; the header pointers and back-pointers are added then, not
 in this story.
+
+The 0103 passages this decision touches are its ruling 2's no-clearing paragraph (`:277-286`),
+ruling 3's recommendation (`:319-321`), its computed-wait and episode paragraphs (`:340-344`,
+`:352-358`), ruling 4's no-answer and answer bullets (`:419-425`, `:426-428`), ruling 5's
+in-process wait (`:456-480`), ruling 7's answer clause and expired-wait paragraph (`:561-563`,
+`:585-591`), its `What stays out` bullet (`:644-651`), its slice 4c test (`:745-747`) and its
+Consequences (`:806-815`). Every one is quoted and replaced below. No other 0103 passage is
+touched; in particular its engine-computed wait and episode bounds stay, and a row recorded during
+or after a probe is never removed.
 
 **0068 ruling 4.** "A run parks for the operator only when the provider's refusal is not a rate
 limit or the cool-down exceeds a declared maximum."
@@ -644,16 +584,15 @@ limit or the cool-down exceeds a declared maximum."
 
 **0068 ruling 7.** "`brokkr dispatch` runs as one process the operator starts, or one pass on
 demand; it starts runs, records cool-downs and sweeps, and does nothing else. It never retries a
-run the policy parked, never concludes or stops a run, and never changes an entry's order"
-(`docs/decisions/0068-the-dispatcher.md:100-106`) becomes:
+run the policy parked, never concludes or stops a run, and never changes an entry's order — those
+remain operator commands" (`docs/decisions/0068-the-dispatcher.md:100-106`) becomes:
 
 > `brokkr dispatch` runs as one process the operator starts, or one pass on demand; it starts
-> runs, records cool-downs and sweeps, adopts a queue-started run whose per-run engine lock it
-> took and whose driver is gone, and does nothing else. It never retries a run the policy parked,
-> except a queue-started run parked with the typed cause `infrastructure`, with `retryable` true
-> on positive non-execution evidence and while its entry's declared retry budget remains; it
-> never retries a `ruled`, `attempt-cap` or `provider-limit` park, never concludes or stops a
-> run, never adopts a run it cannot lock, and never changes an entry's order.
+> runs, records cool-downs and sweeps, and does nothing else. It never retries a run the policy
+> parked, except a queue-started run parked with the typed cause `infrastructure`, with
+> `retryable` true on positive non-execution evidence and while its entry's declared retry budget
+> remains; it never retries a `ruled`, `attempt-cap` or `provider-limit` park, never concludes or
+> stops a run, and never changes an entry's order — those remain operator commands.
 
 **0103 ruling 2, the no-clearing paragraph (`:277-286`).** Each sentence is answered:
 
@@ -683,6 +622,12 @@ is no longer refused and must not remove a row recorded after the probe." become
 > The aggregate is re-read after the probe and before the retry, so a row recorded while the
 > probe ran survives the snapshot and holds the route again.
 
+**0103 ruling 3's recommendation (`:319-321`).** "a wait or an accumulated episode past the
+maximum parks" becomes:
+
+> A wait the engine computed, or an accumulated episode, past the maximum parks with cause
+> `provider-limit`; a wait whose end the provider stated, past the maximum, is held, not parked.
+
 **0103 ruling 3 (`:340-344`).** "A single wait longer than `max_seconds`, or the sum of one
 effect's waits across its sites passing it, parks." becomes:
 
@@ -696,11 +641,21 @@ effect's waits across its sites passing it, parks." becomes:
 > past `max_seconds`, the wait is held and admission holds until that end. An engine-computed
 > default or accumulated episode past the maximum parks.
 
-**0103 ruling 3's construction sentence (`:356`).** "By construction no row's `until_at` is more
-than `max_seconds` after its `recorded_at`" becomes:
+**0103 ruling 3's remainder and episode paragraph (`:352-358`).** "The sum of the effect's actual
+remainders is its episode, and when the next remainder would pass `max_seconds` it parks. An
+overlapping row from another run can therefore make an effect's remainder longer than its own
+candidate; that longer remainder counts against its episode. By construction no row's `until_at`
+is more than `max_seconds` after its `recorded_at`, so the aggregate remainder is never longer
+than the newest row's maximum." becomes:
 
-> A row whose end the provider stated may lie past `max_seconds`; the maximum bounds the engine's
-> own computed wait and episode, not the provider's word.
+> The sum of the effect's actual remainders is its episode, and when the next remainder would
+> pass `max_seconds` it parks with cause `provider-limit`. An overlapping row from another run
+> can make an effect's remainder longer than its own candidate; that longer remainder counts
+> against its episode. A row whose end the provider stated may lie more than `max_seconds` after
+> its `recorded_at`: the maximum bounds the engine's own computed wait and the episode the
+> effect accumulates, not the length of the provider's stated row, so an effect whose
+> accumulated episode passes the maximum still parks while the row itself stays held for
+> admission.
 
 **0103 ruling 4's no-answer bullet (`:419-425`).** "A probe that ends with no answer is an
 **indeterminate** end under 0006: … all park and spend no effect attempt. The row is neither
@@ -725,22 +680,86 @@ retry. It clears no row: ruling 2 keeps every unexpired row in admission's aggre
 > probe has a higher sequence and holds the route again. A refusal writes a new row and resumes
 > the wait at its new `until`.
 
-**0103 ruling 5 (`:585-588`).** "A run whose cool-down expires while nobody drives it stays
-`running` with the waits in its last terminal event. A resume reads them and retries if attempts
-remain; at the cap, or if the declared maximum passed while it waited, the resume parks naming the
-cool-down." becomes:
+**0103 ruling 5 (`:456-480`).** Its recommended (a) is scoped: an ordinary wait below the
+maximum is still taken in process in bounded slices, so an operator `stop` during it is honoured
+and the retry keeps the effect. The paragraph that says a resume "reads the same waits and waits
+the remainder, or parks past the maximum" becomes:
+
+> An ordinary wait below the declared maximum is taken in process in bounded slices, and a stop
+> during it ends the run with no probe or retry. A wait whose end the provider stated past the
+> maximum is held: the engine ends its drive and releases the lane and process, the run stays
+> `running` with the effect open, and no process sleeps the remainder. The held wait has no live
+> engine: `brokkr resume` at or after `until` takes the wait and probes, and before `until` it
+> refuses by name and names the lift. An ordinary wait's live engine wakes at its `until` and
+> probes. No dispatcher pass is proposed by this decision.
+
+**0103 ruling 7 (`:561-563`), the answer's clearing clause.** "The probe's answer ends this
+run's wait; it clears no row and does not reset the chain or re-select the retried effect onto the
+cooled link." becomes:
+
+> The probe's answer ends this run's wait; it clears the rows recorded before that probe, through
+> the sequence snapshot taken at its start, and does not reset the chain or re-select the retried
+> effect onto the cooled link. A row recorded during or after the probe has a higher sequence and
+> holds the route again.
+
+**0103 ruling 7 (`:585-591`), the expired-wait paragraph.** "A run whose cool-down expires while
+nobody drives it stays `running` with the waits in its last terminal event. A resume reads them
+and retries if attempts remain; at the cap, or if the declared maximum passed while it waited,
+the resume parks naming the cool-down." becomes:
 
 > A run whose cool-down expires while nobody drives it stays `running` with the waits in its last
 > terminal event. A resume before a held wait's `until` refuses by name and names the lift; a
-> resume at or after it probes and retries if attempts remain; a resume at the cap parks naming
-> the cool-down. A held wait is not parked because the maximum passed: it is held, and only its
-> own `until`, a lift or the dispatcher wakes it.
+> resume at or after it probes and retries if attempts remain; at the cap it parks naming the
+> cool-down. A held wait is not parked because the maximum passed: it is held, and only its own
+> `until`, a lift or the operator's resume wakes it. With no driver it is not parked and not
+> lost: the 3-hour stale bound names it and the operator resumes or lifts it. Admission admits
+> new entries as soon as the aggregate `until_at` passes.
+
+**0103 `What stays out` (`:644-651`).** "A run still parks for a person exactly when it does
+today, plus the cap: a rate-limit refusal with attempts remaining waits and probes instead of
+parking, and a rate-limit refusal at 0006's cap parks naming the cool-down. … A probe with no
+answer parks too and ends no cool-down (ruling 4)." becomes:
+
+> A run still parks for a person when a policy or engine rule refuses, 0006's cap is reached, an
+> indeterminate or contention end is not budget-retryable, or a typed provider refusal is not a
+> rate limit. A provider-stated rate-limit reset past the declared maximum is a held wait, not a
+> park; an engine-computed wait or an accumulated episode past it parks `provider-limit`. A
+> probe that refuses again writes the next round and resumes the wait at its new `until`; the
+> consumed lift does not authorize that probe, so it needs a fresh lift or its own expiry. A
+> probe that ends with no answer still parks and is never budget-retryable. A run's lift is
+> taken by its live engine or by `brokkr resume`, never by the dispatcher in this decision.
+
+**0103 slice 4c's test (`:745-747`).** "a cool-down whose computed end passes the declared
+maximum, or whose accumulated episode would, parks with the provider's words and the maximum
+named; a resume waits the remainder." becomes:
+
+> a cool-down whose engine-computed end passes the declared maximum, or whose accumulated
+> episode would, parks with the provider's words and the maximum named; a provider-stated end
+> past the maximum is held, and a resume before its `until` refuses by name while a resume at or
+> after it waits the remainder.
+
+**0103 Consequences (`:806-815`).** "A rate-limited run shows every refused site's wait with the
+provider's words, not a park for a person; every wait is bounded by the declared maximum, and a
+wait past it or a refusal at 0006's cap parks. … Before slice 6 the price is the held lane …"
+becomes:
+
+> A rate-limited run shows every refused site's wait with the provider's words, not a park for a
+> person; an engine-computed wait and an effect's accumulated episode are bounded by the declared
+> maximum, and either past it parks, while a provider-stated end past the maximum is held. A
+> probe ends the wait only with a provider's answer, never with a session start, a hang, a
+> deadline or an error. The retry is an attempt inside 0006's limit; the probe is not, and no
+> amendment to 0006 is proposed.
+>
+> Before any dispatcher pass, the price of a held wait is the operator's hand: the run keeps its
+> effect and releases its lane, the held wait has no engine, and `brokkr resume` is its driver;
+> an ordinary wait's engine probes at its `until`. The operator can lift early, and each round
+> costs one probe per cooled site, whose token cost is unmeasured.
 
 ## What stays out
 
 - 0071's rules are kept: a closed enum and data, not a trait; typed at the edge; no
   `serde_json::Value` past the edge; the engine passes `now`; ruling 4's ceilings; one home each
-  for the cause, the held wait, the engine lock and the lift; one derivation in `brokkr-view`;
+  for the cause, the held wait, the lift and its consumption; one derivation in `brokkr-view`;
   typed errors; every new test shown to bind.
 - No model decides admission or a retry. The cause is computed from the journal and the typed
   refusal; the budget is data; the probe asks the route the run already used and its answer is
@@ -755,32 +774,53 @@ cool-down." becomes:
   budget-retryable.
 - No trust, egress, boundary or schema refusal is weakened. The held wait records only the
   provider and route the typed refusal resolved; a null route parks and holds no provider-wide
-  lock. The lift reads no new credential and resolves no new boundary. The engine lock is the one
-  run's, never the journal's or a provider's.
-- No adoption without the per-run engine lock: the dispatcher does not create a lock file for a
-  run that has none, does not adopt a run whose lock it cannot take, and does not retry a refusal
-  into a second driver.
+  lock. The lift reads no new credential and resolves no new boundary. The lift's grant and
+  consumption are one run's effect and site, never the journal's or a provider's whole.
+- No orphan adoption and no engine lock. The per-run engine lock at `25fa2d590` is not proposed:
+  the follow-up owns stable-identity engine ownership. A run whose driver is gone stays
+  `running` for the operator's `resume`; the dispatcher adopts nothing and this decision edits no
+  dispatch or launch adoption path.
 - No Windows code, test or evidence (0063). No `contracts/`, `fixtures/`, `policy/` or
   `reference/` edit. Acceptance mints `park-cause.v1` and `provider-wait/v2` and numbers queue
   storage v6 and v7. No old journal is backfilled: a park before this decision reads `unknown`,
   and a wait written under v1 reads as not held. The Codex classifier is #1037's, not this
   decision's: no admission is derived from Codex prose.
 
+## The follow-up this decision leaves
+
+Orphan adoption leaves 0106 because its proof did not hold. The first hold asked adoption to
+prove a quiet live driver dead; the second showed the proposed per-run lock is not that proof.
+`crates/brokkr-runtime/src/lock_file.rs:18-34` checks only the file it opened — this user's
+regular file of one link — and cannot tell that the pathname now names another file;
+`crates/brokkr-runtime/src/dispatch/lock.rs:9-13` already records that a lock file removed under
+a live dispatcher lets a second dispatcher take a lock of its own. The chief reproduced the
+counterexample: an adopter acquired `LOCK_EX|LOCK_NB` on a recreated pathname while the quiet
+original holder lived. The adopted run would then have two drivers.
+
+The follow-up decision must bind engine ownership to a stable file identity journaled at the
+run's start (for example the lock file's device and inode), refuse a replaced lock file, cover
+every driving path, and carry a quiet-live-holder replacement test. It must also decide orphan
+adoption itself, with the writer lease, settlement and 0029's fence as gates, not proof. Until
+it lands, nothing adopts: `reconcile` leaves a linked run with a `spawn` row to the operator
+(`crates/brokkr-runtime/src/dispatch/reconcile.rs:13`), a direct run is the operator's, and
+`brokkr resume` is the hand. This decision names the follow-up; it does not build it.
+
 ## The slices
 
 Smallest first; each lands alone, tested, through the merge queue. No slice edits
-`crates/brokkr-protocol/src/adapters.rs` except 0106g, and #1037 holds that file now. The first
-slice is the typed cause, which the lane script and any driver can read at once. The lock
-(0106c) precedes adoption (0106d); the lift (0106e) precedes the budget (0106f); storage versions
-follow that order.
+`crates/brokkr-protocol/src/adapters.rs` except 0106e, and #1037 holds that file now. The first
+slice is the typed cause, which the lane script and any driver can read at once. The lock and
+adoption are not here; the lift (0106c) precedes the budget (0106d), and storage versions follow
+that order.
 
 **Persistence and backfill.** Every fact here is additive and nothing is backfilled. A park
 written before `park-cause/v1` has no `cause` and reads `unknown`, never `ruled`. A wait written
 before `provider-wait/v2` has no `held` and reads as not held; a past-maximum wait from that
 journal still parks under 0103's rule. The summary columns the cause and the wait add are
 nullable, and a row written before them keeps null, which is the same `unknown`/not-held read; no
-history row is rewritten. `provider_lifts` and the two budget tables are new and empty, so an old
-journal has no lift and every entry reads the default budget of 3; a direct run always has none.
+history row is rewritten. `provider_lifts`, `provider_lift_probes`, `queue_retry_budgets` and
+`queue_retries` are new and empty, so an old journal has no lift and every entry reads the
+default budget of 3; a direct run always has none.
 
 1. **0106a — the typed cause on `run/parked`.** Files: `crates/brokkr-core/src/park.rs` (new
    `ParkCause`), `crates/brokkr-core/src/payload.rs`, `crates/brokkr-core/src/summary.rs`,
@@ -788,7 +828,8 @@ journal has no lift and every entry reads the default budget of 3; a direct run 
    `crates/brokkr-runtime/src/engine.rs` (the two park writers at `:519` and `:815`),
    `crates/brokkr-runtime/src/engine/cursor.rs`, `crates/brokkr-runtime/src/engine/cooldown.rs`,
    `crates/brokkr-view/src/fleet.rs`, `crates/brokkr-view/src/fleet/page.rs`,
-   `crates/brokkr-view/src/run_summary.rs`, `crates/brokkr-cli/src/render/inspect.rs`, the new
+   `crates/brokkr-view/src/run_summary.rs`, `crates/brokkr-view/src/lib.rs` (`VIEW_VERSION` 29
+   to 30), `crates/brokkr-cli/src/render/inspect.rs`, the new
    `contracts/park-cause.v1.schema.json`, `crates/brokkr-runtime/tests/frozen_contracts.rs`, and
    core, store, view, render and runtime tests. About 260 production and 220 test lines.
    Contract: `park-cause/v1`, optional at `event_schema: 1`, minted on acceptance. Tests: each
@@ -806,9 +847,12 @@ journal has no lift and every entry reads the default budget of 3; a direct run 
    `crates/brokkr-runtime/src/engine/cursor.rs`, `crates/brokkr-runtime/src/admission.rs`,
    `crates/brokkr-runtime/src/admission/capacity.rs`, `crates/brokkr-view/src/fleet.rs`,
    `crates/brokkr-view/src/fleet/need.rs`, `crates/brokkr-view/src/fleet/page.rs`,
-   `crates/brokkr-view/src/run_summary.rs`, `crates/brokkr-core/src/summary.rs`,
+   `crates/brokkr-view/src/run_summary.rs`, `crates/brokkr-view/src/lib.rs` (`VIEW_VERSION` 30
+   to 31), `crates/brokkr-core/src/summary.rs`,
+   `crates/brokkr-core/src/summary/aggregate.rs`, `crates/brokkr-core/src/page.rs`,
    `crates/brokkr-store/src/summary.rs`, `crates/brokkr-cli/src/render/inspect.rs`,
-   `crates/brokkr-cli/src/tui/panes.rs`, the new
+   `crates/brokkr-cli/src/tui/panes.rs`, `crates/brokkr-cli/src/fleet.rs`,
+   `crates/brokkr-cli/src/fleet/kept.rs`, the new
    `contracts/provider-wait.v2.schema.json`, `crates/brokkr-runtime/tests/frozen_contracts.rs`,
    and runtime, view, render and store tests. About 300 production and 260 test lines. Contract:
    `provider-wait/v2`, an additive extension at `event_schema: 1`, minted on acceptance. Tests:
@@ -821,69 +865,50 @@ journal has no lift and every entry reads the default budget of 3; a direct run 
    `a_held_entry_with_no_maximum_refuses_by_name`;
    `a_resume_before_the_held_until_refuses_and_names_the_lift`; a resume at or after `until`
    probes; admission holds until the latest `until`, and a later shorter row does not shorten it;
+   `the_held_wait_is_read_from_the_terminal_event_into_the_account`;
    `a_paged_row_and_a_whole_read_paint_the_same_wait`;
    `a_waiting_run_is_not_listed_under_needs_you`.
-3. **0106c — the per-run engine lock.** The adoption prerequisite; it adds no adoption. Files:
-   `crates/brokkr-runtime/src/run_lock.rs` (new `RunLock`),
-   `crates/brokkr-runtime/src/lock_file.rs` (a no-create open for adoption),
-   `crates/brokkr-runtime/src/engine.rs` (the `Engine` field, `RunLocked` and `NoLock`),
-   `crates/brokkr-runtime/src/engine/start.rs`, `crates/brokkr-runtime/src/launch.rs`,
-   `crates/brokkr-runtime/src/lib.rs`, `crates/brokkr-cli/src/run_view.rs`, and runtime, launch
-   and CLI tests. About 220 production and 180 test lines. Contract: none; it moves no manifest.
-   Tests: `a_second_driver_refuses_the_run_lock`; `a_missing_lock_file_is_no_lock` (adoption's
-   open does not create one); `the_lock_file_is_owner_only_single_and_not_a_link`; `a_spawned_seat_does_not_inherit_the_lock`;
-   `dropping_the_engine_releases_the_lock`; `every_driving_path_holds_the_lock` (`run`, `resume`,
-   `rerun`, the operator's member retry); `no_engine_is_constructed_without_a_lock`.
-4. **0106d — orphan adoption and the dispatcher's pass.** Depends on 0106c and #430 slice 6's
-   pass, or builds its first `dispatch --once` step. Files:
-   `crates/brokkr-runtime/src/dispatch.rs`, `crates/brokkr-runtime/src/dispatch/reconcile.rs`,
-   `crates/brokkr-runtime/src/launch.rs` (`launch::adopt`), `crates/brokkr-cli/src/lib.rs`,
-   `crates/brokkr-cli/src/verbs/delivery.rs`, the store's run reads, and runtime and CLI tests.
-   About 260 production and 220 test lines. Contract: none. Tests:
-   `a_quiet_live_engine_is_never_adopted` (alive, every attempt settled, no append; the locked
-   engine refuses the adopter and no event is written);
-   `a_dead_engines_run_is_adopted_exactly_once` (the holder drops, one dispatcher takes the lock
-   and drives, a second refuses); `a_run_with_no_lock_file_is_not_adopted`;
-   `a_standing_writer_reservation_blocks_adoption`;
-   `a_live_append_moves_the_head_and_the_adoption_writes_nothing`;
-   `an_in_flight_attempt_is_settled_before_the_drive`;
-   `the_dispatcher_never_adopts_a_parked_or_terminal_run`; a direct run is left to `resume`;
-   `a_lift_with_no_live_engine_reaches_the_dispatcher_once`.
-5. **0106e — the operator lift and its clearing rule.** Depends on 0106b and 0106d. Files:
+3. **0106c — the operator lift, its consumption and its clearing rule.** Depends on 0106b. Files:
    `crates/brokkr-core/src/fold.rs`, `crates/brokkr-core/src/fold/operator.rs`,
    `crates/brokkr-runtime/src/engine/operator.rs`,
    `crates/brokkr-runtime/src/engine/operator/retry.rs`,
-   `crates/brokkr-runtime/src/engine/cooldown.rs`,
-   `crates/brokkr-store/src/queue/storage.rs` (queue storage v6, `provider_lifts`),
-   `crates/brokkr-store/src/queue.rs`, `crates/brokkr-cli/src/verbs/delivery.rs`,
+   `crates/brokkr-runtime/src/engine/cooldown.rs`, `crates/brokkr-runtime/src/engine.rs`,
+   `crates/brokkr-runtime/src/launch.rs`,
+   `crates/brokkr-store/src/queue/storage.rs` (queue storage v6, `provider_lifts` and
+   `provider_lift_probes`), `crates/brokkr-store/src/queue.rs`, the new
+   `crates/brokkr-store/src/queue/lift.rs`, `crates/brokkr-cli/src/verbs/delivery.rs`,
    `crates/brokkr-cli/src/cli_args.rs`, `crates/brokkr-view/src/commands.rs`, and core, store,
-   runtime and CLI tests. About 320 production and 260 test lines. Contract: queue storage v6, a
+   runtime and CLI tests. About 340 production and 280 test lines. Contract: queue storage v6, a
    store version. Tests:
-   `retry_on_a_waiting_run_lifts_it_and_retry_on_a_parked_run_moves_it` pins the two transitions
-   and the same effect id on the lift; `an_ordinary_wait_is_lifted_like_a_held_one`;
-   `the_lift_acceptance_is_journaled_before_the_probe`; `a_stop_after_a_lift_wins`;
-   `a_ruled_park_is_never_lifted`; `a_lift_with_no_waiting_effect_refuses_run_not_waiting`;
-   `a_provider_wide_lift_refuses_with_no_waiting_run`;
-   `each_lift_reaches_exactly_one_driver` (a live engine and a competing adopter; the lock
-   refuses the second); `a_probe_answer_clears_only_rows_recorded_before_it` (a row planted
-   during the probe survives); `a_refusal_after_a_lift_writes_a_new_round` and resumes at its new
-   `until`; the lift and clear are journaled with the operator's reason.
-6. **0106f — the infrastructure budget.** Depends on 0106a, 0106d and queue storage v6. Files:
-   `crates/brokkr-store/src/queue/storage.rs` (`queue_retry_budgets`, `queue_retries`; queue
-   storage v7), `crates/brokkr-store/src/queue.rs`, `crates/brokkr-runtime/src/dispatch.rs`,
-   `crates/brokkr-cli/src/cli_args/queue.rs`, `crates/brokkr-view/src/fleet.rs`, and store,
-   runtime, view and CLI tests. About 240 production and 200 test lines. Contract: queue storage
-   v7. Tests: `the_default_budget_is_three`;
+   `retry_on_a_waiting_run_lifts_it_and_retry_on_a_parked_run_refuses_run_not_waiting` pins the
+   two transitions and the same effect id on the lift; `an_ordinary_wait_is_lifted_like_a_held_one`;
+   `a_lift_is_consumed_by_its_probe_once`;
+   `a_lift_then_a_rate_limit_refusal_then_a_crash_and_resume_before_the_new_until_makes_no_second_probe`;
+   `a_direct_runs_lift_is_driven_by_resume_and_probes_once_on_the_same_effect`;
+   `a_lift_with_no_live_engine_is_taken_by_resume_once`;
+   `a_lift_reaches_exactly_one_driver` (a live engine and a competing `resume`; the consumption
+   row refuses the second); `a_provider_wide_lift_reaches_two_waiting_runs_once_each`;
+   `a_provider_wide_lift_refuses_with_no_waiting_run`; `a_ruled_park_is_never_lifted`;
+   `a_lift_with_no_waiting_effect_refuses_run_not_waiting`; `a_stop_after_a_lift_wins`;
+   `a_probe_answer_clears_only_rows_recorded_before_it` (a row planted during the probe
+   survives); `a_refusal_after_a_lift_writes_a_new_round_and_waits_for_a_fresh_lift`; the lift
+   and clear are journaled with the operator's reason.
+4. **0106d — the infrastructure budget.** Depends on 0106a, 0106c and #430 slice 6's pass, and
+   queue storage v6. Files: `crates/brokkr-store/src/queue/storage.rs` (`queue_retry_budgets`,
+   `queue_retries`; queue storage v7), `crates/brokkr-store/src/queue.rs`,
+   `crates/brokkr-runtime/src/dispatch.rs`, `crates/brokkr-cli/src/cli_args/queue.rs`,
+   `crates/brokkr-view/src/fleet.rs`, and store, runtime, view and CLI tests. About 240 production
+   and 200 test lines. Contract: queue storage v7. Tests: `the_default_budget_is_three`;
    `only_an_infrastructure_park_spends_the_budget` (a `ruled`, an `attempt-cap` and a
    `provider-limit` park each spend nothing);
    `the_budget_does_not_retry_a_cleanly_settled_unanswered_probe`;
    `an_indeterminate_attempt_spends_nothing`;
-`an_infrastructure_park_after_a_failed_to_start_attempt_spends_the_budget`;
+   `an_infrastructure_park_after_a_failed_to_start_attempt_spends_the_budget`;
    `a_start_failure_with_a_checkpoint_spends_nothing`;
    `a_non_retryable_infrastructure_park_spends_nothing`;
    `a_retryable_true_the_journal_does_not_support_refuses_at_spend_time`;
    `the_spent_budget_leaves_the_park_to_the_operator`; `a_direct_run_has_no_budget`.
-7. **0106g — dsh classifies its 402 and 429 (optional, last).** This is the one slice that edits
+5. **0106e — dsh classifies its 402 and 429 (optional, last).** This is the one slice that edits
    `crates/brokkr-protocol/src/adapters.rs`; it waits for #1037 and a measured dsh 402 and 429.
    Files: `crates/brokkr-protocol/src/adapters.rs`,
    `crates/brokkr-protocol/src/adapters/refusal.rs`, the driver-refusal tests and runtime tests.
@@ -891,7 +916,7 @@ journal has no lift and every entry reads the default budget of 3; a direct run 
    vocabulary must grow beyond `rate_limit` and `other`. Tests: a measured 402 "Insufficient
    Balance" and a 429 with `retry_after_seconds` read as typed refusals; a dsh exit with no
    measured shape stays unclassified and parks with `attempt-cap` and `failure_class:
-   start-failure`. It is optional because 0106a to 0106f change no adapter; it is last because it
+   start-failure`. It is optional because 0106a to 0106d change no adapter; it is last because it
    needs the adapter slot.
 
 **The Codex case.** The motivating Codex 429 is not a slice here. Its classifier is #1037, a
@@ -908,39 +933,61 @@ start-failure`, and no lane script may match its text to retry it.
   does not have.
 - A provider-stated long reset is `waiting`, not `needs you`: the run keeps its effect, the lane
   is released, and admission holds the provider and route until the stated end. The operator can
-  lift it now, per run or provider-wide, and the probe's answer is the clearing evidence. A v1
-  reader meeting the v2 held entry parks instead of retrying.
+  lift it now, per run or provider-wide, and the probe's answer is the clearing evidence. A
+  refused probe's new round is not covered by the lift it consumed, so it needs a fresh lift or
+  its own expiry. A v1 reader meeting the v2 held entry parks instead of retrying.
 - The clearing rule is bounded by 0103's condition: a row recorded before the probe is cleared
   through the sequence snapshot, and a row recorded during or after it is never removed. A
   refusal extends the wait; it never becomes a silent retry.
-- The dispatcher adopts a queue-started orphan only after it takes the per-run engine lock. A
-  quiet live engine holds that lock, so it is never adopted; a dead engine's run is adopted
-  exactly once. The dispatcher does not create a lock file for a run that has none.
+- The lift is consumed by the one probe it authorizes, keyed by probe, site and round. A direct
+  run's lift is driven by the operator's `brokkr resume`, which probes once on the same effect;
+  with no live engine, resume is the hand. The dispatcher adopts nothing in this decision.
 - The dispatcher spends a declared budget on an `infrastructure` park only with positive
   non-execution evidence. A cleanly settled unanswered probe, an indeterminate attempt and any
   last attempt that may have executed spend nothing; a `ruled`, `attempt-cap` or `provider-limit`
   park spends nothing whatever its text.
-- The price is two extension schemas (`park-cause/v1`, `provider-wait/v2`), one view version, one
-  per-run engine lock, queue storage v6 and v7 (after 0104's v5) and a dispatcher pass not built
-  yet. Until 0106d, a held wait is resumed by the operator at its end or lifted early; a lift
-  with no live engine waits for that pass; nothing is lost and nothing is called stale.
-- Dsh's 402 and 429 remain `attempt-cap` + `start-failure` until 0106g. The design does not guess
+- The price is two extension schemas (`park-cause/v1`, `provider-wait/v2`), two view-version
+  moves, queue storage v6 and v7 (after 0104's v5), and no per-run lock or dispatcher adoption.
+  Until the follow-up, a run whose driver is gone is resumed by the operator; nothing is lost and
+  nothing is called stale. The lift's grant and consumption tables are new and empty on an old
+  journal.
+- Orphan adoption and stable-identity engine ownership are the follow-up's, with the second
+  hold's counterexample and requirement named above. This decision claims no lock, no adoption
+  and no proof that a quiet engine is dead.
+- Dsh's 402 and 429 remain `attempt-cap` + `start-failure` until 0106e. The design does not guess
   them from prose, and the operator still sees the real failure class. The motivating Codex case
   stays `attempt-cap` + `start-failure` until #1037's classifier lands; this decision derives no
   admission from Codex prose.
 - No manifest, witness or compose digest is predicted to move for 0106a or 0106b: the cause and
   the held wait are extensions at `event_schema: 1`, not a new event, and the held wait is an
-  additive version of 0103's extension. A move would mean the extension rule was used for a field
-  the fold reads, which this decision forbids.
+  additive version of 0103's extension. The lift is queue storage, not a wire contract. A move
+  would mean the extension rule was used for a field the fold reads, which this decision forbids.
 
 ## Evidence
 
-Read at `b56e6909e`. The inventory above was re-read at that commit with `grep -rn` for
-`EventType::RunParked`, `EffectIndeterminate`, `RefusalCause` and the lock calls, and with
-`sed -n` and `awk` for each cited range; the park writes and the indeterminate writers were
-enumerated from that output (the `RunParked` appends at `crates/brokkr-runtime/src/engine.rs:519`
-and `:815`, `crates/brokkr-runtime/src/engine/cursor.rs:216` and `:280`, and
-`crates/brokkr-runtime/src/engine/cooldown.rs:725`). The security hold's counterexamples were re-read at the lines the hold names:
+Read at `b56e6909e`, re-read at `25fa2d590`; the code is unchanged there, and that commit changed
+only this decision and its index row. The inventory above was re-read at that commit with
+`grep -rn` for `EventType::RunParked`, `EffectIndeterminate`, `RefusalCause` and the lock calls,
+and with `sed -n` and `awk` for each cited range; the park writes and the indeterminate writers
+were enumerated from that output (the `RunParked` appends at
+`crates/brokkr-runtime/src/engine.rs:519` and `:815`,
+`crates/brokkr-runtime/src/engine/cursor.rs:216` and `:280`, and
+`crates/brokkr-runtime/src/engine/cooldown.rs:725`). The second hold's counterexample was re-read
+at the lines it names: the lock-file check (`crates/brokkr-runtime/src/lock_file.rs:18-34`), the
+dispatcher lock's own record of replacement
+(`crates/brokkr-runtime/src/dispatch/lock.rs:9-13`), and the delivery verb's record-only path
+(`crates/brokkr-cli/src/verbs/delivery.rs:332-340`). The lift's refusal word was read at the
+existing retry refusal (`crates/brokkr-core/src/fold.rs:357`, `:386`) and the waiting state
+(`crates/brokkr-core/src/fold/run.rs:16`, `:28`). The readout path was re-read at
+`crates/brokkr-core/src/summary.rs:269` and `:475`,
+`crates/brokkr-core/src/summary/aggregate.rs:116`, `crates/brokkr-view/src/lib.rs:200`,
+`crates/brokkr-cli/src/fleet.rs:66`, `crates/brokkr-cli/src/fleet/kept.rs:149`,
+`crates/brokkr-store/src/summary.rs:149-170` and
+`crates/brokkr-view/src/fleet/page.rs:93`. `VIEW_VERSION` is 29 at HEAD
+(`crates/brokkr-view/src/lib.rs:164`). The dispatcher citation was corrected to
+`crates/brokkr-runtime/src/dispatch.rs:6`.
+
+The other security hold's counterexamples were re-read at the lines the first hold names:
 the head-only fence (`crates/brokkr-store/src/lib.rs:630-656`), the settled-attempt adoption
 (`crates/brokkr-runtime/src/engine/broker/settlement.rs:466-484`), the cleanly settled probe with
 no answer (`crates/brokkr-runtime/src/engine/cooldown/probe.rs:146-187`,
@@ -953,8 +1000,9 @@ lane-script and delivery-driver behaviour in the Context are the framing's evide
 here. The 402, 429 and reset words are the operator's, quoted in #1035; they are not re-measured
 by this story. The Codex classifier (#1037) and a measured dsh 402/429 shape are unmeasured here
 and are named as prerequisites, not observed. The dsh classifier's absence is the tree's, at the
-lines above. No contract, fixture, policy table or reference file was edited; the only change is
-this file and its index row.
+lines above. The hold's reproduced lock replacement was not re-run here; it is the hold's
+evidence, not this story's. No contract, fixture, policy table or reference file was edited; the
+only change is this file and its index row.
 
 This decision is proposed. It claims no acceptance, mints no contract and builds no slice. The
 operator's "accept all" or a pick per ruling is the next step; the header pointers, the
