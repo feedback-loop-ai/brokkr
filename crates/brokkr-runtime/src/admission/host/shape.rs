@@ -1,7 +1,8 @@
 //! The host file's wire forms, read strictly: a closed object is an object
 //! and a closed enum is its word, never serde's positional-array or
 //! one-key-map alternatives (decision 0071 ruling 3). Every shape here is
-//! one the published `forge.host/v1` or `forge.host/v2` contract admits.
+//! one the published `forge.host/v1`, `forge.host/v2` or `forge.host/v3`
+//! contract admits.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -12,7 +13,33 @@ use serde::de::{self, IntoDeserializer, Unexpected, Visitor};
 use serde::{Deserialize, Deserializer};
 use serde_json::value::RawValue;
 
+use super::{floor, RouteClass};
+
 pub(super) use brokkr_core::shape::Object;
+
+/// One provider as the file writes it, before the loader reads its routes
+/// and seals their floors. Closed, as every host object is.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct WrittenProvider {
+    #[serde(deserialize_with = "positive_u32")]
+    pub(super) ceiling: NonZeroU32,
+    #[serde(default, deserialize_with = "strict_map")]
+    pub(super) routes: BTreeMap<String, WrittenRoute>,
+}
+
+/// One written route: its ceiling, class, and the v3 floor kept as its
+/// exact token until the file's version is known.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct WrittenRoute {
+    #[serde(deserialize_with = "positive_u32")]
+    pub(super) ceiling: NonZeroU32,
+    #[serde(deserialize_with = "word")]
+    pub(super) class: RouteClass,
+    #[serde(default, deserialize_with = "super::present")]
+    pub(super) timeout_floor_seconds: Option<floor::Written>,
+}
 
 /// A number the contract calls an integer. JSON Schema's `integer` admits
 /// any number with no fractional part, so `10.0`, `1e1` and `1.5e1` are the

@@ -1,29 +1,30 @@
 //! The machine's capacity as its operator declares it (decision 0068
-//! ruling 3, and ruling 5's data): `forge.host/v1` or `forge.host/v2`,
-//! one file per machine and never a realm's (the operator's ruling of
-//! 2026-10-10, option B). A
-//! machine has one scratch disk, one set of provider accounts and its own
-//! local hardware, whichever realm a run operates, so the tracked realms
-//! map carries none of it (#432).
+//! ruling 3, and ruling 5's data): `forge.host/v1`, `forge.host/v2` or
+//! `forge.host/v3`, one file per machine and never a realm's (the
+//! operator's ruling of 2026-10-10, option B). A machine has one scratch
+//! disk, one set of provider accounts and its own local hardware, whichever
+//! realm a run operates, so the tracked realms map carries none of it
+//! (#432).
 //!
 //! The file is found where [`host_file`] says, and read by [`read`] into
 //! one of three outcomes that are never confused: nothing at the path is
-//! capacity undeclared; a path that holds something that cannot be read
-//! (a link that loops or dangles, a directory, a FIFO or a device, a
+//! capacity undeclared; a path that holds something that cannot be read (a
+//! link that loops or dangles, a directory, a FIFO or a device, a
 //! permission refused) is unreadable, never absent (#430's H5) and never
-//! waited on; and a file read but not a valid `forge.host/v1` or
-//! `forge.host/v2` refuses, naming the problem and, where one version's
-//! rules own it, that version. A ceiling of zero, a
+//! waited on; and a file read but not a valid `forge.host/v1`,
+//! `forge.host/v2` or `forge.host/v3` refuses, naming the problem and,
+//! where one version's rules own it, that version. A ceiling of zero, a
 //! negative one and one past `u32` are refused, never read as unlimited,
 //! and so is a provider or route written twice: the ceiling the operator
 //! reads first is the one admission obeys, or none is. Every number is
 //! read from its exact token, never through `f64` (the operator's ruling
 //! of 2026-11-04, option A): an integral decimal or exponent notation
 //! reads exactly as the schema admits, and a token that is not exactly an
-//! integer in range is a shape refusal. The free-space
-//! floors are a list of at least one (the operator's ruling of
-//! 2026-10-10, option c), each naming exactly one place or absolute path,
-//! and none named twice.
+//! integer in range is a shape refusal. The free-space floors are a list
+//! of at least one (the operator's ruling of 2026-10-10, option c), each
+//! naming exactly one place or absolute path, and none named twice.
+//! `forge.host/v3` adds one optional shared-local deadline floor, whose
+//! reading and refusals are [`floor`]'s (decision 0104 ruling 1(a)).
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -37,7 +38,10 @@ use thiserror::Error;
 
 use crate::capabilities::manifest::present;
 
+mod floor;
 mod shape;
+
+pub use floor::{declared_routes, HostRoutes, RouteDecl};
 use shape::Integral;
 
 /// A host configuration, read whole: every key known, every ceiling at
@@ -63,6 +67,8 @@ enum Schema {
     V1,
     #[serde(rename = "forge.host/v2")]
     V2,
+    #[serde(rename = "forge.host/v3")]
+    V3,
 }
 
 /// A host configuration as either version writes it, before the
@@ -73,7 +79,7 @@ struct WrittenHost {
     #[serde(rename = "schema", deserialize_with = "shape::word")]
     schema: Schema,
     #[serde(deserialize_with = "shape::strict_map")]
-    providers: BTreeMap<String, Provider>,
+    providers: BTreeMap<String, shape::WrittenProvider>,
     floors: Floors,
     #[serde(deserialize_with = "shape::object")]
     boxed_builds: Ceiling,
@@ -358,17 +364,51 @@ impl TryFrom<WrittenHost> for HostConfig {
                 if written.containment.is_some() {
                     return Err(Problem::NotV2("containment"));
                 }
+                if let Some(problem) = floor::v3_only("forge.host/v1", &written.providers) {
+                    return Err(problem);
+                }
             }
             Schema::V2 => {
+                if written.containment == Some(Containment::Required) {
+                    return Err(Problem::ContainmentRequired);
+                }
+                if let Some(problem) = floor::v3_only("forge.host/v2", &written.providers) {
+                    return Err(problem);
+                }
+            }
+            Schema::V3 => {
                 if written.containment == Some(Containment::Required) {
                     return Err(Problem::ContainmentRequired);
                 }
             }
         }
         let cooldowns = written.cooldowns.map(Cooldowns::try_from).transpose()?;
+        let mut providers = BTreeMap::new();
+        for (name, provider) in written.providers {
+            let mut routes = BTreeMap::new();
+            for (route, written) in provider.routes {
+                let timeout_floor_seconds =
+                    floor::read(written.timeout_floor_seconds, written.class, &name, &route)?;
+                routes.insert(
+                    route,
+                    Route {
+                        ceiling: written.ceiling,
+                        class: written.class,
+                        timeout_floor_seconds,
+                    },
+                );
+            }
+            providers.insert(
+                name,
+                Provider {
+                    ceiling: provider.ceiling,
+                    routes,
+                },
+            );
+        }
         let config = HostConfig {
             _schema: written.schema,
-            providers: written.providers,
+            providers,
             floors: written.floors,
             boxed_builds: written.boxed_builds,
             cooldowns,
@@ -381,23 +421,19 @@ impl TryFrom<WrittenHost> for HostConfig {
 }
 
 /// One provider's ceiling, and the routes of it the machine declares.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Provider {
-    #[serde(deserialize_with = "shape::positive_u32")]
     pub(crate) ceiling: NonZeroU32,
-    #[serde(default, deserialize_with = "shape::strict_map")]
     pub(crate) routes: BTreeMap<String, Route>,
 }
 
-/// One route's ceiling and class.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
+/// One route's ceiling, class and, where it declares one, its deadline
+/// floor (decision 0104 ruling 1(a)).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Route {
-    #[serde(deserialize_with = "shape::positive_u32")]
     pub(crate) ceiling: NonZeroU32,
-    #[serde(deserialize_with = "shape::word")]
     pub(crate) class: RouteClass,
+    pub(crate) timeout_floor_seconds: Option<NonZeroU32>,
 }
 
 /// Where a route's model runs (decision 0068 ruling 5): behind a cloud
@@ -602,6 +638,12 @@ pub enum Problem {
     /// A key only `forge.host/v2` declares, in a v1 file.
     #[error("forge.host/v1 declares {0}; only forge.host/v2 does")]
     NotV2(&'static str),
+    /// A key only `forge.host/v3` declares, in a v1 or v2 file.
+    #[error("route '{2}' of provider '{1}' has a v3-only timeout floor; only forge.host/v3 does")]
+    NotV3(&'static str, String, String),
+    /// A floor the loader cannot obey, in the floor module's own words.
+    #[error(transparent)]
+    Floor(#[from] floor::Problem),
     /// Decision 0080's `required`, which is not built yet (#472).
     #[error("containment required is decision 0080's, not built yet (#472)")]
     ContainmentRequired,
@@ -640,12 +682,14 @@ impl Problem {
         match self {
             Problem::Shape(_) | Problem::Repeated(_) => "host configuration",
             Problem::NotV2(_) => "forge.host/v1",
+            Problem::NotV3(declared, ..) => declared,
             Problem::ContainmentRequired
             | Problem::Zero { .. }
             | Problem::AboveMaximum { .. }
             | Problem::DefaultAboveMaximum { .. }
             | Problem::ProviderUndeclared(_)
             | Problem::RouteUndeclared { .. } => "forge.host/v2",
+            Problem::Floor(_) => "forge.host/v3",
         }
     }
 }

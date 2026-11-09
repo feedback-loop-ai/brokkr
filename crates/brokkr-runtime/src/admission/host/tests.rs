@@ -1,6 +1,7 @@
 //! Where the host configuration is found, what the free-space probe
-//! measures, and that the published `forge.host/v1` and `forge.host/v2`
-//! contracts and the loader refuse and admit the same files.
+//! measures, and that the published `forge.host/v1`, `forge.host/v2` and
+//! `forge.host/v3` contracts and the loader refuse and admit the same
+//! files. v3's shared-local deadline floor has its own cases at the end.
 
 use std::path::Path;
 
@@ -119,7 +120,7 @@ fn the_contract_and_the_loader_admit_and_refuse_the_same_files() {
     let refused = [
         with("/cooldowns", json!({})),
         with("/containment", json!("best-effort")),
-        with("/schema", json!("forge.host/v3")),
+        with("/schema", json!("forge.host/v4")),
         with("/providers/claude", json!({"ceiling": 0})),
         with("/providers/claude", json!({"ceiling": -1})),
         with("/providers/claude", json!({"ceiling": 4_294_967_296_u64})),
@@ -1000,7 +1001,7 @@ fn chief_capacity_integral_notation_reads_the_same_capacity() {
 /// likewise refused by a reader that rounds it to `2^64`.
 #[test]
 fn chief_exact_floor_tokens_read_without_rounding() {
-    for schema in ["forge.host/v1", "forge.host/v2"] {
+    for schema in ["forge.host/v1", "forge.host/v2", "forge.host/v3"] {
         assert_eq!(
             loaded(&floor_token(schema, "9007199254740993.0")).floors.0[0]
                 .floor_bytes
@@ -1052,7 +1053,7 @@ fn integral_token_notations_read_as_their_values() {
         ("100e-1", 10),
         ("6E1", 60),
     ];
-    for schema in ["forge.host/v1", "forge.host/v2"] {
+    for schema in ["forge.host/v1", "forge.host/v2", "forge.host/v3"] {
         for (token, expected) in notations {
             assert_eq!(
                 loaded(&floor_token(schema, token)).floors.0[0]
@@ -1144,7 +1145,7 @@ fn schema_valid_fractional_mantissa_with_exponent_reads_exactly() {
 #[test]
 fn chief_negative_exponent_is_bounded_by_the_mantissa() {
     let shifted = format!("1{}e-41", "0".repeat(41));
-    for schema in ["forge.host/v1", "forge.host/v2"] {
+    for schema in ["forge.host/v1", "forge.host/v2", "forge.host/v3"] {
         assert_eq!(
             file_loaded(&floor_token(schema, &shifted)).floors.0[0]
                 .floor_bytes
@@ -1171,7 +1172,7 @@ fn chief_negative_exponent_is_bounded_by_the_mantissa() {
 /// field's maximum, an exponent past the reader's bound and a string.
 #[test]
 fn non_integral_tokens_are_shape_refusals() {
-    for schema in ["forge.host/v1", "forge.host/v2"] {
+    for schema in ["forge.host/v1", "forge.host/v2", "forge.host/v3"] {
         for token in [
             "1.5",
             "7200.0000000000001",
@@ -1246,7 +1247,7 @@ fn chief_diagnostic_text_is_pinned_for_non_numbers_and_out_of_range() {
             "invalid value: a number out of range, expected an integer at line 1 column 123",
         ),
     ];
-    for schema in ["forge.host/v1", "forge.host/v2"] {
+    for schema in ["forge.host/v1", "forge.host/v2", "forge.host/v3"] {
         for (token, said) in cases {
             let Problem::Shape(error) = refused(&floor_token(schema, token)) else {
                 panic!("{schema} {token} was not a shape refusal");
@@ -1346,4 +1347,241 @@ fn chief_struct_arrays_are_refused_by_reader_and_schema() {
             "{name}: {error}"
         );
     }
+}
+
+/// A v3 capacity host with `dsh`'s route `s` in `class` and, where `floor`
+/// is given, the written `timeout_floor_seconds`.
+fn v3_route(class: &str, floor: Option<Value>) -> Value {
+    let mut host = capacity("forge.host/v3");
+    let route = &mut host["providers"]["dsh"]["routes"]["s"];
+    route["class"] = json!(class);
+    if let Some(floor) = floor {
+        route["timeout_floor_seconds"] = floor;
+    }
+    host
+}
+
+#[test]
+fn a_v2_file_reads_as_no_floor_and_a_v3_floor_reads() {
+    let v2 = set(
+        capacity("forge.host/v2"),
+        "/providers/dsh/routes/s/class",
+        json!("shared-local"),
+    );
+    assert_eq!(loaded(&v2.to_string()).timeout_floor("dsh", "s"), None);
+    assert_eq!(
+        loaded(&v3_route("shared-local", Some(json!(7200))).to_string()).timeout_floor("dsh", "s"),
+        Some(7200)
+    );
+    assert_eq!(
+        loaded(&v3_route("shared-local", None).to_string()).timeout_floor("dsh", "s"),
+        None
+    );
+    // The key reads its exact integral token, never through `f64`.
+    assert_eq!(
+        loaded(&v3_route("shared-local", Some(json!(72e2))).to_string()).timeout_floor("dsh", "s"),
+        Some(7200)
+    );
+}
+
+#[test]
+fn a_floor_on_a_cloud_route_refuses_by_its_own_line() {
+    let text = v3_route("cloud", Some(json!(60))).to_string();
+    refused_as(
+        &text,
+        |problem| matches!(problem, Problem::Floor(floor::Problem::OnCloud { .. })),
+        "the timeout floor of route 's' of provider 'dsh' is on a cloud route; only a \
+         shared-local route declares a floor",
+    );
+}
+
+#[test]
+fn a_zero_floor_refuses_by_its_own_line() {
+    let text = v3_route("shared-local", Some(json!(0))).to_string();
+    refused_as(
+        &text,
+        |problem| {
+            matches!(
+                problem,
+                Problem::Floor(floor::Problem::Range { value: 0, .. })
+            )
+        },
+        "the timeout floor of route 's' of provider 'dsh' is 0; it must be a whole number from \
+         1 to 7200",
+    );
+}
+
+#[test]
+fn a_floor_past_the_cap_refuses_by_its_own_line() {
+    let text = v3_route("shared-local", Some(json!(7201))).to_string();
+    refused_as(
+        &text,
+        |problem| matches!(problem, Problem::Floor(floor::Problem::AboveMaximum { .. })),
+        "the timeout floor of route 's' of provider 'dsh' is 7201, past the 7200-second maximum",
+    );
+    assert_eq!(super::floor::MAX_FLOOR_SECONDS, 7200);
+    // A token past the integer reader's range is over the cap too, and
+    // names its exact token rather than a rounded number.
+    let problem = refused(&v3_route("shared-local", Some(json!(1e40))).to_string());
+    assert!(
+        matches!(problem, Problem::Floor(floor::Problem::AboveMaximum { .. })),
+        "{problem:?}"
+    );
+    assert!(
+        problem.to_string().contains("past the 7200-second maximum"),
+        "{problem}"
+    );
+}
+
+#[test]
+fn a_fractional_or_non_numeric_floor_refuses_by_its_own_line() {
+    for token in [json!(1.5), json!("7200")] {
+        let text = v3_route("shared-local", Some(token)).to_string();
+        refused_as(
+            &text,
+            |problem| matches!(problem, Problem::Floor(floor::Problem::NotWhole { .. })),
+            "the timeout floor of route 's' of provider 'dsh' is not a whole number",
+        );
+    }
+}
+
+#[test]
+fn the_floor_key_in_a_v1_or_v2_file_is_a_v3_only_key() {
+    for (schema, declared) in [
+        ("forge.host/v1", "forge.host/v1"),
+        ("forge.host/v2", "forge.host/v2"),
+    ] {
+        let mut host = capacity(schema);
+        host["providers"]["dsh"]["routes"]["s"]["class"] = json!("shared-local");
+        host["providers"]["dsh"]["routes"]["s"]["timeout_floor_seconds"] = json!(60);
+        refused_as(
+            &host.to_string(),
+            |problem| {
+                matches!(
+                    problem,
+                    Problem::NotV3(version, provider, route)
+                        if *version == declared
+                            && provider.as_str() == "dsh"
+                            && route.as_str() == "s"
+                )
+            },
+            "route 's' of provider 'dsh' has a v3-only timeout floor; only forge.host/v3 does",
+        );
+        let (_dir, file, read) = host_read(&host.to_string());
+        assert_eq!(
+            read.unwrap_err().to_string(),
+            format!(
+                "the host configuration at {} is not a valid {declared} file",
+                file.display()
+            )
+        );
+    }
+}
+
+#[test]
+fn a_negative_floor_past_the_reader_is_below_the_minimum_not_above_the_cap() {
+    let problem = refused(&v3_route("shared-local", Some(json!(-1e40))).to_string());
+    assert!(
+        matches!(problem, Problem::Floor(floor::Problem::BelowMinimum { .. })),
+        "{problem:?}"
+    );
+    assert_eq!(
+        problem.to_string(),
+        "the timeout floor of route 's' of provider 'dsh' is -1e+40, below the 1-second minimum"
+    );
+    // An in-range negative still reads as a number outside 1..=7200.
+    let problem = refused(&v3_route("shared-local", Some(json!(-5))).to_string());
+    assert!(
+        matches!(
+            problem,
+            Problem::Floor(floor::Problem::Range { value: -5, .. })
+        ),
+        "{problem:?}"
+    );
+}
+
+#[test]
+fn a_floor_lookup_for_an_undeclared_provider_or_route_is_no_floor() {
+    let host = loaded(&v3_route("shared-local", Some(json!(7200))).to_string());
+    assert_eq!(host.timeout_floor("dsh", "s"), Some(7200));
+    assert_eq!(host.timeout_floor("undeclared", "s"), None);
+    assert_eq!(host.timeout_floor("dsh", "undeclared"), None);
+}
+
+#[test]
+fn a_v3_file_refuses_required_containment_as_v2_does() {
+    let mut host = capacity("forge.host/v3");
+    host["containment"] = json!("required");
+    refused_as(
+        &host.to_string(),
+        |problem| matches!(problem, Problem::ContainmentRequired),
+        "containment required is decision 0080's, not built yet (#472)",
+    );
+}
+
+#[test]
+fn the_floor_refusals_name_the_file_and_the_v3_contract() {
+    let (_dir, file, read) = host_read(&v3_route("cloud", Some(json!(60))).to_string());
+    let refused = read.unwrap_err();
+    assert_eq!(
+        refused.to_string(),
+        format!(
+            "the host configuration at {} is not a valid forge.host/v3 file",
+            file.display()
+        )
+    );
+    let HostError::Invalid { source, .. } = refused else {
+        panic!("a floor on a cloud route was not an invalid host");
+    };
+    assert!(
+        matches!(source, Problem::Floor(floor::Problem::OnCloud { .. })),
+        "{source:?}"
+    );
+}
+
+#[test]
+fn the_v3_contract_and_the_loader_admit_and_refuse_the_same_shape() {
+    let validator = contract_validator("host.v3.schema.json");
+    let minimal = json!({"schema": "forge.host/v3", "providers": {},
+                         "floors": [{"place": "temp", "floor_bytes": 1}],
+                         "boxed_builds": {"ceiling": 1}});
+    assert!(validator.is_valid(&minimal), "a minimal v3 host");
+    assert!(validator.is_valid(&v3_route("shared-local", Some(json!(7200)))));
+    // The class is not a JSON Schema comparison: the schema admits the key
+    // on a cloud route, and the loader refuses it above.
+    let cloud = v3_route("cloud", Some(json!(60)));
+    assert!(
+        validator.is_valid(&cloud),
+        "the schema cannot compare class"
+    );
+    for (name, host) in [
+        ("zero", v3_route("shared-local", Some(json!(0)))),
+        ("past 7200", v3_route("shared-local", Some(json!(7201)))),
+        ("fraction", v3_route("shared-local", Some(json!(1.5)))),
+        ("string", v3_route("shared-local", Some(json!("1")))),
+    ] {
+        assert!(!validator.is_valid(&host), "{name}: the schema admitted it");
+    }
+}
+
+/// Decision 0104 ruling 1(a): 7200 is the fleet's attempt bound on
+/// purpose. The view's constant is the longest shipped seat deadline, and
+/// the contract's maximum must not outrun it, or a live attempt could read
+/// as a dead engine.
+#[test]
+fn the_floor_cap_is_the_fleets_attempt_bound() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fleet = std::fs::read_to_string(root.join("crates/brokkr-view/src/fleet.rs")).unwrap();
+    assert!(
+        fleet.contains("const ATTEMPT_DEADLINE_SECONDS: i64 = 2 * 60 * 60;"),
+        "the fleet's attempt bound moved; the floor cap's partner is gone"
+    );
+    let schema: Value =
+        serde_json::from_slice(&std::fs::read(root.join("contracts/host.v3.schema.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        schema.pointer("/definitions/route/properties/timeout_floor_seconds/maximum"),
+        Some(&json!(7200))
+    );
+    assert_eq!(super::floor::MAX_FLOOR_SECONDS, 7200);
 }
