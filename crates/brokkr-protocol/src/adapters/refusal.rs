@@ -307,25 +307,18 @@ fn seconds_between(now: i64, later: i64) -> Option<u64> {
         .filter(|seconds| *seconds > 0)
 }
 
-/// One wall-clock reading of a refusal: the Unix second, and the host's
-/// local civil date and time at it. The two are read together because
-/// the provider's text names no zone and the structured field is an
-/// absolute second (decision 0103 ruling 3).
+/// One wall-clock reading of a refusal: the Unix second only, since a
+/// reset's civil text is read separately by [`LocalTime`] (0103 ruling 3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Now {
     pub(super) epoch: i64,
-    pub(super) local: LocalTime,
 }
 
 impl Now {
-    /// The host's clock now, or nothing where either reading is
-    /// unavailable. Read only on a codex refusal that may carry a reset,
-    /// so an ordinary seat pays nothing.
+    /// The host's clock now, read only on a codex refusal with a reset.
     pub(super) fn read() -> Option<Now> {
-        let epoch = epoch_now()?;
         Some(Now {
-            epoch,
-            local: local_time(epoch)?,
+            epoch: epoch_now()?,
         })
     }
 }
@@ -337,6 +330,14 @@ pub(super) fn epoch_now() -> Option<i64> {
         .duration_since(std::time::UNIX_EPOCH)
         .ok()?;
     i64::try_from(epoch.as_secs()).ok()
+}
+
+/// The same instant in milliseconds: `…:00.100Z` is not `…:00.900Z`.
+pub(super) fn epoch_now_millis() -> Option<i64> {
+    let epoch = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?;
+    i64::try_from(epoch.as_millis()).ok()
 }
 
 /// A civil date and time without a zone: codex states its reset in the
@@ -492,39 +493,42 @@ fn meridiem(word: &str, hour: u8) -> Option<u8> {
     }
 }
 
-/// Read a codex thread record's own error, through the locator the
-/// adapter already holds (decision 0035), when the CLI ended before its
-/// first turn without a stream refusal. The record puts every field under
-/// `payload`: a `task_complete`'s `error` and an `error` event are the two
-/// shapes read. A normal completion is not a refusal, and a row that is
-/// not JSON answers nothing.
-///
-/// An error from before the record's last `task_started` is history, not
-/// this invocation's refusal: a resumed thread that exits before it
-/// appends anything must not re-serve the failure that once cooled it
-/// down long ago (decision 0053's boundary). A record with no
-/// `task_started` at all is read as one invocation, which is the shape
-/// the measured early-exit rollouts take.
+/// Read a codex thread record's own error through the adapter's locator
+/// (decision 0035) when the CLI ended before its first turn without a
+/// stream refusal. An error before the last `task_started` is history
+/// (decision 0053's boundary); an error followed by a completed turn, a
+/// last message or item activity is a notice, so the reader answers
+/// `None` and the lost path stands (decisions 0006, 0103 ruling 1(a)).
 pub(super) fn codex_thread_refusal(
     body: &str,
-    since: Option<i64>,
+    since_millis: Option<i64>,
     now: Option<&Now>,
 ) -> Option<PreSessionRefusal> {
     let mut resets = Vec::new();
     let mut error = None;
+    // Work seen in the current turn: an error after it is mid-session.
+    let mut worked = false;
     for line in body.lines() {
         let Ok(row) = serde_json::from_str::<Value>(line) else {
             continue;
         };
-        if !row_in_invocation(&row, since) {
+        if !row_in_invocation(&row, since_millis) {
             continue;
         }
         if row_is_task_started(&row) {
-            // A new turn begins: neither an earlier error nor an earlier
-            // window's reset belongs to it.
+            // A new turn begins: earlier error, resets and work are history.
             error = None;
             resets.clear();
+            worked = false;
             continue;
+        }
+        if row_is_work(&row) {
+            if error.is_some() {
+                // Work followed the error: it was a notice, so the seat
+                // may have acted and the attempt stays lost (0006).
+                return None;
+            }
+            worked = true;
         }
         if let Some(windows) = row
             .pointer("/payload/rate_limits")
@@ -534,24 +538,26 @@ pub(super) fn codex_thread_refusal(
             resets = windows;
         }
         if let Some(found) = thread_error(&row) {
+            if worked {
+                // An error after work is a mid-session failure (0016).
+                return None;
+            }
             error = Some(found);
         }
     }
     Some(codex_error(&error?, now, &resets))
 }
 
-/// Whether a row was written during this invocation. The record outlives
-/// the process, so a resumed thread that appends nothing must not re-serve
-/// a previous turn's refusal; a row whose own timestamp is unreadable is
-/// not evidence of a current one either.
-fn row_in_invocation(row: &Value, since: Option<i64>) -> bool {
-    let Some(since) = since else {
+/// Whether a row was written during this invocation at its own millisecond
+/// precision: an unreadable timestamp is not evidence of a current row.
+fn row_in_invocation(row: &Value, since_millis: Option<i64>) -> bool {
+    let Some(since_millis) = since_millis else {
         return true;
     };
     row.get("timestamp")
         .and_then(Value::as_str)
         .and_then(brokkr_core::stamp::parse_millis)
-        .is_some_and(|millis| millis / 1000 >= since)
+        .is_some_and(|millis| millis >= since_millis)
 }
 
 /// The row codex writes at the beginning of a turn. It is the invocation
@@ -559,6 +565,38 @@ fn row_in_invocation(row: &Value, since: Option<i64>) -> bool {
 fn row_is_task_started(row: &Value) -> bool {
     row.get("type").and_then(Value::as_str) == Some("event_msg")
         && row.pointer("/payload/type").and_then(Value::as_str) == Some("task_started")
+}
+
+/// Whether a row proves the turn did work. A `task_complete` carrying
+/// only an error is the refusal row itself, never work.
+fn row_is_work(row: &Value) -> bool {
+    match row.get("type").and_then(Value::as_str) {
+        Some("response_item" | "item.started" | "item.completed") => true,
+        Some("event_msg") => {
+            let payload = row.get("payload").unwrap_or(&Value::Null);
+            match payload.get("type").and_then(Value::as_str) {
+                Some("task_complete") => match payload.get("error") {
+                    None | Some(Value::Null) => true,
+                    Some(_) => payload
+                        .get("last_agent_message")
+                        .is_some_and(|message| !message.is_null()),
+                },
+                Some(
+                    "item_started"
+                    | "item_completed"
+                    | "user_message"
+                    | "agent_message"
+                    | "agent_reasoning"
+                    | "exec_command_begin"
+                    | "exec_command_end"
+                    | "mcp_tool_call_begin"
+                    | "mcp_tool_call_end",
+                ) => true,
+                _ => false,
+            }
+        }
+        _ => false,
+    }
 }
 
 /// The error a rollout row names, or nothing: the last one after the
@@ -576,29 +614,25 @@ fn thread_error(row: &Value) -> Option<Value> {
     }
 }
 
-/// The same thread-record read where the CLI never announced its thread,
-/// so the locator is empty. A zero-event exit still leaves its rollout
-/// under `root`; exactly one file written since `since` is this
-/// invocation's, and more than one is ambiguous (a concurrent seat's
-/// thread), so it answers nothing rather than borrowing another seat's
-/// failure. The cwd codex records in the rollout is the tie-breaker when
-/// several appeared.
+/// The same read where the CLI announced no thread, so the locator is
+/// empty: every candidate is first correlated by cwd and session start,
+/// singleton included, and exactly one correlated file is read.
 pub(super) fn codex_thread_refusal_since(
     root: &Path,
-    since: i64,
+    since_millis: i64,
     workdir: &str,
     now: Option<&Now>,
     depth: usize,
 ) -> Option<PreSessionRefusal> {
-    let mut found = find_codex_threads_since(root, since, depth);
-    if found.len() > 1 {
-        found.retain(|path| thread_cwd(path).as_deref() == Some(workdir));
-    }
+    let mut found = find_codex_threads_since(root, since_millis, depth);
+    found.retain(|path| {
+        thread_header(path).is_some_and(|(cwd, started)| cwd == workdir && started >= since_millis)
+    });
     let [path] = found.as_slice() else {
         return None;
     };
     let body = std::fs::read_to_string(path).ok()?;
-    codex_thread_refusal(&body, Some(since), now)
+    codex_thread_refusal(&body, Some(since_millis), now)
 }
 
 /// The thread record whose file name carries `thread_id`, anywhere in a
@@ -620,11 +654,9 @@ pub(super) fn find_codex_thread(root: &Path, thread_id: &str, depth: usize) -> O
     found
 }
 
-/// Every codex rollout written at or after `since`, anywhere in a bounded
-/// walk below `root`. It is the locator for an exit that announced no
-/// thread: the walk proves which files this invocation could have
-/// created, and the caller refuses to choose when more than one did.
-fn find_codex_threads_since(root: &Path, since: i64, depth: usize) -> Vec<PathBuf> {
+/// Every codex rollout written at or after `since_millis` in a bounded
+/// walk below `root`: which files this invocation could have created.
+fn find_codex_threads_since(root: &Path, since_millis: i64, depth: usize) -> Vec<PathBuf> {
     let mut found = Vec::new();
     walk_codex_threads(root, depth, &mut |path| {
         let written = path
@@ -632,8 +664,8 @@ fn find_codex_threads_since(root: &Path, since: i64, depth: usize) -> Vec<PathBu
             .ok()
             .and_then(|meta| meta.modified().ok())
             .and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
-            .and_then(|at| i64::try_from(at.as_secs()).ok())
-            .is_some_and(|at| at >= since);
+            .and_then(|at| i64::try_from(at.as_millis()).ok())
+            .is_some_and(|at| at >= since_millis);
         if written {
             found.push(path.to_path_buf());
         }
@@ -688,16 +720,22 @@ fn names_codex_thread(name: &str, thread_id: &str) -> bool {
     })
 }
 
-/// The cwd codex records in a rollout's `session_meta`, used only to pick
-/// this seat's file among several written in the same window. A file that
-/// cannot be read, or whose first row is not the header, names no cwd.
-fn thread_cwd(path: &Path) -> Option<String> {
+/// The cwd and session start a rollout's `session_meta` header names, or
+/// nothing where the first row is not a readable header carrying both.
+fn thread_header(path: &Path) -> Option<(String, i64)> {
     let body = std::fs::read_to_string(path).ok()?;
     let first = body.lines().next()?;
     let row = serde_json::from_str::<Value>(first).ok()?;
-    row.pointer("/payload/cwd")
+    let cwd = row
+        .pointer("/payload/cwd")
+        .and_then(Value::as_str)?
+        .to_string();
+    let started = row
+        .pointer("/payload/timestamp")
         .and_then(Value::as_str)
-        .map(str::to_string)
+        .or_else(|| row.get("timestamp").and_then(Value::as_str))
+        .and_then(brokkr_core::stamp::parse_millis)?;
+    Some((cwd, started))
 }
 
 /// The dsh session record's end-of-turn error (`turn/end`, its reason

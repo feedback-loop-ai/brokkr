@@ -67,8 +67,8 @@ use probe::{pinned_model, seat_row, ProbeAnswer};
 #[cfg(test)]
 use refusal::refusal_reason;
 use refusal::{
-    bounded_wire_line, claude_refusal, codex_refusal, codex_thread_refusal, dsh_refusal, epoch_now,
-    find_codex_thread, Now, REFUSAL_TOKEN_LIMIT,
+    bounded_wire_line, claude_refusal, codex_refusal, codex_thread_refusal, dsh_refusal,
+    epoch_now_millis, find_codex_thread, Now, REFUSAL_TOKEN_LIMIT,
 };
 #[cfg(test)]
 use start::serve_io;
@@ -1610,8 +1610,10 @@ fn fold_result_meta(
 /// filesystem scan.
 const CODEX_THREAD_DEPTH: usize = 6;
 
-/// The codex thread record, followed to read the one fact codex does
-/// NOT put on the stream its adapter folds: the effort it applied.
+/// The codex thread record, followed for the facts codex does NOT put on
+/// the stream its adapter folds: the model and effort it applied, and —
+/// since decision 0103 ruling 1(a) — the refusal an early exit left in
+/// its `task_complete.error` or `error` row.
 ///
 /// Decision 0032 already retains the locator that reaches this file, so
 /// decision 0035 needed no new mechanism — only for something to open
@@ -1619,10 +1621,23 @@ const CODEX_THREAD_DEPTH: usize = 6;
 /// by "the newest file" under the home: a concurrent seat's thread must
 /// not be able to lend this one its effort.
 ///
-/// Same trust boundary as the dsh tail, and answered the same way: the
-/// value taken is one clamped word, nothing executable is derived from
-/// it, and a file that cannot be read or does not name an effort leaves
-/// the record saying `not reported` rather than guessing.
+/// TRUST BOUNDARY, weaker than claude's and the same as the dsh tail's.
+/// This is an ordinary file in a directory the seat's own agent can write
+/// to, and the driver publishes its relative path in the shared
+/// transcript locator. An agent with filesystem tools can therefore
+/// append lines this reader will believe. Since decision 0103 ruling
+/// 1(a) that is not only telemetry: a `task_complete.error` or an `error`
+/// row can become this invocation's typed pre-session refusal, whose
+/// class can hold the provider's route for the reset it states. A forged
+/// row can therefore make Brokkr wait; it executes nothing. The read is
+/// correlated to this invocation — by the announced thread id, or by the
+/// zero-event fallback's cwd and session start — and a successful
+/// completion, a last message, a started turn or an item activity after
+/// the error makes it a notice, never a refusal. That is accepted on the
+/// same reasoning as dsh: an agent with the working tree is already
+/// trusted, every value taken is bounded and nothing executable is
+/// derived from any of it. A driver whose harness offers a real stdout
+/// stream should use it rather than inherit this.
 #[derive(Default)]
 struct CodexThreadEcho {
     /// The sessions root and the thread id codex announced, held
@@ -1731,11 +1746,16 @@ impl CodexThreadEcho {
     /// on the stream. It is the same locator and the same bounded read as
     /// [`CodexThreadEcho::echo`]; a file that cannot be read, or that
     /// names no error, answers nothing rather than guessing (decision
-    /// 0053's boundary, decision 0103 ruling 1(a)).
-    fn refusal(&mut self, since: Option<i64>, now: Option<&Now>) -> Option<PreSessionRefusal> {
+    /// 0053's boundary, decision 0103 ruling 1(a)). `since_millis` is this
+    /// invocation's start at the full precision a rollout row carries.
+    fn refusal(
+        &mut self,
+        since_millis: Option<i64>,
+        now: Option<&Now>,
+    ) -> Option<PreSessionRefusal> {
         self.resolve();
         let body = std::fs::read_to_string(self.path.as_ref()?).ok()?;
-        codex_thread_refusal(&body, since, now)
+        codex_thread_refusal(&body, since_millis, now)
     }
 
     /// The same read where the CLI never announced its thread, so the
@@ -1743,12 +1763,13 @@ impl CodexThreadEcho {
     /// `CODEX_HOME/sessions`; exactly one file written since this
     /// invocation began is this invocation's, and more than one is
     /// ambiguous (a concurrent seat's thread), so it answers nothing
-    /// rather than borrowing another seat's failure. The cwd codex
-    /// records in the rollout is the tie-breaker when several appeared.
+    /// rather than borrowing another seat's failure. Every candidate is
+    /// correlated by its cwd and its session's start before either count
+    /// is taken, so a singleton gets the same check (decision 0035).
     fn unannounced_refusal(
         &mut self,
         home: &std::path::Path,
-        since: Option<i64>,
+        since_millis: Option<i64>,
         workdir: &str,
         now: Option<&Now>,
     ) -> Option<PreSessionRefusal> {
@@ -1757,7 +1778,7 @@ impl CodexThreadEcho {
         }
         refusal::codex_thread_refusal_since(
             &home.join("sessions"),
-            since?,
+            since_millis?,
             workdir,
             now,
             CODEX_THREAD_DEPTH,
@@ -3645,9 +3666,11 @@ fn invoke_codex(
         transcript.home(),
         hold.plan.rejoining.as_deref().unwrap_or_default(),
     );
-    // The zero-event fallback's lower bound: a rollout written before
-    // this reading cannot be this invocation's.
-    let started = epoch_now();
+    // The zero-event fallback's lower bound, at the full precision a
+    // rollout row and file time carry: a turn written at `…:00.100Z`
+    // before this invocation's `…:00.900Z` start is history, not this
+    // seat's refusal (decision 0053's boundary).
+    let started = epoch_now_millis();
     let (mut child, stderr_thread) = spawn_fed(command, prompt, workdir, bindings)?;
     let mut session_meta = Map::new();
     let mut turn = 0;
@@ -3761,16 +3784,18 @@ fn invoke_codex(
 
 /// The chain's last resort for a codex that ended before its first turn
 /// with no stream refusal: its announced thread, else the one rollout
-/// this invocation wrote. One clock reading serves both reads.
+/// this invocation wrote and correlated to it. One clock reading serves
+/// both reads; `started_millis` is the invocation's start at millisecond
+/// precision, the boundary the record's rows and file time are held to.
 fn codex_early_refusal(
     echo: &mut CodexThreadEcho,
     home: &std::path::Path,
-    started: Option<i64>,
+    started_millis: Option<i64>,
     workdir: &str,
 ) -> Option<PreSessionRefusal> {
     let now = Now::read();
-    echo.refusal(started, now.as_ref())
-        .or_else(|| echo.unannounced_refusal(home, started, workdir, now.as_ref()))
+    echo.refusal(started_millis, now.as_ref())
+        .or_else(|| echo.unannounced_refusal(home, started_millis, workdir, now.as_ref()))
 }
 
 /// The dsh headless invocation. It does NOT converge on `run_cli`'s

@@ -107,7 +107,6 @@ fn now_at_second(
     };
     Now {
         epoch: local.epoch().unwrap_or(epoch),
-        local,
     }
 }
 
@@ -121,6 +120,9 @@ fn refused_at() -> Now {
 /// HTTP 429 is its status. Every other error keeps `api_error`.
 #[test]
 fn codex_usage_limit_and_429_are_rate_limits_and_other_errors_are_not() {
+    // `codex_refusal` may read the host clock for a reset; the guard keeps
+    // another test's TZ write out of it.
+    let _env = EnvGuard::lock();
     for (event, status) in [
         (
             json!({"type": "error", "message": "You've hit your usage limit.",
@@ -172,6 +174,8 @@ fn codex_usage_limit_and_429_are_rate_limits_and_other_errors_are_not() {
 /// A shape the pattern does not admit gives no reset, never a guess.
 #[test]
 fn codex_stated_reset_is_parsed_strictly_against_the_refusal_time() {
+    // `now_at` reads the host's own zone through `mktime`.
+    let _env = EnvGuard::lock();
     let message = "You've hit your usage limit. Upgrade to Pro or try again at \
                    Nov 11th, 2026 10:38 AM.";
     let error = json!({"message": message, "codex_error_info": "usage_limit_exceeded"});
@@ -281,6 +285,8 @@ fn codex_stated_reset_is_parsed_strictly_against_the_refusal_time() {
 /// no wait either.
 #[test]
 fn codex_prefers_the_structured_reset_over_its_words() {
+    // `now_at` reads the host's own zone through `mktime`.
+    let _env = EnvGuard::lock();
     let now = now_at(1_700_000_000, 2023, 11, 14, 22, 13);
     let body = record(&[
         token_count(now.epoch.unsigned_abs() + 300),
@@ -313,6 +319,8 @@ fn codex_prefers_the_structured_reset_over_its_words() {
 /// a thread record's ordinary completion is not a refusal at all.
 #[test]
 fn a_codex_thread_record_is_a_refusal_only_where_it_carries_an_error() {
+    // `refused_at` reads the host's own zone through `mktime`.
+    let _env = EnvGuard::lock();
     let typed = record(&[task_complete(
         json!({"message": "auth failed", "codex_error_info": "unauthorized"}),
     )]);
@@ -454,6 +462,21 @@ fn claude_status_only_429_is_a_rate_limit() {
     assert!(reason
         .words()
         .starts_with("authentication_error (HTTP 500)"));
+
+    // `is_error`/`isApiErrorMessage` and the harness's own `error` token
+    // are ALTERNATIVE marks, never a conjunction: a record carrying only
+    // one of them is still a refusal. The conjunction mutant survives a
+    // record that carries both, so each side is pinned alone.
+    for event in [
+        json!({"type": "result", "is_error": true, "apiErrorStatus": 429,
+               "result": "slow down"}),
+        json!({"type": "result", "error": "rate_limit", "result": "slow down"}),
+        json!({"type": "assistant", "error": "rate_limit",
+               "message": {"content": [{"type": "text", "text": "slow down"}]}}),
+    ] {
+        let reason = claude_refusal(&event).unwrap_or_else(|| panic!("{event}"));
+        assert_eq!(reason.class(), RefusalClass::RateLimit, "{event}");
+    }
 }
 
 /// A dsh seat whose session record ends in the measured quota refusal,
@@ -607,6 +630,10 @@ fn a_codex_that_exits_with_no_event_is_read_from_its_new_thread_record() {
     let (invocation, emitted) = codex_quota_exit(
         dir.path(),
         &[
+            json!({"timestamp": "9999-12-31T00:00:00Z", "type": "session_meta",
+                   "payload": {"id": "01a0619c-928b-7ad3-8cc9-9eaa94c3aec1",
+                               "timestamp": "9999-12-31T00:00:00Z",
+                               "cwd": dir.path().to_string_lossy()}}),
             json!({"timestamp": "9999-12-31T00:00:00Z", "ordinal": 1,
                    "type": "event_msg", "payload": {"type": "task_started", "turn_id": "t"}}),
             json!({"timestamp": "9999-12-31T00:00:01Z", "ordinal": 2,
@@ -631,13 +658,16 @@ fn a_codex_that_exits_with_no_event_is_read_from_its_new_thread_record() {
 /// nothing (decision 0035).
 #[test]
 fn a_zero_event_exit_picks_only_the_rollout_recorded_for_its_cwd() {
+    // `refused_at` reads the host's own zone through `mktime`.
+    let _env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("sessions");
     let day = root.join("2026/11/08");
     std::fs::create_dir_all(&day).unwrap();
     let write = |name: &str, cwd: &str| {
         let body = record(&[
-            json!({"type": "session_meta", "payload": {"cwd": cwd}}),
+            json!({"type": "session_meta",
+                   "payload": {"cwd": cwd, "timestamp": "2026-11-08T00:00:00Z"}}),
             task_complete(json!({"message": "quota",
                                  "codex_error_info": "usage_limit_exceeded"})),
         ]);
@@ -671,6 +701,8 @@ fn a_zero_event_exit_picks_only_the_rollout_recorded_for_its_cwd() {
 /// does not re-serve a stale usage limit.
 #[test]
 fn a_codex_thread_reads_only_the_errors_after_its_last_turn_start() {
+    // `refused_at` reads the host's own zone through `mktime`.
+    let _env = EnvGuard::lock();
     let stale = record(&[
         task_complete(json!({"message": "old usage limit",
                              "codex_error_info": "usage_limit_exceeded"})),
@@ -700,7 +732,7 @@ fn a_codex_thread_reads_only_the_errors_after_its_last_turn_start() {
         task_complete(json!({"message": "old",
                              "codex_error_info": "usage_limit_exceeded"})),
     ]);
-    let since = Some(refused_at().epoch);
+    let since = Some(refused_at().epoch * 1_000);
     assert!(codex_thread_refusal(&historical, since, Some(&refused_at())).is_none());
     let fresh = record(&[json!({
         "timestamp": "2026-11-08T10:00:00Z", "type": "event_msg",
@@ -714,11 +746,347 @@ fn a_codex_thread_reads_only_the_errors_after_its_last_turn_start() {
     );
 }
 
+/// Decision 0053's boundary with H1 (the chief's high finding): an error
+/// followed by a successful `task_complete`, a `last_agent_message`, or an
+/// item or tool row is a notice, not a pre-session refusal. The reader
+/// answers `None` so the seat's lost-or-indeterminate path stands instead
+/// of a cool-down retrying work already performed (decisions 0006 and
+/// 0103 ruling 1(a)).
+#[test]
+fn a_successful_completion_clears_the_recovered_error() {
+    // `refused_at` reads the host's own zone through `mktime`.
+    let _env = EnvGuard::lock();
+    let started = || {
+        json!({"timestamp": "2026-11-08T10:00:00Z", "ordinal": 1,
+               "type": "event_msg",
+               "payload": {"type": "task_started", "turn_id": "t"}})
+    };
+    let error = || {
+        json!({"timestamp": "2026-11-08T10:00:01Z", "ordinal": 2,
+               "type": "event_msg",
+               "payload": {"type": "error", "message": "transient",
+                           "codex_error_info": "usage_limit_exceeded"}})
+    };
+    let refusal = |rows: &[Value]| codex_thread_refusal(&record(rows), None, Some(&refused_at()));
+
+    // The transient error alone, before any work, is the invocation's
+    // refusal: this is the control the completion below clears.
+    let reason = refusal(&[started(), error()]).expect("the transient error is a refusal");
+    assert_eq!(reason.class(), RefusalClass::RateLimit);
+
+    // A successful completion, with or without a last message, is work
+    // after the error. So is a completion carrying both an error and a
+    // last message, and one with an explicit null error.
+    for completed in [
+        json!({"type": "event_msg", "payload": {"type": "task_complete",
+            "turn_id": "t", "last_agent_message": "done"}}),
+        json!({"type": "event_msg", "payload": {"type": "task_complete",
+            "turn_id": "t"}}),
+        json!({"type": "event_msg", "payload": {"type": "task_complete",
+            "turn_id": "t", "last_agent_message": "done",
+            "error": {"message": "late", "codex_error_info": "usage_limit_exceeded"}}}),
+        json!({"type": "event_msg", "payload": {"type": "task_complete",
+            "turn_id": "t", "error": null}}),
+    ] {
+        assert!(
+            refusal(&[started(), error(), completed.clone()]).is_none(),
+            "a completion after the error is work: {completed}"
+        );
+    }
+
+    // Item and tool activity after the error is work on the same terms,
+    // in the rollout spelling and the stream spelling.
+    for work in [
+        json!({"type": "response_item",
+               "payload": {"type": "message", "role": "assistant"}}),
+        json!({"type": "item.started", "item": {}}),
+        json!({"type": "item.completed", "item": {}}),
+        json!({"type": "event_msg", "payload": {"type": "item_started", "item": {}}}),
+        json!({"type": "event_msg", "payload": {"type": "item_completed", "item": {}}}),
+        json!({"type": "event_msg", "payload": {"type": "user_message", "message": "hi"}}),
+        json!({"type": "event_msg", "payload": {"type": "agent_message", "message": "done"}}),
+        json!({"type": "event_msg", "payload": {"type": "agent_reasoning", "text": "hmm"}}),
+        json!({"type": "event_msg", "payload": {"type": "exec_command_begin",
+               "command": ["ls"]}}),
+        json!({"type": "event_msg", "payload": {"type": "exec_command_end"}}),
+        json!({"type": "event_msg", "payload": {"type": "mcp_tool_call_begin"}}),
+        json!({"type": "event_msg", "payload": {"type": "mcp_tool_call_end"}}),
+    ] {
+        assert!(
+            refusal(&[started(), error(), work.clone()]).is_none(),
+            "item or tool activity after the error is work: {work}"
+        );
+    }
+
+    // Work followed by a later error is a mid-session failure too: the
+    // error cannot be a refusal to start a turn that already ran.
+    assert!(refusal(&[
+        started(),
+        json!({"type": "response_item",
+               "payload": {"type": "message", "role": "assistant"}}),
+        error(),
+    ])
+    .is_none());
+
+    // A completion that carries only the error is still the error row,
+    // and quiet rows (a session header, a turn context, token usage) are
+    // not work that clears it.
+    let only_error = json!({"type": "event_msg", "payload": {"type": "task_complete",
+        "turn_id": "t", "last_agent_message": null,
+        "error": {"message": "transient", "codex_error_info": "usage_limit_exceeded"}}});
+    assert!(refusal(&[started(), only_error]).is_some());
+    for quiet in [
+        json!({"type": "session_meta", "payload": {}}),
+        json!({"type": "turn_context", "payload": {}}),
+        json!({"type": "event_msg", "payload": {"type": "token_count"}}),
+    ] {
+        assert!(
+            refusal(&[started(), error(), quiet.clone()]).is_some(),
+            "a quiet row is not work: {quiet}"
+        );
+    }
+}
+
+/// Decision 0053's boundary at full precision (the chief's same-second
+/// finding): a previous invocation's refusal written at `…:00.100Z` is
+/// history once this invocation starts at `…:00.900Z`, even though both
+/// fall in the same whole second. The boundary is inclusive at the exact
+/// millisecond of the start.
+#[test]
+fn a_previous_refusal_in_the_start_second_is_history() {
+    let since = brokkr_core::stamp::parse_millis("2026-11-08T10:00:00.900Z").unwrap();
+    let at = |timestamp: &str| {
+        record(&[json!({"timestamp": timestamp, "type": "event_msg",
+            "payload": {"type": "task_complete", "turn_id": "t",
+                        "last_agent_message": null,
+                        "error": {"message": "quota",
+                                  "codex_error_info": "usage_limit_exceeded"}}})])
+    };
+    assert!(
+        codex_thread_refusal(&at("2026-11-08T10:00:00.100Z"), Some(since), None).is_none(),
+        "a completion 800ms before the start is history"
+    );
+    assert!(
+        codex_thread_refusal(&at("2026-11-08T10:00:00.900Z"), Some(since), None).is_some(),
+        "a completion exactly at the start is current"
+    );
+    assert!(
+        codex_thread_refusal(&at("2026-11-08T10:00:01.000Z"), Some(since), None).is_some(),
+        "a completion after the start is current"
+    );
+}
+
+/// A temp root with one dated sessions day, kept alive by the returned
+/// `TempDir`, for the zero-event locator tests.
+fn sessions(day: &str) -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("sessions");
+    let day = root.join(day);
+    std::fs::create_dir_all(&day).unwrap();
+    (dir, root, day)
+}
+
+/// Write one synthetic rollout under `day`'s dated directory. `started` is
+/// the session's own start, under `payload`, or the top-level envelope
+/// timestamp when `top_level` is set; an empty string omits it.
+fn rollout(day: &std::path::Path, name: &str, cwd: &str, started: &str, top_level: bool) {
+    let mut header = json!({"type": "session_meta", "payload": {"cwd": cwd}});
+    if !started.is_empty() {
+        if top_level {
+            header["timestamp"] = json!(started);
+        } else {
+            header["payload"]["timestamp"] = json!(started);
+        }
+    }
+    let body = record(&[
+        header,
+        json!({"timestamp": "2026-11-08T10:00:02.000Z", "type": "event_msg",
+               "payload": {"type": "task_complete", "turn_id": "t",
+                           "last_agent_message": null,
+                           "error": {"message": "quota",
+                                     "codex_error_info": "usage_limit_exceeded"}}}),
+    ]);
+    std::fs::write(day.join(name), body).unwrap();
+}
+
+/// M1: a singleton candidate is correlated to this invocation exactly as a
+/// crowd is. A foreign seat's only recent rollout is not this seat's
+/// refusal (the chief's foreign-record finding), and a rollout that fails
+/// either correlation fact is never read.
+#[test]
+fn a_single_foreign_rollout_is_not_this_invocations_refusal() {
+    let (_dir, root, day) = sessions("2026/11/08");
+    let since = brokkr_core::stamp::parse_millis("2026-11-08T10:00:00.900Z").unwrap();
+    rollout(
+        &day,
+        "rollout-a.jsonl",
+        "/foreign-seat",
+        "2026-11-08T10:00:01.000Z",
+        false,
+    );
+    assert!(
+        codex_thread_refusal_since(&root, since, "/this-seat", None, 6).is_none(),
+        "a singleton foreign rollout is not this invocation's"
+    );
+
+    // Every other way a header can fail correlation: not JSON, readable
+    // but empty, no cwd, no start, and a body this process may not read.
+    std::fs::write(day.join("rollout-broken.jsonl"), "not json\n").unwrap();
+    std::fs::write(day.join("rollout-empty.jsonl"), "").unwrap();
+    rollout(
+        &day,
+        "rollout-no-cwd.jsonl",
+        "",
+        "2026-11-08T10:00:01Z",
+        false,
+    );
+    rollout(&day, "rollout-no-start.jsonl", "/this-seat", "", false);
+    let unreadable = day.join("rollout-unreadable.jsonl");
+    std::fs::write(&unreadable, "not json\n").unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o000)).unwrap();
+    }
+
+    // The same singleton naming this seat's cwd and a current start is
+    // read; a start exactly at the boundary counts.
+    rollout(
+        &day,
+        "rollout-b.jsonl",
+        "/this-seat",
+        "2026-11-08T10:00:00.900Z",
+        false,
+    );
+    let reason = codex_thread_refusal_since(&root, since, "/this-seat", None, 6)
+        .expect("the correlated rollout is this invocation's");
+    assert_eq!(reason.class(), RefusalClass::RateLimit);
+}
+
+/// M1's other half: a rollout whose session began before this invocation
+/// started is history even with this seat's cwd. The session start is read
+/// from the header's payload, or from the envelope when that is where the
+/// record spells it.
+#[test]
+fn a_session_that_began_before_this_invocation_is_history() {
+    let (_dir, root, day) = sessions("2026/11/08");
+    let since = brokkr_core::stamp::parse_millis("2026-11-08T10:00:00.900Z").unwrap();
+    rollout(
+        &day,
+        "rollout-old.jsonl",
+        "/this-seat",
+        "2026-11-08T10:00:00.100Z",
+        false,
+    );
+    assert!(
+        codex_thread_refusal_since(&root, since, "/this-seat", None, 6).is_none(),
+        "a session that began 800ms before the start is history"
+    );
+    rollout(
+        &day,
+        "rollout-new.jsonl",
+        "/this-seat",
+        "2026-11-08T10:00:00.900Z",
+        true,
+    );
+    let reason = codex_thread_refusal_since(&root, since, "/this-seat", None, 6)
+        .expect("the current session's rollout is read");
+    assert_eq!(reason.class(), RefusalClass::RateLimit);
+}
+
+/// A fake codex that records one recovered turn and exits 0 with no result:
+/// it starts a turn, optionally writes a transient usage-limit error, then
+/// completes the turn successfully and leaves a work marker. With the error
+/// this is the chief's H1 case; without it, it is the control the earlier
+/// behaviour already handled.
+#[cfg(unix)]
+fn codex_recovered_completion(dir: &std::path::Path, with_error: bool) -> std::path::PathBuf {
+    const THREAD: &str = "01a0619c-928b-7ad3-8cc9-9eaa94c3aec1";
+    let mut rows = vec![
+        json!({"timestamp": "9999-12-31T00:00:00Z", "type": "session_meta",
+               "payload": {"id": THREAD, "timestamp": "9999-12-31T00:00:00Z",
+                           "cwd": dir.to_string_lossy()}}),
+        json!({"timestamp": "9999-12-31T00:00:01Z", "ordinal": 1,
+               "type": "event_msg",
+               "payload": {"type": "task_started", "turn_id": "t"}}),
+    ];
+    if with_error {
+        rows.push(json!({"timestamp": "9999-12-31T00:00:02Z", "ordinal": 2,
+               "type": "event_msg",
+               "payload": {"type": "error", "message": "transient",
+                           "codex_error_info": "usage_limit_exceeded"}}));
+    }
+    rows.push(json!({"timestamp": "9999-12-31T00:00:03Z", "ordinal": 3,
+               "type": "event_msg",
+               "payload": {"type": "task_complete", "turn_id": "t",
+                           "last_agent_message": "done"}}));
+    let body = format!(
+        r#"#!/bin/sh
+cat >/dev/null
+printf '%s' done > '{marker}'
+mkdir -p "$CODEX_HOME/sessions/2026/11/08"
+cat > "$CODEX_HOME/sessions/2026/11/08/rollout-{THREAD}.jsonl" <<'JSON'
+{rows}JSON
+exit 0
+"#,
+        marker = dir.join("worked").display(),
+        rows = record(&rows),
+    );
+    executable(dir, "codex", &body)
+}
+
+/// H1 end to end (the chief's recovered-work finding): a zero-stdout fake
+/// codex writes a rollout that errors and then completes, writes a work
+/// marker, exits 0 and leaves no result. The error is a notice, so
+/// `run_seat` sends no result at all — the lost-or-indeterminate path
+/// stands — instead of a `failed` result with a `rate_limit` refusal that a
+/// cool-down could retry. The control without the transient error already
+/// sent no result and continues to.
+#[cfg(unix)]
+#[test]
+fn recovered_work_without_a_result_stays_lost() {
+    let mut env = EnvGuard::lock();
+    for with_error in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("codex-home");
+        let fake = codex_recovered_completion(dir.path(), with_error);
+        env.set("CODEX_HOME", &home);
+        env.set("BROKKR_CODEX_BIN", &fake);
+        let start = json!({"effect_id": "effect", "attempt_id": "attempt",
+            "input": {"workdir": dir.path(),
+                      "result_path": dir.path().join("result.json"),
+                      "allowed_results": ["complete"], "feature": "f",
+                      "phase": "work", "role_path": "/dev/null"}});
+        let mut bodies = Vec::new();
+        run_seat(AdapterKind::Codex, &[], &start, None, &mut |body| {
+            bodies.push(body)
+        });
+        assert!(
+            dir.path().join("worked").exists(),
+            "the fake wrote its work marker (with_error={with_error})"
+        );
+        assert!(
+            !bodies
+                .iter()
+                .any(|body| matches!(body, Body::Result { .. })),
+            "a recovered turn with no result is lost, not a refusal (with_error={with_error}): \
+             {bodies:?}"
+        );
+        assert!(
+            bodies
+                .iter()
+                .any(|body| matches!(body, Body::Accepted { .. })),
+            "the lost attempt is still accepted (with_error={with_error}): {bodies:?}"
+        );
+    }
+}
+
 /// Decision 0103 ruling 3: the structured reset belongs to the window
 /// that refused. A half-empty primary's reset must not shorten a full
 /// secondary's wait, and two full windows take the later one.
 #[test]
 fn a_codex_structured_reset_belongs_to_the_exhausted_window() {
+    // `now_at` reads the host's own zone through `mktime`.
+    let _env = EnvGuard::lock();
     let now = now_at(1_700_000_000, 2023, 11, 14, 22, 13);
     let limits = |primary: (f64, i64), secondary: (f64, i64)| {
         json!({"timestamp": "2023-11-14T22:13:00Z", "ordinal": 1,
@@ -794,14 +1162,6 @@ fn a_text_reset_across_the_host_fall_back_waits_the_real_seconds() {
     env.set("TZ", "Europe/London");
     let now = Now {
         epoch: 1_792_888_200,
-        local: LocalTime {
-            year: 2026,
-            month: 10,
-            day: 25,
-            hour: 1,
-            minute: 30,
-            second: 0,
-        },
     };
     let body = record(&[task_complete(json!({
         "message": "try again at Oct 25th, 2026 2:30 AM.",
@@ -814,6 +1174,25 @@ fn a_text_reset_across_the_host_fall_back_waits_the_real_seconds() {
     );
 }
 
+/// Decision 0103 ruling 3's round trip refuses a civil date the host's
+/// zone does not have: `mktime` normalises Feb 30 to Mar 2, and the round
+/// trip sees the difference rather than returning a guessed reset.
+#[test]
+fn an_impossible_civil_date_has_no_epoch() {
+    // `LocalTime::epoch` reads the host's own zone through `mktime` and
+    // `localtime_r`.
+    let _env = EnvGuard::lock();
+    let impossible = LocalTime {
+        year: 2026,
+        month: 2,
+        day: 30,
+        hour: 12,
+        minute: 0,
+        second: 0,
+    };
+    assert_eq!(impossible.epoch(), None);
+}
+
 /// The one branch a healthy clock never reaches: `localtime_r` refuses a
 /// second whose year does not fit, and the reset is then absent rather
 /// than read from a zeroed `tm`. glibc returns NULL for this value; the
@@ -821,5 +1200,7 @@ fn a_text_reset_across_the_host_fall_back_waits_the_real_seconds() {
 #[cfg(target_os = "linux")]
 #[test]
 fn a_second_whose_year_does_not_fit_has_no_local_time() {
+    // `local_time` reads the host's own zone through `localtime_r`.
+    let _env = EnvGuard::lock();
     assert_eq!(local_time(i64::MAX), None);
 }
