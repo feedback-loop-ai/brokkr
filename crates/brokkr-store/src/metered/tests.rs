@@ -450,6 +450,16 @@ impl Journal {
         );
     }
 
+    /// The effect fails: a control event that returns the effect to the
+    /// executable position, so a later attempt may start.
+    fn failed(&mut self, at: &str, effect: &str, attempt: &str) {
+        self.push(
+            EventType::EffectFailed,
+            json!({"effect_id": effect, "attempt_id": attempt}),
+            at,
+        );
+    }
+
     /// The operator's run completes: the event that finishes it, at a stamp
     /// after its last fact.
     fn completed(&mut self, at: &str) {
@@ -490,17 +500,23 @@ fn case(journal: Journal, windows: Vec<(i64, i64)>) -> Case {
     }
 }
 
-/// A re-opened attempt's two sites: the same attempt and member opened
-/// twice, each site with a checkpoint after its own start.
-fn reopened_case() -> Case {
-    let mut journal = Journal::new("reopened");
+/// `run_id`'s journal through its first attempt's first checkpoint: it
+/// starts in `hearth-a`, enters `implement`, attempt `a` starts for
+/// `alpha` at :02, and `record` lands at :03.
+fn journal_through_first_checkpoint(run_id: &str, record: Value) -> Journal {
+    let mut journal = Journal::new(run_id);
     journal.started("2026-01-01T00:00:00Z", Some("hearth-a"));
     journal.phase("2026-01-01T00:00:01Z", "implement");
     journal.effect("2026-01-01T00:00:02Z", "fx", "a", "alpha");
-    journal.checkpoint(
-        "2026-01-01T00:00:03Z",
-        "fx",
-        "a",
+    journal.checkpoint("2026-01-01T00:00:03Z", "fx", "a", record);
+    journal
+}
+
+/// A re-opened attempt's two sites: the same attempt and member opened
+/// twice, each site with a checkpoint after its own start.
+fn reopened_case() -> Case {
+    let mut journal = journal_through_first_checkpoint(
+        "reopened",
         json!({"step": "seat-turn", "model": "m1", "input_tokens": 10}),
     );
     journal.effect("2026-01-01T00:00:04Z", "fx", "a", "beta");
@@ -659,6 +675,34 @@ fn metering_case() -> Case {
     )
 }
 
+/// An older attempt's checkpoint lands after a newer attempt of the same
+/// effect starts: the row names the older attempt, so it belongs to the
+/// site that attempt opened, never the newer attempt's site that opened
+/// later.
+fn older_attempt_case() -> Case {
+    let mut journal = journal_through_first_checkpoint(
+        "older-attempt",
+        json!({"step": "seat-turn", "input_tokens": 1}),
+    );
+    journal.failed("2026-01-01T00:00:04Z", "fx", "a");
+    journal.push(
+        EventType::EffectStarted,
+        json!({"effect_id": "fx", "attempt_id": "b",
+               "provenance": [{"member": null, "provider": "beta"}]}),
+        "2026-01-01T00:00:05Z",
+    );
+    journal.checkpoint(
+        "2026-01-01T00:00:07Z",
+        "fx",
+        "a",
+        json!({"step": "seat-turn", "input_tokens": 10, "total_cost_usd": 0.5}),
+    );
+    case(
+        journal,
+        vec![(ms("2026-01-01T00:00:06Z"), ms("2026-01-01T00:00:08Z"))],
+    )
+}
+
 /// Every hand-built journal's case.
 fn hand_built() -> Vec<Case> {
     vec![
@@ -667,6 +711,7 @@ fn hand_built() -> Vec<Case> {
         before_any_start_case(),
         panel_case(),
         metering_case(),
+        older_attempt_case(),
     ]
 }
 
@@ -724,6 +769,41 @@ fn each_named_member_folds_only_its_own_checkpoints() {
             (Some("beta".to_string()), true, Some(7)),
         ]
     );
+}
+
+/// An older attempt's checkpoint after a newer attempt starts is the older
+/// attempt's site's fact: the site lookup reads the checkpoint's attempt,
+/// not the newest site that opened before its seq, so the newer attempt's
+/// site is never served in a window it did not run in.
+#[test]
+fn chief_older_attempt_checkpoint_after_a_newer_start() {
+    let case = older_attempt_case();
+    let (_dir, store) = plant_case(&case);
+    let from = ms("2026-01-01T00:00:06Z");
+    let to = ms("2026-01-01T00:00:08Z");
+    for order in [
+        SiteOrder::Model,
+        SiteOrder::Provider,
+        SiteOrder::RealmProvider,
+        SiteOrder::RecipeProvider,
+    ] {
+        let sites = read_sites(&store, from, to, order);
+        assert_eq!(sites.len(), 1, "{order:?}: {sites:?}");
+        let site = &sites[0];
+        assert_eq!(site.opened, 1, "{order:?}: {sites:?}");
+        assert_eq!(
+            site.provider.as_deref(),
+            Some("alpha"),
+            "{order:?}: {sites:?}"
+        );
+        assert_eq!(site.metering, Metering::Turns, "{order:?}: {sites:?}");
+        assert!(site.reported, "{order:?}: {sites:?}");
+        assert_eq!(
+            site.usage.as_ref().and_then(|usage| usage.input_tokens),
+            Some(10),
+            "{order:?}: {sites:?}"
+        );
+    }
 }
 
 /// Plant `journals` and open them read-write, so every projection is the
@@ -1549,6 +1629,68 @@ fn chief_current_run_is_not_also_named_for_whole_read() {
         fallbacks(&store, FROM, TO).is_empty(),
         "a current run is served by the indexed reads, never named whole"
     );
+}
+
+/// The fallback's realm filter narrows both arms: a run is named under the
+/// realm its summary row names, NULL names every realm, and a realm no run
+/// named names none. The seat arm and the checkpoint arm each keep their
+/// own run's realm, so one arm cannot name the other's.
+#[test]
+fn a_realm_narrows_the_whole_run_fallback() {
+    let (_dir, store) = crate::tests::store();
+    for (run_id, realm) in [
+        ("facts-alpha", "alpha"),
+        ("seat-alpha", "alpha"),
+        ("facts-beta", "beta"),
+        ("seat-beta", "beta"),
+    ] {
+        plant_run(&store.conn, run_id, realm);
+    }
+    for run_id in ["facts-alpha", "facts-beta"] {
+        plant_checkpoint(&store.conn, run_id, 2, FROM + 20);
+        store
+            .conn
+            .execute(
+                "UPDATE event_index SET facts_seq = NULL WHERE run_id = ?1 AND seq = 2",
+                rusqlite::params![run_id],
+            )
+            .unwrap();
+    }
+    for run_id in ["seat-alpha", "seat-beta"] {
+        store
+            .conn
+            .execute(
+                "DELETE FROM seat_head WHERE run_id = ?1",
+                rusqlite::params![run_id],
+            )
+            .unwrap();
+    }
+
+    let read = |realm: Option<&str>| {
+        let mut named = Vec::new();
+        store
+            .window_fallbacks(FROM, TO, realm, |run| named.push(run.run_id.to_string()))
+            .unwrap();
+        named
+    };
+    assert_eq!(
+        read(Some("alpha")),
+        ["facts-alpha".to_string(), "seat-alpha".to_string()]
+    );
+    assert_eq!(
+        read(Some("beta")),
+        ["facts-beta".to_string(), "seat-beta".to_string()]
+    );
+    assert_eq!(
+        read(None),
+        [
+            "facts-alpha".to_string(),
+            "facts-beta".to_string(),
+            "seat-alpha".to_string(),
+            "seat-beta".to_string()
+        ]
+    );
+    assert_eq!(read(Some("nowhere")), Vec::<String>::new());
 }
 
 /// The fallback's cost grows with the stale runs alone: a year of current
