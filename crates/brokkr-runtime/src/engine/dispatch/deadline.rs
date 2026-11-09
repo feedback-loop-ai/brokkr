@@ -168,14 +168,14 @@ impl Deadline {
         let Some(cause) = &self.cause else {
             return;
         };
-        if let DriverRun::SpawnFailed(error) = run {
-            if !matches!(cause, Cause::Raised { .. }) {
-                *error = format!("{error}; {cause}");
+        let report = match run {
+            DriverRun::SpawnFailed(error) => {
+                if !matches!(cause, Cause::Raised { .. }) {
+                    *error = format!("{error}; {cause}");
+                }
+                return;
             }
-            return;
-        }
-        let DriverRun::Ran(report) = run else {
-            return;
+            DriverRun::Ran(report) => report,
         };
         match cause {
             Cause::Raised { .. } => {
