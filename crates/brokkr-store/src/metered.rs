@@ -23,8 +23,7 @@
 //! through the seat-currentness rule's and the checkpoint-staleness rule's
 //! one home each. A caller reads each named run whole once, so no fact of
 //! it is served here as well and none is counted twice. The `behind` lane
-//! is `aggregate`'s [`behind_runs`](Store::behind_runs) instead; U4 reads
-//! the union whole.
+//! is `aggregate`'s `behind_runs` instead; U4 reads the union whole.
 //!
 //! A site's in-window facts are folded while the stream passes them, never
 //! collected: `reported` is whether any in-window checkpoint reported a

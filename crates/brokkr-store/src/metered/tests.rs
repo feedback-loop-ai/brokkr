@@ -1520,6 +1520,37 @@ fn a_stale_run_is_named_store_wide() {
     );
 }
 
+/// A wholly current run is named by no fallback: the indexed reads serve its
+/// one site in every order and its one spend, and `window_fallbacks` is
+/// empty, so U4 never reads it whole as well (decision 0089 ruling 8).
+///
+/// The negative control: the fallback's selectivity is "named iff not
+/// current", not "every run left out of the indexed reads". A seat arm that
+/// names every non-behind run passes the cases above but fails here.
+#[test]
+fn chief_current_run_is_not_also_named_for_whole_read() {
+    let (_dir, store) = crate::tests::store();
+    plant_window_run(&store.conn, "current-window");
+
+    let spends = read_spends(&store, FROM, TO);
+    assert_eq!(spends.len(), 1, "{spends:?}");
+    assert_eq!(spends[0].run_id, "current-window", "{spends:?}");
+    for order in [
+        SiteOrder::Model,
+        SiteOrder::Provider,
+        SiteOrder::RealmProvider,
+        SiteOrder::RecipeProvider,
+    ] {
+        let sites = read_sites(&store, FROM, TO, order);
+        assert_eq!(sites.len(), 1, "{order:?}: {sites:?}");
+        assert_eq!(sites[0].run_id, "current-window", "{order:?}: {sites:?}");
+    }
+    assert!(
+        fallbacks(&store, FROM, TO).is_empty(),
+        "a current run is served by the indexed reads, never named whole"
+    );
+}
+
 /// The fallback's cost grows with the stale runs alone: a year of current
 /// facts for a run adds no visit, while each run named grows it, so the
 /// read never walks the journal's current rows (decision 0089 ruling 8).
