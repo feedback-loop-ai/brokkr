@@ -734,6 +734,35 @@ fn aggregates_are_ready_only_once_every_projection_is_backfilled() {
     assert!(store.aggregates_ready().unwrap());
 }
 
+/// Each readiness check refuses on its own: an event index that is not
+/// intact beside an intact summary, and either backfill's mark unfinished
+/// while every projection is intact.
+#[test]
+fn each_readiness_check_refuses_on_its_own() {
+    let (_dir, store) = store();
+    assert!(store.aggregates_ready().unwrap());
+    store
+        .conn
+        .execute_batch("DROP INDEX event_index_park")
+        .unwrap();
+    assert!(
+        summary_intact(&store.conn).unwrap(),
+        "the summary stays intact"
+    );
+    assert!(!store.aggregates_ready().unwrap(), "an index not intact");
+    let mut store = refolded(store);
+    assert!(store.aggregates_ready().unwrap());
+    for key in [SUMMARISED, INDEXED] {
+        store
+            .conn
+            .execute("DELETE FROM meta WHERE key = ?1", [key])
+            .unwrap();
+        assert!(!store.aggregates_ready().unwrap(), "{key} unfinished");
+        store = refolded(store);
+        assert!(store.aggregates_ready().unwrap(), "{key} finished again");
+    }
+}
+
 /// A park of class 63 at a window near `i64::MIN` is found without
 /// overflow, and an open park reads its end as `now`.
 #[test]
