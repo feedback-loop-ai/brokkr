@@ -1631,6 +1631,33 @@ fn chief_current_run_is_not_also_named_for_whole_read() {
     );
 }
 
+/// A seat head at the summary's own folded seq, but another hash, is not
+/// current: the summary names a head the seat rows were not folded through,
+/// so no indexed read serves the run and the fallback names it whole
+/// (decision 0089 ruling 8). The sequence stamps alone cannot see the gap;
+/// this pins the hash arm that can.
+#[test]
+fn a_seat_head_at_the_seq_with_another_hash_is_left_whole() {
+    let (_dir, store) = crate::tests::store();
+    plant_window_run(&store.conn, "replaced-head");
+    // The seat head keeps its seq 0 and hash 'h'; the summary now names
+    // 'new-head' at the same seq, so every sequence stamp still agrees.
+    store
+        .conn
+        .execute(
+            "UPDATE run_summary SET head_hash = 'new-head' WHERE run_id = 'replaced-head'",
+            [],
+        )
+        .unwrap();
+
+    assert_window_reads_empty(&store, FROM, TO);
+    assert_eq!(
+        fallbacks(&store, FROM, TO),
+        ["replaced-head".to_string()],
+        "a head the summary no longer names is read whole"
+    );
+}
+
 /// The fallback's realm filter narrows both arms: a run is named under the
 /// realm its summary row names, NULL names every realm, and a realm no run
 /// named names none. The seat arm and the checkpoint arm each keep their
