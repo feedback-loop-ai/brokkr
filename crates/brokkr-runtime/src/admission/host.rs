@@ -383,29 +383,7 @@ impl TryFrom<WrittenHost> for HostConfig {
             }
         }
         let cooldowns = written.cooldowns.map(Cooldowns::try_from).transpose()?;
-        let mut providers = BTreeMap::new();
-        for (name, provider) in written.providers {
-            let mut routes = BTreeMap::new();
-            for (route, written) in provider.routes {
-                let timeout_floor_seconds =
-                    floor::read(written.timeout_floor_seconds, written.class, &name, &route)?;
-                routes.insert(
-                    route,
-                    Route {
-                        ceiling: written.ceiling,
-                        class: written.class,
-                        timeout_floor_seconds,
-                    },
-                );
-            }
-            providers.insert(
-                name,
-                Provider {
-                    ceiling: provider.ceiling,
-                    routes,
-                },
-            );
-        }
+        let providers = floor::providers(written.providers)?;
         let config = HostConfig {
             _schema: written.schema,
             providers,

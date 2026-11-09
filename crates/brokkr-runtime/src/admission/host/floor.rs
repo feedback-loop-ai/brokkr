@@ -21,7 +21,7 @@ use serde_json::value::RawValue;
 use thiserror::Error;
 
 use super::shape::{Integral, Refusal};
-use super::{read as read_host, HostConfig, HostError, Hosting, RouteClass};
+use super::{read as read_host, HostConfig, HostError, Hosting, Provider, Route, RouteClass};
 
 /// The longest floor a route may declare: the fleet's attempt bound, the
 /// same 7200 `brokkr-view`'s `ATTEMPT_DEADLINE_SECONDS` states, kept here
@@ -176,6 +176,37 @@ pub(super) fn v3_only(
             .find(|(_, route)| route.timeout_floor_seconds.is_some())
             .map(|(route, _)| super::Problem::NotV3(declared, provider.clone(), route.clone()))
     })
+}
+
+/// Every written provider as the loader keeps it, each route's floor read
+/// by [`read`] under the route's own class, or the first floor refused.
+pub(super) fn providers(
+    written: BTreeMap<String, super::shape::WrittenProvider>,
+) -> Result<BTreeMap<String, Provider>, Problem> {
+    let mut providers = BTreeMap::new();
+    for (name, provider) in written {
+        let mut routes = BTreeMap::new();
+        for (route, written) in provider.routes {
+            let timeout_floor_seconds =
+                read(written.timeout_floor_seconds, written.class, &name, &route)?;
+            routes.insert(
+                route,
+                Route {
+                    ceiling: written.ceiling,
+                    class: written.class,
+                    timeout_floor_seconds,
+                },
+            );
+        }
+        providers.insert(
+            name,
+            Provider {
+                ceiling: provider.ceiling,
+                routes,
+            },
+        );
+    }
+    Ok(providers)
 }
 
 impl HostConfig {
