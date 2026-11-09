@@ -19,7 +19,7 @@ use super::{
     effect_seat, note_error, past_maximum, refusal_record, refusal_text, representable_end,
     terminal, waiter, CooldownError, Engine, EngineError,
 };
-use crate::bundle::{Invocation, SeatBody};
+use crate::bundle::{ExecutableBody, Invocation};
 use crate::engine::carry::record::Tag;
 
 /// One member that failed to start with a typed rate-limit refusal, tagged
@@ -428,15 +428,24 @@ fn journaled_sites(events: &[EventEnvelope], effect_id: &str) -> Vec<String> {
 
 impl Engine {
     /// The declared member order the cap's facts follow: the bundle's own
-    /// panel declaration, because the journal's `start_failure_sites` omits
-    /// inline members (decision 0103 ruling 7(c), this fix round). A body
-    /// that is not a panel, or a seat the bundle no longer names, falls back
-    /// to the sites the terminal event recorded.
-    fn declared_sites(&self, events: &[EventEnvelope], effect_id: &str) -> Vec<String> {
+    /// panel declaration under the journal's strategy, because the journal's
+    /// `start_failure_sites` omits inline members (decision 0103 ruling 7(c),
+    /// this fix round). The body is resolved through [`SeatBody::selected`],
+    /// the one selection path the dispatch and the probe take (decision 0071
+    /// rulings 2 and 5), so a selector-wrapped panel keeps its declaration. A
+    /// body that is not a panel, or a seat the bundle no longer names, falls
+    /// back to the sites the terminal event recorded.
+    fn declared_sites(
+        &self,
+        events: &[EventEnvelope],
+        effect_id: &str,
+        strategy: Option<&str>,
+    ) -> Vec<String> {
         let panel = effect_seat(events, effect_id)
             .and_then(|seat| self.bundle.seats.get(seat))
-            .and_then(|seat| match &seat.body {
-                SeatBody::Invocation(Invocation::Panel { members, .. }) => Some(
+            .and_then(|seat| seat.body.selected(strategy))
+            .and_then(|(body, _)| match body {
+                ExecutableBody::Invocation(Invocation::Panel { members, .. }) => Some(
                     members
                         .iter()
                         .map(|member| Tag::prefixed("", &member.name).0)
@@ -451,12 +460,17 @@ impl Engine {
     /// of the last failure's waits in declared member order, and the
     /// refused record beside them at its own site where no wait carries it.
     /// A present wait or refusal that does not read refuses by name.
+    ///
+    /// A present `waits` array is never empty: `provider_waits` refuses one
+    /// by name, the invariant `the_provider_wait_extension_refuses_by_name`
+    /// is the removal control for (decision 0071 ruling 9).
     pub(in crate::engine) fn cap_facts(
         &self,
         events: &[EventEnvelope],
         effect_id: &str,
         waits: &Result<Option<Vec<ProviderWait>>, CooldownError>,
         refused: &Result<Option<ProviderRefusal>, CooldownError>,
+        strategy: Option<&str>,
     ) -> String {
         let mut facts = String::new();
         let refused = match refused {
@@ -467,10 +481,10 @@ impl Engine {
             }
         };
         match waits {
-            Ok(Some(all)) if !all.is_empty() => {
-                self.cap_ordered_facts(events, effect_id, all, refused, &mut facts)
+            Ok(Some(all)) => {
+                self.cap_ordered_facts(events, effect_id, all, refused, &mut facts, strategy)
             }
-            Ok(Some(_)) | Ok(None) => cap_empty_wait(refused, &mut facts),
+            Ok(None) => cap_empty_wait(refused, &mut facts),
             Err(detail) => {
                 if let Some(record) = refused {
                     facts.push_str(&cap_refusal_facts(record, None));
@@ -491,8 +505,9 @@ impl Engine {
         waits: &[ProviderWait],
         refused: Option<&ProviderRefusal>,
         facts: &mut String,
+        strategy: Option<&str>,
     ) {
-        let declared = self.declared_sites(events, effect_id);
+        let declared = self.declared_sites(events, effect_id, strategy);
         let mut listed = vec![false; waits.len()];
         let mut recorded = false;
         for site in &declared {

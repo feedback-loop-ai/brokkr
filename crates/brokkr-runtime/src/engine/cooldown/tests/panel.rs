@@ -1161,6 +1161,83 @@ fn the_cap_keeps_an_inline_members_refusal_in_declared_order() {
     assert!(logs(dir.path(), "b").is_empty());
 }
 
+/// The chief's R1 case: a selector's default wraps the declared
+/// `[a=claude/first, b=codex/second]` panel, both members refuse a rate
+/// limit, and the cap's waits follow the panel's declaration, a before b,
+/// not the journal's candidate-only `start_failure_sites`.
+fn selected_inline_panel(dir: &Path) -> SeatBody {
+    SeatBody::Select {
+        cases: Default::default(),
+        default: Some(Box::new(b_only_panel(dir, inline_refusing_a(dir)))),
+    }
+}
+
+/// Both members refuse under a selector-wrapped panel at the cap: the two
+/// waits are the declaration's order, a before b, because the cap resolves
+/// the body through the established selection path.
+#[test]
+fn chief_selected_panel_cap_wait_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let body = selected_inline_panel(dir.path());
+    let mut engine = plain_engine(dir.path(), body, 1);
+    engine.drive().unwrap();
+    let reason = park_reason(&engine);
+    assert!(reason.contains("failed 1 of 1 attempt(s)"), "{reason}");
+    let a = reason.find("member a").expect("a's own wait facts");
+    let b = reason.find("member b").expect("b's own wait facts");
+    assert!(
+        a < b,
+        "the selector-wrapped panel's waits are not in declared order: {reason}"
+    );
+    assert!(reason.contains("claude/first"), "{reason}");
+    assert!(reason.contains("codex/second"), "{reason}");
+    assert_eq!(starts(&engine).len(), 1, "the cap retried the panel");
+}
+
+/// The chief's alternate R1 case: `a`'s route is unresolved and only `b`
+/// has a wait under a selector-wrapped panel. The cap keeps `a`'s refusal
+/// before `b`'s wait, the declaration's order, even though the journal's
+/// `start_failure_sites` names only the candidate `b`.
+#[test]
+fn chief_selected_panel_cap_refusal_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let body = selected_inline_panel(dir.path());
+    let reason = unresolved_a_cap_reason(dir.path(), body, json!(["b"]));
+    let a = reason.find("member a").expect("a's refusal");
+    let b = reason.find("member b").expect("b's own wait facts");
+    assert!(
+        a < b,
+        "the selector-wrapped panel's facts are not in declared order: {reason}"
+    );
+    assert!(reason.contains("claude/an unresolved route"), "{reason}");
+    assert!(reason.contains("codex/second"), "{reason}");
+    assert!(logs(dir.path(), "a").is_empty());
+    assert!(logs(dir.path(), "b").is_empty());
+}
+
+/// A declared site with neither a wait nor a matching refusal adds nothing,
+/// while a refused record at no declared site and no wait is still named at
+/// the cap: the two `cap_ordered_facts` arms a panel can present.
+#[test]
+fn the_cap_names_a_refusal_at_neither_a_declared_site_nor_a_wait() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = plain_engine(dir.path(), writer_panel(), 1);
+    let _events = start_attempt(&mut engine);
+    let payload = json!({
+        "effect_id": "effect", "attempt_id": "a1", "error": "refused",
+        "start_failure": true, "start_failure_sites": ["b"],
+        "waits": [wait_in("b", "codex", "second", 1)],
+        "refused": {"cause": "past-maximum", "site": "c", "provider": "claude",
+                    "route": "first", "words": "rate_limit: slow down",
+                    "seconds": 1, "max_seconds": 10}
+    });
+    let resumed = resume_failed(dir.path(), engine, payload, base());
+    let reason = park_reason(&resumed);
+    assert!(!reason.contains("member a"), "{reason}");
+    assert!(reason.contains("member c"), "{reason}");
+    assert!(reason.contains("codex/second"), "{reason}");
+}
+
 #[test]
 fn a_stop_after_one_probe_answers_probes_no_later_member_and_retries_nothing() {
     let dir = tempfile::tempdir().unwrap();
@@ -1527,21 +1604,29 @@ fn live_panel_child(dir: &Path, run: &str) -> ! {
     panic!("the engine was not killed in its probe");
 }
 
-/// While probe b's driver still lives, the resume finds its reservation and
-/// parks with ruling 4's cleanup refusal: no second probe, no retry.
+/// The live mid-round fixture the two cleanup tests stand on: a killed
+/// engine whose probe b driver still lives, the reservation it left, and
+/// the fresh resume's park reason.
 #[cfg(target_os = "linux")]
-#[test]
-fn a_live_mid_round_probe_parks_the_resume_with_the_cleanup_refusal() {
-    let test = "engine::cooldown::tests::panel::a_live_mid_round_probe_parks_the_resume_with_the_cleanup_refusal";
+struct LiveMidRound {
+    dir: tempfile::TempDir,
+    engine: Engine,
+    reason: String,
+    at: PathBuf,
+    attempt: String,
+    driver: rustix::process::Pid,
+    _stand: crate::engine::broker::admission::tests::Coordinated,
+}
+
+#[cfg(target_os = "linux")]
+fn live_mid_round(test: &str) -> Option<LiveMidRound> {
     if let (Some(dir), Some(run)) = (
         std::env::var_os(PANEL_LIVE_DIR),
         std::env::var_os(PANEL_LIVE_RUN),
     ) {
         live_panel_child(Path::new(&dir), &run.to_string_lossy());
     }
-    let Some((dir, home, _stand)) = super::crash::own_engine(test) else {
-        return;
-    };
+    let (dir, home, stand) = super::crash::own_engine(test)?;
     let (run, compiled, _host) = crashed_panel(dir.path(), Probed::Answer, Probed::Hang);
     let pidlog = dir.path().join("b.pid");
     let done = dir.path().join("b.done");
@@ -1566,27 +1651,76 @@ fn a_live_mid_round_probe_parks_the_resume_with_the_cleanup_refusal() {
         &run,
     );
     let attempt = super::crash::standing_attempt(&at);
-    let resumed = resume_and_drive(
+    let engine = resume_and_drive(
         dir.path(),
         compiled,
         &run,
         Clock::advancing(base() + time::Duration::seconds(1)).0,
     );
-    let reason = park_reason(&resumed);
+    let reason = park_reason(&engine);
+    Some(LiveMidRound {
+        dir,
+        engine,
+        reason,
+        at,
+        attempt,
+        driver,
+        _stand: stand,
+    })
+}
+
+/// While probe b's driver still lives, the resume finds its reservation and
+/// parks with ruling 4's cleanup refusal: no second probe, no retry.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_live_mid_round_probe_parks_the_resume_with_the_cleanup_refusal() {
+    let test = "engine::cooldown::tests::panel::a_live_mid_round_probe_parks_the_resume_with_the_cleanup_refusal";
+    let Some(live) = live_mid_round(test) else {
+        return;
+    };
+    let reason = &live.reason;
     assert!(
         reason.contains("did not prove its process tree gone"),
         "the resume did not park with the cleanup refusal: {reason}"
     );
-    assert!(reason.contains(&at.display().to_string()), "{reason}");
-    assert!(reason.contains(&attempt), "{reason}");
+    assert!(reason.contains(&live.at.display().to_string()), "{reason}");
+    assert!(reason.contains(&live.attempt), "{reason}");
     assert_eq!(
-        logs(dir.path(), "b"),
+        logs(live.dir.path(), "b"),
         ["probe"],
         "the resume probed over the live probe's reservation"
     );
-    assert_eq!(starts(&resumed).len(), 1, "the effect attempted again");
-    assert_eq!(failed(&resumed).len(), 1, "an effect attempt was spent");
-    super::crash::kill_probe(driver);
+    assert_eq!(starts(&live.engine).len(), 1, "the effect attempted again");
+    assert_eq!(failed(&live.engine).len(), 1, "an effect attempt was spent");
+    super::crash::kill_probe(live.driver);
+}
+
+/// The chief's R2 case: the standing reservation is probe b's, on
+/// codex/second, while probe a on claude/first already answered and
+/// released. The cleanup refusal names b's own route, the reservation's
+/// attempt, not the first wait in the journal.
+#[cfg(target_os = "linux")]
+#[test]
+fn chief_live_mid_round_cleanup_names_the_live_route() {
+    let test = "engine::cooldown::tests::panel::chief_live_mid_round_cleanup_names_the_live_route";
+    let Some(live) = live_mid_round(test) else {
+        return;
+    };
+    assert!(
+        live.reason
+            .starts_with("the cool-down probe for codex/second"),
+        "the cleanup refusal does not name the live reservation's route: {}",
+        live.reason
+    );
+    assert_eq!(
+        super::crash::reservation_after(&live.at).0,
+        1,
+        "the live reservation was released"
+    );
+    assert_eq!(logs(live.dir.path(), "b"), ["probe"]);
+    assert_eq!(starts(&live.engine).len(), 1);
+    assert_eq!(failed(&live.engine).len(), 1);
+    super::crash::kill_probe(live.driver);
 }
 
 /// Resume an operator-retried indeterminate panel at `RequestEffect`.

@@ -113,22 +113,23 @@ impl Engine {
     /// never named — a crashed cool-down probe's — once every process it
     /// witnessed is proven settled, the probe's no-terminal case the
     /// recoverable one. `Err` is the cleanup refusal to park with, naming
-    /// the reservation and its attempt; nothing may probe or retry then. An
-    /// unprotected root holds no reservation (C1), so nothing is at stake
-    /// and a resume there may probe again.
+    /// the reservation, its attempt and the live attempt's own route;
+    /// nothing may probe or retry then. An unprotected root holds no
+    /// reservation (C1), so nothing is at stake and a resume there may probe
+    /// again.
     pub(in crate::engine) fn recovered_probe(
         &self,
         events: &[EventEnvelope],
-        wait: &ProviderWait,
+        waits: &[ProviderWait],
         observed: &Observed,
     ) -> Result<(), Recovery> {
         let Some(root) = observed.home.as_deref().and_then(observed.open) else {
             return Ok(());
         };
         let (_, repo) =
-            keyed(&self.workdir()).map_err(|source| Recovery::at(wait, Held::Unlocated(source)))?;
+            keyed(&self.workdir()).map_err(|source| Recovery::at(None, Held::Unlocated(source)))?;
         let deadline = startup(Instant::now(), Duration::MAX);
-        settle_orphaned(&root, [&repo, &self.run_id], events, wait, deadline)
+        settle_orphaned(&root, [&repo, &self.run_id], events, waits, deadline)
     }
 }
 
@@ -146,22 +147,38 @@ fn orphans(attempts: impl Iterator<Item = String>, events: &[EventEnvelope]) -> 
     attempts.filter(|attempt| !named(events, attempt)).collect()
 }
 
+/// The wait the standing attempt's own driver names: the member a panel
+/// probe reserved at `<seat>:<member>` matches the wait at `<member>`, and a
+/// single seat's site-less wait (`recorded_waits` refuses one beside another)
+/// is its own. No match leaves the refusal neutral rather than borrowing
+/// another member's route (decision 0103 ruling 4).
+fn attempt_wait<'a>(waits: &'a [ProviderWait], reserved: &Reserved) -> Option<&'a ProviderWait> {
+    reserved.drivers.iter().find_map(|driver| {
+        waits.iter().find(|wait| {
+            wait.site
+                .as_deref()
+                .is_none_or(|site| driver.site.ends_with(&format!(":{site}")))
+        })
+    })
+}
+
 /// Settle or refuse every standing attempt of the run `[repo, run]` that
 /// the journal never named, under the admission lock taken before
 /// `deadline`: each proven settled through attestation's own judging
 /// ([`recorded_settled`]) is sealed Settled and released; the first not
-/// proven parks, naming the reservation and the attempt.
+/// proven parks, naming the reservation, the attempt and that attempt's own
+/// route.
 pub(super) fn settle_orphaned(
     root: &Root,
     [repo, run]: [&str; 2],
     events: &[EventEnvelope],
-    wait: &ProviderWait,
+    waits: &[ProviderWait],
     deadline: Instant,
 ) -> Result<(), Recovery> {
     let at = root.path().join(repo).join(run).join(RESERVATION);
     let _lock = locked(root.dir(), deadline).map_err(|source| {
         Recovery::at(
-            wait,
+            None,
             Held::Unreadable {
                 at: at.clone(),
                 source,
@@ -170,7 +187,7 @@ pub(super) fn settle_orphaned(
     })?;
     let Some(mut reservation) = standing(root, [repo, run]).map_err(|source| {
         Recovery::at(
-            wait,
+            None,
             Held::Unreadable {
                 at: at.clone(),
                 source,
@@ -188,7 +205,7 @@ pub(super) fn settle_orphaned(
         let reserved = &reservation.attempts[attempt];
         if !recorded_settled(reserved) {
             return Err(Recovery::at(
-                wait,
+                attempt_wait(waits, reserved),
                 Held::Unsettled {
                     at: at.clone(),
                     attempt: attempt.clone(),
@@ -201,6 +218,7 @@ pub(super) fn settle_orphaned(
     // through a pass over them: a key lookup would have a miss nothing
     // can reach, the branch the exact gate counted (decision 0071
     // ruling 9).
+    let wait = attempt_wait(waits, &reservation.attempts[first.as_str()]);
     let held = reservation
         .attempts
         .iter_mut()
@@ -227,26 +245,27 @@ pub(super) fn settle_orphaned(
 }
 
 /// Ruling 4's cleanup refusal a crashed probe's reservation parks with:
-/// the probe it names, and what the reservation holds — where it could not
-/// be found, read or sealed, or the attempt whose process tree is not
-/// proven settled. The admission boundary renders it to the park reason;
-/// nothing may probe or retry while it stands (decision 0071 ruling 8).
+/// the probe it names when the reservation's own attempt resolves one, and
+/// what the reservation holds — where it could not be found, read or
+/// sealed, or the attempt whose process tree is not proven settled. The
+/// admission boundary renders it to the park reason; nothing may probe or
+/// retry while it stands (decision 0071 ruling 8).
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[error(
     "{}; no probe or retry may start until it is proven settled",
-    cleanup_failure(provider, route, &held.to_string())
+    cleanup_failure(self.provider.as_deref(), self.route.as_deref(), &self.held.to_string())
 )]
 pub(in crate::engine) struct Recovery {
-    pub(in crate::engine) provider: String,
-    pub(in crate::engine) route: String,
+    pub(in crate::engine) provider: Option<String>,
+    pub(in crate::engine) route: Option<String>,
     pub(in crate::engine) held: Box<Held>,
 }
 
 impl Recovery {
-    fn at(wait: &ProviderWait, held: Held) -> Recovery {
+    fn at(wait: Option<&ProviderWait>, held: Held) -> Recovery {
         Recovery {
-            provider: wait.provider.clone(),
-            route: wait.route.clone(),
+            provider: wait.map(|wait| wait.provider.clone()),
+            route: wait.map(|wait| wait.route.clone()),
             held: Box::new(held),
         }
     }

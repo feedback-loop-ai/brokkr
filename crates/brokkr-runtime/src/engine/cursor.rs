@@ -66,14 +66,19 @@ impl Engine {
         failed_attempts: u64,
     ) -> Result<(), EngineError> {
         let max_attempts = self.seat_limits(Some(seat)).max_attempts;
-        let (wait_effect, waits) =
-            match self.park_on_record(events, effect_id, failed_attempts, max_attempts)? {
-                Recorded::Wait { effect_id, waits } => (effect_id, waits),
-                Recorded::Attempt => {
-                    return self.run_attempt(events, state, effect_id, seat, Vec::new())
-                }
-                Recorded::Parked => return Ok(()),
-            };
+        let (wait_effect, waits) = match self.park_on_record(
+            events,
+            effect_id,
+            failed_attempts,
+            max_attempts,
+            state.strategy.as_deref(),
+        )? {
+            Recorded::Wait { effect_id, waits } => (effect_id, waits),
+            Recorded::Attempt => {
+                return self.run_attempt(events, state, effect_id, seat, Vec::new())
+            }
+            Recorded::Parked => return Ok(()),
+        };
         // Before the wait's probe and before the retry's admission, the
         // run's own reservation may name a crashed probe's attempt that no
         // journal event names. It is released only where every process it
@@ -103,18 +108,17 @@ impl Engine {
         effect_id: &str,
         failed_attempts: u64,
         max_attempts: u64,
+        strategy: Option<&str>,
     ) -> Result<Recorded, EngineError> {
         let waits = self.recorded_waits(events, effect_id);
         let refused = self.recorded_refusal(events, effect_id);
         if failed_attempts >= max_attempts {
-            self.park_at_cap(
-                events,
-                effect_id,
-                failed_attempts,
-                max_attempts,
-                &waits,
-                &refused,
-            )?;
+            let reason = format!(
+                "effect {effect_id} failed {failed_attempts} of {max_attempts} attempt(s); \
+                 last error: {}",
+                last_error(events, effect_id)
+            );
+            self.park_at_cap(events, effect_id, reason, &waits, &refused, strategy)?;
             return Ok(Recorded::Parked);
         }
         if self.park_on_refused(events, effect_id, &refused)? {
@@ -152,6 +156,10 @@ impl Engine {
     /// The wait the record leaves, or the operator retry's indeterminate one,
     /// or today's no-wait attempt. A present wait that does not read refuses
     /// by name, never as no wait (decision 0103 ruling 2(a)).
+    ///
+    /// A present `waits` array is never empty: `provider_waits` refuses one
+    /// by name, the invariant `the_provider_wait_extension_refuses_by_name`
+    /// is the removal control for (decision 0071 ruling 9).
     fn record_waits(
         &mut self,
         events: &[EventEnvelope],
@@ -159,11 +167,11 @@ impl Engine {
         waits: Result<Option<Vec<ProviderWait>>, CooldownError>,
     ) -> Result<Recorded, EngineError> {
         match waits {
-            Ok(Some(waits)) if !waits.is_empty() => Ok(Recorded::Wait {
+            Ok(Some(waits)) => Ok(Recorded::Wait {
                 effect_id: effect_id.to_string(),
                 waits,
             }),
-            Ok(Some(_)) | Ok(None) => match self.indeterminate_waits(events, effect_id) {
+            Ok(None) => match self.indeterminate_waits(events, effect_id) {
                 Ok(Some((waited, waits))) => Ok(Recorded::Wait {
                     effect_id: waited,
                     waits,
@@ -213,9 +221,16 @@ impl Engine {
         if last.event_type != EventType::EffectIndeterminate {
             return Ok(None);
         }
-        let Some(waited) = last.payload.get("effect_id").and_then(Value::as_str) else {
-            return Ok(None);
-        };
+        // `payload::EffectIndeterminate` reads this field before the fold
+        // places the event (`a_malformed_event_out_of_place_is_refused_for_
+        // its_payload_first`), so every journal that reached this turn
+        // carries it; the default keeps a journal that cannot fold from
+        // inventing a wait, and is that test's removal control.
+        let waited = last
+            .payload
+            .get("effect_id")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         let Some(waits) = self.recorded_waits(events, waited)? else {
             return Ok(None);
         };
@@ -232,7 +247,7 @@ impl Engine {
         events: &[EventEnvelope],
         waits: &[ProviderWait],
     ) -> Option<String> {
-        self.recovered_probe(events, &waits[0], &crate::engine::broker::observed())
+        self.recovered_probe(events, waits, &crate::engine::broker::observed())
             .err()
             .map(|refusal| refusal.to_string())
     }
@@ -245,17 +260,12 @@ impl Engine {
         &mut self,
         events: &[EventEnvelope],
         effect_id: &str,
-        failed_attempts: u64,
-        max_attempts: u64,
+        mut reason: String,
         waits: &Result<Option<Vec<ProviderWait>>, CooldownError>,
         refused: &Result<Option<ProviderRefusal>, CooldownError>,
+        strategy: Option<&str>,
     ) -> Result<(), EngineError> {
-        let mut reason = format!(
-            "effect {effect_id} failed {failed_attempts} of {max_attempts} attempt(s); \
-             last error: {}",
-            last_error(events, effect_id)
-        );
-        reason.push_str(&self.cap_facts(events, effect_id, waits, refused));
+        reason.push_str(&self.cap_facts(events, effect_id, waits, refused, strategy));
         self.park_with_reason(reason)
     }
 

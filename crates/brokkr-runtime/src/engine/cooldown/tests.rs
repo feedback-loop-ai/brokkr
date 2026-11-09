@@ -1960,6 +1960,7 @@ fn a_cooldown_error_names_an_unreadable_refusal() {
 }
 
 mod coverage;
+mod coverage_4c2a;
 mod panel;
 // A crashed probe is found by its reservation, which only a protected
 // root holds, and only Linux's workspace box protects one.
