@@ -43,7 +43,7 @@ pub(in crate::engine) fn attested(
     let lock = locked(root.dir(), deadline).map_err(Unadmitted::from);
     let _lock = lock.map_err(Unreleased::standing)?;
     let mut budget = Budget::new(deadline);
-    let reservations = reserved_for(root, run, store.path(), &mut budget).map_err(Unadmitted::from);
+    let reservations = reserved_for(root, run, store.path(), &mut budget);
     let reservations = reservations.map_err(Unreleased::standing)?;
     let events = store.load(run)?;
     judged(run, &reservations, &events).map_err(Unreleased::refused)?;
@@ -69,7 +69,7 @@ fn reserved_for(
     run: &str,
     journal: &Path,
     budget: &mut Budget,
-) -> Result<Vec<Reservation>, Unknown> {
+) -> Result<Vec<Reservation>, Unadmitted> {
     // No worktree's key is empty, so no run is read as an admission's own:
     // a record this build writes is read whole, and any other through the
     // view.
@@ -81,7 +81,8 @@ fn reserved_for(
         .filter(|held| (held.run == run) & (held.journal == journal) & !held.attempts.is_empty());
     let whole = |held: Standing| {
         let at = root.path().join(&held.repo).join(run).join(RESERVATION);
-        held.whole.ok_or(Unknown::Participant(at))
+        held.whole
+            .ok_or_else(|| Unadmitted::from(Unknown::Participant(at)))
     };
     ours.map(whole).collect()
 }

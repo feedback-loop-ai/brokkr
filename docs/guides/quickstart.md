@@ -161,6 +161,7 @@ warn     agents: agents: agent library agents: No such file or directory (os err
 warn     database: none: no .brokkr/ folder from /home/you/my-app up to /home/you/my-app, and /home/you/my-app is not a recipe library (decision 0083); nothing was created: run `brokkr init .` from /home/you/my-app
 warn     capabilities native: the adapter declarations at adapters could not be read (adapters adapters: No such file or directory (os error 2)), so no harness's native capabilities are named below; that is NOT a finding that an installed harness has none
 ok       capabilities <unmapped>: no realms map, so no capability grants are declared; every native capability is governed by the no-grant default — switched off, or the seat is refused
+ok       capabilities evidence: no historical evidence root
 ok       house rules: no realms map; none declared
 ok       dialect: no realms map; none declared
 ```

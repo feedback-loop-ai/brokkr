@@ -9,6 +9,8 @@
 //! - [`queue`] keeps the runs waiting to start (decision 0068);
 //! - [`readouts`] reads journals and the world, and writes nothing, as
 //!   [`analytics`] does across every hearth;
+//! - [`evidence`] lists the host's historical evidence roots and retires
+//!   one (decision 0105);
 //! - [`exchange`] moves a run's evidence across a machine's edge: anchors,
 //!   exports, imports and the Looper bridge;
 //! - [`setup`] prepares the workspace, its libraries and its drivers;
@@ -18,6 +20,7 @@ mod acknowledge;
 pub(super) mod analytics;
 pub(super) mod backup;
 pub(super) mod delivery;
+pub(super) mod evidence;
 pub(super) mod exchange;
 pub(super) mod graph;
 pub(super) mod probe;

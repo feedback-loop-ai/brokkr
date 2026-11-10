@@ -182,6 +182,14 @@ enum Cmd {
     Replay(ReplayArgs),
     /// Write the canonical NDJSON journal and pinned manifest.
     Export(ExportArgs),
+    /// List every historical evidence root, or retire one under the
+    /// admission lock once its evidence is archived or discarded. The
+    /// sealed retirement sits beside the historical record, which stays
+    /// (decision 0105).
+    Evidence {
+        #[command(subcommand)]
+        command: verbs::evidence::EvidenceCmd,
+    },
     /// Back up a whole journal — one consistent snapshot taken while
     /// writers may run, plus the versioned inventory that declares its
     /// boundary and makes the backup complete.
@@ -1450,7 +1458,7 @@ fn run_with(
     watch_iteration_limit: Option<usize>,
     run_tui: impl FnOnce(Vec<Hearth>, Option<String>, usize) -> Result<tui::Closed>,
 ) -> Result<ExitCode> {
-    use verbs::{backup, delivery, exchange, probe, queue, readouts, setup};
+    use verbs::{backup, delivery, evidence, exchange, probe, queue, readouts, setup};
     match cli.command {
         Cmd::Init(args) => setup::init(args),
         Cmd::Costs(args) => readouts::costs(workspace, args),
@@ -1485,6 +1493,7 @@ fn run_with(
         ),
         Cmd::Replay(args) => readouts::replay(workspace, args),
         Cmd::Export(args) => exchange::export(workspace, args),
+        Cmd::Evidence { command } => evidence::run(command),
         Cmd::Backup(args) => backup::backup(workspace, args),
         Cmd::Restore(args) => backup::restore(args),
         Cmd::Import(args) => exchange::import(workspace, args),

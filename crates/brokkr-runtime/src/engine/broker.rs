@@ -69,6 +69,7 @@ use super::marks::Brokered;
 use super::{site_label, Engine, EngineError, EventType, Selection};
 use crate::capabilities::{Admitted, Connection, Implementation};
 pub(super) mod admission;
+pub mod evidence;
 mod exclusion;
 pub(super) mod fold;
 mod historical;

@@ -1107,6 +1107,9 @@ fn doctor_reports_readable_and_absent_house_declarations() {
 #[test]
 fn public_doctor_includes_the_workspace_house_check() {
     let dir = tempfile::tempdir().unwrap();
+    let mut env = crate::tests::env_guard::EnvGuard::lock();
+    env.set("HOME", dir.path());
+    env.set("XDG_STATE_HOME", dir.path().join(".local/state"));
     let report = doctor(
         None,
         Some(&dir.path().join("forge.db")),
@@ -1115,7 +1118,6 @@ fn public_doctor_includes_the_workspace_house_check() {
     );
     assert!(report.render().contains("house rules:"));
 }
-
 #[test]
 fn report_and_tool_probe_expose_all_health_states() {
     let mut report = Report {

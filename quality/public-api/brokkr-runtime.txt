@@ -1200,7 +1200,100 @@ pub enum brokkr_runtime::engine::artifacts::Unread
 pub brokkr_runtime::engine::artifacts::Unread::Corrupt
 pub brokkr_runtime::engine::artifacts::Unread::Missing
 pub brokkr_runtime::engine::artifacts::Unread::Uncontained
+pub fn brokkr_runtime::engine::artifacts::artifact_root(&std::path::Path) -> std::path::PathBuf
 pub fn brokkr_runtime::engine::artifacts::retained(&std::path::Path, &str) -> core::result::Result<alloc::vec::Vec<u8>, brokkr_runtime::engine::artifacts::Unread>
+pub mod brokkr_runtime::engine::evidence
+pub enum brokkr_runtime::engine::evidence::Cause
+pub brokkr_runtime::engine::evidence::Cause::Archived
+pub brokkr_runtime::engine::evidence::Cause::Discarded
+pub enum brokkr_runtime::engine::evidence::EvidenceError
+pub brokkr_runtime::engine::evidence::EvidenceError::AlreadyRetired(std::path::PathBuf)
+pub brokkr_runtime::engine::evidence::EvidenceError::ArchiveInsideCoordination(std::path::PathBuf)
+pub brokkr_runtime::engine::evidence::EvidenceError::ArchiveInsideRoot(std::path::PathBuf)
+pub brokkr_runtime::engine::evidence::EvidenceError::Bounds
+pub brokkr_runtime::engine::evidence::EvidenceError::Coordination
+pub brokkr_runtime::engine::evidence::EvidenceError::Corrupt(std::path::PathBuf)
+pub brokkr_runtime::engine::evidence::EvidenceError::DestinationNotDirectory(std::path::PathBuf)
+pub brokkr_runtime::engine::evidence::EvidenceError::DestinationNotEmpty(std::path::PathBuf)
+pub brokkr_runtime::engine::evidence::EvidenceError::Device(std::path::PathBuf)
+pub brokkr_runtime::engine::evidence::EvidenceError::Expired
+pub brokkr_runtime::engine::evidence::EvidenceError::Format(alloc::string::String)
+pub brokkr_runtime::engine::evidence::EvidenceError::Inventory(serde_json::error::Error)
+pub brokkr_runtime::engine::evidence::EvidenceError::Io(core::io::error::Error)
+pub brokkr_runtime::engine::evidence::EvidenceError::Link(std::path::PathBuf)
+pub brokkr_runtime::engine::evidence::EvidenceError::Lock
+pub brokkr_runtime::engine::evidence::EvidenceError::NotDirectory(std::path::PathBuf)
+pub brokkr_runtime::engine::evidence::EvidenceError::NotRecorded(std::path::PathBuf)
+pub brokkr_runtime::engine::evidence::EvidenceError::OtherFilesystem(std::path::PathBuf)
+pub brokkr_runtime::engine::evidence::EvidenceError::Participant(std::path::PathBuf)
+pub brokkr_runtime::engine::evidence::EvidenceError::Protected
+pub brokkr_runtime::engine::evidence::EvidenceError::Protected::root: std::path::PathBuf
+pub brokkr_runtime::engine::evidence::EvidenceError::Protected::run: alloc::string::String
+pub brokkr_runtime::engine::evidence::EvidenceError::Refused(alloc::boxed::Box<(dyn core::error::Error + core::marker::Send + core::marker::Sync)>)
+pub brokkr_runtime::engine::evidence::EvidenceError::Replaced(std::path::PathBuf)
+pub brokkr_runtime::engine::evidence::EvidenceError::Retirement(std::path::PathBuf)
+pub brokkr_runtime::engine::evidence::EvidenceError::Unfinished(std::path::PathBuf)
+pub brokkr_runtime::engine::evidence::EvidenceError::Unnamed(std::path::PathBuf)
+pub brokkr_runtime::engine::evidence::EvidenceError::Unprotected(std::path::PathBuf)
+pub brokkr_runtime::engine::evidence::EvidenceError::Unreadable(std::path::PathBuf, core::io::error::ErrorKind)
+pub brokkr_runtime::engine::evidence::EvidenceError::Unresolved(std::path::PathBuf)
+pub enum brokkr_runtime::engine::evidence::RetireAction<'a>
+pub brokkr_runtime::engine::evidence::RetireAction::Archived
+pub brokkr_runtime::engine::evidence::RetireAction::Archived::to: &'a std::path::Path
+pub brokkr_runtime::engine::evidence::RetireAction::Discarded
+pub struct brokkr_runtime::engine::evidence::ArchiveArtifact
+pub brokkr_runtime::engine::evidence::ArchiveArtifact::bytes: u64
+pub brokkr_runtime::engine::evidence::ArchiveArtifact::sha256: alloc::string::String
+pub struct brokkr_runtime::engine::evidence::EvidenceArchive
+pub brokkr_runtime::engine::evidence::EvidenceArchive::archived_at: alloc::string::String
+pub brokkr_runtime::engine::evidence::EvidenceArchive::artifacts: alloc::vec::Vec<brokkr_runtime::engine::evidence::ArchiveArtifact>
+pub brokkr_runtime::engine::evidence::EvidenceArchive::engine: alloc::string::String
+pub brokkr_runtime::engine::evidence::EvidenceArchive::format: alloc::string::String
+pub brokkr_runtime::engine::evidence::EvidenceArchive::root: std::path::PathBuf
+pub brokkr_runtime::engine::evidence::EvidenceArchive::total_bytes: u64
+pub struct brokkr_runtime::engine::evidence::EvidenceRoot
+pub brokkr_runtime::engine::evidence::EvidenceRoot::artifacts: std::path::PathBuf
+pub brokkr_runtime::engine::evidence::EvidenceRoot::bytes: u64
+pub brokkr_runtime::engine::evidence::EvidenceRoot::digests: u64
+pub brokkr_runtime::engine::evidence::EvidenceRoot::exists: bool
+pub brokkr_runtime::engine::evidence::EvidenceRoot::history: alloc::vec::Vec<brokkr_runtime::engine::evidence::Superseded>
+pub brokkr_runtime::engine::evidence::EvidenceRoot::problem: core::option::Option<alloc::string::String>
+pub brokkr_runtime::engine::evidence::EvidenceRoot::retirement: core::option::Option<brokkr_runtime::engine::evidence::Retirement>
+pub struct brokkr_runtime::engine::evidence::RetireOptions<'a>
+pub brokkr_runtime::engine::evidence::RetireOptions::action: brokkr_runtime::engine::evidence::RetireAction<'a>
+pub brokkr_runtime::engine::evidence::RetireOptions::artifacts: &'a std::path::Path
+pub brokkr_runtime::engine::evidence::RetireOptions::now: &'a str
+pub brokkr_runtime::engine::evidence::RetireOptions::operator: &'a str
+pub brokkr_runtime::engine::evidence::RetireOptions::reason: &'a str
+pub struct brokkr_runtime::engine::evidence::Retirement
+pub brokkr_runtime::engine::evidence::Retirement::archive: core::option::Option<std::path::PathBuf>
+pub brokkr_runtime::engine::evidence::Retirement::artifacts: std::path::PathBuf
+pub brokkr_runtime::engine::evidence::Retirement::cause: brokkr_runtime::engine::evidence::Cause
+pub brokkr_runtime::engine::evidence::Retirement::engine: alloc::string::String
+pub brokkr_runtime::engine::evidence::Retirement::inventory_sha256: core::option::Option<alloc::string::String>
+pub brokkr_runtime::engine::evidence::Retirement::operator: alloc::string::String
+pub brokkr_runtime::engine::evidence::Retirement::reason: alloc::string::String
+pub brokkr_runtime::engine::evidence::Retirement::retired_at: alloc::string::String
+impl brokkr_runtime::engine::evidence::Retirement
+pub fn brokkr_runtime::engine::evidence::Retirement::outcome(&self) -> alloc::string::String
+pub fn brokkr_runtime::engine::evidence::Retirement::words(&self) -> alloc::string::String
+pub struct brokkr_runtime::engine::evidence::RetirementHistory
+pub brokkr_runtime::engine::evidence::RetirementHistory::current: core::option::Option<brokkr_runtime::engine::evidence::Retirement>
+pub brokkr_runtime::engine::evidence::RetirementHistory::superseded: alloc::vec::Vec<brokkr_runtime::engine::evidence::Superseded>
+impl brokkr_runtime::engine::evidence::RetirementHistory
+pub fn brokkr_runtime::engine::evidence::RetirementHistory::covering(&self, &str) -> core::option::Option<brokkr_runtime::engine::evidence::Retirement>
+pub struct brokkr_runtime::engine::evidence::Superseded
+pub brokkr_runtime::engine::evidence::Superseded::retirement: brokkr_runtime::engine::evidence::Retirement
+pub brokkr_runtime::engine::evidence::Superseded::run: alloc::string::String
+pub brokkr_runtime::engine::evidence::Superseded::superseded_at: alloc::string::String
+impl brokkr_runtime::engine::evidence::Superseded
+pub fn brokkr_runtime::engine::evidence::Superseded::of(&brokkr_runtime::engine::evidence::Retirement, &str, &str) -> brokkr_runtime::engine::evidence::Superseded
+pub fn brokkr_runtime::engine::evidence::Superseded::words(&self) -> alloc::string::String
+pub const brokkr_runtime::engine::evidence::EVIDENCE_ARCHIVE_FORMAT: &str
+pub fn brokkr_runtime::engine::evidence::list(&std::path::Path, std::time::Instant) -> core::result::Result<alloc::vec::Vec<brokkr_runtime::engine::evidence::EvidenceRoot>, brokkr_runtime::engine::evidence::EvidenceError>
+pub fn brokkr_runtime::engine::evidence::read_archive(&[u8]) -> core::result::Result<brokkr_runtime::engine::evidence::EvidenceArchive, brokkr_runtime::engine::evidence::EvidenceError>
+pub fn brokkr_runtime::engine::evidence::retire(&std::path::Path, brokkr_runtime::engine::evidence::RetireOptions<'_>, std::time::Instant) -> core::result::Result<brokkr_runtime::engine::evidence::Retirement, brokkr_runtime::engine::evidence::EvidenceError>
+pub fn brokkr_runtime::engine::evidence::retirements(&std::path::Path, &std::path::Path, std::time::Instant) -> core::result::Result<brokkr_runtime::engine::evidence::RetirementHistory, brokkr_runtime::engine::evidence::EvidenceError>
 pub enum brokkr_runtime::engine::BuiltBoundary
 pub brokkr_runtime::engine::BuiltBoundary::Harness
 pub brokkr_runtime::engine::BuiltBoundary::Namespace

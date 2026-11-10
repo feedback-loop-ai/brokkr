@@ -46,7 +46,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use super::exclusion::{compared, staked, Comparison};
-use super::historical::recorded;
+use super::historical::{recorded, superseded::superseded};
 use super::inventory::{inventory, Budget, Standing};
 use super::root::{locked, read, Commit, Root};
 use super::settlement::{keyed, recovered, reserved_in, unchanged, Driver};
@@ -124,6 +124,9 @@ pub(in crate::engine) enum Conflict {
         .0.display()
     )]
     Corrupt(PathBuf),
+    /// A retirement that cannot be read refuses with CR2's cause (0105).
+    #[error("the retirement of the historical root '{}' cannot be read", .0.display())]
+    Retirement(PathBuf),
     #[error("the artifact root '{}' was replaced since its attempt was admitted", .0.display())]
     Replaced(PathBuf),
     #[error(
@@ -147,6 +150,8 @@ pub(in crate::engine) enum Unknown {
     Expired,
     #[error("the protected inventory exceeds its entry bound")]
     Bounds,
+    #[error("the retirement history of a historical root has no sequence left")]
+    Overflow,
     #[error("the protected inventory holds an unknown participant at '{}'", .0.display())]
     Participant(PathBuf),
     #[error(
@@ -591,12 +596,11 @@ fn evidence(root: &Path) -> Result<bool, Unrooted> {
     Ok(std::fs::read_dir(root).map_err(unread)?.next().is_some())
 }
 
-/// Admit `claim` in the opened coordination `root` before `deadline`:
-/// under the admission lock, the inventory read, proven attempts
-/// recovered, every participant compared with it, then its artifact root
-/// recorded where it protects evidence for the first time and its
-/// reservation sealed beside the run's earlier attempts, all before the
-/// lock is released. The lease held, or why there is none.
+/// Admit `claim` in the opened coordination `root` before `deadline`, under
+/// the admission lock, the inventory read, proven attempts recovered, every
+/// participant compared with it, then its artifact root recorded where it
+/// protects evidence for the first time and its reservation sealed beside its
+/// run's attempts, before the lock is released; the lease held, or why none.
 pub(super) fn admit(
     root: &Arc<Root>,
     claim: &Claim,
@@ -606,8 +610,7 @@ pub(super) fn admit(
 }
 
 /// [`admit`], `between` run between the comparison and the seal: the house
-/// `_with` seam a test holds the comparison open at, or spends the deadline
-/// in; nothing in production.
+/// `_with` seam a test holds open, or spends the deadline in; none in production.
 pub(super) fn admit_with(
     root: &Arc<Root>,
     claim: &Claim,
@@ -616,17 +619,18 @@ pub(super) fn admit_with(
 ) -> Result<Held, Unadmitted> {
     let _lock = locked(root.dir(), deadline)?;
     let mut budget = Budget::new(deadline);
-    let found = inventory(
+    let mut found = inventory(
         root.dir(),
         root.path(),
         [&claim.repo, &claim.run],
         &mut budget,
     )?;
+    let (has_record, historical) = (found.records(&claim.artifacts), found.guarded());
     let (standing, mut commit) = recovered(root, found.standing, &claim.reserved.writers, &budget)?;
     let comparison = Comparison {
         claim,
         standing: &standing,
-        historical: &found.historical,
+        historical: &historical,
         coordination: root,
     };
     compared(&comparison, &mut budget)?;
@@ -637,10 +641,12 @@ pub(super) fn admit_with(
         Protects::Evidence => Some((claim.artifacts.clone(), identity(&claim.artifacts)?)),
         Protects::Nothing => None,
     };
-    if claim.protects() & !found.historical.contains(&claim.artifacts) {
+    if claim.protects() & !has_record {
         commit = commit.and(recorded(root, claim, &budget)?);
     }
     commit = commit.and(sealed(root, &joined(claim, standing), &budget)?);
+    // Committed last: a refused admission never moves a retirement into history.
+    commit = commit.and(superseded(root, &mut found.historical, claim, &budget)?);
     Ok(Held {
         coordination: Arc::clone(root),
         repo: claim.repo.clone(),

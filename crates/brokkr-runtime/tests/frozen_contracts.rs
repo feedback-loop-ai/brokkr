@@ -24,7 +24,7 @@ fn digest(relative: &str) -> String {
 /// Recorded from this tree before the agent library existed, plus the
 /// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
 /// beside it, so "beside, never inside" is machine-checked.
-const FROZEN: [(&str, &str); 35] = [
+const FROZEN: [(&str, &str); 36] = [
     // Decision 0103 (accepted) mints the driver-refusal extension beside
     // the frozen v1 family; its bytes are pinned from here. Fix round
     // 430s4a6 L2 re-pins the unreleased file after the shared route form
@@ -192,6 +192,12 @@ const FROZEN: [(&str, &str); 35] = [
     (
         "contracts/host.v2.schema.json",
         "ba8f41b953ba8fe25f6edaf9cd51c8b8a6a5669540cfcef2a74603389b8b316a",
+    ),
+    // Decision 0105 ruling 2 mints the evidence archive's inventory under
+    // decision 0082; its bytes are pinned from birth.
+    (
+        "contracts/evidence-archive.v1.schema.json",
+        "bdb387c0324937c1fffe97c6f50699163fddd083a63d2393102dd25ab800dddf",
     ),
     // Decision 0104 ruling 1(a) mints `forge.host/v3` beside v2, whose
     // bytes did not move: v3 is v2 plus one optional shared-local floor on
@@ -436,6 +442,12 @@ fn the_new_contracts_exist_beside_the_frozen_ones() {
         (
             "contracts/effect-cleanup.v1.schema.json",
             "Forge effect cleanup v1",
+        ),
+        // Decision 0105 ruling 2 mints the archive's inventory under
+        // decision 0082.
+        (
+            "contracts/evidence-archive.v1.schema.json",
+            "Brokkr evidence archive v1",
         ),
     ] {
         assert!(

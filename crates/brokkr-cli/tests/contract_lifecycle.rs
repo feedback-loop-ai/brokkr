@@ -792,7 +792,8 @@ fn envelope(
 
 /// The families whose file stem is not their `Version` cell's family, as
 /// ruling 4's table records them. Every other family's stem is its own name.
-const STEMS: [(&str, &str); 8] = [
+const STEMS: [(&str, &str); 9] = [
+    ("brokkr.evidence-archive", "evidence-archive"),
     ("forge.realms", "realms"),
     ("brokkr.dialect", "dialect"),
     ("forge.phase-machine", "phase-machine"),
@@ -879,6 +880,25 @@ fn drive_provider_waits(row: &Row) -> Vec<String> {
         .expect("the extension is present");
     assert_eq!(waits.len(), 1, "one wait entry loads");
     assert_eq!(waits[0].rounds, 2);
+    Vec::new()
+}
+
+/// Drive the evidence archive's one reader: a valid inventory loads, and
+/// the row's own schema admits the instance first (decision 0105 ruling 2).
+fn drive_archive(row: &Row) -> Vec<String> {
+    let instance = serde_json::json!({
+        "format": "brokkr.evidence-archive.v1",
+        "root": "/evidence/root",
+        "engine": "0.13.1",
+        "archived_at": "2026-11-08T00:00:00Z",
+        "artifacts": [{"sha256": "a".repeat(64), "bytes": 3}],
+        "total_bytes": 3
+    });
+    if let Some(finding) = instance_satisfies_row(row, &instance) {
+        return vec![finding];
+    }
+    let bytes = serde_json::to_vec(&instance).unwrap();
+    brokkr_runtime::engine::evidence::read_archive(&bytes).expect("a v1 archive inventory loads");
     Vec::new()
 }
 
@@ -972,6 +992,7 @@ fn drive_load(row: &Row, item: &str) -> Vec<String> {
             Vec::new()
         }
         "brokkr_core::provider_waits" => drive_provider_waits(row),
+        "brokkr_runtime::engine::evidence::read_archive" => drive_archive(row),
         other => panic!("{other} is not a public loader this check knows"),
     }
 }

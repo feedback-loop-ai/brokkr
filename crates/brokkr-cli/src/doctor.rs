@@ -69,7 +69,6 @@ fn tool_version(program: &str) -> Option<String> {
     }
     Some(safe_line(&out.stdout))
 }
-
 /// The first line of a probe's output, escaped for a terminal: a version
 /// banner, or the reason a box gave for not running one. Both are output
 /// doctor did not author, so both go through `Safe`.
@@ -649,6 +648,7 @@ pub(crate) fn doctor(
         &defaults.adapters,
         (&availability, &inspected),
     );
+    capabilities::report_evidence(&mut report);
     folder::report_folder(&mut report, defaults, realms, inspected.folder());
     provisional::report_provisional(&mut report, &defaults.adapters, mapped);
     report_realm_world(&mut report, world, &workspace, tool_version, probe_in_box);

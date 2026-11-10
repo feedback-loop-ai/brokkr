@@ -160,8 +160,7 @@ fn patch_elf_interpreter(working: &Path, dest: &Path, loader: &str) -> PathBuf {
     dest.to_path_buf()
 }
 
-/// Run a prepared command, retrying only the ETXTBSY a freshly staged
-/// executable can answer with (#255).
+/// Run a prepared command, retrying only the ETXTBSY a freshly staged executable can answer.
 fn spawn(command: &mut Command) -> std::io::Result<Output> {
     for _ in 0..50 {
         match command.output() {
@@ -174,13 +173,14 @@ fn spawn(command: &mut Command) -> std::io::Result<Output> {
     panic!("the executable stayed busy");
 }
 
-/// The built doctor from `cwd`, with both DSH overrides removed. `PATH`
-/// is left to each test: removed, or set to exactly what it names.
+/// The built doctor from `cwd`, with both DSH overrides removed and its own HOME and XDG state.
 fn doctor(cwd: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
     command
         .arg("doctor")
         .current_dir(cwd)
+        .env("HOME", cwd.join("home"))
+        .env("XDG_STATE_HOME", cwd.join("state"))
         .env_remove("BROKKR_DSH_BIN");
     command
 }

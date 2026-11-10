@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback-loop.ai/forge/contracts/evidence-archive.v1.json",
+  "title": "Brokkr evidence archive v1",
+  "description": "Decision 0105 ruling 2, minted under decision 0082: the inventory `brokkr evidence retire --archived-to <dir>` writes last into the archive directory, after every artifact the historical root holds has been verified, copied to `sha256/<hex>`, and verified again. It names the artifact root retired, every digest and its bytes, the total, the engine's version that wrote it, and when. A file with this shape is the archive's completeness mark: a directory that holds copies and no inventory is an interrupted archive. A present inventory that does not read as this format refuses by name, never as absent; reading archived bytes back is not part of this contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "root",
+    "engine",
+    "archived_at",
+    "artifacts",
+    "total_bytes"
+  ],
+  "properties": {
+    "format": {
+      "const": "brokkr.evidence-archive.v1",
+      "description": "The one format string this build writes and reads. A change a previous build could not read takes a new string, as brokkr.journal-backup.v1 does."
+    },
+    "root": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The artifact root the historical record names, as it resolved when it first protected evidence. The archive holds that root's `sha256/<hex>` artifacts; the root itself is kept, not moved."
+    },
+    "engine": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The engine version that wrote the inventory (the workspace's crate version), never the operator's or a driver's."
+    },
+    "archived_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the archive was taken, RFC 3339 UTC, passed in by the verb rather than read by the runtime."
+    },
+    "artifacts": {
+      "type": "array",
+      "uniqueItems": true,
+      "description": "Every artifact the root held, one entry per digest, sorted by digest so the inventory is deterministic.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sha256", "bytes"],
+        "properties": {
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "The artifact's name under `sha256/`, which its bytes digest to before and after the copy."
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The artifact's length in bytes, as the copy is verified."
+          }
+        }
+      }
+    },
+    "total_bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "The sum of every listed artifact's `bytes`."
+    }
+  }
+}
