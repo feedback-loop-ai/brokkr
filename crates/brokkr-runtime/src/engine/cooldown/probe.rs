@@ -31,6 +31,7 @@ use crate::engine::{
 /// case and site label, and the gate class. One selection serves both the
 /// single seat's probe and a panel member's, so neither reads the seat's
 /// body its own way.
+#[derive(Clone)]
 struct ProbeSeat {
     seat: Seat,
     case: Option<String>,
@@ -52,6 +53,7 @@ struct ProbeSite<'a> {
 }
 
 /// The selected body in the shape the probe composes.
+#[derive(Clone)]
 enum ProbeForm {
     Single(Vec<Candidate>),
     Panel(Vec<PanelMember>, Aggregate),
@@ -342,6 +344,7 @@ impl Engine {
     fn admit_site(
         &mut self,
         at: &ProbeSite<'_>,
+        picked: &ProbeSeat,
         body: ExecutableBody<'_>,
         selection: &Selection,
     ) -> Result<Result<AdmittedProbe, Probe>, EngineError> {
@@ -350,7 +353,7 @@ impl Engine {
             at.state,
             at.effect_id,
             at.wait,
-            (at.picked, body),
+            (picked, body),
             selection,
         )
     }
@@ -385,7 +388,7 @@ impl Engine {
         }
         let one = std::slice::from_ref(step);
         let body = ExecutableBody::Sequence { steps: one };
-        let prepared = match self.admit_site(at, body, &selection)? {
+        let prepared = match self.admit_site(at, at.picked, body, &selection)? {
             Ok(prepared) => prepared,
             Err(parked) => return Ok(parked),
         };
@@ -444,7 +447,12 @@ impl Engine {
         let (selection, one) =
             probe_member_invocation(at.events, at.effect_id, tag, member_def, *aggregate);
         let body = ExecutableBody::Invocation(&one);
-        let prepared = match self.admit_site(at, body, &selection)? {
+        // The one-member body is anchored at the step's own driver site, so
+        // the claim's writer walk seals `work:<step>:<member>` exactly.
+        let driver_seat = format!("{}:{}", at.picked.site, step.name);
+        let mut picked = at.picked.clone();
+        picked.site = driver_seat.clone();
+        let prepared = match self.admit_site(at, &picked, body, &selection)? {
             Ok(prepared) => prepared,
             Err(parked) => return Ok(parked),
         };
@@ -452,7 +460,6 @@ impl Engine {
         if index + 1 == steps.len() {
             step_input["allowed_results"] = prepared.input["allowed_results"].clone();
         }
-        let driver_seat = format!("{}:{}", at.picked.site, step.name);
         let runs = self.member_runs(
             &prepared.attempt,
             &driver_seat,
