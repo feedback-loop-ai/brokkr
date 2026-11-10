@@ -148,10 +148,11 @@ use start::Row;
 /// the pathological case, not the price of the ordinary one.
 const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// A reader's page cache in KiB, a negative `cache_size`: 128 holds SQLite's
+/// A reader's page cache in KiB, a negative `cache_size`: 64 holds SQLite's
 /// share within the 512,000-byte cap on every host, macOS measuring about 12%
-/// above Linux (decision 0089 ruling 9, amended 2026-10-25 on #753).
-const READER_CACHE_KIB: i64 = 128;
+/// above Linux (decision 0089 ruling 9, amended 2026-10-25 on #753, and
+/// 2026-11-10 on #1043 for SQLite 3.54).
+const READER_CACHE_KIB: i64 = 64;
 
 #[derive(Debug, Error)]
 pub enum StoreError {

@@ -904,6 +904,19 @@ model the writer keeps in the journal's own file and transaction.
      336,232 B for the seat view's page, each at least 12% under the cap
      (at most 457,000 B), which is about how much higher macOS measures.
      Each readout's wall time stays within ruling 9's.
+
+     *Amended, 2026-11-10 (the operator's standing ruling of 2026-11-04,
+     recorded on #1043):* a reader's page cache holds 64 KiB
+     (`PRAGMA cache_size = -64`), not 128, so that SQLite's share stays
+     within the 512,000 B cap on every host after RUSTSEC-2026-0459 moved
+     the bundled SQLite from 3.46.0 to 3.54.1, and the cap does not rise.
+     At 128 KiB under 3.54.1, CI's `test (macos-latest)` leg read the
+     seat view's page at 530,848 B and costs at 524,560 B; Linux read the
+     seat view's page at 498,040 B and compare at 501,208 B. At 64 KiB, on
+     Linux, SQLite's share is 452,960 B for costs, 461,896 B for compare,
+     402,200 B for the run view's first screen and 458,728 B for the seat
+     view's page, about what 3.46.0 read at 128 KiB. Each readout's wall
+     time stays within ruling 9's.
    - **A page at every bound.** The 256 KiB is a page of ordinary rows.
      A page whose every row fills every bound holds about 330 KiB of row
      text before it is derived and painted (ruling 2), so it has a budget

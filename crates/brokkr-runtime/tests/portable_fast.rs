@@ -161,7 +161,7 @@ fn brokkr_only() -> Vec<String> {
 /// shipper, and of preflight's and research's verifiers.
 const VERIFIER: &str = "0ce1a4c2f557d8cc001f2b2625991cb728ed2666ad456bda7f35a58e42449313";
 const SHIPPER: &str = "a78376906a41acf713cd2e310b90e57609dc3473a1f80920168588bc678b6941";
-const PREFLIGHT: &str = "0973cd6ecf2316a042f71279e38f5de9b38e19f41f39e0297e362d763eb05899";
+const PREFLIGHT: &str = "37d5996a39301a90aeb0acf29fa5f6164dca5b39c2bd7f5830f135693273fcf9";
 const RESEARCH: &str = "49a06816e803e6f9bcef7073ec2563ba00ca0cc4fae054cfe83631f44b68d8c0";
 
 /// The layer Brokkr's verifier is pinned under, which before the move was

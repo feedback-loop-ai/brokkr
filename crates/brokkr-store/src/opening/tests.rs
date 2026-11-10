@@ -260,7 +260,9 @@ fn a_run_is_opened_as_the_whole_read_reads_it() {
             "not-utf8",
             // rusqlite 0.41 reports text that is not UTF-8 as its own
             // `Utf8Error`, no longer as a conversion failure.
-            Verdict::Unread("sqlite: invalid utf-8 sequence of 1 bytes from index 0 at index 0".into()),
+            Verdict::Unread(
+                "sqlite: invalid utf-8 sequence of 1 bytes from index 0 at index 0".into(),
+            ),
         ),
     ];
     for (run_id, verdict_of) in expected {
