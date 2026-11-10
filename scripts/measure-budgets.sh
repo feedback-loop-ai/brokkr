@@ -82,7 +82,7 @@ jq -Rn --arg date "$(date -u +%F)" '
 jq -Rn --arg date "$(date -u +%F)" '
   [inputs | split("\t")[1] | tonumber][0]
   | {schema: "brokkr.crate-count/v1",
-     note: ("The [[package]] tables Cargo.lock holds, measured " + $date + " by scripts/measure-budgets.sh from crates/brokkr-runtime/tests/budgets.rs, which refuses any count above this one. bincode-next is held at 2.1.0 because 3.x needs rustc 1.90 and the MSRV job checks every target on 1.88. A dependency moves the count in the pull request that adds it."),
+     note: ("The [[package]] tables Cargo.lock holds, measured " + $date + " by scripts/measure-budgets.sh from crates/brokkr-runtime/tests/budgets.rs, which refuses any count above this one. bincode-next is held at 2.1.0 because 3.x needs rustc 1.90 and the MSRV job checks every target on 1.89. A dependency moves the count in the pull request that adds it."),
      budgets: {packages: .}}' < "$scratch/packages" > quality/crate-count.json
 
 jq -Rn --arg date "$(date -u +%F)" '

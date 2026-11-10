@@ -102,7 +102,7 @@ jobs:
           bash base-verifier/scripts/delivered-by-brokkr.sh
 
   msrv:
-    name: MSRV (1.88)
+    name: MSRV (1.89)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -111,15 +111,17 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
-          toolchain: 1.88.0 # the MSRV, Cargo.toml's rust-version: moved by hand, never by Renovate
-      # The README's claim, enforced: the badge says 1.88+, so 1.88
+          toolchain: 1.89.0 # the MSRV, Cargo.toml's rust-version: moved by hand, never by Renovate
+      # The README's claim, enforced: the badge says 1.89+, so 1.89
       # must check the locked tree — an untested MSRV is prose, and
       # this one was found stale (it said 1.85; darling requires 1.88).
+      # rusqlite 0.41, which bundles SQLite's fix for RUSTSEC-2026-0459,
+      # requires 1.89.
       # Task 13.6 / design D11: all targets and features, so the
       # dev-only Boa controller harness and its tests compile on the
-      # MSRV too, not just the production targets. The `+1.88.0` is
+      # MSRV too, not just the production targets. The `+1.89.0` is
       # load-bearing: rust-toolchain.toml would otherwise select stable.
-      - run: cargo +1.88.0 check --workspace --all-targets --all-features --locked
+      - run: cargo +1.89.0 check --workspace --all-targets --all-features --locked
   quality:
     name: format, clippy, contracts
     runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-build"]' || '["ubuntu-latest"]') }}

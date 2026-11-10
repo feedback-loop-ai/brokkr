@@ -37,7 +37,7 @@ pin.
 | Tool | Needed by | Check it is there |
 |---|---|---|
 | The pinned stable Rust, with clippy and rustfmt | format, clippy, tests, the bundle compiles, the release build | `cargo --version` |
-| Rust 1.88.0 | the MSRV check | `cargo +1.88.0 --version` |
+| Rust 1.89.0 | the MSRV check | `cargo +1.89.0 --version` |
 | The pinned nightly with `llvm-tools-preview` | the coverage gate | `cargo +$(cat rust-nightly-version.txt) --version` |
 | `cargo-llvm-cov` at the pinned version | the coverage gate | `cargo llvm-cov --version` |
 | `jq` | the coverage gate, the ratchets, the binary size budget and the mutants gate (their scripts fail without it) | `jq --version` |
@@ -49,12 +49,12 @@ pin.
 | Node 22.23.3, with `npm ci --prefix .github/lint --ignore-scripts --no-audit --no-fund` | the non-Rust lints' diagram render (`scripts/lint-diagrams.sh`); only the lint needs it, never the engine | `node --version` |
 
 The extra toolchains and tools install the usual way — `rustup toolchain
-install 1.88.0`, `rustup toolchain install "$(cat rust-nightly-version.txt)" --component
+install 1.89.0`, `rustup toolchain install "$(cat rust-nightly-version.txt)" --component
 llvm-tools-preview`, `cargo install cargo-llvm-cov --version "$(cat
 cargo-llvm-cov-version.txt)"`, `cargo install cargo-deny`, and `jq` from
 your package manager. `rust-toolchain.toml` names the stable release CI
 judges by, so inside this tree plain `cargo` is CI's compiler and CI's
-Clippy (`rustup toolchain install`, run inside the tree, installs it), and the `+1.88.0` and
+Clippy (`rustup toolchain install`, run inside the tree, installs it), and the `+1.89.0` and
 dated-nightly prefixes are how the other two get selected.
 
 You do **not** need `cargo-audit`; the RustSec check runs only in CI.
@@ -99,7 +99,7 @@ each local command is the job's own, and the sections below explain them:
 | # | CI check | Job | Local command |
 |---|---|---|---|
 | 1 | `delivered by brokkr` | `delivered-by-brokkr` | — (a shipped run at your head; see [the landing](#the-landing-let-the-machine-finish-what-you-wrote-by-hand)) |
-| 2 | `MSRV (1.88)` | `msrv` | [`cargo +1.88.0 check --workspace --all-targets --all-features --locked`](#the-msrv) |
+| 2 | `MSRV (1.89)` | `msrv` | [`cargo +1.89.0 check --workspace --all-targets --all-features --locked`](#the-msrv) |
 | 3 | `format, clippy, contracts` | `quality` | [`cargo fmt --all -- --check`](#formatting), [`cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`](#clippy-warnings-as-errors), [the suppression check](#an-added-suppression-names-a-ruling), then both [bundle compiles](#the-bundles-compile) |
 | 4 | `test (ubuntu-latest)` | `engine` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/test-shards.sh test --parallel-heaps`](#the-workspace-suite) with bubblewrap installed, then both [bundle compiles](#the-bundles-compile) |
 | 5 | `test (macos-latest)` | `engine` | on a Mac, `bash scripts/test-shards.sh test --parallel-heaps`, then [the startup gate](#the-macos-startup-gate), then both [bundle compiles](#the-bundles-compile) |
@@ -301,17 +301,17 @@ or not.
 ### The MSRV
 
 ```
-cargo +1.88.0 check --workspace --all-targets --all-features --locked
+cargo +1.89.0 check --workspace --all-targets --all-features --locked
 ```
 
-The README's badge says 1.88+, and this check is what makes that a fact
-rather than prose. CI installs 1.88.0 and runs this same command, across
-all targets and features. The explicit `+1.88.0` is needed
+The README's badge says 1.89+, and this check is what makes that a fact
+rather than prose. CI installs 1.89.0 and runs this same command, across
+all targets and features. The explicit `+1.89.0` is needed
 in both places because `rust-toolchain.toml` selects the newer stable pin,
 which would not notice.
 
 A refusal here is almost always a language or standard-library feature
-newer than 1.88, or a dependency bump that raised its own MSRV. The fix
+newer than 1.89, or a dependency bump that raised its own MSRV. The fix
 is to use the older form, or — if the newer floor is genuinely
 necessary — to say so in the pull request and let the operator rule on
 moving the badge, the CI pin and the README together. Do not raise the

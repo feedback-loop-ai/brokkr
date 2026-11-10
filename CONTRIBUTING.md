@@ -10,7 +10,7 @@ judges it, sends findings back to a smith, and ships it, so the pull
 request names a run all the same (decision 0051).
 
 <!-- required-checks:start -->
-`main`'s branch protection, as observed on 2026-09-26 ([snapshot](.github/branch-protection.json)), requires 12 checks: `delivered by brokkr`, `MSRV (1.88)`, `format, clippy, contracts`, `test (ubuntu-latest)`, `test (macos-latest)`, `exact coverage gate`, `dependency licenses (cargo-deny)`, `non-Rust lints`, `baseline ratchets`, `RustSec dependency audit`, `release binary artifact`, and `mutants in the diff: brokkr-core`. It requires signed commits, does not require a branch to be up to date with `main`, does not require an approving review, and does not apply to administrators.
+`main`'s branch protection, as observed on 2026-09-26 ([snapshot](.github/branch-protection.json)), requires 12 checks: `delivered by brokkr`, `MSRV (1.89)`, `format, clippy, contracts`, `test (ubuntu-latest)`, `test (macos-latest)`, `exact coverage gate`, `dependency licenses (cargo-deny)`, `non-Rust lints`, `baseline ratchets`, `RustSec dependency audit`, `release binary artifact`, and `mutants in the diff: brokkr-core`. It requires signed commits, does not require a branch to be up to date with `main`, does not require an approving review, and does not apply to administrators.
 <!-- required-checks:end -->
 
 `delivered by brokkr` is the check that enforces the run: it passes a pull request that names a completed run, or one the operator has given the visible `by-hand` label, which the gate itself reads. Because administrators are exempt, an administrator can still merge past it.

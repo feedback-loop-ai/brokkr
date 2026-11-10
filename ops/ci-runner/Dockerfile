@@ -35,7 +35,7 @@ RUN curl -fsSL --retry 3 https://sh.rustup.rs -o /tmp/rustup-init.sh \
     && sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain 1.98.0 \
     && rm /tmp/rustup-init.sh \
     && rustup component add --toolchain 1.98.0 clippy rustfmt \
-    && rustup toolchain install 1.88.0 --profile minimal \
+    && rustup toolchain install 1.89.0 --profile minimal \
     && rustup toolchain install nightly-2026-09-05 --profile minimal --component llvm-tools-preview,clippy,rustfmt
 RUN curl -fsSL --retry 3 -o /tmp/cov.tar.gz \
       https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.9.1/cargo-llvm-cov-x86_64-unknown-linux-gnu.tar.gz \
