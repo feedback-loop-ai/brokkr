@@ -1,5 +1,33 @@
 # produced by quality/measure.sh with cargo-public-api 0.52.0 on nightly-2026-09-05, -sss
 pub mod brokkr_store
+pub mod brokkr_store::aggregate
+pub enum brokkr_store::aggregate::RunOrder
+pub brokkr_store::aggregate::RunOrder::ByEndingRule
+pub brokkr_store::aggregate::RunOrder::ByRealmThenRecipe
+pub brokkr_store::aggregate::RunOrder::Unordered
+pub struct brokkr_store::aggregate::WindowPark<'a>
+pub brokkr_store::aggregate::WindowPark::answered: core::option::Option<i64>
+pub brokkr_store::aggregate::WindowPark::at: i64
+pub brokkr_store::aggregate::WindowPark::ended: i64
+pub brokkr_store::aggregate::WindowPark::open: bool
+pub brokkr_store::aggregate::WindowPark::phase: core::option::Option<&'a str>
+pub brokkr_store::aggregate::WindowPark::realm: core::option::Option<&'a str>
+pub brokkr_store::aggregate::WindowPark::run_id: &'a str
+pub struct brokkr_store::aggregate::WindowReviews
+pub brokkr_store::aggregate::WindowReviews::back: bool
+pub brokkr_store::aggregate::WindowReviews::first: bool
+pub brokkr_store::aggregate::WindowReviews::second: bool
+pub struct brokkr_store::aggregate::WindowRun<'a>
+pub brokkr_store::aggregate::WindowRun::ending: core::option::Option<brokkr_core::ending::Ending>
+pub brokkr_store::aggregate::WindowRun::ending_rule: core::option::Option<&'a str>
+pub brokkr_store::aggregate::WindowRun::finished_ms: core::option::Option<i64>
+pub brokkr_store::aggregate::WindowRun::implement_visits: u64
+pub brokkr_store::aggregate::WindowRun::open: bool
+pub brokkr_store::aggregate::WindowRun::realm: core::option::Option<&'a str>
+pub brokkr_store::aggregate::WindowRun::recipe: core::option::Option<&'a str>
+pub brokkr_store::aggregate::WindowRun::reviews: brokkr_store::aggregate::WindowReviews
+pub brokkr_store::aggregate::WindowRun::run_id: &'a str
+pub brokkr_store::aggregate::WindowRun::started_ms: core::option::Option<i64>
 pub mod brokkr_store::backup
 pub enum brokkr_store::backup::BackupError
 pub brokkr_store::backup::BackupError::BackupDestinationNotDirectory(std::path::PathBuf)
@@ -318,6 +346,13 @@ pub struct brokkr_store::Store
 impl brokkr_store::Store
 pub fn brokkr_store::Store::acknowledge_quarantine(&mut self, &str, (u64, &str), brokkr_store::Attribution<'_>) -> core::result::Result<brokkr_store::Acknowledgement, brokkr_store::StoreError>
 pub fn brokkr_store::Store::acknowledgement(&self, &str) -> core::result::Result<core::option::Option<brokkr_store::Acknowledgement>, brokkr_store::StoreError>
+impl brokkr_store::Store
+pub fn brokkr_store::Store::aggregates_ready(&self) -> core::result::Result<bool, brokkr_store::StoreError>
+pub fn brokkr_store::Store::behind_runs(&self, impl core::ops::function::FnMut(&str)) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::Store::durations(&self, i64, i64, core::option::Option<&str>, impl core::ops::function::FnMut(core::option::Option<&str>, i64)) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::Store::finished_between(&self, i64, i64, core::option::Option<&str>) -> core::result::Result<u64, brokkr_store::StoreError>
+pub fn brokkr_store::Store::window_parks(&self, i64, i64, i64, core::option::Option<&str>, impl core::ops::function::FnMut(&brokkr_store::aggregate::WindowPark<'_>)) -> core::result::Result<(), brokkr_store::StoreError>
+pub fn brokkr_store::Store::window_runs(&self, i64, i64, brokkr_store::aggregate::RunOrder, core::option::Option<&str>, impl core::ops::function::FnMut(&brokkr_store::aggregate::WindowRun<'_>)) -> core::result::Result<(), brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::append_chain<T>(&mut self, &str, brokkr_core::envelope::EventType, brokkr_store::Rows<'_, T>, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_store::Chain, brokkr_store::StoreError>
 pub fn brokkr_store::Store::append_chain_without_waiting<T>(&mut self, &str, brokkr_core::envelope::EventType, brokkr_store::Rows<'_, T>, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_store::Chain, brokkr_store::StoreError>

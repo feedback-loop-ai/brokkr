@@ -61,7 +61,7 @@ fn stale(prefix: &str) -> String {
 }
 
 /// The meta key that records the backfill finished (ruling 8).
-const BACKFILLED: &str = "run_summary_backfill";
+pub(crate) const BACKFILLED: &str = "run_summary_backfill";
 
 /// A row's place in the page index's order: its `order_at` and run id.
 type Place = (i64, String);
