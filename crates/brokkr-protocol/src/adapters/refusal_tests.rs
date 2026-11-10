@@ -9,7 +9,7 @@
 
 use super::refusal::{
     claude_refusal_at, codex_thread_refusal, codex_thread_refusal_since, dsh_refusal, epoch_now,
-    find_codex_thread, local_time, parse_nanos, LocalTime, Now,
+    find_codex_thread, local_time, parse_nanos, thread_header, LocalTime, Now,
 };
 use super::tests::{executable, Case};
 use super::*;
@@ -25,6 +25,9 @@ fn record(rows: &[Value]) -> String {
     }
     body
 }
+
+/// The one thread id the fake codex announcements and file names carry.
+const THREAD: &str = "01a0619c-928b-7ad3-8cc9-9eaa94c3aec1";
 
 /// A thread-record error row: the payload is where codex puts every
 /// field, and `task_complete` is the row the 2026-11-08 usage limit was
@@ -333,18 +336,19 @@ fn codex_prefers_the_structured_reset_over_its_words() {
 }
 
 /// Decision 0053: after a first turn the boundary is decision 0016's, and
-/// a thread record's ordinary completion is not a refusal at all.
+/// only a usage-limit or rate-limit error in a thread record is a refusal;
+/// an ordinary completion or any other error is no refusal at all.
 #[test]
-fn a_codex_thread_record_is_a_refusal_only_where_it_carries_an_error() {
+fn a_codex_thread_record_without_a_rate_limit_error_is_no_refusal() {
     // `refused_at` reads the host's own zone through `mktime`.
     let _env = EnvGuard::lock();
-    let typed = record(&[task_complete(
+    let unauthorized = record(&[task_complete(
         json!({"message": "auth failed", "codex_error_info": "unauthorized"}),
     )]);
-    let reason = codex_thread_refusal(&typed, None, Some(&refused_at())).unwrap();
-    assert_eq!(reason.class(), RefusalClass::Other);
-    assert!(reason.words().starts_with("api_error"));
-    assert_eq!(reason.retry_after_seconds(), None);
+    assert!(
+        codex_thread_refusal(&unauthorized, None, Some(&refused_at())).is_none(),
+        "a non-rate-limit error is not refusal evidence"
+    );
 
     let normal = record(&[json!({"timestamp": "t", "ordinal": 1,
         "type": "event_msg",
@@ -616,7 +620,7 @@ fn a_codex_that_exits_before_its_first_turn_is_read_from_the_thread_record() {
         "codex_error_info": "usage_limit_exceeded"}));
     row["timestamp"] = json!("9999-12-31T00:00:00Z");
     let header = json!({"timestamp": "9999-12-31T00:00:00Z", "type": "session_meta",
-        "payload": {"id": "01a0619c-928b-7ad3-8cc9-9eaa94c3aec1",
+        "payload": {"id": THREAD,
                     "timestamp": "9999-12-31T00:00:00Z",
                     "cwd": dir.path().to_string_lossy()}});
     let (invocation, emitted) = codex_quota_exit(dir.path(), &[header, row], true);
@@ -636,7 +640,7 @@ fn a_codex_that_exits_with_no_event_is_read_from_its_new_thread_record() {
         dir.path(),
         &[
             json!({"timestamp": "9999-12-31T00:00:00Z", "type": "session_meta",
-                   "payload": {"id": "01a0619c-928b-7ad3-8cc9-9eaa94c3aec1",
+                   "payload": {"id": THREAD,
                                "timestamp": "9999-12-31T00:00:00Z",
                                "cwd": dir.path().to_string_lossy()}}),
             json!({"timestamp": "9999-12-31T00:00:00Z", "ordinal": 1,
@@ -672,7 +676,8 @@ fn a_zero_event_exit_picks_only_the_rollout_recorded_for_its_cwd() {
     let write = |name: &str, cwd: &str| {
         let body = record(&[
             json!({"type": "session_meta",
-                   "payload": {"cwd": cwd, "timestamp": "2026-11-08T00:00:00Z"}}),
+                   "payload": {"id": THREAD, "cwd": cwd,
+                               "timestamp": "2026-11-08T00:00:00Z"}}),
             task_complete(json!({"message": "quota",
                                  "codex_error_info": "usage_limit_exceeded"})),
         ]);
@@ -729,7 +734,6 @@ fn a_rollout_below_the_walk_bound_is_not_read() {
         "rollout-deep.jsonl",
         "/this-seat",
         "2026-11-08T10:00:01.000Z",
-        false,
     );
     let since = parse_nanos("2026-11-08T10:00:00.900Z").unwrap();
     assert!(
@@ -957,16 +961,12 @@ fn sessions(day: &str) -> (tempfile::TempDir, std::path::PathBuf, std::path::Pat
 }
 
 /// Write one synthetic rollout under `day`'s dated directory. `started` is
-/// the session's own start, under `payload`, or the top-level envelope
-/// timestamp when `top_level` is set; an empty string omits it.
-fn rollout(day: &std::path::Path, name: &str, cwd: &str, started: &str, top_level: bool) {
-    let mut header = json!({"type": "session_meta", "payload": {"cwd": cwd}});
+/// the session's own start, under the header's `payload`; an empty string
+/// omits it.
+fn rollout(day: &std::path::Path, name: &str, cwd: &str, started: &str) {
+    let mut header = json!({"type": "session_meta", "payload": {"id": THREAD, "cwd": cwd}});
     if !started.is_empty() {
-        if top_level {
-            header["timestamp"] = json!(started);
-        } else {
-            header["payload"]["timestamp"] = json!(started);
-        }
+        header["payload"]["timestamp"] = json!(started);
     }
     let body = record(&[
         header,
@@ -992,7 +992,6 @@ fn a_single_foreign_rollout_is_not_this_invocations_refusal() {
         "rollout-a.jsonl",
         "/foreign-seat",
         "2026-11-08T10:00:01.000Z",
-        false,
     );
     assert!(
         codex_thread_refusal_since(&root, since, "/this-seat", None, 6).is_none(),
@@ -1003,14 +1002,8 @@ fn a_single_foreign_rollout_is_not_this_invocations_refusal() {
     // but empty, no cwd, no start, and a body this process may not read.
     std::fs::write(day.join("rollout-broken.jsonl"), "not json\n").unwrap();
     std::fs::write(day.join("rollout-empty.jsonl"), "").unwrap();
-    rollout(
-        &day,
-        "rollout-no-cwd.jsonl",
-        "",
-        "2026-11-08T10:00:01Z",
-        false,
-    );
-    rollout(&day, "rollout-no-start.jsonl", "/this-seat", "", false);
+    rollout(&day, "rollout-no-cwd.jsonl", "", "2026-11-08T10:00:01Z");
+    rollout(&day, "rollout-no-start.jsonl", "/this-seat", "");
     let unreadable = day.join("rollout-unreadable.jsonl");
     std::fs::write(&unreadable, "not json\n").unwrap();
     {
@@ -1025,7 +1018,6 @@ fn a_single_foreign_rollout_is_not_this_invocations_refusal() {
         "rollout-b.jsonl",
         "/this-seat",
         "2026-11-08T10:00:00.900Z",
-        false,
     );
     let reason = codex_thread_refusal_since(&root, since, "/this-seat", None, 6)
         .expect("the correlated rollout is this invocation's");
@@ -1034,8 +1026,7 @@ fn a_single_foreign_rollout_is_not_this_invocations_refusal() {
 
 /// M1's other half: a rollout whose session began before this invocation
 /// started is history even with this seat's cwd. The session start is read
-/// from the header's payload, or from the envelope when that is where the
-/// record spells it.
+/// from the string the header's payload carries.
 #[test]
 fn a_session_that_began_before_this_invocation_is_history() {
     let (_dir, root, day) = sessions("2026/11/08");
@@ -1045,7 +1036,6 @@ fn a_session_that_began_before_this_invocation_is_history() {
         "rollout-old.jsonl",
         "/this-seat",
         "2026-11-08T10:00:00.100Z",
-        false,
     );
     assert!(
         codex_thread_refusal_since(&root, since, "/this-seat", None, 6).is_none(),
@@ -1056,7 +1046,6 @@ fn a_session_that_began_before_this_invocation_is_history() {
         "rollout-new.jsonl",
         "/this-seat",
         "2026-11-08T10:00:00.900Z",
-        true,
     );
     let reason = codex_thread_refusal_since(&root, since, "/this-seat", None, 6)
         .expect("the current session's rollout is read");
@@ -1070,7 +1059,6 @@ fn a_session_that_began_before_this_invocation_is_history() {
 /// behaviour already handled.
 #[cfg(unix)]
 fn codex_recovered_completion(dir: &std::path::Path, with_error: bool) -> std::path::PathBuf {
-    const THREAD: &str = "01a0619c-928b-7ad3-8cc9-9eaa94c3aec1";
     let mut rows = vec![
         json!({"timestamp": "9999-12-31T00:00:00Z", "type": "session_meta",
                "payload": {"id": THREAD, "timestamp": "9999-12-31T00:00:00Z",
@@ -1149,7 +1137,6 @@ fn codex_rollout(
     status: i32,
     marker: Option<&std::path::Path>,
 ) -> std::path::PathBuf {
-    const THREAD: &str = "01a0619c-928b-7ad3-8cc9-9eaa94c3aec1";
     let announced = if announce {
         format!("printf '{{\"type\":\"thread.started\",\"thread_id\":\"{THREAD}\"}}\\n'\n")
     } else {
@@ -1208,9 +1195,25 @@ fn assert_no_result(bodies: &[Body], why: &str) {
     );
 }
 
+/// Drive the fake over the announced and the unannounced path alike: it
+/// writes its work marker, exits 0 and leaves no result, so either path
+/// must keep the attempt lost.
+#[cfg(unix)]
+fn assert_lost_on_both_paths(dir: &std::path::Path, rows: &[Value], why: &str) {
+    for announce in [false, true] {
+        let fake = codex_rollout_exit(dir, rows, announce, 0);
+        let bodies = codex_bodies(dir, &fake);
+        assert!(
+            dir.join("worked").exists(),
+            "the fake wrote its work marker (announce={announce})"
+        );
+        assert_no_result(&bodies, &format!("{why} (announce={announce})"));
+    }
+}
+
 fn correlated_header(dir: &std::path::Path) -> Value {
     json!({"timestamp": "9999-12-31T00:00:00Z", "type": "session_meta",
-           "payload": {"id": "01a0619c-928b-7ad3-8cc9-9eaa94c3aec1",
+           "payload": {"id": THREAD,
                        "timestamp": "9999-12-31T00:00:00Z",
                        "cwd": dir.to_string_lossy()}})
 }
@@ -1309,7 +1312,7 @@ fn review_chief_announced_foreign_old_record_is_not_correlated() {
         complete["timestamp"] = json!("9999-12-31T00:00:02Z");
         let rows = [
             json!({"timestamp": "9999-12-31T00:00:00Z", "type": "session_meta",
-                   "payload": {"id": "01a0619c-928b-7ad3-8cc9-9eaa94c3aec1",
+                   "payload": {"id": THREAD,
                                "timestamp": started, "cwd": cwd}}),
             json!({"timestamp": "9999-12-31T00:00:01Z", "type": "event_msg",
                    "payload": {"type": "task_started", "turn_id": "t"}}),
@@ -1320,6 +1323,128 @@ fn review_chief_announced_foreign_old_record_is_not_correlated() {
         assert_no_result(
             &bodies,
             &format!("an announced record with cwd {cwd} and start {started} is foreign"),
+        );
+    }
+}
+
+/// A session header is a `session_meta` whose payload carries all three
+/// strings: a missing `cwd`, `timestamp` or `id` is no header at all, so
+/// the record is never correlated and the lost-result path stands.
+#[test]
+fn a_session_meta_missing_a_required_header_field_is_no_header() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("sessions");
+    let day = root.join("2026/11/08");
+    std::fs::create_dir_all(&day).unwrap();
+    for (name, payload) in [
+        (
+            "rollout-no-cwd.jsonl",
+            json!({"id": THREAD, "timestamp": "2026-11-08T10:00:00Z"}),
+        ),
+        (
+            "rollout-no-timestamp.jsonl",
+            json!({"id": THREAD, "cwd": "/this-seat"}),
+        ),
+        (
+            "rollout-no-id.jsonl",
+            json!({"timestamp": "2026-11-08T10:00:00Z", "cwd": "/this-seat"}),
+        ),
+    ] {
+        let path = day.join(name);
+        let body = record(&[
+            json!({"type": "session_meta", "payload": payload}),
+            task_complete(json!({"message": "quota",
+                                 "codex_error_info": "usage_limit_exceeded"})),
+        ]);
+        std::fs::write(&path, body).unwrap();
+        assert!(
+            thread_header(&path).is_none(),
+            "{name}: a header needs cwd, timestamp and id"
+        );
+    }
+    let no_payload = day.join("rollout-no-payload.jsonl");
+    std::fs::write(&no_payload, record(&[json!({"type": "session_meta"})])).unwrap();
+    assert!(
+        thread_header(&no_payload).is_none(),
+        "a header needs a payload"
+    );
+
+    // None of the malformed headers can correlate a current record.
+    assert!(codex_thread_refusal_since(&root, 0, "/this-seat", None, 6).is_none());
+}
+
+/// The fallback's narrowed evidence: `rate_limit_exceeded` and an HTTP
+/// 429 are still the provider's rate limit and still refuse.
+#[test]
+fn a_codex_thread_record_reads_rate_limit_exceeded_and_429_as_refusals() {
+    for (error, status) in [
+        (
+            json!({"message": "slow down", "codex_error_info": "rate_limit_exceeded"}),
+            None,
+        ),
+        (json!({"message": "slow down", "status": 429}), Some(429)),
+    ] {
+        let reason = codex_thread_refusal(&record(&[task_complete(error)]), None, None)
+            .unwrap_or_else(|| panic!("{status:?}"));
+        assert_eq!(reason.class(), RefusalClass::RateLimit);
+        assert!(reason.words().starts_with("rate_limit"), "{reason}");
+        assert_eq!(reason.status(), status);
+    }
+}
+
+/// H1 (the chief's high finding): only a real `session_meta` header
+/// correlates a record. A `turn_context` first row names a turn's time,
+/// not this session's, so neither the announced nor the unannounced path
+/// may read its usage-limit completion. The zero-stdout fake writes its
+/// work marker, exits 0 and leaves no result: no result, no refusal.
+#[cfg(unix)]
+#[test]
+fn review_chief_1037d_non_session_meta_is_not_a_session_header() {
+    let dir = tempfile::tempdir().unwrap();
+    let rows = [
+        json!({"timestamp": "9999-12-31T00:00:00Z", "type": "turn_context",
+               "payload": {"cwd": dir.path().to_string_lossy(), "model": "m",
+                           "reasoning_effort": "high"}}),
+        json!({"timestamp": "9999-12-31T00:00:01Z", "type": "event_msg",
+               "payload": {"type": "task_started", "turn_id": "t"}}),
+        json!({"timestamp": "9999-12-31T00:00:02Z", "type": "event_msg",
+               "payload": {"type": "task_complete", "turn_id": "t",
+                           "error": {"message": "quota",
+                                     "codex_error_info": "usage_limit_exceeded"}}}),
+    ];
+    assert_lost_on_both_paths(dir.path(), &rows, "a turn_context is no session header");
+}
+
+/// H2 (the chief's high finding): the record fallback refuses only on a
+/// usage-limit or rate-limit error. An unauthorized error, `{}` and
+/// `false` are not refusal evidence, so the zero-stdout fake's missing
+/// result stays lost instead of becoming a determinate refusal.
+#[cfg(unix)]
+#[test]
+fn review_chief_1037d_no_quota_error_must_keep_lost_result() {
+    for (label, error) in [
+        ("{}", json!({})),
+        ("false", json!(false)),
+        (
+            "unauthorized",
+            json!({"message": "auth failed", "codex_error_info": "unauthorized"}),
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let rows = [
+            correlated_header(dir.path()),
+            json!({"timestamp": "9999-12-31T00:00:01Z", "type": "event_msg",
+                   "payload": {"type": "task_started", "turn_id": "t"}}),
+            json!({"timestamp": "9999-12-31T00:00:02Z", "ordinal": 2,
+                   "type": "event_msg",
+                   "payload": {"type": "task_complete", "turn_id": "t",
+                               "started_at": 1, "completed_at": 2, "duration_ms": 1,
+                               "last_agent_message": null, "error": error}}),
+        ];
+        assert_lost_on_both_paths(
+            dir.path(),
+            &rows,
+            &format!("{label} is no quota error; the result stays lost"),
         );
     }
 }

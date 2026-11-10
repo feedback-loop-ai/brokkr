@@ -550,9 +550,10 @@ fn prompt_item_row(row: &Value) -> CodexRow {
 }
 
 /// Read a codex thread record's own error through the adapter's locator
-/// (decision 0035). The decision is over the whole invocation: every row
-/// must be [`CODEX_NON_WORK`], no work row may appear, and a turn started
-/// after the error is the H1 notice. Evidence is never reset at a start.
+/// (decision 0035): over the whole invocation, every row must be
+/// [`CODEX_NON_WORK`], evidence is never reset at a start, a turn started
+/// after the error is the H1 notice, and only a usage- or rate-limit error
+/// refuses; any other error keeps the result lost.
 pub(super) fn codex_thread_refusal(
     body: &str,
     since_nanos: Option<i128>,
@@ -588,7 +589,7 @@ pub(super) fn codex_thread_refusal(
         {
             resets = windows;
         }
-        if let Some(found) = thread_error(&row) {
+        if let Some(found) = thread_error(&row).filter(codex_rate_limit) {
             error = Some(found);
         }
     }
@@ -724,20 +725,19 @@ fn names_codex_thread(name: &str, thread_id: &str) -> bool {
     })
 }
 
-/// The cwd and session start a rollout's header names, if it carries both.
+/// The cwd and session start a rollout's header names, only when its first
+/// row is a `session_meta` with string `cwd`, `timestamp` and `id` in its payload.
 pub(super) fn thread_header(path: &Path) -> Option<(String, i128)> {
     let body = std::fs::read_to_string(path).ok()?;
     let first = body.lines().next()?;
     let row = serde_json::from_str::<Value>(first).ok()?;
-    let cwd = row
-        .pointer("/payload/cwd")
-        .and_then(Value::as_str)?
-        .to_string();
-    let started = row
-        .pointer("/payload/timestamp")
-        .and_then(Value::as_str)
-        .or_else(|| row.get("timestamp").and_then(Value::as_str))
-        .and_then(parse_nanos)?;
+    if row.get("type").and_then(Value::as_str) != Some("session_meta") {
+        return None;
+    }
+    let payload = row.get("payload")?;
+    let cwd = payload.get("cwd").and_then(Value::as_str)?.to_string();
+    let started = parse_nanos(payload.get("timestamp")?.as_str()?)?;
+    payload.get("id").and_then(Value::as_str)?;
     Some((cwd, started))
 }
 
