@@ -7,7 +7,7 @@
 use std::path::Path;
 
 use brokkr_core::envelope::EventType;
-use brokkr_core::EventEnvelope;
+use brokkr_core::{EventEnvelope, ProviderWait};
 use serde_json::{json, Value};
 use time::format_description::well_known::Rfc3339;
 
@@ -77,6 +77,37 @@ fn sequence_engine(dir: &Path, body: SeatBody, attempts: u64) -> Engine {
     with_clock(engine).0
 }
 
+/// The single draft step's driver: refuses once, then answers.
+fn draft_driver(dir: &Path) -> Vec<String> {
+    driver(
+        dir,
+        "draft",
+        &["refuse", "succeed"],
+        Probed::Answer,
+        None,
+        "claude",
+        "first",
+    )
+}
+
+/// The settled facts a single-step wait row shares: the driver ran, probed,
+/// and retried, and the terminal event carries one `<step>` wait.
+fn single_step_facts(dir: &Path, engine: &Engine) {
+    assert_eq!(
+        logs(dir, "draft"),
+        ["attempt:refuse", "probe", "attempt:succeed"]
+    );
+    let waits = one_wait(engine);
+    assert_eq!(waits[0]["site"], "draft");
+}
+
+/// A driven sequence engine, so each row states only its own body.
+fn driven(dir: &Path, body: SeatBody, attempts: u64) -> Engine {
+    let mut engine = sequence_engine(dir, body, attempts);
+    engine.drive().unwrap();
+    engine
+}
+
 /// The waits one terminal event spells.
 fn waits(event: &EventEnvelope) -> Vec<Value> {
     event.payload["waits"]
@@ -135,28 +166,15 @@ fn shared(dir: &Path) -> Vec<String> {
 #[test]
 fn a_single_steps_rate_limit_records_its_site_and_restarts_at_step_one() {
     let dir = tempfile::tempdir().unwrap();
-    let command = driver(
-        dir.path(),
-        "draft",
-        &["refuse", "succeed"],
-        Probed::Answer,
-        None,
-        "claude",
-        "first",
-    );
+    let command = draft_driver(dir.path());
     let body = sequence(vec![single_step(
         "draft",
         vec![candidate("claude", "claude/first", command)],
         &["complete"],
     )]);
-    let mut engine = sequence_engine(dir.path(), body, 2);
-    engine.drive().unwrap();
-    assert_eq!(
-        logs(dir.path(), "draft"),
-        ["attempt:refuse", "probe", "attempt:succeed"]
-    );
+    let engine = driven(dir.path(), body, 2);
+    single_step_facts(dir.path(), &engine);
     let waits = one_wait(&engine);
-    assert_eq!(waits[0]["site"], "draft");
     assert_eq!(waits[0]["provider"], "claude");
     assert_eq!(waits[0]["route"], "first");
     assert_eq!(waits[0]["seconds"], 1);
@@ -253,8 +271,7 @@ fn a_later_steps_refusal_restarts_the_sequence_from_step_one() {
             &["complete"],
         ),
     ]);
-    let mut engine = sequence_engine(dir.path(), body, 2);
-    engine.drive().unwrap();
+    let engine = driven(dir.path(), body, 2);
     let waits = one_wait(&engine);
     assert_eq!(waits[0]["site"], "review");
     assert_eq!(
@@ -317,8 +334,7 @@ fn a_spawn_failure_writes_its_start_failure_site_and_no_wait() {
         )],
         &["complete"],
     )]);
-    let mut engine = sequence_engine(dir.path(), body, 2);
-    engine.drive().unwrap();
+    let engine = driven(dir.path(), body, 2);
     let failed = failed_here(&engine);
     assert!(!failed.is_empty(), "the spawn failure journaled nothing");
     for event in &failed {
@@ -348,8 +364,7 @@ fn a_dialect_step_writes_no_wait() {
             },
         },
     };
-    let mut engine = sequence_engine(dir.path(), sequence(vec![step]), 1);
-    engine.drive().unwrap();
+    let engine = driven(dir.path(), sequence(vec![step]), 1);
     let failed = failed_here(&engine);
     assert_eq!(failed.len(), 1, "{failed:?}");
     assert!(failed[0].payload.get("waits").is_none(), "{:?}", failed[0]);
@@ -462,4 +477,74 @@ fn a_resume_waits_the_recorded_remainder_probes_the_member_and_restarts() {
     let started = starts(&resumed);
     assert_eq!(started.len(), 2, "{started:?}");
     assert_eq!(started[1]["probes"][0]["site"], "review:m");
+}
+
+/// A single step with no candidate chain runs its inline command; its
+/// probe asks that same command, with no selected link to derive.
+#[test]
+fn an_inline_single_steps_probe_uses_its_own_command() {
+    let dir = tempfile::tempdir().unwrap();
+    let command = draft_driver(dir.path());
+    let body = sequence(vec![step(
+        "draft",
+        StepBody::Invocation(Invocation::Single {
+            role_path: "role.md".into(),
+            command,
+            candidates: Vec::new(),
+            written: Vec::new(),
+            class: (),
+        }),
+        &["complete"],
+    )]);
+    let engine = driven(dir.path(), body, 2);
+    single_step_facts(dir.path(), &engine);
+}
+
+/// A sequence wait that names no step, names a panel step without a member,
+/// names a member of a single step, or names a member the panel does not
+/// declare parks by name before anything spawns.
+#[test]
+fn a_sequence_wait_at_a_form_it_does_not_name_parks_by_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let body = sequence(vec![
+        single_step("draft", Vec::new(), &["complete"]),
+        panel_step(
+            "review",
+            vec![member("m", Vec::new()), member("n", Vec::new())],
+            &["complete"],
+        ),
+    ]);
+    let mut engine = sequence_engine(dir.path(), body, 2);
+    request_effect(&mut engine);
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let state = brokkr_core::fold::fold(&events).unwrap();
+    let wait = |site: &str| ProviderWait {
+        site: Some(site.into()),
+        provider: "claude".into(),
+        route: "first".into(),
+        words: "rate_limit".into(),
+        retry_after_seconds: None,
+        seconds: 1,
+        until: base(),
+        rounds: 1,
+    };
+    for (site, expected) in [
+        ("unknown", "declares no step"),
+        ("review", "is not a single driver"),
+        ("draft:member", "is not a panel"),
+        ("review:unknown", "declares no member"),
+        ("review:m", "did not spawn"),
+    ] {
+        let probe = engine
+            .probe_member(&events, &state, "effect", "work", &wait(site), site)
+            .unwrap();
+        match probe {
+            crate::engine::cooldown::probe::Probe::Parked(reason) => {
+                assert!(reason.contains(expected), "{site}: {reason}");
+            }
+            crate::engine::cooldown::probe::Probe::Answered(_) => {
+                panic!("{site} was probed")
+            }
+        }
+    }
 }

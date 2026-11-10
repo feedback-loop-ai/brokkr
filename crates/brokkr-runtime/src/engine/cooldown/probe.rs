@@ -291,7 +291,7 @@ impl Engine {
                     self.spawn_probe(&at, &run.spawn, run.input.clone(), prepared.deadline, wait);
                 self.settle_probe(probe)
             }
-            ProbeForm::Sequence(_) => {
+            ProbeForm::Sequence(steps) => {
                 let at = ProbeSite {
                     events,
                     state,
@@ -300,7 +300,7 @@ impl Engine {
                     wait,
                     picked: &picked,
                 };
-                self.probe_sequence_site(&at)
+                self.probe_sequence_site(&at, steps, member)
             }
             ProbeForm::Single(_) => Ok(Probe::Parked(format!(
                 "no cool-down probe for {}/{}: member {member} stands at a body that is not a \
@@ -314,19 +314,12 @@ impl Engine {
     /// member a `<step>:<member>` wait names, composed on the step's own
     /// body — never the single seat's composition (decision 0103 slice
     /// 4c2b).
-    fn probe_sequence_site(&mut self, at: &ProbeSite<'_>) -> Result<Probe, EngineError> {
-        let ProbeForm::Sequence(steps) = &at.picked.form else {
-            return Ok(Probe::Parked(format!(
-                "no cool-down probe for {}/{}: the seat is not a sequence",
-                at.wait.provider, at.wait.route
-            )));
-        };
-        let Some(site) = at.wait.site.as_deref() else {
-            return Ok(Probe::Parked(format!(
-                "no cool-down probe for {}/{}: a sequence wait names no step",
-                at.wait.provider, at.wait.route
-            )));
-        };
+    fn probe_sequence_site(
+        &mut self,
+        at: &ProbeSite<'_>,
+        steps: &[SequenceStep],
+        site: &str,
+    ) -> Result<Probe, EngineError> {
         let Some((index, step, member)) = step_site(steps, site) else {
             return Ok(Probe::Parked(format!(
                 "no cool-down probe for {}/{}: the sequence declares no step at {site}",
