@@ -8,8 +8,8 @@
 //! unchanged.
 
 use super::refusal::{
-    claude_refusal_at, codex_thread_refusal, codex_thread_refusal_since, dsh_refusal, local_time,
-    LocalTime, Now,
+    claude_refusal_at, codex_thread_refusal, codex_thread_refusal_since, dsh_refusal, epoch_now,
+    find_codex_thread, local_time, parse_nanos, LocalTime, Now,
 };
 use super::tests::{executable, Case};
 use super::*;
@@ -35,6 +35,14 @@ fn task_complete(error: Value) -> Value {
            "payload": {"type": "task_complete", "turn_id": "t",
                        "last_agent_message": null, "error": error,
                        "started_at": 1, "completed_at": 2, "duration_ms": 1}})
+}
+
+/// A measured usage-limit completion written at `timestamp`.
+fn completion_at(timestamp: &str) -> Value {
+    let mut row = task_complete(json!({"message": "quota",
+        "codex_error_info": "usage_limit_exceeded"}));
+    row["timestamp"] = json!(timestamp);
+    row
 }
 
 /// A thread-record `token_count` row carrying a structured reset.
@@ -210,6 +218,12 @@ fn codex_stated_reset_is_parsed_strictly_against_the_refusal_time() {
             "Nov 8th, 2026 9:39 AM",
             15,
         ),
+        // Minute 59 is admitted; only 60 and above are not.
+        (
+            now_at(0, 2026, 11, 8, 9, 38),
+            "Nov 8th, 2026 10:59 AM",
+            4_860,
+        ),
     ] {
         let message = format!("usage limit; try again at {at}.");
         let body = record(&[task_complete(
@@ -265,8 +279,11 @@ fn codex_stated_reset_is_parsed_strictly_against_the_refusal_time() {
         "try again at Nov 0th, 2026 10:38 AM.",
         "try again at Nov 32nd, 2026 10:38 AM.",
         "try again at Nov 11th, 26 10:38 AM.",
+        "try again at Nov 11th, 99999 10:38 AM.",
         "try again at Nov 11th, 20x6 10:38 AM.",
         "try again at Nov 11th, 2026 :38 AM.",
+        "try again at Nov 11th, 2026 001:38 AM.",
+        "try again at Nov 11th, 2026 0:30 AM.",
         "try again at Nov 11th, 2026 100:38 AM.",
         "try again at Nov 11th, 2026 10:3 AM.",
         "try again later",
@@ -546,23 +563,7 @@ exit 1
 /// its locator; without it, the exit is the zero-event case the locator
 /// has to find from the file this invocation wrote.
 fn codex_exit(dir: &std::path::Path, rows: &[Value], announce: bool) -> std::path::PathBuf {
-    const THREAD: &str = "01a0619c-928b-7ad3-8cc9-9eaa94c3aec1";
-    let announced = if announce {
-        format!("printf '{{\"type\":\"thread.started\",\"thread_id\":\"{THREAD}\"}}\\n'\n")
-    } else {
-        String::new()
-    };
-    let body = format!(
-        r#"#!/bin/sh
-cat >/dev/null
-mkdir -p "$CODEX_HOME/sessions/2026/11/08"
-cat > "$CODEX_HOME/sessions/2026/11/08/rollout-{THREAD}.jsonl" <<'JSON'
-{}JSON
-{announced}exit 1
-"#,
-        record(rows)
-    );
-    executable(dir, "codex", &body)
+    codex_rollout(dir, rows, announce, 1, None)
 }
 
 /// Drive a fake codex over `rows` and return what the adapter reported.
@@ -614,7 +615,11 @@ fn a_codex_that_exits_before_its_first_turn_is_read_from_the_thread_record() {
         "message": "You have hit your usage limit. try again at Dec 31st, 9999 11:00 PM.",
         "codex_error_info": "usage_limit_exceeded"}));
     row["timestamp"] = json!("9999-12-31T00:00:00Z");
-    let (invocation, emitted) = codex_quota_exit(dir.path(), &[row], true);
+    let header = json!({"timestamp": "9999-12-31T00:00:00Z", "type": "session_meta",
+        "payload": {"id": "01a0619c-928b-7ad3-8cc9-9eaa94c3aec1",
+                    "timestamp": "9999-12-31T00:00:00Z",
+                    "cwd": dir.path().to_string_lossy()}});
+    let (invocation, emitted) = codex_quota_exit(dir.path(), &[header, row], true);
     assert_codex_quota(&invocation, &emitted, "the record's error is typed");
 }
 
@@ -691,8 +696,66 @@ fn a_zero_event_exit_picks_only_the_rollout_recorded_for_its_cwd() {
     // No directory, no depth and a window that excludes every file each
     // answer nothing rather than scanning further.
     assert!(codex_thread_refusal_since(&root.join("missing"), 0, "/two", None, 6).is_none());
-    assert!(codex_thread_refusal_since(&root, i64::MAX, "/two", None, 6).is_none());
+    assert!(codex_thread_refusal_since(&root, i128::MAX, "/two", None, 6).is_none());
     assert!(codex_thread_refusal_since(&root, 0, "/two", None, 0).is_none());
+}
+
+/// A thread id matches a file name only as a whole token, never as a
+/// fragment. The locator's own name test is pinned here, at the start of
+/// the name and in the middle.
+#[test]
+fn a_thread_id_matches_only_as_a_whole_name_token() {
+    let (_dir, root, day) = sessions("2026/11/08");
+    std::fs::write(day.join("0199mine.jsonl"), "").unwrap();
+    std::fs::write(day.join("rollout-0199mine.jsonl"), "").unwrap();
+    std::fs::write(day.join("rollout-0199other.jsonl"), "").unwrap();
+    assert!(find_codex_thread(&root, "0199mine", 6).is_some());
+    assert!(find_codex_thread(&root, "0199", 6).is_none());
+    assert!(find_codex_thread(&root, "0199min", 6).is_none());
+}
+
+/// The walk's depth bound: a rollout filed one level below it is not this
+/// invocation's, while the same file one level shallower is.
+#[test]
+fn a_rollout_below_the_walk_bound_is_not_read() {
+    let (_dir, root, day) = sessions("2026/11/08");
+    let mut deep = day;
+    for _ in 0..4 {
+        deep = deep.join("d");
+    }
+    std::fs::create_dir_all(&deep).unwrap();
+    rollout(
+        &deep,
+        "rollout-deep.jsonl",
+        "/this-seat",
+        "2026-11-08T10:00:01.000Z",
+        false,
+    );
+    let since = parse_nanos("2026-11-08T10:00:00.900Z").unwrap();
+    assert!(
+        codex_thread_refusal_since(&root, since, "/this-seat", None, 6).is_none(),
+        "a file below the depth bound is not read"
+    );
+    assert!(
+        codex_thread_refusal_since(&root, since, "/this-seat", None, 7).is_some(),
+        "the same file one level up is within the bound"
+    );
+}
+
+/// The adapter's provider name and probe advertisement are read off the
+/// kind, not guessed by a caller.
+#[test]
+fn adapter_kind_names_its_provider_and_probe_capability() {
+    for (kind, name, probe) in [
+        (AdapterKind::Claude, "claude", true),
+        (AdapterKind::Lanetally, "lanetally", true),
+        (AdapterKind::Codex, "codex", true),
+        (AdapterKind::Dsh, "dsh", true),
+        (AdapterKind::Exec, "exec", false),
+    ] {
+        assert_eq!(kind.provider_name(), name);
+        assert_eq!(kind.advertises_probe(), probe);
+    }
 }
 
 /// Decision 0053's boundary in the thread record: an error before the
@@ -712,7 +775,9 @@ fn a_codex_thread_reads_only_the_errors_after_its_last_turn_start() {
     ]);
     assert!(codex_thread_refusal(&stale, None, Some(&refused_at())).is_none());
 
-    // An error after a later turn started is the current invocation's.
+    // Work before a later start is not reset (the chief's high finding):
+    // the whole invocation is read, so the earlier successful turn keeps
+    // the attempt lost rather than letting the last start hide it.
     let current = record(&[
         task_complete(json!({"message": "old", "codex_error_info": "usage_limit_exceeded"})),
         json!({"type": "event_msg", "payload": {"type": "task_started"}}),
@@ -721,8 +786,19 @@ fn a_codex_thread_reads_only_the_errors_after_its_last_turn_start() {
         json!({"type": "event_msg", "payload": {"type": "task_started"}}),
         task_complete(json!({"message": "quota", "codex_error_info": "usage_limit_exceeded"})),
     ]);
-    let reason = codex_thread_refusal(&current, None, Some(&refused_at())).unwrap();
-    assert_eq!(reason.class(), RefusalClass::RateLimit);
+    assert!(codex_thread_refusal(&current, None, Some(&refused_at())).is_none());
+
+    // A single start with the error after it is still this invocation's.
+    let one_turn = record(&[
+        json!({"type": "event_msg", "payload": {"type": "task_started"}}),
+        task_complete(json!({"message": "quota", "codex_error_info": "usage_limit_exceeded"})),
+    ]);
+    assert_eq!(
+        codex_thread_refusal(&one_turn, None, Some(&refused_at()))
+            .unwrap()
+            .class(),
+        RefusalClass::RateLimit
+    );
 
     // The row's own timestamp is the other boundary: a refusal written
     // before this invocation began is history even when the record holds
@@ -732,7 +808,7 @@ fn a_codex_thread_reads_only_the_errors_after_its_last_turn_start() {
         task_complete(json!({"message": "old",
                              "codex_error_info": "usage_limit_exceeded"})),
     ]);
-    let since = Some(refused_at().epoch * 1_000);
+    let since = Some(i128::from(refused_at().epoch) * 1_000_000_000);
     assert!(codex_thread_refusal(&historical, since, Some(&refused_at())).is_none());
     let fresh = record(&[json!({
         "timestamp": "2026-11-08T10:00:00Z", "type": "event_msg",
@@ -854,14 +930,8 @@ fn a_successful_completion_clears_the_recovered_error() {
 /// millisecond of the start.
 #[test]
 fn a_previous_refusal_in_the_start_second_is_history() {
-    let since = brokkr_core::stamp::parse_millis("2026-11-08T10:00:00.900Z").unwrap();
-    let at = |timestamp: &str| {
-        record(&[json!({"timestamp": timestamp, "type": "event_msg",
-            "payload": {"type": "task_complete", "turn_id": "t",
-                        "last_agent_message": null,
-                        "error": {"message": "quota",
-                                  "codex_error_info": "usage_limit_exceeded"}}})])
-    };
+    let since = parse_nanos("2026-11-08T10:00:00.900Z").unwrap();
+    let at = |timestamp: &str| record(&[completion_at(timestamp)]);
     assert!(
         codex_thread_refusal(&at("2026-11-08T10:00:00.100Z"), Some(since), None).is_none(),
         "a completion 800ms before the start is history"
@@ -916,7 +986,7 @@ fn rollout(day: &std::path::Path, name: &str, cwd: &str, started: &str, top_leve
 #[test]
 fn a_single_foreign_rollout_is_not_this_invocations_refusal() {
     let (_dir, root, day) = sessions("2026/11/08");
-    let since = brokkr_core::stamp::parse_millis("2026-11-08T10:00:00.900Z").unwrap();
+    let since = parse_nanos("2026-11-08T10:00:00.900Z").unwrap();
     rollout(
         &day,
         "rollout-a.jsonl",
@@ -969,7 +1039,7 @@ fn a_single_foreign_rollout_is_not_this_invocations_refusal() {
 #[test]
 fn a_session_that_began_before_this_invocation_is_history() {
     let (_dir, root, day) = sessions("2026/11/08");
-    let since = brokkr_core::stamp::parse_millis("2026-11-08T10:00:00.900Z").unwrap();
+    let since = parse_nanos("2026-11-08T10:00:00.900Z").unwrap();
     rollout(
         &day,
         "rollout-old.jsonl",
@@ -1044,22 +1114,10 @@ exit 0
 #[cfg(unix)]
 #[test]
 fn recovered_work_without_a_result_stays_lost() {
-    let mut env = EnvGuard::lock();
     for with_error in [false, true] {
         let dir = tempfile::tempdir().unwrap();
-        let home = dir.path().join("codex-home");
         let fake = codex_recovered_completion(dir.path(), with_error);
-        env.set("CODEX_HOME", &home);
-        env.set("BROKKR_CODEX_BIN", &fake);
-        let start = json!({"effect_id": "effect", "attempt_id": "attempt",
-            "input": {"workdir": dir.path(),
-                      "result_path": dir.path().join("result.json"),
-                      "allowed_results": ["complete"], "feature": "f",
-                      "phase": "work", "role_path": "/dev/null"}});
-        let mut bodies = Vec::new();
-        run_seat(AdapterKind::Codex, &[], &start, None, &mut |body| {
-            bodies.push(body)
-        });
+        let bodies = codex_bodies(dir.path(), &fake);
         assert!(
             dir.path().join("worked").exists(),
             "the fake wrote its work marker (with_error={with_error})"
@@ -1078,6 +1136,386 @@ fn recovered_work_without_a_result_stays_lost() {
             "the lost attempt is still accepted (with_error={with_error}): {bodies:?}"
         );
     }
+}
+
+/// A fake codex that writes one rollout, optionally announces its thread,
+/// and exits `status` leaving no result. `marker` is the work file it
+/// writes first.
+#[cfg(unix)]
+fn codex_rollout(
+    dir: &std::path::Path,
+    rows: &[Value],
+    announce: bool,
+    status: i32,
+    marker: Option<&std::path::Path>,
+) -> std::path::PathBuf {
+    const THREAD: &str = "01a0619c-928b-7ad3-8cc9-9eaa94c3aec1";
+    let announced = if announce {
+        format!("printf '{{\"type\":\"thread.started\",\"thread_id\":\"{THREAD}\"}}\\n'\n")
+    } else {
+        String::new()
+    };
+    let marker = marker.map_or_else(String::new, |path| {
+        format!("printf '%s' done > '{}'\n", path.display())
+    });
+    let body = format!(
+        r#"#!/bin/sh
+cat >/dev/null
+{marker}mkdir -p "$CODEX_HOME/sessions/2026/11/08"
+cat > "$CODEX_HOME/sessions/2026/11/08/rollout-{THREAD}.jsonl" <<'JSON'
+{rows}JSON
+{announced}exit {status}
+"#,
+        rows = record(rows),
+    );
+    executable(dir, "codex", &body)
+}
+
+/// [`codex_rollout`] writing the work marker the high-finding tests read.
+#[cfg(unix)]
+fn codex_rollout_exit(
+    dir: &std::path::Path,
+    rows: &[Value],
+    announce: bool,
+    status: i32,
+) -> std::path::PathBuf {
+    codex_rollout(dir, rows, announce, status, Some(&dir.join("worked")))
+}
+
+/// Drive a fake through `run_seat` and return every body it sent.
+#[cfg(unix)]
+fn codex_bodies(dir: &std::path::Path, fake: &std::path::Path) -> Vec<Body> {
+    let mut env = EnvGuard::lock();
+    env.set("CODEX_HOME", dir.join("codex-home"));
+    env.set("BROKKR_CODEX_BIN", fake);
+    let start = json!({"effect_id": "effect", "attempt_id": "attempt",
+        "input": {"workdir": dir, "result_path": dir.join("result.json"),
+                  "allowed_results": ["complete"], "feature": "f",
+                  "phase": "work", "role_path": "/dev/null"}});
+    let mut bodies = Vec::new();
+    run_seat(AdapterKind::Codex, &[], &start, None, &mut |body| {
+        bodies.push(body)
+    });
+    bodies
+}
+
+fn assert_no_result(bodies: &[Body], why: &str) {
+    assert!(
+        !bodies
+            .iter()
+            .any(|body| matches!(body, Body::Result { .. })),
+        "{why}: {bodies:?}"
+    );
+}
+
+fn correlated_header(dir: &std::path::Path) -> Value {
+    json!({"timestamp": "9999-12-31T00:00:00Z", "type": "session_meta",
+           "payload": {"id": "01a0619c-928b-7ad3-8cc9-9eaa94c3aec1",
+                       "timestamp": "9999-12-31T00:00:00Z",
+                       "cwd": dir.to_string_lossy()}})
+}
+
+fn usage_limit() -> Value {
+    json!({"message": "You have hit your usage limit. \
+                       try again at Dec 31st, 9999 11:00 PM.",
+           "codex_error_info": "usage_limit_exceeded"})
+}
+
+/// Two starts with `middle` between them and a usage-limit completion at
+/// `completed_at`: the shape the high finding's reset would hide.
+fn two_start_rows(dir: &std::path::Path, middle: Value, completed_at: &str) -> Vec<Value> {
+    let mut complete = task_complete(usage_limit());
+    complete["timestamp"] = json!(completed_at);
+    vec![
+        correlated_header(dir),
+        json!({"timestamp": "9999-12-31T00:00:01Z", "type": "event_msg",
+               "payload": {"type": "task_started", "turn_id": "t"}}),
+        middle,
+        json!({"timestamp": "9999-12-31T00:00:03Z", "type": "event_msg",
+               "payload": {"type": "task_started", "turn_id": "t2"}}),
+        complete,
+    ]
+}
+
+fn assert_lost_with_marker(dir: &std::path::Path, bodies: &[Body], why: &str) {
+    assert!(dir.join("worked").exists(), "the fake wrote its marker");
+    assert_no_result(bodies, why);
+}
+
+/// The chief's high finding: an error followed by a second `task_started`
+/// is a notice, not a boundary that resets the invocation's evidence. The
+/// fake writes a work marker, exits 0 and leaves no result, so `run_seat`
+/// must send none — the lost-result path stands.
+#[cfg(unix)]
+#[test]
+fn review_chief_error_then_started_turn_preserves_lost_result() {
+    let dir = tempfile::tempdir().unwrap();
+    let rows = two_start_rows(
+        dir.path(),
+        json!({"timestamp": "9999-12-31T00:00:02Z", "type": "event_msg",
+               "payload": {"type": "error", "message": "quota",
+                           "codex_error_info": "usage_limit_exceeded"}}),
+        "9999-12-31T00:00:03Z",
+    );
+    let fake = codex_rollout_exit(dir.path(), &rows, false, 0);
+    let bodies = codex_bodies(dir.path(), &fake);
+    assert_lost_with_marker(
+        dir.path(),
+        &bodies,
+        "a turn started after the error keeps the attempt lost",
+    );
+}
+
+/// The same high finding with work between the starts: the tool call is
+/// never reset by the later `task_started`.
+#[cfg(unix)]
+#[test]
+fn review_chief_tool_work_survives_second_task_started() {
+    let dir = tempfile::tempdir().unwrap();
+    let rows = two_start_rows(
+        dir.path(),
+        json!({"timestamp": "9999-12-31T00:00:02Z", "type": "response_item",
+               "payload": {"type": "function_call", "name": "exec_command",
+                           "arguments": "{}"}}),
+        "9999-12-31T00:00:04Z",
+    );
+    let fake = codex_rollout_exit(dir.path(), &rows, false, 0);
+    let bodies = codex_bodies(dir.path(), &fake);
+    assert_lost_with_marker(
+        dir.path(),
+        &bodies,
+        "tool work survives the second task_started, so the attempt is lost",
+    );
+}
+
+/// M1 on the announced path: the thread id narrows the search, it never
+/// replaces the cwd and session-start checks. A foreign cwd, an old
+/// session, or both is not this invocation's record.
+#[cfg(unix)]
+#[test]
+fn review_chief_announced_foreign_old_record_is_not_correlated() {
+    for (cwd, started) in [
+        ("/foreign-seat".to_string(), "9999-12-31T00:00:00Z"),
+        (String::new(), "2000-01-01T00:00:00Z"),
+        ("/foreign-seat".to_string(), "2000-01-01T00:00:00Z"),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = if cwd.is_empty() {
+            dir.path().to_string_lossy().into_owned()
+        } else {
+            cwd
+        };
+        let mut complete = task_complete(usage_limit());
+        complete["timestamp"] = json!("9999-12-31T00:00:02Z");
+        let rows = [
+            json!({"timestamp": "9999-12-31T00:00:00Z", "type": "session_meta",
+                   "payload": {"id": "01a0619c-928b-7ad3-8cc9-9eaa94c3aec1",
+                               "timestamp": started, "cwd": cwd}}),
+            json!({"timestamp": "9999-12-31T00:00:01Z", "type": "event_msg",
+                   "payload": {"type": "task_started", "turn_id": "t"}}),
+            complete,
+        ];
+        let fake = codex_rollout_exit(dir.path(), &rows, true, 0);
+        let bodies = codex_bodies(dir.path(), &fake);
+        assert_no_result(
+            &bodies,
+            &format!("an announced record with cwd {cwd} and start {started} is foreign"),
+        );
+    }
+}
+
+/// The chief's measured prompt-ingestion finding: the real
+/// `codex-nomodel.jsonl` shape, with its developer and user message items
+/// and context rows, still reads the usage-limit completion as a refusal
+/// with the stated reset.
+#[cfg(unix)]
+#[test]
+fn review_chief_measured_prompt_ingestion_keeps_quota_refusal() {
+    const MEASURED: &str = include_str!("../probe/measure/streams/codex-nomodel.jsonl");
+    let dir = tempfile::tempdir().unwrap();
+    let mut rows: Vec<Value> = MEASURED
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    for row in &mut rows {
+        row["timestamp"] = json!("9999-12-31T00:00:02Z");
+    }
+    rows[0]["payload"]["cwd"] = json!(dir.path().to_string_lossy());
+    rows[0]["payload"]["timestamp"] = json!("9999-12-31T00:00:00Z");
+    let last = rows
+        .last_mut()
+        .expect("the measured record has a completion");
+    last["payload"]["error"] = usage_limit();
+    let fake = codex_rollout_exit(dir.path(), &rows, false, 0);
+    let bodies = codex_bodies(dir.path(), &fake);
+    assert!(
+        !bodies
+            .iter()
+            .any(|body| matches!(body, Body::Accepted { .. })),
+        "a refusal is not accepted: {bodies:?}"
+    );
+    let Some(Body::Result {
+        refusal: Some(refusal),
+        status: ResultStatus::Failed,
+        ..
+    }) = bodies.last()
+    else {
+        panic!("the measured record is a failed refusal: {bodies:?}");
+    };
+    assert_eq!(refusal.class(), RefusalClass::RateLimit);
+    assert!(
+        refusal.retry_after_seconds().is_some(),
+        "the stated reset is read: {refusal}"
+    );
+}
+
+/// The chief's sub-millisecond finding: the boundary is exact, not
+/// truncated to milliseconds. A completion at `…:00.900100Z` is history
+/// beside a start at `…:00.900900Z`.
+#[test]
+fn review_chief_submillisecond_history_is_not_current() {
+    let since = parse_nanos("2026-11-08T10:00:00.900900Z").unwrap();
+    let at = |timestamp: &str| record(&[completion_at(timestamp)]);
+    assert!(
+        codex_thread_refusal(&at("2026-11-08T10:00:00.900100Z"), Some(since), None).is_none(),
+        "100µs before the start is history"
+    );
+    assert!(
+        codex_thread_refusal(&at("2026-11-08T10:00:00.900900Z"), Some(since), None).is_some(),
+        "exactly at the start is current"
+    );
+    assert!(
+        codex_thread_refusal(&at("2026-11-08T10:00:00.901000Z"), Some(since), None).is_some(),
+        "after the start is current"
+    );
+}
+
+/// A row with no readable timestamp is not proven to be history: a work
+/// row is read rather than dropped, even beside a usage-limit error.
+#[test]
+fn an_untimed_work_row_is_never_assumed_history() {
+    let since = parse_nanos("2026-11-08T10:00:00Z").unwrap();
+    let work = json!({"type": "response_item",
+        "payload": {"type": "function_call", "name": "exec_command"}});
+    let body = record(&[work, completion_at("2026-11-08T10:00:01Z")]);
+    assert!(
+        codex_thread_refusal(&body, Some(since), None).is_none(),
+        "an untimed work row cannot be assumed history"
+    );
+}
+
+/// [`parse_nanos`] returns the exact nanosecond value, not merely an
+/// ordering: the digit arithmetic and the fraction scale are both pinned.
+#[test]
+fn parse_nanos_keeps_the_records_full_fraction() {
+    assert_eq!(parse_nanos("1970-01-01T00:00:00Z"), Some(0));
+    assert_eq!(parse_nanos("1970-01-01T00:00:00.9Z"), Some(900_000_000));
+    assert_eq!(
+        parse_nanos("1970-01-01T00:00:00.123456789Z"),
+        Some(123_456_789)
+    );
+    assert_eq!(
+        parse_nanos("1970-01-01T00:00:01.000000001Z"),
+        Some(1_000_000_001)
+    );
+    assert_eq!(parse_nanos("1969-12-31T23:59:59.5Z"), Some(-500_000_000));
+}
+
+/// The allow-list over the closed set: each non-work kind beside the error
+/// still refuses; each work kind, before or after the error, refuses
+/// nothing; and a kind nobody named is work.
+#[test]
+fn a_codex_refusal_reads_only_the_closed_non_work_kinds() {
+    let error = || {
+        json!({"timestamp": "2026-11-08T10:00:01Z", "type": "event_msg",
+               "payload": {"type": "error", "message": "quota",
+                           "codex_error_info": "usage_limit_exceeded"}})
+    };
+    let non_work = [
+        json!({"timestamp": "2026-11-08T10:00:00Z", "type": "session_meta", "payload": {}}),
+        json!({"timestamp": "2026-11-08T10:00:00Z", "type": "response_item",
+               "payload": {"type": "message", "role": "developer"}}),
+        json!({"timestamp": "2026-11-08T10:00:00Z", "type": "response_item",
+               "payload": {"type": "message", "role": "user"}}),
+        json!({"timestamp": "2026-11-08T10:00:00Z", "type": "event_msg",
+               "payload": {"type": "item_completed", "item": {"type": "UserMessage"}}}),
+        json!({"timestamp": "2026-11-08T10:00:00Z", "type": "event_msg",
+               "payload": {"type": "item_started", "item": {"type": "UserMessage"}}}),
+        json!({"timestamp": "2026-11-08T10:00:00Z", "type": "world_state", "payload": {}}),
+        json!({"timestamp": "2026-11-08T10:00:00Z", "type": "turn_context", "payload": {}}),
+        json!({"timestamp": "2026-11-08T10:00:00Z", "type": "event_msg",
+               "payload": {"type": "task_started"}}),
+        json!({"timestamp": "2026-11-08T10:00:00Z", "type": "event_msg",
+               "payload": {"type": "token_count"}}),
+    ];
+    for row in non_work {
+        let body = record(&[row.clone(), error()]);
+        let reason = codex_thread_refusal(&body, None, None)
+            .unwrap_or_else(|| panic!("a non-work row before the error is not work: {row}"));
+        assert_eq!(reason.class(), RefusalClass::RateLimit, "{row}");
+    }
+    // The error row itself and a task_complete that carries it.
+    for row in [
+        error(),
+        task_complete(json!({"message": "quota",
+                             "codex_error_info": "usage_limit_exceeded"})),
+    ] {
+        assert!(
+            codex_thread_refusal(&record(std::slice::from_ref(&row)), None, None).is_some(),
+            "{row}"
+        );
+    }
+    // Every other kind is work, before or after the error. The
+    // task_complete with a last message is the H1 case; the unknown kinds
+    // stand for any row nobody anticipated.
+    let work = [
+        json!({"type": "response_item", "payload": {"type": "message", "role": "assistant"}}),
+        json!({"type": "response_item", "payload": {"type": "function_call"}}),
+        json!({"type": "response_item", "payload": {"type": "function_call_output"}}),
+        json!({"type": "response_item", "payload": {"type": "reasoning"}}),
+        json!({"type": "item.started", "item": {}}),
+        json!({"type": "item.completed", "item": {}}),
+        json!({"type": "event_msg", "payload": {"type": "item_started",
+               "item": {"type": "CommandExecution"}}}),
+        json!({"type": "event_msg", "payload": {"type": "item_completed",
+               "item": {"type": "AgentMessage"}}}),
+        json!({"type": "event_msg", "payload": {"type": "agent_message"}}),
+        json!({"type": "event_msg", "payload": {"type": "agent_reasoning"}}),
+        json!({"type": "event_msg", "payload": {"type": "user_message"}}),
+        json!({"type": "event_msg", "payload": {"type": "exec_command_begin"}}),
+        json!({"type": "event_msg", "payload": {"type": "exec_command_end"}}),
+        json!({"type": "event_msg", "payload": {"type": "mcp_tool_call_begin"}}),
+        json!({"type": "event_msg", "payload": {"type": "mcp_tool_call_end"}}),
+        json!({"type": "event_msg", "payload": {"type": "patch_apply_begin"}}),
+        json!({"type": "event_msg", "payload": {"type": "task_complete"}}),
+        json!({"type": "event_msg", "payload": {"type": "task_complete",
+               "last_agent_message": "done",
+               "error": {"message": "late",
+                         "codex_error_info": "usage_limit_exceeded"}}}),
+        json!({"type": "event_msg", "payload": {"type": "unanticipated_kind"}}),
+        json!({"type": "response_item", "payload": {"type": "unanticipated_kind"}}),
+        json!({"type": "unanticipated_kind"}),
+    ];
+    for row in work {
+        for rows in [vec![row.clone(), error()], vec![error(), row.clone()]] {
+            assert!(
+                codex_thread_refusal(&record(&rows), None, None).is_none(),
+                "a work row makes the whole invocation non-refusal: {row}"
+            );
+        }
+    }
+}
+
+/// A task_started *after* the error is the H1 notice: the turn continued,
+/// so the error is not a pre-session refusal.
+#[test]
+fn a_started_turn_after_the_error_is_a_notice() {
+    let body = record(&[
+        task_complete(json!({"message": "quota",
+                             "codex_error_info": "usage_limit_exceeded"})),
+        json!({"type": "event_msg", "payload": {"type": "task_started"}}),
+    ]);
+    assert!(codex_thread_refusal(&body, None, None).is_none());
 }
 
 /// Decision 0103 ruling 3: the structured reset belongs to the window
@@ -1171,6 +1609,31 @@ fn a_text_reset_across_the_host_fall_back_waits_the_real_seconds() {
             .unwrap()
             .retry_after_seconds(),
         Some(7_200)
+    );
+}
+
+/// `epoch_now` names the host's current second, not a fixed reading: a
+/// reset's wait is measured from this clock.
+#[test]
+fn epoch_now_names_the_hosts_current_second() {
+    let before = i64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+    )
+    .unwrap();
+    let now = epoch_now().expect("the host has a clock");
+    let after = i64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+    )
+    .unwrap();
+    assert!(
+        (before..=after).contains(&now),
+        "{before} <= {now} <= {after}"
     );
 }
 

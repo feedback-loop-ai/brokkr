@@ -68,7 +68,7 @@ use probe::{pinned_model, seat_row, ProbeAnswer};
 use refusal::refusal_reason;
 use refusal::{
     bounded_wire_line, claude_refusal, codex_refusal, codex_thread_refusal, dsh_refusal,
-    epoch_now_millis, find_codex_thread, Now, REFUSAL_TOKEN_LIMIT,
+    epoch_now_nanos, find_codex_thread, thread_header, Now, REFUSAL_TOKEN_LIMIT,
 };
 #[cfg(test)]
 use start::serve_io;
@@ -1746,16 +1746,25 @@ impl CodexThreadEcho {
     /// on the stream. It is the same locator and the same bounded read as
     /// [`CodexThreadEcho::echo`]; a file that cannot be read, or that
     /// names no error, answers nothing rather than guessing (decision
-    /// 0053's boundary, decision 0103 ruling 1(a)). `since_millis` is this
-    /// invocation's start at the full precision a rollout row carries.
+    /// 0053's boundary, decision 0103 ruling 1(a)). Correlation is the
+    /// same on the announced path as the unannounced one: the header's
+    /// cwd must be this seat's and its session start at or after this
+    /// invocation's, so an announced foreign or older record is never
+    /// read (decision 0035).
     fn refusal(
         &mut self,
-        since_millis: Option<i64>,
+        since_nanos: i128,
+        workdir: &str,
         now: Option<&Now>,
     ) -> Option<PreSessionRefusal> {
         self.resolve();
-        let body = std::fs::read_to_string(self.path.as_ref()?).ok()?;
-        codex_thread_refusal(&body, since_millis, now)
+        let path = self.path.as_ref()?;
+        let (cwd, started) = thread_header(path)?;
+        if cwd != workdir || started < since_nanos {
+            return None;
+        }
+        let body = std::fs::read_to_string(path).ok()?;
+        codex_thread_refusal(&body, Some(since_nanos), now)
     }
 
     /// The same read where the CLI never announced its thread, so the
@@ -1769,7 +1778,7 @@ impl CodexThreadEcho {
     fn unannounced_refusal(
         &mut self,
         home: &std::path::Path,
-        since_millis: Option<i64>,
+        since_nanos: i128,
         workdir: &str,
         now: Option<&Now>,
     ) -> Option<PreSessionRefusal> {
@@ -1778,7 +1787,7 @@ impl CodexThreadEcho {
         }
         refusal::codex_thread_refusal_since(
             &home.join("sessions"),
-            since_millis?,
+            since_nanos,
             workdir,
             now,
             CODEX_THREAD_DEPTH,
@@ -3670,7 +3679,7 @@ fn invoke_codex(
     // rollout row and file time carry: a turn written at `…:00.100Z`
     // before this invocation's `…:00.900Z` start is history, not this
     // seat's refusal (decision 0053's boundary).
-    let started = epoch_now_millis();
+    let started = epoch_now_nanos();
     let (mut child, stderr_thread) = spawn_fed(command, prompt, workdir, bindings)?;
     let mut session_meta = Map::new();
     let mut turn = 0;
@@ -3785,17 +3794,18 @@ fn invoke_codex(
 /// The chain's last resort for a codex that ended before its first turn
 /// with no stream refusal: its announced thread, else the one rollout
 /// this invocation wrote and correlated to it. One clock reading serves
-/// both reads; `started_millis` is the invocation's start at millisecond
+/// both reads; `started_nanos` is the invocation's start at nanosecond
 /// precision, the boundary the record's rows and file time are held to.
 fn codex_early_refusal(
     echo: &mut CodexThreadEcho,
     home: &std::path::Path,
-    started_millis: Option<i64>,
+    started_nanos: Option<i128>,
     workdir: &str,
 ) -> Option<PreSessionRefusal> {
+    let started_nanos = started_nanos?;
     let now = Now::read();
-    echo.refusal(started_millis, now.as_ref())
-        .or_else(|| echo.unannounced_refusal(home, started_millis, workdir, now.as_ref()))
+    echo.refusal(started_nanos, workdir, now.as_ref())
+        .or_else(|| echo.unannounced_refusal(home, started_nanos, workdir, now.as_ref()))
 }
 
 /// The dsh headless invocation. It does NOT converge on `run_cli`'s
