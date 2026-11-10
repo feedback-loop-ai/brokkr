@@ -5,8 +5,8 @@ Date: 2026-11-08
 
 Built: unbuilt (#1035)
 
-This decision acts on 0068's rulings 4 and 7 and on 0103's rulings 2, 3, 4, 5 and 7. Because this
-story may not edit 0068 or 0103, the header pointer and the two back-pointers are absent until
+This decision acts on 0068's rulings 4 and 7 and on 0103's rulings 2, 3, 4, 5, 6 and 7. Because
+this story may not edit 0068 or 0103, the header pointer and the two back-pointers are absent until
 acceptance; the exact replacement sentences below are the amendment. They stand in [What 0068 and 0103 say after acceptance](#what-0068-and-0103-say-after-acceptance);
 the older files are not edited here, and the amendments take effect when this decision is
 accepted.
@@ -54,6 +54,21 @@ tables, so 0106b lands and tests alone (the slices). 0103's constant-retry-after
 in the episode, and the aggregate definitions at `:273-276` and `:348-351` are scoped to
 unexpired, uncleared rows (the amendments). The `provider_cooldowns` column list at `:256-272` is
 amended to carry nullable `held` and `max_seconds` (the amendments).
+
+This revision (fix round 1036d, 2026-11-09) answers the review of `1a9f6741e` (two medium, six
+low and one info). Wait parity survives an upgrade with no new event: the wait column is a stamped
+part of the summary, so an old table is rebuilt and every row is refolded from its events by the
+existing repair (ruling 2, the slices), and 0106b carries the upgrade parity test. 0103
+ruling 6 is scoped to unexpired, uncleared rows; its pass and claim reads are named in the
+amendment and in 0106c, which tests an admission and a claim after a clearing and continued
+refusal for a row recorded during or after the probe. The lows are answered: a waiting run's exact
+`Section::Running` placement is asserted on whole and paged reads (ruling 2); 0068 ruling 7's
+closed list now names the budget retry it permits; the index row names both lift forms; the
+page-level `WaitRows` producer is `section`, not `listed`; a wait retires at its retry's
+`effect/started`, expired-but-unanswered waits stay for the stale bound, and a lifecycle test
+covers a v1 wait, its retry's start, success and a later running effect (ruling 2); and the second
+aggregate passage is attributed to 0103 ruling 3. The info adds `crates/brokkr-core/src/page.rs`
+to 0106a's files. No existing decision is edited.
 
 ## Context
 
@@ -380,7 +395,13 @@ process — refused: a second standing process for a fact the operator's resume 
 dispatcher pass may later drive it; that is the follow-up's, not this decision's.
 
 **How the readouts show it.** Recommended: a new `Standing::Waiting` in `brokkr-view`, word
-`waiting`, listed under `running` (not `needs you`), with provider, route, `until`, the held flag
+`waiting`, listed under `running` (not `needs you`) and placed exactly in `Section::Running` on
+whole and paged reads (`crates/brokkr-view/src/fleet.rs:391-404`): `section_of` returns
+`Section::Running` for `Standing::Running` and `Standing::Waiting` once `need` has found nothing,
+and `need` (`crates/brokkr-view/src/fleet/need.rs:147-160`) returns `None` for a waiting run before
+its latest `until` and the ordinary `silence` verdict at or after it. `Standing::Waiting`'s label
+and `status_word` are `waiting`, and its `wants` is `None`; every exhaustive match gains the
+variant. With provider, route, `until`, the held flag
 and the driver (`brokkr resume` for a held wait, the live engine for an ordinary one) in the
 detail, one entry per refused site. A `Status::Running` run with at least one wait in force is
 `Waiting`, held or ordinary. Before the latest site's `until` it needs nothing and the stale bound
@@ -398,12 +419,23 @@ provider and route, not the event's first `until` (0103:296-297):
   `effect/indeterminate` event's whole `waits` array, parsed once by `provider_waits`
   (`crates/brokkr-core/src/payload/provider_wait.rs:265-279`) into
   `WaitSites = Vec<WaitSite>`, one `WaitSite { event_seq, site, provider, route, rounds, until,
-  held, max_seconds }` per entry in `(site, rounds)` order. `Summary::of`
+  held, max_seconds }` per entry in `(site, rounds)` order. The retirement is the account's, at
+  the retry's `effect/started` (0103:250-254): `Account::onto` sets `waits` to `None` on an
+  `effect/started` (`crates/brokkr-core/src/payload.rs:149-160`), so a wait ends when its retry
+  begins, not at a clock reading and not at `until`. `Summary::of`
   (`crates/brokkr-core/src/summary.rs:475`) copies it to `Summary.waits`, and `run_summary` gains
   one nullable `wait_sites` TEXT column (`crates/brokkr-store/src/summary.rs:149-170`, written at
   `:298-341`) carrying the same typed `WaitSites`, serialized and read back at the store's edge as
   `residuals` already is; there is no per-site scalar column, because one row is not a whole
-  episode's wait. `crates/brokkr-core/src/page.rs:91` `Row` reads the typed list back, never a
+  episode's wait. The column is a `Stamped` part of its own (`wait_sites`, `wait_folded_seq`,
+  trigger `run_summary_waited`): `summary_intact` (`crates/brokkr-store/src/summary.rs:245-252`)
+  lists it and `migrate_summary` (`:257-265`) adds its absence to the rebuild test, so an upgraded
+  journal drops the derived table and the open's backfill
+  (`crates/brokkr-store/src/summary/aggregate.rs:75-83`, `crates/brokkr-store/src/summary.rs:16-18`)
+  refolds every run from its events. An at-head row written before the column therefore cannot
+  stand with a NULL wait beside a v1 wait event, and no event is appended; a reader that cannot
+  migrate reads every run whole (`crates/brokkr-store/src/page.rs:335-353`).
+  `crates/brokkr-core/src/page.rs:91` `Row` reads the typed list back, never a
   `serde_json::Value`.
 - **The effective end is the table read at display time, per site.** `brokkr-store` exposes one
   typed read, `WaitRows`, keyed by the episode's `(run_id, event_seq, site)`: for each recorded
@@ -414,12 +446,16 @@ provider and route, not the event's first `until` (0103:296-297):
   site, because they name this run's driver; `Cleared` when that site's rows are all cleared and
   no row remains; `Absent` when the episode has no row for the site. `0106b`'s slice adds the two
   nullable columns to `provider_cooldowns` in 4d's v4 migration (the table is unbuilt) so a
-  probe-extended row carries its own kind. In 0106b `WaitRows` reads the latest unexpired row;
-  0106c extends it with the answered probe's sequence snapshot, so a cleared row is skipped. A
+  probe-extended row carries its own kind. In 0106b `WaitRows` reads the latest unexpired row for
+  admission's aggregate and the latest row of any age for the readout's end; 0106c extends it with
+  the answered probe's sequence snapshot, so a row at or below the snapshot is skipped. A
   table-only later row moves one site's end; an answered probe's snapshot clears the rows it saw
-  and that site's wait ends; no summary row is rewritten. `Cleared` means no wait for the site,
-  and `Absent` with a recorded site reads the event's `until` (a v1 journal, or a row a crash did
-  not write), never as no wait.
+  and that site's wait ends; no summary row is rewritten. `Cleared` means no wait for the site and
+  is only the answer's snapshot; `Absent` with a recorded site reads the event's `until` (a v1
+  journal, or a row a crash did not write), never as no wait. Expiry is not clearing: an expired
+  but uncleared row leaves admission's aggregate, while the site keeps its latest recorded end, so
+  the run still reads `waiting` until its retry's `effect/started` and `need`'s silence bound names
+  it at or after that end.
 - **The whole read's source and producer.** `RunEntry` (`crates/brokkr-view/src/lib.rs:200`) gains
   one field, `wait: Option<&WaitFacts>`, where `WaitFacts { sites: Vec<SiteWaitFacts> }` is the
   recorded `WaitSites` plus the `WaitRows` ends, built once by `wait_facts(&WaitSites, &WaitRows)`
@@ -438,9 +474,15 @@ provider and route, not the event's first `until` (0103:296-297):
   makes.
 - **The paged read's source and the other producers.** `summary_row`
   (`crates/brokkr-view/src/fleet/page.rs:93`) takes the same `Option<&WaitFacts>`, built from
-  `Row`'s typed `wait_sites` and the same `WaitRows`; `listed`
-  (`crates/brokkr-cli/src/fleet/page.rs:515`) issues one `WaitRows` read for the page's sites and
-  passes it, so a page and a whole read paint the same per-site `waiting` row. The remaining
+  `Row`'s typed `wait_sites` and the same `WaitRows`. The row's `wait_sites` is the account's at
+  its folded head, so the retry's `effect/started` append rewrites it to NULL, and a page that
+  finds the row behind its head reads the run whole. The page-level producer is `section`
+  (`crates/brokkr-cli/src/fleet/page.rs:463`), not `listed`: after `store.section` returns a chunk
+  (`:479`), `section` issues one `WaitRows` read for that chunk's recorded
+  `(run_id, event_seq, site)` set and hands it to each `listed` call (`:485-493`), so a page
+  issues one table read and not one per row; `listed` (`:515`) builds each row from the facts it
+  is given. A row that must be read whole takes its wait from the whole read's own `WaitRows`
+  read. The page and the whole read therefore paint the same per-site `waiting` row. The remaining
   production `RunEntry` constructors set the field too: `past_bound`
   (`crates/brokkr-cli/src/fleet/page.rs:634`) has no wait, and `run_frame_for_budget`
   (`crates/brokkr-cli/src/budget_frame.rs:31`) builds it from the events it holds and no table.
@@ -448,8 +490,9 @@ provider and route, not the event's first `until` (0103:296-297):
 - **The kept read.** `KeptRun` (`crates/brokkr-cli/src/fleet/kept.rs:269-280`) keeps the typed
   `WaitSites` and its `WaitFacts`, because it keeps no event bodies and `rules` (`:420-436`)
   drops `effect/failed` and `effect/indeterminate`. `KeptRun::whole` sets both from the whole
-  read, `carried` (`:326-346`) updates them from the same suffix it folds, and a refusal or a
-  replaced journal resets them. `KeptFleet::refresh` re-reads `WaitRows` for every retained
+  read, `carried` (`:326-346`) updates them from the same suffix it folds — including the
+  `effect/started` that retires a wait, as `Account::onto` does — and a refusal or a replaced
+  journal resets them. `KeptFleet::refresh` re-reads `WaitRows` for every retained
   `(run_id, event_seq, site)` on every refresh, not only when the journal's head moves, because a
   cooldown row is a table-only change; `entries` (`:149`) then carries the facts without a store.
 
@@ -464,8 +507,16 @@ refusal then extends B to T3; whole, paged and kept retain both sites and paint 
 effective end and kind), `a_paged_row_and_a_whole_read_paint_the_same_wait`,
 `a_table_only_later_row_moves_whole_paged_and_kept_readouts`,
 `a_kept_wait_matches_the_whole_read_after_an_unchanged_refresh`,
+`an_upgraded_at_head_summary_reads_a_v1_wait_whole_and_paged_with_no_new_event` (an at-head
+summary from the old shape, a running v1 ordinary wait, no event appended: the open's repair
+refolds the row and both reads paint `waiting` in `Section::Running` before `until`),
+`a_wait_retires_at_its_retry_effect_started_on_whole_paged_and_kept_reads` (a v1 wait, then its
+retry's `effect/started`, the effect's success and a later running effect: no read paints
+`waiting` after the start),
 `a_waiting_run_is_not_stale_before_its_until_and_is_stale_after`, and
-`a_waiting_run_is_not_listed_under_needs_you`. Options: (b) keep `Standing::Running` and put the
+`a_waiting_run_sits_in_the_running_section_on_whole_and_paged_reads` (the exact pair
+`(Section::Running, vec![run])` on both reads, not only absence from `needs you`). Options: (b)
+keep `Standing::Running` and put the
 wait in `detail` — cheapest, but a narrow `runs` row drops it and the stale rule needs an
 exception; (c) a `Need::Waiting` under `needs you` — visible, but says the operator must act when
 they need not. Refused. Cost: one view version per readout slice and the exhaustive matches a
@@ -662,17 +713,18 @@ These are the replacement sentences, kept here so the older files are not edited
 effect when this decision is accepted; the header pointers and back-pointers are added then, not
 in this story.
 
-The 0103 passages this decision touches are its ruling 2's table definition (`:256-272`), its two
-aggregate definitions (`:273-276`, `:348-351`), its no-clearing paragraph (`:277-286`), ruling 3's
+The 0103 passages this decision touches are its ruling 2's table definition (`:256-272`) and its
+aggregate definition (`:273-276`), its no-clearing paragraph (`:277-286`), ruling 3's
 recommendation (`:319-321`), its computed-wait, retry-after and episode paragraphs (`:340-344`,
-`:352-358`), ruling 4's probe-refusal loop, no-answer bullet and answer bullet (`:407-412`,
-`:419-425`, `:426-428`), ruling 5's in-process wait (`:456-480`), ruling 7's answer clause and
-expired-wait paragraph (`:561-563`, `:585-591`), its `What stays out` bullet (`:644-651`), its
-slice 4c test (`:745-747`) and its Consequences (`:806-815` and `:816-820`). Every one is quoted
-and replaced or scoped below, and the two aggregate definitions and the table definition are the
-ones a probe's answered snapshot and the two new columns change. No other 0103 passage is touched;
-in particular its engine-computed wait and episode bounds stay, a provider's own stated end does
-not enlarge the episode, and a row recorded during or after a probe is never removed.
+`:352-358`), ruling 3's aggregate remainder (`:348-351`), ruling 4's probe-refusal loop, no-answer
+bullet and answer bullet (`:407-412`, `:419-425`, `:426-428`), ruling 5's in-process wait
+(`:456-480`), ruling 6's two admission reads (`:484-506`), ruling 7's answer clause and expired-wait
+paragraph (`:561-563`, `:585-591`), its `What stays out` bullet (`:644-651`), its slice 4c test
+(`:745-747`) and its Consequences (`:806-815` and `:816-820`). Every one is quoted and replaced or
+scoped below, and the aggregate definitions (`:273-276` and `:348-351`) and the table definition
+are the ones a probe's answered snapshot and the two new columns change. No other 0103 passage is
+touched; in particular its engine-computed wait and episode bounds stay, a provider's own stated
+end does not enlarge the episode, and a row recorded during or after a probe is never removed.
 
 **0068 ruling 4.** "A run parks for the operator only when the provider's refusal is not a rate
 limit or the cool-down exceeds a declared maximum."
@@ -690,11 +742,12 @@ run the policy parked, never concludes or stops a run, and never changes an entr
 remain operator commands" (`docs/decisions/0068-the-dispatcher.md:100-106`) becomes:
 
 > `brokkr dispatch` runs as one process the operator starts, or one pass on demand; it starts
-> runs, records cool-downs and sweeps, and does nothing else. It never retries a run the policy
-> parked, except a queue-started run parked with the typed cause `infrastructure`, with
-> `retryable` true on positive non-execution evidence and while its entry's declared retry budget
-> remains; it never retries a `ruled`, `attempt-cap` or `provider-limit` park, never concludes or
-> stops a run, and never changes an entry's order — those remain operator commands.
+> runs, records cool-downs, sweeps, and spends one entry's declared retry budget on the one park
+> cause ruling 4 permits, and does nothing else. It never retries a run the policy parked, except
+> a queue-started run parked with the typed cause `infrastructure`, with `retryable` true on
+> positive non-execution evidence and while that entry's declared retry budget remains; it never
+> retries a `ruled`, `attempt-cap` or `provider-limit` park, never concludes or stops a run, and
+> never changes an entry's order — those remain operator commands.
 
 **0103 ruling 2, the table definition (`:256-272`).** Its column list gains the two nullable
 columns 0106b adds before v4 ships, so the table definition is amended with the table:
@@ -715,7 +768,7 @@ episode), `site` (the journal tag, `''` for an inline seat), `provider`, `route`
 The two columns are part of v4, which is unbuilt; 0106b adds them there rather than in a later
 version, and this is the one 0103 table definition the decision changes.
 
-**0103 ruling 2, the aggregate definitions (`:273-276`, `:348-351`).** The first says:
+**0103 ruling 2, the aggregate definition (`:273-276`).** It says:
 
 "Admission is keyed by provider and route, not by the row or the event: every unexpired row for a
 provider and route is in force, and the wait ends at the latest `until_at` across them — a
@@ -725,7 +778,7 @@ monotonic `MAX` aggregate." becomes:
 > uncleared row for a provider and route is in force, and the wait ends at the latest `until_at`
 > across them — a monotonic `MAX` aggregate.
 
-The second says:
+**0103 ruling 3, the aggregate remainder (`:348-351`).** It says:
 
 "The aggregate changes what one effect waits. Its own refusal computes one candidate `until`, but
 the time it may retry is the latest `until_at` across every unexpired row for its provider and
@@ -854,6 +907,30 @@ the remainder, or parks past the maximum" becomes:
 > waits the recorded remainder in the same bounded slices, at or after `until` it probes, and it
 > retries if attempts remain, or parks at the cap or a computed maximum that passed. No
 > dispatcher pass is proposed by this decision.
+
+**0103 ruling 6 (`:484-506`), the two admission reads.** The recommendation says "one read of
+every unexpired `provider_cooldowns` row, aggregated to the latest `until_at`" and "Every unexpired
+row holds the lane, not the latest row only"; the claim paragraph says "The claim's fence re-reads
+the same aggregate inside the claim's `Immediate` transaction (0095 ruling 7). The store hands the
+claim's judge the unexpired rows it reads there, and `Room::recheck` refuses a claim when any lane
+is cooling now, even if the pass saw none." They become:
+
+> One read of every unexpired, uncleared `provider_cooldowns` row, aggregated to the latest
+> `until_at` … Every unexpired, uncleared row holds the lane, not the latest row only. A row
+> cleared by an answered probe's sequence snapshot (0106 ruling 2) is not in force; a row recorded
+> during or after that probe has a higher sequence and still holds. The claim's fence re-reads the
+> same aggregate inside the claim's `Immediate` transaction (0095 ruling 7,
+> `crates/brokkr-store/src/queue/claim.rs`): the store hands the claim's judge the unexpired,
+> uncleared rows it reads there, and `Room::recheck` refuses a claim when any lane is cooling now,
+> even if the pass saw none. Slice 0106c changes both reads — the pass's `Measure::room` at
+> `crates/brokkr-runtime/src/admission/capacity.rs:322` and the claim's `Room::recheck` at
+> `crates/brokkr-store/src/queue/claim.rs` — to skip a row at or below the highest
+> `cleared_through_seq` of an answered probe for that provider and route.
+
+B's seq-1 row, whose own end is T+1h, no longer holds the pass or the claim after A's probe
+answers at T with snapshot 1, so an admission and a claim at T+10m see only the cleared row and
+admit. A row recorded with a higher seq during or after that probe is not cleared and still
+refuses both. 0106c carries the two tests.
 
 **0103 ruling 7 (`:561-563`), the answer's clearing clause.** "The probe's answer ends this
 run's wait; it clears no row and does not reset the chain or re-select the retried effect onto the
@@ -991,18 +1068,21 @@ slice is the typed cause, which the lane script and any driver can read at once.
 adoption are not here; the lift (0106c) precedes the budget (0106d), and storage versions follow
 that order.
 
-**Persistence and backfill.** Every fact here is additive and nothing is backfilled. A park
-written before `park-cause/v1` has no `cause` and reads `unknown`, never `ruled`. A wait written
-before `provider-wait/v2` has no `held` and reads as not held; a past-maximum wait from that
-journal still parks under 0103's rule. The summary columns the cause and the wait add are
-nullable, and a row written before them keeps null, which is the same `unknown`/not-held read; no
-history row is rewritten. `provider_lifts`, `provider_lift_probes`, `queue_retry_budgets` and
-`queue_retries` are new and empty, so an old journal has no lift and every entry reads the
-default budget of 3; a direct run always has none.
+**Persistence and backfill.** Every fact here is additive and no journal event is backfilled. A
+park written before `park-cause/v1` has no `cause` and reads `unknown`, never `ruled`. A wait
+written before `provider-wait/v2` has no `held` and reads as not held; a past-maximum wait from
+that journal still parks under 0103's rule. The cause column is nullable, and a row written before
+it keeps null, which is the same `unknown` read; no history row is rewritten. The wait column is a
+stamped part: a summary table from before it is rebuilt and every row is refolded from its events
+by the open's repair and backfill, so an upgraded summary never keeps a NULL wait beside a v1 wait
+event; no journal event is appended or rewritten. `provider_lifts`, `provider_lift_probes`,
+`queue_retry_budgets` and `queue_retries` are new and empty, so an old journal has no lift and
+every entry reads the default budget of 3; a direct run always has none.
 
 1. **0106a — the typed cause on `run/parked`.** Files: `crates/brokkr-core/src/park.rs` (new
    `ParkCause`), `crates/brokkr-core/src/payload.rs`, `crates/brokkr-core/src/summary.rs`,
-   `crates/brokkr-core/src/summary/park.rs`, `crates/brokkr-store/src/summary.rs`,
+   `crates/brokkr-core/src/summary/park.rs`, `crates/brokkr-core/src/page.rs` (`Row`,
+   `:91-119`), `crates/brokkr-store/src/summary.rs`,
    `crates/brokkr-runtime/src/engine.rs` (the two park writers at `:519` and `:815`),
    `crates/brokkr-runtime/src/engine/cursor.rs`, `crates/brokkr-runtime/src/engine/cooldown.rs`,
    `crates/brokkr-view/src/fleet.rs`, `crates/brokkr-view/src/fleet/page.rs`,
@@ -1060,10 +1140,21 @@ default budget of 3; a direct run always has none.
    `a_paged_row_and_a_whole_read_paint_the_same_wait`;
    `a_table_only_later_row_moves_whole_paged_and_kept_readouts`;
    `a_kept_wait_matches_the_whole_read_after_an_unchanged_refresh`;
-   `a_waiting_run_is_not_stale_before_its_until_and_is_stale_after`;
-   `a_waiting_run_is_not_listed_under_needs_you`. This slice's `WaitRows` reads the latest
-   unexpired row; the answered probe's snapshot, and the test that a cleared row leaves the
-   readout, are 0106c's, so 0106b needs no lift table to pass its own list.
+   `an_upgraded_at_head_summary_reads_a_v1_wait_whole_and_paged_with_no_new_event` (an at-head
+   summary from the old shape for a running v1 ordinary wait, no event appended: the repair
+   refolds the row and both reads paint `waiting` in `Section::Running` before `until`);
+   `a_wait_retires_at_its_retry_effect_started_on_whole_paged_and_kept_reads` (a v1 wait, then
+   its retry's `effect/started`, the effect's success and a later running effect: no read paints
+   `waiting` after the start);
+   `a_waiting_run_is_not_stale_before_its_until_and_is_stale_after` (a held wait whose `until`
+   lies past the 3-hour silence bound: `None` before it, stale at or after it once the bound has
+   passed);
+   `a_waiting_run_sits_in_the_running_section_on_whole_and_paged_reads` (the exact pair
+   `(Section::Running, vec![run])` on both reads, not only absence from `needs you`). This
+   slice's `WaitRows` reads the latest unexpired row for admission and the latest row of any age
+   for the readout, so an expired-but-unanswered wait still keeps the run `waiting` for the stale
+   bound; the answered probe's snapshot, and the test that a cleared row leaves the readout, are
+   0106c's, so 0106b needs no lift table to pass its own list.
 3. **0106c — the operator lift, its consumption and its clearing rule.** Depends on 0106b. Files:
    `crates/brokkr-core/src/fold.rs`, `crates/brokkr-core/src/fold/operator.rs`,
    `crates/brokkr-runtime/src/engine/operator.rs`,
@@ -1074,6 +1165,8 @@ default budget of 3; a direct run always has none.
    `provider_lift_probes`), `crates/brokkr-store/src/queue.rs`, the new
    `crates/brokkr-store/src/queue/lift.rs`,
    `crates/brokkr-store/src/queue/cooldown.rs` (`WaitRows` gains the snapshot filter),
+   `crates/brokkr-runtime/src/admission/capacity.rs` (the pass's `Measure::room` skips cleared
+   rows), `crates/brokkr-store/src/queue/claim.rs` (the claim's `Room::recheck` skips them),
    `crates/brokkr-cli/src/verbs/delivery.rs`,
    `crates/brokkr-cli/src/cli_args.rs`, `crates/brokkr-view/src/commands.rs`, and core, store,
    runtime, view and CLI tests. About 340 production and 280 test lines. Contract: queue storage
@@ -1098,6 +1191,11 @@ default budget of 3; a direct run always has none.
    `a_probe_answer_clears_only_rows_recorded_before_it` (a row planted during the probe
    survives); `an_answered_probe_clears_the_readouts_wait` (the cleared site leaves the whole,
    paged and kept readout, while a row recorded during or after the probe stays);
+   `an_admission_and_a_claim_admit_after_an_answered_probe_clears_an_unexpired_row` (B's seq-1
+   row whose own end is T+1h, A's answer at T with snapshot 1, the pass and the claim at T+10m
+   both admit);
+   `a_row_recorded_during_or_after_the_probe_still_refuses_the_pass_and_the_claim` (a higher
+   sequence is not cleared and both reads refuse);
    `a_refusal_after_a_lift_writes_a_new_round_and_waits_for_a_fresh_lift`; the lift
    and clear are journaled with the operator's reason.
 4. **0106d — the infrastructure budget.** Depends on 0106a, 0106c and #430 slice 6's pass, and
@@ -1180,8 +1278,8 @@ start-failure`, and no lane script may match its text to retry it.
 
 ## Evidence
 
-Read at `b56e6909e`, re-read at `25fa2d590`, `cfc1b3aeb` and `f0cfd265b`; the code is unchanged at
-those commits, each of which changed only this decision and its index row. The inventory above was
+Read at `b56e6909e`, re-read at `25fa2d590`, `cfc1b3aeb`, `f0cfd265b` and `1a9f6741e`; the code
+is unchanged at those commits, each of which changed only this decision and its index row. The inventory above was
 re-read at those commits with `grep -rn` for `EventType::RunParked`, `EffectIndeterminate`,
 `RefusalCause` and the lock calls, and with numbered `sed` reads and `grep -n` for each cited
 range; the park writes and the indeterminate writers were enumerated from that output (the
@@ -1222,6 +1320,25 @@ slice passes the wait as its second argument rather than assuming the field is o
 `VIEW_VERSION` is 29 at HEAD (`crates/brokkr-view/src/lib.rs:164`). The dispatcher citation is
 `crates/brokkr-runtime/src/dispatch.rs:6`; `run_summary::Summary.park_reason` is at
 `crates/brokkr-view/src/run_summary.rs:33`, not `:32`.
+
+The review at `1a9f6741e`'s two medium, six low and one info findings were re-read there. Wait
+parity: the whole read parses the terminal event's `waits`
+(`crates/brokkr-core/src/payload/provider_wait.rs:265-279`), while `listed` trusts an at-head
+summary (`crates/brokkr-cli/src/fleet/page.rs:519-525`), so a row whose `wait_sites` the old writer
+left NULL would read `Running` against the whole read's `Waiting`. The repair that closes it is
+the summary's own derived-row rule (`crates/brokkr-store/src/summary.rs:16-18`, `:254-265`) and
+its `rebuild` (`crates/brokkr-store/src/summary/aggregate.rs:75-83`); a reader that cannot migrate
+reads whole (`crates/brokkr-store/src/page.rs:335-353`). The page-level producer is `section`
+(`crates/brokkr-cli/src/fleet/page.rs:463`), which calls `listed` per row (`:485-493`); `listed`
+itself is at `:515`. The waiting row's exact placement is `section_of`
+(`crates/brokkr-view/src/fleet.rs:391-404`) and `need`
+(`crates/brokkr-view/src/fleet/need.rs:147-160`). The retirement is the retry's `effect/started`
+(`crates/brokkr-core/src/payload.rs:149-160`), against 0103's sentence at `:250-254`. 0103 ruling 6
+is at `:484-506`, its claim's transaction read is named in slice 4d at `:748-752`
+(`crates/brokkr-store/src/queue/claim.rs`), and its second aggregate passage is in ruling 3
+(`:317`, `:348-351`). The index row is `docs/decisions/README.md:194`. This story edited no
+contract, fixture, policy table, reference file or existing decision; the only changes are this
+file and its index row.
 
 The other security hold's counterexamples were re-read at the lines the first hold names:
 the head-only fence (`crates/brokkr-store/src/lib.rs:630-656`), the settled-attempt adoption
