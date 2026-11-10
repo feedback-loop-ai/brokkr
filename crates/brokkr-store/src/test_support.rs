@@ -455,7 +455,8 @@ pub fn statements_traced<T>(store: &mut Store, read: impl FnOnce(&Store) -> T) -
     /// rusqlite 0.41 has only SQLite's v2 trace, which hands a statement's
     /// text as prepared: its bound values are written in here, as the
     /// legacy trace wrote them. A trigger's or a nested statement's comment
-    /// (`-- …`) is kept as given.
+    /// (`-- …`) is kept as given. Each statement's profile event, sent as
+    /// it ends, records nothing.
     fn begun(event: TraceEvent<'_>) {
         if let TraceEvent::Stmt(statement, sql) = event {
             let sql = match statement.expanded_sql() {
@@ -479,7 +480,10 @@ pub fn statements_traced<T>(store: &mut Store, read: impl FnOnce(&Store) -> T) -
     BEGUN.with(|begun| begun.borrow_mut().clear());
     store
         .conn
-        .trace_v2(TraceEventCodes::SQLITE_TRACE_STMT, Some(begun))
+        .trace_v2(
+            TraceEventCodes::SQLITE_TRACE_STMT | TraceEventCodes::SQLITE_TRACE_PROFILE,
+            Some(begun),
+        )
         .expect("a statement trace installs");
     let guard = Traced;
     let read = read(store);
