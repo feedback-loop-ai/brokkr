@@ -66,10 +66,7 @@ pub(crate) fn expand_dialect_argv(argv: &[String], change: &str) -> Vec<String> 
 
 /// A dialect step's outcome, and into `evidence` what its terminal event
 /// carries when its tree is not proven over (#403).
-pub(crate) fn dialect_attempt_outcome(
-    run: DriverRun,
-    evidence: &mut Unproven,
-) -> AttemptOutcome {
+pub(crate) fn dialect_attempt_outcome(run: DriverRun, evidence: &mut Unproven) -> AttemptOutcome {
     match run {
         DriverRun::SpawnFailed(error) => AttemptOutcome::Failed { error },
         DriverRun::Ran(report) => {

@@ -21,6 +21,7 @@ use super::{
 };
 use crate::bundle::{ExecutableBody, Invocation};
 use crate::engine::carry::record::Tag;
+use crate::engine::{start_failure_sites, Site};
 
 /// One member that failed to start with a typed rate-limit refusal, tagged
 /// as the journal tags it (decision 0103 ruling 1(a)): the site the panel's
@@ -29,6 +30,69 @@ use crate::engine::carry::record::Tag;
 pub(in crate::engine) struct RefusedMember {
     pub(in crate::engine) site: String,
     pub(in crate::engine) refusal: PreSessionRefusal,
+}
+
+/// One site of a failing sequence step that did not start, tagged as the
+/// journal tags it, with the typed refusal its own report carried where it
+/// has one (decision 0103 slice 4c2b): a spawn failure has no report and so
+/// no refusal, and keeps today's start-failure site with no wait.
+#[derive(Clone)]
+pub(in crate::engine) struct FailedSite {
+    pub(in crate::engine) site: Site,
+    pub(in crate::engine) refusal: Option<PreSessionRefusal>,
+}
+
+impl FailedSite {
+    /// The site as the terminal event's `start_failure_sites` spells it.
+    pub(in crate::engine) fn site(&self) -> Site {
+        self.site.clone()
+    }
+}
+
+/// Every site of a failing step that did not start, in declared order, with
+/// the typed refusal its report carried. The sites themselves come from the
+/// one assembly a panel's start-failure fields already use, so the chain
+/// advance per site stays unchanged.
+pub(in crate::engine) fn failed_sites(
+    reports: &[(String, AttemptReport)],
+    tag_prefix: &str,
+) -> Vec<FailedSite> {
+    start_failure_sites(reports, tag_prefix)
+        .into_iter()
+        .map(|site| FailedSite {
+            refusal: refusal_at(reports, tag_prefix, site.as_deref()),
+            site,
+        })
+        .collect()
+}
+
+/// The typed refusal the report at `site` carried, where its report has one:
+/// the same declared-order walk the site assembly makes.
+fn refusal_at(
+    reports: &[(String, AttemptReport)],
+    tag_prefix: &str,
+    site: Option<&str>,
+) -> Option<PreSessionRefusal> {
+    let site = site?;
+    reports.iter().find_map(|(name, report)| {
+        (Tag::prefixed(tag_prefix, name).0 == site)
+            .then(|| report.refusal.as_deref().cloned())
+            .flatten()
+    })
+}
+
+/// The rate-limited sites among a failing step's, in declared order, as the
+/// terminal writer's refused members: a site refused for another reason
+/// follows decision 0006 unchanged and gets no wait and no probe.
+pub(in crate::engine) fn refused_sites(failed: &[FailedSite]) -> Vec<RefusedMember> {
+    failed
+        .iter()
+        .filter_map(|failed| {
+            let refusal = failed.refusal.clone()?;
+            let site = failed.site.clone()?;
+            (refusal.class() == RefusalClass::RateLimit).then_some(RefusedMember { site, refusal })
+        })
+        .collect()
 }
 
 /// Every member whose report carries a typed rate-limit refusal, in declared
@@ -236,6 +300,29 @@ impl Engine {
         let reason = refusal_text(&refused, cause.episode);
         let park = (!self.at_attempt_cap(events, effect_id)).then_some(reason);
         PanelTerminal { payload, park }
+    }
+
+    /// A sequence step's terminal payload with the step's own waits, through
+    /// the panel writer (decision 0103 slice 4c2b): a sequence attempt ends
+    /// at its failing step, so only that step's sites appear. No refused site
+    /// is no wait, and an indeterminate step takes the computable waits as
+    /// evidence only and parks on its own reason.
+    pub(in crate::engine) fn step_terminal(
+        &self,
+        effect_id: &str,
+        payload: Value,
+        failed: &[FailedSite],
+        retry: bool,
+    ) -> Result<PanelTerminal, EngineError> {
+        let refused = refused_sites(failed);
+        if refused.is_empty() {
+            return Ok(PanelTerminal {
+                payload,
+                park: None,
+            });
+        }
+        let events = self.store.load(&self.run_id)?;
+        Ok(self.panel_rate_limit_terminal(&events, effect_id, payload, &refused, retry))
     }
 
     /// The episode an earlier wait made unreadable: no current wait can be

@@ -18,10 +18,11 @@ use super::carry::{
     outcome_under,
     record::{settled_members, PanelRecord, PanelSpan},
 };
+use super::cooldown::{failed_sites, FailedSite};
 use super::{
     argv_for, copy_secret_binding_facts, failed_to_start, git_head, stamp_boundary,
-    start_failure_fields, start_failure_sites, DriverRun, Engine, EngineError,
-    Indeterminate, Selection, Site, Unproven,
+    start_failure_fields, DriverRun, Engine, EngineError, Indeterminate, Selection, Site,
+    SiteSpawn, Unproven,
 };
 use crate::bundle::{
     dialect_results, Aggregate, DialectExecution, Invocation, PanelMember, SeatClass, SequenceStep,
@@ -34,8 +35,8 @@ mod step_facts;
 mod success;
 
 pub(crate) use step_facts::needs_change;
-use step_facts::{tailed_outcome, vocabulary_problem};
 pub(super) use step_facts::{dialect_attempt_outcome, expand_dialect_argv, nearest_change};
+use step_facts::{tailed_outcome, vocabulary_problem};
 
 /// Where a step leaves its attempt, at each stage of settling it.
 enum StepVerdict<T> {
@@ -90,10 +91,23 @@ struct StepAt<'a> {
 struct StepRun {
     record: Option<PanelRecord>,
     outcome: AttemptOutcome,
-    start_failures: Vec<Site>,
+    start_failures: Vec<FailedSite>,
     /// What the step's terminal event carries when its tree is not
     /// proven over (#403).
     unproven: Unproven,
+}
+
+/// One single step's composition request (decision 0071 ruling 10: a long
+/// parameter list becomes a parameter object): its site label, attempt,
+/// class, command, the structural site the selection keys, and that
+/// selection. The step's attempt and its cool-down probe both build one.
+pub(super) struct StepComposition<'a> {
+    pub(super) label: &'a str,
+    pub(super) attempt_id: &'a str,
+    pub(super) gate: bool,
+    pub(super) command: &'a [String],
+    pub(super) site: &'a Site,
+    pub(super) selection: &'a Selection,
 }
 
 impl SequenceRun<'_> {
@@ -156,13 +170,17 @@ impl SequenceRun<'_> {
 
     /// The `effect/failed` payload for a step: its problem, and the sites
     /// that failed to start.
-    fn failed_payload(&self, at: &StepAt, problem: &str, start_failures: Vec<Site>) -> Value {
+    fn failed_payload(&self, at: &StepAt, problem: &str, start_failures: &[FailedSite]) -> Value {
         let mut payload = json!({
             "effect_id": self.effect_id,
             "attempt_id": self.attempt_id,
             "error": format!("sequence step '{}': {problem}", at.step.name),
         });
-        start_failure_fields(&mut payload, self.selection, start_failures);
+        start_failure_fields(
+            &mut payload,
+            self.selection,
+            start_failures.iter().map(FailedSite::site).collect(),
+        );
         payload
     }
 
@@ -286,21 +304,15 @@ impl Engine {
         }
         copy_secret_binding_facts(&mut input, run.input);
         let gate = at.step.class == SeatClass::Gate;
-        let link = run.selection.get(&site);
-        self.marks().site(&at.label, gate, link, &mut input);
-        let hands = self.hands_for(&at.label);
-        let mut spawn = self.compose_at(
-            Some(&at.label),
-            run.attempt_id,
+        let composition = StepComposition {
+            label: &at.label,
+            attempt_id: run.attempt_id,
             gate,
-            argv_for(run.selection, &site, command).to_vec(),
-            hands.as_ref(),
-            link,
-            input["result_path"].as_str().unwrap_or_default(),
-        );
-        let brokers = run.selection.brokers(&at.label);
-        let served = (brokers, hands.as_ref());
-        self.mark_serving(&at.label, link, served, Some(&mut spawn), &mut input);
+            command,
+            site: &site,
+            selection: run.selection,
+        };
+        let (spawn, input) = self.compose_step(composition, input);
         // A sequence step now HAS such an identity: proposed
         // decision 0056 ruling 1 gives it a structural site
         // key, so a work-class step rejoins its own session
@@ -321,13 +333,19 @@ impl Engine {
             DriverRun::SpawnFailed(error) => StepRun {
                 record: None,
                 outcome: AttemptOutcome::Failed { error },
-                start_failures: vec![site],
+                start_failures: vec![FailedSite {
+                    site,
+                    refusal: None,
+                }],
                 unproven: Unproven::Proven,
             },
             DriverRun::Ran(report) => StepRun {
                 record: None,
                 start_failures: if failed_to_start(&report) {
-                    vec![site]
+                    vec![FailedSite {
+                        site,
+                        refusal: report.refusal.as_deref().cloned(),
+                    }]
                 } else {
                     Vec::new()
                 },
@@ -335,6 +353,41 @@ impl Engine {
                 outcome: tailed_outcome(&report),
             },
         })
+    }
+
+    /// A single step's one composition: its own site, the link the refusal
+    /// named, the boundary and hands facts, its command and result path. The
+    /// step's attempt and its cool-down probe both call this, so the probe
+    /// asks exactly the route the step ran (decision 0103 slice 4c2b).
+    pub(super) fn compose_step(
+        &mut self,
+        at: StepComposition<'_>,
+        mut input: Value,
+    ) -> (SiteSpawn, Value) {
+        let StepComposition {
+            label,
+            attempt_id,
+            gate,
+            command,
+            site,
+            selection,
+        } = at;
+        let link = selection.get(site);
+        self.marks().site(label, gate, link, &mut input);
+        let hands = self.hands_for(label);
+        let mut spawn = self.compose_at(
+            Some(label),
+            attempt_id,
+            gate,
+            argv_for(selection, site, command).to_vec(),
+            hands.as_ref(),
+            link,
+            input["result_path"].as_str().unwrap_or_default(),
+        );
+        let brokers = selection.brokers(label);
+        let served = (brokers, hands.as_ref());
+        self.mark_serving(label, link, served, Some(&mut spawn), &mut input);
+        (spawn, input)
     }
 
     /// A panel step: its members run as a seat-level panel's do, tagged
@@ -372,7 +425,7 @@ impl Engine {
         let plan = (at.index == 0)
             .then_some(run.selection.carry.as_ref())
             .flatten();
-        let start_failures = start_failure_sites(&reports, &tag_prefix);
+        let start_failures = failed_sites(&reports, &tag_prefix);
         let unproven = Unproven::panel(&reports);
         let outcome = outcome_under(aggregate, plan, reports, &record.span, run.attempt_id)?;
         Ok(StepRun {
@@ -484,7 +537,7 @@ impl Engine {
         // A step's result the fence refuses (decision 0034, ruling
         // 6) fails the attempt at that step, with the same facts a
         // step that failed on its own would carry.
-        let refused = |refusal: String| run.failed_payload(at, &refusal, start_failures.clone());
+        let refused = |refusal: String| run.failed_payload(at, &refusal, &start_failures);
         if run.is_last(at) {
             self.finish_sequence(run, at, result, carried, refused)
         } else {
@@ -507,11 +560,21 @@ impl Engine {
                 Ok(StepVerdict::Goes(stamp_boundary(result, boundary)))
             }
             AttemptOutcome::Failed { error } => {
-                let mut payload = run.failed_payload(at, &error, ran.start_failures);
+                let mut payload = run.failed_payload(at, &error, &ran.start_failures);
                 if let Some(record) = ran.record {
                     record.stamp(&mut payload);
                 }
-                self.end_failed(run, payload)
+                let terminal =
+                    self.step_terminal(run.effect_id, payload, &ran.start_failures, true)?;
+                self.append(
+                    EventType::EffectFailed,
+                    terminal.payload,
+                    Some(run.attempt_id.to_owned()),
+                )?;
+                if let Some(reason) = terminal.park {
+                    self.park_with_reason(reason)?;
+                }
+                Ok(StepVerdict::Ended)
             }
             AttemptOutcome::Indeterminate { reason } => {
                 let mut payload = json!(Indeterminate {
@@ -523,9 +586,11 @@ impl Engine {
                 if let Some(record) = ran.record {
                     record.stamp(&mut payload);
                 }
+                let terminal =
+                    self.step_terminal(run.effect_id, payload, &ran.start_failures, false)?;
                 self.append(
                     EventType::EffectIndeterminate,
-                    payload,
+                    terminal.payload,
                     Some(run.attempt_id.to_owned()),
                 )
                 .map(|_| StepVerdict::Ended)
@@ -542,10 +607,10 @@ impl Engine {
         at: &StepAt,
         result: &Value,
         carried: &mut Carried,
-        start_failures: &[Site],
+        start_failures: &[FailedSite],
     ) -> Result<StepVerdict<()>, EngineError> {
         if let Some(problem) = vocabulary_problem(at.step, result) {
-            return self.end_failed(run, run.failed_payload(at, &problem, Vec::new()));
+            return self.end_failed(run, run.failed_payload(at, &problem, &[]));
         }
         // A deterministic dialect check's failure is recorded before any
         // ending is decided, so an early ending passes the same
@@ -673,7 +738,7 @@ impl Engine {
         at: &StepAt,
         result: &Value,
         why: &'static str,
-        start_failures: &[Site],
+        start_failures: &[FailedSite],
         carried: &Carried,
     ) -> Result<StepVerdict<()>, EngineError> {
         if let StepVerdict::Ended = self.refuse_contradiction(run, at, result, carried)? {
@@ -688,7 +753,7 @@ impl Engine {
                 "why": why,
             }),
             run.attempt_id,
-            |refusal| run.failed_payload(at, &refusal, start_failures.to_vec()),
+            |refusal| run.failed_payload(at, &refusal, start_failures),
         )?;
         Ok(StepVerdict::Ended)
     }

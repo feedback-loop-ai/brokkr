@@ -208,3 +208,74 @@ fn a_vanished_worktree_leaves_the_probe_admission_its_own_refusal() {
         Err(Unadmitted::Identity(Unknown::Worktree))
     );
 }
+
+/// A wait at `site` the cleanup refusal may name.
+#[cfg(target_os = "linux")]
+fn wait_at(site: &str, provider: &str, route: &str) -> brokkr_core::ProviderWait {
+    let mut named = wait();
+    named.site = Some(site.into());
+    named.provider = provider.into();
+    named.route = route.into();
+    named
+}
+
+/// The reservation `run` of `work` with one standing attempt `a1` whose
+/// drivers are `sites`, each not proven settled: the crashed probe a cleanup
+/// refusal names.
+#[cfg(target_os = "linux")]
+fn standing_with(host: &Host, work: &Path, run: &str, sites: &[&str]) -> (String, PathBuf) {
+    let (repo, at) = planted(host, work, run);
+    let mut held: Reservation = serde_json::from_slice(&std::fs::read(&at).unwrap()).unwrap();
+    let reserved = held.attempts.get_mut("a1").unwrap();
+    for site in sites {
+        reserved.drivers.push(Driver {
+            site: (*site).into(),
+            begun: None,
+            cleanup: Witnessed::Settling,
+        });
+    }
+    std::fs::write(&at, serde_json::to_vec(&held).unwrap()).unwrap();
+    (repo, at)
+}
+
+/// The chief's colon-member case: `b` and `x:b` both suffix-match the
+/// reserved driver `work:x:b` under the old rule, and the cleanup refusal
+/// then named claude/first — the wrong member's provider and route. Exact
+/// member identity names codex/second, the route the reserved driver ran.
+#[cfg(target_os = "linux")]
+#[test]
+fn chief_colon_member_cleanup_names_the_reserved_route() {
+    let host = Host::new();
+    let work = host.worktree("work");
+    let (repo, _at) = standing_with(&host, &work, "run-a", &["work:x:b"]);
+    let waits = [
+        wait_at("b", "claude", "first"),
+        wait_at("x:b", "codex", "second"),
+    ];
+    let refused = settle_orphaned(&host.root, [&repo, "run-a"], &[], &waits, soon())
+        .expect_err("an unsettled driver was passed over");
+    assert_eq!(refused.provider.as_deref(), Some("codex"), "{refused:?}");
+    assert_eq!(refused.route.as_deref(), Some("second"), "{refused:?}");
+    assert!(refused.to_string().contains("codex/second"), "{refused}");
+}
+
+/// The chief's site-less case: a single seat's site-less wait is `<seat>`
+/// alone, so it never names the unrelated reserved driver `work:x:b`; the
+/// cleanup refusal stays neutral instead of borrowing claude/first.
+#[cfg(target_os = "linux")]
+#[test]
+fn chief_siteless_wait_does_not_name_an_unrelated_reserved_route() {
+    let host = Host::new();
+    let work = host.worktree("work");
+    let (repo, _at) = standing_with(&host, &work, "run-a", &["work:x:b"]);
+    let refused = settle_orphaned(&host.root, [&repo, "run-a"], &[], &[wait()], soon())
+        .expect_err("an unsettled driver was passed over");
+    assert_eq!(refused.provider, None, "{refused:?}");
+    assert_eq!(refused.route, None, "{refused:?}");
+    let said = refused.to_string();
+    assert!(
+        said.contains("a cool-down probe did not prove its process tree gone"),
+        "{said}"
+    );
+    assert!(!said.contains("claude/first"), "{said}");
+}

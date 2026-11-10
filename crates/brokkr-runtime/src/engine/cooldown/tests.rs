@@ -15,7 +15,7 @@ use time::OffsetDateTime;
 
 use super::Clock;
 use crate::agents::{Candidate, HarnessHands, Lowering};
-use crate::bundle::{Aggregate, Invocation, Limits, PanelMember, SeatBody, SeatClass, StepBody};
+use crate::bundle::{Aggregate, Invocation, Limits, PanelMember, SeatBody, SeatClass};
 use crate::engine::tests::{bundle, single_body, templated};
 use crate::engine::Engine;
 
@@ -1389,6 +1389,7 @@ fn a_driver_that_does_not_advertise_the_probe_parks_naming_it() {
 
 mod lease;
 mod probe_driver;
+mod sequence;
 
 fn no_waits(engine: &Engine) {
     for event in failed(engine) {
@@ -1412,40 +1413,6 @@ fn panel_body(command: Vec<String>) -> SeatBody {
         }],
         aggregate: Aggregate::UnanimousPass,
     })
-}
-
-#[test]
-fn a_sequence_refused_by_a_rate_limit_follows_todays_path() {
-    let dir = tempfile::tempdir().unwrap();
-    let body = SeatBody::Sequence {
-        steps: vec![uncompiled_sequence_step! {
-            name: "draft".into(),
-            class: SeatClass::Work,
-            results: vec!["complete".into()],
-            body: StepBody::Invocation(Invocation::Single {
-                role_path: PathBuf::from("role.md"),
-                command: driver(
-                    dir.path(),
-                    "step",
-                    &["refuse", "refuse"],
-                    Probed::Answer,
-                    None,
-                    "claude",
-                    "first",
-                ),
-                candidates: Vec::new(),
-                written: Vec::new(),
-                class: (),
-            }),
-        }],
-    };
-    let (_dir, mut engine, _now) = seated!(@in dir, body, 2);
-    engine.drive().unwrap();
-    assert!(!failed(&engine).is_empty());
-    no_waits(&engine);
-    assert!(starts(&engine)
-        .iter()
-        .all(|start| start.get("probes").is_none()));
 }
 
 /// The host seam's three outcomes, and the two no-declaration shapes. A

@@ -147,18 +147,32 @@ fn orphans(attempts: impl Iterator<Item = String>, events: &[EventEnvelope]) -> 
     attempts.filter(|attempt| !named(events, attempt)).collect()
 }
 
+/// Whether the reserved driver `driver` is exactly the one the wait at
+/// `site` named: `<seat>:<site>` for a tagged wait, `<seat>` alone for a
+/// site-less single seat. A suffix match is not identity: the members `b`
+/// and `x:b` both name `work:x:b` by suffix, and the cleanup refusal would
+/// then name the wrong member's provider and route. An ambiguous or absent
+/// match leaves the refusal neutral (decision 0103 ruling 4).
+fn names_site(site: Option<&str>, driver: &str) -> bool {
+    match site {
+        None => !driver.contains(':'),
+        Some(site) => driver
+            .strip_suffix(site)
+            .and_then(|head| head.strip_suffix(':'))
+            .is_some_and(|seat| !seat.is_empty() && !seat.contains(':')),
+    }
+}
+
 /// The wait the standing attempt's own driver names: the member a panel
 /// probe reserved at `<seat>:<member>` matches the wait at `<member>`, and a
 /// single seat's site-less wait (`recorded_waits` refuses one beside another)
-/// is its own. No match leaves the refusal neutral rather than borrowing
-/// another member's route (decision 0103 ruling 4).
+/// is its own. No exact match leaves the refusal neutral rather than
+/// borrowing another member's route (decision 0103 ruling 4).
 fn attempt_wait<'a>(waits: &'a [ProviderWait], reserved: &Reserved) -> Option<&'a ProviderWait> {
     reserved.drivers.iter().find_map(|driver| {
-        waits.iter().find(|wait| {
-            wait.site
-                .as_deref()
-                .is_none_or(|site| driver.site.ends_with(&format!(":{site}")))
-        })
+        waits
+            .iter()
+            .find(|wait| names_site(wait.site.as_deref(), &driver.site))
     })
 }
 
