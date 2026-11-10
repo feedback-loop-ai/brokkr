@@ -923,9 +923,10 @@ is cooling now, even if the pass saw none." They become:
 > `crates/brokkr-store/src/queue/claim.rs`): the store hands the claim's judge the unexpired,
 > uncleared rows it reads there, and `Room::recheck` refuses a claim when any lane is cooling now,
 > even if the pass saw none. Slice 0106c changes both reads — the pass's `Measure::room` at
-> `crates/brokkr-runtime/src/admission/capacity.rs:322` and the claim's `Room::recheck` at
-> `crates/brokkr-store/src/queue/claim.rs` — to skip a row at or below the highest
-> `cleared_through_seq` of an answered probe for that provider and route.
+> `crates/brokkr-runtime/src/admission/capacity.rs:322`, and the claim's read at
+> `crates/brokkr-store/src/queue/claim.rs` whose rows the same `Room::recheck` at
+> `crates/brokkr-runtime/src/admission/capacity.rs:449` judges — to skip a row at or below the
+> highest `cleared_through_seq` of an answered probe for that provider and route.
 
 B's seq-1 row, whose own end is T+1h, no longer holds the pass or the claim after A's probe
 answers at T with snapshot 1, so an admission and a claim at T+10m see only the cleared row and
@@ -1165,8 +1166,9 @@ every entry reads the default budget of 3; a direct run always has none.
    `provider_lift_probes`), `crates/brokkr-store/src/queue.rs`, the new
    `crates/brokkr-store/src/queue/lift.rs`,
    `crates/brokkr-store/src/queue/cooldown.rs` (`WaitRows` gains the snapshot filter),
-   `crates/brokkr-runtime/src/admission/capacity.rs` (the pass's `Measure::room` skips cleared
-   rows), `crates/brokkr-store/src/queue/claim.rs` (the claim's `Room::recheck` skips them),
+   `crates/brokkr-runtime/src/admission/capacity.rs` (the pass's `Measure::room`, and the claim's
+   `Room::recheck`, skip cleared rows), `crates/brokkr-store/src/queue/claim.rs` (the claim's
+   transaction read hands the recheck the uncleared rows),
    `crates/brokkr-cli/src/verbs/delivery.rs`,
    `crates/brokkr-cli/src/cli_args.rs`, `crates/brokkr-view/src/commands.rs`, and core, store,
    runtime, view and CLI tests. About 340 production and 280 test lines. Contract: queue storage
