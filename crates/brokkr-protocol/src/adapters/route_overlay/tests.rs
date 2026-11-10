@@ -25,6 +25,12 @@ const SHIPPED: &str = "\
 
 const PIN: &str = "dashscope/qwen3.8-max";
 
+/// The operator's measured local route entry for `spark-glm` (#953),
+/// names and endpoint only. It is a file beside the tests so the bytes the
+/// grammar admits are the bytes that were measured.
+const MEASURED: &str = include_str!("spark_glm_route.yml");
+const SPARK_PIN: &str = "spark-glm/GLM-5.3-Flash-EXL3";
+
 fn refused(body: &str, reason: Overlay) {
     assert_eq!(
         validate(body.as_bytes(), PIN),
@@ -38,6 +44,24 @@ fn the_shipped_route_and_its_comments_pass_the_closed_grammar() {
     // Comments and blank lines are the shipped file's own shape.
     let with_comments = format!("# Decision 0044 ruling 5.\n\n{}# trailing note\n", SHIPPED);
     assert!(validate(with_comments.as_bytes(), PIN).is_ok());
+}
+
+/// The operator's measured `spark-glm` entry (#953 option (a)): one route
+/// row, one provider, one model, a local endpoint, the model's window and
+/// output cap, and NO `reasoningEfforts` — the route is effortless, so the
+/// entry is non-reasoning.
+#[test]
+fn the_measured_spark_glm_route_validates_for_its_pin() {
+    assert_eq!(validate(MEASURED.as_bytes(), SPARK_PIN), Ok(()));
+    assert_eq!(
+        validate(MEASURED.as_bytes(), "spark-glm/other"),
+        Err(Refused(Overlay::UnpinnedModel))
+    );
+    // Present is still today's non-empty mapping; the measured entry is
+    // admitted without it because the route is effortless.
+    let with_efforts =
+        format!("{MEASURED}            reasoningEfforts:\n              high: high\n");
+    assert_eq!(validate(with_efforts.as_bytes(), SPARK_PIN), Ok(()));
 }
 
 #[test]
@@ -105,7 +129,6 @@ fn the_endpoint_grammar_decides_the_positive_and_every_refusal() {
         "https://host/ space",
         "https://[::1]/x",
         "https://host//x",
-        "http://host/x",
         "HTTPS://host/x",
         "host/x",
         "https://-host/x",
@@ -372,6 +395,43 @@ fn the_reader_refuses_bytes_that_exceed_the_bound_after_a_bound_metadata() {
     assert_eq!(error, Refused(Overlay::FileOverBound));
 }
 
+/// The post-read bound admits a file of exactly the bound; it refuses
+/// only bytes OVER it. A `>` -> `>=` mutation in `claim_with` is killed
+/// here, where the existing oversized vector cannot see the difference.
+#[test]
+fn a_bound_route_of_exactly_the_byte_bound_is_admitted() {
+    let padding = MAX_BYTES - MEASURED.len() - 2;
+    let body = format!("{MEASURED}#{}\n", "a".repeat(padding));
+    assert_eq!(body.len(), MAX_BYTES);
+    let (dir, input) = binding(body.as_bytes(), "route.yml");
+    let bytes = claim(
+        &input,
+        &dir.path().to_string_lossy(),
+        Some(SPARK_PIN),
+        Some("route.yml"),
+    )
+    .unwrap();
+    assert_eq!(bytes, Some(body.into_bytes()));
+}
+
+/// The line bound, like the byte bound, admits exactly its limit: a route
+/// of MAX_LINES recognized lines validates, so `>` -> `>=` and `>` -> `==`
+/// in `lex` are both killed here.
+#[test]
+fn a_bound_route_of_exactly_the_line_bound_is_admitted() {
+    let pairs = MAX_LINES - MEASURED.lines().count() - 1;
+    // `compat` is read for its shape alone, so one short pair repeated is
+    // enough padding to reach the line bound inside the byte bound.
+    let compat = "          k: v\n".repeat(pairs);
+    let body = MEASURED.replacen(
+        "        models:\n",
+        &format!("        compat:\n{compat}        models:\n"),
+        1,
+    );
+    assert_eq!(body.lines().count(), MAX_LINES);
+    assert_eq!(validate(body.as_bytes(), SPARK_PIN), Ok(()));
+}
+
 /// A canonicalized path whose metadata read then fails is a refusal, not
 /// a panic or a skipped file. The injected `stat` makes the failure
 /// deterministic; the real path is still canonicalized first.
@@ -546,6 +606,179 @@ fn the_endpoint_grammar_admits_a_bare_authority_and_refuses_its_edges() {
     }
 }
 
+/// #953 option (a): `http://` is admitted for a single-label host, which
+/// resolves only on the operator's own network, never a public host.
+#[test]
+fn the_local_http_endpoint_admits_a_single_label_host() {
+    for base in [
+        "http://spark:8888/v1",
+        "http://spark:12345/v1",
+        "http://spark",
+        "http://spark/v1",
+        // The old refusal vector: a single-label `http://` host with a
+        // path is the shape #953 now admits, so its expected value moved
+        // from `Endpoint` to admitted.
+        "http://host/x",
+    ] {
+        let body = MEASURED.replace("http://spark:8888/v1", base);
+        assert_eq!(validate(body.as_bytes(), SPARK_PIN), Ok(()), "{base:?}");
+    }
+}
+
+/// The removal control for the single-label rule: a dotted `http://` host
+/// — a dotted name, an IPv4 literal, or `localhost` spelled with a dot —
+/// is refused. `spark.lan` is named in this test's name and its failure.
+#[test]
+fn an_http_host_with_a_dot_such_as_spark_lan_is_refused() {
+    for base in [
+        "http://spark.lan:8888/v1",
+        "http://localhost./v1",
+        "http://127.0.0.1:8888/v1",
+    ] {
+        let body = MEASURED.replace("http://spark:8888/v1", base);
+        assert_eq!(
+            validate(body.as_bytes(), SPARK_PIN),
+            Err(Refused(Overlay::Endpoint)),
+            "{base:?}"
+        );
+    }
+}
+
+#[test]
+fn an_http_ipv6_literal_userinfo_or_bad_port_is_refused() {
+    for base in [
+        "http://[::1]:8888/v1",
+        "http://u@spark:8888/v1",
+        "http://spark:abc/v1",
+        "http://spark:123456/v1",
+    ] {
+        let body = MEASURED.replace("http://spark:8888/v1", base);
+        assert_eq!(
+            validate(body.as_bytes(), SPARK_PIN),
+            Err(Refused(Overlay::Endpoint)),
+            "{base:?}"
+        );
+    }
+}
+
+/// A model's window and output cap: a positive decimal of at most nine
+/// digits, so no zero, sign, leading zero, fraction, exponent or tenth
+/// digit. The removal control for the digit bound is the ten-digit case.
+#[test]
+fn a_model_window_and_output_cap_are_bounded_positive_decimals() {
+    for (field, default, number) in [
+        (Field::ContextWindow, "200000", 11),
+        (Field::MaxTokens, "32768", 12),
+    ] {
+        let line = format!("{}: {default}", field.spelling());
+        for value in ["1", "999999999"] {
+            let body = MEASURED.replace(&line, &format!("{}: {value}", field.spelling()));
+            assert_eq!(
+                validate(body.as_bytes(), SPARK_PIN),
+                Ok(()),
+                "{field} {value:?}"
+            );
+        }
+        for value in ["0", "+1", "01", "a1", "1.5", "1e3", "1234567890"] {
+            let body = MEASURED.replace(&line, &format!("{}: {value}", field.spelling()));
+            assert_eq!(
+                validate(body.as_bytes(), SPARK_PIN),
+                Err(Refused(Overlay::ModelNumber(field))),
+                "{field} {value:?}"
+            );
+        }
+        // A negative sign is refused by the reader's closed scalar grammar
+        // before the field check can run; the line still names the field.
+        let body = MEASURED.replace(&line, &format!("{}: -1", field.spelling()));
+        assert_eq!(
+            validate(body.as_bytes(), SPARK_PIN),
+            Err(Refused(Overlay::ReservedStart(number))),
+            "{field}"
+        );
+    }
+}
+
+#[test]
+fn a_model_field_may_appear_at_most_once() {
+    for (addition, field) in [
+        ("            contextWindow: 1\n", Field::ContextWindow),
+        ("            maxTokens: 1\n", Field::MaxTokens),
+        (
+            "            reasoningEfforts:\n              high: high\n            reasoningEfforts:\n              low: low\n",
+            Field::ReasoningEfforts,
+        ),
+    ] {
+        let body = format!("{MEASURED}{addition}");
+        assert_eq!(
+            validate(body.as_bytes(), SPARK_PIN),
+            Err(Refused(Overlay::Repeats {
+                part: Part::ModelItem,
+                field,
+            })),
+            "{field}"
+        );
+    }
+}
+
+#[test]
+fn a_model_field_outside_the_closed_set_is_refused() {
+    for addition in [
+        "            toolCall: true\n",
+        "            reasoningLevel: high\n",
+    ] {
+        let body = format!("{MEASURED}{addition}");
+        assert_eq!(
+            validate(body.as_bytes(), SPARK_PIN),
+            Err(Refused(Overlay::OutsideClosedSet(Part::ModelItem))),
+            "{addition:?}"
+        );
+    }
+}
+
+/// The measured route is effortless, so a seat on it pins no `--effort`:
+/// the driver's own extraction yields none, and the seat overlay it stages
+/// carries no `reasoningEffort` row and no settings document. Nothing in
+/// the driver changes for it — the grammar is what now lets the measured
+/// entry reach it (#953; decision 0035 addendum 2026-09-11).
+#[test]
+fn an_effortless_route_pins_no_effort_in_the_seat_overlay() {
+    let argv = vec!["--model".to_string(), SPARK_PIN.to_string()];
+    let (effort, kept) = crate::adapters::split_effort_as("dsh", &argv);
+    assert_eq!(effort, None);
+    assert_eq!(kept, argv);
+    let root = tempfile::tempdir().unwrap();
+    let overlay = crate::adapters::dsh_seat_overlay_with(
+        Some(SPARK_PIN),
+        None,
+        root.path(),
+        Some(MEASURED.as_bytes()),
+        None,
+    )
+    .unwrap();
+    let written = std::fs::read_to_string(overlay.path()).unwrap();
+    assert!(written.contains("model: GLM-5.3-Flash-EXL3\n"), "{written}");
+    assert!(!written.contains("reasoningEffort"), "{written}");
+    assert!(!written.contains("- id: settings"), "{written}");
+}
+
+/// An empty `reasoningEfforts:` block is a bare key with no child, which
+/// the reader refuses while parsing; property 3's optional effort is still
+/// never an empty mapping.
+#[test]
+fn an_empty_reasoning_efforts_mapping_is_refused() {
+    let body = MEASURED.replace(
+        "            contextWindow: 200000\n            maxTokens: 32768\n",
+        "            reasoningEfforts:\n",
+    );
+    assert_eq!(
+        validate(body.as_bytes(), SPARK_PIN),
+        Err(Refused(Overlay::EmptyKeyBlock {
+            line: 11,
+            key: "reasoningEfforts".into(),
+        }))
+    );
+}
+
 #[test]
 fn the_reader_guards_hold_at_their_internal_call_boundaries() {
     let lines = lex("a: b\n").unwrap();
@@ -669,6 +902,8 @@ fn every_route_refusal_reads_as_it_always_has() {
         (Field::Models, "models"),
         (Field::ApiKeyEnv, "apiKeyEnv"),
         (Field::ReasoningEfforts, "reasoningEfforts"),
+        (Field::ContextWindow, "contextWindow"),
+        (Field::MaxTokens, "maxTokens"),
     ];
     for (field, spelled) in fields {
         let named = Overlay::NotAMapping(Part::Named(field));
@@ -782,6 +1017,14 @@ fn grammar_pins() -> Vec<(Overlay, &'static str)> {
         (
             Overlay::UnpinnedModel,
             "the route names a model the seat did not pin",
+        ),
+        (
+            Overlay::ModelNumber(Field::ContextWindow),
+            "contextWindow is not a positive decimal integer of at most 9 digits",
+        ),
+        (
+            Overlay::ModelNumber(Field::MaxTokens),
+            "maxTokens is not a positive decimal integer of at most 9 digits",
         ),
         (
             Overlay::Missing { part, field },
