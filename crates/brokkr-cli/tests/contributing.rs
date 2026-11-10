@@ -352,7 +352,7 @@ const LEG_LINES: [(&str, &[Line]); 12] = [
             Line::Unwritten("bash base-verifier/scripts/delivered-by-brokkr.sh"),
         ],
     ),
-    ("MSRV (1.88)", &[Line::Written]),
+    ("MSRV (1.89)", &[Line::Written]),
     (
         "format, clippy, contracts",
         &[
@@ -860,7 +860,7 @@ fn check_rows(guide: &str) -> Vec<CheckRow> {
 /// list to it.
 const MAIN_REQUIRES: [(&str, &str, &str); 12] = [
     ("delivered by brokkr", "delivered-by-brokkr", "ci.yml"),
-    ("MSRV (1.88)", "msrv", "ci.yml"),
+    ("MSRV (1.89)", "msrv", "ci.yml"),
     ("format, clippy, contracts", "quality", "ci.yml"),
     ("test (ubuntu-latest)", "engine", "ci.yml"),
     ("test (macos-latest)", "engine", "ci.yml"),

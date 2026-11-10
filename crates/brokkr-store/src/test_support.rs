@@ -410,15 +410,21 @@ pub(crate) fn read_steps<T>(store: &mut Store, read: impl FnOnce(&Store) -> T) -
 
     let counted = Arc::new(AtomicI64::new(0));
     let tally = Arc::clone(&counted);
-    store.conn.progress_handler(
-        1,
-        Some(move || {
-            tally.fetch_add(1, Ordering::Relaxed);
-            false
-        }),
-    );
+    store
+        .conn
+        .progress_handler(
+            1,
+            Some(move || {
+                tally.fetch_add(1, Ordering::Relaxed);
+                false
+            }),
+        )
+        .expect("a progress handler installs");
     let read = read(store);
-    store.conn.progress_handler(0, None::<fn() -> bool>);
+    store
+        .conn
+        .progress_handler(0, None::<fn() -> bool>)
+        .expect("the progress handler clears");
     (read, counted.load(Ordering::Relaxed))
 }
 
@@ -437,6 +443,7 @@ pub fn statements_begun<T>(store: &mut Store, read: impl FnOnce(&Store) -> T) ->
 /// (decision 0089 ruling 7).
 #[cfg(feature = "test-support")]
 pub fn statements_traced<T>(store: &mut Store, read: impl FnOnce(&Store) -> T) -> (T, Vec<String>) {
+    use rusqlite::trace::{TraceEvent, TraceEventCodes};
     use std::cell::RefCell;
     thread_local! {
         // SQLite calls a connection's trace on the thread running its
@@ -445,8 +452,18 @@ pub fn statements_traced<T>(store: &mut Store, read: impl FnOnce(&Store) -> T) -
         // test's statements under CI's default parallelism (M5).
         static BEGUN: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     }
-    fn begun(sql: &str) {
-        BEGUN.with(|begun| begun.borrow_mut().push(sql.to_string()));
+    /// rusqlite 0.41 has only SQLite's v2 trace, which hands a statement's
+    /// text as prepared: its bound values are written in here, as the
+    /// legacy trace wrote them. A trigger's or a nested statement's comment
+    /// (`-- …`) is kept as given.
+    fn begun(event: TraceEvent<'_>) {
+        if let TraceEvent::Stmt(statement, sql) = event {
+            let sql = match statement.expanded_sql() {
+                Some(expanded) if !sql.starts_with("--") => expanded,
+                _ => sql.to_string(),
+            };
+            BEGUN.with(|begun| begun.borrow_mut().push(sql));
+        }
     }
     /// This thread's collector is cleared however `read` leaves: a panic
     /// unwinds through the guard rather than leaving a sibling test's
@@ -460,12 +477,18 @@ pub fn statements_traced<T>(store: &mut Store, read: impl FnOnce(&Store) -> T) -
         }
     }
     BEGUN.with(|begun| begun.borrow_mut().clear());
-    store.conn.trace(Some(begun));
+    store
+        .conn
+        .trace_v2(TraceEventCodes::SQLITE_TRACE_STMT, Some(begun))
+        .expect("a statement trace installs");
     let guard = Traced;
     let read = read(store);
     let begun = BEGUN.with(|begun| std::mem::take(&mut *begun.borrow_mut()));
     drop(guard);
-    store.conn.trace(None);
+    store
+        .conn
+        .trace_v2(TraceEventCodes::empty(), None::<fn(TraceEvent<'_>)>)
+        .expect("a statement trace clears");
     (read, begun)
 }
 

@@ -61,14 +61,14 @@ const JOB_LINES: [(&str, &str); 13] = [
     (
         "msrv",
         r#"
-    name: MSRV (1.88)
+    name: MSRV (1.89)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
 <checkout>
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
-          toolchain: 1.88.0 # the MSRV, Cargo.toml's rust-version: moved by hand, never by Renovate
+          toolchain: 1.89.0 # the MSRV, Cargo.toml's rust-version: moved by hand, never by Renovate
       - run:
 "#,
     ),

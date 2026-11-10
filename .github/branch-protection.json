@@ -6,7 +6,7 @@
     "strict": false,
     "contexts": [
       "delivered by brokkr",
-      "MSRV (1.88)",
+      "MSRV (1.89)",
       "format, clippy, contracts",
       "test (ubuntu-latest)",
       "test (macos-latest)",

@@ -14,7 +14,7 @@ members = [
 [workspace.package]
 version = "0.13.1"
 edition = "2021"
-rust-version = "1.88"
+rust-version = "1.89"
 # Decision 0018: permissive, never copyleft; the Rust ecosystem's dual
 # convention, so a user picks either license.
 license = "MIT OR Apache-2.0"
@@ -54,7 +54,11 @@ sha2 = "0.10"
 hex = "0.4"
 thiserror = "2"
 anyhow = "1"
-rusqlite = { version = "0.32", features = ["bundled"] }
+# RUSTSEC-2026-0459: SQLite 3.54's fix is bundled from rusqlite 0.41, whose
+# rust-version, 1.89, is the MSRV's. Its defaults add sqlite-wasm-rs, which
+# no host here builds, so they are spelled out: 0.32's `cache`, and
+# `fallible_uint` for the u64 conversions 0.32 had by default.
+rusqlite = { version = "0.41", default-features = false, features = ["bundled", "cache", "fallible_uint"] }
 uuid = { version = "1", features = ["v4"] }
 time = { version = "0.3", features = ["formatting", "parsing"] }
 clap = { version = "4", features = ["derive"] }

@@ -139,7 +139,7 @@ brokkr 0.13.1
 ```
 
 > **Building from a checkout** is a fallback, not a co-equal option: it
-> needs Rust 1.88 or newer and a compile, and it produces a binary no
+> needs Rust 1.89 or newer and a compile, and it produces a binary no
 > attestation covers. If you want it:
 >
 > ```
@@ -1032,7 +1032,7 @@ checked against the workflow that produced it:
 gh attestation verify brokkr-linux-x86_64.tar.gz -R feedback-loop-ai/brokkr
 ```
 
-**Or build it.** Rust 1.88 or newer:
+**Or build it.** Rust 1.89 or newer:
 
 ```
 cargo install --path crates/brokkr-cli    # builds and installs the binary
