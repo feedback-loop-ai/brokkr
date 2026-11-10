@@ -334,7 +334,7 @@ impl Engine {
                 record: None,
                 outcome: AttemptOutcome::Failed { error },
                 start_failures: vec![FailedSite {
-                    site,
+                    site: at.step.name.clone(),
                     refusal: None,
                 }],
                 unproven: Unproven::Proven,
@@ -343,7 +343,7 @@ impl Engine {
                 record: None,
                 start_failures: if failed_to_start(&report) {
                     vec![FailedSite {
-                        site,
+                        site: at.step.name.clone(),
                         refusal: report.refusal.as_deref().cloned(),
                     }]
                 } else {

@@ -38,14 +38,14 @@ pub(in crate::engine) struct RefusedMember {
 /// no refusal, and keeps today's start-failure site with no wait.
 #[derive(Clone)]
 pub(in crate::engine) struct FailedSite {
-    pub(in crate::engine) site: Site,
+    pub(in crate::engine) site: String,
     pub(in crate::engine) refusal: Option<PreSessionRefusal>,
 }
 
 impl FailedSite {
     /// The site as the terminal event's `start_failure_sites` spells it.
     pub(in crate::engine) fn site(&self) -> Site {
-        self.site.clone()
+        Some(self.site.clone())
     }
 }
 
@@ -59,9 +59,14 @@ pub(in crate::engine) fn failed_sites(
 ) -> Vec<FailedSite> {
     start_failure_sites(reports, tag_prefix)
         .into_iter()
-        .map(|site| FailedSite {
-            refusal: refusal_at(reports, tag_prefix, site.as_deref()),
-            site,
+        .map(|site| {
+            // A sequence step's sites are always tagged, so the tag the
+            // assembly returned is the site the wait and event name.
+            let site = site.unwrap_or_default();
+            FailedSite {
+                refusal: refusal_at(reports, tag_prefix, &site),
+                site,
+            }
         })
         .collect()
 }
@@ -71,9 +76,8 @@ pub(in crate::engine) fn failed_sites(
 fn refusal_at(
     reports: &[(String, AttemptReport)],
     tag_prefix: &str,
-    site: Option<&str>,
+    site: &str,
 ) -> Option<PreSessionRefusal> {
-    let site = site?;
     reports.iter().find_map(|(name, report)| {
         (Tag::prefixed(tag_prefix, name).0 == site)
             .then(|| report.refusal.as_deref().cloned())
@@ -89,8 +93,10 @@ pub(in crate::engine) fn refused_sites(failed: &[FailedSite]) -> Vec<RefusedMemb
         .iter()
         .filter_map(|failed| {
             let refusal = failed.refusal.clone()?;
-            let site = failed.site.clone()?;
-            (refusal.class() == RefusalClass::RateLimit).then_some(RefusedMember { site, refusal })
+            (refusal.class() == RefusalClass::RateLimit).then_some(RefusedMember {
+                site: failed.site.clone(),
+                refusal,
+            })
         })
         .collect()
 }
