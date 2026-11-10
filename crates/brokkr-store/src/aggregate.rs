@@ -402,13 +402,17 @@ fn ending_of(word: Option<&str>) -> Result<Option<Ending>, rusqlite::Error> {
     })
 }
 
-/// The text at `at`, which every row's key names.
-fn required_text<'a>(row: &'a Row<'_>, at: usize) -> Result<&'a str, rusqlite::Error> {
+/// The text at `at`, which every row's key names; [`crate::metered`]'s
+/// rows read it too.
+pub(crate) fn required_text<'a>(row: &'a Row<'_>, at: usize) -> Result<&'a str, rusqlite::Error> {
     Ok(row.get_ref(at)?.as_str()?)
 }
 
 /// The text at `at`, NULL where the column holds none.
-fn optional_text<'a>(row: &'a Row<'_>, at: usize) -> Result<Option<&'a str>, rusqlite::Error> {
+pub(crate) fn optional_text<'a>(
+    row: &'a Row<'_>,
+    at: usize,
+) -> Result<Option<&'a str>, rusqlite::Error> {
     match row.get_ref(at)? {
         ValueRef::Null => Ok(None),
         value => Ok(Some(value.as_str()?)),

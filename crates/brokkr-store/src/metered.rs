@@ -44,9 +44,10 @@ use std::sync::LazyLock;
 use brokkr_core::page::Lane;
 use brokkr_core::seat::meter::{counted, sum_usage, Metering};
 use brokkr_core::seat::{finish_usage, TokenUsage};
-use rusqlite::types::{Value, ValueRef};
+use rusqlite::types::Value;
 use rusqlite::{params_from_iter, Row, StatementStatus};
 
+use crate::aggregate::{optional_text, required_text};
 use crate::event_index::{CHECKPOINTED, CHECKPOINT_STALE};
 use crate::seat_read::site_of;
 use crate::seat_summary::{lags as seat_lags, SHAPE};
@@ -588,19 +589,6 @@ fn usage(row: &Row<'_>, at: usize) -> Result<Option<TokenUsage>, StoreError> {
         reasoning_output_tokens: row.get(at + 4)?,
         total_tokens: None,
     }))
-}
-
-/// The text at `at`, which every row's key names.
-fn required_text<'a>(row: &'a Row<'_>, at: usize) -> Result<&'a str, rusqlite::Error> {
-    Ok(row.get_ref(at)?.as_str()?)
-}
-
-/// The text at `at`, NULL where the column holds none.
-fn optional_text<'a>(row: &'a Row<'_>, at: usize) -> Result<Option<&'a str>, rusqlite::Error> {
-    match row.get_ref(at)? {
-        ValueRef::Null => Ok(None),
-        value => Ok(Some(value.as_str()?)),
-    }
 }
 
 #[cfg(test)]
