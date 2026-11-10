@@ -1404,6 +1404,40 @@ fn an_untimed_work_row_is_never_assumed_history() {
     );
 }
 
+/// A line the decoder cannot read is not on [`CODEX_NON_WORK`], and a kill
+/// can truncate the function call it was writing. Such a line may be the
+/// work that proves the turn ran, so it is never dropped as history: the
+/// whole invocation is not a refusal, before or after the error.
+#[test]
+fn an_undecodable_row_is_never_read_as_history() {
+    let since = parse_nanos("2026-11-08T10:00:00Z").unwrap();
+    let error = || {
+        json!({"timestamp": "2026-11-08T10:00:01Z", "type": "event_msg",
+               "payload": {"type": "error", "message": "quota",
+                           "codex_error_info": "usage_limit_exceeded"}})
+    };
+    let truncated = "{\"timestamp\":\"2026-11-08T10:00:02Z\",\"type\":\"response_item\",\
+                     \"payload\":{\"type\":\"function_call\",\"name\":\"exec_command\"";
+    let deep = format!(
+        "{{\"timestamp\":\"2026-11-08T10:00:02Z\",\"type\":\"response_item\",\
+         \"payload\":{{\"type\":\"function_call\",\"metadata\":{}0{}}}}}",
+        "[".repeat(130),
+        "]".repeat(130)
+    );
+    // The control: the same error beside readable rows is a refusal.
+    assert!(codex_thread_refusal(&record(&[error()]), Some(since), None).is_some());
+    for raw in [truncated.to_string(), deep] {
+        let before = format!("{raw}\n{}", record(&[error()]));
+        let after = format!("{}{raw}\n", record(&[error()]));
+        for body in [before, after] {
+            assert!(
+                codex_thread_refusal(&body, Some(since), None).is_none(),
+                "an undecodable line is never read as history: {body}"
+            );
+        }
+    }
+}
+
 /// [`parse_nanos`] returns the exact nanosecond value, not merely an
 /// ordering: the digit arithmetic and the fraction scale are both pinned.
 #[test]

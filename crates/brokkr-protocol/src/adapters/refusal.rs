@@ -562,7 +562,7 @@ pub(super) fn codex_thread_refusal(
     let mut error = None;
     for line in body.lines() {
         let Ok(row) = serde_json::from_str::<Value>(line) else {
-            continue;
+            return None; // An unreadable line may be truncated work, never history.
         };
         if !row_in_invocation(&row, since_nanos) {
             continue;
