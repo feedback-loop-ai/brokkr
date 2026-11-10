@@ -367,8 +367,9 @@ maximum: an unbounded wait, refused.
 **Recommended: (a) a dedicated one-turn probe before the retry.**
 
 A probe is a dedicated driver invocation of the cooled site's own adapter and
-launch path — the same `run_seat`/`run_attempt_resuming` path the refused
-attempt used — not the retried effect, and not `brokkr probe harness`. It
+launch path — under its attempt's admission and settlement, without
+provisioning (#430 c-6715446488: `provision_with` appends `effect/failed` on
+refusal) — not the retried effect, and not `brokkr probe harness`. It
 asks the route the row names: the cooled provider and route, with that
 site's model pin and effort. It uses the same boundary and credential facts
 the refused attempt used; it resolves no new credential or boundary, and a

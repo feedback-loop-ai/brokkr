@@ -38,8 +38,8 @@ fn planted(host: &Host, work: &Path, run: &str) -> (String, PathBuf) {
 #[test]
 fn a_cleanup_refusal_names_the_reservation_the_attempt_and_the_cause() {
     let refused = Recovery {
-        provider: "claude".into(),
-        route: "first".into(),
+        provider: Some("claude".into()),
+        route: Some("first".into()),
         held: Box::new(Held::Unsettled {
             at: PathBuf::from("/protected/run-a/reservation.json"),
             attempt: "a1".into(),
@@ -64,7 +64,7 @@ fn a_lock_that_cannot_be_taken_parks_naming_the_reservation() {
     let (repo, at) = planted(&host, &work, "run-a");
     let _held = taken(&host.root().join(LOCK));
     let deadline = Instant::now() + Duration::from_millis(50);
-    let refused = settle_orphaned(&host.root, [&repo, "run-a"], &[], &wait(), deadline)
+    let refused = settle_orphaned(&host.root, [&repo, "run-a"], &[], &[wait()], deadline)
         .expect_err("a held lock was passed over");
     assert!(
         matches!(refused.held.as_ref(), Held::Unreadable { .. }),
@@ -87,7 +87,7 @@ fn a_reservation_that_does_not_read_parks_naming_where_it_stands() {
     let work = host.worktree("work");
     let (repo, at) = planted(&host, &work, "run-a");
     std::fs::write(&at, "not a reservation").unwrap();
-    let refused = settle_orphaned(&host.root, [&repo, "run-a"], &[], &wait(), soon())
+    let refused = settle_orphaned(&host.root, [&repo, "run-a"], &[], &[wait()], soon())
         .expect_err("a malformed reservation was passed over");
     assert!(
         matches!(refused.held.as_ref(), Held::Unreadable { .. }),
@@ -115,7 +115,7 @@ fn a_release_that_cannot_be_sealed_parks_naming_the_attempt() {
     reserved.drivers.push(driver);
     std::fs::write(&at, serde_json::to_vec(&held).unwrap()).unwrap();
     LATE.set(Some(Late::FailCommitted));
-    let refused = settle_orphaned(&host.root, [&repo, "run-a"], &[], &wait(), soon())
+    let refused = settle_orphaned(&host.root, [&repo, "run-a"], &[], &[wait()], soon())
         .expect_err("a seal that could not commit was passed over");
     assert!(
         matches!(refused.held.as_ref(), Held::Unsealed { attempt, .. } if attempt == "a1"),
@@ -136,7 +136,7 @@ fn a_worktree_that_does_not_resolve_parks_without_a_reservation() {
     std::fs::remove_dir_all(worktree(&engine)).unwrap();
     let observed = observed().expect("a coordinated host");
     let refused = engine
-        .recovered_probe(&[], &wait(), &observed)
+        .recovered_probe(&[], &[wait()], &observed)
         .expect_err("a vanished worktree found a reservation");
     assert!(
         matches!(refused.held.as_ref(), Held::Unlocated(_)),

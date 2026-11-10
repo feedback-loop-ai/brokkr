@@ -52,6 +52,31 @@ pub(super) fn barrier_started(
     (release, driver)
 }
 
+/// A test's protected home and a clock that takes a competing claim after
+/// its first wait slice: the lease the refused attempt held is released, and
+/// the next admission is refused.
+#[cfg(target_os = "linux")]
+pub(super) struct Claimed {
+    pub(super) _stand: Coordinated,
+    pub(super) clock: Clock,
+}
+
+#[cfg(target_os = "linux")]
+pub(super) fn claim_after_first_slice(
+    home: PathBuf,
+    worktree: PathBuf,
+    now: &Arc<Mutex<OffsetDateTime>>,
+) -> Claimed {
+    let stand = Coordinated::at(&home);
+    let clock = clock_acting(now, Acting::AfterFirstSlice, move || {
+        protecting_refused(&home, &worktree).expect("the first attempt's lease was released");
+    });
+    Claimed {
+        _stand: stand,
+        clock,
+    }
+}
+
 /// A boxed seat's probe on a resume is composed from the reach its own
 /// admission sealed, so the box is built, the probe answers and the retry
 /// runs. At HEAD the fresh engine sealed no reach and the probe parked
@@ -114,12 +139,8 @@ fn a_refused_admission_at_the_probe_parks_naming_the_refusal() {
     let (dir, mut engine, now) = seated!(&["refuse", "succeed"], Probed::Answer, None, 2);
     let home = home(dir.path());
     let worktree = dir.path().join("work");
-    let _stand = Coordinated::at(&home);
-    let standing = home.clone();
-    let claimed = worktree.clone();
-    engine.cooldown.clock = clock_acting(&now, Acting::AfterFirstSlice, move || {
-        protecting_refused(&standing, &claimed).expect("the first attempt's lease was released");
-    });
+    let Claimed { _stand, clock } = claim_after_first_slice(home, worktree, &now);
+    engine.cooldown.clock = clock;
     engine.drive().unwrap();
     assert_eq!(logs(dir.path(), "work"), ["attempt:refuse"]);
     let started = starts(&engine);

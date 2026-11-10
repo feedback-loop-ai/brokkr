@@ -418,6 +418,17 @@ fn the_provider_wait_extension_bounds_words_and_site() {
     }
 }
 
+/// Two `waits` entries for one site refuse by the site's name: a panel's
+/// terminal event carries one entry per refused member, and the reader never
+/// reads a duplicate as two waits (decision 0103 slice 4c2a).
+#[test]
+fn two_waits_for_one_site_refuse_by_name() {
+    let entry = json!({"site": "a", "provider": "claude", "route": "first",
+                       "words": "rate_limit", "seconds": 1,
+                       "until": "2026-11-01T00:00:01Z", "rounds": 1});
+    refuses_by_name(json!({"waits": [entry.clone(), entry]}), "site");
+}
+
 /// Decision 0103 slice 4c1, this fix round: the `refused` record reads into
 /// its typed fields, and a present one that does not read refuses by name,
 /// never as absent.

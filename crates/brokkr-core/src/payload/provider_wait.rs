@@ -272,11 +272,23 @@ pub fn provider_waits(
         .as_array()
         .filter(|entries| !entries.is_empty())
         .ok_or_else(|| unreadable_wait(event, "waits"))?;
-    entries
+    let waits = entries
         .iter()
         .map(|entry| wait_entry(event, entry))
-        .collect::<Result<Vec<_>, _>>()
-        .map(Some)
+        .collect::<Result<Vec<_>, _>>()?;
+    // One entry per refused site: two entries naming one site is a record
+    // the engine never writes and the reader never reads as two waits
+    // (decision 0103 slice 4c2a). An inline seat's absent site is one site
+    // too, but the engine names that shape by its own refusal.
+    let mut seen = std::collections::BTreeSet::new();
+    for wait in &waits {
+        if let Some(site) = &wait.site {
+            if !seen.insert(site) {
+                return Err(unreadable_wait(event, "site"));
+            }
+        }
+    }
+    Ok(Some(waits))
 }
 
 /// One `waits` entry, its closed set of keys and then each field.
