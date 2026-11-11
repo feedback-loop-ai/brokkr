@@ -152,7 +152,12 @@ pub(super) fn step_driver_input(
         "house_rules": seat_input["house_rules"],
         "context": context,
     });
-    if matches!(kind, StepInputKind::Model) && !seat_input["spec_dialect"].is_null() {
+    // Exhaustive on purpose: a new step kind must decide its own tail.
+    let carries_spec_dialect = match kind {
+        StepInputKind::Model => true,
+        StepInputKind::Dialect => false,
+    };
+    if carries_spec_dialect && !seat_input["spec_dialect"].is_null() {
         input["spec_dialect"] = seat_input["spec_dialect"].clone();
     }
     copy_secret_binding_facts(&mut input, seat_input);
