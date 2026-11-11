@@ -384,3 +384,19 @@ fn the_bridge_refuses_a_release() {
     };
     assert_eq!(refused, refused_by_name);
 }
+
+/// U8e3: a reservation this build reads only through the view cannot be
+/// sealed whole again, so the release names the participant it could not
+/// read, and nothing is attested.
+#[test]
+fn a_release_of_a_reservation_read_only_through_the_view_names_the_participant() {
+    let mut killed = Killed::new(false);
+    let reservation = killed.at.join("reservation.json");
+    let mut value: Value = serde_json::from_slice(&std::fs::read(&reservation).unwrap()).unwrap();
+    // An older build's record: this build's whole `Reservation` refuses it
+    // by the field it does not know, and the view reads it.
+    value["format"] = json!(1);
+    std::fs::write(&reservation, serde_json::to_vec(&value).unwrap()).unwrap();
+    let expected = Unreleased::standing(Unadmitted::Identity(Unknown::Participant(reservation)));
+    assert_eq!(unreleased(killed.released()), expected);
+}

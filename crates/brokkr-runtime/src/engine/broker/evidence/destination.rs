@@ -98,17 +98,14 @@ impl Destination {
             true => (opened, Vec::new()),
             false => descendants(opened, base, &rest)?,
         };
-        match empty(&dir) {
-            Ok(true) => Ok(Destination { at, dir, made }),
-            Ok(false) => {
-                remove_dirs(&made);
-                Err(EvidenceError::DestinationNotEmpty(at))
-            }
-            Err(refused) => {
-                remove_dirs(&made);
-                Err(refused)
-            }
+        let taken = empty(&dir);
+        if matches!(taken, Ok(true)) {
+            return Ok(Destination { at, dir, made });
         }
+        // A directory that is not empty and one whose listing cannot be
+        // read are refused without keeping a directory this verb made.
+        remove_dirs(&made);
+        taken.and_then(|_| Err(EvidenceError::DestinationNotEmpty(at)))
     }
 
     /// `root`'s evidence archived into this destination: every artifact

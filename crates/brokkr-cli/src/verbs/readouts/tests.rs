@@ -6,11 +6,15 @@
 use std::path::{Path, PathBuf};
 
 use brokkr_core::EventType;
+use brokkr_runtime::engine::evidence::Retirement;
 use brokkr_store::Store;
+use brokkr_view::capability_calls::{CallEvidence, CallState, CapabilityCall};
+use brokkr_view::Cell as ViewCell;
 use serde_json::json;
 
-use super::{run_view_of, shown, CallRefused};
+use super::{print_retired, retired_at, run_view_of, shown, CallRefused};
 use crate::cli_args::{InspectArgs, SeatsArgs};
+use crate::fleet::page::tests::Refusing;
 use crate::run_pages::{viewed, Shows};
 use crate::tests::running_store;
 use crate::{render, watch_loop, write_frame};
@@ -254,4 +258,53 @@ fn a_response_is_exact_off_a_terminal_and_cannot_steer_one() {
     assert_eq!(&*shown(&bytes, false), &bytes[..]);
     let painted = "{\"t\":\"a[2Jbcde\"}\u{fffd}\n";
     assert_eq!(&*shown(&bytes, true), painted.as_bytes());
+}
+
+/// H1: a readout of a retired call writes the retirement's words and ends
+/// the row, and the read is empty where this host names no HOME.
+#[test]
+fn a_retired_call_prints_its_words_and_a_host_with_no_home_has_no_history() {
+    let digest = "a".repeat(64);
+    let call = CapabilityCall {
+        capability: "web-search".into(),
+        dialect: "native".into(),
+        tool: "WebSearch".into(),
+        call_id: "c1".into(),
+        state: CallState::Succeeded,
+        response_sha256: Some(digest.clone()),
+    };
+    let cell = |text: &str| ViewCell {
+        text: text.to_string(),
+        absent: false,
+        note: None,
+    };
+    let evidence = CallEvidence {
+        call: Some(call.clone()),
+        cell: cell("cell text"),
+        response: cell(&digest),
+    };
+    let retired: Retirement = serde_json::from_value(json!({
+        "artifacts": "/evidence/root",
+        "cause": "discarded",
+        "operator": "operator",
+        "reason": "given up",
+        "retired_at": "2026-11-08T00:00:00Z",
+        "engine": "0.13.1",
+    }))
+    .unwrap();
+    let mut out = Vec::new();
+    print_retired(&call, &evidence, &retired, false, &mut out).unwrap();
+    assert_eq!(
+        String::from_utf8(out).unwrap(),
+        format!("capability call c1\ncell text\nresponse sha256 {digest}\n\nresponse discarded\n")
+    );
+
+    let refused =
+        print_retired(&call, &evidence, &retired, false, &mut Refusing::default()).unwrap_err();
+    assert_eq!(refused.to_string(), "broken pipe");
+
+    let mut env = crate::tests::env_guard::EnvGuard::lock();
+    env.remove("HOME");
+    let history = retired_at(Path::new("/evidence/root")).unwrap();
+    assert_eq!((history.current, history.superseded), (None, Vec::new()));
 }

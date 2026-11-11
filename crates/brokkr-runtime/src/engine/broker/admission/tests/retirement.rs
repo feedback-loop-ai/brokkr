@@ -365,6 +365,18 @@ fn an_unreadable_retirement_refuses_admission_with_cr2s_cause() {
 }
 
 #[test]
+fn a_retirement_that_does_not_parse_refuses_admission_with_cr2s_cause() {
+    let host = Host::new();
+    let (kept, other) = (host.worktree("kept"), host.worktree("other"));
+    let root = historical_root(&host, &kept, ["run-a", "a1"]);
+    let at = retirement_path(&host, &kept, "run-a", &root);
+    // This user's own single regular file, so the read succeeds and the
+    // parse is the refusal that names `retired_at`'s cause.
+    written(&at, b"not a retirement");
+    refused_with(&host, &other, Conflict::Retirement(at));
+}
+
+#[test]
 fn a_link_at_the_root_refuses_the_discard() {
     let host = Host::new();
     let kept = host.worktree("kept");
@@ -854,4 +866,68 @@ fn a_superseded_record_with_an_unknown_field_refuses_with_cr2s_cause() {
     value["extra"] = serde_json::json!(true);
     written(&at, &serde_json::to_vec(&value).unwrap());
     refused_with(&host, &other, Conflict::Retirement(at));
+}
+
+/// A host with two worktrees and a retirement that reads but names no
+/// historical record: the host, the kept and other worktrees, the
+/// retirement, and a key no record carries.
+fn orphan() -> (Host, PathBuf, PathBuf, evidence::Retirement, String) {
+    let host = Host::new();
+    let (kept, other) = (host.worktree("kept"), host.worktree("other"));
+    let (_root, retirement) = retired_discarded(&host, &kept, "given up");
+    (host, kept, other, retirement, "b".repeat(64))
+}
+
+/// CR2: a retirement that reads but names no historical record refuses by
+/// its own path, never read as history for some other root.
+#[test]
+fn a_retirement_that_names_no_record_refuses_admission() {
+    let (host, kept, other, retirement, key) = orphan();
+    let at = repo_dir(&host, &kept, "run-a").join(retired::name(&key));
+    written(&at, &serde_json::to_vec(&retirement).unwrap());
+    refused_with(&host, &other, Conflict::Retirement(at));
+}
+
+/// H1: a superseded retirement that reads but names no historical record
+/// refuses by its own path, as a bare retirement does.
+#[test]
+fn a_superseded_retirement_that_names_no_record_refuses_admission() {
+    let (host, kept, other, retirement, key) = orphan();
+    let at = repo_dir(&host, &kept, "run-a").join(superseded::name(&key, 1));
+    let record = superseded::Superseded::of(&retirement, "run-b", "2026-11-08T00:00:01Z");
+    written(&at, &serde_json::to_vec(&record).unwrap());
+    refused_with(&host, &other, Conflict::Retirement(at));
+}
+
+/// M2: a source that verification read but the copy cannot open refuses
+/// after `sha256/` stands, and the removal takes the digest directory and
+/// every directory the resolution made.
+#[test]
+fn a_source_that_cannot_be_read_after_verification_removes_the_digest_directory() {
+    let host = Host::new();
+    let kept = host.worktree("kept");
+    let root = historical_root(&host, &kept, ["run-a", "a1"]);
+    let digest = published(&root);
+    let source = root.join(DIGESTS).join(&digest[0].0);
+    let to = host.dir.path().join("missing/nested/archive");
+    let between = || {
+        std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o000)).unwrap();
+    };
+    let refused = evidence::retire_in_with(
+        &host.root,
+        options(&root, RetireAction::Archived { to: &to }, "archived"),
+        soon(),
+        &between,
+    );
+    std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert!(
+        matches!(&refused, Err(EvidenceError::Corrupt(at)) if at == &source),
+        "{refused:?}"
+    );
+    assert!(!to.exists(), "the directories the resolution made are gone");
+    assert!(
+        !host.dir.path().join("missing").exists(),
+        "the first directory made is gone too"
+    );
+    assert!(!retirement_path(&host, &kept, "run-a", &root).exists());
 }

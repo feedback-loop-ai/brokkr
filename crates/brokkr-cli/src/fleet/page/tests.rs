@@ -1257,9 +1257,9 @@ fn brokkr_runs_lists_an_empty_hearth_as_none() {
 }
 
 /// A writer that refuses every write, as a closed pipe does, and counts
-/// the writes asked of it.
+/// the writes asked of it. The one writer the surface tests share.
 #[derive(Default)]
-struct Refusing {
+pub(crate) struct Refusing {
     writes: usize,
 }
 
