@@ -149,11 +149,24 @@ fn a_dangling_symlink_at_the_destination_or_a_sidecar_is_refused_by_name() {
             None => destination.clone(),
         };
         std::os::unix::fs::symlink("a-target-that-is-not-there", &occupied).unwrap();
-        let refused = restore(&taken.to, &destination).unwrap_err();
+        // A publish reaching this closure means the pre-check let the copy
+        // run, and a refusal from `hard_link` meeting the link would name
+        // the same path: the refusal must be `refuse_existing`'s, before a
+        // byte is copied.
+        let mut published = false;
+        let refused = restore_through(&taken.to, &destination, &mut |temporary, final_path| {
+            published = true;
+            publish_noclobber(temporary, final_path)
+        })
+        .unwrap_err();
         let BackupError::RestoreDestinationExists(found) = refused else {
             panic!("a dangling symlink at {occupied:?} is refused by name: {refused:?}");
         };
         assert_eq!(found, occupied);
+        assert!(
+            !published,
+            "the pre-check did not refuse {occupied:?} before a byte was copied"
+        );
         assert_eq!(
             std::fs::read_link(&occupied).unwrap(),
             Path::new("a-target-that-is-not-there")
@@ -445,7 +458,9 @@ const DEV_ZERO_DESTINATION: &str = "BROKKR_DEV_ZERO_DESTINATION";
 /// the metadata check against an inventory that says 0. The copy reads one
 /// byte past the inventory and refuses: the destination is absent and no
 /// temporary remains. The restore runs in a child under `ulimit -f 64` so
-/// the test's own removal control cannot fill the disk or hang.
+/// the test's own removal control cannot fill the disk or hang; the child
+/// writes any instrumented profile to `/dev/null`, so the file-size limit
+/// kills only a regression, never a passing child at its exit.
 #[cfg(unix)]
 #[test]
 fn a_snapshot_that_is_a_link_to_dev_zero_is_refused_after_one_byte() {
@@ -488,14 +503,21 @@ fn a_snapshot_that_is_a_link_to_dev_zero_is_refused_after_one_byte() {
         .arg(DEV_ZERO_CHILD_TEST)
         .env(DEV_ZERO_BACKUP, &taken.to)
         .env(DEV_ZERO_DESTINATION, &destination)
+        // The instrumentation profile is written at exit; a passing child
+        // must not die of the limit that bounds a regression.
+        .env("LLVM_PROFILE_FILE", "/dev/null")
         .output()
         .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         output.status.success(),
         "the /dev/zero restore did not refuse after one byte ({status}):\n\
          stdout:\n{stdout}\nstderr:\n{stderr}",
         status = output.status,
-        stdout = String::from_utf8_lossy(&output.stdout),
         stderr = String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("1 passed"),
+        "the child ran no test, so its exit status proves nothing:\n{stdout}"
     );
 }

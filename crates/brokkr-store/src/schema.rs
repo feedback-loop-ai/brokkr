@@ -18,13 +18,14 @@ pub const DATABASE_SCHEMA: u32 = 1;
 /// The `meta` key a journal records [`DATABASE_SCHEMA`] under: one home
 /// for the spelling, read by a backup's missing-schema refusal and by the
 /// insert that records it. [`RECORDED_SCHEMA`] carries the same key in its
-/// statement, where it is the statement's own text.
+/// statement, where it is the statement's own text; the two are held
+/// together by
+/// `backup::tests::the_recorded_schema_statement_reads_the_one_key_home`.
 pub(crate) const DATABASE_SCHEMA_KEY: &str = "database_schema";
 
-/// The `meta` key a snapshot is missing when a backup's restore refuses to
-/// read its schema versions. Each spelling lives with the module that
-/// records it, so a refusal and the journal's own readers name it from one
-/// home.
+/// The `meta` key a backup names when a journal records no schema version
+/// for it. Each spelling lives with the module that records it, so the
+/// refusal and the journal's own readers name it from one home.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchemaKey {
     Database,
@@ -33,7 +34,7 @@ pub enum SchemaKey {
 
 impl SchemaKey {
     /// The `meta` key this names, as the journal spells it.
-    pub const fn as_str(self) -> &'static str {
+    fn as_str(self) -> &'static str {
         match self {
             SchemaKey::Database => DATABASE_SCHEMA_KEY,
             SchemaKey::Queue => crate::queue::QUEUE_SCHEMA_KEY,

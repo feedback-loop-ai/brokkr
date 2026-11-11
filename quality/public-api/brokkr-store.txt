@@ -96,8 +96,6 @@ pub fn brokkr_store::backup::RowField::fmt(&self, &mut core::fmt::Formatter<'_>)
 pub enum brokkr_store::backup::SchemaKey
 pub brokkr_store::backup::SchemaKey::Database
 pub brokkr_store::backup::SchemaKey::Queue
-impl brokkr_store::backup::SchemaKey
-pub const fn brokkr_store::backup::SchemaKey::as_str(self) -> &'static str
 impl core::fmt::Display for brokkr_store::backup::SchemaKey
 pub fn brokkr_store::backup::SchemaKey::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct brokkr_store::backup::Backup
