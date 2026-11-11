@@ -617,6 +617,9 @@ fn the_local_http_endpoint_admits_a_single_label_host() {
         "http://spark:12345/v1",
         "http://spark",
         "http://spark/v1",
+        // A label with the hex prefix but a payload that is not a hex
+        // number is a name, not an address.
+        "http://0xg:8888/v1",
         // The old refusal vector: a single-label `http://` host with a
         // path is the shape #953 now admits, so its expected value moved
         // from `Endpoint` to admitted.
@@ -675,6 +678,27 @@ fn an_http_numeric_host_is_an_ip_literal_and_is_refused() {
         "http://2130706433/v1",
         "http://0x08080808:8888/v1",
         "http://0X08080808/v1",
+    ] {
+        let body = MEASURED.replace("http://host:8888/v1", base);
+        assert_eq!(
+            validate(body.as_bytes(), SPARK_PIN),
+            Err(Refused(Overlay::Endpoint)),
+            "{base:?}"
+        );
+    }
+}
+
+/// The empty hex payload is the same legacy IPv4 family: WHATWG's number
+/// parser strips `0x`/`0X` and reads no digits as zero, so `0x` and `0X`
+/// name 0.0.0.0, an IP literal, not a single-label name (#953 option (a),
+/// AS3). This is the removal control for the empty-payload guard.
+#[test]
+fn an_http_empty_hex_host_is_an_ip_literal_and_is_refused() {
+    for base in [
+        "http://0x:8888/v1",
+        "http://0X:8888/v1",
+        "http://0x",
+        "http://0X/v1",
     ] {
         let body = MEASURED.replace("http://host:8888/v1", base);
         assert_eq!(

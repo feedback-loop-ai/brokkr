@@ -631,8 +631,9 @@ fn endpoint_host(host: &str, local: bool) -> bool {
 
 /// The local `http://` host: one DNS label that is not a legacy IPv4
 /// literal. `inet_aton` and WHATWG URL readers take an all-decimal label
-/// (`134744072`) or a `0x` hex label (`0x08080808`) as a 32-bit address, so
-/// either would name the public 8.8.8.8 instead of a host on the operator's
+/// (`134744072`) or a `0x`/`0X` hex label (`0x08080808`) as a 32-bit
+/// address, and read the empty hex payload (`0x`, `0X`) as zero, the
+/// unspecified 0.0.0.0. Each is an IP literal, not a host on the operator's
 /// own network (#953 option (a), AS3). `host` has already passed
 /// `host_label`, so it is ASCII.
 fn local_http_host(host: &str) -> bool {
@@ -640,7 +641,7 @@ fn local_http_host(host: &str) -> bool {
         return false;
     }
     let hex = host.strip_prefix("0x").or_else(|| host.strip_prefix("0X"));
-    !hex.is_some_and(|digits| !digits.is_empty() && digits.chars().all(|c| c.is_ascii_hexdigit()))
+    !hex.is_some_and(|digits| digits.chars().all(|c| c.is_ascii_hexdigit()))
 }
 
 /// `https://<host>[:<port>][/<segment>...]`, or an `http://` endpoint whose
