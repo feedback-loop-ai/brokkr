@@ -355,7 +355,9 @@ fn per_day(source: &dyn FactSource, window: Window) -> Vec<Day> {
 struct StepAcc {
     waiting_millis: i64,
     runs: usize,
-    last_run: Option<String>,
+    /// The last park's (hearth, run): a run id is unique only within one
+    /// journal, so a park's identity is both.
+    last_run: Option<(String, String)>,
 }
 
 fn waiting_by_step(source: &dyn FactSource, window: Window) -> (Vec<StepWait>, usize) {
@@ -374,12 +376,13 @@ fn waiting_by_step(source: &dyn FactSource, window: Window) -> (Vec<StepWait>, u
             return;
         }
         let phase = park.phase.clone();
+        let identity = (park.hearth, park.run);
         match &mut current {
             Some((named, step)) if *named == phase => {
                 step.waiting_millis += waited;
-                if step.last_run.as_deref() != Some(park.run.as_str()) {
+                if step.last_run.as_ref() != Some(&identity) {
                     step.runs += 1;
-                    step.last_run = Some(park.run);
+                    step.last_run = Some(identity);
                 }
             }
             _ => {
@@ -389,7 +392,7 @@ fn waiting_by_step(source: &dyn FactSource, window: Window) -> (Vec<StepWait>, u
                     StepAcc {
                         waiting_millis: waited,
                         runs: 1,
-                        last_run: Some(park.run),
+                        last_run: Some(identity),
                     },
                 ));
             }

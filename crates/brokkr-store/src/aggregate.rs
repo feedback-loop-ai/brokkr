@@ -68,6 +68,9 @@ pub struct WindowRun<'a> {
     pub realm: Option<&'a str>,
     pub recipe: Option<&'a str>,
     pub ending_rule: Option<&'a str>,
+    /// Whether the fold stood at the policy's hard stop there: status
+    /// `stopped`, at phase `stop`, whatever rule the last ruling named.
+    pub hard_stop: bool,
     pub started_ms: Option<i64>,
     pub finished_ms: Option<i64>,
     /// The ending, in decision 0064's twelve, parsed at this edge.
@@ -311,20 +314,29 @@ static DURATIONS: LazyLock<String> = LazyLock::new(|| {
 /// The runs a window reads: those that finished in it, less a behind row,
 /// and those still open, through the lane index. A stopping run is a
 /// running one with an accepted stop, still open, so its lane is read too.
+/// Each row also states whether its fold stood at the policy's hard stop,
+/// exactly as `brokkr-core`'s `hard_stop` decides it: `stopped`, at the
+/// `stop` phase. The `phase` column is the writer's cut at
+/// [`brokkr_core::summary::NAME_BYTES`], and a cut that reads `stop` is the
+/// whole `stop` — a longer phase cannot cut to it — so `phase_whole` need
+/// not be read.
 fn runs_statement(order: &str) -> String {
     format!(
         "SELECT run_id, realm, recipe, ending_rule, started_ms, finished_ms, ending,
-                implement_visits, review_first, review_second, review_back, 0 AS open
+                implement_visits, review_first, review_second, review_back,
+                (status = '{stopped}' AND phase = 'stop') AS hard_stop, 0 AS open
            FROM run_summary
            WHERE finished_ms >= ?1 AND finished_ms < ?2 AND {behind}
              AND (?3 IS NULL OR realm = ?3)
          UNION ALL
          SELECT run_id, realm, recipe, ending_rule, started_ms, finished_ms, ending,
-                implement_visits, review_first, review_second, review_back, 1 AS open
+                implement_visits, review_first, review_second, review_back,
+                (status = '{stopped}' AND phase = 'stop') AS hard_stop, 1 AS open
            FROM run_summary
            WHERE lane IN ({open})
              AND (?3 IS NULL OR realm = ?3)
          {order}",
+        stopped = Status::Stopped.as_str(),
         behind = outside(Lane::Behind),
         open = open_lanes(),
     )
@@ -372,7 +384,8 @@ fn window_run<'a>(row: &'a Row<'_>) -> Result<WindowRun<'a>, rusqlite::Error> {
             second: row.get::<_, i64>(9)? != 0,
             back: row.get::<_, i64>(10)? != 0,
         },
-        open: row.get::<_, i64>(11)? != 0,
+        hard_stop: row.get::<_, i64>(11)? != 0,
+        open: row.get::<_, i64>(12)? != 0,
     })
 }
 

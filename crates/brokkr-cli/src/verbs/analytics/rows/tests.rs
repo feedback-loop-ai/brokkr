@@ -17,6 +17,7 @@ fn row<'a>(run_id: &'a str) -> WindowRun<'a> {
         realm: Some("alpha"),
         recipe: Some("recipe"),
         ending_rule: Some("RULE"),
+        hard_stop: true,
         started_ms: Some(1),
         finished_ms: Some(10),
         ending: Some(Ending::Shipped),
@@ -85,6 +86,19 @@ fn a_run_out_of_scope_or_left_whole_is_no_row() {
         run_facts(&row("r"), "label", &spends, None, &whole).is_none(),
         "a run read whole"
     );
+}
+
+#[test]
+fn a_hard_stop_without_a_rule_is_still_a_stop() {
+    let mut row = row("r");
+    row.ending_rule = None;
+    assert_eq!(
+        finished(&row).unwrap().hard_stop,
+        Some(HardStop { rule: None })
+    );
+    let mut completed = row;
+    completed.hard_stop = false;
+    assert_eq!(finished(&completed).unwrap().hard_stop, None);
 }
 
 #[test]

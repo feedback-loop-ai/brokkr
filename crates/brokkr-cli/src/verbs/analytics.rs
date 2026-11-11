@@ -126,7 +126,7 @@ fn derive(hearths: &[Hearth], range: Range, realm: Option<&str>, now: &str) -> R
                 window,
                 before,
                 stores[index].as_ref(),
-            )?));
+            )));
         }
         let source = brokkr_view::FactUnion::new(sources);
         brokkr_view::analytics_with(&source, &query)

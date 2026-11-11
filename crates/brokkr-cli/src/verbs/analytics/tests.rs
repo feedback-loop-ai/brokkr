@@ -111,6 +111,16 @@ fn assert_hearths_are_their_whole_read(hearths: &[Hearth], context: &str) {
     }
 }
 
+/// The Day figures from `journal`'s rows and from the whole read, asserted
+/// equal, and the rows' view for the caller's own assertions.
+fn assert_rows_are_whole(journal: &std::path::Path, context: &str) -> Analytics {
+    let hearths = [hearth(Vec::new(), journal)];
+    let rows = derive(&hearths, Range::Day, None, GENERATED_NOW).unwrap();
+    let whole = view(&hearths, Range::Day, None, GENERATED_NOW);
+    assert_same(&rows, &whole, context);
+    rows
+}
+
 /// The same, for one journal at a time.
 fn assert_journals_are_their_whole_read(journals: &[&std::path::Path]) {
     for journal in journals {
@@ -240,11 +250,19 @@ fn seated(effect: &str, provider: &str, model: &str, usd: f64, at: &str) -> Step
     ]
 }
 
+/// The rule a hard stop's last ruling names: it may omit `rule_id`, state
+/// it null, or name a rule.
+enum LastRuling<'a> {
+    Absent,
+    Null,
+    Named(&'a str),
+}
+
 /// One stopped run's realm, recipe, rule, seat and finish.
 struct RunCase<'a> {
     realm: Option<&'a str>,
     recipe: &'a str,
-    rule: &'a str,
+    rule: LastRuling<'a>,
     provider: &'a str,
     model: &'a str,
     usd: f64,
@@ -252,7 +270,8 @@ struct RunCase<'a> {
     finish: i64,
 }
 
-/// A run stopped by its rule whose one seat reported its cost.
+/// A run stopped by its hard stop whose one seat reported its cost: its
+/// last ruling names `rule`, or names none.
 fn stopped_run(base: i64, case: RunCase<'_>) -> Steps {
     let RunCase {
         realm,
@@ -270,17 +289,52 @@ fn stopped_run(base: i64, case: RunCase<'_>) -> Steps {
         stamp(base, -30 * 60),
     ));
     steps.extend(seated("fx", provider, model, usd, &stamp(base, -20 * 60)));
-    steps.push((
-        EventType::TransitionDecided,
-        json!({"rule_id": rule, "from": "review", "result": "ruled", "next": "stop"}),
-        stamp(base, finish),
-    ));
+    let mut decided = json!({"from": "review", "result": "ruled", "next": "stop"});
+    match rule {
+        LastRuling::Absent => {}
+        LastRuling::Null => decided["rule_id"] = Value::Null,
+        LastRuling::Named(rule) => decided["rule_id"] = json!(rule),
+    }
+    steps.push((EventType::TransitionDecided, decided, stamp(base, finish)));
     steps.push((
         EventType::PhaseEntered,
         json!({"phase": "stop"}),
         stamp(base, finish),
     ));
     steps.push((EventType::RunStopped, json!({}), stamp(base, finish)));
+    steps
+}
+
+/// A run parked in `phase` from `at` to `ended`, its first operator command
+/// at `answered`, all in minutes from the journal's clock.
+fn parked_in_phase(base: i64, phase: &str, at: i64, answered: i64, ended: i64) -> Steps {
+    let mut steps = started(Some("parked-realm"), "parked-recipe", stamp(base, at - 60));
+    steps.push((
+        EventType::PhaseEntered,
+        json!({"phase": phase}),
+        stamp(base, at - 60),
+    ));
+    steps.push((
+        EventType::EffectRequested,
+        json!({"effect_id": "parked", "seat": "builder"}),
+        stamp(base, at - 60),
+    ));
+    steps.push((
+        EventType::RunParked,
+        json!({"reason": "waiting on the operator"}),
+        stamp(base, at),
+    ));
+    steps.push((
+        EventType::OperatorCommanded,
+        json!({"command_id": "answer", "command": "retry"}),
+        stamp(base, answered),
+    ));
+    steps.push((
+        EventType::OperatorAccepted,
+        json!({"command_id": "answer"}),
+        stamp(base, answered),
+    ));
+    steps.push((EventType::RunCompleted, json!({}), stamp(base, ended)));
     steps
 }
 
@@ -508,13 +562,14 @@ fn plant(store: &mut brokkr_store::Store, run_id: &str, steps: &Steps) {
 
 /// A journal with every shape the row read must fold as the whole read
 /// does: seventy stopped runs with a realm, recipe, rule and model each
-/// (past 64 groups of four cuts, one of each past its bound), seventy
-/// phases of one run's parks, a park answered inside the window and ended
-/// before it, and a run whose stored realm is NULL.
-fn generated_journal(dir: &std::path::Path) -> std::path::PathBuf {
-    let journal = dir.join("generated.db");
-    let mut store = brokkr_store::Store::open(&journal).unwrap();
-    let base = parse_millis(GENERATED_NOW).unwrap();
+/// (past 64 groups of four cuts, a realm, recipe, rule, model and provider
+/// each past its bound), a hard stop naming a rule and one naming none,
+/// seventy phases of one run's parks, a park answered inside the window and
+/// ended before it, and a run whose stored realm is NULL.
+/// Seventy stopped runs whose realm, recipe and rule each cross 64 groups
+/// and, for one run apiece, the 64-byte cut; each also names a model and a
+/// provider.
+fn generated_stopped_runs(store: &mut brokkr_store::Store, base: i64) {
     for index in 0..70u32 {
         let run_id = format!("gen-{index:03}");
         let realm = if index == 3 {
@@ -538,15 +593,82 @@ fn generated_journal(dir: &std::path::Path) -> std::path::PathBuf {
             RunCase {
                 realm: Some(&realm),
                 recipe: &recipe,
-                rule: &rule,
+                rule: LastRuling::Named(&rule),
                 provider,
                 model: &format!("model-{index:03}"),
                 usd: 0.01 * f64::from(index + 1),
                 finish: -18 * 60 + i64::from(index) * 10,
             },
         );
-        plant(&mut store, &run_id, &steps);
+        plant(store, &run_id, &steps);
     }
+}
+
+/// A hard stop naming a rule and one naming none, and a run the store
+/// would never import, so a model past 80 bytes and a provider past 64
+/// reach the rows and the whole read alike.
+fn generated_hard_stops(store: &mut brokkr_store::Store, base: i64) {
+    plant(
+        store,
+        "gen-stop-norule",
+        &stopped_run(
+            base,
+            RunCase {
+                realm: Some("stop-realm"),
+                recipe: "stop-recipe",
+                rule: LastRuling::Absent,
+                provider: "claude",
+                model: "stop-model",
+                usd: 0.5,
+                finish: -19 * 60 + 5,
+            },
+        ),
+    );
+    plant(
+        store,
+        "gen-stop-rule",
+        &stopped_run(
+            base,
+            RunCase {
+                realm: Some("stop-realm"),
+                recipe: "stop-recipe",
+                rule: LastRuling::Named("STOP-RULE"),
+                provider: "claude",
+                model: "stop-model",
+                usd: 0.5,
+                finish: -19 * 60 + 15,
+            },
+        ),
+    );
+    let long_provider = format!("provider-{}", "p".repeat(80));
+    let long_model = format!("model-{}", "m".repeat(90));
+    plant_older_writer(
+        store,
+        "gen-bound",
+        &sealed(
+            "gen-bound",
+            &stopped_run(
+                base,
+                RunCase {
+                    realm: Some("stop-realm"),
+                    recipe: "stop-recipe",
+                    rule: LastRuling::Named("STOP-RULE"),
+                    provider: &long_provider,
+                    model: &long_model,
+                    usd: 0.5,
+                    finish: -19 * 60 + 30,
+                },
+            ),
+        ),
+    );
+}
+
+fn generated_journal(dir: &std::path::Path) -> std::path::PathBuf {
+    let journal = dir.join("generated.db");
+    let mut store = brokkr_store::Store::open(&journal).unwrap();
+    let base = parse_millis(GENERATED_NOW).unwrap();
+    generated_stopped_runs(&mut store, base);
+    generated_hard_stops(&mut store, base);
     for index in 0..70u32 {
         plant(
             &mut store,
@@ -571,6 +693,7 @@ fn generated_journal(dir: &std::path::Path) -> std::path::PathBuf {
             );
         }
     }
+    let store = brokkr_store::test_support::refolded(store);
     drop(store);
     journal
 }
@@ -587,16 +710,17 @@ fn every_figure_is_its_whole_read_on_the_generated_journal() {
     }
     let day = derive(&hearths, Range::Day, None, GENERATED_NOW).unwrap();
     assert_eq!(day.models.len(), 64);
-    assert_eq!(day.models_more, 70 - 64);
+    assert_eq!(day.models_more, 72 - 64);
     assert_eq!(day.realms.len(), 64);
     // The hearth's label, seventy pinned realms, a parked realm, a clock
-    // realm: seventy-three names, the first sixty-four kept.
-    assert_eq!(day.realms_more, 74 - 64);
+    // realm, a stop realm: seventy-five names, the first sixty-four kept.
+    assert_eq!(day.realms_more, 75 - 64);
     assert_eq!(day.recipes.len(), 64);
-    assert_eq!(day.recipes_more, 73 - 64);
+    assert_eq!(day.recipes_more, 74 - 64);
     assert_eq!(day.waiting_by_step.len(), 64);
     assert_eq!(day.waiting_by_step_more, 71 - 64);
-    assert_eq!(day.headline.stopped_by_rule.rules_more, 70 - 64);
+    // Seventy named rules, STOP-RULE and the stop that names none.
+    assert_eq!(day.headline.stopped_by_rule.rules_more, 72 - 64);
     assert!(
         day.headline.waiting.waiting_millis >= 60 * 60 * 1000,
         "the clock-stepped-back park's waiting time is kept: {:?}",
@@ -615,7 +739,7 @@ fn small_journal(dir: &std::path::Path, name: &str, count: u32) -> std::path::Pa
             RunCase {
                 realm: Some(&format!("{name}-realm-{index}")),
                 recipe: &format!("{name}-recipe-{index}"),
-                rule: &format!("{name}-rule-{index}"),
+                rule: LastRuling::Named(&format!("{name}-rule-{index}")),
                 provider: "claude",
                 model: &format!("{name}-model-{index}"),
                 usd: 0.25,
@@ -682,7 +806,7 @@ fn a_behind_run_and_a_stale_seat_run_are_each_read_whole_alone() {
         RunCase {
             realm: Some("behind-realm"),
             recipe: "behind-recipe",
-            rule: "behind-rule",
+            rule: LastRuling::Named("behind-rule"),
             provider: "claude",
             model: "behind-model",
             usd: 0.5,
@@ -779,4 +903,283 @@ fn a_world_of_two_hearths_one_migrated_and_one_not_is_its_whole_read() {
         let whole = view(&hearths, range, None, GENERATED_NOW);
         assert_same(&rows, &whole, &format!("two hearths {range:?}"));
     }
+}
+
+#[test]
+fn a_hearth_the_fleet_refuses_contributes_no_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = small_journal(dir.path(), "refused", 2);
+    let conn = rusqlite::Connection::open(&journal).unwrap();
+    conn.execute("UPDATE runs SET created_at = x'00'", [])
+        .unwrap();
+    drop(conn);
+    let rows = assert_rows_are_whole(&journal, "a refused hearth");
+    assert_eq!(rows.quarantined.len(), 1, "the refusal is reported");
+    assert_eq!(rows.quarantined[0].realm, "world");
+    assert!(
+        rows.quarantined[0].refusal.contains("created_at"),
+        "the refusal names the column it could not read: {}",
+        rows.quarantined[0].refusal
+    );
+    assert!(rows.realms.is_empty(), "no realm is listed");
+    assert!(
+        rows.headline.median.millis.is_none(),
+        "no run's duration is counted"
+    );
+    assert_eq!(rows.headline.stopped_by_rule.count, 0);
+    assert!(
+        rows.per_day.iter().all(|day| day.stopped == 0),
+        "no day counts a stop"
+    );
+    assert!(rows.models.is_empty(), "no model is counted");
+    assert!(rows.recipes.is_empty(), "no recipe is counted");
+}
+
+#[test]
+fn a_hard_stop_that_names_no_rule_keeps_its_stop() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = dir.path().join("stops.db");
+    let base = parse_millis(GENERATED_NOW).unwrap();
+    let mut store = brokkr_store::Store::open(&journal).unwrap();
+    plant(
+        &mut store,
+        "stop-norule",
+        &stopped_run(
+            base,
+            RunCase {
+                realm: Some("stop-realm"),
+                recipe: "stop-recipe",
+                rule: LastRuling::Absent,
+                provider: "claude",
+                model: "stop-model",
+                usd: 0.5,
+                finish: -19 * 60,
+            },
+        ),
+    );
+    plant(
+        &mut store,
+        "stop-rule",
+        &stopped_run(
+            base,
+            RunCase {
+                realm: Some("stop-realm"),
+                recipe: "stop-recipe",
+                rule: LastRuling::Named("STOP-RULE"),
+                provider: "claude",
+                model: "stop-model",
+                usd: 0.5,
+                finish: -18 * 60,
+            },
+        ),
+    );
+    drop(store);
+    let rows = assert_rows_are_whole(&journal, "a hard stop with no rule");
+    assert_eq!(rows.headline.stopped_by_rule.count, 2);
+    assert_eq!(
+        serde_json::to_value(&rows.headline.stopped_by_rule).unwrap(),
+        json!({
+            "count": 2,
+            "top": {"rule_id": null, "count": 1},
+            "text": "1 by —",
+        }),
+        "the stop that names no rule is the lesser id on the tie"
+    );
+}
+
+#[test]
+fn a_single_hard_stop_that_names_no_rule_is_counted() {
+    for (index, rule) in [LastRuling::Absent, LastRuling::Null]
+        .into_iter()
+        .enumerate()
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let journal = dir.path().join(format!("stop-{index}.db"));
+        let base = parse_millis(GENERATED_NOW).unwrap();
+        let mut store = brokkr_store::Store::open(&journal).unwrap();
+        plant(
+            &mut store,
+            "only",
+            &stopped_run(
+                base,
+                RunCase {
+                    realm: Some("stop-realm"),
+                    recipe: "stop-recipe",
+                    rule,
+                    provider: "claude",
+                    model: "stop-model",
+                    usd: 0.5,
+                    finish: -19 * 60,
+                },
+            ),
+        );
+        drop(store);
+        let rows = assert_rows_are_whole(&journal, &format!("a hard stop with no rule {index}"));
+        assert_eq!(rows.headline.stopped_by_rule.count, 1);
+        assert_eq!(
+            serde_json::to_value(&rows.headline.stopped_by_rule).unwrap(),
+            json!({
+                "count": 1,
+                "top": {"rule_id": null, "count": 1},
+                "text": "1 by —",
+            }),
+            "a hard stop whose ruling omits or nulls its rule is still a stop"
+        );
+    }
+}
+
+/// A journal holding one run parked in phase `same` for two hours.
+fn same_phase_park(
+    dir: &std::path::Path,
+    name: &str,
+    run_id: &str,
+    base: i64,
+) -> std::path::PathBuf {
+    let journal = dir.join(format!("{name}.db"));
+    let mut store = brokkr_store::Store::open(&journal).unwrap();
+    plant(
+        &mut store,
+        run_id,
+        &parked_in_phase(base, "same", -220, -160, -100),
+    );
+    drop(store);
+    journal
+}
+
+#[test]
+fn a_run_id_in_two_hearths_is_two_runs_in_waiting_by_step() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = parse_millis(GENERATED_NOW).unwrap();
+    let same = [
+        hearth(
+            vec!["left".to_string()],
+            &same_phase_park(dir.path(), "same-left", "r1", base),
+        ),
+        hearth(
+            vec!["right".to_string()],
+            &same_phase_park(dir.path(), "same-right", "r1", base),
+        ),
+    ];
+    let rows = derive(&same, Range::Day, None, GENERATED_NOW).unwrap();
+    let whole = view(&same, Range::Day, None, GENERATED_NOW);
+    assert_same(&rows, &whole, "the same run id in two hearths");
+    // Main's figure, pinned as a literal: a park's run identity is its
+    // place in the scoped run list, so two hearths count two runs.
+    assert_eq!(
+        serde_json::to_value(&rows.waiting_by_step).unwrap(),
+        json!([{
+            "phase": "same",
+            "waiting_millis": 7_200_000,
+            "runs": 2,
+            "text": "2.0h · 2",
+        }])
+    );
+
+    let distinct = [
+        hearth(
+            vec!["left".to_string()],
+            &same_phase_park(dir.path(), "distinct-left", "r1", base),
+        ),
+        hearth(
+            vec!["right".to_string()],
+            &same_phase_park(dir.path(), "distinct-right", "r2", base),
+        ),
+    ];
+    let rows = derive(&distinct, Range::Day, None, GENERATED_NOW).unwrap();
+    let whole = view(&distinct, Range::Day, None, GENERATED_NOW);
+    assert_same(&rows, &whole, "two run ids in two hearths");
+    assert_eq!(
+        serde_json::to_value(&rows.waiting_by_step).unwrap(),
+        json!([{
+            "phase": "same",
+            "waiting_millis": 7_200_000,
+            "runs": 2,
+            "text": "2.0h · 2",
+        }]),
+        "the control: two run ids count two runs on both sides"
+    );
+}
+
+#[test]
+fn a_row_read_that_fails_reads_its_hearth_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = small_journal(dir.path(), "row-error", 2);
+    let conn = rusqlite::Connection::open(&journal).unwrap();
+    conn.execute(
+        "UPDATE run_summary SET ending = 'no-such-ending' WHERE run_id = 'row-error-0'",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+    let hearths = [hearth(Vec::new(), &journal)];
+    let rows = derive(&hearths, Range::Day, None, GENERATED_NOW).unwrap();
+    let whole = view(&hearths, Range::Day, None, GENERATED_NOW);
+    assert_same(&rows, &whole, "a row read that fails");
+    assert_eq!(
+        rows.headline.shipped.count, whole.headline.shipped.count,
+        "the whole read still paints every shipped run"
+    );
+    assert!(
+        rows.quarantined.is_empty(),
+        "a row that will not parse is no hearth refusal"
+    );
+}
+
+#[test]
+fn a_fallback_run_that_will_not_open_reads_its_hearth_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = small_journal(dir.path(), "fallback", 2);
+    let base = parse_millis(GENERATED_NOW).unwrap();
+    let events = sealed(
+        "behind-run",
+        &stopped_run(
+            base,
+            RunCase {
+                realm: Some("behind-realm"),
+                recipe: "behind-recipe",
+                rule: LastRuling::Named("behind-rule"),
+                provider: "claude",
+                model: "behind-model",
+                usd: 0.5,
+                finish: -19 * 60,
+            },
+        ),
+    );
+    let store = brokkr_store::Store::open(&journal).unwrap();
+    plant_older_writer(&store, "behind-run", &events);
+    drop(store);
+
+    let hearths = [hearth(Vec::new(), &journal)];
+    read_hearths(&hearths, |grouped| {
+        // The fleet read loaded the run; break its chain behind its back,
+        // so only the fallback's one-run opening fails.
+        let conn = rusqlite::Connection::open(&journal).unwrap();
+        plant_broken_link(&conn, &events[0], 99).unwrap();
+        drop(conn);
+        let query = Query {
+            hearths: grouped,
+            range: Range::Day,
+            realm: None,
+            now: GENERATED_NOW,
+        };
+        let (window, before) = brokkr_view::windows(&query).unwrap();
+        let store = brokkr_store::Store::open_read_only(&journal).unwrap();
+        let source = super::rows::HearthSource::read(
+            &grouped[0],
+            Range::Day,
+            None,
+            GENERATED_NOW,
+            window,
+            before,
+            Some(&store),
+        );
+        let source = brokkr_view::FactUnion::new(vec![Box::new(source)]);
+        let rows = brokkr_view::analytics_with(&source, &query).unwrap();
+        let whole = brokkr_view::analytics(&query).unwrap();
+        assert_same(&rows, &whole, "a fallback run that will not open");
+        assert_eq!(
+            rows.headline.shipped.count, whole.headline.shipped.count,
+            "the run the fleet read still paints"
+        );
+    });
 }

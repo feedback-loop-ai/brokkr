@@ -13,7 +13,7 @@
 //! [`FactSource::parks`], [`FactSource::spends`] and
 //! [`FactSource::sites_in`] hand over only what overlaps the window.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use brokkr_core::fold::{concluded, RunState};
 use brokkr_core::summary::{aggregate, cut, parks as project_parks, MODEL_BYTES, NAME_BYTES};
@@ -108,7 +108,11 @@ pub struct RunFacts {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParkFact {
     pub realm: String,
-    /// The run's id: the identity `waiting_by_step` counts a change of.
+    /// The hearth's label: a run id is unique only within one journal, so
+    /// a park's identity is (hearth, run), never the run id alone.
+    pub hearth: String,
+    /// The run's id: half the identity `waiting_by_step` counts a change
+    /// of.
     pub run: String,
     pub phase: Option<String>,
     pub at: i64,
@@ -166,10 +170,11 @@ pub enum SiteOrder {
 /// A grouped figure asks for its stream already ordered by its own cut
 /// key, so it folds one completed group at a time into a bounded
 /// [`super::ranked::Ranked`] and never holds every group. Parks are
-/// yielded by their cut phase and then their run, so `waiting_by_step`
-/// counts a change of run, never a set of them. The facts a stream yields
-/// are already the window's: the source was built for the query's range
-/// and clock.
+/// yielded by their cut phase, then their hearth and run, so
+/// `waiting_by_step` counts a change of run, never a set of them; a run
+/// id alone is not an identity, because two journals may each hold it.
+/// The facts a stream yields are already the window's: the source was
+/// built for the query's range and clock.
 pub trait FactSource {
     /// The realm names the readout paints, and the runs no figure could
     /// read, by their cut realm key.
@@ -259,6 +264,7 @@ fn parks(events: &[EventEnvelope], now: i64) -> Vec<Park> {
 /// One run of today's whole read: what the figures fold, and the streams
 /// the run contributes to them.
 struct WholeRun {
+    hearth: String,
     run_id: String,
     facts: RunFacts,
     parks: Vec<Park>,
@@ -276,6 +282,7 @@ fn whole_run(run: &AnalyticsRun, label: &str, now: i64) -> WholeRun {
         optional(left.phase.as_deref()).cmp(&optional(right.phase.as_deref()))
     });
     WholeRun {
+        hearth: label.to_string(),
         run_id: run
             .events
             .first()
@@ -423,10 +430,13 @@ impl FactSource for WholeRead {
     }
 
     /// Each run's parks are already phase-sorted, so merging the runs by
-    /// (cut phase, run id) yields them in that order without collecting
-    /// every park a second time.
+    /// (cut phase, hearth, run) yields them in that order without
+    /// collecting every park a second time: one cursor a run, in a set
+    /// ordered by the key, so a park's advance costs a logarithm, not a
+    /// scan of every cursor. A run id is unique only within its journal,
+    /// so the hearth is part of the identity.
     fn parks(&self, visit: &mut dyn FnMut(ParkFact)) {
-        let mut cursors: Vec<(Option<&str>, &str, usize, usize)> = self
+        let mut cursors: BTreeSet<(Option<&str>, &str, &str, usize, usize)> = self
             .runs
             .iter()
             .enumerate()
@@ -434,6 +444,7 @@ impl FactSource for WholeRead {
                 whole.parks.first().map(|park| {
                     (
                         optional(park.phase.as_deref()),
+                        whole.hearth.as_str(),
                         whole.run_id.as_str(),
                         run,
                         0,
@@ -441,28 +452,22 @@ impl FactSource for WholeRead {
                 })
             })
             .collect();
-        while !cursors.is_empty() {
-            let least = cursors
-                .iter()
-                .enumerate()
-                .min_by(|(_, left), (_, right)| left.cmp(right))
-                .map(|(at, _)| at)
-                .expect("the cursors are not empty");
-            let (_phase, _run_id, run, index) = cursors[least];
+        while let Some((_phase, _hearth, _run_id, run, index)) = cursors.pop_first() {
             let whole = &self.runs[run];
             let park = &whole.parks[index];
             visit(ParkFact {
                 realm: whole.facts.realm.clone(),
+                hearth: whole.hearth.clone(),
                 run: whole.run_id.clone(),
                 phase: optional(park.phase.as_deref()).map(str::to_string),
                 at: park.at,
                 answered: park.answered,
                 ended: park.ended,
             });
-            cursors.remove(least);
             if let Some(next) = whole.parks.get(index + 1) {
-                cursors.push((
+                cursors.insert((
                     optional(next.phase.as_deref()),
+                    whole.hearth.as_str(),
                     whole.run_id.as_str(),
                     run,
                     index + 1,
@@ -607,6 +612,7 @@ impl FactSource for FactUnion {
         parks.sort_by(|(left_source, left), (right_source, right)| {
             optional(left.phase.as_deref())
                 .cmp(&optional(right.phase.as_deref()))
+                .then(left.hearth.cmp(&right.hearth))
                 .then(left.run.cmp(&right.run))
                 .then(left_source.cmp(right_source))
                 .then(left.at.cmp(&right.at))

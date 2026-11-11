@@ -21,6 +21,7 @@ pub struct brokkr_store::aggregate::WindowRun<'a>
 pub brokkr_store::aggregate::WindowRun::ending: core::option::Option<brokkr_core::ending::Ending>
 pub brokkr_store::aggregate::WindowRun::ending_rule: core::option::Option<&'a str>
 pub brokkr_store::aggregate::WindowRun::finished_ms: core::option::Option<i64>
+pub brokkr_store::aggregate::WindowRun::hard_stop: bool
 pub brokkr_store::aggregate::WindowRun::implement_visits: u64
 pub brokkr_store::aggregate::WindowRun::open: bool
 pub brokkr_store::aggregate::WindowRun::realm: core::option::Option<&'a str>

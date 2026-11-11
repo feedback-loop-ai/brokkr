@@ -509,6 +509,7 @@ pub struct brokkr_view::ParkFact
 pub brokkr_view::ParkFact::answered: i64
 pub brokkr_view::ParkFact::at: i64
 pub brokkr_view::ParkFact::ended: i64
+pub brokkr_view::ParkFact::hearth: alloc::string::String
 pub brokkr_view::ParkFact::phase: core::option::Option<alloc::string::String>
 pub brokkr_view::ParkFact::realm: alloc::string::String
 pub brokkr_view::ParkFact::run: alloc::string::String

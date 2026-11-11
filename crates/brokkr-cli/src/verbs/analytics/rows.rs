@@ -30,8 +30,6 @@ use brokkr_view::{
 /// the order it asks for, so a figure holds one group at a time.
 pub(super) struct RowOnly {
     window: Window,
-    realms: Vec<String>,
-    unreadable: BTreeMap<String, usize>,
     runs: Vec<RunFacts>,
     by_rule: Vec<RunFacts>,
     by_recipe: Vec<RunFacts>,
@@ -87,8 +85,6 @@ impl Reading<'_> {
         let (spends_by_run, spends) = self.spends()?;
         Ok(RowOnly {
             window: self.window,
-            realms: Vec::new(),
-            unreadable: BTreeMap::new(),
             runs: self.runs(RowRunOrder::Unordered, &spends_by_run)?,
             by_rule: self.runs(RowRunOrder::ByEndingRule, &spends_by_run)?,
             by_recipe: self.runs(RowRunOrder::ByRealmThenRecipe, &spends_by_run)?,
@@ -159,6 +155,7 @@ impl Reading<'_> {
                 }
                 parks.push(ParkFact {
                     realm: named.to_string(),
+                    hearth: self.label.to_string(),
                     run: park.run_id.to_string(),
                     phase: park.phase.map(str::to_string),
                     at: park.at,
@@ -170,19 +167,20 @@ impl Reading<'_> {
         Ok(parks)
     }
 
-    /// The sites that ran in the window, in `order`.
+    /// The sites that ran in the window, in `order`. A row the whole read
+    /// opens no site by is mapped to no fact here, so the stream carries
+    /// only the sites every read agrees on.
     fn sites(&self, order: RowSiteOrder) -> Result<Vec<SiteFact>, brokkr_store::StoreError> {
-        let mut sites = Vec::new();
+        let mut rows = Vec::new();
         self.store
             .window_sites(self.window.from, self.window.to, None, order, |site| {
-                let Some(fact) = site_fact(site, self.label) else {
-                    return;
-                };
-                if brokkr_view::realm_in_scope(self.realm, &fact.realm) {
-                    sites.push(fact);
-                }
+                rows.push(site_fact(site, self.label));
             })?;
-        Ok(sites)
+        Ok(rows
+            .into_iter()
+            .flatten()
+            .filter(|fact| brokkr_view::realm_in_scope(self.realm, &fact.realm))
+            .collect())
     }
 }
 
@@ -218,13 +216,16 @@ fn run_facts(
     })
 }
 
-/// The ending a run's row keeps, as the whole read's fold states it.
+/// The ending a run's row keeps, as the whole read's fold states it. The
+/// hard stop is the row's flag — the fold's status and phase — so a stop
+/// whose last ruling named no rule keeps its stop, and a rule a completed
+/// run named is no stop.
 fn finished(row: &WindowRun<'_>) -> Option<Finished> {
     Some(Finished {
         at: row.finished_ms?,
         ending: row.ending?,
-        hard_stop: row.ending_rule.map(|rule| HardStop {
-            rule: Some(rule.to_string()),
+        hard_stop: row.hard_stop.then(|| HardStop {
+            rule: row.ending_rule.map(str::to_string),
         }),
     })
 }
@@ -247,8 +248,13 @@ fn site_fact(site: &WindowSite<'_>, label: &str) -> Option<SiteFact> {
 }
 
 impl FactSource for RowOnly {
+    /// A row source names no realm and no unreadable run: the hearth's
+    /// whole read is the one statement of both until U3c (decision 0089
+    /// ruling A4), and [`HearthSource`] takes them from there alone.
     fn scope(&self) -> (&[String], &BTreeMap<String, usize>) {
-        (&self.realms, &self.unreadable)
+        static NO_REALMS: &[String] = &[];
+        static NO_UNREADABLE: BTreeMap<String, usize> = BTreeMap::new();
+        (NO_REALMS, &NO_UNREADABLE)
     }
 
     fn quarantined(&self) -> Vec<brokkr_view::QuarantinedHearth> {
@@ -311,8 +317,8 @@ impl FactSource for RowOnly {
 
 /// The runs a store leaves whole, read one at a time from their own keys
 /// and never the journal: slice 2's one-run opening (decision 0089 ruling
-/// 8). A run that will not load or fold contributes nothing, as today's
-/// whole read quarantines it and no figure reads it.
+/// 8). A run that will not load refuses this whole fallback, so the caller
+/// reads its hearth whole instead of silently leaving a figure empty.
 fn read_whole(
     store: &Store,
     label: &str,
@@ -321,13 +327,11 @@ fn read_whole(
     realm: Option<&str>,
     now: &str,
     window: Window,
-) -> WholeRead {
+) -> Result<WholeRead, brokkr_store::StoreError> {
     let mut events = Vec::new();
     let mut states = Vec::new();
     for run_id in ids {
-        let Ok((_opened, read)) = store.open_kept(run_id) else {
-            continue;
-        };
+        let (_opened, read) = store.open_kept(run_id)?;
         states.push(fold(&read).ok());
         events.push(read);
     }
@@ -353,7 +357,7 @@ fn read_whole(
         realm,
         now,
     };
-    brokkr_view::whole_read(&query, window)
+    Ok(brokkr_view::whole_read(&query, window))
 }
 
 /// One migrated hearth's facts: the rows, merged with the runs the store
@@ -376,11 +380,11 @@ fn read_rows(
     })?;
     let row = RowOnly::read(store, label, window, before, realm, &whole)?;
     if whole.is_empty() {
-        // Nothing stands behind its row: the rows alone, in each figure's
-        // order, with no list held to merge.
+        // Nothing stands behind its row: the rows alone, still merged as
+        // one source so each figure folds its own key order.
         return Ok(FactUnion::new(vec![Box::new(row)]));
     }
-    let fallback = read_whole(store, label, &whole, range, realm, now, window);
+    let fallback = read_whole(store, label, &whole, range, realm, now, window)?;
     Ok(FactUnion::new(vec![Box::new(row), Box::new(fallback)]))
 }
 
@@ -395,7 +399,11 @@ pub(super) struct HearthSource {
 
 impl HearthSource {
     /// Read one hearth: the whole read for the fields that still need
-    /// every run, and the store's rows when its model is ready.
+    /// every run, and the store's rows when its model is ready. A hearth
+    /// the fleet refused, and any failure on the row path, leaves the rows
+    /// unread, so the whole read in hand states every figure: a refusal
+    /// never contributes figures, and a row read's error never fails the
+    /// fleet's readout (decision 0089 rulings 7 and 8).
     pub(super) fn read(
         grouped: &brokkr_view::AnalyticsHearth<'_>,
         range: brokkr_view::Range,
@@ -404,7 +412,7 @@ impl HearthSource {
         window: Window,
         before: Window,
         store: Option<&Store>,
-    ) -> Result<HearthSource, brokkr_store::StoreError> {
+    ) -> HearthSource {
         let query = Query {
             hearths: std::slice::from_ref(grouped),
             range,
@@ -414,18 +422,12 @@ impl HearthSource {
         let whole = brokkr_view::whole_read(&query, window);
         let ready = store.is_some_and(|store| store.aggregates_ready().unwrap_or(false));
         let rows = match (ready, store) {
-            (true, Some(store)) => Some(read_rows(
-                store,
-                grouped.label,
-                window,
-                before,
-                realm,
-                range,
-                now,
-            )?),
+            (true, Some(store)) if grouped.refusal.is_none() => {
+                read_rows(store, grouped.label, window, before, realm, range, now).ok()
+            }
             _ => None,
         };
-        Ok(HearthSource { whole, rows })
+        HearthSource { whole, rows }
     }
 }
 
