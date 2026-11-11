@@ -9,8 +9,12 @@
 //! and 0.2.1-rc.3 (headless, the local `spark-glm` route): with the ten
 //! rows below disabled, the model's own tool list went from 25 tools to
 //! nine bookkeeping tools, and `--dump-config` showed each row
-//! `disabled: true` (docs/evidence/adapters/slice-two-dsh-hands.md). The
-//! rows are the measured releases' own, so a seat on any other release is
+//! `disabled: true` (docs/evidence/adapters/slice-two-dsh-hands.md).
+//! Measured again on 2026-11-11 on dsh 0.2.2-rc.1 (npm `latest`): with the
+//! same ten rows disabled the list is eight bookkeeping tools, and that
+//! release adds a disabled programmatic executor the overlay also pins
+//! (docs/evidence/adapters/dsh-hands-0-2-2.md). Each measured release has
+//! its own row set and composed tree, so a seat on any other release is
 //! refused before it starts rather than served a tool row nobody measured.
 //!
 //! Beside them the overlay sets dsh's own sandbox, defence in depth under
@@ -27,7 +31,7 @@
 //! So the driver also reads the startup it ran: a hand that did not
 //! activate fails the seat closed ([`report`]), and every launch first
 //! composes the seat's own tree with `--dump-config` and refuses any row
-//! outside the measured 99 ([`composition`]).
+//! outside the observed release's measured set ([`composition`]).
 
 use serde_json::Value;
 use thiserror::Error;
@@ -52,8 +56,49 @@ pub(crate) use report::{Enforcement, ReportRefusal};
 /// (#896 round 2).
 pub const ACCESS: &str = "seat_access";
 
-/// The dsh releases the hands rows were measured on (2026-10-26).
-const MEASURED_VERSIONS: [&str; 2] = ["0.2.1-rc.2", "0.2.1-rc.3"];
+/// The dsh releases the hands rows were measured on: 0.2.1-rc.2 and
+/// 0.2.1-rc.3 on 2026-10-26, and 0.2.2-rc.1 on 2026-11-11
+/// (docs/evidence/adapters/dsh-hands-0-2-2.md).
+const MEASURED_VERSIONS: [&str; 3] = ["0.2.1-rc.2", "0.2.1-rc.3", "0.2.2-rc.1"];
+
+/// One measured dsh release family. The set is closed: a version the
+/// controller did not measure is refused by name, never matched by prefix
+/// or range (decision 0071 rulings 2 and 3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Release {
+    /// 0.2.1-rc.2 and 0.2.1-rc.3, measured on 2026-10-26.
+    V0_2_1,
+    /// 0.2.2-rc.1, measured on 2026-11-11 (npm `latest`).
+    V0_2_2,
+}
+
+impl Release {
+    /// Every measured release, in the order the refusal names them.
+    const ALL: [Release; 2] = [Release::V0_2_1, Release::V0_2_2];
+
+    /// The exact versions this release family covers, each matched whole.
+    fn versions(self) -> &'static [&'static str] {
+        match self {
+            Release::V0_2_1 => &MEASURED_VERSIONS[..2],
+            Release::V0_2_2 => &MEASURED_VERSIONS[2..],
+        }
+    }
+
+    /// The release the exact version `version` is, `None` for any other.
+    fn named(version: &str) -> Option<Release> {
+        Release::ALL
+            .into_iter()
+            .find(|release| release.versions().contains(&version))
+    }
+
+    /// The release as a composition refusal names it.
+    fn label(self) -> &'static str {
+        match self {
+            Release::V0_2_1 => "0.2.1-rc.2",
+            Release::V0_2_2 => "0.2.2-rc.1",
+        }
+    }
+}
 
 /// Every model-facing tool row of the measured releases that can read,
 /// write or run anything, or reach the network, or spawn an agent: shell
@@ -72,6 +117,23 @@ pub(super) const DISABLED_ROWS: [&str; 10] = [
     "tool-workflow",
     "tool-web",
 ];
+
+/// The programmatic tool-calling executor 0.2.2-rc.1 adds: disabled by
+/// default there, and pinned disabled by the hands overlay so a profile
+/// that enables it cannot give a hands seat a code-running executor. It
+/// is not a 0.2.1 row, so 0.2.1's overlay does not name it.
+pub(super) const PTC_ROW: &str = "tool-executor-ptc";
+
+/// Whether `id` is one of the effectful rows `release`'s hands overlay
+/// disables. 0.2.1 is the ten common rows; 0.2.2-rc.1 adds the
+/// programmatic executor. Its native executor is the tool calling the
+/// model is still offered, so it stays enabled.
+pub(super) fn disabled(release: Release, id: &str) -> bool {
+    match release {
+        Release::V0_2_1 => DISABLED_ROWS.contains(&id),
+        Release::V0_2_2 => DISABLED_ROWS.contains(&id) || id == PTC_ROW,
+    }
+}
 
 /// The row whose `mode` is dsh's own sandbox.
 pub(super) const SANDBOX_POLICY: &str = "sandbox-policy";
@@ -222,22 +284,21 @@ pub(super) fn sandbox(
         return Ok(Selection::Runner(staged.map(Box::new)));
     };
     let mode = Mode::of(input)?;
-    measured(observed_version(&[
+    let release = measured(observed_version(&[
         bin.to_string(),
         "--version".to_string(),
     ]))?;
     Ok(Selection::Hands {
-        rows: hands_rows(mode, &command, &args)?,
+        rows: hands_rows(release, mode, &command, &args)?,
         mode,
     })
 }
 
 /// The version drift check: the observed release must be one the rows were
-/// measured on. An unreadable answer is no release at all.
-fn measured(observed: Option<String>) -> Result<(), Refusal> {
+/// measured on, matched whole. An unreadable answer is no release at all.
+fn measured(observed: Option<String>) -> Result<Release, Refusal> {
     match observed {
-        Some(version) if MEASURED_VERSIONS.contains(&version.as_str()) => Ok(()),
-        Some(version) => Err(Refusal::Unmeasured {
+        Some(version) => Release::named(&version).ok_or_else(|| Refusal::Unmeasured {
             observed: format!("dsh '{version}'"),
         }),
         None => Err(Refusal::Unmeasured {
@@ -246,11 +307,18 @@ fn measured(observed: Option<String>) -> Result<(), Refusal> {
     }
 }
 
-/// The hands rows for a seat under `mode` and Brokkr's workspace server
-/// `command` and `args`: every tool row of the measured set disabled and
-/// the sandbox mode, checked by the bounded reader against the one shape
-/// they may take ([`route_overlay::hands`]), then the server row.
-fn hands_rows(mode: Mode, command: &str, args: &[String]) -> Result<String, Refusal> {
+/// The hands rows for a seat on `release` under `mode` and Brokkr's
+/// workspace server `command` and `args`: every tool row that release's
+/// measured set disables and the sandbox mode, checked by the bounded
+/// reader against the one shape they may take ([`route_overlay::hands`]),
+/// then the server row. A 0.2.2-rc.1 seat also pins the programmatic
+/// executor disabled; a 0.2.1 seat names no such row.
+fn hands_rows(
+    release: Release,
+    mode: Mode,
+    command: &str,
+    args: &[String],
+) -> Result<String, Refusal> {
     let mut rows = String::from(
         "# Written by `brokkr driver dsh` for one seat whose office declares hands:\n\
          # every effectful tool row disabled, dsh's own sandbox under the box,\n\
@@ -264,6 +332,9 @@ fn hands_rows(mode: Mode, command: &str, args: &[String]) -> Result<String, Refu
         mode.word()
     ));
     route_overlay::hands(rows.as_bytes())?;
+    if release == Release::V0_2_2 {
+        rows.push_str(&format!("- id: {PTC_ROW}\n  disabled: true\n"));
+    }
     rows.push_str(&format!(
         "- insert:\n\
          \x20   - id: {HANDS_ID}\n\
@@ -296,7 +367,8 @@ mod tests;
 /// [`harness_command`](super::harness_command) built from the launch's own
 /// argv, workdir, environment, bindings and removals.
 pub(crate) fn composition_gate(command: std::process::Command) -> Result<(), Composition> {
-    composition::composed_with(command, |command| command.output())
+    let release = composition::release(&command);
+    composition::composed_with(command, release, |command| command.output())
 }
 
 /// dsh's startup outcome, classified once from the RAW captured stderr
