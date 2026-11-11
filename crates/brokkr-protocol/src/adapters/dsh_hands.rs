@@ -56,10 +56,17 @@ pub(crate) use report::{Enforcement, ReportRefusal};
 /// (#896 round 2).
 pub const ACCESS: &str = "seat_access";
 
+/// The exact version strings the measured release families cover, each in
+/// one home: [`MEASURED_VERSIONS`], [`Release::versions`] and
+/// [`Release::label`] all derive from these (decision 0071 ruling 5).
+const V0_2_1_RC_2: &str = "0.2.1-rc.2";
+const V0_2_1_RC_3: &str = "0.2.1-rc.3";
+const V0_2_2_RC_1: &str = "0.2.2-rc.1";
+
 /// The dsh releases the hands rows were measured on: 0.2.1-rc.2 and
 /// 0.2.1-rc.3 on 2026-10-26, and 0.2.2-rc.1 on 2026-11-11
 /// (docs/evidence/adapters/dsh-hands-0-2-2.md).
-const MEASURED_VERSIONS: [&str; 3] = ["0.2.1-rc.2", "0.2.1-rc.3", "0.2.2-rc.1"];
+const MEASURED_VERSIONS: [&str; 3] = [V0_2_1_RC_2, V0_2_1_RC_3, V0_2_2_RC_1];
 
 /// One measured dsh release family. The set is closed: a version the
 /// controller did not measure is refused by name, never matched by prefix
@@ -77,10 +84,12 @@ impl Release {
     const ALL: [Release; 2] = [Release::V0_2_1, Release::V0_2_2];
 
     /// The exact versions this release family covers, each matched whole.
+    /// Each variant names its own versions, so a version appended to
+    /// [`MEASURED_VERSIONS`] alone is measured nowhere and refuses.
     fn versions(self) -> &'static [&'static str] {
         match self {
-            Release::V0_2_1 => &MEASURED_VERSIONS[..2],
-            Release::V0_2_2 => &MEASURED_VERSIONS[2..],
+            Release::V0_2_1 => &[V0_2_1_RC_2, V0_2_1_RC_3],
+            Release::V0_2_2 => &[V0_2_2_RC_1],
         }
     }
 
@@ -91,11 +100,12 @@ impl Release {
             .find(|release| release.versions().contains(&version))
     }
 
-    /// The release as a composition refusal names it.
+    /// The release as a composition refusal names it: 0.2.1's first measured
+    /// version, the label today's refusals carry.
     fn label(self) -> &'static str {
         match self {
-            Release::V0_2_1 => "0.2.1-rc.2",
-            Release::V0_2_2 => "0.2.2-rc.1",
+            Release::V0_2_1 => V0_2_1_RC_2,
+            Release::V0_2_2 => V0_2_2_RC_1,
         }
     }
 }

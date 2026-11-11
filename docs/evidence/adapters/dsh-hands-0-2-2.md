@@ -16,7 +16,7 @@ bindings at the end were run by the seat.
 | Figure | Source |
 | --- | --- |
 | The 0.2.2-rc.1 install and its 656 packages | controller, 2026-11-11, Linux workstation |
-| `--dump-config`'s 99 top-level rows and the three row deltas | controller, 2026-11-11 |
+| The plain `--dump-config`'s 99 rows (before the seat overlay's insert) and the three row deltas | controller, 2026-11-11 |
 | Both tool lists, with and without the hands rows | controller, 2026-11-11, `spark-glm/GLM-5.3-Flash-EXL3` |
 | `tool-executor-ptc` disabled by default | controller, 2026-11-11 |
 | The sandbox rows keeping their ids and packages | controller, 2026-11-11 |
@@ -36,8 +36,11 @@ bindings at the end were run by the seat.
 
 ## The composition diff
 
-`dsh --profile headless --dump-config` makes no model call. It composed 99
-top-level rows, the same count as 0.2.1:
+`dsh --profile headless --dump-config` makes no model call. Its plain dump
+composed 99 top-level rows; 0.2.1's plain dump was 98, and its measured 99
+includes the seat overlay's `brokkr-hands` insert. A 0.2.2-rc.1 seat's
+composed tree is therefore 100 rows. The deltas against the measured 0.2.1
+set:
 
 | Change | Row | Package | State |
 | --- | --- | --- | --- |
@@ -120,9 +123,12 @@ controller can follow this procedure.
    packages, and the `sandbox-policy` mode still refuses anything but
    `read-only` and `workspace-write`.
 6. Add the release and its set here, then in `MEASURED_VERSIONS` and the
-   release's composition delta table. Add a test that a seat on the new
-   release is admitted and that another release's row is refused. Pin any
-   newly added effectful row disabled in the overlay.
+   release's composition delta table. Add a `Release` variant with its own
+   exact versions in `Release::versions` (and its `Release::label`), and
+   add the version string once, to the const the variant names. Add a test
+   that a seat on the new release is admitted and that another release's
+   row is refused. Pin any newly added effectful row disabled in the
+   overlay.
 
 ## Offline bindings (this change)
 
@@ -141,21 +147,37 @@ Run by the implementing seat with
   only its own measured set.
 - `an_unmeasured_row_is_refused_on_0_2_2`: a row nobody measured is still
   refused on the new release.
+- `a_0_2_2_tree_with_the_programmatic_executor_enabled_is_refused`: a
+  profile that enables `tool-executor-ptc` is refused by its id on
+  0.2.2-rc.1, so the pin is checked on the composed tree and not only in
+  the overlay text.
 - `the_0_2_2_overlay_disables_the_programmatic_tool_row`: the overlay pins
   `tool-executor-ptc` disabled on 0.2.2-rc.1 and names no such row on 0.2.1.
 - `the_composition_gate_keys_on_the_release_it_reads`: the launch's
   composed-tree gate judges the same dump against the release its binary
   answers; an unmeasured release's dump is read and then refused against
-  no set, and a driver the version probe cannot start keeps today's
-  unreadable-tree refusal.
+  no set. (A driver the version probe cannot start is refused as an
+  unreadable tree; that path is bound in `dsh_launch.rs`'s own tests.)
 
 ## Pending
 
 - macOS, on every figure. This record proves the release tables and the
   checks on Linux only; macOS is still a supported host (decision 0063).
+- A real 0.2.2-rc.1 composition of a seat's own overlay. The controller's
+  2026-11-11 measurement was the PLAIN `--dump-config` (99 rows, before the
+  `brokkr-hands` insert) and the two tool lists with the ten rows; the
+  seat's full overlay — the ten rows, `sandbox-policy`, the
+  `tool-executor-ptc` pin and the `brokkr-hands` insert — has never been
+  composed by a real 0.2.2-rc.1. The offline 0.2.2 fixture is generated
+  from `ADDED_0_2_2`/`REMOVED_0_2_2` themselves, so the gate has not yet
+  judged a real 0.2.2 tree. Every way that can go wrong fails closed
+  (`DumpFailed`, `Unmeasured`, `Enabled`), but it could leave a 0.2.2 hands
+  seat refused by a different sentence. Owed to the controller before the
+  PR leaves draft: one `dsh --profile headless --patch <the seat's overlay>
+  --dump-config` on the isolated 0.2.2-rc.1 prefix.
 - A live `mcp__brokkr__workspace` call through this driver on 0.2.2-rc.1.
-  The controller measured the tool lists and the composed tree, not a call
-  of Brokkr's server under a seat.
+  The controller measured the tool lists, not a call of Brokkr's server
+  under a seat.
 - dsh's native egress and any OFF control for it (decision 0065 slice one;
   owed to the controller).
 - A planted write through any remaining path in a read-only seat with the

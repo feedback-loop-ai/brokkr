@@ -271,10 +271,21 @@ fn without(dropped: &str) -> String {
 /// name, and the refusal names every measured release.
 #[test]
 fn only_a_measured_release_is_served_the_hands_rows() {
-    for version in MEASURED_VERSIONS {
-        assert!(measured(Some(version.to_string())).is_ok(), "{version}");
+    // Each measured version names its own release exactly: rc.3 is not
+    // classified by the position it happens to hold in the table.
+    for (version, release) in [
+        ("0.2.1-rc.2", Release::V0_2_1),
+        ("0.2.1-rc.3", Release::V0_2_1),
+        ("0.2.2-rc.1", Release::V0_2_2),
+    ] {
+        assert_eq!(measured(Some(version.into())), Ok(release), "{version}");
     }
-    assert_eq!(measured(Some("0.2.2-rc.1".into())), Ok(Release::V0_2_2));
+    // Every version the refusal names is named by one variant: a version
+    // appended to the table alone is measured nowhere, never inherited by
+    // the variant it happens to sit beside.
+    for version in MEASURED_VERSIONS {
+        assert!(Release::named(version).is_some(), "{version}");
+    }
     let tail = " is not a dsh release its hands rows were measured on (0.2.1-rc.2, \
          0.2.1-rc.3, 0.2.2-rc.1), and a tool row nobody measured could stay enabled beside the \
          box, so the seat is not served its native tools (#896)";
@@ -984,6 +995,29 @@ fn an_unmeasured_row_is_refused_on_0_2_2() {
             id: "ambient-tool".into(),
             name: "@deepseek-ai/dsh-tool-bash".into(),
             release: "0.2.2-rc.1",
+        })
+    );
+}
+
+/// A 0.2.2-rc.1 tree whose programmatic executor is left enabled is
+/// refused by its id: the gate is the check that a profile which enables
+/// the code-running executor cannot survive the overlay.
+#[cfg(unix)]
+#[test]
+fn a_0_2_2_tree_with_the_programmatic_executor_enabled_is_refused() {
+    use super::composition::{judge, rows, Composition};
+
+    let mut parsed = rows(measured_dump_0_2_2().as_bytes()).unwrap();
+    let ptc = parsed
+        .iter_mut()
+        .find(|row| row.id == PTC_ROW)
+        .expect("the measured 0.2.2 set names the programmatic executor");
+    assert!(ptc.disabled, "the fixture starts with the row disabled");
+    ptc.disabled = false;
+    assert_eq!(
+        judge(Release::V0_2_2, &parsed).err(),
+        Some(Composition::Enabled {
+            id: "tool-executor-ptc".into(),
         })
     );
 }
