@@ -1745,10 +1745,11 @@ impl CodexThreadEcho {
     /// out of a process that ended before its first turn with no refusal
     /// on the stream. It is the same locator and the same bounded read as
     /// [`CodexThreadEcho::echo`]; a file that cannot be read, or that
-    /// names no error, answers nothing rather than guessing (decision
-    /// 0053's boundary, decision 0103 ruling 1(a)). Correlation is the
-    /// same on the announced path as the unannounced one: the header's
-    /// cwd must be this seat's and its session start at or after this
+    /// names no usage- or rate-limit error, answers nothing rather than
+    /// guessing (decision 0053's boundary, decision 0103 ruling 1(a)).
+    /// Correlation is the same on the announced path as the unannounced
+    /// one: the header's own id must be the announced thread, its cwd must
+    /// be this seat's, and its session start at or after this
     /// invocation's, so an announced foreign or older record is never
     /// read (decision 0035).
     fn refusal(
@@ -1759,7 +1760,8 @@ impl CodexThreadEcho {
     ) -> Option<PreSessionRefusal> {
         self.resolve();
         let path = self.path.as_ref()?;
-        let (cwd, started) = thread_header(path)?;
+        let (_, announced) = self.announced.as_ref()?;
+        let (cwd, started) = thread_header(path, Some(announced.as_str()))?;
         if cwd != workdir || started < since_nanos {
             return None;
         }

@@ -684,13 +684,13 @@ fn a_zero_event_exit_picks_only_the_rollout_recorded_for_its_cwd() {
         ]);
         std::fs::write(day.join(name), body).unwrap();
     };
-    write("rollout-a.jsonl", "/one");
-    write("rollout-b.jsonl", "/two");
+    write(&format!("rollout-a-{THREAD}.jsonl"), "/one");
+    write(&format!("rollout-b-{THREAD}.jsonl"), "/two");
     let reason = codex_thread_refusal_since(&root, 0, "/two", Some(&refused_at()), 6).unwrap();
     assert_eq!(reason.class(), RefusalClass::RateLimit);
 
     // A third file for the same cwd leaves two candidates: ambiguous.
-    write("rollout-c.jsonl", "/two");
+    write(&format!("rollout-c-{THREAD}.jsonl"), "/two");
     assert!(codex_thread_refusal_since(&root, 0, "/two", Some(&refused_at()), 6).is_none());
 
     // A file that is not a rollout and a cwd-less rollout are read, never
@@ -732,7 +732,7 @@ fn a_rollout_below_the_walk_bound_is_not_read() {
     std::fs::create_dir_all(&deep).unwrap();
     rollout(
         &deep,
-        "rollout-deep.jsonl",
+        "rollout-deep-01a0619c-928b-7ad3-8cc9-9eaa94c3aec1.jsonl",
         "/this-seat",
         "2026-11-08T10:00:01.000Z",
     );
@@ -990,7 +990,7 @@ fn a_single_foreign_rollout_is_not_this_invocations_refusal() {
     let since = parse_nanos("2026-11-08T10:00:00.900Z").unwrap();
     rollout(
         &day,
-        "rollout-a.jsonl",
+        "rollout-a-01a0619c-928b-7ad3-8cc9-9eaa94c3aec1.jsonl",
         "/foreign-seat",
         "2026-11-08T10:00:01.000Z",
     );
@@ -1016,7 +1016,7 @@ fn a_single_foreign_rollout_is_not_this_invocations_refusal() {
     // read; a start exactly at the boundary counts.
     rollout(
         &day,
-        "rollout-b.jsonl",
+        "rollout-b-01a0619c-928b-7ad3-8cc9-9eaa94c3aec1.jsonl",
         "/this-seat",
         "2026-11-08T10:00:00.900Z",
     );
@@ -1034,7 +1034,7 @@ fn a_session_that_began_before_this_invocation_is_history() {
     let since = parse_nanos("2026-11-08T10:00:00.900Z").unwrap();
     rollout(
         &day,
-        "rollout-old.jsonl",
+        "rollout-old-01a0619c-928b-7ad3-8cc9-9eaa94c3aec1.jsonl",
         "/this-seat",
         "2026-11-08T10:00:00.100Z",
     );
@@ -1044,7 +1044,7 @@ fn a_session_that_began_before_this_invocation_is_history() {
     );
     rollout(
         &day,
-        "rollout-new.jsonl",
+        "rollout-new-01a0619c-928b-7ad3-8cc9-9eaa94c3aec1.jsonl",
         "/this-seat",
         "2026-11-08T10:00:00.900Z",
     );
@@ -1196,12 +1196,39 @@ fn assert_no_result(bodies: &[Body], why: &str) {
     );
 }
 
+/// The failed refusal the bodies ended in: never an acceptance, always a
+/// `Result` the caller can read its class and status from.
+#[cfg(unix)]
+fn failed_refusal<'a>(bodies: &'a [Body], why: &str) -> &'a crate::PreSessionRefusal {
+    assert!(
+        !bodies
+            .iter()
+            .any(|body| matches!(body, Body::Accepted { .. })),
+        "{why} is a refusal, not accepted: {bodies:?}"
+    );
+    let Some(Body::Result {
+        refusal: Some(refusal),
+        status: ResultStatus::Failed,
+        ..
+    }) = bodies.last()
+    else {
+        panic!("{why} is a failed refusal: {bodies:?}");
+    };
+    refusal
+}
+
 /// Drive the fake over the announced and the unannounced path alike: it
 /// writes its work marker, exits 0 and leaves no result, so either path
-/// must keep the attempt lost.
+/// must keep the attempt lost. The marker is cleared before each drive so
+/// every `worked` assertion binds (F5).
 #[cfg(unix)]
 fn assert_lost_on_both_paths(dir: &std::path::Path, rows: &[Value], why: &str) {
     for announce in [false, true] {
+        let _ = std::fs::remove_file(dir.join("worked"));
+        assert!(
+            !dir.join("worked").exists(),
+            "the work marker starts absent (announce={announce})"
+        );
         let fake = codex_rollout_exit(dir, rows, announce, 0);
         let bodies = codex_bodies(dir, &fake);
         assert!(
@@ -1377,14 +1404,14 @@ fn a_session_meta_missing_a_required_header_field_is_no_header() {
         ]);
         std::fs::write(&path, body).unwrap();
         assert!(
-            thread_header(&path).is_none(),
+            thread_header(&path, None).is_none(),
             "{name}: a header needs cwd, timestamp and id"
         );
     }
     let no_payload = day.join("rollout-no-payload.jsonl");
     std::fs::write(&no_payload, record(&[json!({"type": "session_meta"})])).unwrap();
     assert!(
-        thread_header(&no_payload).is_none(),
+        thread_header(&no_payload, None).is_none(),
         "a header needs a payload"
     );
 
@@ -1408,6 +1435,39 @@ fn a_codex_thread_record_reads_rate_limit_exceeded_and_429_as_refusals() {
         assert_eq!(reason.class(), RefusalClass::RateLimit);
         assert!(reason.words().starts_with("rate_limit"), "{reason}");
         assert_eq!(reason.status(), status);
+    }
+}
+
+/// F6: the fallback's `rate_limit_exceeded` and 429 each refuse through
+/// a driven `run_seat` invocation, not only through the reader.
+#[cfg(unix)]
+#[test]
+fn review_chief_1037f_rate_limit_exceeded_and_429_refuse_through_run_seat() {
+    for (label, error, status) in [
+        (
+            "rate_limit_exceeded",
+            json!({"message": "slow down", "codex_error_info": "rate_limit_exceeded"}),
+            None,
+        ),
+        (
+            "status 429",
+            json!({"message": "slow down", "status": 429}),
+            Some(429),
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut complete = task_complete(error);
+        complete["timestamp"] = json!("9999-12-31T00:00:02Z");
+        let rows = [correlated_header(dir.path()), complete];
+        let fake = codex_rollout_exit(dir.path(), &rows, false, 0);
+        let bodies = codex_bodies(dir.path(), &fake);
+        let refusal = failed_refusal(&bodies, label);
+        assert_eq!(refusal.class(), RefusalClass::RateLimit, "{label}");
+        assert!(
+            refusal.words().starts_with("rate_limit"),
+            "{label}: {refusal}"
+        );
+        assert_eq!(refusal.status(), status, "{label}");
     }
 }
 
@@ -1504,6 +1564,67 @@ fn review_chief_1037d_no_quota_error_must_keep_lost_result() {
     }
 }
 
+/// H3: a recovered error of ANY kind keeps the lost path, and only a
+/// usage- or rate-limit error may refuse. Each M is followed by a second
+/// `task_started`, so the later quota completion cannot make it a refusal.
+#[cfg(unix)]
+#[test]
+fn review_chief_1037f_recovered_non_quota_error_keeps_the_lost_path() {
+    let complete = |error: Value| {
+        let mut row = task_complete(error);
+        row["timestamp"] = json!("9999-12-31T00:00:02Z");
+        row
+    };
+    for (label, middle) in [
+        (
+            "an unauthorized error event",
+            json!({"timestamp": "9999-12-31T00:00:02Z", "type": "event_msg",
+                   "payload": {"type": "error", "message": "auth failed",
+                               "codex_error_info": "unauthorized"}}),
+        ),
+        (
+            "a completion with an empty error object",
+            complete(json!({})),
+        ),
+        ("a completion with a false error", complete(json!(false))),
+        (
+            "an error event with no machine fields",
+            json!({"timestamp": "9999-12-31T00:00:02Z", "type": "event_msg",
+                   "payload": {"type": "error",
+                               "message": "stream disconnected, retrying"}}),
+        ),
+        (
+            "a top-level error row",
+            json!({"timestamp": "9999-12-31T00:00:02Z", "type": "error",
+                   "message": "boom"}),
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let rows = two_start_rows(dir.path(), middle, "9999-12-31T00:00:04Z");
+        assert_lost_on_both_paths(dir.path(), &rows, label);
+    }
+}
+
+/// F4: an empty id and an id the file name does not carry correlate nothing.
+#[cfg(unix)]
+#[test]
+fn review_chief_1037f_record_header_id_must_be_the_records_own() {
+    for (label, id) in [
+        ("an empty id is no record's own", ""),
+        (
+            "an id the file name does not carry is no record's own",
+            "not-this-thread",
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut header = correlated_header(dir.path());
+        header["payload"]["id"] = json!(id);
+        let [started, complete] = started_and_quota_complete();
+        let rows = [header, started, complete];
+        assert_lost_on_both_paths(dir.path(), &rows, label);
+    }
+}
+
 /// The chief's measured prompt-ingestion finding: the real
 /// `codex-nomodel.jsonl` shape, with its developer and user message items
 /// and context rows, still reads the usage-limit completion as a refusal
@@ -1522,26 +1643,16 @@ fn review_chief_measured_prompt_ingestion_keeps_quota_refusal() {
     }
     rows[0]["payload"]["cwd"] = json!(dir.path().to_string_lossy());
     rows[0]["payload"]["timestamp"] = json!("9999-12-31T00:00:00Z");
+    // The measured corpus replaces every value with a placeholder; the
+    // record's own id is the one the fake's file name carries (F4).
+    rows[0]["payload"]["id"] = json!(THREAD);
     let last = rows
         .last_mut()
         .expect("the measured record has a completion");
     last["payload"]["error"] = usage_limit();
     let fake = codex_rollout_exit(dir.path(), &rows, false, 0);
     let bodies = codex_bodies(dir.path(), &fake);
-    assert!(
-        !bodies
-            .iter()
-            .any(|body| matches!(body, Body::Accepted { .. })),
-        "a refusal is not accepted: {bodies:?}"
-    );
-    let Some(Body::Result {
-        refusal: Some(refusal),
-        status: ResultStatus::Failed,
-        ..
-    }) = bodies.last()
-    else {
-        panic!("the measured record is a failed refusal: {bodies:?}");
-    };
+    let refusal = failed_refusal(&bodies, "the measured record");
     assert_eq!(refusal.class(), RefusalClass::RateLimit);
     assert!(
         refusal.retry_after_seconds().is_some(),

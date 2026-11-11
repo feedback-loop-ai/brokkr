@@ -101,14 +101,17 @@ fn prompt_item_row(row: &Value) -> CodexRow {
 /// (decision 0035): over the whole invocation, every row must be
 /// [`CODEX_NON_WORK`], evidence is never reset at a start, a turn started
 /// after the error is the H1 notice, and only a usage- or rate-limit error
-/// refuses; any other error keeps the result lost.
+/// refuses; any other error keeps the result lost. The two facts are kept
+/// apart (H3): "an error of any kind was seen" feeds the notice rule, while
+/// "a usage- or rate-limit error was seen" is the only one that may refuse.
 pub(crate) fn codex_thread_refusal(
     body: &str,
     since_nanos: Option<i128>,
     now: Option<&Now>,
 ) -> Option<PreSessionRefusal> {
     let mut resets = Vec::new();
-    let mut error = None;
+    let mut error_seen = false;
+    let mut rate_limit_error = None;
     for line in body.lines() {
         let Ok(row) = serde_json::from_str::<Value>(line) else {
             return None; // An unreadable line may be truncated work, never history.
@@ -118,9 +121,9 @@ pub(crate) fn codex_thread_refusal(
         }
         let kind = codex_row(&row);
         if kind == CodexRow::TaskStarted {
-            // A turn started after the error means the error was a
+            // A turn started after ANY error means the error was a
             // notice; the invocation continued, so the lost path stands.
-            if error.is_some() {
+            if error_seen {
                 return None;
             }
             continue;
@@ -137,11 +140,14 @@ pub(crate) fn codex_thread_refusal(
         {
             resets = windows;
         }
-        if let Some(found) = thread_error(&row).filter(codex_rate_limit) {
-            error = Some(found);
+        if let Some(found) = thread_error(&row) {
+            if codex_rate_limit(&found) {
+                rate_limit_error = Some(found);
+            }
+            error_seen = true;
         }
     }
-    Some(codex_error(&error?, now, &resets))
+    Some(codex_error(&rate_limit_error?, now, &resets))
 }
 
 /// Whether a row is at or after the start; an untimed row is read, never assumed history.
@@ -182,7 +188,8 @@ pub(crate) fn codex_thread_refusal_since(
 ) -> Option<PreSessionRefusal> {
     let mut found = find_codex_threads_since(root, since_nanos, depth);
     found.retain(|path| {
-        thread_header(path).is_some_and(|(cwd, started)| cwd == workdir && started >= since_nanos)
+        thread_header(path, None)
+            .is_some_and(|(cwd, started)| cwd == workdir && started >= since_nanos)
     });
     let [path] = found.as_slice() else {
         return None;
@@ -274,8 +281,10 @@ fn names_codex_thread(name: &str, thread_id: &str) -> bool {
 }
 
 /// The cwd and session start a rollout's header names, only when its first
-/// row is a `session_meta` with string `cwd`, `timestamp` and `id` in its payload.
-pub(crate) fn thread_header(path: &Path) -> Option<(String, i128)> {
+/// row is a `session_meta` with string `cwd`, `timestamp` and `id` in its
+/// payload, and the id is this record's own (F4): the announced thread when
+/// one is known, else the id its file name carries.
+pub(crate) fn thread_header(path: &Path, announced: Option<&str>) -> Option<(String, i128)> {
     let body = std::fs::read_to_string(path).ok()?;
     let first = body.lines().next()?;
     let row = serde_json::from_str::<Value>(first).ok()?;
@@ -285,6 +294,23 @@ pub(crate) fn thread_header(path: &Path) -> Option<(String, i128)> {
     let payload = row.get("payload")?;
     let cwd = payload.get("cwd").and_then(Value::as_str)?.to_string();
     let started = parse_nanos(payload.get("timestamp")?.as_str()?)?;
-    payload.get("id").and_then(Value::as_str)?;
-    Some((cwd, started))
+    let id = payload.get("id").and_then(Value::as_str)?;
+    names_own_record(path, id, announced).then_some((cwd, started))
+}
+
+/// Whether `id` is the record's own: the announced thread when one is
+/// known, else an id its file name carries as a whole token. A mismatch,
+/// including an empty id, correlates nothing.
+fn names_own_record(path: &Path, id: &str, announced: Option<&str>) -> bool {
+    if id.is_empty() {
+        return false;
+    }
+    announced.map_or_else(
+        || {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| names_codex_thread(name, id))
+        },
+        |announced| announced == id,
+    )
 }
