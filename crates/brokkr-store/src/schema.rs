@@ -3,7 +3,7 @@
 //! connection shares. Opening reads it; only a journal missing something
 //! takes the write lock.
 
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::acknowledgement::{acknowledgements_intact, migrate_acknowledgements};
 use crate::event_index::{index_intact, migrate_index};
@@ -14,6 +14,38 @@ use crate::summary::{mark_backfilled, migrate_summary, summary_intact};
 use crate::{patiently, Store, StoreError, BUSY_TIMEOUT};
 
 pub const DATABASE_SCHEMA: u32 = 1;
+
+/// The `meta` key a journal records [`DATABASE_SCHEMA`] under: one home
+/// for the spelling, read by a backup's missing-schema refusal and by the
+/// insert that records it. [`RECORDED_SCHEMA`] carries the same key in its
+/// statement, where it is the statement's own text.
+pub(crate) const DATABASE_SCHEMA_KEY: &str = "database_schema";
+
+/// The `meta` key a snapshot is missing when a backup's restore refuses to
+/// read its schema versions. Each spelling lives with the module that
+/// records it, so a refusal and the journal's own readers name it from one
+/// home.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SchemaKey {
+    Database,
+    Queue,
+}
+
+impl SchemaKey {
+    /// The `meta` key this names, as the journal spells it.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            SchemaKey::Database => DATABASE_SCHEMA_KEY,
+            SchemaKey::Queue => crate::queue::QUEUE_SCHEMA_KEY,
+        }
+    }
+}
+
+impl std::fmt::Display for SchemaKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
 
 /// The schema a journal records. One statement for both readers of it:
 /// [`schema_version`] on a file that may be virgin, and
@@ -258,8 +290,8 @@ fn initialize(conn: &mut Connection) -> Result<(), StoreError> {
     initialize_additions(&tx)?;
     name_journal(&tx)?;
     tx.execute(
-        "INSERT OR IGNORE INTO meta (key, value) VALUES ('database_schema', ?1)",
-        [&DATABASE_SCHEMA.to_string()],
+        "INSERT OR IGNORE INTO meta (key, value) VALUES (?1, ?2)",
+        params![DATABASE_SCHEMA_KEY, DATABASE_SCHEMA],
     )?;
     let found = schema_version(&tx)?.unwrap_or(0);
     tx.commit()?;

@@ -685,7 +685,7 @@ fn a_journal_that_records_no_queue_schema_is_refused_by_name() {
     let BackupError::UnrecordedSchema { key } = refused else {
         panic!("a journal with no queue schema is refused by name: {refused:?}");
     };
-    assert_eq!(key, "queue_schema");
+    assert_eq!(key, SchemaKey::Queue);
 }
 
 #[cfg(unix)]
@@ -1326,7 +1326,13 @@ fn boundary_refusals() -> Vec<(BackupError, String)> {
         ),
         (
             BackupError::UnrecordedSchema {
-                key: "queue_schema",
+                key: SchemaKey::Database,
+            },
+            "the journal records no 'database_schema' schema".to_string(),
+        ),
+        (
+            BackupError::UnrecordedSchema {
+                key: SchemaKey::Queue,
             },
             "the journal records no 'queue_schema' schema".to_string(),
         ),

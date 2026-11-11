@@ -67,7 +67,7 @@ pub(crate) const INVENTORY_FILE: &str = "inventory.json";
 /// What a backup is asked for.
 #[derive(Debug, Clone, Copy)]
 pub struct BackupOptions<'a> {
-    /// The directory the backup is written into. It must not exist or be
+    /// The directory the backup is written into. It must be absent or
     /// empty; nothing in it is overwritten.
     pub to: &'a Path,
     /// When the snapshot was taken, RFC 3339, passed in rather than read
@@ -168,6 +168,7 @@ struct Inventory {
     excluded: Vec<Excluded>,
 }
 
+pub use crate::schema::SchemaKey;
 /// Which stored fact of an event row a snapshot's envelope disagrees with
 /// (decision 0100 ruling 4): the row's key, or the hash the store appends
 /// under.
@@ -266,7 +267,7 @@ pub enum BackupError {
     #[error("the snapshot's projections disagree: {first}")]
     ProjectionDisagreement { first: String },
     #[error("the journal records no '{key}' schema")]
-    UnrecordedSchema { key: &'static str },
+    UnrecordedSchema { key: SchemaKey },
     #[error("refused: '{0}' is not a path SQLite can name")]
     UnnameablePath(PathBuf),
     #[error(transparent)]
@@ -365,10 +366,10 @@ fn restore_through(
         });
     }
     let temporary = Temp::beside(to)?;
-    // The metadata above is the path's; the bytes are the stream's. A source
-    // whose stream differs from its metadata (a FIFO reports 0) is refused
-    // on what the copy read, before the digest.
-    let copied = copy_file(&source, temporary.path())?;
+    // The metadata is the path's; the bytes are the stream's. The copy reads
+    // one byte past the inventory, so a stream that never ends (a FIFO or a
+    // character device reports 0) is refused before the digest.
+    let copied = copy_file(&source, temporary.path(), inventory.snapshot.bytes)?;
     if copied != inventory.snapshot.bytes {
         return Err(BackupError::SizeMismatch {
             found: copied,
@@ -581,10 +582,10 @@ fn compared_boundary(found: &Boundary, inventory: &Boundary) -> Result<(), Backu
 /// readers, and the projection version the taking build reads.
 fn schemas_of(store: &Store, projection: u32) -> Result<Schemas, BackupError> {
     let database = schema_version(&store.conn)?.ok_or(BackupError::UnrecordedSchema {
-        key: "database_schema",
+        key: SchemaKey::Database,
     })?;
     let queue = queue_schema(&store.conn)?.ok_or(BackupError::UnrecordedSchema {
-        key: "queue_schema",
+        key: SchemaKey::Queue,
     })?;
     Ok(Schemas {
         database,
@@ -676,9 +677,10 @@ fn write_file(path: &Path, bytes: &[u8]) -> Result<(), BackupError> {
 }
 
 /// Copy `from` to a new file at `to`, fsync it, and answer how many bytes
-/// the copy read.
-fn copy_file(from: &Path, to: &Path) -> Result<u64, BackupError> {
-    let mut source = File::open(from)?;
+/// the copy read. The source is `take(inventory + 1)`, so a stream that
+/// outruns its inventory is refused after one byte past it.
+fn copy_file(from: &Path, to: &Path, inventory: u64) -> Result<u64, BackupError> {
+    let mut source = File::open(from)?.take(inventory.saturating_add(1));
     let mut target = OpenOptions::new().write(true).create_new(true).open(to)?;
     let copied = std::io::copy(&mut source, &mut target)?;
     target.sync_all()?;

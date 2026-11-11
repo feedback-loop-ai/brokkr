@@ -134,6 +134,36 @@ fn a_snapshot_that_cannot_be_read_is_refused_as_its_io_error_and_not_as_missing(
     assert_absent(&destination);
 }
 
+/// A dangling symlink is a destination of a kind, wherever it stands: a
+/// restore asks the link itself and never its target, so both the name and
+/// a SQLite sidecar are refused by name and left as they were.
+#[cfg(unix)]
+#[test]
+fn a_dangling_symlink_at_the_destination_or_a_sidecar_is_refused_by_name() {
+    for suffix in [None, Some("-wal")] {
+        let dir = tempfile::tempdir().unwrap();
+        let (_, taken) = completed(dir.path());
+        let destination = absent_destination(dir.path());
+        let occupied = match suffix {
+            Some(suffix) => sidecar_of(&destination, suffix),
+            None => destination.clone(),
+        };
+        std::os::unix::fs::symlink("a-target-that-is-not-there", &occupied).unwrap();
+        let refused = restore(&taken.to, &destination).unwrap_err();
+        let BackupError::RestoreDestinationExists(found) = refused else {
+            panic!("a dangling symlink at {occupied:?} is refused by name: {refused:?}");
+        };
+        assert_eq!(found, occupied);
+        assert_eq!(
+            std::fs::read_link(&occupied).unwrap(),
+            Path::new("a-target-that-is-not-there")
+        );
+        assert!(!occupied.exists(), "the link is left dangling");
+        assert_absent(&destination);
+        assert_eq!(temporaries_in(dir.path()), Vec::<PathBuf>::new());
+    }
+}
+
 #[test]
 fn a_destination_that_appears_before_the_publish_is_refused_by_its_name() {
     let dir = tempfile::tempdir().unwrap();
@@ -353,29 +383,119 @@ fn a_snapshot_whose_tables_are_not_the_journals_shape_is_refused_as_sqlites_erro
 
 /// A snapshot whose stream is not what its metadata says (a FIFO reports no
 /// bytes) is refused on what the copy read: an inventory that contradicts
-/// the bytes is never published, though the digest names them.
+/// the bytes is never published, though the digest names them. The writer
+/// is joined under a deadline so a restore that refuses before opening the
+/// source fails this test instead of leaving it blocked on `open(2)`.
 #[cfg(unix)]
 #[test]
 fn a_snapshot_whose_stream_outruns_its_metadata_is_refused_on_the_bytes_copied() {
+    const WRITER_DEADLINE: Duration = Duration::from_secs(10);
+
     let dir = tempfile::tempdir().unwrap();
     let (_, taken) = completed(dir.path());
     let snapshot = taken.to.join(SNAPSHOT_FILE);
     let bytes = std::fs::read(&snapshot).unwrap();
-    let streamed = bytes.len() as u64;
     let mut inventory = inventory_of(&taken);
     inventory.snapshot.bytes = 0;
     rewrite_inventory(&taken, &inventory);
     std::fs::remove_file(&snapshot).unwrap();
     let made = std::process::Command::new("mkfifo").arg(&snapshot).status();
     assert!(made.unwrap().success(), "mkfifo {}", snapshot.display());
-    let writer = std::thread::spawn(move || std::fs::write(&snapshot, bytes).unwrap());
+    let (finished, joined) = mpsc::channel();
+    let writer = std::thread::spawn(move || {
+        // Restore stops reading at the inventory's bound and closes; the
+        // write then meets EPIPE, which is this test's expected end.
+        let _ = std::fs::write(&snapshot, bytes);
+        let _ = finished.send(());
+    });
     let destination = absent_destination(dir.path());
     let refused = restore(&taken.to, &destination).unwrap_err();
+    assert!(
+        joined.recv_timeout(WRITER_DEADLINE).is_ok(),
+        "the FIFO writer did not finish within {WRITER_DEADLINE:?}"
+    );
     writer.join().unwrap();
     assert!(
-        matches!(refused, BackupError::SizeMismatch { found, inventory: 0 } if found == streamed),
+        matches!(
+            refused,
+            BackupError::SizeMismatch {
+                found: 1,
+                inventory: 0
+            }
+        ),
         "{refused:?}"
     );
     assert_absent(&destination);
     assert_eq!(temporaries_in(dir.path()), Vec::<PathBuf>::new());
+}
+
+/// The child half of [`a_snapshot_that_is_a_link_to_dev_zero_is_refused_after_one_byte`].
+/// The parent hands it the prepared backup through the environment, and
+/// the child runs under a file-size limit, so a regression that drops the
+/// copy's bound dies at a few kilobytes instead of filling the disk.
+#[cfg(unix)]
+const DEV_ZERO_CHILD_TEST: &str =
+    "backup::tests::edges::a_snapshot_that_is_a_link_to_dev_zero_is_refused_after_one_byte";
+#[cfg(unix)]
+const DEV_ZERO_BACKUP: &str = "BROKKR_DEV_ZERO_BACKUP";
+#[cfg(unix)]
+const DEV_ZERO_DESTINATION: &str = "BROKKR_DEV_ZERO_DESTINATION";
+
+/// A snapshot that is a link to `/dev/zero` reports no bytes, so it passes
+/// the metadata check against an inventory that says 0. The copy reads one
+/// byte past the inventory and refuses: the destination is absent and no
+/// temporary remains. The restore runs in a child under `ulimit -f 64` so
+/// the test's own removal control cannot fill the disk or hang.
+#[cfg(unix)]
+#[test]
+fn a_snapshot_that_is_a_link_to_dev_zero_is_refused_after_one_byte() {
+    if let Some(backup) = std::env::var_os(DEV_ZERO_BACKUP) {
+        let backup = PathBuf::from(backup);
+        let destination = PathBuf::from(
+            std::env::var_os(DEV_ZERO_DESTINATION).expect("the child names its destination"),
+        );
+        let refused = restore(&backup, &destination).unwrap_err();
+        assert!(
+            matches!(
+                refused,
+                BackupError::SizeMismatch {
+                    found: 1,
+                    inventory: 0
+                }
+            ),
+            "{refused:?}"
+        );
+        assert_absent(&destination);
+        assert_eq!(
+            temporaries_in(backup.parent().unwrap()),
+            Vec::<PathBuf>::new()
+        );
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let (_, taken) = completed(dir.path());
+    let snapshot = taken.to.join(SNAPSHOT_FILE);
+    std::fs::remove_file(&snapshot).unwrap();
+    std::os::unix::fs::symlink("/dev/zero", &snapshot).unwrap();
+    let mut inventory = inventory_of(&taken);
+    inventory.snapshot.bytes = 0;
+    rewrite_inventory(&taken, &inventory);
+    let destination = absent_destination(dir.path());
+    let output = std::process::Command::new("sh")
+        .arg("-c")
+        .arg("ulimit -c 0; ulimit -f 64; exec \"$0\" --exact \"$1\"")
+        .arg(std::env::current_exe().unwrap())
+        .arg(DEV_ZERO_CHILD_TEST)
+        .env(DEV_ZERO_BACKUP, &taken.to)
+        .env(DEV_ZERO_DESTINATION, &destination)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "the /dev/zero restore did not refuse after one byte ({status}):\n\
+         stdout:\n{stdout}\nstderr:\n{stderr}",
+        status = output.status,
+        stdout = String::from_utf8_lossy(&output.stdout),
+        stderr = String::from_utf8_lossy(&output.stderr)
+    );
 }
