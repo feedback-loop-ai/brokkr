@@ -69,9 +69,10 @@ fn clap_refuses_a_range_outside_the_three_with_the_views_error() {
 
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::stamp::parse_millis;
+use brokkr_core::summary::{Bounded, MODEL_BYTES, NAME_BYTES};
 use brokkr_core::EventType;
 use brokkr_store::test_support::{
-    import_fixtures, plant_broken_link, plant_older_writer, plant_summary_writer, unmigrate,
+    import_fixtures, lane, plant_broken_link, plant_older_writer, plant_summary_writer, unmigrate,
 };
 use serde_json::{json, Value};
 
@@ -119,6 +120,40 @@ fn assert_rows_are_whole(journal: &std::path::Path, context: &str) -> Analytics 
     let whole = view(&hearths, Range::Day, None, GENERATED_NOW);
     assert_same(&rows, &whole, context);
     rows
+}
+
+/// Read `hearths`'s one migrated journal from its rows, with `before` run
+/// between the fleet read and the store's open, and hand the query and the
+/// source to `inspect` while both are live.
+fn with_rows<T>(
+    hearths: &[Hearth],
+    range: Range,
+    realm: Option<&str>,
+    now: &str,
+    before: impl FnOnce(),
+    inspect: impl FnOnce(&Query<'_>, super::rows::HearthSource) -> T,
+) -> T {
+    read_hearths(hearths, |grouped| {
+        before();
+        let query = Query {
+            hearths: grouped,
+            range,
+            realm,
+            now,
+        };
+        let (window, before_window) = brokkr_view::windows(&query).unwrap();
+        let store = brokkr_store::Store::open_read_only(&hearths[0].journal).unwrap();
+        let source = super::rows::HearthSource::read(
+            &grouped[0],
+            range,
+            realm,
+            now,
+            window,
+            before_window,
+            Some(&store),
+        );
+        inspect(&query, source)
+    })
 }
 
 /// The same, for one journal at a time.
@@ -302,6 +337,14 @@ fn stopped_run(base: i64, case: RunCase<'_>) -> Steps {
         stamp(base, finish),
     ));
     steps.push((EventType::RunStopped, json!({}), stamp(base, finish)));
+    steps
+}
+
+/// A run stopped before it entered a phase: its row's status is `stopped`
+/// and its phase NULL, which is no hard stop (L1).
+fn stopped_before_any_phase(base: i64) -> Steps {
+    let mut steps = started(Some("world"), "label-recipe", stamp(base, -30 * 60));
+    steps.push((EventType::RunStopped, json!({}), stamp(base, -19 * 60)));
     steps
 }
 
@@ -560,12 +603,6 @@ fn plant(store: &mut brokkr_store::Store, run_id: &str, steps: &Steps) {
     store.import_run(&ndjson, &json!({}), &origin).unwrap();
 }
 
-/// A journal with every shape the row read must fold as the whole read
-/// does: seventy stopped runs with a realm, recipe, rule and model each
-/// (past 64 groups of four cuts, a realm, recipe, rule, model and provider
-/// each past its bound), a hard stop naming a rule and one naming none,
-/// seventy phases of one run's parks, a park answered inside the window and
-/// ended before it, and a run whose stored realm is NULL.
 /// Seventy stopped runs whose realm, recipe and rule each cross 64 groups
 /// and, for one run apiece, the 64-byte cut; each also names a model and a
 /// provider.
@@ -663,12 +700,20 @@ fn generated_hard_stops(store: &mut brokkr_store::Store, base: i64) {
     );
 }
 
+/// A journal with every shape the row read must fold as the whole read
+/// does: seventy stopped runs with a realm, recipe, rule and model each
+/// (past 64 groups of four cuts, a realm, recipe, rule, model and provider
+/// each past its bound), a hard stop naming a rule and one naming none, a
+/// run stopped before it entered any phase, seventy phases of one run's
+/// parks, a park answered inside the window and ended before it, and a run
+/// whose stored realm is NULL.
 fn generated_journal(dir: &std::path::Path) -> std::path::PathBuf {
     let journal = dir.join("generated.db");
     let mut store = brokkr_store::Store::open(&journal).unwrap();
     let base = parse_millis(GENERATED_NOW).unwrap();
     generated_stopped_runs(&mut store, base);
     generated_hard_stops(&mut store, base);
+    plant(&mut store, "gen-no-phase", &stopped_before_any_phase(base));
     for index in 0..70u32 {
         plant(
             &mut store,
@@ -726,6 +771,54 @@ fn every_figure_is_its_whole_read_on_the_generated_journal() {
         "the clock-stepped-back park's waiting time is kept: {:?}",
         day.headline.waiting
     );
+    // C2: the long model and provider a past writer planted reach the row
+    // read, and no run in this journal is left whole, so the cuts above
+    // were read from rows rather than the whole fallback.
+    let long_provider = format!("provider-{}", "p".repeat(80));
+    let long_model = format!("model-{}", "m".repeat(90));
+    read_hearths(&hearths, |grouped| {
+        let query = Query {
+            hearths: grouped,
+            range: Range::Day,
+            realm: None,
+            now: GENERATED_NOW,
+        };
+        let (window, _) = brokkr_view::windows(&query).unwrap();
+        let store = brokkr_store::Store::open_read_only(&journal).unwrap();
+        let mut whole = Vec::new();
+        store
+            .behind_runs(|run_id| whole.push(run_id.to_string()))
+            .unwrap();
+        store
+            .window_fallbacks(0, 0, None, |run| whole.push(run.run_id.to_string()))
+            .unwrap();
+        assert!(whole.is_empty(), "no run is read whole: {whole:?}");
+        let mut bound = None;
+        store
+            .window_sites(
+                window.from,
+                window.to,
+                None,
+                brokkr_store::metered::SiteOrder::Model,
+                |site| {
+                    if site.run_id == "gen-bound" {
+                        bound = Some((
+                            site.provider.map(str::to_string),
+                            site.model.map(str::to_string),
+                        ));
+                    }
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            bound,
+            Some((
+                Some(Bounded::within(&long_provider, NAME_BYTES).cut),
+                Some(Bounded::within(&long_model, MODEL_BYTES).cut),
+            )),
+            "the long provider and model reach the row read at their bounds"
+        );
+    });
 }
 
 /// A journal of `count` stopped runs, each a realm and recipe of its own.
@@ -1125,6 +1218,105 @@ fn a_row_read_that_fails_reads_its_hearth_whole() {
     );
 }
 
+/// A run the whole read cannot load is counted from no row (S2, security).
+/// Its summary row stands at its head with current projections, so neither
+/// `behind_runs` nor `window_fallbacks` names it; the rows must leave it
+/// out exactly as the whole read does, while still counting it unreadable.
+#[test]
+fn a_run_the_whole_read_cannot_load_is_counted_from_no_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = small_journal(dir.path(), "corrupt", 2);
+    // Corrupt corrupt-0's first envelope in place, leaving its `event_hash`,
+    // the head stamps and the seat heads untouched: the row still stands at
+    // its head, while the fleet read can no longer load the run.
+    let conn = rusqlite::Connection::open(&journal).unwrap();
+    conn.execute("DROP TRIGGER events_append_only_update", [])
+        .unwrap();
+    let rewritten = conn
+        .execute(
+            "UPDATE events SET envelope = replace(envelope, 'generated', 'generatedX')
+              WHERE run_id = 'corrupt-0' AND seq = 1",
+            [],
+        )
+        .unwrap();
+    assert_eq!(rewritten, 1, "the first envelope is rewritten");
+    drop(conn);
+
+    let store = brokkr_store::Store::open_read_only(&journal).unwrap();
+    assert!(store.aggregates_ready().unwrap(), "the rows are ready");
+    assert_eq!(lane(&store, "corrupt-0").as_deref(), Some("finished"));
+    let mut behind = Vec::new();
+    store
+        .behind_runs(|run_id| behind.push(run_id.to_string()))
+        .unwrap();
+    assert!(
+        behind.is_empty(),
+        "the row is not behind its head: {behind:?}"
+    );
+    let mut fallback = Vec::new();
+    store
+        .window_fallbacks(0, 0, None, |run| fallback.push(run.run_id.to_string()))
+        .unwrap();
+    assert!(
+        fallback.is_empty(),
+        "the projections are current, so no fallback names it: {fallback:?}"
+    );
+    drop(store);
+
+    let rows = assert_rows_are_whole(&journal, "a run the whole read cannot load");
+    assert_eq!(
+        serde_json::to_value(&rows.headline.stopped_by_rule).unwrap(),
+        json!({
+            "count": 1,
+            "top": {"rule_id": "corrupt-rule-1", "count": 1},
+            "text": "1 by corrupt-rule-1",
+        }),
+        "the unreadable run's stop is counted from no row"
+    );
+    assert_eq!(rows.headline.cost.text, "$0.25");
+    assert_eq!(rows.models.len(), 1, "one model, from the readable run");
+    let world = rows
+        .realms
+        .iter()
+        .find(|realm| realm.realm == "world")
+        .expect("the unreadable run is named by the hearth's label");
+    assert_eq!(world.unreadable_runs, 1);
+}
+
+/// A run stopped before it entered any phase is a valid row: status
+/// `stopped` and a NULL phase (L1). The flag must stay false, and the
+/// hearth must be read from its rows rather than disabled by a row error.
+#[test]
+fn a_stopped_run_with_no_phase_is_read_from_its_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = small_journal(dir.path(), "no-phase", 0);
+    let base = parse_millis(GENERATED_NOW).unwrap();
+    let mut store = brokkr_store::Store::open(&journal).unwrap();
+    plant(&mut store, "no-phase-run", &stopped_before_any_phase(base));
+    drop(store);
+
+    let rows = assert_rows_are_whole(&journal, "a stopped run with no phase");
+    assert_eq!(
+        rows.headline.stopped_by_rule.count, 0,
+        "a stop that entered no phase is no hard stop"
+    );
+
+    let hearths = [hearth(Vec::new(), &journal)];
+    with_rows(
+        &hearths,
+        Range::Day,
+        None,
+        GENERATED_NOW,
+        || {},
+        |_, source| {
+            assert!(
+                source.reads_rows(),
+                "the no-phase stopped row loads, so its hearth reads from rows"
+            );
+        },
+    );
+}
+
 #[test]
 fn a_fallback_run_that_will_not_open_reads_its_hearth_whole() {
     let dir = tempfile::tempdir().unwrap();
@@ -1150,36 +1342,27 @@ fn a_fallback_run_that_will_not_open_reads_its_hearth_whole() {
     drop(store);
 
     let hearths = [hearth(Vec::new(), &journal)];
-    read_hearths(&hearths, |grouped| {
-        // The fleet read loaded the run; break its chain behind its back,
-        // so only the fallback's one-run opening fails.
-        let conn = rusqlite::Connection::open(&journal).unwrap();
-        plant_broken_link(&conn, &events[0], 99).unwrap();
-        drop(conn);
-        let query = Query {
-            hearths: grouped,
-            range: Range::Day,
-            realm: None,
-            now: GENERATED_NOW,
-        };
-        let (window, before) = brokkr_view::windows(&query).unwrap();
-        let store = brokkr_store::Store::open_read_only(&journal).unwrap();
-        let source = super::rows::HearthSource::read(
-            &grouped[0],
-            Range::Day,
-            None,
-            GENERATED_NOW,
-            window,
-            before,
-            Some(&store),
-        );
-        let source = brokkr_view::FactUnion::new(vec![Box::new(source)]);
-        let rows = brokkr_view::analytics_with(&source, &query).unwrap();
-        let whole = brokkr_view::analytics(&query).unwrap();
-        assert_same(&rows, &whole, "a fallback run that will not open");
-        assert_eq!(
-            rows.headline.shipped.count, whole.headline.shipped.count,
-            "the run the fleet read still paints"
-        );
-    });
+    with_rows(
+        &hearths,
+        Range::Day,
+        None,
+        GENERATED_NOW,
+        || {
+            // The fleet read loaded the run; break its chain behind its
+            // back, so only the fallback's one-run opening fails.
+            let conn = rusqlite::Connection::open(&journal).unwrap();
+            plant_broken_link(&conn, &events[0], 99).unwrap();
+            drop(conn);
+        },
+        |query, source| {
+            let source = brokkr_view::FactUnion::new(vec![Box::new(source)]);
+            let rows = brokkr_view::analytics_with(&source, query).unwrap();
+            let whole = brokkr_view::analytics(query).unwrap();
+            assert_same(&rows, &whole, "a fallback run that will not open");
+            assert_eq!(
+                rows.headline.shipped.count, whole.headline.shipped.count,
+                "the run the fleet read still paints"
+            );
+        },
+    );
 }

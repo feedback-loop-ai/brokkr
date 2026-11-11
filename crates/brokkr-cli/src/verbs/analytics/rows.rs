@@ -3,11 +3,12 @@
 //! one row at a time, in the order its figure folds.
 //!
 //! A migrated hearth's figures come from [`RowOnly`]; a hearth whose rows
-//! are not ready, and a run whose row is behind its head or whose seat
-//! facts are stale, come from [`brokkr_view::WholeRead`] instead (ruling
-//! 8). The two are merged in a figure's own key order, so a group never
-//! straddles the row stream and the runs read whole. The realm list and
-//! the unreadable-run counts stay today's whole read over every run: the
+//! are not ready, a hearth holding a run the whole read could not load or
+//! fold, and a run whose row is behind its head or whose seat facts are
+//! stale, come from [`brokkr_view::WholeRead`] instead (ruling 8). The two
+//! are merged in a figure's own key order, so a group never straddles the
+//! row stream and the runs read whole. The realm list and the
+//! unreadable-run counts stay today's whole read over every run: the
 //! index-only read of them is unit U3c (decision 0089 ruling A4).
 //!
 //! This module reads a migrated journal only; `brokkr-store`'s window
@@ -248,19 +249,6 @@ fn site_fact(site: &WindowSite<'_>, label: &str) -> Option<SiteFact> {
 }
 
 impl FactSource for RowOnly {
-    /// A row source names no realm and no unreadable run: the hearth's
-    /// whole read is the one statement of both until U3c (decision 0089
-    /// ruling A4), and [`HearthSource`] takes them from there alone.
-    fn scope(&self) -> (&[String], &BTreeMap<String, usize>) {
-        static NO_REALMS: &[String] = &[];
-        static NO_UNREADABLE: BTreeMap<String, usize> = BTreeMap::new();
-        (NO_REALMS, &NO_UNREADABLE)
-    }
-
-    fn quarantined(&self) -> Vec<brokkr_view::QuarantinedHearth> {
-        Vec::new()
-    }
-
     fn runs(&self, visit: &mut dyn FnMut(RunFacts)) {
         for run in &self.runs {
             visit(run.clone());
@@ -400,10 +388,17 @@ pub(super) struct HearthSource {
 impl HearthSource {
     /// Read one hearth: the whole read for the fields that still need
     /// every run, and the store's rows when its model is ready. A hearth
-    /// the fleet refused, and any failure on the row path, leaves the rows
+    /// the fleet refused, a hearth holding a run the whole read could not
+    /// load or fold, and any failure on the row path leave the rows
     /// unread, so the whole read in hand states every figure: a refusal
-    /// never contributes figures, and a row read's error never fails the
-    /// fleet's readout (decision 0089 rulings 7 and 8).
+    /// never contributes figures, an unreadable run is counted from no
+    /// row, and a row read's error never fails the fleet's readout
+    /// (decision 0089 rulings 7 and 8).
+    ///
+    /// A run the store cannot load reaches the hand-over with no events,
+    /// so its id is not there to exclude from the rows; the whole read is
+    /// the only exact reading left for its hearth, and it already leaves
+    /// that run out.
     pub(super) fn read(
         grouped: &brokkr_view::AnalyticsHearth<'_>,
         range: brokkr_view::Range,
@@ -421,13 +416,21 @@ impl HearthSource {
         };
         let whole = brokkr_view::whole_read(&query, window);
         let ready = store.is_some_and(|store| store.aggregates_ready().unwrap_or(false));
+        let readable = grouped.runs.iter().all(|run| run.state.is_some());
         let rows = match (ready, store) {
-            (true, Some(store)) if grouped.refusal.is_none() => {
+            (true, Some(store)) if grouped.refusal.is_none() && readable => {
                 read_rows(store, grouped.label, window, before, realm, range, now).ok()
             }
             _ => None,
         };
         HearthSource { whole, rows }
+    }
+
+    /// Whether this hearth's figures come from its rows rather than the
+    /// whole read in hand: a test asks so a silent fallback cannot hide.
+    #[cfg(test)]
+    pub(super) fn reads_rows(&self) -> bool {
+        self.rows.is_some()
     }
 }
 
@@ -437,7 +440,10 @@ impl FactSource for HearthSource {
     }
 
     fn quarantined(&self) -> Vec<brokkr_view::QuarantinedHearth> {
-        self.whole.quarantined()
+        match &self.rows {
+            Some(rows) => rows.quarantined(),
+            None => self.whole.quarantined(),
+        }
     }
 
     fn runs(&self, visit: &mut dyn FnMut(RunFacts)) {

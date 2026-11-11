@@ -439,6 +439,16 @@ fn stopped_steps() -> Vec<(EventType, serde_json::Value)> {
     ]
 }
 
+/// A run stopped before it entered any phase: its row's status is
+/// `stopped` and its phase NULL, which is no hard stop (the comparison
+/// must be NULL-safe).
+fn stopped_before_any_phase_steps() -> Vec<(EventType, serde_json::Value)> {
+    vec![
+        (EventType::RunStarted, json!({"feature": "stopped at once"})),
+        (EventType::RunStopped, json!({})),
+    ]
+}
+
 /// A run the table's hard stop ended: a review ruling sent it to `stop`,
 /// the phase was entered, and the run stopped. `rule` is the ruling's
 /// `rule_id`, absent when it names none.
@@ -540,7 +550,9 @@ fn every_fixture_window_reads_as_the_whole_journal() {
 }
 
 /// A hard stop whose last ruling names no rule is still a hard stop: the
-/// flag comes from the fold's status and phase, never the rule column.
+/// flag comes from the fold's status and phase, never the rule column. A
+/// run stopped before it entered a phase is no hard stop, and its NULL
+/// phase must not turn the flag into SQL NULL.
 #[test]
 fn a_hard_stop_that_names_no_rule_is_still_a_stop() {
     let (_dir, store) = store();
@@ -551,8 +563,15 @@ fn a_hard_stop_that_names_no_rule_is_still_a_stop() {
         20,
         &hard_stop_steps(Some("STOP-RULE")),
     );
+    let no_phase = chain(
+        "no-phase",
+        Some("realm"),
+        40,
+        &stopped_before_any_phase_steps(),
+    );
     plant_older_writer(&store, "no-rule", &no_rule);
     plant_older_writer(&store, "named", &named);
+    plant_older_writer(&store, "no-phase", &no_phase);
     let store = refolded(store);
 
     let mut runs = window_runs(&store, 0, i64::MAX, RunOrder::Unordered, None);
@@ -567,8 +586,12 @@ fn a_hard_stop_that_names_no_rule_is_still_a_stop() {
                 )
             })
             .collect::<Vec<_>>(),
-        [("named", true, Some("STOP-RULE")), ("no-rule", true, None),],
-        "both runs stood at the hard stop; only one naming a rule keeps it"
+        [
+            ("named", true, Some("STOP-RULE")),
+            ("no-phase", false, None),
+            ("no-rule", true, None),
+        ],
+        "both hard stops kept; the stop that entered no phase is no hard stop"
     );
     // The flag reads the stored phase's cut, which is the whole `stop`: a
     // longer phase cannot cut to it, so `phase_whole` is absent.
@@ -581,6 +604,17 @@ fn a_hard_stop_that_names_no_rule_is_still_a_stop() {
         )
         .unwrap();
     assert_eq!(whole, None);
+    // The no-phase stop is stored exactly as the row reader sees it: a
+    // stopped status and a NULL phase.
+    let (status, phase): (String, Option<String>) = store
+        .conn
+        .query_row(
+            "SELECT status, phase FROM run_summary WHERE run_id = 'no-phase'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!((status.as_str(), phase), (Status::Stopped.as_str(), None));
 }
 
 /// A hand-built journal whose parks and runs cut the chosen windows.

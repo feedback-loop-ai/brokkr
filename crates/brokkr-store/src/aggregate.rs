@@ -316,22 +316,24 @@ static DURATIONS: LazyLock<String> = LazyLock::new(|| {
 /// running one with an accepted stop, still open, so its lane is read too.
 /// Each row also states whether its fold stood at the policy's hard stop,
 /// exactly as `brokkr-core`'s `hard_stop` decides it: `stopped`, at the
-/// `stop` phase. The `phase` column is the writer's cut at
-/// [`brokkr_core::summary::NAME_BYTES`], and a cut that reads `stop` is the
-/// whole `stop` — a longer phase cannot cut to it — so `phase_whole` need
-/// not be read.
+/// `stop` phase. The comparison is `IS`, not `=`, so a stopped run that
+/// never entered a phase (its `phase` column NULL) reads false rather than
+/// SQL NULL, which the row reader would refuse. The `phase` column is the
+/// writer's cut at [`brokkr_core::summary::NAME_BYTES`], and a cut that
+/// reads `stop` is the whole `stop` — a longer phase cannot cut to it — so
+/// `phase_whole` need not be read.
 fn runs_statement(order: &str) -> String {
     format!(
         "SELECT run_id, realm, recipe, ending_rule, started_ms, finished_ms, ending,
                 implement_visits, review_first, review_second, review_back,
-                (status = '{stopped}' AND phase = 'stop') AS hard_stop, 0 AS open
+                (status = '{stopped}' AND phase IS 'stop') AS hard_stop, 0 AS open
            FROM run_summary
            WHERE finished_ms >= ?1 AND finished_ms < ?2 AND {behind}
              AND (?3 IS NULL OR realm = ?3)
          UNION ALL
          SELECT run_id, realm, recipe, ending_rule, started_ms, finished_ms, ending,
                 implement_visits, review_first, review_second, review_back,
-                (status = '{stopped}' AND phase = 'stop') AS hard_stop, 1 AS open
+                (status = '{stopped}' AND phase IS 'stop') AS hard_stop, 1 AS open
            FROM run_summary
            WHERE lane IN ({open})
              AND (?3 IS NULL OR realm = ?3)

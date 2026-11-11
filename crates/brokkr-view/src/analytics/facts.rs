@@ -177,9 +177,21 @@ pub enum SiteOrder {
 /// built for the query's range and clock.
 pub trait FactSource {
     /// The realm names the readout paints, and the runs no figure could
-    /// read, by their cut realm key.
-    fn scope(&self) -> (&[String], &BTreeMap<String, usize>);
-    fn quarantined(&self) -> Vec<QuarantinedHearth>;
+    /// read, by their cut realm key. A source that states neither leaves
+    /// both empty; today only the whole read states them (decision 0089
+    /// ruling A4), so [`WholeRead`], [`FactUnion`] and the caller that
+    /// holds it override this.
+    fn scope(&self) -> (&[String], &BTreeMap<String, usize>) {
+        static NO_REALMS: &[String] = &[];
+        static NO_UNREADABLE: BTreeMap<String, usize> = BTreeMap::new();
+        (NO_REALMS, &NO_UNREADABLE)
+    }
+    /// The hearths no figure could read. A source that holds no hearth
+    /// whole quarantines none; the whole read and the caller that holds it
+    /// override this.
+    fn quarantined(&self) -> Vec<QuarantinedHearth> {
+        Vec::new()
+    }
     fn runs(&self, visit: &mut dyn FnMut(RunFacts));
     fn runs_in(&self, order: RunOrder, visit: &mut dyn FnMut(RunFacts));
     /// Each finished run's cut realm and span inside the source's window,
