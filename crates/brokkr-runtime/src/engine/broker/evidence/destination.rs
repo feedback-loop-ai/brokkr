@@ -17,7 +17,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path, PathBuf};
 
 use brokkr_core::canonical;
-use rustix::fs::{fstat, mkdirat, openat, unlinkat, AtFlags, Dir, Mode, OFlags, CWD};
+use rustix::fs::{mkdirat, openat, unlinkat, AtFlags, Dir, Mode, OFlags, CWD};
 use sha2::{Digest, Sha256};
 
 use super::super::historical::{self, regular};
@@ -289,8 +289,10 @@ pub(super) fn directory(at: &Path, identity: (u64, u64)) -> Result<OwnedFd, Evid
     let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
     let dir = openat(CWD, at, flags, Mode::empty())
         .map_err(|_| EvidenceError::DestinationNotDirectory(at.to_path_buf()))?;
-    let found = fstat(&dir).map_err(std::io::Error::from)?;
-    let same = (found.st_dev, found.st_ino) == identity;
+    // Read through std's metadata of the same descriptor, whose device is a
+    // u64 on every platform: rustix's `st_dev` is an i32 on macOS.
+    let found = std::fs::File::from(dir.try_clone()?).metadata()?;
+    let same = (found.dev(), found.ino()) == identity;
     same.then_some(dir)
         .ok_or_else(|| EvidenceError::Replaced(at.to_path_buf()))
 }
