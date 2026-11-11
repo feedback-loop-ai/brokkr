@@ -117,10 +117,21 @@ pub(super) fn step_allowed_results(seat_input: &Value, index: usize, last: bool)
     }
 }
 
+/// Which step a driver input is built for: a model step's attempt and its
+/// cool-down probe carry the seat's spec dialect, while a dialect step's own
+/// invocation predates that prompt and keeps the secret-binding facts alone
+/// (decision 0103 slice 4c2b).
+#[derive(Clone, Copy)]
+pub(super) enum StepInputKind {
+    Model,
+    Dialect,
+}
+
 /// A step driver's input: the fields a single step and a dialect step
 /// share, with the step's own metadata and the context its attempt (or its
 /// probe) derived. The step's attempt and its cool-down probe both build
-/// this one shape (decision 0103 slice 4c2b).
+/// this one shape, and the tail it carries is decided once by `kind`
+/// (decision 0103 slice 4c2b).
 pub(super) fn step_driver_input(
     seat_input: &Value,
     index: usize,
@@ -128,6 +139,7 @@ pub(super) fn step_driver_input(
     last: bool,
     role_path: &Value,
     context: &Value,
+    kind: StepInputKind,
 ) -> Value {
     let mut input = json!({
         "feature": seat_input["feature"],
@@ -140,7 +152,7 @@ pub(super) fn step_driver_input(
         "house_rules": seat_input["house_rules"],
         "context": context,
     });
-    if !seat_input["spec_dialect"].is_null() {
+    if matches!(kind, StepInputKind::Model) && !seat_input["spec_dialect"].is_null() {
         input["spec_dialect"] = seat_input["spec_dialect"].clone();
     }
     copy_secret_binding_facts(&mut input, seat_input);
@@ -180,8 +192,8 @@ impl SequenceRun<'_> {
     }
 
     /// A step driver's input, through the one derivation the step's attempt
-    /// and its cool-down probe share.
-    fn driver_input(&self, at: &StepAt, role_path: &Value) -> Value {
+    /// and its cool-down probe share, with the tail its own step form carries.
+    fn driver_input(&self, at: &StepAt, role_path: &Value, kind: StepInputKind) -> Value {
         step_driver_input(
             self.input,
             at.index,
@@ -189,6 +201,7 @@ impl SequenceRun<'_> {
             self.is_last(at),
             role_path,
             &at.context,
+            kind,
         )
     }
 
@@ -318,7 +331,7 @@ impl Engine {
         command: &[String],
     ) -> Result<StepRun, EngineError> {
         let site = Some(at.step.name.clone());
-        let input = run.driver_input(at, &at.meta["role_path"]);
+        let input = run.driver_input(at, &at.meta["role_path"], StepInputKind::Model);
         let gate = at.step.class == SeatClass::Gate;
         let composition = StepComposition {
             label: &at.label,
@@ -446,7 +459,7 @@ impl Engine {
             .chain(expand_dialect_argv(&execution.argv, change))
             .collect::<Vec<_>>();
         let site = Some(at.step.name.clone());
-        let mut input = run.driver_input(at, &json!(""));
+        let mut input = run.driver_input(at, &json!(""), StepInputKind::Dialect);
         input["dialect_exec"] = json!({
             "success_result": dialect_results(run.phase())[0],
             "failure_result": dialect_results(run.phase())[1],

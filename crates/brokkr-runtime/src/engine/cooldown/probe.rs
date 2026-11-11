@@ -23,7 +23,9 @@ use crate::bundle::{
 use crate::engine::broker::{observed, settlement};
 use crate::engine::carry::record::Tag;
 use crate::engine::dispatch::Dispatch;
-use crate::engine::sequence::{step_allowed_results, step_driver_input, StepComposition};
+use crate::engine::sequence::{
+    step_allowed_results, step_driver_input, StepComposition, StepInputKind,
+};
 use crate::engine::{chain_index, phase_of, spawn_site, Door, Selection, Site, SiteSpawn};
 
 /// The seat a probe composes under, selected once: the body's form, the
@@ -71,17 +73,22 @@ impl Engine {
             .and_then(|(_, case)| case);
         site_name(seat, case)
     }
-}
 
-impl ProbeSeat {
-    fn of(seat: &Seat, name: &str, strategy: Option<&str>) -> ProbeSeat {
-        let (body, case) = seat
+    /// The seat a probe composes under, selected once: the body's form, the
+    /// case, and the gate class. Its label is [`Engine::selected_label`]'s,
+    /// the one derivation a cleanup refusal matches a reserved driver by
+    /// (decision 0103 ruling 4; ruling 5).
+    fn probe_seat(&self, seat: &str, strategy: Option<&str>) -> ProbeSeat {
+        let site = self.selected_label(seat, strategy);
+        let seat_def = &self.bundle.seats[seat];
+        let (body, case) = seat_def
             .body
             .selected(strategy)
             .expect("seat input resolved the selector");
         let case = case.map(str::to_string);
-        let site = site_name(name, case.as_deref());
-        let gate = seat.body.selected_is_gate(strategy, seat.has_gate());
+        let gate = seat_def
+            .body
+            .selected_is_gate(strategy, seat_def.has_gate());
         let form = match body {
             ExecutableBody::Invocation(Invocation::Single { candidates, .. }) => {
                 ProbeForm::Single(candidates.clone())
@@ -92,7 +99,7 @@ impl ProbeSeat {
             ExecutableBody::Sequence { steps } => ProbeForm::Sequence(steps.to_vec()),
         };
         ProbeSeat {
-            seat: seat.clone(),
+            seat: seat_def.clone(),
             case,
             site,
             gate,
@@ -195,7 +202,7 @@ impl Engine {
         seat: &str,
         wait: &ProviderWait,
     ) -> Result<Probe, EngineError> {
-        let picked = ProbeSeat::of(&self.bundle.seats[seat], seat, state.strategy.as_deref());
+        let picked = self.probe_seat(seat, state.strategy.as_deref());
         let candidates = match &picked.form {
             ProbeForm::Single(candidates) => candidates.clone(),
             _ => {
@@ -250,7 +257,7 @@ impl Engine {
         wait: &ProviderWait,
         member: &str,
     ) -> Result<Probe, EngineError> {
-        let picked = ProbeSeat::of(&self.bundle.seats[seat], seat, state.strategy.as_deref());
+        let picked = self.probe_seat(seat, state.strategy.as_deref());
         match &picked.form {
             ProbeForm::Panel(members, aggregate) => {
                 let Some(member_def) = members.iter().find(|candidate| candidate.name == member)
@@ -427,6 +434,7 @@ impl Engine {
             last,
             &prepared.input["steps"][index]["role_path"],
             &context,
+            StepInputKind::Model,
         );
         let composition = StepComposition {
             label: &driver_seat,

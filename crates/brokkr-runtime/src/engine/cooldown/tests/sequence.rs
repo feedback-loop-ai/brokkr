@@ -4,6 +4,7 @@
 //! retry restarts from step 1. An indeterminate step parks carrying its
 //! refused sites' waits; a dialect step writes none.
 
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use brokkr_core::envelope::EventType;
@@ -326,32 +327,48 @@ fn a_single_steps_rate_limit_records_its_site_and_restarts_at_step_one() {
     assert_eq!(started[1]["probes"][0]["site"], "draft");
 }
 
-/// A sequence-probe row with a dialect prompt: the step's attempt and its
-/// cool-down probe both derive the one step input, so both carry the
-/// seat's spec_dialect and the probe asks exactly the input the attempt
-/// ran.
+/// The seat's spec dialect and one bound secret name: the tail a model
+/// step's attempt and its cool-down probe both derive.
+fn dialect_and_secret(engine: &mut Engine) -> String {
+    engine
+        .bundle
+        .dialect_prompts
+        .insert("work".into(), "Write the dialect change.".into());
+    engine.bundle.seats.get_mut("work").unwrap().secrets = vec!["GH_TOKEN".into()];
+    engine.secrets_store_path().display().to_string()
+}
+
+/// A sequence-probe row with a dialect prompt and a bound secret: the
+/// step's attempt and its cool-down probe both derive the one step input,
+/// so both carry the seat's spec_dialect and its secret-binding facts, and
+/// the probe asks exactly the input the attempt ran.
 #[test]
 fn a_step_probe_carries_the_seats_dialect_prompt_the_attempt_did() {
     let dir = tempfile::tempdir().unwrap();
     let command = draft_driver(dir.path());
     let body = draft_body(dir.path(), command, &["drafted", "complete"]);
     let mut engine = sequence_engine(dir.path(), body, 2);
-    engine
-        .bundle
-        .dialect_prompts
-        .insert("work".into(), "Write the dialect change.".into());
+    let store = dialect_and_secret(&mut engine);
     engine.drive().unwrap();
     single_step_facts(dir.path(), &engine);
     let inputs = start_inputs(dir.path(), "draft");
     assert_eq!(inputs.len(), 3, "{inputs:?}");
-    assert_eq!(
-        inputs[0]["input"]["spec_dialect"], "Write the dialect change.",
-        "the attempt lost the seat's dialect prompt: {inputs:?}"
-    );
-    assert_eq!(
-        inputs[1]["input"]["spec_dialect"], "Write the dialect change.",
-        "the probe lost the seat's dialect prompt: {inputs:?}"
-    );
+    for (what, input) in [("attempt", &inputs[0]), ("probe", &inputs[1])] {
+        assert_eq!(
+            input["input"]["spec_dialect"], "Write the dialect change.",
+            "the {what} lost the seat's dialect prompt: {inputs:?}"
+        );
+        assert_eq!(
+            input["input"]["secrets"],
+            json!(["GH_TOKEN"]),
+            "the {what} lost the seat's secret names: {inputs:?}"
+        );
+        assert_eq!(
+            input["input"]["secrets_file"],
+            json!(store),
+            "the {what} lost the seat's secret store: {inputs:?}"
+        );
+    }
 }
 
 /// The `review` panel step of a refusing `m` and a succeeding `n`, with
@@ -556,12 +573,10 @@ fn a_spawn_failure_writes_its_start_failure_site_and_no_wait() {
     }
 }
 
-/// A dialect step writes no wait: it has no typed refusal and its
-/// `start_failures` stays empty.
-#[test]
-fn a_dialect_step_writes_no_wait() {
-    let dir = tempfile::tempdir().unwrap();
-    let step = uncompiled_sequence_step! {
+/// The dialect `validate` step the two dialect rows drive: `true`, writing
+/// no wait and carrying no spec dialect.
+fn dialect_validate_step() -> SequenceStep {
+    uncompiled_sequence_step! {
         name: "validate".into(),
         class: SeatClass::Work,
         results: vec!["complete".into()],
@@ -571,15 +586,65 @@ fn a_dialect_step_writes_no_wait() {
                 state: None,
             },
         },
-    };
+    }
+}
+
+/// A dialect step writes no wait: it has no typed refusal and its
+/// `start_failures` stays empty.
+#[test]
+fn a_dialect_step_writes_no_wait() {
+    let dir = tempfile::tempdir().unwrap();
+    let validate = dialect_validate_step();
     let engine = driven(
         dir.path(),
-        sequence(vec![step, publish_step(dir.path())]),
+        sequence(vec![validate, publish_step(dir.path())]),
         1,
     );
     let failed = failed_here(&engine);
     assert_eq!(failed.len(), 1, "{failed:?}");
     no_wait(&failed[0]);
+}
+
+/// F2: a dialect step's driver-exec input keeps the shape it had before the
+/// step input's tail moved. Under a dialect prompt it still carries the
+/// seat's secret-binding facts and never the spec dialect, which only a
+/// model step's attempt and its probe share.
+#[test]
+fn a_dialect_steps_input_carries_no_spec_dialect() {
+    let dir = tempfile::tempdir().unwrap();
+    let recorded = dir.path().join("validate.input");
+    let fake = dir.path().join("record-exec");
+    std::fs::write(
+        &fake,
+        format!(
+            "#!/bin/sh\nread -r hello\n\
+             printf '%s\\n' '{{\"proto\":\"forge-driver/v1\",\"msg_id\":\"c\",\"type\":\"capabilities\",\"driver\":\"test\",\"version\":\"1\",\"supports\":[]}}'\n\
+             read -r start\nprintf '%s\\n' \"$start\" > '{}'\n",
+            recorded.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let validate = dialect_validate_step();
+    let mut engine = sequence_engine(
+        dir.path(),
+        sequence(vec![validate, publish_step(dir.path())]),
+        1,
+    );
+    dialect_and_secret(&mut engine);
+    engine.bundle.executable = crate::argv::Executable(Some(fake));
+    engine.drive().unwrap();
+    let inputs = start_inputs(dir.path(), "validate");
+    assert_eq!(inputs.len(), 1, "{inputs:?}");
+    assert!(
+        inputs[0]["input"].get("spec_dialect").is_none(),
+        "a dialect step was handed the seat's spec dialect: {inputs:?}"
+    );
+    assert_eq!(
+        inputs[0]["input"]["secrets"],
+        json!(["GH_TOKEN"]),
+        "a dialect step lost the seat's secret names: {inputs:?}"
+    );
 }
 
 /// The failed arm's park is written in the attempt's own turn: one
