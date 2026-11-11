@@ -558,7 +558,10 @@ fn a_retirement_is_read_through_a_symlinked_repo() {
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 
     let (dir, home, root) = coordination_root();
-    let real = dir.path().join("real");
+    // Admission records a repository by its canonical path, so the planted
+    // records are keyed by it: macOS's temporary directory sits under /var,
+    // a link to /private/var.
+    let real = fs::canonicalize(dir.path()).unwrap().join("real");
     let artifacts = real.join(".forge/artifacts");
     fs::create_dir_all(&artifacts).unwrap();
     let link = dir.path().join("link");
