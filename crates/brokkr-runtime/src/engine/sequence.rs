@@ -21,8 +21,7 @@ use super::carry::{
 use super::cooldown::{failed_sites, FailedSite};
 use super::{
     argv_for, copy_secret_binding_facts, failed_to_start, git_head, stamp_boundary,
-    start_failure_fields, DriverRun, Engine, EngineError, Indeterminate, Selection, Site,
-    SiteSpawn, Unproven,
+    start_failure_fields, DriverRun, Engine, EngineError, Indeterminate, Selection, Unproven,
 };
 use crate::bundle::{
     dialect_results, Aggregate, DialectExecution, Invocation, PanelMember, SeatClass, SequenceStep,
@@ -30,10 +29,12 @@ use crate::bundle::{
 };
 use crate::dialect::DialectPhase;
 
+mod compose;
 mod contradiction;
 mod step_facts;
 mod success;
 
+pub(in crate::engine) use compose::StepComposition;
 pub(crate) use step_facts::needs_change;
 pub(super) use step_facts::{dialect_attempt_outcome, expand_dialect_argv, nearest_change};
 use step_facts::{tailed_outcome, vocabulary_problem};
@@ -95,19 +96,6 @@ struct StepRun {
     /// What the step's terminal event carries when its tree is not
     /// proven over (#403).
     unproven: Unproven,
-}
-
-/// One single step's composition request (decision 0071 ruling 10: a long
-/// parameter list becomes a parameter object): its site label, attempt,
-/// class, command, the structural site the selection keys, and that
-/// selection. The step's attempt and its cool-down probe both build one.
-pub(super) struct StepComposition<'a> {
-    pub(super) label: &'a str,
-    pub(super) attempt_id: &'a str,
-    pub(super) gate: bool,
-    pub(super) command: &'a [String],
-    pub(super) site: &'a Site,
-    pub(super) selection: &'a Selection,
 }
 
 impl SequenceRun<'_> {
@@ -353,41 +341,6 @@ impl Engine {
                 outcome: tailed_outcome(&report),
             },
         })
-    }
-
-    /// A single step's one composition: its own site, the link the refusal
-    /// named, the boundary and hands facts, its command and result path. The
-    /// step's attempt and its cool-down probe both call this, so the probe
-    /// asks exactly the route the step ran (decision 0103 slice 4c2b).
-    pub(super) fn compose_step(
-        &mut self,
-        at: StepComposition<'_>,
-        mut input: Value,
-    ) -> (SiteSpawn, Value) {
-        let StepComposition {
-            label,
-            attempt_id,
-            gate,
-            command,
-            site,
-            selection,
-        } = at;
-        let link = selection.get(site);
-        self.marks().site(label, gate, link, &mut input);
-        let hands = self.hands_for(label);
-        let mut spawn = self.compose_at(
-            Some(label),
-            attempt_id,
-            gate,
-            argv_for(selection, site, command).to_vec(),
-            hands.as_ref(),
-            link,
-            input["result_path"].as_str().unwrap_or_default(),
-        );
-        let brokers = selection.brokers(label);
-        let served = (brokers, hands.as_ref());
-        self.mark_serving(label, link, served, Some(&mut spawn), &mut input);
-        (spawn, input)
     }
 
     /// A panel step: its members run as a seat-level panel's do, tagged
