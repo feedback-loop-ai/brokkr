@@ -108,8 +108,11 @@ usage() {
 # the other own-process binaries join the run and seat views on macos/4.
 # A libtest filter is a substring of a test's whole path, so `run_pages::`
 # selects the tests under brokkr-cli's run_pages module and no other
-# library's. Linux runs both halves on linux/1, as it ran the one. The broker's
-# enabled suite is Linux's alone (`#![cfg(target_os = "linux")]`), so macOS
+# library's. On Linux the run_pages shard runs on linux/5, before the
+# broker's skipped suite, since exact coverage on linux/1 reached its own
+# 45-minute limit too (41.5 minutes in #1051's pull-request run, cancelled
+# at 45.0 in merge-queue run 43093798270) while linux/5 took about 14. The
+# broker's enabled suite is Linux's alone (`#![cfg(target_os = "linux")]`), so macOS
 # never runs its shard, whose filter would match nothing there.
 shard_name=()
 shard_linux=()
@@ -123,7 +126,7 @@ shard() {
   shard_selectors+=("$*")
 }
 shard 'every library, run_pages skipped' 1 1 lib skip:run_pages::
-shard "the libraries' run_pages tests" 1 2 lib only:run_pages::
+shard "the libraries' run_pages tests" 5 2 lib only:run_pages::
 shard "the it binaries, capability_broker skipped" 2 3 test:it skip:capability_broker::
 shard 'the heap measurements' 2 2 test:heap_claude test:heap_codex test:heap_dsh
 shard 'the other own-process binaries' 2 4 bin:brokkr test:driver_conformance test:transcript_surfaces \

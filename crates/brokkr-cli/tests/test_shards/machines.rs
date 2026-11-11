@@ -8,11 +8,11 @@ use super::*;
 /// Each machine of each system's layout, and the shards it runs, by their
 /// place in [`NAMES`]: every shard sits on exactly one machine of each.
 const MACHINES: [(&str, &[usize]); 9] = [
-    ("linux/1", &[0, 1]),
+    ("linux/1", &[0]),
     ("linux/2", &[2, 3, 4, 7]),
     ("linux/3", &[5, 6]),
     ("linux/4", &[8]),
-    ("linux/5", &[9]),
+    ("linux/5", &[1, 9]),
     ("macos/1", &[0, 7, 9]),
     ("macos/2", &[1, 3]),
     ("macos/3", &[2, 5]),
@@ -109,19 +109,24 @@ fn a_machine_no_shard_runs_on_or_one_not_named_so_is_refused() {
 fn a_layout_with_an_empty_machine_or_an_unnumbered_one_is_refused() {
     let real = metadata();
     let table = script();
+    // The broker's enabled suite is linux/4's one shard; the last shard's
+    // line names a macOS machine.
+    let alone = "enabled suite, alone\" 4 - test:it";
     let line = "skipped, alone\" 5 1 test:it";
-    assert_eq!(table.matches(line).count(), 1, "the last shard's line");
-    for (planted, refusal) in [
+    for (line, planted, refusal) in [
         (
-            "skipped, alone\" 6 1 test:it",
-            "test shards: the linux layout leaves machine 5 with no shard\n",
+            alone,
+            "enabled suite, alone\" 6 - test:it",
+            "test shards: the linux layout leaves machine 4 with no shard\n",
         ),
         (
+            line,
             "skipped, alone\" 5 x test:it",
             "test shards: capability_broker, its enabled suite skipped, alone names the macos \
              machine 'x', which is not a number from 1\n",
         ),
     ] {
+        assert_eq!(table.matches(line).count(), 1, "{line}");
         let scratch = Scratch::new(&real, &table.replace(line, planted));
         for args in [
             &["test"][..],
